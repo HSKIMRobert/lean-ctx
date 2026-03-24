@@ -17,7 +17,7 @@ impl ServerHandler for LeanCtxServer {
         let instructions = build_instructions(self.crp_mode);
 
         InitializeResult::new(capabilities)
-            .with_server_info(Implementation::new("lean-ctx", "1.5.2"))
+            .with_server_info(Implementation::new("lean-ctx", "1.5.3"))
             .with_instructions(instructions)
     }
 
@@ -329,7 +329,8 @@ REQUIRED (never use the built-in alternative):\n\
 \n\
 ctx_read modes: full (cached, for files you edit), map (deps+API, context-only), \
 signatures, diff, aggressive, entropy. Re-reads cost ~13 tokens. File refs F1,F2.. persist.\n\
-Set fresh=true on ctx_read to bypass cache (use when spawned as a subagent without parent context).\n\
+Set fresh=true on ctx_read to bypass cache. Use when: spawned as a subagent, after context \
+compaction, or if you see a [cached] response but do not have the file content in your context.\n\
 \n\
 PROACTIVE (use without being asked):\n\
 • ctx_compress — when context grows large, create checkpoint\n\
