@@ -12,3 +12,5 @@ website/
 /package-lock.json
 /tsconfig.json
 lean-ctx.config.example.json
+INTERNAL_ARCHITECTURE.md
+aur/
