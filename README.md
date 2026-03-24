@@ -14,7 +14,7 @@
 lean-ctx reduces LLM token consumption by **89-99%** through two complementary strategies in a single binary:
 
 1. **Shell Hook** — Transparently compresses CLI output before it reaches the LLM. Works without LLM cooperation.
-2. **MCP Server** — 9 tools for cached file reads, dependency maps, cache management, entropy analysis, and session metrics. Works with Cursor, GitHub Copilot, Claude Code, Windsurf, OpenCode, and any MCP-compatible editor. Shell hook also benefits OpenClaw via transparent compression.
+2. **MCP Server** — 9 tools for cached file reads, dependency maps, cache management, entropy analysis, and session metrics. Works with Cursor, GitHub Copilot, Claude Code, Windsurf, OpenAI Codex, Google Antigravity, OpenCode, and any MCP-compatible editor. Shell hook also benefits OpenClaw via transparent compression.
 
 ## Token Savings (Typical Cursor/Claude Code Session)
 
@@ -379,6 +379,32 @@ Add to `~/.codeium/windsurf/mcp_config.json`:
 }
 ```
 
+### OpenAI Codex
+
+Add to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.lean-ctx]
+command = "lean-ctx"
+args = []
+```
+
+Or via CLI: `codex mcp add lean-ctx`
+
+### Google Antigravity
+
+Add to `~/.gemini/antigravity/mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "lean-ctx": {
+      "command": "lean-ctx"
+    }
+  }
+}
+```
+
 ### OpenCode
 
 Add to `~/.config/opencode/opencode.json` (global) or `opencode.json` (project):
@@ -511,7 +537,7 @@ Opens `http://localhost:3333` with:
 | **Thinking reduction** | ✗ | ✓ CRP v2 (30-60% fewer thinking tokens via Cursor Rules) |
 | **Persistent stats** | ✓ `rtk gain` | ✓ `lean-ctx gain` + web dashboard |
 | **Auto-setup** | ✓ `rtk init` | ✓ `lean-ctx init` |
-| **Editors** | Claude Code, OpenCode, Gemini CLI | **All MCP editors (Cursor, Copilot, Claude Code, Windsurf, OpenCode) + shell hook (OpenClaw, any terminal)** |
+| **Editors** | Claude Code, OpenCode, Gemini CLI | **All MCP editors (Cursor, Copilot, Claude Code, Windsurf, Codex, Antigravity, OpenCode) + shell hook (OpenClaw, any terminal)** |
 | **Config file** | TOML | ✓ TOML (`~/.lean-ctx/config.toml`) |
 | **History analysis** | ✗ | ✓ `lean-ctx discover` — find uncompressed commands |
 | **Homebrew** | ✓ | ✓ `brew tap yvgude/lean-ctx && brew install lean-ctx` |
