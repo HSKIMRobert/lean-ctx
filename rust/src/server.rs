@@ -17,7 +17,7 @@ impl ServerHandler for LeanCtxServer {
         let instructions = build_instructions(self.crp_mode);
 
         InitializeResult::new(capabilities)
-            .with_server_info(Implementation::new("lean-ctx", "1.5.1"))
+            .with_server_info(Implementation::new("lean-ctx", "1.5.2"))
             .with_instructions(instructions)
     }
 
@@ -35,7 +35,8 @@ impl ServerHandler for LeanCtxServer {
                         Re-reads cost ~13 tokens. Modes: full (cached read), signatures (API surface), \
                         map (dependency graph + exports + key signatures — use for context files you won't edit), \
                         diff (changed lines only), aggressive (syntax stripped), \
-                        entropy (Shannon + Jaccard).",
+                        entropy (Shannon + Jaccard). \
+                        Set fresh=true to bypass cache (use when spawned as a subagent without parent context).",
                         json!({
                             "type": "object",
                             "properties": {
@@ -44,6 +45,10 @@ impl ServerHandler for LeanCtxServer {
                                     "type": "string",
                                     "enum": ["full", "signatures", "map", "diff", "aggressive", "entropy"],
                                     "description": "Compression mode (default: full). Use 'map' for context-only files."
+                                },
+                                "fresh": {
+                                    "type": "boolean",
+                                    "description": "Bypass cache and force a full re-read. Use when running as a subagent that may not have the parent's context."
                                 }
                             },
                             "required": ["path"]
@@ -129,6 +134,27 @@ impl ServerHandler for LeanCtxServer {
                             "required": ["path"]
                         }),
                     ),
+                    tool_def(
+                        "ctx_cache",
+                        "Manage the session cache. Actions: status (show cached files), \
+                        clear (reset entire cache), invalidate (remove one file from cache). \
+                        Use 'clear' when spawned as a subagent to start with a clean slate.",
+                        json!({
+                            "type": "object",
+                            "properties": {
+                                "action": {
+                                    "type": "string",
+                                    "enum": ["status", "clear", "invalidate"],
+                                    "description": "Cache operation to perform"
+                                },
+                                "path": {
+                                    "type": "string",
+                                    "description": "File path (required for 'invalidate' action)"
+                                }
+                            },
+                            "required": ["action"]
+                        }),
+                    ),
                 ],
                 ..Default::default()
             })
@@ -149,8 +175,13 @@ impl ServerHandler for LeanCtxServer {
                     let path = get_str(args, "path")
                         .ok_or_else(|| ErrorData::invalid_params("path is required", None))?;
                     let mode = get_str(args, "mode").unwrap_or_else(|| "full".to_string());
+                    let fresh = get_bool(args, "fresh").unwrap_or(false);
                     let mut cache = self.cache.write().await;
-                    let output = crate::tools::ctx_read::handle(&mut cache, &path, &mode, self.crp_mode);
+                    let output = if fresh {
+                        crate::tools::ctx_read::handle_fresh(&mut cache, &path, &mode, self.crp_mode)
+                    } else {
+                        crate::tools::ctx_read::handle(&mut cache, &path, &mode, self.crp_mode)
+                    };
                     let original = cache.get(&path).map_or(0, |e| e.original_tokens);
                     let tokens = crate::core::tokens::count_tokens(&output);
                     drop(cache);
@@ -218,6 +249,49 @@ impl ServerHandler for LeanCtxServer {
                     self.record_call("ctx_analyze", 0, 0, None).await;
                     result
                 }
+                "ctx_cache" => {
+                    let action = get_str(args, "action")
+                        .ok_or_else(|| ErrorData::invalid_params("action is required", None))?;
+                    let mut cache = self.cache.write().await;
+                    let result = match action.as_str() {
+                        "status" => {
+                            let entries = cache.get_all_entries();
+                            if entries.is_empty() {
+                                "Cache empty — no files tracked.".to_string()
+                            } else {
+                                let mut lines = vec![format!("Cache: {} file(s)", entries.len())];
+                                for (path, entry) in &entries {
+                                    let fref = cache.file_ref_map().get(*path).map(|s| s.as_str()).unwrap_or("F?");
+                                    lines.push(format!(
+                                        "  {fref}={} [{}L, {}t, read {}x]",
+                                        crate::core::protocol::shorten_path(path),
+                                        entry.line_count,
+                                        entry.original_tokens,
+                                        entry.read_count
+                                    ));
+                                }
+                                lines.join("\n")
+                            }
+                        }
+                        "clear" => {
+                            let count = cache.clear();
+                            format!("Cache cleared — {count} file(s) removed. Next ctx_read will return full content.")
+                        }
+                        "invalidate" => {
+                            let path = get_str(args, "path")
+                                .ok_or_else(|| ErrorData::invalid_params("path is required for invalidate", None))?;
+                            if cache.invalidate(&path) {
+                                format!("Invalidated cache for {}. Next ctx_read will return full content.", crate::core::protocol::shorten_path(&path))
+                            } else {
+                                format!("{} was not in cache.", crate::core::protocol::shorten_path(&path))
+                            }
+                        }
+                        _ => "Unknown action. Use: status, clear, invalidate".to_string(),
+                    };
+                    drop(cache);
+                    self.record_call("ctx_cache", 0, 0, Some(action)).await;
+                    result
+                }
                 _ => {
                     return Err(ErrorData::invalid_params(
                         format!("Unknown tool: {name}"),
@@ -226,7 +300,7 @@ impl ServerHandler for LeanCtxServer {
                 }
             };
 
-            let skip_checkpoint = matches!(name.as_ref(), "ctx_compress" | "ctx_metrics" | "ctx_benchmark" | "ctx_analyze");
+            let skip_checkpoint = matches!(name.as_ref(), "ctx_compress" | "ctx_metrics" | "ctx_benchmark" | "ctx_analyze" | "ctx_cache");
 
             if !skip_checkpoint && self.increment_and_check() {
                 if let Some(checkpoint) = self.auto_checkpoint().await {
@@ -255,6 +329,7 @@ REQUIRED (never use the built-in alternative):\n\
 \n\
 ctx_read modes: full (cached, for files you edit), map (deps+API, context-only), \
 signatures, diff, aggressive, entropy. Re-reads cost ~13 tokens. File refs F1,F2.. persist.\n\
+Set fresh=true on ctx_read to bypass cache (use when spawned as a subagent without parent context).\n\
 \n\
 PROACTIVE (use without being asked):\n\
 • ctx_compress — when context grows large, create checkpoint\n\
@@ -263,6 +338,7 @@ PROACTIVE (use without being asked):\n\
 ON DEMAND:\n\
 • ctx_analyze(path) — optimal mode recommendation\n\
 • ctx_benchmark(path) — exact token counts per mode\n\
+• ctx_cache(action) — manage cache: status, clear, invalidate(path)\n\
 \n\
 AUTO-CHECKPOINT: Every 10 tool calls, a compressed checkpoint is automatically appended \
 to the response. This keeps context compact in long sessions. Configurable via LEAN_CTX_CHECKPOINT_INTERVAL.\n\
