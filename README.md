@@ -4,6 +4,7 @@
 
 [![Crates.io](https://img.shields.io/crates/v/lean-ctx)](https://crates.io/crates/lean-ctx)
 [![Downloads](https://img.shields.io/crates/d/lean-ctx)](https://crates.io/crates/lean-ctx)
+[![AUR](https://img.shields.io/aur/version/lean-ctx)](https://aur.archlinux.org/packages/lean-ctx)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](rust/LICENSE)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/pTHkG9Hew9)
 
@@ -11,7 +12,7 @@
 
 ---
 
-lean-ctx reduces LLM token consumption by **89-99%** through two complementary strategies in a single binary:
+lean-ctx reduces LLM token consumption by **up to 99%** through two complementary strategies in a single binary:
 
 1. **Shell Hook** — Transparently compresses CLI output before it reaches the LLM. Works without LLM cooperation.
 2. **MCP Server** — 9 tools for cached file reads, dependency maps, cache management, entropy analysis, and session metrics. Works with Cursor, GitHub Copilot, Claude Code, Windsurf, OpenAI Codex, Google Antigravity, OpenCode, and any MCP-compatible editor. Shell hook also benefits OpenClaw via transparent compression.
@@ -40,6 +41,14 @@ lean-ctx reduces LLM token consumption by **89-99%** through two complementary s
 ```bash
 brew tap yvgude/lean-ctx
 brew install lean-ctx
+```
+
+### Arch Linux (AUR)
+
+```bash
+yay -S lean-ctx        # builds from source (crates.io)
+# or
+yay -S lean-ctx-bin    # pre-built binary (GitHub Releases)
 ```
 
 ### Cargo
@@ -589,7 +598,7 @@ Opens `http://localhost:3333` with:
 | **Homebrew** | ✓ | ✓ `brew tap yvgude/lean-ctx && brew install lean-ctx` |
 | **Adoption tracking** | ✗ | ✓ `lean-ctx session` — adoption % |
 
-**Key difference**: RTK compresses CLI output only. lean-ctx compresses CLI output *and* file reads, search results, and project context through the MCP protocol — reaching 89-99% savings where RTK reaches 60-90%.
+**Key difference**: RTK compresses CLI output only. lean-ctx compresses CLI output *and* file reads, search results, and project context through the MCP protocol — reaching up to 99% savings on cached re-reads and 60-90% on CLI output.
 
 ## tree-sitter Signature Engine
 
