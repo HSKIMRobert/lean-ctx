@@ -88,7 +88,7 @@ fn main() {
                 return;
             }
             "--version" | "-V" => {
-                println!("lean-ctx 1.6.0");
+                println!("lean-ctx 1.6.1");
                 return;
             }
             "--help" | "-h" => {
@@ -139,7 +139,7 @@ fn run_mcp_server() -> Result<()> {
             .with_writer(std::io::stderr)
             .init();
 
-        tracing::info!("lean-ctx v1.6.0 MCP server starting");
+        tracing::info!("lean-ctx v1.6.1 MCP server starting");
 
         let server = tools::create_server();
         let transport = rmcp::transport::io::stdio();
@@ -171,7 +171,7 @@ fn shell_quote(s: &str) -> String {
 
 fn print_help() {
     println!(
-        "lean-ctx 1.6.0 — Hybrid Context Optimizer with TDD (Shell Hook + MCP Server)
+        "lean-ctx 1.6.1 — Hybrid Context Optimizer with TDD (Shell Hook + MCP Server)
 
 60+ compression patterns | 9 MCP tools | Token Dense Dialect
 
@@ -182,9 +182,9 @@ USAGE:
     lean-ctx shell                 Interactive shell with compression
 
 COMMANDS:
-    gain                           Show persistent token savings stats
-    gain --graph                   ASCII chart of last 30 days
-    gain --daily                   Day-by-day breakdown
+    gain                           Visual dashboard (colors, bars, sparklines, USD)
+    gain --graph                   30-day savings chart
+    gain --daily                   Bordered day-by-day table with USD
     gain --json                    Raw JSON export of all stats
     dashboard [--port=N]           Open web dashboard (default: http://localhost:3333)
     init [--global]                Install shell aliases (.zshrc/.bashrc)
@@ -230,9 +230,9 @@ EXAMPLES:
     lean-ctx -c \"git status\"       Compressed git output
     lean-ctx -c \"kubectl get pods\" Compressed k8s output
     lean-ctx -c \"gh pr list\"       Compressed GitHub CLI output
-    lean-ctx gain                  Show savings statistics
-    lean-ctx gain --graph          ASCII savings chart
-    lean-ctx gain --daily          Day-by-day breakdown
+    lean-ctx gain                  Visual terminal dashboard
+    lean-ctx gain --graph          30-day savings chart
+    lean-ctx gain --daily          Day-by-day breakdown with USD
     lean-ctx dashboard             Open web dashboard at localhost:3333
     lean-ctx discover              Find missed savings in shell history
     lean-ctx init --global         Install shell aliases

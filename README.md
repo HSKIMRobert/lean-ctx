@@ -268,33 +268,66 @@ pub struct StatsStore {                          fn ⊛ load() → StatsStore
       ...
 ```
 
-**Token savings dashboard:**
+**Visual terminal dashboard** with ANSI colors, Unicode block bars, sparklines, and USD estimates:
 
 ```
 $ lean-ctx gain
-lean-ctx Token Savings
-══════════════════════════════════════════════════
-Total commands:  47
-Input tokens:    12.4K
-Output tokens:   4.8K
-Tokens saved:    7.6K (61.3%)
-Tracking since:  2026-03-23
 
-By Command:
-──────────────────────────────────────────────────
-Command               Count      Saved   Avg%
-ls                       12      2.1K  74.1%
-curl                      8      1.4K  89.2%
-find                      9      1.2K  51.3%
-git status                8        680  39.9%
-cargo build               5        340  28.0%
-grep                      5        180  12.3%
+  ◆ lean-ctx  Token Savings Dashboard
+  ────────────────────────────────────────────────────────
 
-Recent Days:
-──────────────────────────────────────────────────
-Date          Cmds      Saved   Avg%
-2026-03-23      47      7.6K  61.3%
-══════════════════════════════════════════════════
+   1.7M          76.8%         520          $4.25
+   tokens saved   compression    commands       USD saved
+
+  Since 2026-03-23 (2 days)  ▁█
+
+  Top Commands
+  ────────────────────────────────────────────────────────
+  curl                48x  ████████████████████ 728.1K  97%
+  git commit          34x  ██████████▎          375.2K  50%
+  git rm               7x  ████████▌            313.4K  100%
+  git show             4x  ████▊                173.8K  99%
+  ctx_read           103x  █▌                    59.1K  38%
+  cat                 15x  ▊                     29.3K  92%
+  npm run             13x  ▏                      7.0K  90%
+    ... +33 more commands
+
+  Recent Days
+  ────────────────────────────────────────────────────────
+  03-23    101 cmds      9.4K saved   46.0%
+  03-24    419 cmds      1.7M saved   77.0%
+
+  ────────────────────────────────────────────────────────
+  lean-ctx v1.6.0  |  leanctx.com  |  lean-ctx dashboard
+```
+
+**30-day savings chart** with `lean-ctx gain --graph`:
+
+```
+  ◆ lean-ctx  Token Savings Graph (last 30 days)
+  ──────────────────────────────────────────────────────────
+                                                  peak: 1.7M
+
+  03-23 │ ▏                                      9.4K 46%
+  03-24 │ ████████████████████████████████████    1.7M 77%
+
+  ──────────────────────────────────────────────────────────
+  ▁█  1.7M saved across 520 commands
+```
+
+**Daily breakdown table** with `lean-ctx gain --daily`:
+
+```
+  ◆ lean-ctx  Daily Breakdown
+  ┌────────────────────────────────────────────────────────────────┐
+  │ Date           Cmds       Input       Saved     Rate     USD  │
+  ├────────────────────────────────────────────────────────────────┤
+  │ 2026-03-23      101       20.5K        9.4K    46.0%   $0.02 │
+  │ 2026-03-24      419        2.2M        1.7M    77.0%   $4.22 │
+  ├────────────────────────────────────────────────────────────────┤
+  │ TOTAL           520        2.2M        1.7M    76.8%   $4.25 │
+  └────────────────────────────────────────────────────────────────┘
+  Trend: ▁█
 ```
 
 ## 9 MCP Tools
@@ -503,18 +536,18 @@ lean-ctx shell
 
 lean-ctx tracks all compressions (both MCP tools and shell hook) in `~/.lean-ctx/stats.json`:
 
-- Per-command breakdown with token counts
-- MCP vs Shell Hook separation
-- Daily statistics (last 90 days)
-- Total lifetime savings
-- First/last use timestamps
+- Per-command breakdown with token counts and USD estimates
+- Color-coded compression bars with Unicode block characters
+- Sparkline trends showing savings trajectory
+- Daily statistics (last 90 days) with rate coloring
+- Total lifetime savings with 4 KPI metrics
 
-View in the terminal:
+View in the terminal with the **visual dashboard**:
 
 ```bash
-lean-ctx gain             # Summary
-lean-ctx gain --graph     # ASCII chart (last 30 days)
-lean-ctx gain --daily     # Day-by-day table
+lean-ctx gain             # Visual dashboard (colors, bars, sparklines)
+lean-ctx gain --graph     # 30-day savings chart
+lean-ctx gain --daily     # Bordered day-by-day table with USD
 lean-ctx gain --json      # Raw JSON export
 ```
 
@@ -548,7 +581,7 @@ Opens `http://localhost:3333` with:
 | **Cost tracking** | ✗ | ✓ USD estimates per session |
 | **Token Dense Dialect** | ✗ | ✓ TDD mode: symbol shorthand (λ, §, ∂) + identifier mapping (8-25% extra) |
 | **Thinking reduction** | ✗ | ✓ CRP v2 (30-60% fewer thinking tokens via Cursor Rules) |
-| **Stats & Graphs** | ✓ `rtk gain` (SQLite + ASCII graph) | ✓ `lean-ctx gain` + `--graph` + `--daily` + `--json` + web dashboard |
+| **Stats & Graphs** | ✓ `rtk gain` (SQLite + ASCII graph) | ✓ Visual terminal dashboard (ANSI colors, Unicode bars, sparklines, USD) + `--graph` + `--daily` + `--json` + web dashboard |
 | **Auto-setup** | ✓ `rtk init` | ✓ `lean-ctx init` |
 | **Editors** | Claude Code, OpenCode, Gemini CLI | **All MCP editors (Cursor, Copilot, Claude Code, Windsurf, Codex, Antigravity, OpenCode) + shell hook (OpenClaw, any terminal)** |
 | **Config file** | TOML | ✓ TOML (`~/.lean-ctx/config.toml`) |
