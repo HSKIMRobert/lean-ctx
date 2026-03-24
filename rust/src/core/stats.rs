@@ -172,101 +172,62 @@ pub fn load_stats() -> GainSummary {
     }
 }
 
-pub fn format_gain() -> String {
-    let store = load();
-    let mut out = Vec::new();
+const RST: &str = "\x1b[0m";
+const BOLD: &str = "\x1b[1m";
+const DIM: &str = "\x1b[2m";
+const GREEN: &str = "\x1b[32m";
+const CYAN: &str = "\x1b[36m";
+const YELLOW: &str = "\x1b[33m";
+const MAGENTA: &str = "\x1b[35m";
+const WHITE: &str = "\x1b[97m";
+const GRAY: &str = "\x1b[90m";
+fn line(ch: char, n: usize) -> String {
+    std::iter::repeat(ch).take(n).collect()
+}
 
-    if store.total_commands == 0 {
-        return "No commands recorded yet. Use lean-ctx -c \"command\" to start tracking.".to_string();
+fn pct_color(pct: f64) -> &'static str {
+    if pct >= 90.0 { "\x1b[32m" }
+    else if pct >= 70.0 { "\x1b[36m" }
+    else if pct >= 50.0 { "\x1b[33m" }
+    else if pct >= 30.0 { "\x1b[35m" }
+    else { "\x1b[37m" }
+}
+
+fn bar_block(ratio: f64, width: usize) -> String {
+    let blocks = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"];
+    let full = (ratio * width as f64).max(0.0);
+    let whole = full as usize;
+    let frac = ((full - whole as f64) * 8.0) as usize;
+    let mut s = "█".repeat(whole);
+    if whole < width && frac > 0 {
+        s.push_str(blocks[frac]);
     }
-
-    let saved = store.total_input_tokens.saturating_sub(store.total_output_tokens);
-    let pct = if store.total_input_tokens > 0 {
-        saved as f64 / store.total_input_tokens as f64 * 100.0
-    } else {
-        0.0
-    };
-
-    out.push(format!("lean-ctx Token Savings"));
-    out.push("═".repeat(50));
-    out.push(String::new());
-    out.push(format!("Total commands:  {}", format_num(store.total_commands)));
-    out.push(format!("Input tokens:    {}", format_big(store.total_input_tokens)));
-    out.push(format!("Output tokens:   {}", format_big(store.total_output_tokens)));
-    out.push(format!("Tokens saved:    {} ({:.1}%)", format_big(saved), pct));
-
-    if let (Some(first), Some(last)) = (&store.first_use, &store.last_use) {
-        let first_short = first.get(..10).unwrap_or(first);
-        let last_short = last.get(..10).unwrap_or(last);
-        out.push(String::new());
-        out.push(format!("Tracking since:  {first_short}"));
-        out.push(format!("Last used:       {last_short}"));
+    if s.is_empty() && ratio > 0.0 {
+        s.push_str("▏");
     }
+    s
+}
 
-    if !store.commands.is_empty() {
-        out.push(String::new());
-        out.push("By Command:".to_string());
-        out.push("─".repeat(50));
-        out.push(format!(
-            "{:<20} {:>6}  {:>9}  {:>5}",
-            "Command", "Count", "Saved", "Avg%"
-        ));
-
-        let mut sorted: Vec<_> = store.commands.iter().collect();
-        sorted.sort_by(|a, b| {
-            let saved_a = a.1.input_tokens.saturating_sub(a.1.output_tokens);
-            let saved_b = b.1.input_tokens.saturating_sub(b.1.output_tokens);
-            saved_b.cmp(&saved_a)
-        });
-
-        for (cmd, stats) in sorted.iter().take(15) {
-            let cmd_saved = stats.input_tokens.saturating_sub(stats.output_tokens);
-            let cmd_pct = if stats.input_tokens > 0 {
-                cmd_saved as f64 / stats.input_tokens as f64 * 100.0
-            } else {
-                0.0
-            };
-            out.push(format!(
-                "{:<20} {:>6}  {:>9}  {:>4.1}%",
-                truncate_cmd(cmd, 20),
-                stats.count,
-                format_big(cmd_saved),
-                cmd_pct
-            ));
-        }
+fn sparkline(values: &[u64]) -> String {
+    let ticks = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+    let max = *values.iter().max().unwrap_or(&1) as f64;
+    if max == 0.0 {
+        return " ".repeat(values.len());
     }
+    values
+        .iter()
+        .map(|v| {
+            let idx = ((*v as f64 / max) * 7.0).round() as usize;
+            ticks[idx.min(7)]
+        })
+        .collect()
+}
 
-    if store.daily.len() >= 2 {
-        out.push(String::new());
-        out.push("Recent Days:".to_string());
-        out.push("─".repeat(50));
-        out.push(format!(
-            "{:<12} {:>6}  {:>9}  {:>5}",
-            "Date", "Cmds", "Saved", "Avg%"
-        ));
-
-        let recent: Vec<_> = store.daily.iter().rev().take(7).collect();
-        for day in recent.iter().rev() {
-            let day_saved = day.input_tokens.saturating_sub(day.output_tokens);
-            let day_pct = if day.input_tokens > 0 {
-                day_saved as f64 / day.input_tokens as f64 * 100.0
-            } else {
-                0.0
-            };
-            out.push(format!(
-                "{:<12} {:>6}  {:>9}  {:>4.1}%",
-                &day.date,
-                day.commands,
-                format_big(day_saved),
-                day_pct
-            ));
-        }
-    }
-
-    out.push(String::new());
-    out.push("═".repeat(50));
-
-    out.join("\n")
+fn usd_estimate(tokens: u64) -> String {
+    let cost = tokens as f64 * 2.50 / 1_000_000.0;
+    if cost >= 1.0 { format!("${cost:.2}") }
+    else if cost >= 0.01 { format!("${cost:.2}") }
+    else { format!("${cost:.3}") }
 }
 
 fn format_big(n: u64) -> String {
@@ -297,73 +258,221 @@ fn truncate_cmd(cmd: &str, max: usize) -> String {
     }
 }
 
+pub fn format_gain() -> String {
+    let store = load();
+    let mut o = Vec::new();
+
+    if store.total_commands == 0 {
+        return format!("{DIM}No commands recorded yet.{RST} Use {CYAN}lean-ctx -c \"command\"{RST} to start tracking.");
+    }
+
+    let saved = store.total_input_tokens.saturating_sub(store.total_output_tokens);
+    let pct = if store.total_input_tokens > 0 {
+        saved as f64 / store.total_input_tokens as f64 * 100.0
+    } else {
+        0.0
+    };
+    let usd = usd_estimate(saved);
+    let days_active = store.daily.len();
+
+    o.push(String::new());
+    let ln56 = line('─', 56);
+    o.push(format!("  {BOLD}{WHITE}◆ lean-ctx{RST}  {DIM}Token Savings Dashboard{RST}"));
+    o.push(format!("  {DIM}{ln56}{RST}"));
+    o.push(String::new());
+
+    o.push(format!(
+        "  {BOLD}{GREEN} {:<12}{RST}  {BOLD}{CYAN} {:<12}{RST}  {BOLD}{YELLOW} {:<10}{RST}  {BOLD}{MAGENTA} {:<10}{RST}",
+        format_big(saved), format!("{pct:.1}%"), format_num(store.total_commands), usd
+    ));
+    o.push(format!(
+        "  {DIM} tokens saved   compression    commands       USD saved{RST}"
+    ));
+    o.push(String::new());
+
+    if let (Some(first), Some(_last)) = (&store.first_use, &store.last_use) {
+        let first_short = first.get(..10).unwrap_or(first);
+        let daily_savings: Vec<u64> = store.daily.iter()
+            .map(|d| d.input_tokens.saturating_sub(d.output_tokens))
+            .collect();
+        let spark = sparkline(&daily_savings);
+        o.push(format!(
+            "  {DIM}Since {first_short} ({days_active} day{plural}){RST}  {GREEN}{spark}{RST}",
+            plural = if days_active != 1 { "s" } else { "" }
+        ));
+        o.push(String::new());
+    }
+
+    if !store.commands.is_empty() {
+        o.push(format!("  {BOLD}{WHITE}Top Commands{RST}"));
+        o.push(format!("  {DIM}{ln56}{RST}"));
+
+        let mut sorted: Vec<_> = store.commands.iter().collect();
+        sorted.sort_by(|a, b| {
+            let sa = a.1.input_tokens.saturating_sub(a.1.output_tokens);
+            let sb = b.1.input_tokens.saturating_sub(b.1.output_tokens);
+            sb.cmp(&sa)
+        });
+
+        let max_cmd_saved = sorted.first()
+            .map(|(_, s)| s.input_tokens.saturating_sub(s.output_tokens))
+            .unwrap_or(1)
+            .max(1);
+
+        for (cmd, stats) in sorted.iter().take(12) {
+            let cmd_saved = stats.input_tokens.saturating_sub(stats.output_tokens);
+            let cmd_pct = if stats.input_tokens > 0 {
+                cmd_saved as f64 / stats.input_tokens as f64 * 100.0
+            } else {
+                0.0
+            };
+            let ratio = cmd_saved as f64 / max_cmd_saved as f64;
+            let bar = bar_block(ratio, 20);
+            let pc = pct_color(cmd_pct);
+            o.push(format!(
+                "  {GRAY}{:<16}{RST} {:>5}x  {pc}{bar:<20}{RST} {BOLD}{pc}{:>6}{RST}  {DIM}{}{RST}",
+                truncate_cmd(cmd, 16),
+                stats.count,
+                format_big(cmd_saved),
+                format!("{cmd_pct:.0}%"),
+            ));
+        }
+
+        if sorted.len() > 12 {
+            o.push(format!("  {DIM}  ... +{} more commands{RST}", sorted.len() - 12));
+        }
+    }
+
+    if store.daily.len() >= 2 {
+        o.push(String::new());
+        o.push(format!("  {BOLD}{WHITE}Recent Days{RST}"));
+        o.push(format!("  {DIM}{ln56}{RST}"));
+
+        let recent: Vec<_> = store.daily.iter().rev().take(7).collect();
+        for day in recent.iter().rev() {
+            let day_saved = day.input_tokens.saturating_sub(day.output_tokens);
+            let day_pct = if day.input_tokens > 0 {
+                day_saved as f64 / day.input_tokens as f64 * 100.0
+            } else {
+                0.0
+            };
+            let pc = pct_color(day_pct);
+            let date_short = day.date.get(5..).unwrap_or(&day.date);
+            o.push(format!(
+                "  {GRAY}{date_short}{RST}  {:>5} cmds  {pc}{BOLD}{:>8}{RST} saved  {pc}{day_pct:>5.1}%{RST}",
+                day.commands,
+                format_big(day_saved),
+            ));
+        }
+    }
+
+    o.push(String::new());
+    o.push(format!("  {DIM}{ln56}{RST}"));
+    o.push(format!("  {DIM}lean-ctx v1.6.1  |  leanctx.com  |  lean-ctx dashboard{RST}"));
+    o.push(String::new());
+
+    o.join("\n")
+}
+
 pub fn format_gain_graph() -> String {
     let store = load();
     if store.daily.is_empty() {
-        return "No daily data yet. Use lean-ctx for a few days to see the graph.".to_string();
+        return format!("{DIM}No daily data yet.{RST} Use lean-ctx for a few days to see the graph.");
     }
 
     let days: Vec<_> = store.daily.iter().rev().take(30).collect::<Vec<_>>().into_iter().rev().collect();
 
-    let max_saved = days
-        .iter()
+    let savings: Vec<u64> = days.iter()
         .map(|d| d.input_tokens.saturating_sub(d.output_tokens))
-        .max()
-        .unwrap_or(1)
-        .max(1);
+        .collect();
 
-    let bar_width = 40;
-    let mut out = Vec::new();
-    out.push("lean-ctx Token Savings (last 30 days)".to_string());
-    out.push("=".repeat(60));
-    out.push(String::new());
+    let max_saved = *savings.iter().max().unwrap_or(&1);
+    let max_saved = max_saved.max(1);
 
-    for day in &days {
-        let saved = day.input_tokens.saturating_sub(day.output_tokens);
-        let bar_len = (saved as f64 / max_saved as f64 * bar_width as f64) as usize;
-        let bar: String = "#".repeat(bar_len);
+    let bar_width = 36;
+    let mut o = Vec::new();
+
+    o.push(String::new());
+    let ln58 = line('─', 58);
+    o.push(format!("  {BOLD}{WHITE}◆ lean-ctx{RST}  {DIM}Token Savings Graph (last 30 days){RST}"));
+    o.push(format!("  {DIM}{ln58}{RST}"));
+    o.push(format!("  {DIM}{:>58}{RST}", format!("peak: {}", format_big(max_saved))));
+    o.push(String::new());
+
+    for (i, day) in days.iter().enumerate() {
+        let saved = savings[i];
+        let ratio = saved as f64 / max_saved as f64;
+        let bar = bar_block(ratio, bar_width);
+
+        let pct = if day.input_tokens > 0 {
+            saved as f64 / day.input_tokens as f64 * 100.0
+        } else {
+            0.0
+        };
+        let pc = pct_color(pct);
         let date_short = day.date.get(5..).unwrap_or(&day.date);
-        out.push(format!("{date_short} |{bar:<width$}| {}", format_big(saved), width = bar_width));
+
+        o.push(format!(
+            "  {GRAY}{date_short}{RST} {DIM}│{RST} {pc}{bar:<width$}{RST} {BOLD}{:>6}{RST} {DIM}{pct:.0}%{RST}",
+            format_big(saved),
+            width = bar_width,
+        ));
     }
 
-    let total_saved: u64 = days.iter().map(|d| d.input_tokens.saturating_sub(d.output_tokens)).sum();
+    let total_saved: u64 = savings.iter().sum();
     let total_cmds: u64 = days.iter().map(|d| d.commands).sum();
-    out.push(String::new());
-    out.push(format!("Period: {} saved across {} commands", format_big(total_saved), format_num(total_cmds)));
-    out.push("=".repeat(60));
+    let spark = sparkline(&savings);
 
-    out.join("\n")
+    o.push(String::new());
+    o.push(format!("  {DIM}{ln58}{RST}"));
+    o.push(format!(
+        "  {GREEN}{spark}{RST}  {BOLD}{WHITE}{}{RST} saved across {BOLD}{}{RST} commands",
+        format_big(total_saved),
+        format_num(total_cmds),
+    ));
+    o.push(String::new());
+
+    o.join("\n")
 }
 
 pub fn format_gain_daily() -> String {
     let store = load();
     if store.daily.is_empty() {
-        return "No daily data yet.".to_string();
+        return format!("{DIM}No daily data yet.{RST}");
     }
 
-    let mut out = Vec::new();
-    out.push("lean-ctx Daily Breakdown".to_string());
-    out.push("=".repeat(60));
-    out.push(format!(
-        "{:<12} {:>6}  {:>9}  {:>9}  {:>5}",
-        "Date", "Cmds", "Input", "Saved", "Pct"
-    ));
-    out.push("-".repeat(60));
+    let mut o = Vec::new();
+    let w = 64;
 
-    for day in store.daily.iter().rev().take(30).collect::<Vec<_>>().into_iter().rev() {
+    o.push(String::new());
+    let lnw = line('─', w);
+    o.push(format!("  {BOLD}{WHITE}◆ lean-ctx{RST}  {DIM}Daily Breakdown{RST}"));
+    o.push(format!("  {DIM}┌{lnw}┐{RST}"));
+    o.push(format!(
+        "  {DIM}│{RST} {BOLD}{WHITE}{:<12} {:>6}  {:>10}  {:>10}  {:>7}  {:>6}{RST} {DIM}│{RST}",
+        "Date", "Cmds", "Input", "Saved", "Rate", "USD"
+    ));
+    o.push(format!("  {DIM}├{lnw}┤{RST}"));
+
+    let days: Vec<_> = store.daily.iter().rev().take(30).collect::<Vec<_>>().into_iter().rev().cloned().collect();
+
+    for day in &days {
         let saved = day.input_tokens.saturating_sub(day.output_tokens);
         let pct = if day.input_tokens > 0 {
             saved as f64 / day.input_tokens as f64 * 100.0
         } else {
             0.0
         };
-        out.push(format!(
-            "{:<12} {:>6}  {:>9}  {:>9}  {:>4.1}%",
+        let pc = pct_color(pct);
+        let usd = usd_estimate(saved);
+        o.push(format!(
+            "  {DIM}│{RST} {GRAY}{:<12}{RST} {:>6}  {:>10}  {pc}{BOLD}{:>10}{RST}  {pc}{:>6.1}%{RST}  {DIM}{:>6}{RST} {DIM}│{RST}",
             &day.date,
             day.commands,
             format_big(day.input_tokens),
             format_big(saved),
-            pct
+            pct,
+            usd,
         ));
     }
 
@@ -374,18 +483,26 @@ pub fn format_gain_daily() -> String {
     } else {
         0.0
     };
-    out.push("-".repeat(60));
-    out.push(format!(
-        "{:<12} {:>6}  {:>9}  {:>9}  {:>4.1}%",
+    let total_usd = usd_estimate(total_saved);
+
+    o.push(format!("  {DIM}├{lnw}┤{RST}"));
+    o.push(format!(
+        "  {DIM}│{RST} {BOLD}{WHITE}{:<12}{RST} {:>6}  {:>10}  {GREEN}{BOLD}{:>10}{RST}  {GREEN}{BOLD}{:>6.1}%{RST}  {BOLD}{:>6}{RST} {DIM}│{RST}",
         "TOTAL",
         format_num(store.total_commands),
         format_big(total_input),
         format_big(total_saved),
-        total_pct
+        total_pct,
+        total_usd,
     ));
-    out.push("=".repeat(60));
+    o.push(format!("  {DIM}└{lnw}┘{RST}"));
 
-    out.join("\n")
+    let daily_savings: Vec<u64> = days.iter().map(|d| d.input_tokens.saturating_sub(d.output_tokens)).collect();
+    let spark = sparkline(&daily_savings);
+    o.push(format!("  {DIM}Trend:{RST} {GREEN}{spark}{RST}"));
+    o.push(String::new());
+
+    o.join("\n")
 }
 
 pub fn format_gain_json() -> String {
