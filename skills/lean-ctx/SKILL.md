@@ -6,7 +6,7 @@ metadata: {"openclaw": {"requires": {"bins": ["lean-ctx"]}, "install": [{"id": "
 
 # LeanCTX — Token Compression for Shell Commands
 
-LeanCTX is a Rust binary that compresses CLI output by 50-99% using 50+ command-specific patterns and extracts code signatures using tree-sitter AST parsing across 10 languages (TS/JS, Rust, Python, Go, Java, C, C++, Ruby). It reduces the tokens you consume per shell command, keeping your context window lean and your costs low.
+LeanCTX is a Rust binary that compresses CLI output by 50-99% using 50+ command-specific patterns and extracts code signatures using tree-sitter AST parsing across 10 languages (TS/JS, Rust, Python, Go, Java, C, C++, Ruby). It provides 9 MCP tools including cache management for subagent safety. It reduces the tokens you consume per shell command, keeping your context window lean and your costs low.
 
 ## When to use lean-ctx
 

@@ -11,12 +11,24 @@ use crate::core::tokens::count_tokens;
 use crate::tools::CrpMode;
 
 pub fn handle(cache: &mut SessionCache, path: &str, mode: &str, crp_mode: CrpMode) -> String {
+    handle_with_options(cache, path, mode, false, crp_mode)
+}
+
+pub fn handle_fresh(cache: &mut SessionCache, path: &str, mode: &str, crp_mode: CrpMode) -> String {
+    handle_with_options(cache, path, mode, true, crp_mode)
+}
+
+fn handle_with_options(cache: &mut SessionCache, path: &str, mode: &str, fresh: bool, crp_mode: CrpMode) -> String {
     let file_ref = cache.get_file_ref(path);
     let short = protocol::shorten_path(path);
     let ext = Path::new(path)
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("");
+
+    if fresh {
+        cache.invalidate(path);
+    }
 
     if mode == "diff" {
         return handle_diff(cache, path, &file_ref);

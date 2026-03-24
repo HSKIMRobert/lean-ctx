@@ -79,7 +79,7 @@ fn main() {
                 return;
             }
             "--version" | "-V" => {
-                println!("lean-ctx 1.5.1");
+                println!("lean-ctx 1.5.2");
                 return;
             }
             "--help" | "-h" => {
@@ -130,7 +130,7 @@ fn run_mcp_server() -> Result<()> {
             .with_writer(std::io::stderr)
             .init();
 
-        tracing::info!("lean-ctx v1.5.1 MCP server starting");
+        tracing::info!("lean-ctx v1.5.2 MCP server starting");
 
         let server = tools::create_server();
         let transport = rmcp::transport::io::stdio();
@@ -162,9 +162,9 @@ fn shell_quote(s: &str) -> String {
 
 fn print_help() {
     println!(
-        "lean-ctx 1.5.1 — Hybrid Context Optimizer with TDD (Shell Hook + MCP Server)
+        "lean-ctx 1.5.2 — Hybrid Context Optimizer with TDD (Shell Hook + MCP Server)
 
-50+ compression patterns | 8 MCP tools | Token Dense Dialect
+50+ compression patterns | 9 MCP tools | Token Dense Dialect
 
 USAGE:
     lean-ctx                       Start MCP server (stdio)

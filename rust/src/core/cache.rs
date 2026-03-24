@@ -140,6 +140,16 @@ impl SessionCache {
     pub fn file_ref_map(&self) -> &HashMap<String, String> {
         &self.file_refs
     }
+
+    pub fn invalidate(&mut self, path: &str) -> bool {
+        self.entries.remove(path).is_some()
+    }
+
+    pub fn clear(&mut self) -> usize {
+        let count = self.entries.len();
+        self.entries.clear();
+        count
+    }
 }
 
 fn compute_md5(content: &str) -> String {

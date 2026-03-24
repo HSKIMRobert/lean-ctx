@@ -6,14 +6,14 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/pTHkG9Hew9)
 
-[Website](https://leanctx.com) · [Install](#installation) · [Quick Start](#quick-start) · [CLI Reference](#cli-commands) · [MCP Tools](#8-mcp-tools) · [vs RTK](#lean-ctx-vs-rtk) · [Discord](https://discord.gg/pTHkG9Hew9)
+[Website](https://leanctx.com) · [Install](#installation) · [Quick Start](#quick-start) · [CLI Reference](#cli-commands) · [MCP Tools](#9-mcp-tools) · [vs RTK](#lean-ctx-vs-rtk) · [Discord](https://discord.gg/pTHkG9Hew9)
 
 ---
 
 lean-ctx reduces LLM token consumption by **89-99%** through two complementary strategies in a single binary:
 
 1. **Shell Hook** — Transparently compresses CLI output before it reaches the LLM. Works without LLM cooperation.
-2. **MCP Server** — 8 tools for cached file reads, dependency maps, entropy analysis, and session metrics. Works with Cursor, GitHub Copilot, Claude Code, Windsurf, OpenCode, and any MCP-compatible editor. Shell hook also benefits OpenClaw via transparent compression.
+2. **MCP Server** — 9 tools for cached file reads, dependency maps, cache management, entropy analysis, and session metrics. Works with Cursor, GitHub Copilot, Claude Code, Windsurf, OpenCode, and any MCP-compatible editor. Shell hook also benefits OpenClaw via transparent compression.
 
 ## Token Savings (Typical Cursor/Claude Code Session)
 
@@ -292,13 +292,13 @@ Date          Cmds      Saved   Avg%
 ══════════════════════════════════════════════════
 ```
 
-## 8 MCP Tools
+## 9 MCP Tools
 
-When configured as an MCP server, lean-ctx provides 8 tools that replace or augment your editor's built-in tools:
+When configured as an MCP server, lean-ctx provides 9 tools that replace or augment your editor's built-in tools:
 
 | Tool | Replaces | Savings |
 |---|---|---|
-| `ctx_read` | File reads — 6 modes: full, map, signatures, diff, aggressive, entropy | 74-99% |
+| `ctx_read` | File reads — 6 modes: full, map, signatures, diff, aggressive, entropy. Supports `fresh=true` to bypass cache. | 74-99% |
 | `ctx_tree` | Directory listings (ls, find, Glob) | 34-60% |
 | `ctx_shell` | Shell commands | 60-90% |
 | `ctx_search` | Code search (Grep) | 50-80% |
@@ -306,17 +306,25 @@ When configured as an MCP server, lean-ctx provides 8 tools that replace or augm
 | `ctx_benchmark` | Compare all compression strategies with tiktoken counts | — |
 | `ctx_metrics` | Session statistics with USD cost estimates | — |
 | `ctx_analyze` | Shannon entropy analysis + mode recommendation | — |
+| `ctx_cache` | Cache management: status, clear, invalidate. Use `clear` when spawned as a subagent. | — |
 
 ### ctx_read Modes
 
 | Mode | When to use | Token cost |
 |---|---|---|
-| `full` | Files you will edit (cached re-reads = ~13 tokens) | 100% first read, ~0% cached |
+| `full` | Files you will edit (cached re-reads = ~13 tokens). Set `fresh=true` to force re-read. | 100% first read, ~0% cached |
 | `map` | Understanding a file without reading it — dependency graph + exports + API | ~5-15% |
 | `signatures` | API surface with more detail than map | ~10-20% |
 | `diff` | Re-reading files that changed | only changed lines |
 | `aggressive` | Large files with boilerplate | ~30-50% |
 | `entropy` | Files with repetitive patterns (Shannon + Jaccard filtering) | ~20-40% |
+
+### Subagent Cache Safety
+
+When a subagent is spawned without the parent's context, it can:
+- Use `ctx_read` with `fresh=true` to bypass cache and get full content
+- Call `ctx_cache(action: "clear")` to reset the entire cache
+- Call `ctx_cache(action: "invalidate", path: "...")` to reset a single file
 
 ## Editor Configuration
 
