@@ -34,10 +34,10 @@ lean-ctx reduces LLM token consumption by **89-99%** through two complementary s
 
 ## Installation
 
-### Homebrew (macOS)
+### Homebrew (macOS / Linux)
 
 ```bash
-brew tap yvgude/tap
+brew tap yvgude/lean-ctx
 brew install lean-ctx
 ```
 
@@ -552,7 +552,7 @@ Opens `http://localhost:3333` with:
 | **Editors** | Claude Code, OpenCode, Gemini CLI | **All MCP editors (Cursor, Copilot, Claude Code, Windsurf, Codex, Antigravity, OpenCode) + shell hook (OpenClaw, any terminal)** |
 | **Config file** | TOML | ✓ TOML (`~/.lean-ctx/config.toml`) |
 | **History analysis** | ✗ | ✓ `lean-ctx discover` — find uncompressed commands |
-| **Homebrew** | ✓ | ✓ `brew tap yvgude/tap && brew install lean-ctx` |
+| **Homebrew** | ✓ | ✓ `brew tap yvgude/lean-ctx && brew install lean-ctx` |
 | **Adoption tracking** | ✗ | ✓ `lean-ctx session` — adoption % |
 
 **Key difference**: RTK compresses CLI output only. lean-ctx compresses CLI output *and* file reads, search results, and project context through the MCP protocol — reaching 89-99% savings where RTK reaches 60-90%.
