@@ -176,9 +176,9 @@ fn shell_quote(s: &str) -> String {
 
 fn print_help() {
     println!(
-        "lean-ctx 1.7.0 — Hybrid Context Optimizer with TDD (Shell Hook + MCP Server)
+        "lean-ctx 1.7.0 — The Cognitive Filter for AI Engineering
 
-60+ compression patterns | 9 MCP tools | Token Dense Dialect
+75+ compression patterns | 10 MCP tools | Token Dense Dialect
 
 USAGE:
     lean-ctx                       Start MCP server (stdio)
@@ -204,7 +204,7 @@ COMMANDS:
     config                         Show/edit configuration (~/.lean-ctx/config.toml)
     doctor                         Run installation and environment diagnostics
 
-SHELL HOOK PATTERNS (60+):
+SHELL HOOK PATTERNS (75+):
     git       status, log, diff, add, commit, push, pull, fetch, clone,
               branch, checkout, switch, merge, stash, tag, reset, remote
     docker    build, ps, images, logs, compose, exec, network
@@ -212,21 +212,23 @@ SHELL HOOK PATTERNS (60+):
     cargo     build, test, check, clippy
     gh        pr list/view/create, issue list/view, run list/view
     kubectl   get pods/services/deployments, logs, describe, apply
-    python    pip install/list/outdated, ruff check/format
+    python    pip install/list/outdated, ruff check/format, poetry, uv
     linters   eslint, biome, prettier, golangci-lint
     builds    tsc, next build, vite build
     ruby      rubocop, bundle install/update, rake test, rails test
     tests     jest, vitest, pytest, go test, playwright, rspec, minitest
+    iac       terraform, make, maven, gradle, dotnet, flutter, dart
     utils     curl, grep/rg, find, ls, wget, env
     data      JSON schema extraction, log deduplication
 
 READ MODES:
-    full (default)                 Full content
+    full (default)                 Full content (cached re-reads = 13 tokens)
     map                            Dependency graph + API signatures
-    signatures                     Function/class signatures only
+    signatures                     tree-sitter AST extraction (14 languages)
     aggressive                     Syntax-stripped content
     entropy                        Shannon entropy filtered
     diff                           Changed lines only
+    lines:N-M                      Specific line ranges (e.g. lines:10-50,80)
 
 OPTIONS:
     --version, -V                  Show version
