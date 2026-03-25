@@ -30,8 +30,10 @@ fn print_check(outcome: &Outcome) {
 fn path_in_path_env() -> bool {
     if let Ok(path) = std::env::var("PATH") {
         for dir in std::env::split_paths(&path) {
-            let candidate = dir.join("lean-ctx");
-            if candidate.is_file() {
+            if dir.join("lean-ctx").is_file() {
+                return true;
+            }
+            if cfg!(windows) && dir.join("lean-ctx.exe").is_file() {
                 return true;
             }
         }
@@ -40,19 +42,36 @@ fn path_in_path_env() -> bool {
 }
 
 fn resolve_lean_ctx_binary() -> Option<PathBuf> {
-    let output = std::process::Command::new("/bin/sh")
-        .arg("-c")
-        .arg("command -v lean-ctx")
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
+    #[cfg(unix)]
+    {
+        let output = std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg("command -v lean-ctx")
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if s.is_empty() { None } else { Some(PathBuf::from(s)) }
     }
-    let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if s.is_empty() {
-        None
-    } else {
-        Some(PathBuf::from(s))
+
+    #[cfg(windows)]
+    {
+        let output = std::process::Command::new("where.exe")
+            .arg("lean-ctx")
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let s = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if s.is_empty() { None } else { Some(PathBuf::from(s)) }
     }
 }
 
@@ -112,30 +131,51 @@ fn shell_aliases_outcome() -> Outcome {
             };
         }
     };
+
+    let mut parts = Vec::new();
+
     let zsh = home.join(".zshrc");
+    if rc_contains_lean_ctx(&zsh) {
+        parts.push(format!("{DIM}~/.zshrc{RST}"));
+    }
     let bash = home.join(".bashrc");
-    let zsh_ok = rc_contains_lean_ctx(&zsh);
-    let bash_ok = rc_contains_lean_ctx(&bash);
-    if zsh_ok || bash_ok {
-        let mut parts = Vec::new();
-        if zsh_ok {
-            parts.push(format!("{DIM}~/.zshrc{RST}"));
+    if rc_contains_lean_ctx(&bash) {
+        parts.push(format!("{DIM}~/.bashrc{RST}"));
+    }
+
+    #[cfg(windows)]
+    {
+        let ps_profile = home
+            .join("Documents")
+            .join("PowerShell")
+            .join("Microsoft.PowerShell_profile.ps1");
+        let ps_profile_legacy = home
+            .join("Documents")
+            .join("WindowsPowerShell")
+            .join("Microsoft.PowerShell_profile.ps1");
+        if rc_contains_lean_ctx(&ps_profile) {
+            parts.push(format!("{DIM}PowerShell profile{RST}"));
+        } else if rc_contains_lean_ctx(&ps_profile_legacy) {
+            parts.push(format!("{DIM}WindowsPowerShell profile{RST}"));
         }
-        if bash_ok {
-            parts.push(format!("{DIM}~/.bashrc{RST}"));
+    }
+
+    if parts.is_empty() {
+        let hint = if cfg!(windows) {
+            "no \"lean-ctx\" in PowerShell profile, ~/.zshrc or ~/.bashrc"
+        } else {
+            "no \"lean-ctx\" in ~/.zshrc or ~/.bashrc"
+        };
+        Outcome {
+            ok: false,
+            line: format!("{BOLD}Shell aliases{RST}  {RED}{hint}{RST}"),
         }
+    } else {
         Outcome {
             ok: true,
             line: format!(
                 "{BOLD}Shell aliases{RST}  {GREEN}lean-ctx referenced in {}{RST}",
                 parts.join(", ")
-            ),
-        }
-    } else {
-        Outcome {
-            ok: false,
-            line: format!(
-                "{BOLD}Shell aliases{RST}  {RED}no \"lean-ctx\" in ~/.zshrc or ~/.bashrc{RST}"
             ),
         }
     }

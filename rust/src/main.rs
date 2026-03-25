@@ -118,8 +118,9 @@ fn main() {
 }
 
 fn passthrough(command: &str) -> ! {
-    let status = std::process::Command::new("/bin/sh")
-        .arg("-c")
+    let (shell, flag) = shell::shell_and_flag();
+    let status = std::process::Command::new(&shell)
+        .arg(&flag)
         .arg(command)
         .status()
         .map(|s| s.code().unwrap_or(1))
@@ -192,7 +193,7 @@ COMMANDS:
     gain --daily                   Bordered day-by-day table with USD
     gain --json                    Raw JSON export of all stats
     dashboard [--port=N]           Open web dashboard (default: http://localhost:3333)
-    init [--global]                Install shell aliases (.zshrc/.bashrc)
+    init [--global]                Install shell aliases (zsh/bash/fish/PowerShell)
     read <file> [-m mode]          Read file with compression
     diff <file1> <file2>           Compressed file diff
     grep <pattern> [path]          Search with compressed output

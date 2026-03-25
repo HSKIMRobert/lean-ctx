@@ -57,16 +57,35 @@ yay -S lean-ctx-bin    # pre-built binary (GitHub Releases)
 cargo install lean-ctx
 ```
 
+### Windows
+
+```powershell
+# Option 1: Download from GitHub Releases
+# Download lean-ctx-x86_64-pc-windows-msvc.zip from
+# https://github.com/yvgude/lean-ctx/releases/latest
+# Extract and add to PATH
+
+# Option 2: Cargo
+cargo install lean-ctx
+
+# Option 3: Build from source
+git clone https://github.com/yvgude/lean-ctx.git
+cd lean-ctx/rust
+cargo build --release
+# Binary: target\release\lean-ctx.exe
+```
+
 ### Build from Source
 
 ```bash
 git clone https://github.com/yvgude/lean-ctx.git
 cd lean-ctx/rust
 cargo build --release
-cp target/release/lean-ctx ~/.local/bin/
+cp target/release/lean-ctx ~/.local/bin/     # macOS/Linux
+# Windows: copy target\release\lean-ctx.exe to a directory in your PATH
 ```
 
-> Add `~/.local/bin` to your PATH if needed:
+> Add `~/.local/bin` to your PATH if needed (macOS/Linux):
 > ```bash
 > echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc  # or ~/.bashrc
 > ```
@@ -175,7 +194,7 @@ lean-ctx deps .                          # Project dependencies summary
 ### Setup & Analytics
 
 ```bash
-lean-ctx init --global         # Install 23 shell aliases (.zshrc/.bashrc/.config/fish)
+lean-ctx init --global         # Install 23 shell aliases (zsh/bash/fish/PowerShell)
 lean-ctx gain                  # Persistent token savings (CLI)
 lean-ctx gain --graph          # ASCII chart of last 30 days
 lean-ctx gain --daily          # Day-by-day breakdown
@@ -528,20 +547,29 @@ This instructs the LLM to prefer lean-ctx tools and use compact output patterns 
 lean-ctx init --global
 ```
 
-This adds 23 aliases (git, npm, pnpm, yarn, cargo, docker, kubectl, gh, pip, ruff, go, golangci-lint, eslint, prettier, tsc, ls, find, grep, curl, wget, and more) to your `.zshrc` / `.bashrc` / `config.fish`.
+This adds 23 aliases to your shell profile:
+- **macOS/Linux**: `.zshrc` / `.bashrc` / `config.fish`
+- **Windows**: PowerShell profile (`Documents\PowerShell\Microsoft.PowerShell_profile.ps1`)
 
 Or add manually to your shell profile:
+
+**Bash/Zsh:**
 
 ```bash
 alias git='lean-ctx -c git'
 alias npm='lean-ctx -c npm'
-alias pnpm='lean-ctx -c pnpm'
 alias cargo='lean-ctx -c cargo'
 alias docker='lean-ctx -c docker'
 alias kubectl='lean-ctx -c kubectl'
-alias gh='lean-ctx -c gh'
-alias pip='lean-ctx -c pip'
-alias curl='lean-ctx -c curl'
+# ... and 18 more (run lean-ctx init --global for all)
+```
+
+**PowerShell:**
+
+```powershell
+function git { & lean-ctx -c "git $($args -join ' ')" }
+function npm { & lean-ctx -c "npm $($args -join ' ')" }
+function cargo { & lean-ctx -c "cargo $($args -join ' ')" }
 # ... and 14 more (run lean-ctx init --global for all)
 ```
 
@@ -631,16 +659,25 @@ cargo install lean-ctx --no-default-features
 
 ## Uninstall
 
-```bash
-# Remove shell aliases
-lean-ctx init --global  # re-run to see what was added, then remove from shell profile
+**macOS/Linux:**
 
-# Remove binary (choose one)
+```bash
+# Remove shell aliases from your profile (.zshrc / .bashrc / config.fish)
+# Remove binary
 brew uninstall lean-ctx       # if installed via Homebrew
 cargo uninstall lean-ctx      # if installed via cargo
-
 # Remove stats and config
 rm -rf ~/.lean-ctx
+```
+
+**Windows (PowerShell):**
+
+```powershell
+# Remove lean-ctx functions from your PowerShell profile
+# notepad $PROFILE
+cargo uninstall lean-ctx      # if installed via cargo
+# Remove stats and config
+Remove-Item -Recurse -Force "$env:USERPROFILE\.lean-ctx"
 ```
 
 ## Contributing

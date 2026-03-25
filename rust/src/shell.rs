@@ -7,10 +7,10 @@ use crate::core::stats;
 use crate::core::tokens::count_tokens;
 
 pub fn exec(command: &str) -> i32 {
-    let real_shell = detect_shell();
+    let (shell, shell_flag) = shell_and_flag();
 
-    let child = Command::new(&real_shell)
-        .arg("-c")
+    let child = Command::new(&shell)
+        .arg(&shell_flag)
         .arg(command)
         .env("LEAN_CTX_ACTIVE", "1")
         .stdout(Stdio::piped())
@@ -170,6 +170,25 @@ fn compress_if_beneficial(command: &str, output: &str) -> String {
     output.to_string()
 }
 
+pub fn shell_and_flag() -> (String, String) {
+    let shell = detect_shell();
+    let flag = if cfg!(windows) {
+        let name = std::path::Path::new(&shell)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if name.contains("powershell") || name.contains("pwsh") {
+            "-Command".to_string()
+        } else {
+            "/C".to_string()
+        }
+    } else {
+        "-c".to_string()
+    };
+    (shell, flag)
+}
+
 fn detect_shell() -> String {
     if let Ok(shell) = std::env::var("LEAN_CTX_SHELL") {
         return shell;
@@ -190,6 +209,7 @@ fn detect_shell() -> String {
     find_real_shell()
 }
 
+#[cfg(unix)]
 fn find_real_shell() -> String {
     for shell in &["/bin/zsh", "/bin/bash", "/bin/sh"] {
         if std::path::Path::new(shell).exists() {
@@ -197,6 +217,14 @@ fn find_real_shell() -> String {
         }
     }
     "/bin/sh".to_string()
+}
+
+#[cfg(windows)]
+fn find_real_shell() -> String {
+    if let Ok(comspec) = std::env::var("COMSPEC") {
+        return comspec;
+    }
+    "cmd.exe".to_string()
 }
 
 fn save_tee(command: &str, output: &str) -> Option<String> {

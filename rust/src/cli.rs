@@ -136,7 +136,11 @@ pub fn cmd_grep(args: &[String]) {
     let pattern = &args[0];
     let path = args.get(1).map(|s| s.as_str()).unwrap_or(".");
 
-    let command = format!("grep -rn '{}' {}", pattern.replace('\'', "'\\''"), path);
+    let command = if cfg!(windows) {
+        format!("findstr /S /N /R \"{}\" {}\\*", pattern, path.replace('/', "\\"))
+    } else {
+        format!("grep -rn '{}' {}", pattern.replace('\'', "'\\''"), path)
+    };
     let code = crate::shell::exec(&command);
     std::process::exit(code);
 }
@@ -149,14 +153,22 @@ pub fn cmd_find(args: &[String]) {
 
     let pattern = &args[0];
     let path = args.get(1).map(|s| s.as_str()).unwrap_or(".");
-    let command = format!("find {path} -name \"{pattern}\" -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/target/*'");
+    let command = if cfg!(windows) {
+        format!("dir /S /B {}\\{}", path.replace('/', "\\"), pattern)
+    } else {
+        format!("find {path} -name \"{pattern}\" -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/target/*'")
+    };
     let code = crate::shell::exec(&command);
     std::process::exit(code);
 }
 
 pub fn cmd_ls(args: &[String]) {
     let path = args.first().map(|s| s.as_str()).unwrap_or(".");
-    let command = format!("ls -la {path}");
+    let command = if cfg!(windows) {
+        format!("dir {}", path.replace('/', "\\"))
+    } else {
+        format!("ls -la {path}")
+    };
     let code = crate::shell::exec(&command);
     std::process::exit(code);
 }
@@ -338,67 +350,155 @@ pub fn cmd_init(args: &[String]) {
     let shell_name = std::env::var("SHELL").unwrap_or_default();
     let is_zsh = shell_name.contains("zsh");
     let is_fish = shell_name.contains("fish");
+    let is_powershell = cfg!(windows) && shell_name.is_empty();
 
     let binary = std::env::current_exe()
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|_| "lean-ctx".to_string());
 
-    if is_fish {
-        let config = dirs::home_dir()
-            .map(|h| h.join(".config/fish/config.fish"))
-            .unwrap_or_default();
-
-        let aliases = "\n# lean-ctx shell hook — transparent CLI compression (60+ patterns)\n\
-            if not set -q LEAN_CTX_ACTIVE\n\
-            \talias git 'lean-ctx -c git'\n\
-            \talias npm 'lean-ctx -c npm'\n\
-            \talias pnpm 'lean-ctx -c pnpm'\n\
-            \talias yarn 'lean-ctx -c yarn'\n\
-            \talias cargo 'lean-ctx -c cargo'\n\
-            \talias docker 'lean-ctx -c docker'\n\
-            \talias docker-compose 'lean-ctx -c docker-compose'\n\
-            \talias kubectl 'lean-ctx -c kubectl'\n\
-            \talias k 'lean-ctx -c kubectl'\n\
-            \talias gh 'lean-ctx -c gh'\n\
-            \talias pip 'lean-ctx -c pip'\n\
-            \talias pip3 'lean-ctx -c pip3'\n\
-            \talias ruff 'lean-ctx -c ruff'\n\
-            \talias go 'lean-ctx -c go'\n\
-            \talias golangci-lint 'lean-ctx -c golangci-lint'\n\
-            \talias eslint 'lean-ctx -c eslint'\n\
-            \talias prettier 'lean-ctx -c prettier'\n\
-            \talias tsc 'lean-ctx -c tsc'\n\
-            \talias ls 'lean-ctx -c ls'\n\
-            \talias find 'lean-ctx -c find'\n\
-            \talias grep 'lean-ctx -c grep'\n\
-            \talias curl 'lean-ctx -c curl'\n\
-            \talias wget 'lean-ctx -c wget'\n\
-            end\n";
-
-        if let Ok(existing) = std::fs::read_to_string(&config) {
-            if existing.contains("lean-ctx") {
-                println!("lean-ctx already configured in {}", config.display());
-                return;
-            }
-        }
-
-        match std::fs::OpenOptions::new().append(true).create(true).open(&config) {
-            Ok(mut f) => {
-                use std::io::Write;
-                let _ = f.write_all(aliases.as_bytes());
-                println!("Added lean-ctx aliases to {}", config.display());
-            }
-            Err(e) => eprintln!("Error writing {}: {e}", config.display()),
-        }
+    if is_powershell {
+        init_powershell(&binary);
+    } else if is_fish {
+        init_fish();
     } else {
-        let rc_file = if is_zsh {
-            dirs::home_dir().map(|h| h.join(".zshrc")).unwrap_or_default()
-        } else {
-            dirs::home_dir().map(|h| h.join(".bashrc")).unwrap_or_default()
-        };
+        init_posix(is_zsh);
+    }
 
-        let aliases = r#"
-# lean-ctx shell hook — transparent CLI compression (60+ patterns)
+    let lean_dir = dirs::home_dir().map(|h| h.join(".lean-ctx"));
+    if let Some(dir) = lean_dir {
+        if !dir.exists() {
+            let _ = std::fs::create_dir_all(&dir);
+            println!("Created {}", dir.display());
+        }
+    }
+
+    if global && !is_powershell {
+        let rc = if is_fish { "config.fish" } else if is_zsh { ".zshrc" } else { ".bashrc" };
+        println!("\nRestart your shell or run: source ~/{rc}");
+    } else if global && is_powershell {
+        println!("\nRestart PowerShell or run: . $PROFILE");
+    }
+
+    println!("\nlean-ctx init complete. (23 aliases installed)");
+    println!("Binary: {binary}");
+    println!("\nRun 'lean-ctx gain' after using some commands to see your savings.");
+    println!("Run 'lean-ctx discover' to find missed savings in your shell history.");
+}
+
+fn init_powershell(binary: &str) {
+    let profile_dir = dirs::home_dir()
+        .map(|h| h.join("Documents").join("PowerShell"));
+    let profile_path = match profile_dir {
+        Some(dir) => {
+            let _ = std::fs::create_dir_all(&dir);
+            dir.join("Microsoft.PowerShell_profile.ps1")
+        }
+        None => {
+            eprintln!("Could not resolve PowerShell profile directory");
+            return;
+        }
+    };
+
+    let binary_escaped = binary.replace('\\', "\\\\");
+    let functions = format!(r#"
+# lean-ctx shell hook — transparent CLI compression (75+ patterns)
+if (-not $env:LEAN_CTX_ACTIVE) {{
+  $LeanCtxBin = "{binary_escaped}"
+  function git {{ & $LeanCtxBin -c "git $($args -join ' ')" }}
+  function npm {{ & $LeanCtxBin -c "npm $($args -join ' ')" }}
+  function pnpm {{ & $LeanCtxBin -c "pnpm $($args -join ' ')" }}
+  function yarn {{ & $LeanCtxBin -c "yarn $($args -join ' ')" }}
+  function cargo {{ & $LeanCtxBin -c "cargo $($args -join ' ')" }}
+  function docker {{ & $LeanCtxBin -c "docker $($args -join ' ')" }}
+  function kubectl {{ & $LeanCtxBin -c "kubectl $($args -join ' ')" }}
+  function gh {{ & $LeanCtxBin -c "gh $($args -join ' ')" }}
+  function pip {{ & $LeanCtxBin -c "pip $($args -join ' ')" }}
+  function pip3 {{ & $LeanCtxBin -c "pip3 $($args -join ' ')" }}
+  function ruff {{ & $LeanCtxBin -c "ruff $($args -join ' ')" }}
+  function go {{ & $LeanCtxBin -c "go $($args -join ' ')" }}
+  function eslint {{ & $LeanCtxBin -c "eslint $($args -join ' ')" }}
+  function prettier {{ & $LeanCtxBin -c "prettier $($args -join ' ')" }}
+  function tsc {{ & $LeanCtxBin -c "tsc $($args -join ' ')" }}
+  function curl {{ & $LeanCtxBin -c "curl $($args -join ' ')" }}
+  function wget {{ & $LeanCtxBin -c "wget $($args -join ' ')" }}
+}}
+"#);
+
+    if let Ok(existing) = std::fs::read_to_string(&profile_path) {
+        if existing.contains("lean-ctx shell hook") {
+            println!("lean-ctx already configured in {}", profile_path.display());
+            return;
+        }
+    }
+
+    match std::fs::OpenOptions::new().append(true).create(true).open(&profile_path) {
+        Ok(mut f) => {
+            use std::io::Write;
+            let _ = f.write_all(functions.as_bytes());
+            println!("Added lean-ctx functions to {}", profile_path.display());
+        }
+        Err(e) => eprintln!("Error writing {}: {e}", profile_path.display()),
+    }
+}
+
+fn init_fish() {
+    let config = dirs::home_dir()
+        .map(|h| h.join(".config/fish/config.fish"))
+        .unwrap_or_default();
+
+    let aliases = "\n# lean-ctx shell hook — transparent CLI compression (75+ patterns)\n\
+        if not set -q LEAN_CTX_ACTIVE\n\
+        \talias git 'lean-ctx -c git'\n\
+        \talias npm 'lean-ctx -c npm'\n\
+        \talias pnpm 'lean-ctx -c pnpm'\n\
+        \talias yarn 'lean-ctx -c yarn'\n\
+        \talias cargo 'lean-ctx -c cargo'\n\
+        \talias docker 'lean-ctx -c docker'\n\
+        \talias docker-compose 'lean-ctx -c docker-compose'\n\
+        \talias kubectl 'lean-ctx -c kubectl'\n\
+        \talias k 'lean-ctx -c kubectl'\n\
+        \talias gh 'lean-ctx -c gh'\n\
+        \talias pip 'lean-ctx -c pip'\n\
+        \talias pip3 'lean-ctx -c pip3'\n\
+        \talias ruff 'lean-ctx -c ruff'\n\
+        \talias go 'lean-ctx -c go'\n\
+        \talias golangci-lint 'lean-ctx -c golangci-lint'\n\
+        \talias eslint 'lean-ctx -c eslint'\n\
+        \talias prettier 'lean-ctx -c prettier'\n\
+        \talias tsc 'lean-ctx -c tsc'\n\
+        \talias ls 'lean-ctx -c ls'\n\
+        \talias find 'lean-ctx -c find'\n\
+        \talias grep 'lean-ctx -c grep'\n\
+        \talias curl 'lean-ctx -c curl'\n\
+        \talias wget 'lean-ctx -c wget'\n\
+        end\n";
+
+    if let Ok(existing) = std::fs::read_to_string(&config) {
+        if existing.contains("lean-ctx") {
+            println!("lean-ctx already configured in {}", config.display());
+            return;
+        }
+    }
+
+    match std::fs::OpenOptions::new().append(true).create(true).open(&config) {
+        Ok(mut f) => {
+            use std::io::Write;
+            let _ = f.write_all(aliases.as_bytes());
+            println!("Added lean-ctx aliases to {}", config.display());
+        }
+        Err(e) => eprintln!("Error writing {}: {e}", config.display()),
+    }
+}
+
+fn init_posix(is_zsh: bool) {
+    let rc_file = if is_zsh {
+        dirs::home_dir().map(|h| h.join(".zshrc")).unwrap_or_default()
+    } else {
+        dirs::home_dir().map(|h| h.join(".bashrc")).unwrap_or_default()
+    };
+
+    let aliases = r#"
+# lean-ctx shell hook — transparent CLI compression (75+ patterns)
 if [ -z "$LEAN_CTX_ACTIVE" ]; then
 alias git='lean-ctx -c git'
 alias npm='lean-ctx -c npm'
@@ -426,39 +526,21 @@ alias wget='lean-ctx -c wget'
 fi
 "#;
 
-        if let Ok(existing) = std::fs::read_to_string(&rc_file) {
-            if existing.contains("lean-ctx shell hook") {
-                println!("lean-ctx already configured in {}", rc_file.display());
-                return;
-            }
-        }
-
-        match std::fs::OpenOptions::new().append(true).create(true).open(&rc_file) {
-            Ok(mut f) => {
-                use std::io::Write;
-                let _ = f.write_all(aliases.as_bytes());
-                println!("Added lean-ctx aliases to {}", rc_file.display());
-            }
-            Err(e) => eprintln!("Error writing {}: {e}", rc_file.display()),
+    if let Ok(existing) = std::fs::read_to_string(&rc_file) {
+        if existing.contains("lean-ctx shell hook") {
+            println!("lean-ctx already configured in {}", rc_file.display());
+            return;
         }
     }
 
-    let lean_dir = dirs::home_dir().map(|h| h.join(".lean-ctx"));
-    if let Some(dir) = lean_dir {
-        if !dir.exists() {
-            let _ = std::fs::create_dir_all(&dir);
-            println!("Created {}", dir.display());
+    match std::fs::OpenOptions::new().append(true).create(true).open(&rc_file) {
+        Ok(mut f) => {
+            use std::io::Write;
+            let _ = f.write_all(aliases.as_bytes());
+            println!("Added lean-ctx aliases to {}", rc_file.display());
         }
+        Err(e) => eprintln!("Error writing {}: {e}", rc_file.display()),
     }
-
-    if global {
-        println!("\nRestart your shell or run: source ~/{}", if is_zsh { ".zshrc" } else { ".bashrc" });
-    }
-
-    println!("\nlean-ctx init complete. (23 aliases installed)");
-    println!("Binary: {binary}");
-    println!("\nRun 'lean-ctx gain' after using some commands to see your savings.");
-    println!("Run 'lean-ctx discover' to find missed savings in your shell history.");
 }
 
 fn load_shell_history() -> Vec<String> {
@@ -472,6 +554,14 @@ fn load_shell_history() -> Vec<String> {
         home.join(".zsh_history")
     } else if shell.contains("fish") {
         home.join(".local/share/fish/fish_history")
+    } else if cfg!(windows) && shell.is_empty() {
+        home.join("AppData")
+            .join("Roaming")
+            .join("Microsoft")
+            .join("Windows")
+            .join("PowerShell")
+            .join("PSReadLine")
+            .join("ConsoleHost_history.txt")
     } else {
         home.join(".bash_history")
     };
