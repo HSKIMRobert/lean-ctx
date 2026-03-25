@@ -45,7 +45,7 @@ This release introduces the **Context Continuity Protocol** — cross-session me
 - **3 new CLI commands**:
   - `lean-ctx wrapped [--week|--month|--all]` — Shareable savings report card
   - `lean-ctx sessions [list|show|cleanup]` — Manage CCP sessions
-  - `lean-ctx benchmark [cold-start|session-resume|litm]` — Reproducible benchmark with LITM efficiency analysis
+  - `lean-ctx benchmark run [path]` — Real project benchmark (superseded by v2.1.0 project benchmarks)
 
 - **LITM-Aware Positioning Engine** (`core/litm.rs`):
   - Places session state at context begin position (attention α=0.9)
@@ -62,10 +62,10 @@ This release introduces the **Context Continuity Protocol** — cross-session me
   - 7-day session archival with cleanup
 
 - **Benchmark Engine** (`core/benchmark.rs`):
-  - Cold-start comparison: Raw vs .cursorrules vs lean-ctx vs lean-ctx+CCP
-  - Session resume comparison after context compaction
-  - LITM efficiency analysis across context sizes (10K-200K)
-  - Based on real session data from `~/.lean-ctx/`
+  - Project-wide benchmark scanning up to 50 representative files
+  - Per-mode token measurement using tiktoken (o200k_base)
+  - Session simulation with real file data
+  - Superseded by v2.1.0 project benchmarks with latency and preservation scoring
 
 ### Improved
 

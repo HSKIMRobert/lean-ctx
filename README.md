@@ -195,7 +195,7 @@ lean-ctx config                # Show configuration (~/.lean-ctx/config.toml)
 lean-ctx config init           # Create default config file
 lean-ctx doctor                # Diagnostics: PATH, config, aliases, MCP, ports
 lean-ctx wrapped               # Shareable savings report (CCP)
-lean-ctx wrapped --period=week # Weekly savings report
+lean-ctx wrapped --week        # Weekly savings report
 lean-ctx sessions list         # List CCP sessions
 lean-ctx sessions show <id>    # Show session details
 lean-ctx sessions cleanup      # Remove old sessions
@@ -427,7 +427,7 @@ lean-ctx sessions list              # List all sessions
 lean-ctx sessions show <id>         # Show session details
 lean-ctx sessions cleanup           # Remove old sessions
 lean-ctx wrapped                    # Shareable savings report
-lean-ctx wrapped --period=week      # Weekly report
+lean-ctx wrapped --week             # Weekly report
 lean-ctx benchmark run              # Real project benchmark
 lean-ctx benchmark report           # Shareable Markdown report
 ```
@@ -435,9 +435,9 @@ lean-ctx benchmark report           # Shareable Markdown report
 **MCP usage:**
 ```json
 {"tool": "ctx_session", "arguments": {"action": "status"}}
-{"tool": "ctx_session", "arguments": {"action": "task", "description": "Implement auth module"}}
-{"tool": "ctx_session", "arguments": {"action": "finding", "content": "Auth uses JWT with RS256"}}
-{"tool": "ctx_session", "arguments": {"action": "decision", "content": "Use middleware pattern for auth"}}
+{"tool": "ctx_session", "arguments": {"action": "task", "value": "Implement auth module"}}
+{"tool": "ctx_session", "arguments": {"action": "finding", "value": "Auth uses JWT with RS256"}}
+{"tool": "ctx_session", "arguments": {"action": "decision", "value": "Use middleware pattern for auth"}}
 {"tool": "ctx_wrapped", "arguments": {}}
 ```
 
@@ -573,7 +573,7 @@ Add a lean-ctx terminal profile for automatic shell hook in Cursor:
 For maximum token savings, add a Cursor rule to your project:
 
 ```bash
-cp examples/lean-ctx.mdc .cursor/rules/lean-ctx.mdc
+cp rust/examples/lean-ctx.mdc .cursor/rules/lean-ctx.mdc
 ```
 
 This instructs the LLM to prefer lean-ctx tools and use compact output patterns (CRP v2).

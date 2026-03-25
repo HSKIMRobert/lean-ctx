@@ -71,14 +71,14 @@ LeanCTX is a **Lossless Minifier for Human Thought**.
 
 ## Where We're Going
 
-LeanCTX v2.0 delivers Dimension 1 (Compression) and Dimension 3 (Context Management) with:
+LeanCTX v2.1 delivers Dimension 1 (Compression) and Dimension 3 (Context Management) with:
 - 90+ CLI patterns, 14 tree-sitter languages, 21 MCP tools
 - Session cache with TTL, subagent isolation, delta reads
 - **Context Continuity Protocol (CCP)** — cross-session memory that persists across chat sessions and context compactions (~400 tokens vs ~50K cold start)
 - **LITM-Aware Positioning** — places critical information at attention-optimal positions (begin α=0.9, end γ=0.85) based on Liu et al., 2023
 - Persistent stats with USD tracking, visual dashboards, and shareable "Wrapped" reports
-- Reproducible benchmark engine comparing CCP vs raw context
-- Works with every MCP editor: Cursor, Copilot, Claude Code, Windsurf, Codex, Antigravity, OpenCode
+- **Project Benchmark Engine** — real token measurements with tiktoken, latency tracking, AST-based preservation scoring, session simulation
+- Works with every MCP editor: Cursor, Copilot, Claude Code, Windsurf, Codex, Antigravity, OpenCode, OpenClaw
 
 Future directions:
 - **Semantic Routing** — Automatic mode selection based on query intent

@@ -109,6 +109,15 @@ fi
         }
         println!("Installed Claude Code PreToolUse hook at {}", script_path.display());
     }
+
+    let claude_md = PathBuf::from("CLAUDE.md");
+    if !claude_md.exists() || !std::fs::read_to_string(&claude_md).unwrap_or_default().contains("lean-ctx") {
+        let content = include_str!("../examples/CLAUDE.md");
+        write_file(&claude_md, content);
+        println!("Created CLAUDE.md in current project directory.");
+    } else {
+        println!("CLAUDE.md already configured.");
+    }
 }
 
 fn install_cursor_hook() {
@@ -159,6 +168,17 @@ esac
     } else {
         write_file(&hooks_json, &serde_json::to_string_pretty(&hook_config).unwrap());
         println!("Installed Cursor hook at {}", hooks_json.display());
+    }
+
+    let rules_dir = PathBuf::from(".cursor").join("rules");
+    let _ = std::fs::create_dir_all(&rules_dir);
+    let rule_path = rules_dir.join("lean-ctx.mdc");
+    if !rule_path.exists() {
+        let rule_content = include_str!("../examples/lean-ctx.mdc");
+        write_file(&rule_path, rule_content);
+        println!("Created .cursor/rules/lean-ctx.mdc in current project.");
+    } else {
+        println!("Cursor rule already exists.");
     }
 
     println!("Restart Cursor to activate.");
@@ -269,17 +289,7 @@ fn install_windsurf_rules() {
         }
     }
 
-    let rules = r#"# lean-ctx Shell Optimization
-# Prefix all shell commands with `lean-ctx -c` for 60-90% token savings.
-# Example: `lean-ctx -c git status` instead of `git status`
-# Supported: git, cargo, npm, pnpm, docker, kubectl, pip, ruff, go, curl, grep, find, ls, aws, helm, and 90+ more.
-
-When running shell commands, always prefix them with `lean-ctx -c` to compress output and save tokens. For example:
-- `lean-ctx -c git status` instead of `git status`
-- `lean-ctx -c cargo test` instead of `cargo test`
-- `lean-ctx -c npm install` instead of `npm install`
-"#;
-
+    let rules = include_str!("../examples/.windsurfrules");
     write_file(&rules_path, rules);
     println!("Installed .windsurfrules in current project.");
 }
