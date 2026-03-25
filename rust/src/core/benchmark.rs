@@ -84,7 +84,7 @@ fn benchmark_cold_start() -> BenchmarkResult {
                 litm_efficiency: cursorrules_litm,
             },
             BenchmarkRow {
-                label: "lean-ctx v1.9".to_string(),
+                label: "lean-ctx (no CCP)".to_string(),
                 tokens: lean_tokens,
                 cost_usd: lean_tokens as f64 * COST_PER_TOKEN,
                 litm_efficiency: lean_litm,

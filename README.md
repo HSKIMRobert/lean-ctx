@@ -1,6 +1,6 @@
 # lean-ctx
 
-**Context Intelligence Engine with Token Dense Dialect (TDD). Shell Hook + MCP Server. 19 MCP tools, 90+ shell patterns, tree-sitter AST parsing for 14 languages. Single Rust binary.**
+**Context Intelligence Engine with CCP + TDD. Shell Hook + MCP Server. 21 MCP tools, 90+ shell patterns, cross-session memory (CCP), LITM-aware positioning, tree-sitter AST for 14 languages. Single Rust binary.**
 
 [![Crates.io](https://img.shields.io/crates/v/lean-ctx)](https://crates.io/crates/lean-ctx)
 [![Downloads](https://img.shields.io/crates/d/lean-ctx)](https://crates.io/crates/lean-ctx)
@@ -8,14 +8,14 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/pTHkG9Hew9)
 
-[Website](https://leanctx.com) · [Install](#installation) · [Quick Start](#quick-start) · [CLI Reference](#cli-commands) · [MCP Tools](#19-mcp-tools) · [Changelog](CHANGELOG.md) · [vs RTK](#lean-ctx-vs-rtk) · [Discord](https://discord.gg/pTHkG9Hew9)
+[Website](https://leanctx.com) · [Install](#installation) · [Quick Start](#quick-start) · [CLI Reference](#cli-commands) · [MCP Tools](#21-mcp-tools) · [Changelog](CHANGELOG.md) · [vs RTK](#lean-ctx-vs-rtk) · [Discord](https://discord.gg/pTHkG9Hew9)
 
 ---
 
 lean-ctx reduces LLM token consumption by **up to 99%** through two complementary strategies in a single binary:
 
 1. **Shell Hook** — Transparently compresses CLI output (90+ patterns) before it reaches the LLM. Works without LLM cooperation.
-2. **MCP Server** — 19 tools for cached file reads, adaptive mode selection, incremental deltas, dependency maps, intent detection, cross-file dedup, project graph, and session metrics. Works with Cursor, GitHub Copilot, Claude Code, Windsurf, OpenAI Codex, Google Antigravity, OpenCode, and any MCP-compatible editor.
+2. **MCP Server** — 21 tools for cached file reads, adaptive mode selection, incremental deltas, dependency maps, intent detection, cross-file dedup, project graph, cross-session memory (CCP), and session metrics. Works with Cursor, GitHub Copilot, Claude Code, Windsurf, OpenAI Codex, Google Antigravity, OpenCode, and any MCP-compatible editor.
 3. **AI Tool Hooks** — One-command integration for Claude Code, Cursor, Gemini CLI, Codex, Windsurf, and Cline via `lean-ctx init --agent <tool>`.
 
 ## Token Savings (Typical Cursor/Claude Code Session)
@@ -75,7 +75,7 @@ cp target/release/lean-ctx ~/.local/bin/
 ### Verify Installation
 
 ```bash
-lean-ctx --version   # Should show "lean-ctx 1.9.0"
+lean-ctx --version   # Should show "lean-ctx 2.0.0"
 lean-ctx gain        # Should show token savings stats
 ```
 
@@ -194,6 +194,13 @@ lean-ctx session               # Show adoption statistics
 lean-ctx config                # Show configuration (~/.lean-ctx/config.toml)
 lean-ctx config init           # Create default config file
 lean-ctx doctor                # Diagnostics: PATH, config, aliases, MCP, ports
+lean-ctx wrapped               # Shareable savings report (CCP)
+lean-ctx wrapped --period=week # Weekly savings report
+lean-ctx sessions list         # List CCP sessions
+lean-ctx sessions show <id>    # Show session details
+lean-ctx sessions cleanup      # Remove old sessions
+lean-ctx benchmark             # Reproducible benchmark vs. baselines
+lean-ctx benchmark --scenario=litm  # LITM efficiency analysis
 lean-ctx --version             # Show version
 lean-ctx --help                # Full help
 ```
@@ -333,12 +340,12 @@ $ lean-ctx gain
   03-23    101 cmds      9.4K saved   46.0%
   03-24    419 cmds      1.7M saved   77.0%
 
-  lean-ctx v1.9.0  |  leanctx.com  |  lean-ctx dashboard
+  lean-ctx v2.0.0  |  leanctx.com  |  lean-ctx dashboard
 ```
 
-## 19 MCP Tools
+## 21 MCP Tools
 
-When configured as an MCP server, lean-ctx provides 19 tools that replace or augment your editor's built-in tools:
+When configured as an MCP server, lean-ctx provides 21 tools that replace or augment your editor's built-in tools:
 
 ### Core Tools
 
@@ -351,7 +358,7 @@ When configured as an MCP server, lean-ctx provides 19 tools that replace or aug
 | `ctx_search` | Code search (Grep) | 50-80% |
 | `ctx_compress` | Context checkpoint for long conversations | 90-99% |
 
-### Intelligence Tools (new in v1.9.0)
+### Intelligence Tools
 
 | Tool | Purpose |
 |---|---|
@@ -364,6 +371,13 @@ When configured as an MCP server, lean-ctx provides 19 tools that replace or aug
 | `ctx_context` | Multi-turn session overview — tracks what the LLM already knows |
 | `ctx_graph` | Project intelligence graph — dependency analysis and related file discovery |
 | `ctx_discover` | Shell history analysis — finds missed compression opportunities |
+
+### Session Continuity Tools (new in v2.0.0)
+
+| Tool | Purpose |
+|---|---|
+| `ctx_session` | Cross-session memory — persist task, findings, decisions, files across chats and context compactions |
+| `ctx_wrapped` | Shareable savings report — "Spotify Wrapped" for your token savings |
 
 ### Analysis Tools
 
@@ -394,6 +408,37 @@ For explicit control:
 - Use `ctx_read` with `fresh=true` to bypass cache and get full content
 - Call `ctx_cache(action: "clear")` to reset the entire cache
 - Call `ctx_cache(action: "invalidate", path: "...")` to reset a single file
+
+### Context Continuity Protocol (CCP)
+
+New in v2.0.0: CCP provides cross-session memory that persists across chats, context compactions, and IDE restarts. The session state captures your current task, findings, decisions, and files touched — automatically loaded into every new conversation.
+
+**How it works:**
+- Session state is stored as JSON in `~/.lean-ctx/sessions/`
+- Automatically loaded into server instructions on startup
+- Uses LITM-aware positioning: critical context placed at the beginning and end of the LLM's context window (where attention is highest), avoiding the "Lost in the Middle" degradation zone
+- Incrementally updated after each tool call
+- Auto-saved during checkpoints and idle cache expiry
+
+**CLI commands:**
+```bash
+lean-ctx sessions list              # List all sessions
+lean-ctx sessions show <id>         # Show session details
+lean-ctx sessions cleanup           # Remove old sessions
+lean-ctx wrapped                    # Shareable savings report
+lean-ctx wrapped --period=week      # Weekly report
+lean-ctx benchmark                  # Reproducible benchmark vs. baselines
+lean-ctx benchmark --scenario=litm  # LITM efficiency analysis
+```
+
+**MCP usage:**
+```json
+{"tool": "ctx_session", "arguments": {"action": "status"}}
+{"tool": "ctx_session", "arguments": {"action": "task", "description": "Implement auth module"}}
+{"tool": "ctx_session", "arguments": {"action": "finding", "content": "Auth uses JWT with RS256"}}
+{"tool": "ctx_session", "arguments": {"action": "decision", "content": "Use middleware pattern for auth"}}
+{"tool": "ctx_wrapped", "arguments": {}}
+```
 
 ## Editor Configuration
 
@@ -619,8 +664,12 @@ Opens `http://localhost:3333` with:
 | **History analysis** | ✗ | ✓ `lean-ctx discover` — find uncompressed commands |
 | **Homebrew** | ✓ | ✓ `brew tap yvgude/lean-ctx && brew install lean-ctx` |
 | **Adoption tracking** | ✗ | ✓ `lean-ctx session` — adoption % |
+| **Cross-session memory** | ✗ | ✓ CCP — persists task, findings, decisions across chats |
+| **LITM-aware positioning** | ✗ | ✓ Attention-optimal context placement (primacy/recency) |
+| **Savings reports** | ✗ | ✓ `lean-ctx wrapped` — shareable savings summary |
+| **Reproducible benchmarks** | ✗ | ✓ `lean-ctx benchmark` — vs. raw/cursorrules baselines |
 
-**Key difference**: RTK compresses CLI output only. lean-ctx compresses CLI output *and* file reads, search results, and project context through the MCP protocol — reaching up to 99% savings on cached re-reads and 60-90% on CLI output.
+**Key difference**: RTK compresses CLI output only. lean-ctx compresses CLI output *and* file reads, search results, and project context through the MCP protocol — reaching up to 99% savings on cached re-reads and 60-90% on CLI output. With CCP (v2.0.0), lean-ctx additionally eliminates cold-start overhead by persisting session state across conversations.
 
 ## tree-sitter Signature Engine
 
