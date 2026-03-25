@@ -57,7 +57,13 @@ fn extract_schema(val: &serde_json::Value, depth: usize) -> String {
                     serde_json::Value::Object(inner) => {
                         if inner.len() <= 3 {
                             let keys: Vec<&String> = inner.keys().collect();
-                            format!("{{{}}}", keys.iter().map(|k| k.as_str()).collect::<Vec<_>>().join(", "))
+                            format!(
+                                "{{{}}}",
+                                keys.iter()
+                                    .map(|k| k.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            )
                         } else {
                             format!("{{{}K}}", inner.len())
                         }

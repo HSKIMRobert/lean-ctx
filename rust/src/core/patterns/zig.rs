@@ -29,7 +29,11 @@ fn compress_test(output: &str) -> String {
             failures.push(trimmed.to_string());
         }
         if trimmed.contains("All") && trimmed.contains("passed") {
-            if let Some(n) = trimmed.split_whitespace().nth(1).and_then(|w| w.parse().ok()) {
+            if let Some(n) = trimmed
+                .split_whitespace()
+                .nth(1)
+                .and_then(|w| w.parse().ok())
+            {
                 passed = n;
             }
         }
@@ -40,7 +44,9 @@ fn compress_test(output: &str) -> String {
     }
 
     let mut result = format!("zig test: {passed} passed");
-    if failed > 0 { result.push_str(&format!(", {failed} failed")); }
+    if failed > 0 {
+        result.push_str(&format!(", {failed} failed"));
+    }
     for f in failures.iter().take(5) {
         result.push_str(&format!("\n  {f}"));
     }
@@ -48,12 +54,17 @@ fn compress_test(output: &str) -> String {
 }
 
 fn compress_build(output: &str) -> String {
-    let errors: Vec<&str> = output.lines().filter(|l| l.contains("error:") || l.contains("Error")).collect();
+    let errors: Vec<&str> = output
+        .lines()
+        .filter(|l| l.contains("error:") || l.contains("Error"))
+        .collect();
     let warnings: Vec<&str> = output.lines().filter(|l| l.contains("warning:")).collect();
 
     if !errors.is_empty() {
         let mut result = format!("{} errors", errors.len());
-        if !warnings.is_empty() { result.push_str(&format!(", {} warnings", warnings.len())); }
+        if !warnings.is_empty() {
+            result.push_str(&format!(", {} warnings", warnings.len()));
+        }
         for e in errors.iter().take(10) {
             result.push_str(&format!("\n  {}", e.trim()));
         }
@@ -72,5 +83,9 @@ fn compact_lines(text: &str, max: usize) -> String {
     if lines.len() <= max {
         return lines.join("\n");
     }
-    format!("{}\n... ({} more lines)", lines[..max].join("\n"), lines.len() - max)
+    format!(
+        "{}\n... ({} more lines)",
+        lines[..max].join("\n"),
+        lines.len() - max
+    )
 }

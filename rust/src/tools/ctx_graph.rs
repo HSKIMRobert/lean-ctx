@@ -41,11 +41,15 @@ impl ProjectGraph {
     }
 
     pub fn add_file(&mut self, path: &str, content: &str) {
-        let ext = Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("");
+        let ext = Path::new(path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
         let dep_info = deps::extract_deps(content, ext);
         let sigs = signatures::extract_signatures(content, ext);
 
-        let exports: Vec<String> = sigs.iter()
+        let exports: Vec<String> = sigs
+            .iter()
             .filter(|s| s.is_exported)
             .map(|s| s.name.clone())
             .collect();
@@ -75,7 +79,11 @@ impl ProjectGraph {
         }
 
         let mut result = Vec::new();
-        result.push(format!("Project Graph: {} files, {} edges", self.nodes.len(), self.edges.len()));
+        result.push(format!(
+            "Project Graph: {} files, {} edges",
+            self.nodes.len(),
+            self.edges.len()
+        ));
 
         let mut by_lang: HashMap<&str, (usize, usize)> = HashMap::new();
         for node in self.nodes.values() {
@@ -106,9 +114,14 @@ impl ProjectGraph {
             }
         }
 
-        let isolated: Vec<_> = self.nodes.keys()
+        let isolated: Vec<_> = self
+            .nodes
+            .keys()
             .filter(|path| {
-                !self.edges.iter().any(|e| &e.from == *path || &e.to == *path)
+                !self
+                    .edges
+                    .iter()
+                    .any(|e| &e.from == *path || &e.to == *path)
             })
             .collect();
         if !isolated.is_empty() && isolated.len() <= 10 {
@@ -157,20 +170,47 @@ pub fn handle(action: &str, path: Option<&str>, root: &str) -> String {
             let mut file_count = 0usize;
 
             for entry in walker.into_iter().filter_map(|e| e.ok()) {
-                if !entry.file_type().is_file() { continue; }
+                if !entry.file_type().is_file() {
+                    continue;
+                }
                 let file_path = entry.path().to_string_lossy().to_string();
                 let path_lower = file_path.to_lowercase();
 
-                if path_lower.contains("node_modules") || path_lower.contains("target/debug") ||
-                   path_lower.contains("target/release") || path_lower.contains(".git/") ||
-                   path_lower.contains("dist/") || path_lower.contains("build/") ||
-                   path_lower.contains("vendor/") {
+                if path_lower.contains("node_modules")
+                    || path_lower.contains("target/debug")
+                    || path_lower.contains("target/release")
+                    || path_lower.contains(".git/")
+                    || path_lower.contains("dist/")
+                    || path_lower.contains("build/")
+                    || path_lower.contains("vendor/")
+                {
                     continue;
                 }
 
-                let ext = Path::new(&file_path).extension().and_then(|e| e.to_str()).unwrap_or("");
-                if !matches!(ext, "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go" | "java" |
-                    "c" | "cpp" | "h" | "rb" | "cs" | "kt" | "swift" | "php" | "ex" | "exs") {
+                let ext = Path::new(&file_path)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("");
+                if !matches!(
+                    ext,
+                    "rs" | "ts"
+                        | "tsx"
+                        | "js"
+                        | "jsx"
+                        | "py"
+                        | "go"
+                        | "java"
+                        | "c"
+                        | "cpp"
+                        | "h"
+                        | "rb"
+                        | "cs"
+                        | "kt"
+                        | "swift"
+                        | "php"
+                        | "ex"
+                        | "exs"
+                ) {
                     continue;
                 }
 
@@ -197,7 +237,10 @@ pub fn handle(action: &str, path: Option<&str>, root: &str) -> String {
                 graph.add_file(target, &content);
             }
 
-            let ext = Path::new(target).extension().and_then(|e| e.to_str()).unwrap_or("");
+            let ext = Path::new(target)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("");
             if let Ok(content) = std::fs::read_to_string(target) {
                 let dep_info = deps::extract_deps(&content, ext);
                 for imp in &dep_info.imports {
@@ -212,10 +255,16 @@ pub fn handle(action: &str, path: Option<&str>, root: &str) -> String {
 
             let related = graph.get_related_files(target, 2);
             if related.is_empty() {
-                return format!("No related files found for {}", crate::core::protocol::shorten_path(target));
+                return format!(
+                    "No related files found for {}",
+                    crate::core::protocol::shorten_path(target)
+                );
             }
-            let mut result = format!("Files related to {} ({}):\n",
-                crate::core::protocol::shorten_path(target), related.len());
+            let mut result = format!(
+                "Files related to {} ({}):\n",
+                crate::core::protocol::shorten_path(target),
+                related.len()
+            );
             for r in &related {
                 result.push_str(&format!("  {}\n", crate::core::protocol::shorten_path(r)));
             }

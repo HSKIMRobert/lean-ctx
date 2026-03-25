@@ -5,9 +5,7 @@ static TSC_ERROR_RE: OnceLock<Regex> = OnceLock::new();
 static ERROR_COUNT_RE: OnceLock<Regex> = OnceLock::new();
 
 fn tsc_error_re() -> &'static Regex {
-    TSC_ERROR_RE.get_or_init(|| {
-        Regex::new(r"(\S+)\((\d+),\d+\): error (TS\d+): (.+)").unwrap()
-    })
+    TSC_ERROR_RE.get_or_init(|| Regex::new(r"(\S+)\((\d+),\d+\): error (TS\d+): (.+)").unwrap())
 }
 fn error_count_re() -> &'static Regex {
     ERROR_COUNT_RE.get_or_init(|| Regex::new(r"Found (\d+) error").unwrap())

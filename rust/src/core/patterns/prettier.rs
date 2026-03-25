@@ -21,14 +21,15 @@ pub fn compress(output: &str) -> Option<String> {
         })
         .collect();
 
-    let warnings: Vec<&str> = trimmed
-        .lines()
-        .filter(|l| l.contains("[warn]"))
-        .collect();
+    let warnings: Vec<&str> = trimmed.lines().filter(|l| l.contains("[warn]")).collect();
 
     if !unformatted.is_empty() {
         let files: Vec<String> = unformatted.iter().map(|l| l.trim().to_string()).collect();
-        return Some(format!("{} files need formatting:\n{}", files.len(), files.join("\n")));
+        return Some(format!(
+            "{} files need formatting:\n{}",
+            files.len(),
+            files.join("\n")
+        ));
     }
 
     if !warnings.is_empty() {
@@ -40,5 +41,9 @@ pub fn compress(output: &str) -> Option<String> {
     }
 
     let lines: Vec<&str> = trimmed.lines().collect();
-    Some(format!("{}\n... ({} more lines)", lines[..5].join("\n"), lines.len() - 5))
+    Some(format!(
+        "{}\n... ({} more lines)",
+        lines[..5].join("\n"),
+        lines.len() - 5
+    ))
 }

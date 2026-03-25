@@ -39,23 +39,40 @@ fn compress_s3(cmd: &str, output: &str) -> String {
         }
         let dirs: Vec<&&str> = entries.iter().filter(|l| l.contains("PRE ")).collect();
         let files: Vec<&&str> = entries.iter().filter(|l| !l.contains("PRE ")).collect();
-        return format!("{} dirs, {} files\n{}", dirs.len(), files.len(),
-            entries.iter().take(15).copied().collect::<Vec<_>>().join("\n"));
+        return format!(
+            "{} dirs, {} files\n{}",
+            dirs.len(),
+            files.len(),
+            entries
+                .iter()
+                .take(15)
+                .copied()
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
     }
 
     let mut uploaded = 0u32;
     let mut copied = 0u32;
     for line in output.lines() {
-        if line.contains("upload:") { uploaded += 1; }
-        if line.contains("copy:") { copied += 1; }
+        if line.contains("upload:") {
+            uploaded += 1;
+        }
+        if line.contains("copy:") {
+            copied += 1;
+        }
     }
     if uploaded + copied == 0 {
         return compact_lines(output, 10);
     }
     let mut result = String::new();
-    if uploaded > 0 { result.push_str(&format!("{uploaded} uploaded")); }
+    if uploaded > 0 {
+        result.push_str(&format!("{uploaded} uploaded"));
+    }
     if copied > 0 {
-        if !result.is_empty() { result.push_str(", "); }
+        if !result.is_empty() {
+            result.push_str(", ");
+        }
         result.push_str(&format!("{copied} copied"));
     }
     result
@@ -69,11 +86,26 @@ fn compress_ec2_instances(output: &str) -> String {
             for r in res {
                 if let Some(insts) = r.get("Instances").and_then(|i| i.as_array()) {
                     for inst in insts {
-                        let id = inst.get("InstanceId").and_then(|v| v.as_str()).unwrap_or("?");
-                        let state = inst.get("State").and_then(|s| s.get("Name")).and_then(|n| n.as_str()).unwrap_or("?");
-                        let itype = inst.get("InstanceType").and_then(|v| v.as_str()).unwrap_or("?");
-                        let name = inst.get("Tags").and_then(|t| t.as_array())
-                            .and_then(|tags| tags.iter().find(|t| t.get("Key").and_then(|k| k.as_str()) == Some("Name")))
+                        let id = inst
+                            .get("InstanceId")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("?");
+                        let state = inst
+                            .get("State")
+                            .and_then(|s| s.get("Name"))
+                            .and_then(|n| n.as_str())
+                            .unwrap_or("?");
+                        let itype = inst
+                            .get("InstanceType")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("?");
+                        let name = inst
+                            .get("Tags")
+                            .and_then(|t| t.as_array())
+                            .and_then(|tags| {
+                                tags.iter()
+                                    .find(|t| t.get("Key").and_then(|k| k.as_str()) == Some("Name"))
+                            })
                             .and_then(|t| t.get("Value").and_then(|v| v.as_str()))
                             .unwrap_or("-");
                         instances.push(format!("  {id} {state} {itype} \"{name}\""));
@@ -89,12 +121,18 @@ fn compress_ec2_instances(output: &str) -> String {
 fn compress_lambda_list(output: &str) -> String {
     if let Ok(val) = serde_json::from_str::<serde_json::Value>(output) {
         if let Some(fns) = val.get("Functions").and_then(|f| f.as_array()) {
-            let items: Vec<String> = fns.iter().map(|f| {
-                let name = f.get("FunctionName").and_then(|v| v.as_str()).unwrap_or("?");
-                let runtime = f.get("Runtime").and_then(|v| v.as_str()).unwrap_or("?");
-                let mem = f.get("MemorySize").and_then(|v| v.as_u64()).unwrap_or(0);
-                format!("  {name} ({runtime}, {mem}MB)")
-            }).collect();
+            let items: Vec<String> = fns
+                .iter()
+                .map(|f| {
+                    let name = f
+                        .get("FunctionName")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("?");
+                    let runtime = f.get("Runtime").and_then(|v| v.as_str()).unwrap_or("?");
+                    let mem = f.get("MemorySize").and_then(|v| v.as_u64()).unwrap_or(0);
+                    format!("  {name} ({runtime}, {mem}MB)")
+                })
+                .collect();
             return format!("{} functions:\n{}", items.len(), items.join("\n"));
         }
     }
@@ -104,11 +142,14 @@ fn compress_lambda_list(output: &str) -> String {
 fn compress_cfn(output: &str) -> String {
     if let Ok(val) = serde_json::from_str::<serde_json::Value>(output) {
         if let Some(stacks) = val.get("Stacks").and_then(|s| s.as_array()) {
-            let items: Vec<String> = stacks.iter().map(|s| {
-                let name = s.get("StackName").and_then(|v| v.as_str()).unwrap_or("?");
-                let status = s.get("StackStatus").and_then(|v| v.as_str()).unwrap_or("?");
-                format!("  {name}: {status}")
-            }).collect();
+            let items: Vec<String> = stacks
+                .iter()
+                .map(|s| {
+                    let name = s.get("StackName").and_then(|v| v.as_str()).unwrap_or("?");
+                    let status = s.get("StackStatus").and_then(|v| v.as_str()).unwrap_or("?");
+                    format!("  {name}: {status}")
+                })
+                .collect();
             return format!("{} stacks:\n{}", items.len(), items.join("\n"));
         }
     }
@@ -122,17 +163,34 @@ fn compress_logs(output: &str) -> String {
     }
     let mut deduped: HashMap<String, u32> = HashMap::new();
     for line in &lines {
-        let key = line.split_whitespace().skip(2).collect::<Vec<_>>().join(" ");
+        let key = line
+            .split_whitespace()
+            .skip(2)
+            .collect::<Vec<_>>()
+            .join(" ");
         if !key.is_empty() {
             *deduped.entry(key).or_insert(0) += 1;
         }
     }
     let mut sorted: Vec<_> = deduped.into_iter().collect();
     sorted.sort_by(|a, b| b.1.cmp(&a.1));
-    let top: Vec<String> = sorted.iter().take(15).map(|(msg, count)| {
-        if *count > 1 { format!("  ({count}x) {msg}") } else { format!("  {msg}") }
-    }).collect();
-    format!("{} log entries (deduped to {}):\n{}", lines.len(), top.len(), top.join("\n"))
+    let top: Vec<String> = sorted
+        .iter()
+        .take(15)
+        .map(|(msg, count)| {
+            if *count > 1 {
+                format!("  ({count}x) {msg}")
+            } else {
+                format!("  {msg}")
+            }
+        })
+        .collect();
+    format!(
+        "{} log entries (deduped to {}):\n{}",
+        lines.len(),
+        top.len(),
+        top.join("\n")
+    )
 }
 
 fn compress_ecs(output: &str) -> String {
@@ -151,16 +209,18 @@ fn compact_json_or_text(text: &str, max: usize) -> String {
 
 fn extract_top_keys(val: &serde_json::Value) -> Vec<String> {
     match val {
-        serde_json::Value::Object(map) => {
-            map.keys().take(20).map(|k| {
+        serde_json::Value::Object(map) => map
+            .keys()
+            .take(20)
+            .map(|k| {
                 let v = &map[k];
                 match v {
                     serde_json::Value::Array(a) => format!("{k}: [{} items]", a.len()),
                     serde_json::Value::Object(_) => format!("{k}: {{...}}"),
                     _ => format!("{k}: {v}"),
                 }
-            }).collect()
-        }
+            })
+            .collect(),
         _ => vec![],
     }
 }
@@ -170,5 +230,9 @@ fn compact_lines(text: &str, max: usize) -> String {
     if lines.len() <= max {
         return lines.join("\n");
     }
-    format!("{}\n... ({} more lines)", lines[..max].join("\n"), lines.len() - max)
+    format!(
+        "{}\n... ({} more lines)",
+        lines[..max].join("\n"),
+        lines.len() - max
+    )
 }

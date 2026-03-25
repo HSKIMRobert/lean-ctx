@@ -50,7 +50,10 @@ fn compress_migrate(output: &str) -> String {
         if plain.contains("migration") && plain.contains("created") {
             migration_name = plain.clone();
         }
-        if plain.contains("applied") || plain.contains("Already in sync") || plain.contains("Database is up to date") {
+        if plain.contains("applied")
+            || plain.contains("Already in sync")
+            || plain.contains("Database is up to date")
+        {
             results.push(plain);
         }
     }
@@ -68,7 +71,8 @@ fn compress_migrate(output: &str) -> String {
 }
 
 fn compress_db_sync(output: &str) -> String {
-    let lines: Vec<String> = output.lines()
+    let lines: Vec<String> = output
+        .lines()
         .map(|l| strip_ansi(l.trim()))
         .filter(|l| !l.is_empty() && !l.contains("warn") && !l.starts_with("Prisma schema"))
         .collect();
@@ -95,7 +99,8 @@ fn compress_validate(output: &str) -> String {
 }
 
 fn strip_noise(output: &str) -> String {
-    output.lines()
+    output
+        .lines()
         .map(|l| strip_ansi(l.trim()))
         .filter(|l| !l.is_empty() && !l.contains("████") && !l.contains("▀") && !l.contains("━"))
         .collect::<Vec<_>>()
@@ -106,9 +111,15 @@ fn strip_ansi(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     let mut in_escape = false;
     for c in s.chars() {
-        if c == '\x1b' { in_escape = true; }
-        else if in_escape { if c.is_ascii_alphabetic() { in_escape = false; } }
-        else { result.push(c); }
+        if c == '\x1b' {
+            in_escape = true;
+        } else if in_escape {
+            if c.is_ascii_alphabetic() {
+                in_escape = false;
+            }
+        } else {
+            result.push(c);
+        }
     }
     result
 }
@@ -118,5 +129,9 @@ fn compact_lines(text: &str, max: usize) -> String {
     if lines.len() <= max {
         return lines.join("\n");
     }
-    format!("{}\n... ({} more lines)", lines[..max].join("\n"), lines.len() - max)
+    format!(
+        "{}\n... ({} more lines)",
+        lines[..max].join("\n"),
+        lines.len() - max
+    )
 }

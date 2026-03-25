@@ -27,9 +27,7 @@ pub fn compress(output: &str) -> Option<String> {
         })
         .collect();
 
-    let saved = trimmed
-        .lines()
-        .find(|l| l.contains("saved"));
+    let saved = trimmed.lines().find(|l| l.contains("saved"));
 
     if let Some(saved_line) = saved {
         let mut result = Vec::new();
@@ -47,5 +45,9 @@ pub fn compress(output: &str) -> Option<String> {
     if useful.len() <= 5 {
         return Some(useful.join("\n"));
     }
-    Some(format!("{}\n... ({} more lines)", useful[..3].join("\n"), useful.len() - 3))
+    Some(format!(
+        "{}\n... ({} more lines)",
+        useful[..3].join("\n"),
+        useful.len() - 3
+    ))
 }

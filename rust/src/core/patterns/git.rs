@@ -216,11 +216,7 @@ fn compress_diff(output: &str) -> String {
             if !current_file.is_empty() {
                 files.push(format!("{current_file} +{additions}/-{deletions}"));
             }
-            current_file = line
-                .split(" b/")
-                .nth(1)
-                .unwrap_or("?")
-                .to_string();
+            current_file = line.split(" b/").nth(1).unwrap_or("?").to_string();
             additions = 0;
             deletions = 0;
         } else if line.starts_with('+') && !line.starts_with("+++") {
@@ -396,11 +392,12 @@ fn compress_merge(output: &str) -> String {
         return "ok (up-to-date)".to_string();
     }
     if trimmed.contains("CONFLICT") {
-        let conflicts: Vec<&str> = trimmed
-            .lines()
-            .filter(|l| l.contains("CONFLICT"))
-            .collect();
-        return format!("CONFLICT ({} files):\n{}", conflicts.len(), conflicts.join("\n"));
+        let conflicts: Vec<&str> = trimmed.lines().filter(|l| l.contains("CONFLICT")).collect();
+        return format!(
+            "CONFLICT ({} files):\n{}",
+            conflicts.len(),
+            conflicts.join("\n")
+        );
     }
 
     let stats = extract_change_stats(trimmed);
@@ -486,7 +483,9 @@ fn compress_remote(output: &str) -> String {
     for line in trimmed.lines() {
         let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.len() >= 2 {
-            remotes.entry(parts[0].to_string()).or_insert_with(|| parts[1].to_string());
+            remotes
+                .entry(parts[0].to_string())
+                .or_insert_with(|| parts[1].to_string());
         }
     }
 
@@ -556,7 +555,11 @@ fn compact_lines(text: &str, max: usize) -> String {
     if lines.len() <= max {
         return lines.join("\n");
     }
-    format!("{}\n... ({} more lines)", lines[..max].join("\n"), lines.len() - max)
+    format!(
+        "{}\n... ({} more lines)",
+        lines[..max].join("\n"),
+        lines.len() - max
+    )
 }
 
 #[cfg(test)]
@@ -580,7 +583,8 @@ mod tests {
 
     #[test]
     fn git_commit_extracts_hash() {
-        let output = "[main abc1234] fix: resolve bug\n 2 files changed, 10 insertions(+), 3 deletions(-)\n";
+        let output =
+            "[main abc1234] fix: resolve bug\n 2 files changed, 10 insertions(+), 3 deletions(-)\n";
         let result = compress("git commit -m 'fix'", output).unwrap();
         assert!(result.contains("abc1234"), "should extract commit hash");
     }

@@ -26,7 +26,9 @@ pub fn handle(response: &str, crp_mode: CrpMode) -> String {
         return response.to_string();
     }
 
-    format!("{compressed}\n[response compressed: {original_tokens}→{compressed_tokens} tok, -{pct}%]")
+    format!(
+        "{compressed}\n[response compressed: {original_tokens}→{compressed_tokens} tok, -{pct}%]"
+    )
 }
 
 fn compress_standard(text: &str) -> String {
@@ -89,10 +91,21 @@ fn is_filler_line(line: &str) -> bool {
     }
 
     let fillers = [
-        "here's what i", "let me explain", "i'll now", "as you can see",
-        "this is because", "in this case", "basically,", "essentially,",
-        "it's worth noting", "it should be noted", "as mentioned",
-        "now, let's", "going forward", "moving on", "with that said",
+        "here's what i",
+        "let me explain",
+        "i'll now",
+        "as you can see",
+        "this is because",
+        "in this case",
+        "basically,",
+        "essentially,",
+        "it's worth noting",
+        "it should be noted",
+        "as mentioned",
+        "now, let's",
+        "going forward",
+        "moving on",
+        "with that said",
     ];
     fillers.iter().any(|f| l.starts_with(f))
 }

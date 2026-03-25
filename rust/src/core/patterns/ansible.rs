@@ -51,8 +51,11 @@ fn compress_tasks(output: &str) -> String {
 
     for line in output.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with("ok:") || trimmed.starts_with("changed:") ||
-           trimmed.starts_with("failed:") || trimmed.starts_with("skipping:") {
+        if trimmed.starts_with("ok:")
+            || trimmed.starts_with("changed:")
+            || trimmed.starts_with("failed:")
+            || trimmed.starts_with("skipping:")
+        {
             let status = trimmed.split(':').next().unwrap_or("?").to_string();
             tasks.entry(status).or_default().push(trimmed.to_string());
         }
@@ -74,5 +77,9 @@ fn compact_lines(text: &str, max: usize) -> String {
     if lines.len() <= max {
         return lines.join("\n");
     }
-    format!("{}\n... ({} more lines)", lines[..max].join("\n"), lines.len() - max)
+    format!(
+        "{}\n... ({} more lines)",
+        lines[..max].join("\n"),
+        lines.len() - max
+    )
 }

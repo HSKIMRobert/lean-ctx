@@ -33,7 +33,11 @@ fn compress_rubocop(output: &str) -> Option<String> {
                     }
                 }
             }
-        } else if trimmed.contains(": C:") || trimmed.contains(": W:") || trimmed.contains(": E:") || trimmed.contains(": F:") {
+        } else if trimmed.contains(": C:")
+            || trimmed.contains(": W:")
+            || trimmed.contains(": E:")
+            || trimmed.contains(": F:")
+        {
             offenses.push(trimmed.to_string());
         }
     }
@@ -148,7 +152,12 @@ fn compress_minitest(output: &str) -> Option<String> {
                 }
             }
             if let Some(pos) = trimmed.find(" in ") {
-                time = trimmed[pos + 4..].split(',').next().unwrap_or("").trim().to_string();
+                time = trimmed[pos + 4..]
+                    .split(',')
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
             }
         }
         if trimmed.starts_with("Failure:") || trimmed.starts_with("Error:") {
@@ -160,7 +169,10 @@ fn compress_minitest(output: &str) -> Option<String> {
         return None;
     }
 
-    let passed = total.saturating_sub(failures).saturating_sub(errors).saturating_sub(skips);
+    let passed = total
+        .saturating_sub(failures)
+        .saturating_sub(errors)
+        .saturating_sub(skips);
     let mut result = format!("minitest: {passed} passed");
     if failures > 0 {
         result.push_str(&format!(", {failures} failed"));

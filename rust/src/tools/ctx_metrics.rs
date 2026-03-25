@@ -27,7 +27,10 @@ pub fn handle(cache: &SessionCache, tool_calls: &[ToolCallRecord], crp_mode: Crp
 
         out.push(format!(
             "files:{} reads:{} hits:{} ({:.0}%)",
-            cache_stats.files_tracked, cache_stats.total_reads, cache_stats.cache_hits, cache_stats.hit_rate()
+            cache_stats.files_tracked,
+            cache_stats.total_reads,
+            cache_stats.cache_hits,
+            cache_stats.hit_rate()
         ));
 
         out.push(format!(
@@ -40,14 +43,22 @@ pub fn handle(cache: &SessionCache, tool_calls: &[ToolCallRecord], crp_mode: Crp
 
         let cost_saved = total_saved as f64 / 1_000_000.0 * COST_PER_1M_INPUT;
         let cost_without = total_original as f64 / 1_000_000.0 * COST_PER_1M_INPUT;
-        out.push(format!("cost: ${:.4}→${:.4} | -${:.4}", cost_without, cost_without - cost_saved, cost_saved));
+        out.push(format!(
+            "cost: ${:.4}→${:.4} | -${:.4}",
+            cost_without,
+            cost_without - cost_saved,
+            cost_saved
+        ));
     } else {
         out.push("lean-ctx session metrics".to_string());
         out.push("═".repeat(50));
 
         out.push(format!(
             "Files tracked: {} | Reads: {} | Cache hits: {} ({:.0}%)",
-            cache_stats.files_tracked, cache_stats.total_reads, cache_stats.cache_hits, cache_stats.hit_rate()
+            cache_stats.files_tracked,
+            cache_stats.total_reads,
+            cache_stats.cache_hits,
+            cache_stats.hit_rate()
         ));
 
         out.push(format!(
@@ -72,10 +83,16 @@ pub fn handle(cache: &SessionCache, tool_calls: &[ToolCallRecord], crp_mode: Crp
 
         let sep_w = if crp_mode.is_tdd() { 40 } else { 50 };
         if crp_mode.is_tdd() {
-            out.push(format!("{:<12} {:>4} {:>7} {:>7} {:>4}", "tool", "n", "orig", "saved", "%"));
+            out.push(format!(
+                "{:<12} {:>4} {:>7} {:>7} {:>4}",
+                "tool", "n", "orig", "saved", "%"
+            ));
         } else {
             out.push("By Tool:".to_string());
-            out.push(format!("{:<14} {:>5}  {:>8}  {:>8}  {:>5}", "Tool", "Calls", "Original", "Saved", "Avg%"));
+            out.push(format!(
+                "{:<14} {:>5}  {:>8}  {:>8}  {:>5}",
+                "Tool", "Calls", "Original", "Saved", "Avg%"
+            ));
         }
         out.push("─".repeat(sep_w));
 
@@ -91,16 +108,28 @@ pub fn handle(cache: &SessionCache, tool_calls: &[ToolCallRecord], crp_mode: Crp
         sorted.sort_by(|a, b| b.1.saved.cmp(&a.1.saved));
 
         for (tool, ts) in &sorted {
-            let avg = if ts.original > 0 { ts.saved as f64 / ts.original as f64 * 100.0 } else { 0.0 };
+            let avg = if ts.original > 0 {
+                ts.saved as f64 / ts.original as f64 * 100.0
+            } else {
+                0.0
+            };
             if crp_mode.is_tdd() {
                 out.push(format!(
                     "{:<12} {:>4} {:>7} {:>7} {:>3.0}%",
-                    tool, ts.calls, format_tokens(ts.original as u64), format_tokens(ts.saved as u64), avg
+                    tool,
+                    ts.calls,
+                    format_tokens(ts.original as u64),
+                    format_tokens(ts.saved as u64),
+                    avg
                 ));
             } else {
                 out.push(format!(
                     "{:<14} {:>5}  {:>8}  {:>8}  {:>4.0}%",
-                    tool, ts.calls, format_tokens(ts.original as u64), format_tokens(ts.saved as u64), avg
+                    tool,
+                    ts.calls,
+                    format_tokens(ts.original as u64),
+                    format_tokens(ts.saved as u64),
+                    avg
                 ));
             }
         }
@@ -129,9 +158,19 @@ pub fn handle(cache: &SessionCache, tool_calls: &[ToolCallRecord], crp_mode: Crp
 
             for (mode, ms) in &sorted_modes {
                 if crp_mode.is_tdd() {
-                    out.push(format!("{:<12} {:>4} {:>7}", mode, ms.calls, format_tokens(ms.saved as u64)));
+                    out.push(format!(
+                        "{:<12} {:>4} {:>7}",
+                        mode,
+                        ms.calls,
+                        format_tokens(ms.saved as u64)
+                    ));
                 } else {
-                    out.push(format!("{:<14} {:>5}  {:>8}", mode, ms.calls, format_tokens(ms.saved as u64)));
+                    out.push(format!(
+                        "{:<14} {:>5}  {:>8}",
+                        mode,
+                        ms.calls,
+                        format_tokens(ms.saved as u64)
+                    ));
                 }
             }
         }
@@ -149,20 +188,30 @@ pub fn handle(cache: &SessionCache, tool_calls: &[ToolCallRecord], crp_mode: Crp
         for (path, r) in &ref_list {
             let short = crate::core::protocol::shorten_path(path);
             if let Some(entry) = cache.get(path) {
-                out.push(format!("  {r}={short} [{}L {}t r:{}]", entry.line_count, entry.original_tokens, entry.read_count));
+                out.push(format!(
+                    "  {r}={short} [{}L {}t r:{}]",
+                    entry.line_count, entry.original_tokens, entry.read_count
+                ));
             } else {
                 out.push(format!("  {r}={short}"));
             }
         }
     }
 
-    let projected_session = total_saved as f64 / 1_000_000.0 * (COST_PER_1M_INPUT + COST_PER_1M_OUTPUT * 0.3);
+    let projected_session =
+        total_saved as f64 / 1_000_000.0 * (COST_PER_1M_INPUT + COST_PER_1M_OUTPUT * 0.3);
     if projected_session > 0.001 {
         out.push(String::new());
         if crp_mode.is_tdd() {
-            out.push(format!("∴ session savings (incl. thinking): ${:.3}", projected_session));
+            out.push(format!(
+                "∴ session savings (incl. thinking): ${:.3}",
+                projected_session
+            ));
         } else {
-            out.push(format!("Projected session savings (incl. thinking): ${:.3}", projected_session));
+            out.push(format!(
+                "Projected session savings (incl. thinking): ${:.3}",
+                projected_session
+            ));
         }
     }
 

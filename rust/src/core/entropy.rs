@@ -155,7 +155,11 @@ pub fn analyze_entropy(content: &str) -> EntropyAnalysis {
     }
 
     EntropyAnalysis {
-        avg_entropy: if counted > 0 { sum / counted as f64 } else { 0.0 },
+        avg_entropy: if counted > 0 {
+            sum / counted as f64
+        } else {
+            0.0
+        },
         low_entropy_count: low,
         high_entropy_count: high,
         total_lines: total,

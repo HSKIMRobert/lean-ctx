@@ -44,7 +44,9 @@ pub fn discover_from_history(history: &[String], limit: usize) -> String {
 
     for cmd in history {
         let trimmed = cmd.trim();
-        if trimmed.is_empty() { continue; }
+        if trimmed.is_empty() {
+            continue;
+        }
         total_commands += 1;
 
         if trimmed.starts_with("lean-ctx ") {
@@ -61,23 +63,30 @@ pub fn discover_from_history(history: &[String], limit: usize) -> String {
     }
 
     if missed.is_empty() {
-        return format!("No missed savings found in last {total_commands} commands. \
-            {already_optimized} already optimized.");
+        return format!(
+            "No missed savings found in last {total_commands} commands. \
+            {already_optimized} already optimized."
+        );
     }
 
     let mut sorted: Vec<_> = missed.into_iter().collect();
     sorted.sort_by(|a, b| b.1.cmp(&a.1));
 
     let mut result = Vec::new();
-    result.push(format!("Analyzed {total_commands} commands ({already_optimized} already optimized):"));
+    result.push(format!(
+        "Analyzed {total_commands} commands ({already_optimized} already optimized):"
+    ));
     result.push(String::new());
 
     let total_missed: u32 = sorted.iter().map(|(_, c)| c).sum();
-    result.push(format!("{total_missed} commands could benefit from lean-ctx:"));
+    result.push(format!(
+        "{total_missed} commands could benefit from lean-ctx:"
+    ));
     result.push(String::new());
 
     for (prefix, count) in sorted.iter().take(limit) {
-        let info = COMPRESSIBLE_COMMANDS.iter()
+        let info = COMPRESSIBLE_COMMANDS
+            .iter()
             .find(|(p, _, _)| p == prefix)
             .map(|(_, desc, savings)| format!("{desc} ({savings})"))
             .unwrap_or_default();
@@ -90,7 +99,9 @@ pub fn discover_from_history(history: &[String], limit: usize) -> String {
     let potential_usd = potential as f64 * 2.50 / 1_000_000.0;
 
     result.push(String::new());
-    result.push(format!("Estimated potential: ~{potential} tokens saved (~${potential_usd:.2})"));
+    result.push(format!(
+        "Estimated potential: ~{potential} tokens saved (~${potential_usd:.2})"
+    ));
     result.push(String::new());
     result.push("Fix: run 'lean-ctx init --global' to auto-compress all commands.".to_string());
     result.push("Or:  run 'lean-ctx init --agent <tool>' for AI tool hooks.".to_string());

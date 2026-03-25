@@ -60,7 +60,9 @@ pub fn exec(command: &str) -> i32 {
     let cfg = config::Config::load();
     if cfg.tee_on_error && exit_code != 0 && !full_output.trim().is_empty() {
         if let Some(path) = save_tee(command, &full_output) {
-            eprintln!("[lean-ctx: output saved to {path} (secrets redacted, auto-deleted after 24h)]");
+            eprintln!(
+                "[lean-ctx: output saved to {path} (secrets redacted, auto-deleted after 24h)]"
+            );
         }
     }
 
@@ -144,7 +146,9 @@ fn compress_if_beneficial(command: &str, output: &str) -> String {
             if compressed_tokens < original_tokens {
                 let saved = original_tokens - compressed_tokens;
                 let pct = (saved as f64 / original_tokens as f64 * 100.0).round() as usize;
-                return format!("{compressed}\n[lean-ctx: {original_tokens}→{compressed_tokens} tok, -{pct}%]");
+                return format!(
+                    "{compressed}\n[lean-ctx: {original_tokens}→{compressed_tokens} tok, -{pct}%]"
+                );
             }
         }
     }
@@ -163,7 +167,9 @@ fn compress_if_beneficial(command: &str, output: &str) -> String {
         if compressed_tokens < original_tokens {
             let saved = original_tokens - compressed_tokens;
             let pct = (saved as f64 / original_tokens as f64 * 100.0).round() as usize;
-            return format!("{compressed}\n[lean-ctx: {original_tokens}→{compressed_tokens} tok, -{pct}%]");
+            return format!(
+                "{compressed}\n[lean-ctx: {original_tokens}→{compressed_tokens} tok, -{pct}%]"
+            );
         }
     }
 
@@ -236,7 +242,13 @@ fn save_tee(command: &str, output: &str) -> Option<String> {
     let cmd_slug: String = command
         .chars()
         .take(40)
-        .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     let ts = chrono::Local::now().format("%Y-%m-%d_%H%M%S");
     let filename = format!("{ts}_{cmd_slug}.log");
@@ -262,20 +274,22 @@ fn mask_sensitive_data(input: &str) -> String {
 
     let mut result = input.to_string();
     for (label, re) in &patterns {
-        result = re.replace_all(&result, |caps: &regex::Captures| {
-            if let Some(prefix) = caps.get(1) {
-                format!("{}[REDACTED:{}]", prefix.as_str(), label)
-            } else {
-                format!("[REDACTED:{}]", label)
-            }
-        }).to_string();
+        result = re
+            .replace_all(&result, |caps: &regex::Captures| {
+                if let Some(prefix) = caps.get(1) {
+                    format!("{}[REDACTED:{}]", prefix.as_str(), label)
+                } else {
+                    format!("[REDACTED:{}]", label)
+                }
+            })
+            .to_string();
     }
     result
 }
 
 fn cleanup_old_tee_logs(tee_dir: &std::path::Path) {
-    let cutoff = std::time::SystemTime::now()
-        .checked_sub(std::time::Duration::from_secs(24 * 60 * 60));
+    let cutoff =
+        std::time::SystemTime::now().checked_sub(std::time::Duration::from_secs(24 * 60 * 60));
     let cutoff = match cutoff {
         Some(t) => t,
         None => return,

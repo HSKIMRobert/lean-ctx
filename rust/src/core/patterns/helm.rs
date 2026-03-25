@@ -30,11 +30,19 @@ fn compress_list(output: &str) -> String {
     }
 
     let header = lines[0];
-    let releases: Vec<&str> = lines[1..].iter().copied().filter(|l| !l.trim().is_empty()).collect();
+    let releases: Vec<&str> = lines[1..]
+        .iter()
+        .copied()
+        .filter(|l| !l.trim().is_empty())
+        .collect();
     if releases.len() <= 15 {
         return output.to_string();
     }
-    format!("{header}\n{}\n... ({} more)", releases[..10].join("\n"), releases.len() - 10)
+    format!(
+        "{header}\n{}\n... ({} more)",
+        releases[..10].join("\n"),
+        releases.len() - 10
+    )
 }
 
 fn compress_install(output: &str) -> String {
@@ -46,9 +54,17 @@ fn compress_install(output: &str) -> String {
     for line in output.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with("NAME:") {
-            name = trimmed.strip_prefix("NAME:").unwrap_or("").trim().to_string();
+            name = trimmed
+                .strip_prefix("NAME:")
+                .unwrap_or("")
+                .trim()
+                .to_string();
         } else if trimmed.starts_with("STATUS:") {
-            status = trimmed.strip_prefix("STATUS:").unwrap_or("").trim().to_string();
+            status = trimmed
+                .strip_prefix("STATUS:")
+                .unwrap_or("")
+                .trim()
+                .to_string();
         } else if trimmed == "NOTES:" {
             notes_start = true;
         } else if notes_start && !trimmed.is_empty() && notes.len() < 5 {
@@ -67,9 +83,12 @@ fn compress_status(output: &str) -> String {
     let mut parts = Vec::new();
     for line in output.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with("NAME:") || trimmed.starts_with("STATUS:") ||
-           trimmed.starts_with("NAMESPACE:") || trimmed.starts_with("REVISION:") ||
-           trimmed.starts_with("LAST DEPLOYED:") {
+        if trimmed.starts_with("NAME:")
+            || trimmed.starts_with("STATUS:")
+            || trimmed.starts_with("NAMESPACE:")
+            || trimmed.starts_with("REVISION:")
+            || trimmed.starts_with("LAST DEPLOYED:")
+        {
             parts.push(trimmed.to_string());
         }
     }
@@ -81,7 +100,9 @@ fn compress_status(output: &str) -> String {
 
 fn compress_template(output: &str) -> String {
     let lines: Vec<&str> = output.lines().collect();
-    let yaml_docs: Vec<usize> = lines.iter().enumerate()
+    let yaml_docs: Vec<usize> = lines
+        .iter()
+        .enumerate()
         .filter(|(_, l)| l.trim() == "---")
         .map(|(i, _)| i)
         .collect();
@@ -90,7 +111,13 @@ fn compress_template(output: &str) -> String {
     for line in &lines {
         let trimmed = line.trim();
         if trimmed.starts_with("kind:") {
-            kinds.push(trimmed.strip_prefix("kind:").unwrap_or("").trim().to_string());
+            kinds.push(
+                trimmed
+                    .strip_prefix("kind:")
+                    .unwrap_or("")
+                    .trim()
+                    .to_string(),
+            );
         }
     }
 
@@ -103,7 +130,12 @@ fn compress_template(output: &str) -> String {
         *counts.entry(k.as_str()).or_insert(0) += 1;
     }
     let summary: Vec<String> = counts.iter().map(|(k, v)| format!("  {k}: {v}")).collect();
-    format!("{} YAML docs ({} resources):\n{}", yaml_docs.len().max(1), kinds.len(), summary.join("\n"))
+    format!(
+        "{} YAML docs ({} resources):\n{}",
+        yaml_docs.len().max(1),
+        kinds.len(),
+        summary.join("\n")
+    )
 }
 
 fn compress_repo(output: &str) -> String {
@@ -115,5 +147,9 @@ fn compact_lines(text: &str, max: usize) -> String {
     if lines.len() <= max {
         return lines.join("\n");
     }
-    format!("{}\n... ({} more lines)", lines[..max].join("\n"), lines.len() - max)
+    format!(
+        "{}\n... ({} more lines)",
+        lines[..max].join("\n"),
+        lines.len() - max
+    )
 }

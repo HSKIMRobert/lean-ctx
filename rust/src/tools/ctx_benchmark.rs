@@ -26,10 +26,18 @@ pub fn handle(path: &str, crp_mode: CrpMode) -> String {
     let aggressive_tokens = count_tokens(&aggressive);
 
     let sigs = signatures::extract_signatures(&content, ext);
-    let sig_compact: String = sigs.iter().map(|s| s.to_compact()).collect::<Vec<_>>().join("\n");
+    let sig_compact: String = sigs
+        .iter()
+        .map(|s| s.to_compact())
+        .collect::<Vec<_>>()
+        .join("\n");
     let sig_tokens = count_tokens(&sig_compact);
 
-    let sig_tdd: String = sigs.iter().map(|s| s.to_tdd()).collect::<Vec<_>>().join("\n");
+    let sig_tdd: String = sigs
+        .iter()
+        .map(|s| s.to_tdd())
+        .collect::<Vec<_>>()
+        .join("\n");
     let sig_tdd_tokens = count_tokens(&sig_tdd);
 
     let entropy_result = entropy::entropy_compress(&content);
@@ -54,7 +62,10 @@ pub fn handle(path: &str, crp_mode: CrpMode) -> String {
     rows.push(format!("Benchmark: {short} ({line_count}L)\n"));
 
     if crp_mode.is_tdd() {
-        rows.push(format!("{:<28} {:>6}  {:>8}", "Strategy", "Tokens", "Savings"));
+        rows.push(format!(
+            "{:<28} {:>6}  {:>8}",
+            "Strategy", "Tokens", "Savings"
+        ));
         rows.push("─".repeat(46));
         rows.push(format_row("raw", raw_tokens, raw_tokens));
         rows.push(format_row("aggressive", aggressive_tokens, raw_tokens));
@@ -62,7 +73,11 @@ pub fn handle(path: &str, crp_mode: CrpMode) -> String {
         rows.push(format_row("signatures (tdd)", sig_tdd_tokens, raw_tokens));
         rows.push(format_row("entropy", entropy_tokens, raw_tokens));
         rows.push(format_row("full + §MAP (tdd)", tdd_full_tokens, raw_tokens));
-        rows.push(format_row("aggressive + §MAP (tdd)", tdd_agg_tokens, raw_tokens));
+        rows.push(format_row(
+            "aggressive + §MAP (tdd)",
+            tdd_agg_tokens,
+            raw_tokens,
+        ));
         rows.push(format_row("cache hit", cache_tokens, raw_tokens));
         rows.push("─".repeat(46));
 
@@ -77,14 +92,31 @@ pub fn handle(path: &str, crp_mode: CrpMode) -> String {
         ];
         let best = strategies.iter().min_by_key(|(_, t)| *t).unwrap();
         let saved = raw_tokens.saturating_sub(best.1);
-        let pct = if raw_tokens > 0 { (saved as f64 / raw_tokens as f64 * 100.0).round() as usize } else { 0 };
-        rows.push(format!("Best: \"{}\" saves {} tokens ({}%)", best.0, saved, pct));
+        let pct = if raw_tokens > 0 {
+            (saved as f64 / raw_tokens as f64 * 100.0).round() as usize
+        } else {
+            0
+        };
+        rows.push(format!(
+            "Best: \"{}\" saves {} tokens ({}%)",
+            best.0, saved, pct
+        ));
 
         let tdd_extra = sig_tokens.saturating_sub(sig_tdd_tokens);
-        let tdd_pct = if sig_tokens > 0 { (tdd_extra as f64 / sig_tokens as f64 * 100.0).round() as usize } else { 0 };
-        rows.push(format!("TDD bonus (signatures): {} extra tokens saved ({}%)", tdd_extra, tdd_pct));
+        let tdd_pct = if sig_tokens > 0 {
+            (tdd_extra as f64 / sig_tokens as f64 * 100.0).round() as usize
+        } else {
+            0
+        };
+        rows.push(format!(
+            "TDD bonus (signatures): {} extra tokens saved ({}%)",
+            tdd_extra, tdd_pct
+        ));
     } else {
-        rows.push(format!("{:<24} {:>6}  {:>8}", "Strategy", "Tokens", "Savings"));
+        rows.push(format!(
+            "{:<24} {:>6}  {:>8}",
+            "Strategy", "Tokens", "Savings"
+        ));
         rows.push("─".repeat(42));
         rows.push(format_row("raw", raw_tokens, raw_tokens));
         rows.push(format_row("aggressive", aggressive_tokens, raw_tokens));
@@ -101,8 +133,15 @@ pub fn handle(path: &str, crp_mode: CrpMode) -> String {
         ];
         let best = strategies.iter().min_by_key(|(_, t)| *t).unwrap();
         let saved = raw_tokens.saturating_sub(best.1);
-        let pct = if raw_tokens > 0 { (saved as f64 / raw_tokens as f64 * 100.0).round() as usize } else { 0 };
-        rows.push(format!("Best: \"{}\" saves {} tokens ({}%)", best.0, saved, pct));
+        let pct = if raw_tokens > 0 {
+            (saved as f64 / raw_tokens as f64 * 100.0).round() as usize
+        } else {
+            0
+        };
+        rows.push(format!(
+            "Best: \"{}\" saves {} tokens ({}%)",
+            best.0, saved, pct
+        ));
     }
 
     rows.join("\n")

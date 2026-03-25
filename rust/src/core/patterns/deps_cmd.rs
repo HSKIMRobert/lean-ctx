@@ -54,7 +54,11 @@ fn compress_package_json(content: &str) -> Option<String> {
             .iter()
             .map(|(k, v)| format!("{k} ({})", v.as_str().unwrap_or("?")))
             .collect();
-        result.push_str(&format!("\n  deps ({}): {}", dep_list.len(), dep_list.join(", ")));
+        result.push_str(&format!(
+            "\n  deps ({}): {}",
+            dep_list.len(),
+            dep_list.join(", ")
+        ));
     }
 
     if let Some(deps) = obj.get("devDependencies").and_then(|v| v.as_object()) {
@@ -68,7 +72,12 @@ fn compress_package_json(content: &str) -> Option<String> {
         } else {
             String::new()
         };
-        result.push_str(&format!("\n  devDeps ({}): {}{}", deps.len(), dep_list.join(", "), suffix));
+        result.push_str(&format!(
+            "\n  devDeps ({}): {}{}",
+            deps.len(),
+            dep_list.join(", "),
+            suffix
+        ));
     }
 
     Some(result)
@@ -143,7 +152,11 @@ fn compress_requirements(content: &str) -> Option<String> {
         })
         .collect();
 
-    Some(format!("Python:\n  deps ({}): {}", short.len(), short.join(", ")))
+    Some(format!(
+        "Python:\n  deps ({}): {}",
+        short.len(),
+        short.join(", ")
+    ))
 }
 
 fn compress_go_mod(content: &str) -> Option<String> {
@@ -178,7 +191,11 @@ fn compress_go_mod(content: &str) -> Option<String> {
         return None;
     }
 
-    Some(format!("Go ({module}):\n  deps ({}): {}", deps.len(), deps.join(", ")))
+    Some(format!(
+        "Go ({module}):\n  deps ({}): {}",
+        deps.len(),
+        deps.join(", ")
+    ))
 }
 
 fn compress_gemfile(content: &str) -> Option<String> {
@@ -202,7 +219,11 @@ fn compress_gemfile(content: &str) -> Option<String> {
         return None;
     }
 
-    Some(format!("Ruby:\n  gems ({}): {}", gems.len(), gems.join(", ")))
+    Some(format!(
+        "Ruby:\n  gems ({}): {}",
+        gems.len(),
+        gems.join(", ")
+    ))
 }
 
 fn compress_pyproject(content: &str) -> Option<String> {
@@ -220,7 +241,14 @@ fn compress_pyproject(content: &str) -> Option<String> {
         }
         if in_deps {
             let clean = trimmed.trim_matches(|c: char| c == '"' || c == '\'' || c == ',');
-            let name = clean.split(">=").next().unwrap_or(clean).split("==").next().unwrap_or(clean).trim();
+            let name = clean
+                .split(">=")
+                .next()
+                .unwrap_or(clean)
+                .split("==")
+                .next()
+                .unwrap_or(clean)
+                .trim();
             if !name.is_empty() {
                 deps.push(name.to_string());
             }
@@ -231,7 +259,11 @@ fn compress_pyproject(content: &str) -> Option<String> {
         return None;
     }
 
-    Some(format!("Python:\n  deps ({}): {}", deps.len(), deps.join(", ")))
+    Some(format!(
+        "Python:\n  deps ({}): {}",
+        deps.len(),
+        deps.join(", ")
+    ))
 }
 
 fn extract_toml_string(line: &str) -> Option<String> {

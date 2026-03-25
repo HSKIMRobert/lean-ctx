@@ -22,15 +22,13 @@ fn apply_summary_re() -> &'static Regex {
 }
 
 fn installed_provider_re() -> &'static Regex {
-    INSTALLED_PROVIDER_RE.get_or_init(|| {
-        Regex::new(r"-\s*Installed\s+([^\s]+)\s+v([0-9][^\s]*)").unwrap()
-    })
+    INSTALLED_PROVIDER_RE
+        .get_or_init(|| Regex::new(r"-\s*Installed\s+([^\s]+)\s+v([0-9][^\s]*)").unwrap())
 }
 
 fn provider_version_re() -> &'static Regex {
-    PROVIDER_VERSION_RE.get_or_init(|| {
-        Regex::new(r"\*\s*provider\[([^\]]+)\]\s+([0-9][^\s]*)").unwrap()
-    })
+    PROVIDER_VERSION_RE
+        .get_or_init(|| Regex::new(r"\*\s*provider\[([^\]]+)\]\s+([0-9][^\s]*)").unwrap())
 }
 
 fn is_provider_init_noise(line: &str) -> bool {
@@ -42,8 +40,7 @@ fn is_provider_init_noise(line: &str) -> bool {
             && (tl.contains("versions matching") || tl.contains("version of"))
         || tl.starts_with("- finding ")
         || tl.starts_with("- installing ")
-        || tl.contains("terraform init")
-            && tl.contains("upgrade")
+        || tl.contains("terraform init") && tl.contains("upgrade")
         || tl.starts_with("╷")
         || tl.starts_with("╵")
         || tl.starts_with("│")
@@ -54,7 +51,10 @@ pub fn compress(command: &str, output: &str) -> Option<String> {
     if c != "terraform" && !c.starts_with("terraform ") {
         return None;
     }
-    let sub = c.strip_prefix("terraform").map(str::trim_start).unwrap_or("");
+    let sub = c
+        .strip_prefix("terraform")
+        .map(str::trim_start)
+        .unwrap_or("");
     let sub_cmd = sub.split_whitespace().next().unwrap_or("");
 
     match sub_cmd {

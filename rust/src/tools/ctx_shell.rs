@@ -60,15 +60,33 @@ fn generic_compress(output: &str) -> String {
 
 fn looks_like_code(text: &str) -> bool {
     let indicators = [
-        "fn ", "pub ", "let ", "const ", "impl ", "struct ", "enum ",
-        "function ", "class ", "import ", "export ", "def ", "async ",
-        "=>", "->", "::", "self.", "this.",
+        "fn ",
+        "pub ",
+        "let ",
+        "const ",
+        "impl ",
+        "struct ",
+        "enum ",
+        "function ",
+        "class ",
+        "import ",
+        "export ",
+        "def ",
+        "async ",
+        "=>",
+        "->",
+        "::",
+        "self.",
+        "this.",
     ];
     let total_lines = text.lines().count();
     if total_lines < 3 {
         return false;
     }
-    let code_lines = text.lines().filter(|l| indicators.iter().any(|i| l.contains(i))).count();
+    let code_lines = text
+        .lines()
+        .filter(|l| indicators.iter().any(|i| l.contains(i)))
+        .count();
     code_lines as f64 / total_lines as f64 > 0.15
 }
 
@@ -76,7 +94,11 @@ fn detect_ext_from_command(command: &str) -> &str {
     let cmd = command.to_lowercase();
     if cmd.contains("cargo") || cmd.contains(".rs") {
         "rs"
-    } else if cmd.contains("npm") || cmd.contains("node") || cmd.contains(".ts") || cmd.contains(".js") {
+    } else if cmd.contains("npm")
+        || cmd.contains("node")
+        || cmd.contains(".ts")
+        || cmd.contains(".js")
+    {
         "ts"
     } else if cmd.contains("python") || cmd.contains("pip") || cmd.contains(".py") {
         "py"

@@ -4,7 +4,9 @@ use std::sync::OnceLock;
 static PNPM_ADDED_RE: OnceLock<Regex> = OnceLock::new();
 
 fn pnpm_added_re() -> &'static Regex {
-    PNPM_ADDED_RE.get_or_init(|| Regex::new(r"(\d+) packages? (?:are )?(?:installed|added|updated)").unwrap())
+    PNPM_ADDED_RE.get_or_init(|| {
+        Regex::new(r"(\d+) packages? (?:are )?(?:installed|added|updated)").unwrap()
+    })
 }
 
 pub fn compress(command: &str, output: &str) -> Option<String> {
@@ -61,7 +63,10 @@ fn compress_install(output: &str) -> String {
     if progress_free.len() <= 3 {
         return progress_free.join("\n");
     }
-    format!("ok\n{}", progress_free[progress_free.len()-3..].join("\n"))
+    format!(
+        "ok\n{}",
+        progress_free[progress_free.len() - 3..].join("\n")
+    )
 }
 
 fn compress_list(output: &str) -> String {
@@ -80,9 +85,19 @@ fn compress_list(output: &str) -> String {
         .iter()
         .filter(|l| {
             let trimmed = l.trim();
-            !trimmed.is_empty() && (trimmed.starts_with('+') || trimmed.starts_with("└") || trimmed.starts_with("├"))
+            !trimmed.is_empty()
+                && (trimmed.starts_with('+')
+                    || trimmed.starts_with("└")
+                    || trimmed.starts_with("├"))
         })
-        .map(|l| l.replace("├──", "").replace("└──", "").replace("├─", "").replace("└─", "").trim().to_string())
+        .map(|l| {
+            l.replace("├──", "")
+                .replace("└──", "")
+                .replace("├─", "")
+                .replace("└─", "")
+                .trim()
+                .to_string()
+        })
         .collect();
 
     if !top.is_empty() {
@@ -123,7 +138,7 @@ fn compress_run(output: &str) -> String {
     if lines.len() <= 5 {
         return lines.join("\n");
     }
-    let tail = &lines[lines.len()-3..];
+    let tail = &lines[lines.len() - 3..];
     format!("...({} lines)\n{}", lines.len(), tail.join("\n"))
 }
 
@@ -144,5 +159,9 @@ fn compact_output(text: &str, max: usize) -> String {
     if lines.len() <= max {
         return lines.join("\n");
     }
-    format!("{}\n... ({} more lines)", lines[..max].join("\n"), lines.len() - max)
+    format!(
+        "{}\n... ({} more lines)",
+        lines[..max].join("\n"),
+        lines.len() - max
+    )
 }

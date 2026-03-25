@@ -10,7 +10,9 @@ fn go_test_result_re() -> &'static Regex {
     GO_TEST_RESULT_RE.get_or_init(|| Regex::new(r"^(ok|FAIL)\s+(\S+)\s+(\S+)").unwrap())
 }
 fn go_bench_re() -> &'static Regex {
-    GO_BENCH_RE.get_or_init(|| Regex::new(r"^Benchmark(\S+)\s+(\d+)\s+(\d+\.?\d*)\s*(ns|µs|ms)/op").unwrap())
+    GO_BENCH_RE.get_or_init(|| {
+        Regex::new(r"^Benchmark(\S+)\s+(\d+)\s+(\d+\.?\d*)\s*(ns|µs|ms)/op").unwrap()
+    })
 }
 fn golint_re() -> &'static Regex {
     GOLINT_RE.get_or_init(|| Regex::new(r"^(.+?):(\d+):(\d+):\s+(.+?)\s+\((.+?)\)$").unwrap())
@@ -94,7 +96,11 @@ fn compress_bench(output: &str) -> String {
     if benchmarks.is_empty() {
         return compact_output(trimmed, 10);
     }
-    format!("{} benchmarks:\n{}", benchmarks.len(), benchmarks.join("\n"))
+    format!(
+        "{} benchmarks:\n{}",
+        benchmarks.len(),
+        benchmarks.join("\n")
+    )
 }
 
 fn compress_build(output: &str) -> String {
@@ -184,5 +190,9 @@ fn compact_output(text: &str, max: usize) -> String {
     if lines.len() <= max {
         return lines.join("\n");
     }
-    format!("{}\n... ({} more lines)", lines[..max].join("\n"), lines.len() - max)
+    format!(
+        "{}\n... ({} more lines)",
+        lines[..max].join("\n"),
+        lines.len() - max
+    )
 }

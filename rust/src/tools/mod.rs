@@ -1,30 +1,30 @@
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock;
 
 use crate::core::cache::SessionCache;
 use crate::core::session::SessionState;
 
-pub mod ctx_read;
-pub mod ctx_multi_read;
-pub mod ctx_tree;
-pub mod ctx_shell;
-pub mod ctx_search;
-pub mod ctx_compress;
-pub mod ctx_benchmark;
-pub mod ctx_metrics;
 pub mod ctx_analyze;
-pub mod ctx_discover;
-pub mod ctx_smart_read;
-pub mod ctx_delta;
-pub mod ctx_dedup;
-pub mod ctx_fill;
-pub mod ctx_intent;
-pub mod ctx_response;
+pub mod ctx_benchmark;
+pub mod ctx_compress;
 pub mod ctx_context;
+pub mod ctx_dedup;
+pub mod ctx_delta;
+pub mod ctx_discover;
+pub mod ctx_fill;
 pub mod ctx_graph;
+pub mod ctx_intent;
+pub mod ctx_metrics;
+pub mod ctx_multi_read;
+pub mod ctx_read;
+pub mod ctx_response;
+pub mod ctx_search;
 pub mod ctx_session;
+pub mod ctx_shell;
+pub mod ctx_smart_read;
+pub mod ctx_tree;
 pub mod ctx_wrapped;
 
 const DEFAULT_CACHE_TTL_SECS: u64 = 300;
@@ -125,13 +125,22 @@ impl LeanCtxServer {
             let mut cache = self.cache.write().await;
             let count = cache.clear();
             if count > 0 {
-                tracing::info!("Cache auto-cleared after {}s idle ({count} file(s))", self.cache_ttl_secs);
+                tracing::info!(
+                    "Cache auto-cleared after {}s idle ({count} file(s))",
+                    self.cache_ttl_secs
+                );
             }
         }
         *self.last_call.write().await = Instant::now();
     }
 
-    pub async fn record_call(&self, tool: &str, original: usize, saved: usize, mode: Option<String>) {
+    pub async fn record_call(
+        &self,
+        tool: &str,
+        original: usize,
+        saved: usize,
+        mode: Option<String>,
+    ) {
         let mut calls = self.tool_calls.write().await;
         calls.push(ToolCallRecord {
             tool: tool.to_string(),
@@ -174,8 +183,11 @@ impl LeanCtxServer {
         let session_summary = session.format_compact();
         drop(session);
 
-        self.record_call("ctx_compress", 0, 0, Some("auto".to_string())).await;
-        Some(format!("{checkpoint}\n\n--- SESSION STATE ---\n{session_summary}"))
+        self.record_call("ctx_compress", 0, 0, Some("auto".to_string()))
+            .await;
+        Some(format!(
+            "{checkpoint}\n\n--- SESSION STATE ---\n{session_summary}"
+        ))
     }
 }
 

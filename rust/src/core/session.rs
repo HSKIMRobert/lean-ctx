@@ -244,7 +244,9 @@ impl SessionState {
         ));
 
         if let Some(ref task) = self.task {
-            let pct = task.progress_pct.map_or(String::new(), |p| format!(" [{p}%]"));
+            let pct = task
+                .progress_pct
+                .map_or(String::new(), |p| format!(" [{p}%]"));
             lines.push(format!("Task: {}{pct}", task.description));
         }
 
@@ -253,37 +255,66 @@ impl SessionState {
         }
 
         if !self.findings.is_empty() {
-            let items: Vec<String> = self.findings.iter().rev().take(5).map(|f| {
-                let loc = match (&f.file, f.line) {
-                    (Some(file), Some(line)) => format!("{}:{line}", shorten_path(file)),
-                    (Some(file), None) => shorten_path(file),
-                    _ => String::new(),
-                };
-                if loc.is_empty() {
-                    f.summary.clone()
-                } else {
-                    format!("{loc} \u{2014} {}", f.summary)
-                }
-            }).collect();
-            lines.push(format!("Findings ({}): {}", self.findings.len(), items.join(" | ")));
+            let items: Vec<String> = self
+                .findings
+                .iter()
+                .rev()
+                .take(5)
+                .map(|f| {
+                    let loc = match (&f.file, f.line) {
+                        (Some(file), Some(line)) => format!("{}:{line}", shorten_path(file)),
+                        (Some(file), None) => shorten_path(file),
+                        _ => String::new(),
+                    };
+                    if loc.is_empty() {
+                        f.summary.clone()
+                    } else {
+                        format!("{loc} \u{2014} {}", f.summary)
+                    }
+                })
+                .collect();
+            lines.push(format!(
+                "Findings ({}): {}",
+                self.findings.len(),
+                items.join(" | ")
+            ));
         }
 
         if !self.decisions.is_empty() {
-            let items: Vec<&str> = self.decisions.iter().rev().take(3).map(|d| d.summary.as_str()).collect();
+            let items: Vec<&str> = self
+                .decisions
+                .iter()
+                .rev()
+                .take(3)
+                .map(|d| d.summary.as_str())
+                .collect();
             lines.push(format!("Decisions: {}", items.join(" | ")));
         }
 
         if !self.files_touched.is_empty() {
-            let items: Vec<String> = self.files_touched.iter().rev().take(10).map(|f| {
-                let status = if f.modified { "mod" } else { &f.last_mode };
-                let r = f.file_ref.as_deref().unwrap_or("?");
-                format!("[{r} {} {status}]", shorten_path(&f.path))
-            }).collect();
-            lines.push(format!("Files ({}): {}", self.files_touched.len(), items.join(" ")));
+            let items: Vec<String> = self
+                .files_touched
+                .iter()
+                .rev()
+                .take(10)
+                .map(|f| {
+                    let status = if f.modified { "mod" } else { &f.last_mode };
+                    let r = f.file_ref.as_deref().unwrap_or("?");
+                    format!("[{r} {} {status}]", shorten_path(&f.path))
+                })
+                .collect();
+            lines.push(format!(
+                "Files ({}): {}",
+                self.files_touched.len(),
+                items.join(" ")
+            ));
         }
 
         if let Some(ref tests) = self.test_results {
-            lines.push(format!("Tests: {}/{} pass ({})", tests.passed, tests.total, tests.command));
+            lines.push(format!(
+                "Tests: {}/{} pass ({})",
+                tests.passed, tests.total, tests.command
+            ));
         }
 
         if !self.next_steps.is_empty() {
@@ -306,7 +337,9 @@ impl SessionState {
         std::fs::write(&tmp, &json).map_err(|e| e.to_string())?;
         std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
 
-        let pointer = LatestPointer { id: self.id.clone() };
+        let pointer = LatestPointer {
+            id: self.id.clone(),
+        };
         let pointer_json = serde_json::to_string(&pointer).map_err(|e| e.to_string())?;
         let latest_path = dir.join("latest.json");
         let latest_tmp = dir.join(".latest.json.tmp");

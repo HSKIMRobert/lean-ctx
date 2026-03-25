@@ -12,7 +12,13 @@ pub fn compress(cmd: &str, output: &str) -> Option<String> {
         return Some(compress_describe(trimmed));
     }
 
-    if trimmed.starts_with("INSERT") || trimmed.starts_with("UPDATE") || trimmed.starts_with("DELETE") || trimmed.starts_with("CREATE") || trimmed.starts_with("ALTER") || trimmed.starts_with("DROP") {
+    if trimmed.starts_with("INSERT")
+        || trimmed.starts_with("UPDATE")
+        || trimmed.starts_with("DELETE")
+        || trimmed.starts_with("CREATE")
+        || trimmed.starts_with("ALTER")
+        || trimmed.starts_with("DROP")
+    {
         return Some(trimmed.lines().next().unwrap_or(trimmed).to_string());
     }
 
@@ -21,7 +27,10 @@ pub fn compress(cmd: &str, output: &str) -> Option<String> {
 
 fn is_table_output(output: &str) -> bool {
     let lines: Vec<&str> = output.lines().collect();
-    lines.len() >= 3 && lines.iter().any(|l| l.contains("---+---") || l.contains("-+-"))
+    lines.len() >= 3
+        && lines
+            .iter()
+            .any(|l| l.contains("---+---") || l.contains("-+-"))
 }
 
 fn compress_table(output: &str) -> String {
@@ -44,7 +53,10 @@ fn compress_table(output: &str) -> String {
         data_rows += 1;
     }
 
-    let row_count_line = lines.iter().rev().find(|l| l.trim().starts_with('(') && l.contains("row"));
+    let row_count_line = lines
+        .iter()
+        .rev()
+        .find(|l| l.trim().starts_with('(') && l.contains("row"));
     let count_str = row_count_line
         .map(|l| l.trim().to_string())
         .unwrap_or_else(|| format!("({data_rows} rows)"));
@@ -63,7 +75,11 @@ fn compress_describe(output: &str) -> String {
     if lines.len() <= 30 {
         return lines.join("\n");
     }
-    format!("{}\n... ({} more lines)", lines[..20].join("\n"), lines.len() - 20)
+    format!(
+        "{}\n... ({} more lines)",
+        lines[..20].join("\n"),
+        lines.len() - 20
+    )
 }
 
 fn compact_lines(text: &str, max: usize) -> String {
@@ -71,5 +87,9 @@ fn compact_lines(text: &str, max: usize) -> String {
     if lines.len() <= max {
         return lines.join("\n");
     }
-    format!("{}\n... ({} more lines)", lines[..max].join("\n"), lines.len() - max)
+    format!(
+        "{}\n... ({} more lines)",
+        lines[..max].join("\n"),
+        lines.len() - max
+    )
 }

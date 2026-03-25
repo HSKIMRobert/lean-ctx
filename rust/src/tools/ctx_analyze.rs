@@ -44,7 +44,9 @@ pub fn handle(path: &str, crp_mode: CrpMode) -> String {
     let cache_tokens = 13usize;
 
     let mut sections = Vec::new();
-    sections.push(format!("ANALYSIS: {short} ({line_count}L, {raw_tokens} tok)\n"));
+    sections.push(format!(
+        "ANALYSIS: {short} ({line_count}L, {raw_tokens} tok)\n"
+    ));
 
     sections.push("Entropy Distribution:".to_string());
     sections.push(format!("  H̄ = {:.1} bits/char", analysis.avg_entropy));
@@ -72,10 +74,18 @@ pub fn handle(path: &str, crp_mode: CrpMode) -> String {
     sections.push(format_strategy("raw", raw_tokens, raw_tokens));
     sections.push(format_strategy("aggressive", agg_tokens, raw_tokens));
 
-    let sig_label = if crp_mode.is_tdd() { "signatures (tdd)" } else { "signatures" };
+    let sig_label = if crp_mode.is_tdd() {
+        "signatures (tdd)"
+    } else {
+        "signatures"
+    };
     sections.push(format_strategy(sig_label, sig_tokens, raw_tokens));
 
-    sections.push(format_strategy("entropy", entropy_result.compressed_tokens, raw_tokens));
+    sections.push(format_strategy(
+        "entropy",
+        entropy_result.compressed_tokens,
+        raw_tokens,
+    ));
 
     if crp_mode.is_tdd() {
         let mut sym = SymbolMap::new();
@@ -86,7 +96,11 @@ pub fn handle(path: &str, crp_mode: CrpMode) -> String {
         let tdd_agg = sym.apply(&aggressive);
         let tdd_table = sym.format_table();
         let tdd_agg_tokens = count_tokens(&tdd_agg) + count_tokens(&tdd_table);
-        sections.push(format_strategy("aggressive + §MAP", tdd_agg_tokens, raw_tokens));
+        sections.push(format_strategy(
+            "aggressive + §MAP",
+            tdd_agg_tokens,
+            raw_tokens,
+        ));
     }
 
     sections.push(format_strategy("cache hit", cache_tokens, raw_tokens));
@@ -102,7 +116,10 @@ pub fn handle(path: &str, crp_mode: CrpMode) -> String {
         strategies.push(("signatures (tdd)", sig_tokens));
     }
     let best = strategies.iter().min_by_key(|(_, t)| *t).unwrap();
-    sections.push(format!("Recommendation: {} (best first-read savings)", best.0));
+    sections.push(format!(
+        "Recommendation: {} (best first-read savings)",
+        best.0
+    ));
 
     sections.join("\n")
 }

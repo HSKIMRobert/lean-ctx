@@ -10,14 +10,10 @@ static TEST_TOTAL: OnceLock<Regex> = OnceLock::new();
 static PUBLISH_ARROW: OnceLock<Regex> = OnceLock::new();
 
 fn build_summary_err_re() -> &'static Regex {
-    BUILD_SUMMARY_ERR.get_or_init(|| {
-        Regex::new(r"(?i)^\s*(\d+)\s+Error\(s\)\s*$").unwrap()
-    })
+    BUILD_SUMMARY_ERR.get_or_init(|| Regex::new(r"(?i)^\s*(\d+)\s+Error\(s\)\s*$").unwrap())
 }
 fn build_summary_warn_re() -> &'static Regex {
-    BUILD_SUMMARY_WARN.get_or_init(|| {
-        Regex::new(r"(?i)^\s*(\d+)\s+Warning\(s\)\s*$").unwrap()
-    })
+    BUILD_SUMMARY_WARN.get_or_init(|| Regex::new(r"(?i)^\s*(\d+)\s+Warning\(s\)\s*$").unwrap())
 }
 fn build_result_re() -> &'static Regex {
     BUILD_RESULT.get_or_init(|| Regex::new(r"(?i)^(Build succeeded\.|Build FAILED\.)").unwrap())
@@ -28,14 +24,10 @@ fn restored_proj_re() -> &'static Regex {
     })
 }
 fn restored_pkg_re() -> &'static Regex {
-    RESTORED_PKG.get_or_init(|| {
-        Regex::new(r"(?i)Restored\s+(\d+)\s+package").unwrap()
-    })
+    RESTORED_PKG.get_or_init(|| Regex::new(r"(?i)Restored\s+(\d+)\s+package").unwrap())
 }
 fn test_total_re() -> &'static Regex {
-    TEST_TOTAL.get_or_init(|| {
-        Regex::new(r"(?i)^\s*Total tests:\s*(\d+)\s*$").unwrap()
-    })
+    TEST_TOTAL.get_or_init(|| Regex::new(r"(?i)^\s*Total tests:\s*(\d+)\s*$").unwrap())
 }
 fn publish_arrow_re() -> &'static Regex {
     PUBLISH_ARROW.get_or_init(|| Regex::new(r"\s+->\s+").unwrap())
@@ -85,8 +77,7 @@ fn looks_like_build_error_line(line: &str) -> bool {
 fn looks_like_build_warning_line(line: &str) -> bool {
     let t = line.trim();
     let tl = t.to_ascii_lowercase();
-    (tl.contains(": warning ") || tl.starts_with("warning "))
-        && !tl.contains("warning(s)")
+    (tl.contains(": warning ") || tl.starts_with("warning ")) && !tl.contains("warning(s)")
 }
 
 pub fn compress(command: &str, output: &str) -> Option<String> {
@@ -250,10 +241,7 @@ fn compress_restore(output: &str) -> String {
 
     let mut parts = Vec::new();
     if !restored_projects.is_empty() {
-        parts.push(format!(
-            "Restored {} project(s):",
-            restored_projects.len()
-        ));
+        parts.push(format!("Restored {} project(s):", restored_projects.len()));
         for p in restored_projects {
             parts.push(format!("  {p}"));
         }

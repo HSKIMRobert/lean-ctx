@@ -8,19 +8,17 @@ static GRADLE_PROGRESS_RE: OnceLock<Regex> = OnceLock::new();
 static TESTS_RUN_RE: OnceLock<Regex> = OnceLock::new();
 
 fn maven_download_re() -> &'static Regex {
-    MAVEN_DOWNLOAD_RE.get_or_init(|| {
-        Regex::new(r"(?i)\[INFO\]\s+(Downloading|Downloaded)\s+").unwrap()
-    })
+    MAVEN_DOWNLOAD_RE
+        .get_or_init(|| Regex::new(r"(?i)\[INFO\]\s+(Downloading|Downloaded)\s+").unwrap())
 }
 
 fn maven_progress_re() -> &'static Regex {
-    MAVEN_PROGRESS_RE.get_or_init(|| {
-        Regex::new(r"\[INFO\].*kB\s+\|").unwrap()
-    })
+    MAVEN_PROGRESS_RE.get_or_init(|| Regex::new(r"\[INFO\].*kB\s+\|").unwrap())
 }
 
 fn gradle_download_re() -> &'static Regex {
-    GRADLE_DOWNLOAD_RE.get_or_init(|| Regex::new(r"(?i)^(Downloading|Download)\s+https?://").unwrap())
+    GRADLE_DOWNLOAD_RE
+        .get_or_init(|| Regex::new(r"(?i)^(Downloading|Download)\s+https?://").unwrap())
 }
 
 fn gradle_progress_re() -> &'static Regex {
@@ -76,9 +74,7 @@ fn is_maven_or_gradle_command(command: &str) -> bool {
 
 fn is_gradle_command(command: &str) -> bool {
     let cl = command.trim().to_ascii_lowercase();
-    cl.starts_with("gradle ")
-        || cl.starts_with("./gradlew ")
-        || cl.starts_with("gradlew ")
+    cl.starts_with("gradle ") || cl.starts_with("./gradlew ") || cl.starts_with("gradlew ")
 }
 
 pub fn compress(command: &str, output: &str) -> Option<String> {

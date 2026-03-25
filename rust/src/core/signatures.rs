@@ -73,7 +73,11 @@ impl Signature {
                 };
                 format!("ν{vis}{}{ty}", self.name)
             }
-            _ => format!("{}{vis}{}", self.kind.chars().next().unwrap_or('?'), self.name),
+            _ => format!(
+                "{}{vis}{}",
+                self.kind.chars().next().unwrap_or('?'),
+                self.name
+            ),
         }
     }
 }
@@ -97,21 +101,15 @@ fn fn_re() -> &'static Regex {
 }
 
 fn class_re() -> &'static Regex {
-    CLASS_RE.get_or_init(|| {
-        Regex::new(r"^(\s*)(export\s+)?(abstract\s+)?class\s+(\w+)").unwrap()
-    })
+    CLASS_RE.get_or_init(|| Regex::new(r"^(\s*)(export\s+)?(abstract\s+)?class\s+(\w+)").unwrap())
 }
 
 fn iface_re() -> &'static Regex {
-    IFACE_RE.get_or_init(|| {
-        Regex::new(r"^(\s*)(export\s+)?interface\s+(\w+)").unwrap()
-    })
+    IFACE_RE.get_or_init(|| Regex::new(r"^(\s*)(export\s+)?interface\s+(\w+)").unwrap())
 }
 
 fn type_re() -> &'static Regex {
-    TYPE_RE.get_or_init(|| {
-        Regex::new(r"^(\s*)(export\s+)?type\s+(\w+)").unwrap()
-    })
+    TYPE_RE.get_or_init(|| Regex::new(r"^(\s*)(export\s+)?type\s+(\w+)").unwrap())
 }
 
 fn const_re() -> &'static Regex {
@@ -128,27 +126,19 @@ fn rust_fn_re() -> &'static Regex {
 }
 
 fn rust_struct_re() -> &'static Regex {
-    RUST_STRUCT_RE.get_or_init(|| {
-        Regex::new(r"^(\s*)(pub\s+)?struct\s+(\w+)").unwrap()
-    })
+    RUST_STRUCT_RE.get_or_init(|| Regex::new(r"^(\s*)(pub\s+)?struct\s+(\w+)").unwrap())
 }
 
 fn rust_enum_re() -> &'static Regex {
-    RUST_ENUM_RE.get_or_init(|| {
-        Regex::new(r"^(\s*)(pub\s+)?enum\s+(\w+)").unwrap()
-    })
+    RUST_ENUM_RE.get_or_init(|| Regex::new(r"^(\s*)(pub\s+)?enum\s+(\w+)").unwrap())
 }
 
 fn rust_trait_re() -> &'static Regex {
-    RUST_TRAIT_RE.get_or_init(|| {
-        Regex::new(r"^(\s*)(pub\s+)?trait\s+(\w+)").unwrap()
-    })
+    RUST_TRAIT_RE.get_or_init(|| Regex::new(r"^(\s*)(pub\s+)?trait\s+(\w+)").unwrap())
 }
 
 fn rust_impl_re() -> &'static Regex {
-    RUST_IMPL_RE.get_or_init(|| {
-        Regex::new(r"^(\s*)impl\s+(?:(\w+)\s+for\s+)?(\w+)").unwrap()
-    })
+    RUST_IMPL_RE.get_or_init(|| Regex::new(r"^(\s*)impl\s+(?:(\w+)\s+for\s+)?(\w+)").unwrap())
 }
 
 pub fn extract_signatures(content: &str, file_ext: &str) -> Vec<Signature> {
@@ -183,7 +173,9 @@ fn extract_ts_signatures(content: &str) -> Vec<Signature> {
                 kind: if indent > 0 { "method" } else { "fn" },
                 name: caps[4].to_string(),
                 params: compact_params(&caps[5]),
-                return_type: caps.get(6).map_or(String::new(), |m| m.as_str().trim().to_string()),
+                return_type: caps
+                    .get(6)
+                    .map_or(String::new(), |m| m.as_str().trim().to_string()),
                 is_async: caps.get(3).is_some(),
                 is_exported: caps.get(2).is_some(),
                 indent: if indent > 0 { 2 } else { 0 },
@@ -224,7 +216,9 @@ fn extract_ts_signatures(content: &str) -> Vec<Signature> {
                     kind: "const",
                     name: caps[4].to_string(),
                     params: String::new(),
-                    return_type: caps.get(5).map_or(String::new(), |m| m.as_str().to_string()),
+                    return_type: caps
+                        .get(5)
+                        .map_or(String::new(), |m| m.as_str().to_string()),
                     is_async: false,
                     is_exported: true,
                     indent: 0,
@@ -251,7 +245,9 @@ fn extract_rust_signatures(content: &str) -> Vec<Signature> {
                 kind: if indent > 0 { "method" } else { "fn" },
                 name: caps[4].to_string(),
                 params: compact_params(&caps[5]),
-                return_type: caps.get(6).map_or(String::new(), |m| m.as_str().trim().to_string()),
+                return_type: caps
+                    .get(6)
+                    .map_or(String::new(), |m| m.as_str().trim().to_string()),
                 is_async: caps.get(3).is_some(),
                 is_exported: caps.get(2).is_some(),
                 indent: if indent > 0 { 2 } else { 0 },
@@ -315,7 +311,9 @@ fn extract_python_signatures(content: &str) -> Vec<Signature> {
     static PY_CLASS: OnceLock<Regex> = OnceLock::new();
 
     let mut sigs = Vec::new();
-    let py_fn = PY_FN.get_or_init(|| Regex::new(r"^(\s*)(async\s+)?def\s+(\w+)\s*\(([^)]*)\)(?:\s*->\s*(\w+))?").unwrap());
+    let py_fn = PY_FN.get_or_init(|| {
+        Regex::new(r"^(\s*)(async\s+)?def\s+(\w+)\s*\(([^)]*)\)(?:\s*->\s*(\w+))?").unwrap()
+    });
     let py_class = PY_CLASS.get_or_init(|| Regex::new(r"^(\s*)class\s+(\w+)").unwrap());
 
     for line in content.lines() {
@@ -325,7 +323,9 @@ fn extract_python_signatures(content: &str) -> Vec<Signature> {
                 kind: if indent > 0 { "method" } else { "fn" },
                 name: caps[3].to_string(),
                 params: compact_params(&caps[4]),
-                return_type: caps.get(5).map_or(String::new(), |m| m.as_str().to_string()),
+                return_type: caps
+                    .get(5)
+                    .map_or(String::new(), |m| m.as_str().to_string()),
                 is_async: caps.get(2).is_some(),
                 is_exported: !caps[3].starts_with('_'),
                 indent: if indent > 0 { 2 } else { 0 },
@@ -353,7 +353,8 @@ fn extract_go_signatures(content: &str) -> Vec<Signature> {
 
     let mut sigs = Vec::new();
     let go_fn = GO_FN.get_or_init(|| Regex::new(r"^func\s+(?:\((\w+)\s+\*?(\w+)\)\s+)?(\w+)\s*\(([^)]*)\)(?:\s*(?:\(([^)]*)\)|(\w+)))?\s*\{").unwrap());
-    let go_type = GO_TYPE.get_or_init(|| Regex::new(r"^type\s+(\w+)\s+(struct|interface)").unwrap());
+    let go_type =
+        GO_TYPE.get_or_init(|| Regex::new(r"^type\s+(\w+)\s+(struct|interface)").unwrap());
 
     for line in content.lines() {
         if let Some(caps) = go_fn.captures(line) {
@@ -362,14 +363,21 @@ fn extract_go_signatures(content: &str) -> Vec<Signature> {
                 kind: if is_method { "method" } else { "fn" },
                 name: caps[3].to_string(),
                 params: compact_params(&caps[4]),
-                return_type: caps.get(5).or(caps.get(6)).map_or(String::new(), |m| m.as_str().to_string()),
+                return_type: caps
+                    .get(5)
+                    .or(caps.get(6))
+                    .map_or(String::new(), |m| m.as_str().to_string()),
                 is_async: false,
                 is_exported: caps[3].starts_with(char::is_uppercase),
                 indent: if is_method { 2 } else { 0 },
             });
         } else if let Some(caps) = go_type.captures(line) {
             sigs.push(Signature {
-                kind: if &caps[2] == "struct" { "struct" } else { "interface" },
+                kind: if &caps[2] == "struct" {
+                    "struct"
+                } else {
+                    "interface"
+                },
                 name: caps[1].to_string(),
                 params: String::new(),
                 return_type: String::new(),
@@ -480,7 +488,12 @@ fn extract_generic_signatures(content: &str) -> Vec<Signature> {
     let mut sigs = Vec::new();
     for line in content.lines() {
         let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with('#') || trimmed.starts_with("/*") || trimmed.starts_with('*') {
+        if trimmed.is_empty()
+            || trimmed.starts_with("//")
+            || trimmed.starts_with('#')
+            || trimmed.starts_with("/*")
+            || trimmed.starts_with('*')
+        {
             continue;
         }
         if let Some(caps) = re_class.captures(trimmed) {

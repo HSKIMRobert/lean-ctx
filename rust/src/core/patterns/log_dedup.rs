@@ -25,7 +25,11 @@ pub fn compress(output: &str) -> Option<String> {
         }
 
         let lower = stripped.to_lowercase();
-        if lower.contains("error") || lower.contains("fatal") || lower.contains("panic") || lower.contains("exception") {
+        if lower.contains("error")
+            || lower.contains("fatal")
+            || lower.contains("panic")
+            || lower.contains("exception")
+        {
             error_lines.push(stripped.clone());
         }
 

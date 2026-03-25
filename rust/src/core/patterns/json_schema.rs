@@ -56,7 +56,10 @@ fn extract_schema(val: &serde_json::Value, depth: usize) -> String {
                 return format!("{indent}[]");
             }
             let first_schema = extract_schema(&arr[0], depth + 1);
-            format!("{indent}[{} items, each:\n{first_schema}\n{indent}]", arr.len())
+            format!(
+                "{indent}[{} items, each:\n{first_schema}\n{indent}]",
+                arr.len()
+            )
         }
         other => format!("{indent}{}", type_of(other)),
     }
@@ -67,7 +70,11 @@ fn type_of(val: &serde_json::Value) -> String {
         serde_json::Value::Null => "null".to_string(),
         serde_json::Value::Bool(_) => "bool".to_string(),
         serde_json::Value::Number(n) => {
-            if n.is_f64() { "float".to_string() } else { "int".to_string() }
+            if n.is_f64() {
+                "float".to_string()
+            } else {
+                "int".to_string()
+            }
         }
         serde_json::Value::String(s) => {
             if s.len() > 50 {

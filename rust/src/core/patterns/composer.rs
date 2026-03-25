@@ -44,11 +44,20 @@ fn compress_install(output: &str) -> String {
     }
 
     let mut parts = Vec::new();
-    if installed > 0 { parts.push(format!("{installed} installed")); }
-    if updated > 0 { parts.push(format!("{updated} updated")); }
-    if removed > 0 { parts.push(format!("{removed} removed")); }
+    if installed > 0 {
+        parts.push(format!("{installed} installed"));
+    }
+    if updated > 0 {
+        parts.push(format!("{updated} updated"));
+    }
+    if removed > 0 {
+        parts.push(format!("{removed} removed"));
+    }
 
-    let summary = output.lines().rev().find(|l| l.contains("Package operations") || l.contains("Nothing to install"));
+    let summary = output
+        .lines()
+        .rev()
+        .find(|l| l.contains("Package operations") || l.contains("Nothing to install"));
     let mut result = format!("composer: {}", parts.join(", "));
     if let Some(s) = summary {
         result.push_str(&format!("\n  {}", s.trim()));
@@ -57,10 +66,13 @@ fn compress_install(output: &str) -> String {
 }
 
 fn compress_outdated(output: &str) -> String {
-    let lines: Vec<&str> = output.lines().filter(|l| {
-        let t = l.trim();
-        !t.is_empty() && !t.starts_with("Color legend")
-    }).collect();
+    let lines: Vec<&str> = output
+        .lines()
+        .filter(|l| {
+            let t = l.trim();
+            !t.is_empty() && !t.starts_with("Color legend")
+        })
+        .collect();
 
     if lines.is_empty() {
         return "all up to date".to_string();
@@ -68,8 +80,12 @@ fn compress_outdated(output: &str) -> String {
     if lines.len() <= 20 {
         return lines.join("\n");
     }
-    format!("{} outdated packages:\n{}\n... ({} more)",
-        lines.len(), lines[..15].join("\n"), lines.len() - 15)
+    format!(
+        "{} outdated packages:\n{}\n... ({} more)",
+        lines.len(),
+        lines[..15].join("\n"),
+        lines.len() - 15
+    )
 }
 
 fn compact_lines(text: &str, max: usize) -> String {
@@ -77,5 +93,9 @@ fn compact_lines(text: &str, max: usize) -> String {
     if lines.len() <= max {
         return lines.join("\n");
     }
-    format!("{}\n... ({} more lines)", lines[..max].join("\n"), lines.len() - max)
+    format!(
+        "{}\n... ({} more lines)",
+        lines[..max].join("\n"),
+        lines.len() - max
+    )
 }

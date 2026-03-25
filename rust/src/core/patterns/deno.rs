@@ -35,13 +35,19 @@ fn compress_test(output: &str) -> String {
         if trimmed.starts_with("ok |") || trimmed.starts_with("test result:") {
             for part in trimmed.split_whitespace() {
                 if let Ok(n) = part.parse::<u32>() {
-                    if trimmed.contains("passed") && passed == 0 { passed = n; }
-                    else if trimmed.contains("failed") && failed == 0 { failed = n; }
-                    else if trimmed.contains("ignored") && ignored == 0 { ignored = n; }
+                    if trimmed.contains("passed") && passed == 0 {
+                        passed = n;
+                    } else if trimmed.contains("failed") && failed == 0 {
+                        failed = n;
+                    } else if trimmed.contains("ignored") && ignored == 0 {
+                        ignored = n;
+                    }
                 }
             }
             if let Some(pos) = trimmed.rfind('(') {
-                time = trimmed[pos..].trim_matches(|c: char| c == '(' || c == ')').to_string();
+                time = trimmed[pos..]
+                    .trim_matches(|c: char| c == '(' || c == ')')
+                    .to_string();
             }
         }
         if trimmed.starts_with("FAILED") || trimmed.starts_with("failures:") {
@@ -57,9 +63,15 @@ fn compress_test(output: &str) -> String {
     }
 
     let mut result = format!("deno test: {passed} passed");
-    if failed > 0 { result.push_str(&format!(", {failed} failed")); }
-    if ignored > 0 { result.push_str(&format!(", {ignored} ignored")); }
-    if !time.is_empty() { result.push_str(&format!(" ({time})")); }
+    if failed > 0 {
+        result.push_str(&format!(", {failed} failed"));
+    }
+    if ignored > 0 {
+        result.push_str(&format!(", {ignored} ignored"));
+    }
+    if !time.is_empty() {
+        result.push_str(&format!(" ({time})"));
+    }
     for f in failures.iter().take(5) {
         result.push_str(&format!("\n  {f}"));
     }
@@ -80,19 +92,36 @@ fn compress_lint(output: &str) -> String {
         }
         return compact_lines(output, 10);
     }
-    format!("{} lint issues:\n{}", issues.len(),
-        issues.iter().take(10).map(|i| format!("  {i}")).collect::<Vec<_>>().join("\n"))
+    format!(
+        "{} lint issues:\n{}",
+        issues.len(),
+        issues
+            .iter()
+            .take(10)
+            .map(|i| format!("  {i}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    )
 }
 
 fn compress_check(output: &str) -> String {
-    let errors: Vec<&str> = output.lines()
+    let errors: Vec<&str> = output
+        .lines()
         .filter(|l| l.contains("error") || l.contains("Error"))
         .collect();
     if errors.is_empty() {
         return "ok (type check passed)".to_string();
     }
-    format!("{} errors:\n{}", errors.len(),
-        errors.iter().take(10).map(|e| format!("  {}", e.trim())).collect::<Vec<_>>().join("\n"))
+    format!(
+        "{} errors:\n{}",
+        errors.len(),
+        errors
+            .iter()
+            .take(10)
+            .map(|e| format!("  {}", e.trim()))
+            .collect::<Vec<_>>()
+            .join("\n")
+    )
 }
 
 fn compress_fmt(output: &str) -> String {
@@ -108,5 +137,9 @@ fn compact_lines(text: &str, max: usize) -> String {
     if lines.len() <= max {
         return lines.join("\n");
     }
-    format!("{}\n... ({} more lines)", lines[..max].join("\n"), lines.len() - max)
+    format!(
+        "{}\n... ({} more lines)",
+        lines[..max].join("\n"),
+        lines.len() - max
+    )
 }

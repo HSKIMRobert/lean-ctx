@@ -13,7 +13,9 @@ fn size_re() -> &'static Regex {
     SIZE_RE.get_or_init(|| Regex::new(r"(\d+\.?\d*)\s*(kB|MB|B)\b").unwrap())
 }
 fn build_time_re() -> &'static Regex {
-    BUILD_TIME_RE.get_or_init(|| Regex::new(r"(?:compiled|built|done)\s+(?:in\s+)?(\d+\.?\d*\s*[ms]+)").unwrap())
+    BUILD_TIME_RE.get_or_init(|| {
+        Regex::new(r"(?:compiled|built|done)\s+(?:in\s+)?(\d+\.?\d*\s*[ms]+)").unwrap()
+    })
 }
 fn vite_chunk_re() -> &'static Regex {
     VITE_CHUNK_RE.get_or_init(|| Regex::new(r"dist/(\S+)\s+(\d+\.?\d*\s*[kKMm]?B)").unwrap())
@@ -150,5 +152,9 @@ fn compact_output(text: &str, max: usize) -> String {
     if lines.len() <= max {
         return lines.join("\n");
     }
-    format!("{}\n... ({} more lines)", lines[..max].join("\n"), lines.len() - max)
+    format!(
+        "{}\n... ({} more lines)",
+        lines[..max].join("\n"),
+        lines.len() - max
+    )
 }

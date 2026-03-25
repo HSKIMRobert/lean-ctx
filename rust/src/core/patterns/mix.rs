@@ -24,12 +24,20 @@ pub fn compress(cmd: &str, output: &str) -> Option<String> {
 }
 
 fn compress_test(output: &str) -> String {
-    let summary = output.lines().rev().find(|l| l.contains("test") && (l.contains("passed") || l.contains("failure")));
+    let summary = output
+        .lines()
+        .rev()
+        .find(|l| l.contains("test") && (l.contains("passed") || l.contains("failure")));
 
     if let Some(s) = summary {
         let mut result = format!("mix test: {}", s.trim());
-        let failures: Vec<&str> = output.lines()
-            .filter(|l| l.trim().starts_with("1)") || l.trim().starts_with("2)") || l.trim().starts_with("3)"))
+        let failures: Vec<&str> = output
+            .lines()
+            .filter(|l| {
+                l.trim().starts_with("1)")
+                    || l.trim().starts_with("2)")
+                    || l.trim().starts_with("3)")
+            })
             .collect();
         for f in failures.iter().take(5) {
             result.push_str(&format!("\n  {}", f.trim()));
@@ -44,8 +52,12 @@ fn compress_deps(output: &str) -> String {
     let mut compiled = 0u32;
 
     for line in output.lines() {
-        if line.contains("Resolving") || line.contains("resolving") { resolved += 1; }
-        if line.contains("Compiling") || line.contains("compiling") { compiled += 1; }
+        if line.contains("Resolving") || line.contains("resolving") {
+            resolved += 1;
+        }
+        if line.contains("Compiling") || line.contains("compiling") {
+            compiled += 1;
+        }
     }
 
     if resolved == 0 && compiled == 0 {
@@ -61,8 +73,12 @@ fn compress_compile(output: &str) -> String {
 
     for line in output.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with("Compiling") || trimmed.starts_with("Compiled") { compiled += 1; }
-        if trimmed.contains("warning:") { warnings += 1; }
+        if trimmed.starts_with("Compiling") || trimmed.starts_with("Compiled") {
+            compiled += 1;
+        }
+        if trimmed.contains("warning:") {
+            warnings += 1;
+        }
         if trimmed.contains("error") && trimmed.contains("**") {
             errors.push(trimmed.to_string());
         }
@@ -77,7 +93,9 @@ fn compress_compile(output: &str) -> String {
     }
 
     let mut result = format!("{compiled} compiled");
-    if warnings > 0 { result.push_str(&format!(", {warnings} warnings")); }
+    if warnings > 0 {
+        result.push_str(&format!(", {warnings} warnings"));
+    }
     result
 }
 
@@ -90,10 +108,13 @@ fn compress_format(output: &str) -> String {
 }
 
 fn compress_lint(output: &str) -> String {
-    let issues: Vec<&str> = output.lines().filter(|l| {
-        let t = l.trim();
-        t.contains("┃") || t.starts_with("warning:") || t.starts_with("error:")
-    }).collect();
+    let issues: Vec<&str> = output
+        .lines()
+        .filter(|l| {
+            let t = l.trim();
+            t.contains("┃") || t.starts_with("warning:") || t.starts_with("error:")
+        })
+        .collect();
 
     if issues.is_empty() {
         if output.contains("no issues") || output.contains("Analysis finished") {
@@ -101,8 +122,16 @@ fn compress_lint(output: &str) -> String {
         }
         return compact_lines(output, 10);
     }
-    format!("{} issues:\n{}", issues.len(),
-        issues.iter().take(10).map(|i| format!("  {}", i.trim())).collect::<Vec<_>>().join("\n"))
+    format!(
+        "{} issues:\n{}",
+        issues.len(),
+        issues
+            .iter()
+            .take(10)
+            .map(|i| format!("  {}", i.trim()))
+            .collect::<Vec<_>>()
+            .join("\n")
+    )
 }
 
 fn compact_lines(text: &str, max: usize) -> String {
@@ -110,5 +139,9 @@ fn compact_lines(text: &str, max: usize) -> String {
     if lines.len() <= max {
         return lines.join("\n");
     }
-    format!("{}\n... ({} more lines)", lines[..max].join("\n"), lines.len() - max)
+    format!(
+        "{}\n... ({} more lines)",
+        lines[..max].join("\n"),
+        lines.len() - max
+    )
 }

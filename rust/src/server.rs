@@ -10,9 +10,7 @@ use crate::tools::{CrpMode, LeanCtxServer};
 
 impl ServerHandler for LeanCtxServer {
     fn get_info(&self) -> ServerInfo {
-        let capabilities = ServerCapabilities::builder()
-            .enable_tools()
-            .build();
+        let capabilities = ServerCapabilities::builder().enable_tools().build();
 
         let instructions = build_instructions(self.crp_mode);
 
@@ -378,7 +376,12 @@ impl ServerHandler for LeanCtxServer {
                     let fresh = get_bool(args, "fresh").unwrap_or(false);
                     let mut cache = self.cache.write().await;
                     let output = if fresh {
-                        crate::tools::ctx_read::handle_fresh(&mut cache, &path, &mode, self.crp_mode)
+                        crate::tools::ctx_read::handle_fresh(
+                            &mut cache,
+                            &path,
+                            &mode,
+                            self.crp_mode,
+                        )
                     } else {
                         crate::tools::ctx_read::handle(&mut cache, &path, &mode, self.crp_mode)
                     };
@@ -390,30 +393,42 @@ impl ServerHandler for LeanCtxServer {
                         let mut session = self.session.write().await;
                         session.touch_file(&path, file_ref.as_deref(), &mode, original);
                     }
-                    self.record_call("ctx_read", original, original.saturating_sub(tokens), Some(mode)).await;
+                    self.record_call(
+                        "ctx_read",
+                        original,
+                        original.saturating_sub(tokens),
+                        Some(mode),
+                    )
+                    .await;
                     output
                 }
                 "ctx_multi_read" => {
-                    let paths = get_str_array(args, "paths")
-                        .ok_or_else(|| ErrorData::invalid_params("paths array is required", None))?;
+                    let paths = get_str_array(args, "paths").ok_or_else(|| {
+                        ErrorData::invalid_params("paths array is required", None)
+                    })?;
                     let mode = get_str(args, "mode").unwrap_or_else(|| "full".to_string());
                     let mut cache = self.cache.write().await;
-                    let output = crate::tools::ctx_multi_read::handle(&mut cache, &paths, &mode, self.crp_mode);
+                    let output = crate::tools::ctx_multi_read::handle(
+                        &mut cache,
+                        &paths,
+                        &mode,
+                        self.crp_mode,
+                    );
                     let mut total_original: usize = 0;
                     for path in &paths {
-                        total_original =
-                            total_original.saturating_add(cache.get(path).map(|e| e.original_tokens).unwrap_or(0));
+                        total_original = total_original.saturating_add(
+                            cache.get(path).map(|e| e.original_tokens).unwrap_or(0),
+                        );
                     }
                     let tokens = crate::core::tokens::count_tokens(&output);
                     drop(cache);
-                    self
-                        .record_call(
-                            "ctx_multi_read",
-                            total_original,
-                            total_original.saturating_sub(tokens),
-                            Some(mode),
-                        )
-                        .await;
+                    self.record_call(
+                        "ctx_multi_read",
+                        total_original,
+                        total_original.saturating_sub(tokens),
+                        Some(mode),
+                    )
+                    .await;
                     output
                 }
                 "ctx_tree" => {
@@ -432,7 +447,8 @@ impl ServerHandler for LeanCtxServer {
                     let result = crate::tools::ctx_shell::handle(&command, &output, self.crp_mode);
                     let original = crate::core::tokens::count_tokens(&output);
                     let sent = crate::core::tokens::count_tokens(&result);
-                    self.record_call("ctx_shell", original, original.saturating_sub(sent), None).await;
+                    self.record_call("ctx_shell", original, original.saturating_sub(sent), None)
+                        .await;
                     result
                 }
                 "ctx_search" => {
@@ -441,7 +457,13 @@ impl ServerHandler for LeanCtxServer {
                     let path = get_str(args, "path").unwrap_or_else(|| ".".to_string());
                     let ext = get_str(args, "ext");
                     let max = get_int(args, "max_results").unwrap_or(20) as usize;
-                    let result = crate::tools::ctx_search::handle(&pattern, &path, ext.as_deref(), max, self.crp_mode);
+                    let result = crate::tools::ctx_search::handle(
+                        &pattern,
+                        &path,
+                        ext.as_deref(),
+                        max,
+                        self.crp_mode,
+                    );
                     let sent = crate::core::tokens::count_tokens(&result);
                     self.record_call("ctx_search", sent, 0, None).await;
                     result
@@ -449,7 +471,8 @@ impl ServerHandler for LeanCtxServer {
                 "ctx_compress" => {
                     let include_sigs = get_bool(args, "include_signatures").unwrap_or(true);
                     let cache = self.cache.read().await;
-                    let result = crate::tools::ctx_compress::handle(&cache, include_sigs, self.crp_mode);
+                    let result =
+                        crate::tools::ctx_compress::handle(&cache, include_sigs, self.crp_mode);
                     drop(cache);
                     self.record_call("ctx_compress", 0, 0, None).await;
                     result
@@ -499,11 +522,18 @@ impl ServerHandler for LeanCtxServer {
                     let path = get_str(args, "path")
                         .ok_or_else(|| ErrorData::invalid_params("path is required", None))?;
                     let mut cache = self.cache.write().await;
-                    let output = crate::tools::ctx_smart_read::handle(&mut cache, &path, self.crp_mode);
+                    let output =
+                        crate::tools::ctx_smart_read::handle(&mut cache, &path, self.crp_mode);
                     let original = cache.get(&path).map_or(0, |e| e.original_tokens);
                     let tokens = crate::core::tokens::count_tokens(&output);
                     drop(cache);
-                    self.record_call("ctx_smart_read", original, original.saturating_sub(tokens), Some("auto".to_string())).await;
+                    self.record_call(
+                        "ctx_smart_read",
+                        original,
+                        original.saturating_sub(tokens),
+                        Some("auto".to_string()),
+                    )
+                    .await;
                     output
                 }
                 "ctx_delta" => {
@@ -518,7 +548,13 @@ impl ServerHandler for LeanCtxServer {
                         let mut session = self.session.write().await;
                         session.mark_modified(&path);
                     }
-                    self.record_call("ctx_delta", original, original.saturating_sub(tokens), Some("delta".to_string())).await;
+                    self.record_call(
+                        "ctx_delta",
+                        original,
+                        original.saturating_sub(tokens),
+                        Some("delta".to_string()),
+                    )
+                    .await;
                     output
                 }
                 "ctx_dedup" => {
@@ -529,14 +565,18 @@ impl ServerHandler for LeanCtxServer {
                     result
                 }
                 "ctx_fill" => {
-                    let paths = get_str_array(args, "paths")
-                        .ok_or_else(|| ErrorData::invalid_params("paths array is required", None))?;
+                    let paths = get_str_array(args, "paths").ok_or_else(|| {
+                        ErrorData::invalid_params("paths array is required", None)
+                    })?;
                     let budget = get_int(args, "budget")
-                        .ok_or_else(|| ErrorData::invalid_params("budget is required", None))? as usize;
+                        .ok_or_else(|| ErrorData::invalid_params("budget is required", None))?
+                        as usize;
                     let mut cache = self.cache.write().await;
-                    let output = crate::tools::ctx_fill::handle(&mut cache, &paths, budget, self.crp_mode);
+                    let output =
+                        crate::tools::ctx_fill::handle(&mut cache, &paths, budget, self.crp_mode);
                     drop(cache);
-                    self.record_call("ctx_fill", 0, 0, Some(format!("budget:{budget}"))).await;
+                    self.record_call("ctx_fill", 0, 0, Some(format!("budget:{budget}")))
+                        .await;
                     output
                 }
                 "ctx_intent" => {
@@ -544,13 +584,15 @@ impl ServerHandler for LeanCtxServer {
                         .ok_or_else(|| ErrorData::invalid_params("query is required", None))?;
                     let root = get_str(args, "project_root").unwrap_or_else(|| ".".to_string());
                     let mut cache = self.cache.write().await;
-                    let output = crate::tools::ctx_intent::handle(&mut cache, &query, &root, self.crp_mode);
+                    let output =
+                        crate::tools::ctx_intent::handle(&mut cache, &query, &root, self.crp_mode);
                     drop(cache);
                     {
                         let mut session = self.session.write().await;
                         session.set_task(&query, Some("intent"));
                     }
-                    self.record_call("ctx_intent", 0, 0, Some("semantic".to_string())).await;
+                    self.record_call("ctx_intent", 0, 0, Some("semantic".to_string()))
+                        .await;
                     output
                 }
                 "ctx_response" => {
@@ -563,7 +605,8 @@ impl ServerHandler for LeanCtxServer {
                 "ctx_context" => {
                     let cache = self.cache.read().await;
                     let turn = self.call_count.load(std::sync::atomic::Ordering::Relaxed);
-                    let result = crate::tools::ctx_context::handle_status(&cache, turn, self.crp_mode);
+                    let result =
+                        crate::tools::ctx_context::handle_status(&cache, turn, self.crp_mode);
                     drop(cache);
                     self.record_call("ctx_context", 0, 0, None).await;
                     result
@@ -589,7 +632,11 @@ impl ServerHandler for LeanCtxServer {
                             } else {
                                 let mut lines = vec![format!("Cache: {} file(s)", entries.len())];
                                 for (path, entry) in &entries {
-                                    let fref = cache.file_ref_map().get(*path).map(|s| s.as_str()).unwrap_or("F?");
+                                    let fref = cache
+                                        .file_ref_map()
+                                        .get(*path)
+                                        .map(|s| s.as_str())
+                                        .unwrap_or("F?");
                                     lines.push(format!(
                                         "  {fref}={} [{}L, {}t, read {}x]",
                                         crate::core::protocol::shorten_path(path),
@@ -606,12 +653,16 @@ impl ServerHandler for LeanCtxServer {
                             format!("Cache cleared — {count} file(s) removed. Next ctx_read will return full content.")
                         }
                         "invalidate" => {
-                            let path = get_str(args, "path")
-                                .ok_or_else(|| ErrorData::invalid_params("path is required for invalidate", None))?;
+                            let path = get_str(args, "path").ok_or_else(|| {
+                                ErrorData::invalid_params("path is required for invalidate", None)
+                            })?;
                             if cache.invalidate(&path) {
                                 format!("Invalidated cache for {}. Next ctx_read will return full content.", crate::core::protocol::shorten_path(&path))
                             } else {
-                                format!("{} was not in cache.", crate::core::protocol::shorten_path(&path))
+                                format!(
+                                    "{} was not in cache.",
+                                    crate::core::protocol::shorten_path(&path)
+                                )
                             }
                         }
                         _ => "Unknown action. Use: status, clear, invalidate".to_string(),
@@ -650,7 +701,18 @@ impl ServerHandler for LeanCtxServer {
                 }
             };
 
-            let skip_checkpoint = matches!(name.as_ref(), "ctx_compress" | "ctx_metrics" | "ctx_benchmark" | "ctx_analyze" | "ctx_cache" | "ctx_discover" | "ctx_dedup" | "ctx_session" | "ctx_wrapped");
+            let skip_checkpoint = matches!(
+                name.as_ref(),
+                "ctx_compress"
+                    | "ctx_metrics"
+                    | "ctx_benchmark"
+                    | "ctx_analyze"
+                    | "ctx_cache"
+                    | "ctx_discover"
+                    | "ctx_dedup"
+                    | "ctx_session"
+                    | "ctx_wrapped"
+            );
 
             if !skip_checkpoint && self.increment_and_check() {
                 if let Some(checkpoint) = self.auto_checkpoint().await {
@@ -671,7 +733,10 @@ fn build_instructions(crp_mode: CrpMode) -> String {
     let session_block = match crate::core::session::SessionState::load_latest() {
         Some(session) => {
             let positioned = crate::core::litm::position_optimize(&session);
-            format!("\n\n--- ACTIVE SESSION (LITM P1: begin position) ---\n{}\n---\n", positioned.begin_block)
+            format!(
+                "\n\n--- ACTIVE SESSION (LITM P1: begin position) ---\n{}\n---\n",
+                positioned.begin_block
+            )
         }
         None => String::new(),
     };

@@ -22,7 +22,10 @@ fn binary_prints_help() {
         .output()
         .expect("failed to run lean-ctx");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Cognitive Filter"), "help should contain tagline");
+    assert!(
+        stdout.contains("Cognitive Filter"),
+        "help should contain tagline"
+    );
     assert!(stdout.contains("MCP"), "help should mention MCP");
 }
 
@@ -43,7 +46,15 @@ fn binary_doctor_runs() {
 #[test]
 fn binary_read_file() {
     let output = Command::new("cargo")
-        .args(["run", "--release", "--", "read", "Cargo.toml", "-m", "signatures"])
+        .args([
+            "run",
+            "--release",
+            "--",
+            "read",
+            "Cargo.toml",
+            "-m",
+            "signatures",
+        ])
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .output()
         .expect("failed to run lean-ctx");

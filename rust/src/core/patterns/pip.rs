@@ -57,7 +57,11 @@ fn compress_list(output: &str) -> String {
         return output.to_string();
     }
 
-    let skip = if lines[0].starts_with("Package") || lines[0].starts_with("---") { 2 } else { 0 };
+    let skip = if lines[0].starts_with("Package") || lines[0].starts_with("---") {
+        2
+    } else {
+        0
+    };
     let packages: Vec<String> = lines[skip..]
         .iter()
         .filter_map(|l| {
@@ -78,7 +82,15 @@ fn compress_list(output: &str) -> String {
 
 fn compress_outdated(output: &str) -> String {
     let lines: Vec<&str> = output.lines().collect();
-    let skip = if lines.first().map(|l| l.starts_with("Package")).unwrap_or(false) { 2 } else { 0 };
+    let skip = if lines
+        .first()
+        .map(|l| l.starts_with("Package"))
+        .unwrap_or(false)
+    {
+        2
+    } else {
+        0
+    };
 
     let mut outdated = Vec::new();
     for line in lines.iter().skip(skip) {
@@ -131,7 +143,11 @@ fn compress_check(output: &str) -> String {
     if broken.is_empty() {
         return compact_output(trimmed, 5);
     }
-    format!("{} broken dependencies:\n{}", broken.len(), broken.join("\n"))
+    format!(
+        "{} broken dependencies:\n{}",
+        broken.len(),
+        broken.join("\n")
+    )
 }
 
 fn compact_output(text: &str, max: usize) -> String {
@@ -139,5 +155,9 @@ fn compact_output(text: &str, max: usize) -> String {
     if lines.len() <= max {
         return lines.join("\n");
     }
-    format!("{}\n... ({} more lines)", lines[..max].join("\n"), lines.len() - max)
+    format!(
+        "{}\n... ({} more lines)",
+        lines[..max].join("\n"),
+        lines.len() - max
+    )
 }

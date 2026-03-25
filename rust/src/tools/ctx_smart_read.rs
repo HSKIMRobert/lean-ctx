@@ -51,32 +51,65 @@ pub fn handle(cache: &mut SessionCache, path: &str, crp_mode: CrpMode) -> String
 }
 
 fn compute_hash(content: &str) -> String {
-    use md5::{Md5, Digest};
+    use md5::{Digest, Md5};
     let mut hasher = Md5::new();
     hasher.update(content.as_bytes());
     format!("{:x}", hasher.finalize())
 }
 
 fn is_code(ext: &str) -> bool {
-    matches!(ext,
-        "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go" | "java" |
-        "c" | "cpp" | "cc" | "h" | "hpp" | "rb" | "cs" | "kt" |
-        "swift" | "php" | "zig" | "ex" | "exs" | "scala" | "dart"
+    matches!(
+        ext,
+        "rs" | "ts"
+            | "tsx"
+            | "js"
+            | "jsx"
+            | "py"
+            | "go"
+            | "java"
+            | "c"
+            | "cpp"
+            | "cc"
+            | "h"
+            | "hpp"
+            | "rb"
+            | "cs"
+            | "kt"
+            | "swift"
+            | "php"
+            | "zig"
+            | "ex"
+            | "exs"
+            | "scala"
+            | "dart"
     )
 }
 
 fn is_config_or_data(ext: &str, path: &str) -> bool {
-    if matches!(ext, "json" | "yaml" | "yml" | "toml" | "xml" | "ini" | "cfg" | "env" | "lock") {
+    if matches!(
+        ext,
+        "json" | "yaml" | "yml" | "toml" | "xml" | "ini" | "cfg" | "env" | "lock"
+    ) {
         return true;
     }
     let name = std::path::Path::new(path)
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("");
-    matches!(name,
-        "Cargo.toml" | "package.json" | "tsconfig.json" | "Makefile" |
-        "Dockerfile" | "docker-compose.yml" | ".gitignore" | ".env" |
-        "pyproject.toml" | "go.mod" | "build.gradle" | "pom.xml"
+    matches!(
+        name,
+        "Cargo.toml"
+            | "package.json"
+            | "tsconfig.json"
+            | "Makefile"
+            | "Dockerfile"
+            | "docker-compose.yml"
+            | ".gitignore"
+            | ".env"
+            | "pyproject.toml"
+            | "go.mod"
+            | "build.gradle"
+            | "pom.xml"
     )
 }
 

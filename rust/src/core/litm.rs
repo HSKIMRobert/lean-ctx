@@ -32,7 +32,9 @@ pub fn position_optimize(session: &SessionState) -> PositionedOutput {
     ));
 
     if let Some(ref task) = session.task {
-        let pct = task.progress_pct.map_or(String::new(), |p| format!(" [{p}%]"));
+        let pct = task
+            .progress_pct
+            .map_or(String::new(), |p| format!(" [{p}%]"));
         begin_lines.push(format!("Task: {}{pct}", task.description));
     }
 
@@ -41,33 +43,52 @@ pub fn position_optimize(session: &SessionState) -> PositionedOutput {
     }
 
     if !session.decisions.is_empty() {
-        let items: Vec<&str> = session.decisions.iter().rev().take(5).map(|d| d.summary.as_str()).collect();
+        let items: Vec<&str> = session
+            .decisions
+            .iter()
+            .rev()
+            .take(5)
+            .map(|d| d.summary.as_str())
+            .collect();
         begin_lines.push(format!("Decisions: {}", items.join(" | ")));
     }
 
     if !session.files_touched.is_empty() {
-        let items: Vec<String> = session.files_touched.iter().rev().take(15).map(|f| {
-            let r = f.file_ref.as_deref().unwrap_or("?");
-            let status = if f.modified { "mod" } else { &f.last_mode };
-            format!("{r}={} [{status}]", short_path(&f.path))
-        }).collect();
+        let items: Vec<String> = session
+            .files_touched
+            .iter()
+            .rev()
+            .take(15)
+            .map(|f| {
+                let r = f.file_ref.as_deref().unwrap_or("?");
+                let status = if f.modified { "mod" } else { &f.last_mode };
+                format!("{r}={} [{status}]", short_path(&f.path))
+            })
+            .collect();
         begin_lines.push(format!("Files: {}", items.join(" ")));
     }
 
     if !session.findings.is_empty() {
-        let items: Vec<String> = session.findings.iter().rev().take(5).map(|f| {
-            match (&f.file, f.line) {
+        let items: Vec<String> = session
+            .findings
+            .iter()
+            .rev()
+            .take(5)
+            .map(|f| match (&f.file, f.line) {
                 (Some(file), Some(line)) => format!("{}:{line} — {}", short_path(file), f.summary),
                 (Some(file), None) => format!("{} — {}", short_path(file), f.summary),
                 _ => f.summary.clone(),
-            }
-        }).collect();
+            })
+            .collect();
         end_lines.push(format!("Findings: {}", items.join(" | ")));
     }
 
     if let Some(ref tests) = session.test_results {
         let status = if tests.failed > 0 { "FAIL" } else { "PASS" };
-        end_lines.push(format!("Tests [{status}]: {}/{} ({})", tests.passed, tests.total, tests.command));
+        end_lines.push(format!(
+            "Tests [{status}]: {}/{} ({})",
+            tests.passed, tests.total, tests.command
+        ));
     }
 
     if !session.next_steps.is_empty() {
@@ -91,16 +112,22 @@ pub fn compute_litm_efficiency(
     ccp_end_tokens: usize,
 ) -> (f64, f64) {
     let total_without = (begin_tokens + middle_tokens + end_tokens) as f64;
-    let effective_without = _ALPHA * begin_tokens as f64
-        + _BETA * middle_tokens as f64
-        + _GAMMA * end_tokens as f64;
+    let effective_without =
+        _ALPHA * begin_tokens as f64 + _BETA * middle_tokens as f64 + _GAMMA * end_tokens as f64;
 
     let total_with = (ccp_begin_tokens + ccp_end_tokens) as f64;
-    let effective_with = _ALPHA * ccp_begin_tokens as f64
-        + _GAMMA * ccp_end_tokens as f64;
+    let effective_with = _ALPHA * ccp_begin_tokens as f64 + _GAMMA * ccp_end_tokens as f64;
 
-    let eff_without = if total_without > 0.0 { effective_without / total_without * 100.0 } else { 0.0 };
-    let eff_with = if total_with > 0.0 { effective_with / total_with * 100.0 } else { 0.0 };
+    let eff_without = if total_without > 0.0 {
+        effective_without / total_without * 100.0
+    } else {
+        0.0
+    };
+    let eff_with = if total_with > 0.0 {
+        effective_with / total_with * 100.0
+    } else {
+        0.0
+    };
 
     (eff_without, eff_with)
 }

@@ -99,29 +99,70 @@ fn is_skipped_dir(name: &str) -> bool {
 fn is_text_ext(ext: &str) -> bool {
     matches!(
         ext,
-        "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go" | "java"
-            | "c" | "cpp" | "h" | "hpp" | "cs" | "kt" | "swift"
-            | "rb" | "php" | "vue" | "svelte" | "html" | "css"
-            | "scss" | "less" | "json" | "yaml" | "yml" | "toml"
-            | "xml" | "md" | "txt" | "sh" | "bash" | "zsh"
-            | "fish" | "sql" | "graphql" | "proto" | "ex" | "exs"
-            | "zig" | "lua" | "r" | "R" | "dart" | "scala"
+        "rs" | "ts"
+            | "tsx"
+            | "js"
+            | "jsx"
+            | "py"
+            | "go"
+            | "java"
+            | "c"
+            | "cpp"
+            | "h"
+            | "hpp"
+            | "cs"
+            | "kt"
+            | "swift"
+            | "rb"
+            | "php"
+            | "vue"
+            | "svelte"
+            | "html"
+            | "css"
+            | "scss"
+            | "less"
+            | "json"
+            | "yaml"
+            | "yml"
+            | "toml"
+            | "xml"
+            | "md"
+            | "txt"
+            | "sh"
+            | "bash"
+            | "zsh"
+            | "fish"
+            | "sql"
+            | "graphql"
+            | "proto"
+            | "ex"
+            | "exs"
+            | "zig"
+            | "lua"
+            | "r"
+            | "R"
+            | "dart"
+            | "scala"
     )
 }
 
 fn scan_project(root: &str) -> Vec<PathBuf> {
     let mut files: Vec<(PathBuf, u64)> = Vec::new();
 
-    for entry in WalkDir::new(root).max_depth(8).into_iter().filter_entry(|e| {
-        let name = e.file_name().to_string_lossy();
-        if e.file_type().is_dir() {
-            if e.depth() > 0 && name.starts_with('.') {
-                return false;
+    for entry in WalkDir::new(root)
+        .max_depth(8)
+        .into_iter()
+        .filter_entry(|e| {
+            let name = e.file_name().to_string_lossy();
+            if e.file_type().is_dir() {
+                if e.depth() > 0 && name.starts_with('.') {
+                    return false;
+                }
+                return !is_skipped_dir(&name);
             }
-            return !is_skipped_dir(&name);
-        }
-        true
-    }) {
+            true
+        })
+    {
         let entry = match entry {
             Ok(e) => e,
             Err(_) => continue,
@@ -132,10 +173,7 @@ fn scan_project(root: &str) -> Vec<PathBuf> {
         }
 
         let path = entry.path().to_path_buf();
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
         if !is_text_ext(ext) {
             continue;
@@ -201,7 +239,10 @@ fn measure_mode(content: &str, ext: &str, mode: &str, raw_tokens: usize) -> Mode
         }
         "signatures" => {
             let sigs = signatures::extract_signatures(content, ext);
-            sigs.iter().map(|s| s.to_compact()).collect::<Vec<_>>().join("\n")
+            sigs.iter()
+                .map(|s| s.to_compact())
+                .collect::<Vec<_>>()
+                .join("\n")
         }
         "aggressive" => compressor::aggressive_compress(content, Some(ext)),
         "entropy" => entropy::entropy_compress(content).output,
@@ -285,7 +326,11 @@ fn aggregate_languages(files: &[FileMeasurement]) -> Vec<LanguageStats> {
     }
     let mut stats: Vec<LanguageStats> = map
         .into_iter()
-        .map(|(ext, (count, total_tokens))| LanguageStats { ext, count, total_tokens })
+        .map(|(ext, (count, total_tokens))| LanguageStats {
+            ext,
+            count,
+            total_tokens,
+        })
         .collect();
     stats.sort_by(|a, b| b.total_tokens.cmp(&a.total_tokens));
     stats
@@ -445,16 +490,28 @@ pub fn format_terminal(b: &ProjectBenchmark) -> String {
     out.push(format!("  lean-ctx Benchmark — {}", b.root));
     out.push(format!("{sep}"));
 
-    let lang_summary: Vec<String> = b.languages.iter().take(5).map(|l| {
-        format!("{} {}", l.count, l.ext)
-    }).collect();
-    out.push(format!("  Scanned: {} files ({})", b.files_measured, lang_summary.join(", ")));
-    out.push(format!("  Total raw tokens: {}", format_num(b.total_raw_tokens)));
+    let lang_summary: Vec<String> = b
+        .languages
+        .iter()
+        .take(5)
+        .map(|l| format!("{} {}", l.count, l.ext))
+        .collect();
+    out.push(format!(
+        "  Scanned: {} files ({})",
+        b.files_measured,
+        lang_summary.join(", ")
+    ));
+    out.push(format!(
+        "  Total raw tokens: {}",
+        format_num(b.total_raw_tokens)
+    ));
     out.push(String::new());
 
     out.push("  Mode Performance:".to_string());
-    out.push(format!("  {:<14} {:>10} {:>10} {:>10} {:>10}",
-        "Mode", "Tokens", "Savings", "Latency", "Quality"));
+    out.push(format!(
+        "  {:<14} {:>10} {:>10} {:>10} {:>10}",
+        "Mode", "Tokens", "Savings", "Latency", "Quality"
+    ));
     out.push(format!("  {}", "\u{2500}".repeat(58)));
 
     for m in &b.mode_summaries {
@@ -468,7 +525,8 @@ pub fn format_terminal(b: &ProjectBenchmark) -> String {
         } else {
             format!("{}μs", m.avg_latency_us)
         };
-        out.push(format!("  {:<14} {:>10} {:>9.1}% {:>10} {:>10}",
+        out.push(format!(
+            "  {:<14} {:>10} {:>9.1}% {:>10} {:>10}",
             m.mode,
             format_num(m.total_compressed_tokens),
             m.avg_savings_pct,
@@ -479,12 +537,15 @@ pub fn format_terminal(b: &ProjectBenchmark) -> String {
 
     out.push(String::new());
     out.push("  Session Simulation (30-min coding):".to_string());
-    out.push(format!("  {:<24} {:>10} {:>10} {:>10}",
-        "Approach", "Tokens", "Cost", "Savings"));
+    out.push(format!(
+        "  {:<24} {:>10} {:>10} {:>10}",
+        "Approach", "Tokens", "Cost", "Savings"
+    ));
     out.push(format!("  {}", "\u{2500}".repeat(58)));
 
     let s = &b.session_sim;
-    out.push(format!("  {:<24} {:>10} {:>10} {:>10}",
+    out.push(format!(
+        "  {:<24} {:>10} {:>10} {:>10}",
         "Raw (no compression)",
         format_num(s.raw_tokens),
         format!("${:.3}", s.raw_cost),
@@ -493,8 +554,11 @@ pub fn format_terminal(b: &ProjectBenchmark) -> String {
 
     let lean_pct = if s.raw_tokens > 0 {
         (1.0 - s.lean_tokens as f64 / s.raw_tokens as f64) * 100.0
-    } else { 0.0 };
-    out.push(format!("  {:<24} {:>10} {:>10} {:>9.1}%",
+    } else {
+        0.0
+    };
+    out.push(format!(
+        "  {:<24} {:>10} {:>10} {:>9.1}%",
         "lean-ctx (no CCP)",
         format_num(s.lean_tokens),
         format!("${:.3}", s.lean_cost),
@@ -503,8 +567,11 @@ pub fn format_terminal(b: &ProjectBenchmark) -> String {
 
     let ccp_pct = if s.raw_tokens > 0 {
         (1.0 - s.lean_ccp_tokens as f64 / s.raw_tokens as f64) * 100.0
-    } else { 0.0 };
-    out.push(format!("  {:<24} {:>10} {:>10} {:>9.1}%",
+    } else {
+        0.0
+    };
+    out.push(format!(
+        "  {:<24} {:>10} {:>10} {:>9.1}%",
         "lean-ctx + CCP",
         format_num(s.lean_ccp_tokens),
         format!("${:.3}", s.ccp_cost),
@@ -524,7 +591,10 @@ pub fn format_markdown(b: &ProjectBenchmark) -> String {
     out.push(String::new());
     out.push(format!("**Project:** `{}`", b.root));
     out.push(format!("**Files measured:** {}", b.files_measured));
-    out.push(format!("**Total raw tokens:** {}", format_num(b.total_raw_tokens)));
+    out.push(format!(
+        "**Total raw tokens:** {}",
+        format_num(b.total_raw_tokens)
+    ));
     out.push(String::new());
 
     out.push("## Languages".to_string());
@@ -532,7 +602,12 @@ pub fn format_markdown(b: &ProjectBenchmark) -> String {
     out.push("| Extension | Files | Tokens |".to_string());
     out.push("|-----------|------:|-------:|".to_string());
     for l in &b.languages {
-        out.push(format!("| {} | {} | {} |", l.ext, l.count, format_num(l.total_tokens)));
+        out.push(format!(
+            "| {} | {} | {} |",
+            l.ext,
+            l.count,
+            format_num(l.total_tokens)
+        ));
     }
     out.push(String::new());
 
@@ -551,8 +626,14 @@ pub fn format_markdown(b: &ProjectBenchmark) -> String {
         } else {
             format!("{}μs", m.avg_latency_us)
         };
-        out.push(format!("| {} | {} | {:.1}% | {} | {} |",
-            m.mode, format_num(m.total_compressed_tokens), m.avg_savings_pct, latency, qual));
+        out.push(format!(
+            "| {} | {} | {:.1}% | {} | {} |",
+            m.mode,
+            format_num(m.total_compressed_tokens),
+            m.avg_savings_pct,
+            latency,
+            qual
+        ));
     }
     out.push(String::new());
 
@@ -562,24 +643,41 @@ pub fn format_markdown(b: &ProjectBenchmark) -> String {
     out.push("|----------|-------:|-----:|--------:|".to_string());
 
     let s = &b.session_sim;
-    out.push(format!("| Raw (no compression) | {} | ${:.3} | — |",
-        format_num(s.raw_tokens), s.raw_cost));
+    out.push(format!(
+        "| Raw (no compression) | {} | ${:.3} | — |",
+        format_num(s.raw_tokens),
+        s.raw_cost
+    ));
 
     let lean_pct = if s.raw_tokens > 0 {
         (1.0 - s.lean_tokens as f64 / s.raw_tokens as f64) * 100.0
-    } else { 0.0 };
-    out.push(format!("| lean-ctx (no CCP) | {} | ${:.3} | {:.1}% |",
-        format_num(s.lean_tokens), s.lean_cost, lean_pct));
+    } else {
+        0.0
+    };
+    out.push(format!(
+        "| lean-ctx (no CCP) | {} | ${:.3} | {:.1}% |",
+        format_num(s.lean_tokens),
+        s.lean_cost,
+        lean_pct
+    ));
 
     let ccp_pct = if s.raw_tokens > 0 {
         (1.0 - s.lean_ccp_tokens as f64 / s.raw_tokens as f64) * 100.0
-    } else { 0.0 };
-    out.push(format!("| lean-ctx + CCP | {} | ${:.3} | {:.1}% |",
-        format_num(s.lean_ccp_tokens), s.ccp_cost, ccp_pct));
+    } else {
+        0.0
+    };
+    out.push(format!(
+        "| lean-ctx + CCP | {} | ${:.3} | {:.1}% |",
+        format_num(s.lean_ccp_tokens),
+        s.ccp_cost,
+        ccp_pct
+    ));
 
     out.push(String::new());
-    out.push(format!("*Generated by lean-ctx benchmark v{} — https://leanctx.com*",
-        env!("CARGO_PKG_VERSION")));
+    out.push(format!(
+        "*Generated by lean-ctx benchmark v{} — https://leanctx.com*",
+        env!("CARGO_PKG_VERSION")
+    ));
 
     out.join("\n")
 }
@@ -597,13 +695,17 @@ pub fn format_json(b: &ProjectBenchmark) -> String {
         })
     }).collect();
 
-    let languages: Vec<serde_json::Value> = b.languages.iter().map(|l| {
-        serde_json::json!({
-            "ext": l.ext,
-            "count": l.count,
-            "total_tokens": l.total_tokens,
+    let languages: Vec<serde_json::Value> = b
+        .languages
+        .iter()
+        .map(|l| {
+            serde_json::json!({
+                "ext": l.ext,
+                "count": l.count,
+                "total_tokens": l.total_tokens,
+            })
         })
-    }).collect();
+        .collect();
 
     let s = &b.session_sim;
     let report = serde_json::json!({

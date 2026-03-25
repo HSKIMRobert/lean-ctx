@@ -75,7 +75,12 @@ fn try_pytest(output: &str) -> Option<String> {
             }
         }
         if trimmed.starts_with("FAILED ") {
-            failures.push(trimmed.strip_prefix("FAILED ").unwrap_or(trimmed).to_string());
+            failures.push(
+                trimmed
+                    .strip_prefix("FAILED ")
+                    .unwrap_or(trimmed)
+                    .to_string(),
+            );
         }
     }
 
@@ -155,7 +160,12 @@ fn try_go_test(output: &str) -> Option<String> {
             passed += 1;
         } else if trimmed.starts_with("--- FAIL:") {
             failed += 1;
-            failures.push(trimmed.strip_prefix("--- FAIL: ").unwrap_or(trimmed).to_string());
+            failures.push(
+                trimmed
+                    .strip_prefix("--- FAIL: ")
+                    .unwrap_or(trimmed)
+                    .to_string(),
+            );
         } else if trimmed.starts_with("ok ") {
             packages.push(trimmed.to_string());
         } else if trimmed.starts_with("FAIL\t") {
@@ -207,7 +217,9 @@ fn try_vitest(output: &str) -> Option<String> {
             if plain.contains("ms") || plain.contains("s") {
                 duration_line = plain.clone();
             }
-        } else if plain.contains("FAIL") && (plain.contains(".test.") || plain.contains(".spec.") || plain.contains("_test.")) {
+        } else if plain.contains("FAIL")
+            && (plain.contains(".test.") || plain.contains(".spec.") || plain.contains("_test."))
+        {
             failures.push(plain.clone());
         }
     }

@@ -24,14 +24,18 @@ fn compress_test(output: &str) -> String {
 
     for line in output.lines() {
         let trimmed = line.trim();
-        if trimmed.contains("PASSED") { passed += 1; }
+        if trimmed.contains("PASSED") {
+            passed += 1;
+        }
         if trimmed.contains("FAILED") {
             failed += 1;
             failures.push(trimmed.to_string());
         }
     }
 
-    let summary = output.lines().find(|l| l.contains("executed") || l.contains("test(s)"));
+    let summary = output
+        .lines()
+        .find(|l| l.contains("executed") || l.contains("test(s)"));
 
     if passed == 0 && failed == 0 {
         if let Some(s) = summary {
@@ -41,7 +45,9 @@ fn compress_test(output: &str) -> String {
     }
 
     let mut result = format!("bazel test: {passed} passed");
-    if failed > 0 { result.push_str(&format!(", {failed} failed")); }
+    if failed > 0 {
+        result.push_str(&format!(", {failed} failed"));
+    }
     for f in failures.iter().take(5) {
         result.push_str(&format!("\n  {f}"));
     }
@@ -55,7 +61,10 @@ fn compress_build(output: &str) -> String {
     for line in output.lines() {
         let trimmed = line.trim();
         if trimmed.contains("up-to-date") || trimmed.contains("Build completed") {
-            if let Some(n) = trimmed.split_whitespace().find_map(|w| w.parse::<u32>().ok()) {
+            if let Some(n) = trimmed
+                .split_whitespace()
+                .find_map(|w| w.parse::<u32>().ok())
+            {
                 targets = n;
             }
         }
@@ -72,7 +81,10 @@ fn compress_build(output: &str) -> String {
         return result;
     }
 
-    let info_line = output.lines().rev().find(|l| l.contains("INFO: Build completed") || l.contains("up-to-date"));
+    let info_line = output
+        .lines()
+        .rev()
+        .find(|l| l.contains("INFO: Build completed") || l.contains("up-to-date"));
     if let Some(info) = info_line {
         return info.trim().to_string();
     }
@@ -85,8 +97,12 @@ fn compress_query(output: &str) -> String {
     if targets.len() <= 20 {
         return targets.join("\n");
     }
-    format!("{} targets:\n{}\n... ({} more)",
-        targets.len(), targets[..15].join("\n"), targets.len() - 15)
+    format!(
+        "{} targets:\n{}\n... ({} more)",
+        targets.len(),
+        targets[..15].join("\n"),
+        targets.len() - 15
+    )
 }
 
 fn compact_lines(text: &str, max: usize) -> String {
@@ -94,5 +110,9 @@ fn compact_lines(text: &str, max: usize) -> String {
     if lines.len() <= max {
         return lines.join("\n");
     }
-    format!("{}\n... ({} more lines)", lines[..max].join("\n"), lines.len() - max)
+    format!(
+        "{}\n... ({} more lines)",
+        lines[..max].join("\n"),
+        lines.len() - max
+    )
 }

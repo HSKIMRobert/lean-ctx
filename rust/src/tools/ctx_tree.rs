@@ -1,8 +1,8 @@
 use std::path::Path;
 use walkdir::WalkDir;
 
-use crate::core::tokens::count_tokens;
 use crate::core::protocol;
+use crate::core::tokens::count_tokens;
 
 pub fn handle(path: &str, depth: usize, show_hidden: bool) -> String {
     let root = Path::new(path);
@@ -95,9 +95,7 @@ fn count_files_in_dir(dir: &Path, show_hidden: bool) -> usize {
         .filter_map(|e| e.ok())
         .filter(|e| {
             let name = e.file_name().to_string_lossy();
-            !e.file_type().is_dir()
-                && (show_hidden || !name.starts_with('.'))
-                && !is_ignored(&name)
+            !e.file_type().is_dir() && (show_hidden || !name.starts_with('.')) && !is_ignored(&name)
         })
         .count()
 }
