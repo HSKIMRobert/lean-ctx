@@ -88,12 +88,16 @@ fn main() {
                 cli::cmd_config(&rest);
                 return;
             }
+            "tee" => {
+                cli::cmd_tee(&rest);
+                return;
+            }
             "doctor" => {
                 doctor::run();
                 return;
             }
             "--version" | "-V" => {
-                println!("lean-ctx 1.8.1");
+                println!("lean-ctx 1.8.2");
                 return;
             }
             "--help" | "-h" => {
@@ -177,7 +181,7 @@ fn shell_quote(s: &str) -> String {
 
 fn print_help() {
     println!(
-        "lean-ctx 1.8.1 — The Cognitive Filter for AI Engineering
+        "lean-ctx 1.8.2 — The Cognitive Filter for AI Engineering
 
 75+ compression patterns | 10 MCP tools | Token Dense Dialect
 
@@ -203,6 +207,7 @@ COMMANDS:
     discover                       Find uncompressed commands in shell history
     session                        Show adoption statistics
     config                         Show/edit configuration (~/.lean-ctx/config.toml)
+    tee [list|clear|show <file>]   Manage error log files (~/.lean-ctx/tee/)
     doctor                         Run installation and environment diagnostics
 
 SHELL HOOK PATTERNS (75+):

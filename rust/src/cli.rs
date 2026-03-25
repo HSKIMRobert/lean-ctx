@@ -344,6 +344,82 @@ pub fn cmd_config(args: &[String]) {
     }
 }
 
+pub fn cmd_tee(args: &[String]) {
+    let tee_dir = match dirs::home_dir() {
+        Some(h) => h.join(".lean-ctx").join("tee"),
+        None => {
+            eprintln!("Cannot determine home directory");
+            std::process::exit(1);
+        }
+    };
+
+    let action = args.first().map(|s| s.as_str()).unwrap_or("list");
+    match action {
+        "list" | "ls" => {
+            if !tee_dir.exists() {
+                println!("No tee logs found (~/.lean-ctx/tee/ does not exist)");
+                return;
+            }
+            let mut entries: Vec<_> = std::fs::read_dir(&tee_dir)
+                .unwrap_or_else(|e| { eprintln!("Error: {e}"); std::process::exit(1); })
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("log"))
+                .collect();
+            entries.sort_by_key(|e| e.file_name());
+
+            if entries.is_empty() {
+                println!("No tee logs found.");
+                return;
+            }
+
+            println!("Tee logs ({}):\n", entries.len());
+            for entry in &entries {
+                let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+                let name = entry.file_name();
+                let size_str = if size > 1024 { format!("{}K", size / 1024) } else { format!("{}B", size) };
+                println!("  {:<60} {}", name.to_string_lossy(), size_str);
+            }
+            println!("\nUse 'lean-ctx tee clear' to delete all logs.");
+        }
+        "clear" | "purge" => {
+            if !tee_dir.exists() {
+                println!("No tee logs to clear.");
+                return;
+            }
+            let mut count = 0u32;
+            if let Ok(entries) = std::fs::read_dir(&tee_dir) {
+                for entry in entries.flatten() {
+                    if entry.path().extension().and_then(|x| x.to_str()) == Some("log") {
+                        if std::fs::remove_file(entry.path()).is_ok() {
+                            count += 1;
+                        }
+                    }
+                }
+            }
+            println!("Cleared {count} tee log(s) from {}", tee_dir.display());
+        }
+        "show" => {
+            let filename = args.get(1);
+            if filename.is_none() {
+                eprintln!("Usage: lean-ctx tee show <filename>");
+                std::process::exit(1);
+            }
+            let path = tee_dir.join(filename.unwrap());
+            match std::fs::read_to_string(&path) {
+                Ok(content) => print!("{content}"),
+                Err(e) => {
+                    eprintln!("Error reading {}: {e}", path.display());
+                    std::process::exit(1);
+                }
+            }
+        }
+        _ => {
+            eprintln!("Usage: lean-ctx tee [list|clear|show <file>]");
+            std::process::exit(1);
+        }
+    }
+}
+
 pub fn cmd_init(args: &[String]) {
     let global = args.iter().any(|a| a == "--global" || a == "-g");
 

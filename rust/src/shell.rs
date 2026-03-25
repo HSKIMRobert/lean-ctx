@@ -60,7 +60,7 @@ pub fn exec(command: &str) -> i32 {
     let cfg = config::Config::load();
     if cfg.tee_on_error && exit_code != 0 && !full_output.trim().is_empty() {
         if let Some(path) = save_tee(command, &full_output) {
-            eprintln!("[lean-ctx: full output saved to {path}]");
+            eprintln!("[lean-ctx: output saved to {path} (secrets redacted, auto-deleted after 24h)]");
         }
     }
 
@@ -70,7 +70,7 @@ pub fn exec(command: &str) -> i32 {
 pub fn interactive() {
     let real_shell = detect_shell();
 
-    eprintln!("lean-ctx shell v1.8.1 (wrapping {real_shell})");
+    eprintln!("lean-ctx shell v1.8.2 (wrapping {real_shell})");
     eprintln!("All command output is automatically compressed.");
     eprintln!("Type 'exit' to quit.\n");
 
@@ -231,6 +231,8 @@ fn save_tee(command: &str, output: &str) -> Option<String> {
     let tee_dir = dirs::home_dir()?.join(".lean-ctx").join("tee");
     std::fs::create_dir_all(&tee_dir).ok()?;
 
+    cleanup_old_tee_logs(&tee_dir);
+
     let cmd_slug: String = command
         .chars()
         .take(40)
@@ -240,6 +242,54 @@ fn save_tee(command: &str, output: &str) -> Option<String> {
     let filename = format!("{ts}_{cmd_slug}.log");
     let path = tee_dir.join(&filename);
 
-    std::fs::write(&path, output).ok()?;
+    let masked = mask_sensitive_data(output);
+    std::fs::write(&path, masked).ok()?;
     Some(path.to_string_lossy().to_string())
+}
+
+fn mask_sensitive_data(input: &str) -> String {
+    use regex::Regex;
+
+    let patterns: Vec<(&str, Regex)> = vec![
+        ("Bearer token", Regex::new(r"(?i)(bearer\s+)[a-zA-Z0-9\-_\.]{8,}").unwrap()),
+        ("Authorization header", Regex::new(r"(?i)(authorization:\s*(?:basic|bearer|token)\s+)[^\s\r\n]+").unwrap()),
+        ("API key param", Regex::new(r#"(?i)((?:api[_-]?key|apikey|access[_-]?key|secret[_-]?key|token|password|passwd|pwd|secret)\s*[=:]\s*)[^\s\r\n,;&"']+"#).unwrap()),
+        ("AWS key", Regex::new(r"(AKIA[0-9A-Z]{12,})").unwrap()),
+        ("Private key block", Regex::new(r"(?s)(-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY-----).+?(-----END\s+(?:RSA\s+)?PRIVATE\s+KEY-----)").unwrap()),
+        ("GitHub token", Regex::new(r"(gh[pousr]_)[a-zA-Z0-9]{20,}").unwrap()),
+        ("Generic long hex/base64 secret", Regex::new(r#"(?i)(?:key|token|secret|password|credential|auth)\s*[=:]\s*['"]?([a-zA-Z0-9+/=\-_]{32,})['"]?"#).unwrap()),
+    ];
+
+    let mut result = input.to_string();
+    for (label, re) in &patterns {
+        result = re.replace_all(&result, |caps: &regex::Captures| {
+            if let Some(prefix) = caps.get(1) {
+                format!("{}[REDACTED:{}]", prefix.as_str(), label)
+            } else {
+                format!("[REDACTED:{}]", label)
+            }
+        }).to_string();
+    }
+    result
+}
+
+fn cleanup_old_tee_logs(tee_dir: &std::path::Path) {
+    let cutoff = std::time::SystemTime::now()
+        .checked_sub(std::time::Duration::from_secs(24 * 60 * 60));
+    let cutoff = match cutoff {
+        Some(t) => t,
+        None => return,
+    };
+
+    if let Ok(entries) = std::fs::read_dir(tee_dir) {
+        for entry in entries.flatten() {
+            if let Ok(meta) = entry.metadata() {
+                if let Ok(modified) = meta.modified() {
+                    if modified < cutoff {
+                        let _ = std::fs::remove_file(entry.path());
+                    }
+                }
+            }
+        }
+    }
 }

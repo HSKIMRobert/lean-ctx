@@ -21,7 +21,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             ultra_compact: false,
-            tee_on_error: true,
+            tee_on_error: false,
             checkpoint_interval: 15,
             excluded_commands: Vec::new(),
             custom_aliases: Vec::new(),
