@@ -30,48 +30,48 @@ fn try_pytest(output: &str) -> Option<String> {
 
     for line in output.lines() {
         let trimmed = line.trim();
-        if trimmed.contains("passed") || trimmed.contains("failed") || trimmed.contains("error") {
-            if trimmed.starts_with('=') || trimmed.starts_with('-') {
-                for word in trimmed.split_whitespace() {
-                    if let Some(n) = word.strip_suffix("passed").or_else(|| {
-                        if trimmed.contains(" passed") {
-                            word.parse::<u32>().ok().map(|_| word)
-                        } else {
-                            None
-                        }
-                    }) {
-                        if let Ok(v) = n.trim().parse::<u32>() {
-                            passed = v;
-                        }
+        if (trimmed.contains("passed") || trimmed.contains("failed") || trimmed.contains("error"))
+            && (trimmed.starts_with('=') || trimmed.starts_with('-'))
+        {
+            for word in trimmed.split_whitespace() {
+                if let Some(n) = word.strip_suffix("passed").or_else(|| {
+                    if trimmed.contains(" passed") {
+                        word.parse::<u32>().ok().map(|_| word)
+                    } else {
+                        None
+                    }
+                }) {
+                    if let Ok(v) = n.trim().parse::<u32>() {
+                        passed = v;
                     }
                 }
-                if let Some(pos) = trimmed.find(" passed") {
-                    let before = &trimmed[..pos];
-                    if let Some(num_str) = before.split_whitespace().last() {
-                        if let Ok(v) = num_str.parse::<u32>() {
-                            passed = v;
-                        }
+            }
+            if let Some(pos) = trimmed.find(" passed") {
+                let before = &trimmed[..pos];
+                if let Some(num_str) = before.split_whitespace().last() {
+                    if let Ok(v) = num_str.parse::<u32>() {
+                        passed = v;
                     }
                 }
-                if let Some(pos) = trimmed.find(" failed") {
-                    let before = &trimmed[..pos];
-                    if let Some(num_str) = before.split_whitespace().last() {
-                        if let Ok(v) = num_str.parse::<u32>() {
-                            failed = v;
-                        }
+            }
+            if let Some(pos) = trimmed.find(" failed") {
+                let before = &trimmed[..pos];
+                if let Some(num_str) = before.split_whitespace().last() {
+                    if let Ok(v) = num_str.parse::<u32>() {
+                        failed = v;
                     }
                 }
-                if let Some(pos) = trimmed.find(" skipped") {
-                    let before = &trimmed[..pos];
-                    if let Some(num_str) = before.split_whitespace().last() {
-                        if let Ok(v) = num_str.parse::<u32>() {
-                            skipped = v;
-                        }
+            }
+            if let Some(pos) = trimmed.find(" skipped") {
+                let before = &trimmed[..pos];
+                if let Some(num_str) = before.split_whitespace().last() {
+                    if let Ok(v) = num_str.parse::<u32>() {
+                        skipped = v;
                     }
                 }
-                if let Some(pos) = trimmed.find(" in ") {
-                    time = trimmed[pos + 4..].trim_end_matches('=').trim().to_string();
-                }
+            }
+            if let Some(pos) = trimmed.find(" in ") {
+                time = trimmed[pos + 4..].trim_end_matches('=').trim().to_string();
             }
         }
         if trimmed.starts_with("FAILED ") {
@@ -166,9 +166,7 @@ fn try_go_test(output: &str) -> Option<String> {
                     .unwrap_or(trimmed)
                     .to_string(),
             );
-        } else if trimmed.starts_with("ok ") {
-            packages.push(trimmed.to_string());
-        } else if trimmed.starts_with("FAIL\t") {
+        } else if trimmed.starts_with("ok ") || trimmed.starts_with("FAIL\t") {
             packages.push(trimmed.to_string());
         }
     }

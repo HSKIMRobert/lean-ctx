@@ -93,7 +93,7 @@ fn compress_logs(output: &str) -> String {
 
     let mut deduped: Vec<(String, u32)> = Vec::new();
     for line in &lines {
-        let stripped = log_ts_re().replace(*line, "").trim().to_string();
+        let stripped = log_ts_re().replace(line, "").trim().to_string();
         if stripped.is_empty() {
             continue;
         }
@@ -134,7 +134,7 @@ fn compress_describe(output: &str) -> String {
     let mut sections = Vec::new();
     let mut current_section = String::new();
     let mut current_lines: Vec<&str> = Vec::new();
-    for (_i, line) in lines.iter().enumerate() {
+    for line in lines.iter() {
         if !line.starts_with(' ')
             && !line.starts_with('\t')
             && line.ends_with(':')

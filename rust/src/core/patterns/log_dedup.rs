@@ -19,7 +19,7 @@ pub fn compress(output: &str) -> Option<String> {
     let mut error_lines = Vec::new();
 
     for line in &lines {
-        let stripped = timestamp_re().replace(*line, "").trim().to_string();
+        let stripped = timestamp_re().replace(line, "").trim().to_string();
         if stripped.is_empty() {
             continue;
         }

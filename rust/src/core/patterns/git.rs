@@ -186,7 +186,7 @@ fn compress_log(output: &str) -> String {
         let trimmed = line.trim();
         if trimmed.starts_with("commit ") {
             let hash = &trimmed[7..14.min(trimmed.len())];
-            entries.push(format!("{hash}"));
+            entries.push(hash.to_string());
         } else if !trimmed.is_empty()
             && !trimmed.starts_with("Author:")
             && !trimmed.starts_with("Date:")
@@ -355,8 +355,8 @@ fn compress_branch(output: &str) -> String {
             if l.is_empty() {
                 return None;
             }
-            if l.starts_with('*') {
-                Some(format!("*{}", l[1..].trim()))
+            if let Some(rest) = l.strip_prefix('*') {
+                Some(format!("*{}", rest.trim()))
             } else {
                 Some(l.to_string())
             }
@@ -423,11 +423,9 @@ fn compress_stash(output: &str) -> String {
     let stashes: Vec<String> = trimmed
         .lines()
         .filter_map(|line| {
-            if let Some(caps) = stash_re().captures(line) {
-                Some(format!("@{}: {}", &caps[1], &caps[2]))
-            } else {
-                None
-            }
+            stash_re()
+                .captures(line)
+                .map(|caps| format!("@{}: {}", &caps[1], &caps[2]))
         })
         .collect();
 

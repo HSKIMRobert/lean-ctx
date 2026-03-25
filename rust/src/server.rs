@@ -19,13 +19,12 @@ impl ServerHandler for LeanCtxServer {
             .with_instructions(instructions)
     }
 
-    fn list_tools(
+    async fn list_tools(
         &self,
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
-    ) -> impl std::future::Future<Output = Result<ListToolsResult, ErrorData>> + Send + '_ {
-        async {
-            Ok(ListToolsResult {
+    ) -> Result<ListToolsResult, ErrorData> {
+        Ok(ListToolsResult {
                 tools: vec![
                     tool_def(
                         "ctx_read",
@@ -354,378 +353,364 @@ impl ServerHandler for LeanCtxServer {
                 ],
                 ..Default::default()
             })
-        }
     }
 
-    fn call_tool(
+    async fn call_tool(
         &self,
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
-    ) -> impl std::future::Future<Output = Result<CallToolResult, ErrorData>> + Send + '_ {
-        async move {
-            self.check_idle_expiry().await;
+    ) -> Result<CallToolResult, ErrorData> {
+        self.check_idle_expiry().await;
 
-            let name = &request.name;
-            let args = &request.arguments;
+        let name = &request.name;
+        let args = &request.arguments;
 
-            let result_text = match name.as_ref() {
-                "ctx_read" => {
-                    let path = get_str(args, "path")
-                        .ok_or_else(|| ErrorData::invalid_params("path is required", None))?;
-                    let mode = get_str(args, "mode").unwrap_or_else(|| "full".to_string());
-                    let fresh = get_bool(args, "fresh").unwrap_or(false);
-                    let mut cache = self.cache.write().await;
-                    let output = if fresh {
-                        crate::tools::ctx_read::handle_fresh(
-                            &mut cache,
-                            &path,
-                            &mode,
-                            self.crp_mode,
-                        )
-                    } else {
-                        crate::tools::ctx_read::handle(&mut cache, &path, &mode, self.crp_mode)
-                    };
-                    let original = cache.get(&path).map_or(0, |e| e.original_tokens);
-                    let file_ref = cache.file_ref_map().get(&path).cloned();
-                    let tokens = crate::core::tokens::count_tokens(&output);
-                    drop(cache);
-                    {
-                        let mut session = self.session.write().await;
-                        session.touch_file(&path, file_ref.as_deref(), &mode, original);
-                    }
-                    self.record_call(
-                        "ctx_read",
-                        original,
-                        original.saturating_sub(tokens),
-                        Some(mode),
-                    )
-                    .await;
-                    output
-                }
-                "ctx_multi_read" => {
-                    let paths = get_str_array(args, "paths").ok_or_else(|| {
-                        ErrorData::invalid_params("paths array is required", None)
-                    })?;
-                    let mode = get_str(args, "mode").unwrap_or_else(|| "full".to_string());
-                    let mut cache = self.cache.write().await;
-                    let output = crate::tools::ctx_multi_read::handle(
-                        &mut cache,
-                        &paths,
-                        &mode,
-                        self.crp_mode,
-                    );
-                    let mut total_original: usize = 0;
-                    for path in &paths {
-                        total_original = total_original.saturating_add(
-                            cache.get(path).map(|e| e.original_tokens).unwrap_or(0),
-                        );
-                    }
-                    let tokens = crate::core::tokens::count_tokens(&output);
-                    drop(cache);
-                    self.record_call(
-                        "ctx_multi_read",
-                        total_original,
-                        total_original.saturating_sub(tokens),
-                        Some(mode),
-                    )
-                    .await;
-                    output
-                }
-                "ctx_tree" => {
-                    let path = get_str(args, "path").unwrap_or_else(|| ".".to_string());
-                    let depth = get_int(args, "depth").unwrap_or(3) as usize;
-                    let show_hidden = get_bool(args, "show_hidden").unwrap_or(false);
-                    let result = crate::tools::ctx_tree::handle(&path, depth, show_hidden);
-                    let sent = crate::core::tokens::count_tokens(&result);
-                    self.record_call("ctx_tree", sent, 0, None).await;
-                    result
-                }
-                "ctx_shell" => {
-                    let command = get_str(args, "command")
-                        .ok_or_else(|| ErrorData::invalid_params("command is required", None))?;
-                    let output = execute_command(&command);
-                    let result = crate::tools::ctx_shell::handle(&command, &output, self.crp_mode);
-                    let original = crate::core::tokens::count_tokens(&output);
-                    let sent = crate::core::tokens::count_tokens(&result);
-                    self.record_call("ctx_shell", original, original.saturating_sub(sent), None)
-                        .await;
-                    result
-                }
-                "ctx_search" => {
-                    let pattern = get_str(args, "pattern")
-                        .ok_or_else(|| ErrorData::invalid_params("pattern is required", None))?;
-                    let path = get_str(args, "path").unwrap_or_else(|| ".".to_string());
-                    let ext = get_str(args, "ext");
-                    let max = get_int(args, "max_results").unwrap_or(20) as usize;
-                    let result = crate::tools::ctx_search::handle(
-                        &pattern,
-                        &path,
-                        ext.as_deref(),
-                        max,
-                        self.crp_mode,
-                    );
-                    let sent = crate::core::tokens::count_tokens(&result);
-                    self.record_call("ctx_search", sent, 0, None).await;
-                    result
-                }
-                "ctx_compress" => {
-                    let include_sigs = get_bool(args, "include_signatures").unwrap_or(true);
-                    let cache = self.cache.read().await;
-                    let result =
-                        crate::tools::ctx_compress::handle(&cache, include_sigs, self.crp_mode);
-                    drop(cache);
-                    self.record_call("ctx_compress", 0, 0, None).await;
-                    result
-                }
-                "ctx_benchmark" => {
-                    let path = get_str(args, "path")
-                        .ok_or_else(|| ErrorData::invalid_params("path is required", None))?;
-                    let action = get_str(args, "action").unwrap_or_default();
-                    let result = if action == "project" {
-                        let fmt = get_str(args, "format").unwrap_or_default();
-                        let bench = crate::core::benchmark::run_project_benchmark(&path);
-                        match fmt.as_str() {
-                            "json" => crate::core::benchmark::format_json(&bench),
-                            "markdown" | "md" => crate::core::benchmark::format_markdown(&bench),
-                            _ => crate::core::benchmark::format_terminal(&bench),
-                        }
-                    } else {
-                        crate::tools::ctx_benchmark::handle(&path, self.crp_mode)
-                    };
-                    self.record_call("ctx_benchmark", 0, 0, None).await;
-                    result
-                }
-                "ctx_metrics" => {
-                    let cache = self.cache.read().await;
-                    let calls = self.tool_calls.read().await;
-                    let result = crate::tools::ctx_metrics::handle(&cache, &calls, self.crp_mode);
-                    drop(cache);
-                    drop(calls);
-                    self.record_call("ctx_metrics", 0, 0, None).await;
-                    result
-                }
-                "ctx_analyze" => {
-                    let path = get_str(args, "path")
-                        .ok_or_else(|| ErrorData::invalid_params("path is required", None))?;
-                    let result = crate::tools::ctx_analyze::handle(&path, self.crp_mode);
-                    self.record_call("ctx_analyze", 0, 0, None).await;
-                    result
-                }
-                "ctx_discover" => {
-                    let limit = get_int(args, "limit").unwrap_or(15) as usize;
-                    let history = crate::cli::load_shell_history_pub();
-                    let result = crate::tools::ctx_discover::discover_from_history(&history, limit);
-                    self.record_call("ctx_discover", 0, 0, None).await;
-                    result
-                }
-                "ctx_smart_read" => {
-                    let path = get_str(args, "path")
-                        .ok_or_else(|| ErrorData::invalid_params("path is required", None))?;
-                    let mut cache = self.cache.write().await;
-                    let output =
-                        crate::tools::ctx_smart_read::handle(&mut cache, &path, self.crp_mode);
-                    let original = cache.get(&path).map_or(0, |e| e.original_tokens);
-                    let tokens = crate::core::tokens::count_tokens(&output);
-                    drop(cache);
-                    self.record_call(
-                        "ctx_smart_read",
-                        original,
-                        original.saturating_sub(tokens),
-                        Some("auto".to_string()),
-                    )
-                    .await;
-                    output
-                }
-                "ctx_delta" => {
-                    let path = get_str(args, "path")
-                        .ok_or_else(|| ErrorData::invalid_params("path is required", None))?;
-                    let mut cache = self.cache.write().await;
-                    let output = crate::tools::ctx_delta::handle(&mut cache, &path);
-                    let original = cache.get(&path).map_or(0, |e| e.original_tokens);
-                    let tokens = crate::core::tokens::count_tokens(&output);
-                    drop(cache);
-                    {
-                        let mut session = self.session.write().await;
-                        session.mark_modified(&path);
-                    }
-                    self.record_call(
-                        "ctx_delta",
-                        original,
-                        original.saturating_sub(tokens),
-                        Some("delta".to_string()),
-                    )
-                    .await;
-                    output
-                }
-                "ctx_dedup" => {
-                    let cache = self.cache.read().await;
-                    let result = crate::tools::ctx_dedup::handle(&cache);
-                    drop(cache);
-                    self.record_call("ctx_dedup", 0, 0, None).await;
-                    result
-                }
-                "ctx_fill" => {
-                    let paths = get_str_array(args, "paths").ok_or_else(|| {
-                        ErrorData::invalid_params("paths array is required", None)
-                    })?;
-                    let budget = get_int(args, "budget")
-                        .ok_or_else(|| ErrorData::invalid_params("budget is required", None))?
-                        as usize;
-                    let mut cache = self.cache.write().await;
-                    let output =
-                        crate::tools::ctx_fill::handle(&mut cache, &paths, budget, self.crp_mode);
-                    drop(cache);
-                    self.record_call("ctx_fill", 0, 0, Some(format!("budget:{budget}")))
-                        .await;
-                    output
-                }
-                "ctx_intent" => {
-                    let query = get_str(args, "query")
-                        .ok_or_else(|| ErrorData::invalid_params("query is required", None))?;
-                    let root = get_str(args, "project_root").unwrap_or_else(|| ".".to_string());
-                    let mut cache = self.cache.write().await;
-                    let output =
-                        crate::tools::ctx_intent::handle(&mut cache, &query, &root, self.crp_mode);
-                    drop(cache);
-                    {
-                        let mut session = self.session.write().await;
-                        session.set_task(&query, Some("intent"));
-                    }
-                    self.record_call("ctx_intent", 0, 0, Some("semantic".to_string()))
-                        .await;
-                    output
-                }
-                "ctx_response" => {
-                    let text = get_str(args, "text")
-                        .ok_or_else(|| ErrorData::invalid_params("text is required", None))?;
-                    let output = crate::tools::ctx_response::handle(&text, self.crp_mode);
-                    self.record_call("ctx_response", 0, 0, None).await;
-                    output
-                }
-                "ctx_context" => {
-                    let cache = self.cache.read().await;
-                    let turn = self.call_count.load(std::sync::atomic::Ordering::Relaxed);
-                    let result =
-                        crate::tools::ctx_context::handle_status(&cache, turn, self.crp_mode);
-                    drop(cache);
-                    self.record_call("ctx_context", 0, 0, None).await;
-                    result
-                }
-                "ctx_graph" => {
-                    let action = get_str(args, "action")
-                        .ok_or_else(|| ErrorData::invalid_params("action is required", None))?;
-                    let path = get_str(args, "path");
-                    let root = get_str(args, "project_root").unwrap_or_else(|| ".".to_string());
-                    let result = crate::tools::ctx_graph::handle(&action, path.as_deref(), &root);
-                    self.record_call("ctx_graph", 0, 0, Some(action)).await;
-                    result
-                }
-                "ctx_cache" => {
-                    let action = get_str(args, "action")
-                        .ok_or_else(|| ErrorData::invalid_params("action is required", None))?;
-                    let mut cache = self.cache.write().await;
-                    let result = match action.as_str() {
-                        "status" => {
-                            let entries = cache.get_all_entries();
-                            if entries.is_empty() {
-                                "Cache empty — no files tracked.".to_string()
-                            } else {
-                                let mut lines = vec![format!("Cache: {} file(s)", entries.len())];
-                                for (path, entry) in &entries {
-                                    let fref = cache
-                                        .file_ref_map()
-                                        .get(*path)
-                                        .map(|s| s.as_str())
-                                        .unwrap_or("F?");
-                                    lines.push(format!(
-                                        "  {fref}={} [{}L, {}t, read {}x]",
-                                        crate::core::protocol::shorten_path(path),
-                                        entry.line_count,
-                                        entry.original_tokens,
-                                        entry.read_count
-                                    ));
-                                }
-                                lines.join("\n")
-                            }
-                        }
-                        "clear" => {
-                            let count = cache.clear();
-                            format!("Cache cleared — {count} file(s) removed. Next ctx_read will return full content.")
-                        }
-                        "invalidate" => {
-                            let path = get_str(args, "path").ok_or_else(|| {
-                                ErrorData::invalid_params("path is required for invalidate", None)
-                            })?;
-                            if cache.invalidate(&path) {
-                                format!("Invalidated cache for {}. Next ctx_read will return full content.", crate::core::protocol::shorten_path(&path))
-                            } else {
-                                format!(
-                                    "{} was not in cache.",
-                                    crate::core::protocol::shorten_path(&path)
-                                )
-                            }
-                        }
-                        _ => "Unknown action. Use: status, clear, invalidate".to_string(),
-                    };
-                    drop(cache);
-                    self.record_call("ctx_cache", 0, 0, Some(action)).await;
-                    result
-                }
-                "ctx_session" => {
-                    let action = get_str(args, "action")
-                        .ok_or_else(|| ErrorData::invalid_params("action is required", None))?;
-                    let value = get_str(args, "value");
-                    let sid = get_str(args, "session_id");
+        let result_text = match name.as_ref() {
+            "ctx_read" => {
+                let path = get_str(args, "path")
+                    .ok_or_else(|| ErrorData::invalid_params("path is required", None))?;
+                let mode = get_str(args, "mode").unwrap_or_else(|| "full".to_string());
+                let fresh = get_bool(args, "fresh").unwrap_or(false);
+                let mut cache = self.cache.write().await;
+                let output = if fresh {
+                    crate::tools::ctx_read::handle_fresh(&mut cache, &path, &mode, self.crp_mode)
+                } else {
+                    crate::tools::ctx_read::handle(&mut cache, &path, &mode, self.crp_mode)
+                };
+                let original = cache.get(&path).map_or(0, |e| e.original_tokens);
+                let file_ref = cache.file_ref_map().get(&path).cloned();
+                let tokens = crate::core::tokens::count_tokens(&output);
+                drop(cache);
+                {
                     let mut session = self.session.write().await;
-                    let result = crate::tools::ctx_session::handle(
-                        &mut session,
-                        &action,
-                        value.as_deref(),
-                        sid.as_deref(),
-                    );
-                    drop(session);
-                    self.record_call("ctx_session", 0, 0, Some(action)).await;
-                    result
+                    session.touch_file(&path, file_ref.as_deref(), &mode, original);
                 }
-                "ctx_wrapped" => {
-                    let period = get_str(args, "period").unwrap_or_else(|| "week".to_string());
-                    let result = crate::tools::ctx_wrapped::handle(&period);
-                    self.record_call("ctx_wrapped", 0, 0, Some(period)).await;
-                    result
-                }
-                _ => {
-                    return Err(ErrorData::invalid_params(
-                        format!("Unknown tool: {name}"),
-                        None,
-                    ));
-                }
-            };
-
-            let skip_checkpoint = matches!(
-                name.as_ref(),
-                "ctx_compress"
-                    | "ctx_metrics"
-                    | "ctx_benchmark"
-                    | "ctx_analyze"
-                    | "ctx_cache"
-                    | "ctx_discover"
-                    | "ctx_dedup"
-                    | "ctx_session"
-                    | "ctx_wrapped"
-            );
-
-            if !skip_checkpoint && self.increment_and_check() {
-                if let Some(checkpoint) = self.auto_checkpoint().await {
-                    let combined = format!(
-                        "{result_text}\n\n--- AUTO CHECKPOINT (every {} calls) ---\n{checkpoint}",
-                        self.checkpoint_interval
-                    );
-                    return Ok(CallToolResult::success(vec![Content::text(combined)]));
-                }
+                self.record_call(
+                    "ctx_read",
+                    original,
+                    original.saturating_sub(tokens),
+                    Some(mode),
+                )
+                .await;
+                output
             }
+            "ctx_multi_read" => {
+                let paths = get_str_array(args, "paths")
+                    .ok_or_else(|| ErrorData::invalid_params("paths array is required", None))?;
+                let mode = get_str(args, "mode").unwrap_or_else(|| "full".to_string());
+                let mut cache = self.cache.write().await;
+                let output =
+                    crate::tools::ctx_multi_read::handle(&mut cache, &paths, &mode, self.crp_mode);
+                let mut total_original: usize = 0;
+                for path in &paths {
+                    total_original = total_original
+                        .saturating_add(cache.get(path).map(|e| e.original_tokens).unwrap_or(0));
+                }
+                let tokens = crate::core::tokens::count_tokens(&output);
+                drop(cache);
+                self.record_call(
+                    "ctx_multi_read",
+                    total_original,
+                    total_original.saturating_sub(tokens),
+                    Some(mode),
+                )
+                .await;
+                output
+            }
+            "ctx_tree" => {
+                let path = get_str(args, "path").unwrap_or_else(|| ".".to_string());
+                let depth = get_int(args, "depth").unwrap_or(3) as usize;
+                let show_hidden = get_bool(args, "show_hidden").unwrap_or(false);
+                let result = crate::tools::ctx_tree::handle(&path, depth, show_hidden);
+                let sent = crate::core::tokens::count_tokens(&result);
+                self.record_call("ctx_tree", sent, 0, None).await;
+                result
+            }
+            "ctx_shell" => {
+                let command = get_str(args, "command")
+                    .ok_or_else(|| ErrorData::invalid_params("command is required", None))?;
+                let output = execute_command(&command);
+                let result = crate::tools::ctx_shell::handle(&command, &output, self.crp_mode);
+                let original = crate::core::tokens::count_tokens(&output);
+                let sent = crate::core::tokens::count_tokens(&result);
+                self.record_call("ctx_shell", original, original.saturating_sub(sent), None)
+                    .await;
+                result
+            }
+            "ctx_search" => {
+                let pattern = get_str(args, "pattern")
+                    .ok_or_else(|| ErrorData::invalid_params("pattern is required", None))?;
+                let path = get_str(args, "path").unwrap_or_else(|| ".".to_string());
+                let ext = get_str(args, "ext");
+                let max = get_int(args, "max_results").unwrap_or(20) as usize;
+                let result = crate::tools::ctx_search::handle(
+                    &pattern,
+                    &path,
+                    ext.as_deref(),
+                    max,
+                    self.crp_mode,
+                );
+                let sent = crate::core::tokens::count_tokens(&result);
+                self.record_call("ctx_search", sent, 0, None).await;
+                result
+            }
+            "ctx_compress" => {
+                let include_sigs = get_bool(args, "include_signatures").unwrap_or(true);
+                let cache = self.cache.read().await;
+                let result =
+                    crate::tools::ctx_compress::handle(&cache, include_sigs, self.crp_mode);
+                drop(cache);
+                self.record_call("ctx_compress", 0, 0, None).await;
+                result
+            }
+            "ctx_benchmark" => {
+                let path = get_str(args, "path")
+                    .ok_or_else(|| ErrorData::invalid_params("path is required", None))?;
+                let action = get_str(args, "action").unwrap_or_default();
+                let result = if action == "project" {
+                    let fmt = get_str(args, "format").unwrap_or_default();
+                    let bench = crate::core::benchmark::run_project_benchmark(&path);
+                    match fmt.as_str() {
+                        "json" => crate::core::benchmark::format_json(&bench),
+                        "markdown" | "md" => crate::core::benchmark::format_markdown(&bench),
+                        _ => crate::core::benchmark::format_terminal(&bench),
+                    }
+                } else {
+                    crate::tools::ctx_benchmark::handle(&path, self.crp_mode)
+                };
+                self.record_call("ctx_benchmark", 0, 0, None).await;
+                result
+            }
+            "ctx_metrics" => {
+                let cache = self.cache.read().await;
+                let calls = self.tool_calls.read().await;
+                let result = crate::tools::ctx_metrics::handle(&cache, &calls, self.crp_mode);
+                drop(cache);
+                drop(calls);
+                self.record_call("ctx_metrics", 0, 0, None).await;
+                result
+            }
+            "ctx_analyze" => {
+                let path = get_str(args, "path")
+                    .ok_or_else(|| ErrorData::invalid_params("path is required", None))?;
+                let result = crate::tools::ctx_analyze::handle(&path, self.crp_mode);
+                self.record_call("ctx_analyze", 0, 0, None).await;
+                result
+            }
+            "ctx_discover" => {
+                let limit = get_int(args, "limit").unwrap_or(15) as usize;
+                let history = crate::cli::load_shell_history_pub();
+                let result = crate::tools::ctx_discover::discover_from_history(&history, limit);
+                self.record_call("ctx_discover", 0, 0, None).await;
+                result
+            }
+            "ctx_smart_read" => {
+                let path = get_str(args, "path")
+                    .ok_or_else(|| ErrorData::invalid_params("path is required", None))?;
+                let mut cache = self.cache.write().await;
+                let output = crate::tools::ctx_smart_read::handle(&mut cache, &path, self.crp_mode);
+                let original = cache.get(&path).map_or(0, |e| e.original_tokens);
+                let tokens = crate::core::tokens::count_tokens(&output);
+                drop(cache);
+                self.record_call(
+                    "ctx_smart_read",
+                    original,
+                    original.saturating_sub(tokens),
+                    Some("auto".to_string()),
+                )
+                .await;
+                output
+            }
+            "ctx_delta" => {
+                let path = get_str(args, "path")
+                    .ok_or_else(|| ErrorData::invalid_params("path is required", None))?;
+                let mut cache = self.cache.write().await;
+                let output = crate::tools::ctx_delta::handle(&mut cache, &path);
+                let original = cache.get(&path).map_or(0, |e| e.original_tokens);
+                let tokens = crate::core::tokens::count_tokens(&output);
+                drop(cache);
+                {
+                    let mut session = self.session.write().await;
+                    session.mark_modified(&path);
+                }
+                self.record_call(
+                    "ctx_delta",
+                    original,
+                    original.saturating_sub(tokens),
+                    Some("delta".to_string()),
+                )
+                .await;
+                output
+            }
+            "ctx_dedup" => {
+                let cache = self.cache.read().await;
+                let result = crate::tools::ctx_dedup::handle(&cache);
+                drop(cache);
+                self.record_call("ctx_dedup", 0, 0, None).await;
+                result
+            }
+            "ctx_fill" => {
+                let paths = get_str_array(args, "paths")
+                    .ok_or_else(|| ErrorData::invalid_params("paths array is required", None))?;
+                let budget = get_int(args, "budget")
+                    .ok_or_else(|| ErrorData::invalid_params("budget is required", None))?
+                    as usize;
+                let mut cache = self.cache.write().await;
+                let output =
+                    crate::tools::ctx_fill::handle(&mut cache, &paths, budget, self.crp_mode);
+                drop(cache);
+                self.record_call("ctx_fill", 0, 0, Some(format!("budget:{budget}")))
+                    .await;
+                output
+            }
+            "ctx_intent" => {
+                let query = get_str(args, "query")
+                    .ok_or_else(|| ErrorData::invalid_params("query is required", None))?;
+                let root = get_str(args, "project_root").unwrap_or_else(|| ".".to_string());
+                let mut cache = self.cache.write().await;
+                let output =
+                    crate::tools::ctx_intent::handle(&mut cache, &query, &root, self.crp_mode);
+                drop(cache);
+                {
+                    let mut session = self.session.write().await;
+                    session.set_task(&query, Some("intent"));
+                }
+                self.record_call("ctx_intent", 0, 0, Some("semantic".to_string()))
+                    .await;
+                output
+            }
+            "ctx_response" => {
+                let text = get_str(args, "text")
+                    .ok_or_else(|| ErrorData::invalid_params("text is required", None))?;
+                let output = crate::tools::ctx_response::handle(&text, self.crp_mode);
+                self.record_call("ctx_response", 0, 0, None).await;
+                output
+            }
+            "ctx_context" => {
+                let cache = self.cache.read().await;
+                let turn = self.call_count.load(std::sync::atomic::Ordering::Relaxed);
+                let result = crate::tools::ctx_context::handle_status(&cache, turn, self.crp_mode);
+                drop(cache);
+                self.record_call("ctx_context", 0, 0, None).await;
+                result
+            }
+            "ctx_graph" => {
+                let action = get_str(args, "action")
+                    .ok_or_else(|| ErrorData::invalid_params("action is required", None))?;
+                let path = get_str(args, "path");
+                let root = get_str(args, "project_root").unwrap_or_else(|| ".".to_string());
+                let result = crate::tools::ctx_graph::handle(&action, path.as_deref(), &root);
+                self.record_call("ctx_graph", 0, 0, Some(action)).await;
+                result
+            }
+            "ctx_cache" => {
+                let action = get_str(args, "action")
+                    .ok_or_else(|| ErrorData::invalid_params("action is required", None))?;
+                let mut cache = self.cache.write().await;
+                let result = match action.as_str() {
+                    "status" => {
+                        let entries = cache.get_all_entries();
+                        if entries.is_empty() {
+                            "Cache empty — no files tracked.".to_string()
+                        } else {
+                            let mut lines = vec![format!("Cache: {} file(s)", entries.len())];
+                            for (path, entry) in &entries {
+                                let fref = cache
+                                    .file_ref_map()
+                                    .get(*path)
+                                    .map(|s| s.as_str())
+                                    .unwrap_or("F?");
+                                lines.push(format!(
+                                    "  {fref}={} [{}L, {}t, read {}x]",
+                                    crate::core::protocol::shorten_path(path),
+                                    entry.line_count,
+                                    entry.original_tokens,
+                                    entry.read_count
+                                ));
+                            }
+                            lines.join("\n")
+                        }
+                    }
+                    "clear" => {
+                        let count = cache.clear();
+                        format!("Cache cleared — {count} file(s) removed. Next ctx_read will return full content.")
+                    }
+                    "invalidate" => {
+                        let path = get_str(args, "path").ok_or_else(|| {
+                            ErrorData::invalid_params("path is required for invalidate", None)
+                        })?;
+                        if cache.invalidate(&path) {
+                            format!(
+                                "Invalidated cache for {}. Next ctx_read will return full content.",
+                                crate::core::protocol::shorten_path(&path)
+                            )
+                        } else {
+                            format!(
+                                "{} was not in cache.",
+                                crate::core::protocol::shorten_path(&path)
+                            )
+                        }
+                    }
+                    _ => "Unknown action. Use: status, clear, invalidate".to_string(),
+                };
+                drop(cache);
+                self.record_call("ctx_cache", 0, 0, Some(action)).await;
+                result
+            }
+            "ctx_session" => {
+                let action = get_str(args, "action")
+                    .ok_or_else(|| ErrorData::invalid_params("action is required", None))?;
+                let value = get_str(args, "value");
+                let sid = get_str(args, "session_id");
+                let mut session = self.session.write().await;
+                let result = crate::tools::ctx_session::handle(
+                    &mut session,
+                    &action,
+                    value.as_deref(),
+                    sid.as_deref(),
+                );
+                drop(session);
+                self.record_call("ctx_session", 0, 0, Some(action)).await;
+                result
+            }
+            "ctx_wrapped" => {
+                let period = get_str(args, "period").unwrap_or_else(|| "week".to_string());
+                let result = crate::tools::ctx_wrapped::handle(&period);
+                self.record_call("ctx_wrapped", 0, 0, Some(period)).await;
+                result
+            }
+            _ => {
+                return Err(ErrorData::invalid_params(
+                    format!("Unknown tool: {name}"),
+                    None,
+                ));
+            }
+        };
 
-            Ok(CallToolResult::success(vec![Content::text(result_text)]))
+        let skip_checkpoint = matches!(
+            name.as_ref(),
+            "ctx_compress"
+                | "ctx_metrics"
+                | "ctx_benchmark"
+                | "ctx_analyze"
+                | "ctx_cache"
+                | "ctx_discover"
+                | "ctx_dedup"
+                | "ctx_session"
+                | "ctx_wrapped"
+        );
+
+        if !skip_checkpoint && self.increment_and_check() {
+            if let Some(checkpoint) = self.auto_checkpoint().await {
+                let combined = format!(
+                    "{result_text}\n\n--- AUTO CHECKPOINT (every {} calls) ---\n{checkpoint}",
+                    self.checkpoint_interval
+                );
+                return Ok(CallToolResult::success(vec![Content::text(combined)]));
+            }
         }
+
+        Ok(CallToolResult::success(vec![Content::text(result_text)]))
     }
 }
 

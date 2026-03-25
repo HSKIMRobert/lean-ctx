@@ -426,10 +426,8 @@ impl SessionState {
                 }
                 if let Ok(json) = std::fs::read_to_string(&path) {
                     if let Ok(session) = serde_json::from_str::<SessionState>(&json) {
-                        if session.updated_at < cutoff {
-                            if std::fs::remove_file(&path).is_ok() {
-                                removed += 1;
-                            }
+                        if session.updated_at < cutoff && std::fs::remove_file(&path).is_ok() {
+                            removed += 1;
                         }
                     }
                 }

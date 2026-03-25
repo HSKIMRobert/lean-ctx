@@ -95,11 +95,7 @@ fn parse_finding_value(value: &str) -> (Option<String>, Option<u32>, &str) {
     // Format: "file.rs:42 — summary text" or just "summary text"
     if let Some(dash_pos) = value.find(" \u{2014} ").or_else(|| value.find(" - ")) {
         let location = &value[..dash_pos];
-        let sep_len = if value[dash_pos..].starts_with(" \u{2014} ") {
-            3
-        } else {
-            3
-        };
+        let sep_len = 3;
         let text = &value[dash_pos + sep_len..];
 
         if let Some(colon_pos) = location.rfind(':') {

@@ -62,7 +62,7 @@ pub fn cmd_read(args: &[String]) {
                     println!("    {}", sig.to_compact());
                 }
             }
-            let sent = count_tokens(&format!("{short}"));
+            let sent = count_tokens(&short.to_string());
             print_savings(original_tokens, sent);
         }
         "signatures" => {
@@ -71,7 +71,7 @@ pub fn cmd_read(args: &[String]) {
             for sig in &sigs {
                 println!("{}", sig.to_compact());
             }
-            let sent = count_tokens(&format!("{short}"));
+            let sent = count_tokens(&short.to_string());
             print_savings(original_tokens, sent);
         }
         "aggressive" => {
@@ -568,10 +568,10 @@ pub fn cmd_tee(args: &[String]) {
             let mut count = 0u32;
             if let Ok(entries) = std::fs::read_dir(&tee_dir) {
                 for entry in entries.flatten() {
-                    if entry.path().extension().and_then(|x| x.to_str()) == Some("log") {
-                        if std::fs::remove_file(entry.path()).is_ok() {
-                            count += 1;
-                        }
+                    if entry.path().extension().and_then(|x| x.to_str()) == Some("log")
+                        && std::fs::remove_file(entry.path()).is_ok()
+                    {
+                        count += 1;
                     }
                 }
             }

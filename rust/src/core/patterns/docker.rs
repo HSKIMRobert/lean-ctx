@@ -132,7 +132,7 @@ fn compress_logs(output: &str) -> String {
 
     let mut deduped: Vec<(String, u32)> = Vec::new();
     for line in &lines {
-        let normalized = log_timestamp_re().replace(*line, "[T]").to_string();
+        let normalized = log_timestamp_re().replace(line, "[T]").to_string();
         let stripped = normalized.trim().to_string();
         if stripped.is_empty() {
             continue;
