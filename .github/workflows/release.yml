@@ -23,6 +23,8 @@ jobs:
             os: macos-latest
           - target: aarch64-apple-darwin
             os: macos-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -43,18 +45,33 @@ jobs:
         working-directory: rust
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Package
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           cd rust/target/${{ matrix.target }}/release
           tar czf ../../../../lean-ctx-${{ matrix.target }}.tar.gz lean-ctx
           cd ../../../..
 
-      - name: Upload artifact
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "rust/target/${{ matrix.target }}/release/lean-ctx.exe" -DestinationPath "lean-ctx-${{ matrix.target }}.zip"
+
+      - name: Upload artifact (Unix)
+        if: runner.os != 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: lean-ctx-${{ matrix.target }}
           path: lean-ctx-${{ matrix.target }}.tar.gz
+
+      - name: Upload artifact (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: lean-ctx-${{ matrix.target }}
+          path: lean-ctx-${{ matrix.target }}.zip
 
   release:
     name: Create Release
@@ -66,12 +83,13 @@ jobs:
           merge-multiple: true
 
       - name: Generate checksums
-        run: sha256sum lean-ctx-*.tar.gz > SHA256SUMS
+        run: sha256sum lean-ctx-*.tar.gz lean-ctx-*.zip 2>/dev/null > SHA256SUMS || true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             lean-ctx-*.tar.gz
+            lean-ctx-*.zip
             SHA256SUMS
           generate_release_notes: true

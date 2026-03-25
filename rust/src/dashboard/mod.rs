@@ -45,6 +45,13 @@ pub async fn start(port: Option<u16>) {
             .spawn();
     }
 
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("cmd")
+            .args(["/C", "start", &format!("http://localhost:{port}")])
+            .spawn();
+    }
+
     loop {
         if let Ok((stream, _)) = listener.accept().await {
             tokio::spawn(handle_request(stream));

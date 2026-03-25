@@ -464,8 +464,9 @@ fn get_bool(args: &Option<serde_json::Map<String, Value>>, key: &str) -> Option<
 }
 
 fn execute_command(command: &str) -> String {
-    let output = std::process::Command::new("sh")
-        .arg("-c")
+    let (shell, flag) = crate::shell::shell_and_flag();
+    let output = std::process::Command::new(&shell)
+        .arg(&flag)
         .arg(command)
         .output();
 
