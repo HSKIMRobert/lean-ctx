@@ -112,7 +112,7 @@ fi
 
     let claude_md = PathBuf::from("CLAUDE.md");
     if !claude_md.exists() || !std::fs::read_to_string(&claude_md).unwrap_or_default().contains("lean-ctx") {
-        let content = include_str!("../examples/CLAUDE.md");
+        let content = include_str!("templates/CLAUDE.md");
         write_file(&claude_md, content);
         println!("Created CLAUDE.md in current project directory.");
     } else {
@@ -174,7 +174,7 @@ esac
     let _ = std::fs::create_dir_all(&rules_dir);
     let rule_path = rules_dir.join("lean-ctx.mdc");
     if !rule_path.exists() {
-        let rule_content = include_str!("../examples/lean-ctx.mdc");
+        let rule_content = include_str!("templates/lean-ctx.mdc");
         write_file(&rule_path, rule_content);
         println!("Created .cursor/rules/lean-ctx.mdc in current project.");
     } else {
@@ -289,7 +289,7 @@ fn install_windsurf_rules() {
         }
     }
 
-    let rules = include_str!("../examples/.windsurfrules");
+    let rules = include_str!("templates/windsurfrules.txt");
     write_file(&rules_path, rules);
     println!("Installed .windsurfrules in current project.");
 }
