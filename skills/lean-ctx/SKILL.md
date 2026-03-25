@@ -69,8 +69,9 @@ lean-ctx sessions list          # List all CCP sessions
 lean-ctx sessions show          # Show latest session state
 lean-ctx wrapped                # Weekly savings report card
 lean-ctx wrapped --month        # Monthly savings report card
-lean-ctx benchmark cold-start   # Benchmark: CCP vs raw context
-lean-ctx benchmark litm         # LITM efficiency analysis
+lean-ctx benchmark run          # Real project benchmark (terminal output)
+lean-ctx benchmark run --json   # Machine-readable JSON output
+lean-ctx benchmark report       # Shareable Markdown report
 ```
 
 MCP tools for CCP:

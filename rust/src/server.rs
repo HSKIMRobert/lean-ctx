@@ -31,9 +31,10 @@ impl ServerHandler for LeanCtxServer {
                 tools: vec![
                     tool_def(
                         "ctx_read",
-                        "Smart file read with session-aware caching and 6 compression modes. \
+                        "REPLACES built-in Read tool — ALWAYS use this instead of Read. \
+                        Smart file read with session caching and 6 compression modes. \
                         Re-reads cost ~13 tokens. Modes: full (cached read), signatures (API surface), \
-                        map (dependency graph + exports + key signatures — use for context files you won't edit), \
+                        map (deps + exports — use for context files you won't edit), \
                         diff (changed lines only), aggressive (syntax stripped), \
                         entropy (Shannon + Jaccard). \
                         Set fresh=true to bypass cache (use when spawned as a subagent without parent context).",
@@ -56,7 +57,8 @@ impl ServerHandler for LeanCtxServer {
                     ),
                     tool_def(
                         "ctx_multi_read",
-                        "Read multiple files in one MCP round-trip. Same modes as ctx_read (full, map, signatures, diff, aggressive, entropy). \
+                        "REPLACES multiple Read calls — read many files in one MCP round-trip. \
+                        Same modes as ctx_read (full, map, signatures, diff, aggressive, entropy). \
                         Results are joined with --- dividers; ends with aggregate summary (files read, tokens saved).",
                         json!({
                             "type": "object",
@@ -77,7 +79,8 @@ impl ServerHandler for LeanCtxServer {
                     ),
                     tool_def(
                         "ctx_tree",
-                        "Token-efficient directory listing with file counts per directory.",
+                        "REPLACES ls/find/Shell directory listings — ALWAYS use this for directory exploration. \
+                        Token-efficient directory listing with file counts per directory.",
                         json!({
                             "type": "object",
                             "properties": {
@@ -89,8 +92,9 @@ impl ServerHandler for LeanCtxServer {
                     ),
                     tool_def(
                         "ctx_shell",
-                        "Execute a shell command and compress output using pattern-based compression. \
-                        Recognizes git, npm, cargo, docker, tsc. Use instead of running commands directly.",
+                        "REPLACES built-in Shell tool — ALWAYS use this instead of Shell. \
+                        Execute a shell command and compress output using pattern-based compression. \
+                        Recognizes git, npm, cargo, docker, tsc and 90+ more commands.",
                         json!({
                             "type": "object",
                             "properties": {
@@ -101,7 +105,8 @@ impl ServerHandler for LeanCtxServer {
                     ),
                     tool_def(
                         "ctx_search",
-                        "Search files for a regex pattern. Returns only matching lines with compact context.",
+                        "REPLACES built-in Grep tool — ALWAYS use this instead of Grep. \
+                        Search files for a regex pattern. Returns only matching lines with compact context.",
                         json!({
                             "type": "object",
                             "properties": {
@@ -194,7 +199,7 @@ impl ServerHandler for LeanCtxServer {
                     ),
                     tool_def(
                         "ctx_smart_read",
-                        "Adaptive file read that automatically selects the optimal compression mode based on \
+                        "REPLACES built-in Read tool — auto-selects optimal compression mode based on \
                         file size, type, cache state, and token budget. Returns [auto:mode] prefix showing which mode was selected.",
                         json!({
                             "type": "object",
@@ -704,13 +709,15 @@ ON DEMAND:\n\
 • ctx_benchmark(path) — exact token counts per mode\n\
 • ctx_cache(action) — manage cache: status, clear, invalidate(path)\n\
 \n\
-AUTO-CHECKPOINT: Every 10 tool calls, a compressed checkpoint + session state is automatically \
+AUTO-CHECKPOINT: Every 15 tool calls, a compressed checkpoint + session state is automatically \
 appended to the response. This keeps context compact in long sessions. Configurable via LEAN_CTX_CHECKPOINT_INTERVAL.\n\
 \n\
 IDLE CACHE TTL: Cache auto-clears after 5 min of inactivity (new chat, context compaction). \
 Session state is auto-saved before cache clear. Configurable via LEAN_CTX_CACHE_TTL (seconds, 0=disabled).\n\
 \n\
-Write, StrReplace, Delete, Glob have no lean-ctx equivalent — use normally.");
+Write, StrReplace, Delete, Glob have no lean-ctx equivalent — use normally.\n\
+\n\
+REMINDER: NEVER use Read, Shell, or Grep directly. ALWAYS use ctx_read, ctx_shell, ctx_search instead.");
 
     match crp_mode {
         CrpMode::Off => base,
