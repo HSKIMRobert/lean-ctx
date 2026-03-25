@@ -33,7 +33,8 @@ impl CacheStats {
     }
 
     pub fn tokens_saved(&self) -> u64 {
-        self.total_original_tokens.saturating_sub(self.total_sent_tokens)
+        self.total_original_tokens
+            .saturating_sub(self.total_sent_tokens)
     }
 
     pub fn savings_percent(&self) -> f64 {
@@ -82,13 +83,20 @@ impl SessionCache {
     }
 
     pub fn record_cache_hit(&mut self, path: &str) -> Option<&CacheEntry> {
-        let ref_label = self.file_refs.get(path).cloned().unwrap_or_else(|| "F?".to_string());
+        let ref_label = self
+            .file_refs
+            .get(path)
+            .cloned()
+            .unwrap_or_else(|| "F?".to_string());
         if let Some(entry) = self.entries.get_mut(path) {
             entry.read_count += 1;
             self.stats.total_reads += 1;
             self.stats.cache_hits += 1;
             self.stats.total_original_tokens += entry.original_tokens as u64;
-            let hit_msg = format!("{ref_label} [cached {}t {}L ∅]", entry.read_count, entry.line_count);
+            let hit_msg = format!(
+                "{ref_label} [cached {}t {}L ∅]",
+                entry.read_count, entry.line_count
+            );
             self.stats.total_sent_tokens += count_tokens(&hit_msg) as u64;
             Some(entry)
         } else {

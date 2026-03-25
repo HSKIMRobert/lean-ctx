@@ -10,10 +10,14 @@ fn eslint_file_re() -> &'static Regex {
     ESLINT_FILE_RE.get_or_init(|| Regex::new(r"^(/\S+|[A-Z]:\\\S+|\S+\.\w+)$").unwrap())
 }
 fn eslint_error_re() -> &'static Regex {
-    ESLINT_ERROR_RE.get_or_init(|| Regex::new(r"^\s+(\d+):(\d+)\s+(error|warning)\s+(.+?)\s{2,}(\S+)$").unwrap())
+    ESLINT_ERROR_RE.get_or_init(|| {
+        Regex::new(r"^\s+(\d+):(\d+)\s+(error|warning)\s+(.+?)\s{2,}(\S+)$").unwrap()
+    })
 }
 fn eslint_summary_re() -> &'static Regex {
-    ESLINT_SUMMARY_RE.get_or_init(|| Regex::new(r"(\d+)\s+problems?\s*\((\d+)\s+errors?,\s*(\d+)\s+warnings?\)").unwrap())
+    ESLINT_SUMMARY_RE.get_or_init(|| {
+        Regex::new(r"(\d+)\s+problems?\s*\((\d+)\s+errors?,\s*(\d+)\s+warnings?\)").unwrap()
+    })
 }
 fn biome_diag_re() -> &'static Regex {
     BIOME_DIAG_RE.get_or_init(|| Regex::new(r"^([\w/.-]+):(\d+):(\d+)\s+(\w+)\s+(.+)$").unwrap())
@@ -35,7 +39,8 @@ fn compress_eslint(output: &str) -> String {
         return "clean".to_string();
     }
 
-    let mut by_rule: std::collections::HashMap<String, (u32, u32)> = std::collections::HashMap::new();
+    let mut by_rule: std::collections::HashMap<String, (u32, u32)> =
+        std::collections::HashMap::new();
     let mut file_count = 0u32;
     let mut total_errors = 0u32;
     let mut total_warnings = 0u32;
@@ -72,10 +77,12 @@ fn compress_eslint(output: &str) -> String {
     }
 
     let mut parts = Vec::new();
-    parts.push(format!("{total_errors} errors, {total_warnings} warnings in {file_count} files"));
+    parts.push(format!(
+        "{total_errors} errors, {total_warnings} warnings in {file_count} files"
+    ));
 
     let mut rules: Vec<(String, (u32, u32))> = by_rule.into_iter().collect();
-    rules.sort_by(|a, b| (b.1.0 + b.1.1).cmp(&(a.1.0 + a.1.1)));
+    rules.sort_by(|a, b| (b.1 .0 + b.1 .1).cmp(&(a.1 .0 + a.1 .1)));
 
     for (rule, (errors, warnings)) in rules.iter().take(10) {
         let total = errors + warnings;
@@ -114,7 +121,10 @@ fn compress_biome(output: &str) -> String {
         return compact_output(trimmed, 10);
     }
 
-    format!("{errors} errors, {warnings} warnings in {} files", files.len())
+    format!(
+        "{errors} errors, {warnings} warnings in {} files",
+        files.len()
+    )
 }
 
 fn compress_stylelint(output: &str) -> String {
@@ -130,5 +140,9 @@ fn compact_output(text: &str, max: usize) -> String {
     if lines.len() <= max {
         return lines.join("\n");
     }
-    format!("{}\n... ({} more lines)", lines[..max].join("\n"), lines.len() - max)
+    format!(
+        "{}\n... ({} more lines)",
+        lines[..max].join("\n"),
+        lines.len() - max
+    )
 }

@@ -168,7 +168,9 @@ pub struct GainSummary {
 
 pub fn load_stats() -> GainSummary {
     let store = load();
-    let saved = store.total_input_tokens.saturating_sub(store.total_output_tokens);
+    let saved = store
+        .total_input_tokens
+        .saturating_sub(store.total_output_tokens);
     GainSummary {
         total_saved: saved,
         total_calls: store.total_commands,
@@ -189,11 +191,17 @@ fn line(ch: char, n: usize) -> String {
 }
 
 fn pct_color(pct: f64) -> &'static str {
-    if pct >= 90.0 { "\x1b[32m" }
-    else if pct >= 70.0 { "\x1b[36m" }
-    else if pct >= 50.0 { "\x1b[33m" }
-    else if pct >= 30.0 { "\x1b[35m" }
-    else { "\x1b[37m" }
+    if pct >= 90.0 {
+        "\x1b[32m"
+    } else if pct >= 70.0 {
+        "\x1b[36m"
+    } else if pct >= 50.0 {
+        "\x1b[33m"
+    } else if pct >= 30.0 {
+        "\x1b[35m"
+    } else {
+        "\x1b[37m"
+    }
 }
 
 fn bar_block(ratio: f64, width: usize) -> String {
@@ -228,9 +236,13 @@ fn sparkline(values: &[u64]) -> String {
 
 fn usd_estimate(tokens: u64) -> String {
     let cost = tokens as f64 * 2.50 / 1_000_000.0;
-    if cost >= 1.0 { format!("${cost:.2}") }
-    else if cost >= 0.01 { format!("${cost:.2}") }
-    else { format!("${cost:.3}") }
+    if cost >= 1.0 {
+        format!("${cost:.2}")
+    } else if cost >= 0.01 {
+        format!("${cost:.2}")
+    } else {
+        format!("${cost:.3}")
+    }
 }
 
 fn format_big(n: u64) -> String {
@@ -269,7 +281,9 @@ pub fn format_gain() -> String {
         return format!("{DIM}No commands recorded yet.{RST} Use {CYAN}lean-ctx -c \"command\"{RST} to start tracking.");
     }
 
-    let saved = store.total_input_tokens.saturating_sub(store.total_output_tokens);
+    let saved = store
+        .total_input_tokens
+        .saturating_sub(store.total_output_tokens);
     let pct = if store.total_input_tokens > 0 {
         saved as f64 / store.total_input_tokens as f64 * 100.0
     } else {
@@ -280,7 +294,9 @@ pub fn format_gain() -> String {
 
     o.push(String::new());
     let ln56 = line('─', 56);
-    o.push(format!("  {BOLD}{WHITE}◆ lean-ctx{RST}  {DIM}Token Savings Dashboard{RST}"));
+    o.push(format!(
+        "  {BOLD}{WHITE}◆ lean-ctx{RST}  {DIM}Token Savings Dashboard{RST}"
+    ));
     o.push(format!("  {DIM}{ln56}{RST}"));
     o.push(String::new());
 
@@ -295,7 +311,9 @@ pub fn format_gain() -> String {
 
     if let (Some(first), Some(_last)) = (&store.first_use, &store.last_use) {
         let first_short = first.get(..10).unwrap_or(first);
-        let daily_savings: Vec<u64> = store.daily.iter()
+        let daily_savings: Vec<u64> = store
+            .daily
+            .iter()
             .map(|d| d.input_tokens.saturating_sub(d.output_tokens))
             .collect();
         let spark = sparkline(&daily_savings);
@@ -317,7 +335,8 @@ pub fn format_gain() -> String {
             sb.cmp(&sa)
         });
 
-        let max_cmd_saved = sorted.first()
+        let max_cmd_saved = sorted
+            .first()
             .map(|(_, s)| s.input_tokens.saturating_sub(s.output_tokens))
             .unwrap_or(1)
             .max(1);
@@ -342,7 +361,10 @@ pub fn format_gain() -> String {
         }
 
         if sorted.len() > 12 {
-            o.push(format!("  {DIM}  ... +{} more commands{RST}", sorted.len() - 12));
+            o.push(format!(
+                "  {DIM}  ... +{} more commands{RST}",
+                sorted.len() - 12
+            ));
         }
     }
 
@@ -371,7 +393,9 @@ pub fn format_gain() -> String {
 
     o.push(String::new());
     o.push(format!("  {DIM}{ln56}{RST}"));
-    o.push(format!("  {DIM}lean-ctx v2.1.1  |  leanctx.com  |  lean-ctx dashboard{RST}"));
+    o.push(format!(
+        "  {DIM}lean-ctx v2.1.1  |  leanctx.com  |  lean-ctx dashboard{RST}"
+    ));
     o.push(String::new());
 
     o.join("\n")
@@ -380,12 +404,23 @@ pub fn format_gain() -> String {
 pub fn format_gain_graph() -> String {
     let store = load();
     if store.daily.is_empty() {
-        return format!("{DIM}No daily data yet.{RST} Use lean-ctx for a few days to see the graph.");
+        return format!(
+            "{DIM}No daily data yet.{RST} Use lean-ctx for a few days to see the graph."
+        );
     }
 
-    let days: Vec<_> = store.daily.iter().rev().take(30).collect::<Vec<_>>().into_iter().rev().collect();
+    let days: Vec<_> = store
+        .daily
+        .iter()
+        .rev()
+        .take(30)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
 
-    let savings: Vec<u64> = days.iter()
+    let savings: Vec<u64> = days
+        .iter()
         .map(|d| d.input_tokens.saturating_sub(d.output_tokens))
         .collect();
 
@@ -397,9 +432,14 @@ pub fn format_gain_graph() -> String {
 
     o.push(String::new());
     let ln58 = line('─', 58);
-    o.push(format!("  {BOLD}{WHITE}◆ lean-ctx{RST}  {DIM}Token Savings Graph (last 30 days){RST}"));
+    o.push(format!(
+        "  {BOLD}{WHITE}◆ lean-ctx{RST}  {DIM}Token Savings Graph (last 30 days){RST}"
+    ));
     o.push(format!("  {DIM}{ln58}{RST}"));
-    o.push(format!("  {DIM}{:>58}{RST}", format!("peak: {}", format_big(max_saved))));
+    o.push(format!(
+        "  {DIM}{:>58}{RST}",
+        format!("peak: {}", format_big(max_saved))
+    ));
     o.push(String::new());
 
     for (i, day) in days.iter().enumerate() {
@@ -449,7 +489,9 @@ pub fn format_gain_daily() -> String {
 
     o.push(String::new());
     let lnw = line('─', w);
-    o.push(format!("  {BOLD}{WHITE}◆ lean-ctx{RST}  {DIM}Daily Breakdown{RST}"));
+    o.push(format!(
+        "  {BOLD}{WHITE}◆ lean-ctx{RST}  {DIM}Daily Breakdown{RST}"
+    ));
     o.push(format!("  {DIM}┌{lnw}┐{RST}"));
     o.push(format!(
         "  {DIM}│{RST} {BOLD}{WHITE}{:<12} {:>6}  {:>10}  {:>10}  {:>7}  {:>6}{RST} {DIM}│{RST}",
@@ -457,7 +499,16 @@ pub fn format_gain_daily() -> String {
     ));
     o.push(format!("  {DIM}├{lnw}┤{RST}"));
 
-    let days: Vec<_> = store.daily.iter().rev().take(30).collect::<Vec<_>>().into_iter().rev().cloned().collect();
+    let days: Vec<_> = store
+        .daily
+        .iter()
+        .rev()
+        .take(30)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .cloned()
+        .collect();
 
     for day in &days {
         let saved = day.input_tokens.saturating_sub(day.output_tokens);
@@ -480,7 +531,11 @@ pub fn format_gain_daily() -> String {
     }
 
     let total_input: u64 = store.daily.iter().map(|d| d.input_tokens).sum();
-    let total_saved: u64 = store.daily.iter().map(|d| d.input_tokens.saturating_sub(d.output_tokens)).sum();
+    let total_saved: u64 = store
+        .daily
+        .iter()
+        .map(|d| d.input_tokens.saturating_sub(d.output_tokens))
+        .sum();
     let total_pct = if total_input > 0 {
         total_saved as f64 / total_input as f64 * 100.0
     } else {
@@ -500,7 +555,10 @@ pub fn format_gain_daily() -> String {
     ));
     o.push(format!("  {DIM}└{lnw}┘{RST}"));
 
-    let daily_savings: Vec<u64> = days.iter().map(|d| d.input_tokens.saturating_sub(d.output_tokens)).collect();
+    let daily_savings: Vec<u64> = days
+        .iter()
+        .map(|d| d.input_tokens.saturating_sub(d.output_tokens))
+        .collect();
     let spark = sparkline(&daily_savings);
     o.push(format!("  {DIM}Trend:{RST} {GREEN}{spark}{RST}"));
     o.push(String::new());

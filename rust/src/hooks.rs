@@ -20,7 +20,10 @@ pub fn install_agent_hook(agent: &str) {
 fn install_claude_hook() {
     let home = match dirs::home_dir() {
         Some(h) => h,
-        None => { eprintln!("Cannot resolve home directory"); return; }
+        None => {
+            eprintln!("Cannot resolve home directory");
+            return;
+        }
     };
 
     let hooks_dir = home.join(".claude").join("hooks");
@@ -100,18 +103,33 @@ fi
         });
 
         if settings_content.is_empty() {
-            write_file(&settings_path, &serde_json::to_string_pretty(&hook_entry).unwrap());
-        } else if let Ok(mut existing) = serde_json::from_str::<serde_json::Value>(&settings_content) {
+            write_file(
+                &settings_path,
+                &serde_json::to_string_pretty(&hook_entry).unwrap(),
+            );
+        } else if let Ok(mut existing) =
+            serde_json::from_str::<serde_json::Value>(&settings_content)
+        {
             if let Some(obj) = existing.as_object_mut() {
                 obj.insert("hooks".to_string(), hook_entry["hooks"].clone());
-                write_file(&settings_path, &serde_json::to_string_pretty(&existing).unwrap());
+                write_file(
+                    &settings_path,
+                    &serde_json::to_string_pretty(&existing).unwrap(),
+                );
             }
         }
-        println!("Installed Claude Code PreToolUse hook at {}", script_path.display());
+        println!(
+            "Installed Claude Code PreToolUse hook at {}",
+            script_path.display()
+        );
     }
 
     let claude_md = PathBuf::from("CLAUDE.md");
-    if !claude_md.exists() || !std::fs::read_to_string(&claude_md).unwrap_or_default().contains("lean-ctx") {
+    if !claude_md.exists()
+        || !std::fs::read_to_string(&claude_md)
+            .unwrap_or_default()
+            .contains("lean-ctx")
+    {
         let content = include_str!("templates/CLAUDE.md");
         write_file(&claude_md, content);
         println!("Created CLAUDE.md in current project directory.");
@@ -123,7 +141,10 @@ fi
 fn install_cursor_hook() {
     let home = match dirs::home_dir() {
         Some(h) => h,
-        None => { eprintln!("Cannot resolve home directory"); return; }
+        None => {
+            eprintln!("Cannot resolve home directory");
+            return;
+        }
     };
 
     let hooks_dir = home.join(".cursor").join("hooks");
@@ -166,7 +187,10 @@ esac
     if content.contains("lean-ctx-rewrite") {
         println!("Cursor hook already configured.");
     } else {
-        write_file(&hooks_json, &serde_json::to_string_pretty(&hook_config).unwrap());
+        write_file(
+            &hooks_json,
+            &serde_json::to_string_pretty(&hook_config).unwrap(),
+        );
         println!("Installed Cursor hook at {}", hooks_json.display());
     }
 
@@ -187,7 +211,10 @@ esac
 fn install_gemini_hook() {
     let home = match dirs::home_dir() {
         Some(h) => h,
-        None => { eprintln!("Cannot resolve home directory"); return; }
+        None => {
+            eprintln!("Cannot resolve home directory");
+            return;
+        }
     };
 
     let hooks_dir = home.join(".gemini").join("hooks");
@@ -229,11 +256,19 @@ esac
         });
 
         if settings_content.is_empty() {
-            write_file(&settings_path, &serde_json::to_string_pretty(&hook_config).unwrap());
-        } else if let Ok(mut existing) = serde_json::from_str::<serde_json::Value>(&settings_content) {
+            write_file(
+                &settings_path,
+                &serde_json::to_string_pretty(&hook_config).unwrap(),
+            );
+        } else if let Ok(mut existing) =
+            serde_json::from_str::<serde_json::Value>(&settings_content)
+        {
             if let Some(obj) = existing.as_object_mut() {
                 obj.insert("hooks".to_string(), hook_config["hooks"].clone());
-                write_file(&settings_path, &serde_json::to_string_pretty(&existing).unwrap());
+                write_file(
+                    &settings_path,
+                    &serde_json::to_string_pretty(&existing).unwrap(),
+                );
             }
         }
         println!("Installed Gemini CLI hook at {}", script_path.display());
@@ -243,7 +278,10 @@ esac
 fn install_codex_hook() {
     let home = match dirs::home_dir() {
         Some(h) => h,
-        None => { eprintln!("Cannot resolve home directory"); return; }
+        None => {
+            eprintln!("Cannot resolve home directory");
+            return;
+        }
     };
 
     let codex_dir = home.join(".codex");

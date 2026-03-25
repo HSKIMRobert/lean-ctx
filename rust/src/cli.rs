@@ -3,12 +3,12 @@ use std::path::Path;
 use crate::core::compressor;
 use crate::core::config;
 use crate::core::deps as dep_extract;
+use crate::core::entropy;
 use crate::core::patterns::deps_cmd;
+use crate::core::protocol;
 use crate::core::signatures;
 use crate::core::stats;
 use crate::core::tokens::count_tokens;
-use crate::core::protocol;
-use crate::core::entropy;
 
 pub fn cmd_read(args: &[String]) {
     if args.is_empty() {
@@ -52,7 +52,10 @@ pub fn cmd_read(args: &[String]) {
             if !dep_info.exports.is_empty() {
                 println!("  exports: {}", dep_info.exports.join(", "));
             }
-            let key_sigs: Vec<_> = sigs.iter().filter(|s| s.is_exported || s.indent == 0).collect();
+            let key_sigs: Vec<_> = sigs
+                .iter()
+                .filter(|s| s.is_exported || s.indent == 0)
+                .collect();
             if !key_sigs.is_empty() {
                 println!("  API:");
                 for sig in &key_sigs {
@@ -122,7 +125,11 @@ pub fn cmd_diff(args: &[String]) {
     let original = count_tokens(&content1) + count_tokens(&content2);
     let sent = count_tokens(&diff);
 
-    println!("diff {} {}", protocol::shorten_path(&args[0]), protocol::shorten_path(&args[1]));
+    println!(
+        "diff {} {}",
+        protocol::shorten_path(&args[0]),
+        protocol::shorten_path(&args[1])
+    );
     println!("{diff}");
     print_savings(original, sent);
 }
@@ -137,7 +144,11 @@ pub fn cmd_grep(args: &[String]) {
     let path = args.get(1).map(|s| s.as_str()).unwrap_or(".");
 
     let command = if cfg!(windows) {
-        format!("findstr /S /N /R \"{}\" {}\\*", pattern, path.replace('/', "\\"))
+        format!(
+            "findstr /S /N /R \"{}\" {}\\*",
+            pattern,
+            path.replace('/', "\\")
+        )
     } else {
         format!("grep -rn '{}' {}", pattern.replace('\'', "'\\''"), path)
     };
@@ -193,11 +204,33 @@ pub fn cmd_discover(_args: &[String]) {
     }
 
     let compressible_commands = [
-        "git ", "npm ", "yarn ", "pnpm ", "cargo ", "docker ",
-        "kubectl ", "gh ", "pip ", "pip3 ", "eslint", "prettier",
-        "ruff ", "go ", "golangci-lint", "playwright", "cypress",
-        "next ", "vite ", "tsc", "curl ", "wget ", "grep ", "rg ",
-        "find ", "env", "ls ",
+        "git ",
+        "npm ",
+        "yarn ",
+        "pnpm ",
+        "cargo ",
+        "docker ",
+        "kubectl ",
+        "gh ",
+        "pip ",
+        "pip3 ",
+        "eslint",
+        "prettier",
+        "ruff ",
+        "go ",
+        "golangci-lint",
+        "playwright",
+        "cypress",
+        "next ",
+        "vite ",
+        "tsc",
+        "curl ",
+        "wget ",
+        "grep ",
+        "rg ",
+        "find ",
+        "env",
+        "ls ",
     ];
 
     let mut missed: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
@@ -228,7 +261,10 @@ pub fn cmd_discover(_args: &[String]) {
     let mut sorted: Vec<(String, u32)> = missed.into_iter().collect();
     sorted.sort_by(|a, b| b.1.cmp(&a.1));
 
-    println!("Found {} compressible commands not using lean-ctx:\n", total_compressible);
+    println!(
+        "Found {} compressible commands not using lean-ctx:\n",
+        total_compressible
+    );
     for (cmd, count) in sorted.iter().take(15) {
         let est_savings = count * 150;
         println!("  {cmd:<30} (used {count}x, ~{est_savings} tokens saveable)");
@@ -248,10 +284,27 @@ pub fn cmd_session() {
     let gain = stats::load_stats();
 
     let compressible_commands = [
-        "git ", "npm ", "yarn ", "pnpm ", "cargo ", "docker ",
-        "kubectl ", "gh ", "pip ", "pip3 ", "eslint", "prettier",
-        "ruff ", "go ", "golangci-lint", "curl ", "wget ", "grep ",
-        "rg ", "find ", "ls ",
+        "git ",
+        "npm ",
+        "yarn ",
+        "pnpm ",
+        "cargo ",
+        "docker ",
+        "kubectl ",
+        "gh ",
+        "pip ",
+        "pip3 ",
+        "eslint",
+        "prettier",
+        "ruff ",
+        "go ",
+        "golangci-lint",
+        "curl ",
+        "wget ",
+        "grep ",
+        "rg ",
+        "find ",
+        "ls ",
     ];
 
     let mut total = 0u32;
@@ -279,14 +332,20 @@ pub fn cmd_session() {
     };
 
     println!("lean-ctx session statistics\n");
-    println!("Adoption:    {}% ({}/{} compressible commands)", pct, via_hook, total);
+    println!(
+        "Adoption:    {}% ({}/{} compressible commands)",
+        pct, via_hook, total
+    );
     println!("Saved:       {} tokens total", gain.total_saved);
     println!("Calls:       {} compressed", gain.total_calls);
 
     if total > via_hook {
         let missed = total - via_hook;
         let est = missed * 150;
-        println!("Missed:      {} commands (~{} tokens saveable)", missed, est);
+        println!(
+            "Missed:      {} commands (~{} tokens saveable)",
+            missed, est
+        );
     }
 
     println!("\nRun 'lean-ctx discover' for details on missed commands.");
@@ -322,9 +381,15 @@ pub fn cmd_sessions(args: &[String]) {
                 let task = s.task.as_deref().unwrap_or("(no task)");
                 let task_short: String = task.chars().take(50).collect();
                 let date = s.updated_at.format("%Y-%m-%d %H:%M");
-                println!("  {} | v{:3} | {:5} calls | {:>8} tok | {} | {}",
-                    s.id, s.version, s.tool_calls,
-                    format_tokens_cli(s.tokens_saved), date, task_short);
+                println!(
+                    "  {} | v{:3} | {:5} calls | {:>8} tok | {} | {}",
+                    s.id,
+                    s.version,
+                    s.tool_calls,
+                    format_tokens_cli(s.tokens_saved),
+                    date,
+                    task_short
+                );
             }
             if sessions.len() > 20 {
                 println!("  ... +{} more", sessions.len() - 20);
@@ -343,9 +408,7 @@ pub fn cmd_sessions(args: &[String]) {
             }
         }
         "cleanup" => {
-            let days = args.get(1)
-                .and_then(|s| s.parse::<i64>().ok())
-                .unwrap_or(7);
+            let days = args.get(1).and_then(|s| s.parse::<i64>().ok()).unwrap_or(7);
             let removed = SessionState::cleanup_old_sessions(days);
             println!("Cleaned up {removed} session(s) older than {days} days.");
         }
@@ -470,7 +533,10 @@ pub fn cmd_tee(args: &[String]) {
                 return;
             }
             let mut entries: Vec<_> = std::fs::read_dir(&tee_dir)
-                .unwrap_or_else(|e| { eprintln!("Error: {e}"); std::process::exit(1); })
+                .unwrap_or_else(|e| {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                })
                 .filter_map(|e| e.ok())
                 .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("log"))
                 .collect();
@@ -485,7 +551,11 @@ pub fn cmd_tee(args: &[String]) {
             for entry in &entries {
                 let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
                 let name = entry.file_name();
-                let size_str = if size > 1024 { format!("{}K", size / 1024) } else { format!("{}B", size) };
+                let size_str = if size > 1024 {
+                    format!("{}K", size / 1024)
+                } else {
+                    format!("{}B", size)
+                };
                 println!("  {:<60} {}", name.to_string_lossy(), size_str);
             }
             println!("\nUse 'lean-ctx tee clear' to delete all logs.");
@@ -532,7 +602,8 @@ pub fn cmd_tee(args: &[String]) {
 pub fn cmd_init(args: &[String]) {
     let global = args.iter().any(|a| a == "--global" || a == "-g");
 
-    let agent = args.iter()
+    let agent = args
+        .iter()
         .position(|a| a == "--agent")
         .and_then(|i| args.get(i + 1))
         .map(|s| s.as_str());
@@ -569,7 +640,13 @@ pub fn cmd_init(args: &[String]) {
     }
 
     if global && !is_powershell {
-        let rc = if is_fish { "config.fish" } else if is_zsh { ".zshrc" } else { ".bashrc" };
+        let rc = if is_fish {
+            "config.fish"
+        } else if is_zsh {
+            ".zshrc"
+        } else {
+            ".bashrc"
+        };
         println!("\nRestart your shell or run: source ~/{rc}");
     } else if global && is_powershell {
         println!("\nRestart PowerShell or run: . $PROFILE");
@@ -584,8 +661,7 @@ pub fn cmd_init(args: &[String]) {
 }
 
 fn init_powershell(binary: &str) {
-    let profile_dir = dirs::home_dir()
-        .map(|h| h.join("Documents").join("PowerShell"));
+    let profile_dir = dirs::home_dir().map(|h| h.join("Documents").join("PowerShell"));
     let profile_path = match profile_dir {
         Some(dir) => {
             let _ = std::fs::create_dir_all(&dir);
@@ -598,7 +674,8 @@ fn init_powershell(binary: &str) {
     };
 
     let binary_escaped = binary.replace('\\', "\\\\");
-    let functions = format!(r#"
+    let functions = format!(
+        r#"
 # lean-ctx shell hook — transparent CLI compression (90+ patterns)
 if (-not $env:LEAN_CTX_ACTIVE) {{
   $LeanCtxBin = "{binary_escaped}"
@@ -620,7 +697,8 @@ if (-not $env:LEAN_CTX_ACTIVE) {{
   function curl {{ & $LeanCtxBin -c "curl $($args -join ' ')" }}
   function wget {{ & $LeanCtxBin -c "wget $($args -join ' ')" }}
 }}
-"#);
+"#
+    );
 
     if let Ok(existing) = std::fs::read_to_string(&profile_path) {
         if existing.contains("lean-ctx shell hook") {
@@ -629,7 +707,11 @@ if (-not $env:LEAN_CTX_ACTIVE) {{
         }
     }
 
-    match std::fs::OpenOptions::new().append(true).create(true).open(&profile_path) {
+    match std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(&profile_path)
+    {
         Ok(mut f) => {
             use std::io::Write;
             let _ = f.write_all(functions.as_bytes());
@@ -678,7 +760,11 @@ fn init_fish() {
         }
     }
 
-    match std::fs::OpenOptions::new().append(true).create(true).open(&config) {
+    match std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(&config)
+    {
         Ok(mut f) => {
             use std::io::Write;
             let _ = f.write_all(aliases.as_bytes());
@@ -690,9 +776,13 @@ fn init_fish() {
 
 fn init_posix(is_zsh: bool) {
     let rc_file = if is_zsh {
-        dirs::home_dir().map(|h| h.join(".zshrc")).unwrap_or_default()
+        dirs::home_dir()
+            .map(|h| h.join(".zshrc"))
+            .unwrap_or_default()
     } else {
-        dirs::home_dir().map(|h| h.join(".bashrc")).unwrap_or_default()
+        dirs::home_dir()
+            .map(|h| h.join(".bashrc"))
+            .unwrap_or_default()
     };
 
     let aliases = r#"
@@ -731,7 +821,11 @@ fi
         }
     }
 
-    match std::fs::OpenOptions::new().append(true).create(true).open(&rc_file) {
+    match std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(&rc_file)
+    {
         Ok(mut f) => {
             use std::io::Write;
             let _ = f.write_all(aliases.as_bytes());
@@ -769,20 +863,18 @@ fn load_shell_history() -> Vec<String> {
     };
 
     match std::fs::read_to_string(&history_file) {
-        Ok(content) => {
-            content
-                .lines()
-                .filter_map(|l| {
-                    let trimmed = l.trim();
-                    if trimmed.starts_with(':') {
-                        trimmed.split(';').nth(1).map(|s| s.to_string())
-                    } else {
-                        Some(trimmed.to_string())
-                    }
-                })
-                .filter(|l| !l.is_empty())
-                .collect()
-        }
+        Ok(content) => content
+            .lines()
+            .filter_map(|l| {
+                let trimmed = l.trim();
+                if trimmed.starts_with(':') {
+                    trimmed.split(';').nth(1).map(|s| s.to_string())
+                } else {
+                    Some(trimmed.to_string())
+                }
+            })
+            .filter(|l| !l.is_empty())
+            .collect(),
         Err(_) => Vec::new(),
     }
 }

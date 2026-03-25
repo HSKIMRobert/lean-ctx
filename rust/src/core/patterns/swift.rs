@@ -46,8 +46,12 @@ fn compress_test(output: &str) -> String {
     }
 
     let mut result = format!("swift test: {passed} passed");
-    if failed > 0 { result.push_str(&format!(", {failed} failed")); }
-    if !time.is_empty() { result.push_str(&format!("\n  {time}")); }
+    if failed > 0 {
+        result.push_str(&format!(", {failed} failed"));
+    }
+    if !time.is_empty() {
+        result.push_str(&format!("\n  {time}"));
+    }
     for f in failures.iter().take(5) {
         result.push_str(&format!("\n  FAIL: {f}"));
     }
@@ -78,7 +82,9 @@ fn compress_build(output: &str) -> String {
 
     if !errors.is_empty() {
         let mut result = format!("{} errors", errors.len());
-        if warnings > 0 { result.push_str(&format!(", {warnings} warnings")); }
+        if warnings > 0 {
+            result.push_str(&format!(", {warnings} warnings"));
+        }
         for e in errors.iter().take(10) {
             result.push_str(&format!("\n  {e}"));
         }
@@ -86,8 +92,12 @@ fn compress_build(output: &str) -> String {
     }
 
     let mut result = format!("Build ok ({compiling} compiled");
-    if linking { result.push_str(", linked"); }
-    if warnings > 0 { result.push_str(&format!(", {warnings} warnings")); }
+    if linking {
+        result.push_str(", linked");
+    }
+    if warnings > 0 {
+        result.push_str(&format!(", {warnings} warnings"));
+    }
     result.push(')');
     result
 }
@@ -96,8 +106,12 @@ fn compress_resolve(output: &str) -> String {
     let mut fetched = 0u32;
     let mut resolved = 0u32;
     for line in output.lines() {
-        if line.contains("Fetching") { fetched += 1; }
-        if line.contains("Resolving") || line.contains("resolved") { resolved += 1; }
+        if line.contains("Fetching") {
+            fetched += 1;
+        }
+        if line.contains("Resolving") || line.contains("resolved") {
+            resolved += 1;
+        }
     }
     if fetched == 0 && resolved == 0 {
         return compact_lines(output, 5);
@@ -110,5 +124,9 @@ fn compact_lines(text: &str, max: usize) -> String {
     if lines.len() <= max {
         return lines.join("\n");
     }
-    format!("{}\n... ({} more lines)", lines[..max].join("\n"), lines.len() - max)
+    format!(
+        "{}\n... ({} more lines)",
+        lines[..max].join("\n"),
+        lines.len() - max
+    )
 }

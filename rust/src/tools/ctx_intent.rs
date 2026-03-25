@@ -16,15 +16,25 @@ enum Intent {
     Unknown,
 }
 
-pub fn handle(cache: &mut SessionCache, query: &str, project_root: &str, crp_mode: CrpMode) -> String {
+pub fn handle(
+    cache: &mut SessionCache,
+    query: &str,
+    project_root: &str,
+    crp_mode: CrpMode,
+) -> String {
     let intent = classify_intent(query);
     let strategy = build_strategy(&intent, project_root);
 
     let mut result = Vec::new();
     result.push(format!("Intent: {:?}", intent));
-    result.push(format!("Strategy: {} files, modes: {}",
+    result.push(format!(
+        "Strategy: {} files, modes: {}",
         strategy.len(),
-        strategy.iter().map(|(_, m)| m.as_str()).collect::<Vec<_>>().join(", ")
+        strategy
+            .iter()
+            .map(|(_, m)| m.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
     ));
     result.push(String::new());
 
@@ -47,16 +57,37 @@ fn classify_intent(query: &str) -> Intent {
 
     let area = extract_area(&q);
 
-    if q.contains("fix") || q.contains("bug") || q.contains("error") || q.contains("broken") || q.contains("crash") || q.contains("fail") {
+    if q.contains("fix")
+        || q.contains("bug")
+        || q.contains("error")
+        || q.contains("broken")
+        || q.contains("crash")
+        || q.contains("fail")
+    {
         return Intent::FixBug { area };
     }
-    if q.contains("add") || q.contains("create") || q.contains("implement") || q.contains("new") || q.contains("feature") {
+    if q.contains("add")
+        || q.contains("create")
+        || q.contains("implement")
+        || q.contains("new")
+        || q.contains("feature")
+    {
         return Intent::AddFeature { area };
     }
-    if q.contains("refactor") || q.contains("clean") || q.contains("restructure") || q.contains("rename") || q.contains("move") {
+    if q.contains("refactor")
+        || q.contains("clean")
+        || q.contains("restructure")
+        || q.contains("rename")
+        || q.contains("move")
+    {
         return Intent::Refactor { area };
     }
-    if q.contains("understand") || q.contains("how") || q.contains("what") || q.contains("explain") || q.contains("where") {
+    if q.contains("understand")
+        || q.contains("how")
+        || q.contains("what")
+        || q.contains("explain")
+        || q.contains("where")
+    {
         return Intent::Understand { area };
     }
     if q.contains("test") || q.contains("spec") || q.contains("coverage") {
@@ -65,7 +96,8 @@ fn classify_intent(query: &str) -> Intent {
     if q.contains("config") || q.contains("setup") || q.contains("env") || q.contains("install") {
         return Intent::Config;
     }
-    if q.contains("deploy") || q.contains("release") || q.contains("publish") || q.contains("ship") {
+    if q.contains("deploy") || q.contains("release") || q.contains("publish") || q.contains("ship")
+    {
         return Intent::Deploy;
     }
 
@@ -73,14 +105,29 @@ fn classify_intent(query: &str) -> Intent {
 }
 
 fn extract_area(query: &str) -> String {
-    let keywords: Vec<&str> = query.split_whitespace()
+    let keywords: Vec<&str> = query
+        .split_whitespace()
         .filter(|w| {
-            w.len() > 3 &&
-            !matches!(*w, "the" | "this" | "that" | "with" | "from" | "into" | "have" | "please" | "could" | "would" | "should")
+            w.len() > 3
+                && !matches!(
+                    *w,
+                    "the"
+                        | "this"
+                        | "that"
+                        | "with"
+                        | "from"
+                        | "into"
+                        | "have"
+                        | "please"
+                        | "could"
+                        | "would"
+                        | "should"
+                )
         })
         .collect();
 
-    let file_refs: Vec<&&str> = keywords.iter()
+    let file_refs: Vec<&&str> = keywords
+        .iter()
         .filter(|w| w.contains('.') || w.contains('/') || w.contains('\\'))
         .collect();
 
@@ -88,11 +135,35 @@ fn extract_area(query: &str) -> String {
         return path.to_string();
     }
 
-    let code_terms: Vec<&&str> = keywords.iter()
+    let code_terms: Vec<&&str> = keywords
+        .iter()
         .filter(|w| {
-            w.chars().any(|c| c.is_uppercase()) ||
-            w.contains('_') ||
-            matches!(**w, "auth" | "login" | "api" | "database" | "db" | "server" | "client" | "user" | "admin" | "router" | "handler" | "middleware" | "controller" | "model" | "view" | "component" | "service" | "repository" | "cache" | "queue" | "worker")
+            w.chars().any(|c| c.is_uppercase())
+                || w.contains('_')
+                || matches!(
+                    **w,
+                    "auth"
+                        | "login"
+                        | "api"
+                        | "database"
+                        | "db"
+                        | "server"
+                        | "client"
+                        | "user"
+                        | "admin"
+                        | "router"
+                        | "handler"
+                        | "middleware"
+                        | "controller"
+                        | "model"
+                        | "view"
+                        | "component"
+                        | "service"
+                        | "repository"
+                        | "cache"
+                        | "queue"
+                        | "worker"
+                )
         })
         .collect();
 
@@ -159,7 +230,14 @@ fn build_strategy(intent: &Intent, root: &str) -> Vec<(String, String)> {
             }
         }
         Intent::Config => {
-            for name in &["Cargo.toml", "package.json", "pyproject.toml", "go.mod", "tsconfig.json", "docker-compose.yml"] {
+            for name in &[
+                "Cargo.toml",
+                "package.json",
+                "pyproject.toml",
+                "go.mod",
+                "tsconfig.json",
+                "docker-compose.yml",
+            ] {
                 let path = format!("{root}/{name}");
                 if Path::new(&path).exists() {
                     files.push((path, "full".to_string()));
@@ -167,7 +245,12 @@ fn build_strategy(intent: &Intent, root: &str) -> Vec<(String, String)> {
             }
         }
         Intent::Deploy => {
-            for name in &["Dockerfile", "docker-compose.yml", "Makefile", ".github/workflows"] {
+            for name in &[
+                "Dockerfile",
+                "docker-compose.yml",
+                "Makefile",
+                ".github/workflows",
+            ] {
                 let path = format!("{root}/{name}");
                 if Path::new(&path).exists() {
                     files.push((path, "full".to_string()));
@@ -184,18 +267,27 @@ fn find_files_for_area(area: &str, root: &str) -> Option<Vec<String>> {
     let mut matches = Vec::new();
     let search_term = area.to_lowercase();
 
-    walkdir::WalkDir::new(root).max_depth(6).into_iter()
+    walkdir::WalkDir::new(root)
+        .max_depth(6)
+        .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_file())
         .filter(|e| {
             let path = e.path().to_string_lossy().to_lowercase();
-            !path.contains("node_modules") && !path.contains("target/") &&
-            !path.contains(".git/") && !path.contains("dist/") &&
-            !path.contains("build/") && !path.contains("vendor/")
+            !path.contains("node_modules")
+                && !path.contains("target/")
+                && !path.contains(".git/")
+                && !path.contains("dist/")
+                && !path.contains("build/")
+                && !path.contains("vendor/")
         })
         .filter(|e| {
             let name = e.file_name().to_string_lossy().to_lowercase();
-            name.contains(&search_term) || e.path().to_string_lossy().to_lowercase().contains(&search_term)
+            name.contains(&search_term)
+                || e.path()
+                    .to_string_lossy()
+                    .to_lowercase()
+                    .contains(&search_term)
         })
         .take(10)
         .for_each(|e| {
@@ -205,20 +297,30 @@ fn find_files_for_area(area: &str, root: &str) -> Option<Vec<String>> {
             }
         });
 
-    if matches.is_empty() { None } else { Some(matches) }
+    if matches.is_empty() {
+        None
+    } else {
+        Some(matches)
+    }
 }
 
 fn find_test_files(area: &str, root: &str) -> Option<Vec<String>> {
     let search_term = area.to_lowercase();
     let mut matches = Vec::new();
 
-    walkdir::WalkDir::new(root).max_depth(6).into_iter()
+    walkdir::WalkDir::new(root)
+        .max_depth(6)
+        .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_file())
         .filter(|e| {
             let name = e.file_name().to_string_lossy().to_lowercase();
-            (name.contains("test") || name.contains("spec")) &&
-            (name.contains(&search_term) || e.path().to_string_lossy().to_lowercase().contains(&search_term))
+            (name.contains("test") || name.contains("spec"))
+                && (name.contains(&search_term)
+                    || e.path()
+                        .to_string_lossy()
+                        .to_lowercase()
+                        .contains(&search_term))
         })
         .filter(|e| {
             let path = e.path().to_string_lossy().to_lowercase();
@@ -229,5 +331,9 @@ fn find_test_files(area: &str, root: &str) -> Option<Vec<String>> {
             matches.push(e.path().to_string_lossy().to_string());
         });
 
-    if matches.is_empty() { None } else { Some(matches) }
+    if matches.is_empty() {
+        None
+    } else {
+        Some(matches)
+    }
 }

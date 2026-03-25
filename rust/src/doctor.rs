@@ -53,7 +53,11 @@ fn resolve_lean_ctx_binary() -> Option<PathBuf> {
             return None;
         }
         let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if s.is_empty() { None } else { Some(PathBuf::from(s)) }
+        if s.is_empty() {
+            None
+        } else {
+            Some(PathBuf::from(s))
+        }
     }
 
     #[cfg(windows)]
@@ -71,7 +75,11 @@ fn resolve_lean_ctx_binary() -> Option<PathBuf> {
             .unwrap_or("")
             .trim()
             .to_string();
-        if s.is_empty() { None } else { Some(PathBuf::from(s)) }
+        if s.is_empty() {
+            None
+        } else {
+            Some(PathBuf::from(s))
+        }
     }
 }
 
@@ -187,9 +195,7 @@ fn mcp_config_outcome() -> Outcome {
         None => {
             return Outcome {
                 ok: false,
-                line: format!(
-                    "{BOLD}MCP config{RST}  {RED}could not resolve home directory{RST}"
-                ),
+                line: format!("{BOLD}MCP config{RST}  {RED}could not resolve home directory{RST}"),
             };
         }
     };
@@ -225,15 +231,11 @@ fn port_3333_outcome() -> Outcome {
     match TcpListener::bind("127.0.0.1:3333") {
         Ok(_listener) => Outcome {
             ok: true,
-            line: format!(
-                "{BOLD}Dashboard port 3333{RST}  {GREEN}available on 127.0.0.1{RST}"
-            ),
+            line: format!("{BOLD}Dashboard port 3333{RST}  {GREEN}available on 127.0.0.1{RST}"),
         },
         Err(e) => Outcome {
             ok: false,
-            line: format!(
-                "{BOLD}Dashboard port 3333{RST}  {RED}not available: {e}{RST}"
-            ),
+            line: format!("{BOLD}Dashboard port 3333{RST}  {RED}not available: {e}{RST}"),
         },
     }
 }
@@ -253,10 +255,7 @@ pub fn run() {
         passed += 1;
     }
     let bin_line = if let Some(p) = path_bin {
-        format!(
-            "{BOLD}lean-ctx in PATH{RST}  {WHITE}{}{RST}",
-            p.display()
-        )
+        format!("{BOLD}lean-ctx in PATH{RST}  {WHITE}{}{RST}", p.display())
     } else if also_in_path_dirs {
         format!(
             "{BOLD}lean-ctx in PATH{RST}  {YELLOW}found via PATH walk (not resolved by `command -v`){RST}"
@@ -275,9 +274,7 @@ pub fn run() {
     } else {
         Outcome {
             ok: false,
-            line: format!(
-                "{BOLD}lean-ctx version{RST}  {RED}skipped (binary not in PATH){RST}"
-            ),
+            line: format!("{BOLD}lean-ctx version{RST}  {RED}skipped (binary not in PATH){RST}"),
         }
     };
     if ver.ok {
@@ -407,10 +404,6 @@ pub fn run() {
     print_check(&port);
 
     println!();
-    println!(
-        "  {BOLD}{WHITE}Summary:{RST}  {GREEN}{passed}{RST}{DIM}/{total}{RST} checks passed"
-    );
-    println!(
-        "  {DIM}This binary: lean-ctx {VERSION} (Cargo package version){RST}"
-    );
+    println!("  {BOLD}{WHITE}Summary:{RST}  {GREEN}{passed}{RST}{DIM}/{total}{RST} checks passed");
+    println!("  {DIM}This binary: lean-ctx {VERSION} (Cargo package version){RST}");
 }

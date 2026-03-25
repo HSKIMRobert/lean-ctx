@@ -12,19 +12,16 @@ fn uv_installed_line_re() -> &'static Regex {
     UV_INSTALLED_LINE.get_or_init(|| Regex::new(r"^\s*\+\s+(\S+)").unwrap())
 }
 fn uv_resolved_re() -> &'static Regex {
-    UV_RESOLVED.get_or_init(|| {
-        Regex::new(r"(?i)^(Resolved|Prepared|Installed|Audited)\s+").unwrap()
-    })
+    UV_RESOLVED
+        .get_or_init(|| Regex::new(r"(?i)^(Resolved|Prepared|Installed|Audited)\s+").unwrap())
 }
 fn poetry_installing_re() -> &'static Regex {
-    POETRY_INSTALLING.get_or_init(|| {
-        Regex::new(r"(?i)^\s*-\s+Installing\s+(\S+)\s+\(([^)]+)\)").unwrap()
-    })
+    POETRY_INSTALLING
+        .get_or_init(|| Regex::new(r"(?i)^\s*-\s+Installing\s+(\S+)\s+\(([^)]+)\)").unwrap())
 }
 fn poetry_updating_re() -> &'static Regex {
-    POETRY_UPDATING.get_or_init(|| {
-        Regex::new(r"(?i)^\s*-\s+Updating\s+(\S+)\s+\(([^)]+)\)").unwrap()
-    })
+    POETRY_UPDATING
+        .get_or_init(|| Regex::new(r"(?i)^\s*-\s+Updating\s+(\S+)\s+\(([^)]+)\)").unwrap())
 }
 fn pip_style_success_re() -> &'static Regex {
     PIP_STYLE_SUCCESS.get_or_init(|| Regex::new(r"(?i)Successfully installed\s+(.+)").unwrap())
@@ -66,8 +63,7 @@ fn is_download_noise(line: &str) -> bool {
         || tl.contains("kiB/s")
         || tl.contains("kib/s")
         || tl.contains("mib/s")
-        || tl.contains("%")
-            && (tl.contains("eta") || tl.contains('|') || tl.contains("of "))
+        || tl.contains("%") && (tl.contains("eta") || tl.contains('|') || tl.contains("of "))
     {
         return true;
     }

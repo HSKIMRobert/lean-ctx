@@ -21,22 +21,32 @@ pub fn compress(cmd: &str, output: &str) -> Option<String> {
 
 fn is_table_output(output: &str) -> bool {
     let lines: Vec<&str> = output.lines().collect();
-    lines.len() >= 3 && lines.iter().any(|l| l.starts_with('+') && l.contains("---"))
+    lines.len() >= 3
+        && lines
+            .iter()
+            .any(|l| l.starts_with('+') && l.contains("---"))
 }
 
 fn compress_table(output: &str) -> String {
     let lines: Vec<&str> = output.lines().collect();
-    let data_lines: Vec<&&str> = lines.iter()
+    let data_lines: Vec<&&str> = lines
+        .iter()
         .filter(|l| !l.starts_with('+') && !l.trim().is_empty())
         .collect();
 
-    let row_count = if data_lines.len() > 1 { data_lines.len() - 1 } else { 0 };
+    let row_count = if data_lines.len() > 1 {
+        data_lines.len() - 1
+    } else {
+        0
+    };
 
     if row_count <= 20 {
         return output.to_string();
     }
 
-    let header_end = lines.iter().enumerate()
+    let header_end = lines
+        .iter()
+        .enumerate()
         .filter(|(_, l)| l.starts_with('+'))
         .nth(1)
         .map(|(i, _)| i + 1)
@@ -48,7 +58,8 @@ fn compress_table(output: &str) -> String {
 }
 
 fn compress_show(output: &str) -> String {
-    let items: Vec<&str> = output.lines()
+    let items: Vec<&str> = output
+        .lines()
         .filter(|l| !l.starts_with('+') && !l.trim().is_empty() && !l.contains("---"))
         .filter(|l| !l.contains("Database") && !l.contains("Tables_in"))
         .map(|l| l.trim().trim_matches('|').trim())
@@ -61,8 +72,12 @@ fn compress_show(output: &str) -> String {
     if items.len() <= 30 {
         return format!("{} items: {}", items.len(), items.join(", "));
     }
-    format!("{} items: {}, ... +{} more",
-        items.len(), items[..20].join(", "), items.len() - 20)
+    format!(
+        "{} items: {}, ... +{} more",
+        items.len(),
+        items[..20].join(", "),
+        items.len() - 20
+    )
 }
 
 fn compact_lines(text: &str, max: usize) -> String {
@@ -70,5 +85,9 @@ fn compact_lines(text: &str, max: usize) -> String {
     if lines.len() <= max {
         return lines.join("\n");
     }
-    format!("{}\n... ({} more lines)", lines[..max].join("\n"), lines.len() - max)
+    format!(
+        "{}\n... ({} more lines)",
+        lines[..max].join("\n"),
+        lines.len() - max
+    )
 }

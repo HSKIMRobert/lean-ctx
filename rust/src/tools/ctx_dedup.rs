@@ -15,18 +15,25 @@ pub fn handle(cache: &SessionCache) -> String {
     for (path, entry) in &entries {
         let lines: Vec<&str> = entry.content.lines().collect();
 
-        let imports: Vec<&str> = lines.iter().copied()
+        let imports: Vec<&str> = lines
+            .iter()
+            .copied()
             .filter(|l| {
                 let t = l.trim();
-                t.starts_with("import ") || t.starts_with("use ") ||
-                t.starts_with("from ") || t.starts_with("require(") ||
-                t.starts_with("#include")
+                t.starts_with("import ")
+                    || t.starts_with("use ")
+                    || t.starts_with("from ")
+                    || t.starts_with("require(")
+                    || t.starts_with("#include")
             })
             .collect();
 
         for imp in &imports {
             let key = imp.trim().to_string();
-            import_patterns.entry(key).or_default().push(path.to_string());
+            import_patterns
+                .entry(key)
+                .or_default()
+                .push(path.to_string());
         }
 
         for chunk in lines.chunks(5) {
@@ -34,17 +41,22 @@ pub fn handle(cache: &SessionCache) -> String {
                 let block = chunk.join("\n");
                 let block_trimmed = block.trim().to_string();
                 if !block_trimmed.is_empty() && count_tokens(&block_trimmed) > 10 {
-                    boilerplate_blocks.entry(block_trimmed).or_default().push(path.to_string());
+                    boilerplate_blocks
+                        .entry(block_trimmed)
+                        .or_default()
+                        .push(path.to_string());
                 }
             }
         }
     }
 
-    let shared_imports: Vec<_> = import_patterns.iter()
+    let shared_imports: Vec<_> = import_patterns
+        .iter()
         .filter(|(_, files)| files.len() >= 2)
         .collect();
 
-    let shared_blocks: Vec<_> = boilerplate_blocks.iter()
+    let shared_blocks: Vec<_> = boilerplate_blocks
+        .iter()
         .filter(|(_, files)| {
             let unique: std::collections::HashSet<_> = files.iter().collect();
             unique.len() >= 2
@@ -52,17 +64,24 @@ pub fn handle(cache: &SessionCache) -> String {
         .collect();
 
     let mut result = Vec::new();
-    result.push(format!("Cross-file deduplication analysis ({} cached files):", entries.len()));
+    result.push(format!(
+        "Cross-file deduplication analysis ({} cached files):",
+        entries.len()
+    ));
 
     if !shared_imports.is_empty() {
-        let total_import_tokens: usize = shared_imports.iter()
+        let total_import_tokens: usize = shared_imports
+            .iter()
             .map(|(imp, files)| count_tokens(imp) * (files.len() - 1))
             .sum();
 
-        result.push(format!("\nShared imports ({}, ~{total_import_tokens} redundant tokens):",
-            shared_imports.len()));
+        result.push(format!(
+            "\nShared imports ({}, ~{total_import_tokens} redundant tokens):",
+            shared_imports.len()
+        ));
         for (imp, files) in shared_imports.iter().take(10) {
-            let short_files: Vec<String> = files.iter()
+            let short_files: Vec<String> = files
+                .iter()
                 .map(|f| crate::core::protocol::shorten_path(f))
                 .collect();
             result.push(format!("  {imp}"));
@@ -74,15 +93,18 @@ pub fn handle(cache: &SessionCache) -> String {
     }
 
     if !shared_blocks.is_empty() {
-        let total_block_tokens: usize = shared_blocks.iter()
+        let total_block_tokens: usize = shared_blocks
+            .iter()
             .map(|(block, files)| {
                 let unique: std::collections::HashSet<_> = files.iter().collect();
                 count_tokens(block) * (unique.len() - 1)
             })
             .sum();
 
-        result.push(format!("\nShared code blocks ({}, ~{total_block_tokens} redundant tokens):",
-            shared_blocks.len()));
+        result.push(format!(
+            "\nShared code blocks ({}, ~{total_block_tokens} redundant tokens):",
+            shared_blocks.len()
+        ));
         for (block, files) in shared_blocks.iter().take(5) {
             let unique: std::collections::HashSet<_> = files.iter().collect();
             let preview = block.lines().next().unwrap_or("...");
@@ -93,17 +115,21 @@ pub fn handle(cache: &SessionCache) -> String {
     if shared_imports.is_empty() && shared_blocks.is_empty() {
         result.push("\nNo significant cross-file duplication detected.".to_string());
     } else {
-        let total_savings: usize = shared_imports.iter()
+        let total_savings: usize = shared_imports
+            .iter()
             .map(|(imp, files)| count_tokens(imp) * (files.len() - 1))
             .sum::<usize>()
-            + shared_blocks.iter()
+            + shared_blocks
+                .iter()
                 .map(|(block, files)| {
                     let unique: std::collections::HashSet<_> = files.iter().collect();
                     count_tokens(block) * (unique.len() - 1)
                 })
                 .sum::<usize>();
 
-        result.push(format!("\nTotal potential savings: ~{total_savings} tokens"));
+        result.push(format!(
+            "\nTotal potential savings: ~{total_savings} tokens"
+        ));
     }
 
     result.join("\n")

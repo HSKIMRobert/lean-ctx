@@ -8,7 +8,8 @@ fn log_ts_re() -> &'static Regex {
     LOG_TS_RE.get_or_init(|| Regex::new(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\S*\s+").unwrap())
 }
 fn resource_action_re() -> &'static Regex {
-    RESOURCE_ACTION_RE.get_or_init(|| Regex::new(r"(\S+/\S+)\s+(configured|created|unchanged|deleted)").unwrap())
+    RESOURCE_ACTION_RE
+        .get_or_init(|| Regex::new(r"(\S+/\S+)\s+(configured|created|unchanged|deleted)").unwrap())
 }
 
 pub fn compress(command: &str, output: &str) -> Option<String> {
@@ -74,7 +75,13 @@ fn compress_get(output: &str) -> String {
         return "no resources".to_string();
     }
 
-    let col_hint = cols.iter().skip(1).take(4).copied().collect::<Vec<&str>>().join(" ");
+    let col_hint = cols
+        .iter()
+        .skip(1)
+        .take(4)
+        .copied()
+        .collect::<Vec<&str>>()
+        .join(" ");
     format!("[{col_hint}]\n{}", rows.join("\n"))
 }
 
@@ -128,7 +135,11 @@ fn compress_describe(output: &str) -> String {
     let mut current_section = String::new();
     let mut current_lines: Vec<&str> = Vec::new();
     for (_i, line) in lines.iter().enumerate() {
-        if !line.starts_with(' ') && !line.starts_with('\t') && line.ends_with(':') && !line.contains("  ") {
+        if !line.starts_with(' ')
+            && !line.starts_with('\t')
+            && line.ends_with(':')
+            && !line.contains("  ")
+        {
             if !current_section.is_empty() {
                 let count = current_lines.len();
                 if count <= 3 {
@@ -149,7 +160,10 @@ fn compress_describe(output: &str) -> String {
         let count = current_lines.len();
         if current_section == "Events" && count > 5 {
             let last_events = &current_lines[count.saturating_sub(5)..];
-            sections.push(format!("Events (last 5 of {count}):\n{}", last_events.join("\n")));
+            sections.push(format!(
+                "Events (last 5 of {count}):\n{}",
+                last_events.join("\n")
+            ));
         } else if count <= 5 {
             sections.push(format!("{current_section}\n{}", current_lines.join("\n")));
         } else {
@@ -193,10 +207,18 @@ fn compress_apply(output: &str) -> String {
     }
 
     let mut summary = Vec::new();
-    if created > 0 { summary.push(format!("{created} created")); }
-    if configured > 0 { summary.push(format!("{configured} configured")); }
-    if unchanged > 0 { summary.push(format!("{unchanged} unchanged")); }
-    if deleted > 0 { summary.push(format!("{deleted} deleted")); }
+    if created > 0 {
+        summary.push(format!("{created} created"));
+    }
+    if configured > 0 {
+        summary.push(format!("{configured} configured"));
+    }
+    if unchanged > 0 {
+        summary.push(format!("{unchanged} unchanged"));
+    }
+    if deleted > 0 {
+        summary.push(format!("{deleted} deleted"));
+    }
 
     format!("ok ({total} resources: {})", summary.join(", "))
 }
@@ -207,10 +229,7 @@ fn compress_delete(output: &str) -> String {
         return "ok".to_string();
     }
 
-    let deleted: Vec<&str> = trimmed
-        .lines()
-        .filter(|l| l.contains("deleted"))
-        .collect();
+    let deleted: Vec<&str> = trimmed.lines().filter(|l| l.contains("deleted")).collect();
 
     if deleted.is_empty() {
         return compact_output(trimmed, 3);
@@ -252,7 +271,11 @@ fn compact_table(text: &str) -> String {
     if lines.len() <= 15 {
         return lines.join("\n");
     }
-    format!("{}\n... ({} more rows)", lines[..15].join("\n"), lines.len() - 15)
+    format!(
+        "{}\n... ({} more rows)",
+        lines[..15].join("\n"),
+        lines.len() - 15
+    )
 }
 
 fn compact_output(text: &str, max: usize) -> String {
@@ -260,5 +283,9 @@ fn compact_output(text: &str, max: usize) -> String {
     if lines.len() <= max {
         return lines.join("\n");
     }
-    format!("{}\n... ({} more lines)", lines[..max].join("\n"), lines.len() - max)
+    format!(
+        "{}\n... ({} more lines)",
+        lines[..max].join("\n"),
+        lines.len() - max
+    )
 }

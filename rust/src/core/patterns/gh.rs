@@ -112,7 +112,11 @@ fn compress_pr_view(output: &str) -> String {
             state = l.replace("state:", "").trim().to_string();
         }
         if l.starts_with("labels:") {
-            labels = l.replace("labels:", "").split(',').map(|s| s.trim().to_string()).collect();
+            labels = l
+                .replace("labels:", "")
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .collect();
         }
         if l.contains("✓") || l.contains("✗") || l.contains("pass") || l.contains("fail") {
             checks.push(l.to_string());
@@ -196,7 +200,12 @@ fn compress_run_list(output: &str) -> String {
         if l.is_empty() || l.starts_with("STATUS") || l.starts_with("--") {
             continue;
         }
-        if l.contains("completed") || l.contains("in_progress") || l.contains("queued") || l.contains("failure") || l.contains("success") {
+        if l.contains("completed")
+            || l.contains("in_progress")
+            || l.contains("queued")
+            || l.contains("failure")
+            || l.contains("success")
+        {
             runs.push(l.to_string());
         }
     }
@@ -237,5 +246,9 @@ fn compact_output(text: &str, max: usize) -> String {
     if lines.len() <= max {
         return lines.join("\n");
     }
-    format!("{}\n... ({} more lines)", lines[..max].join("\n"), lines.len() - max)
+    format!(
+        "{}\n... ({} more lines)",
+        lines[..max].join("\n"),
+        lines.len() - max
+    )
 }

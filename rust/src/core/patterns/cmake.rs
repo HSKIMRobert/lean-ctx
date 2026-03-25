@@ -25,7 +25,9 @@ fn compress_configure(output: &str) -> String {
         if trimmed.starts_with("-- The") && trimmed.contains("compiler") {
             found_compilers.push(trimmed.to_string());
         }
-        if trimmed.starts_with("-- Generating") || (trimmed.starts_with("--") && trimmed.contains("generator")) {
+        if trimmed.starts_with("-- Generating")
+            || (trimmed.starts_with("--") && trimmed.contains("generator"))
+        {
             found_generators.push(trimmed.to_string());
         }
         if trimmed.contains("CMake Warning") || trimmed.starts_with("WARNING:") {
@@ -44,8 +46,13 @@ fn compress_configure(output: &str) -> String {
         return result;
     }
 
-    let success = output.contains("Configuring done") || output.contains("Build files have been written");
-    let mut result = if success { "CMake configured ok".to_string() } else { "CMake configure:".to_string() };
+    let success =
+        output.contains("Configuring done") || output.contains("Build files have been written");
+    let mut result = if success {
+        "CMake configured ok".to_string()
+    } else {
+        "CMake configure:".to_string()
+    };
     if warnings > 0 {
         result.push_str(&format!(" ({warnings} warnings)"));
     }
@@ -57,14 +64,25 @@ fn compress_configure(output: &str) -> String {
 
 fn compress_build(output: &str) -> String {
     let lines: Vec<&str> = output.lines().collect();
-    let errors: Vec<&&str> = lines.iter().filter(|l| l.contains("error:") || l.contains("Error:")).collect();
-    let warnings: Vec<&&str> = lines.iter().filter(|l| l.contains("warning:") || l.contains("Warning:")).collect();
+    let errors: Vec<&&str> = lines
+        .iter()
+        .filter(|l| l.contains("error:") || l.contains("Error:"))
+        .collect();
+    let warnings: Vec<&&str> = lines
+        .iter()
+        .filter(|l| l.contains("warning:") || l.contains("Warning:"))
+        .collect();
 
-    let progress_lines: Vec<&&str> = lines.iter().filter(|l| l.trim().starts_with('[') && l.contains(']')).collect();
+    let progress_lines: Vec<&&str> = lines
+        .iter()
+        .filter(|l| l.trim().starts_with('[') && l.contains(']'))
+        .collect();
 
     if !errors.is_empty() {
         let mut result = format!("{} errors", errors.len());
-        if !warnings.is_empty() { result.push_str(&format!(", {} warnings", warnings.len())); }
+        if !warnings.is_empty() {
+            result.push_str(&format!(", {} warnings", warnings.len()));
+        }
         for e in errors.iter().take(10) {
             result.push_str(&format!("\n  {}", e.trim()));
         }
@@ -88,20 +106,31 @@ fn compress_test(output: &str) -> String {
         let trimmed = line.trim();
         if trimmed.contains("Passed") {
             for word in trimmed.split_whitespace() {
-                if let Ok(n) = word.parse::<u32>() { passed = n; break; }
+                if let Ok(n) = word.parse::<u32>() {
+                    passed = n;
+                    break;
+                }
             }
         }
         if trimmed.contains("Failed") && !trimmed.starts_with("The following") {
             for word in trimmed.split_whitespace() {
-                if let Ok(n) = word.parse::<u32>() { failed = n; break; }
+                if let Ok(n) = word.parse::<u32>() {
+                    failed = n;
+                    break;
+                }
             }
         }
-        if trimmed.starts_with("Failed") || (trimmed.contains("***Failed") || trimmed.contains("***Exception")) {
+        if trimmed.starts_with("Failed")
+            || (trimmed.contains("***Failed") || trimmed.contains("***Exception"))
+        {
             failures.push(trimmed.to_string());
         }
     }
 
-    let summary_line = output.lines().rev().find(|l| l.contains("tests passed") || l.contains("% tests passed"));
+    let summary_line = output
+        .lines()
+        .rev()
+        .find(|l| l.contains("tests passed") || l.contains("% tests passed"));
     if let Some(summary) = summary_line {
         let mut result = format!("ctest: {}", summary.trim());
         for f in failures.iter().take(5) {
@@ -115,7 +144,9 @@ fn compress_test(output: &str) -> String {
     }
 
     let mut result = format!("ctest: {passed} passed");
-    if failed > 0 { result.push_str(&format!(", {failed} failed")); }
+    if failed > 0 {
+        result.push_str(&format!(", {failed} failed"));
+    }
     for f in failures.iter().take(5) {
         result.push_str(&format!("\n  {f}"));
     }
@@ -127,5 +158,9 @@ fn compact_lines(text: &str, max: usize) -> String {
     if lines.len() <= max {
         return lines.join("\n");
     }
-    format!("{}\n... ({} more lines)", lines[..max].join("\n"), lines.len() - max)
+    format!(
+        "{}\n... ({} more lines)",
+        lines[..max].join("\n"),
+        lines.len() - max
+    )
 }

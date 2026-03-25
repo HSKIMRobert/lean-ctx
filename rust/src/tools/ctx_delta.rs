@@ -17,7 +17,9 @@ pub fn handle(cache: &mut SessionCache, path: &str) -> String {
     let cached = cache.get(path);
     if cached.is_none() {
         cache.store(path, content.clone());
-        return format!("{short} [first read, {new_lines}L, {new_tokens} tok] — cached for future deltas");
+        return format!(
+            "{short} [first read, {new_lines}L, {new_tokens} tok] — cached for future deltas"
+        );
     }
 
     let cached_entry = cached.unwrap();
@@ -82,7 +84,7 @@ pub fn handle(cache: &mut SessionCache, path: &str) -> String {
 }
 
 fn compute_hash(content: &str) -> String {
-    use md5::{Md5, Digest};
+    use md5::{Digest, Md5};
     let mut hasher = Md5::new();
     hasher.update(content.as_bytes());
     format!("{:x}", hasher.finalize())

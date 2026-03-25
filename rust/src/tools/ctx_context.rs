@@ -47,7 +47,8 @@ impl ContextWindow {
     }
 
     pub fn get_known_files(&self) -> Vec<String> {
-        self.entries.iter()
+        self.entries
+            .iter()
             .filter_map(|e| e.path.clone())
             .collect::<std::collections::HashSet<_>>()
             .into_iter()
@@ -56,10 +57,10 @@ impl ContextWindow {
 
     pub fn was_recently_read(&self, path: &str, within_turns: usize) -> bool {
         let current_turn = self.entries.last().map(|e| e.turn_id).unwrap_or(0);
-        self.entries.iter().rev().any(|e| {
-            e.path.as_deref() == Some(path) &&
-            (current_turn - e.turn_id) <= within_turns
-        })
+        self.entries
+            .iter()
+            .rev()
+            .any(|e| e.path.as_deref() == Some(path) && (current_turn - e.turn_id) <= within_turns)
     }
 
     pub fn format_summary(&self) -> String {
@@ -68,18 +69,26 @@ impl ContextWindow {
         }
 
         let mut result = Vec::new();
-        result.push(format!("Context window ({}/{} entries):", self.entries.len(), self.max_entries));
+        result.push(format!(
+            "Context window ({}/{} entries):",
+            self.entries.len(),
+            self.max_entries
+        ));
 
         let total_tokens: usize = self.entries.iter().map(|e| e.token_count).sum();
         result.push(format!("Total tokens processed: {total_tokens}"));
         result.push(String::new());
 
         for entry in &self.entries {
-            let path_info = entry.path.as_deref()
+            let path_info = entry
+                .path
+                .as_deref()
                 .map(|p| format!(" ({})", crate::core::protocol::shorten_path(p)))
                 .unwrap_or_default();
-            result.push(format!("  T{}: {}{} — {} ({} tok)",
-                entry.turn_id, entry.tool, path_info, entry.summary, entry.token_count));
+            result.push(format!(
+                "  T{}: {}{} — {} ({} tok)",
+                entry.turn_id, entry.tool, path_info, entry.summary, entry.token_count
+            ));
         }
 
         result.join("\n")
@@ -99,7 +108,11 @@ pub fn handle(cache: &SessionCache, window: &ContextWindow) -> String {
         for file in &known_files {
             let in_cache = cache.get(file).is_some();
             let status = if in_cache { "cached" } else { "evicted" };
-            result.push(format!("  {} [{}]", crate::core::protocol::shorten_path(file), status));
+            result.push(format!(
+                "  {} [{}]",
+                crate::core::protocol::shorten_path(file),
+                status
+            ));
         }
     }
 
@@ -118,14 +131,16 @@ pub fn handle_status(cache: &SessionCache, turn_count: usize, crp_mode: CrpMode)
     result.push(format!("  Total original tokens: {total_tokens}"));
     result.push(format!("  Total reads: {total_reads}"));
 
-    let frequent: Vec<_> = entries.iter()
-        .filter(|(_, e)| e.read_count > 1)
-        .collect();
+    let frequent: Vec<_> = entries.iter().filter(|(_, e)| e.read_count > 1).collect();
     if !frequent.is_empty() {
         result.push(format!("\n  Frequently accessed ({}):", frequent.len()));
         for (path, entry) in &frequent {
-            result.push(format!("    {} ({}x, {} tok)",
-                crate::core::protocol::shorten_path(path), entry.read_count, entry.original_tokens));
+            result.push(format!(
+                "    {} ({}x, {} tok)",
+                crate::core::protocol::shorten_path(path),
+                entry.read_count,
+                entry.original_tokens
+            ));
         }
     }
 

@@ -38,7 +38,10 @@ pub fn extract_deps(content: &str, ext: &str) -> DepInfo {
         "rs" => extract_rust_deps(content),
         "py" => extract_python_deps(content),
         "go" => extract_go_deps(content),
-        _ => DepInfo { imports: Vec::new(), exports: Vec::new() },
+        _ => DepInfo {
+            imports: Vec::new(),
+            exports: Vec::new(),
+        },
     }
 }
 
@@ -97,7 +100,10 @@ fn extract_rust_deps(content: &str) -> DepInfo {
             {
                 exports.push(name.to_string());
             }
-        } else if trimmed.starts_with("pub struct ") || trimmed.starts_with("pub enum ") || trimmed.starts_with("pub trait ") {
+        } else if trimmed.starts_with("pub struct ")
+            || trimmed.starts_with("pub enum ")
+            || trimmed.starts_with("pub trait ")
+        {
             if let Some(name) = trimmed.split_whitespace().nth(2) {
                 let clean = name.trim_end_matches(|c: char| !c.is_alphanumeric() && c != '_');
                 exports.push(clean.to_string());
@@ -121,18 +127,27 @@ fn extract_python_deps(content: &str) -> DepInfo {
         if let Some(caps) = py_import_re().captures(trimmed) {
             if let Some(m) = caps.get(1).or(caps.get(2)) {
                 let module = m.as_str();
-                if !module.starts_with("os") && !module.starts_with("sys") && !module.starts_with("json") {
+                if !module.starts_with("os")
+                    && !module.starts_with("sys")
+                    && !module.starts_with("json")
+                {
                     imports.insert(module.to_string());
                 }
             }
         }
 
         if trimmed.starts_with("def ") && !trimmed.contains("_") {
-            if let Some(name) = trimmed.strip_prefix("def ").and_then(|s| s.split('(').next()) {
+            if let Some(name) = trimmed
+                .strip_prefix("def ")
+                .and_then(|s| s.split('(').next())
+            {
                 exports.push(name.to_string());
             }
         } else if trimmed.starts_with("class ") {
-            if let Some(name) = trimmed.strip_prefix("class ").and_then(|s| s.split(['(', ':']).next()) {
+            if let Some(name) = trimmed
+                .strip_prefix("class ")
+                .and_then(|s| s.split(['(', ':']).next())
+            {
                 exports.push(name.to_string());
             }
         }
@@ -194,11 +209,24 @@ fn clean_import_path(path: &str) -> String {
 
 fn extract_export_name(line: &str) -> Option<String> {
     let without_export = line.strip_prefix("export ")?;
-    let without_default = without_export.strip_prefix("default ").unwrap_or(without_export);
+    let without_default = without_export
+        .strip_prefix("default ")
+        .unwrap_or(without_export);
 
-    for keyword in &["function ", "async function ", "class ", "const ", "let ", "type ", "interface ", "enum "] {
+    for keyword in &[
+        "function ",
+        "async function ",
+        "class ",
+        "const ",
+        "let ",
+        "type ",
+        "interface ",
+        "enum ",
+    ] {
         if let Some(rest) = without_default.strip_prefix(keyword) {
-            let name = rest.split(|c: char| !c.is_alphanumeric() && c != '_').next()?;
+            let name = rest
+                .split(|c: char| !c.is_alphanumeric() && c != '_')
+                .next()?;
             if !name.is_empty() {
                 return Some(name.to_string());
             }

@@ -29,7 +29,8 @@ impl SymbolMap {
 
         let short_id = format!("{SHORT_ID_PREFIX}{}", self.next_id);
         self.next_id += 1;
-        self.forward.insert(identifier.to_string(), short_id.clone());
+        self.forward
+            .insert(identifier.to_string(), short_id.clone());
         Some(short_id)
     }
 

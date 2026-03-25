@@ -13,7 +13,12 @@ struct FileCandidate {
     tokens_sig: usize,
 }
 
-pub fn handle(cache: &mut SessionCache, paths: &[String], budget: usize, crp_mode: CrpMode) -> String {
+pub fn handle(
+    cache: &mut SessionCache,
+    paths: &[String],
+    budget: usize,
+    crp_mode: CrpMode,
+) -> String {
     if paths.is_empty() {
         return "No files specified.".to_string();
     }
@@ -26,10 +31,17 @@ pub fn handle(cache: &mut SessionCache, paths: &[String], budget: usize, crp_mod
             Err(_) => continue,
         };
 
-        let ext = Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("");
+        let ext = Path::new(path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
         let tokens_full = count_tokens(&content);
         let sigs = signatures::extract_signatures(&content, ext);
-        let sig_text: String = sigs.iter().map(|s| s.to_compact()).collect::<Vec<_>>().join("\n");
+        let sig_text: String = sigs
+            .iter()
+            .map(|s| s.to_compact())
+            .collect::<Vec<_>>()
+            .join("\n");
         let tokens_sig = count_tokens(&sig_text);
 
         let map_text = format_map(&content, ext, &sigs);
@@ -46,7 +58,11 @@ pub fn handle(cache: &mut SessionCache, paths: &[String], budget: usize, crp_mod
         });
     }
 
-    candidates.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    candidates.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let mut used_tokens = 0usize;
     let mut selections: Vec<(String, String)> = Vec::new();
@@ -73,8 +89,11 @@ pub fn handle(cache: &mut SessionCache, paths: &[String], budget: usize, crp_mod
     }
 
     let mut output_parts = Vec::new();
-    output_parts.push(format!("ctx_fill: {budget} token budget, {} files analyzed, {} selected",
-        candidates.len(), selections.len()));
+    output_parts.push(format!(
+        "ctx_fill: {budget} token budget, {} files analyzed, {} selected",
+        candidates.len(),
+        selections.len()
+    ));
     output_parts.push(String::new());
 
     for (path, mode) in &selections {
@@ -108,7 +127,10 @@ fn select_best_fit(candidate: &FileCandidate, remaining: usize) -> (String, usiz
 fn compute_relevance_score(path: &str, content: &str) -> f64 {
     let mut score = 1.0;
 
-    let name = Path::new(path).file_name().and_then(|n| n.to_str()).unwrap_or("");
+    let name = Path::new(path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
     if name.contains("test") || name.contains("spec") {
         score *= 0.5;
     }
@@ -119,16 +141,24 @@ fn compute_relevance_score(path: &str, content: &str) -> f64 {
         score *= 1.5;
     }
 
-    let ext = Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("");
+    let ext = Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
     if matches!(ext, "rs" | "ts" | "py" | "go" | "java") {
         score *= 1.2;
     }
 
     let lines = content.lines().count();
-    if lines > 500 { score *= 0.8; }
-    if lines < 50 { score *= 1.1; }
+    if lines > 500 {
+        score *= 0.8;
+    }
+    if lines < 50 {
+        score *= 1.1;
+    }
 
-    let export_count = content.lines()
+    let export_count = content
+        .lines()
         .filter(|l| l.contains("pub ") || l.contains("export ") || l.contains("def "))
         .count();
     score *= 1.0 + (export_count as f64 * 0.02).min(0.5);
@@ -145,7 +175,10 @@ fn format_map(content: &str, ext: &str, sigs: &[crate::core::signatures::Signatu
     if !deps.exports.is_empty() {
         parts.push(format!("exports: {}", deps.exports.join(", ")));
     }
-    let key_sigs: Vec<_> = sigs.iter().filter(|s| s.is_exported || s.indent == 0).collect();
+    let key_sigs: Vec<_> = sigs
+        .iter()
+        .filter(|s| s.is_exported || s.indent == 0)
+        .collect();
     for sig in &key_sigs {
         parts.push(sig.to_compact());
     }

@@ -18,7 +18,13 @@ pub fn handle_fresh(cache: &mut SessionCache, path: &str, mode: &str, crp_mode: 
     handle_with_options(cache, path, mode, true, crp_mode)
 }
 
-fn handle_with_options(cache: &mut SessionCache, path: &str, mode: &str, fresh: bool, crp_mode: CrpMode) -> String {
+fn handle_with_options(
+    cache: &mut SessionCache,
+    path: &str,
+    mode: &str,
+    fresh: bool,
+    crp_mode: CrpMode,
+) -> String {
     let file_ref = cache.get_file_ref(path);
     let short = protocol::shorten_path(path);
     let ext = Path::new(path)
@@ -40,14 +46,21 @@ fn handle_with_options(cache: &mut SessionCache, path: &str, mode: &str, fresh: 
             let existing = cache.get(path).unwrap();
             return format!(
                 "{file_ref}={short} [cached {}t {}L ∅]",
-                existing.read_count,
-                existing.line_count
+                existing.read_count, existing.line_count
             );
         }
         let existing = cache.get(path).unwrap();
         let content = existing.content.clone();
         let original_tokens = existing.original_tokens;
-        return process_mode(&content, mode, &file_ref, &short, ext, original_tokens, crp_mode);
+        return process_mode(
+            &content,
+            mode,
+            &file_ref,
+            &short,
+            ext,
+            original_tokens,
+            crp_mode,
+        );
     }
 
     let content = match std::fs::read_to_string(path) {
@@ -81,20 +94,45 @@ fn handle_with_options(cache: &mut SessionCache, path: &str, mode: &str, fresh: 
         return format!("{output}\n{savings}");
     }
 
-    process_mode(&content, mode, &file_ref, &short, ext, entry.original_tokens, crp_mode)
+    process_mode(
+        &content,
+        mode,
+        &file_ref,
+        &short,
+        ext,
+        entry.original_tokens,
+        crp_mode,
+    )
 }
 
-fn build_header(file_ref: &str, short: &str, ext: &str, content: &str, line_count: usize, include_deps: bool) -> String {
+fn build_header(
+    file_ref: &str,
+    short: &str,
+    ext: &str,
+    content: &str,
+    line_count: usize,
+    include_deps: bool,
+) -> String {
     let mut header = format!("{file_ref}={short} [{line_count}L +]");
 
     if include_deps {
         let dep_info = deps::extract_deps(content, ext);
         if !dep_info.imports.is_empty() {
-            let imports_str: Vec<&str> = dep_info.imports.iter().take(8).map(|s| s.as_str()).collect();
+            let imports_str: Vec<&str> = dep_info
+                .imports
+                .iter()
+                .take(8)
+                .map(|s| s.as_str())
+                .collect();
             header.push_str(&format!(" deps:[{}]", imports_str.join(",")));
         }
         if !dep_info.exports.is_empty() {
-            let exports_str: Vec<&str> = dep_info.exports.iter().take(8).map(|s| s.as_str()).collect();
+            let exports_str: Vec<&str> = dep_info
+                .exports
+                .iter()
+                .take(8)
+                .map(|s| s.as_str())
+                .collect();
             header.push_str(&format!(" exports:[{}]", exports_str.join(",")));
         }
     }
@@ -120,7 +158,12 @@ fn process_mode(
 
             let mut output = format!("{file_ref}={short} [{line_count}L]");
             if !dep_info.imports.is_empty() {
-                let imports_str: Vec<&str> = dep_info.imports.iter().take(8).map(|s| s.as_str()).collect();
+                let imports_str: Vec<&str> = dep_info
+                    .imports
+                    .iter()
+                    .take(8)
+                    .map(|s| s.as_str())
+                    .collect();
                 output.push_str(&format!(" deps:[{}]", imports_str.join(",")));
             }
             for sig in &sigs {

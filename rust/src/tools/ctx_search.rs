@@ -8,7 +8,13 @@ use crate::core::symbol_map::{self, SymbolMap};
 use crate::core::tokens::count_tokens;
 use crate::tools::CrpMode;
 
-pub fn handle(pattern: &str, dir: &str, ext_filter: Option<&str>, max_results: usize, crp_mode: CrpMode) -> String {
+pub fn handle(
+    pattern: &str,
+    dir: &str,
+    ext_filter: Option<&str>,
+    max_results: usize,
+    crp_mode: CrpMode,
+) -> String {
     let re = match Regex::new(pattern) {
         Ok(r) => r,
         Err(e) => return format!("ERROR: invalid regex: {e}"),
@@ -23,7 +29,11 @@ pub fn handle(pattern: &str, dir: &str, ext_filter: Option<&str>, max_results: u
     let mut files_searched = 0u32;
     let mut total_original_tokens = 0usize;
 
-    for entry in WalkDir::new(root).min_depth(1).into_iter().filter_map(|e| e.ok()) {
+    for entry in WalkDir::new(root)
+        .min_depth(1)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
         if entry.file_type().is_dir() {
             continue;
         }
@@ -101,11 +111,31 @@ fn is_binary_ext(path: &Path) -> bool {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     matches!(
         ext,
-        "png" | "jpg" | "jpeg" | "gif" | "webp" | "ico" | "svg"
-            | "woff" | "woff2" | "ttf" | "eot"
-            | "pdf" | "zip" | "tar" | "gz" | "br"
-            | "mp3" | "mp4" | "webm" | "ogg"
-            | "wasm" | "so" | "dylib" | "dll" | "exe"
+        "png"
+            | "jpg"
+            | "jpeg"
+            | "gif"
+            | "webp"
+            | "ico"
+            | "svg"
+            | "woff"
+            | "woff2"
+            | "ttf"
+            | "eot"
+            | "pdf"
+            | "zip"
+            | "tar"
+            | "gz"
+            | "br"
+            | "mp3"
+            | "mp4"
+            | "webm"
+            | "ogg"
+            | "wasm"
+            | "so"
+            | "dylib"
+            | "dll"
+            | "exe"
             | "lock"
     )
 }

@@ -4,7 +4,9 @@ pub fn compress(output: &str) -> Option<String> {
         return None;
     }
 
-    let is_long = lines.iter().any(|l| l.starts_with('-') || l.starts_with('d') || l.starts_with('l') || l.starts_with("total "));
+    let is_long = lines.iter().any(|l| {
+        l.starts_with('-') || l.starts_with('d') || l.starts_with('l') || l.starts_with("total ")
+    });
 
     if is_long {
         compress_long(output)
@@ -55,11 +57,7 @@ fn compress_long(output: &str) -> Option<String> {
         result.push('\n');
     }
 
-    result.push_str(&format!(
-        "\n{} files, {} dirs",
-        files.len(),
-        dirs.len()
-    ));
+    result.push_str(&format!("\n{} files, {} dirs", files.len(), dirs.len()));
 
     Some(result)
 }

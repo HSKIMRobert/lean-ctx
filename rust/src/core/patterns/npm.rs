@@ -81,7 +81,14 @@ fn compress_install(output: &str) -> String {
     };
 
     if pkg_str.is_empty() && dep_count > 0 {
-        format!("ok ({dep_count} deps{}", if time.is_empty() { ")".to_string() } else { format!(", {time})") })
+        format!(
+            "ok ({dep_count} deps{}",
+            if time.is_empty() {
+                ")".to_string()
+            } else {
+                format!(", {time})")
+            }
+        )
     } else {
         format!("{pkg_str}{dep_str}{time_str}")
     }
@@ -105,11 +112,7 @@ fn compress_run(output: &str) -> String {
     }
 
     let last = lines.len().saturating_sub(3);
-    format!(
-        "...({} lines)\n{}",
-        lines.len(),
-        lines[last..].join("\n")
-    )
+    format!("...({} lines)\n{}", lines.len(), lines[last..].join("\n"))
 }
 
 fn compress_test(output: &str) -> String {
@@ -193,7 +196,12 @@ fn compress_list(output: &str) -> String {
 
     let top_level: Vec<&str> = lines
         .iter()
-        .filter(|l| l.starts_with("├──") || l.starts_with("└──") || l.starts_with("+--") || l.starts_with("`--"))
+        .filter(|l| {
+            l.starts_with("├──")
+                || l.starts_with("└──")
+                || l.starts_with("+--")
+                || l.starts_with("`--")
+        })
         .copied()
         .collect();
 
@@ -203,7 +211,14 @@ fn compress_list(output: &str) -> String {
 
     let cleaned: Vec<String> = top_level
         .iter()
-        .map(|l| l.replace("├──", "").replace("└──", "").replace("+--", "").replace("`--", "").trim().to_string())
+        .map(|l| {
+            l.replace("├──", "")
+                .replace("└──", "")
+                .replace("+--", "")
+                .replace("`--", "")
+                .trim()
+                .to_string()
+        })
         .collect();
 
     format!("{} packages:\n{}", cleaned.len(), cleaned.join("\n"))
@@ -214,5 +229,9 @@ fn compact_output(text: &str, max: usize) -> String {
     if lines.len() <= max {
         return lines.join("\n");
     }
-    format!("{}\n... ({} more lines)", lines[..max].join("\n"), lines.len() - max)
+    format!(
+        "{}\n... ({} more lines)",
+        lines[..max].join("\n"),
+        lines.len() - max
+    )
 }

@@ -23,7 +23,9 @@ impl WrappedReport {
             "week" => aggregate_recent_stats(&store, 7),
             "month" => aggregate_recent_stats(&store, 30),
             _ => (
-                store.total_input_tokens.saturating_sub(store.total_output_tokens),
+                store
+                    .total_input_tokens
+                    .saturating_sub(store.total_output_tokens),
                 store.total_input_tokens,
                 store.total_commands,
             ),
@@ -38,15 +40,19 @@ impl WrappedReport {
             _ => sessions.len(),
         };
 
-        let mut top_commands: Vec<(String, u64, f64)> = store.commands.iter().map(|(cmd, stats)| {
-            let saved = stats.input_tokens.saturating_sub(stats.output_tokens);
-            let pct = if stats.input_tokens > 0 {
-                saved as f64 / stats.input_tokens as f64 * 100.0
-            } else {
-                0.0
-            };
-            (cmd.clone(), saved, pct)
-        }).collect();
+        let mut top_commands: Vec<(String, u64, f64)> = store
+            .commands
+            .iter()
+            .map(|(cmd, stats)| {
+                let saved = stats.input_tokens.saturating_sub(stats.output_tokens);
+                let pct = if stats.input_tokens > 0 {
+                    saved as f64 / stats.input_tokens as f64 * 100.0
+                } else {
+                    0.0
+                };
+                (cmd.clone(), saved, pct)
+            })
+            .collect();
         top_commands.sort_by(|a, b| b.1.cmp(&a.1));
         top_commands.truncate(5);
 
@@ -56,9 +62,7 @@ impl WrappedReport {
             0.0
         };
 
-        let files_touched: u64 = sessions.iter()
-            .map(|s| s.tool_calls as u64)
-            .sum();
+        let files_touched: u64 = sessions.iter().map(|s| s.tool_calls as u64).sum();
 
         WrappedReport {
             period: period.to_string(),
@@ -86,7 +90,8 @@ impl WrappedReport {
         let top_str = if self.top_commands.is_empty() {
             "No data yet".to_string()
         } else {
-            self.top_commands.iter()
+            self.top_commands
+                .iter()
                 .take(3)
                 .map(|(cmd, _, pct)| format!("{cmd} {pct:.0}%"))
                 .collect::<Vec<_>>()
@@ -115,7 +120,9 @@ impl WrappedReport {
     pub fn format_compact(&self) -> String {
         let saved_str = format_tokens(self.tokens_saved);
         let cost_str = format!("${:.2}", self.cost_avoided_usd);
-        let top_str = self.top_commands.iter()
+        let top_str = self
+            .top_commands
+            .iter()
             .take(3)
             .map(|(cmd, _, pct)| format!("{cmd} {pct:.0}%"))
             .collect::<Vec<_>>()

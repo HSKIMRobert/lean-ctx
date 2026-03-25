@@ -193,6 +193,9 @@ mod tests {
     fn cargo_check_routes_to_build() {
         let output = "    Checking lean-ctx v2.1.1\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.1s";
         let result = compress("cargo check", output);
-        assert!(result.is_some(), "cargo check should route to build compressor");
+        assert!(
+            result.is_some(),
+            "cargo check should route to build compressor"
+        );
     }
 }

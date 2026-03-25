@@ -7,14 +7,12 @@ static ANALYZE_ISSUES: OnceLock<Regex> = OnceLock::new();
 static ANALYZE_ISSUE_LINE: OnceLock<Regex> = OnceLock::new();
 
 fn built_artifact_re() -> &'static Regex {
-    BUILT_ARTIFACT.get_or_init(|| {
-        Regex::new(r"^✓\s+Built\s+(.+?)(?:\s+\(([^)]+)\))?\s*\.?\s*$").unwrap()
-    })
+    BUILT_ARTIFACT
+        .get_or_init(|| Regex::new(r"^✓\s+Built\s+(.+?)(?:\s+\(([^)]+)\))?\s*\.?\s*$").unwrap())
 }
 fn flutter_test_summary_re() -> &'static Regex {
-    FLUTTER_TEST_SUMMARY.get_or_init(|| {
-        Regex::new(r"^(\d{2}:\d{2}\s+\+\d+(?:\s+-\d+)?:\s+.+)$").unwrap()
-    })
+    FLUTTER_TEST_SUMMARY
+        .get_or_init(|| Regex::new(r"^(\d{2}:\d{2}\s+\+\d+(?:\s+-\d+)?:\s+.+)$").unwrap())
 }
 fn analyze_issues_re() -> &'static Regex {
     ANALYZE_ISSUES.get_or_init(|| {
@@ -22,9 +20,7 @@ fn analyze_issues_re() -> &'static Regex {
     })
 }
 fn analyze_issue_line_re() -> &'static Regex {
-    ANALYZE_ISSUE_LINE.get_or_init(|| {
-        Regex::new(r"^\s*(error|warning|info)\s+•").unwrap()
-    })
+    ANALYZE_ISSUE_LINE.get_or_init(|| Regex::new(r"^\s*(error|warning|info)\s+•").unwrap())
 }
 fn is_flutter_build_noise(line: &str) -> bool {
     let t = line.trim();

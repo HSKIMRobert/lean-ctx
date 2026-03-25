@@ -10,8 +10,16 @@ pub fn compress(output: &str) -> Option<String> {
     let mut ungrouped = Vec::new();
 
     let sensitive_patterns = [
-        "KEY", "SECRET", "TOKEN", "PASSWORD", "PASSWD", "CREDENTIALS",
-        "AUTH", "API_KEY", "PRIVATE", "CERT",
+        "KEY",
+        "SECRET",
+        "TOKEN",
+        "PASSWORD",
+        "PASSWD",
+        "CREDENTIALS",
+        "AUTH",
+        "API_KEY",
+        "PRIVATE",
+        "CERT",
     ];
 
     for line in trimmed.lines() {
@@ -21,7 +29,9 @@ pub fn compress(output: &str) -> Option<String> {
         }
 
         if let Some((key, value)) = l.split_once('=') {
-            let is_sensitive = sensitive_patterns.iter().any(|p| key.to_uppercase().contains(p));
+            let is_sensitive = sensitive_patterns
+                .iter()
+                .any(|p| key.to_uppercase().contains(p));
             let display_value = if is_sensitive {
                 "***".to_string()
             } else if value.len() > 80 {
@@ -31,11 +41,7 @@ pub fn compress(output: &str) -> Option<String> {
                 value.to_string()
             };
 
-            let prefix = key
-                .split('_')
-                .next()
-                .unwrap_or("OTHER")
-                .to_string();
+            let prefix = key.split('_').next().unwrap_or("OTHER").to_string();
 
             groups
                 .entry(prefix)

@@ -57,7 +57,9 @@ fn compress_playwright(output: &str) -> String {
     }
 
     let mut parts = Vec::new();
-    parts.push(format!("{total} tests: {passed} passed, {failed} failed, {skipped} skipped"));
+    parts.push(format!(
+        "{total} tests: {passed} passed, {failed} failed, {skipped} skipped"
+    ));
 
     if !failed_names.is_empty() {
         parts.push("failed:".to_string());
@@ -110,11 +112,7 @@ fn compress_cypress(output: &str) -> String {
 fn extract_number(line: &str, keyword: &str) -> Option<u32> {
     let pos = line.find(keyword)?;
     let before = &line[..pos];
-    before
-        .split_whitespace()
-        .last()?
-        .parse()
-        .ok()
+    before.split_whitespace().last()?.parse().ok()
 }
 
 fn extract_first_number(line: &str) -> u32 {
@@ -131,5 +129,9 @@ fn compact_output(text: &str, max: usize) -> String {
     if lines.len() <= max {
         return lines.join("\n");
     }
-    format!("{}\n... ({} more lines)", lines[..max].join("\n"), lines.len() - max)
+    format!(
+        "{}\n... ({} more lines)",
+        lines[..max].join("\n"),
+        lines.len() - max
+    )
 }

@@ -14,7 +14,12 @@ pub fn compress(command: &str, output: &str) -> Option<String> {
     if command.contains("compose") && command.contains("ps") {
         return Some(compress_compose_ps(output));
     }
-    if command.contains("compose") && (command.contains("up") || command.contains("down") || command.contains("start") || command.contains("stop")) {
+    if command.contains("compose")
+        && (command.contains("up")
+            || command.contains("down")
+            || command.contains("start")
+            || command.contains("stop"))
+    {
         return Some(compress_compose_action(output));
     }
     if command.contains("ps") {
@@ -57,7 +62,11 @@ fn compress_build(output: &str) -> String {
     }
 
     if !errors.is_empty() {
-        return format!("{steps} steps, {} errors:\n{}", errors.len(), errors.join("\n"));
+        return format!(
+            "{steps} steps, {} errors:\n{}",
+            errors.len(),
+            errors.join("\n")
+        );
     }
 
     if steps > 0 {
@@ -151,7 +160,11 @@ fn compress_logs(output: &str) -> String {
 
     if result.len() > 30 {
         let last_lines = &result[result.len() - 15..];
-        format!("... ({} lines total)\n{}", lines.len(), last_lines.join("\n"))
+        format!(
+            "... ({} lines total)\n{}",
+            lines.len(),
+            last_lines.join("\n")
+        )
     } else {
         result.join("\n")
     }
@@ -208,10 +221,18 @@ fn compress_compose_action(output: &str) -> String {
     }
 
     let mut parts = Vec::new();
-    if created > 0 { parts.push(format!("{created} created")); }
-    if started > 0 { parts.push(format!("{started} started")); }
-    if stopped > 0 { parts.push(format!("{stopped} stopped")); }
-    if removed > 0 { parts.push(format!("{removed} removed")); }
+    if created > 0 {
+        parts.push(format!("{created} created"));
+    }
+    if started > 0 {
+        parts.push(format!("{started} started"));
+    }
+    if stopped > 0 {
+        parts.push(format!("{stopped} stopped"));
+    }
+    if removed > 0 {
+        parts.push(format!("{removed} removed"));
+    }
 
     if parts.is_empty() {
         return "ok".to_string();
@@ -267,7 +288,11 @@ fn compress_inspect(output: &str) -> String {
     }
     if trimmed.lines().count() > 20 {
         let lines: Vec<&str> = trimmed.lines().collect();
-        return format!("{}\n... ({} more lines)", lines[..10].join("\n"), lines.len() - 10);
+        return format!(
+            "{}\n... ({} more lines)",
+            lines[..10].join("\n"),
+            lines.len() - 10
+        );
     }
     trimmed.to_string()
 }
@@ -291,11 +316,7 @@ fn compress_json_value(val: &serde_json::Value, depth: usize) -> String {
     }
     match val {
         serde_json::Value::Object(map) => {
-            let keys: Vec<String> = map
-                .keys()
-                .take(15)
-                .map(|k| k.to_string())
-                .collect();
+            let keys: Vec<String> = map.keys().take(15).map(|k| k.to_string()).collect();
             let total = map.len();
             if total > 15 {
                 format!("{{{} ... +{} keys}}", keys.join(", "), total - 15)
