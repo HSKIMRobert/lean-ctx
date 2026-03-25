@@ -187,7 +187,7 @@ const MAGENTA: &str = "\x1b[35m";
 const WHITE: &str = "\x1b[97m";
 const GRAY: &str = "\x1b[90m";
 fn line(ch: char, n: usize) -> String {
-    std::iter::repeat(ch).take(n).collect()
+    std::iter::repeat_n(ch, n).collect()
 }
 
 fn pct_color(pct: f64) -> &'static str {
@@ -214,7 +214,7 @@ fn bar_block(ratio: f64, width: usize) -> String {
         s.push_str(blocks[frac]);
     }
     if s.is_empty() && ratio > 0.0 {
-        s.push_str("▏");
+        s.push('▏');
     }
     s
 }
@@ -236,9 +236,7 @@ fn sparkline(values: &[u64]) -> String {
 
 fn usd_estimate(tokens: u64) -> String {
     let cost = tokens as f64 * 2.50 / 1_000_000.0;
-    if cost >= 1.0 {
-        format!("${cost:.2}")
-    } else if cost >= 0.01 {
+    if cost >= 0.01 {
         format!("${cost:.2}")
     } else {
         format!("${cost:.3}")
@@ -352,11 +350,10 @@ pub fn format_gain() -> String {
             let bar = bar_block(ratio, 20);
             let pc = pct_color(cmd_pct);
             o.push(format!(
-                "  {GRAY}{:<16}{RST} {:>5}x  {pc}{bar:<20}{RST} {BOLD}{pc}{:>6}{RST}  {DIM}{}{RST}",
+                "  {GRAY}{:<16}{RST} {:>5}x  {pc}{bar:<20}{RST} {BOLD}{pc}{:>6}{RST}  {DIM}{cmd_pct:.0}%{RST}",
                 truncate_cmd(cmd, 16),
                 stats.count,
                 format_big(cmd_saved),
-                format!("{cmd_pct:.0}%"),
             ));
         }
 

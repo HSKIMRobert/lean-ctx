@@ -167,7 +167,7 @@ impl LeanCtxServer {
 
     pub fn increment_and_check(&self) -> bool {
         let count = self.call_count.fetch_add(1, Ordering::Relaxed) + 1;
-        self.checkpoint_interval > 0 && count % self.checkpoint_interval == 0
+        self.checkpoint_interval > 0 && count.is_multiple_of(self.checkpoint_interval)
     }
 
     pub async fn auto_checkpoint(&self) -> Option<String> {

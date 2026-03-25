@@ -52,7 +52,7 @@ pub fn compress(output: &str) -> Option<String> {
     Some(result)
 }
 
-fn parse_grep_line<'a>(line: &'a str) -> Option<(&'a str, &'a str)> {
+fn parse_grep_line(line: &str) -> Option<(&str, &str)> {
     if let Some(pos) = line.find(':') {
         let file = &line[..pos];
         if file.contains('/') || file.contains('.') {

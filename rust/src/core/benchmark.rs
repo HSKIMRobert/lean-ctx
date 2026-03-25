@@ -486,9 +486,9 @@ pub fn format_terminal(b: &ProjectBenchmark) -> String {
     let mut out = Vec::new();
     let sep = "\u{2550}".repeat(66);
 
-    out.push(format!("{sep}"));
+    out.push(sep.to_string());
     out.push(format!("  lean-ctx Benchmark — {}", b.root));
-    out.push(format!("{sep}"));
+    out.push(sep.to_string());
 
     let lang_summary: Vec<String> = b
         .languages
@@ -578,7 +578,7 @@ pub fn format_terminal(b: &ProjectBenchmark) -> String {
         ccp_pct,
     ));
 
-    out.push(format!("{sep}"));
+    out.push(sep.to_string());
     out.join("\n")
 }
 

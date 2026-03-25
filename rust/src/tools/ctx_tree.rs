@@ -69,20 +69,23 @@ fn generate_compact_tree(root: &Path, max_depth: usize, show_hidden: bool) -> St
 fn generate_raw_tree(root: &Path) -> String {
     let mut lines = Vec::new();
 
-    for entry in WalkDir::new(root).min_depth(1).sort_by_file_name() {
-        if let Ok(e) = entry {
-            let name = e.file_name().to_string_lossy().to_string();
-            if is_ignored(&name) {
-                continue;
-            }
-            lines.push(
-                e.path()
-                    .strip_prefix(root)
-                    .unwrap_or(e.path())
-                    .to_string_lossy()
-                    .to_string(),
-            );
+    for e in WalkDir::new(root)
+        .min_depth(1)
+        .sort_by_file_name()
+        .into_iter()
+        .flatten()
+    {
+        let name = e.file_name().to_string_lossy().to_string();
+        if is_ignored(&name) {
+            continue;
         }
+        lines.push(
+            e.path()
+                .strip_prefix(root)
+                .unwrap_or(e.path())
+                .to_string_lossy()
+                .to_string(),
+        );
     }
 
     lines.join("\n")

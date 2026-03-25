@@ -70,7 +70,7 @@ fn group_by_cop(offenses: &[String]) -> Vec<(String, usize)> {
     for offense in offenses {
         let cop = offense
             .split('[')
-            .last()
+            .next_back()
             .and_then(|s| s.strip_suffix(']'))
             .unwrap_or("unknown")
             .to_string();

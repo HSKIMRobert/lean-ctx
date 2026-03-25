@@ -238,7 +238,7 @@ fn compress_simple_action(output: &str, action: &str) -> String {
             return format!("{action}: {}", line.trim());
         }
     }
-    format!("{action}")
+    action.to_string()
 }
 
 fn compact_output(text: &str, max: usize) -> String {

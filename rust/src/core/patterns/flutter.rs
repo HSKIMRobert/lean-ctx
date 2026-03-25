@@ -156,9 +156,8 @@ fn compress_analyze(output: &str) -> String {
             parts.push(format!("{} issues found", &caps[1]));
             continue;
         }
-        if analyze_issue_line_re().is_match(t) {
-            issues.push(t.to_string());
-        } else if tl.starts_with("  error •")
+        if analyze_issue_line_re().is_match(t)
+            || tl.starts_with("  error •")
             || tl.starts_with("  warning •")
             || tl.starts_with("  info •")
         {
