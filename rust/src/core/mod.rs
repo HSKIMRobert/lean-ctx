@@ -1,13 +1,17 @@
+pub mod benchmark;
 pub mod cache;
 pub mod compressor;
 pub mod config;
 pub mod deps;
 pub mod entropy;
+pub mod litm;
 pub mod patterns;
 pub mod protocol;
+pub mod session;
 pub mod signatures;
 #[cfg(feature = "tree-sitter")]
 pub mod signatures_ts;
 pub mod stats;
 pub mod symbol_map;
 pub mod tokens;
+pub mod wrapped;

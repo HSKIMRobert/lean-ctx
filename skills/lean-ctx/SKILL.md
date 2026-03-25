@@ -1,12 +1,12 @@
 ---
 name: lean-ctx
-description: Context Intelligence Engine — 19 MCP tools, 90+ shell patterns, tree-sitter AST for 14 languages. Compresses LLM context by up to 99%.
+description: Context Intelligence Engine with CCP — 21 MCP tools, 90+ shell patterns, tree-sitter AST for 14 languages, cross-session memory (CCP), LITM-aware positioning. Compresses LLM context by up to 99%.
 metadata: {"openclaw": {"requires": {"bins": ["lean-ctx"]}, "install": [{"id": "brew", "kind": "brew", "formula": "lean-ctx", "bins": ["lean-ctx"], "label": "Install LeanCTX (brew tap yvgude/lean-ctx)"}]}}
 ---
 
-# LeanCTX v1.9.0 — Context Intelligence Engine
+# LeanCTX v2.0.0 — Context Intelligence Engine + CCP
 
-LeanCTX is a Rust binary that optimizes LLM context through 19 MCP tools, 90+ shell compression patterns, and tree-sitter AST parsing for 14 languages (TS/JS, Rust, Python, Go, Java, C, C++, Ruby, C#, Kotlin, Swift, PHP). It provides adaptive file reading, incremental deltas, intent detection, cross-file deduplication, and a project intelligence graph.
+LeanCTX is a Rust binary that optimizes LLM context through 21 MCP tools, 90+ shell compression patterns, and tree-sitter AST parsing for 14 languages (TS/JS, Rust, Python, Go, Java, C, C++, Ruby, C#, Kotlin, Swift, PHP). It provides adaptive file reading, incremental deltas, intent detection, cross-file deduplication, a project intelligence graph, and the **Context Continuity Protocol (CCP)** for cross-session memory with LITM-aware information positioning.
 
 ## When to use lean-ctx
 
@@ -61,6 +61,26 @@ lean-ctx init --agent codex     # Codex AGENTS.md
 lean-ctx init --agent windsurf  # .windsurfrules
 lean-ctx init --agent cline     # .clinerules
 ```
+
+## Session Continuity (CCP)
+
+```bash
+lean-ctx sessions list          # List all CCP sessions
+lean-ctx sessions show          # Show latest session state
+lean-ctx wrapped                # Weekly savings report card
+lean-ctx wrapped --month        # Monthly savings report card
+lean-ctx benchmark cold-start   # Benchmark: CCP vs raw context
+lean-ctx benchmark litm         # LITM efficiency analysis
+```
+
+MCP tools for CCP:
+- `ctx_session status` — show current session state (~400 tokens)
+- `ctx_session load` — restore previous session (cross-chat memory)
+- `ctx_session task "description"` — set current task
+- `ctx_session finding "file:line — summary"` — record key finding
+- `ctx_session decision "summary"` — record architectural decision
+- `ctx_session save` — force persist session to disk
+- `ctx_wrapped` — generate savings report card in chat
 
 ## Analytics
 

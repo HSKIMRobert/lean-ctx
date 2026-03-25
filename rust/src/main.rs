@@ -85,6 +85,18 @@ fn main() {
                 cli::cmd_session();
                 return;
             }
+            "wrapped" => {
+                cli::cmd_wrapped(&rest);
+                return;
+            }
+            "sessions" => {
+                cli::cmd_sessions(&rest);
+                return;
+            }
+            "benchmark" => {
+                cli::cmd_benchmark(&rest);
+                return;
+            }
             "config" => {
                 cli::cmd_config(&rest);
                 return;
@@ -98,7 +110,7 @@ fn main() {
                 return;
             }
             "--version" | "-V" => {
-                println!("lean-ctx 1.9.0");
+                println!("lean-ctx 2.0.0");
                 return;
             }
             "--help" | "-h" => {
@@ -150,7 +162,7 @@ fn run_mcp_server() -> Result<()> {
             .with_writer(std::io::stderr)
             .init();
 
-        tracing::info!("lean-ctx v1.8.1 MCP server starting");
+        tracing::info!("lean-ctx v2.0.0 MCP server starting");
 
         let server = tools::create_server();
         let transport = rmcp::transport::io::stdio();
@@ -182,9 +194,9 @@ fn shell_quote(s: &str) -> String {
 
 fn print_help() {
     println!(
-        "lean-ctx 1.9.0 — The Cognitive Filter for AI Engineering
+        "lean-ctx 2.0.0 — The Cognitive Filter for AI Engineering
 
-90+ compression patterns | 19 MCP tools | Token Dense Dialect
+90+ compression patterns | 21 MCP tools | Context Continuity Protocol
 
 USAGE:
     lean-ctx                       Start MCP server (stdio)
@@ -198,6 +210,9 @@ COMMANDS:
     gain --daily                   Bordered day-by-day table with USD
     gain --json                    Raw JSON export of all stats
     dashboard [--port=N]           Open web dashboard (default: http://localhost:3333)
+    wrapped [--week|--month|--all] Savings report card (shareable)
+    sessions [list|show|cleanup]   Manage CCP sessions (~/.lean-ctx/sessions/)
+    benchmark [scenario]           Run benchmark (cold-start|session-resume|litm)
     init [--global]                Install shell aliases (zsh/bash/fish/PowerShell)
     read <file> [-m mode]          Read file with compression
     diff <file1> <file2>           Compressed file diff
@@ -249,6 +264,10 @@ EXAMPLES:
     lean-ctx gain --graph          30-day savings chart
     lean-ctx gain --daily          Day-by-day breakdown with USD
     lean-ctx dashboard             Open web dashboard at localhost:3333
+    lean-ctx wrapped               Weekly savings report card
+    lean-ctx wrapped --month       Monthly savings report card
+    lean-ctx sessions list         List all CCP sessions
+    lean-ctx sessions show         Show latest session state
     lean-ctx discover              Find missed savings in shell history
     lean-ctx init --global         Install shell aliases
     lean-ctx doctor                Check PATH, config, MCP, and dashboard port

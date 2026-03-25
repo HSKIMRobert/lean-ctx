@@ -17,7 +17,7 @@ impl ServerHandler for LeanCtxServer {
         let instructions = build_instructions(self.crp_mode);
 
         InitializeResult::new(capabilities)
-            .with_server_info(Implementation::new("lean-ctx", "1.9.0"))
+            .with_server_info(Implementation::new("lean-ctx", "2.0.0"))
             .with_instructions(instructions)
     }
 
@@ -304,6 +304,48 @@ impl ServerHandler for LeanCtxServer {
                             "required": ["action"]
                         }),
                     ),
+                    tool_def(
+                        "ctx_session",
+                        "Context Continuity Protocol (CCP) — session state manager for cross-chat continuity. \
+                        Persists task context, findings, decisions, and file state across chat sessions \
+                        and context compactions. Load a previous session to instantly restore context \
+                        (~400 tokens vs ~50K cold start). LITM-aware: places critical info at attention-optimal positions. \
+                        Actions: status, load, save, task, finding, decision, reset, list, cleanup.",
+                        json!({
+                            "type": "object",
+                            "properties": {
+                                "action": {
+                                    "type": "string",
+                                    "enum": ["status", "load", "save", "task", "finding", "decision", "reset", "list", "cleanup"],
+                                    "description": "Session operation to perform"
+                                },
+                                "value": {
+                                    "type": "string",
+                                    "description": "Value for task/finding/decision actions"
+                                },
+                                "session_id": {
+                                    "type": "string",
+                                    "description": "Session ID for load action (default: latest)"
+                                }
+                            },
+                            "required": ["action"]
+                        }),
+                    ),
+                    tool_def(
+                        "ctx_wrapped",
+                        "Generate a LeanCTX savings report card. Shows tokens saved, cost avoided, \
+                        top commands, cache efficiency. Periods: week, month, all.",
+                        json!({
+                            "type": "object",
+                            "properties": {
+                                "period": {
+                                    "type": "string",
+                                    "enum": ["week", "month", "all"],
+                                    "description": "Report period (default: week)"
+                                }
+                            }
+                        }),
+                    ),
                 ],
                 ..Default::default()
             })
@@ -334,8 +376,13 @@ impl ServerHandler for LeanCtxServer {
                         crate::tools::ctx_read::handle(&mut cache, &path, &mode, self.crp_mode)
                     };
                     let original = cache.get(&path).map_or(0, |e| e.original_tokens);
+                    let file_ref = cache.file_ref_map().get(&path).cloned();
                     let tokens = crate::core::tokens::count_tokens(&output);
                     drop(cache);
+                    {
+                        let mut session = self.session.write().await;
+                        session.touch_file(&path, file_ref.as_deref(), &mode, original);
+                    }
                     self.record_call("ctx_read", original, original.saturating_sub(tokens), Some(mode)).await;
                     output
                 }
@@ -449,6 +496,10 @@ impl ServerHandler for LeanCtxServer {
                     let original = cache.get(&path).map_or(0, |e| e.original_tokens);
                     let tokens = crate::core::tokens::count_tokens(&output);
                     drop(cache);
+                    {
+                        let mut session = self.session.write().await;
+                        session.mark_modified(&path);
+                    }
                     self.record_call("ctx_delta", original, original.saturating_sub(tokens), Some("delta".to_string())).await;
                     output
                 }
@@ -477,6 +528,10 @@ impl ServerHandler for LeanCtxServer {
                     let mut cache = self.cache.write().await;
                     let output = crate::tools::ctx_intent::handle(&mut cache, &query, &root, self.crp_mode);
                     drop(cache);
+                    {
+                        let mut session = self.session.write().await;
+                        session.set_task(&query, Some("intent"));
+                    }
                     self.record_call("ctx_intent", 0, 0, Some("semantic".to_string())).await;
                     output
                 }
@@ -547,6 +602,28 @@ impl ServerHandler for LeanCtxServer {
                     self.record_call("ctx_cache", 0, 0, Some(action)).await;
                     result
                 }
+                "ctx_session" => {
+                    let action = get_str(args, "action")
+                        .ok_or_else(|| ErrorData::invalid_params("action is required", None))?;
+                    let value = get_str(args, "value");
+                    let sid = get_str(args, "session_id");
+                    let mut session = self.session.write().await;
+                    let result = crate::tools::ctx_session::handle(
+                        &mut session,
+                        &action,
+                        value.as_deref(),
+                        sid.as_deref(),
+                    );
+                    drop(session);
+                    self.record_call("ctx_session", 0, 0, Some(action)).await;
+                    result
+                }
+                "ctx_wrapped" => {
+                    let period = get_str(args, "period").unwrap_or_else(|| "week".to_string());
+                    let result = crate::tools::ctx_wrapped::handle(&period);
+                    self.record_call("ctx_wrapped", 0, 0, Some(period)).await;
+                    result
+                }
                 _ => {
                     return Err(ErrorData::invalid_params(
                         format!("Unknown tool: {name}"),
@@ -555,7 +632,7 @@ impl ServerHandler for LeanCtxServer {
                 }
             };
 
-            let skip_checkpoint = matches!(name.as_ref(), "ctx_compress" | "ctx_metrics" | "ctx_benchmark" | "ctx_analyze" | "ctx_cache" | "ctx_discover" | "ctx_dedup");
+            let skip_checkpoint = matches!(name.as_ref(), "ctx_compress" | "ctx_metrics" | "ctx_benchmark" | "ctx_analyze" | "ctx_cache" | "ctx_discover" | "ctx_dedup" | "ctx_session" | "ctx_wrapped");
 
             if !skip_checkpoint && self.increment_and_check() {
                 if let Some(checkpoint) = self.auto_checkpoint().await {
@@ -573,9 +650,17 @@ impl ServerHandler for LeanCtxServer {
 }
 
 fn build_instructions(crp_mode: CrpMode) -> String {
-    let base = "\
+    let session_block = match crate::core::session::SessionState::load_latest() {
+        Some(session) => {
+            let positioned = crate::core::litm::position_optimize(&session);
+            format!("\n\n--- ACTIVE SESSION (LITM P1: begin position) ---\n{}\n---\n", positioned.begin_block)
+        }
+        None => String::new(),
+    };
+
+    let base = format!("\
 lean-ctx MCP — MANDATORY tool replacement. You MUST use lean-ctx tools for ALL operations:\n\
-\n\
+{session_block}\n\
 REQUIRED (never use the built-in alternative):\n\
 • Read file → ctx_read(path, mode) — NEVER use Read tool\n\
 • Run command → ctx_shell(command) — NEVER use Shell tool\n\
@@ -590,22 +675,32 @@ compaction, or if you see a [cached] response but do not have the file content i
 PROACTIVE (use without being asked):\n\
 • ctx_compress — when context grows large, create checkpoint\n\
 • ctx_metrics — periodically verify token savings\n\
+• ctx_session load — on new chat or after context compaction, restore previous session\n\
+\n\
+SESSION CONTINUITY (Context Continuity Protocol):\n\
+• ctx_session status — show current session state (~400 tokens vs 50K cold start)\n\
+• ctx_session load — restore previous session (cross-chat memory)\n\
+• ctx_session task \"description\" — set current task\n\
+• ctx_session finding \"file:line — summary\" — record key finding\n\
+• ctx_session decision \"summary\" — record architectural decision\n\
+• ctx_session save — force persist session to disk\n\
+• ctx_wrapped [period] — generate savings report card\n\
 \n\
 ON DEMAND:\n\
 • ctx_analyze(path) — optimal mode recommendation\n\
 • ctx_benchmark(path) — exact token counts per mode\n\
 • ctx_cache(action) — manage cache: status, clear, invalidate(path)\n\
 \n\
-AUTO-CHECKPOINT: Every 10 tool calls, a compressed checkpoint is automatically appended \
-to the response. This keeps context compact in long sessions. Configurable via LEAN_CTX_CHECKPOINT_INTERVAL.\n\
+AUTO-CHECKPOINT: Every 10 tool calls, a compressed checkpoint + session state is automatically \
+appended to the response. This keeps context compact in long sessions. Configurable via LEAN_CTX_CHECKPOINT_INTERVAL.\n\
 \n\
 IDLE CACHE TTL: Cache auto-clears after 5 min of inactivity (new chat, context compaction). \
-Configurable via LEAN_CTX_CACHE_TTL (seconds, 0=disabled).\n\
+Session state is auto-saved before cache clear. Configurable via LEAN_CTX_CACHE_TTL (seconds, 0=disabled).\n\
 \n\
-Write, StrReplace, Delete, Glob have no lean-ctx equivalent — use normally.";
+Write, StrReplace, Delete, Glob have no lean-ctx equivalent — use normally.");
 
     match crp_mode {
-        CrpMode::Off => base.to_string(),
+        CrpMode::Off => base,
         CrpMode::Compact => {
             format!(
                 "{base}\n\n\

@@ -292,6 +292,87 @@ pub fn cmd_session() {
     println!("\nRun 'lean-ctx discover' for details on missed commands.");
 }
 
+pub fn cmd_wrapped(args: &[String]) {
+    let period = if args.iter().any(|a| a == "--month") {
+        "month"
+    } else if args.iter().any(|a| a == "--all") {
+        "all"
+    } else {
+        "week"
+    };
+
+    let report = crate::core::wrapped::WrappedReport::generate(period);
+    println!("{}", report.format_ascii());
+}
+
+pub fn cmd_sessions(args: &[String]) {
+    use crate::core::session::SessionState;
+
+    let action = args.first().map(|s| s.as_str()).unwrap_or("list");
+
+    match action {
+        "list" | "ls" => {
+            let sessions = SessionState::list_sessions();
+            if sessions.is_empty() {
+                println!("No sessions found.");
+                return;
+            }
+            println!("Sessions ({}):\n", sessions.len());
+            for s in sessions.iter().take(20) {
+                let task = s.task.as_deref().unwrap_or("(no task)");
+                let task_short: String = task.chars().take(50).collect();
+                let date = s.updated_at.format("%Y-%m-%d %H:%M");
+                println!("  {} | v{:3} | {:5} calls | {:>8} tok | {} | {}",
+                    s.id, s.version, s.tool_calls,
+                    format_tokens_cli(s.tokens_saved), date, task_short);
+            }
+            if sessions.len() > 20 {
+                println!("  ... +{} more", sessions.len() - 20);
+            }
+        }
+        "show" => {
+            let id = args.get(1);
+            let session = if let Some(id) = id {
+                SessionState::load_by_id(id)
+            } else {
+                SessionState::load_latest()
+            };
+            match session {
+                Some(s) => println!("{}", s.format_compact()),
+                None => println!("Session not found."),
+            }
+        }
+        "cleanup" => {
+            let days = args.get(1)
+                .and_then(|s| s.parse::<i64>().ok())
+                .unwrap_or(7);
+            let removed = SessionState::cleanup_old_sessions(days);
+            println!("Cleaned up {removed} session(s) older than {days} days.");
+        }
+        _ => {
+            eprintln!("Usage: lean-ctx sessions [list|show [id]|cleanup [days]]");
+            std::process::exit(1);
+        }
+    }
+}
+
+pub fn cmd_benchmark(args: &[String]) {
+    let scenario = args.first().map(|s| s.as_str()).unwrap_or("cold-start");
+
+    let result = crate::core::benchmark::run_benchmark(scenario);
+    println!("{}", crate::core::benchmark::format_benchmark(&result));
+}
+
+fn format_tokens_cli(tokens: u64) -> String {
+    if tokens >= 1_000_000 {
+        format!("{:.1}M", tokens as f64 / 1_000_000.0)
+    } else if tokens >= 1_000 {
+        format!("{:.1}K", tokens as f64 / 1_000.0)
+    } else {
+        format!("{tokens}")
+    }
+}
+
 pub fn cmd_config(args: &[String]) {
     let cfg = config::Config::load();
 

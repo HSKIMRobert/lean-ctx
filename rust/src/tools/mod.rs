@@ -4,6 +4,7 @@ use std::time::Instant;
 use tokio::sync::RwLock;
 
 use crate::core::cache::SessionCache;
+use crate::core::session::SessionState;
 
 pub mod ctx_read;
 pub mod ctx_multi_read;
@@ -23,6 +24,8 @@ pub mod ctx_intent;
 pub mod ctx_response;
 pub mod ctx_context;
 pub mod ctx_graph;
+pub mod ctx_session;
+pub mod ctx_wrapped;
 
 const DEFAULT_CACHE_TTL_SECS: u64 = 300;
 
@@ -61,6 +64,7 @@ pub type SharedCache = Arc<RwLock<SessionCache>>;
 #[derive(Clone)]
 pub struct LeanCtxServer {
     pub cache: SharedCache,
+    pub session: Arc<RwLock<SessionState>>,
     pub tool_calls: Arc<RwLock<Vec<ToolCallRecord>>>,
     pub call_count: Arc<AtomicUsize>,
     pub checkpoint_interval: usize,
@@ -94,8 +98,11 @@ impl LeanCtxServer {
 
         let crp_mode = CrpMode::from_env();
 
+        let session = SessionState::load_latest().unwrap_or_else(SessionState::new);
+
         Self {
             cache: Arc::new(RwLock::new(SessionCache::new())),
+            session: Arc::new(RwLock::new(session)),
             tool_calls: Arc::new(RwLock::new(Vec::new())),
             call_count: Arc::new(AtomicUsize::new(0)),
             checkpoint_interval: interval,
@@ -111,6 +118,10 @@ impl LeanCtxServer {
         }
         let last = *self.last_call.read().await;
         if last.elapsed().as_secs() >= self.cache_ttl_secs {
+            {
+                let mut session = self.session.write().await;
+                let _ = session.save();
+            }
             let mut cache = self.cache.write().await;
             let count = cache.clear();
             if count > 0 {
@@ -131,6 +142,18 @@ impl LeanCtxServer {
 
         let output_tokens = original.saturating_sub(saved);
         crate::core::stats::record(tool, original, output_tokens);
+
+        let mut session = self.session.write().await;
+        session.record_tool_call(saved as u64, original as u64);
+        if tool == "ctx_shell" {
+            session.record_command();
+        }
+        if saved > 0 && original > 0 {
+            session.record_cache_hit();
+        }
+        if session.should_save() {
+            let _ = session.save();
+        }
     }
 
     pub fn increment_and_check(&self) -> bool {
@@ -145,8 +168,14 @@ impl LeanCtxServer {
         }
         let checkpoint = ctx_compress::handle(&cache, true, self.crp_mode);
         drop(cache);
+
+        let mut session = self.session.write().await;
+        let _ = session.save();
+        let session_summary = session.format_compact();
+        drop(session);
+
         self.record_call("ctx_compress", 0, 0, Some("auto".to_string())).await;
-        Some(checkpoint)
+        Some(format!("{checkpoint}\n\n--- SESSION STATE ---\n{session_summary}"))
     }
 }
 

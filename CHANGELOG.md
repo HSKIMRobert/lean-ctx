@@ -2,6 +2,51 @@
 
 All notable changes to lean-ctx are documented here.
 
+## [2.0.0] — 2026-03-25
+
+### Major: Context Continuity Protocol (CCP) + LITM-Aware Positioning
+
+This release introduces the **Context Continuity Protocol** — cross-session memory that persists task context, findings, and decisions across chat sessions and context compactions. Combined with **LITM-aware positioning** (based on Liu et al., 2023), CCP eliminates 99.2% of cold-start tokens and improves information recall by +42%.
+
+### Added
+
+- **2 new MCP tools** (19 → 21 total):
+  - `ctx_session` — Session state manager with actions: status, load, save, task, finding, decision, reset, list, cleanup. Persists to `~/.lean-ctx/sessions/`. Load previous sessions in ~400 tokens (vs ~50K cold start)
+  - `ctx_wrapped` — Generate savings report cards showing tokens saved, costs avoided, top commands, and cache efficiency
+
+- **3 new CLI commands**:
+  - `lean-ctx wrapped [--week|--month|--all]` — Shareable savings report card
+  - `lean-ctx sessions [list|show|cleanup]` — Manage CCP sessions
+  - `lean-ctx benchmark [cold-start|session-resume|litm]` — Reproducible benchmark with LITM efficiency analysis
+
+- **LITM-Aware Positioning Engine** (`core/litm.rs`):
+  - Places session state at context begin position (attention α=0.9)
+  - Places findings/test results at end position (attention γ=0.85)
+  - Eliminates lossy middle (attention β=0.55 → 0.0)
+  - Quantified: +42% relative LITM efficiency improvement
+
+- **Session State Persistence**:
+  - Automatic session state tracking across all tool calls
+  - Batch save every 5 tool calls
+  - Auto-save before idle cache clear
+  - Session state embedded in auto-checkpoints
+  - Session state embedded in MCP server instructions (LITM P1 position)
+  - 7-day session archival with cleanup
+
+- **Benchmark Engine** (`core/benchmark.rs`):
+  - Cold-start comparison: Raw vs .cursorrules vs lean-ctx vs lean-ctx+CCP
+  - Session resume comparison after context compaction
+  - LITM efficiency analysis across context sizes (10K-200K)
+  - Based on real session data from `~/.lean-ctx/`
+
+### Improved
+
+- Auto-checkpoint now includes session state summary
+- MCP server instructions now include CCP usage hints and session load prompt
+- Idle cache expiry now auto-saves session before clearing
+
+---
+
 ## [1.9.0] — 2026-03-25
 
 ### Major: Context Intelligence Engine
