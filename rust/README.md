@@ -2,6 +2,8 @@
 
 **Context Intelligence Engine with CCP + TDD. Shell Hook + MCP Server. 21 MCP tools, 90+ shell patterns, cross-session memory (CCP), LITM-aware positioning, tree-sitter AST for 14 languages. Single Rust binary.**
 
+[![CI](https://github.com/yvgude/lean-ctx/actions/workflows/ci.yml/badge.svg)](https://github.com/yvgude/lean-ctx/actions/workflows/ci.yml)
+[![Security Check](https://github.com/yvgude/lean-ctx/actions/workflows/security-check.yml/badge.svg)](https://github.com/yvgude/lean-ctx/actions/workflows/security-check.yml)
 [![Crates.io](https://img.shields.io/crates/v/lean-ctx)](https://crates.io/crates/lean-ctx)
 [![Downloads](https://img.shields.io/crates/d/lean-ctx)](https://crates.io/crates/lean-ctx)
 [![AUR](https://img.shields.io/aur/version/lean-ctx)](https://aur.archlinux.org/packages/lean-ctx)
@@ -710,6 +712,18 @@ Contributions welcome! Please open an issue or PR on [GitHub](https://github.com
 
 - [Discord](https://discord.gg/pTHkG9Hew9)
 - [Buy me a coffee](https://buymeacoffee.com/yvgude)
+
+## Security
+
+lean-ctx is a **local-only** tool — zero network requests, zero telemetry. See [SECURITY.md](SECURITY.md) for:
+
+- Vulnerability reporting process
+- Automated CI security checks (cargo audit, clippy, dangerous pattern scans)
+- Dependency audit (all 29 deps are established, MIT/Apache-2.0 licensed crates)
+- VirusTotal false positive explanation (common with Rust binaries)
+- Build reproducibility instructions
+
+> **Note on VirusTotal:** Rust binaries are frequently flagged by ML-based heuristic scanners (e.g., Microsoft's `Wacatac.B!ml`). This is a [known issue](https://users.rust-lang.org/t/rust-programs-flagged-as-malware/49799) affecting many Rust projects. 1/72 engines flagging = false positive. Build from source with `cargo install lean-ctx` to verify.
 
 ## License
 

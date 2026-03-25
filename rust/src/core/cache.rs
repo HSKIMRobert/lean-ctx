@@ -181,3 +181,79 @@ fn compute_md5(content: &str) -> String {
     hasher.update(content.as_bytes());
     format!("{:x}", hasher.finalize())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cache_stores_and_retrieves() {
+        let mut cache = SessionCache::new();
+        let (entry, was_hit) = cache.store("/test/file.rs", "fn main() {}".to_string());
+        assert!(!was_hit);
+        assert_eq!(entry.line_count, 1);
+        assert!(cache.get("/test/file.rs").is_some());
+    }
+
+    #[test]
+    fn cache_hit_on_same_content() {
+        let mut cache = SessionCache::new();
+        cache.store("/test/file.rs", "content".to_string());
+        let (_, was_hit) = cache.store("/test/file.rs", "content".to_string());
+        assert!(was_hit, "same content should be a cache hit");
+    }
+
+    #[test]
+    fn cache_miss_on_changed_content() {
+        let mut cache = SessionCache::new();
+        cache.store("/test/file.rs", "old content".to_string());
+        let (_, was_hit) = cache.store("/test/file.rs", "new content".to_string());
+        assert!(!was_hit, "changed content should not be a cache hit");
+    }
+
+    #[test]
+    fn file_refs_are_sequential() {
+        let mut cache = SessionCache::new();
+        assert_eq!(cache.get_file_ref("/a.rs"), "F1");
+        assert_eq!(cache.get_file_ref("/b.rs"), "F2");
+        assert_eq!(cache.get_file_ref("/a.rs"), "F1"); // stable
+    }
+
+    #[test]
+    fn cache_clear_resets_everything() {
+        let mut cache = SessionCache::new();
+        cache.store("/a.rs", "a".to_string());
+        cache.store("/b.rs", "b".to_string());
+        let count = cache.clear();
+        assert_eq!(count, 2);
+        assert!(cache.get("/a.rs").is_none());
+        assert_eq!(cache.get_file_ref("/c.rs"), "F1"); // refs reset
+    }
+
+    #[test]
+    fn cache_invalidate_removes_entry() {
+        let mut cache = SessionCache::new();
+        cache.store("/test.rs", "test".to_string());
+        assert!(cache.invalidate("/test.rs"));
+        assert!(!cache.invalidate("/nonexistent.rs"));
+    }
+
+    #[test]
+    fn cache_stats_track_correctly() {
+        let mut cache = SessionCache::new();
+        cache.store("/a.rs", "hello".to_string());
+        cache.store("/a.rs", "hello".to_string()); // hit
+        let stats = cache.get_stats();
+        assert_eq!(stats.total_reads, 2);
+        assert_eq!(stats.cache_hits, 1);
+        assert!(stats.hit_rate() > 0.0);
+    }
+
+    #[test]
+    fn md5_is_deterministic() {
+        let h1 = compute_md5("test content");
+        let h2 = compute_md5("test content");
+        assert_eq!(h1, h2);
+        assert_ne!(h1, compute_md5("different"));
+    }
+}

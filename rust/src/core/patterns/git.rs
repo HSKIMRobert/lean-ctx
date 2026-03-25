@@ -558,3 +558,51 @@ fn compact_lines(text: &str, max: usize) -> String {
     }
     format!("{}\n... ({} more lines)", lines[..max].join("\n"), lines.len() - max)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn git_status_compresses() {
+        let output = "On branch main\nYour branch is up to date with 'origin/main'.\n\nChanges not staged for commit:\n  (use \"git add <file>...\" to update what will be committed)\n\n\tmodified:   src/main.rs\n\tmodified:   src/lib.rs\n\nno changes added to commit (use \"git add\" and/or \"git commit -a\")\n";
+        let result = compress("git status", output).unwrap();
+        assert!(result.contains("main"), "should contain branch name");
+        assert!(result.contains("main.rs"), "should list modified files");
+        assert!(result.len() < output.len(), "should be shorter than input");
+    }
+
+    #[test]
+    fn git_add_compresses_to_ok() {
+        let result = compress("git add .", "").unwrap();
+        assert!(result.contains("ok"), "git add should compress to 'ok'");
+    }
+
+    #[test]
+    fn git_commit_extracts_hash() {
+        let output = "[main abc1234] fix: resolve bug\n 2 files changed, 10 insertions(+), 3 deletions(-)\n";
+        let result = compress("git commit -m 'fix'", output).unwrap();
+        assert!(result.contains("abc1234"), "should extract commit hash");
+    }
+
+    #[test]
+    fn git_push_compresses() {
+        let output = "Enumerating objects: 5, done.\nCounting objects: 100% (5/5), done.\nDelta compression using up to 8 threads\nCompressing objects: 100% (3/3), done.\nWriting objects: 100% (3/3), 1.2 KiB | 1.2 MiB/s, done.\nTotal 3 (delta 2), reused 0 (delta 0)\nTo github.com:user/repo.git\n   abc1234..def5678  main -> main\n";
+        let result = compress("git push", output).unwrap();
+        assert!(result.len() < output.len(), "should compress push output");
+    }
+
+    #[test]
+    fn git_log_compresses() {
+        let output = "commit abc1234567890\nAuthor: User <user@email.com>\nDate:   Mon Mar 25 10:00:00 2026 +0100\n\n    feat: add feature\n\ncommit def4567890abc\nAuthor: User <user@email.com>\nDate:   Sun Mar 24 09:00:00 2026 +0100\n\n    fix: resolve issue\n";
+        let result = compress("git log", output).unwrap();
+        assert!(result.len() < output.len(), "should compress log output");
+    }
+
+    #[test]
+    fn git_diff_compresses() {
+        let output = "diff --git a/src/main.rs b/src/main.rs\nindex abc1234..def5678 100644\n--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1,3 +1,4 @@\n fn main() {\n+    println!(\"hello\");\n     let x = 1;\n }";
+        let result = compress("git diff", output).unwrap();
+        assert!(result.contains("main.rs"), "should reference changed file");
+    }
+}

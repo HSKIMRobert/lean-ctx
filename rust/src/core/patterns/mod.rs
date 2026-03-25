@@ -135,3 +135,44 @@ fn try_specific_pattern(cmd: &str, output: &str) -> Option<String> {
 
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn routes_git_commands() {
+        let output = "On branch main\nnothing to commit";
+        assert!(compress_output("git status", output).is_some());
+    }
+
+    #[test]
+    fn routes_cargo_commands() {
+        let output = "   Compiling lean-ctx v2.1.1\n    Finished `release` profile [optimized] target(s) in 30.5s";
+        assert!(compress_output("cargo build --release", output).is_some());
+    }
+
+    #[test]
+    fn routes_npm_commands() {
+        let output = "added 150 packages, and audited 151 packages in 5s\n\n25 packages are looking for funding\n  run `npm fund` for details\n\nfound 0 vulnerabilities";
+        assert!(compress_output("npm install", output).is_some());
+    }
+
+    #[test]
+    fn routes_docker_commands() {
+        let output = "CONTAINER ID   IMAGE     COMMAND   CREATED   STATUS    PORTS     NAMES";
+        assert!(compress_output("docker ps", output).is_some());
+    }
+
+    #[test]
+    fn unknown_command_returns_none() {
+        assert!(compress_output("some-unknown-tool --version", "v1.0").is_none());
+    }
+
+    #[test]
+    fn case_insensitive_routing() {
+        let output = "On branch main\nnothing to commit";
+        assert!(compress_output("Git Status", output).is_some());
+        assert!(compress_output("GIT STATUS", output).is_some());
+    }
+}

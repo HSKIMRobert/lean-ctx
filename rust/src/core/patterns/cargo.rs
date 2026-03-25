@@ -148,3 +148,51 @@ fn compress_clippy(output: &str) -> String {
     }
     parts.join("\n")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cargo_build_success() {
+        let output = "   Compiling lean-ctx v2.1.1\n    Finished release profile [optimized] target(s) in 30.5s";
+        let result = compress("cargo build", output).unwrap();
+        assert!(result.contains("compiled"), "should mention compilation");
+        assert!(result.contains("30.5s"), "should include build time");
+    }
+
+    #[test]
+    fn cargo_build_with_errors() {
+        let output = "   Compiling lean-ctx v2.1.1\nerror[E0308]: mismatched types\n --> src/main.rs:10:5\n  |\n10|     1 + \"hello\"\n  |         ^^^^^^^ expected integer, found &str";
+        let result = compress("cargo build", output).unwrap();
+        assert!(result.contains("E0308"), "should contain error code");
+    }
+
+    #[test]
+    fn cargo_test_success() {
+        let output = "running 5 tests\ntest test_one ... ok\ntest test_two ... ok\ntest test_three ... ok\ntest test_four ... ok\ntest test_five ... ok\n\ntest result: ok. 5 passed; 0 failed; 0 ignored";
+        let result = compress("cargo test", output).unwrap();
+        assert!(result.contains("5 pass"), "should show passed count");
+    }
+
+    #[test]
+    fn cargo_test_failure() {
+        let output = "running 3 tests\ntest test_ok ... ok\ntest test_fail ... FAILED\ntest test_ok2 ... ok\n\ntest result: FAILED. 2 passed; 1 failed; 0 ignored";
+        let result = compress("cargo test", output).unwrap();
+        assert!(result.contains("FAIL"), "should indicate failure");
+    }
+
+    #[test]
+    fn cargo_clippy_clean() {
+        let output = "    Checking lean-ctx v2.1.1\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.2s";
+        let result = compress("cargo clippy", output).unwrap();
+        assert!(result.contains("clean"), "clean clippy should say clean");
+    }
+
+    #[test]
+    fn cargo_check_routes_to_build() {
+        let output = "    Checking lean-ctx v2.1.1\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.1s";
+        let result = compress("cargo check", output);
+        assert!(result.is_some(), "cargo check should route to build compressor");
+    }
+}
