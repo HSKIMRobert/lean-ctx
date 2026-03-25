@@ -226,3 +226,76 @@ fn find_pattern_groups(blocks: &[Block], threshold: f64) -> Vec<Vec<usize>> {
 
     groups
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shannon_entropy_empty_is_zero() {
+        assert_eq!(shannon_entropy(""), 0.0);
+    }
+
+    #[test]
+    fn shannon_entropy_single_char() {
+        assert_eq!(shannon_entropy("aaaa"), 0.0);
+    }
+
+    #[test]
+    fn shannon_entropy_high_for_varied_text() {
+        let varied = "abcdefghijklmnopqrstuvwxyz0123456789";
+        let uniform = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        assert!(
+            shannon_entropy(varied) > shannon_entropy(uniform),
+            "varied text should have higher entropy"
+        );
+    }
+
+    #[test]
+    fn jaccard_identical_is_one() {
+        let sim = jaccard_similarity("hello world", "hello world");
+        assert!((sim - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn jaccard_disjoint_is_zero() {
+        let sim = jaccard_similarity("abc", "xyz");
+        assert_eq!(sim, 0.0);
+    }
+
+    #[test]
+    fn jaccard_partial_overlap() {
+        let sim = jaccard_similarity("hello world", "hello rust");
+        assert!(sim > 0.0 && sim < 1.0);
+    }
+
+    #[test]
+    fn entropy_compress_produces_output() {
+        let content = "fn main() {\n    println!(\"hello\");\n}\n\n// comment\n// another comment\n\nfn helper() {\n    let x = 42;\n}\n";
+        let result = entropy_compress(content);
+        assert!(!result.output.is_empty(), "should produce non-empty output");
+        assert!(result.compressed_tokens <= result.original_tokens);
+    }
+
+    #[test]
+    fn entropy_result_savings() {
+        let r = EntropyResult {
+            output: "short".to_string(),
+            original_tokens: 100,
+            compressed_tokens: 60,
+            techniques: vec!["test".to_string()],
+        };
+        assert!((r.savings_percent() - 40.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn entropy_result_zero_original() {
+        let r = EntropyResult {
+            output: String::new(),
+            original_tokens: 0,
+            compressed_tokens: 0,
+            techniques: vec![],
+        };
+        assert_eq!(r.savings_percent(), 0.0);
+    }
+}

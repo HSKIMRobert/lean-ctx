@@ -4,23 +4,27 @@ All notable changes to lean-ctx are documented here.
 
 ## [2.1.1] — 2026-03-25
 
-### Tool Enforcement + Editor Hook Improvements
+### Tool Enforcement + Editor Hook Improvements + Security & Trust
 
-This release ensures AI coding tools (Cursor, Claude Code, Windsurf, etc.) reliably use lean-ctx MCP tools instead of built-in alternatives.
+This release ensures AI coding tools reliably use lean-ctx MCP tools, and establishes a comprehensive security posture.
 
 ### Changed
 
-- **MCP tool descriptions** now start with "REPLACES built-in X tool — ALWAYS use this instead of X" so LLMs see the replacement directive directly in the tool listing
-- **Server instructions** include a LITM-optimized REMINDER at the end: "NEVER use Read, Shell, or Grep directly"
+- **MCP tool descriptions** now start with "REPLACES built-in X tool — ALWAYS use this instead of X"
+- **Server instructions** include a LITM-optimized REMINDER at the end
 - **`lean-ctx init --agent cursor`** now auto-creates `.cursor/rules/lean-ctx.mdc` in the project directory
-- **`lean-ctx init --agent claude`** now auto-creates `CLAUDE.md` in the project directory with lean-ctx MCP tool mapping
-- **`lean-ctx init --agent windsurf`** now uses bundled template from `examples/.windsurfrules`
+- **`lean-ctx init --agent claude`** now auto-creates `CLAUDE.md` in the project directory
+- **`lean-ctx init --agent windsurf`** now uses bundled template
 - Example files now embedded via `include_str!` for consistent deployment
 
 ### Added
 
-- `rust/examples/CLAUDE.md` — Claude Code project instructions template
-- `rust/examples/.windsurfrules` — Windsurf rules template
+- **SECURITY.md** — Comprehensive security policy: vulnerability reporting, dependency audit, VirusTotal false positive explanation, build reproducibility
+- **CI workflow** (`ci.yml`) — Automated tests, clippy lints (warnings=errors), rustfmt check, cargo audit on every push/PR
+- **Security Check workflow** (`security-check.yml`) — Dangerous pattern scan (network ops, unsafe blocks, shell injection, hardcoded secrets), critical file change alerts, dependency audit
+- **72 unit + integration tests** — Cache operations, entropy compression, LITM efficiency, shell pattern compression (git, cargo), CLI commands, pattern dispatch routing
+- **README badges** — CI status, Security Check status, crates.io version, downloads, license
+- **Security section** in README with VirusTotal false positive explanation
 
 ---
 

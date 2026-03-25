@@ -112,3 +112,53 @@ fn short_path(path: &str) -> String {
     }
     parts.last().copied().unwrap_or(path).to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn litm_efficiency_without_ccp_lower() {
+        let (eff_without, eff_with) = compute_litm_efficiency(100, 500, 100, 300, 200);
+        assert!(
+            eff_with > eff_without,
+            "CCP should improve LITM efficiency: without={eff_without:.1}%, with={eff_with:.1}%"
+        );
+    }
+
+    #[test]
+    fn litm_efficiency_zero_tokens() {
+        let (eff_without, eff_with) = compute_litm_efficiency(0, 0, 0, 0, 0);
+        assert_eq!(eff_without, 0.0);
+        assert_eq!(eff_with, 0.0);
+    }
+
+    #[test]
+    fn litm_all_at_begin_is_alpha() {
+        let (_, eff_with) = compute_litm_efficiency(0, 0, 0, 100, 0);
+        assert!((eff_with - 90.0).abs() < 0.1, "all begin should be ~90%");
+    }
+
+    #[test]
+    fn litm_all_at_end_is_gamma() {
+        let (_, eff_with) = compute_litm_efficiency(0, 0, 0, 0, 100);
+        assert!((eff_with - 85.0).abs() < 0.1, "all end should be ~85%");
+    }
+
+    #[test]
+    fn litm_middle_heavy_is_worst() {
+        let (eff_middle, _) = compute_litm_efficiency(10, 1000, 10, 0, 0);
+        let (eff_balanced, _) = compute_litm_efficiency(500, 20, 500, 0, 0);
+        assert!(
+            eff_balanced > eff_middle,
+            "middle-heavy should be less efficient"
+        );
+    }
+
+    #[test]
+    fn short_path_simple() {
+        assert_eq!(short_path("file.rs"), "file.rs");
+        assert_eq!(short_path("src/file.rs"), "src/file.rs");
+        assert_eq!(short_path("a/b/c/file.rs"), "file.rs");
+    }
+}
