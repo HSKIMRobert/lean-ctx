@@ -21,15 +21,15 @@ pub fn to_bash_compatible_path(path: &str) -> String {
     }
 }
 
-pub fn install_agent_hook(agent: &str) {
+pub fn install_agent_hook(agent: &str, global: bool) {
     match agent {
-        "claude" | "claude-code" => install_claude_hook(),
-        "cursor" => install_cursor_hook(),
+        "claude" | "claude-code" => install_claude_hook(global),
+        "cursor" => install_cursor_hook(global),
         "gemini" => install_gemini_hook(),
         "codex" => install_codex_hook(),
-        "windsurf" => install_windsurf_rules(),
-        "cline" | "roo" => install_cline_rules(),
-        "copilot" => install_claude_hook(),
+        "windsurf" => install_windsurf_rules(global),
+        "cline" | "roo" => install_cline_rules(global),
+        "copilot" => install_claude_hook(global),
         _ => {
             eprintln!("Unknown agent: {agent}");
             eprintln!("Supported: claude, cursor, gemini, codex, windsurf, cline, copilot");
@@ -38,7 +38,7 @@ pub fn install_agent_hook(agent: &str) {
     }
 }
 
-fn install_claude_hook() {
+fn install_claude_hook(global: bool) {
     let home = match dirs::home_dir() {
         Some(h) => h,
         None => {
@@ -150,21 +150,27 @@ fi
         );
     }
 
-    let claude_md = PathBuf::from("CLAUDE.md");
-    if !claude_md.exists()
-        || !std::fs::read_to_string(&claude_md)
-            .unwrap_or_default()
-            .contains("lean-ctx")
-    {
-        let content = include_str!("templates/CLAUDE.md");
-        write_file(&claude_md, content);
-        println!("Created CLAUDE.md in current project directory.");
+    if !global {
+        let claude_md = PathBuf::from("CLAUDE.md");
+        if !claude_md.exists()
+            || !std::fs::read_to_string(&claude_md)
+                .unwrap_or_default()
+                .contains("lean-ctx")
+        {
+            let content = include_str!("templates/CLAUDE.md");
+            write_file(&claude_md, content);
+            println!("Created CLAUDE.md in current project directory.");
+        } else {
+            println!("CLAUDE.md already configured.");
+        }
     } else {
-        println!("CLAUDE.md already configured.");
+        println!(
+            "Global mode: skipping project-local CLAUDE.md (use without --global in a project)."
+        );
     }
 }
 
-fn install_cursor_hook() {
+fn install_cursor_hook(global: bool) {
     let home = match dirs::home_dir() {
         Some(h) => h,
         None => {
@@ -224,15 +230,19 @@ esac
         println!("Installed Cursor hook at {}", hooks_json.display());
     }
 
-    let rules_dir = PathBuf::from(".cursor").join("rules");
-    let _ = std::fs::create_dir_all(&rules_dir);
-    let rule_path = rules_dir.join("lean-ctx.mdc");
-    if !rule_path.exists() {
-        let rule_content = include_str!("templates/lean-ctx.mdc");
-        write_file(&rule_path, rule_content);
-        println!("Created .cursor/rules/lean-ctx.mdc in current project.");
+    if !global {
+        let rules_dir = PathBuf::from(".cursor").join("rules");
+        let _ = std::fs::create_dir_all(&rules_dir);
+        let rule_path = rules_dir.join("lean-ctx.mdc");
+        if !rule_path.exists() {
+            let rule_content = include_str!("templates/lean-ctx.mdc");
+            write_file(&rule_path, rule_content);
+            println!("Created .cursor/rules/lean-ctx.mdc in current project.");
+        } else {
+            println!("Cursor rule already exists.");
+        }
     } else {
-        println!("Cursor rule already exists.");
+        println!("Global mode: skipping project-local .cursor/rules/ (use without --global in a project).");
     }
 
     println!("Restart Cursor to activate.");
@@ -354,7 +364,12 @@ This saves 60-90% tokens per command. Works with: git, cargo, npm, pnpm, docker,
     println!("Installed Codex instructions at {}", codex_dir.display());
 }
 
-fn install_windsurf_rules() {
+fn install_windsurf_rules(global: bool) {
+    if global {
+        println!("Global mode: skipping project-local .windsurfrules (use without --global in a project).");
+        return;
+    }
+
     let rules_path = PathBuf::from(".windsurfrules");
     if rules_path.exists() {
         let content = std::fs::read_to_string(&rules_path).unwrap_or_default();
@@ -369,7 +384,14 @@ fn install_windsurf_rules() {
     println!("Installed .windsurfrules in current project.");
 }
 
-fn install_cline_rules() {
+fn install_cline_rules(global: bool) {
+    if global {
+        println!(
+            "Global mode: skipping project-local .clinerules (use without --global in a project)."
+        );
+        return;
+    }
+
     let rules_path = PathBuf::from(".clinerules");
     if rules_path.exists() {
         let content = std::fs::read_to_string(&rules_path).unwrap_or_default();

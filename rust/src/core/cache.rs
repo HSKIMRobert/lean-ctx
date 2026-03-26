@@ -94,7 +94,7 @@ impl SessionCache {
             self.stats.cache_hits += 1;
             self.stats.total_original_tokens += entry.original_tokens as u64;
             let hit_msg = format!(
-                "{ref_label} [cached {}t {}L ∅]",
+                "{ref_label} cached {}t {}L",
                 entry.read_count, entry.line_count
             );
             self.stats.total_sent_tokens += count_tokens(&hit_msg) as u64;
@@ -117,7 +117,7 @@ impl SessionCache {
                 existing.read_count += 1;
                 self.stats.cache_hits += 1;
                 let hit_msg = format!(
-                    "{} [cached {}t {}L ∅]",
+                    "{} cached {}t {}L",
                     self.file_refs.get(path).unwrap_or(&"F?".to_string()),
                     existing.read_count,
                     existing.line_count,

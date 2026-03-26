@@ -1,3 +1,4 @@
+pub mod adaptive;
 pub mod benchmark;
 pub mod cache;
 pub mod compressor;
@@ -8,6 +9,7 @@ pub mod litm;
 pub mod patterns;
 pub mod preservation;
 pub mod protocol;
+pub mod quality;
 pub mod session;
 pub mod signatures;
 #[cfg(feature = "tree-sitter")]
@@ -15,4 +17,5 @@ pub mod signatures_ts;
 pub mod stats;
 pub mod symbol_map;
 pub mod tokens;
+pub mod validator;
 pub mod wrapped;

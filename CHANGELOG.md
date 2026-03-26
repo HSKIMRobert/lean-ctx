@@ -2,6 +2,34 @@
 
 All notable changes to lean-ctx are documented here.
 
+## [2.2.0] — 2026-03-26
+
+### Cognitive Efficiency Protocol (CEP v1)
+
+Major release introducing the Cognitive Efficiency Protocol — a holistic approach to LLM communication optimization that leverages the model's mathematical processing strengths.
+
+### Added
+
+- **CEP Compliance Scoring** in `ctx_metrics` — tracks Cache utilization, Mode diversity, Compression rate, and an overall CEP Score (0-100)
+- **Adaptive Instructions Engine** (`adaptive.rs`) — classifies task complexity (Mechanical / Standard / Architectural) based on session context and dynamically adjusts LLM reasoning guidance
+- **Smart Context Prefill Hints** in `ctx_context` — suggests optimal read modes for large or infrequently-used files
+- **Quality Scorer** (`quality.rs`) — measures AST, identifier, and line preservation to ensure compression quality stays above 95%
+- **Auto-Validation Pipeline** (`validator.rs`) — syntax checks for Rust, JS/TS, Python, JSON, TOML after file changes
+- **CEP A/B Benchmark** in `benchmark.rs` — compare token counts with and without CEP overhead
+- **MCP Live Stats** (`~/.lean-ctx/mcp-live.json`) — real-time CEP metrics for dashboard integration
+- **Dashboard CEP Intelligence Card** — shows CEP Score, Cache Hit Rate, Mode Diversity, Compression, and Task Complexity in the web dashboard
+- **TOON-Inspired Output Format** — indentation-based headers replacing bracket-label format for ~15% fewer tokens per header
+- **Extended Filler Detection v2** — 60+ patterns across Hedging, Meta-Commentary, Closings, Transitions, and Acknowledgments
+- **Dynamic MAP Threshold** — ROI-based identifier registration replaces fixed 12-char minimum
+- **Formal Action Vocabulary (TDD v2)** — Unicode symbols for code changes (`⊕⊖∆→⇒✓✗⚠`) and structural elements (`λ§∂τε`)
+
+### Fixed
+
+- **`--global --agent` no longer overwrites project files** — running `lean-ctx init --global --agent claude` now installs global hooks without creating `CLAUDE.md` in the current directory
+- **Multiple `--agent` flags** — `lean-ctx init --global --agent claude --agent codex` now processes all agents, not just the first
+
+---
+
 ## [2.1.3] — 2026-03-26
 
 ### Bug Fix: Shell Hook Idempotent Updates

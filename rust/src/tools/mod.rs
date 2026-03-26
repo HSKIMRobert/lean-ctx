@@ -175,6 +175,7 @@ impl LeanCtxServer {
         if cache.get_all_entries().is_empty() {
             return None;
         }
+        let complexity = crate::core::adaptive::classify_from_context(&cache);
         let checkpoint = ctx_compress::handle(&cache, true, self.crp_mode);
         drop(cache);
 
@@ -185,9 +186,56 @@ impl LeanCtxServer {
 
         self.record_call("ctx_compress", 0, 0, Some("auto".to_string()))
             .await;
+
+        self.write_mcp_live_stats().await;
+
         Some(format!(
-            "{checkpoint}\n\n--- SESSION STATE ---\n{session_summary}"
+            "{checkpoint}\n\n--- SESSION STATE ---\n{session_summary}\n\n{}",
+            complexity.instruction_suffix()
         ))
+    }
+
+    async fn write_mcp_live_stats(&self) {
+        let cache = self.cache.read().await;
+        let calls = self.tool_calls.read().await;
+        let stats = cache.get_stats();
+        let complexity = crate::core::adaptive::classify_from_context(&cache);
+
+        let total_original: u64 = calls.iter().map(|c| c.original_tokens as u64).sum();
+        let total_saved: u64 = calls.iter().map(|c| c.saved_tokens as u64).sum();
+        let compression_rate = if total_original > 0 {
+            total_saved as f64 / total_original as f64
+        } else {
+            0.0
+        };
+
+        let modes_used: std::collections::HashSet<&str> =
+            calls.iter().filter_map(|c| c.mode.as_deref()).collect();
+        let mode_diversity = (modes_used.len() as f64 / 6.0).min(1.0);
+        let cache_util = stats.hit_rate() / 100.0;
+        let cep_score = cache_util * 0.3 + mode_diversity * 0.2 + compression_rate * 0.5;
+
+        let live = serde_json::json!({
+            "cep_score": (cep_score * 100.0).round() as u32,
+            "cache_utilization": (cache_util * 100.0).round() as u32,
+            "mode_diversity": (mode_diversity * 100.0).round() as u32,
+            "compression_rate": (compression_rate * 100.0).round() as u32,
+            "task_complexity": format!("{:?}", complexity),
+            "files_cached": stats.files_tracked,
+            "total_reads": stats.total_reads,
+            "cache_hits": stats.cache_hits,
+            "tokens_saved": total_saved,
+            "tokens_original": total_original,
+            "tool_calls": calls.len(),
+            "updated_at": chrono::Local::now().to_rfc3339(),
+        });
+
+        drop(cache);
+        drop(calls);
+
+        if let Some(dir) = dirs::home_dir().map(|h| h.join(".lean-ctx")) {
+            let _ = std::fs::write(dir.join("mcp-live.json"), live.to_string());
+        }
     }
 }
 
