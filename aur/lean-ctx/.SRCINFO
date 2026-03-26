@@ -9,6 +9,6 @@ pkgbase = lean-ctx
 	makedepends = gcc
 	depends = gcc-libs
 	source = lean-ctx-2.1.3.crate::https://static.crates.io/crates/lean-ctx/lean-ctx-2.1.3.crate
-	sha256sums = 2d1b983945c50ef928a83866745d20947bb690bfed78f19507a6e1a6417e41f6
+	sha256sums = f195ce76098a8f8d88fb876341dd26f81670e146b9a7dfa7ee1747efc7c98ac4
 
 pkgname = lean-ctx
