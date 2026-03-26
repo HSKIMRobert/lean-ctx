@@ -2,6 +2,31 @@
 
 All notable changes to lean-ctx are documented here.
 
+## [2.1.2] — 2026-03-26
+
+### Bug Fix: Shell Hook PATH Resolution
+
+Fixes a critical bug where `lean-ctx init --global` and `lean-ctx init --agent <tool>` generated shell aliases and hook scripts using bare `lean-ctx` instead of the absolute binary path. This caused all rewritten commands to fail with exit code 126 when `lean-ctx` was not in the shell's PATH.
+
+### Fixed
+
+- **Shell aliases (bash/zsh/fish)** now use the absolute binary path from `std::env::current_exe()` instead of hardcoded `lean-ctx`
+- **Editor hook scripts (Claude, Cursor, Gemini)** embed `LEAN_CTX_BIN="/full/path/lean-ctx"` at the top and use `$LEAN_CTX_BIN` throughout
+- **Codex and Cline instruction files** reference the full binary path
+- **Windows + Git Bash compatibility**: Windows paths (`C:\Users\...`) are automatically converted to Git Bash paths (`/c/Users/...`) in bash hook scripts, fixing the `/C: Is a directory` error
+
+### Added
+
+- `to_bash_compatible_path()` helper for cross-platform path conversion (Windows drive letters to POSIX format)
+- `resolve_binary_path_for_bash()` for bash-specific path resolution
+- 6 unit tests for path conversion covering Unix paths, Windows drive letters, and edge cases
+
+### Note for existing users
+
+After updating, re-run `lean-ctx init --global` and/or `lean-ctx init --agent <tool>` to regenerate the aliases/hooks with the absolute path. Remove the old shell hook block from your `.zshrc`/`.bashrc` first (between `# lean-ctx shell hook` and `fi`).
+
+---
+
 ## [2.1.1] — 2026-03-25
 
 ### Tool Enforcement + Editor Hook Improvements + Security & Trust

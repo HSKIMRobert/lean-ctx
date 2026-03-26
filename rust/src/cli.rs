@@ -9,6 +9,7 @@ use crate::core::protocol;
 use crate::core::signatures;
 use crate::core::stats;
 use crate::core::tokens::count_tokens;
+use crate::hooks::to_bash_compatible_path;
 
 pub fn cmd_read(args: &[String]) {
     if args.is_empty() {
@@ -625,10 +626,13 @@ pub fn cmd_init(args: &[String]) {
 
     if is_powershell {
         init_powershell(&binary);
-    } else if is_fish {
-        init_fish();
     } else {
-        init_posix(is_zsh);
+        let bash_binary = to_bash_compatible_path(&binary);
+        if is_fish {
+            init_fish(&bash_binary);
+        } else {
+            init_posix(is_zsh, &bash_binary);
+        }
     }
 
     let lean_dir = dirs::home_dir().map(|h| h.join(".lean-ctx"));
@@ -721,37 +725,39 @@ if (-not $env:LEAN_CTX_ACTIVE) {{
     }
 }
 
-fn init_fish() {
+fn init_fish(binary: &str) {
     let config = dirs::home_dir()
         .map(|h| h.join(".config/fish/config.fish"))
         .unwrap_or_default();
 
-    let aliases = "\n# lean-ctx shell hook — transparent CLI compression (90+ patterns)\n\
+    let aliases = format!(
+        "\n# lean-ctx shell hook — transparent CLI compression (90+ patterns)\n\
         if not set -q LEAN_CTX_ACTIVE\n\
-        \talias git 'lean-ctx -c git'\n\
-        \talias npm 'lean-ctx -c npm'\n\
-        \talias pnpm 'lean-ctx -c pnpm'\n\
-        \talias yarn 'lean-ctx -c yarn'\n\
-        \talias cargo 'lean-ctx -c cargo'\n\
-        \talias docker 'lean-ctx -c docker'\n\
-        \talias docker-compose 'lean-ctx -c docker-compose'\n\
-        \talias kubectl 'lean-ctx -c kubectl'\n\
-        \talias k 'lean-ctx -c kubectl'\n\
-        \talias gh 'lean-ctx -c gh'\n\
-        \talias pip 'lean-ctx -c pip'\n\
-        \talias pip3 'lean-ctx -c pip3'\n\
-        \talias ruff 'lean-ctx -c ruff'\n\
-        \talias go 'lean-ctx -c go'\n\
-        \talias golangci-lint 'lean-ctx -c golangci-lint'\n\
-        \talias eslint 'lean-ctx -c eslint'\n\
-        \talias prettier 'lean-ctx -c prettier'\n\
-        \talias tsc 'lean-ctx -c tsc'\n\
-        \talias ls 'lean-ctx -c ls'\n\
-        \talias find 'lean-ctx -c find'\n\
-        \talias grep 'lean-ctx -c grep'\n\
-        \talias curl 'lean-ctx -c curl'\n\
-        \talias wget 'lean-ctx -c wget'\n\
-        end\n";
+        \talias git '{binary} -c git'\n\
+        \talias npm '{binary} -c npm'\n\
+        \talias pnpm '{binary} -c pnpm'\n\
+        \talias yarn '{binary} -c yarn'\n\
+        \talias cargo '{binary} -c cargo'\n\
+        \talias docker '{binary} -c docker'\n\
+        \talias docker-compose '{binary} -c docker-compose'\n\
+        \talias kubectl '{binary} -c kubectl'\n\
+        \talias k '{binary} -c kubectl'\n\
+        \talias gh '{binary} -c gh'\n\
+        \talias pip '{binary} -c pip'\n\
+        \talias pip3 '{binary} -c pip3'\n\
+        \talias ruff '{binary} -c ruff'\n\
+        \talias go '{binary} -c go'\n\
+        \talias golangci-lint '{binary} -c golangci-lint'\n\
+        \talias eslint '{binary} -c eslint'\n\
+        \talias prettier '{binary} -c prettier'\n\
+        \talias tsc '{binary} -c tsc'\n\
+        \talias ls '{binary} -c ls'\n\
+        \talias find '{binary} -c find'\n\
+        \talias grep '{binary} -c grep'\n\
+        \talias curl '{binary} -c curl'\n\
+        \talias wget '{binary} -c wget'\n\
+        end\n"
+    );
 
     if let Ok(existing) = std::fs::read_to_string(&config) {
         if existing.contains("lean-ctx") {
@@ -774,7 +780,7 @@ fn init_fish() {
     }
 }
 
-fn init_posix(is_zsh: bool) {
+fn init_posix(is_zsh: bool, binary: &str) {
     let rc_file = if is_zsh {
         dirs::home_dir()
             .map(|h| h.join(".zshrc"))
@@ -785,34 +791,36 @@ fn init_posix(is_zsh: bool) {
             .unwrap_or_default()
     };
 
-    let aliases = r#"
+    let aliases = format!(
+        r#"
 # lean-ctx shell hook — transparent CLI compression (90+ patterns)
 if [ -z "$LEAN_CTX_ACTIVE" ]; then
-alias git='lean-ctx -c git'
-alias npm='lean-ctx -c npm'
-alias pnpm='lean-ctx -c pnpm'
-alias yarn='lean-ctx -c yarn'
-alias cargo='lean-ctx -c cargo'
-alias docker='lean-ctx -c docker'
-alias docker-compose='lean-ctx -c docker-compose'
-alias kubectl='lean-ctx -c kubectl'
-alias k='lean-ctx -c kubectl'
-alias gh='lean-ctx -c gh'
-alias pip='lean-ctx -c pip'
-alias pip3='lean-ctx -c pip3'
-alias ruff='lean-ctx -c ruff'
-alias go='lean-ctx -c go'
-alias golangci-lint='lean-ctx -c golangci-lint'
-alias eslint='lean-ctx -c eslint'
-alias prettier='lean-ctx -c prettier'
-alias tsc='lean-ctx -c tsc'
-alias ls='lean-ctx -c ls'
-alias find='lean-ctx -c find'
-alias grep='lean-ctx -c grep'
-alias curl='lean-ctx -c curl'
-alias wget='lean-ctx -c wget'
+alias git='{binary} -c git'
+alias npm='{binary} -c npm'
+alias pnpm='{binary} -c pnpm'
+alias yarn='{binary} -c yarn'
+alias cargo='{binary} -c cargo'
+alias docker='{binary} -c docker'
+alias docker-compose='{binary} -c docker-compose'
+alias kubectl='{binary} -c kubectl'
+alias k='{binary} -c kubectl'
+alias gh='{binary} -c gh'
+alias pip='{binary} -c pip'
+alias pip3='{binary} -c pip3'
+alias ruff='{binary} -c ruff'
+alias go='{binary} -c go'
+alias golangci-lint='{binary} -c golangci-lint'
+alias eslint='{binary} -c eslint'
+alias prettier='{binary} -c prettier'
+alias tsc='{binary} -c tsc'
+alias ls='{binary} -c ls'
+alias find='{binary} -c find'
+alias grep='{binary} -c grep'
+alias curl='{binary} -c curl'
+alias wget='{binary} -c wget'
 fi
-"#;
+"#
+    );
 
     if let Ok(existing) = std::fs::read_to_string(&rc_file) {
         if existing.contains("lean-ctx shell hook") {
