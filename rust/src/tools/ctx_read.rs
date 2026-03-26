@@ -45,7 +45,7 @@ fn handle_with_options(
             cache.record_cache_hit(path);
             let existing = cache.get(path).unwrap();
             return format!(
-                "{file_ref}={short} [cached {}t {}L ∅]",
+                "{file_ref}={short} cached {}t {}L",
                 existing.read_count, existing.line_count
             );
         }
@@ -113,7 +113,7 @@ fn build_header(
     line_count: usize,
     include_deps: bool,
 ) -> String {
-    let mut header = format!("{file_ref}={short} [{line_count}L +]");
+    let mut header = format!("{file_ref}={short} {line_count}L");
 
     if include_deps {
         let dep_info = deps::extract_deps(content, ext);
@@ -124,7 +124,7 @@ fn build_header(
                 .take(8)
                 .map(|s| s.as_str())
                 .collect();
-            header.push_str(&format!(" deps:[{}]", imports_str.join(",")));
+            header.push_str(&format!("\n deps {}", imports_str.join(",")));
         }
         if !dep_info.exports.is_empty() {
             let exports_str: Vec<&str> = dep_info
@@ -133,7 +133,7 @@ fn build_header(
                 .take(8)
                 .map(|s| s.as_str())
                 .collect();
-            header.push_str(&format!(" exports:[{}]", exports_str.join(",")));
+            header.push_str(&format!("\n exports {}", exports_str.join(",")));
         }
     }
 
@@ -156,7 +156,7 @@ fn process_mode(
             let sigs = signatures::extract_signatures(content, ext);
             let dep_info = deps::extract_deps(content, ext);
 
-            let mut output = format!("{file_ref}={short} [{line_count}L]");
+            let mut output = format!("{file_ref}={short} {line_count}L");
             if !dep_info.imports.is_empty() {
                 let imports_str: Vec<&str> = dep_info
                     .imports
@@ -164,7 +164,7 @@ fn process_mode(
                     .take(8)
                     .map(|s| s.as_str())
                     .collect();
-                output.push_str(&format!(" deps:[{}]", imports_str.join(",")));
+                output.push_str(&format!("\n deps {}", imports_str.join(",")));
             }
             for sig in &sigs {
                 output.push('\n');
@@ -182,7 +182,7 @@ fn process_mode(
             let sigs = signatures::extract_signatures(content, ext);
             let dep_info = deps::extract_deps(content, ext);
 
-            let mut output = format!("{file_ref}={short} [{line_count}L]");
+            let mut output = format!("{file_ref}={short} {line_count}L");
 
             if !dep_info.imports.is_empty() {
                 output.push_str("\n  deps: ");
@@ -254,7 +254,7 @@ fn process_mode(
         mode if mode.starts_with("lines:") => {
             let range_str = &mode[6..];
             let extracted = extract_line_range(content, range_str);
-            let header = format!("{file_ref}={short} [{line_count}L lines:{range_str}]");
+            let header = format!("{file_ref}={short} {line_count}L lines:{range_str}");
             let sent = count_tokens(&extracted);
             let savings = protocol::format_savings(original_tokens, sent);
             format!("{header}\n{extracted}\n{savings}")
@@ -292,6 +292,60 @@ fn extract_line_range(content: &str, range_str: &str) -> String {
         "No lines matched the range.".to_string()
     } else {
         selected.join("\n")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_header_toon_format_no_brackets() {
+        let content = "use std::io;\nfn main() {}\n";
+        let header = build_header("F1", "main.rs", "rs", content, 2, false);
+        assert!(!header.contains('['));
+        assert!(!header.contains(']'));
+        assert!(header.contains("F1=main.rs 2L"));
+    }
+
+    #[test]
+    fn test_header_toon_deps_indented() {
+        let content = "use crate::core::cache;\nuse crate::tools;\npub fn main() {}\n";
+        let header = build_header("F1", "main.rs", "rs", content, 3, true);
+        if header.contains("deps") {
+            assert!(
+                header.contains("\n deps "),
+                "deps should use indented TOON format"
+            );
+            assert!(
+                !header.contains("deps:["),
+                "deps should not use bracket format"
+            );
+        }
+    }
+
+    #[test]
+    fn test_header_toon_saves_tokens() {
+        let content = "use crate::foo;\nuse crate::bar;\npub fn baz() {}\npub fn qux() {}\n";
+        let old_header = format!("F1=main.rs [4L +] deps:[foo,bar] exports:[baz,qux]");
+        let new_header = build_header("F1", "main.rs", "rs", content, 4, true);
+        let old_tokens = count_tokens(&old_header);
+        let new_tokens = count_tokens(&new_header);
+        assert!(
+            new_tokens <= old_tokens,
+            "TOON header ({new_tokens} tok) should be <= old format ({old_tokens} tok)"
+        );
+    }
+
+    #[test]
+    fn test_tdd_symbols_are_compact() {
+        let symbols = [
+            "⊕", "⊖", "∆", "→", "⇒", "✓", "✗", "⚠", "λ", "§", "∂", "τ", "ε",
+        ];
+        for sym in &symbols {
+            let tok = count_tokens(sym);
+            assert!(tok <= 2, "Symbol {sym} should be 1-2 tokens, got {tok}");
+        }
     }
 }
 

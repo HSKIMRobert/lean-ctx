@@ -603,14 +603,16 @@ pub fn cmd_tee(args: &[String]) {
 pub fn cmd_init(args: &[String]) {
     let global = args.iter().any(|a| a == "--global" || a == "-g");
 
-    let agent = args
-        .iter()
-        .position(|a| a == "--agent")
-        .and_then(|i| args.get(i + 1))
-        .map(|s| s.as_str());
+    let agents: Vec<&str> = args
+        .windows(2)
+        .filter(|w| w[0] == "--agent")
+        .map(|w| w[1].as_str())
+        .collect();
 
-    if let Some(agent_name) = agent {
-        crate::hooks::install_agent_hook(agent_name);
+    if !agents.is_empty() {
+        for agent_name in &agents {
+            crate::hooks::install_agent_hook(agent_name, global);
+        }
         println!("\nRun 'lean-ctx gain' after using some commands to see your savings.");
         return;
     }

@@ -15,7 +15,7 @@ impl ServerHandler for LeanCtxServer {
         let instructions = build_instructions(self.crp_mode);
 
         InitializeResult::new(capabilities)
-            .with_server_info(Implementation::new("lean-ctx", "2.1.3"))
+            .with_server_info(Implementation::new("lean-ctx", "2.2.0"))
             .with_instructions(instructions)
     }
 
@@ -767,7 +767,24 @@ Session state is auto-saved before cache clear. Configurable via LEAN_CTX_CACHE_
 \n\
 Write, StrReplace, Delete, Glob have no lean-ctx equivalent — use normally.\n\
 \n\
-REMINDER: NEVER use Read, Shell, or Grep directly. ALWAYS use ctx_read, ctx_shell, ctx_search instead.");
+REMINDER: NEVER use Read, Shell, or Grep directly. ALWAYS use ctx_read, ctx_shell, ctx_search instead.\n\
+\n\
+COMMUNICATION PROTOCOL (Cognitive Efficiency Protocol v1):\n\
+1. ACT FIRST — Execute tool calls immediately. Never narrate before acting.\n\
+   Bad:  \"Let me read the file to understand the issue...\" [tool call]\n\
+   Good: [tool call] then one-line summary of finding\n\
+2. DELTA ONLY — Never repeat known context. Reference cached files by Fn ID.\n\
+   Bad:  \"The file auth.ts contains a function validateToken that...\"\n\
+   Good: \"F3:42 validateToken — expiry check uses wrong clock\"\n\
+3. STRUCTURED OVER PROSE — Use notation, not sentences.\n\
+   Changes: +line / -line / ~line (modified)\n\
+   Status:  tool(args) → result\n\
+   Errors:  ERR path:line — message\n\
+4. ONE LINE PER ACTION — Summarize, don't explain.\n\
+   Bad:  \"I've successfully applied the edit to fix the token validation...\"\n\
+   Good: \"Fixed F3:42 — was comparing UTC vs local timestamp\"\n\
+5. QUALITY ANCHOR — NEVER skip edge case analysis or error handling to save tokens.\n\
+   Complex tasks require full reasoning. Only reduce prose, never reduce thinking.");
 
     match crp_mode {
         CrpMode::Off => base,
@@ -777,10 +794,11 @@ REMINDER: NEVER use Read, Shell, or Grep directly. ALWAYS use ctx_read, ctx_shel
                 CRP MODE: compact\n\
                 Respond using Compact Response Protocol:\n\
                 • Omit filler words, articles, and redundant phrases\n\
-                • Use symbol shorthand: → (returns/leads to), ∴ (therefore), ≈ (approximately), ✓ (done/ok), ✗ (error/fail)\n\
-                • Abbreviate common terms: fn (function), cfg (config), impl (implementation), deps (dependencies)\n\
+                • Use symbol shorthand: → ∴ ≈ ✓ ✗\n\
+                • Abbreviate: fn, cfg, impl, deps, req, res, ctx, err, ok, ret, arg, val, ty, mod\n\
                 • Use compact lists instead of prose\n\
-                • Prefer code blocks over natural language explanations"
+                • Prefer code blocks over natural language explanations\n\
+                • For code changes: show only diff lines (+/-), not full files"
             )
         }
         CrpMode::Tdd => {
@@ -790,15 +808,26 @@ REMINDER: NEVER use Read, Shell, or Grep directly. ALWAYS use ctx_read, ctx_shel
                 CRITICAL: Maximize information density. Every token must carry meaning.\n\
                 \n\
                 RESPONSE RULES:\n\
-                • Use symbol shorthand everywhere: → ∴ ≈ ✓ ✗ λ ∂ § ¿\n\
-                • λ=function/handler, ∂=change/delta, §=section/module, ¿=check/verify\n\
                 • Drop all articles (a, the, an), filler words, and pleasantries\n\
-                • Compress identifiers: use short IDs from symbol table when provided\n\
                 • Reference files by Fn refs only, never full paths\n\
-                • Use tabular format for structured data\n\
-                • Abbreviations: fn, cfg, impl, deps, req, res, ctx, err, ok, ret, arg, val, ty, mod\n\
                 • For code changes: show only diff lines, not full files\n\
                 • No explanations unless asked — just show the solution\n\
+                • Use tabular format for structured data\n\
+                • Abbreviations: fn, cfg, impl, deps, req, res, ctx, err, ok, ret, arg, val, ty, mod\n\
+                \n\
+                SYMBOLS (each = 1 token, replaces 5-10 tokens of prose):\n\
+                Structural: λ=function  §=module/struct  ∂=interface/trait  τ=type  ε=enum\n\
+                Actions:    ⊕=add  ⊖=remove  ∆=modify  →=returns  ⇒=implies\n\
+                Status:     ✓=ok  ✗=fail  ⚠=warning\n\
+                \n\
+                CHANGE NOTATION (use for all code modifications):\n\
+                ⊕F1:42 param(timeout:Duration)     — added parameter\n\
+                ⊖F1:10-15                           — removed lines\n\
+                ∆F1:42 validate_token → verify_jwt  — renamed/refactored\n\
+                \n\
+                STATUS NOTATION:\n\
+                ctx_read(F1) → 808L cached ✓\n\
+                cargo test → 82 passed ✓ 0 failed\n\
                 \n\
                 SYMBOL TABLE: Tool outputs include a §MAP section mapping long identifiers to short IDs.\n\
                 Use these short IDs in all subsequent references."

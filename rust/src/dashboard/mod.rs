@@ -79,6 +79,13 @@ async fn handle_request(mut stream: tokio::net::TcpStream) {
             let json = serde_json::to_string(&store).unwrap_or_else(|_| "{}".to_string());
             ("200 OK", "application/json", json)
         }
+        "/api/mcp" => {
+            let mcp_path = dirs::home_dir()
+                .map(|h| h.join(".lean-ctx").join("mcp-live.json"))
+                .unwrap_or_default();
+            let json = std::fs::read_to_string(&mcp_path).unwrap_or_else(|_| "{}".to_string());
+            ("200 OK", "application/json", json)
+        }
         "/" | "/index.html" => (
             "200 OK",
             "text/html; charset=utf-8",
