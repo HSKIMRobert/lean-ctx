@@ -2,6 +2,30 @@
 
 All notable changes to lean-ctx are documented here.
 
+## [2.1.3] — 2026-03-26
+
+### Bug Fix: Shell Hook Idempotent Updates
+
+Fixes a critical UX issue where `lean-ctx init --global` refused to update existing shell aliases, leaving users stuck with broken (bare `lean-ctx`) aliases from older versions even after upgrading the binary.
+
+### Fixed
+
+- **`init --global` now auto-replaces old aliases** — running `lean-ctx init --global` detects and removes the previous lean-ctx block from `.bashrc`/`.zshrc`/`config.fish`/PowerShell profile, then writes fresh aliases with the correct absolute binary path
+- **No manual cleanup required** — users no longer need to manually delete old alias blocks before re-running init
+- **PowerShell profile update** — `init_powershell` also auto-replaces the old function block
+
+### Added
+
+- `remove_lean_ctx_block()` helper to cleanly strip old POSIX/fish hook blocks from shell config files
+- `remove_lean_ctx_block_ps()` helper for PowerShell profile block removal (brace-depth aware)
+- 4 unit tests for block removal covering bash, fish, PowerShell, and no-op cases
+
+### Note for existing users
+
+Simply run `lean-ctx init --global` — the old aliases will be automatically replaced with the correct absolute-path versions. No manual `.bashrc` editing needed.
+
+---
+
 ## [2.1.2] — 2026-03-26
 
 ### Bug Fix: Shell Hook PATH Resolution

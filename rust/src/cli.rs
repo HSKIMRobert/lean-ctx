@@ -706,8 +706,18 @@ if (-not $env:LEAN_CTX_ACTIVE) {{
 
     if let Ok(existing) = std::fs::read_to_string(&profile_path) {
         if existing.contains("lean-ctx shell hook") {
-            println!("lean-ctx already configured in {}", profile_path.display());
-            return;
+            let cleaned = remove_lean_ctx_block_ps(&existing);
+            match std::fs::write(&profile_path, format!("{cleaned}{functions}")) {
+                Ok(()) => {
+                    println!("Updated lean-ctx functions in {}", profile_path.display());
+                    println!("  Binary: {binary}");
+                    return;
+                }
+                Err(e) => {
+                    eprintln!("Error updating {}: {e}", profile_path.display());
+                    return;
+                }
+            }
         }
     }
 
@@ -720,9 +730,38 @@ if (-not $env:LEAN_CTX_ACTIVE) {{
             use std::io::Write;
             let _ = f.write_all(functions.as_bytes());
             println!("Added lean-ctx functions to {}", profile_path.display());
+            println!("  Binary: {binary}");
         }
         Err(e) => eprintln!("Error writing {}: {e}", profile_path.display()),
     }
+}
+
+fn remove_lean_ctx_block_ps(content: &str) -> String {
+    let mut result = String::new();
+    let mut in_block = false;
+    let mut brace_depth = 0i32;
+
+    for line in content.lines() {
+        if line.contains("lean-ctx shell hook") {
+            in_block = true;
+            continue;
+        }
+        if in_block {
+            brace_depth += line.matches('{').count() as i32;
+            brace_depth -= line.matches('}').count() as i32;
+            if brace_depth <= 0 && (line.trim() == "}" || line.trim().is_empty()) {
+                if line.trim() == "}" {
+                    in_block = false;
+                    brace_depth = 0;
+                }
+                continue;
+            }
+            continue;
+        }
+        result.push_str(line);
+        result.push('\n');
+    }
+    result
 }
 
 fn init_fish(binary: &str) {
@@ -760,9 +799,19 @@ fn init_fish(binary: &str) {
     );
 
     if let Ok(existing) = std::fs::read_to_string(&config) {
-        if existing.contains("lean-ctx") {
-            println!("lean-ctx already configured in {}", config.display());
-            return;
+        if existing.contains("lean-ctx shell hook") {
+            let cleaned = remove_lean_ctx_block(&existing);
+            match std::fs::write(&config, format!("{cleaned}{aliases}")) {
+                Ok(()) => {
+                    println!("Updated lean-ctx aliases in {}", config.display());
+                    println!("  Binary: {binary}");
+                    return;
+                }
+                Err(e) => {
+                    eprintln!("Error updating {}: {e}", config.display());
+                    return;
+                }
+            }
         }
     }
 
@@ -775,6 +824,7 @@ fn init_fish(binary: &str) {
             use std::io::Write;
             let _ = f.write_all(aliases.as_bytes());
             println!("Added lean-ctx aliases to {}", config.display());
+            println!("  Binary: {binary}");
         }
         Err(e) => eprintln!("Error writing {}: {e}", config.display()),
     }
@@ -824,8 +874,18 @@ fi
 
     if let Ok(existing) = std::fs::read_to_string(&rc_file) {
         if existing.contains("lean-ctx shell hook") {
-            println!("lean-ctx already configured in {}", rc_file.display());
-            return;
+            let cleaned = remove_lean_ctx_block(&existing);
+            match std::fs::write(&rc_file, format!("{cleaned}{aliases}")) {
+                Ok(()) => {
+                    println!("Updated lean-ctx aliases in {}", rc_file.display());
+                    println!("  Binary: {binary}");
+                    return;
+                }
+                Err(e) => {
+                    eprintln!("Error updating {}: {e}", rc_file.display());
+                    return;
+                }
+            }
         }
     }
 
@@ -838,9 +898,39 @@ fi
             use std::io::Write;
             let _ = f.write_all(aliases.as_bytes());
             println!("Added lean-ctx aliases to {}", rc_file.display());
+            println!("  Binary: {binary}");
         }
         Err(e) => eprintln!("Error writing {}: {e}", rc_file.display()),
     }
+}
+
+fn remove_lean_ctx_block(content: &str) -> String {
+    let mut result = String::new();
+    let mut in_block = false;
+
+    for line in content.lines() {
+        if line.contains("lean-ctx shell hook") {
+            in_block = true;
+            continue;
+        }
+        if in_block {
+            if line.trim() == "fi" || line.trim() == "end" || line.trim().is_empty() {
+                if line.trim() == "fi" || line.trim() == "end" {
+                    in_block = false;
+                }
+                continue;
+            }
+            if !line.starts_with("alias ") && !line.starts_with('\t') && !line.starts_with("if ") {
+                in_block = false;
+                result.push_str(line);
+                result.push('\n');
+            }
+            continue;
+        }
+        result.push_str(line);
+        result.push('\n');
+    }
+    result
 }
 
 pub fn load_shell_history_pub() -> Vec<String> {
@@ -892,5 +982,61 @@ fn print_savings(original: usize, sent: usize) {
     if original > 0 && saved > 0 {
         let pct = (saved as f64 / original as f64 * 100.0).round() as usize;
         println!("[{saved} tok saved ({pct}%)]");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_remove_lean_ctx_block_posix() {
+        let input = r#"# existing config
+export PATH="$HOME/bin:$PATH"
+
+# lean-ctx shell hook — transparent CLI compression (90+ patterns)
+if [ -z "$LEAN_CTX_ACTIVE" ]; then
+alias git='lean-ctx -c git'
+alias npm='lean-ctx -c npm'
+fi
+
+# other stuff
+export EDITOR=vim
+"#;
+        let result = remove_lean_ctx_block(input);
+        assert!(!result.contains("lean-ctx"), "block should be removed");
+        assert!(result.contains("export PATH"), "other content preserved");
+        assert!(
+            result.contains("export EDITOR"),
+            "trailing content preserved"
+        );
+    }
+
+    #[test]
+    fn test_remove_lean_ctx_block_fish() {
+        let input = "# other fish config\nset -x FOO bar\n\n# lean-ctx shell hook — transparent CLI compression (90+ patterns)\nif not set -q LEAN_CTX_ACTIVE\n\talias git 'lean-ctx -c git'\n\talias npm 'lean-ctx -c npm'\nend\n\n# more config\nset -x BAZ qux\n";
+        let result = remove_lean_ctx_block(input);
+        assert!(!result.contains("lean-ctx"), "block should be removed");
+        assert!(result.contains("set -x FOO"), "other content preserved");
+        assert!(result.contains("set -x BAZ"), "trailing content preserved");
+    }
+
+    #[test]
+    fn test_remove_lean_ctx_block_ps() {
+        let input = "# PowerShell profile\n$env:FOO = 'bar'\n\n# lean-ctx shell hook — transparent CLI compression (90+ patterns)\nif (-not $env:LEAN_CTX_ACTIVE) {\n  $LeanCtxBin = \"C:\\\\bin\\\\lean-ctx.exe\"\n  function git { & $LeanCtxBin -c \"git $($args -join ' ')\" }\n}\n\n# other stuff\n$env:EDITOR = 'vim'\n";
+        let result = remove_lean_ctx_block_ps(input);
+        assert!(
+            !result.contains("lean-ctx shell hook"),
+            "block should be removed"
+        );
+        assert!(result.contains("$env:FOO"), "other content preserved");
+        assert!(result.contains("$env:EDITOR"), "trailing content preserved");
+    }
+
+    #[test]
+    fn test_remove_block_no_lean_ctx() {
+        let input = "# normal bashrc\nexport PATH=\"$HOME/bin:$PATH\"\n";
+        let result = remove_lean_ctx_block(input);
+        assert!(result.contains("export PATH"), "content unchanged");
     }
 }
