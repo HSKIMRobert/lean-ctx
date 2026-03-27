@@ -15,7 +15,7 @@ impl ServerHandler for LeanCtxServer {
         let instructions = build_instructions(self.crp_mode);
 
         InitializeResult::new(capabilities)
-            .with_server_info(Implementation::new("lean-ctx", "2.4.0"))
+            .with_server_info(Implementation::new("lean-ctx", "2.4.1"))
             .with_instructions(instructions)
     }
 
@@ -294,20 +294,21 @@ impl ServerHandler for LeanCtxServer {
                     ),
                     tool_def(
                         "ctx_graph",
-                        "Build and query a project intelligence graph. Analyzes file dependencies, \
-                        imports/exports, and call hierarchies to understand project structure. \
-                        Actions: 'build' (scan project), 'related' (find files related to a given file).",
+                        "Persistent project intelligence graph with incremental scanning. \
+                        Actions: 'build' (scan & persist index), 'related' (BFS dependencies for a file), \
+                        'symbol' (read single symbol via file.rs::fn_name), 'impact' (reverse deps, 2 levels), \
+                        'status' (index age, file count, staleness).",
                         json!({
                             "type": "object",
                             "properties": {
                                 "action": {
                                     "type": "string",
-                                    "enum": ["build", "related"],
-                                    "description": "Graph operation"
+                                    "enum": ["build", "related", "symbol", "impact", "status"],
+                                    "description": "Graph operation: build, related, symbol, impact, status"
                                 },
                                 "path": {
                                     "type": "string",
-                                    "description": "File path (required for 'related' action)"
+                                    "description": "File path (related/impact) or file::symbol_name (symbol)"
                                 },
                                 "project_root": {
                                     "type": "string",
@@ -637,7 +638,15 @@ impl ServerHandler for LeanCtxServer {
                     .ok_or_else(|| ErrorData::invalid_params("action is required", None))?;
                 let path = get_str(args, "path");
                 let root = get_str(args, "project_root").unwrap_or_else(|| ".".to_string());
-                let result = crate::tools::ctx_graph::handle(&action, path.as_deref(), &root);
+                let mut cache = self.cache.write().await;
+                let result = crate::tools::ctx_graph::handle(
+                    &action,
+                    path.as_deref(),
+                    &root,
+                    &mut cache,
+                    self.crp_mode,
+                );
+                drop(cache);
                 self.record_call("ctx_graph", 0, 0, Some(action)).await;
                 result
             }

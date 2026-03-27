@@ -176,6 +176,7 @@ fn extract_area(query: &str) -> String {
 
 fn build_strategy(intent: &Intent, root: &str) -> Vec<(String, String)> {
     let mut files = Vec::new();
+    let graph = crate::core::graph_index::ProjectIndex::load(root);
 
     match intent {
         Intent::FixBug { area } => {
@@ -183,13 +184,20 @@ fn build_strategy(intent: &Intent, root: &str) -> Vec<(String, String)> {
                 for path in paths.iter().take(3) {
                     files.push((path.clone(), "full".to_string()));
                 }
+                if let Some(ref idx) = graph {
+                    enrich_with_graph(&mut files, &paths, idx, root, "map", 5);
+                }
                 for path in paths.iter().skip(3).take(5) {
-                    files.push((path.clone(), "map".to_string()));
+                    if !files.iter().any(|(f, _)| f == path) {
+                        files.push((path.clone(), "map".to_string()));
+                    }
                 }
             }
             if let Some(test_files) = find_test_files(area, root) {
                 for path in test_files.iter().take(2) {
-                    files.push((path.clone(), "signatures".to_string()));
+                    if !files.iter().any(|(f, _)| f == path) {
+                        files.push((path.clone(), "signatures".to_string()));
+                    }
                 }
             }
         }
@@ -198,8 +206,13 @@ fn build_strategy(intent: &Intent, root: &str) -> Vec<(String, String)> {
                 for path in paths.iter().take(2) {
                     files.push((path.clone(), "signatures".to_string()));
                 }
+                if let Some(ref idx) = graph {
+                    enrich_with_graph(&mut files, &paths, idx, root, "map", 5);
+                }
                 for path in paths.iter().skip(2).take(5) {
-                    files.push((path.clone(), "map".to_string()));
+                    if !files.iter().any(|(f, _)| f == path) {
+                        files.push((path.clone(), "map".to_string()));
+                    }
                 }
             }
         }
@@ -208,12 +221,18 @@ fn build_strategy(intent: &Intent, root: &str) -> Vec<(String, String)> {
                 for path in paths.iter().take(5) {
                     files.push((path.clone(), "full".to_string()));
                 }
+                if let Some(ref idx) = graph {
+                    enrich_with_graph(&mut files, &paths, idx, root, "full", 5);
+                }
             }
         }
         Intent::Understand { area } => {
             if let Some(paths) = find_files_for_area(area, root) {
                 for path in &paths {
                     files.push((path.clone(), "map".to_string()));
+                }
+                if let Some(ref idx) = graph {
+                    enrich_with_graph(&mut files, &paths, idx, root, "map", 8);
                 }
             }
         }
@@ -225,7 +244,9 @@ fn build_strategy(intent: &Intent, root: &str) -> Vec<(String, String)> {
             }
             if let Some(src_files) = find_files_for_area(area, root) {
                 for path in src_files.iter().take(3) {
-                    files.push((path.clone(), "signatures".to_string()));
+                    if !files.iter().any(|(f, _)| f == path) {
+                        files.push((path.clone(), "signatures".to_string()));
+                    }
                 }
             }
         }
@@ -261,6 +282,34 @@ fn build_strategy(intent: &Intent, root: &str) -> Vec<(String, String)> {
     }
 
     files
+}
+
+fn enrich_with_graph(
+    files: &mut Vec<(String, String)>,
+    seed_paths: &[String],
+    index: &crate::core::graph_index::ProjectIndex,
+    root: &str,
+    mode: &str,
+    max: usize,
+) {
+    let mut added = 0;
+    for seed in seed_paths {
+        let rel = seed
+            .strip_prefix(root)
+            .unwrap_or(seed)
+            .trim_start_matches('/');
+
+        for related in index.get_related(rel, 2) {
+            if added >= max {
+                return;
+            }
+            let abs = format!("{root}/{related}");
+            if !files.iter().any(|(f, _)| *f == abs || *f == related) && Path::new(&abs).exists() {
+                files.push((abs, mode.to_string()));
+                added += 1;
+            }
+        }
+    }
 }
 
 fn find_files_for_area(area: &str, root: &str) -> Option<Vec<String>> {

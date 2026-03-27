@@ -2,6 +2,22 @@
 
 All notable changes to lean-ctx are documented here.
 
+## [2.4.1] — 2026-03-27
+
+### Added
+
+- **Persistent Project Graph** — New `ctx_graph` with 5 actions (`build`, `related`, `symbol`, `impact`, `status`). Incrementally scans project files, persists index to `~/.lean-ctx/graphs/`, and enables symbol-level reads at up to 93% token savings over full file reads
+- **`install.sh`** — Universal installer with `--download` mode (no Rust required), SHA256 checksum verification, and one-liner support: `curl -fsSL .../install.sh | bash -s -- --download`
+- **`lean-ctx-bin` npm package** — Pre-built binary distribution via npm for users without Rust: `npm install -g lean-ctx-bin`
+- **`lctx` launcher** — Multi-agent launcher script supporting Claude Code, Cursor, Gemini CLI, Codex, Windsurf, and Cline. Auto-detects agent, builds project graph, and configures lean-ctx in one command
+- **Graph-based intent** — `ctx_intent` now uses the persistent project graph for more precise file selection when a graph index is available
+
+### Fixed
+
+- **Self-update Linux target mismatch** — `updater.rs` now matches the `gnu` targets produced by CI instead of expecting `musl`. Release CI also builds `musl` targets for maximum portability
+
+---
+
 ## [2.4.0] — 2026-03-27
 
 ### Fixed
