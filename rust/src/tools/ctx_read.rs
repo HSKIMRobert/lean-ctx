@@ -55,6 +55,7 @@ fn handle_with_options(
             ext,
             original_tokens,
             crp_mode,
+            path,
         );
     }
 
@@ -77,6 +78,7 @@ fn handle_with_options(
         ext,
         entry.original_tokens,
         crp_mode,
+        path,
     )
 }
 
@@ -195,6 +197,7 @@ fn build_header(
     header
 }
 
+#[allow(clippy::too_many_arguments)]
 fn process_mode(
     content: &str,
     mode: &str,
@@ -203,6 +206,7 @@ fn process_mode(
     ext: &str,
     original_tokens: usize,
     crp_mode: CrpMode,
+    file_path: &str,
 ) -> String {
     let line_count = content.lines().count();
 
@@ -292,7 +296,7 @@ fn process_mode(
             format!("{header}\n{compressed}\n{savings}")
         }
         "entropy" => {
-            let result = entropy::entropy_compress(content);
+            let result = entropy::entropy_compress_adaptive(content, file_path);
             let avg_h = entropy::analyze_entropy(content).avg_entropy;
             let header = build_header(file_ref, short, ext, content, line_count, false);
             let mut output = format!("{header} (H̄={avg_h:.1})");

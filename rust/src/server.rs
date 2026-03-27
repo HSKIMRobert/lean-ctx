@@ -15,7 +15,7 @@ impl ServerHandler for LeanCtxServer {
         let instructions = build_instructions(self.crp_mode);
 
         InitializeResult::new(capabilities)
-            .with_server_info(Implementation::new("lean-ctx", "2.5.3"))
+            .with_server_info(Implementation::new("lean-ctx", "2.6.0"))
             .with_instructions(instructions)
     }
 
@@ -348,6 +348,27 @@ impl ServerHandler for LeanCtxServer {
                                 }
                             },
                             "required": ["action"]
+                        }),
+                    ),
+                    tool_def(
+                        "ctx_overview",
+                        "Multi-resolution project overview with task-conditioned relevance scoring. \
+                        Shows all project files organized by relevance to the current task. \
+                        Files are grouped into three levels: directly relevant (read full), \
+                        context (read signatures), distant (reference only). \
+                        Use this at session start to get a compact project map before diving into specific files.",
+                        json!({
+                            "type": "object",
+                            "properties": {
+                                "task": {
+                                    "type": "string",
+                                    "description": "Task description for relevance scoring (e.g. 'fix auth bug in login flow')"
+                                },
+                                "path": {
+                                    "type": "string",
+                                    "description": "Project root directory (default: .)"
+                                }
+                            }
                         }),
                     ),
                     tool_def(
@@ -730,6 +751,21 @@ impl ServerHandler for LeanCtxServer {
                 self.record_call("ctx_session", 0, 0, Some(action)).await;
                 result
             }
+            "ctx_overview" => {
+                let task = get_str(args, "task");
+                let path = get_str(args, "path");
+                let cache = self.cache.read().await;
+                let result = crate::tools::ctx_overview::handle(
+                    &cache,
+                    task.as_deref(),
+                    path.as_deref(),
+                    self.crp_mode,
+                );
+                drop(cache);
+                self.record_call("ctx_overview", 0, 0, Some("overview".to_string()))
+                    .await;
+                result
+            }
             "ctx_wrapped" => {
                 let period = get_str(args, "period").unwrap_or_else(|| "week".to_string());
                 let result = crate::tools::ctx_wrapped::handle(&period);
@@ -755,6 +791,7 @@ impl ServerHandler for LeanCtxServer {
                 | "ctx_dedup"
                 | "ctx_session"
                 | "ctx_wrapped"
+                | "ctx_overview"
         );
 
         if !skip_checkpoint && self.increment_and_check() {
@@ -788,9 +825,11 @@ fn build_instructions_with_client(crp_mode: CrpMode, client_name: &str) -> Strin
         None => String::new(),
     };
 
+    // Prefix-cache alignment: stable instructions first (API providers cache KV states
+    // for shared prefixes), then variable session state after.
     let base = format!("\
 lean-ctx MCP — tool replacement for reading, running commands, and searching.\n\
-{session_block}\n\
+\n\
 REPLACE these built-in tools with lean-ctx equivalents:\n\
 • Read file → ctx_read(path, mode) — NEVER use Read tool\n\
 • Run command → ctx_shell(command) — NEVER use Shell tool\n\
@@ -813,6 +852,7 @@ IMPORTANT: If ctx_read returns 'cached Nt NL' and you need the actual file conte
 Do not fall back to native Read tools — always use fresh=true or start_line instead.\n\
 \n\
 PROACTIVE (use without being asked):\n\
+• ctx_overview(task) — at session start, get task-relevant project map before reading files\n\
 • ctx_compress — when context grows large, create checkpoint\n\
 • ctx_metrics — periodically verify token savings\n\
 • ctx_session load — on new chat or after context compaction, restore previous session\n\
@@ -853,8 +893,12 @@ COMMUNICATION PROTOCOL (Cognitive Efficiency Protocol v1):\n\
    Good: \"Fixed F3:42 — was comparing UTC vs local timestamp\"\n\
 5. QUALITY ANCHOR — NEVER skip edge case analysis or error handling to save tokens.\n\
    Complex tasks require full reasoning. Only reduce prose, never reduce thinking.\n\
+6. OUTPUT BUDGET — Output tokens cost 3-4x more than input tokens. Minimize response length:\n\
+   Mechanical tasks: max 50 tokens response. Standard: max 200. Architectural: full reasoning allowed.\n\
+   Always prefer structured notation over prose. Never repeat the question or restate context.\n\
 \n\
-{decoder_block}",
+{decoder_block}\n\
+{session_block}",
         decoder_block = crate::core::protocol::instruction_decoder_block()
     );
 

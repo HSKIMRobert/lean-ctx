@@ -117,6 +117,10 @@ impl SessionCache {
         r
     }
 
+    pub fn get_file_ref_readonly(&self, path: &str) -> Option<String> {
+        self.file_refs.get(path).cloned()
+    }
+
     pub fn get(&self, path: &str) -> Option<&CacheEntry> {
         self.entries.get(path)
     }
