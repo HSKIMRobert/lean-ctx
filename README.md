@@ -47,61 +47,23 @@ lean-ctx reduces LLM token consumption by **up to 99%** through three complement
 
 > Estimates based on medium-sized TypeScript/Rust projects. MCP cache hits reduce re-reads to ~13 tokens each.
 
-## Installation
-
-### One-Liner (no Rust required)
+## Get Started (60 seconds)
 
 ```bash
-curl -fsSL https://leanctx.com/install.sh | sh
+# 1. Install (pick one)
+curl -fsSL https://leanctx.com/install.sh | sh    # universal, no Rust
+brew tap yvgude/lean-ctx && brew install lean-ctx   # macOS / Linux
+npm install -g lean-ctx-bin                         # Node.js
+cargo install lean-ctx                              # Rust
+
+# 2. Setup (auto-configures shell + ALL detected editors)
+lean-ctx setup
+
+# 3. Verify
+lean-ctx doctor
 ```
 
-### npm (no Rust required)
-
-```bash
-npm install -g lean-ctx-bin
-```
-
-### Homebrew (macOS / Linux)
-
-```bash
-brew tap yvgude/lean-ctx
-brew install lean-ctx
-```
-
-### Arch Linux (AUR)
-
-```bash
-yay -S lean-ctx        # builds from source (crates.io)
-# or
-yay -S lean-ctx-bin    # pre-built binary (GitHub Releases)
-```
-
-### Cargo
-
-```bash
-cargo install lean-ctx
-```
-
-### Build from Source
-
-```bash
-git clone https://github.com/yvgude/lean-ctx.git
-cd lean-ctx/rust
-cargo build --release
-cp target/release/lean-ctx ~/.local/bin/
-```
-
-> Add `~/.local/bin` to your PATH if needed:
-> ```bash
-> echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc  # or ~/.bashrc
-> ```
-
-### Verify Installation
-
-```bash
-lean-ctx --version   # Should show "lean-ctx 2.6.1"
-lean-ctx gain        # Should show token savings stats
-```
+`lean-ctx setup` auto-detects and configures: **Cursor**, **Claude Code**, **Windsurf**, **VS Code/Copilot**, **Codex CLI**, **Gemini CLI**, **Zed**, **OpenCode**, and **Pi**. See [Getting Started](https://leanctx.com/docs/getting-started) for platform-specific details, AUR, and manual editor configuration.
 
 ## Token Dense Dialect (TDD)
 
@@ -184,7 +146,7 @@ lean-ctx gain     # check your savings
 lean-ctx doctor   # verify everything is configured
 ```
 
-`lean-ctx setup` auto-detects your shell and installed editors (Cursor, Claude Code, Windsurf, Codex CLI, Gemini CLI, Zed), installs shell aliases, creates MCP config files, and runs diagnostics — all in one command.
+`lean-ctx setup` auto-detects your shell and installed editors (Cursor, Claude Code, Windsurf, VS Code/Copilot, Codex CLI, Gemini CLI, Zed, OpenCode, Pi), installs shell aliases, creates MCP config files, and runs diagnostics — all in one command.
 
 > **Full documentation:** [leanctx.com/docs/getting-started](https://leanctx.com/docs/getting-started)
 

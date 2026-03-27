@@ -280,10 +280,28 @@ fn mcp_config_locations(home: &std::path::Path) -> Vec<McpLocation> {
             display: "~/.config/zed/settings.json",
             path: zed_cfg,
         });
+    }
+
+    {
+        #[cfg(unix)]
         let opencode_cfg = home.join(".config").join("opencode").join("opencode.json");
+        #[cfg(unix)]
+        let opencode_display = "~/.config/opencode/opencode.json";
+
+        #[cfg(windows)]
+        let opencode_cfg = if let Ok(appdata) = std::env::var("APPDATA") {
+            std::path::PathBuf::from(appdata)
+                .join("opencode")
+                .join("opencode.json")
+        } else {
+            home.join(".config").join("opencode").join("opencode.json")
+        };
+        #[cfg(windows)]
+        let opencode_display = "%APPDATA%/opencode/opencode.json";
+
         locations.push(McpLocation {
             name: "OpenCode",
-            display: "~/.config/opencode/opencode.json",
+            display: opencode_display,
             path: opencode_cfg,
         });
     }
@@ -384,6 +402,38 @@ fn port_3333_outcome() -> Outcome {
             ok: false,
             line: format!("{BOLD}Dashboard port 3333{RST}  {RED}not available: {e}{RST}"),
         },
+    }
+}
+
+fn pi_outcome() -> Option<Outcome> {
+    let pi_result = std::process::Command::new("pi").arg("--version").output();
+
+    match pi_result {
+        Ok(output) if output.status.success() => {
+            let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let has_plugin = std::process::Command::new("pi")
+                .args(["list"])
+                .output()
+                .map(|o| String::from_utf8_lossy(&o.stdout).contains("pi-lean-ctx"))
+                .unwrap_or(false);
+
+            if has_plugin {
+                Some(Outcome {
+                    ok: true,
+                    line: format!(
+                        "{BOLD}Pi Coding Agent{RST}  {GREEN}{version}, pi-lean-ctx installed{RST}"
+                    ),
+                })
+            } else {
+                Some(Outcome {
+                    ok: false,
+                    line: format!(
+                        "{BOLD}Pi Coding Agent{RST}  {YELLOW}{version}, but pi-lean-ctx not installed{RST}  {DIM}(run: pi install npm:pi-lean-ctx){RST}"
+                    ),
+                })
+            }
+        }
+        _ => None,
     }
 }
 
@@ -553,7 +603,17 @@ pub fn run() {
     }
     print_check(&port);
 
+    // 9) Pi Coding Agent (optional)
+    let pi = pi_outcome();
+    if let Some(ref pi_check) = pi {
+        if pi_check.ok {
+            passed += 1;
+        }
+        print_check(pi_check);
+    }
+
+    let effective_total = if pi.is_some() { total + 1 } else { total };
     println!();
-    println!("  {BOLD}{WHITE}Summary:{RST}  {GREEN}{passed}{RST}{DIM}/{total}{RST} checks passed");
+    println!("  {BOLD}{WHITE}Summary:{RST}  {GREEN}{passed}{RST}{DIM}/{effective_total}{RST} checks passed");
     println!("  {DIM}This binary: lean-ctx {VERSION} (Cargo package version){RST}");
 }
