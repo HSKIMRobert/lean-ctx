@@ -13,6 +13,7 @@ enum ConfigType {
     Zed,
     Codex,
     VsCodeMcp,
+    OpenCode,
 }
 
 pub fn run_setup() {
@@ -28,64 +29,91 @@ pub fn run_setup() {
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|_| "lean-ctx".to_string());
 
+    let home_str = home.to_string_lossy().to_string();
+
     println!("\n\x1b[1;32m▶\x1b[0m \x1b[1mlean-ctx setup\x1b[0m\n");
 
-    println!("\x1b[1m1. Installing shell aliases...\x1b[0m");
+    println!("\x1b[1mStep 1: Shell Aliases\x1b[0m");
+    println!("\x1b[2m──────────────────────────────────────────────────────────────────\x1b[0m");
     crate::cli::cmd_init(&["--global".to_string()]);
     println!();
 
-    println!("\x1b[1m2. Detecting installed editors...\x1b[0m");
+    println!("\x1b[1mStep 2: Editor Configuration\x1b[0m");
+    println!("\x1b[2m──────────────────────────────────────────────────────────────────\x1b[0m");
 
     let targets = build_targets(&home, &binary);
-    let mut configured: Vec<&str> = Vec::new();
-    let mut skipped: Vec<&str> = Vec::new();
+    let mut newly_configured: Vec<&str> = Vec::new();
+    let mut already_configured: Vec<&str> = Vec::new();
+    let mut not_installed: Vec<&str> = Vec::new();
+    let mut errors: Vec<&str> = Vec::new();
+
+    let name_width = targets.iter().map(|t| t.name.len()).max().unwrap_or(15);
 
     for target in &targets {
+        let short_path = shorten_path(&target.config_path.to_string_lossy(), &home_str);
+
         if !target.detect_path.exists() {
+            println!(
+                "  \x1b[2m○\x1b[0m {:<width$}  \x1b[2m{:<44}  not installed\x1b[0m",
+                target.name,
+                "",
+                width = name_width
+            );
+            not_installed.push(target.name);
             continue;
         }
 
-        let already_configured = target.config_path.exists()
+        let has_config = target.config_path.exists()
             && std::fs::read_to_string(&target.config_path)
                 .map(|c| c.contains("lean-ctx"))
                 .unwrap_or(false);
 
-        if already_configured {
+        if has_config {
             println!(
-                "  \x1b[32m✓\x1b[0m {} \x1b[2m(already configured)\x1b[0m",
-                target.name
+                "  \x1b[32m✓\x1b[0m {:<width$}  \x1b[2m{:<44}\x1b[0m  \x1b[32malready configured\x1b[0m",
+                target.name,
+                short_path,
+                width = name_width
             );
-            skipped.push(target.name);
+            already_configured.push(target.name);
             continue;
         }
 
         match write_config(target, &binary) {
             Ok(()) => {
                 println!(
-                    "  \x1b[32m✓\x1b[0m {} \x1b[2m(created {})\x1b[0m",
+                    "  \x1b[32m✓\x1b[0m {:<width$}  \x1b[2m{:<44}\x1b[0m  \x1b[1;32mconfigured\x1b[0m",
                     target.name,
-                    target.config_path.display()
+                    short_path,
+                    width = name_width
                 );
-                configured.push(target.name);
+                newly_configured.push(target.name);
             }
             Err(e) => {
                 println!(
-                    "  \x1b[33m⚠\x1b[0m {} \x1b[2m(error: {})\x1b[0m",
-                    target.name, e
+                    "  \x1b[33m⚠\x1b[0m {:<width$}  \x1b[2m{:<44}\x1b[0m  \x1b[33merror: {}\x1b[0m",
+                    target.name,
+                    short_path,
+                    e,
+                    width = name_width
                 );
+                errors.push(target.name);
             }
         }
     }
 
-    if configured.is_empty() && skipped.is_empty() {
+    let total_ok = newly_configured.len() + already_configured.len();
+    if total_ok == 0 && errors.is_empty() {
+        println!();
         println!(
             "  \x1b[33m⚠\x1b[0m No editors detected. \
-             Configure manually: https://leanctx.com/docs/getting-started#editor-setup"
+             Configure manually: https://leanctx.com/docs/getting-started"
         );
     }
 
     println!();
-    println!("\x1b[1m3. Installing agent instructions...\x1b[0m");
+    println!("\x1b[1mStep 3: Agent Instructions\x1b[0m");
+    println!("\x1b[2m──────────────────────────────────────────────────────────────────\x1b[0m");
     let mut agents_installed = 0;
     for target in &targets {
         if !target.detect_path.exists() || target.agent_key.is_empty() {
@@ -99,38 +127,73 @@ pub fn run_setup() {
     }
 
     println!();
-    println!("\x1b[1m4. Creating ~/.lean-ctx directory...\x1b[0m");
+    println!("\x1b[1mStep 4: Data Directory\x1b[0m");
+    println!("\x1b[2m──────────────────────────────────────────────────────────────────\x1b[0m");
     let lean_dir = home.join(".lean-ctx");
     if !lean_dir.exists() {
         let _ = std::fs::create_dir_all(&lean_dir);
-        println!("  \x1b[32m✓\x1b[0m Created {}", lean_dir.display());
+        println!("  \x1b[32m✓\x1b[0m Created ~/.lean-ctx/");
     } else {
-        println!("  \x1b[32m✓\x1b[0m Already exists");
+        println!("  \x1b[32m✓\x1b[0m ~/.lean-ctx/ already exists");
     }
 
     println!();
-    println!("\x1b[1m5. Running diagnostics...\x1b[0m");
+    println!("\x1b[1mStep 5: Diagnostics\x1b[0m");
+    println!("\x1b[2m──────────────────────────────────────────────────────────────────\x1b[0m");
     crate::doctor::run();
 
     println!();
+    println!("\x1b[2m══════════════════════════════════════════════════════════════════\x1b[0m");
     println!("\x1b[1;32m✓ Setup complete!\x1b[0m");
+    println!();
+    println!(
+        "  \x1b[1m{}\x1b[0m editor{} configured, \x1b[2m{} already set up, {} not installed\x1b[0m",
+        newly_configured.len(),
+        if newly_configured.len() != 1 { "s" } else { "" },
+        already_configured.len(),
+        not_installed.len()
+    );
+
+    if !errors.is_empty() {
+        println!(
+            "  \x1b[33m{} error{}: {}\x1b[0m",
+            errors.len(),
+            if errors.len() != 1 { "s" } else { "" },
+            errors.join(", ")
+        );
+    }
+
+    println!();
 
     let shell = std::env::var("SHELL").unwrap_or_default();
     if shell.contains("zsh") {
-        println!("  Run: \x1b[1msource ~/.zshrc\x1b[0m to activate shell hooks");
+        println!("  \x1b[1mNext:\x1b[0m  source ~/.zshrc");
     } else if shell.contains("fish") {
-        println!("  Run: \x1b[1msource ~/.config/fish/config.fish\x1b[0m to activate shell hooks");
+        println!("  \x1b[1mNext:\x1b[0m  source ~/.config/fish/config.fish");
     } else if shell.contains("bash") {
-        println!("  Run: \x1b[1msource ~/.bashrc\x1b[0m to activate shell hooks");
+        println!("  \x1b[1mNext:\x1b[0m  source ~/.bashrc");
     } else {
-        println!("  Restart your shell to activate hooks");
+        println!("  \x1b[1mNext:\x1b[0m  Restart your shell");
     }
 
-    if !configured.is_empty() {
+    if !newly_configured.is_empty() {
         println!(
-            "  Restart your editor{} to load lean-ctx MCP tools",
-            if configured.len() > 1 { "s" } else { "" }
+            "         Restart {} to load MCP tools",
+            newly_configured.join(", ")
         );
+    }
+
+    println!(
+        "         \x1b[2mRun \x1b[0m\x1b[1mlean-ctx doctor\x1b[0m\x1b[2m to verify anytime\x1b[0m"
+    );
+    println!();
+}
+
+fn shorten_path(path: &str, home: &str) -> String {
+    if let Some(stripped) = path.strip_prefix(home) {
+        format!("~{stripped}")
+    } else {
+        path.to_string()
     }
 }
 
@@ -152,7 +215,7 @@ fn build_targets(home: &std::path::Path, _binary: &str) -> Vec<EditorTarget> {
         },
         EditorTarget {
             name: "Windsurf",
-            agent_key: "",
+            agent_key: "windsurf",
             config_path: home.join(".codeium/windsurf/mcp_config.json"),
             detect_path: home.join(".codeium/windsurf"),
             config_type: ConfigType::McpJson,
@@ -166,7 +229,7 @@ fn build_targets(home: &std::path::Path, _binary: &str) -> Vec<EditorTarget> {
         },
         EditorTarget {
             name: "Gemini CLI",
-            agent_key: "",
+            agent_key: "gemini",
             config_path: home.join(".gemini/settings/mcp.json"),
             detect_path: home.join(".gemini"),
             config_type: ConfigType::McpJson,
@@ -180,10 +243,17 @@ fn build_targets(home: &std::path::Path, _binary: &str) -> Vec<EditorTarget> {
         },
         EditorTarget {
             name: "VS Code / Copilot",
-            agent_key: "",
+            agent_key: "copilot",
             config_path: vscode_mcp_path(),
             detect_path: detect_vscode_path(),
             config_type: ConfigType::VsCodeMcp,
+        },
+        EditorTarget {
+            name: "OpenCode",
+            agent_key: "",
+            config_path: home.join(".config/opencode/opencode.json"),
+            detect_path: home.join(".config/opencode"),
+            config_type: ConfigType::OpenCode,
         },
     ]
 }
@@ -221,6 +291,7 @@ fn write_config(target: &EditorTarget, binary: &str) -> Result<(), String> {
         ConfigType::Zed => write_zed_config(target, binary),
         ConfigType::Codex => write_codex_config(target, binary),
         ConfigType::VsCodeMcp => write_vscode_mcp(target, binary),
+        ConfigType::OpenCode => write_opencode_config(target, binary),
     }
 }
 
@@ -368,6 +439,51 @@ fn write_vscode_mcp(target: &EditorTarget, binary: &str) -> Result<(), String> {
             "lean-ctx": {
                 "command": binary,
                 "args": []
+            }
+        }
+    }))
+    .map_err(|e| e.to_string())?;
+
+    std::fs::write(&target.config_path, content).map_err(|e| e.to_string())
+}
+
+fn write_opencode_config(target: &EditorTarget, binary: &str) -> Result<(), String> {
+    if target.config_path.exists() {
+        let content = std::fs::read_to_string(&target.config_path).map_err(|e| e.to_string())?;
+        if content.contains("lean-ctx") {
+            return Ok(());
+        }
+        if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(obj) = json.as_object_mut() {
+                let mcp = obj.entry("mcp").or_insert_with(|| serde_json::json!({}));
+                if let Some(mcp_obj) = mcp.as_object_mut() {
+                    mcp_obj.insert(
+                        "lean-ctx".to_string(),
+                        serde_json::json!({
+                            "type": "local",
+                            "command": [binary],
+                            "enabled": true
+                        }),
+                    );
+                }
+                let formatted = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
+                std::fs::write(&target.config_path, formatted).map_err(|e| e.to_string())?;
+                return Ok(());
+            }
+        }
+    }
+
+    if let Some(parent) = target.config_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+
+    let content = serde_json::to_string_pretty(&serde_json::json!({
+        "$schema": "https://opencode.ai/config.json",
+        "mcp": {
+            "lean-ctx": {
+                "type": "local",
+                "command": [binary],
+                "enabled": true
             }
         }
     }))

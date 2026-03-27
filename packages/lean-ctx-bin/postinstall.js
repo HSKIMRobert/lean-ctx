@@ -150,6 +150,8 @@ async function main() {
     }
 
     console.log(`lean-ctx: installed to ${BINARY_PATH}`);
+    console.log("");
+    console.log("Next: run \x1b[1mlean-ctx setup\x1b[0m to configure your shell and editors automatically.");
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }

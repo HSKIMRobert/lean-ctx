@@ -29,11 +29,11 @@ pub fn install_agent_hook(agent: &str, global: bool) {
         "codex" => install_codex_hook(),
         "windsurf" => install_windsurf_rules(global),
         "cline" | "roo" => install_cline_rules(global),
-        "copilot" => install_copilot_hook(),
+        "copilot" => install_copilot_hook(global),
         "pi" => install_pi_hook(global),
         _ => {
             eprintln!("Unknown agent: {agent}");
-            eprintln!("Supported: claude, cursor, gemini, codex, windsurf, cline, copilot, pi");
+            eprintln!("  Supported: claude, cursor, gemini, codex, windsurf, cline, copilot, pi");
             std::process::exit(1);
         }
     }
@@ -476,17 +476,52 @@ fn install_pi_hook(global: bool) {
     println!("Use /lean-ctx in Pi to verify the binary path.");
 }
 
-fn install_copilot_hook() {
+fn install_copilot_hook(global: bool) {
     let binary = resolve_binary_path();
 
-    let vscode_dir = PathBuf::from(".vscode");
-    let _ = std::fs::create_dir_all(&vscode_dir);
+    if global {
+        let mcp_path = copilot_global_mcp_path();
+        if mcp_path.as_os_str() == "/nonexistent" {
+            println!("  \x1b[2mVS Code not found — skipping global Copilot config\x1b[0m");
+            return;
+        }
+        write_vscode_mcp_file(&mcp_path, &binary, "global VS Code User MCP");
+    } else {
+        let vscode_dir = PathBuf::from(".vscode");
+        let _ = std::fs::create_dir_all(&vscode_dir);
+        let mcp_path = vscode_dir.join("mcp.json");
+        write_vscode_mcp_file(&mcp_path, &binary, ".vscode/mcp.json");
+    }
+}
 
-    let mcp_path = vscode_dir.join("mcp.json");
+fn copilot_global_mcp_path() -> PathBuf {
+    if let Some(home) = dirs::home_dir() {
+        #[cfg(target_os = "macos")]
+        {
+            return home.join("Library/Application Support/Code/User/mcp.json");
+        }
+        #[cfg(target_os = "linux")]
+        {
+            return home.join(".config/Code/User/mcp.json");
+        }
+        #[cfg(target_os = "windows")]
+        {
+            if let Ok(appdata) = std::env::var("APPDATA") {
+                return PathBuf::from(appdata).join("Code/User/mcp.json");
+            }
+        }
+        #[allow(unreachable_code)]
+        home.join(".config/Code/User/mcp.json")
+    } else {
+        PathBuf::from("/nonexistent")
+    }
+}
+
+fn write_vscode_mcp_file(mcp_path: &PathBuf, binary: &str, label: &str) {
     if mcp_path.exists() {
-        let content = std::fs::read_to_string(&mcp_path).unwrap_or_default();
+        let content = std::fs::read_to_string(mcp_path).unwrap_or_default();
         if content.contains("lean-ctx") {
-            println!("VS Code / Copilot MCP already configured in .vscode/mcp.json");
+            println!("  \x1b[32m✓\x1b[0m Copilot already configured in {label}");
             return;
         }
 
@@ -502,13 +537,17 @@ fn install_copilot_hook() {
                     );
                 }
                 write_file(
-                    &mcp_path,
+                    mcp_path,
                     &serde_json::to_string_pretty(&json).unwrap_or_default(),
                 );
-                println!("Added lean-ctx to existing .vscode/mcp.json");
+                println!("  \x1b[32m✓\x1b[0m Added lean-ctx to {label}");
                 return;
             }
         }
+    }
+
+    if let Some(parent) = mcp_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
     }
 
     let config = serde_json::json!({
@@ -521,14 +560,10 @@ fn install_copilot_hook() {
     });
 
     write_file(
-        &mcp_path,
+        mcp_path,
         &serde_json::to_string_pretty(&config).unwrap_or_default(),
     );
-    println!(
-        "Created .vscode/mcp.json with lean-ctx MCP server.\n\
-         GitHub Copilot will now have access to ctx_read, ctx_shell, ctx_search, ctx_tree.\n\
-         Restart VS Code to activate."
-    );
+    println!("  \x1b[32m✓\x1b[0m Created {label} with lean-ctx MCP server");
 }
 
 fn write_file(path: &PathBuf, content: &str) {

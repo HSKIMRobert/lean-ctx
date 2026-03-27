@@ -675,7 +675,7 @@ pub fn cmd_init(args: &[String]) {
     println!("\nlean-ctx init complete. (23 aliases installed)");
     println!("Binary: {binary}");
     println!("\nFor AI tool integration, use: lean-ctx init --agent <tool>");
-    println!("  Supported: claude, cursor, gemini, codex, windsurf, cline, copilot");
+    println!("  Supported: claude, cursor, gemini, codex, windsurf, cline, copilot, pi");
     println!("\nRun 'lean-ctx gain' after using some commands to see your savings.");
     println!("Run 'lean-ctx discover' to find missed savings in your shell history.");
 }
