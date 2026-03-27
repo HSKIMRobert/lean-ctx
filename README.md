@@ -48,6 +48,18 @@ lean-ctx reduces LLM token consumption by **up to 99%** through three complement
 
 ## Installation
 
+### One-Liner (no Rust required)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/yvgude/lean-ctx/main/install.sh | bash -s -- --download
+```
+
+### npm (no Rust required)
+
+```bash
+npm install -g lean-ctx-bin
+```
+
 ### Homebrew (macOS / Linux)
 
 ```bash
@@ -86,7 +98,7 @@ cp target/release/lean-ctx ~/.local/bin/
 ### Verify Installation
 
 ```bash
-lean-ctx --version   # Should show "lean-ctx 2.4.0"
+lean-ctx --version   # Should show "lean-ctx 2.4.1"
 lean-ctx gain        # Should show token savings stats
 ```
 
@@ -204,6 +216,27 @@ lean-ctx grep "pattern" src/             # Grouped search results
 lean-ctx find "*.rs" src/                # Compact find results
 lean-ctx ls src/                         # Token-optimized directory listing
 lean-ctx deps .                          # Project dependencies summary
+```
+
+### Multi-Agent Launcher
+
+```bash
+lctx                              # Auto-detect agent, current dir
+lctx --agent claude               # Launch Claude Code with lean-ctx
+lctx --agent cursor               # Configure Cursor for lean-ctx
+lctx --agent gemini               # Launch Gemini CLI with lean-ctx
+lctx /path/to/project "prompt"    # Project + prompt (Claude)
+lctx --scan-only                  # Build project graph only
+```
+
+### Project Graph
+
+```bash
+# via MCP: ctx_graph action=build
+# via MCP: ctx_graph action=related path=src/main.rs
+# via MCP: ctx_graph action=symbol path=src/main.rs::handle_request
+# via MCP: ctx_graph action=impact path=src/core/auth.rs
+# via MCP: ctx_graph action=status
 ```
 
 ### Setup & Analytics

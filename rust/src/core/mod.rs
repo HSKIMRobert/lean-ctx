@@ -5,6 +5,7 @@ pub mod compressor;
 pub mod config;
 pub mod deps;
 pub mod entropy;
+pub mod graph_index;
 pub mod litm;
 pub mod mode_predictor;
 pub mod patterns;

@@ -1,296 +1,306 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::Path;
 
-use crate::core::deps;
-use crate::core::signatures;
+use crate::core::graph_index::{self, ProjectIndex};
 use crate::core::tokens::count_tokens;
 
-#[derive(Debug, Default)]
-pub struct ProjectGraph {
-    nodes: HashMap<String, FileNode>,
-    edges: Vec<Edge>,
-}
-
-#[derive(Debug)]
-#[allow(dead_code)]
-struct FileNode {
-    path: String,
-    language: String,
-    exports: Vec<String>,
-    line_count: usize,
-    token_count: usize,
-}
-
-#[derive(Debug)]
-struct Edge {
-    from: String,
-    to: String,
-    kind: EdgeKind,
-}
-
-#[derive(Debug)]
-#[allow(dead_code)]
-enum EdgeKind {
-    Import,
-    Call,
-}
-
-impl ProjectGraph {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn add_file(&mut self, path: &str, content: &str) {
-        let ext = Path::new(path)
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
-        let dep_info = deps::extract_deps(content, ext);
-        let sigs = signatures::extract_signatures(content, ext);
-
-        let exports: Vec<String> = sigs
-            .iter()
-            .filter(|s| s.is_exported)
-            .map(|s| s.name.clone())
-            .collect();
-
-        let node = FileNode {
-            path: path.to_string(),
-            language: ext.to_string(),
-            exports,
-            line_count: content.lines().count(),
-            token_count: count_tokens(content),
-        };
-
-        self.nodes.insert(path.to_string(), node);
-
-        for imp in &dep_info.imports {
-            self.edges.push(Edge {
-                from: path.to_string(),
-                to: imp.clone(),
-                kind: EdgeKind::Import,
-            });
-        }
-    }
-
-    pub fn format_summary(&self) -> String {
-        if self.nodes.is_empty() {
-            return "Empty graph. Use ctx_graph with action 'build' first.".to_string();
-        }
-
-        let mut result = Vec::new();
-        result.push(format!(
-            "Project Graph: {} files, {} edges",
-            self.nodes.len(),
-            self.edges.len()
-        ));
-
-        let mut by_lang: HashMap<&str, (usize, usize)> = HashMap::new();
-        for node in self.nodes.values() {
-            let entry = by_lang.entry(&node.language).or_insert((0, 0));
-            entry.0 += 1;
-            entry.1 += node.token_count;
-        }
-        result.push("\nLanguages:".to_string());
-        let mut langs: Vec<_> = by_lang.iter().collect();
-        langs.sort_by(|a, b| b.1 .1.cmp(&a.1 .1));
-        for (lang, (count, tokens)) in &langs {
-            result.push(format!("  {lang}: {count} files, {tokens} tok"));
-        }
-
-        let mut import_counts: HashMap<&str, usize> = HashMap::new();
-        for edge in &self.edges {
-            if matches!(edge.kind, EdgeKind::Import) {
-                *import_counts.entry(&edge.to).or_insert(0) += 1;
-            }
-        }
-        let mut hotspots: Vec<_> = import_counts.iter().collect();
-        hotspots.sort_by(|a, b| b.1.cmp(a.1));
-
-        if !hotspots.is_empty() {
-            result.push(format!("\nMost imported ({}):", hotspots.len().min(10)));
-            for (module, count) in hotspots.iter().take(10) {
-                result.push(format!("  {module}: imported by {count} files"));
-            }
-        }
-
-        let isolated: Vec<_> = self
-            .nodes
-            .keys()
-            .filter(|path| {
-                !self
-                    .edges
-                    .iter()
-                    .any(|e| &e.from == *path || &e.to == *path)
-            })
-            .collect();
-        if !isolated.is_empty() && isolated.len() <= 10 {
-            result.push(format!("\nIsolated files ({}):", isolated.len()));
-            for path in &isolated {
-                result.push(format!("  {}", crate::core::protocol::shorten_path(path)));
-            }
-        }
-
-        result.join("\n")
-    }
-
-    pub fn get_related_files(&self, path: &str, depth: usize) -> Vec<String> {
-        let mut visited: HashSet<String> = HashSet::new();
-        let mut queue: Vec<(String, usize)> = vec![(path.to_string(), 0)];
-        let mut related = Vec::new();
-
-        while let Some((current, d)) = queue.pop() {
-            if d > depth || visited.contains(&current) {
-                continue;
-            }
-            visited.insert(current.clone());
-            if current != path {
-                related.push(current.clone());
-            }
-
-            for edge in &self.edges {
-                if edge.from == current && !visited.contains(&edge.to) {
-                    queue.push((edge.to.clone(), d + 1));
-                }
-                if edge.to == current && !visited.contains(&edge.from) {
-                    queue.push((edge.from.clone(), d + 1));
-                }
-            }
-        }
-
-        related
-    }
-}
-
-pub fn handle(action: &str, path: Option<&str>, root: &str) -> String {
+pub fn handle(
+    action: &str,
+    path: Option<&str>,
+    root: &str,
+    cache: &mut crate::core::cache::SessionCache,
+    crp_mode: crate::tools::CrpMode,
+) -> String {
     match action {
-        "build" => {
-            let mut graph = ProjectGraph::new();
-            let walker = ignore::WalkBuilder::new(root)
-                .hidden(true)
-                .git_ignore(true)
-                .git_global(true)
-                .git_exclude(true)
-                .max_depth(Some(8))
-                .build();
-            let mut file_count = 0usize;
-
-            for entry in walker.filter_map(|e| e.ok()) {
-                if !entry.file_type().is_some_and(|ft| ft.is_file()) {
-                    continue;
-                }
-                let file_path = entry.path().to_string_lossy().to_string();
-
-                let ext = Path::new(&file_path)
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .unwrap_or("");
-                if !matches!(
-                    ext,
-                    "rs" | "ts"
-                        | "tsx"
-                        | "js"
-                        | "jsx"
-                        | "py"
-                        | "go"
-                        | "java"
-                        | "c"
-                        | "cpp"
-                        | "h"
-                        | "rb"
-                        | "cs"
-                        | "kt"
-                        | "swift"
-                        | "php"
-                        | "ex"
-                        | "exs"
-                ) {
-                    continue;
-                }
-
-                if let Ok(content) = std::fs::read_to_string(&file_path) {
-                    graph.add_file(&file_path, &content);
-                    file_count += 1;
-                }
-
-                if file_count >= 500 {
-                    break;
-                }
-            }
-
-            graph.format_summary()
-        }
-        "related" => {
-            let target = match path {
-                Some(p) => p,
-                None => return "path is required for 'related' action".to_string(),
-            };
-
-            let mut graph = ProjectGraph::new();
-            if let Ok(content) = std::fs::read_to_string(target) {
-                graph.add_file(target, &content);
-            }
-
-            let ext = Path::new(target)
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("");
-            if let Ok(content) = std::fs::read_to_string(target) {
-                let dep_info = deps::extract_deps(&content, ext);
-                for imp in &dep_info.imports {
-                    let possible_paths = resolve_import(imp, target, root);
-                    for p in &possible_paths {
-                        if let Ok(c) = std::fs::read_to_string(p) {
-                            graph.add_file(p, &c);
-                        }
-                    }
-                }
-            }
-
-            let related = graph.get_related_files(target, 2);
-            if related.is_empty() {
-                return format!(
-                    "No related files found for {}",
-                    crate::core::protocol::shorten_path(target)
-                );
-            }
-            let mut result = format!(
-                "Files related to {} ({}):\n",
-                crate::core::protocol::shorten_path(target),
-                related.len()
-            );
-            for r in &related {
-                result.push_str(&format!("  {}\n", crate::core::protocol::shorten_path(r)));
-            }
-            result
-        }
-        _ => "Unknown action. Use: build, related".to_string(),
+        "build" => handle_build(root),
+        "related" => handle_related(path, root),
+        "symbol" => handle_symbol(path, root, cache, crp_mode),
+        "impact" => handle_impact(path, root),
+        "status" => handle_status(root),
+        _ => "Unknown action. Use: build, related, symbol, impact, status".to_string(),
     }
 }
 
-fn resolve_import(import: &str, from_file: &str, _root: &str) -> Vec<String> {
-    let mut candidates = Vec::new();
-    let from_dir = Path::new(from_file).parent().unwrap_or(Path::new("."));
+fn handle_build(root: &str) -> String {
+    let index = graph_index::scan(root);
 
-    let cleaned = import.trim_matches('"').trim_matches('\'');
+    let mut by_lang: HashMap<&str, (usize, usize)> = HashMap::new();
+    for entry in index.files.values() {
+        let e = by_lang.entry(&entry.language).or_insert((0, 0));
+        e.0 += 1;
+        e.1 += entry.token_count;
+    }
 
-    if cleaned.starts_with('.') {
-        let resolved = from_dir.join(cleaned);
-        for ext in &["", ".rs", ".ts", ".tsx", ".js", ".jsx", ".py", ".go"] {
-            let with_ext = format!("{}{ext}", resolved.display());
-            if Path::new(&with_ext).exists() {
-                candidates.push(with_ext);
-            }
+    let mut result = Vec::new();
+    result.push(format!(
+        "Project Graph: {} files, {} symbols, {} edges",
+        index.file_count(),
+        index.symbol_count(),
+        index.edge_count()
+    ));
+
+    let mut langs: Vec<_> = by_lang.iter().collect();
+    langs.sort_by(|a, b| b.1 .1.cmp(&a.1 .1));
+    result.push("\nLanguages:".to_string());
+    for (lang, (count, tokens)) in &langs {
+        result.push(format!("  {lang}: {count} files, {tokens} tok"));
+    }
+
+    let mut import_counts: HashMap<&str, usize> = HashMap::new();
+    for edge in &index.edges {
+        if edge.kind == "import" {
+            *import_counts.entry(&edge.to).or_insert(0) += 1;
         }
-        let index_path = resolved.join("index.ts");
-        if index_path.exists() {
-            candidates.push(index_path.to_string_lossy().to_string());
-        }
-        let mod_path = resolved.join("mod.rs");
-        if mod_path.exists() {
-            candidates.push(mod_path.to_string_lossy().to_string());
+    }
+    let mut hotspots: Vec<_> = import_counts.iter().collect();
+    hotspots.sort_by(|a, b| b.1.cmp(a.1));
+
+    if !hotspots.is_empty() {
+        result.push(format!("\nMost imported ({}):", hotspots.len().min(10)));
+        for (module, count) in hotspots.iter().take(10) {
+            result.push(format!("  {module}: imported by {count} files"));
         }
     }
 
-    candidates
+    if let Some(dir) = ProjectIndex::index_dir(root) {
+        result.push(format!(
+            "\nIndex saved: {}",
+            crate::core::protocol::shorten_path(&dir.to_string_lossy())
+        ));
+    }
+
+    let output = result.join("\n");
+    let tokens = count_tokens(&output);
+    format!("{output}\n[ctx_graph build: {tokens} tok]")
+}
+
+fn handle_related(path: Option<&str>, root: &str) -> String {
+    let target = match path {
+        Some(p) => p,
+        None => return "path is required for 'related' action".to_string(),
+    };
+
+    let index = match ProjectIndex::load(root) {
+        Some(idx) => idx,
+        None => {
+            return "No graph index found. Run ctx_graph with action='build' first.".to_string()
+        }
+    };
+
+    let rel_target = target
+        .strip_prefix(root)
+        .unwrap_or(target)
+        .trim_start_matches('/');
+
+    let related = index.get_related(rel_target, 2);
+    if related.is_empty() {
+        return format!(
+            "No related files found for {}",
+            crate::core::protocol::shorten_path(target)
+        );
+    }
+
+    let mut result = format!(
+        "Files related to {} ({}):\n",
+        crate::core::protocol::shorten_path(target),
+        related.len()
+    );
+    for r in &related {
+        result.push_str(&format!("  {}\n", crate::core::protocol::shorten_path(r)));
+    }
+
+    let tokens = count_tokens(&result);
+    format!("{result}[ctx_graph related: {tokens} tok]")
+}
+
+fn handle_symbol(
+    path: Option<&str>,
+    root: &str,
+    cache: &mut crate::core::cache::SessionCache,
+    crp_mode: crate::tools::CrpMode,
+) -> String {
+    let spec = match path {
+        Some(p) => p,
+        None => {
+            return "path is required for 'symbol' action (format: file.rs::function_name)"
+                .to_string()
+        }
+    };
+
+    let (file_part, symbol_name) = match spec.split_once("::") {
+        Some((f, s)) => (f, s),
+        None => return format!("Invalid symbol spec '{spec}'. Use format: file.rs::function_name"),
+    };
+
+    let index = match ProjectIndex::load(root) {
+        Some(idx) => idx,
+        None => {
+            return "No graph index found. Run ctx_graph with action='build' first.".to_string()
+        }
+    };
+
+    let rel_file = file_part
+        .strip_prefix(root)
+        .unwrap_or(file_part)
+        .trim_start_matches('/');
+
+    let key = format!("{rel_file}::{symbol_name}");
+    let symbol = match index.get_symbol(&key) {
+        Some(s) => s,
+        None => {
+            let available: Vec<&str> = index
+                .symbols
+                .keys()
+                .filter(|k| k.starts_with(rel_file))
+                .map(|k| k.as_str())
+                .take(10)
+                .collect();
+            if available.is_empty() {
+                return format!("Symbol '{symbol_name}' not found in {rel_file}. Run ctx_graph action='build' to update the index.");
+            }
+            return format!(
+                "Symbol '{symbol_name}' not found in {rel_file}.\nAvailable symbols:\n  {}",
+                available.join("\n  ")
+            );
+        }
+    };
+
+    let abs_path = if Path::new(file_part).is_absolute() {
+        file_part.to_string()
+    } else {
+        format!("{root}/{rel_file}")
+    };
+
+    let content = match std::fs::read_to_string(&abs_path) {
+        Ok(c) => c,
+        Err(e) => return format!("Cannot read {abs_path}: {e}"),
+    };
+
+    let lines: Vec<&str> = content.lines().collect();
+    let start = symbol.start_line.saturating_sub(1);
+    let end = symbol.end_line.min(lines.len());
+
+    if start >= lines.len() {
+        return crate::tools::ctx_read::handle(cache, &abs_path, "full", crp_mode);
+    }
+
+    let mut result = format!(
+        "{}::{} ({}:{}-{})\n",
+        crate::core::protocol::shorten_path(rel_file),
+        symbol_name,
+        symbol.kind,
+        symbol.start_line,
+        symbol.end_line
+    );
+
+    for (i, line) in lines[start..end].iter().enumerate() {
+        result.push_str(&format!("{:>4}|{}\n", start + i + 1, line));
+    }
+
+    let tokens = count_tokens(&result);
+    let full_tokens = count_tokens(&content);
+    let saved = full_tokens.saturating_sub(tokens);
+    let pct = if full_tokens > 0 {
+        (saved as f64 / full_tokens as f64 * 100.0).round() as usize
+    } else {
+        0
+    };
+
+    format!("{result}[ctx_graph symbol: {tokens} tok (full file: {full_tokens} tok, -{pct}%)]")
+}
+
+fn handle_impact(path: Option<&str>, root: &str) -> String {
+    let target = match path {
+        Some(p) => p,
+        None => return "path is required for 'impact' action".to_string(),
+    };
+
+    let index = match ProjectIndex::load(root) {
+        Some(idx) => idx,
+        None => {
+            return "No graph index found. Run ctx_graph with action='build' first.".to_string()
+        }
+    };
+
+    let rel_target = target
+        .strip_prefix(root)
+        .unwrap_or(target)
+        .trim_start_matches('/');
+
+    let dependents = index.get_reverse_deps(rel_target, 2);
+    if dependents.is_empty() {
+        return format!(
+            "No files depend on {}",
+            crate::core::protocol::shorten_path(target)
+        );
+    }
+
+    let direct: Vec<&str> = index
+        .edges
+        .iter()
+        .filter(|e| e.to == rel_target && e.kind == "import")
+        .map(|e| e.from.as_str())
+        .collect();
+
+    let mut result = format!(
+        "Impact of {} ({} dependents):\n",
+        crate::core::protocol::shorten_path(target),
+        dependents.len()
+    );
+
+    if !direct.is_empty() {
+        result.push_str(&format!("\nDirect ({}):\n", direct.len()));
+        for d in &direct {
+            result.push_str(&format!("  {}\n", crate::core::protocol::shorten_path(d)));
+        }
+    }
+
+    let indirect: Vec<&String> = dependents
+        .iter()
+        .filter(|d| !direct.contains(&d.as_str()))
+        .collect();
+    if !indirect.is_empty() {
+        result.push_str(&format!("\nIndirect ({}):\n", indirect.len()));
+        for d in &indirect {
+            result.push_str(&format!("  {}\n", crate::core::protocol::shorten_path(d)));
+        }
+    }
+
+    let tokens = count_tokens(&result);
+    format!("{result}[ctx_graph impact: {tokens} tok]")
+}
+
+fn handle_status(root: &str) -> String {
+    let index = match ProjectIndex::load(root) {
+        Some(idx) => idx,
+        None => return "No graph index. Run ctx_graph action='build' to create one.".to_string(),
+    };
+
+    let mut by_lang: HashMap<&str, usize> = HashMap::new();
+    let mut total_tokens = 0usize;
+    for entry in index.files.values() {
+        *by_lang.entry(&entry.language).or_insert(0) += 1;
+        total_tokens += entry.token_count;
+    }
+
+    let mut langs: Vec<_> = by_lang.iter().collect();
+    langs.sort_by(|a, b| b.1.cmp(a.1));
+    let lang_summary: String = langs
+        .iter()
+        .take(5)
+        .map(|(l, c)| format!("{l}:{c}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    format!(
+        "Graph: {} files, {} symbols, {} edges | {} tok total\nLast scan: {}\nLanguages: {lang_summary}\nStored: {}",
+        index.file_count(),
+        index.symbol_count(),
+        index.edge_count(),
+        total_tokens,
+        index.last_scan,
+        ProjectIndex::index_dir(root)
+            .map(|d| d.to_string_lossy().to_string())
+            .unwrap_or_default()
+    )
 }
