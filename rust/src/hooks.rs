@@ -29,7 +29,7 @@ pub fn install_agent_hook(agent: &str, global: bool) {
         "codex" => install_codex_hook(),
         "windsurf" => install_windsurf_rules(global),
         "cline" | "roo" => install_cline_rules(global),
-        "copilot" => install_claude_hook(global),
+        "copilot" => install_copilot_hook(),
         "pi" => install_pi_hook(global),
         _ => {
             eprintln!("Unknown agent: {agent}");
@@ -474,6 +474,61 @@ fn install_pi_hook(global: bool) {
         "Setup complete. All Pi tools (bash, read, grep, find, ls) now route through lean-ctx."
     );
     println!("Use /lean-ctx in Pi to verify the binary path.");
+}
+
+fn install_copilot_hook() {
+    let binary = resolve_binary_path();
+
+    let vscode_dir = PathBuf::from(".vscode");
+    let _ = std::fs::create_dir_all(&vscode_dir);
+
+    let mcp_path = vscode_dir.join("mcp.json");
+    if mcp_path.exists() {
+        let content = std::fs::read_to_string(&mcp_path).unwrap_or_default();
+        if content.contains("lean-ctx") {
+            println!("VS Code / Copilot MCP already configured in .vscode/mcp.json");
+            return;
+        }
+
+        if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(obj) = json.as_object_mut() {
+                let servers = obj
+                    .entry("servers")
+                    .or_insert_with(|| serde_json::json!({}));
+                if let Some(servers_obj) = servers.as_object_mut() {
+                    servers_obj.insert(
+                        "lean-ctx".to_string(),
+                        serde_json::json!({ "command": binary, "args": [] }),
+                    );
+                }
+                write_file(
+                    &mcp_path,
+                    &serde_json::to_string_pretty(&json).unwrap_or_default(),
+                );
+                println!("Added lean-ctx to existing .vscode/mcp.json");
+                return;
+            }
+        }
+    }
+
+    let config = serde_json::json!({
+        "servers": {
+            "lean-ctx": {
+                "command": binary,
+                "args": []
+            }
+        }
+    });
+
+    write_file(
+        &mcp_path,
+        &serde_json::to_string_pretty(&config).unwrap_or_default(),
+    );
+    println!(
+        "Created .vscode/mcp.json with lean-ctx MCP server.\n\
+         GitHub Copilot will now have access to ctx_read, ctx_shell, ctx_search, ctx_tree.\n\
+         Restart VS Code to activate."
+    );
 }
 
 fn write_file(path: &PathBuf, content: &str) {

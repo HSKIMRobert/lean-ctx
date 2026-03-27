@@ -288,6 +288,36 @@ fn mcp_config_locations(home: &std::path::Path) -> Vec<McpLocation> {
         });
     }
 
+    #[cfg(target_os = "macos")]
+    {
+        let vscode_mcp = home.join("Library/Application Support/Code/User/mcp.json");
+        locations.push(McpLocation {
+            name: "VS Code / Copilot",
+            display: "~/Library/Application Support/Code/User/mcp.json",
+            path: vscode_mcp,
+        });
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let vscode_mcp = home.join(".config/Code/User/mcp.json");
+        locations.push(McpLocation {
+            name: "VS Code / Copilot",
+            display: "~/.config/Code/User/mcp.json",
+            path: vscode_mcp,
+        });
+    }
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let vscode_mcp = std::path::PathBuf::from(appdata).join("Code/User/mcp.json");
+            locations.push(McpLocation {
+                name: "VS Code / Copilot",
+                display: "%APPDATA%/Code/User/mcp.json",
+                path: vscode_mcp,
+            });
+        }
+    }
+
     locations
 }
 
