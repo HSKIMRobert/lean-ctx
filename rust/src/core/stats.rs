@@ -756,7 +756,7 @@ pub fn format_gain() -> String {
     o.push(String::new());
     o.push(format!("  {DIM}{ln56}{RST}"));
     o.push(format!(
-        "  {DIM}lean-ctx v2.5.2  |  leanctx.com  |  lean-ctx dashboard{RST}"
+        "  {DIM}lean-ctx v2.5.3  |  leanctx.com  |  lean-ctx dashboard{RST}"
     ));
     o.push(String::new());
 

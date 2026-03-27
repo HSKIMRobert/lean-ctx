@@ -12,6 +12,7 @@ enum ConfigType {
     McpJson,
     Zed,
     Codex,
+    VsCodeMcp,
 }
 
 pub fn run_setup() {
@@ -177,6 +178,13 @@ fn build_targets(home: &std::path::Path, _binary: &str) -> Vec<EditorTarget> {
             detect_path: zed_config_dir(home),
             config_type: ConfigType::Zed,
         },
+        EditorTarget {
+            name: "VS Code / Copilot",
+            agent_key: "",
+            config_path: vscode_mcp_path(),
+            detect_path: detect_vscode_path(),
+            config_type: ConfigType::VsCodeMcp,
+        },
     ]
 }
 
@@ -212,6 +220,7 @@ fn write_config(target: &EditorTarget, binary: &str) -> Result<(), String> {
         ConfigType::McpJson => write_mcp_json(target, binary),
         ConfigType::Zed => write_zed_config(target, binary),
         ConfigType::Codex => write_codex_config(target, binary),
+        ConfigType::VsCodeMcp => write_vscode_mcp(target, binary),
     }
 }
 
@@ -324,4 +333,104 @@ fn write_codex_config(target: &EditorTarget, binary: &str) -> Result<(), String>
         binary
     );
     std::fs::write(&target.config_path, content).map_err(|e| e.to_string())
+}
+
+fn write_vscode_mcp(target: &EditorTarget, binary: &str) -> Result<(), String> {
+    if target.config_path.exists() {
+        let content = std::fs::read_to_string(&target.config_path).map_err(|e| e.to_string())?;
+        if content.contains("lean-ctx") {
+            return Ok(());
+        }
+        if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(obj) = json.as_object_mut() {
+                let servers = obj
+                    .entry("servers")
+                    .or_insert_with(|| serde_json::json!({}));
+                if let Some(servers_obj) = servers.as_object_mut() {
+                    servers_obj.insert(
+                        "lean-ctx".to_string(),
+                        serde_json::json!({ "command": binary, "args": [] }),
+                    );
+                }
+                let formatted = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
+                std::fs::write(&target.config_path, formatted).map_err(|e| e.to_string())?;
+                return Ok(());
+            }
+        }
+    }
+
+    if let Some(parent) = target.config_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+
+    let content = serde_json::to_string_pretty(&serde_json::json!({
+        "servers": {
+            "lean-ctx": {
+                "command": binary,
+                "args": []
+            }
+        }
+    }))
+    .map_err(|e| e.to_string())?;
+
+    std::fs::write(&target.config_path, content).map_err(|e| e.to_string())
+}
+
+fn detect_vscode_path() -> PathBuf {
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(home) = dirs::home_dir() {
+            let vscode = home.join("Library/Application Support/Code/User/settings.json");
+            if vscode.exists() {
+                return vscode;
+            }
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if let Some(home) = dirs::home_dir() {
+            let vscode = home.join(".config/Code/User/settings.json");
+            if vscode.exists() {
+                return vscode;
+            }
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let vscode = PathBuf::from(appdata).join("Code/User/settings.json");
+            if vscode.exists() {
+                return vscode;
+            }
+        }
+    }
+    if let Ok(output) = std::process::Command::new("which").arg("code").output() {
+        if output.status.success() {
+            return PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
+        }
+    }
+    PathBuf::from("/nonexistent")
+}
+
+fn vscode_mcp_path() -> PathBuf {
+    if let Some(home) = dirs::home_dir() {
+        #[cfg(target_os = "macos")]
+        {
+            return home.join("Library/Application Support/Code/User/mcp.json");
+        }
+        #[cfg(target_os = "linux")]
+        {
+            return home.join(".config/Code/User/mcp.json");
+        }
+        #[cfg(target_os = "windows")]
+        {
+            if let Ok(appdata) = std::env::var("APPDATA") {
+                return PathBuf::from(appdata).join("Code/User/mcp.json");
+            }
+        }
+        #[allow(unreachable_code)]
+        home.join(".config/Code/User/mcp.json")
+    } else {
+        PathBuf::from("/nonexistent")
+    }
 }

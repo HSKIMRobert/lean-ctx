@@ -2,6 +2,20 @@
 
 All notable changes to lean-ctx are documented here.
 
+## [2.5.3] — 2026-03-27
+
+### Added
+
+- **VS Code / GitHub Copilot MCP support** — `lean-ctx init --agent copilot` now creates `.vscode/mcp.json` with lean-ctx as MCP server instead of incorrectly installing a Claude Code hook. Copilot agents gain access to `ctx_read`, `ctx_shell`, `ctx_search`, `ctx_tree` as direct tools
+- **`lean-ctx setup` detects VS Code** — Auto-setup now detects VS Code installations on macOS, Linux, and Windows and configures `mcp.json` in the VS Code user directory
+- **`lean-ctx doctor` checks VS Code MCP** — Diagnostics now include VS Code / Copilot MCP configuration status
+
+### Changed
+
+- **Landing page particle animation** — Reduced mouse attraction force for subtler, smoother cursor interaction
+
+---
+
 ## [2.5.2] — 2026-03-27
 
 ### Fixed
