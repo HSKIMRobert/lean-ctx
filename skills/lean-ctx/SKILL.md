@@ -4,9 +4,9 @@ description: Context Intelligence Engine with CEP + CCP — 21 MCP tools, 90+ sh
 metadata: {"openclaw": {"requires": {"bins": ["lean-ctx"]}, "install": [{"id": "brew", "kind": "brew", "formula": "lean-ctx", "bins": ["lean-ctx"], "label": "Install LeanCTX (brew tap yvgude/lean-ctx)"}]}}
 ---
 
-# LeanCTX v2.5.3 — Context Intelligence Engine + CEP + CCP + Persistent Project Graph
+# LeanCTX v2.6.0 — Context Intelligence Engine + CEP + CCP + Persistent Project Graph
 
-LeanCTX is a Rust binary that optimizes LLM context through 21 MCP tools, 90+ shell compression patterns, and tree-sitter AST parsing for 14 languages (TS/JS, Rust, Python, Go, Java, C, C++, Ruby, C#, Kotlin, Swift, PHP). It provides adaptive file reading, incremental deltas, intent detection, cross-file deduplication, a project intelligence graph, the **Cognitive Efficiency Protocol (CEP)** for optimized LLM communication, and the **Context Continuity Protocol (CCP)** for cross-session memory with LITM-aware information positioning.
+LeanCTX is a Rust binary that optimizes LLM context through 22 MCP tools, 90+ shell compression patterns, and tree-sitter AST parsing for 14 languages (TS/JS, Rust, Python, Go, Java, C, C++, Ruby, C#, Kotlin, Swift, PHP). It provides adaptive file reading with per-language entropy thresholds, incremental deltas, intent detection, cross-file deduplication with TF-IDF cosine similarity, task-conditioned relevance scoring, a heuristic attention prediction model, a project intelligence graph, the **Cognitive Efficiency Protocol (CEP)** with output token budgets, the **Context Continuity Protocol (CCP)** for cross-session memory with LITM-aware positioning, and a feedback loop for learning optimal compression parameters.
 
 ## When to use lean-ctx
 
@@ -60,7 +60,18 @@ lean-ctx init --agent gemini    # Gemini CLI BeforeTool hook
 lean-ctx init --agent codex     # Codex AGENTS.md
 lean-ctx init --agent windsurf  # .windsurfrules
 lean-ctx init --agent cline     # .clinerules
+lean-ctx init --agent copilot   # VS Code / Copilot .vscode/mcp.json
 ```
+
+## New in v2.6.0 — Scientific Optimization
+
+MCP tools:
+- `ctx_overview(task="fix auth bug")` — multi-resolution project map with task-relevant file grouping
+- Adaptive per-language entropy thresholds (Rust, Python, Go, TS, Java, etc.)
+- TF-IDF cosine similarity for semantic duplicate detection in `ctx_dedup`
+- Feedback loop for learning optimal compression parameters across sessions
+- Output token budget guidance in CEP (Mechanical: 50 tok, Standard: 200, Architectural: full)
+- Prefix-cache aligned system prompt (stable prefix, variable session state at end)
 
 ## Session Continuity (CCP)
 

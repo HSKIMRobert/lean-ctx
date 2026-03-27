@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::core::cache::{SessionCache, SharedBlock};
+use crate::core::codebook;
 use crate::core::tokens::count_tokens;
 
 pub fn handle(cache: &SessionCache) -> String {
@@ -188,7 +189,31 @@ fn analyze(cache: &SessionCache) -> String {
         }
     }
 
-    if shared_imports.is_empty() && shared_blocks.is_empty() {
+    // TF-IDF cosine similarity analysis for semantic duplicates
+    let file_pairs: Vec<(String, String)> = entries
+        .iter()
+        .map(|(path, entry)| (path.to_string(), entry.content.clone()))
+        .collect();
+    let semantic_dups = codebook::find_semantic_duplicates(&file_pairs, 0.75);
+    if !semantic_dups.is_empty() {
+        result.push(format!(
+            "\nSemantic duplicates (TF-IDF cosine > 0.75, {} pairs):",
+            semantic_dups.len()
+        ));
+        for (a, b, sim) in semantic_dups.iter().take(8) {
+            result.push(format!(
+                "  {:.0}% similar: {} ↔ {}",
+                sim * 100.0,
+                crate::core::protocol::shorten_path(a),
+                crate::core::protocol::shorten_path(b)
+            ));
+        }
+        if semantic_dups.len() > 8 {
+            result.push(format!("  ... +{} more pairs", semantic_dups.len() - 8));
+        }
+    }
+
+    if shared_imports.is_empty() && shared_blocks.is_empty() && semantic_dups.is_empty() {
         result.push("\nNo significant cross-file duplication detected.".to_string());
     } else {
         let total_savings: usize = shared_imports

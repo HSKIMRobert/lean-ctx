@@ -2,6 +2,28 @@
 
 All notable changes to lean-ctx are documented here.
 
+## [2.6.0] — 2026-03-27
+
+### Added
+
+- **Adaptive per-language entropy thresholds** — Entropy compression now uses language-specific BPE entropy thresholds (e.g. Rust 0.85, Python 1.2, JSON 0.6) with Kolmogorov complexity adjustment. Header files (`.h`, `.hpp`) and config files get the most aggressive compression
+- **Task-conditioned compression** — New `task_relevance` module computes relevance scores for project files using BFS through the dependency graph + keyword matching. Files are ranked and assigned optimal read modes (full/signatures/map/reference)
+- **`ctx_overview` MCP tool** — Multi-resolution project overview that shows files grouped by task relevance. Provides a compact project map at session start, recommending which files to read at which detail level
+- **Heuristic attention prediction model** — Position-based U-curve (alpha/beta/gamma) combined with structural importance scoring (definitions > errors > control flow > imports > comments > braces). Predicts which lines receive the most transformer attention
+- **Cross-file semantic dedup via TF-IDF** — Codebook system identifies patterns appearing in 3+ files and creates short `§N` references. TF-IDF cosine similarity detects semantically duplicate files in `ctx_dedup`
+- **Information Bottleneck filter** — Approximates the IB method using line-level relevance scoring + positional U-weighting to select the most informative subset within a token budget
+- **Feedback loop** — Tracks compression outcomes (thresholds used, tokens saved, turns taken, task completion) in `~/.lean-ctx/feedback.json`. After 5+ sessions per language, adaptively learns optimal entropy/jaccard thresholds
+- **Output token budget in CEP** — System prompt now guides LLMs on response length by task complexity: Mechanical (max 50 tokens), Standard (max 200), Architectural (full reasoning)
+- **Prefix-cache aligned system prompt** — Static instructions placed before variable session state for optimal KV-cache reuse by API providers
+
+### Changed
+
+- **Entropy compression** — `entropy_compress_adaptive()` now accepts path for per-language threshold selection. Existing `entropy_compress()` preserved for backward compatibility
+- **`ctx_dedup` analysis** — Now includes TF-IDF cosine similarity analysis for semantic duplicate detection alongside existing block-based dedup
+- **LITM module** — New `content_attention_efficiency()` function combines positional U-curve with structural importance analysis for content-aware attention prediction
+
+---
+
 ## [2.5.3] — 2026-03-27
 
 ### Added

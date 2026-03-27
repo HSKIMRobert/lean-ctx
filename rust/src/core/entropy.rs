@@ -194,6 +194,19 @@ pub fn compressibility_class(content: &str) -> CompressibilityClass {
 }
 
 pub fn entropy_compress(content: &str) -> EntropyResult {
+    entropy_compress_with_thresholds(content, BPE_ENTROPY_THRESHOLD, 0.7)
+}
+
+pub fn entropy_compress_adaptive(content: &str, path: &str) -> EntropyResult {
+    let thresholds = super::adaptive_thresholds::adaptive_thresholds(path, content);
+    entropy_compress_with_thresholds(content, thresholds.bpe_entropy, thresholds.jaccard)
+}
+
+fn entropy_compress_with_thresholds(
+    content: &str,
+    entropy_threshold: f64,
+    jaccard_threshold: f64,
+) -> EntropyResult {
     let original_tokens = count_tokens(content);
     let mut lines: Vec<&str> = content.lines().collect();
     let mut techniques = Vec::new();
@@ -204,17 +217,17 @@ pub fn entropy_compress(content: &str) -> EntropyResult {
         if trimmed.is_empty() || trimmed.len() < 3 {
             return true;
         }
-        token_entropy(trimmed) >= BPE_ENTROPY_THRESHOLD
+        token_entropy(trimmed) >= entropy_threshold
     });
     let removed = original_count - lines.len();
     if removed > 0 {
         techniques.push(format!(
-            "⊘ {removed} low-entropy lines (BPE H<{BPE_ENTROPY_THRESHOLD})"
+            "⊘ {removed} low-entropy lines (BPE H<{entropy_threshold:.2})"
         ));
     }
 
     let blocks = extract_blocks(&lines);
-    let groups = find_pattern_groups(&blocks, 0.7);
+    let groups = find_pattern_groups(&blocks, jaccard_threshold);
     let mut dedup_count = 0;
     for group in &groups {
         if group.len() > 1 {
