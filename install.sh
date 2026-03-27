@@ -7,7 +7,7 @@
 #   ./install.sh --build-only   # build only, don't install
 #
 # One-liner (no Rust required):
-#   curl -fsSL https://raw.githubusercontent.com/yvgude/lean-ctx/main/install.sh | bash -s -- --download
+#   curl -fsSL https://leanctx.com/install.sh | sh
 set -euo pipefail
 
 REPO="yvgude/lean-ctx"
@@ -107,7 +107,7 @@ install_download() {
 
   local tmpdir
   tmpdir="$(mktemp -d)"
-  trap 'rm -rf "$tmpdir"' EXIT
+  trap 'rm -rf "${tmpdir:-}"' EXIT
 
   echo "Downloading binary..."
   if ! curl -fsSL "$asset_url" -o "$tmpdir/lean-ctx.tar.gz"; then

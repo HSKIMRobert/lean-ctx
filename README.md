@@ -51,7 +51,7 @@ lean-ctx reduces LLM token consumption by **up to 99%** through three complement
 ### One-Liner (no Rust required)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yvgude/lean-ctx/main/install.sh | bash -s -- --download
+curl -fsSL https://leanctx.com/install.sh | sh
 ```
 
 ### npm (no Rust required)
@@ -152,22 +152,27 @@ New in v2.3.0: CEP is a holistic approach to LLM communication optimization that
 ## Quick Start
 
 ```bash
-# 1. Install
-cargo install lean-ctx
+# 1. Install (pick one)
+curl -fsSL https://leanctx.com/install.sh | sh      # universal, no Rust needed
+brew tap yvgude/lean-ctx && brew install lean-ctx     # macOS / Linux
+npm install -g lean-ctx-bin                           # Node.js
+cargo install lean-ctx                                # Rust
 
-# 2. Set up shell hook (auto-installs aliases)
-lean-ctx init --global
+# 2. One-command setup (shell hooks + editor config + verify)
+lean-ctx setup
 
-# 3. Configure your editor (example: Cursor)
-# Add to ~/.cursor/mcp.json:
-# { "mcpServers": { "lean-ctx": { "command": "lean-ctx" } } }
+# 3. Restart your shell
+source ~/.zshrc   # or ~/.bashrc
 
-# 4. Restart your shell + editor, then test
-git status       # Automatically compressed via shell hook
-lean-ctx gain    # Check your savings
+# Done! Test it:
+git status        # automatically compressed via shell hook
+lean-ctx gain     # check your savings
+lean-ctx doctor   # verify everything is configured
 ```
 
-The shell hook transparently wraps commands (e.g., `git status` → `lean-ctx -c git status`) and compresses the output. The LLM never sees the rewrite — it just gets compact output.
+`lean-ctx setup` auto-detects your shell and installed editors (Cursor, Claude Code, Windsurf, Codex CLI, Gemini CLI, Zed), installs shell aliases, creates MCP config files, and runs diagnostics — all in one command.
+
+> **Full documentation:** [leanctx.com/docs/getting-started](https://leanctx.com/docs/getting-started)
 
 ## How It Works
 
@@ -242,6 +247,7 @@ lctx --scan-only                  # Build project graph only
 ### Setup & Analytics
 
 ```bash
+lean-ctx setup                 # One-command setup: shell + editors + verify
 lean-ctx init --global         # Install 23 shell aliases (.zshrc/.bashrc/.config/fish)
 lean-ctx init --agent claude   # Install Claude Code PreToolUse hook
 lean-ctx init --agent cursor   # Install Cursor hooks.json
@@ -510,6 +516,8 @@ lean-ctx benchmark report           # Shareable Markdown report
 
 ## Editor Configuration
 
+> **Tip:** `lean-ctx setup` auto-detects and configures most editors automatically. Use the manual instructions below only if auto-setup didn't cover your editor, or if you prefer manual control.
+
 ### Cursor
 
 Add to `~/.cursor/mcp.json`:
@@ -605,9 +613,9 @@ args = []
 
 Or via CLI: `codex mcp add lean-ctx`
 
-### Google Antigravity
+### Google Gemini CLI
 
-Add to `~/.gemini/antigravity/mcp_config.json`:
+Add to `~/.gemini/settings/mcp.json`:
 
 ```json
 {
@@ -683,7 +691,15 @@ cp rust/examples/lean-ctx-session-metrics.mdc .cursor/rules/
 
 ## Configuration
 
-### Shell Hook Setup
+### Recommended: One-Command Setup
+
+```bash
+lean-ctx setup
+```
+
+This installs shell aliases, auto-detects editors, creates MCP configs, and runs diagnostics.
+
+### Manual: Shell Hook Only
 
 ```bash
 lean-ctx init --global
