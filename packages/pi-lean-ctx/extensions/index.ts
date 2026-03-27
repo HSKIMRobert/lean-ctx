@@ -18,6 +18,11 @@ import { homedir, platform } from "node:os";
 const CODE_EXTENSIONS = new Set([
   ".rs", ".ts", ".tsx", ".js", ".jsx", ".php", ".py", ".go",
   ".java", ".c", ".cc", ".cpp", ".cxx", ".cs", ".kt", ".swift", ".rb",
+  ".vue", ".svelte", ".astro", ".html", ".css", ".scss", ".sass", ".less",
+  ".lua", ".zig", ".nim", ".ex", ".exs", ".erl", ".hs", ".ml", ".mli",
+  ".r", ".jl", ".dart", ".scala", ".groovy", ".pl", ".pm", ".sh", ".bash",
+  ".zsh", ".fish", ".ps1", ".bat", ".cmd", ".sql", ".graphql", ".gql",
+  ".proto", ".thrift", ".tf", ".hcl", ".nix", ".dhall",
 ]);
 
 const FULL_READ_EXTENSIONS = new Set([
@@ -346,11 +351,24 @@ export default function (pi: ExtensionAPI) {
       const absolutePath = resolve(ctx.cwd, requestedPath);
 
       if (params.offset !== undefined || params.limit !== undefined) {
-        const sliced = await readSlice(absolutePath, params.offset, params.limit);
-        return {
-          content: [{ type: "text", text: sliced.text }],
-          details: { path: absolutePath, lines: sliced.lines, source: "local-slice", truncated: sliced.truncated },
-        };
+        const startLine = params.offset ?? 1;
+        const endLine = params.limit ? startLine + params.limit - 1 : 999999;
+        const args = ["read", absolutePath, "-m", `lines:${startLine}-${endLine}`];
+        try {
+          const output = await execLeanCtx(pi, args);
+          const originalSlice = await readSlice(absolutePath, params.offset, params.limit);
+          const decorated = withFooter(output, { originalText: originalSlice.text, always: true, preferEstimate: true });
+          return {
+            content: [{ type: "text", text: decorated.text }],
+            details: { path: absolutePath, lines: originalSlice.lines, source: "lean-ctx", mode: `lines:${startLine}-${endLine}`, compression: decorated.stats },
+          };
+        } catch {
+          const sliced = await readSlice(absolutePath, params.offset, params.limit);
+          return {
+            content: [{ type: "text", text: sliced.text }],
+            details: { path: absolutePath, lines: sliced.lines, source: "local-slice-fallback", truncated: sliced.truncated },
+          };
+        }
       }
 
       if (IMAGE_EXTENSIONS.has(extname(absolutePath).toLowerCase())) {
