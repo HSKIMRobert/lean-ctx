@@ -1133,6 +1133,9 @@ export EDITOR=vim
         assert!(!result.contains("lean-ctx-on"), "block should be removed");
         assert!(!result.contains("lean-ctx shell hook"), "marker removed");
         assert!(result.contains("export PATH"), "other content preserved");
-        assert!(result.contains("export EDITOR"), "trailing content preserved");
+        assert!(
+            result.contains("export EDITOR"),
+            "trailing content preserved"
+        );
     }
 }
