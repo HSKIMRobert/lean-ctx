@@ -320,13 +320,80 @@ fn sparkline(values: &[u64]) -> String {
         .collect()
 }
 
-fn usd_estimate(tokens: u64) -> String {
-    let cost = tokens as f64 * 2.50 / 1_000_000.0;
-    if cost >= 0.01 {
-        format!("${cost:.2}")
-    } else {
-        format!("${cost:.3}")
+pub struct CostModel {
+    pub input_price_per_m: f64,
+    pub output_price_per_m: f64,
+    pub avg_verbose_output_per_call: u64,
+    pub avg_concise_output_per_call: u64,
+}
+
+impl Default for CostModel {
+    fn default() -> Self {
+        Self {
+            input_price_per_m: 3.0,
+            output_price_per_m: 15.0,
+            avg_verbose_output_per_call: 450,
+            avg_concise_output_per_call: 120,
+        }
     }
+}
+
+pub struct CostBreakdown {
+    pub input_cost_without: f64,
+    pub input_cost_with: f64,
+    pub output_cost_without: f64,
+    pub output_cost_with: f64,
+    pub total_cost_without: f64,
+    pub total_cost_with: f64,
+    pub total_saved: f64,
+    pub estimated_output_tokens_without: u64,
+    pub estimated_output_tokens_with: u64,
+    pub output_tokens_saved: u64,
+}
+
+impl CostModel {
+    pub fn calculate(&self, store: &StatsStore) -> CostBreakdown {
+        let input_cost_without =
+            store.total_input_tokens as f64 / 1_000_000.0 * self.input_price_per_m;
+        let input_cost_with =
+            store.total_output_tokens as f64 / 1_000_000.0 * self.input_price_per_m;
+
+        let est_output_without = store.total_commands * self.avg_verbose_output_per_call;
+        let est_output_with = store.total_commands * self.avg_concise_output_per_call;
+        let output_saved = est_output_without.saturating_sub(est_output_with);
+
+        let output_cost_without = est_output_without as f64 / 1_000_000.0 * self.output_price_per_m;
+        let output_cost_with = est_output_with as f64 / 1_000_000.0 * self.output_price_per_m;
+
+        let total_without = input_cost_without + output_cost_without;
+        let total_with = input_cost_with + output_cost_with;
+
+        CostBreakdown {
+            input_cost_without,
+            input_cost_with,
+            output_cost_without,
+            output_cost_with,
+            total_cost_without: total_without,
+            total_cost_with: total_with,
+            total_saved: total_without - total_with,
+            estimated_output_tokens_without: est_output_without,
+            estimated_output_tokens_with: est_output_with,
+            output_tokens_saved: output_saved,
+        }
+    }
+}
+
+fn format_usd(amount: f64) -> String {
+    if amount >= 0.01 {
+        format!("${amount:.2}")
+    } else {
+        format!("${amount:.3}")
+    }
+}
+
+fn usd_estimate(tokens: u64) -> String {
+    let cost = tokens as f64 * 3.0 / 1_000_000.0;
+    format_usd(cost)
 }
 
 fn format_big(n: u64) -> String {
@@ -652,7 +719,7 @@ pub fn format_gain() -> String {
     } else {
         0.0
     };
-    let usd = usd_estimate(saved);
+    let cost = CostModel::default().calculate(&store);
     let days_active = store.daily.len();
 
     o.push(String::new());
@@ -665,10 +732,43 @@ pub fn format_gain() -> String {
 
     o.push(format!(
         "  {BOLD}{GREEN} {:<12}{RST}  {BOLD}{CYAN} {:<12}{RST}  {BOLD}{YELLOW} {:<10}{RST}  {BOLD}{MAGENTA} {:<10}{RST}",
-        format_big(saved), format!("{pct:.1}%"), format_num(store.total_commands), usd
+        format_big(saved),
+        format!("{pct:.1}%"),
+        format_num(store.total_commands),
+        format_usd(cost.total_saved),
     ));
     o.push(format!(
         "  {DIM} tokens saved   compression    commands       USD saved{RST}"
+    ));
+    o.push(String::new());
+
+    o.push(format!(
+        "  {BOLD}{WHITE}Cost Breakdown{RST}  {DIM}(@ $3/M input, $15/M output){RST}"
+    ));
+    o.push(format!("  {DIM}{ln56}{RST}"));
+    o.push(format!(
+        "  {GRAY}Without lean-ctx{RST}  {:>8}  {DIM}({} input + {} output){RST}",
+        format_usd(cost.total_cost_without),
+        format_usd(cost.input_cost_without),
+        format_usd(cost.output_cost_without),
+    ));
+    o.push(format!(
+        "  {GRAY}With lean-ctx{RST}     {:>8}  {DIM}({} input + {} output){RST}",
+        format_usd(cost.total_cost_with),
+        format_usd(cost.input_cost_with),
+        format_usd(cost.output_cost_with),
+    ));
+    o.push(format!(
+        "  {GREEN}{BOLD}Total Saved{RST}       {GREEN}{BOLD}{:>8}{RST}  {DIM}(input: {} + output: {}){RST}",
+        format_usd(cost.total_saved),
+        format_usd(cost.input_cost_without - cost.input_cost_with),
+        format_usd(cost.output_cost_without - cost.output_cost_with),
+    ));
+    o.push(format!(
+        "  {DIM}Output savings: ~{} tokens saved via CEP/TDD ({} → {} per call){RST}",
+        format_big(cost.output_tokens_saved),
+        CostModel::default().avg_verbose_output_per_call,
+        CostModel::default().avg_concise_output_per_call,
     ));
     o.push(String::new());
 
