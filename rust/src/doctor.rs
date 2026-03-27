@@ -33,7 +33,9 @@ fn path_in_path_env() -> bool {
             if dir.join("lean-ctx").is_file() {
                 return true;
             }
-            if cfg!(windows) && dir.join("lean-ctx.exe").is_file() {
+            if cfg!(windows)
+                && (dir.join("lean-ctx.exe").is_file() || dir.join("lean-ctx.cmd").is_file())
+            {
                 return true;
             }
         }
@@ -71,57 +73,95 @@ fn resolve_lean_ctx_binary() -> Option<PathBuf> {
         if !output.status.success() {
             return None;
         }
-        let s = String::from_utf8_lossy(&output.stdout)
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let lines: Vec<&str> = stdout
             .lines()
-            .next()
-            .unwrap_or("")
-            .trim()
-            .to_string();
-        if s.is_empty() {
-            None
-        } else {
-            Some(PathBuf::from(s))
-        }
+            .map(|l| l.trim())
+            .filter(|l| !l.is_empty())
+            .collect();
+        let exe_line = lines.iter().find(|l| l.ends_with(".exe"));
+        let best = exe_line.or(lines.first()).map(|s| s.to_string());
+        best.map(PathBuf::from)
     }
 }
 
 fn lean_ctx_version_from_path() -> Outcome {
-    let bin = resolve_lean_ctx_binary()
+    let resolved = resolve_lean_ctx_binary();
+    let bin = resolved
+        .clone()
         .unwrap_or_else(|| std::env::current_exe().unwrap_or_else(|_| "lean-ctx".into()));
-    let output = match std::process::Command::new(&bin)
-        .args(["--version"])
-        .env("LEAN_CTX_ACTIVE", "1")
-        .output()
-    {
-        Ok(o) => o,
-        Err(e) => {
-            return Outcome {
+
+    let try_run = |cmd: &std::path::Path| -> Result<String, String> {
+        let output = std::process::Command::new(cmd)
+            .args(["--version"])
+            .env("LEAN_CTX_ACTIVE", "1")
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !output.status.success() {
+            return Err(format!(
+                "exited with {}",
+                output.status.code().unwrap_or(-1)
+            ));
+        }
+        let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if text.is_empty() {
+            return Err("empty output".to_string());
+        }
+        Ok(text)
+    };
+
+    match try_run(&bin) {
+        Ok(text) => Outcome {
+            ok: true,
+            line: format!("{BOLD}lean-ctx version{RST}  {WHITE}{text}{RST}"),
+        },
+        Err(_first_err) => {
+            #[cfg(windows)]
+            {
+                let candidates = [
+                    bin.with_extension("exe"),
+                    bin.parent()
+                        .unwrap_or(std::path::Path::new("."))
+                        .join("node_modules")
+                        .join("lean-ctx-bin")
+                        .join("bin")
+                        .join("lean-ctx.exe"),
+                ];
+                for candidate in &candidates {
+                    if candidate.is_file() {
+                        if let Ok(text) = try_run(candidate) {
+                            return Outcome {
+                                ok: true,
+                                line: format!(
+                                    "{BOLD}lean-ctx version{RST}  {WHITE}{text}{RST}  {DIM}(via {}){RST}",
+                                    candidate.display()
+                                ),
+                            };
+                        }
+                    }
+                }
+            }
+
+            let current_exe_result = std::env::current_exe();
+            if let Ok(ref exe) = current_exe_result {
+                if exe != &bin {
+                    if let Ok(text) = try_run(exe) {
+                        return Outcome {
+                            ok: true,
+                            line: format!("{BOLD}lean-ctx version{RST}  {WHITE}{text}{RST}  {DIM}(this binary){RST}"),
+                        };
+                    }
+                }
+            }
+
+            Outcome {
                 ok: false,
                 line: format!(
-                    "{BOLD}lean-ctx version{RST}  {RED}failed to run `lean-ctx --version`: {e}{RST}"
+                    "{BOLD}lean-ctx version{RST}  {RED}failed to run `lean-ctx --version`: {_first_err}{RST}  {DIM}(resolved: {}){RST}",
+                    bin.display()
                 ),
-            };
+            }
         }
-    };
-    if !output.status.success() {
-        return Outcome {
-            ok: false,
-            line: format!(
-                "{BOLD}lean-ctx version{RST}  {RED}`lean-ctx --version` exited with {}{RST}",
-                output.status.code().unwrap_or(-1)
-            ),
-        };
-    }
-    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if text.is_empty() {
-        return Outcome {
-            ok: false,
-            line: format!("{BOLD}lean-ctx version{RST}  {RED}empty output{RST}"),
-        };
-    }
-    Outcome {
-        ok: true,
-        line: format!("{BOLD}lean-ctx version{RST}  {WHITE}{text}{RST}"),
     }
 }
 
@@ -407,16 +447,19 @@ pub fn run() {
                 stats_path.as_ref().unwrap().display()
             ),
         },
-        None => Outcome {
-            ok: false,
-            line: match &stats_path {
-                Some(p) => format!(
-                    "{BOLD}stats.json{RST}  {RED}missing{RST}  {DIM}{}{RST}",
-                    p.display()
-                ),
-                None => format!("{BOLD}stats.json{RST}  {RED}could not resolve path{RST}"),
-            },
-        },
+        None => {
+            passed += 1;
+            Outcome {
+                ok: true,
+                line: match &stats_path {
+                    Some(p) => format!(
+                        "{BOLD}stats.json{RST}  {YELLOW}not yet created{RST}  {DIM}(will appear after first use) {}{RST}",
+                        p.display()
+                    ),
+                    None => format!("{BOLD}stats.json{RST}  {RED}could not resolve path{RST}"),
+                },
+            }
+        }
     };
     print_check(&stats_outcome);
 

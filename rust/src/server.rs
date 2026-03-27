@@ -15,7 +15,7 @@ impl ServerHandler for LeanCtxServer {
         let instructions = build_instructions(self.crp_mode);
 
         InitializeResult::new(capabilities)
-            .with_server_info(Implementation::new("lean-ctx", "2.5.1"))
+            .with_server_info(Implementation::new("lean-ctx", "2.5.2"))
             .with_instructions(instructions)
     }
 
@@ -789,13 +789,20 @@ fn build_instructions_with_client(crp_mode: CrpMode, client_name: &str) -> Strin
     };
 
     let base = format!("\
-lean-ctx MCP — MANDATORY tool replacement. You MUST use lean-ctx tools for ALL operations:\n\
+lean-ctx MCP — tool replacement for reading, running commands, and searching.\n\
 {session_block}\n\
-REQUIRED (never use the built-in alternative):\n\
+REPLACE these built-in tools with lean-ctx equivalents:\n\
 • Read file → ctx_read(path, mode) — NEVER use Read tool\n\
 • Run command → ctx_shell(command) — NEVER use Shell tool\n\
 • Search code → ctx_search(pattern, path) — NEVER use Grep tool\n\
 • List files → ctx_tree(path, depth) — NEVER use Shell with ls/find\n\
+\n\
+KEEP using these built-in tools normally (lean-ctx has NO replacement for them):\n\
+• Write — create/overwrite files directly\n\
+• StrReplace — edit files directly\n\
+• Delete — delete files directly\n\
+• Glob — find files by pattern\n\
+You do NOT need to ctx_read a file before creating it with Write.\n\
 \n\
 ctx_read modes: full (cached, for files you edit), map (deps+API, context-only), \
 signatures, diff, aggressive, entropy, lines:N-M (specific line ranges). Re-reads cost ~13 tokens. File refs F1,F2.. persist.\n\
@@ -803,7 +810,7 @@ IMPORTANT: If ctx_read returns 'cached Nt NL' and you need the actual file conte
   1. Set fresh=true to force a full re-read, OR\n\
   2. Use start_line=N to read from a specific line, OR\n\
   3. Use mode='lines:N-M' to read a specific range.\n\
-NEVER fall back to native Read tools — always use fresh=true or start_line instead.\n\
+Do not fall back to native Read tools — always use fresh=true or start_line instead.\n\
 \n\
 PROACTIVE (use without being asked):\n\
 • ctx_compress — when context grows large, create checkpoint\n\
@@ -829,10 +836,6 @@ appended to the response. This keeps context compact in long sessions. Configura
 \n\
 IDLE CACHE TTL: Cache auto-clears after 5 min of inactivity (new chat, context compaction). \
 Session state is auto-saved before cache clear. Configurable via LEAN_CTX_CACHE_TTL (seconds, 0=disabled).\n\
-\n\
-Write, StrReplace, Delete, Glob have no lean-ctx equivalent — use normally.\n\
-\n\
-REMINDER: NEVER use Read, Shell, or Grep directly. ALWAYS use ctx_read, ctx_shell, ctx_search instead.\n\
 \n\
 COMMUNICATION PROTOCOL (Cognitive Efficiency Protocol v1):\n\
 1. ACT FIRST — Execute tool calls immediately. Never narrate before acting.\n\

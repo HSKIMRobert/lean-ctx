@@ -547,6 +547,20 @@ pub fn format_cep_report() -> String {
     ));
     o.push(String::new());
 
+    if total_saved == 0 && cep.modes.is_empty() {
+        o.push(format!(
+            "  {YELLOW}⚠  MCP server not configured.{RST} Shell hook compresses output, but"
+        ));
+        o.push(
+            "     full token savings require MCP tools (ctx_read, ctx_shell, ctx_search)."
+                .to_string(),
+        );
+        o.push(format!(
+            "     Run {CYAN}lean-ctx setup{RST} to auto-configure your editors."
+        ));
+        o.push(String::new());
+    }
+
     if !cep.modes.is_empty() {
         o.push(format!("  {BOLD}{WHITE}Read Modes Used{RST}"));
         o.push(format!("  {DIM}{ln56}{RST}"));
@@ -742,7 +756,7 @@ pub fn format_gain() -> String {
     o.push(String::new());
     o.push(format!("  {DIM}{ln56}{RST}"));
     o.push(format!(
-        "  {DIM}lean-ctx v2.5.1  |  leanctx.com  |  lean-ctx dashboard{RST}"
+        "  {DIM}lean-ctx v2.5.2  |  leanctx.com  |  lean-ctx dashboard{RST}"
     ));
     o.push(String::new());
 

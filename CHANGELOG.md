@@ -2,6 +2,21 @@
 
 All notable changes to lean-ctx are documented here.
 
+## [2.5.2] — 2026-03-27
+
+### Fixed
+
+- **MCP instructions: Write/StrReplace confusion** — Restructured MCP system prompt to clearly separate "REPLACE" tools (Read → ctx_read, Shell → ctx_shell, Grep → ctx_search) from "KEEP" tools (Write, StrReplace, Delete, Glob). Agents no longer think they must ctx_read before creating files with Write (#20)
+- **`lean-ctx doctor` on Windows** — Fixed OS Error 193 ("not a valid Win32 application") when doctor tried to run `lean-ctx --version` via the npm `.cmd` shim. Now prefers `.exe` binaries from `where.exe` output and falls back to alternative candidates
+- **`stats.json missing` false alarm** — `lean-ctx doctor` no longer shows a red error for missing `stats.json` on fresh installs. Now shows yellow "not yet created (will appear after first use)" and counts as passed
+- **`lean-ctx gain` missing MCP hint** — When MCP/CEP shows 0% savings (shell hook only, no MCP server configured), gain now displays a clear hint to run `lean-ctx setup` for full token savings
+
+### Added
+
+- **GitHub Discussions** — Enabled Discussions tab for questions and community support (#19)
+
+---
+
 ## [2.5.1] — 2026-03-27
 
 ### Fixed
