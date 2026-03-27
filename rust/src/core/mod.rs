@@ -13,6 +13,8 @@ pub mod protocol;
 pub mod quality;
 pub mod session;
 pub mod signatures;
+pub mod slow_log;
+pub mod updater;
 #[cfg(feature = "tree-sitter")]
 pub mod signatures_ts;
 pub mod stats;

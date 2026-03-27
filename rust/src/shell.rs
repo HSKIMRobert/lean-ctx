@@ -3,11 +3,14 @@ use std::process::{Command, Stdio};
 
 use crate::core::config;
 use crate::core::patterns;
+use crate::core::slow_log;
 use crate::core::stats;
 use crate::core::tokens::count_tokens;
 
 pub fn exec(command: &str) -> i32 {
     let (shell, shell_flag) = shell_and_flag();
+
+    let start = std::time::Instant::now();
 
     let child = Command::new(&shell)
         .arg(&shell_flag)
@@ -33,6 +36,7 @@ pub fn exec(command: &str) -> i32 {
         }
     };
 
+    let duration_ms = start.elapsed().as_millis();
     let exit_code = output.status.code().unwrap_or(1);
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -45,7 +49,20 @@ pub fn exec(command: &str) -> i32 {
         format!("{stdout}\n{stderr}")
     };
 
+    let cfg = config::Config::load();
     let input_tokens = count_tokens(&full_output);
+
+    if is_excluded_command(command, &cfg.excluded_commands) {
+        if !full_output.is_empty() {
+            let _ = io::stdout().write_all(full_output.as_bytes());
+            if !full_output.ends_with('\n') {
+                let _ = io::stdout().write_all(b"\n");
+            }
+        }
+        stats::record(command, input_tokens, input_tokens);
+        return exit_code;
+    }
+
     let (compressed, output_tokens) = compress_and_measure(command, &stdout, &stderr);
 
     stats::record(command, input_tokens, output_tokens);
@@ -56,8 +73,6 @@ pub fn exec(command: &str) -> i32 {
             let _ = io::stdout().write_all(b"\n");
         }
     }
-
-    let cfg = config::Config::load();
     if cfg.tee_on_error && exit_code != 0 && !full_output.trim().is_empty() {
         if let Some(path) = save_tee(command, &full_output) {
             eprintln!(
@@ -66,7 +81,23 @@ pub fn exec(command: &str) -> i32 {
         }
     }
 
+    let threshold = cfg.slow_command_threshold_ms;
+    if threshold > 0 && duration_ms >= threshold as u128 {
+        slow_log::record(command, duration_ms, exit_code);
+    }
+
     exit_code
+}
+
+fn is_excluded_command(command: &str, excluded: &[String]) -> bool {
+    if excluded.is_empty() {
+        return false;
+    }
+    let cmd = command.trim().to_lowercase();
+    excluded.iter().any(|excl| {
+        let excl_lower = excl.trim().to_lowercase();
+        cmd == excl_lower || cmd.starts_with(&format!("{excl_lower} "))
+    })
 }
 
 pub fn interactive() {

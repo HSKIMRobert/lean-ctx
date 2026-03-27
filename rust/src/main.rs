@@ -105,6 +105,14 @@ fn main() {
                 cli::cmd_tee(&rest);
                 return;
             }
+            "slow-log" => {
+                cli::cmd_slow_log(&rest);
+                return;
+            }
+            "update" | "--self-update" => {
+                core::updater::run(&rest);
+                return;
+            }
             "doctor" => {
                 doctor::run();
                 return;
@@ -228,6 +236,8 @@ COMMANDS:
     session                        Show adoption statistics
     config                         Show/edit configuration (~/.lean-ctx/config.toml)
     tee [list|clear|show <file>]   Manage error log files (~/.lean-ctx/tee/)
+    slow-log [list|clear]          Show/clear slow command log (~/.lean-ctx/slow-commands.log)
+    update [--check]               Self-update lean-ctx binary from GitHub Releases
     doctor                         Run installation and environment diagnostics
 
 SHELL HOOK PATTERNS (90+):
@@ -274,7 +284,10 @@ EXAMPLES:
     lean-ctx sessions list         List all CCP sessions
     lean-ctx sessions show         Show latest session state
     lean-ctx discover              Find missed savings in shell history
-    lean-ctx init --global         Install shell aliases
+    lean-ctx init --global         Install shell aliases (includes lean-ctx-on/off/status)
+    lean-ctx-on                    Enable all compression aliases (after init)
+    lean-ctx-off                   Disable all compression aliases (human-readable mode)
+    lean-ctx-status                Show whether compression is active
     lean-ctx init --agent pi       Install Pi Coding Agent extension
     lean-ctx doctor                Check PATH, config, MCP, and dashboard port
     lean-ctx read src/main.rs -m map
