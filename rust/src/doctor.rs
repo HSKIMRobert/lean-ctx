@@ -194,6 +194,63 @@ fn shell_aliases_outcome() -> Outcome {
     }
 }
 
+struct McpLocation {
+    name: &'static str,
+    display: &'static str,
+    path: PathBuf,
+}
+
+fn mcp_config_locations(home: &std::path::Path) -> Vec<McpLocation> {
+    let mut locations = vec![
+        McpLocation {
+            name: "Cursor",
+            display: "~/.cursor/mcp.json",
+            path: home.join(".cursor").join("mcp.json"),
+        },
+        McpLocation {
+            name: "Claude Code",
+            display: "~/.claude.json",
+            path: home.join(".claude.json"),
+        },
+        McpLocation {
+            name: "Windsurf",
+            display: "~/.codeium/windsurf/mcp_config.json",
+            path: home
+                .join(".codeium")
+                .join("windsurf")
+                .join("mcp_config.json"),
+        },
+        McpLocation {
+            name: "Codex",
+            display: "~/.codex/config.toml",
+            path: home.join(".codex").join("config.toml"),
+        },
+        McpLocation {
+            name: "Gemini CLI",
+            display: "~/.gemini/settings/mcp.json",
+            path: home.join(".gemini").join("settings").join("mcp.json"),
+        },
+    ];
+
+    #[cfg(unix)]
+    {
+        let zed_cfg = home.join(".config").join("zed").join("settings.json");
+        locations.push(McpLocation {
+            name: "Zed",
+            display: "~/.config/zed/settings.json",
+            path: zed_cfg,
+        });
+        let opencode_cfg = home.join(".config").join("opencode").join("opencode.json");
+        locations.push(McpLocation {
+            name: "OpenCode",
+            display: "~/.config/opencode/opencode.json",
+            path: opencode_cfg,
+        });
+    }
+
+    locations
+}
+
 fn mcp_config_outcome() -> Outcome {
     let home = match dirs::home_dir() {
         Some(h) => h,
@@ -204,31 +261,46 @@ fn mcp_config_outcome() -> Outcome {
             };
         }
     };
-    let path = home.join(".cursor").join("mcp.json");
-    match std::fs::read_to_string(&path) {
-        Ok(content) => {
-            if content.contains("lean-ctx") {
-                Outcome {
-                    ok: true,
-                    line: format!(
-                        "{BOLD}MCP config{RST}  {GREEN}{DIM}~/.cursor/mcp.json{RST} contains lean-ctx"
-                    ),
-                }
-            } else {
-                Outcome {
-                    ok: false,
-                    line: format!(
-                        "{BOLD}MCP config{RST}  {RED}{DIM}~/.cursor/mcp.json{RST} exists but does not reference lean-ctx"
-                    ),
-                }
+
+    let locations = mcp_config_locations(&home);
+    let mut found: Vec<String> = Vec::new();
+    let mut exists_no_ref: Vec<String> = Vec::new();
+
+    for loc in &locations {
+        match std::fs::read_to_string(&loc.path) {
+            Ok(content) if content.contains("lean-ctx") => {
+                found.push(format!("{} {DIM}({}){RST}", loc.name, loc.display));
             }
+            Ok(_) => {
+                exists_no_ref.push(loc.name.to_string());
+            }
+            Err(_) => {}
         }
-        Err(_) => Outcome {
+    }
+
+    if !found.is_empty() {
+        Outcome {
+            ok: true,
+            line: format!(
+                "{BOLD}MCP config{RST}  {GREEN}lean-ctx found in: {}{RST}",
+                found.join(", ")
+            ),
+        }
+    } else if !exists_no_ref.is_empty() {
+        Outcome {
             ok: false,
             line: format!(
-                "{BOLD}MCP config{RST}  {RED}missing or unreadable {DIM}~/.cursor/mcp.json{RST}"
+                "{BOLD}MCP config{RST}  {YELLOW}config exists for {} but does not reference lean-ctx{RST}  {DIM}(run: lean-ctx init --agent <editor>){RST}",
+                exists_no_ref.join(", ")
             ),
-        },
+        }
+    } else {
+        Outcome {
+            ok: false,
+            line: format!(
+                "{BOLD}MCP config{RST}  {YELLOW}no MCP config found{RST}  {DIM}(checked: Cursor, Claude, Windsurf, Codex, Gemini, Zed){RST}"
+            ),
+        }
     }
 }
 

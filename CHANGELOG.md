@@ -2,6 +2,20 @@
 
 All notable changes to lean-ctx are documented here.
 
+## [2.5.0] — 2026-03-27
+
+### Added
+
+- **`lean-ctx setup`** — One-command setup that installs shell aliases, auto-detects installed AI editors (Cursor, Claude Code, Windsurf, Codex CLI, Gemini CLI, Zed), creates MCP config files, installs agent instructions, and runs diagnostics. Replaces the multi-step manual installation process
+- **`lean-ctx doctor` improvements** — Enhanced diagnostic output with better detection of editor configurations and more actionable error messages
+
+### Changed
+
+- **Website documentation restructured** — Getting Started page now follows a clean chronological flow: Quick Install → Step 1: Install → Step 2: Setup → Step 3: Editor Setup → Step 4: Verify. Docs sidebar reorganized into logical groups for better navigation
+- **Installation Prompt Generator redesigned** — Integrated into documentation style with consistent headings, labels, and layout. Now generates prompts referencing `lean-ctx setup` for simplified installation
+
+---
+
 ## [2.4.1] — 2026-03-27
 
 ### Added

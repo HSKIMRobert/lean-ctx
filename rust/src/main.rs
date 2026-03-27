@@ -1,5 +1,5 @@
 use anyhow::Result;
-use lean_ctx::{cli, core, dashboard, doctor, shell, tools};
+use lean_ctx::{cli, core, dashboard, doctor, setup, shell, tools};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -51,6 +51,10 @@ fn main() {
             }
             "init" => {
                 cli::cmd_init(&rest);
+                return;
+            }
+            "setup" => {
+                setup::run_setup();
                 return;
             }
             "read" => {
@@ -118,7 +122,7 @@ fn main() {
                 return;
             }
             "--version" | "-V" => {
-                println!("lean-ctx 2.4.1");
+                println!("lean-ctx 2.5.0");
                 return;
             }
             "--help" | "-h" => {
@@ -170,7 +174,7 @@ fn run_mcp_server() -> Result<()> {
             .with_writer(std::io::stderr)
             .init();
 
-        tracing::info!("lean-ctx v2.4.1 MCP server starting");
+        tracing::info!("lean-ctx v2.5.0 MCP server starting");
 
         let server = tools::create_server();
         let transport = rmcp::transport::io::stdio();
@@ -202,7 +206,7 @@ fn shell_quote(s: &str) -> String {
 
 fn print_help() {
     println!(
-        "lean-ctx 2.4.1 — The Cognitive Filter for AI Engineering
+        "lean-ctx 2.5.0 — The Cognitive Filter for AI Engineering
 
 90+ compression patterns | 21 MCP tools | Context Continuity Protocol
 
@@ -224,6 +228,7 @@ COMMANDS:
     sessions [list|show|cleanup]   Manage CCP sessions (~/.lean-ctx/sessions/)
     benchmark run [path] [--json]  Run real benchmark on project files
     benchmark report [path]        Generate shareable Markdown report
+    setup                          One-command setup: shell + editor + verify
     init [--global]                Install shell aliases (zsh/bash/fish/PowerShell)
     init --agent pi                Install Pi Coding Agent extension (pi-lean-ctx)
     read <file> [-m mode]          Read file with compression
@@ -284,6 +289,7 @@ EXAMPLES:
     lean-ctx sessions list         List all CCP sessions
     lean-ctx sessions show         Show latest session state
     lean-ctx discover              Find missed savings in shell history
+    lean-ctx setup                 One-command setup (shell + editors + verify)
     lean-ctx init --global         Install shell aliases (includes lean-ctx-on/off/status)
     lean-ctx-on                    Enable all compression aliases (after init)
     lean-ctx-off                   Disable all compression aliases (human-readable mode)
