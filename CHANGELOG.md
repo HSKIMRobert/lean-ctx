@@ -2,6 +2,22 @@
 
 All notable changes to lean-ctx are documented here.
 
+## [2.6.1] — 2026-03-27
+
+### Fixed
+
+- **Dashboard cost model** — Replaced flat $2.50/M pricing with realistic tiered model ($3/M input, $15/M output) matching Claude/GPT API pricing. Dashboard now shows separate input and output cost breakdowns
+- **Dashboard redesign** — Hero section with total savings, visual cost comparison (with vs without lean-ctx), daily savings rate chart, filterable command table, sticky header, and fade-up animations
+- **Dashboard CEP values** — Fixed stale CEP metrics by prioritizing computed stats from `stats.json` over potentially stale `mcp-live.json` data (was showing 0% cache hit rate)
+- **`lean-ctx gain` cost model** — Terminal gain command now uses the same tiered pricing model with input/output breakdown and estimated output token savings via CEP/TDD
+
+### Changed
+
+- **README** — Updated cost model references from $2.50/M to $3/M input + $15/M output, added Scientific Compression Engine section documenting v2.6 features
+- **Website** — Updated all version references to v2.6.1, added 6 new Scientific Features to features page (Adaptive Entropy, Attention Model, TF-IDF Codebook, Feedback Loop, Information Bottleneck, ctx_overview)
+
+---
+
 ## [2.6.0] — 2026-03-27
 
 ### Added
