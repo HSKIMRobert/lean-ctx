@@ -517,6 +517,20 @@ pub fn cmd_config(args: &[String]) {
     }
 }
 
+pub fn cmd_slow_log(args: &[String]) {
+    use crate::core::slow_log;
+
+    let action = args.first().map(|s| s.as_str()).unwrap_or("list");
+    match action {
+        "list" | "ls" | "" => println!("{}", slow_log::list()),
+        "clear" | "purge" => println!("{}", slow_log::clear()),
+        _ => {
+            eprintln!("Usage: lean-ctx slow-log [list|clear]");
+            std::process::exit(1);
+        }
+    }
+}
+
 pub fn cmd_tee(args: &[String]) {
     let tee_dir = match dirs::home_dir() {
         Some(h) => h.join(".lean-ctx").join("tee"),
@@ -773,31 +787,38 @@ fn init_fish(binary: &str) {
 
     let aliases = format!(
         "\n# lean-ctx shell hook — transparent CLI compression (90+ patterns)\n\
-        if not set -q LEAN_CTX_ACTIVE\n\
-        \talias git '{binary} -c git'\n\
-        \talias npm '{binary} -c npm'\n\
-        \talias pnpm '{binary} -c pnpm'\n\
-        \talias yarn '{binary} -c yarn'\n\
-        \talias cargo '{binary} -c cargo'\n\
-        \talias docker '{binary} -c docker'\n\
-        \talias docker-compose '{binary} -c docker-compose'\n\
-        \talias kubectl '{binary} -c kubectl'\n\
+        set -g _lean_ctx_cmds git npm pnpm yarn cargo docker docker-compose kubectl gh pip pip3 ruff go golangci-lint eslint prettier tsc ls find grep curl wget\n\
+        \n\
+        function lean-ctx-on\n\
+        \tfor _lc_cmd in $_lean_ctx_cmds\n\
+        \t\talias $_lc_cmd '{binary} -c '$_lc_cmd\n\
+        \tend\n\
         \talias k '{binary} -c kubectl'\n\
-        \talias gh '{binary} -c gh'\n\
-        \talias pip '{binary} -c pip'\n\
-        \talias pip3 '{binary} -c pip3'\n\
-        \talias ruff '{binary} -c ruff'\n\
-        \talias go '{binary} -c go'\n\
-        \talias golangci-lint '{binary} -c golangci-lint'\n\
-        \talias eslint '{binary} -c eslint'\n\
-        \talias prettier '{binary} -c prettier'\n\
-        \talias tsc '{binary} -c tsc'\n\
-        \talias ls '{binary} -c ls'\n\
-        \talias find '{binary} -c find'\n\
-        \talias grep '{binary} -c grep'\n\
-        \talias curl '{binary} -c curl'\n\
-        \talias wget '{binary} -c wget'\n\
-        end\n"
+        \tset -gx LEAN_CTX_ENABLED 1\n\
+        \techo 'lean-ctx: ON'\n\
+        end\n\
+        \n\
+        function lean-ctx-off\n\
+        \tfor _lc_cmd in $_lean_ctx_cmds\n\
+        \t\tfunctions --erase $_lc_cmd 2>/dev/null; true\n\
+        \tend\n\
+        \tfunctions --erase k 2>/dev/null; true\n\
+        \tset -e LEAN_CTX_ENABLED\n\
+        \techo 'lean-ctx: OFF'\n\
+        end\n\
+        \n\
+        function lean-ctx-status\n\
+        \tif set -q LEAN_CTX_ENABLED\n\
+        \t\techo 'lean-ctx: ON'\n\
+        \telse\n\
+        \t\techo 'lean-ctx: OFF'\n\
+        \tend\n\
+        end\n\
+        \n\
+        if not set -q LEAN_CTX_ACTIVE; and test (set -q LEAN_CTX_ENABLED; and echo $LEAN_CTX_ENABLED; or echo 1) != '0'\n\
+        \tlean-ctx-on\n\
+        end\n\
+        # lean-ctx shell hook — end\n"
     );
 
     if let Ok(existing) = std::fs::read_to_string(&config) {
@@ -846,31 +867,39 @@ fn init_posix(is_zsh: bool, binary: &str) {
     let aliases = format!(
         r#"
 # lean-ctx shell hook — transparent CLI compression (90+ patterns)
-if [ -z "$LEAN_CTX_ACTIVE" ]; then
-alias git='{binary} -c git'
-alias npm='{binary} -c npm'
-alias pnpm='{binary} -c pnpm'
-alias yarn='{binary} -c yarn'
-alias cargo='{binary} -c cargo'
-alias docker='{binary} -c docker'
-alias docker-compose='{binary} -c docker-compose'
-alias kubectl='{binary} -c kubectl'
-alias k='{binary} -c kubectl'
-alias gh='{binary} -c gh'
-alias pip='{binary} -c pip'
-alias pip3='{binary} -c pip3'
-alias ruff='{binary} -c ruff'
-alias go='{binary} -c go'
-alias golangci-lint='{binary} -c golangci-lint'
-alias eslint='{binary} -c eslint'
-alias prettier='{binary} -c prettier'
-alias tsc='{binary} -c tsc'
-alias ls='{binary} -c ls'
-alias find='{binary} -c find'
-alias grep='{binary} -c grep'
-alias curl='{binary} -c curl'
-alias wget='{binary} -c wget'
+_lean_ctx_cmds=(git npm pnpm yarn cargo docker docker-compose kubectl gh pip pip3 ruff go golangci-lint eslint prettier tsc ls find grep curl wget)
+
+lean-ctx-on() {{
+    for _lc_cmd in "${{_lean_ctx_cmds[@]}}"; do
+        # shellcheck disable=SC2139
+        alias "$_lc_cmd"='{binary} -c '"$_lc_cmd"
+    done
+    alias k='{binary} -c kubectl'
+    export LEAN_CTX_ENABLED=1
+    echo "lean-ctx: ON"
+}}
+
+lean-ctx-off() {{
+    for _lc_cmd in "${{_lean_ctx_cmds[@]}}"; do
+        unalias "$_lc_cmd" 2>/dev/null || true
+    done
+    unalias k 2>/dev/null || true
+    unset LEAN_CTX_ENABLED
+    echo "lean-ctx: OFF"
+}}
+
+lean-ctx-status() {{
+    if [ -n "${{LEAN_CTX_ENABLED:-}}" ]; then
+        echo "lean-ctx: ON"
+    else
+        echo "lean-ctx: OFF"
+    fi
+}}
+
+if [ -z "${{LEAN_CTX_ACTIVE:-}}" ] && [ "${{LEAN_CTX_ENABLED:-1}}" != "0" ]; then
+    lean-ctx-on
 fi
+# lean-ctx shell hook — end
 "#
     );
 
@@ -907,6 +936,35 @@ fi
 }
 
 fn remove_lean_ctx_block(content: &str) -> String {
+    // New format uses explicit end marker; old format ends at first top-level `fi`/`end`.
+    if content.contains("# lean-ctx shell hook — end") {
+        return remove_lean_ctx_block_by_marker(content);
+    }
+    remove_lean_ctx_block_legacy(content)
+}
+
+fn remove_lean_ctx_block_by_marker(content: &str) -> String {
+    let mut result = String::new();
+    let mut in_block = false;
+
+    for line in content.lines() {
+        if !in_block && line.contains("lean-ctx shell hook") && !line.contains("end") {
+            in_block = true;
+            continue;
+        }
+        if in_block {
+            if line.trim() == "# lean-ctx shell hook — end" {
+                in_block = false;
+            }
+            continue;
+        }
+        result.push_str(line);
+        result.push('\n');
+    }
+    result
+}
+
+fn remove_lean_ctx_block_legacy(content: &str) -> String {
     let mut result = String::new();
     let mut in_block = false;
 
@@ -1040,5 +1098,41 @@ export EDITOR=vim
         let input = "# normal bashrc\nexport PATH=\"$HOME/bin:$PATH\"\n";
         let result = remove_lean_ctx_block(input);
         assert!(result.contains("export PATH"), "content unchanged");
+    }
+
+    #[test]
+    fn test_remove_lean_ctx_block_new_format_with_end_marker() {
+        let input = r#"# existing config
+export PATH="$HOME/bin:$PATH"
+
+# lean-ctx shell hook — transparent CLI compression (90+ patterns)
+_lean_ctx_cmds=(git npm pnpm)
+
+lean-ctx-on() {
+    for _lc_cmd in "${_lean_ctx_cmds[@]}"; do
+        alias "$_lc_cmd"='lean-ctx -c '"$_lc_cmd"
+    done
+    export LEAN_CTX_ENABLED=1
+    echo "lean-ctx: ON"
+}
+
+lean-ctx-off() {
+    unset LEAN_CTX_ENABLED
+    echo "lean-ctx: OFF"
+}
+
+if [ -z "${LEAN_CTX_ACTIVE:-}" ] && [ "${LEAN_CTX_ENABLED:-1}" != "0" ]; then
+    lean-ctx-on
+fi
+# lean-ctx shell hook — end
+
+# other stuff
+export EDITOR=vim
+"#;
+        let result = remove_lean_ctx_block(input);
+        assert!(!result.contains("lean-ctx-on"), "block should be removed");
+        assert!(!result.contains("lean-ctx shell hook"), "marker removed");
+        assert!(result.contains("export PATH"), "other content preserved");
+        assert!(result.contains("export EDITOR"), "trailing content preserved");
     }
 }

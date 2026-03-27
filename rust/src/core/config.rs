@@ -9,6 +9,9 @@ pub struct Config {
     pub checkpoint_interval: u32,
     pub excluded_commands: Vec<String>,
     pub custom_aliases: Vec<AliasEntry>,
+    /// Commands taking longer than this threshold (ms) are recorded in the slow log.
+    /// Set to 0 to disable slow logging.
+    pub slow_command_threshold_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,6 +28,7 @@ impl Default for Config {
             checkpoint_interval: 15,
             excluded_commands: Vec::new(),
             custom_aliases: Vec::new(),
+            slow_command_threshold_ms: 5000,
         }
     }
 }
