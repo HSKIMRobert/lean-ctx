@@ -1,7 +1,6 @@
 use std::io::Read;
 
-const GITHUB_API_RELEASES: &str =
-    "https://api.github.com/repos/yvgude/lean-ctx/releases/latest";
+const GITHUB_API_RELEASES: &str = "https://api.github.com/repos/yvgude/lean-ctx/releases/latest";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub fn run(args: &[String]) {
@@ -78,10 +77,7 @@ pub fn run(args: &[String]) {
 
 fn fetch_latest_release() -> Result<serde_json::Value, String> {
     let response = ureq::get(GITHUB_API_RELEASES)
-        .header(
-            "User-Agent",
-            &format!("lean-ctx/{CURRENT_VERSION}"),
-        )
+        .header("User-Agent", &format!("lean-ctx/{CURRENT_VERSION}"))
         .header("Accept", "application/vnd.github.v3+json")
         .call()
         .map_err(|e| e.to_string())?;
@@ -104,10 +100,7 @@ fn find_asset_url(release: &serde_json::Value, asset_name: &str) -> Option<Strin
 
 fn download_bytes(url: &str) -> Result<Vec<u8>, String> {
     let response = ureq::get(url)
-        .header(
-            "User-Agent",
-            &format!("lean-ctx/{CURRENT_VERSION}"),
-        )
+        .header("User-Agent", &format!("lean-ctx/{CURRENT_VERSION}"))
         .call()
         .map_err(|e| e.to_string())?;
 
@@ -155,10 +148,7 @@ fn extract_from_tar_gz(data: &[u8]) -> Result<Vec<u8>, String> {
     for entry in archive.entries().map_err(|e| e.to_string())? {
         let mut entry = entry.map_err(|e| e.to_string())?;
         let path = entry.path().map_err(|e| e.to_string())?;
-        let name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
         if name == "lean-ctx" || name == "lean-ctx.exe" {
             let mut bytes = Vec::new();

@@ -2,6 +2,27 @@
 
 All notable changes to lean-ctx are documented here.
 
+## [2.4.0] — 2026-03-27
+
+### Fixed
+
+- **`excluded_commands` now enforced** — Commands listed in `~/.lean-ctx/config.toml` under `excluded_commands` now actually bypass compression and return raw output. Previously the config option was parsed but never checked ([#10](https://github.com/yvgude/lean-ctx/issues/10))
+- **Windows Git Bash shell flag** — `shell_and_flag()` now correctly assigns `-c` for POSIX-style shells (bash/sh/zsh/fish) on Windows, instead of `/C` (cmd.exe only). Fixes the `/C: Is a directory` error and exit code 126 when using lean-ctx with Git Bash ([#7](https://github.com/yvgude/lean-ctx/issues/7), [#11](https://github.com/yvgude/lean-ctx/issues/11), via PR [#8](https://github.com/yvgude/lean-ctx/pull/8))
+
+### Added
+
+- **`lean-ctx-on` / `lean-ctx-off` / `lean-ctx-status`** — Shell toggle functions installed by `lean-ctx init --global`. Switch between compressed AI mode and human-readable output without restarting the shell. `LEAN_CTX_ENABLED=0` disables by default ([#13](https://github.com/yvgude/lean-ctx/issues/13))
+- **Slow query log** — Commands exceeding `slow_command_threshold_ms` (default: 5000ms) are automatically logged to `~/.lean-ctx/slow-commands.log`. New `lean-ctx slow-log [list|clear]` command to inspect or clear the log. Configure threshold in `config.toml` ([#14](https://github.com/yvgude/lean-ctx/issues/14))
+- **`lean-ctx update`** — Built-in self-update command. Fetches the latest release from the GitHub API, downloads the appropriate binary archive for the current platform (macOS arm64/x86\_64, Linux x86\_64/aarch64 musl, Windows x86\_64), and safely replaces the running binary. `lean-ctx update --check` checks for updates without installing ([#15](https://github.com/yvgude/lean-ctx/issues/15))
+- **`slow_command_threshold_ms` config option** — New field in `~/.lean-ctx/config.toml` (default: 5000). Set to `0` to disable slow logging
+
+### Docs
+
+- **README** updated with `lean-ctx-on/off/status` usage and `lean-ctx update` examples (via PR [#9](https://github.com/yvgude/lean-ctx/pull/9))
+- **`lean-ctx-session-metrics.mdc`** example added to `rust/examples/` showing how to surface live MCP session token savings in agent transcripts
+
+---
+
 ## [2.3.3] — 2026-03-26
 
 ### Added

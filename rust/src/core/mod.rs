@@ -13,12 +13,12 @@ pub mod protocol;
 pub mod quality;
 pub mod session;
 pub mod signatures;
-pub mod slow_log;
-pub mod updater;
 #[cfg(feature = "tree-sitter")]
 pub mod signatures_ts;
+pub mod slow_log;
 pub mod stats;
 pub mod symbol_map;
 pub mod tokens;
+pub mod updater;
 pub mod validator;
 pub mod wrapped;
