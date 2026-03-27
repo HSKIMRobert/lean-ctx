@@ -98,7 +98,7 @@ cp target/release/lean-ctx ~/.local/bin/
 ### Verify Installation
 
 ```bash
-lean-ctx --version   # Should show "lean-ctx 2.5.0"
+lean-ctx --version   # Should show "lean-ctx 2.5.1"
 lean-ctx gain        # Should show token savings stats
 ```
 
@@ -594,7 +594,7 @@ Add to `~/.config/zed/settings.json`:
 lean-ctx init --agent pi
 
 # Or install manually
-pi install pi-lean-ctx
+pi install npm:pi-lean-ctx
 ```
 
 Once installed, Pi's `bash`, `read`, `grep`, `find`, and `ls` tools are automatically routed through lean-ctx. No manual prefixing needed — the extension handles compression transparently.
