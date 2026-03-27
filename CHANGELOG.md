@@ -9,6 +9,7 @@ All notable changes to lean-ctx are documented here.
 - **`ctx_read` cache bypass** — Added `start_line` parameter and `lines:N-M` mode to MCP schema. When an LLM requests specific lines from a cached file, lean-ctx now returns actual content instead of the compact `cached Nt NL` stub. Fixes issue where LLMs fell back to native Read tools after wasting 3-5 minutes (#17)
 - **`pi install` registry resolution** — Fixed `lean-ctx init --agent pi` to use `npm:pi-lean-ctx` prefix so Pi resolves the package from npm registry instead of treating it as a local path
 - **Improved MCP instructions** — System prompt now explicitly guides LLMs to use `fresh=true`, `start_line`, or `lines:N-M` mode when they encounter a cache stub, preventing fallback to native tools
+- **pi-lean-ctx v1.0.2** — Added 40+ file extensions to code detection (`.vue`, `.svelte`, `.astro`, `.html`, `.css`, `.scss`, `.lua`, `.zig`, `.dart`, `.scala`, `.sql`, `.graphql`, `.proto`, `.tf`, `.sh`, and more). Partial reads with `offset`/`limit` now route through lean-ctx `lines:N-M` mode instead of bypassing compression (#18)
 
 ---
 

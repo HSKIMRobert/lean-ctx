@@ -42,11 +42,15 @@ The `read` tool automatically selects the optimal lean-ctx mode:
 | File Type | Size | Mode |
 |-----------|------|------|
 | `.md`, `.json`, `.toml`, `.yaml`, etc. | Any | `full` |
-| Code files (`.rs`, `.ts`, `.py`, etc.) | < 24 KB | `full` |
+| Code files (55+ extensions) | < 24 KB | `full` |
 | Code files | 24–160 KB | `map` (deps + API signatures) |
 | Code files | > 160 KB | `signatures` (AST extraction) |
 | Other files | < 48 KB | `full` |
 | Other files | > 48 KB | `map` |
+
+Code extensions include: `.rs`, `.ts`, `.tsx`, `.js`, `.jsx`, `.py`, `.go`, `.java`, `.c`, `.cpp`, `.cs`, `.rb`, `.php`, `.swift`, `.kt`, `.vue`, `.svelte`, `.astro`, `.html`, `.css`, `.scss`, `.lua`, `.zig`, `.dart`, `.scala`, `.sql`, `.graphql`, `.proto`, `.tf`, `.sh`, `.bash`, `.zsh`, `.fish`, `.ps1`, and more.
+
+**Partial reads** (with `offset`/`limit`) are also routed through lean-ctx using `lines:N-M` mode for compression.
 
 ## Slash Command
 

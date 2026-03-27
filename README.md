@@ -599,7 +599,7 @@ pi install npm:pi-lean-ctx
 
 Once installed, Pi's `bash`, `read`, `grep`, `find`, and `ls` tools are automatically routed through lean-ctx. No manual prefixing needed — the extension handles compression transparently.
 
-> **Smart reads:** The extension automatically selects the optimal read mode based on file type and size (full for small files, map for medium code, signatures for large code files).
+> **Smart reads:** The extension supports 55+ code file extensions (including `.vue`, `.svelte`, `.astro`, `.html`, `.css`, `.sql`, `.graphql`, `.proto`, `.tf`, and more) and automatically selects the optimal read mode based on file type and size. Partial reads with `offset`/`limit` are also compressed via lean-ctx.
 
 ### OpenAI Codex
 
