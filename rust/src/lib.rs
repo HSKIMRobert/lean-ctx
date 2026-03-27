@@ -4,5 +4,6 @@ pub mod dashboard;
 pub mod doctor;
 pub mod hooks;
 pub mod server;
+pub mod setup;
 pub mod shell;
 pub mod tools;
