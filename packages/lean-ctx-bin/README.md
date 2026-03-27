@@ -10,6 +10,14 @@ No Rust toolchain required. The correct binary for your platform is downloaded a
 npm install -g lean-ctx-bin
 ```
 
+After installing, run the one-command setup:
+
+```bash
+lean-ctx setup
+```
+
+This auto-detects your shell and editors, installs shell aliases, creates MCP configs, and verifies everything.
+
 ## Supported Platforms
 
 | Platform | Architecture |
@@ -21,18 +29,19 @@ npm install -g lean-ctx-bin
 ## Alternative Install Methods
 
 ```bash
-# From source (requires Rust)
-cargo install lean-ctx
+# Universal installer (no Rust needed)
+curl -fsSL https://leanctx.com/install.sh | sh
 
 # Homebrew (macOS/Linux)
 brew tap yvgude/lean-ctx && brew install lean-ctx
 
-# One-liner (no Rust needed)
-curl -fsSL https://raw.githubusercontent.com/yvgude/lean-ctx/main/install.sh | bash -s -- --download
+# Cargo (requires Rust)
+cargo install lean-ctx
 ```
 
 ## Links
 
-- [Documentation](https://leanctx.com)
+- [Documentation](https://leanctx.com/docs/getting-started)
 - [GitHub](https://github.com/yvgude/lean-ctx)
 - [crates.io](https://crates.io/crates/lean-ctx)
+- [Discord](https://discord.gg/pTHkG9Hew9)
