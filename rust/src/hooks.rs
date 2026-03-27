@@ -436,7 +436,7 @@ fn install_pi_hook(global: bool) {
     println!();
 
     let install_result = std::process::Command::new("pi")
-        .args(["install", "pi-lean-ctx"])
+        .args(["install", "npm:pi-lean-ctx"])
         .status();
 
     match install_result {
@@ -445,7 +445,7 @@ fn install_pi_hook(global: bool) {
         }
         _ => {
             println!("Could not auto-install pi-lean-ctx. Install manually:");
-            println!("  pi install pi-lean-ctx");
+            println!("  pi install npm:pi-lean-ctx");
             println!();
         }
     }

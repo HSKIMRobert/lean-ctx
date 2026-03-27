@@ -15,7 +15,7 @@ impl ServerHandler for LeanCtxServer {
         let instructions = build_instructions(self.crp_mode);
 
         InitializeResult::new(capabilities)
-            .with_server_info(Implementation::new("lean-ctx", "2.5.0"))
+            .with_server_info(Implementation::new("lean-ctx", "2.5.1"))
             .with_instructions(instructions)
     }
 
@@ -34,15 +34,20 @@ impl ServerHandler for LeanCtxServer {
                         map (deps + exports — use for context files you won't edit), \
                         diff (changed lines only), aggressive (syntax stripped), \
                         entropy (Shannon + Jaccard). \
-                        Set fresh=true to bypass cache (use when spawned as a subagent without parent context).",
+                        For specific line ranges, use mode='lines:N-M' (e.g. 'lines:400-500' or 'lines:1-50,80-90'). \
+                        Set fresh=true to bypass cache and force a full re-read. \
+                        Set start_line to read from a specific line (returns lines start_line to end of file from cache or disk).",
                         json!({
                             "type": "object",
                             "properties": {
                                 "path": { "type": "string", "description": "Absolute file path to read" },
                                 "mode": {
                                     "type": "string",
-                                    "enum": ["full", "signatures", "map", "diff", "aggressive", "entropy"],
-                                    "description": "Compression mode (default: full). Use 'map' for context-only files."
+                                    "description": "Compression mode (default: full). Use 'map' for context-only files. For line ranges: 'lines:N-M' (e.g. 'lines:400-500')."
+                                },
+                                "start_line": {
+                                    "type": "integer",
+                                    "description": "Read from this line number to end of file. Bypasses cache stub — always returns actual content."
                                 },
                                 "fresh": {
                                     "type": "boolean",
@@ -379,8 +384,13 @@ impl ServerHandler for LeanCtxServer {
             "ctx_read" => {
                 let path = get_str(args, "path")
                     .ok_or_else(|| ErrorData::invalid_params("path is required", None))?;
-                let mode = get_str(args, "mode").unwrap_or_else(|| "full".to_string());
+                let mut mode = get_str(args, "mode").unwrap_or_else(|| "full".to_string());
                 let fresh = get_bool(args, "fresh").unwrap_or(false);
+                let start_line = get_int(args, "start_line");
+                if let Some(sl) = start_line {
+                    let sl = sl.max(1_i64);
+                    mode = format!("lines:{sl}-999999");
+                }
                 let mut cache = self.cache.write().await;
                 let output = if fresh {
                     crate::tools::ctx_read::handle_fresh(&mut cache, &path, &mode, self.crp_mode)
@@ -788,9 +798,12 @@ REQUIRED (never use the built-in alternative):\n\
 • List files → ctx_tree(path, depth) — NEVER use Shell with ls/find\n\
 \n\
 ctx_read modes: full (cached, for files you edit), map (deps+API, context-only), \
-signatures, diff, aggressive, entropy. Re-reads cost ~13 tokens. File refs F1,F2.. persist.\n\
-Set fresh=true on ctx_read to bypass cache. Use when: spawned as a subagent, after context \
-compaction, or if you see a [cached] response but do not have the file content in your context.\n\
+signatures, diff, aggressive, entropy, lines:N-M (specific line ranges). Re-reads cost ~13 tokens. File refs F1,F2.. persist.\n\
+IMPORTANT: If ctx_read returns 'cached Nt NL' and you need the actual file content, you MUST either:\n\
+  1. Set fresh=true to force a full re-read, OR\n\
+  2. Use start_line=N to read from a specific line, OR\n\
+  3. Use mode='lines:N-M' to read a specific range.\n\
+NEVER fall back to native Read tools — always use fresh=true or start_line instead.\n\
 \n\
 PROACTIVE (use without being asked):\n\
 • ctx_compress — when context grows large, create checkpoint\n\

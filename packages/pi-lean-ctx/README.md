@@ -22,7 +22,7 @@ cargo install lean-ctx
 # or: brew tap yvgude/lean-ctx && brew install lean-ctx
 
 # 2. Install the Pi package
-pi install pi-lean-ctx
+pi install npm:pi-lean-ctx
 ```
 
 ## Binary Resolution
