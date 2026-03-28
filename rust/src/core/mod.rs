@@ -1,4 +1,5 @@
 pub mod adaptive;
+pub mod agents;
 pub mod adaptive_thresholds;
 pub mod attention_model;
 pub mod benchmark;
@@ -10,6 +11,7 @@ pub mod deps;
 pub mod entropy;
 pub mod feedback;
 pub mod graph_index;
+pub mod knowledge;
 pub mod litm;
 pub mod mode_predictor;
 pub mod patterns;

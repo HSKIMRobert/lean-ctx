@@ -270,6 +270,14 @@ fn mcp_config_locations(home: &std::path::Path) -> Vec<McpLocation> {
             display: "~/.gemini/settings/mcp.json",
             path: home.join(".gemini").join("settings").join("mcp.json"),
         },
+        McpLocation {
+            name: "Antigravity",
+            display: "~/.gemini/antigravity/mcp_config.json",
+            path: home
+                .join(".gemini")
+                .join("antigravity")
+                .join("mcp_config.json"),
+        },
     ];
 
     #[cfg(unix)]
@@ -386,7 +394,7 @@ fn mcp_config_outcome() -> Outcome {
         Outcome {
             ok: false,
             line: format!(
-                "{BOLD}MCP config{RST}  {YELLOW}no MCP config found{RST}  {DIM}(checked: Cursor, Claude, Windsurf, Codex, Gemini, Zed){RST}"
+                "{BOLD}MCP config{RST}  {YELLOW}no MCP config found{RST}  {DIM}(checked: Cursor, Claude, Windsurf, Codex, Gemini, Antigravity, Zed){RST}"
             ),
         }
     }

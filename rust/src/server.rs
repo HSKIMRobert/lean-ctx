@@ -351,6 +351,103 @@ impl ServerHandler for LeanCtxServer {
                         }),
                     ),
                     tool_def(
+                        "ctx_knowledge",
+                        "Persistent project knowledge store — remembers facts, patterns, and insights across sessions. \
+                        Unlike session state (ephemeral), knowledge persists permanently per project. \
+                        Use 'remember' to store facts the AI learns about the project (architecture, APIs, conventions). \
+                        Use 'recall' to retrieve relevant knowledge. Use 'pattern' to record project patterns. \
+                        Use 'consolidate' to extract findings/decisions from the current session into permanent knowledge. \
+                        Use 'status' to see all stored knowledge. Use 'remove' to delete outdated facts. \
+                        Actions: remember, recall, pattern, consolidate, status, remove, export.",
+                        json!({
+                            "type": "object",
+                            "properties": {
+                                "action": {
+                                    "type": "string",
+                                    "enum": ["remember", "recall", "pattern", "consolidate", "status", "remove", "export"],
+                                    "description": "Knowledge operation to perform"
+                                },
+                                "category": {
+                                    "type": "string",
+                                    "description": "Fact category (architecture, api, testing, deployment, conventions, dependencies)"
+                                },
+                                "key": {
+                                    "type": "string",
+                                    "description": "Fact key/identifier (e.g. 'auth-method', 'db-engine', 'test-framework')"
+                                },
+                                "value": {
+                                    "type": "string",
+                                    "description": "Fact value or pattern description"
+                                },
+                                "query": {
+                                    "type": "string",
+                                    "description": "Search query for recall action (matches against category, key, and value)"
+                                },
+                                "pattern_type": {
+                                    "type": "string",
+                                    "description": "Pattern type for pattern action (naming, structure, testing, error-handling)"
+                                },
+                                "examples": {
+                                    "type": "array",
+                                    "items": { "type": "string" },
+                                    "description": "Examples for pattern action"
+                                },
+                                "confidence": {
+                                    "type": "number",
+                                    "description": "Confidence score 0.0-1.0 for remember action (default: 0.8)"
+                                }
+                            },
+                            "required": ["action"]
+                        }),
+                    ),
+                    tool_def(
+                        "ctx_agent",
+                        "Multi-agent coordination — register agents, share messages, and coordinate work across \
+                        parallel AI sessions (e.g. Cursor + Claude Code working simultaneously). \
+                        Use 'register' at session start to identify this agent. \
+                        Use 'list' to see other active agents. \
+                        Use 'post' to share findings, warnings, or requests with other agents. \
+                        Use 'read' to check for new messages from other agents. \
+                        Use 'status' to update your current work status. \
+                        Actions: register, list, post, read, status, info.",
+                        json!({
+                            "type": "object",
+                            "properties": {
+                                "action": {
+                                    "type": "string",
+                                    "enum": ["register", "list", "post", "read", "status", "info"],
+                                    "description": "Agent operation to perform"
+                                },
+                                "agent_type": {
+                                    "type": "string",
+                                    "description": "Agent type for register (cursor, claude, codex, gemini, subagent)"
+                                },
+                                "role": {
+                                    "type": "string",
+                                    "description": "Agent role (dev, review, test, plan)"
+                                },
+                                "message": {
+                                    "type": "string",
+                                    "description": "Message text for post action, or status detail for status action"
+                                },
+                                "category": {
+                                    "type": "string",
+                                    "description": "Message category for post (finding, warning, request, status)"
+                                },
+                                "to_agent": {
+                                    "type": "string",
+                                    "description": "Target agent ID for direct message (omit for broadcast)"
+                                },
+                                "status": {
+                                    "type": "string",
+                                    "enum": ["active", "idle", "finished"],
+                                    "description": "New status for status action"
+                                }
+                            },
+                            "required": ["action"]
+                        }),
+                    ),
+                    tool_def(
                         "ctx_overview",
                         "Multi-resolution project overview with task-conditioned relevance scoring. \
                         Shows all project files organized by relevance to the current task. \
@@ -425,6 +522,20 @@ impl ServerHandler for LeanCtxServer {
                 {
                     let mut session = self.session.write().await;
                     session.touch_file(&path, file_ref.as_deref(), &mode, original);
+                    if session.project_root.is_none() {
+                        if let Some(root) = detect_project_root(&path) {
+                            session.project_root = Some(root.clone());
+                            let mut current = self.agent_id.write().await;
+                            if current.is_none() {
+                                let mut registry =
+                                    crate::core::agents::AgentRegistry::load_or_create();
+                                registry.cleanup_stale(24);
+                                let id = registry.register("mcp", None, &root);
+                                let _ = registry.save();
+                                *current = Some(id);
+                            }
+                        }
+                    }
                 }
                 self.record_call(
                     "ctx_read",
@@ -751,6 +862,94 @@ impl ServerHandler for LeanCtxServer {
                 self.record_call("ctx_session", 0, 0, Some(action)).await;
                 result
             }
+            "ctx_knowledge" => {
+                let action = get_str(args, "action")
+                    .ok_or_else(|| ErrorData::invalid_params("action is required", None))?;
+                let category = get_str(args, "category");
+                let key = get_str(args, "key");
+                let value = get_str(args, "value");
+                let query = get_str(args, "query");
+                let pattern_type = get_str(args, "pattern_type");
+                let examples = get_str_array(args, "examples");
+                let confidence: Option<f32> = args
+                    .as_ref()
+                    .and_then(|a| a.get("confidence"))
+                    .and_then(|v| v.as_f64())
+                    .map(|v| v as f32);
+
+                let session = self.session.read().await;
+                let session_id = session.id.clone();
+                let project_root = session
+                    .project_root
+                    .clone()
+                    .unwrap_or_else(|| {
+                        std::env::current_dir()
+                            .map(|p| p.to_string_lossy().to_string())
+                            .unwrap_or_else(|_| "unknown".to_string())
+                    });
+                drop(session);
+
+                let result = crate::tools::ctx_knowledge::handle(
+                    &project_root,
+                    &action,
+                    category.as_deref(),
+                    key.as_deref(),
+                    value.as_deref(),
+                    query.as_deref(),
+                    &session_id,
+                    pattern_type.as_deref(),
+                    examples,
+                    confidence,
+                );
+                self.record_call("ctx_knowledge", 0, 0, Some(action)).await;
+                result
+            }
+            "ctx_agent" => {
+                let action = get_str(args, "action")
+                    .ok_or_else(|| ErrorData::invalid_params("action is required", None))?;
+                let agent_type = get_str(args, "agent_type");
+                let role = get_str(args, "role");
+                let message = get_str(args, "message");
+                let category = get_str(args, "category");
+                let to_agent = get_str(args, "to_agent");
+                let status = get_str(args, "status");
+
+                let session = self.session.read().await;
+                let project_root = session
+                    .project_root
+                    .clone()
+                    .unwrap_or_else(|| {
+                        std::env::current_dir()
+                            .map(|p| p.to_string_lossy().to_string())
+                            .unwrap_or_else(|_| "unknown".to_string())
+                    });
+                drop(session);
+
+                let current_agent_id = self.agent_id.read().await.clone();
+                let result = crate::tools::ctx_agent::handle(
+                    &action,
+                    agent_type.as_deref(),
+                    role.as_deref(),
+                    &project_root,
+                    current_agent_id.as_deref(),
+                    message.as_deref(),
+                    category.as_deref(),
+                    to_agent.as_deref(),
+                    status.as_deref(),
+                );
+
+                if action == "register" {
+                    if let Some(id) = result.split(':').nth(1) {
+                        let id = id.trim().split_whitespace().next().unwrap_or("").to_string();
+                        if !id.is_empty() {
+                            *self.agent_id.write().await = Some(id);
+                        }
+                    }
+                }
+
+                self.record_call("ctx_agent", 0, 0, Some(action)).await;
+                result
+            }
             "ctx_overview" => {
                 let task = get_str(args, "task");
                 let path = get_str(args, "path");
@@ -790,6 +989,8 @@ impl ServerHandler for LeanCtxServer {
                 | "ctx_discover"
                 | "ctx_dedup"
                 | "ctx_session"
+                | "ctx_knowledge"
+                | "ctx_agent"
                 | "ctx_wrapped"
                 | "ctx_overview"
         );
@@ -815,14 +1016,36 @@ fn build_instructions(crp_mode: CrpMode) -> String {
 fn build_instructions_with_client(crp_mode: CrpMode, client_name: &str) -> String {
     let profile = crate::core::litm::LitmProfile::from_client_name(client_name);
     let session_block = match crate::core::session::SessionState::load_latest() {
-        Some(session) => {
-            let positioned = crate::core::litm::position_optimize(&session);
+        Some(ref session) => {
+            let positioned = crate::core::litm::position_optimize(session);
             format!(
                 "\n\n--- ACTIVE SESSION (LITM P1: begin position, profile: {}) ---\n{}\n---\n",
                 profile.name, positioned.begin_block
             )
         }
         None => String::new(),
+    };
+
+    let knowledge_block = {
+        let project_root = crate::core::session::SessionState::load_latest()
+            .and_then(|s| s.project_root)
+            .or_else(|| {
+                std::env::current_dir()
+                    .ok()
+                    .map(|p| p.to_string_lossy().to_string())
+            });
+        match project_root {
+            Some(root) => {
+                let knowledge = crate::core::knowledge::ProjectKnowledge::load(&root);
+                match knowledge {
+                    Some(k) if !k.facts.is_empty() || !k.patterns.is_empty() => {
+                        format!("\n--- PROJECT KNOWLEDGE ---\n{}\n---\n", k.format_summary())
+                    }
+                    _ => String::new(),
+                }
+            }
+            None => String::new(),
+        }
     };
 
     // Prefix-cache alignment: stable instructions first (API providers cache KV states
@@ -866,6 +1089,25 @@ SESSION CONTINUITY (Context Continuity Protocol):\n\
 • ctx_session save — force persist session to disk\n\
 • ctx_wrapped [period] — generate savings report card\n\
 \n\
+PROJECT KNOWLEDGE (persistent cross-session memory):\n\
+• ctx_knowledge(action=\"remember\", category, key, value) — store a project fact\n\
+• ctx_knowledge(action=\"recall\", query) — search knowledge by text\n\
+• ctx_knowledge(action=\"recall\", category) — list facts by category\n\
+• ctx_knowledge(action=\"pattern\", pattern_type, value, examples) — record project pattern\n\
+• ctx_knowledge(action=\"status\") — show all stored knowledge\n\
+• ctx_knowledge(action=\"remove\", category, key) — delete outdated fact\n\
+• ctx_knowledge(action=\"consolidate\") — extract session findings/decisions into permanent knowledge\n\
+When you discover important project facts (architecture, APIs, conventions, dependencies), \n\
+use ctx_knowledge(action=\"remember\") to persist them across sessions.\n\
+At the end of a session, use ctx_knowledge(action=\"consolidate\") to save key insights permanently.\n\
+\n\
+MULTI-AGENT COORDINATION:\n\
+• ctx_agent(action=\"register\", agent_type, role) — register this agent at session start\n\
+• ctx_agent(action=\"list\") — see other active agents on this project\n\
+• ctx_agent(action=\"post\", message, category) — share findings/warnings with other agents\n\
+• ctx_agent(action=\"read\") — check for new messages from other agents\n\
+• ctx_agent(action=\"status\", status, message) — update work status (active/idle/finished)\n\
+\n\
 ON DEMAND:\n\
 • ctx_analyze(path) — optimal mode recommendation\n\
 • ctx_benchmark(path) — exact token counts per mode\n\
@@ -898,7 +1140,8 @@ COMMUNICATION PROTOCOL (Cognitive Efficiency Protocol v1):\n\
    Always prefer structured notation over prose. Never repeat the question or restate context.\n\
 \n\
 {decoder_block}\n\
-{session_block}",
+{session_block}\
+{knowledge_block}",
         decoder_block = crate::core::protocol::instruction_decoder_block()
     );
 
@@ -1002,5 +1245,15 @@ fn execute_command(command: &str) -> String {
             }
         }
         Err(e) => format!("ERROR: {e}"),
+    }
+}
+
+fn detect_project_root(file_path: &str) -> Option<String> {
+    let mut dir = std::path::Path::new(file_path).parent()?;
+    loop {
+        if dir.join(".git").exists() {
+            return Some(dir.to_string_lossy().to_string());
+        }
+        dir = dir.parent()?;
     }
 }

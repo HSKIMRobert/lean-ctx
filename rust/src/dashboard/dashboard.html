@@ -322,6 +322,17 @@ function build(){
       </div>
     </div>
 
+    <div class="row r11">
+      <div class="card">
+        <h3>Active Agents <span class="badge">Multi-Agent</span></h3>
+        <div id="agentList" style="font-size:11px;color:var(--muted)">Loading...</div>
+      </div>
+      <div class="card">
+        <h3>Project Knowledge <span class="badge">Persistent Memory</span></h3>
+        <div id="knowledgeList" style="font-size:11px;color:var(--muted)">Loading...</div>
+      </div>
+    </div>
+
     <div class="row r1">
       <div class="card">
         <h3>Command Breakdown</h3>
@@ -450,18 +461,24 @@ async function loadCep(){
     const tOut=cmds.reduce((s,c)=>s+c[1].output_tokens,0);
     const rate=tIn>0?Math.round((1-tOut/tIn)*100):0;
 
-    const mc=cmds.filter(c=>c[0].startsWith('ctx_'));
     const readCount=cmds.filter(c=>c[0]==='ctx_read').reduce((s,c)=>s+c[1].count,0);
-    const modes=new Set(mc.map(c=>c[0])).size;
-    const modePct=Math.min(100,Math.round(modes/6*100));
 
     const cep=d.cep||{};
+    const cepModes=cep.modes||{};
+    const readModes=['full','map','signatures','diff','aggressive','entropy','auto'];
+    const usedReadModes=readModes.filter(m=>cepModes[m]>0).length;
+    const modePct=Math.min(100,Math.round(usedReadModes/6*100));
+
     const storedHits=cep.total_cache_hits||0;
     const storedReads=cep.total_cache_reads||0;
-    const cacheRate=storedReads>0?Math.round(storedHits/storedReads*100):
-      (readCount>10?Math.min(95,Math.round(60+readCount/10)):0);
+    const cacheRate=storedReads>0?Math.round(storedHits/storedReads*100):0;
 
-    const score=Math.round(cacheRate*0.3+modePct*0.25+rate*0.25+70*0.2);
+    const cepOrig=cep.total_tokens_original||0;
+    const cepComp=cep.total_tokens_compressed||0;
+    const cepRate=cepOrig>0?Math.round((1-cepComp/cepOrig)*100):0;
+    const combinedRate=Math.max(rate,cepRate);
+
+    const score=Math.round(cacheRate*0.3+modePct*0.25+combinedRate*0.25+70*0.2);
 
     let complexity='Standard';
     if(d.total_commands>2000)complexity='Complex';
@@ -472,20 +489,11 @@ async function loadCep(){
       const updAt=ml.updated_at?new Date(ml.updated_at):null;
       const now=new Date();
       const fresh=updAt&&(now-updAt)<300000;
-      if(fresh&&ml.cep_score!==undefined){
-        lv('cepS',ml.cep_score+'/100');
-        lv('cepCH',(ml.cache_utilization||0)+'%');
-        lv('cepMD',(ml.mode_diversity||0)+'%');
-        lv('cepCR',(ml.compression_rate||0)+'%');
-        lv('cepCX',ml.task_complexity||complexity);
-      }else{
-        lv('cepS',score+'/100');lv('cepCH',cacheRate+'%');
-        lv('cepMD',modePct+'%');lv('cepCR',rate+'%');lv('cepCX',complexity);
-      }
-    }catch(e){
-      lv('cepS',score+'/100');lv('cepCH',cacheRate+'%');
-      lv('cepMD',modePct+'%');lv('cepCR',rate+'%');lv('cepCX',complexity);
-    }
+      if(fresh){complexity=ml.task_complexity||complexity}
+    }catch(e){}
+
+    lv('cepS',score+'/100');lv('cepCH',cacheRate+'%');
+    lv('cepMD',modePct+'%');lv('cepCR',combinedRate+'%');lv('cepCX',complexity);
 
     lv('s1',readCount>0?'Active':'Ready');
     lv('s2',readCount>0?'Active':'Ready');
@@ -498,7 +506,62 @@ async function loadCep(){
   }catch(e){lv('cepS','—')}
 }
 
-async function loadAll(){await load();await loadCep()}
+async function loadAgents(){
+  try{
+    const r=await fetch('/api/agents');const d=await r.json();
+    const el=$('agentList');if(!el)return;
+    const agents=(d.agents||[]).filter(a=>a.status!=='Finished');
+    if(!agents.length){el.innerHTML='<div style="text-align:center;padding:16px;color:var(--muted)">No active agents</div>';return}
+    let h='';
+    for(const a of agents){
+      const age=Math.round((Date.now()-new Date(a.last_active).getTime())/60000);
+      const st=a.status==='Active'?'🟢':'🟡';
+      const role=a.role||'—';
+      const msg=a.status_message?' — '+a.status_message:'';
+      h+=`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+        <span>${st}</span>
+        <span style="font-family:var(--mono);font-weight:500;color:var(--text)">${a.agent_id}</span>
+        <span class="tag tp">${a.agent_type}</span>
+        <span style="color:var(--muted);font-size:10px">role: ${role}${msg}</span>
+        <span style="margin-left:auto;font-size:9px;color:var(--muted)">${age}m ago</span>
+      </div>`;
+    }
+    const unread=(d.scratchpad||[]).length;
+    if(unread>0)h+=`<div style="margin-top:8px;font-size:10px;color:var(--yellow)">${unread} scratchpad entries</div>`;
+    el.innerHTML=h;
+  }catch(e){const el=$('agentList');if(el)el.innerHTML='<div style="color:var(--muted);text-align:center;padding:16px">No agent data</div>'}
+}
+
+async function loadKnowledge(){
+  try{
+    const r=await fetch('/api/knowledge');const d=await r.json();
+    const el=$('knowledgeList');if(!el)return;
+    const facts=d.facts||[];const patterns=d.patterns||[];const history=d.history||[];
+    if(!facts.length&&!patterns.length){el.innerHTML='<div style="text-align:center;padding:16px;color:var(--muted)">No knowledge stored yet.<br><span style="font-size:9px">Use ctx_knowledge(action="remember") to start.</span></div>';return}
+    let h=`<div style="display:flex;gap:16px;margin-bottom:8px">
+      <span style="font-family:var(--mono);font-weight:600;color:var(--green)">${facts.length}</span><span> facts</span>
+      <span style="font-family:var(--mono);font-weight:600;color:var(--purple)">${patterns.length}</span><span> patterns</span>
+      <span style="font-family:var(--mono);font-weight:600;color:var(--blue)">${history.length}</span><span> insights</span>
+    </div>`;
+    const cats={};facts.forEach(f=>{if(!cats[f.category])cats[f.category]=[];cats[f.category].push(f)});
+    for(const[cat,fs]of Object.entries(cats)){
+      h+=`<div style="margin-top:6px;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;font-weight:600">${cat}</div>`;
+      for(const f of fs.slice(0,5)){
+        const conf=Math.round(f.confidence*100);
+        const confColor=conf>=80?'var(--green)':conf>=50?'var(--yellow)':'var(--red)';
+        h+=`<div style="display:flex;gap:8px;padding:3px 0;font-size:10px">
+          <span style="font-family:var(--mono);font-weight:500;color:var(--text);min-width:120px">${f.key}</span>
+          <span style="color:var(--muted);flex:1">${f.value.substring(0,80)}</span>
+          <span style="color:${confColor};font-size:9px">${conf}%</span>
+        </div>`;
+      }
+      if(fs.length>5)h+=`<div style="font-size:9px;color:var(--muted)">+${fs.length-5} more</div>`;
+    }
+    el.innerHTML=h;
+  }catch(e){const el=$('knowledgeList');if(el)el.innerHTML='<div style="color:var(--muted);text-align:center;padding:16px">No knowledge data</div>'}
+}
+
+async function loadAll(){await load();await loadCep();await loadAgents();await loadKnowledge()}
 loadAll();startA();
 </script>
 </body>

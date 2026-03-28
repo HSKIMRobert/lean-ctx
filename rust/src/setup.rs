@@ -235,6 +235,13 @@ fn build_targets(home: &std::path::Path, _binary: &str) -> Vec<EditorTarget> {
             config_type: ConfigType::McpJson,
         },
         EditorTarget {
+            name: "Antigravity",
+            agent_key: "gemini",
+            config_path: home.join(".gemini/antigravity/mcp_config.json"),
+            detect_path: home.join(".gemini/antigravity"),
+            config_type: ConfigType::McpJson,
+        },
+        EditorTarget {
             name: "Zed",
             agent_key: "",
             config_path: zed_settings_path(home),
