@@ -145,11 +145,7 @@ fn compress_status(output: &str) -> String {
         }
     }
 
-    if branch.is_empty()
-        && staged.is_empty()
-        && unstaged.is_empty()
-        && untracked.is_empty()
-    {
+    if branch.is_empty() && staged.is_empty() && unstaged.is_empty() && untracked.is_empty() {
         return compact_lines(output.trim(), 10);
     }
 
