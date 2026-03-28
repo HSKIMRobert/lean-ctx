@@ -15,7 +15,7 @@ impl ServerHandler for LeanCtxServer {
         let instructions = build_instructions(self.crp_mode);
 
         InitializeResult::new(capabilities)
-            .with_server_info(Implementation::new("lean-ctx", "2.6.1"))
+            .with_server_info(Implementation::new("lean-ctx", "2.7.0"))
             .with_instructions(instructions)
     }
 
@@ -879,14 +879,11 @@ impl ServerHandler for LeanCtxServer {
 
                 let session = self.session.read().await;
                 let session_id = session.id.clone();
-                let project_root = session
-                    .project_root
-                    .clone()
-                    .unwrap_or_else(|| {
-                        std::env::current_dir()
-                            .map(|p| p.to_string_lossy().to_string())
-                            .unwrap_or_else(|_| "unknown".to_string())
-                    });
+                let project_root = session.project_root.clone().unwrap_or_else(|| {
+                    std::env::current_dir()
+                        .map(|p| p.to_string_lossy().to_string())
+                        .unwrap_or_else(|_| "unknown".to_string())
+                });
                 drop(session);
 
                 let result = crate::tools::ctx_knowledge::handle(
@@ -915,14 +912,11 @@ impl ServerHandler for LeanCtxServer {
                 let status = get_str(args, "status");
 
                 let session = self.session.read().await;
-                let project_root = session
-                    .project_root
-                    .clone()
-                    .unwrap_or_else(|| {
-                        std::env::current_dir()
-                            .map(|p| p.to_string_lossy().to_string())
-                            .unwrap_or_else(|_| "unknown".to_string())
-                    });
+                let project_root = session.project_root.clone().unwrap_or_else(|| {
+                    std::env::current_dir()
+                        .map(|p| p.to_string_lossy().to_string())
+                        .unwrap_or_else(|_| "unknown".to_string())
+                });
                 drop(session);
 
                 let current_agent_id = self.agent_id.read().await.clone();
@@ -940,7 +934,7 @@ impl ServerHandler for LeanCtxServer {
 
                 if action == "register" {
                     if let Some(id) = result.split(':').nth(1) {
-                        let id = id.trim().split_whitespace().next().unwrap_or("").to_string();
+                        let id = id.split_whitespace().next().unwrap_or("").to_string();
                         if !id.is_empty() {
                             *self.agent_id.write().await = Some(id);
                         }

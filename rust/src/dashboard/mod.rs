@@ -88,16 +88,13 @@ async fn handle_request(mut stream: tokio::net::TcpStream) {
         }
         "/api/agents" => {
             let registry = crate::core::agents::AgentRegistry::load_or_create();
-            let json =
-                serde_json::to_string(&registry).unwrap_or_else(|_| "{}".to_string());
+            let json = serde_json::to_string(&registry).unwrap_or_else(|_| "{}".to_string());
             ("200 OK", "application/json", json)
         }
         "/api/knowledge" => {
             let project_root = detect_project_root_for_dashboard();
-            let knowledge =
-                crate::core::knowledge::ProjectKnowledge::load_or_create(&project_root);
-            let json =
-                serde_json::to_string(&knowledge).unwrap_or_else(|_| "{}".to_string());
+            let knowledge = crate::core::knowledge::ProjectKnowledge::load_or_create(&project_root);
+            let json = serde_json::to_string(&knowledge).unwrap_or_else(|_| "{}".to_string());
             ("200 OK", "application/json", json)
         }
         "/" | "/index.html" => (

@@ -109,8 +109,7 @@ impl ProjectKnowledge {
                 );
                 let match_count = terms.iter().filter(|t| searchable.contains(**t)).count();
                 if match_count > 0 {
-                    let relevance =
-                        (match_count as f32 / terms.len() as f32) * f.confidence;
+                    let relevance = (match_count as f32 / terms.len() as f32) * f.confidence;
                     Some((f, relevance))
                 } else {
                     None
@@ -178,7 +177,8 @@ impl ProjectKnowledge {
 
     pub fn remove_fact(&mut self, category: &str, key: &str) -> bool {
         let before = self.facts.len();
-        self.facts.retain(|f| !(f.category == category && f.key == key));
+        self.facts
+            .retain(|f| !(f.category == category && f.key == key));
         let removed = self.facts.len() < before;
         if removed {
             self.updated_at = Utc::now();
@@ -298,7 +298,10 @@ mod tests {
     #[test]
     fn consolidate_history() {
         let mut k = ProjectKnowledge::new("/tmp/test");
-        k.consolidate("Migrated from REST to GraphQL", vec!["s1".into(), "s2".into()]);
+        k.consolidate(
+            "Migrated from REST to GraphQL",
+            vec!["s1".into(), "s2".into()],
+        );
         assert_eq!(k.history.len(), 1);
         assert_eq!(k.history[0].from_sessions.len(), 2);
     }

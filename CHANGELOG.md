@@ -2,6 +2,24 @@
 
 All notable changes to lean-ctx are documented here.
 
+## [2.7.0] — 2026-03-28
+
+### Added
+
+- **Persistent AI Memory (`ctx_knowledge`)** — Cross-session project knowledge store. Store facts with categories, confidence scores, and automatic timestamps. Recall by text search or category filter. Record project patterns (naming conventions, architecture decisions). Consolidate session findings into permanent knowledge. Knowledge persists per project in `~/.lean-ctx/knowledge/`
+- **Multi-Agent Context Sharing (`ctx_agent`)** — Agent registry with scratchpad messaging system. Multiple AI agents (Cursor, Claude, Copilot, etc.) can register, share findings via broadcast or targeted messages, and coordinate work on the same project. Includes automatic heartbeat, stale agent cleanup, and file-based locking for safe concurrent access
+- **Antigravity editor support** — Added Antigravity (Gemini-based IDE) as a supported editor in `lean-ctx setup` auto-detection, `lean-ctx doctor` diagnostics, and the website prompt generator
+- **Dashboard: Active Agents panel** — Real-time view of all registered AI agents, their roles, status, and recent scratchpad messages
+- **Dashboard: Project Knowledge panel** — Shows all stored project facts and patterns with category grouping
+
+### Fixed
+
+- **Dashboard CEP score calculation** — Now uses real read-mode diversity from `cep.modes` (full, map, signatures, diff, aggressive, entropy, auto) instead of counting distinct tool names. Combined compression rate uses the higher of shell and MCP compression. Score improved from misleading 28/100 to accurate 53/100
+- **Dashboard project root detection** — Knowledge API now walks up to `.git` directory for correct project identification instead of using `cwd` (which could be a subdirectory)
+- **Clippy warnings** — Fixed collapsible if, unwrap_or_default, trim before split_whitespace
+
+---
+
 ## [2.6.1] — 2026-03-27
 
 ### Fixed
