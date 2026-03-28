@@ -387,12 +387,12 @@ $ lean-ctx gain
   ctx_read           103x  █▌                    59.1K  38%
     ... +33 more commands
 
-  lean-ctx v2.6.1  |  leanctx.com  |  lean-ctx dashboard
+  lean-ctx v2.7.0  |  leanctx.com  |  lean-ctx dashboard
 ```
 
-## 21 MCP Tools
+## 23 MCP Tools
 
-When configured as an MCP server, lean-ctx provides 21 tools that replace or augment your editor's built-in tools:
+When configured as an MCP server, lean-ctx provides 23 tools that replace or augment your editor's built-in tools:
 
 ### Core Tools
 
@@ -425,6 +425,13 @@ When configured as an MCP server, lean-ctx provides 21 tools that replace or aug
 |---|---|
 | `ctx_session` | Cross-session memory — persist task, findings, decisions, files across chats and context compactions |
 | `ctx_wrapped` | Shareable savings report — "Spotify Wrapped" for your token savings |
+
+### Persistent Memory & Multi-Agent (new in v2.7.0)
+
+| Tool | Purpose |
+|---|---|
+| `ctx_knowledge` | Persistent project knowledge store — remember facts, recall by query/category, record patterns, consolidate session findings |
+| `ctx_agent` | Multi-agent context sharing — register agents, post/read scratchpad messages, coordinate concurrent AI sessions |
 
 ### Analysis Tools
 

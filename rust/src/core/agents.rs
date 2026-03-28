@@ -61,12 +61,7 @@ impl AgentRegistry {
         }
     }
 
-    pub fn register(
-        &mut self,
-        agent_type: &str,
-        role: Option<&str>,
-        project_root: &str,
-    ) -> String {
+    pub fn register(&mut self, agent_type: &str, role: Option<&str>, project_root: &str) -> String {
         let pid = std::process::id();
         let agent_id = format!("{}-{}-{}", agent_type, pid, &generate_short_id());
 
@@ -161,8 +156,7 @@ impl AgentRegistry {
             .enumerate()
             .filter(|(_, e)| {
                 !e.read_by.contains(&agent_id.to_string())
-                    && (e.to_agent.is_none()
-                        || e.to_agent.as_deref() == Some(agent_id))
+                    && (e.to_agent.is_none() || e.to_agent.as_deref() == Some(agent_id))
             })
             .map(|(i, _)| i)
             .collect();
@@ -173,9 +167,7 @@ impl AgentRegistry {
 
         self.scratchpad
             .iter()
-            .filter(|e| {
-                e.to_agent.is_none() || e.to_agent.as_deref() == Some(agent_id)
-            })
+            .filter(|e| e.to_agent.is_none() || e.to_agent.as_deref() == Some(agent_id))
             .filter(|e| e.from_agent != agent_id)
             .collect()
     }
@@ -188,8 +180,7 @@ impl AgentRegistry {
             .filter(|(_, e)| {
                 !e.read_by.contains(&agent_id.to_string())
                     && e.from_agent != agent_id
-                    && (e.to_agent.is_none()
-                        || e.to_agent.as_deref() == Some(agent_id))
+                    && (e.to_agent.is_none() || e.to_agent.as_deref() == Some(agent_id))
             })
             .map(|(i, _)| i)
             .collect();
@@ -204,8 +195,7 @@ impl AgentRegistry {
             .iter()
             .filter(|e| {
                 e.from_agent != agent_id
-                    && (e.to_agent.is_none()
-                        || e.to_agent.as_deref() == Some(agent_id))
+                    && (e.to_agent.is_none() || e.to_agent.as_deref() == Some(agent_id))
                     && e.read_by.contains(&agent_id.to_string())
                     && e.read_by.iter().filter(|r| *r == agent_id).count() == 1
             })
@@ -216,16 +206,16 @@ impl AgentRegistry {
         let cutoff = Utc::now() - chrono::Duration::hours(max_age_hours as i64);
 
         for agent in &mut self.agents {
-            if agent.last_active < cutoff && agent.status != AgentStatus::Finished {
-                if !is_process_alive(agent.pid) {
-                    agent.status = AgentStatus::Finished;
-                }
+            if agent.last_active < cutoff
+                && agent.status != AgentStatus::Finished
+                && !is_process_alive(agent.pid)
+            {
+                agent.status = AgentStatus::Finished;
             }
         }
 
-        self.agents.retain(|a| {
-            !(a.status == AgentStatus::Finished && a.last_active < cutoff)
-        });
+        self.agents
+            .retain(|a| !(a.status == AgentStatus::Finished && a.last_active < cutoff));
 
         self.updated_at = Utc::now();
     }
@@ -251,7 +241,7 @@ impl AgentRegistry {
     }
 
     pub fn load_or_create() -> Self {
-        Self::load().unwrap_or_else(Self::new)
+        Self::load().unwrap_or_default()
     }
 }
 

@@ -1,6 +1,7 @@
 use crate::core::knowledge::ProjectKnowledge;
 use crate::core::session::SessionState;
 
+#[allow(clippy::too_many_arguments)]
 pub fn handle(
     project_root: &str,
     action: &str,
@@ -210,7 +211,10 @@ pub fn handle(
     }
 }
 
-fn format_facts(facts: &[&crate::core::knowledge::KnowledgeFact], category: Option<&str>) -> String {
+fn format_facts(
+    facts: &[&crate::core::knowledge::KnowledgeFact],
+    category: Option<&str>,
+) -> String {
     let mut out = String::new();
     if let Some(cat) = category {
         out.push_str(&format!("Facts [{cat}] ({}):\n", facts.len()));

@@ -1,5 +1,6 @@
 use crate::core::agents::{AgentRegistry, AgentStatus};
 
+#[allow(clippy::too_many_arguments)]
 pub fn handle(
     action: &str,
     agent_type: Option<&str>,
@@ -74,7 +75,10 @@ pub fn handle(
         "read" => {
             let agent_id = match current_agent_id {
                 Some(id) => id,
-                None => return "Error: agent must be registered first (use action=register)".to_string(),
+                None => {
+                    return "Error: agent must be registered first (use action=register)"
+                        .to_string()
+                }
             };
             let mut registry = AgentRegistry::load_or_create();
             let messages = registry.read_unread(agent_id);
@@ -105,7 +109,9 @@ pub fn handle(
                 Some("active") => AgentStatus::Active,
                 Some("idle") => AgentStatus::Idle,
                 Some("finished") => AgentStatus::Finished,
-                Some(other) => return format!("Unknown status: {other}. Use: active, idle, finished"),
+                Some(other) => {
+                    return format!("Unknown status: {other}. Use: active, idle, finished")
+                }
                 None => return "Error: status value is required".to_string(),
             };
             let status_msg = message;
@@ -117,9 +123,7 @@ pub fn handle(
                     "Status updated: {} → {}{}",
                     agent_id,
                     new_status,
-                    status_msg
-                        .map(|m| format!(" ({m})"))
-                        .unwrap_or_default()
+                    status_msg.map(|m| format!(" ({m})")).unwrap_or_default()
                 ),
                 Err(e) => format!("Status set but save failed: {e}"),
             }
@@ -140,8 +144,6 @@ pub fn handle(
             )
         }
 
-        _ => format!(
-            "Unknown action: {action}. Use: register, list, post, read, status, info"
-        ),
+        _ => format!("Unknown action: {action}. Use: register, list, post, read, status, info"),
     }
 }

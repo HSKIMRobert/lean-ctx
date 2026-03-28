@@ -1,6 +1,6 @@
 pub mod adaptive;
-pub mod agents;
 pub mod adaptive_thresholds;
+pub mod agents;
 pub mod attention_model;
 pub mod benchmark;
 pub mod cache;

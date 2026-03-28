@@ -4,7 +4,7 @@ description: Context Intelligence Engine with CEP + CCP — 21 MCP tools, 90+ sh
 metadata: {"openclaw": {"requires": {"bins": ["lean-ctx"]}, "install": [{"id": "brew", "kind": "brew", "formula": "lean-ctx", "bins": ["lean-ctx"], "label": "Install LeanCTX (brew tap yvgude/lean-ctx)"}]}}
 ---
 
-# LeanCTX v2.6.1 — Context Intelligence Engine + CEP + CCP + Persistent Project Graph
+# LeanCTX v2.7.0 — Context Intelligence Engine + CEP + CCP + Persistent Project Graph
 
 LeanCTX is a Rust binary that optimizes LLM context through 22 MCP tools, 90+ shell compression patterns, and tree-sitter AST parsing for 14 languages (TS/JS, Rust, Python, Go, Java, C, C++, Ruby, C#, Kotlin, Swift, PHP). It provides adaptive file reading with per-language entropy thresholds, incremental deltas, intent detection, cross-file deduplication with TF-IDF cosine similarity, task-conditioned relevance scoring, a heuristic attention prediction model, a project intelligence graph, the **Cognitive Efficiency Protocol (CEP)** with output token budgets, the **Context Continuity Protocol (CCP)** for cross-session memory with LITM-aware positioning, and a feedback loop for learning optimal compression parameters.
 
@@ -63,15 +63,17 @@ lean-ctx init --agent cline     # .clinerules
 lean-ctx init --agent copilot   # VS Code / Copilot .vscode/mcp.json
 ```
 
-## New in v2.6.1 — Scientific Optimization
+## New in v2.7.0 — Persistent AI Memory + Multi-Agent
 
 MCP tools:
-- `ctx_overview(task="fix auth bug")` — multi-resolution project map with task-relevant file grouping
-- Adaptive per-language entropy thresholds (Rust, Python, Go, TS, Java, etc.)
-- TF-IDF cosine similarity for semantic duplicate detection in `ctx_dedup`
-- Feedback loop for learning optimal compression parameters across sessions
-- Output token budget guidance in CEP (Mechanical: 50 tok, Standard: 200, Architectural: full)
-- Prefix-cache aligned system prompt (stable prefix, variable session state at end)
+- `ctx_knowledge(action="remember", category, key, value)` — persistent cross-session project knowledge store
+- `ctx_knowledge(action="recall", query)` — search stored facts by text or category
+- `ctx_knowledge(action="consolidate")` — extract session findings into permanent knowledge
+- `ctx_agent(action="register", agent_type, role)` — multi-agent context sharing with scratchpad messaging
+- `ctx_agent(action="post", message, tags)` — share findings/warnings between concurrent agents
+- `ctx_agent(action="read")` — read messages from other agents
+- Antigravity editor support in setup + doctor
+- Dashboard: agents panel, knowledge panel, improved CEP score calculation
 
 ## Session Continuity (CCP)
 
