@@ -1,6 +1,6 @@
 # lean-ctx
 
-**Context Intelligence Engine with CEP + CCP + TDD. Shell Hook + MCP Server. 21 MCP tools, 90+ shell patterns, Cognitive Efficiency Protocol (CEP), cross-session memory (CCP), Token Dense Dialect (TDD), LITM-aware positioning, tree-sitter AST for 14 languages. Single Rust binary.**
+**Context Intelligence Engine with CEP + CCP + TDD. Shell Hook + MCP Server. 24 MCP tools, 90+ shell patterns, Cognitive Efficiency Protocol (CEP), cross-session memory (CCP), Token Dense Dialect (TDD), LITM-aware positioning, tree-sitter AST for 14 languages. Single Rust binary.**
 
 [![CI](https://github.com/yvgude/lean-ctx/actions/workflows/ci.yml/badge.svg)](https://github.com/yvgude/lean-ctx/actions/workflows/ci.yml)
 [![Security Check](https://github.com/yvgude/lean-ctx/actions/workflows/security-check.yml/badge.svg)](https://github.com/yvgude/lean-ctx/actions/workflows/security-check.yml)
@@ -12,14 +12,14 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/pTHkG9Hew9)
 
-[Website](https://leanctx.com) · [Install](#installation) · [Quick Start](#quick-start) · [CLI Reference](#cli-commands) · [MCP Tools](#21-mcp-tools) · [Changelog](CHANGELOG.md) · [vs RTK](#lean-ctx-vs-rtk) · [Discord](https://discord.gg/pTHkG9Hew9)
+[Website](https://leanctx.com) · [Install](#installation) · [Quick Start](#quick-start) · [CLI Reference](#cli-commands) · [MCP Tools](#24-mcp-tools) · [Changelog](CHANGELOG.md) · [vs RTK](#lean-ctx-vs-rtk) · [Discord](https://discord.gg/pTHkG9Hew9)
 
 ---
 
 lean-ctx reduces LLM token consumption by **up to 99%** through three complementary strategies in a single binary:
 
 1. **Shell Hook** — Transparently compresses CLI output (90+ patterns) before it reaches the LLM. Works without LLM cooperation.
-2. **MCP Server** — 21 tools for cached file reads, adaptive mode selection, incremental deltas, dependency maps, intent detection, cross-file dedup, project graph, cross-session memory (CCP), and session metrics. Works with Cursor, GitHub Copilot, Claude Code, Windsurf, Zed, Pi, OpenAI Codex, Google Antigravity, OpenCode, and any MCP-compatible editor.
+2. **MCP Server** — 24 tools for cached file reads, adaptive mode selection, incremental deltas, dependency maps, intent detection, cross-file dedup, project graph, cross-session memory (CCP), and session metrics. Works with Cursor, GitHub Copilot, Claude Code, Windsurf, Zed, Pi, OpenAI Codex, Google Antigravity, OpenCode, and any MCP-compatible editor.
 3. **AI Tool Hooks** — One-command integration for Claude Code, Cursor, Gemini CLI, Codex, Windsurf, Cline, and Pi via `lean-ctx init --agent <tool>`.
 
 ### Three Intelligence Protocols
@@ -233,15 +233,20 @@ lean-ctx init --agent windsurf # Install .windsurfrules
 lean-ctx init --agent cline    # Install .clinerules
 lean-ctx init --agent pi       # Install Pi Coding Agent extension
 lean-ctx gain                  # Persistent token savings (CLI)
+lean-ctx gain --live           # Live auto-updating dashboard (Ctrl+C to exit)
 lean-ctx gain --graph          # ASCII chart of last 30 days
 lean-ctx gain --daily          # Day-by-day breakdown
 lean-ctx gain --json           # Raw JSON export of all stats
 lean-ctx dashboard             # Web dashboard at localhost:3333
 lean-ctx dashboard --port=8080 # Custom port
+lean-ctx cheatsheet            # Workflow cheat sheet & quick reference
 lean-ctx discover              # Find uncompressed commands in shell history
 lean-ctx session               # Show adoption statistics
 lean-ctx config                # Show configuration (~/.lean-ctx/config.toml)
 lean-ctx config init           # Create default config file
+lean-ctx update                # Self-update to latest version
+lean-ctx update --check        # Check for updates without installing
+lean-ctx slow-log              # Show slow command log
 lean-ctx doctor                # Diagnostics: PATH, config, aliases, MCP, ports
 lean-ctx wrapped               # Shareable savings report (CCP)
 lean-ctx wrapped --week        # Weekly savings report
@@ -387,12 +392,12 @@ $ lean-ctx gain
   ctx_read           103x  █▌                    59.1K  38%
     ... +33 more commands
 
-  lean-ctx v2.7.0  |  leanctx.com  |  lean-ctx dashboard
+  lean-ctx v2.7.1  |  leanctx.com  |  lean-ctx dashboard
 ```
 
-## 23 MCP Tools
+## 24 MCP Tools
 
-When configured as an MCP server, lean-ctx provides 23 tools that replace or augment your editor's built-in tools:
+When configured as an MCP server, lean-ctx provides 24 tools that replace or augment your editor's built-in tools:
 
 ### Core Tools
 

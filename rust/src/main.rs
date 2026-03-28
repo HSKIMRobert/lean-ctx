@@ -121,6 +121,10 @@ fn main() {
                 doctor::run();
                 return;
             }
+            "cheat" | "cheatsheet" | "cheat-sheet" => {
+                cli::cmd_cheatsheet();
+                return;
+            }
             "--version" | "-V" => {
                 println!("lean-ctx 2.7.1");
                 return;
@@ -229,6 +233,7 @@ COMMANDS:
     sessions [list|show|cleanup]   Manage CCP sessions (~/.lean-ctx/sessions/)
     benchmark run [path] [--json]  Run real benchmark on project files
     benchmark report [path]        Generate shareable Markdown report
+    cheatsheet                     Command cheat sheet & workflow quick reference
     setup                          One-command setup: shell + editor + verify
     init [--global]                Install shell aliases (zsh/bash/fish/PowerShell)
     init --agent pi                Install Pi Coding Agent extension (pi-lean-ctx)
