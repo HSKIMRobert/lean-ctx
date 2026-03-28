@@ -86,6 +86,20 @@ async fn handle_request(mut stream: tokio::net::TcpStream) {
             let json = std::fs::read_to_string(&mcp_path).unwrap_or_else(|_| "{}".to_string());
             ("200 OK", "application/json", json)
         }
+        "/api/agents" => {
+            let registry = crate::core::agents::AgentRegistry::load_or_create();
+            let json =
+                serde_json::to_string(&registry).unwrap_or_else(|_| "{}".to_string());
+            ("200 OK", "application/json", json)
+        }
+        "/api/knowledge" => {
+            let project_root = detect_project_root_for_dashboard();
+            let knowledge =
+                crate::core::knowledge::ProjectKnowledge::load_or_create(&project_root);
+            let json =
+                serde_json::to_string(&knowledge).unwrap_or_else(|_| "{}".to_string());
+            ("200 OK", "application/json", json)
+        }
         "/" | "/index.html" => (
             "200 OK",
             "text/html; charset=utf-8",
@@ -114,4 +128,19 @@ async fn handle_request(mut stream: tokio::net::TcpStream) {
     );
 
     let _ = stream.write_all(response.as_bytes()).await;
+}
+
+fn detect_project_root_for_dashboard() -> String {
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let mut dir = cwd.as_path();
+    loop {
+        if dir.join(".git").exists() {
+            return dir.to_string_lossy().to_string();
+        }
+        match dir.parent() {
+            Some(parent) => dir = parent,
+            None => break,
+        }
+    }
+    cwd.to_string_lossy().to_string()
 }
