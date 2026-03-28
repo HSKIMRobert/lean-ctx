@@ -2,6 +2,31 @@
 
 All notable changes to lean-ctx are documented here.
 
+## [2.7.1] — 2026-03-28
+
+### Fixed
+
+- **Shell hook: `git status` compressed to `?`** — When `compress_status` failed to parse output (e.g. non-English locale, custom git config), the entire output was replaced with a single `?` character. Now falls back to compact line truncation instead of destroying output ([#24](https://github.com/yvgude/lean-ctx/issues/24))
+- **Shell hook: compression safety floor** — Added minimum output token floor (10% of original, minimum 5 tokens). Compression can never reduce output below this threshold, preventing data destruction
+- **Shell hook: passthrough recursion** — `passthrough()` now sets `LEAN_CTX_ACTIVE=1` to prevent infinite recursion when aliases are defined in `.zshenv` instead of `.zshrc` ([#24](https://github.com/yvgude/lean-ctx/issues/24))
+- **Help text: 21→24 MCP tools** — Updated `--help` output to reflect actual tool count
+
+### Added
+
+- **Workflow & Cheat Sheet documentation** — New `/docs/workflow` page with 5-session command cheat sheet, read mode decision tree, protocol summary, and quick reference cards ([#23](https://github.com/yvgude/lean-ctx/issues/23))
+- **Website: ctx_knowledge, ctx_agent, ctx_overview** — Full documentation on tools page with action tables, examples, and storage paths
+- **Website: CEP output token budgets** — Documented Mechanical/Standard/Architectural task complexity tiers
+- **Website: CCP cross-session feature comparison** — CCP vs ctx_knowledge vs ctx_agent disambiguation section
+- **Website: CLI docs** — Added `lean-ctx update`, `slow-log`, `gain --live`, `lean-ctx-on/off/status` toggle docs
+- **Sidebar: Memory & Agents section** — New navigation group for ctx_knowledge, ctx_agent, ctx_overview
+- **pi-lean-ctx: lower read thresholds** — Code files now use `map` mode from 8KB (was 24KB), `signatures` from 96KB (was 160KB). Fixes 0% compression on medium-sized code files (PR [#22](https://github.com/yvgude/lean-ctx/pull/22) by @amiano4)
+
+### Changed
+
+- **Website: 21→24 MCP tools** — Updated tool count across all pages (tools, features, getting-started, index, tdd, manifest, BaseLayout, FeatureCards, PowerFeatures)
+
+---
+
 ## [2.7.0] — 2026-03-28
 
 ### Added

@@ -94,7 +94,7 @@ pub fn compress(command: &str, output: &str) -> Option<String> {
 }
 
 fn compress_status(output: &str) -> String {
-    let mut branch = String::from("?");
+    let mut branch = String::new();
     let mut ahead = 0u32;
     let mut staged = Vec::new();
     let mut unstaged = Vec::new();
@@ -145,13 +145,26 @@ fn compress_status(output: &str) -> String {
         }
     }
 
+    if branch.is_empty()
+        && staged.is_empty()
+        && unstaged.is_empty()
+        && untracked.is_empty()
+    {
+        return compact_lines(output.trim(), 10);
+    }
+
     let mut parts = Vec::new();
+    let branch_display = if branch.is_empty() {
+        "?".to_string()
+    } else {
+        branch
+    };
     let ahead_str = if ahead > 0 {
         format!(" ↑{ahead}")
     } else {
         String::new()
     };
-    parts.push(format!("{branch}{ahead_str}"));
+    parts.push(format!("{branch_display}{ahead_str}"));
 
     if !staged.is_empty() {
         parts.push(format!("staged: {}", staged.join(" ")));

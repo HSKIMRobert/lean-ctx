@@ -103,7 +103,7 @@ fn is_excluded_command(command: &str, excluded: &[String]) -> bool {
 pub fn interactive() {
     let real_shell = detect_shell();
 
-    eprintln!("lean-ctx shell v2.7.0 (wrapping {real_shell})");
+    eprintln!("lean-ctx shell v2.7.1 (wrapping {real_shell})");
     eprintln!("All command output is automatically compressed.");
     eprintln!("Type 'exit' to quit.\n");
 
@@ -171,15 +171,20 @@ fn compress_if_beneficial(command: &str, output: &str) -> String {
         return output.to_string();
     }
 
+    let min_output_tokens = (original_tokens / 10).max(5);
+
     if let Some(compressed) = patterns::compress_output(command, output) {
         if !compressed.trim().is_empty() {
             let compressed_tokens = count_tokens(&compressed);
-            if compressed_tokens < original_tokens {
+            if compressed_tokens >= min_output_tokens && compressed_tokens < original_tokens {
                 let saved = original_tokens - compressed_tokens;
                 let pct = (saved as f64 / original_tokens as f64 * 100.0).round() as usize;
                 return format!(
                     "{compressed}\n[lean-ctx: {original_tokens}→{compressed_tokens} tok, -{pct}%]"
                 );
+            }
+            if compressed_tokens < min_output_tokens {
+                return output.to_string();
             }
         }
     }
