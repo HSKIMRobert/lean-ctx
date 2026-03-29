@@ -1,0 +1,9 @@
+# Proprietary paths — NEVER push to GitHub
+# Used by .githooks/pre-push to block accidental leaks.
+# One path per line. Trailing slashes match directories.
+
+cloud/
+docker-compose.yml
+.gitlab-ci.yml
+deploy.sh
+website/
