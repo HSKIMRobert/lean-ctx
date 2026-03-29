@@ -15,7 +15,7 @@ impl ServerHandler for LeanCtxServer {
         let instructions = build_instructions(self.crp_mode);
 
         InitializeResult::new(capabilities)
-            .with_server_info(Implementation::new("lean-ctx", "2.9.0"))
+            .with_server_info(Implementation::new("lean-ctx", "2.9.1"))
             .with_instructions(instructions)
     }
 
@@ -598,7 +598,7 @@ impl ServerHandler for LeanCtxServer {
                         1.0
                     };
                     let outcome = crate::core::mode_predictor::ModeOutcome {
-                        mode,
+                        mode: mode.clone(),
                         tokens_in: original,
                         tokens_out: tokens,
                         density: density.min(1.0),
@@ -606,6 +606,31 @@ impl ServerHandler for LeanCtxServer {
                     let mut predictor = crate::core::mode_predictor::ModePredictor::new();
                     predictor.record(sig, outcome);
                     predictor.save();
+
+                    let ext = std::path::Path::new(&path)
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let thresholds = crate::core::adaptive_thresholds::thresholds_for_path(&path);
+                    let cache = self.cache.read().await;
+                    let stats = cache.get_stats();
+                    let feedback_outcome = crate::core::feedback::CompressionOutcome {
+                        session_id: format!("{}", std::process::id()),
+                        language: ext,
+                        entropy_threshold: thresholds.bpe_entropy,
+                        jaccard_threshold: thresholds.jaccard,
+                        total_turns: stats.total_reads as u32,
+                        tokens_saved: original.saturating_sub(tokens) as u64,
+                        tokens_original: original as u64,
+                        cache_hits: stats.cache_hits as u32,
+                        total_reads: stats.total_reads as u32,
+                        task_completed: true,
+                        timestamp: chrono::Local::now().to_rfc3339(),
+                    };
+                    drop(cache);
+                    let mut store = crate::core::feedback::FeedbackStore::load();
+                    store.record_outcome(feedback_outcome);
                 }
                 output
             }
@@ -636,9 +661,10 @@ impl ServerHandler for LeanCtxServer {
                 let path = get_str(args, "path").unwrap_or_else(|| ".".to_string());
                 let depth = get_int(args, "depth").unwrap_or(3) as usize;
                 let show_hidden = get_bool(args, "show_hidden").unwrap_or(false);
-                let result = crate::tools::ctx_tree::handle(&path, depth, show_hidden);
+                let (result, original) = crate::tools::ctx_tree::handle(&path, depth, show_hidden);
                 let sent = crate::core::tokens::count_tokens(&result);
-                self.record_call("ctx_tree", sent, 0, None).await;
+                self.record_call("ctx_tree", original, original.saturating_sub(sent), None)
+                    .await;
                 result
             }
             "ctx_shell" => {
@@ -659,7 +685,7 @@ impl ServerHandler for LeanCtxServer {
                 let ext = get_str(args, "ext");
                 let max = get_int(args, "max_results").unwrap_or(20) as usize;
                 let no_gitignore = get_bool(args, "ignore_gitignore").unwrap_or(false);
-                let result = crate::tools::ctx_search::handle(
+                let (result, original) = crate::tools::ctx_search::handle(
                     &pattern,
                     &path,
                     ext.as_deref(),
@@ -668,7 +694,8 @@ impl ServerHandler for LeanCtxServer {
                     !no_gitignore,
                 );
                 let sent = crate::core::tokens::count_tokens(&result);
-                self.record_call("ctx_search", sent, 0, None).await;
+                self.record_call("ctx_search", original, original.saturating_sub(sent), None)
+                    .await;
                 result
             }
             "ctx_compress" => {
@@ -1195,7 +1222,9 @@ COMMUNICATION PROTOCOL (Cognitive Efficiency Protocol v1):\n\
 5. QUALITY ANCHOR — NEVER skip edge case analysis or error handling to save tokens.\n\
    Complex tasks require full reasoning. Only reduce prose, never reduce thinking.\n\
 6. OUTPUT BUDGET — Output tokens cost 3-4x more than input tokens. Minimize response length:\n\
-   Mechanical tasks: max 50 tokens response. Standard: max 200. Architectural: full reasoning allowed.\n\
+   Mechanical tasks (1 file, <=3 reads): max 50 tokens response.\n\
+   Standard tasks (2-4 files): max 150 tokens response.\n\
+   Architectural tasks (5+ files): full reasoning allowed, structured output preferred.\n\
    Always prefer structured notation over prose. Never repeat the question or restate context.\n\
 \n\
 {decoder_block}\n\

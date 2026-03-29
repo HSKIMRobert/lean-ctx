@@ -114,21 +114,6 @@ header{display:flex;align-items:center;justify-content:space-between;margin-bott
 .sr{display:flex;justify-content:space-between;padding:2px 0;font-size:10px}
 .sr .sl{color:var(--muted)}.sr .sv{font-family:var(--mono);font-weight:500}
 
-/* Intel & Sci */
-.ig{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
-.ii{background:var(--surface-2);border-radius:var(--rs);padding:14px 8px;text-align:center;
-  border:1px solid transparent;transition:.2s}
-.ii:hover{border-color:var(--border-light)}
-.ii .v{font-family:var(--display);font-size:22px;font-weight:700;letter-spacing:-.02em;margin-bottom:3px}
-.ii .l{font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-weight:600}
-.sg{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
-.si{background:var(--surface-2);border-radius:var(--rs);padding:12px 8px;text-align:center;
-  border:1px solid transparent;transition:.2s}
-.si:hover{border-color:var(--border-light)}
-.si .st{font-family:var(--mono);font-size:12px;font-weight:600;margin-bottom:2px}
-.si .sn{font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-weight:600}
-.si .sd{font-size:7px;color:var(--muted);margin-top:3px;opacity:.7}
-
 /* Table */
 table{width:100%;border-collapse:collapse}
 th{text-align:left;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.12em;
@@ -178,7 +163,7 @@ tr:hover td{background:var(--surface-2)}
 <div class="app">
   <header>
     <div style="display:flex;align-items:center;gap:12px">
-      <div class="logo"><h1>Lean<span>CTX</span></h1><span class="ver">v2.9.0</span></div>
+      <div class="logo"><h1>Lean<span>CTX</span></h1><span class="ver">v2.9.1</span></div>
       <a class="hdr-link" href="https://leanctx.com" target="_blank">leanctx.com</a>
     </div>
     <div class="hdr-r">
@@ -193,7 +178,7 @@ tr:hover td{background:var(--surface-2)}
     </div>
   </header>
   <div id="root"><div class="loading">Loading...</div></div>
-  <div class="footer">LeanCTX — The Cognitive Filter for AI Engineering · <a href="https://leanctx.com" target="_blank">leanctx.com</a></div>
+  <div class="footer">LeanCTX — The Intelligence Layer for AI Coding · <a href="https://leanctx.com" target="_blank">leanctx.com</a></div>
 </div>
 <script>
 const $=id=>document.getElementById(id);
@@ -295,41 +280,6 @@ function build(){
             <div class="sr"><span class="sl">Rate</span><span class="sv" style="color:var(--blue)" data-live id="vHR"></span></div>
           </div>
         </div>
-      </div>
-    </div>
-
-    <div class="row r11">
-      <div class="card">
-        <h3>CEP Intelligence</h3>
-        <div class="ig">
-          <div class="ii"><div class="v" data-live id="cepS" style="color:var(--green)">—</div><div class="l">Score</div></div>
-          <div class="ii"><div class="v" data-live id="cepCH" style="color:var(--purple)">—</div><div class="l">Cache Hits</div></div>
-          <div class="ii"><div class="v" data-live id="cepMD" style="color:var(--blue)">—</div><div class="l">Mode Diversity</div></div>
-          <div class="ii"><div class="v" data-live id="cepCR" style="color:var(--pink)">—</div><div class="l">Compression</div></div>
-          <div class="ii"><div class="v" data-live id="cepCX" style="color:var(--yellow);font-size:14px">—</div><div class="l">Complexity</div></div>
-        </div>
-      </div>
-      <div class="card">
-        <h3>Scientific Optimizations <span class="badge">v2.6</span></h3>
-        <div class="sg">
-          <div class="si"><div class="st" data-live id="s1" style="color:var(--green)">—</div><div class="sn">Adaptive Entropy</div><div class="sd">Per-language thresholds</div></div>
-          <div class="si"><div class="st" data-live id="s2" style="color:var(--purple)">—</div><div class="sn">Attention Model</div><div class="sd">U-curve + structure</div></div>
-          <div class="si"><div class="st" data-live id="s3" style="color:var(--blue)">—</div><div class="sn">Semantic Dedup</div><div class="sd">TF-IDF codebook</div></div>
-          <div class="si"><div class="st" data-live id="s4" style="color:var(--pink)">—</div><div class="sn">Feedback Loop</div><div class="sd">Learned thresholds</div></div>
-          <div class="si"><div class="st" data-live id="s5" style="color:var(--yellow)">—</div><div class="sn">Info Bottleneck</div><div class="sd">Budget filtering</div></div>
-          <div class="si"><div class="st" data-live id="s6" style="color:var(--text)">—</div><div class="sn">ctx_overview</div><div class="sd">Multi-resolution</div></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="row r11">
-      <div class="card">
-        <h3>Active Agents <span class="badge">Multi-Agent</span></h3>
-        <div id="agentList" style="font-size:11px;color:var(--muted)">Loading...</div>
-      </div>
-      <div class="card">
-        <h3>Project Knowledge <span class="badge">Persistent Memory</span></h3>
-        <div id="knowledgeList" style="font-size:11px;color:var(--muted)">Loading...</div>
       </div>
     </div>
 
@@ -453,115 +403,7 @@ function renC(cmds){
   if(b){if(hid===0&&!showAll)b.style.display='none';else{b.style.display='';b.textContent=showAll?'Show active only':'Show all ('+hid+' hidden)'}}
 }
 
-async function loadCep(){
-  try{
-    const r=await fetch('/api/stats');const d=await r.json();
-    const cmds=Object.entries(d.commands||{});
-    const tIn=cmds.reduce((s,c)=>s+c[1].input_tokens,0);
-    const tOut=cmds.reduce((s,c)=>s+c[1].output_tokens,0);
-    const rate=tIn>0?Math.round((1-tOut/tIn)*100):0;
-
-    const readCount=cmds.filter(c=>c[0]==='ctx_read').reduce((s,c)=>s+c[1].count,0);
-
-    const cep=d.cep||{};
-    const cepModes=cep.modes||{};
-    const readModes=['full','map','signatures','diff','aggressive','entropy','auto'];
-    const usedReadModes=readModes.filter(m=>cepModes[m]>0).length;
-    const modePct=Math.min(100,Math.round(usedReadModes/6*100));
-
-    const storedHits=cep.total_cache_hits||0;
-    const storedReads=cep.total_cache_reads||0;
-    const cacheRate=storedReads>0?Math.round(storedHits/storedReads*100):0;
-
-    const cepOrig=cep.total_tokens_original||0;
-    const cepComp=cep.total_tokens_compressed||0;
-    const cepRate=cepOrig>0?Math.round((1-cepComp/cepOrig)*100):0;
-    const combinedRate=Math.max(rate,cepRate);
-
-    const score=Math.round(cacheRate*0.3+modePct*0.25+combinedRate*0.25+70*0.2);
-
-    let complexity='Standard';
-    if(d.total_commands>2000)complexity='Complex';
-    else if(d.total_commands>500)complexity='Moderate';
-
-    try{
-      const mr=await fetch('/api/mcp');const ml=await mr.json();
-      const updAt=ml.updated_at?new Date(ml.updated_at):null;
-      const now=new Date();
-      const fresh=updAt&&(now-updAt)<300000;
-      if(fresh){complexity=ml.task_complexity||complexity}
-    }catch(e){}
-
-    lv('cepS',score+'/100');lv('cepCH',cacheRate+'%');
-    lv('cepMD',modePct+'%');lv('cepCR',combinedRate+'%');lv('cepCX',complexity);
-
-    lv('s1',readCount>0?'Active':'Ready');
-    lv('s2',readCount>0?'Active':'Ready');
-    const dd=cmds.filter(c=>c[0]==='ctx_dedup').reduce((s,c)=>s+c[1].count,0);
-    lv('s3',dd>0?dd+'x':'Ready');
-    lv('s4',d.total_commands>100?'Learning':'Collecting');
-    lv('s5',readCount>0?'Active':'Ready');
-    const ov=cmds.filter(c=>c[0]==='ctx_overview').reduce((s,c)=>s+c[1].count,0);
-    lv('s6',ov>0?ov+'x':'Ready');
-  }catch(e){lv('cepS','—')}
-}
-
-async function loadAgents(){
-  try{
-    const r=await fetch('/api/agents');const d=await r.json();
-    const el=$('agentList');if(!el)return;
-    const agents=(d.agents||[]).filter(a=>a.status!=='Finished');
-    if(!agents.length){el.innerHTML='<div style="text-align:center;padding:16px;color:var(--muted)">No active agents</div>';return}
-    let h='';
-    for(const a of agents){
-      const age=Math.round((Date.now()-new Date(a.last_active).getTime())/60000);
-      const st=a.status==='Active'?'🟢':'🟡';
-      const role=a.role||'—';
-      const msg=a.status_message?' — '+a.status_message:'';
-      h+=`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
-        <span>${st}</span>
-        <span style="font-family:var(--mono);font-weight:500;color:var(--text)">${a.agent_id}</span>
-        <span class="tag tp">${a.agent_type}</span>
-        <span style="color:var(--muted);font-size:10px">role: ${role}${msg}</span>
-        <span style="margin-left:auto;font-size:9px;color:var(--muted)">${age}m ago</span>
-      </div>`;
-    }
-    const unread=(d.scratchpad||[]).length;
-    if(unread>0)h+=`<div style="margin-top:8px;font-size:10px;color:var(--yellow)">${unread} scratchpad entries</div>`;
-    el.innerHTML=h;
-  }catch(e){const el=$('agentList');if(el)el.innerHTML='<div style="color:var(--muted);text-align:center;padding:16px">No agent data</div>'}
-}
-
-async function loadKnowledge(){
-  try{
-    const r=await fetch('/api/knowledge');const d=await r.json();
-    const el=$('knowledgeList');if(!el)return;
-    const facts=d.facts||[];const patterns=d.patterns||[];const history=d.history||[];
-    if(!facts.length&&!patterns.length){el.innerHTML='<div style="text-align:center;padding:16px;color:var(--muted)">No knowledge stored yet.<br><span style="font-size:9px">Use ctx_knowledge(action="remember") to start.</span></div>';return}
-    let h=`<div style="display:flex;gap:16px;margin-bottom:8px">
-      <span style="font-family:var(--mono);font-weight:600;color:var(--green)">${facts.length}</span><span> facts</span>
-      <span style="font-family:var(--mono);font-weight:600;color:var(--purple)">${patterns.length}</span><span> patterns</span>
-      <span style="font-family:var(--mono);font-weight:600;color:var(--blue)">${history.length}</span><span> insights</span>
-    </div>`;
-    const cats={};facts.forEach(f=>{if(!cats[f.category])cats[f.category]=[];cats[f.category].push(f)});
-    for(const[cat,fs]of Object.entries(cats)){
-      h+=`<div style="margin-top:6px;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;font-weight:600">${cat}</div>`;
-      for(const f of fs.slice(0,5)){
-        const conf=Math.round(f.confidence*100);
-        const confColor=conf>=80?'var(--green)':conf>=50?'var(--yellow)':'var(--red)';
-        h+=`<div style="display:flex;gap:8px;padding:3px 0;font-size:10px">
-          <span style="font-family:var(--mono);font-weight:500;color:var(--text);min-width:120px">${f.key}</span>
-          <span style="color:var(--muted);flex:1">${f.value.substring(0,80)}</span>
-          <span style="color:${confColor};font-size:9px">${conf}%</span>
-        </div>`;
-      }
-      if(fs.length>5)h+=`<div style="font-size:9px;color:var(--muted)">+${fs.length-5} more</div>`;
-    }
-    el.innerHTML=h;
-  }catch(e){const el=$('knowledgeList');if(el)el.innerHTML='<div style="color:var(--muted);text-align:center;padding:16px">No knowledge data</div>'}
-}
-
-async function loadAll(){await load();await loadCep();await loadAgents();await loadKnowledge()}
+async function loadAll(){await load()}
 loadAll();startA();
 </script>
 </body>

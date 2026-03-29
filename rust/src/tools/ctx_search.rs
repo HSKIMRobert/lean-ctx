@@ -13,17 +13,17 @@ pub fn handle(
     dir: &str,
     ext_filter: Option<&str>,
     max_results: usize,
-    crp_mode: CrpMode,
+    _crp_mode: CrpMode,
     respect_gitignore: bool,
-) -> String {
+) -> (String, usize) {
     let re = match Regex::new(pattern) {
         Ok(r) => r,
-        Err(e) => return format!("ERROR: invalid regex: {e}"),
+        Err(e) => return (format!("ERROR: invalid regex: {e}"), 0),
     };
 
     let root = Path::new(dir);
     if !root.exists() {
-        return format!("ERROR: {dir} does not exist");
+        return (format!("ERROR: {dir} does not exist"), 0);
     }
 
     let walker = WalkBuilder::new(root)
@@ -79,7 +79,10 @@ pub fn handle(
     }
 
     if matches.is_empty() {
-        return format!("0 matches for '{pattern}' in {files_searched} files");
+        return (
+            format!("0 matches for '{pattern}' in {files_searched} files"),
+            total_original_tokens,
+        );
     }
 
     let mut result = format!(
@@ -89,22 +92,29 @@ pub fn handle(
         matches.join("\n")
     );
 
-    if crp_mode.is_tdd() {
+    {
         let file_ext = ext_filter.unwrap_or("rs");
         let mut sym = SymbolMap::new();
         let idents = symbol_map::extract_identifiers(&result, file_ext);
         for ident in &idents {
             sym.register(ident);
         }
-        let compressed = sym.apply(&result);
-        let sym_table = sym.format_table();
-        result = format!("{compressed}{sym_table}");
+        if sym.len() >= 3 {
+            let sym_table = sym.format_table();
+            let compressed = sym.apply(&result);
+            let original_tok = count_tokens(&result);
+            let compressed_tok = count_tokens(&compressed) + count_tokens(&sym_table);
+            let net_saving = original_tok.saturating_sub(compressed_tok);
+            if original_tok > 0 && net_saving * 100 / original_tok >= 5 {
+                result = format!("{compressed}{sym_table}");
+            }
+        }
     }
 
     let sent = count_tokens(&result);
     let savings = protocol::format_savings(total_original_tokens, sent);
 
-    format!("{result}\n{savings}")
+    (format!("{result}\n{savings}"), total_original_tokens)
 }
 
 fn is_binary_ext(path: &Path) -> bool {

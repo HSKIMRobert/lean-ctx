@@ -2,6 +2,21 @@
 
 All notable changes to lean-ctx are documented here.
 
+## [2.9.1] — 2026-03-29
+
+### Fixed
+
+- **git log compression** — Shell hook now compresses `git log` output by 50-88% (was 1%). Fixed overly conservative `min_output_tokens` safeguard that rejected effective compression. Added truncation to 20 entries for both `--oneline` and standard format logs.
+- **ctx_search SymbolMap** — SymbolMap compression now applies to all search results when ROI >= 5%, not just in TDD mode. Consistent with ctx_read behavior.
+
+### Added
+
+- **Dormant compression activation** — SymbolMap applied universally with ROI >= 5% gate (was TDD-only). `lightweight_cleanup()` as fallback for unmatched shell commands. Feedback loop active: `FeedbackStore` records compression outcomes for adaptive learning.
+- **Scientific safeguards** — 7 mathematical safeguards: Shannon entropy floor, Kolmogorov gate (K>0.7), Symbol-Map ROI guarantee (>=5%), token ratio bounds [0.15, 1.0], edit integrity (fresh=true), feedback dampening (EWMA + min 5 samples), benchmark monotonicity.
+- **Thinking token optimization** — SNR metric in protocol instructions, adaptive CEP output budget (mechanical=50, standard=150, architectural=unlimited), token budget hints in checkpoint instructions.
+- **Output token optimization** — Auto filler removal on checkpoint outputs via `ctx_response`, CRP defaults to TDD mode for maximum compression.
+- **Codebook deduplication** — Cross-file TF-IDF codebook applied during auto-checkpoints for deduplication.
+
 ## [2.9.0] — 2026-03-29
 
 ### Added

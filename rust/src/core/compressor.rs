@@ -61,6 +61,59 @@ pub fn aggressive_compress(content: &str, ext: Option<&str>) -> String {
     result.join("\n")
 }
 
+/// Lightweight post-processing cleanup: collapses consecutive closing braces,
+/// removes whitespace-only lines, and limits consecutive blank lines to 1.
+pub fn lightweight_cleanup(content: &str) -> String {
+    let mut result: Vec<String> = Vec::new();
+    let mut blank_count = 0u32;
+    let mut close_brace_count = 0u32;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+
+        if trimmed.is_empty() {
+            close_brace_count = 0;
+            blank_count += 1;
+            if blank_count <= 1 {
+                result.push(String::new());
+            }
+            continue;
+        }
+        blank_count = 0;
+
+        if matches!(trimmed, "}" | "};" | ");" | "});" | ")") {
+            close_brace_count += 1;
+            if close_brace_count <= 2 {
+                result.push(trimmed.to_string());
+            }
+            continue;
+        }
+        close_brace_count = 0;
+
+        result.push(line.to_string());
+    }
+
+    result.join("\n")
+}
+
+/// Safeguard: ensures compression ratio stays within safe bounds.
+/// Returns the compressed content if ratio is in [0.15, 1.0], otherwise the original.
+pub fn safeguard_ratio(original: &str, compressed: &str) -> String {
+    let orig_tokens = super::tokens::count_tokens(original);
+    let comp_tokens = super::tokens::count_tokens(compressed);
+
+    if orig_tokens == 0 {
+        return compressed.to_string();
+    }
+
+    let ratio = comp_tokens as f64 / orig_tokens as f64;
+    if ratio < 0.15 || comp_tokens > orig_tokens {
+        original.to_string()
+    } else {
+        compressed.to_string()
+    }
+}
+
 fn normalize_indentation(line: &str) -> String {
     let content = line.trim_start();
     let leading = line.len() - content.len();
@@ -133,6 +186,34 @@ mod tests {
     fn test_diff_no_changes() {
         let content = "same\ncontent";
         assert_eq!(diff_content(content, content), "∅ no changes");
+    }
+
+    #[test]
+    fn test_lightweight_cleanup_collapses_braces() {
+        let input = "fn main() {\n    inner()\n}\n}\n}\n}\n}\nfn next() {}";
+        let result = lightweight_cleanup(input);
+        assert!(
+            result.matches('}').count() <= 3,
+            "should collapse consecutive closing braces"
+        );
+        assert!(result.contains("fn next()"));
+    }
+
+    #[test]
+    fn test_lightweight_cleanup_blank_lines() {
+        let input = "line1\n\n\n\n\nline2";
+        let result = lightweight_cleanup(input);
+        let blank_runs = result.split("line1").nth(1).unwrap();
+        let blanks = blank_runs.matches('\n').count();
+        assert!(blanks <= 2, "should collapse multiple blank lines");
+    }
+
+    #[test]
+    fn test_safeguard_ratio_prevents_over_compression() {
+        let original = "a ".repeat(100);
+        let too_compressed = "a";
+        let result = safeguard_ratio(&original, too_compressed);
+        assert_eq!(result, original, "should return original when ratio < 0.15");
     }
 
     #[test]

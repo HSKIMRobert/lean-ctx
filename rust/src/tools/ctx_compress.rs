@@ -2,6 +2,7 @@ use crate::core::cache::SessionCache;
 use crate::core::protocol;
 use crate::core::signatures;
 use crate::core::tokens::count_tokens;
+use crate::tools::ctx_response;
 use crate::tools::CrpMode;
 
 pub fn handle(cache: &SessionCache, include_signatures: bool, crp_mode: CrpMode) -> String {
@@ -68,9 +69,33 @@ pub fn handle(cache: &SessionCache, include_signatures: bool, crp_mode: CrpMode)
         stats.hit_rate()
     ));
 
+    // Cross-file codebook deduplication
+    let files_for_codebook: Vec<(String, String)> = entries
+        .iter()
+        .map(|(p, e)| (p.to_string(), e.content.clone()))
+        .collect();
+    let mut codebook = crate::core::codebook::Codebook::new();
+    codebook.build_from_files(&files_for_codebook);
+
     let output = sections.join("\n");
-    let compressed_tokens = count_tokens(&output);
+
+    let (final_output, legend) = if !codebook.is_empty() {
+        let (compressed, refs_used) = codebook.compress(&output);
+        let legend = codebook.format_legend(&refs_used);
+        if refs_used.is_empty() {
+            (output, String::new())
+        } else {
+            (compressed, format!("\n{legend}"))
+        }
+    } else {
+        (output, String::new())
+    };
+
+    // Apply filler removal to checkpoint output
+    let cleaned_output = ctx_response::handle(&final_output, crp_mode);
+
+    let compressed_tokens = count_tokens(&cleaned_output) + count_tokens(&legend);
     let savings = protocol::format_savings(total_original, compressed_tokens);
 
-    format!("{output}\nCOMPRESSION: {total_original} → {compressed_tokens} tok\n{savings}")
+    format!("{cleaned_output}{legend}\nCOMPRESSION: {total_original} → {compressed_tokens} tok\n{savings}")
 }
