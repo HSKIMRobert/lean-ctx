@@ -2,6 +2,15 @@
 
 All notable changes to lean-ctx are documented here.
 
+## [2.8.2] — 2026-03-29
+
+### Fixed
+
+- **Windows self-update** — Binary replacement now uses rename-before-replace strategy, preventing "Access is denied" errors when MCP server is running
+- **Search modal** — Complete redesign with custom Pagefind API integration, keyboard navigation (↑↓ to navigate, ↵ to open), cleaner dark-theme styling
+
+---
+
 ## [2.8.1] — 2026-03-29
 
 ### Added

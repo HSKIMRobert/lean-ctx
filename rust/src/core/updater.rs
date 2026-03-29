@@ -133,10 +133,35 @@ fn replace_binary(
         let _ = std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o755));
     }
 
-    std::fs::rename(&tmp_path, current_exe).map_err(|e| {
-        let _ = std::fs::remove_file(&tmp_path);
-        format!("Cannot replace binary (permission denied?): {e}")
-    })
+    // On Windows, a running executable can be renamed but not overwritten.
+    // Move the current binary out of the way first, then move the new one in.
+    #[cfg(windows)]
+    {
+        let old_path = current_exe.with_extension("old.exe");
+        let _ = std::fs::remove_file(&old_path);
+        if let Err(e) = std::fs::rename(current_exe, &old_path) {
+            let _ = std::fs::remove_file(&tmp_path);
+            return Err(format!(
+                "Cannot move current binary aside: {e}\n\
+                 Close your AI editor (Cursor, VS Code, etc.) so the MCP server releases the file, then retry."
+            ));
+        }
+        if let Err(e) = std::fs::rename(&tmp_path, current_exe) {
+            let _ = std::fs::rename(&old_path, current_exe);
+            let _ = std::fs::remove_file(&tmp_path);
+            return Err(format!("Cannot place new binary: {e}"));
+        }
+        let _ = std::fs::remove_file(&old_path);
+        return Ok(());
+    }
+
+    #[cfg(not(windows))]
+    {
+        std::fs::rename(&tmp_path, current_exe).map_err(|e| {
+            let _ = std::fs::remove_file(&tmp_path);
+            format!("Cannot replace binary (permission denied?): {e}")
+        })
+    }
 }
 
 fn extract_from_tar_gz(data: &[u8]) -> Result<Vec<u8>, String> {
