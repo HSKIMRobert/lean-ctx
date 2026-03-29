@@ -1,4 +1,5 @@
 pub mod cli;
+pub mod cloud_client;
 pub mod core;
 pub mod dashboard;
 pub mod doctor;
