@@ -24,6 +24,13 @@ impl ServerHandler for LeanCtxServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
+        if is_unified_mode() {
+            return Ok(ListToolsResult {
+                tools: unified_tool_defs(),
+                ..Default::default()
+            });
+        }
+
         Ok(ListToolsResult {
                 tools: vec![
                     tool_def(
@@ -483,6 +490,22 @@ impl ServerHandler for LeanCtxServer {
                             }
                         }),
                     ),
+                    tool_def(
+                        "ctx_semantic_search",
+                        "BM25 semantic code search across the project. Indexes code by symbols \
+                        (functions, classes, structs) and searches by meaning. \
+                        Use action='reindex' to rebuild the index.",
+                        json!({
+                            "type": "object",
+                            "properties": {
+                                "query": { "type": "string", "description": "Natural language search query" },
+                                "path": { "type": "string", "description": "Project root to search (default: .)" },
+                                "top_k": { "type": "integer", "description": "Number of results (default: 10)" },
+                                "action": { "type": "string", "description": "reindex to rebuild index" }
+                            },
+                            "required": ["query"]
+                        }),
+                    ),
                 ],
                 ..Default::default()
             })
@@ -495,10 +518,32 @@ impl ServerHandler for LeanCtxServer {
     ) -> Result<CallToolResult, ErrorData> {
         self.check_idle_expiry().await;
 
-        let name = &request.name;
-        let args = &request.arguments;
+        let original_name = request.name.as_ref().to_string();
+        let (resolved_name, resolved_args) = if original_name == "ctx" {
+            let sub = request
+                .arguments
+                .as_ref()
+                .and_then(|a| a.get("tool"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .ok_or_else(|| {
+                    ErrorData::invalid_params("'tool' is required for ctx meta-tool", None)
+                })?;
+            let tool_name = if sub.starts_with("ctx_") {
+                sub
+            } else {
+                format!("ctx_{sub}")
+            };
+            let mut args = request.arguments.unwrap_or_default();
+            args.remove("tool");
+            (tool_name, Some(args))
+        } else {
+            (original_name, request.arguments)
+        };
+        let name = resolved_name.as_str();
+        let args = &resolved_args;
 
-        let result_text = match name.as_ref() {
+        let result_text = match name {
             "ctx_read" => {
                 let path = get_str(args, "path")
                     .ok_or_else(|| ErrorData::invalid_params("path is required", None))?;
@@ -965,6 +1010,21 @@ impl ServerHandler for LeanCtxServer {
                 self.record_call("ctx_wrapped", 0, 0, Some(period)).await;
                 result
             }
+            "ctx_semantic_search" => {
+                let query = get_str(args, "query")
+                    .ok_or_else(|| ErrorData::invalid_params("query is required", None))?;
+                let path = get_str(args, "path").unwrap_or_else(|| ".".to_string());
+                let top_k = get_int(args, "top_k").unwrap_or(10) as usize;
+                let action = get_str(args, "action").unwrap_or_default();
+                let result = if action == "reindex" {
+                    crate::tools::ctx_semantic_search::handle_reindex(&path)
+                } else {
+                    crate::tools::ctx_semantic_search::handle(&query, &path, top_k, self.crp_mode)
+                };
+                self.record_call("ctx_semantic_search", 0, 0, Some("semantic".to_string()))
+                    .await;
+                result
+            }
             _ => {
                 return Err(ErrorData::invalid_params(
                     format!("Unknown tool: {name}"),
@@ -974,7 +1034,7 @@ impl ServerHandler for LeanCtxServer {
         };
 
         let skip_checkpoint = matches!(
-            name.as_ref(),
+            name,
             "ctx_compress"
                 | "ctx_metrics"
                 | "ctx_benchmark"
@@ -1044,7 +1104,7 @@ fn build_instructions_with_client(crp_mode: CrpMode, client_name: &str) -> Strin
 
     // Prefix-cache alignment: stable instructions first (API providers cache KV states
     // for shared prefixes), then variable session state after.
-    let base = format!("\
+    let mut base = format!("\
 lean-ctx MCP — tool replacement for reading, running commands, and searching.\n\
 \n\
 REPLACE these built-in tools with lean-ctx equivalents:\n\
@@ -1139,6 +1199,20 @@ COMMUNICATION PROTOCOL (Cognitive Efficiency Protocol v1):\n\
         decoder_block = crate::core::protocol::instruction_decoder_block()
     );
 
+    if is_unified_mode() {
+        base.push_str("\n\n\
+UNIFIED TOOL MODE (active — saves ~18K tokens):\n\
+All tools except ctx_read, ctx_shell, ctx_search, ctx_tree are accessed via ctx() meta-tool.\n\
+Syntax: ctx(tool=\"<name>\", ...params) — e.g.:\n\
+• ctx(tool=\"session\", action=\"load\") instead of ctx_session(action=\"load\")\n\
+• ctx(tool=\"compress\") instead of ctx_compress()\n\
+• ctx(tool=\"knowledge\", action=\"remember\", category=\"api\", key=\"auth\", value=\"JWT\") instead of ctx_knowledge(...)\n\
+• ctx(tool=\"graph\", action=\"build\") instead of ctx_graph(action=\"build\")\n\
+Sub-tool names: compress, metrics, analyze, cache, discover, smart_read, delta, dedup, \
+fill, intent, response, context, graph, session, knowledge, agent, overview, wrapped, benchmark, multi_read, semantic_search\n");
+    }
+
+    let base = base;
     match crp_mode {
         CrpMode::Off => base,
         CrpMode::Compact => {
@@ -1195,6 +1269,111 @@ fn tool_def(name: &'static str, description: &'static str, schema_value: Value) 
         _ => Map::new(),
     };
     Tool::new(name, description, Arc::new(schema))
+}
+
+fn unified_tool_defs() -> Vec<Tool> {
+    vec![
+        tool_def(
+            "ctx_read",
+            "Read file with caching + 6 compression modes. Re-reads ~13 tok. \
+            Modes: full, map, signatures, diff, aggressive, entropy, lines:N-M. \
+            Set fresh=true to bypass cache.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "File path" },
+                    "mode": { "type": "string" },
+                    "start_line": { "type": "integer" },
+                    "fresh": { "type": "boolean" }
+                },
+                "required": ["path"]
+            }),
+        ),
+        tool_def(
+            "ctx_shell",
+            "Execute command with 90+ pattern compression.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "command": { "type": "string", "description": "Shell command" }
+                },
+                "required": ["command"]
+            }),
+        ),
+        tool_def(
+            "ctx_search",
+            "Search code with regex. Respects .gitignore.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "pattern": { "type": "string", "description": "Regex pattern" },
+                    "path": { "type": "string" },
+                    "ext": { "type": "string" },
+                    "max_results": { "type": "integer" },
+                    "ignore_gitignore": { "type": "boolean" }
+                },
+                "required": ["pattern"]
+            }),
+        ),
+        tool_def(
+            "ctx_tree",
+            "Directory listing with file counts.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string" },
+                    "depth": { "type": "integer" },
+                    "show_hidden": { "type": "boolean" }
+                }
+            }),
+        ),
+        tool_def(
+            "ctx",
+            "Lean-ctx multi-tool — 20 sub-tools in one endpoint. \
+            Pass sub-tool name in 'tool' param, plus its parameters as sibling fields. \
+            See server instructions for per-tool parameters.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "tool": {
+                        "type": "string",
+                        "description": "compress|metrics|analyze|cache|discover|smart_read|delta|dedup|fill|intent|response|context|graph|session|knowledge|agent|overview|wrapped|benchmark|multi_read|semantic_search"
+                    },
+                    "action": { "type": "string" },
+                    "path": { "type": "string" },
+                    "paths": { "type": "array", "items": { "type": "string" } },
+                    "query": { "type": "string" },
+                    "value": { "type": "string" },
+                    "category": { "type": "string" },
+                    "key": { "type": "string" },
+                    "budget": { "type": "integer" },
+                    "task": { "type": "string" },
+                    "mode": { "type": "string" },
+                    "text": { "type": "string" },
+                    "message": { "type": "string" },
+                    "session_id": { "type": "string" },
+                    "period": { "type": "string" },
+                    "format": { "type": "string" },
+                    "agent_type": { "type": "string" },
+                    "role": { "type": "string" },
+                    "status": { "type": "string" },
+                    "pattern_type": { "type": "string" },
+                    "examples": { "type": "array", "items": { "type": "string" } },
+                    "confidence": { "type": "number" },
+                    "project_root": { "type": "string" },
+                    "include_signatures": { "type": "boolean" },
+                    "limit": { "type": "integer" },
+                    "to_agent": { "type": "string" },
+                    "show_hidden": { "type": "boolean" }
+                },
+                "required": ["tool"]
+            }),
+        ),
+    ]
+}
+
+fn is_unified_mode() -> bool {
+    std::env::var("LEAN_CTX_UNIFIED").is_ok()
 }
 
 fn get_str_array(args: &Option<serde_json::Map<String, Value>>, key: &str) -> Option<Vec<String>> {

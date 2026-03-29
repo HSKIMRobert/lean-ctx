@@ -2,6 +2,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use super::graph_index::ProjectIndex;
 
+use super::attention_model::positional_attention;
+
 #[derive(Debug, Clone)]
 pub struct RelevanceScore {
     pub path: String,
@@ -152,9 +154,15 @@ const STOP_WORDS: &[&str] = &[
     "mit",
 ];
 
-/// Compute the Information Bottleneck approximation for a given content.
-/// Uses task relevance + line entropy to score each line.
-/// Returns lines sorted by information value, with a cutoff at the given budget.
+/// Information Bottleneck filter based on Tishby et al. (2000) and QUITO-X (EMNLP 2025).
+///
+/// IB principle: maximize I(T;Y) (task relevance) while minimizing I(T;X) (input redundancy).
+/// Each line is scored by: relevance_to_task * information_density * attention_weight.
+///
+/// - I(T;Y) is approximated via keyword matching + structural importance
+/// - I(T;X) is approximated via token IDF (inverse document frequency within the file)
+///   and token diversity ratio — lines with rare tokens carry more mutual information
+/// - Attention weighting uses the LITM U-curve (Liu et al. 2023, ICLR 2026 Memory Demands)
 pub fn information_bottleneck_filter(
     content: &str,
     task_keywords: &[String],
@@ -165,7 +173,16 @@ pub fn information_bottleneck_filter(
         return String::new();
     }
 
+    let n = lines.len();
     let kw_lower: Vec<String> = task_keywords.iter().map(|k| k.to_lowercase()).collect();
+
+    let mut global_token_freq: HashMap<&str, usize> = HashMap::new();
+    for line in &lines {
+        for token in line.split_whitespace() {
+            *global_token_freq.entry(token).or_insert(0) += 1;
+        }
+    }
+    let total_unique = global_token_freq.len().max(1) as f64;
 
     let mut scored_lines: Vec<(usize, &str, f64)> = lines
         .iter()
@@ -173,41 +190,59 @@ pub fn information_bottleneck_filter(
         .map(|(i, line)| {
             let trimmed = line.trim();
             if trimmed.is_empty() {
-                return (i, *line, 0.1); // keep some blank lines for structure
+                return (i, *line, 0.05);
             }
 
-            // Relevance: keyword hits in line
+            // I(T;Y): Task relevance — keyword hits + structural importance
             let line_lower = trimmed.to_lowercase();
-            let relevance: f64 = kw_lower
+            let keyword_hits: f64 = kw_lower
                 .iter()
                 .filter(|kw| line_lower.contains(kw.as_str()))
                 .count() as f64;
-
-            // Structural importance: definitions, returns, errors
             let structural = if is_definition_line(trimmed) {
-                0.8
+                1.0
             } else if is_control_flow(trimmed) {
-                0.4
+                0.5
             } else if is_closing_brace(trimmed) {
-                0.2
+                0.15
             } else {
                 0.3
             };
+            let relevance = keyword_hits * 0.5 + structural;
 
-            // U-shaped position weight: edges of file are more important than middle
-            let pos = i as f64 / lines.len().max(1) as f64;
-            let u_weight = 0.6 + 0.4 * (4.0 * (pos - 0.5).powi(2)).min(1.0);
+            // I(T;X): Information density via token uniqueness and IDF
+            let line_tokens: Vec<&str> = trimmed.split_whitespace().collect();
+            let unique_in_line = line_tokens.iter().collect::<HashSet<_>>().len() as f64;
+            let line_token_count = line_tokens.len().max(1) as f64;
+            let token_diversity = unique_in_line / line_token_count;
 
-            let score = (relevance * 0.5 + structural + u_weight * 0.3).min(3.0);
+            let avg_idf: f64 = if line_tokens.is_empty() {
+                0.0
+            } else {
+                line_tokens
+                    .iter()
+                    .map(|t| {
+                        let freq = *global_token_freq.get(t).unwrap_or(&1) as f64;
+                        (total_unique / freq).ln().max(0.0)
+                    })
+                    .sum::<f64>()
+                    / line_token_count
+            };
+            let information = (token_diversity * 0.4 + (avg_idf.min(3.0) / 3.0) * 0.6).min(1.0);
+
+            // LITM U-curve attention weighting (begin α=0.9, middle β=0.3, end γ=0.85)
+            let pos = i as f64 / n.max(1) as f64;
+            let attention = positional_attention(pos, 0.9, 0.3, 0.85);
+
+            // IB composite: maximize relevance * information_density * attention_weight
+            let score = (relevance + 0.15) * (information * 0.3 + 0.7) * (attention * 0.3 + 0.7);
+
             (i, *line, score)
         })
         .collect();
 
-    // Keep lines above the budget ratio threshold
-    let total_lines = scored_lines.len();
-    let budget = ((total_lines as f64) * budget_ratio).ceil() as usize;
+    let budget = ((n as f64) * budget_ratio).ceil() as usize;
 
-    // Sort by score descending to find cutoff
     let mut by_score = scored_lines.clone();
     by_score.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
 
@@ -217,7 +252,6 @@ pub fn information_bottleneck_filter(
         0.0
     };
 
-    // Keep lines above cutoff, preserving original order
     scored_lines.retain(|(_, _, score)| *score >= cutoff_score);
 
     scored_lines
@@ -225,6 +259,34 @@ pub fn information_bottleneck_filter(
         .map(|(_, line, _)| *line)
         .collect::<Vec<&str>>()
         .join("\n")
+}
+
+/// Compute an adaptive IB budget ratio based on content characteristics.
+/// Highly repetitive content → more aggressive filtering (lower ratio).
+/// High-entropy diverse content → more conservative (higher ratio).
+pub fn adaptive_ib_budget(content: &str, base_ratio: f64) -> f64 {
+    let lines: Vec<&str> = content.lines().collect();
+    if lines.len() < 10 {
+        return 1.0;
+    }
+
+    let mut token_freq: HashMap<&str, usize> = HashMap::new();
+    let mut total_tokens = 0usize;
+    for line in &lines {
+        for token in line.split_whitespace() {
+            *token_freq.entry(token).or_insert(0) += 1;
+            total_tokens += 1;
+        }
+    }
+
+    if total_tokens == 0 {
+        return base_ratio;
+    }
+
+    let unique_ratio = token_freq.len() as f64 / total_tokens as f64;
+    let repetition_factor = 1.0 - unique_ratio;
+
+    (base_ratio * (1.0 - repetition_factor * 0.3)).clamp(0.2, 1.0)
 }
 
 fn is_definition_line(line: &str) -> bool {
@@ -308,5 +370,14 @@ mod tests {
         let content = "fn main() {\n    let x = 42;\n    // boring comment\n    println!(x);\n}\n";
         let result = information_bottleneck_filter(content, &["main".to_string()], 0.6);
         assert!(result.contains("fn main"));
+    }
+
+    #[test]
+    fn adaptive_budget_reduces_for_repetitive() {
+        let repetitive = "let x = 1;\n".repeat(50);
+        let diverse = (0..50).map(|i| format!("let var_{i} = func_{i}(arg_{i});")).collect::<Vec<_>>().join("\n");
+        let budget_rep = super::adaptive_ib_budget(&repetitive, 0.7);
+        let budget_div = super::adaptive_ib_budget(&diverse, 0.7);
+        assert!(budget_rep < budget_div, "repetitive content should get lower budget");
     }
 }
