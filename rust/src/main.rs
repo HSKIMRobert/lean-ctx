@@ -1,5 +1,5 @@
 use anyhow::Result;
-use lean_ctx::{cli, core, dashboard, doctor, setup, shell, tools};
+use lean_ctx::{cli, core, dashboard, doctor, setup, shell, tools, uninstall};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -121,12 +121,16 @@ fn main() {
                 doctor::run();
                 return;
             }
+            "uninstall" => {
+                uninstall::run();
+                return;
+            }
             "cheat" | "cheatsheet" | "cheat-sheet" => {
                 cli::cmd_cheatsheet();
                 return;
             }
             "--version" | "-V" => {
-                println!("lean-ctx 2.7.1");
+                println!("lean-ctx 2.8.0");
                 return;
             }
             "--help" | "-h" => {
@@ -250,6 +254,7 @@ COMMANDS:
     slow-log [list|clear]          Show/clear slow command log (~/.lean-ctx/slow-commands.log)
     update [--check]               Self-update lean-ctx binary from GitHub Releases
     doctor                         Run installation and environment diagnostics
+    uninstall                      Remove shell hook, MCP configs, and data directory
 
 SHELL HOOK PATTERNS (90+):
     git       status, log, diff, add, commit, push, pull, fetch, clone,
