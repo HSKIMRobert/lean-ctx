@@ -62,12 +62,12 @@ impl ModePredictor {
     }
 
     /// Returns the best mode based on historical efficiency.
-    /// Falls back to collective recommendations if local data is insufficient.
+    /// Falls back to Pro adaptive models if local data is insufficient (Pro-only).
     pub fn predict_best_mode(&self, sig: &FileSignature) -> Option<String> {
         if let Some(local) = self.predict_from_local(sig) {
             return Some(local);
         }
-        self.predict_from_collective(sig)
+        self.predict_from_pro(sig)
     }
 
     fn predict_from_local(&self, sig: &FileSignature) -> Option<String> {
@@ -95,9 +95,11 @@ impl ModePredictor {
             .map(|(mode, _)| mode.to_string())
     }
 
-    fn predict_from_collective(&self, sig: &FileSignature) -> Option<String> {
-        let recs = crate::cloud_client::load_recommendations()?;
-        let recommendations = recs["recommendations"].as_array()?;
+    /// Loads Pro adaptive models (requires Pro subscription).
+    /// Pro models are cached locally and auto-updated for Pro users.
+    fn predict_from_pro(&self, sig: &FileSignature) -> Option<String> {
+        let data = crate::cloud_client::load_pro_models()?;
+        let models = data["models"].as_array()?;
 
         let ext_with_dot = format!(".{}", sig.ext);
         let bucket_name = match sig.size_bucket {
@@ -108,19 +110,31 @@ impl ModePredictor {
             _ => "10k+",
         };
 
-        for rec in recommendations {
-            let rec_ext = rec["file_ext"].as_str().unwrap_or("");
-            let rec_bucket = rec["size_bucket"].as_str().unwrap_or("");
+        let mut best: Option<(&str, f64)> = None;
 
-            if rec_ext == ext_with_dot && rec_bucket == bucket_name {
-                return rec["best_mode"].as_str().map(|s| s.to_string());
+        for model in models {
+            let m_ext = model["file_ext"].as_str().unwrap_or("");
+            let m_bucket = model["size_bucket"].as_str().unwrap_or("");
+            let confidence = model["confidence"].as_f64().unwrap_or(0.0);
+
+            if m_ext == ext_with_dot && m_bucket == bucket_name && confidence > 0.5 {
+                if let Some(mode) = model["recommended_mode"].as_str() {
+                    if best.is_none() || confidence > best.unwrap().1 {
+                        best = Some((mode, confidence));
+                    }
+                }
             }
         }
 
-        for rec in recommendations {
-            let rec_ext = rec["file_ext"].as_str().unwrap_or("");
-            if rec_ext == ext_with_dot {
-                return rec["best_mode"].as_str().map(|s| s.to_string());
+        if let Some((mode, _)) = best {
+            return Some(mode.to_string());
+        }
+
+        for model in models {
+            let m_ext = model["file_ext"].as_str().unwrap_or("");
+            let confidence = model["confidence"].as_f64().unwrap_or(0.0);
+            if m_ext == ext_with_dot && confidence > 0.5 {
+                return model["recommended_mode"].as_str().map(|s| s.to_string());
             }
         }
 
