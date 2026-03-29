@@ -3,8 +3,6 @@ stages:
 
 deploy:
   stage: deploy
-  tags:
-    - pounce-runner
   script:
     - cd /home/administrator/lean-ctx
     - docker compose -f docker-compose.web.yml build --no-cache
