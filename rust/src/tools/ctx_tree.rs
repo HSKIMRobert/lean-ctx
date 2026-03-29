@@ -6,10 +6,10 @@ use walkdir::WalkDir;
 use crate::core::protocol;
 use crate::core::tokens::count_tokens;
 
-pub fn handle(path: &str, depth: usize, show_hidden: bool) -> String {
+pub fn handle(path: &str, depth: usize, show_hidden: bool) -> (String, usize) {
     let root = Path::new(path);
     if !root.is_dir() {
-        return format!("ERROR: {path} is not a directory");
+        return (format!("ERROR: {path} is not a directory"), 0);
     }
 
     let raw_output = generate_raw_tree(root);
@@ -19,7 +19,7 @@ pub fn handle(path: &str, depth: usize, show_hidden: bool) -> String {
     let compact_tokens = count_tokens(&compact_output);
     let savings = protocol::format_savings(raw_tokens, compact_tokens);
 
-    format!("{compact_output}\n{savings}")
+    (format!("{compact_output}\n{savings}"), raw_tokens)
 }
 
 fn generate_compact_tree(root: &Path, max_depth: usize, show_hidden: bool) -> String {

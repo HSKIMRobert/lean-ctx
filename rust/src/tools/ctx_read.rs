@@ -145,17 +145,29 @@ fn format_full_output(
     ext: &str,
     content: &str,
     entry: &crate::core::cache::CacheEntry,
-    crp_mode: CrpMode,
+    _crp_mode: CrpMode,
 ) -> String {
     let tokens = entry.original_tokens;
     let header = build_header(file_ref, short, ext, content, entry.line_count, true);
 
-    if crp_mode.is_tdd() {
-        let mut sym = SymbolMap::new();
-        let idents = symbol_map::extract_identifiers(content, ext);
-        for ident in &idents {
-            sym.register(ident);
-        }
+    let mut sym = SymbolMap::new();
+    let idents = symbol_map::extract_identifiers(content, ext);
+    for ident in &idents {
+        sym.register(ident);
+    }
+
+    let sym_beneficial = if sym.len() >= 3 {
+        let sym_table = sym.format_table();
+        let compressed = sym.apply(content);
+        let original_tok = count_tokens(content);
+        let compressed_tok = count_tokens(&compressed) + count_tokens(&sym_table);
+        let net_saving = original_tok.saturating_sub(compressed_tok);
+        original_tok > 0 && net_saving * 100 / original_tok >= 5
+    } else {
+        false
+    };
+
+    if sym_beneficial {
         let compressed_content = sym.apply(content);
         let sym_table = sym.format_table();
         let output = format!("{header}\n{compressed_content}{sym_table}");
@@ -304,17 +316,29 @@ fn process_mode(
             let compressed = compressor::aggressive_compress(content, Some(ext));
             let header = build_header(file_ref, short, ext, content, line_count, true);
 
-            if crp_mode.is_tdd() {
-                let mut sym = SymbolMap::new();
-                let idents = symbol_map::extract_identifiers(&compressed, ext);
-                for ident in &idents {
-                    sym.register(ident);
-                }
-                let tdd_output = sym.apply(&compressed);
+            let mut sym = SymbolMap::new();
+            let idents = symbol_map::extract_identifiers(&compressed, ext);
+            for ident in &idents {
+                sym.register(ident);
+            }
+
+            let sym_beneficial = if sym.len() >= 3 {
                 let sym_table = sym.format_table();
-                let sent = count_tokens(&tdd_output) + count_tokens(&sym_table);
+                let sym_applied = sym.apply(&compressed);
+                let orig_tok = count_tokens(&compressed);
+                let comp_tok = count_tokens(&sym_applied) + count_tokens(&sym_table);
+                let net = orig_tok.saturating_sub(comp_tok);
+                orig_tok > 0 && net * 100 / orig_tok >= 5
+            } else {
+                false
+            };
+
+            if sym_beneficial {
+                let sym_output = sym.apply(&compressed);
+                let sym_table = sym.format_table();
+                let sent = count_tokens(&sym_output) + count_tokens(&sym_table);
                 let savings = protocol::format_savings(original_tokens, sent);
-                return format!("{header}\n{tdd_output}{sym_table}\n{savings}");
+                return format!("{header}\n{sym_output}{sym_table}\n{savings}");
             }
 
             let sent = count_tokens(&compressed);

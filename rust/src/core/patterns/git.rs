@@ -185,9 +185,19 @@ fn compress_log(output: &str) -> String {
         return String::new();
     }
 
+    let max_entries = 20;
+
     let is_oneline = !lines[0].starts_with("commit ");
     if is_oneline {
-        return lines.join("\n");
+        if lines.len() <= max_entries {
+            return lines.join("\n");
+        }
+        let shown = &lines[..max_entries];
+        return format!(
+            "{}\n... ({} more commits)",
+            shown.join("\n"),
+            lines.len() - max_entries
+        );
     }
 
     let mut entries = Vec::new();
@@ -209,6 +219,15 @@ fn compress_log(output: &str) -> String {
 
     if entries.is_empty() {
         return output.to_string();
+    }
+
+    if entries.len() > max_entries {
+        let shown = &entries[..max_entries];
+        return format!(
+            "{}\n... ({} more commits)",
+            shown.join("\n"),
+            entries.len() - max_entries
+        );
     }
 
     entries.join("\n")
@@ -608,6 +627,45 @@ mod tests {
         let output = "commit abc1234567890\nAuthor: User <user@email.com>\nDate:   Mon Mar 25 10:00:00 2026 +0100\n\n    feat: add feature\n\ncommit def4567890abc\nAuthor: User <user@email.com>\nDate:   Sun Mar 24 09:00:00 2026 +0100\n\n    fix: resolve issue\n";
         let result = compress("git log", output).unwrap();
         assert!(result.len() < output.len(), "should compress log output");
+    }
+
+    #[test]
+    fn git_log_oneline_truncates_long() {
+        let lines: Vec<String> = (0..50)
+            .map(|i| format!("abc{i:04} feat: commit number {i}"))
+            .collect();
+        let output = lines.join("\n");
+        let result = compress("git log --oneline", &output).unwrap();
+        assert!(
+            result.contains("... (30 more commits)"),
+            "should truncate to 20 entries"
+        );
+        assert!(
+            result.lines().count() <= 22,
+            "should have at most 21 lines (20 + summary)"
+        );
+    }
+
+    #[test]
+    fn git_log_oneline_short_unchanged() {
+        let output = "abc1234 feat: one\ndef5678 fix: two\nghi9012 docs: three";
+        let result = compress("git log --oneline", output).unwrap();
+        assert_eq!(result, output, "short oneline should pass through");
+    }
+
+    #[test]
+    fn git_log_standard_truncates_long() {
+        let mut output = String::new();
+        for i in 0..30 {
+            output.push_str(&format!(
+                "commit {i:07}abc1234\nAuthor: U <u@e.com>\nDate:   Mon\n\n    msg {i}\n\n"
+            ));
+        }
+        let result = compress("git log", &output).unwrap();
+        assert!(
+            result.contains("... (10 more commits)"),
+            "should truncate standard log"
+        );
     }
 
     #[test]

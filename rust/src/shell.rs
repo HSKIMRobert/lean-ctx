@@ -103,7 +103,7 @@ fn is_excluded_command(command: &str, excluded: &[String]) -> bool {
 pub fn interactive() {
     let real_shell = detect_shell();
 
-    eprintln!("lean-ctx shell v2.9.0 (wrapping {real_shell})");
+    eprintln!("lean-ctx shell v2.9.1 (wrapping {real_shell})");
     eprintln!("All command output is automatically compressed.");
     eprintln!("Type 'exit' to quit.\n");
 
@@ -171,7 +171,7 @@ fn compress_if_beneficial(command: &str, output: &str) -> String {
         return output.to_string();
     }
 
-    let min_output_tokens = (original_tokens / 10).max(5);
+    let min_output_tokens = 5;
 
     if let Some(compressed) = patterns::compress_output(command, output) {
         if !compressed.trim().is_empty() {
@@ -186,6 +186,36 @@ fn compress_if_beneficial(command: &str, output: &str) -> String {
             if compressed_tokens < min_output_tokens {
                 return output.to_string();
             }
+        }
+    }
+
+    // Apply lightweight cleanup to remove whitespace-only lines and collapse braces
+    let cleaned = crate::core::compressor::lightweight_cleanup(output);
+    let cleaned_tokens = count_tokens(&cleaned);
+    if cleaned_tokens < original_tokens {
+        let lines: Vec<&str> = cleaned.lines().collect();
+        if lines.len() > 30 {
+            let first = &lines[..5];
+            let last = &lines[lines.len() - 5..];
+            let omitted = lines.len() - 10;
+            let compressed = format!(
+                "{}\n... ({omitted} lines omitted) ...\n{}",
+                first.join("\n"),
+                last.join("\n")
+            );
+            let ct = count_tokens(&compressed);
+            if ct < original_tokens {
+                let saved = original_tokens - ct;
+                let pct = (saved as f64 / original_tokens as f64 * 100.0).round() as usize;
+                return format!("{compressed}\n[lean-ctx: {original_tokens}→{ct} tok, -{pct}%]");
+            }
+        }
+        if cleaned_tokens < original_tokens {
+            let saved = original_tokens - cleaned_tokens;
+            let pct = (saved as f64 / original_tokens as f64 * 100.0).round() as usize;
+            return format!(
+                "{cleaned}\n[lean-ctx: {original_tokens}→{cleaned_tokens} tok, -{pct}%]"
+            );
         }
     }
 

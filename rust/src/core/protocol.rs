@@ -109,14 +109,27 @@ pub fn instruction_decoder_block() -> String {
     lines.join("\n")
 }
 
-/// Encode an instruction suffix using short codes.
+/// Encode an instruction suffix using short codes with budget hints.
 pub fn encode_instructions(complexity: &str) -> String {
     match complexity {
-        "mechanical" => "MODE: ACT1 DELTA 1LINE".to_string(),
-        "standard" => "MODE: BRIEF DELTA NOREPEAT STRUCT".to_string(),
-        "architectural" => "MODE: FULL QUALITY NOREPEAT STRUCT FREF".to_string(),
-        _ => "MODE: BRIEF".to_string(),
+        "mechanical" => "MODE: ACT1 DELTA 1LINE | BUDGET: ~50 out-tokens".to_string(),
+        "standard" => "MODE: BRIEF DELTA NOREPEAT STRUCT | BUDGET: ~150 out-tokens".to_string(),
+        "architectural" => {
+            "MODE: FULL QUALITY NOREPEAT STRUCT FREF | BUDGET: unlimited".to_string()
+        }
+        _ => "MODE: BRIEF | BUDGET: ~150 out-tokens".to_string(),
     }
+}
+
+/// Encode instructions with SNR metric for context quality awareness.
+pub fn encode_instructions_with_snr(complexity: &str, compression_pct: f64) -> String {
+    let snr = if compression_pct > 0.0 {
+        1.0 - (compression_pct / 100.0)
+    } else {
+        1.0
+    };
+    let base = encode_instructions(complexity);
+    format!("{base} | SNR: {snr:.2}")
 }
 
 /// Estimate token savings of encoded vs full instruction text.
