@@ -56,11 +56,6 @@ impl CrpMode {
     pub fn is_tdd(&self) -> bool {
         *self == Self::Tdd
     }
-
-    #[allow(dead_code)]
-    pub fn is_compact_or_tdd(&self) -> bool {
-        matches!(self, Self::Compact | Self::Tdd)
-    }
 }
 
 pub type SharedCache = Arc<RwLock<SessionCache>>;
@@ -79,7 +74,6 @@ pub struct LeanCtxServer {
 }
 
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
 pub struct ToolCallRecord {
     pub tool: String,
     pub original_tokens: usize,

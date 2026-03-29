@@ -96,7 +96,8 @@ pub fn discover_from_history(history: &[String], limit: usize) -> String {
     let est_tokens_per_cmd = 500;
     let est_savings_pct = 0.75;
     let potential = (total_missed as f64 * est_tokens_per_cmd as f64 * est_savings_pct) as usize;
-    let potential_usd = potential as f64 * 2.50 / 1_000_000.0;
+    let potential_usd =
+        potential as f64 * crate::core::stats::DEFAULT_INPUT_PRICE_PER_M / 1_000_000.0;
 
     result.push(String::new());
     result.push(format!(

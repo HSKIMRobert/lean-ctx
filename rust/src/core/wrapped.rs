@@ -31,7 +31,7 @@ impl WrappedReport {
             ),
         };
 
-        let cost_per_token = 2.50 / 1_000_000.0;
+        let cost_per_token = crate::core::stats::DEFAULT_INPUT_PRICE_PER_M / 1_000_000.0;
         let cost_avoided_usd = tokens_saved as f64 * cost_per_token;
 
         let sessions_count = match period {

@@ -3,8 +3,10 @@ use std::collections::HashMap;
 use crate::core::cache::SessionCache;
 use crate::tools::{CrpMode, ToolCallRecord};
 
-const COST_PER_1M_INPUT: f64 = 2.50;
-const COST_PER_1M_OUTPUT: f64 = 10.0;
+use crate::core::stats::{DEFAULT_INPUT_PRICE_PER_M, DEFAULT_OUTPUT_PRICE_PER_M};
+
+const COST_PER_1M_INPUT: f64 = DEFAULT_INPUT_PRICE_PER_M;
+const COST_PER_1M_OUTPUT: f64 = DEFAULT_OUTPUT_PRICE_PER_M;
 
 pub fn handle(cache: &SessionCache, tool_calls: &[ToolCallRecord], crp_mode: CrpMode) -> String {
     let cache_stats = cache.get_stats();

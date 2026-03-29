@@ -28,6 +28,5 @@ pub mod symbol_map;
 pub mod task_relevance;
 pub mod tokens;
 pub mod updater;
-pub mod validator;
 pub mod vector_index;
 pub mod wrapped;

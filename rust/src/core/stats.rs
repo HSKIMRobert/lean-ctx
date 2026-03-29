@@ -320,6 +320,10 @@ fn sparkline(values: &[u64]) -> String {
         .collect()
 }
 
+/// Average LLM pricing per 1M tokens (blended across Claude, GPT, Gemini).
+pub const DEFAULT_INPUT_PRICE_PER_M: f64 = 2.50;
+pub const DEFAULT_OUTPUT_PRICE_PER_M: f64 = 10.0;
+
 pub struct CostModel {
     pub input_price_per_m: f64,
     pub output_price_per_m: f64,
@@ -330,8 +334,8 @@ pub struct CostModel {
 impl Default for CostModel {
     fn default() -> Self {
         Self {
-            input_price_per_m: 3.0,
-            output_price_per_m: 15.0,
+            input_price_per_m: DEFAULT_INPUT_PRICE_PER_M,
+            output_price_per_m: DEFAULT_OUTPUT_PRICE_PER_M,
             avg_verbose_output_per_call: 450,
             avg_concise_output_per_call: 120,
         }
@@ -392,7 +396,7 @@ fn format_usd(amount: f64) -> String {
 }
 
 fn usd_estimate(tokens: u64) -> String {
-    let cost = tokens as f64 * 3.0 / 1_000_000.0;
+    let cost = tokens as f64 * DEFAULT_INPUT_PRICE_PER_M / 1_000_000.0;
     format_usd(cost)
 }
 
@@ -743,7 +747,8 @@ pub fn format_gain() -> String {
     o.push(String::new());
 
     o.push(format!(
-        "  {BOLD}{WHITE}Cost Breakdown{RST}  {DIM}(@ $3/M input, $15/M output){RST}"
+        "  {BOLD}{WHITE}Cost Breakdown{RST}  {DIM}(@ ${}/M input, ${}/M output){RST}",
+        DEFAULT_INPUT_PRICE_PER_M, DEFAULT_OUTPUT_PRICE_PER_M
     ));
     o.push(format!("  {DIM}{ln56}{RST}"));
     o.push(format!(

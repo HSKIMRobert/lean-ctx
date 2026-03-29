@@ -207,7 +207,7 @@ fn run_mcp_server() -> Result<()> {
             .with_writer(std::io::stderr)
             .init();
 
-        tracing::info!("lean-ctx v2.7.1 MCP server starting");
+        tracing::info!("lean-ctx v2.8.2 MCP server starting");
 
         let server = tools::create_server();
         let transport = rmcp::transport::io::stdio();
@@ -385,6 +385,13 @@ fn cmd_sync() {
     if !cloud_client::is_logged_in() {
         eprintln!("Not logged in. Run: lean-ctx login <email>");
         std::process::exit(1);
+    }
+    if !cloud_client::check_pro() {
+        println!("Stats sync is a Pro feature.\n");
+        println!("With Pro, your stats sync to the cloud dashboard");
+        println!("so you can track savings over time.\n");
+        println!("  lean-ctx upgrade    Upgrade to Pro ($9/month)");
+        std::process::exit(0);
     }
 
     let stats_data = core::stats::format_gain_json();
@@ -657,7 +664,7 @@ fn cmd_upgrade() {
         let total_calls = parsed["total_calls"].as_f64().unwrap_or(1.0);
         let days_active = parsed["days_active"].as_f64().unwrap_or(1.0);
         let daily_rate = total_saved / days_active.max(1.0);
-        let weekly_usd = daily_rate * 7.0 / 1_000_000.0 * 3.0;
+        let weekly_usd = daily_rate * 7.0 / 1_000_000.0 * core::stats::DEFAULT_INPUT_PRICE_PER_M;
         let weekly_pro = weekly_usd * 1.25;
         (weekly_usd, weekly_pro, total_calls as i64)
     } else {

@@ -25,7 +25,7 @@ pub fn cmd_read(args: &[String]) {
         .map(|s| s.as_str())
         .unwrap_or("full");
 
-    let content = match std::fs::read_to_string(path) {
+    let content = match crate::tools::ctx_read::read_file_lossy(path) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("Error: {e}");
@@ -40,6 +40,17 @@ pub fn cmd_read(args: &[String]) {
     let short = protocol::shorten_path(path);
     let line_count = content.lines().count();
     let original_tokens = count_tokens(&content);
+
+    let mode = if mode == "auto" {
+        let sig = crate::core::mode_predictor::FileSignature::from_path(path, original_tokens);
+        let predictor = crate::core::mode_predictor::ModePredictor::new();
+        predictor
+            .predict_best_mode(&sig)
+            .unwrap_or_else(|| "full".to_string())
+    } else {
+        mode.to_string()
+    };
+    let mode = mode.as_str();
 
     match mode {
         "map" => {
@@ -106,7 +117,7 @@ pub fn cmd_diff(args: &[String]) {
         std::process::exit(1);
     }
 
-    let content1 = match std::fs::read_to_string(&args[0]) {
+    let content1 = match crate::tools::ctx_read::read_file_lossy(&args[0]) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("Error reading {}: {e}", args[0]);
@@ -114,7 +125,7 @@ pub fn cmd_diff(args: &[String]) {
         }
     };
 
-    let content2 = match std::fs::read_to_string(&args[1]) {
+    let content2 = match crate::tools::ctx_read::read_file_lossy(&args[1]) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("Error reading {}: {e}", args[1]);
@@ -520,7 +531,7 @@ pub fn cmd_config(args: &[String]) {
 pub fn cmd_cheatsheet() {
     println!(
         "\x1b[1;36m╔══════════════════════════════════════════════════════════════╗\x1b[0m
-\x1b[1;36m║\x1b[0m  \x1b[1;37mlean-ctx Workflow Cheat Sheet\x1b[0m                     \x1b[2mv2.7.1\x1b[0m  \x1b[1;36m║\x1b[0m
+\x1b[1;36m║\x1b[0m  \x1b[1;37mlean-ctx Workflow Cheat Sheet\x1b[0m                     \x1b[2mv2.8.2\x1b[0m  \x1b[1;36m║\x1b[0m
 \x1b[1;36m╚══════════════════════════════════════════════════════════════╝\x1b[0m
 
 \x1b[1;33m━━━ BEFORE YOU START ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m
@@ -653,7 +664,7 @@ pub fn cmd_tee(args: &[String]) {
                 std::process::exit(1);
             }
             let path = tee_dir.join(filename.unwrap());
-            match std::fs::read_to_string(&path) {
+            match crate::tools::ctx_read::read_file_lossy(&path.to_string_lossy()) {
                 Ok(content) => print!("{content}"),
                 Err(e) => {
                     eprintln!("Error reading {}: {e}", path.display());
