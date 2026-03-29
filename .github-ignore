@@ -7,3 +7,4 @@ docker-compose.yml
 .gitlab-ci.yml
 deploy.sh
 website/
+DEVELOPMENT.md
