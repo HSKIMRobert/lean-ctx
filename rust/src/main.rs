@@ -130,7 +130,7 @@ fn main() {
                 return;
             }
             "--version" | "-V" => {
-                println!("lean-ctx 2.8.1");
+                println!("lean-ctx 2.8.2");
                 return;
             }
             "--help" | "-h" => {
@@ -215,7 +215,7 @@ fn shell_quote(s: &str) -> String {
 
 fn print_help() {
     println!(
-        "lean-ctx 2.8.1 — The Cognitive Filter for AI Engineering
+        "lean-ctx 2.8.2 — The Cognitive Filter for AI Engineering
 
 90+ compression patterns | 24 MCP tools | Context Continuity Protocol
 
