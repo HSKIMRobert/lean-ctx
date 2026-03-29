@@ -84,6 +84,29 @@ jobs:
             echo "✅ No dangerous patterns detected" >> $GITHUB_STEP_SUMMARY
           fi
 
+      - name: Proprietary code guardrail
+        run: |
+          echo "## Proprietary Code Guard" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          LEAK=0
+
+          PRIVATE_PATHS="cloud/ docker-compose.yml .gitlab-ci.yml deploy.sh"
+          for path in $PRIVATE_PATHS; do
+            if [ -e "$path" ]; then
+              echo "::error::PROPRIETARY CODE DETECTED: $path exists in the GitHub repository!"
+              echo "- **$path** — must not be on GitHub" >> $GITHUB_STEP_SUMMARY
+              LEAK=1
+            fi
+          done
+
+          if [ "$LEAK" -eq 1 ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "These paths belong on GitLab only. See .github-ignore." >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+          echo "No proprietary code found." >> $GITHUB_STEP_SUMMARY
+
       - name: Critical files check
         if: github.event_name == 'pull_request'
         run: |

@@ -21,3 +21,7 @@ server.md
 .DS_Store
 DEPLOY_CHECKLIST.md
 DISCORD_POST.md
+
+# ── Proprietary (GitLab-only, never push to GitHub) ──
+cloud/
+docker-compose.yml
