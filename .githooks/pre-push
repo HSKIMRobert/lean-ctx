@@ -52,8 +52,8 @@ while read -r LOCAL_REF LOCAL_SHA REMOTE_REF REMOTE_SHA; do
         RANGE="$REMOTE_SHA..$LOCAL_SHA"
     fi
 
-    # Get all files touched in the push range
-    FILES=$(git diff --name-only "$RANGE" 2>/dev/null || git diff-tree --no-commit-id --name-only -r "$LOCAL_SHA" 2>/dev/null || true)
+    # Get files ADDED or MODIFIED in the push range (not deletions)
+    FILES=$(git diff --diff-filter=ACMR --name-only "$RANGE" 2>/dev/null || git diff-tree --no-commit-id --diff-filter=ACMR --name-only -r "$LOCAL_SHA" 2>/dev/null || true)
 
     for file in $FILES; do
         for pattern in "${BLOCKED[@]}"; do
