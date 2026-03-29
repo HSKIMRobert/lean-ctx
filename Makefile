@@ -1,15 +1,20 @@
-.PHONY: push-github push-gitlab push-all setup-hooks test cloud-build
+.PHONY: push-github push-gitlab push-all setup-hooks test cloud-build cloud-release help
 
 # ── Push targets ──────────────────────────────────────────
 
 push-github: ## Push open-source code to GitHub (cloud/ excluded via .gitignore)
 	git push github main
 
-push-gitlab: ## Push everything (incl. cloud/) to GitLab
-	git add -f cloud/ docker-compose.yml 2>/dev/null || true
-	git stash push -m "gitlab-push-staging" -- cloud/ docker-compose.yml 2>/dev/null || true
+push-gitlab: ## Push main + deploy branch (with cloud/) to GitLab
+	@echo "Pushing main to GitLab..."
 	git push origin main
-	@echo "Pushed to GitLab (origin)."
+	@echo "Creating deploy branch with proprietary code..."
+	git checkout -B deploy main
+	git add -f cloud/ docker-compose.yml
+	git commit -m "deploy: include proprietary cloud backend" --allow-empty
+	git push origin deploy --force
+	git checkout main
+	@echo "Done. GitLab has main (clean) + deploy (full)."
 
 push-all: push-github push-gitlab ## Push to both remotes
 
