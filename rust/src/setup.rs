@@ -404,6 +404,12 @@ fn write_mcp_json(target: &EditorTarget, binary: &str) -> Result<(), String> {
                 return Ok(());
             }
         }
+        return Err(format!(
+            "Could not parse existing config at {}. Please add lean-ctx manually:\n\
+             Add to \"mcpServers\": \"lean-ctx\": {{ \"command\": \"{}\" }}",
+            target.config_path.display(),
+            binary
+        ));
     }
 
     let content = serde_json::to_string_pretty(&serde_json::json!({
@@ -447,6 +453,10 @@ fn write_zed_config(target: &EditorTarget, binary: &str) -> Result<(), String> {
                 return Ok(());
             }
         }
+        return Err(format!(
+            "Could not parse existing config at {}. Please add lean-ctx manually to \"context_servers\".",
+            target.config_path.display()
+        ));
     }
 
     let content = serde_json::to_string_pretty(&serde_json::json!({
@@ -513,6 +523,10 @@ fn write_vscode_mcp(target: &EditorTarget, binary: &str) -> Result<(), String> {
                 return Ok(());
             }
         }
+        return Err(format!(
+            "Could not parse existing config at {}. Please add lean-ctx manually to \"servers\".",
+            target.config_path.display()
+        ));
     }
 
     if let Some(parent) = target.config_path.parent() {
@@ -556,6 +570,12 @@ fn write_opencode_config(target: &EditorTarget, binary: &str) -> Result<(), Stri
                 return Ok(());
             }
         }
+        return Err(format!(
+            "Could not parse existing config at {}. Please add lean-ctx manually:\n\
+             Add to the \"mcp\" section: \"lean-ctx\": {{ \"type\": \"local\", \"command\": [\"{}\"], \"enabled\": true }}",
+            target.config_path.display(),
+            binary
+        ));
     }
 
     if let Some(parent) = target.config_path.parent() {
