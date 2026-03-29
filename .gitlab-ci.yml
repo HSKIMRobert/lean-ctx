@@ -19,10 +19,9 @@ check-rust:
     - cd rust
     - cargo check --release 2>&1
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_COMMIT_BRANCH == "deploy"'
       changes:
         - rust/**/*
-    - if: $CI_COMMIT_TAG
 
 deploy-website:
   stage: deploy
@@ -35,16 +34,18 @@ deploy-website:
     - ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
   script:
     - |
-      echo "[ci] Syncing repository to server..."
+      echo "[ci] Syncing website + Dockerfile to server..."
       rsync -az --delete \
-        --exclude='.git' \
-        --exclude='rust/target' \
-        --exclude='cloud/target' \
         --exclude='node_modules' \
+        --exclude='.git' \
         -e "ssh -i ~/.ssh/deploy_key" \
-        ./ "${DEPLOY_USER}@${DEPLOY_HOST}:/home/administrator/lean-ctx/"
+        website/ "${DEPLOY_USER}@${DEPLOY_HOST}:/home/administrator/lean-ctx/website/"
 
-      echo "[ci] Building and deploying website..."
+      rsync -az \
+        -e "ssh -i ~/.ssh/deploy_key" \
+        Dockerfile.web "${DEPLOY_USER}@${DEPLOY_HOST}:/home/administrator/lean-ctx/Dockerfile.web"
+
+      echo "[ci] Building and deploying on server..."
       ssh -i ~/.ssh/deploy_key "${DEPLOY_USER}@${DEPLOY_HOST}" bash -s "$DEPLOY_SUDO_PASSWORD" << 'DEPLOY'
         set -euo pipefail
         PASS="$1"
@@ -73,4 +74,4 @@ deploy-website:
         echo "[ci] lean-ctx-web deployed successfully"
       DEPLOY
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_COMMIT_BRANCH == "deploy"'
