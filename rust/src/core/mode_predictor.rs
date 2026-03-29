@@ -62,8 +62,15 @@ impl ModePredictor {
     }
 
     /// Returns the best mode based on historical efficiency.
-    /// None = no data, use fallback heuristic.
+    /// Falls back to collective recommendations if local data is insufficient.
     pub fn predict_best_mode(&self, sig: &FileSignature) -> Option<String> {
+        if let Some(local) = self.predict_from_local(sig) {
+            return Some(local);
+        }
+        self.predict_from_collective(sig)
+    }
+
+    fn predict_from_local(&self, sig: &FileSignature) -> Option<String> {
         let entries = self.history.get(sig)?;
         if entries.len() < 3 {
             return None;
@@ -86,6 +93,38 @@ impl ModePredictor {
                     .unwrap_or(std::cmp::Ordering::Equal)
             })
             .map(|(mode, _)| mode.to_string())
+    }
+
+    fn predict_from_collective(&self, sig: &FileSignature) -> Option<String> {
+        let recs = crate::cloud_client::load_recommendations()?;
+        let recommendations = recs["recommendations"].as_array()?;
+
+        let ext_with_dot = format!(".{}", sig.ext);
+        let bucket_name = match sig.size_bucket {
+            0 => "0-500",
+            1 => "500-2k",
+            2 => "2k-10k",
+            3 => "10k+",
+            _ => "10k+",
+        };
+
+        for rec in recommendations {
+            let rec_ext = rec["file_ext"].as_str().unwrap_or("");
+            let rec_bucket = rec["size_bucket"].as_str().unwrap_or("");
+
+            if rec_ext == ext_with_dot && rec_bucket == bucket_name {
+                return rec["best_mode"].as_str().map(|s| s.to_string());
+            }
+        }
+
+        for rec in recommendations {
+            let rec_ext = rec["file_ext"].as_str().unwrap_or("");
+            if rec_ext == ext_with_dot {
+                return rec["best_mode"].as_str().map(|s| s.to_string());
+            }
+        }
+
+        None
     }
 
     pub fn save(&self) {
@@ -123,14 +162,14 @@ mod tests {
     #[test]
     fn predict_returns_none_without_history() {
         let predictor = ModePredictor::default();
-        let sig = FileSignature::from_path("test.rs", 500);
-        assert!(predictor.predict_best_mode(&sig).is_none());
+        let sig = FileSignature::from_path("test.zzz", 500);
+        assert!(predictor.predict_from_local(&sig).is_none());
     }
 
     #[test]
     fn predict_returns_none_with_too_few_entries() {
         let mut predictor = ModePredictor::default();
-        let sig = FileSignature::from_path("test.rs", 500);
+        let sig = FileSignature::from_path("test.zzz", 500);
         predictor.record(
             sig.clone(),
             ModeOutcome {
@@ -140,7 +179,7 @@ mod tests {
                 density: 0.5,
             },
         );
-        assert!(predictor.predict_best_mode(&sig).is_none());
+        assert!(predictor.predict_from_local(&sig).is_none());
     }
 
     #[test]
