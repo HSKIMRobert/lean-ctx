@@ -2,6 +2,19 @@
 
 All notable changes to lean-ctx are documented here.
 
+## [2.8.0] — 2026-03-29
+
+### Added
+
+- **`lean-ctx uninstall` command** — Clean removal of all lean-ctx configuration: shell hooks (zsh/bash/fish/PowerShell), MCP configs (Cursor, Claude Code, Windsurf, Gemini CLI, Antigravity, Codex CLI, VS Code, OpenCode), and data directory (`~/.lean-ctx/`). Prints instructions for removing the binary itself based on the installation method (cargo/brew/manual)
+- **Website: Uninstallation documentation** — New docs page explaining how to uninstall lean-ctx completely
+
+### Changed
+
+- **Cargo.toml description** — Updated MCP tool count from 23 to 24
+
+---
+
 ## [2.7.1] — 2026-03-28
 
 ### Fixed
