@@ -1,5 +1,5 @@
 use anyhow::Result;
-use lean_ctx::{cli, core, dashboard, doctor, setup, shell, tools, uninstall};
+use lean_ctx::{cli, cloud_client, core, dashboard, doctor, setup, shell, tools, uninstall};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -127,6 +127,18 @@ fn main() {
             }
             "cheat" | "cheatsheet" | "cheat-sheet" => {
                 cli::cmd_cheatsheet();
+                return;
+            }
+            "login" => {
+                cmd_login(&rest);
+                return;
+            }
+            "sync" => {
+                cmd_sync();
+                return;
+            }
+            "contribute" => {
+                cmd_contribute();
                 return;
             }
             "--version" | "-V" => {
@@ -311,8 +323,123 @@ EXAMPLES:
     lean-ctx grep \"pub fn\" src/
     lean-ctx deps .
 
+CLOUD:
+    login <email>                  Register/login to LeanCTX Cloud
+    sync                           Upload local stats to cloud dashboard
+    contribute                     Share anonymized compression data
+
 WEBSITE: https://leanctx.com
 GITHUB:  https://github.com/yvgude/lean-ctx
 "
     );
+}
+
+fn cmd_login(args: &[String]) {
+    let email = match args.first() {
+        Some(e) => e.trim().to_lowercase(),
+        None => {
+            eprintln!("Usage: lean-ctx login <email>");
+            std::process::exit(1);
+        }
+    };
+
+    if !email.contains('@') || !email.contains('.') {
+        eprintln!("Invalid email address: {email}");
+        std::process::exit(1);
+    }
+
+    println!("Registering with LeanCTX Cloud...");
+    match cloud_client::register(&email) {
+        Ok((api_key, user_id)) => {
+            if let Err(e) = cloud_client::save_credentials(&api_key, &user_id, &email) {
+                eprintln!("Warning: Could not save credentials: {e}");
+                eprintln!("Your API key: {api_key}");
+                return;
+            }
+            println!("Logged in as {email}");
+            println!("API key saved to ~/.lean-ctx/cloud/credentials.json");
+        }
+        Err(e) => {
+            eprintln!("Login failed: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn cmd_sync() {
+    if !cloud_client::is_logged_in() {
+        eprintln!("Not logged in. Run: lean-ctx login <email>");
+        std::process::exit(1);
+    }
+
+    let stats_data = core::stats::format_gain_json();
+    let parsed: serde_json::Value = match serde_json::from_str(&stats_data) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("Failed to read local stats: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let entry = serde_json::json!({
+        "date": today,
+        "tokens_original": parsed["total_original_tokens"].as_i64().unwrap_or(0),
+        "tokens_compressed": parsed["total_compressed_tokens"].as_i64().unwrap_or(0),
+        "tokens_saved": parsed["total_saved_tokens"].as_i64().unwrap_or(0),
+        "tool_calls": parsed["total_calls"].as_i64().unwrap_or(0),
+        "cache_hits": parsed["cache_hits"].as_i64().unwrap_or(0),
+        "cache_misses": parsed["cache_misses"].as_i64().unwrap_or(0),
+    });
+
+    match cloud_client::sync_stats(&[entry]) {
+        Ok(msg) => println!("{msg}"),
+        Err(e) => {
+            eprintln!("Sync failed: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn cmd_contribute() {
+    let stats_data = core::stats::format_gain_json();
+    let parsed: serde_json::Value = match serde_json::from_str(&stats_data) {
+        Ok(v) => v,
+        Err(_) => {
+            eprintln!("No local compression data to contribute.");
+            std::process::exit(1);
+        }
+    };
+
+    let modes = parsed["by_mode"].as_object();
+    let mut entries = Vec::new();
+
+    if let Some(mode_map) = modes {
+        for (mode, _count) in mode_map {
+            entries.push(serde_json::json!({
+                "file_ext": "mixed",
+                "size_bucket": "unknown",
+                "best_mode": mode,
+                "compression_ratio": parsed["reduction_percent"].as_f64().unwrap_or(0.0) / 100.0,
+                "language": null,
+            }));
+
+            if entries.len() >= 100 {
+                break;
+            }
+        }
+    }
+
+    if entries.is_empty() {
+        println!("No compression data to contribute yet. Use lean-ctx for a while first.");
+        return;
+    }
+
+    match cloud_client::contribute(&entries) {
+        Ok(msg) => println!("{msg}"),
+        Err(e) => {
+            eprintln!("Contribute failed: {e}");
+            std::process::exit(1);
+        }
+    }
 }
