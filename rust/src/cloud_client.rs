@@ -144,6 +144,39 @@ pub fn push_knowledge(entries: &[serde_json::Value]) -> Result<String, String> {
     ))
 }
 
+pub fn pull_recommendations() -> Result<serde_json::Value, String> {
+    let url = format!("{}/api/collective/recommendations", api_url());
+
+    let resp = ureq::get(&url)
+        .call()
+        .map_err(|e| format!("Pull recommendations failed: {e}"))?;
+
+    let resp_body = resp
+        .into_body()
+        .read_to_string()
+        .map_err(|e| format!("Failed to read response: {e}"))?;
+
+    serde_json::from_str(&resp_body).map_err(|e| format!("Invalid JSON: {e}"))
+}
+
+pub fn save_recommendations(data: &serde_json::Value) -> std::io::Result<()> {
+    let dir = recommendations_dir();
+    std::fs::create_dir_all(&dir)?;
+    let json = serde_json::to_string_pretty(data).map_err(std::io::Error::other)?;
+    std::fs::write(dir.join("recommendations.json"), json)
+}
+
+pub fn load_recommendations() -> Option<serde_json::Value> {
+    let path = recommendations_dir().join("recommendations.json");
+    let data = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str(&data).ok()
+}
+
+fn recommendations_dir() -> std::path::PathBuf {
+    let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+    home.join(".lean-ctx").join("cloud")
+}
+
 pub fn pull_knowledge() -> Result<Vec<serde_json::Value>, String> {
     let api_key = load_api_key().ok_or("Not logged in. Run: lean-ctx login")?;
     let url = format!("{}/api/sync/knowledge", api_url());

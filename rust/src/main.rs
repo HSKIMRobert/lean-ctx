@@ -145,6 +145,10 @@ fn main() {
                 cmd_team(&rest);
                 return;
             }
+            "cloud" => {
+                cmd_cloud(&rest);
+                return;
+            }
             "--version" | "-V" => {
                 println!("lean-ctx 2.8.2");
                 return;
@@ -408,30 +412,79 @@ fn cmd_sync() {
 }
 
 fn cmd_contribute() {
-    let stats_data = core::stats::format_gain_json();
-    let parsed: serde_json::Value = match serde_json::from_str(&stats_data) {
-        Ok(v) => v,
-        Err(_) => {
-            eprintln!("No local compression data to contribute.");
-            std::process::exit(1);
-        }
-    };
-
-    let modes = parsed["by_mode"].as_object();
     let mut entries = Vec::new();
 
-    if let Some(mode_map) = modes {
-        for (mode, _count) in mode_map {
-            entries.push(serde_json::json!({
-                "file_ext": "mixed",
-                "size_bucket": "unknown",
-                "best_mode": mode,
-                "compression_ratio": parsed["reduction_percent"].as_f64().unwrap_or(0.0) / 100.0,
-                "language": null,
-            }));
+    // Try mode_stats.json first (per-extension, per-size-bucket data from ModePredictor)
+    if let Some(home) = dirs::home_dir() {
+        let mode_stats_path = home.join(".lean-ctx").join("mode_stats.json");
+        if let Ok(data) = std::fs::read_to_string(&mode_stats_path) {
+            if let Ok(predictor) = serde_json::from_str::<serde_json::Value>(&data) {
+                if let Some(history) = predictor["history"].as_object() {
+                    for (_sig_key, outcomes) in history {
+                        if let Some(arr) = outcomes.as_array() {
+                            for outcome in arr.iter().rev().take(5) {
+                                let ext = outcome["ext"].as_str().unwrap_or("unknown");
+                                let mode = outcome["mode"].as_str().unwrap_or("full");
+                                let tokens_in = outcome["tokens_in"].as_u64().unwrap_or(0);
+                                let tokens_out = outcome["tokens_out"].as_u64().unwrap_or(0);
+                                let ratio = if tokens_in > 0 {
+                                    1.0 - tokens_out as f64 / tokens_in as f64
+                                } else {
+                                    0.0
+                                };
+                                let bucket = match tokens_in {
+                                    0..=500 => "0-500",
+                                    501..=2000 => "500-2k",
+                                    2001..=10000 => "2k-10k",
+                                    _ => "10k+",
+                                };
+                                entries.push(serde_json::json!({
+                                    "file_ext": format!(".{ext}"),
+                                    "size_bucket": bucket,
+                                    "best_mode": mode,
+                                    "compression_ratio": (ratio * 100.0).round() / 100.0,
+                                }));
+                                if entries.len() >= 500 {
+                                    break;
+                                }
+                            }
+                        }
+                        if entries.len() >= 500 {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
 
-            if entries.len() >= 100 {
-                break;
+    // Fall back to stats.json CEP data (aggregated mode counts + overall compression)
+    if entries.is_empty() {
+        let stats_data = core::stats::format_gain_json();
+        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&stats_data) {
+            let original = parsed["cep"]["total_tokens_original"].as_u64().unwrap_or(0);
+            let compressed = parsed["cep"]["total_tokens_compressed"]
+                .as_u64()
+                .unwrap_or(0);
+            let overall_ratio = if original > 0 {
+                1.0 - compressed as f64 / original as f64
+            } else {
+                0.0
+            };
+
+            if let Some(modes) = parsed["cep"]["modes"].as_object() {
+                let read_modes = ["full", "map", "signatures", "auto", "aggressive", "entropy"];
+                for (mode, count) in modes {
+                    if !read_modes.contains(&mode.as_str()) || count.as_u64().unwrap_or(0) == 0 {
+                        continue;
+                    }
+                    entries.push(serde_json::json!({
+                        "file_ext": "mixed",
+                        "size_bucket": "mixed",
+                        "best_mode": mode,
+                        "compression_ratio": (overall_ratio * 100.0).round() / 100.0,
+                    }));
+                }
             }
         }
     }
@@ -441,6 +494,7 @@ fn cmd_contribute() {
         return;
     }
 
+    println!("Contributing {} data points...", entries.len());
     match cloud_client::contribute(&entries) {
         Ok(msg) => println!("{msg}"),
         Err(e) => {
@@ -535,6 +589,44 @@ fn cmd_team(args: &[String]) {
             println!("Usage: lean-ctx team <push|pull>");
             println!("  push — Upload local knowledge to team cloud");
             println!("  pull — Download team knowledge from cloud");
+        }
+    }
+}
+
+fn cmd_cloud(args: &[String]) {
+    let action = args.first().map(|s| s.as_str()).unwrap_or("help");
+
+    match action {
+        "pull-models" => {
+            println!("Pulling collective compression models...");
+            match cloud_client::pull_recommendations() {
+                Ok(data) => {
+                    let count = data["recommendations"]
+                        .as_array()
+                        .map(|a| a.len())
+                        .unwrap_or(0);
+                    let total = data["total_data_points"].as_i64().unwrap_or(0);
+
+                    if let Err(e) = cloud_client::save_recommendations(&data) {
+                        eprintln!("Warning: Could not save recommendations: {e}");
+                        return;
+                    }
+                    println!(
+                        "{count} recommendations from {total} data points saved to ~/.lean-ctx/cloud/recommendations.json"
+                    );
+                    if count == 0 {
+                        println!("No recommendations yet — need more community contributions.");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Pull failed: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        _ => {
+            println!("Usage: lean-ctx cloud <command>");
+            println!("  pull-models — Download collective compression models");
         }
     }
 }
