@@ -1,6 +1,6 @@
 # lean-ctx
 
-**Context Intelligence Engine with CEP + CCP + TDD. Shell Hook + MCP Server. 24 MCP tools, 90+ shell patterns, Cognitive Efficiency Protocol (CEP), cross-session memory (CCP), Token Dense Dialect (TDD), LITM-aware positioning, tree-sitter AST for 14 languages. Single Rust binary.**
+**The Intelligence Layer for AI Coding. Shell Hook + Context Server. 24 intelligent tools, 90+ shell patterns, Cognitive Efficiency Protocol (CEP), cross-session memory (CCP), Token Dense Dialect (TDD), LITM-aware positioning, tree-sitter AST for 14 languages. Single Rust binary.**
 
 [![CI](https://github.com/yvgude/lean-ctx/actions/workflows/ci.yml/badge.svg)](https://github.com/yvgude/lean-ctx/actions/workflows/ci.yml)
 [![Security Check](https://github.com/yvgude/lean-ctx/actions/workflows/security-check.yml/badge.svg)](https://github.com/yvgude/lean-ctx/actions/workflows/security-check.yml)
@@ -12,14 +12,14 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/pTHkG9Hew9)
 
-[Website](https://leanctx.com) · [Install](#installation) · [Quick Start](#quick-start) · [CLI Reference](#cli-commands) · [MCP Tools](#24-mcp-tools) · [Changelog](CHANGELOG.md) · [vs RTK](#lean-ctx-vs-rtk) · [Discord](https://discord.gg/pTHkG9Hew9)
+[Website](https://leanctx.com) · [Install](#installation) · [Quick Start](#quick-start) · [CLI Reference](#cli-commands) · [Tools](#24-intelligent-tools) · [Changelog](CHANGELOG.md) · [vs RTK](#lean-ctx-vs-rtk) · [Discord](https://discord.gg/pTHkG9Hew9)
 
 ---
 
 lean-ctx reduces LLM token consumption by **up to 99%** through three complementary strategies in a single binary:
 
 1. **Shell Hook** — Transparently compresses CLI output (90+ patterns) before it reaches the LLM. Works without LLM cooperation.
-2. **MCP Server** — 24 tools for cached file reads, adaptive mode selection, incremental deltas, dependency maps, intent detection, cross-file dedup, project graph, cross-session memory (CCP), and session metrics. Works with Cursor, GitHub Copilot, Claude Code, Windsurf, Zed, Pi, OpenAI Codex, Google Antigravity, OpenCode, and any MCP-compatible editor.
+2. **Context Server** — 24 intelligent tools for cached file reads, adaptive mode selection, incremental deltas, dependency maps, intent detection, cross-file dedup, project graph, cross-session memory (CCP), and session metrics. Works with Cursor, GitHub Copilot, Claude Code, Windsurf, Zed, Pi, OpenAI Codex, Google Antigravity, OpenCode, and any AI coding tool.
 3. **AI Tool Hooks** — One-command integration for Claude Code, Cursor, Gemini CLI, Codex, Windsurf, Cline, and Pi via `lean-ctx init --agent <tool>`.
 
 ### Three Intelligence Protocols
@@ -368,7 +368,7 @@ pub struct StatsStore {                          fn ⊛ load() → StatsStore
       ...
 ```
 
-**Visual terminal dashboard** with ANSI colors, Unicode block bars, sparklines, and USD estimates. Cost model uses **$3/M input tokens + $15/M output tokens** (matching Claude/GPT pricing) with estimated output savings from CEP/TDD:
+**Visual terminal dashboard** with ANSI colors, Unicode block bars, sparklines, and USD estimates. Cost model uses **$2.50/M input tokens + $10/M output tokens** (matching Claude/GPT pricing) with estimated output savings from CEP/TDD:
 
 ```
 $ lean-ctx gain
@@ -379,7 +379,7 @@ $ lean-ctx gain
    1.7M          76.8%         520          $33.71
    tokens saved   compression    commands       USD saved
 
-  Cost Breakdown  (@ $3/M input, $15/M output)
+  Cost Breakdown  (@ $2.50/M input, $10/M output)
   ────────────────────────────────────────────────────────
   Without lean-ctx    $44.75  ($5.79 input + $38.96 output)
   With lean-ctx       $11.04  ($1.76 input + $9.28 output)
@@ -392,12 +392,12 @@ $ lean-ctx gain
   ctx_read           103x  █▌                    59.1K  38%
     ... +33 more commands
 
-  lean-ctx v2.8.2  |  leanctx.com  |  lean-ctx dashboard
+  lean-ctx v2.9.0  |  leanctx.com  |  lean-ctx dashboard
 ```
 
-## 24 MCP Tools
+## 24 Intelligent Tools
 
-When configured as an MCP server, lean-ctx provides 24 tools that replace or augment your editor's built-in tools:
+lean-ctx provides 24 intelligent tools that replace or augment your editor's built-in tools:
 
 ### Core Tools
 
@@ -443,7 +443,7 @@ When configured as an MCP server, lean-ctx provides 24 tools that replace or aug
 | Tool | Purpose |
 |---|---|
 | `ctx_benchmark` | Single-file or project-wide benchmark with preservation scores |
-| `ctx_metrics` | Session statistics with USD cost estimates ($3/M input, $15/M output) |
+| `ctx_metrics` | Session statistics with USD cost estimates ($2.50/M input, $10/M output) |
 | `ctx_analyze` | Shannon entropy analysis + mode recommendation |
 | `ctx_cache` | Cache management: status, clear, invalidate |
 
@@ -717,7 +717,7 @@ lean-ctx shell
 
 lean-ctx tracks all compressions (both MCP tools and shell hook) in `~/.lean-ctx/stats.json`:
 
-- Per-command breakdown with token counts and USD estimates ($3/M input + $15/M output)
+- Per-command breakdown with token counts and USD estimates ($2.50/M input + $10/M output)
 - Color-coded compression bars with Unicode block characters
 - Sparkline trends showing savings trajectory
 - Daily statistics (last 90 days) with rate coloring
@@ -759,7 +759,7 @@ Opens `http://localhost:3333` with:
 | **Context checkpoints** | ✗ | ✓ `ctx_compress` for long conversations |
 | **Token counting** | Estimated | tiktoken-exact (o200k_base) |
 | **Entropy analysis** | ✗ | ✓ Shannon entropy + Jaccard similarity |
-| **Cost tracking** | ✗ | ✓ USD estimates per session ($3/M input + $15/M output) |
+| **Cost tracking** | ✗ | ✓ USD estimates per session ($2.50/M input + $10/M output) |
 | **Token Dense Dialect** | ✗ | ✓ TDD mode: symbol shorthand (λ, §, ∂) + identifier mapping (8-25% extra) |
 | **Thinking reduction** | ✗ | ✓ CRP v2 (30-60% fewer thinking tokens via Cursor Rules) |
 | **Stats & Graphs** | ✓ `rtk gain` (SQLite + ASCII graph) | ✓ Visual terminal dashboard (ANSI colors, Unicode bars, sparklines, USD) + `--graph` + `--daily` + `--json` + web dashboard |
@@ -774,7 +774,7 @@ Opens `http://localhost:3333` with:
 | **Savings reports** | ✗ | ✓ `lean-ctx wrapped` — shareable savings summary |
 | **Real project benchmarks** | ✗ | ✓ `lean-ctx benchmark run` — scans project files, measures tokens/latency/quality |
 
-**Key difference**: RTK compresses CLI output only. lean-ctx compresses CLI output *and* file reads, search results, and project context through the MCP protocol — reaching up to 99% savings on cached re-reads and 60-90% on CLI output. With CCP (v2.0.0), lean-ctx additionally eliminates cold-start overhead by persisting session state across conversations.
+**Key difference**: RTK compresses CLI output only. lean-ctx compresses CLI output *and* file reads, search results, and project context through the context server — reaching up to 99% savings on cached re-reads and 60-90% on CLI output. With CCP (v2.0.0), lean-ctx additionally eliminates cold-start overhead by persisting session state across conversations.
 
 ## tree-sitter Signature Engine
 

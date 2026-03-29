@@ -28,10 +28,10 @@ fn binary_prints_help() {
         .expect("failed to run lean-ctx");
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("Cognitive Filter"),
+        stdout.contains("Intelligence Layer"),
         "help should contain tagline"
     );
-    assert!(stdout.contains("MCP"), "help should mention MCP");
+    assert!(stdout.contains("lean-ctx"), "help should mention lean-ctx");
 }
 
 #[test]

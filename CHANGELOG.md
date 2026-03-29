@@ -2,6 +2,34 @@
 
 All notable changes to lean-ctx are documented here.
 
+## [2.9.0] — 2026-03-29
+
+### Added
+
+- **Pro Adaptive Intelligence** — `lean-ctx upgrade` command for one-step Pro subscription ($9/mo). Pro users get adaptive compression models trained on community data, auto-sync, and cloud dashboard. Everything happens automatically after upgrade.
+- **BM25 Semantic Code Search** — New `ctx_semantic_search` and `ctx_intent` tools with pure-Rust BM25 ranking and AST-based code chunking for intent-driven context retrieval.
+- **Information Bottleneck Filter** — Scientific compression based on Tishby et al. (2000). Maximizes task relevance while minimizing token usage in `task_relevance.rs`.
+- **MCP Unified Mode** — Set `LEAN_CTX_UNIFIED=1` to consolidate 24 tools into 4 core tools + 1 `ctx()` meta-tool, saving ~18,000 tokens per session in tool definitions.
+- **Cloud Backend** — Axum API server with SQLite for analytics, Pro model delivery, Stripe checkout, and team context sync. Deployed on Hetzner via GitLab CI.
+- **Website Pro page** — New `/pro` page with benefit-oriented messaging, replacing the old pricing page. New `/checkout` and `/docs/cloud` pages.
+- **mypy Compression Pattern** — New shell hook pattern for Python type checking output.
+- **pytest Direct Routing** — Direct recognition of `pytest` and `python -m pytest` in shell hook.
+
+### Fixed
+
+- **Config overwrite bug** (#29) — `lean-ctx setup` no longer overwrites existing editor configs (OpenCode, Cursor, Zed, VS Code) when JSON parsing fails. Shows manual instructions instead.
+- **UTF-8 file reading** (#28) — `lean-ctx read` now uses lossy UTF-8 decoding for files with non-UTF-8 bytes instead of erroring.
+- **Windows self-update** — Deferred binary replacement via background `.bat` script when the binary is locked by the MCP server.
+- **Compression regression** — Reintroduced static rule-based prediction fallback (`predict_from_defaults`) for all users, ensuring good compression even without Pro models.
+- **Cost constants** — All dashboard and CLI displays now consistently use $2.50/M input + $10/M output (was inconsistently $3/$15 in some places).
+
+### Changed
+
+- **Website rebranding** — "The Cognitive Filter" → "The Intelligence Layer for AI Coding". "MCP tools" → "intelligent tools" / "Context Server" throughout the website. Navigation updated from "Pricing" to "Pro".
+- **GitHub/GitLab separation** — Three-layer protection (`.gitignore`, pre-push hook, CI guardrail) ensures proprietary code stays off GitHub.
+
+---
+
 ## [2.8.2] — 2026-03-29
 
 ### Fixed
