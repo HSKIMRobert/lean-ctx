@@ -12,6 +12,17 @@ pub struct Config {
     /// Commands taking longer than this threshold (ms) are recorded in the slow log.
     /// Set to 0 to disable slow logging.
     pub slow_command_threshold_ms: u64,
+    #[serde(default)]
+    pub cloud: CloudConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct CloudConfig {
+    pub contribute_enabled: bool,
+    pub last_contribute: Option<String>,
+    pub last_sync: Option<String>,
+    pub last_model_pull: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,6 +40,7 @@ impl Default for Config {
             excluded_commands: Vec::new(),
             custom_aliases: Vec::new(),
             slow_command_threshold_ms: 5000,
+            cloud: CloudConfig::default(),
         }
     }
 }

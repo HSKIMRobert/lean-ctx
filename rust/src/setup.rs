@@ -143,6 +143,42 @@ pub fn run_setup() {
     crate::doctor::run();
 
     println!();
+    println!("\x1b[1mStep 6: Help improve lean-ctx\x1b[0m");
+    println!("\x1b[2m──────────────────────────────────────────────────────────────────\x1b[0m");
+    println!("  Share anonymous usage stats to help improve lean-ctx for everyone.");
+    println!("  Only file types and compression efficiency are shared.");
+    println!("  \x1b[1mNo code, no file names, no personal data — ever.\x1b[0m");
+    println!();
+    print!("  Enable? [Y/n] ");
+    use std::io::Write;
+    std::io::stdout().flush().ok();
+
+    let mut input = String::new();
+    let contribute = if std::io::stdin().read_line(&mut input).is_ok() {
+        let answer = input.trim().to_lowercase();
+        answer.is_empty() || answer == "y" || answer == "yes"
+    } else {
+        false
+    };
+
+    if contribute {
+        let config_dir = home.join(".lean-ctx");
+        let _ = std::fs::create_dir_all(&config_dir);
+        let config_path = config_dir.join("config.toml");
+        let mut config_content = std::fs::read_to_string(&config_path).unwrap_or_default();
+        if !config_content.contains("[cloud]") {
+            if !config_content.is_empty() && !config_content.ends_with('\n') {
+                config_content.push('\n');
+            }
+            config_content.push_str("\n[cloud]\ncontribute_enabled = true\n");
+            let _ = std::fs::write(&config_path, config_content);
+        }
+        println!("  \x1b[32m✓\x1b[0m Enabled — thank you!");
+    } else {
+        println!("  \x1b[2m○\x1b[0m Skipped — you can enable later with: lean-ctx config");
+    }
+
+    println!();
     println!("\x1b[2m══════════════════════════════════════════════════════════════════\x1b[0m");
     println!("\x1b[1;32m✓ Setup complete!\x1b[0m");
     println!();

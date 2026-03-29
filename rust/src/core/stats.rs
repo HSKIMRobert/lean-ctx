@@ -858,6 +858,11 @@ pub fn format_gain() -> String {
     o.push(format!(
         "  {DIM}lean-ctx v2.8.2  |  leanctx.com  |  lean-ctx dashboard{RST}"
     ));
+    if !crate::cloud_client::check_pro() {
+        o.push(format!(
+            "  {DIM}Save ~25% more with Pro \u{2192} lean-ctx upgrade{RST}"
+        ));
+    }
     o.push(String::new());
 
     o.join("\n")
