@@ -10,6 +10,14 @@ use crate::core::symbol_map::{self, SymbolMap};
 use crate::core::tokens::count_tokens;
 use crate::tools::CrpMode;
 
+pub fn read_file_lossy(path: &str) -> Result<String, std::io::Error> {
+    let bytes = std::fs::read(path)?;
+    match String::from_utf8(bytes) {
+        Ok(s) => Ok(s),
+        Err(e) => Ok(String::from_utf8_lossy(e.as_bytes()).into_owned()),
+    }
+}
+
 pub fn handle(cache: &mut SessionCache, path: &str, mode: &str, crp_mode: CrpMode) -> String {
     handle_with_options(cache, path, mode, false, crp_mode)
 }
@@ -59,7 +67,7 @@ fn handle_with_options(
         );
     }
 
-    let content = match std::fs::read_to_string(path) {
+    let content = match read_file_lossy(path) {
         Ok(c) => c,
         Err(e) => return format!("ERROR: {e}"),
     };
@@ -93,7 +101,7 @@ fn handle_full_with_auto_delta(
     ext: &str,
     crp_mode: CrpMode,
 ) -> String {
-    let disk_content = match std::fs::read_to_string(path) {
+    let disk_content = match read_file_lossy(path) {
         Ok(c) => c,
         Err(_) => {
             cache.record_cache_hit(path);
@@ -211,6 +219,24 @@ fn process_mode(
     let line_count = content.lines().count();
 
     match mode {
+        "auto" => {
+            let sig =
+                crate::core::mode_predictor::FileSignature::from_path(file_path, original_tokens);
+            let predictor = crate::core::mode_predictor::ModePredictor::new();
+            let resolved = predictor
+                .predict_best_mode(&sig)
+                .unwrap_or_else(|| "full".to_string());
+            process_mode(
+                content,
+                &resolved,
+                file_ref,
+                short,
+                ext,
+                original_tokens,
+                crp_mode,
+                file_path,
+            )
+        }
         "signatures" => {
             let sigs = signatures::extract_signatures(content, ext);
             let dep_info = deps::extract_deps(content, ext);
@@ -412,7 +438,7 @@ fn handle_diff(cache: &mut SessionCache, path: &str, file_ref: &str) -> String {
     let short = protocol::shorten_path(path);
     let old_content = cache.get(path).map(|e| e.content.clone());
 
-    let new_content = match std::fs::read_to_string(path) {
+    let new_content = match read_file_lossy(path) {
         Ok(c) => c,
         Err(e) => return format!("ERROR: {e}"),
     };

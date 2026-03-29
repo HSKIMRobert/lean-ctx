@@ -135,24 +135,26 @@ fn replace_binary(
 
     // On Windows, a running executable can be renamed but not overwritten.
     // Move the current binary out of the way first, then move the new one in.
+    // If the file is locked (MCP server running), schedule a deferred update.
     #[cfg(windows)]
     {
         let old_path = current_exe.with_extension("old.exe");
         let _ = std::fs::remove_file(&old_path);
-        if let Err(e) = std::fs::rename(current_exe, &old_path) {
-            let _ = std::fs::remove_file(&tmp_path);
-            return Err(format!(
-                "Cannot move current binary aside: {e}\n\
-                 Close your AI editor (Cursor, VS Code, etc.) so the MCP server releases the file, then retry."
-            ));
+
+        match std::fs::rename(current_exe, &old_path) {
+            Ok(()) => {
+                if let Err(e) = std::fs::rename(&tmp_path, current_exe) {
+                    let _ = std::fs::rename(&old_path, current_exe);
+                    let _ = std::fs::remove_file(&tmp_path);
+                    return Err(format!("Cannot place new binary: {e}"));
+                }
+                let _ = std::fs::remove_file(&old_path);
+                return Ok(());
+            }
+            Err(_) => {
+                return deferred_windows_update(&tmp_path, current_exe);
+            }
         }
-        if let Err(e) = std::fs::rename(&tmp_path, current_exe) {
-            let _ = std::fs::rename(&old_path, current_exe);
-            let _ = std::fs::remove_file(&tmp_path);
-            return Err(format!("Cannot place new binary: {e}"));
-        }
-        let _ = std::fs::remove_file(&old_path);
-        return Ok(());
     }
 
     #[cfg(not(windows))]
@@ -162,6 +164,65 @@ fn replace_binary(
             format!("Cannot replace binary (permission denied?): {e}")
         })
     }
+}
+
+/// On Windows, when the binary is locked by an MCP server, we can't rename it.
+/// Instead, stage the new binary and spawn a background cmd process that waits
+/// for the lock to be released, then performs the swap.
+#[cfg(windows)]
+fn deferred_windows_update(
+    staged_path: &std::path::Path,
+    target_exe: &std::path::Path,
+) -> Result<(), String> {
+    let pending_path = target_exe.with_file_name("lean-ctx-pending.exe");
+    std::fs::rename(staged_path, &pending_path).map_err(|e| {
+        let _ = std::fs::remove_file(staged_path);
+        format!("Cannot stage update: {e}")
+    })?;
+
+    let target_str = target_exe.display().to_string();
+    let pending_str = pending_path.display().to_string();
+    let old_str = target_exe.with_extension("old.exe").display().to_string();
+
+    let script = format!(
+        r#"@echo off
+echo Waiting for lean-ctx to be released...
+:retry
+timeout /t 1 /nobreak >nul
+move /Y "{target}" "{old}" >nul 2>&1
+if errorlevel 1 goto retry
+move /Y "{pending}" "{target}" >nul 2>&1
+if errorlevel 1 (
+    move /Y "{old}" "{target}" >nul 2>&1
+    echo Update failed. Please close all editors and run: lean-ctx update
+    pause
+    exit /b 1
+)
+del /f "{old}" >nul 2>&1
+echo Updated successfully!
+del "%~f0" >nul 2>&1
+"#,
+        target = target_str,
+        pending = pending_str,
+        old = old_str,
+    );
+
+    let script_path = target_exe.with_file_name("lean-ctx-update.bat");
+    std::fs::write(&script_path, &script)
+        .map_err(|e| format!("Cannot write update script: {e}"))?;
+
+    let _ = std::process::Command::new("cmd")
+        .args(["/C", "start", "/MIN", &script_path.display().to_string()])
+        .spawn();
+
+    println!("\nThe binary is currently in use by your AI editor's MCP server.");
+    println!("A background update has been scheduled.");
+    println!(
+        "Close your editor (Cursor, VS Code, etc.) and the update will complete automatically."
+    );
+    println!("Or run the script manually: {}", script_path.display());
+
+    Ok(())
 }
 
 fn extract_from_tar_gz(data: &[u8]) -> Result<Vec<u8>, String> {

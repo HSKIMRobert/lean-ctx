@@ -36,7 +36,7 @@ rust/
 │   ├── server.rs            # MCP server (tool registration + dispatch)
 │   ├── cli.rs               # Shell hook integration
 │   ├── core/
-│   │   ├── patterns/        # 47+ shell command compression patterns
+│   │   ├── patterns/        # 90+ shell command compression patterns
 │   │   ├── cache.rs         # Session cache with file refs
 │   │   ├── compressor.rs    # AST-aware file compression
 │   │   ├── entropy.rs       # Shannon entropy + Jaccard analysis

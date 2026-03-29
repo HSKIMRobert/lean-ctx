@@ -62,12 +62,15 @@ impl ModePredictor {
     }
 
     /// Returns the best mode based on historical efficiency.
-    /// Falls back to Pro adaptive models if local data is insufficient (Pro-only).
+    /// Chain: local history -> Pro adaptive models -> built-in defaults.
     pub fn predict_best_mode(&self, sig: &FileSignature) -> Option<String> {
         if let Some(local) = self.predict_from_local(sig) {
             return Some(local);
         }
-        self.predict_from_pro(sig)
+        if let Some(pro) = self.predict_from_pro(sig) {
+            return Some(pro);
+        }
+        Self::predict_from_defaults(sig)
     }
 
     fn predict_from_local(&self, sig: &FileSignature) -> Option<String> {
@@ -139,6 +142,66 @@ impl ModePredictor {
         }
 
         None
+    }
+
+    /// Built-in defaults for common file types and sizes.
+    /// Ensures reasonable compression even without local history or Pro models.
+    fn predict_from_defaults(sig: &FileSignature) -> Option<String> {
+        let mode = match (sig.ext.as_str(), sig.size_bucket) {
+            // Tiny files (0-500 tokens): always full — compression overhead not worth it
+            (_, 0) => return None,
+
+            // Config / data files: aggressive strips comments and whitespace
+            ("json" | "yaml" | "yml" | "toml" | "xml" | "csv", _) => "aggressive",
+
+            // Lock files: signatures only (just versions matter)
+            ("lock", _) => "signatures",
+
+            // Code files by size bucket
+            // 500-2k tokens: full is fine
+            (
+                "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go" | "java" | "c" | "cpp" | "rb"
+                | "swift" | "kt" | "cs" | "vue" | "svelte",
+                1,
+            ) => return None,
+
+            // 2k-5k tokens: map gives structure without bloat
+            (
+                "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go" | "java" | "c" | "cpp" | "rb"
+                | "swift" | "kt" | "cs" | "vue" | "svelte",
+                2,
+            ) => "map",
+
+            // 5k-20k tokens: map is strongly preferred
+            (
+                "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go" | "java" | "c" | "cpp" | "rb"
+                | "swift" | "kt" | "cs" | "vue" | "svelte",
+                3,
+            ) => "map",
+
+            // 20k+ tokens: signatures only — too large for full context
+            (
+                "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go" | "java" | "c" | "cpp" | "rb"
+                | "swift" | "kt" | "cs" | "vue" | "svelte",
+                4..,
+            ) => "signatures",
+
+            // Markup / docs: aggressive for large, map for medium
+            ("md" | "mdx" | "rst" | "txt" | "html" | "astro", 1..=2) => return None,
+            ("md" | "mdx" | "rst" | "txt" | "html" | "astro", 3..) => "aggressive",
+
+            // CSS / styles: aggressive strips whitespace well
+            ("css" | "scss" | "less" | "sass", 2..) => "aggressive",
+
+            // SQL: map for medium+
+            ("sql", 2..) => "map",
+
+            // Unknown large files: aggressive as safe fallback
+            (_, 3..) => "aggressive",
+
+            _ => return None,
+        };
+        Some(mode.to_string())
     }
 
     pub fn save(&self) {
@@ -240,6 +303,48 @@ mod tests {
             );
         }
         assert!(predictor.history.get(&sig).unwrap().len() <= 100);
+    }
+
+    #[test]
+    fn defaults_return_none_for_small_files() {
+        let sig = FileSignature::from_path("small.rs", 200);
+        assert!(ModePredictor::predict_from_defaults(&sig).is_none());
+    }
+
+    #[test]
+    fn defaults_recommend_map_for_medium_code() {
+        let sig = FileSignature::from_path("medium.rs", 3000);
+        assert_eq!(
+            ModePredictor::predict_from_defaults(&sig),
+            Some("map".to_string())
+        );
+    }
+
+    #[test]
+    fn defaults_recommend_aggressive_for_json() {
+        let sig = FileSignature::from_path("config.json", 1000);
+        assert_eq!(
+            ModePredictor::predict_from_defaults(&sig),
+            Some("aggressive".to_string())
+        );
+    }
+
+    #[test]
+    fn defaults_recommend_signatures_for_huge_code() {
+        let sig = FileSignature::from_path("huge.ts", 25000);
+        assert_eq!(
+            ModePredictor::predict_from_defaults(&sig),
+            Some("signatures".to_string())
+        );
+    }
+
+    #[test]
+    fn defaults_recommend_aggressive_for_large_unknown() {
+        let sig = FileSignature::from_path("data.xyz", 8000);
+        assert_eq!(
+            ModePredictor::predict_from_defaults(&sig),
+            Some("aggressive".to_string())
+        );
     }
 
     #[test]

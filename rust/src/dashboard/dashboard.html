@@ -203,7 +203,7 @@ function fmt(n){if(n>=1e6)return(n/1e6).toFixed(1)+'M';if(n>=1e3)return(n/1e3).t
 function ff(n){return n.toLocaleString('en-US')}
 function pc(a,b){return b>0?Math.round(a/b*100):0}
 
-const CM={i:3.0,o:15.0,v:450,c:120};
+const CM={i:2.50,o:10.0,v:450,c:120};
 function ci(t){return t/1e6*CM.i}
 function fu(a){return'$'+a.toFixed(2)}
 function gc(inp,out,n){
@@ -259,7 +259,7 @@ function build(){
     <div class="row r21">
       <div class="card"><h3>Cumulative Token Savings</h3><canvas id="cCum"></canvas></div>
       <div class="card">
-        <h3>Cost Analysis <span class="badge">$3/M in · $15/M out</span></h3>
+        <h3>Cost Analysis <span class="badge">$2.50/M in · $10/M out</span></h3>
         <div class="cost-row">
           <div class="cost-box bad"><div class="amt" data-live id="vCW" style="color:var(--red)"></div><div class="lb">Without</div></div>
           <div class="cost-arrow">→</div>
