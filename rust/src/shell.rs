@@ -93,6 +93,7 @@ pub fn exec(command: &str) -> i32 {
 }
 
 const BUILTIN_PASSTHROUGH: &[&str] = &[
+    // JS/TS dev servers & watchers
     "turbo",
     "nx serve",
     "nx dev",
@@ -107,20 +108,91 @@ const BUILTIN_PASSTHROUGH: &[&str] = &[
     "nodemon",
     "concurrently",
     "pm2",
+    "pm2 logs",
+    "gatsby develop",
+    "expo start",
+    "react-scripts start",
+    "ng serve",
+    "remix dev",
+    "wrangler dev",
+    "hugo server",
+    "hugo serve",
+    "jekyll serve",
+    "bun dev",
+    "ember serve",
+    // Docker
     "docker compose up",
     "docker-compose up",
     "docker compose logs",
     "docker-compose logs",
+    "docker compose exec",
+    "docker-compose exec",
+    "docker compose run",
+    "docker-compose run",
+    "docker logs",
+    "docker attach",
+    "docker exec -it",
+    "docker exec -ti",
+    "docker run -it",
+    "docker run -ti",
+    "docker stats",
+    "docker events",
+    // Kubernetes
+    "kubectl logs",
+    "kubectl exec -it",
+    "kubectl exec -ti",
+    "kubectl attach",
+    "kubectl port-forward",
+    "kubectl proxy",
+    // System monitors & streaming
     "top",
     "htop",
     "btop",
     "watch ",
     "tail -f",
+    "tail -F",
+    "journalctl -f",
+    "journalctl --follow",
+    "dmesg -w",
+    "dmesg --follow",
+    "strace",
+    "tcpdump",
+    "ping ",
+    "ping6 ",
+    "traceroute",
+    // Editors & pagers
     "less",
+    "more",
     "vim",
     "nvim",
+    "vi ",
     "nano",
+    "micro ",
+    "helix ",
+    "hx ",
+    "emacs",
+    // Terminal multiplexers
+    "tmux",
+    "screen",
+    // Interactive shells & REPLs
     "ssh ",
+    "telnet ",
+    "nc ",
+    "ncat ",
+    "psql",
+    "mysql",
+    "sqlite3",
+    "redis-cli",
+    "mongosh",
+    "mongo ",
+    "python3 -i",
+    "python -i",
+    "irb",
+    "rails console",
+    "rails c ",
+    "iex",
+    // Rust watchers
+    "cargo watch",
 ];
 
 fn is_excluded_command(command: &str, excluded: &[String]) -> bool {
@@ -142,7 +214,7 @@ fn is_excluded_command(command: &str, excluded: &[String]) -> bool {
 pub fn interactive() {
     let real_shell = detect_shell();
 
-    eprintln!("lean-ctx shell v2.9.10 (wrapping {real_shell})");
+    eprintln!("lean-ctx shell v2.9.11 (wrapping {real_shell})");
     eprintln!("All command output is automatically compressed.");
     eprintln!("Type 'exit' to quit.\n");
 
@@ -481,6 +553,63 @@ mod passthrough_tests {
         assert!(is_excluded_command("htop", &[]));
         assert!(is_excluded_command("ssh user@host", &[]));
         assert!(is_excluded_command("tail -f /var/log/syslog", &[]));
+    }
+
+    #[test]
+    fn docker_streaming_is_passthrough() {
+        assert!(is_excluded_command("docker logs my-container", &[]));
+        assert!(is_excluded_command("docker logs -f webapp", &[]));
+        assert!(is_excluded_command("docker attach my-container", &[]));
+        assert!(is_excluded_command("docker exec -it web bash", &[]));
+        assert!(is_excluded_command("docker exec -ti web bash", &[]));
+        assert!(is_excluded_command("docker run -it ubuntu bash", &[]));
+        assert!(is_excluded_command("docker compose exec web bash", &[]));
+        assert!(is_excluded_command("docker stats", &[]));
+        assert!(is_excluded_command("docker events", &[]));
+    }
+
+    #[test]
+    fn kubectl_is_passthrough() {
+        assert!(is_excluded_command("kubectl logs my-pod", &[]));
+        assert!(is_excluded_command("kubectl logs -f deploy/web", &[]));
+        assert!(is_excluded_command("kubectl exec -it pod -- bash", &[]));
+        assert!(is_excluded_command(
+            "kubectl port-forward svc/web 8080:80",
+            &[]
+        ));
+        assert!(is_excluded_command("kubectl attach my-pod", &[]));
+        assert!(is_excluded_command("kubectl proxy", &[]));
+    }
+
+    #[test]
+    fn database_repls_are_passthrough() {
+        assert!(is_excluded_command("psql -U user mydb", &[]));
+        assert!(is_excluded_command("mysql -u root -p", &[]));
+        assert!(is_excluded_command("sqlite3 data.db", &[]));
+        assert!(is_excluded_command("redis-cli", &[]));
+        assert!(is_excluded_command("mongosh", &[]));
+    }
+
+    #[test]
+    fn streaming_tools_are_passthrough() {
+        assert!(is_excluded_command("journalctl -f", &[]));
+        assert!(is_excluded_command("ping 8.8.8.8", &[]));
+        assert!(is_excluded_command("strace -p 1234", &[]));
+        assert!(is_excluded_command("tcpdump -i eth0", &[]));
+        assert!(is_excluded_command("tail -F /var/log/app.log", &[]));
+        assert!(is_excluded_command("tmux new -s work", &[]));
+        assert!(is_excluded_command("screen -S dev", &[]));
+    }
+
+    #[test]
+    fn additional_dev_servers_are_passthrough() {
+        assert!(is_excluded_command("gatsby develop", &[]));
+        assert!(is_excluded_command("ng serve --port 4200", &[]));
+        assert!(is_excluded_command("remix dev", &[]));
+        assert!(is_excluded_command("wrangler dev", &[]));
+        assert!(is_excluded_command("hugo server", &[]));
+        assert!(is_excluded_command("bun dev", &[]));
+        assert!(is_excluded_command("cargo watch -x test", &[]));
     }
 
     #[test]

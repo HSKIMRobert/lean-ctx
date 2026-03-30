@@ -2,6 +2,22 @@
 
 All notable changes to lean-ctx are documented here.
 
+## [2.9.11] — 2026-03-30
+
+### Fixed
+
+- **Massively expanded passthrough list** (28 → 68 commands) — Commands that stream, run interactively, or use TUI are now correctly passed through without buffering. Previously, commands like `docker logs`, `kubectl logs`, `psql`, `ping`, or `tmux` would hang because lean-ctx tried to capture and compress their output. New categories:
+  - **Docker**: `docker logs`, `docker attach`, `docker exec -it`, `docker run -it`, `docker stats`, `docker events`, `docker compose run`
+  - **Kubernetes**: `kubectl logs`, `kubectl exec -it`, `kubectl attach`, `kubectl port-forward`, `kubectl proxy`
+  - **Database REPLs**: `psql`, `mysql`, `sqlite3`, `redis-cli`, `mongosh`
+  - **System streaming**: `journalctl -f`, `dmesg -w`, `ping`, `strace`, `tcpdump`, `tail -F`
+  - **Dev servers**: `gatsby develop`, `ng serve`, `remix dev`, `wrangler dev`, `hugo server`, `jekyll serve`, `bun dev`, `expo start`
+  - **Editors**: `vi`, `micro`, `helix`, `emacs`, `more`
+  - **Terminal multiplexers**: `tmux`, `screen`
+  - **Network**: `telnet`, `nc`, `ncat`
+  - **Language REPLs**: `python -i`, `irb`, `rails console`, `iex`
+  - **Rust**: `cargo watch`
+
 ## [2.9.10] — 2026-03-30
 
 ### Fixed
