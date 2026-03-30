@@ -2,6 +2,12 @@
 
 All notable changes to lean-ctx are documented here.
 
+## [2.9.10] — 2026-03-30
+
+### Fixed
+
+- **Codex CLI auto-detection in `lean-ctx setup`** (Issue #35) — Setup now detects OpenAI Codex CLI via `which codex` in addition to checking for `~/.codex/`. Previously, if Codex was installed but hadn't created its config directory yet, setup would skip it entirely. Reported by @Jain2098.
+
 ## [2.9.9] — 2026-03-30
 
 ### Added
