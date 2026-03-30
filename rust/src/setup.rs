@@ -238,7 +238,7 @@ fn build_targets(home: &std::path::Path, _binary: &str) -> Vec<EditorTarget> {
             name: "Codex CLI",
             agent_key: "codex",
             config_path: home.join(".codex/config.toml"),
-            detect_path: home.join(".codex"),
+            detect_path: detect_codex_path(home),
             config_type: ConfigType::Codex,
         },
         EditorTarget {
@@ -331,6 +331,19 @@ fn detect_claude_path() -> PathBuf {
         let claude_json = home.join(".claude.json");
         if claude_json.exists() {
             return claude_json;
+        }
+    }
+    PathBuf::from("/nonexistent")
+}
+
+fn detect_codex_path(home: &std::path::Path) -> PathBuf {
+    let codex_dir = home.join(".codex");
+    if codex_dir.exists() {
+        return codex_dir;
+    }
+    if let Ok(output) = std::process::Command::new("which").arg("codex").output() {
+        if output.status.success() {
+            return codex_dir;
         }
     }
     PathBuf::from("/nonexistent")
