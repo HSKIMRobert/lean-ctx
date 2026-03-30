@@ -273,22 +273,62 @@ fn compress_add(output: &str) -> String {
 }
 
 fn compress_commit(output: &str) -> String {
+    let mut hook_lines: Vec<&str> = Vec::new();
+    let mut commit_part = String::new();
+    let mut found_commit = false;
+
+    for line in output.lines() {
+        if !found_commit && commit_hash_re().is_match(line) {
+            found_commit = true;
+        }
+        if !found_commit {
+            let trimmed = line.trim();
+            if !trimmed.is_empty() {
+                hook_lines.push(trimmed);
+            }
+        }
+    }
+
     if let Some(caps) = commit_hash_re().captures(output) {
         let branch = &caps[1];
         let hash = &caps[2];
-        let msg = output.lines().next().unwrap_or("").trim();
+        let commit_line = output
+            .lines()
+            .find(|l| commit_hash_re().is_match(l))
+            .unwrap_or("")
+            .trim();
         let stats = extract_change_stats(output);
-        return if stats.is_empty() {
-            format!("{hash} ({branch}) {msg}")
+        commit_part = if stats.is_empty() {
+            format!("{hash} ({branch}) {commit_line}")
         } else {
-            format!("{hash} ({branch}) {msg} {stats}")
+            format!("{hash} ({branch}) {commit_line} {stats}")
         };
     }
-    let trimmed = output.trim();
-    if trimmed.is_empty() {
-        return "ok".to_string();
+
+    if commit_part.is_empty() {
+        let trimmed = output.trim();
+        if trimmed.is_empty() {
+            return "ok".to_string();
+        }
+        return compact_lines(trimmed, 5);
     }
-    compact_lines(trimmed, 3)
+
+    if hook_lines.is_empty() {
+        return commit_part;
+    }
+
+    let hook_output = if hook_lines.len() > 10 {
+        let shown: Vec<&str> = hook_lines[..10].to_vec();
+        format!(
+            "{}\n... ({} more hook lines)",
+            shown.join("\n"),
+            hook_lines.len() - 10
+        )
+    } else {
+        hook_lines.join("\n")
+    };
+
+    format!("{hook_output}\n{commit_part}")
 }
 
 fn compress_push(output: &str) -> String {
@@ -297,20 +337,52 @@ fn compress_push(output: &str) -> String {
         return "ok".to_string();
     }
 
+    let mut ref_line = String::new();
+    let mut remote_urls: Vec<String> = Vec::new();
+    let mut rejected = false;
+
     for line in trimmed.lines() {
         let l = line.trim();
-        if l.contains("->") {
-            return format!("ok {l}");
+
+        if l.contains("rejected") {
+            rejected = true;
         }
+
+        if l.contains("->") && !l.starts_with("remote:") {
+            ref_line = l.to_string();
+        }
+
         if l.contains("Everything up-to-date") {
             return "ok (up-to-date)".to_string();
         }
-        if l.contains("rejected") {
-            return format!("REJECTED: {l}");
+
+        if l.starts_with("remote:") || l.starts_with("To ") {
+            let content = l.trim_start_matches("remote:").trim();
+            if content.contains("http") || content.contains("pipeline") || content.contains("merge_request") || content.contains("pull/") {
+                remote_urls.push(content.to_string());
+            }
         }
     }
 
-    compact_lines(trimmed, 3)
+    if rejected {
+        let reject_lines: Vec<&str> = trimmed
+            .lines()
+            .filter(|l| l.contains("rejected") || l.contains("error") || l.contains("remote:"))
+            .collect();
+        return format!("REJECTED:\n{}", compact_lines(&reject_lines.join("\n"), 5));
+    }
+
+    let mut parts = Vec::new();
+    if !ref_line.is_empty() {
+        parts.push(format!("ok {ref_line}"));
+    } else {
+        parts.push("ok (pushed)".to_string());
+    }
+    for url in &remote_urls {
+        parts.push(url.clone());
+    }
+
+    parts.join("\n")
 }
 
 fn compress_pull(output: &str) -> String {
@@ -673,5 +745,53 @@ mod tests {
         let output = "diff --git a/src/main.rs b/src/main.rs\nindex abc1234..def5678 100644\n--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1,3 +1,4 @@\n fn main() {\n+    println!(\"hello\");\n     let x = 1;\n }";
         let result = compress("git diff", output).unwrap();
         assert!(result.contains("main.rs"), "should reference changed file");
+    }
+
+    #[test]
+    fn git_push_preserves_pipeline_url() {
+        let output = "Enumerating objects: 5, done.\nCounting objects: 100% (5/5), done.\nDelta compression using up to 8 threads\nCompressing objects: 100% (3/3), done.\nWriting objects: 100% (3/3), 1.2 KiB | 1.2 MiB/s, done.\nTotal 3 (delta 2), reused 0 (delta 0)\nremote:\nremote: To create a merge request for main, visit:\nremote:   https://gitlab.com/user/repo/-/merge_requests/new?source=main\nremote:\nremote: View pipeline for this push:\nremote:   https://gitlab.com/user/repo/-/pipelines/12345\nremote:\nTo gitlab.com:user/repo.git\n   abc1234..def5678  main -> main\n";
+        let result = compress("git push", output).unwrap();
+        assert!(
+            result.contains("pipeline"),
+            "should preserve pipeline URL, got: {result}"
+        );
+        assert!(
+            result.contains("merge_request"),
+            "should preserve merge request URL"
+        );
+        assert!(result.contains("->"), "should contain ref update line");
+    }
+
+    #[test]
+    fn git_push_preserves_github_pr_url() {
+        let output = "Enumerating objects: 5, done.\nremote:\nremote: Create a pull request for 'feature' on GitHub by visiting:\nremote:   https://github.com/user/repo/pull/new/feature\nremote:\nTo github.com:user/repo.git\n   abc1234..def5678  feature -> feature\n";
+        let result = compress("git push", output).unwrap();
+        assert!(
+            result.contains("pull/"),
+            "should preserve GitHub PR URL, got: {result}"
+        );
+    }
+
+    #[test]
+    fn git_commit_preserves_hook_output() {
+        let output = "Running pre-commit hooks...\ncheck-yaml..........passed\ncheck-json..........passed\nruff.................failed\nfixing src/app.py\n[main abc1234] fix: resolve bug\n 2 files changed, 10 insertions(+), 3 deletions(-)\n";
+        let result = compress("git commit -m 'fix'", output).unwrap();
+        assert!(
+            result.contains("ruff"),
+            "should preserve hook output, got: {result}"
+        );
+        assert!(result.contains("abc1234"), "should still extract commit hash");
+    }
+
+    #[test]
+    fn git_commit_no_hooks() {
+        let output =
+            "[main abc1234] fix: resolve bug\n 2 files changed, 10 insertions(+), 3 deletions(-)\n";
+        let result = compress("git commit -m 'fix'", output).unwrap();
+        assert!(result.contains("abc1234"), "should extract commit hash");
+        assert!(
+            !result.contains("hook"),
+            "should not mention hooks when none present"
+        );
     }
 }
