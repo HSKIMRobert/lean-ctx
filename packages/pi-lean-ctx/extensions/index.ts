@@ -234,7 +234,7 @@ function splitFooter(text: string) {
 
 async function execLeanCtx(pi: ExtensionAPI, args: string[]) {
   const bin = resolveBinary();
-  const result = await pi.exec(bin, args, {});
+  const result = await pi.exec(bin, args, { env: { LEAN_CTX_COMPRESS: "1" } });
   if (result.code !== 0) {
     const msg = (result.stderr || result.stdout || `lean-ctx failed: ${args.join(" ")}`).trim();
     throw new Error(msg);
@@ -249,7 +249,7 @@ export default function (pi: ExtensionAPI) {
       return {
         command: `${shellQuote(bin)} -c sh -lc ${shellQuote(command)}`,
         cwd,
-        env: { ...env },
+        env: { ...env, LEAN_CTX_COMPRESS: "1" },
       };
     },
   });
