@@ -9,10 +9,13 @@ All notable changes to lean-ctx are documented here.
 - **Shell hook pipe detection** — Shell aliases (`lean-ctx -c curl`, `lean-ctx -c git`, etc.) now detect when stdout is piped (to another command, file, or IDE tool) and pass output through uncompressed. Previously, piped output was compressed, breaking JSON parsing, SHA calculations, and programmatic processing. Terminal output (human use) remains compressed as before.
 - **MCP server command isolation** — `execute_command()` in the MCP server now sets `LEAN_CTX_ACTIVE=1` to prevent shell alias interference in spawned subprocesses.
 - **Website install counter** — Now counts all distribution channels: crates.io, npm (lean-ctx-bin + pi-lean-ctx), and GitHub Release binary downloads. Previously missed pi-lean-ctx (600+ installs) and used limited npm time range.
+- **Turbo monorepo TUI hang** (Issue #33) — Built-in passthrough list for TUI/long-running commands (turbo, next dev, vite dev, nuxt dev, astro dev, nodemon, vim, htop, ssh, tail -f, docker compose up, etc.). These are detected automatically and run without output buffering.
+- **`LEAN_CTX_COMPRESS=1` env var** — Overrides pipe detection to force compression even when stdout is piped. Used by pi-lean-ctx (v1.0.8) and other programmatic integrations that explicitly want compressed output.
 
 ### Changed
 
 - **Website wording overhaul** — 53 changes across the website based on expert review: consolidated naming to "Context Engineering Layer", nuanced compression claims (60–99% with context), replaced "better reasoning" with "higher signal density", added protocol explanations (CEP/CCP/TDD), sharpened Open Source vs Pro messaging, integrated thought-leadership core message.
+- **pi-lean-ctx v1.0.8** — Sets `LEAN_CTX_COMPRESS=1` in all exec calls and spawnHook, ensuring compression works correctly with pipe detection.
 
 ## [2.9.5] — 2026-03-30
 

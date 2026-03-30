@@ -53,8 +53,9 @@ pub fn exec(command: &str) -> i32 {
     let input_tokens = count_tokens(&full_output);
 
     let piped = !io::stdout().is_terminal();
+    let force_compress = std::env::var("LEAN_CTX_COMPRESS").is_ok();
 
-    if piped || is_excluded_command(command, &cfg.excluded_commands) {
+    if !force_compress && (piped || is_excluded_command(command, &cfg.excluded_commands)) {
         if !full_output.is_empty() {
             let _ = io::stdout().write_all(full_output.as_bytes());
             if !full_output.ends_with('\n') {
@@ -91,11 +92,47 @@ pub fn exec(command: &str) -> i32 {
     exit_code
 }
 
+const BUILTIN_PASSTHROUGH: &[&str] = &[
+    "turbo",
+    "nx serve",
+    "nx dev",
+    "next dev",
+    "vite dev",
+    "vite preview",
+    "vitest",
+    "nuxt dev",
+    "astro dev",
+    "webpack serve",
+    "webpack-dev-server",
+    "nodemon",
+    "concurrently",
+    "pm2",
+    "docker compose up",
+    "docker-compose up",
+    "docker compose logs",
+    "docker-compose logs",
+    "top",
+    "htop",
+    "btop",
+    "watch ",
+    "tail -f",
+    "less",
+    "vim",
+    "nvim",
+    "nano",
+    "ssh ",
+];
+
 fn is_excluded_command(command: &str, excluded: &[String]) -> bool {
+    let cmd = command.trim().to_lowercase();
+    for pattern in BUILTIN_PASSTHROUGH {
+        if cmd == *pattern || cmd.starts_with(&format!("{pattern} ")) || cmd.contains(pattern) {
+            return true;
+        }
+    }
     if excluded.is_empty() {
         return false;
     }
-    let cmd = command.trim().to_lowercase();
     excluded.iter().any(|excl| {
         let excl_lower = excl.trim().to_lowercase();
         cmd == excl_lower || cmd.starts_with(&format!("{excl_lower} "))
@@ -413,5 +450,51 @@ mod windows_shell_flag_tests {
         assert_eq!(windows_shell_flag_for_exe_basename("sh.exe"), "-c");
         assert_eq!(windows_shell_flag_for_exe_basename("zsh.exe"), "-c");
         assert_eq!(windows_shell_flag_for_exe_basename("fish.exe"), "-c");
+    }
+}
+
+#[cfg(test)]
+mod passthrough_tests {
+    use super::is_excluded_command;
+
+    #[test]
+    fn turbo_is_passthrough() {
+        assert!(is_excluded_command("turbo run dev", &[]));
+        assert!(is_excluded_command("turbo run build", &[]));
+        assert!(is_excluded_command("pnpm turbo run dev", &[]));
+        assert!(is_excluded_command("npx turbo run dev", &[]));
+    }
+
+    #[test]
+    fn dev_servers_are_passthrough() {
+        assert!(is_excluded_command("next dev", &[]));
+        assert!(is_excluded_command("vite dev", &[]));
+        assert!(is_excluded_command("nuxt dev", &[]));
+        assert!(is_excluded_command("astro dev", &[]));
+        assert!(is_excluded_command("nodemon server.js", &[]));
+    }
+
+    #[test]
+    fn interactive_tools_are_passthrough() {
+        assert!(is_excluded_command("vim file.rs", &[]));
+        assert!(is_excluded_command("nvim", &[]));
+        assert!(is_excluded_command("htop", &[]));
+        assert!(is_excluded_command("ssh user@host", &[]));
+        assert!(is_excluded_command("tail -f /var/log/syslog", &[]));
+    }
+
+    #[test]
+    fn normal_commands_not_excluded() {
+        assert!(!is_excluded_command("git status", &[]));
+        assert!(!is_excluded_command("cargo test", &[]));
+        assert!(!is_excluded_command("npm run build", &[]));
+        assert!(!is_excluded_command("ls -la", &[]));
+    }
+
+    #[test]
+    fn user_exclusions_work() {
+        let excl = vec!["myapp".to_string()];
+        assert!(is_excluded_command("myapp serve", &excl));
+        assert!(!is_excluded_command("git status", &excl));
     }
 }
