@@ -2,6 +2,15 @@
 
 All notable changes to lean-ctx are documented here.
 
+## [2.9.2] — 2026-03-30
+
+### Fixed
+
+- **Homebrew sha256 mismatch** (#30) — Formula sha256 now matches actual GitHub tarball. GitHub regenerates tarballs dynamically; hash was stale after tag push.
+- **git push loses pipeline URLs** (#31) — Shell hook now preserves `remote:` lines containing URLs (GitLab pipeline links, merge request URLs, GitHub PR links) instead of discarding them.
+- **git commit loses pre-commit hook output** (#31) — Pre-commit hook output (linter results, test output) is now shown before the commit summary instead of being silently dropped. Up to 10 hook lines preserved.
+- **CI formatting** — Fixed `cargo fmt` diff that caused CI failure.
+
 ## [2.9.1] — 2026-03-29
 
 ### Fixed

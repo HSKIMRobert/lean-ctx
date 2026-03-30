@@ -358,7 +358,11 @@ fn compress_push(output: &str) -> String {
 
         if l.starts_with("remote:") || l.starts_with("To ") {
             let content = l.trim_start_matches("remote:").trim();
-            if content.contains("http") || content.contains("pipeline") || content.contains("merge_request") || content.contains("pull/") {
+            if content.contains("http")
+                || content.contains("pipeline")
+                || content.contains("merge_request")
+                || content.contains("pull/")
+            {
                 remote_urls.push(content.to_string());
             }
         }
@@ -780,7 +784,10 @@ mod tests {
             result.contains("ruff"),
             "should preserve hook output, got: {result}"
         );
-        assert!(result.contains("abc1234"), "should still extract commit hash");
+        assert!(
+            result.contains("abc1234"),
+            "should still extract commit hash"
+        );
     }
 
     #[test]
