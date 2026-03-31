@@ -44,10 +44,14 @@ fn main() {
             }
             "dashboard" => {
                 let port = rest
-                    .first()
-                    .and_then(|p| p.strip_prefix("--port=").or_else(|| p.strip_prefix("-p=")))
+                    .iter()
+                    .find_map(|p| p.strip_prefix("--port=").or_else(|| p.strip_prefix("-p=")))
                     .and_then(|p| p.parse().ok());
-                run_async(dashboard::start(port));
+                let host = rest
+                    .iter()
+                    .find_map(|p| p.strip_prefix("--host=").or_else(|| p.strip_prefix("-H=")))
+                    .map(String::from);
+                run_async(dashboard::start(port, host));
                 return;
             }
             "init" => {
@@ -159,7 +163,7 @@ fn main() {
                 return;
             }
             "--version" | "-V" => {
-                println!("lean-ctx 2.12.0");
+                println!("lean-ctx 2.12.1");
                 return;
             }
             "--help" | "-h" => {
@@ -244,7 +248,7 @@ fn shell_quote(s: &str) -> String {
 
 fn print_help() {
     println!(
-        "lean-ctx 2.12.0 — The Intelligence Layer for AI Coding
+        "lean-ctx 2.12.1 — The Intelligence Layer for AI Coding
 
 90+ compression patterns | 24 MCP tools | Context Continuity Protocol
 
@@ -261,7 +265,7 @@ COMMANDS:
     gain --daily                   Bordered day-by-day table with USD
     gain --json                    Raw JSON export of all stats
     cep                            CEP impact report (score trends, cache, modes)
-    dashboard [--port=N]           Open web dashboard (default: http://localhost:3333)
+    dashboard [--port=N] [--host=H] Open web dashboard (default: http://localhost:3333)
     wrapped [--week|--month|--all] Savings report card (shareable)
     sessions [list|show|cleanup]   Manage CCP sessions (~/.lean-ctx/sessions/)
     benchmark run [path] [--json]  Run real benchmark on project files
@@ -325,6 +329,7 @@ EXAMPLES:
     lean-ctx gain --graph          30-day savings chart
     lean-ctx gain --daily          Day-by-day breakdown with USD
     lean-ctx dashboard             Open web dashboard at localhost:3333
+    lean-ctx dashboard --host=0.0.0.0  Bind to all interfaces (remote access)
     lean-ctx wrapped               Weekly savings report card
     lean-ctx wrapped --month       Monthly savings report card
     lean-ctx sessions list         List all CCP sessions
@@ -677,7 +682,7 @@ fn print_gain_with_logo() {
     print!("{output}");
     let d = core::theme::dim();
     let r = core::theme::rst();
-    println!("  {d}lean-ctx v2.12.0  |  leanctx.com  |  lean-ctx dashboard{r}");
+    println!("  {d}lean-ctx v2.12.1  |  leanctx.com  |  lean-ctx dashboard{r}");
     if !cloud_client::check_pro() {
         println!("  {d}Save ~25% more with Pro \u{2192} lean-ctx upgrade{r}");
     }

@@ -2,9 +2,10 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
 const DEFAULT_PORT: u16 = 3333;
+const DEFAULT_HOST: &str = "127.0.0.1";
 const DASHBOARD_HTML: &str = include_str!("dashboard.html");
 
-pub async fn start(port: Option<u16>) {
+pub async fn start(port: Option<u16>, host: Option<String>) {
     let port = port.unwrap_or_else(|| {
         std::env::var("LEAN_CTX_PORT")
             .ok()
@@ -12,7 +13,21 @@ pub async fn start(port: Option<u16>) {
             .unwrap_or(DEFAULT_PORT)
     });
 
-    let addr = format!("127.0.0.1:{port}");
+    let host = host.unwrap_or_else(|| {
+        std::env::var("LEAN_CTX_HOST")
+            .ok()
+            .unwrap_or_else(|| DEFAULT_HOST.to_string())
+    });
+
+    let addr = format!("{host}:{port}");
+    let is_local = host == "127.0.0.1" || host == "localhost" || host == "::1";
+
+    if !is_local {
+        eprintln!(
+            "  ⚠ WARNING: Binding to {host} exposes the dashboard to the network.\n  \
+             The dashboard has NO authentication. Only use on trusted networks."
+        );
+    }
 
     let listener = match TcpListener::bind(&addr).await {
         Ok(l) => l,
@@ -27,35 +42,42 @@ pub async fn start(port: Option<u16>) {
         .map(|p| p.display().to_string())
         .unwrap_or_else(|| "~/.lean-ctx/stats.json".to_string());
 
-    println!("\n  lean-ctx dashboard → http://localhost:{port}");
+    let display_host = if host == "0.0.0.0" {
+        "localhost"
+    } else {
+        &host
+    };
+    println!("\n  lean-ctx dashboard → http://{display_host}:{port}");
     println!("  Stats file: {stats_path}");
     println!("  Press Ctrl+C to stop\n");
 
-    #[cfg(target_os = "macos")]
-    {
-        let _ = std::process::Command::new("open")
-            .arg(format!("http://localhost:{port}"))
-            .spawn();
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        let _ = std::process::Command::new("xdg-open")
-            .arg(format!("http://localhost:{port}"))
-            .spawn();
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        let _ = std::process::Command::new("cmd")
-            .args(["/C", "start", &format!("http://localhost:{port}")])
-            .spawn();
+    if is_local {
+        open_browser(&format!("http://localhost:{port}"));
     }
 
     loop {
         if let Ok((stream, _)) = listener.accept().await {
             tokio::spawn(handle_request(stream));
         }
+    }
+}
+
+fn open_browser(url: &str) {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open").arg(url).spawn();
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("cmd")
+            .args(["/C", "start", url])
+            .spawn();
     }
 }
 
