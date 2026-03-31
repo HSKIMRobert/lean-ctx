@@ -2,6 +2,16 @@
 
 All notable changes to lean-ctx are documented here.
 
+## [2.9.16] — 2026-03-31
+
+### Added
+
+- **LITM-optimized Instructions** — Enforcement directive placed at first AND last position in MCP server instructions to avoid Lost-In-The-Middle attention drop
+- **Action-first Tool Descriptions** — Tool descriptions now lead with the action ("Read files...", "Run shell commands...") instead of meta-info ("REPLACES...") for better agent tool matching
+- **IDE-specific Tool Call Examples** — Injected rules now include concrete syntax examples for Cursor (`CallMcpTool`), Claude Code (`mcp__lean-ctx__ctx_read`), and other IDEs
+- **Token Savings Feedback** — Every tool response now shows `[saved X tokens vs native Read/Shell/Grep/ls]` as positive reinforcement for the agent
+- **Rules v4** — Updated injected agent rules with all of the above, auto-replaces v3 rules on next MCP connect
+
 ## [2.9.15] — 2026-03-31
 
 ### Fixed
