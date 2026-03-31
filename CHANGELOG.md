@@ -2,6 +2,14 @@
 
 All notable changes to lean-ctx are documented here.
 
+## [2.12.1] — 2026-03-31
+
+### Added
+- Dashboard `--host=` flag and `LEAN_CTX_HOST` env var to bind to a custom IP address (fixes #36)
+- Enables remote access for headless development (e.g. `lean-ctx dashboard --host=0.0.0.0`)
+- Security warning when binding to non-localhost addresses (no auth)
+- Auto-open browser only when binding to localhost
+
 ## [2.12.0] — 2026-03-31
 
 ### Changed
