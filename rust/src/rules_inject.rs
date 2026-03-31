@@ -50,7 +50,7 @@ built-in file, shell, and search tools. Using the lean-ctx tools is MANDATORY �
 
 | FORBIDDEN tool | REQUIRED replacement | Why |
 |----------------|---------------------|-----|
-| `Read` / `cat` / `head` / `tail` | `ctx_read(path)` | Cached reads, 6 compression modes, re-reads cost ~13 tokens |
+| `Read` / `cat` / `head` / `tail` | `ctx_read(path)` | Cached reads, 8 compression modes + smart defaults, re-reads cost ~13 tokens |
 | `Shell` / `bash` / terminal | `ctx_shell(command)` | Pattern-based output compression for git, npm, cargo, docker |
 | `Grep` / `rg` / `search` | `ctx_search(pattern, path)` | Compact context-aware results, token-efficient |
 | `ls` / `find` / `tree` | `ctx_tree(path, depth)` | Compact directory maps with file counts |
@@ -111,7 +111,7 @@ shell commands, and code searches. Using native tools instead is FORBIDDEN — i
 
 | FORBIDDEN | USE INSTEAD | Why |
 |-----------|-------------|-----|
-| `Read` / `cat` / `head` / `tail` | `ctx_read(path)` | Cached, 6 compression modes, re-reads ~13 tokens |
+| `Read` / `cat` / `head` / `tail` | `ctx_read(path)` | Cached, 8 compression modes + smart defaults, re-reads ~13 tokens |
 | `Shell` / `bash` / terminal | `ctx_shell(command)` | Pattern compression for git/npm/cargo/docker output |
 | `Grep` / `rg` / `search` | `ctx_search(pattern, path)` | Compact, token-efficient results |
 | `ls` / `find` / `tree` | `ctx_tree(path, depth)` | Compact directory maps with file counts |
@@ -125,10 +125,13 @@ CallMcpTool(server="user-lean-ctx", toolName="ctx_tree", arguments={"path": ".",
 ```
 
 ## ctx_read modes:
+- (no mode) — auto-selects optimal mode based on file size, type, cache state, and task
 - `full` — cached read (for files you edit)
 - `map` — deps + API (context-only files)
 - `signatures` — API surface only
 - `diff` — changed lines after edits
+- `task` — task-relevant lines only (IB filter, 70% savings on large files)
+- `reference` — one-line metadata (for irrelevant files)
 - `aggressive` — syntax stripped
 - `entropy` — Shannon + Jaccard filtering
 - `lines:N-M` — specific range
@@ -561,8 +564,16 @@ mod tests {
         assert!(RULES_DEDICATED.contains("entropy"));
     }
 
+    fn ensure_temp_dir() {
+        let tmp = std::env::temp_dir();
+        if !tmp.exists() {
+            std::fs::create_dir_all(&tmp).ok();
+        }
+    }
+
     #[test]
     fn replace_section_with_end_marker() {
+        ensure_temp_dir();
         let old = "user stuff\n\n# lean-ctx — Context Engineering Layer\n<!-- lean-ctx-rules-v2 -->\nold rules\n<!-- /lean-ctx -->\nmore user stuff\n";
         let path = std::env::temp_dir().join("test_replace_with_end.md");
         std::fs::write(&path, old).unwrap();
@@ -581,6 +592,7 @@ mod tests {
 
     #[test]
     fn replace_section_without_end_marker() {
+        ensure_temp_dir();
         let old = "user stuff\n\n# lean-ctx — Context Engineering Layer\nold rules only\n";
         let path = std::env::temp_dir().join("test_replace_no_end.md");
         std::fs::write(&path, old).unwrap();
@@ -597,6 +609,7 @@ mod tests {
 
     #[test]
     fn append_to_shared_preserves_existing() {
+        ensure_temp_dir();
         let path = std::env::temp_dir().join("test_append_shared.md");
         std::fs::write(&path, "existing user rules\n").unwrap();
 
@@ -613,6 +626,7 @@ mod tests {
 
     #[test]
     fn write_dedicated_creates_file() {
+        ensure_temp_dir();
         let path = std::env::temp_dir().join("test_write_dedicated.md");
         if path.exists() {
             std::fs::remove_file(&path).ok();
@@ -630,6 +644,7 @@ mod tests {
 
     #[test]
     fn write_dedicated_updates_existing() {
+        ensure_temp_dir();
         let path = std::env::temp_dir().join("test_write_dedicated_update.md");
         std::fs::write(&path, "# lean-ctx — Context Engineering Layer\nold version").unwrap();
 
