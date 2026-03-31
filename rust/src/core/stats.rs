@@ -911,41 +911,35 @@ fn build_tips(store: &StatsStore) -> Vec<String> {
     let mut tips = Vec::new();
 
     if store.cep.modes.get("map").copied().unwrap_or(0) == 0 {
-        tips.push("ctx_read(path, mode=\"map\") zeigt nur deps + exports — ideal fuer Context-Dateien die du nicht editierst.".into());
+        tips.push("Try mode=\"map\" for files you only need as context — shows deps + exports, skips implementation.".into());
     }
 
     if store.cep.modes.get("signatures").copied().unwrap_or(0) == 0 {
-        tips.push("ctx_read(path, mode=\"signatures\") liefert nur die API-Oberfläche — perfekt fuer grosse Libraries.".into());
+        tips.push("Try mode=\"signatures\" for large files — returns only the API surface.".into());
     }
 
     if store.cep.total_cache_reads > 0
         && store.cep.total_cache_hits as f64 / store.cep.total_cache_reads as f64 > 0.8
     {
         tips.push(
-            "Hohe Cache-Hitrate! ctx_compress nach ~15 Dateien haelt den Kontext kompakt.".into(),
+            "High cache hit rate! Use ctx_compress periodically to keep context compact.".into(),
         );
     }
 
     if store.total_commands > 50 && store.cep.sessions == 0 {
-        tips.push("ctx_session(action=\"task\", description=\"...\") hilft lean-ctx deinen Arbeitskontext zu tracken.".into());
+        tips.push("Use ctx_session to track your task — enables cross-session memory.".into());
     }
 
     if store.cep.modes.get("entropy").copied().unwrap_or(0) == 0 && store.total_commands > 20 {
-        tips.push("ctx_read(mode=\"entropy\") filtert per Shannon-Entropie + Jaccard — maximale Kompression fuer grosse Dateien.".into());
-    }
-
-    if store.total_commands > 100 {
-        tips.push("ctx_knowledge(action=\"consolidate\") speichert Session-Erkenntnisse dauerhaft — funktioniert jetzt auch automatisch bei Checkpoints!".into());
+        tips.push("Try mode=\"entropy\" for maximum compression on large files.".into());
     }
 
     if store.daily.len() >= 7 {
-        tips.push(
-            "lean-ctx gain --graph zeigt einen 30-Tage Sparkline-Chart deiner Ersparnisse.".into(),
-        );
+        tips.push("Run lean-ctx gain --graph for a 30-day sparkline chart.".into());
     }
 
-    tips.push("ctx_overview(task) am Session-Start gibt dir sofort eine aufgabenbezogene Projekt-Uebersicht.".into());
-    tips.push("ctx_metrics zeigt dir in Echtzeit wieviele Tokens du sparst — check es nach einer laengeren Session!".into());
+    tips.push("Run ctx_overview(task) at session start for a task-aware project map.".into());
+    tips.push("Run lean-ctx dashboard for a live web UI with all your stats.".into());
 
     tips
 }

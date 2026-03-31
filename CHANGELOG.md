@@ -2,6 +2,12 @@
 
 All notable changes to lean-ctx are documented here.
 
+## [2.9.15] — 2026-03-31
+
+### Fixed
+
+- **Tips in English** — Contextual tips in `lean-ctx gain` are now in English and user-friendly
+
 ## [2.9.14] — 2026-03-31
 
 ### Added
