@@ -10,6 +10,9 @@ All notable changes to lean-ctx are documented here.
 - Security warning when binding to non-localhost addresses (no auth)
 - Auto-open browser only when binding to localhost
 
+### Changed
+- Logo animation now uses active theme colors (primary↔secondary sine wave) instead of hardcoded rainbow HSL
+
 ## [2.12.0] — 2026-03-31
 
 ### Changed
