@@ -51,7 +51,7 @@ impl ServerHandler for LeanCtxServer {
         let instructions = build_instructions(self.crp_mode);
 
         InitializeResult::new(capabilities)
-            .with_server_info(Implementation::new("lean-ctx", "2.9.15"))
+            .with_server_info(Implementation::new("lean-ctx", "2.9.16"))
             .with_instructions(instructions)
     }
 
@@ -75,7 +75,7 @@ impl ServerHandler for LeanCtxServer {
         let capabilities = ServerCapabilities::builder().enable_tools().build();
 
         Ok(InitializeResult::new(capabilities)
-            .with_server_info(Implementation::new("lean-ctx", "2.9.15"))
+            .with_server_info(Implementation::new("lean-ctx", "2.9.16"))
             .with_instructions(instructions))
     }
 
@@ -95,15 +95,13 @@ impl ServerHandler for LeanCtxServer {
                 tools: vec![
                     tool_def(
                         "ctx_read",
-                        "REPLACES built-in Read tool — ALWAYS use this instead of Read. \
-                        Smart file read with session caching and 6 compression modes. \
+                        "Read files with session caching and 6 compression modes. REPLACES native Read — using Read wastes tokens. \
                         Re-reads cost ~13 tokens. Modes: full (cached read), signatures (API surface), \
-                        map (deps + exports — use for context files you won't edit), \
+                        map (deps + exports — for context files you won't edit), \
                         diff (changed lines only), aggressive (syntax stripped), \
                         entropy (Shannon + Jaccard). \
-                        For specific line ranges, use mode='lines:N-M' (e.g. 'lines:400-500' or 'lines:1-50,80-90'). \
-                        Set fresh=true to bypass cache and force a full re-read. \
-                        Set start_line to read from a specific line (returns lines start_line to end of file from cache or disk).",
+                        Lines: mode='lines:N-M' (e.g. 'lines:400-500'). \
+                        Set fresh=true to bypass cache. Set start_line to read from a specific line.",
                         json!({
                             "type": "object",
                             "properties": {
@@ -148,8 +146,8 @@ impl ServerHandler for LeanCtxServer {
                     ),
                     tool_def(
                         "ctx_tree",
-                        "REPLACES ls/find/Shell directory listings — ALWAYS use this for directory exploration. \
-                        Token-efficient directory listing with file counts per directory.",
+                        "List directory contents with file counts. REPLACES native ls/find — using ls wastes tokens. \
+                        Token-efficient directory maps.",
                         json!({
                             "type": "object",
                             "properties": {
@@ -161,9 +159,8 @@ impl ServerHandler for LeanCtxServer {
                     ),
                     tool_def(
                         "ctx_shell",
-                        "REPLACES built-in Shell tool — ALWAYS use this instead of Shell. \
-                        Execute a shell command and compress output using pattern-based compression. \
-                        Recognizes git, npm, cargo, docker, tsc and 90+ more commands.",
+                        "Run shell commands with output compression. REPLACES native Shell — using Shell wastes tokens. \
+                        Pattern-based compression for git, npm, cargo, docker, tsc and 90+ commands.",
                         json!({
                             "type": "object",
                             "properties": {
@@ -174,9 +171,8 @@ impl ServerHandler for LeanCtxServer {
                     ),
                     tool_def(
                         "ctx_search",
-                        "REPLACES built-in Grep tool — ALWAYS use this instead of Grep. \
-                        Search files for a regex pattern. Respects .gitignore by default. \
-                        Returns only matching lines with compact context.",
+                        "Search code with regex patterns. REPLACES native Grep — using Grep wastes tokens. \
+                        Respects .gitignore. Returns compact matching lines.",
                         json!({
                             "type": "object",
                             "properties": {
@@ -639,8 +635,15 @@ impl ServerHandler for LeanCtxServer {
                 } else {
                     String::new()
                 };
-                let output = format!("{stale_note}{output}");
                 let original = cache.get(&path).map_or(0, |e| e.original_tokens);
+                let output_tokens = crate::core::tokens::count_tokens(&output);
+                let saved = original.saturating_sub(output_tokens);
+                let savings_note = if saved > 0 {
+                    format!("\n[saved {saved} tokens vs native Read]")
+                } else {
+                    String::new()
+                };
+                let output = format!("{stale_note}{output}{savings_note}");
                 let file_ref = cache.file_ref_map().get(&path).cloned();
                 let tokens = crate::core::tokens::count_tokens(&output);
                 drop(cache);
@@ -743,9 +746,14 @@ impl ServerHandler for LeanCtxServer {
                 let show_hidden = get_bool(args, "show_hidden").unwrap_or(false);
                 let (result, original) = crate::tools::ctx_tree::handle(&path, depth, show_hidden);
                 let sent = crate::core::tokens::count_tokens(&result);
-                self.record_call("ctx_tree", original, original.saturating_sub(sent), None)
-                    .await;
-                result
+                let saved = original.saturating_sub(sent);
+                self.record_call("ctx_tree", original, saved, None).await;
+                let savings_note = if saved > 0 {
+                    format!("\n[saved {saved} tokens vs native ls]")
+                } else {
+                    String::new()
+                };
+                format!("{result}{savings_note}")
             }
             "ctx_shell" => {
                 let command = get_str(args, "command")
@@ -754,9 +762,14 @@ impl ServerHandler for LeanCtxServer {
                 let result = crate::tools::ctx_shell::handle(&command, &output, self.crp_mode);
                 let original = crate::core::tokens::count_tokens(&output);
                 let sent = crate::core::tokens::count_tokens(&result);
-                self.record_call("ctx_shell", original, original.saturating_sub(sent), None)
-                    .await;
-                result
+                let saved = original.saturating_sub(sent);
+                self.record_call("ctx_shell", original, saved, None).await;
+                let savings_note = if saved > 0 {
+                    format!("\n[saved {saved} tokens vs native Shell]")
+                } else {
+                    String::new()
+                };
+                format!("{result}{savings_note}")
             }
             "ctx_search" => {
                 let pattern = get_str(args, "pattern")
@@ -774,9 +787,14 @@ impl ServerHandler for LeanCtxServer {
                     !no_gitignore,
                 );
                 let sent = crate::core::tokens::count_tokens(&result);
-                self.record_call("ctx_search", original, original.saturating_sub(sent), None)
-                    .await;
-                result
+                let saved = original.saturating_sub(sent);
+                self.record_call("ctx_search", original, saved, None).await;
+                let savings_note = if saved > 0 {
+                    format!("\n[saved {saved} tokens vs native Grep]")
+                } else {
+                    String::new()
+                };
+                format!("{result}{savings_note}")
             }
             "ctx_compress" => {
                 let include_sigs = get_bool(args, "include_signatures").unwrap_or(true);
@@ -1217,6 +1235,8 @@ fn build_instructions_with_client(crp_mode: CrpMode, client_name: &str) -> Strin
     // Prefix-cache alignment: stable instructions first (API providers cache KV states
     // for shared prefixes), then variable session state after.
     let mut base = format!("\
+CRITICAL: NEVER use native Read, Shell, Grep, or ls tools. ALWAYS use ctx_read, ctx_shell, ctx_search, ctx_tree from this MCP server instead.\n\
+\n\
 lean-ctx MCP — tool replacement for reading, running commands, and searching.\n\
 \n\
 REPLACE these built-in tools with lean-ctx equivalents:\n\
@@ -1308,6 +1328,9 @@ COMMUNICATION PROTOCOL (Cognitive Efficiency Protocol v1):\n\
    Always prefer structured notation over prose. Never repeat the question or restate context.\n\
 \n\
 {decoder_block}\n\
+\n\
+REMINDER: NEVER use native Read, Shell, Grep, or ls. ALWAYS use ctx_read, ctx_shell, ctx_search, ctx_tree. Every single time.\n\
+\n\
 {session_block}\
 {knowledge_block}",
         decoder_block = crate::core::protocol::instruction_decoder_block()
@@ -1390,9 +1413,9 @@ fn unified_tool_defs() -> Vec<Tool> {
     vec![
         tool_def(
             "ctx_read",
-            "Read file with caching + 6 compression modes. Re-reads ~13 tok. \
-            Modes: full, map, signatures, diff, aggressive, entropy, lines:N-M. \
-            Set fresh=true to bypass cache.",
+            "Read files with caching + 6 compression modes. REPLACES native Read. \
+            Re-reads ~13 tok. Modes: full, map, signatures, diff, aggressive, entropy, lines:N-M. \
+            fresh=true bypasses cache.",
             json!({
                 "type": "object",
                 "properties": {
@@ -1406,7 +1429,7 @@ fn unified_tool_defs() -> Vec<Tool> {
         ),
         tool_def(
             "ctx_shell",
-            "Execute command with 90+ pattern compression.",
+            "Run shell commands with output compression. REPLACES native Shell.",
             json!({
                 "type": "object",
                 "properties": {
@@ -1417,7 +1440,7 @@ fn unified_tool_defs() -> Vec<Tool> {
         ),
         tool_def(
             "ctx_search",
-            "Search code with regex. Respects .gitignore.",
+            "Search code with regex patterns. REPLACES native Grep. Respects .gitignore.",
             json!({
                 "type": "object",
                 "properties": {
@@ -1432,7 +1455,7 @@ fn unified_tool_defs() -> Vec<Tool> {
         ),
         tool_def(
             "ctx_tree",
-            "Directory listing with file counts.",
+            "List directory contents with file counts. REPLACES native ls/find.",
             json!({
                 "type": "object",
                 "properties": {

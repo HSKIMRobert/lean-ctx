@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 const MARKER: &str = "# lean-ctx — Context Engineering Layer";
 const END_MARKER: &str = "<!-- /lean-ctx -->";
-const RULES_VERSION: &str = "lean-ctx-rules-v3";
+const RULES_VERSION: &str = "lean-ctx-rules-v4";
 
 // ---------------------------------------------------------------------------
 // Rules content for SHARED config files (appended to user's existing config).
@@ -10,7 +10,7 @@ const RULES_VERSION: &str = "lean-ctx-rules-v3";
 // Used for: CLAUDE.md, instructions.md, GEMINI.md, copilot-instructions.md
 // ---------------------------------------------------------------------------
 const RULES_SHARED: &str = r#"# lean-ctx — Context Engineering Layer
-<!-- lean-ctx-rules-v3 -->
+<!-- lean-ctx-rules-v4 -->
 
 CRITICAL RULE: You have lean-ctx MCP tools connected. You MUST use them for ALL file reads,
 shell commands, and code searches. Using native tools instead wastes tokens and is FORBIDDEN.
@@ -22,6 +22,11 @@ shell commands, and code searches. Using native tools instead wastes tokens and 
 | Shell, bash, terminal | ctx_shell | 30-70% via pattern compression |
 | Grep, rg, search | ctx_search | 50-80% via compact results |
 | ls, find, tree | ctx_tree | 60-85% via directory maps |
+
+## How to call (use your MCP tool syntax):
+- Claude Code: `mcp__lean-ctx__ctx_read(path="/src/main.rs", mode="full")`
+- Codex CLI: `mcp__lean-ctx__ctx_shell(command="cargo test")`
+- Gemini CLI: Use the lean-ctx MCP tools directly: `ctx_read`, `ctx_shell`, `ctx_search`, `ctx_tree`
 
 ## Native tools to keep using (no lean-ctx replacement):
 Write, StrReplace, Delete, Glob — use these normally.
@@ -36,7 +41,7 @@ STOP. Use ctx_read, ctx_shell, ctx_search, or ctx_tree instead. Every time.
 // Used for: Windsurf, Zed, Cline, Roo Code, OpenCode, Continue, Aider
 // ---------------------------------------------------------------------------
 const RULES_DEDICATED: &str = r#"# lean-ctx — Context Engineering Layer
-<!-- lean-ctx-rules-v3 -->
+<!-- lean-ctx-rules-v4 -->
 
 You are connected to the lean-ctx MCP server, which provides optimized replacements for
 built-in file, shell, and search tools. Using the lean-ctx tools is MANDATORY — not optional.
@@ -49,6 +54,14 @@ built-in file, shell, and search tools. Using the lean-ctx tools is MANDATORY �
 | `Shell` / `bash` / terminal | `ctx_shell(command)` | Pattern-based output compression for git, npm, cargo, docker |
 | `Grep` / `rg` / `search` | `ctx_search(pattern, path)` | Compact context-aware results, token-efficient |
 | `ls` / `find` / `tree` | `ctx_tree(path, depth)` | Compact directory maps with file counts |
+
+## How to call (MCP tool syntax):
+```
+ctx_read(path="/src/main.rs", mode="full")
+ctx_shell(command="cargo test")
+ctx_search(pattern="fn main", path="src/")
+ctx_tree(path=".", depth=3)
+```
 
 ## ctx_read modes (use the right mode for the job):
 - `full` — default, cached read. Use for files you will edit.
@@ -89,7 +102,7 @@ alwaysApply: true
 ---
 
 # lean-ctx — Context Engineering Layer
-<!-- lean-ctx-rules-v3 -->
+<!-- lean-ctx-rules-v4 -->
 
 You are connected to the lean-ctx MCP server. You MUST use lean-ctx tools for ALL file reads,
 shell commands, and code searches. Using native tools instead is FORBIDDEN — it wastes tokens.
@@ -102,6 +115,14 @@ shell commands, and code searches. Using native tools instead is FORBIDDEN — i
 | `Shell` / `bash` / terminal | `ctx_shell(command)` | Pattern compression for git/npm/cargo/docker output |
 | `Grep` / `rg` / `search` | `ctx_search(pattern, path)` | Compact, token-efficient results |
 | `ls` / `find` / `tree` | `ctx_tree(path, depth)` | Compact directory maps with file counts |
+
+## How to call in Cursor (exact syntax):
+```
+CallMcpTool(server="user-lean-ctx", toolName="ctx_read", arguments={"path": "/src/main.rs", "mode": "full"})
+CallMcpTool(server="user-lean-ctx", toolName="ctx_shell", arguments={"command": "cargo test"})
+CallMcpTool(server="user-lean-ctx", toolName="ctx_search", arguments={"pattern": "fn main", "path": "src/"})
+CallMcpTool(server="user-lean-ctx", toolName="ctx_tree", arguments={"path": ".", "depth": 3})
+```
 
 ## ctx_read modes:
 - `full` — cached read (for files you edit)
@@ -550,7 +571,7 @@ mod tests {
         assert!(matches!(result, RulesResult::Updated));
 
         let new_content = std::fs::read_to_string(&path).unwrap();
-        assert!(new_content.contains("lean-ctx-rules-v3"));
+        assert!(new_content.contains("lean-ctx-rules-v4"));
         assert!(new_content.starts_with("user stuff"));
         assert!(new_content.contains("more user stuff"));
         assert!(!new_content.contains("lean-ctx-rules-v2"));
@@ -568,7 +589,7 @@ mod tests {
         assert!(matches!(result, RulesResult::Updated));
 
         let new_content = std::fs::read_to_string(&path).unwrap();
-        assert!(new_content.contains("lean-ctx-rules-v3"));
+        assert!(new_content.contains("lean-ctx-rules-v4"));
         assert!(new_content.starts_with("user stuff"));
 
         std::fs::remove_file(&path).ok();
