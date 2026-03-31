@@ -586,16 +586,16 @@ pub fn format_cep_report() -> String {
         0.0
     };
     let m = t.muted.fg();
+    let shell_bar = theme::pad_right(&t.gradient_bar(shell_ratio, bar_w), bar_w);
     o.push(format!(
-        "  {m}Shell Hook{r}   {bar} {b}{:>6}{r} {d}({:.0}%){r}",
+        "  {m}Shell Hook{r}   {shell_bar} {b}{:>6}{r} {d}({:.0}%){r}",
         format_big(shell_saved),
         (1.0 - cep_share) * 100.0 / 100.0 * 100.0,
-        bar = t.gradient_bar(shell_ratio, bar_w),
     ));
+    let cep_bar = theme::pad_right(&t.gradient_bar(cep_ratio, bar_w), bar_w);
     o.push(format!(
-        "  {m}MCP/CEP{r}      {bar} {b}{:>6}{r} {d}({cep_share:.0}%){r}",
+        "  {m}MCP/CEP{r}      {cep_bar} {b}{:>6}{r} {d}({cep_share:.0}%){r}",
         format_big(total_saved),
-        bar = t.gradient_bar(cep_ratio, bar_w),
     ));
     o.push(String::new());
 
@@ -624,7 +624,7 @@ pub fn format_cep_report() -> String {
 
         for (mode, count) in &sorted_modes {
             let ratio = **count as f64 / max_mode as f64;
-            let bar = t.gradient_bar(ratio, 20);
+            let bar = theme::pad_right(&t.gradient_bar(ratio, 20), 20);
             o.push(format!("  {sec}{:<14}{r} {:>4}x  {bar}", mode, count,));
         }
 
@@ -717,47 +717,43 @@ pub fn format_gain_themed(t: &Theme) -> String {
     let days_active = store.daily.len();
 
     let w = 56;
+    let side = t.box_side();
+
+    let box_line = |content: &str| -> String {
+        let padded = theme::pad_right(content, w);
+        format!("  {side}{padded}{side}")
+    };
+
     o.push(String::new());
-    o.push(format!("  {box_top}", box_top = t.box_top(w)));
-    o.push(format!(
-        "  {side}  {icon} {b}{title}{r}  {d}Token Savings Dashboard{r}  {side_r}",
-        side = t.box_side(),
+    o.push(format!("  {}", t.box_top(w)));
+
+    let header = format!(
+        "  {icon} {b}{title}{r}  {d}Token Savings Dashboard{r}",
         icon = t.header_icon(),
         title = t.section_title("lean-ctx"),
-        side_r = t.box_side(),
-    ));
-    o.push(format!("  {mid}", mid = t.box_mid(w)));
-    o.push(format!(
-        "  {side}                                                        {side_r}",
-        side = t.box_side(),
-        side_r = t.box_side(),
-    ));
+    );
+    o.push(box_line(&header));
+    o.push(format!("  {}", t.box_mid(w)));
 
     let tok_val = format_big(total_saved);
     let pct_val = format!("{pct:.1}%");
     let cmd_val = format_num(store.total_commands);
     let usd_val = format_usd(cost.total_saved);
 
-    o.push(format!(
-        "  {side}   {c1}{b} {tok_val:<10} {r}  {c2}{b} {pct_val:<10} {r}  {c3}{b} {cmd_val:<8} {r}  {c4}{b} {usd_val:<8} {r} {side_r}",
-        side = t.box_side(),
-        c1 = t.success.fg(),
-        c2 = t.secondary.fg(),
-        c3 = t.warning.fg(),
-        c4 = t.accent.fg(),
-        side_r = t.box_side(),
-    ));
-    o.push(format!(
-        "  {side}   {d} tokens saved   compression    commands     USD saved  {r} {side_r}",
-        side = t.box_side(),
-        side_r = t.box_side(),
-    ));
-    o.push(format!(
-        "  {side}                                                        {side_r}",
-        side = t.box_side(),
-        side_r = t.box_side(),
-    ));
-    o.push(format!("  {bot}", bot = t.box_bottom(w)));
+    let c1 = t.success.fg();
+    let c2 = t.secondary.fg();
+    let c3 = t.warning.fg();
+    let c4 = t.accent.fg();
+
+    o.push(box_line(""));
+    let kpi_line = format!(
+        "   {c1}{b}{tok_val:<12}{r}  {c2}{b}{pct_val:<12}{r}  {c3}{b}{cmd_val:<10}{r}  {c4}{b}{usd_val:<10}{r}",
+    );
+    o.push(box_line(&kpi_line));
+    let label_line = format!("   {d}tokens saved    compression     commands      USD saved{r}",);
+    o.push(box_line(&label_line));
+    o.push(box_line(""));
+    o.push(format!("  {}", t.box_bottom(w)));
     o.push(String::new());
 
     let cost_title = t.section_title("Cost Breakdown");
@@ -842,10 +838,10 @@ pub fn format_gain_themed(t: &Theme) -> String {
                 0.0
             };
             let ratio = cmd_saved as f64 / max_cmd_saved as f64;
-            let bar = t.gradient_bar(ratio, 20);
+            let bar = theme::pad_right(&t.gradient_bar(ratio, 20), 20);
             let pc = t.pct_color(cmd_pct);
             o.push(format!(
-                "  {m}{:<16}{r} {:>5}x  {bar:<20} {b}{pc}{:>6}{r}  {d}{cmd_pct:.0}%{r}",
+                "  {m}{:<16}{r} {:>5}x  {bar} {b}{pc}{:>6}{r}  {d}{cmd_pct:.0}%{r}",
                 truncate_cmd(cmd, 16),
                 stats.count,
                 format_big(cmd_saved),
@@ -1019,7 +1015,7 @@ pub fn format_gain_graph() -> String {
     for (i, day) in days.iter().enumerate() {
         let saved = savings[i];
         let ratio = saved as f64 / max_saved as f64;
-        let bar = t.gradient_bar(ratio, bar_width);
+        let bar = theme::pad_right(&t.gradient_bar(ratio, bar_width), bar_width);
 
         let input_saved = day.input_tokens.saturating_sub(day.output_tokens);
         let pct = if day.input_tokens > 0 {
@@ -1030,11 +1026,10 @@ pub fn format_gain_graph() -> String {
         let date_short = day.date.get(5..).unwrap_or(&day.date);
 
         o.push(format!(
-            "  {m}{date_short}{r} {brd}│{r} {bar:<width$} {b}{:>6}{r} {d}{pct:.0}%{r}",
+            "  {m}{date_short}{r} {brd}│{r} {bar} {b}{:>6}{r} {d}{pct:.0}%{r}",
             format_big(saved),
             m = t.muted.fg(),
             brd = t.border.fg(),
-            width = bar_width,
         ));
     }
 
@@ -1069,26 +1064,31 @@ pub fn format_gain_daily() -> String {
     let mut o = Vec::new();
     let w = 64;
 
+    let side = t.box_side();
+    let daily_box = |content: &str| -> String {
+        let padded = theme::pad_right(content, w);
+        format!("  {side}{padded}{side}")
+    };
+
     o.push(String::new());
     o.push(format!(
         "  {icon} {title}  {d}Daily Breakdown{r}",
         icon = t.header_icon(),
         title = t.section_title("lean-ctx"),
     ));
-    o.push(format!("  {top}", top = t.box_top(w)));
-    o.push(format!(
-        "  {side} {b}{txt}{:<12} {:>6}  {:>10}  {:>10}  {:>7}  {:>6}{r} {side_r}",
+    o.push(format!("  {}", t.box_top(w)));
+    let hdr = format!(
+        " {b}{txt}{:<12} {:>6}  {:>10}  {:>10}  {:>7}  {:>6}{r}",
         "Date",
         "Cmds",
         "Input",
         "Saved",
         "Rate",
         "USD",
-        side = t.box_side(),
-        side_r = t.box_side(),
         txt = t.text.fg(),
-    ));
-    o.push(format!("  {mid}", mid = t.box_mid(w)));
+    );
+    o.push(daily_box(&hdr));
+    o.push(format!("  {}", t.box_mid(w)));
 
     let days: Vec<_> = store
         .daily
@@ -1112,18 +1112,17 @@ pub fn format_gain_daily() -> String {
         };
         let pc = t.pct_color(pct);
         let usd = usd_estimate(saved);
-        o.push(format!(
-            "  {side} {m}{:<12}{r} {:>6}  {:>10}  {pc}{b}{:>10}{r}  {pc}{:>6.1}%{r}  {d}{:>6}{r} {side_r}",
+        let row = format!(
+            " {m}{:<12}{r} {:>6}  {:>10}  {pc}{b}{:>10}{r}  {pc}{:>6.1}%{r}  {d}{:>6}{r}",
             &day.date,
             day.commands,
             format_big(day.input_tokens),
             format_big(saved),
             pct,
             usd,
-            side = t.box_side(),
-            side_r = t.box_side(),
             m = t.muted.fg(),
-        ));
+        );
+        o.push(daily_box(&row));
     }
 
     let total_input: u64 = store.daily.iter().map(|day| day.input_tokens).sum();
@@ -1145,20 +1144,19 @@ pub fn format_gain_daily() -> String {
     let total_usd = usd_estimate(total_saved);
     let sc = t.success.fg();
 
-    o.push(format!("  {mid}", mid = t.box_mid(w)));
-    o.push(format!(
-        "  {side} {b}{txt}{:<12}{r} {:>6}  {:>10}  {sc}{b}{:>10}{r}  {sc}{b}{:>6.1}%{r}  {b}{:>6}{r} {side_r}",
+    o.push(format!("  {}", t.box_mid(w)));
+    let total_row = format!(
+        " {b}{txt}{:<12}{r} {:>6}  {:>10}  {sc}{b}{:>10}{r}  {sc}{b}{:>6.1}%{r}  {b}{:>6}{r}",
         "TOTAL",
         format_num(store.total_commands),
         format_big(total_input),
         format_big(total_saved),
         total_pct,
         total_usd,
-        side = t.box_side(),
-        side_r = t.box_side(),
         txt = t.text.fg(),
-    ));
-    o.push(format!("  {bot}", bot = t.box_bottom(w)));
+    );
+    o.push(daily_box(&total_row));
+    o.push(format!("  {}", t.box_bottom(w)));
 
     let daily_savings: Vec<u64> = days.iter().map(|day| day_total_saved(day, &cm)).collect();
     let spark = t.gradient_sparkline(&daily_savings);
