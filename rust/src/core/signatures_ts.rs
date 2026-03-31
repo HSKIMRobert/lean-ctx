@@ -107,7 +107,52 @@ const QUERY_PHP: &str = r#"
 (method_declaration name: (name) @name) @def
 "#;
 
+const QUERY_BASH: &str = r#"
+(function_definition name: (word) @name) @def
+"#;
+
+const QUERY_DART: &str = r#"
+(class_declaration name: (identifier) @name) @def
+(enum_declaration name: (identifier) @name) @def
+(mixin_declaration (identifier) @name) @def
+(type_alias (type_identifier) @name) @def
+"#;
+
+const QUERY_SCALA: &str = r#"
+(class_definition name: (identifier) @name) @def
+(object_definition name: (identifier) @name) @def
+(trait_definition name: (identifier) @name) @def
+(enum_definition name: (identifier) @name) @def
+(function_definition name: (identifier) @name) @def
+(type_definition name: (type_identifier) @name) @def
+"#;
+
+const QUERY_ELIXIR: &str = r#"
+(call
+  target: (identifier) @_keyword
+  (arguments (alias) @name)
+  (#any-of? @_keyword "defmodule" "defprotocol")) @def
+
+(call
+  target: (identifier) @_keyword
+  (arguments
+    [
+      (identifier) @name
+      (call target: (identifier) @name)
+      (binary_operator left: (call target: (identifier) @name) operator: "when")
+    ])
+  (#any-of? @_keyword "def" "defp" "defmacro" "defmacrop")) @def
+"#;
+
+const QUERY_ZIG: &str = r#"
+(function_declaration name: (identifier) @name) @def
+"#;
+
 pub fn extract_signatures_ts(content: &str, file_ext: &str) -> Option<Vec<Signature>> {
+    if matches!(file_ext, "svelte" | "vue") {
+        return extract_sfc_signatures(content);
+    }
+
     let language = get_language(file_ext)?;
     let query_src = get_query(file_ext)?;
 
@@ -172,6 +217,11 @@ fn get_language(ext: &str) -> Option<Language> {
         "kt" | "kts" => tree_sitter_kotlin_ng::LANGUAGE.into(),
         "swift" => tree_sitter_swift::LANGUAGE.into(),
         "php" => tree_sitter_php::LANGUAGE_PHP.into(),
+        "sh" | "bash" => tree_sitter_bash::LANGUAGE.into(),
+        "dart" => tree_sitter_dart::LANGUAGE.into(),
+        "scala" | "sc" => tree_sitter_scala::LANGUAGE.into(),
+        "ex" | "exs" => tree_sitter_elixir::LANGUAGE.into(),
+        "zig" => tree_sitter_zig::LANGUAGE.into(),
         _ => return None,
     })
 }
@@ -191,6 +241,11 @@ fn get_query(ext: &str) -> Option<&'static str> {
         "kt" | "kts" => QUERY_KOTLIN,
         "swift" => QUERY_SWIFT,
         "php" => QUERY_PHP,
+        "sh" | "bash" => QUERY_BASH,
+        "dart" => QUERY_DART,
+        "scala" | "sc" => QUERY_SCALA,
+        "ex" | "exs" => QUERY_ELIXIR,
+        "zig" => QUERY_ZIG,
         _ => return None,
     })
 }
@@ -219,10 +274,15 @@ fn node_to_signature(node: &Node, name: &str, ext: &str, source: &[u8]) -> Optio
         "function_declaration" => match ext {
             "kt" | "kts" => kotlin_function(node, name, source),
             "swift" => swift_function(node, name, source),
+            "zig" => zig_function(node, name, source),
             _ => ts_or_go_function(node, name, ext, source),
         },
         "protocol_function_declaration" => swift_protocol_function(node, name, source),
-        "function_definition" => py_or_c_function(node, name, ext, start_col, source),
+        "function_definition" => match ext {
+            "sh" | "bash" => simple_def(name, "fn"),
+            "scala" | "sc" => scala_function(node, name, source),
+            _ => py_or_c_function(node, name, ext, start_col, source),
+        },
         "method_definition" => ts_method(node, name, source),
         "method_declaration" => go_or_java_method(node, name, ext, source),
         "variable_declarator" => ts_arrow_function(node, name, source),
@@ -273,7 +333,7 @@ fn node_to_signature(node: &Node, name: &str, ext: &str, source: &[u8]) -> Optio
         "type_definition" => simple_def(name, "type"),
         "namespace_definition" => simple_def(name, "class"),
 
-        "enum_declaration" | "enum_specifier" => {
+        "enum_declaration" | "enum_specifier" | "enum_definition" => {
             let exported = match ext {
                 "java" => has_modifier(node, "public", source),
                 "cs" => csharp_has_modifier_text(node, "public", source),
@@ -294,6 +354,17 @@ fn node_to_signature(node: &Node, name: &str, ext: &str, source: &[u8]) -> Optio
 
         "method" | "singleton_method" => ruby_method(node, name, source),
         "constructor_declaration" => java_constructor(node, name, source),
+
+        // Dart
+        "mixin_declaration" => simple_def(name, "class"),
+        "type_alias" => simple_def(name, "type"),
+
+        // Scala
+        "object_definition" => simple_def(name, "class"),
+        "trait_definition" => simple_def(name, "trait"),
+
+        // Elixir — defmodule/def/defp are all `call` nodes
+        "call" if ext == "ex" || ext == "exs" => elixir_call(node, name, source),
 
         _ => None,
     }
@@ -738,6 +809,109 @@ fn csharp_has_modifier_text(node: &Node, needle: &str, source: &[u8]) -> bool {
         }
     }
     false
+}
+
+// ---------------------------------------------------------------------------
+// Scala handlers
+// ---------------------------------------------------------------------------
+
+fn scala_function(node: &Node, name: &str, source: &[u8]) -> Option<Signature> {
+    let params = field_text(node, "parameters", source);
+    let ret = field_text(node, "return_type", source);
+    let is_method = node.start_position().column > 0;
+    Some(Signature {
+        kind: if is_method { "method" } else { "fn" },
+        name: name.to_string(),
+        params: super::signatures::compact_params(&strip_parens(&params)),
+        return_type: clean_return_type(&ret),
+        is_async: false,
+        is_exported: !name.starts_with('_'),
+        indent: if is_method { 2 } else { 0 },
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Elixir handlers
+// ---------------------------------------------------------------------------
+
+fn elixir_call(node: &Node, name: &str, source: &[u8]) -> Option<Signature> {
+    let target = node
+        .child_by_field_name("target")
+        .and_then(|n| n.utf8_text(source).ok())
+        .unwrap_or("");
+    match target {
+        "defmodule" | "defprotocol" => Some(Signature {
+            kind: "class",
+            name: name.to_string(),
+            params: String::new(),
+            return_type: String::new(),
+            is_async: false,
+            is_exported: true,
+            indent: 0,
+        }),
+        "def" | "defmacro" | "defdelegate" | "defguard" => Some(Signature {
+            kind: "fn",
+            name: name.to_string(),
+            params: String::new(),
+            return_type: String::new(),
+            is_async: false,
+            is_exported: true,
+            indent: 2,
+        }),
+        "defp" | "defmacrop" | "defguardp" => Some(Signature {
+            kind: "fn",
+            name: name.to_string(),
+            params: String::new(),
+            return_type: String::new(),
+            is_async: false,
+            is_exported: false,
+            indent: 2,
+        }),
+        _ => None,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Zig handlers
+// ---------------------------------------------------------------------------
+
+fn zig_function(node: &Node, name: &str, source: &[u8]) -> Option<Signature> {
+    let params = field_text(node, "parameters", source);
+    let ret = field_text(node, "return_type", source);
+    let exported = has_keyword_child(node, "pub");
+    Some(Signature {
+        kind: "fn",
+        name: name.to_string(),
+        params: super::signatures::compact_params(&strip_parens(&params)),
+        return_type: clean_return_type(&ret),
+        is_async: false,
+        is_exported: exported,
+        indent: 0,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// SFC (Single File Component) support for Svelte/Vue
+// ---------------------------------------------------------------------------
+
+fn extract_sfc_signatures(content: &str) -> Option<Vec<Signature>> {
+    let script_content = extract_script_block(content)?;
+    let is_ts = content.contains("lang=\"ts\"") || content.contains("lang=\"typescript\"");
+    let ext = if is_ts { "ts" } else { "js" };
+    extract_signatures_ts(&script_content, ext)
+}
+
+fn extract_script_block(content: &str) -> Option<String> {
+    let lower = content.to_lowercase();
+    let start_tag_pos = lower.find("<script")?;
+    let tag_end = content[start_tag_pos..].find('>')? + start_tag_pos + 1;
+    let end_tag = "</script>";
+    let end_pos = lower[tag_end..].find(end_tag)? + tag_end;
+    let script = &content[tag_end..end_pos];
+    if script.trim().is_empty() {
+        return None;
+    }
+    Some(script.to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -1215,5 +1389,190 @@ trait Loggable { function log(): void {} }
     fn test_unsupported_extension_returns_none() {
         let sigs = extract_signatures_ts("some content", "xyz");
         assert!(sigs.is_none());
+    }
+
+    #[test]
+    fn test_bash_signatures() {
+        let src = r#"
+greet() {
+    echo "Hello $1"
+}
+
+function cleanup {
+    rm -rf /tmp/build
+}
+
+function deploy() {
+    echo "deploying"
+}
+"#;
+        let sigs = extract_signatures_ts(src, "sh").unwrap();
+        assert!(sigs.len() >= 2, "expected >=2 sigs, got {}", sigs.len());
+        let names: Vec<&str> = sigs.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"greet"), "got {:?}", names);
+        assert!(names.contains(&"cleanup"), "got {:?}", names);
+    }
+
+    #[test]
+    fn test_dart_signatures() {
+        let src = r#"
+class UserService {
+  Future<User> getUser(int id) async {
+    return db.find(id);
+  }
+}
+
+enum Status { active, inactive }
+
+mixin Logging {
+  void log(String msg) => print(msg);
+}
+
+typedef JsonMap = Map<String, dynamic>;
+"#;
+        let sigs = extract_signatures_ts(src, "dart").unwrap();
+        let names: Vec<&str> = sigs.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"UserService"), "got {:?}", names);
+        assert!(names.contains(&"Status"), "got {:?}", names);
+        assert!(names.contains(&"Logging"), "got {:?}", names);
+    }
+
+    #[test]
+    fn test_scala_signatures() {
+        let src = r#"
+package example
+
+trait Handler {
+  def handle(): Unit
+}
+
+class UserService(db: Database) {
+  def findUser(id: Int): Option[User] = db.find(id)
+  private def validate(user: User): Boolean = true
+}
+
+object Factory {
+  def create(): UserService = new UserService(db)
+}
+
+enum Color:
+  case Red, Green, Blue
+
+type UserId = String
+"#;
+        let sigs = extract_signatures_ts(src, "scala").unwrap();
+        let names: Vec<&str> = sigs.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"Handler"), "got {:?}", names);
+        assert!(names.contains(&"UserService"), "got {:?}", names);
+        assert!(names.contains(&"Factory"), "got {:?}", names);
+        assert!(names.contains(&"findUser"), "got {:?}", names);
+    }
+
+    #[test]
+    fn test_elixir_signatures() {
+        let src = r#"
+defmodule MyApp.UserService do
+  def get_user(id) do
+    Repo.get(User, id)
+  end
+
+  defp validate(user) do
+    user.valid?
+  end
+
+  defmacro trace(expr) do
+    quote do: IO.inspect(unquote(expr))
+  end
+end
+
+defprotocol Printable do
+  def print(data)
+end
+"#;
+        let sigs = extract_signatures_ts(src, "ex").unwrap();
+        let names: Vec<&str> = sigs.iter().map(|s| s.name.as_str()).collect();
+        assert!(
+            names.contains(&"MyApp.UserService") || names.contains(&"UserService"),
+            "got {:?}",
+            names
+        );
+    }
+
+    #[test]
+    fn test_svelte_signatures() {
+        let src = r#"
+<script lang="ts">
+export function greet(name: string): string {
+    return `Hello ${name}`;
+}
+
+export class Counter {
+    count = 0;
+    increment() { this.count++; }
+}
+</script>
+
+<div>{greeting}</div>
+"#;
+        let sigs = extract_signatures_ts(src, "svelte").unwrap();
+        let names: Vec<&str> = sigs.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"greet"), "got {:?}", names);
+        assert!(names.contains(&"Counter"), "got {:?}", names);
+    }
+
+    #[test]
+    fn test_vue_signatures() {
+        let src = r#"
+<template>
+  <div>{{ msg }}</div>
+</template>
+
+<script>
+export default {
+  name: 'MyComponent'
+}
+
+export function helper(x) {
+    return x * 2;
+}
+
+export class DataService {
+    fetch() { return []; }
+}
+</script>
+"#;
+        let sigs = extract_signatures_ts(src, "vue").unwrap();
+        let names: Vec<&str> = sigs.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"helper"), "got {:?}", names);
+        assert!(names.contains(&"DataService"), "got {:?}", names);
+    }
+
+    #[test]
+    fn test_zig_signatures() {
+        let src = r#"
+const std = @import("std");
+
+pub fn init(allocator: std.mem.Allocator) !*Self {
+    return allocator.create(Self);
+}
+
+fn helper(x: u32) u32 {
+    return x * 2;
+}
+
+pub fn main() !void {
+    std.debug.print("hello\n", .{});
+}
+"#;
+        let sigs = extract_signatures_ts(src, "zig").unwrap();
+        let names: Vec<&str> = sigs.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"init"), "got {:?}", names);
+        assert!(names.contains(&"helper"), "got {:?}", names);
+        assert!(names.contains(&"main"), "got {:?}", names);
+
+        let init_sig = sigs.iter().find(|s| s.name == "init").unwrap();
+        assert!(init_sig.is_exported);
+        let helper_sig = sigs.iter().find(|s| s.name == "helper").unwrap();
+        assert!(!helper_sig.is_exported);
     }
 }

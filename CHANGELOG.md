@@ -2,6 +2,27 @@
 
 All notable changes to lean-ctx are documented here.
 
+## [2.10.0] — 2026-03-29
+
+### Added
+
+- **Task-Conditioned Compression** — New `task` mode in `ctx_read` uses the Information Bottleneck filter to return only task-relevant lines. A 2000-line file shrinks to ~600 lines when a task is set, yielding **70% token savings** on large code files
+- **Auto-Task-Enhancement** — When reading large code files (>1000 tokens) in `full` mode with a session task set, automatically applies IB filtering at 50% budget ratio. Output is marked with `[task-enhanced]`
+- **Smart Default Mode** — `ctx_read` without an explicit mode now auto-selects the optimal compression (diff for changed files, task for large code with task, signatures for huge files) instead of always using `full`
+- **`reference` Mode** — One-line metadata output (`path: N lines, M tok (ext)`) for files that are almost certainly irrelevant. Near-100% token savings
+- **tree-sitter Dart** — Full AST-based signature extraction for Dart (classes, enums, mixins, typedefs)
+- **tree-sitter Bash/Shell** — Function definitions in `.sh`/`.bash` files
+- **tree-sitter Scala** — Classes, objects, traits, enums, functions, type definitions
+- **tree-sitter Elixir** — Modules (`defmodule`), functions (`def`/`defp`), macros (`defmacro`)
+- **tree-sitter Zig** — Function declarations with pub/private visibility
+- **Svelte/Vue SFC Support** — Extracts `<script>` blocks from `.svelte`/`.vue` files and parses them as TypeScript/JavaScript for proper signature extraction
+
+### Changed
+
+- Task context from session state is now passed through to `ctx_read` for task-aware compression
+- `select_mode` in `ctx_smart_read` now considers task context when choosing the default mode
+- Total supported tree-sitter languages: **19** (was 14)
+
 ## [2.9.16] — 2026-03-31
 
 ### Added

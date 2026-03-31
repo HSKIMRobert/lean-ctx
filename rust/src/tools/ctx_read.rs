@@ -19,11 +19,31 @@ pub fn read_file_lossy(path: &str) -> Result<String, std::io::Error> {
 }
 
 pub fn handle(cache: &mut SessionCache, path: &str, mode: &str, crp_mode: CrpMode) -> String {
-    handle_with_options(cache, path, mode, false, crp_mode)
+    handle_with_options(cache, path, mode, false, crp_mode, None)
 }
 
 pub fn handle_fresh(cache: &mut SessionCache, path: &str, mode: &str, crp_mode: CrpMode) -> String {
-    handle_with_options(cache, path, mode, true, crp_mode)
+    handle_with_options(cache, path, mode, true, crp_mode, None)
+}
+
+pub fn handle_with_task(
+    cache: &mut SessionCache,
+    path: &str,
+    mode: &str,
+    crp_mode: CrpMode,
+    task: Option<&str>,
+) -> String {
+    handle_with_options(cache, path, mode, false, crp_mode, task)
+}
+
+pub fn handle_fresh_with_task(
+    cache: &mut SessionCache,
+    path: &str,
+    mode: &str,
+    crp_mode: CrpMode,
+    task: Option<&str>,
+) -> String {
+    handle_with_options(cache, path, mode, true, crp_mode, task)
 }
 
 fn handle_with_options(
@@ -32,6 +52,7 @@ fn handle_with_options(
     mode: &str,
     fresh: bool,
     crp_mode: CrpMode,
+    task: Option<&str>,
 ) -> String {
     let file_ref = cache.get_file_ref(path);
     let short = protocol::shorten_path(path);
@@ -50,7 +71,8 @@ fn handle_with_options(
 
     if cache.get(path).is_some() {
         if mode == "full" {
-            return handle_full_with_auto_delta(cache, path, &file_ref, &short, ext, crp_mode);
+            let result = handle_full_with_auto_delta(cache, path, &file_ref, &short, ext, crp_mode);
+            return maybe_apply_task_filter(result, cache, path, task);
         }
         let existing = cache.get(path).unwrap();
         let content = existing.content.clone();
@@ -64,6 +86,7 @@ fn handle_with_options(
             original_tokens,
             crp_mode,
             path,
+            task,
         );
     }
 
@@ -75,7 +98,8 @@ fn handle_with_options(
     let (entry, _is_hit) = cache.store(path, content.clone());
 
     if mode == "full" {
-        return format_full_output(cache, &file_ref, &short, ext, &content, &entry, crp_mode);
+        let result = format_full_output(cache, &file_ref, &short, ext, &content, &entry, crp_mode);
+        return maybe_apply_task_filter(result, cache, path, task);
     }
 
     process_mode(
@@ -87,6 +111,7 @@ fn handle_with_options(
         entry.original_tokens,
         crp_mode,
         path,
+        task,
     )
 }
 
@@ -182,6 +207,70 @@ fn format_full_output(
     format!("{output}\n{savings}")
 }
 
+const TASK_FILTER_TOKEN_THRESHOLD: usize = 1000;
+const TASK_FILTER_BUDGET_RATIO: f64 = 0.5;
+
+fn maybe_apply_task_filter(
+    full_output: String,
+    cache: &mut SessionCache,
+    path: &str,
+    task: Option<&str>,
+) -> String {
+    let task_str = match task {
+        Some(t) if !t.is_empty() => t,
+        _ => return full_output,
+    };
+
+    let ext = Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+
+    if !crate::tools::ctx_smart_read::is_code_ext(ext) {
+        return full_output;
+    }
+
+    let original_tokens = match cache.get(path) {
+        Some(entry) => entry.original_tokens,
+        None => return full_output,
+    };
+
+    if original_tokens < TASK_FILTER_TOKEN_THRESHOLD {
+        return full_output;
+    }
+
+    let content = match cache.get(path) {
+        Some(entry) => entry.content.clone(),
+        None => return full_output,
+    };
+
+    let (_files, keywords) = crate::core::task_relevance::parse_task_hints(task_str);
+    if keywords.is_empty() {
+        return full_output;
+    }
+
+    let original_lines = content.lines().count();
+    let filtered = crate::core::task_relevance::information_bottleneck_filter(
+        &content,
+        &keywords,
+        TASK_FILTER_BUDGET_RATIO,
+    );
+    let filtered_lines = filtered.lines().count();
+
+    if filtered_lines >= original_lines {
+        return full_output;
+    }
+
+    let file_ref = cache.get_file_ref(path);
+    let short = protocol::shorten_path(path);
+    let header = format!(
+        "{file_ref}={short} {original_lines}L [task-enhanced: {original_lines}→{filtered_lines}]"
+    );
+    let sent = count_tokens(&filtered) + count_tokens(&header);
+    let savings = protocol::format_savings(original_tokens, sent);
+    format!("{header}\n{filtered}\n{savings}")
+}
+
 fn build_header(
     file_ref: &str,
     short: &str,
@@ -227,6 +316,7 @@ fn process_mode(
     original_tokens: usize,
     crp_mode: CrpMode,
     file_path: &str,
+    task: Option<&str>,
 ) -> String {
     let line_count = content.lines().count();
 
@@ -247,6 +337,7 @@ fn process_mode(
                 original_tokens,
                 crp_mode,
                 file_path,
+                task,
             )
         }
         "signatures" => {
@@ -360,6 +451,36 @@ fn process_mode(
             let savings = protocol::format_savings(original_tokens, sent);
             format!("{output}\n{savings}")
         }
+        "task" => {
+            let task_str = task.unwrap_or("");
+            if task_str.is_empty() {
+                let header = build_header(file_ref, short, ext, content, line_count, true);
+                return format!("{header}\n{content}\n[task mode: no task set — returned full]");
+            }
+            let (_files, keywords) = crate::core::task_relevance::parse_task_hints(task_str);
+            if keywords.is_empty() {
+                let header = build_header(file_ref, short, ext, content, line_count, true);
+                return format!(
+                    "{header}\n{content}\n[task mode: no keywords extracted — returned full]"
+                );
+            }
+            let filtered =
+                crate::core::task_relevance::information_bottleneck_filter(content, &keywords, 0.3);
+            let filtered_lines = filtered.lines().count();
+            let header = format!(
+                "{file_ref}={short} {line_count}L [task-filtered: {line_count}→{filtered_lines}]"
+            );
+            let sent = count_tokens(&filtered) + count_tokens(&header);
+            let savings = protocol::format_savings(original_tokens, sent);
+            format!("{header}\n{filtered}\n{savings}")
+        }
+        "reference" => {
+            let tok = count_tokens(content);
+            let output = format!("{file_ref}={short}: {line_count} lines, {tok} tok ({ext})");
+            let sent = count_tokens(&output);
+            let savings = protocol::format_savings(original_tokens, sent);
+            format!("{output}\n{savings}")
+        }
         mode if mode.starts_with("lines:") => {
             let range_str = &mode[6..];
             let extracted = extract_line_range(content, range_str);
@@ -455,6 +576,205 @@ mod tests {
             let tok = count_tokens(sym);
             assert!(tok <= 2, "Symbol {sym} should be 1-2 tokens, got {tok}");
         }
+    }
+
+    #[test]
+    fn test_task_mode_filters_content() {
+        let content = (0..200)
+            .map(|i| {
+                if i % 20 == 0 {
+                    format!("fn validate_token(token: &str) -> bool {{ /* line {i} */ }}")
+                } else {
+                    format!("fn unrelated_helper_{i}(x: i32) -> i32 {{ x + {i} }}")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let full_tokens = count_tokens(&content);
+        let task = Some("fix bug in validate_token");
+        let result = process_mode(
+            &content,
+            "task",
+            "F1",
+            "test.rs",
+            "rs",
+            full_tokens,
+            CrpMode::Off,
+            "test.rs",
+            task,
+        );
+        let result_tokens = count_tokens(&result);
+        assert!(
+            result_tokens < full_tokens,
+            "task mode ({result_tokens} tok) should be less than full ({full_tokens} tok)"
+        );
+        assert!(
+            result.contains("task-filtered"),
+            "output should contain task-filtered marker"
+        );
+    }
+
+    #[test]
+    fn test_task_mode_without_task_returns_full() {
+        let content = "fn main() {}\nfn helper() {}\n";
+        let tokens = count_tokens(content);
+        let result = process_mode(
+            content,
+            "task",
+            "F1",
+            "test.rs",
+            "rs",
+            tokens,
+            CrpMode::Off,
+            "test.rs",
+            None,
+        );
+        assert!(
+            result.contains("no task set"),
+            "should indicate no task: {result}"
+        );
+    }
+
+    #[test]
+    fn test_reference_mode_one_line() {
+        let content = "fn main() {}\nfn helper() {}\nfn other() {}\n";
+        let tokens = count_tokens(content);
+        let result = process_mode(
+            content,
+            "reference",
+            "F1",
+            "test.rs",
+            "rs",
+            tokens,
+            CrpMode::Off,
+            "test.rs",
+            None,
+        );
+        let lines: Vec<&str> = result.lines().collect();
+        assert!(
+            lines.len() <= 3,
+            "reference mode should be very compact, got {} lines",
+            lines.len()
+        );
+        assert!(result.contains("lines"), "should contain line count");
+        assert!(result.contains("tok"), "should contain token count");
+    }
+
+    #[test]
+    fn benchmark_task_conditioned_compression() {
+        let content = generate_benchmark_code(500);
+        let full_tokens = count_tokens(&content);
+        let task = Some("fix authentication in validate_token");
+
+        let full_output = process_mode(
+            &content,
+            "full",
+            "F1",
+            "server.rs",
+            "rs",
+            full_tokens,
+            CrpMode::Off,
+            "server.rs",
+            task,
+        );
+        let task_output = process_mode(
+            &content,
+            "task",
+            "F1",
+            "server.rs",
+            "rs",
+            full_tokens,
+            CrpMode::Off,
+            "server.rs",
+            task,
+        );
+        let sig_output = process_mode(
+            &content,
+            "signatures",
+            "F1",
+            "server.rs",
+            "rs",
+            full_tokens,
+            CrpMode::Off,
+            "server.rs",
+            task,
+        );
+        let ref_output = process_mode(
+            &content,
+            "reference",
+            "F1",
+            "server.rs",
+            "rs",
+            full_tokens,
+            CrpMode::Off,
+            "server.rs",
+            task,
+        );
+
+        let full_tok = count_tokens(&full_output);
+        let task_tok = count_tokens(&task_output);
+        let sig_tok = count_tokens(&sig_output);
+        let ref_tok = count_tokens(&ref_output);
+
+        eprintln!("\n=== Task-Conditioned Compression Benchmark ===");
+        eprintln!("Source: 500-line Rust file, task='fix authentication in validate_token'");
+        eprintln!("  full:       {full_tok:>6} tokens (baseline)");
+        eprintln!(
+            "  task:       {task_tok:>6} tokens ({:.0}% savings)",
+            (1.0 - task_tok as f64 / full_tok as f64) * 100.0
+        );
+        eprintln!(
+            "  signatures: {sig_tok:>6} tokens ({:.0}% savings)",
+            (1.0 - sig_tok as f64 / full_tok as f64) * 100.0
+        );
+        eprintln!(
+            "  reference:  {ref_tok:>6} tokens ({:.0}% savings)",
+            (1.0 - ref_tok as f64 / full_tok as f64) * 100.0
+        );
+        eprintln!("================================================\n");
+
+        assert!(task_tok < full_tok, "task mode should save tokens");
+        assert!(sig_tok < full_tok, "signatures should save tokens");
+        assert!(ref_tok < sig_tok, "reference should be most compact");
+    }
+
+    fn generate_benchmark_code(lines: usize) -> String {
+        let mut code = Vec::with_capacity(lines);
+        code.push("use std::collections::HashMap;".to_string());
+        code.push("use crate::core::auth;".to_string());
+        code.push(String::new());
+        code.push("pub struct Server {".to_string());
+        code.push("    config: Config,".to_string());
+        code.push("    cache: HashMap<String, String>,".to_string());
+        code.push("}".to_string());
+        code.push(String::new());
+        code.push("impl Server {".to_string());
+        code.push(
+            "    pub fn validate_token(&self, token: &str) -> Result<Claims, AuthError> {"
+                .to_string(),
+        );
+        code.push("        let decoded = auth::decode_jwt(token)?;".to_string());
+        code.push("        if decoded.exp < chrono::Utc::now().timestamp() {".to_string());
+        code.push("            return Err(AuthError::Expired);".to_string());
+        code.push("        }".to_string());
+        code.push("        Ok(decoded.claims)".to_string());
+        code.push("    }".to_string());
+        code.push(String::new());
+
+        let remaining = lines.saturating_sub(code.len());
+        for i in 0..remaining {
+            if i % 30 == 0 {
+                code.push(format!(
+                    "    pub fn handler_{i}(&self, req: Request) -> Response {{"
+                ));
+            } else if i % 30 == 29 {
+                code.push("    }".to_string());
+            } else {
+                code.push(format!("        let val_{i} = self.cache.get(\"key_{i}\").unwrap_or(&\"default\".to_string());"));
+            }
+        }
+        code.push("}".to_string());
+        code.join("\n")
     }
 }
 

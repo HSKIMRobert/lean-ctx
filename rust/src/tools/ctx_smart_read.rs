@@ -4,6 +4,10 @@ use crate::core::tokens::count_tokens;
 use crate::tools::CrpMode;
 
 pub fn select_mode(cache: &SessionCache, path: &str) -> String {
+    select_mode_with_task(cache, path, None)
+}
+
+pub fn select_mode_with_task(cache: &SessionCache, path: &str, task: Option<&str>) -> String {
     let content = match std::fs::read_to_string(path) {
         Ok(c) => c,
         Err(_) => return "full".to_string(),
@@ -29,6 +33,12 @@ pub fn select_mode(cache: &SessionCache, path: &str) -> String {
 
     if is_config_or_data(ext, path) {
         return "full".to_string();
+    }
+
+    if let Some(t) = task {
+        if !t.is_empty() && token_count > 1000 && is_code(ext) {
+            return "task".to_string();
+        }
     }
 
     let sig = FileSignature::from_path(path, token_count);
@@ -66,6 +76,10 @@ fn compute_hash(content: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
+pub fn is_code_ext(ext: &str) -> bool {
+    is_code(ext)
+}
+
 fn is_code(ext: &str) -> bool {
     matches!(
         ext,
@@ -90,7 +104,12 @@ fn is_code(ext: &str) -> bool {
             | "ex"
             | "exs"
             | "scala"
+            | "sc"
             | "dart"
+            | "sh"
+            | "bash"
+            | "svelte"
+            | "vue"
     )
 }
 

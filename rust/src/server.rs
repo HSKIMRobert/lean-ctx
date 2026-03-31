@@ -51,7 +51,7 @@ impl ServerHandler for LeanCtxServer {
         let instructions = build_instructions(self.crp_mode);
 
         InitializeResult::new(capabilities)
-            .with_server_info(Implementation::new("lean-ctx", "2.9.16"))
+            .with_server_info(Implementation::new("lean-ctx", "2.10.0"))
             .with_instructions(instructions)
     }
 
@@ -75,7 +75,7 @@ impl ServerHandler for LeanCtxServer {
         let capabilities = ServerCapabilities::builder().enable_tools().build();
 
         Ok(InitializeResult::new(capabilities)
-            .with_server_info(Implementation::new("lean-ctx", "2.9.16"))
+            .with_server_info(Implementation::new("lean-ctx", "2.10.0"))
             .with_instructions(instructions))
     }
 
@@ -95,11 +95,14 @@ impl ServerHandler for LeanCtxServer {
                 tools: vec![
                     tool_def(
                         "ctx_read",
-                        "Read files with session caching and 6 compression modes. REPLACES native Read — using Read wastes tokens. \
-                        Re-reads cost ~13 tokens. Modes: full (cached read), signatures (API surface), \
+                        "Read files with session caching and 7 compression modes. REPLACES native Read — using Read wastes tokens. \
+                        Re-reads cost ~13 tokens. \
+                        When no mode is specified, auto-selects the optimal mode based on file size, type, cache state, and task context. \
+                        Modes: full (cached read), signatures (API surface), \
                         map (deps + exports — for context files you won't edit), \
                         diff (changed lines only), aggressive (syntax stripped), \
-                        entropy (Shannon + Jaccard). \
+                        entropy (Shannon + Jaccard), task (task-relevant lines only via IB filter), \
+                        reference (one-line metadata for irrelevant files). \
                         Lines: mode='lines:N-M' (e.g. 'lines:400-500'). \
                         Set fresh=true to bypass cache. Set start_line to read from a specific line.",
                         json!({
@@ -603,7 +606,18 @@ impl ServerHandler for LeanCtxServer {
             "ctx_read" => {
                 let path = get_str(args, "path")
                     .ok_or_else(|| ErrorData::invalid_params("path is required", None))?;
-                let mut mode = get_str(args, "mode").unwrap_or_else(|| "full".to_string());
+                let current_task = {
+                    let session = self.session.read().await;
+                    session.task.as_ref().map(|t| t.description.clone())
+                };
+                let task_ref = current_task.as_deref();
+                let mut mode = match get_str(args, "mode") {
+                    Some(m) => m,
+                    None => {
+                        let cache = self.cache.read().await;
+                        crate::tools::ctx_smart_read::select_mode_with_task(&cache, &path, task_ref)
+                    }
+                };
                 let fresh = get_bool(args, "fresh").unwrap_or(false);
                 let start_line = get_int(args, "start_line");
                 if let Some(sl) = start_line {
@@ -614,18 +628,20 @@ impl ServerHandler for LeanCtxServer {
                 let effective_mode = LeanCtxServer::upgrade_mode_if_stale(&mode, stale).to_string();
                 let mut cache = self.cache.write().await;
                 let output = if fresh {
-                    crate::tools::ctx_read::handle_fresh(
+                    crate::tools::ctx_read::handle_fresh_with_task(
                         &mut cache,
                         &path,
                         &effective_mode,
                         self.crp_mode,
+                        task_ref,
                     )
                 } else {
-                    crate::tools::ctx_read::handle(
+                    crate::tools::ctx_read::handle_with_task(
                         &mut cache,
                         &path,
                         &effective_mode,
                         self.crp_mode,
+                        task_ref,
                     )
                 };
                 let stale_note = if effective_mode != mode {
@@ -1253,7 +1269,9 @@ KEEP using these built-in tools normally (lean-ctx has NO replacement for them):
 You do NOT need to ctx_read a file before creating it with Write.\n\
 \n\
 ctx_read modes: full (cached, for files you edit), map (deps+API, context-only), \
-signatures, diff, aggressive, entropy, lines:N-M (specific line ranges). Re-reads cost ~13 tokens. File refs F1,F2.. persist.\n\
+signatures, diff, task (IB-filtered task-relevant lines), reference (one-line metadata), \
+aggressive, entropy, lines:N-M (specific line ranges). \
+Auto-selects optimal mode when none specified. Re-reads cost ~13 tokens. File refs F1,F2.. persist.\n\
 IMPORTANT: If ctx_read returns 'cached Nt NL' and you need the actual file content, you MUST either:\n\
   1. Set fresh=true to force a full re-read, OR\n\
   2. Use start_line=N to read from a specific line, OR\n\
@@ -1413,8 +1431,9 @@ fn unified_tool_defs() -> Vec<Tool> {
     vec![
         tool_def(
             "ctx_read",
-            "Read files with caching + 6 compression modes. REPLACES native Read. \
-            Re-reads ~13 tok. Modes: full, map, signatures, diff, aggressive, entropy, lines:N-M. \
+            "Read files with caching + 8 compression modes. REPLACES native Read. \
+            Auto-selects optimal mode when none specified. Re-reads ~13 tok. \
+            Modes: full, map, signatures, diff, aggressive, entropy, task, reference, lines:N-M. \
             fresh=true bypasses cache.",
             json!({
                 "type": "object",
