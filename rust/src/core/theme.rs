@@ -277,11 +277,42 @@ impl Theme {
     }
 
     pub fn section_title(&self, title: &str) -> String {
+        if no_color() {
+            return title.to_string();
+        }
         format!("{}{BOLD}{title}{RST}", self.text.fg())
     }
 
     pub fn to_toml(&self) -> String {
         toml::to_string_pretty(self).unwrap_or_default()
+    }
+}
+
+/// Visual width of a string, ignoring ANSI escape sequences.
+pub fn visual_len(s: &str) -> usize {
+    let mut len = 0usize;
+    let mut in_escape = false;
+    for ch in s.chars() {
+        if in_escape {
+            if ch == 'm' {
+                in_escape = false;
+            }
+        } else if ch == '\x1b' {
+            in_escape = true;
+        } else {
+            len += 1;
+        }
+    }
+    len
+}
+
+/// Pad a string to `target` visual width with spaces on the right.
+pub fn pad_right(s: &str, target: usize) -> String {
+    let vlen = visual_len(s);
+    if vlen >= target {
+        s.to_string()
+    } else {
+        format!("{s}{pad}", pad = " ".repeat(target - vlen))
     }
 }
 
@@ -541,5 +572,27 @@ mod tests {
         let frames = animate_countup(1000, 6);
         assert_eq!(frames.len(), 11);
         assert!(frames.last().unwrap().contains("1.0K"));
+    }
+
+    #[test]
+    fn visual_len_plain() {
+        assert_eq!(visual_len("hello"), 5);
+        assert_eq!(visual_len(""), 0);
+    }
+
+    #[test]
+    fn visual_len_with_ansi() {
+        assert_eq!(visual_len("\x1b[32mhello\x1b[0m"), 5);
+        assert_eq!(visual_len("\x1b[38;2;255;0;0mX\x1b[0m"), 1);
+    }
+
+    #[test]
+    fn pad_right_works() {
+        assert_eq!(pad_right("hi", 5), "hi   ");
+        assert_eq!(pad_right("hello", 3), "hello");
+        let ansi = "\x1b[32mhi\x1b[0m";
+        let padded = pad_right(ansi, 5);
+        assert_eq!(visual_len(&padded), 5);
+        assert!(padded.starts_with("\x1b[32m"));
     }
 }
