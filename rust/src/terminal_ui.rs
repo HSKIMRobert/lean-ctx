@@ -11,30 +11,6 @@ const LOGO: [&str; 6] = [
 
 const TAGLINE: &str = "The Intelligence Layer for AI Coding";
 
-fn hsl_to_rgb(h: f64, s: f64, l: f64) -> (u8, u8, u8) {
-    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
-    let h2 = h / 60.0;
-    let x = c * (1.0 - (h2 % 2.0 - 1.0).abs());
-    let (r1, g1, b1) = match h2 as u32 {
-        0 => (c, x, 0.0),
-        1 => (x, c, 0.0),
-        2 => (0.0, c, x),
-        3 => (0.0, x, c),
-        4 => (x, 0.0, c),
-        _ => (c, 0.0, x),
-    };
-    let m = l - c / 2.0;
-    (
-        ((r1 + m) * 255.0) as u8,
-        ((g1 + m) * 255.0) as u8,
-        ((b1 + m) * 255.0) as u8,
-    )
-}
-
-fn rgb_fg(r: u8, g: u8, b: u8) -> String {
-    format!("\x1b[38;2;{r};{g};{b}m")
-}
-
 pub fn print_logo_animated() {
     let cfg = crate::core::config::Config::load();
     let t = crate::core::theme::load_theme(&cfg.theme);
@@ -52,18 +28,19 @@ pub fn print_logo_animated_themed(t: &crate::core::theme::Theme) {
     }
 
     let mut stdout = io::stdout();
-    let frames = 32;
-    let frame_ms = 50;
+    let frames = 28;
+    let frame_ms = 45;
 
     for frame in 0..frames {
         if frame > 0 {
             print!("\x1b[{}A", LOGO.len() + 2);
         }
 
-        let base_hue = (frame as f64 / frames as f64) * 360.0;
+        let wave_offset = frame as f64 / frames as f64;
 
         for (i, line) in LOGO.iter().enumerate() {
             let chars: Vec<char> = line.chars().collect();
+            let max_j = chars.len().max(1) as f64;
             let mut buf = String::with_capacity(chars.len() * 20);
 
             for (j, ch) in chars.iter().enumerate() {
@@ -71,22 +48,23 @@ pub fn print_logo_animated_themed(t: &crate::core::theme::Theme) {
                     buf.push(' ');
                     continue;
                 }
-                let hue = (base_hue + (j as f64 * 2.5) + (i as f64 * 15.0)) % 360.0;
-                let (r, g, b) = hsl_to_rgb(hue, 0.85, 0.65);
-                buf.push_str(&rgb_fg(r, g, b));
+                let pos = j as f64 / max_j + i as f64 * 0.15;
+                let blend = ((pos + wave_offset * 2.0) * std::f64::consts::PI)
+                    .sin()
+                    .mul_add(0.5, 0.5);
+                let c = t.primary.lerp(&t.secondary, blend);
+                buf.push_str(&c.fg());
                 buf.push(*ch);
             }
             buf.push_str("\x1b[0m");
             let _ = writeln!(stdout, "{buf}");
         }
 
-        let tag_hue = (base_hue + 120.0) % 360.0;
-        let (tr, tg, tb) = hsl_to_rgb(tag_hue, 0.5, 0.55);
-        let _ = writeln!(
-            stdout,
-            "{}             {TAGLINE}\x1b[0m",
-            rgb_fg(tr, tg, tb)
-        );
+        let tag_blend = ((wave_offset * 2.0 + 1.0) * std::f64::consts::PI)
+            .sin()
+            .mul_add(0.5, 0.5);
+        let tag_color = t.muted.lerp(&t.accent, tag_blend * 0.5);
+        let _ = writeln!(stdout, "{}             {TAGLINE}\x1b[0m", tag_color.fg());
         let _ = writeln!(stdout);
 
         let _ = stdout.flush();
