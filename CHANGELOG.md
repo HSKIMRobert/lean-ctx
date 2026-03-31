@@ -2,6 +2,13 @@
 
 All notable changes to lean-ctx are documented here.
 
+## [2.9.13] — 2026-03-31
+
+### Improved
+
+- **Clear IDE restart guidance** — `lean-ctx setup`, `lean-ctx update`, and `npm install lean-ctx-bin` now show explicit numbered next-step instructions, prominently highlighting that the IDE must be restarted for changes to take effect
+- **Auto-inject agent rules on MCP connect** — When any IDE connects to lean-ctx's MCP server, agent rules are silently updated in the background. No manual `lean-ctx setup` needed after updates
+
 ## [2.9.12] — 2026-03-31
 
 ### Added
