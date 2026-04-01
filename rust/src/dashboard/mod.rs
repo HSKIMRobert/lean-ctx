@@ -42,12 +42,12 @@ pub async fn start(port: Option<u16>, host: Option<String>) {
         .map(|p| p.display().to_string())
         .unwrap_or_else(|| "~/.lean-ctx/stats.json".to_string());
 
-    let display_host = if host == "0.0.0.0" {
-        "localhost"
+    if host == "0.0.0.0" {
+        println!("\n  lean-ctx dashboard → http://0.0.0.0:{port} (all interfaces)");
+        println!("  Local access:  http://localhost:{port}");
     } else {
-        &host
-    };
-    println!("\n  lean-ctx dashboard → http://{display_host}:{port}");
+        println!("\n  lean-ctx dashboard → http://{host}:{port}");
+    }
     println!("  Stats file: {stats_path}");
     println!("  Press Ctrl+C to stop\n");
 
