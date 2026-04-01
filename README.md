@@ -104,6 +104,22 @@ lean-ctx doctor
 ```
 
 <details>
+<summary><strong>Troubleshooting</strong></summary>
+
+| Problem | Fix |
+|:---|:---|
+| Commands broken? | Run `lean-ctx-off` (fixes current session) |
+| Permanent fix? | Run `lean-ctx uninstall` (removes all hooks) |
+| Binary missing? | Aliases auto-fallback to original commands (safe) |
+| Manual fix? | Edit `~/.zshrc`, remove the `lean-ctx shell hook` block |
+| Preview changes? | `lean-ctx init --global --dry-run` |
+| Diagnose? | `lean-ctx doctor` |
+
+lean-ctx creates a backup of your shell config before modifying it (`~/.zshrc.lean-ctx.bak`).
+
+</details>
+
+<details>
 <summary><strong>Supported editors (auto-detected by <code>lean-ctx setup</code>)</strong></summary>
 
 | Editor | Method | Status |
@@ -360,7 +376,7 @@ $ lean-ctx gain
   ctx_read           103x  █▌                    59.1K  38%
     ... +33 more commands
 
-  lean-ctx v2.12.5  |  leanctx.com  |  lean-ctx dashboard
+  lean-ctx v2.12.6  |  leanctx.com  |  lean-ctx dashboard
 ```
 
 </details>

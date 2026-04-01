@@ -2,6 +2,21 @@
 
 All notable changes to lean-ctx are documented here.
 
+## [2.12.6] — 2026-04-01
+
+### Added
+- **Bulletproof shell aliases**: All aliases now use a `_lc` wrapper function that silently falls back to the original command if the lean-ctx binary is missing (exit 127) or not executable (exit 126). If lean-ctx is removed, commands like `ls`, `git`, `grep` continue working as if lean-ctx was never installed
+- **Binary existence guard**: Shell hook activation checks `command -v lean-ctx` before setting up aliases — prevents broken commands if binary is not in PATH
+- **Shell config backup**: `.lean-ctx.bak` backup created before every modification to `.zshrc`, `.bashrc`, `config.fish`, or PowerShell profile
+- **Panic handler**: Human-friendly error message with recovery instructions (`lean-ctx-off`, `lean-ctx uninstall`) instead of cryptic Rust backtraces
+- **`lean-ctx init --dry-run`**: Preview exactly what `init` would modify without changing anything
+- **Troubleshooting section**: Added to `--help` output and README with quick-fix commands
+- **Improved post-install message**: Shows disable/enable/uninstall/doctor commands and backup path
+
+### Changed
+- Shell hook aliases route through `_lc` wrapper instead of directly calling binary path — zero performance difference, full safety net
+- Post-install output is more structured with clear recovery options
+
 ## [2.12.5] — 2026-04-01
 
 ### Fixed

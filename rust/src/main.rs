@@ -4,6 +4,20 @@ use lean_ctx::{
 };
 
 fn main() {
+    std::panic::set_hook(Box::new(|info| {
+        eprintln!("lean-ctx: unexpected error (your command was not affected)");
+        eprintln!("  Disable temporarily: lean-ctx-off");
+        eprintln!("  Full uninstall:      lean-ctx uninstall");
+        if let Some(msg) = info.payload().downcast_ref::<&str>() {
+            eprintln!("  Details: {msg}");
+        } else if let Some(msg) = info.payload().downcast_ref::<String>() {
+            eprintln!("  Details: {msg}");
+        }
+        if let Some(loc) = info.location() {
+            eprintln!("  Location: {}:{}", loc.file(), loc.line());
+        }
+    }));
+
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() > 1 {
@@ -171,7 +185,7 @@ fn main() {
                 return;
             }
             "--version" | "-V" => {
-                println!("lean-ctx 2.12.5");
+                println!("lean-ctx 2.12.6");
                 return;
             }
             "--help" | "-h" => {
@@ -256,7 +270,7 @@ fn shell_quote(s: &str) -> String {
 
 fn print_help() {
     println!(
-        "lean-ctx 2.12.5 — The Intelligence Layer for AI Coding
+        "lean-ctx 2.12.6 — The Intelligence Layer for AI Coding
 
 90+ compression patterns | 24 MCP tools | Context Continuity Protocol
 
@@ -361,6 +375,13 @@ PRO:
     login <email>                  Register/login to LeanCTX Cloud
     sync                           Upload local stats to cloud dashboard
     contribute                     Share anonymized compression data
+
+TROUBLESHOOTING:
+    Commands broken?     lean-ctx-off             (fixes current session)
+    Permanent fix?       lean-ctx uninstall       (removes all hooks)
+    Manual fix?          Edit ~/.zshrc, remove the \"lean-ctx shell hook\" block
+    Binary missing?      Aliases auto-fallback to original commands (safe)
+    Preview init?        lean-ctx init --global --dry-run
 
 WEBSITE: https://leanctx.com
 GITHUB:  https://github.com/yvgude/lean-ctx
@@ -690,7 +711,7 @@ fn print_gain_with_logo() {
     print!("{output}");
     let d = core::theme::dim();
     let r = core::theme::rst();
-    println!("  {d}lean-ctx v2.12.5  |  leanctx.com  |  lean-ctx dashboard{r}");
+    println!("  {d}lean-ctx v2.12.6  |  leanctx.com  |  lean-ctx dashboard{r}");
     if !cloud_client::check_pro() {
         println!("  {d}Save ~25% more with Pro \u{2192} lean-ctx upgrade{r}");
     }
