@@ -2,6 +2,14 @@
 
 All notable changes to lean-ctx are documented here.
 
+## [2.12.8] — 2026-04-01
+
+### Added
+- **AWS Kiro support**: Full integration for Amazon's agentic IDE — MCP config at `~/.kiro/settings/mcp.json`, rules injection at `~/.kiro/rules/lean-ctx.md`, auto-detection via `~/.kiro` directory, `lean-ctx init --agent kiro`, and `lean-ctx setup` auto-detection
+- **20 total supported IDEs/agents** (up from 19): Cursor, Claude Code, GitHub Copilot, Windsurf, VS Code, Zed, Codex CLI, Gemini CLI, OpenCode, Pi, Qwen Code, Trae, Amazon Q Developer, JetBrains IDEs, Antigravity, Cline, Roo Code, Aider, Amp, AWS Kiro
+- **Prompt Generator**: Kiro added to the interactive prompt generator on the Getting Started docs page — select "Kiro" and get a copy-paste installation prompt for any AI assistant
+- Website: Kiro added to compatibility page, getting-started docs with dedicated setup section, and homepage IDE count
+
 ## [2.12.7] — 2026-04-01
 
 ### Added
