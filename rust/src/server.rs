@@ -18,7 +18,7 @@ impl ServerHandler for LeanCtxServer {
         let instructions = build_instructions(self.crp_mode);
 
         InitializeResult::new(capabilities)
-            .with_server_info(Implementation::new("lean-ctx", "2.12.3"))
+            .with_server_info(Implementation::new("lean-ctx", "2.12.4"))
             .with_instructions(instructions)
     }
 
@@ -42,7 +42,7 @@ impl ServerHandler for LeanCtxServer {
         let capabilities = ServerCapabilities::builder().enable_tools().build();
 
         Ok(InitializeResult::new(capabilities)
-            .with_server_info(Implementation::new("lean-ctx", "2.12.3"))
+            .with_server_info(Implementation::new("lean-ctx", "2.12.4"))
             .with_instructions(instructions))
     }
 
@@ -628,7 +628,6 @@ impl ServerHandler for LeanCtxServer {
                 };
                 let output = format!("{stale_note}{output}{savings_note}");
                 let file_ref = cache.file_ref_map().get(&path).cloned();
-                let tokens = crate::core::tokens::count_tokens(&output);
                 drop(cache);
                 {
                     let mut session = self.session.write().await;
@@ -648,25 +647,20 @@ impl ServerHandler for LeanCtxServer {
                         }
                     }
                 }
-                self.record_call(
-                    "ctx_read",
-                    original,
-                    original.saturating_sub(tokens),
-                    Some(mode.clone()),
-                )
-                .await;
+                self.record_call("ctx_read", original, saved, Some(mode.clone()))
+                    .await;
                 {
                     let sig =
                         crate::core::mode_predictor::FileSignature::from_path(&path, original);
-                    let density = if tokens > 0 {
-                        original as f64 / tokens as f64
+                    let density = if output_tokens > 0 {
+                        original as f64 / output_tokens as f64
                     } else {
                         1.0
                     };
                     let outcome = crate::core::mode_predictor::ModeOutcome {
                         mode: mode.clone(),
                         tokens_in: original,
-                        tokens_out: tokens,
+                        tokens_out: output_tokens,
                         density: density.min(1.0),
                     };
                     let mut predictor = crate::core::mode_predictor::ModePredictor::new();
@@ -687,7 +681,7 @@ impl ServerHandler for LeanCtxServer {
                         entropy_threshold: thresholds.bpe_entropy,
                         jaccard_threshold: thresholds.jaccard,
                         total_turns: stats.total_reads as u32,
-                        tokens_saved: original.saturating_sub(tokens) as u64,
+                        tokens_saved: saved as u64,
                         tokens_original: original as u64,
                         cache_hits: stats.cache_hits as u32,
                         total_reads: stats.total_reads as u32,

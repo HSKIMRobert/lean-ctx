@@ -33,6 +33,21 @@ pub mod ctx_wrapped;
 
 const DEFAULT_CACHE_TTL_SECS: u64 = 300;
 
+struct CepComputedStats {
+    cep_score: u32,
+    cache_util: u32,
+    mode_diversity: u32,
+    compression_rate: u32,
+    total_original: u64,
+    total_compressed: u64,
+    total_saved: u64,
+    mode_counts: std::collections::HashMap<String, u64>,
+    complexity: String,
+    cache_hits: u64,
+    total_reads: u64,
+    tool_call_count: u64,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CrpMode {
     Off,
@@ -225,7 +240,7 @@ impl LeanCtxServer {
         self.record_call("ctx_compress", 0, 0, Some("auto".to_string()))
             .await;
 
-        self.write_mcp_live_stats().await;
+        self.record_cep_snapshot().await;
 
         Some(format!(
             "{checkpoint}\n\n--- SESSION STATE ---\n{session_summary}\n\n{}",
@@ -233,12 +248,11 @@ impl LeanCtxServer {
         ))
     }
 
-    async fn write_mcp_live_stats(&self) {
-        let cache = self.cache.read().await;
-        let calls = self.tool_calls.read().await;
-        let stats = cache.get_stats();
-        let complexity = crate::core::adaptive::classify_from_context(&cache);
-
+    fn compute_cep_stats(
+        calls: &[ToolCallRecord],
+        stats: &crate::core::cache::CacheStats,
+        complexity: &crate::core::adaptive::TaskComplexity,
+    ) -> CepComputedStats {
         let total_original: u64 = calls.iter().map(|c| c.original_tokens as u64).sum();
         let total_saved: u64 = calls.iter().map(|c| c.saved_tokens as u64).sum();
         let total_compressed = total_original.saturating_sub(total_saved);
@@ -253,52 +267,82 @@ impl LeanCtxServer {
         let mode_diversity = (modes_used.len() as f64 / 6.0).min(1.0);
         let cache_util = stats.hit_rate() / 100.0;
         let cep_score = cache_util * 0.3 + mode_diversity * 0.2 + compression_rate * 0.5;
-        let cep_score_u32 = (cep_score * 100.0).round() as u32;
-
-        let live = serde_json::json!({
-            "cep_score": cep_score_u32,
-            "cache_utilization": (cache_util * 100.0).round() as u32,
-            "mode_diversity": (mode_diversity * 100.0).round() as u32,
-            "compression_rate": (compression_rate * 100.0).round() as u32,
-            "task_complexity": format!("{:?}", complexity),
-            "files_cached": stats.files_tracked,
-            "total_reads": stats.total_reads,
-            "cache_hits": stats.cache_hits,
-            "tokens_saved": total_saved,
-            "tokens_original": total_original,
-            "tool_calls": calls.len(),
-            "updated_at": chrono::Local::now().to_rfc3339(),
-        });
 
         let mut mode_counts: std::collections::HashMap<String, u64> =
             std::collections::HashMap::new();
-        for call in calls.iter() {
+        for call in calls {
             if let Some(ref mode) = call.mode {
                 *mode_counts.entry(mode.clone()).or_insert(0) += 1;
             }
         }
 
-        let tool_call_count = calls.len() as u64;
-        let complexity_str = format!("{:?}", complexity);
-        let cache_hits = stats.cache_hits;
-        let total_reads = stats.total_reads;
+        CepComputedStats {
+            cep_score: (cep_score * 100.0).round() as u32,
+            cache_util: (cache_util * 100.0).round() as u32,
+            mode_diversity: (mode_diversity * 100.0).round() as u32,
+            compression_rate: (compression_rate * 100.0).round() as u32,
+            total_original,
+            total_compressed,
+            total_saved,
+            mode_counts,
+            complexity: format!("{:?}", complexity),
+            cache_hits: stats.cache_hits,
+            total_reads: stats.total_reads,
+            tool_call_count: calls.len() as u64,
+        }
+    }
+
+    async fn write_mcp_live_stats(&self) {
+        let cache = self.cache.read().await;
+        let calls = self.tool_calls.read().await;
+        let stats = cache.get_stats();
+        let complexity = crate::core::adaptive::classify_from_context(&cache);
+
+        let cs = Self::compute_cep_stats(&calls, stats, &complexity);
 
         drop(cache);
         drop(calls);
 
+        let live = serde_json::json!({
+            "cep_score": cs.cep_score,
+            "cache_utilization": cs.cache_util,
+            "mode_diversity": cs.mode_diversity,
+            "compression_rate": cs.compression_rate,
+            "task_complexity": cs.complexity,
+            "files_cached": cs.total_reads,
+            "total_reads": cs.total_reads,
+            "cache_hits": cs.cache_hits,
+            "tokens_saved": cs.total_saved,
+            "tokens_original": cs.total_original,
+            "tool_calls": cs.tool_call_count,
+            "updated_at": chrono::Local::now().to_rfc3339(),
+        });
+
         if let Some(dir) = dirs::home_dir().map(|h| h.join(".lean-ctx")) {
             let _ = std::fs::write(dir.join("mcp-live.json"), live.to_string());
         }
+    }
+
+    pub async fn record_cep_snapshot(&self) {
+        let cache = self.cache.read().await;
+        let calls = self.tool_calls.read().await;
+        let stats = cache.get_stats();
+        let complexity = crate::core::adaptive::classify_from_context(&cache);
+
+        let cs = Self::compute_cep_stats(&calls, stats, &complexity);
+
+        drop(cache);
+        drop(calls);
 
         crate::core::stats::record_cep_session(
-            cep_score_u32,
-            cache_hits,
-            total_reads,
-            total_original,
-            total_compressed,
-            &mode_counts,
-            tool_call_count,
-            &complexity_str,
+            cs.cep_score,
+            cs.cache_hits,
+            cs.total_reads,
+            cs.total_original,
+            cs.total_compressed,
+            &cs.mode_counts,
+            cs.tool_call_count,
+            &cs.complexity,
         );
     }
 }

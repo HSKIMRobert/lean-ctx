@@ -2,6 +2,19 @@
 
 All notable changes to lean-ctx are documented here.
 
+## [2.12.4] — 2026-04-01
+
+### Fixed
+- **Shell exec `-c` bug**: `lean-ctx -c "command"` now works correctly — single command strings are no longer double-quoted by `shell_join()`, which caused zsh to treat the entire string as one command name ("command not found")
+- **Git log compression**: `git log -p` and `git log --stat` now filter diff/stat content, achieving 95-99% token savings (was 2.6%)
+- **Git commit compression**: Pre-commit hook output is now summarized ("N hooks passed"), failed hooks are preserved. Branch name regex supports `/`, `.`, `-` (e.g. `feature/my-branch`)
+- **CEP over-counting**: Session stats now use delta tracking with PID-based detection — prevents exponential inflation of token counts when recording snapshots
+- **ctx_read savings accuracy**: Token count is now calculated before appending the `[saved N tokens]` note, giving accurate savings figures
+
+### Added
+- `lean-ctx stats` CLI command with `stats reset-cep` to clear inflated CEP data while preserving shell hook stats
+- 12 new verification tests covering git compression, CEP delta tracking, and E2E with real git data
+
 ## [2.12.3] — 2026-04-01
 
 ### Fixed
