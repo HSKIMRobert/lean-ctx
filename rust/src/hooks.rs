@@ -269,9 +269,16 @@ pub fn install_agent_hook(agent: &str, global: bool) {
             "~/.jb-mcp.json",
             &dirs::home_dir().unwrap_or_default().join(".jb-mcp.json"),
         ),
+        "kiro" => install_mcp_json_agent(
+            "AWS Kiro",
+            "~/.kiro/settings/mcp.json",
+            &dirs::home_dir()
+                .unwrap_or_default()
+                .join(".kiro/settings/mcp.json"),
+        ),
         _ => {
             eprintln!("Unknown agent: {agent}");
-            eprintln!("  Supported: claude, cursor, gemini, codex, windsurf, cline, roo, copilot, pi, qwen, trae, amazonq, jetbrains");
+            eprintln!("  Supported: claude, cursor, gemini, codex, windsurf, cline, roo, copilot, pi, qwen, trae, amazonq, jetbrains, kiro");
             std::process::exit(1);
         }
     }

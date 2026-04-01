@@ -94,6 +94,7 @@ fn remove_mcp_configs(home: &Path) -> bool {
         ("Trae", home.join(".trae/mcp.json")),
         ("Amazon Q Developer", home.join(".aws/amazonq/mcp.json")),
         ("JetBrains IDEs", home.join(".jb-mcp.json")),
+        ("AWS Kiro", home.join(".kiro/settings/mcp.json")),
     ];
 
     let mut removed = false;
@@ -172,6 +173,7 @@ fn remove_rules_files(home: &Path) -> bool {
             home.join(".gemini/antigravity/rules/lean-ctx.md"),
         ),
         ("Pi Coding Agent", home.join(".pi/rules/lean-ctx.md")),
+        ("AWS Kiro", home.join(".kiro/rules/lean-ctx.md")),
     ];
 
     let mut removed = false;
