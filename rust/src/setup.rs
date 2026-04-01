@@ -424,6 +424,21 @@ fn write_config(target: &EditorTarget, binary: &str) -> Result<(), String> {
     }
 }
 
+fn lean_ctx_server_entry(binary: &str) -> serde_json::Value {
+    serde_json::json!({
+        "command": binary,
+        "autoApprove": [
+            "ctx_read", "ctx_shell", "ctx_search", "ctx_tree",
+            "ctx_overview", "ctx_compress", "ctx_metrics", "ctx_session",
+            "ctx_knowledge", "ctx_agent", "ctx_analyze", "ctx_benchmark",
+            "ctx_cache", "ctx_discover", "ctx_smart_read", "ctx_delta",
+            "ctx_dedup", "ctx_fill", "ctx_intent", "ctx_response",
+            "ctx_context", "ctx_graph", "ctx_wrapped", "ctx_multi_read",
+            "ctx_semantic_search", "ctx"
+        ]
+    })
+}
+
 fn write_mcp_json(target: &EditorTarget, binary: &str) -> Result<(), String> {
     if target.config_path.exists() {
         let content = std::fs::read_to_string(&target.config_path).map_err(|e| e.to_string())?;
@@ -438,10 +453,7 @@ fn write_mcp_json(target: &EditorTarget, binary: &str) -> Result<(), String> {
                     .entry("mcpServers")
                     .or_insert_with(|| serde_json::json!({}));
                 if let Some(servers_obj) = servers.as_object_mut() {
-                    servers_obj.insert(
-                        "lean-ctx".to_string(),
-                        serde_json::json!({ "command": binary }),
-                    );
+                    servers_obj.insert("lean-ctx".to_string(), lean_ctx_server_entry(binary));
                 }
                 let formatted = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
                 std::fs::write(&target.config_path, formatted).map_err(|e| e.to_string())?;
@@ -458,9 +470,7 @@ fn write_mcp_json(target: &EditorTarget, binary: &str) -> Result<(), String> {
 
     let content = serde_json::to_string_pretty(&serde_json::json!({
         "mcpServers": {
-            "lean-ctx": {
-                "command": binary
-            }
+            "lean-ctx": lean_ctx_server_entry(binary)
         }
     }))
     .map_err(|e| e.to_string())?;

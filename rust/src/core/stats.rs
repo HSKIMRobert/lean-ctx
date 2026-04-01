@@ -718,7 +718,7 @@ pub fn format_gain_themed(t: &Theme) -> String {
     let total_saved = input_saved + cost.output_tokens_saved;
     let days_active = store.daily.len();
 
-    let w = 56;
+    let w = 62;
     let side = t.box_side();
 
     let box_line = |content: &str| -> String {
@@ -728,14 +728,17 @@ pub fn format_gain_themed(t: &Theme) -> String {
 
     o.push(String::new());
     o.push(format!("  {}", t.box_top(w)));
+    o.push(box_line(""));
 
     let header = format!(
-        "  {icon} {b}{title}{r}  {d}Token Savings Dashboard{r}",
+        "    {icon}  {b}{title}{r}   {d}Token Savings Dashboard{r}",
         icon = t.header_icon(),
         title = t.brand_title(),
     );
     o.push(box_line(&header));
+    o.push(box_line(""));
     o.push(format!("  {}", t.box_mid(w)));
+    o.push(box_line(""));
 
     let tok_val = format_big(total_saved);
     let pct_val = format!("{pct:.1}%");
@@ -747,57 +750,50 @@ pub fn format_gain_themed(t: &Theme) -> String {
     let c3 = t.warning.fg();
     let c4 = t.accent.fg();
 
-    o.push(box_line(""));
     let kpi_line = format!(
-        "   {c1}{b}{tok_val:<12}{r}  {c2}{b}{pct_val:<12}{r}  {c3}{b}{cmd_val:<10}{r}  {c4}{b}{usd_val:<10}{r}",
+        "    {c1}{b}{tok_val:<14}{r}  {c2}{b}{pct_val:<14}{r}  {c3}{b}{cmd_val:<12}{r}  {c4}{b}{usd_val:<8}{r}",
     );
     o.push(box_line(&kpi_line));
-    let label_line = format!("   {d}tokens saved    compression     commands      USD saved{r}",);
+    let label_line =
+        format!("    {d}tokens saved      compression       commands        USD saved{r}",);
     o.push(box_line(&label_line));
     o.push(box_line(""));
     o.push(format!("  {}", t.box_bottom(w)));
+
+    o.push(String::new());
     o.push(String::new());
 
     let cost_title = t.section_title("Cost Breakdown");
     o.push(format!(
-        "  {cost_title}  {d}(@ ${}/M input, ${}/M output){r}",
+        "  {cost_title}  {d}@ ${}/M input · ${}/M output{r}",
         DEFAULT_INPUT_PRICE_PER_M, DEFAULT_OUTPUT_PRICE_PER_M,
     ));
     o.push(format!("  {ln}", ln = t.border_line(w)));
+    o.push(String::new());
     o.push(format!(
-        "  {m}Without lean-ctx{r}  {:>8}  {d}({} input + {} output){r}",
+        "    {m}Without lean-ctx{r}    {:>8}   {d}{} input + {} output{r}",
         format_usd(cost.total_cost_without),
         format_usd(cost.input_cost_without),
         format_usd(cost.output_cost_without),
         m = t.muted.fg(),
     ));
     o.push(format!(
-        "  {m}With lean-ctx{r}     {:>8}  {d}({} input + {} output){r}",
+        "    {m}With lean-ctx{r}       {:>8}   {d}{} input + {} output{r}",
         format_usd(cost.total_cost_with),
         format_usd(cost.input_cost_with),
         format_usd(cost.output_cost_with),
         m = t.muted.fg(),
     ));
+    o.push(String::new());
     o.push(format!(
-        "  {c}{b}Total Saved{r}       {c}{b}{:>8}{r}  {d}(input: {} + output: {}){r}",
+        "    {c}{b}You saved{r}          {c}{b}{:>8}{r}   {d}input {} + output {}{r}",
         format_usd(cost.total_saved),
         format_usd(cost.input_cost_without - cost.input_cost_with),
         format_usd(cost.output_cost_without - cost.output_cost_with),
         c = t.success.fg(),
     ));
-    o.push(format!(
-        "  {d}Output savings: ~{} tokens saved via CEP/TDD ({} → {} per call){r}",
-        format_big(cost.output_tokens_saved),
-        CostModel::default().avg_verbose_output_per_call,
-        CostModel::default().avg_concise_output_per_call,
-    ));
-    o.push(String::new());
 
-    o.push(format!(
-        "  {d}{} input tokens compressed · ~{} output tokens reduced via CEP/TDD{r}",
-        format_num(input_saved),
-        format_big(cost.output_tokens_saved),
-    ));
+    o.push(String::new());
 
     if let (Some(first), Some(_last)) = (&store.first_use, &store.last_use) {
         let first_short = first.get(..10).unwrap_or(first);
@@ -808,15 +804,18 @@ pub fn format_gain_themed(t: &Theme) -> String {
             .collect();
         let spark = t.gradient_sparkline(&daily_savings);
         o.push(format!(
-            "  {d}Since {first_short} ({days_active} day{plural}){r}  {spark}",
+            "    {d}Since {first_short} · {days_active} day{plural}{r}   {spark}",
             plural = if days_active != 1 { "s" } else { "" }
         ));
         o.push(String::new());
     }
 
+    o.push(String::new());
+
     if !store.commands.is_empty() {
         o.push(format!("  {}", t.section_title("Top Commands")));
         o.push(format!("  {ln}", ln = t.border_line(w)));
+        o.push(String::new());
 
         let mut sorted: Vec<_> = store.commands.iter().collect();
         sorted.sort_by(|a, b2| {
@@ -831,7 +830,7 @@ pub fn format_gain_themed(t: &Theme) -> String {
             .unwrap_or(1)
             .max(1);
 
-        for (cmd, stats) in sorted.iter().take(12) {
+        for (cmd, stats) in sorted.iter().take(10) {
             let cmd_saved = cmd_total_saved(stats, &cost_model);
             let cmd_input_saved = stats.input_tokens.saturating_sub(stats.output_tokens);
             let cmd_pct = if stats.input_tokens > 0 {
@@ -840,29 +839,31 @@ pub fn format_gain_themed(t: &Theme) -> String {
                 0.0
             };
             let ratio = cmd_saved as f64 / max_cmd_saved as f64;
-            let bar = theme::pad_right(&t.gradient_bar(ratio, 20), 20);
+            let bar = theme::pad_right(&t.gradient_bar(ratio, 22), 22);
             let pc = t.pct_color(cmd_pct);
             o.push(format!(
-                "  {m}{:<16}{r} {:>5}x  {bar} {b}{pc}{:>6}{r}  {d}{cmd_pct:.0}%{r}",
-                truncate_cmd(cmd, 16),
+                "    {m}{:<18}{r}  {:>5}x   {bar}  {b}{pc}{:>7}{r}  {d}{cmd_pct:>3.0}%{r}",
+                truncate_cmd(cmd, 18),
                 stats.count,
                 format_big(cmd_saved),
                 m = t.muted.fg(),
             ));
         }
 
-        if sorted.len() > 12 {
+        if sorted.len() > 10 {
             o.push(format!(
-                "  {d}  ... +{} more commands{r}",
-                sorted.len() - 12
+                "    {d}... +{} more commands{r}",
+                sorted.len() - 10
             ));
         }
     }
 
     if store.daily.len() >= 2 {
         o.push(String::new());
+        o.push(String::new());
         o.push(format!("  {}", t.section_title("Recent Days")));
         o.push(format!("  {ln}", ln = t.border_line(w)));
+        o.push(String::new());
 
         let recent: Vec<_> = store.daily.iter().rev().take(7).collect();
         for day in recent.iter().rev() {
@@ -876,7 +877,7 @@ pub fn format_gain_themed(t: &Theme) -> String {
             let pc = t.pct_color(day_pct);
             let date_short = day.date.get(5..).unwrap_or(&day.date);
             o.push(format!(
-                "  {m}{date_short}{r}  {:>5} cmds  {pc}{b}{:>8}{r} saved  {pc}{day_pct:>5.1}%{r}",
+                "    {m}{date_short}{r}   {:>5} cmds   {pc}{b}{:>8}{r} saved   {pc}{day_pct:>5.1}%{r}",
                 day.commands,
                 format_big(day_saved),
                 m = t.muted.fg(),
@@ -884,12 +885,13 @@ pub fn format_gain_themed(t: &Theme) -> String {
         }
     }
 
+    o.push(String::new());
+
     if let Some(tip) = contextual_tip(&store) {
-        o.push(format!("  {w}💡 {tip}{r}", w = t.warning.fg()));
-        o.push(String::new());
-    } else {
-        o.push(String::new());
+        o.push(format!("    {w}💡 {tip}{r}", w = t.warning.fg()));
     }
+
+    o.push(String::new());
 
     o.join("\n")
 }

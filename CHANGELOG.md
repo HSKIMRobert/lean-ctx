@@ -2,6 +2,15 @@
 
 All notable changes to lean-ctx are documented here.
 
+## [2.12.2] — 2026-04-01
+
+### Added
+- `autoApprove` array in MCP config during `lean-ctx init` — enables auto-approval of tool calls in clients that support it (Cline, Roo Code, and future Antigravity support)
+- Dashboard `--host=0.0.0.0` now shows actual bind address instead of misleading "localhost"
+
+### Changed
+- Gain dashboard redesign: wider layout (62 cols), more whitespace between sections, better column spacing, more elegant typography
+
 ## [2.12.1] — 2026-03-31
 
 ### Added
