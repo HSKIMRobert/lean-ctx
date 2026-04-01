@@ -371,6 +371,13 @@ fn build_targets(home: &std::path::Path, _binary: &str) -> Vec<EditorTarget> {
             detect_path: detect_roo_path(),
             config_type: ConfigType::McpJson,
         },
+        EditorTarget {
+            name: "AWS Kiro",
+            agent_key: "kiro",
+            config_path: home.join(".kiro/settings/mcp.json"),
+            detect_path: home.join(".kiro"),
+            config_type: ConfigType::McpJson,
+        },
     ]
 }
 

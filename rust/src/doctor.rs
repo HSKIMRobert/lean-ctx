@@ -310,6 +310,11 @@ fn mcp_config_locations(home: &std::path::Path) -> Vec<McpLocation> {
         display: "~/.jb-mcp.json",
         path: home.join(".jb-mcp.json"),
     });
+    locations.push(McpLocation {
+        name: "AWS Kiro",
+        display: "~/.kiro/settings/mcp.json",
+        path: home.join(".kiro").join("settings").join("mcp.json"),
+    });
 
     {
         #[cfg(unix)]

@@ -300,6 +300,7 @@ fn is_tool_detected(target: &RulesTarget, home: &std::path::Path) -> bool {
         "JetBrains IDEs" => detect_jetbrains_installed(home),
         "Antigravity" => home.join(".gemini/antigravity").exists(),
         "Pi Coding Agent" => home.join(".pi").exists() || command_exists("pi"),
+        "AWS Kiro" => home.join(".kiro").exists(),
         _ => false,
     }
 }
@@ -492,6 +493,11 @@ fn build_rules_targets(home: &std::path::Path) -> Vec<RulesTarget> {
         RulesTarget {
             name: "Pi Coding Agent",
             path: home.join(".pi/rules/lean-ctx.md"),
+            format: RulesFormat::DedicatedMarkdown,
+        },
+        RulesTarget {
+            name: "AWS Kiro",
+            path: home.join(".kiro/rules/lean-ctx.md"),
             format: RulesFormat::DedicatedMarkdown,
         },
     ]
@@ -703,6 +709,6 @@ mod tests {
     fn target_count() {
         let home = std::path::PathBuf::from("/tmp/fake_home");
         let targets = build_rules_targets(&home);
-        assert_eq!(targets.len(), 19);
+        assert_eq!(targets.len(), 20);
     }
 }

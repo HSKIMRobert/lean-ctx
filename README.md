@@ -142,6 +142,7 @@ lean-ctx creates a backup of your shell config before modifying it (`~/.zshrc.le
 | **Cline / Roo Code** | MCP + rules | ✅ Auto |
 | **Aider** | Shell hook + rules | ✅ Auto |
 | **Amp** | Shell hook + rules | ✅ Auto |
+| **AWS Kiro** | MCP + rules | ✅ Auto |
 | **Continue** | MCP + rules | ✅ Auto |
 
 </details>
