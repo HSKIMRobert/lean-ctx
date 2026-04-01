@@ -732,6 +732,7 @@ pub fn cmd_tee(args: &[String]) {
 
 pub fn cmd_init(args: &[String]) {
     let global = args.iter().any(|a| a == "--global" || a == "-g");
+    let dry_run = args.iter().any(|a| a == "--dry-run");
 
     let agents: Vec<&str> = args
         .windows(2)
@@ -756,6 +757,29 @@ pub fn cmd_init(args: &[String]) {
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|_| "lean-ctx".to_string());
 
+    if dry_run {
+        let rc = if is_powershell {
+            "Documents/PowerShell/Microsoft.PowerShell_profile.ps1".to_string()
+        } else if is_fish {
+            "~/.config/fish/config.fish".to_string()
+        } else if is_zsh {
+            "~/.zshrc".to_string()
+        } else {
+            "~/.bashrc".to_string()
+        };
+        println!("\nlean-ctx init --dry-run\n");
+        println!("  Would modify:  {rc}");
+        println!("  Would backup:  {rc}.lean-ctx.bak");
+        println!("  Would alias:   git npm pnpm yarn cargo docker docker-compose kubectl");
+        println!("                 gh pip pip3 ruff go golangci-lint eslint prettier tsc");
+        println!("                 ls find grep curl wget (22 commands + k)");
+        println!("  Would create:  ~/.lean-ctx/");
+        println!("  Binary:        {binary}");
+        println!("\n  Safety: aliases auto-fallback to original command if lean-ctx is removed.");
+        println!("\n  Run without --dry-run to apply.");
+        return;
+    }
+
     if is_powershell {
         init_powershell(&binary);
     } else {
@@ -775,25 +799,48 @@ pub fn cmd_init(args: &[String]) {
         }
     }
 
-    if global && !is_powershell {
-        let rc = if is_fish {
-            "config.fish"
-        } else if is_zsh {
-            ".zshrc"
-        } else {
-            ".bashrc"
-        };
-        println!("\nRestart your shell or run: source ~/{rc}");
-    } else if global && is_powershell {
-        println!("\nRestart PowerShell or run: . $PROFILE");
-    }
+    let rc = if is_powershell {
+        "$PROFILE"
+    } else if is_fish {
+        "config.fish"
+    } else if is_zsh {
+        ".zshrc"
+    } else {
+        ".bashrc"
+    };
 
-    println!("\nlean-ctx init complete. (23 aliases installed)");
-    println!("Binary: {binary}");
-    println!("\nFor AI tool integration, use: lean-ctx init --agent <tool>");
+    println!("\nlean-ctx init complete (22 aliases installed)");
+    println!();
+    println!("  Disable temporarily:  lean-ctx-off");
+    println!("  Re-enable:            lean-ctx-on");
+    println!("  Check status:         lean-ctx-status");
+    println!("  Full uninstall:       lean-ctx uninstall");
+    println!("  Diagnose issues:      lean-ctx doctor");
+    println!("  Preview changes:      lean-ctx init --global --dry-run");
+    println!();
+    if is_powershell {
+        println!("  Restart PowerShell or run: . {rc}");
+    } else {
+        println!("  Restart your shell or run: source ~/{rc}");
+    }
+    println!();
+    println!("For AI tool integration: lean-ctx init --agent <tool>");
     println!("  Supported: claude, cursor, gemini, codex, windsurf, cline, copilot, pi");
-    println!("\nRun 'lean-ctx gain' after using some commands to see your savings.");
-    println!("Run 'lean-ctx discover' to find missed savings in your shell history.");
+}
+
+fn backup_shell_config(path: &std::path::Path) {
+    if !path.exists() {
+        return;
+    }
+    let bak = path.with_extension("lean-ctx.bak");
+    if std::fs::copy(path, &bak).is_ok() {
+        println!(
+            "  Backup: {}",
+            bak.file_name()
+                .map(|n| format!("~/{}", n.to_string_lossy()))
+                .unwrap_or_else(|| bak.display().to_string())
+        );
+    }
 }
 
 fn init_powershell(binary: &str) {
@@ -815,26 +862,37 @@ fn init_powershell(binary: &str) {
 # lean-ctx shell hook — transparent CLI compression (90+ patterns)
 if (-not $env:LEAN_CTX_ACTIVE) {{
   $LeanCtxBin = "{binary_escaped}"
-  function git {{ & $LeanCtxBin -c "git $($args -join ' ')" }}
-  function npm {{ & $LeanCtxBin -c "npm.cmd $($args -join ' ')" }}
-  function pnpm {{ & $LeanCtxBin -c "pnpm.cmd $($args -join ' ')" }}
-  function yarn {{ & $LeanCtxBin -c "yarn.cmd $($args -join ' ')" }}
-  function cargo {{ & $LeanCtxBin -c "cargo $($args -join ' ')" }}
-  function docker {{ & $LeanCtxBin -c "docker $($args -join ' ')" }}
-  function kubectl {{ & $LeanCtxBin -c "kubectl $($args -join ' ')" }}
-  function gh {{ & $LeanCtxBin -c "gh $($args -join ' ')" }}
-  function pip {{ & $LeanCtxBin -c "pip $($args -join ' ')" }}
-  function pip3 {{ & $LeanCtxBin -c "pip3 $($args -join ' ')" }}
-  function ruff {{ & $LeanCtxBin -c "ruff $($args -join ' ')" }}
-  function go {{ & $LeanCtxBin -c "go $($args -join ' ')" }}
-  function eslint {{ & $LeanCtxBin -c "eslint.cmd $($args -join ' ')" }}
-  function prettier {{ & $LeanCtxBin -c "prettier.cmd $($args -join ' ')" }}
-  function tsc {{ & $LeanCtxBin -c "tsc.cmd $($args -join ' ')" }}
-  function curl {{ & $LeanCtxBin -c "curl $($args -join ' ')" }}
-  function wget {{ & $LeanCtxBin -c "wget $($args -join ' ')" }}
+  function _lc {{
+    & $LeanCtxBin -c "$($args -join ' ')"
+    if ($LASTEXITCODE -eq 127 -or $LASTEXITCODE -eq 126) {{
+      $cmd = $args[0]; $rest = $args[1..($args.Length)]
+      & $cmd @rest
+    }}
+  }}
+  if (Get-Command lean-ctx -ErrorAction SilentlyContinue) {{
+    function git {{ _lc git @args }}
+    function npm {{ _lc npm.cmd @args }}
+    function pnpm {{ _lc pnpm.cmd @args }}
+    function yarn {{ _lc yarn.cmd @args }}
+    function cargo {{ _lc cargo @args }}
+    function docker {{ _lc docker @args }}
+    function kubectl {{ _lc kubectl @args }}
+    function gh {{ _lc gh @args }}
+    function pip {{ _lc pip @args }}
+    function pip3 {{ _lc pip3 @args }}
+    function ruff {{ _lc ruff @args }}
+    function go {{ _lc go @args }}
+    function eslint {{ _lc eslint.cmd @args }}
+    function prettier {{ _lc prettier.cmd @args }}
+    function tsc {{ _lc tsc.cmd @args }}
+    function curl {{ _lc curl @args }}
+    function wget {{ _lc wget @args }}
+  }}
 }}
 "#
     );
+
+    backup_shell_config(&profile_path);
 
     if let Ok(existing) = std::fs::read_to_string(&profile_path) {
         if existing.contains("lean-ctx shell hook") {
@@ -905,11 +963,21 @@ fn init_fish(binary: &str) {
         "\n# lean-ctx shell hook — transparent CLI compression (90+ patterns)\n\
         set -g _lean_ctx_cmds git npm pnpm yarn cargo docker docker-compose kubectl gh pip pip3 ruff go golangci-lint eslint prettier tsc ls find grep curl wget\n\
         \n\
+        function _lc\n\
+        \t'{binary}' -c \"$argv\"\n\
+        \tset -l _lc_rc $status\n\
+        \tif test $_lc_rc -eq 127 -o $_lc_rc -eq 126\n\
+        \t\tcommand $argv\n\
+        \telse\n\
+        \t\treturn $_lc_rc\n\
+        \tend\n\
+        end\n\
+        \n\
         function lean-ctx-on\n\
         \tfor _lc_cmd in $_lean_ctx_cmds\n\
-        \t\talias $_lc_cmd '{binary} -c '$_lc_cmd\n\
+        \t\talias $_lc_cmd '_lc '$_lc_cmd\n\
         \tend\n\
-        \talias k '{binary} -c kubectl'\n\
+        \talias k '_lc kubectl'\n\
         \tset -gx LEAN_CTX_ENABLED 1\n\
         \techo 'lean-ctx: ON'\n\
         end\n\
@@ -932,10 +1000,14 @@ fn init_fish(binary: &str) {
         end\n\
         \n\
         if not set -q LEAN_CTX_ACTIVE; and test (set -q LEAN_CTX_ENABLED; and echo $LEAN_CTX_ENABLED; or echo 1) != '0'\n\
-        \tlean-ctx-on\n\
+        \tif command -q lean-ctx\n\
+        \t\tlean-ctx-on\n\
+        \tend\n\
         end\n\
         # lean-ctx shell hook — end\n"
     );
+
+    backup_shell_config(&config);
 
     if let Ok(existing) = std::fs::read_to_string(&config) {
         if existing.contains("lean-ctx shell hook") {
@@ -985,12 +1057,22 @@ fn init_posix(is_zsh: bool, binary: &str) {
 # lean-ctx shell hook — transparent CLI compression (90+ patterns)
 _lean_ctx_cmds=(git npm pnpm yarn cargo docker docker-compose kubectl gh pip pip3 ruff go golangci-lint eslint prettier tsc ls find grep curl wget)
 
+_lc() {{
+    '{binary}' -c "$*"
+    local _lc_rc=$?
+    if [ "$_lc_rc" -eq 127 ] || [ "$_lc_rc" -eq 126 ]; then
+        command "$@"
+    else
+        return "$_lc_rc"
+    fi
+}}
+
 lean-ctx-on() {{
     for _lc_cmd in "${{_lean_ctx_cmds[@]}}"; do
         # shellcheck disable=SC2139
-        alias "$_lc_cmd"='{binary} -c '"$_lc_cmd"
+        alias "$_lc_cmd"='_lc '"$_lc_cmd"
     done
-    alias k='{binary} -c kubectl'
+    alias k='_lc kubectl'
     export LEAN_CTX_ENABLED=1
     echo "lean-ctx: ON"
 }}
@@ -1013,11 +1095,13 @@ lean-ctx-status() {{
 }}
 
 if [ -z "${{LEAN_CTX_ACTIVE:-}}" ] && [ "${{LEAN_CTX_ENABLED:-1}}" != "0" ]; then
-    lean-ctx-on
+    command -v lean-ctx >/dev/null 2>&1 && lean-ctx-on
 fi
 # lean-ctx shell hook — end
 "#
     );
+
+    backup_shell_config(&rc_file);
 
     if let Ok(existing) = std::fs::read_to_string(&rc_file) {
         if existing.contains("lean-ctx shell hook") {

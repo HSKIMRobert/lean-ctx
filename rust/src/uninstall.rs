@@ -56,11 +56,14 @@ fn remove_shell_hook(home: &Path) -> bool {
 
         let cleaned = remove_lean_ctx_block(&content);
         if cleaned.trim() != content.trim() {
+            let bak = rc.with_extension("lean-ctx.bak");
+            let _ = fs::copy(rc, &bak);
             if let Err(e) = fs::write(rc, &cleaned) {
                 eprintln!("  ✗ Failed to update {}: {}", rc.display(), e);
             } else {
                 let short = shorten(rc, home);
                 println!("  ✓ Shell hook removed from {short}");
+                println!("    Backup: {}", shorten(&bak, home));
                 removed = true;
             }
         }
