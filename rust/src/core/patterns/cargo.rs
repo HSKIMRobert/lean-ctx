@@ -35,6 +35,18 @@ pub fn compress(command: &str, output: &str) -> Option<String> {
     if command.contains("clippy") {
         return Some(compress_clippy(output));
     }
+    if command.contains("doc") {
+        return Some(compress_doc(output));
+    }
+    if command.contains("tree") {
+        return Some(compress_tree(output));
+    }
+    if command.contains("fmt") {
+        return Some(compress_fmt(output));
+    }
+    if command.contains("update") {
+        return Some(compress_update(output));
+    }
     None
 }
 
@@ -145,6 +157,140 @@ fn compress_clippy(output: &str) -> String {
 
     if parts.is_empty() {
         return "clean".to_string();
+    }
+    parts.join("\n")
+}
+
+fn compress_doc(output: &str) -> String {
+    let mut crate_count = 0u32;
+    let mut warnings = 0u32;
+    let mut time = String::new();
+
+    for line in output.lines() {
+        if line.contains("Documenting ") || compiling_re().is_match(line) {
+            crate_count += 1;
+        }
+        if warning_re().is_match(line) && !line.contains("generated") {
+            warnings += 1;
+        }
+        if let Some(caps) = finished_re().captures(line) {
+            time = caps[1].to_string();
+        }
+    }
+
+    let mut parts = Vec::new();
+    if crate_count > 0 {
+        parts.push(format!("documented {crate_count} crates"));
+    }
+    if warnings > 0 {
+        parts.push(format!("{warnings} warnings"));
+    }
+    if !time.is_empty() {
+        parts.push(format!("({time})"));
+    }
+    if parts.is_empty() {
+        "ok".to_string()
+    } else {
+        parts.join("\n")
+    }
+}
+
+fn compress_tree(output: &str) -> String {
+    let lines: Vec<&str> = output.lines().collect();
+    if lines.len() <= 20 {
+        return output.to_string();
+    }
+
+    let direct: Vec<&str> = lines
+        .iter()
+        .filter(|l| !l.starts_with(' ') || l.starts_with("├── ") || l.starts_with("└── "))
+        .copied()
+        .collect();
+
+    if direct.is_empty() {
+        let shown = &lines[..20.min(lines.len())];
+        return format!(
+            "{}\n... ({} more lines)",
+            shown.join("\n"),
+            lines.len() - 20
+        );
+    }
+
+    format!(
+        "{} direct deps ({} total lines):\n{}",
+        direct.len(),
+        lines.len(),
+        direct.join("\n")
+    )
+}
+
+fn compress_fmt(output: &str) -> String {
+    let trimmed = output.trim();
+    if trimmed.is_empty() {
+        return "ok (formatted)".to_string();
+    }
+
+    let diffs: Vec<&str> = trimmed
+        .lines()
+        .filter(|l| l.starts_with("Diff in ") || l.starts_with("  --> "))
+        .collect();
+
+    if !diffs.is_empty() {
+        return format!("{} formatting issues:\n{}", diffs.len(), diffs.join("\n"));
+    }
+
+    let lines: Vec<&str> = trimmed.lines().filter(|l| !l.trim().is_empty()).collect();
+    if lines.len() <= 5 {
+        lines.join("\n")
+    } else {
+        format!(
+            "{}\n... ({} more lines)",
+            lines[..5].join("\n"),
+            lines.len() - 5
+        )
+    }
+}
+
+fn compress_update(output: &str) -> String {
+    let mut updated = Vec::new();
+    let mut unchanged = 0u32;
+
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("Updating ") || trimmed.starts_with("    Updating ") {
+            updated.push(trimmed.trim_start_matches("    ").to_string());
+        } else if trimmed.starts_with("Unchanged ") || trimmed.contains("Unchanged") {
+            unchanged += 1;
+        }
+    }
+
+    if updated.is_empty() && unchanged == 0 {
+        let lines: Vec<&str> = output.lines().filter(|l| !l.trim().is_empty()).collect();
+        if lines.is_empty() {
+            return "ok (up-to-date)".to_string();
+        }
+        if lines.len() <= 5 {
+            return lines.join("\n");
+        }
+        return format!(
+            "{}\n... ({} more lines)",
+            lines[..5].join("\n"),
+            lines.len() - 5
+        );
+    }
+
+    let mut parts = Vec::new();
+    if !updated.is_empty() {
+        parts.push(format!("{} updated:", updated.len()));
+        for u in updated.iter().take(15) {
+            parts.push(format!("  {u}"));
+        }
+        if updated.len() > 15 {
+            parts.push(format!("  ... +{} more", updated.len() - 15));
+        }
+    }
+    if unchanged > 0 {
+        parts.push(format!("{unchanged} unchanged"));
     }
     parts.join("\n")
 }

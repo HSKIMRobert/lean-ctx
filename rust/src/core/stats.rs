@@ -1,8 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Mutex;
+use std::time::Instant;
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Clone)]
 pub struct StatsStore {
     pub total_commands: u64,
     pub total_input_tokens: u64,
@@ -44,7 +46,7 @@ pub struct CepSessionSnapshot {
     pub complexity: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone, Default, Debug)]
 pub struct CommandStats {
     pub count: u64,
     pub input_tokens: u64,
@@ -67,7 +69,7 @@ fn stats_path() -> Option<PathBuf> {
     stats_dir().map(|d| d.join("stats.json"))
 }
 
-pub fn load() -> StatsStore {
+fn load_from_disk() -> StatsStore {
     let path = match stats_path() {
         Some(p) => p,
         None => return StatsStore::default(),
@@ -79,7 +81,7 @@ pub fn load() -> StatsStore {
     }
 }
 
-pub fn save(store: &StatsStore) {
+fn save_to_disk(store: &StatsStore) {
     let dir = match stats_dir() {
         Some(d) => d,
         None => return,
@@ -98,32 +100,81 @@ pub fn save(store: &StatsStore) {
     }
 }
 
-pub fn record(command: &str, input_tokens: usize, output_tokens: usize) {
-    let mut store = load();
-    let now = chrono::Local::now();
-    let today = now.format("%Y-%m-%d").to_string();
-    let timestamp = now.to_rfc3339();
-
-    store.total_commands += 1;
-    store.total_input_tokens += input_tokens as u64;
-    store.total_output_tokens += output_tokens as u64;
-
-    if store.first_use.is_none() {
-        store.first_use = Some(timestamp.clone());
+pub fn load() -> StatsStore {
+    let guard = STATS_BUFFER.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((ref store, _)) = *guard {
+        return store.clone();
     }
-    store.last_use = Some(timestamp);
+    drop(guard);
+    load_from_disk()
+}
 
-    let cmd_key = normalize_command(command);
-    let entry = store.commands.entry(cmd_key).or_default();
-    entry.count += 1;
-    entry.input_tokens += input_tokens as u64;
-    entry.output_tokens += output_tokens as u64;
+pub fn save(store: &StatsStore) {
+    save_to_disk(store);
+}
 
-    if let Some(day) = store.daily.last_mut() {
-        if day.date == today {
-            day.commands += 1;
-            day.input_tokens += input_tokens as u64;
-            day.output_tokens += output_tokens as u64;
+const FLUSH_INTERVAL_SECS: u64 = 30;
+
+static STATS_BUFFER: Mutex<Option<(StatsStore, Instant)>> = Mutex::new(None);
+
+fn with_buffer<F, R>(f: F) -> R
+where
+    F: FnOnce(&mut StatsStore, &mut Instant) -> R,
+{
+    let mut guard = STATS_BUFFER.lock().unwrap_or_else(|e| e.into_inner());
+    let (store, last_flush) = guard.get_or_insert_with(|| (load_from_disk(), Instant::now()));
+    f(store, last_flush)
+}
+
+fn maybe_flush(store: &StatsStore, last_flush: &mut Instant) {
+    if last_flush.elapsed().as_secs() >= FLUSH_INTERVAL_SECS {
+        save_to_disk(store);
+        *last_flush = Instant::now();
+    }
+}
+
+pub fn flush() {
+    let mut guard = STATS_BUFFER.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((ref store, ref mut last_flush)) = *guard {
+        save_to_disk(store);
+        *last_flush = Instant::now();
+    }
+}
+
+pub fn record(command: &str, input_tokens: usize, output_tokens: usize) {
+    with_buffer(|store, last_flush| {
+        let now = chrono::Local::now();
+        let today = now.format("%Y-%m-%d").to_string();
+        let timestamp = now.to_rfc3339();
+
+        store.total_commands += 1;
+        store.total_input_tokens += input_tokens as u64;
+        store.total_output_tokens += output_tokens as u64;
+
+        if store.first_use.is_none() {
+            store.first_use = Some(timestamp.clone());
+        }
+        store.last_use = Some(timestamp);
+
+        let cmd_key = normalize_command(command);
+        let entry = store.commands.entry(cmd_key).or_default();
+        entry.count += 1;
+        entry.input_tokens += input_tokens as u64;
+        entry.output_tokens += output_tokens as u64;
+
+        if let Some(day) = store.daily.last_mut() {
+            if day.date == today {
+                day.commands += 1;
+                day.input_tokens += input_tokens as u64;
+                day.output_tokens += output_tokens as u64;
+            } else {
+                store.daily.push(DayStats {
+                    date: today,
+                    commands: 1,
+                    input_tokens: input_tokens as u64,
+                    output_tokens: output_tokens as u64,
+                });
+            }
         } else {
             store.daily.push(DayStats {
                 date: today,
@@ -132,20 +183,13 @@ pub fn record(command: &str, input_tokens: usize, output_tokens: usize) {
                 output_tokens: output_tokens as u64,
             });
         }
-    } else {
-        store.daily.push(DayStats {
-            date: today,
-            commands: 1,
-            input_tokens: input_tokens as u64,
-            output_tokens: output_tokens as u64,
-        });
-    }
 
-    if store.daily.len() > 90 {
-        store.daily.drain(..store.daily.len() - 90);
-    }
+        if store.daily.len() > 90 {
+            store.daily.drain(..store.daily.len() - 90);
+        }
 
-    save(&store);
+        maybe_flush(store, last_flush);
+    });
 }
 
 fn normalize_command(command: &str) -> String {
@@ -193,9 +237,11 @@ fn normalize_command(command: &str) -> String {
 }
 
 pub fn reset_cep() {
-    let mut store = load();
-    store.cep = CepStats::default();
-    save(&store);
+    with_buffer(|store, last_flush| {
+        store.cep = CepStats::default();
+        save_to_disk(store);
+        *last_flush = Instant::now();
+    });
 }
 
 pub struct GainSummary {
@@ -241,70 +287,71 @@ pub fn record_cep_session(
     tool_calls: u64,
     complexity: &str,
 ) {
-    let mut store = load();
-    let cep = &mut store.cep;
+    with_buffer(|store, last_flush| {
+        let cep = &mut store.cep;
 
-    let pid = std::process::id();
-    let prev_original = cep.last_session_original.unwrap_or(0);
-    let prev_compressed = cep.last_session_compressed.unwrap_or(0);
-    let is_same_session = cep.last_session_pid == Some(pid);
+        let pid = std::process::id();
+        let prev_original = cep.last_session_original.unwrap_or(0);
+        let prev_compressed = cep.last_session_compressed.unwrap_or(0);
+        let is_same_session = cep.last_session_pid == Some(pid);
 
-    if is_same_session {
-        let delta_original = tokens_original.saturating_sub(prev_original);
-        let delta_compressed = tokens_compressed.saturating_sub(prev_compressed);
-        cep.total_tokens_original += delta_original;
-        cep.total_tokens_compressed += delta_compressed;
-    } else {
-        cep.sessions += 1;
-        cep.total_cache_hits += cache_hits;
-        cep.total_cache_reads += cache_reads;
-        cep.total_tokens_original += tokens_original;
-        cep.total_tokens_compressed += tokens_compressed;
+        if is_same_session {
+            let delta_original = tokens_original.saturating_sub(prev_original);
+            let delta_compressed = tokens_compressed.saturating_sub(prev_compressed);
+            cep.total_tokens_original += delta_original;
+            cep.total_tokens_compressed += delta_compressed;
+        } else {
+            cep.sessions += 1;
+            cep.total_cache_hits += cache_hits;
+            cep.total_cache_reads += cache_reads;
+            cep.total_tokens_original += tokens_original;
+            cep.total_tokens_compressed += tokens_compressed;
 
-        for (mode, count) in modes {
-            *cep.modes.entry(mode.clone()).or_insert(0) += count;
+            for (mode, count) in modes {
+                *cep.modes.entry(mode.clone()).or_insert(0) += count;
+            }
         }
-    }
 
-    cep.last_session_pid = Some(pid);
-    cep.last_session_original = Some(tokens_original);
-    cep.last_session_compressed = Some(tokens_compressed);
+        cep.last_session_pid = Some(pid);
+        cep.last_session_original = Some(tokens_original);
+        cep.last_session_compressed = Some(tokens_compressed);
 
-    let cache_hit_rate = if cache_reads > 0 {
-        (cache_hits as f64 / cache_reads as f64 * 100.0).round() as u32
-    } else {
-        0
-    };
+        let cache_hit_rate = if cache_reads > 0 {
+            (cache_hits as f64 / cache_reads as f64 * 100.0).round() as u32
+        } else {
+            0
+        };
 
-    let compression_rate = if tokens_original > 0 {
-        ((tokens_original - tokens_compressed) as f64 / tokens_original as f64 * 100.0).round()
-            as u32
-    } else {
-        0
-    };
+        let compression_rate = if tokens_original > 0 {
+            ((tokens_original - tokens_compressed) as f64 / tokens_original as f64 * 100.0).round()
+                as u32
+        } else {
+            0
+        };
 
-    let total_modes = 6u32;
-    let mode_diversity =
-        ((modes.len() as f64 / total_modes as f64).min(1.0) * 100.0).round() as u32;
+        let total_modes = 6u32;
+        let mode_diversity =
+            ((modes.len() as f64 / total_modes as f64).min(1.0) * 100.0).round() as u32;
 
-    let tokens_saved = tokens_original.saturating_sub(tokens_compressed);
+        let tokens_saved = tokens_original.saturating_sub(tokens_compressed);
 
-    cep.scores.push(CepSessionSnapshot {
-        timestamp: chrono::Local::now().to_rfc3339(),
-        score,
-        cache_hit_rate,
-        mode_diversity,
-        compression_rate,
-        tool_calls,
-        tokens_saved,
-        complexity: complexity.to_string(),
+        cep.scores.push(CepSessionSnapshot {
+            timestamp: chrono::Local::now().to_rfc3339(),
+            score,
+            cache_hit_rate,
+            mode_diversity,
+            compression_rate,
+            tool_calls,
+            tokens_saved,
+            complexity: complexity.to_string(),
+        });
+
+        if cep.scores.len() > 100 {
+            cep.scores.drain(..cep.scores.len() - 100);
+        }
+
+        maybe_flush(store, last_flush);
     });
-
-    if cep.scores.len() > 100 {
-        cep.scores.drain(..cep.scores.len() - 100);
-    }
-
-    save(&store);
 }
 
 use super::theme::{self, Theme};

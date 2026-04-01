@@ -1,6 +1,12 @@
 use std::collections::HashMap;
+use std::sync::Mutex;
+use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
+
+const FEEDBACK_FLUSH_SECS: u64 = 60;
+
+static FEEDBACK_BUFFER: Mutex<Option<(FeedbackStore, Instant)>> = Mutex::new(None);
 
 /// Feedback loop for learning optimal compression parameters.
 ///
@@ -38,10 +44,16 @@ pub struct LearnedThresholds {
 
 impl FeedbackStore {
     pub fn load() -> Self {
+        let guard = FEEDBACK_BUFFER.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((ref store, _)) = *guard {
+            return store.clone();
+        }
+        drop(guard);
+
         let path = feedback_path();
         if path.exists() {
             if let Ok(content) = std::fs::read_to_string(&path) {
-                if let Ok(store) = serde_json::from_str(&content) {
+                if let Ok(store) = serde_json::from_str::<FeedbackStore>(&content) {
                     return store;
                 }
             }
@@ -49,7 +61,7 @@ impl FeedbackStore {
         Self::default()
     }
 
-    pub fn save(&self) {
+    fn save_to_disk(&self) {
         let path = feedback_path();
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
@@ -59,17 +71,42 @@ impl FeedbackStore {
         }
     }
 
+    pub fn save(&self) {
+        self.save_to_disk();
+    }
+
+    pub fn flush() {
+        let guard = FEEDBACK_BUFFER.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((ref store, _)) = *guard {
+            store.save_to_disk();
+        }
+    }
+
     pub fn record_outcome(&mut self, outcome: CompressionOutcome) {
         let lang = outcome.language.clone();
         self.outcomes.push(outcome);
 
-        // Keep last 200 outcomes to prevent unbounded growth
         if self.outcomes.len() > 200 {
             self.outcomes.drain(0..self.outcomes.len() - 200);
         }
 
         self.update_learned_thresholds(&lang);
-        self.save();
+
+        let mut guard = FEEDBACK_BUFFER.lock().unwrap_or_else(|e| e.into_inner());
+        let should_flush = match *guard {
+            Some((_, ref last)) => last.elapsed().as_secs() >= FEEDBACK_FLUSH_SECS,
+            None => true,
+        };
+        *guard = Some((
+            self.clone(),
+            guard.as_ref().map_or_else(Instant::now, |(_, t)| *t),
+        ));
+        if should_flush {
+            self.save_to_disk();
+            if let Some((_, ref mut t)) = *guard {
+                *t = Instant::now();
+            }
+        }
     }
 
     fn update_learned_thresholds(&mut self, language: &str) {

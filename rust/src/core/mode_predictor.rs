@@ -1,6 +1,11 @@
 use std::collections::HashMap;
+use std::sync::Mutex;
+use std::time::Instant;
 
 const STATS_FILE: &str = "mode_stats.json";
+const PREDICTOR_FLUSH_SECS: u64 = 60;
+
+static PREDICTOR_BUFFER: Mutex<Option<(ModePredictor, Instant)>> = Mutex::new(None);
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ModeOutcome {
@@ -43,14 +48,20 @@ impl FileSignature {
     }
 }
 
-#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ModePredictor {
     history: HashMap<FileSignature, Vec<ModeOutcome>>,
 }
 
 impl ModePredictor {
     pub fn new() -> Self {
-        Self::load().unwrap_or_default()
+        let mut guard = PREDICTOR_BUFFER.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((ref predictor, _)) = *guard {
+            return predictor.clone();
+        }
+        let loaded = Self::load_from_disk().unwrap_or_default();
+        *guard = Some((loaded.clone(), Instant::now()));
+        loaded
     }
 
     pub fn record(&mut self, sig: FileSignature, outcome: ModeOutcome) {
@@ -206,6 +217,24 @@ impl ModePredictor {
     }
 
     pub fn save(&self) {
+        let mut guard = PREDICTOR_BUFFER.lock().unwrap_or_else(|e| e.into_inner());
+        let should_flush = match *guard {
+            Some((_, ref last_flush)) => last_flush.elapsed().as_secs() >= PREDICTOR_FLUSH_SECS,
+            None => true,
+        };
+        *guard = Some((
+            self.clone(),
+            guard.as_ref().map_or_else(Instant::now, |(_, t)| *t),
+        ));
+        if should_flush {
+            self.save_to_disk();
+            if let Some((_, ref mut t)) = *guard {
+                *t = Instant::now();
+            }
+        }
+    }
+
+    fn save_to_disk(&self) {
         let dir = match dirs::home_dir() {
             Some(d) => d.join(".lean-ctx"),
             None => return,
@@ -217,7 +246,14 @@ impl ModePredictor {
         }
     }
 
-    fn load() -> Option<Self> {
+    pub fn flush() {
+        let guard = PREDICTOR_BUFFER.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((ref predictor, _)) = *guard {
+            predictor.save_to_disk();
+        }
+    }
+
+    fn load_from_disk() -> Option<Self> {
         let path = dirs::home_dir()?.join(".lean-ctx").join(STATS_FILE);
         let data = std::fs::read_to_string(path).ok()?;
         serde_json::from_str(&data).ok()

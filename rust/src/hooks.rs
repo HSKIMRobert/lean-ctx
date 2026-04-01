@@ -1,5 +1,28 @@
 use std::path::PathBuf;
 
+/// Silently refresh all hook scripts for agents that are already configured.
+/// Called after updates and on MCP server start to ensure hooks match the current binary version.
+pub fn refresh_installed_hooks() {
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => return,
+    };
+
+    if home.join(".claude/hooks/lean-ctx-rewrite.sh").exists() {
+        install_claude_hook_scripts(&home);
+    }
+
+    if home.join(".cursor/hooks/lean-ctx-rewrite.sh").exists() {
+        install_cursor_hook_scripts(&home);
+    }
+
+    let gemini_rewrite = home.join(".gemini/hooks/lean-ctx-rewrite-gemini.sh");
+    let gemini_legacy = home.join(".gemini/hooks/lean-ctx-hook-gemini.sh");
+    if gemini_rewrite.exists() || gemini_legacy.exists() {
+        install_gemini_hook_scripts(&home);
+    }
+}
+
 fn resolve_binary_path() -> String {
     std::env::current_exe()
         .map(|p| p.to_string_lossy().to_string())
@@ -20,6 +43,199 @@ pub fn to_bash_compatible_path(path: &str) -> String {
         path
     }
 }
+
+fn generate_rewrite_script(binary: &str) -> String {
+    format!(
+        r#"#!/usr/bin/env bash
+# lean-ctx PreToolUse hook — rewrites bash commands to lean-ctx equivalents
+set -euo pipefail
+
+LEAN_CTX_BIN="{binary}"
+
+INPUT=$(cat)
+TOOL=$(echo "$INPUT" | grep -o '"tool_name":"[^"]*"' | head -1 | cut -d'"' -f4)
+
+if [ "$TOOL" != "Bash" ] && [ "$TOOL" != "bash" ]; then
+  exit 0
+fi
+
+CMD=$(echo "$INPUT" | grep -o '"command":"[^"]*"' | head -1 | cut -d'"' -f4)
+
+if echo "$CMD" | grep -qE "^(lean-ctx |$LEAN_CTX_BIN )"; then
+  exit 0
+fi
+
+REWRITE=""
+case "$CMD" in
+  git\ *)       REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
+  gh\ *)        REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
+  cargo\ *)     REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
+  npm\ *)       REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
+  pnpm\ *)      REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
+  yarn\ *)      REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
+  docker\ *)    REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
+  kubectl\ *)   REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
+  pip\ *|pip3\ *)  REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
+  ruff\ *)      REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
+  go\ *)        REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
+  curl\ *)      REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
+  grep\ *|rg\ *)  REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
+  find\ *)      REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
+  cat\ *|head\ *|tail\ *)  REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
+  ls\ *|ls)     REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
+  eslint*|prettier*|tsc*)  REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
+  pytest*|ruff\ *|mypy*)   REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
+  aws\ *)       REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
+  helm\ *)      REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
+  *)            exit 0 ;;
+esac
+
+if [ -n "$REWRITE" ]; then
+  echo "{{\"command\":\"$REWRITE\"}}"
+fi
+"#
+    )
+}
+
+fn generate_compact_rewrite_script(binary: &str) -> String {
+    format!(
+        r#"#!/usr/bin/env bash
+# lean-ctx hook — rewrites shell commands
+set -euo pipefail
+LEAN_CTX_BIN="{binary}"
+INPUT=$(cat)
+CMD=$(echo "$INPUT" | grep -o '"command":"[^"]*"' | head -1 | cut -d'"' -f4 2>/dev/null || echo "")
+if [ -z "$CMD" ] || echo "$CMD" | grep -qE "^(lean-ctx |$LEAN_CTX_BIN )"; then exit 0; fi
+case "$CMD" in
+  git\ *|gh\ *|cargo\ *|npm\ *|pnpm\ *|docker\ *|kubectl\ *|pip\ *|ruff\ *|go\ *|curl\ *|grep\ *|rg\ *|find\ *|ls\ *|ls|cat\ *|aws\ *|helm\ *)
+    echo "{{\"command\":\"$LEAN_CTX_BIN -c $CMD\"}}" ;;
+  *) exit 0 ;;
+esac
+"#
+    )
+}
+
+const REDIRECT_SCRIPT_CLAUDE: &str = r#"#!/usr/bin/env bash
+# lean-ctx PreToolUse hook — redirects Read/Grep/List to MCP equivalents
+set -euo pipefail
+
+INPUT=$(cat)
+TOOL=$(echo "$INPUT" | grep -o '"tool_name":"[^"]*"' | head -1 | cut -d'"' -f4 2>/dev/null || echo "")
+
+case "$TOOL" in
+  Read|read|ReadFile|read_file|View|view)
+    if pgrep -f "lean-ctx" >/dev/null 2>&1; then
+      echo '{"decision":"block","reason":"Use ctx_read(path) from lean-ctx MCP instead. Saves 60-80% input tokens with caching + compression. Modes: full, map, signatures, diff, lines:N-M."}'
+    fi
+    ;;
+  Grep|grep|Search|search|RipGrep|ripgrep)
+    if pgrep -f "lean-ctx" >/dev/null 2>&1; then
+      echo '{"decision":"block","reason":"Use ctx_search(pattern, path) from lean-ctx MCP instead. Compact token-efficient results with .gitignore awareness."}'
+    fi
+    ;;
+  ListFiles|list_files|ListDirectory|list_directory)
+    if pgrep -f "lean-ctx" >/dev/null 2>&1; then
+      echo '{"decision":"block","reason":"Use ctx_tree(path) from lean-ctx MCP instead. Compact directory maps with file counts."}'
+    fi
+    ;;
+esac
+"#;
+
+const REDIRECT_SCRIPT_GENERIC: &str = r#"#!/usr/bin/env bash
+# lean-ctx hook — redirects Read/Grep to MCP equivalents
+set -euo pipefail
+
+INPUT=$(cat)
+TOOL=$(echo "$INPUT" | grep -o '"tool_name":"[^"]*"' | head -1 | cut -d'"' -f4 2>/dev/null || echo "")
+
+case "$TOOL" in
+  Read|read|ReadFile|read_file)
+    if pgrep -f "lean-ctx" >/dev/null 2>&1; then
+      echo '{"decision":"block","reason":"Use ctx_read(path) from lean-ctx MCP instead. Saves 60-80% tokens."}'
+    fi
+    ;;
+  Grep|grep|Search|search)
+    if pgrep -f "lean-ctx" >/dev/null 2>&1; then
+      echo '{"decision":"block","reason":"Use ctx_search(pattern, path) from lean-ctx MCP instead."}'
+    fi
+    ;;
+  ListFiles|list_files|ListDirectory|list_directory)
+    if pgrep -f "lean-ctx" >/dev/null 2>&1; then
+      echo '{"decision":"block","reason":"Use ctx_tree(path) from lean-ctx MCP instead."}'
+    fi
+    ;;
+esac
+"#;
+
+pub fn install_project_rules() {
+    let cwd = std::env::current_dir().unwrap_or_default();
+
+    let agents_md = cwd.join("AGENTS.md");
+    if !agents_md.exists()
+        || !std::fs::read_to_string(&agents_md)
+            .unwrap_or_default()
+            .contains("lean-ctx")
+    {
+        let content = AGENTS_MD_TEMPLATE;
+        write_file(&agents_md, content);
+        println!("Created AGENTS.md in project root.");
+    }
+
+    let cursorrules = cwd.join(".cursorrules");
+    if !cursorrules.exists()
+        || !std::fs::read_to_string(&cursorrules)
+            .unwrap_or_default()
+            .contains("lean-ctx")
+    {
+        let content = CURSORRULES_TEMPLATE;
+        if cursorrules.exists() {
+            let mut existing = std::fs::read_to_string(&cursorrules).unwrap_or_default();
+            if !existing.ends_with('\n') {
+                existing.push('\n');
+            }
+            existing.push('\n');
+            existing.push_str(content);
+            write_file(&cursorrules, &existing);
+        } else {
+            write_file(&cursorrules, content);
+        }
+        println!("Created/updated .cursorrules in project root.");
+    }
+}
+
+const AGENTS_MD_TEMPLATE: &str = "\
+# lean-ctx — Context Engineering Layer
+
+MANDATORY: Use lean-ctx MCP tools for ALL reads, searches, and shell commands.
+
+| FORBIDDEN | USE INSTEAD |
+|-----------|-------------|
+| Read / cat / head / tail | `ctx_read(path)` — cached, 8 compression modes, re-reads ~13 tokens |
+| Shell / bash / terminal | `ctx_shell(command)` — pattern compression for git/npm/cargo output |
+| Grep / rg / search | `ctx_search(pattern, path)` — compact, token-efficient results |
+| ls / find / tree | `ctx_tree(path, depth)` — compact directory maps |
+
+Keep using Write, StrReplace, Delete, Glob normally (no lean-ctx replacement).
+
+REMINDER: NEVER use native Read, Shell, Grep, or ls. ALWAYS use ctx_read, ctx_shell, ctx_search, ctx_tree.
+";
+
+const CURSORRULES_TEMPLATE: &str = "\
+# lean-ctx — Context Engineering Layer
+
+CRITICAL: NEVER use native Read, Shell, Grep, or ls tools. ALWAYS use lean-ctx MCP equivalents.
+
+| FORBIDDEN | USE INSTEAD |
+|-----------|-------------|
+| `Read` | `ctx_read(path)` — cached, 8 compression modes |
+| `Shell` | `ctx_shell(command)` — pattern compression |
+| `Grep` | `ctx_search(pattern, path)` — compact results |
+| `ls` / `find` | `ctx_tree(path, depth)` — directory maps |
+
+Write, StrReplace, Delete, Glob — use normally.
+
+REMINDER: NEVER use native Read, Shell, Grep, or ls. ALWAYS use ctx_read, ctx_shell, ctx_search, ctx_tree.
+";
 
 pub fn install_agent_hook(agent: &str, global: bool) {
     match agent {
@@ -70,108 +286,8 @@ fn install_claude_hook(global: bool) {
         }
     };
 
-    let hooks_dir = home.join(".claude").join("hooks");
-    let _ = std::fs::create_dir_all(&hooks_dir);
-
-    let script_path = hooks_dir.join("lean-ctx-rewrite.sh");
-    let binary = resolve_binary_path_for_bash();
-    let script = format!(
-        r#"#!/usr/bin/env bash
-# lean-ctx PreToolUse hook — rewrites bash commands to lean-ctx equivalents
-set -euo pipefail
-
-LEAN_CTX_BIN="{binary}"
-
-INPUT=$(cat)
-TOOL=$(echo "$INPUT" | grep -o '"tool_name":"[^"]*"' | head -1 | cut -d'"' -f4)
-
-if [ "$TOOL" != "Bash" ] && [ "$TOOL" != "bash" ]; then
-  exit 0
-fi
-
-CMD=$(echo "$INPUT" | grep -o '"command":"[^"]*"' | head -1 | cut -d'"' -f4)
-
-if echo "$CMD" | grep -qE "^(lean-ctx |$LEAN_CTX_BIN )"; then
-  exit 0
-fi
-
-REWRITE=""
-case "$CMD" in
-  git\ *)       REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
-  gh\ *)        REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
-  cargo\ *)     REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
-  npm\ *)       REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
-  pnpm\ *)      REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
-  yarn\ *)      REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
-  docker\ *)    REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
-  kubectl\ *)   REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
-  pip\ *|pip3\ *)  REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
-  ruff\ *)      REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
-  go\ *)        REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
-  curl\ *)      REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
-  grep\ *|rg\ *)  REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
-  find\ *)      REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
-  cat\ *|head\ *|tail\ *)  REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
-  ls\ *|ls)     REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
-  eslint*|prettier*|tsc*)  REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
-  pytest*|ruff\ *|mypy*)   REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
-  aws\ *)       REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
-  helm\ *)      REWRITE="$LEAN_CTX_BIN -c $CMD" ;;
-  *)            exit 0 ;;
-esac
-
-if [ -n "$REWRITE" ]; then
-  echo "{{\"command\":\"$REWRITE\"}}"
-fi
-"#
-    );
-
-    write_file(&script_path, &script);
-    make_executable(&script_path);
-
-    let settings_path = home.join(".claude").join("settings.json");
-    let settings_content = if settings_path.exists() {
-        std::fs::read_to_string(&settings_path).unwrap_or_default()
-    } else {
-        String::new()
-    };
-
-    if settings_content.contains("lean-ctx-rewrite") {
-        println!("Claude Code hook already configured.");
-    } else {
-        let hook_entry = serde_json::json!({
-            "hooks": {
-                "PreToolUse": [{
-                    "matcher": "Bash|bash",
-                    "hooks": [{
-                        "type": "command",
-                        "command": script_path.to_string_lossy()
-                    }]
-                }]
-            }
-        });
-
-        if settings_content.is_empty() {
-            write_file(
-                &settings_path,
-                &serde_json::to_string_pretty(&hook_entry).unwrap(),
-            );
-        } else if let Ok(mut existing) =
-            serde_json::from_str::<serde_json::Value>(&settings_content)
-        {
-            if let Some(obj) = existing.as_object_mut() {
-                obj.insert("hooks".to_string(), hook_entry["hooks"].clone());
-                write_file(
-                    &settings_path,
-                    &serde_json::to_string_pretty(&existing).unwrap(),
-                );
-            }
-        }
-        println!(
-            "Installed Claude Code PreToolUse hook at {}",
-            script_path.display()
-        );
-    }
+    install_claude_hook_scripts(&home);
+    install_claude_hook_config(&home);
 
     if !global {
         let claude_md = PathBuf::from("CLAUDE.md");
@@ -193,6 +309,78 @@ fi
     }
 }
 
+fn install_claude_hook_scripts(home: &std::path::Path) {
+    let hooks_dir = home.join(".claude").join("hooks");
+    let _ = std::fs::create_dir_all(&hooks_dir);
+
+    let binary = resolve_binary_path_for_bash();
+
+    let rewrite_path = hooks_dir.join("lean-ctx-rewrite.sh");
+    let rewrite_script = generate_rewrite_script(&binary);
+    write_file(&rewrite_path, &rewrite_script);
+    make_executable(&rewrite_path);
+
+    let redirect_path = hooks_dir.join("lean-ctx-redirect.sh");
+    write_file(&redirect_path, REDIRECT_SCRIPT_CLAUDE);
+    make_executable(&redirect_path);
+}
+
+fn install_claude_hook_config(home: &std::path::Path) {
+    let hooks_dir = home.join(".claude").join("hooks");
+    let rewrite_path = hooks_dir.join("lean-ctx-rewrite.sh");
+    let redirect_path = hooks_dir.join("lean-ctx-redirect.sh");
+
+    let settings_path = home.join(".claude").join("settings.json");
+    let settings_content = if settings_path.exists() {
+        std::fs::read_to_string(&settings_path).unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    if settings_content.contains("lean-ctx-rewrite")
+        && settings_content.contains("lean-ctx-redirect")
+    {
+        return;
+    }
+
+    let hook_entry = serde_json::json!({
+        "hooks": {
+            "PreToolUse": [
+                {
+                    "matcher": "Bash|bash",
+                    "hooks": [{
+                        "type": "command",
+                        "command": rewrite_path.to_string_lossy()
+                    }]
+                },
+                {
+                    "matcher": "Read|read|ReadFile|read_file|View|view|Grep|grep|Search|search|ListFiles|list_files|ListDirectory|list_directory",
+                    "hooks": [{
+                        "type": "command",
+                        "command": redirect_path.to_string_lossy()
+                    }]
+                }
+            ]
+        }
+    });
+
+    if settings_content.is_empty() {
+        write_file(
+            &settings_path,
+            &serde_json::to_string_pretty(&hook_entry).unwrap(),
+        );
+    } else if let Ok(mut existing) = serde_json::from_str::<serde_json::Value>(&settings_content) {
+        if let Some(obj) = existing.as_object_mut() {
+            obj.insert("hooks".to_string(), hook_entry["hooks"].clone());
+            write_file(
+                &settings_path,
+                &serde_json::to_string_pretty(&existing).unwrap(),
+            );
+        }
+    }
+    println!("Installed Claude Code hooks at {}", hooks_dir.display());
+}
+
 fn install_cursor_hook(global: bool) {
     let home = match dirs::home_dir() {
         Some(h) => h,
@@ -202,56 +390,8 @@ fn install_cursor_hook(global: bool) {
         }
     };
 
-    let hooks_dir = home.join(".cursor").join("hooks");
-    let _ = std::fs::create_dir_all(&hooks_dir);
-
-    let script_path = hooks_dir.join("lean-ctx-rewrite.sh");
-    let binary = resolve_binary_path_for_bash();
-    let script = format!(
-        r#"#!/usr/bin/env bash
-# lean-ctx Cursor hook — rewrites shell commands
-set -euo pipefail
-LEAN_CTX_BIN="{binary}"
-INPUT=$(cat)
-CMD=$(echo "$INPUT" | grep -o '"command":"[^"]*"' | head -1 | cut -d'"' -f4 2>/dev/null || echo "")
-if [ -z "$CMD" ] || echo "$CMD" | grep -qE "^(lean-ctx |$LEAN_CTX_BIN )"; then exit 0; fi
-case "$CMD" in
-  git\ *|gh\ *|cargo\ *|npm\ *|pnpm\ *|docker\ *|kubectl\ *|pip\ *|ruff\ *|go\ *|curl\ *|grep\ *|rg\ *|find\ *|ls\ *|ls|cat\ *|aws\ *|helm\ *)
-    echo "{{\"command\":\"$LEAN_CTX_BIN -c $CMD\"}}" ;;
-  *) exit 0 ;;
-esac
-"#
-    );
-
-    write_file(&script_path, &script);
-    make_executable(&script_path);
-
-    let hooks_json = home.join(".cursor").join("hooks.json");
-    let hook_config = serde_json::json!({
-        "hooks": [{
-            "event": "preToolUse",
-            "matcher": {
-                "tool": "terminal_command"
-            },
-            "command": script_path.to_string_lossy()
-        }]
-    });
-
-    let content = if hooks_json.exists() {
-        std::fs::read_to_string(&hooks_json).unwrap_or_default()
-    } else {
-        String::new()
-    };
-
-    if content.contains("lean-ctx-rewrite") {
-        println!("Cursor hook already configured.");
-    } else {
-        write_file(
-            &hooks_json,
-            &serde_json::to_string_pretty(&hook_config).unwrap(),
-        );
-        println!("Installed Cursor hook at {}", hooks_json.display());
-    }
+    install_cursor_hook_scripts(&home);
+    install_cursor_hook_config(&home);
 
     if !global {
         let rules_dir = PathBuf::from(".cursor").join("rules");
@@ -271,6 +411,64 @@ esac
     println!("Restart Cursor to activate.");
 }
 
+fn install_cursor_hook_scripts(home: &std::path::Path) {
+    let hooks_dir = home.join(".cursor").join("hooks");
+    let _ = std::fs::create_dir_all(&hooks_dir);
+
+    let binary = resolve_binary_path_for_bash();
+
+    let rewrite_path = hooks_dir.join("lean-ctx-rewrite.sh");
+    let rewrite_script = generate_compact_rewrite_script(&binary);
+    write_file(&rewrite_path, &rewrite_script);
+    make_executable(&rewrite_path);
+
+    let redirect_path = hooks_dir.join("lean-ctx-redirect.sh");
+    write_file(&redirect_path, REDIRECT_SCRIPT_GENERIC);
+    make_executable(&redirect_path);
+}
+
+fn install_cursor_hook_config(home: &std::path::Path) {
+    let hooks_dir = home.join(".cursor").join("hooks");
+    let rewrite_path = hooks_dir.join("lean-ctx-rewrite.sh");
+    let redirect_path = hooks_dir.join("lean-ctx-redirect.sh");
+
+    let hooks_json = home.join(".cursor").join("hooks.json");
+    let hook_config = serde_json::json!({
+        "hooks": [
+            {
+                "event": "preToolUse",
+                "matcher": {
+                    "tool": "terminal_command"
+                },
+                "command": rewrite_path.to_string_lossy()
+            },
+            {
+                "event": "preToolUse",
+                "matcher": {
+                    "tool": "read_file|grep|search|list_files|list_directory"
+                },
+                "command": redirect_path.to_string_lossy()
+            }
+        ]
+    });
+
+    let content = if hooks_json.exists() {
+        std::fs::read_to_string(&hooks_json).unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    if content.contains("lean-ctx-rewrite") && content.contains("lean-ctx-redirect") {
+        return;
+    }
+
+    write_file(
+        &hooks_json,
+        &serde_json::to_string_pretty(&hook_config).unwrap(),
+    );
+    println!("Installed Cursor hooks at {}", hooks_json.display());
+}
+
 fn install_gemini_hook() {
     let home = match dirs::home_dir() {
         Some(h) => h,
@@ -280,29 +478,30 @@ fn install_gemini_hook() {
         }
     };
 
+    install_gemini_hook_scripts(&home);
+    install_gemini_hook_config(&home);
+}
+
+fn install_gemini_hook_scripts(home: &std::path::Path) {
     let hooks_dir = home.join(".gemini").join("hooks");
     let _ = std::fs::create_dir_all(&hooks_dir);
 
-    let script_path = hooks_dir.join("lean-ctx-hook-gemini.sh");
     let binary = resolve_binary_path_for_bash();
-    let script = format!(
-        r#"#!/usr/bin/env bash
-# lean-ctx Gemini CLI BeforeTool hook
-set -euo pipefail
-LEAN_CTX_BIN="{binary}"
-INPUT=$(cat)
-CMD=$(echo "$INPUT" | grep -o '"command":"[^"]*"' | head -1 | cut -d'"' -f4 2>/dev/null || echo "")
-if [ -z "$CMD" ] || echo "$CMD" | grep -qE "^(lean-ctx |$LEAN_CTX_BIN )"; then exit 0; fi
-case "$CMD" in
-  git\ *|gh\ *|cargo\ *|npm\ *|pnpm\ *|docker\ *|kubectl\ *|pip\ *|ruff\ *|go\ *|curl\ *|grep\ *|rg\ *|find\ *|ls\ *|ls|cat\ *|aws\ *|helm\ *)
-    echo "{{\"command\":\"$LEAN_CTX_BIN -c $CMD\"}}" ;;
-  *) exit 0 ;;
-esac
-"#
-    );
 
-    write_file(&script_path, &script);
-    make_executable(&script_path);
+    let rewrite_path = hooks_dir.join("lean-ctx-rewrite-gemini.sh");
+    let rewrite_script = generate_compact_rewrite_script(&binary);
+    write_file(&rewrite_path, &rewrite_script);
+    make_executable(&rewrite_path);
+
+    let redirect_path = hooks_dir.join("lean-ctx-redirect-gemini.sh");
+    write_file(&redirect_path, REDIRECT_SCRIPT_GENERIC);
+    make_executable(&redirect_path);
+}
+
+fn install_gemini_hook_config(home: &std::path::Path) {
+    let hooks_dir = home.join(".gemini").join("hooks");
+    let rewrite_path = hooks_dir.join("lean-ctx-rewrite-gemini.sh");
+    let redirect_path = hooks_dir.join("lean-ctx-redirect-gemini.sh");
 
     let settings_path = home.join(".gemini").join("settings.json");
     let settings_content = if settings_path.exists() {
@@ -311,35 +510,40 @@ esac
         String::new()
     };
 
-    if settings_content.contains("lean-ctx") {
-        println!("Gemini CLI hook already configured.");
-    } else {
-        let hook_config = serde_json::json!({
-            "hooks": {
-                "BeforeTool": [{
-                    "command": script_path.to_string_lossy()
-                }]
-            }
-        });
+    if settings_content.contains("lean-ctx-rewrite")
+        && settings_content.contains("lean-ctx-redirect")
+    {
+        return;
+    }
 
-        if settings_content.is_empty() {
+    let hook_config = serde_json::json!({
+        "hooks": {
+            "BeforeTool": [
+                {
+                    "command": rewrite_path.to_string_lossy()
+                },
+                {
+                    "command": redirect_path.to_string_lossy()
+                }
+            ]
+        }
+    });
+
+    if settings_content.is_empty() {
+        write_file(
+            &settings_path,
+            &serde_json::to_string_pretty(&hook_config).unwrap(),
+        );
+    } else if let Ok(mut existing) = serde_json::from_str::<serde_json::Value>(&settings_content) {
+        if let Some(obj) = existing.as_object_mut() {
+            obj.insert("hooks".to_string(), hook_config["hooks"].clone());
             write_file(
                 &settings_path,
-                &serde_json::to_string_pretty(&hook_config).unwrap(),
+                &serde_json::to_string_pretty(&existing).unwrap(),
             );
-        } else if let Ok(mut existing) =
-            serde_json::from_str::<serde_json::Value>(&settings_content)
-        {
-            if let Some(obj) = existing.as_object_mut() {
-                obj.insert("hooks".to_string(), hook_config["hooks"].clone());
-                write_file(
-                    &settings_path,
-                    &serde_json::to_string_pretty(&existing).unwrap(),
-                );
-            }
         }
-        println!("Installed Gemini CLI hook at {}", script_path.display());
     }
+    println!("Installed Gemini CLI hooks at {}", hooks_dir.display());
 }
 
 fn install_codex_hook() {

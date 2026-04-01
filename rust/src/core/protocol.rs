@@ -180,7 +180,7 @@ mod tests {
         let (decoder_cost, saving_per_call) = instruction_encoding_savings();
         assert!(decoder_cost > 0);
         assert!(saving_per_call > 0);
-        let break_even = (decoder_cost + saving_per_call - 1) / saving_per_call;
+        let break_even = decoder_cost.div_ceil(saving_per_call);
         assert!(
             break_even <= 30,
             "break-even should be within 30 calls, got {break_even}"

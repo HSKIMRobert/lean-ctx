@@ -116,24 +116,92 @@ fn compress_run(output: &str) -> String {
 }
 
 fn compress_test(output: &str) -> String {
-    let mut passed = 0u32;
-    let mut failed = 0u32;
-    let mut skipped = 0u32;
+    static JEST_SUMMARY_RE: OnceLock<Regex> = OnceLock::new();
+    static VITEST_SUMMARY_RE: OnceLock<Regex> = OnceLock::new();
+    static MOCHA_SUMMARY_RE: OnceLock<Regex> = OnceLock::new();
+    static TEST_LINE_RE: OnceLock<Regex> = OnceLock::new();
+
+    let jest_re = JEST_SUMMARY_RE
+        .get_or_init(|| Regex::new(r"Tests:\s+(?:(\d+)\s+failed,?\s*)?(?:(\d+)\s+skipped,?\s*)?(?:(\d+)\s+passed,?\s*)?(\d+)\s+total").unwrap());
+    let vitest_re = VITEST_SUMMARY_RE.get_or_init(|| {
+        Regex::new(
+            r"Test Files\s+(?:(\d+)\s+failed\s*\|?\s*)?(?:(\d+)\s+passed\s*\|?\s*)?(\d+)\s+total",
+        )
+        .unwrap()
+    });
+    let mocha_re = MOCHA_SUMMARY_RE
+        .get_or_init(|| Regex::new(r"(\d+)\s+passing.*\n\s*(?:(\d+)\s+failing)?").unwrap());
+    let test_line_re =
+        TEST_LINE_RE.get_or_init(|| Regex::new(r"^\s*(✓|✗|✘|×|PASS|FAIL|ok|not ok)\s").unwrap());
 
     for line in output.lines() {
-        let trimmed = line.trim().to_lowercase();
-        if trimmed.contains("pass") {
-            passed += 1;
+        if let Some(caps) = jest_re.captures(line) {
+            let failed: u32 = caps
+                .get(1)
+                .and_then(|m| m.as_str().parse().ok())
+                .unwrap_or(0);
+            let skipped: u32 = caps
+                .get(2)
+                .and_then(|m| m.as_str().parse().ok())
+                .unwrap_or(0);
+            let passed: u32 = caps
+                .get(3)
+                .and_then(|m| m.as_str().parse().ok())
+                .unwrap_or(0);
+            let total: u32 = caps
+                .get(4)
+                .and_then(|m| m.as_str().parse().ok())
+                .unwrap_or(0);
+            return format!("tests: {passed} pass, {failed} fail, {skipped} skip ({total} total)");
         }
-        if trimmed.contains("fail") {
-            failed += 1;
-        }
-        if trimmed.contains("skip") || trimmed.contains("pending") {
-            skipped += 1;
+        if let Some(caps) = vitest_re.captures(line) {
+            let failed: u32 = caps
+                .get(1)
+                .and_then(|m| m.as_str().parse().ok())
+                .unwrap_or(0);
+            let passed: u32 = caps
+                .get(2)
+                .and_then(|m| m.as_str().parse().ok())
+                .unwrap_or(0);
+            let total: u32 = caps
+                .get(3)
+                .and_then(|m| m.as_str().parse().ok())
+                .unwrap_or(0);
+            return format!("tests: {passed} pass, {failed} fail ({total} total)");
         }
     }
 
-    format!("tests: {passed} pass, {failed} fail, {skipped} skip")
+    if let Some(caps) = mocha_re.captures(output) {
+        let passed: u32 = caps
+            .get(1)
+            .and_then(|m| m.as_str().parse().ok())
+            .unwrap_or(0);
+        let failed: u32 = caps
+            .get(2)
+            .and_then(|m| m.as_str().parse().ok())
+            .unwrap_or(0);
+        return format!("tests: {passed} pass, {failed} fail");
+    }
+
+    let mut passed = 0u32;
+    let mut failed = 0u32;
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if test_line_re.is_match(trimmed) {
+            let low = trimmed.to_lowercase();
+            if low.starts_with("✓") || low.starts_with("pass") || low.starts_with("ok ") {
+                passed += 1;
+            } else {
+                failed += 1;
+            }
+        }
+    }
+
+    if passed > 0 || failed > 0 {
+        return format!("tests: {passed} pass, {failed} fail");
+    }
+
+    compact_output(output, 10)
 }
 
 fn compress_audit(output: &str) -> String {
