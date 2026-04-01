@@ -378,6 +378,13 @@ fn build_targets(home: &std::path::Path, _binary: &str) -> Vec<EditorTarget> {
             detect_path: home.join(".kiro"),
             config_type: ConfigType::McpJson,
         },
+        EditorTarget {
+            name: "Verdent",
+            agent_key: "verdent",
+            config_path: home.join(".verdent/mcp.json"),
+            detect_path: home.join(".verdent"),
+            config_type: ConfigType::McpJson,
+        },
     ]
 }
 
@@ -410,11 +417,19 @@ fn detect_codex_path(home: &std::path::Path) -> PathBuf {
 }
 
 fn zed_settings_path(home: &std::path::Path) -> PathBuf {
-    home.join(".config/zed/settings.json")
+    if cfg!(target_os = "macos") {
+        home.join("Library/Application Support/Zed/settings.json")
+    } else {
+        home.join(".config/zed/settings.json")
+    }
 }
 
 fn zed_config_dir(home: &std::path::Path) -> PathBuf {
-    home.join(".config/zed")
+    if cfg!(target_os = "macos") {
+        home.join("Library/Application Support/Zed")
+    } else {
+        home.join(".config/zed")
+    }
 }
 
 fn write_config(target: &EditorTarget, binary: &str) -> Result<(), String> {

@@ -95,6 +95,7 @@ fn remove_mcp_configs(home: &Path) -> bool {
         ("Amazon Q Developer", home.join(".aws/amazonq/mcp.json")),
         ("JetBrains IDEs", home.join(".jb-mcp.json")),
         ("AWS Kiro", home.join(".kiro/settings/mcp.json")),
+        ("Verdent", home.join(".verdent/mcp.json")),
     ];
 
     let mut removed = false;
@@ -156,9 +157,19 @@ fn remove_rules_files(home: &Path) -> bool {
     let rules_files: Vec<(&str, PathBuf)> = vec![
         ("Claude Code", home.join(".claude/CLAUDE.md")),
         ("Cursor", home.join(".cursor/rules/lean-ctx.mdc")),
-        ("Gemini CLI", home.join(".gemini/rules/lean-ctx.md")),
+        ("Gemini CLI", home.join(".gemini/GEMINI.md")),
+        (
+            "Gemini CLI (legacy)",
+            home.join(".gemini/rules/lean-ctx.md"),
+        ),
         ("Codex CLI", home.join(".codex/LEAN-CTX.md")),
+        ("Codex CLI", home.join(".codex/instructions.md")),
         ("Windsurf", home.join(".codeium/windsurf/rules/lean-ctx.md")),
+        ("Zed", home.join(".config/zed/rules/lean-ctx.md")),
+        ("Cline", home.join(".cline/rules/lean-ctx.md")),
+        ("Roo Code", home.join(".roo/rules/lean-ctx.md")),
+        ("OpenCode", home.join(".config/opencode/rules/lean-ctx.md")),
+        ("Continue", home.join(".continue/rules/lean-ctx.md")),
         ("Aider", home.join(".aider/rules/lean-ctx.md")),
         ("Amp", home.join(".ampcoder/rules/lean-ctx.md")),
         ("Qwen Code", home.join(".qwen/rules/lean-ctx.md")),
@@ -174,6 +185,7 @@ fn remove_rules_files(home: &Path) -> bool {
         ),
         ("Pi Coding Agent", home.join(".pi/rules/lean-ctx.md")),
         ("AWS Kiro", home.join(".kiro/rules/lean-ctx.md")),
+        ("Verdent", home.join(".verdent/rules/lean-ctx.md")),
     ];
 
     let mut removed = false;
@@ -338,13 +350,15 @@ fn remove_lean_ctx_block_legacy(content: &str) -> String {
 
 fn remove_lean_ctx_from_json(content: &str) -> Option<String> {
     let mut parsed: serde_json::Value = serde_json::from_str(content).ok()?;
+    let mut modified = false;
 
-    let modified =
-        if let Some(servers) = parsed.get_mut("mcpServers").and_then(|s| s.as_object_mut()) {
-            servers.remove("lean-ctx").is_some()
-        } else {
-            false
-        };
+    if let Some(servers) = parsed.get_mut("mcpServers").and_then(|s| s.as_object_mut()) {
+        modified |= servers.remove("lean-ctx").is_some();
+    }
+
+    if let Some(servers) = parsed.get_mut("servers").and_then(|s| s.as_object_mut()) {
+        modified |= servers.remove("lean-ctx").is_some();
+    }
 
     if modified {
         Some(serde_json::to_string_pretty(&parsed).ok()? + "\n")
@@ -369,17 +383,15 @@ fn zed_settings_path(home: &Path) -> PathBuf {
 }
 
 fn vscode_mcp_path() -> PathBuf {
+    let home = dirs::home_dir().unwrap_or_default();
     if cfg!(target_os = "macos") {
-        dirs::home_dir()
-            .unwrap_or_default()
-            .join("Library/Application Support/Code/User/settings.json")
+        home.join("Library/Application Support/Code/User/mcp.json")
     } else if cfg!(target_os = "windows") {
-        dirs::home_dir()
-            .unwrap_or_default()
-            .join("AppData/Roaming/Code/User/settings.json")
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            return PathBuf::from(appdata).join("Code/User/mcp.json");
+        }
+        home.join("AppData/Roaming/Code/User/mcp.json")
     } else {
-        dirs::home_dir()
-            .unwrap_or_default()
-            .join(".config/Code/User/settings.json")
+        home.join(".config/Code/User/mcp.json")
     }
 }

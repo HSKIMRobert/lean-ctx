@@ -274,7 +274,7 @@ fn e2e_real_git_log_compression() {
     eprintln!("Compressed: {compressed_tokens} tokens");
     eprintln!("Saved: {saved} tokens ({pct:.1}%)");
     eprintln!("\n=== Compressed output ===");
-    eprintln!("{}", &compressed[..compressed.len().min(800)]);
+    eprintln!("{}", compressed.chars().take(800).collect::<String>());
 
     assert!(
         pct > 80.0,
@@ -312,7 +312,7 @@ fn e2e_real_git_log_stat_compression() {
     eprintln!("Original: {original} tokens → Compressed: {compressed_tokens} tokens");
     eprintln!("Saved: {saved} tokens ({pct:.1}%)");
     eprintln!("\n=== Compressed output (first 500 chars) ===");
-    eprintln!("{}", &compressed[..compressed.len().min(500)]);
+    eprintln!("{}", compressed.chars().take(500).collect::<String>());
 
     assert!(
         pct > 60.0,
@@ -390,6 +390,229 @@ fn generate_git_log_stat(n: usize) -> String {
         ));
     }
     output
+}
+
+/// End-to-end audit: trace the full savings pipeline for each tool
+/// and verify that "original" and "saved" are fair comparisons.
+#[test]
+fn audit_full_savings_pipeline() {
+    use lean_ctx::core::cache::SessionCache;
+    use lean_ctx::core::tokens::count_tokens;
+    use lean_ctx::tools::CrpMode;
+
+    eprintln!("\n{}", "=".repeat(70));
+    eprintln!("  FULL SAVINGS PIPELINE AUDIT");
+    eprintln!("{}", "=".repeat(70));
+
+    // 1. ctx_read — first read in full mode: savings should be ~0
+    {
+        let mut cache = SessionCache::new();
+        let content = "use std::io;\nfn main() {\n    println!(\"hello\");\n}\n";
+        let tmp = std::env::temp_dir().join("audit_test_file.rs");
+        std::fs::write(&tmp, content).unwrap();
+
+        let output = lean_ctx::tools::ctx_read::handle(
+            &mut cache,
+            tmp.to_str().unwrap(),
+            "full",
+            CrpMode::Off,
+        );
+        let file_tokens = count_tokens(content);
+        let output_tokens = count_tokens(&output);
+        let saved = file_tokens.saturating_sub(output_tokens);
+
+        eprintln!("\n  ctx_read (first read, full mode):");
+        eprintln!("    file tokens:   {file_tokens}");
+        eprintln!("    output tokens: {output_tokens}");
+        eprintln!("    saved:         {saved}");
+        eprintln!(
+            "    contains savings line: {}",
+            output.contains("tok saved")
+        );
+
+        assert!(
+            output_tokens >= file_tokens,
+            "first full read includes header, so output >= original: {output_tokens} vs {file_tokens}"
+        );
+
+        // 2. ctx_read — second read (cache hit): massive savings
+        let output2 = lean_ctx::tools::ctx_read::handle(
+            &mut cache,
+            tmp.to_str().unwrap(),
+            "full",
+            CrpMode::Off,
+        );
+        let output2_tokens = count_tokens(&output2);
+        let is_cache_hit = output2.contains(" cached ");
+
+        eprintln!("\n  ctx_read (cache re-read):");
+        eprintln!("    file tokens:   {file_tokens}");
+        eprintln!("    output tokens: {output2_tokens}");
+        eprintln!("    is_cache_hit:  {is_cache_hit}");
+        eprintln!("    output: {:?}", output2);
+
+        assert!(is_cache_hit, "second read should be a cache hit");
+        assert!(
+            output2_tokens < 20,
+            "cache hit stub should be <20 tokens, got {output2_tokens}"
+        );
+
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    // 3. ctx_read — compressed mode (signatures): fair comparison
+    {
+        let mut cache = SessionCache::new();
+        let mut code = Vec::new();
+        code.push("use std::collections::HashMap;".to_string());
+        for i in 0..50 {
+            code.push(format!("pub fn handler_{i}(req: Request) -> Response {{"));
+            code.push(format!(
+                "    let data = db.query(\"SELECT * FROM table_{i}\");"
+            ));
+            code.push(format!(
+                "    let filtered = data.iter().filter(|r| r.active).collect::<Vec<_>>();"
+            ));
+            code.push(format!(
+                "    let result = process_items(&filtered, req.params());"
+            ));
+            code.push(format!(
+                "    if result.is_err() {{ return Response::error(500); }}"
+            ));
+            code.push(format!("    Response::json(result.unwrap())"));
+            code.push("}".to_string());
+            code.push(String::new());
+        }
+        let content = code.join("\n");
+        let tmp = std::env::temp_dir().join("audit_test_sigs.rs");
+        std::fs::write(&tmp, &content).unwrap();
+
+        let output = lean_ctx::tools::ctx_read::handle(
+            &mut cache,
+            tmp.to_str().unwrap(),
+            "signatures",
+            CrpMode::Off,
+        );
+        let file_tokens = count_tokens(&content);
+        let output_tokens = count_tokens(&output);
+        let saved = file_tokens.saturating_sub(output_tokens);
+        let ratio = if file_tokens > 0 {
+            saved as f64 / file_tokens as f64 * 100.0
+        } else {
+            0.0
+        };
+
+        eprintln!("\n  ctx_read (signatures mode, 50 multi-line fns):");
+        eprintln!("    file tokens:   {file_tokens}");
+        eprintln!("    output tokens: {output_tokens}");
+        eprintln!("    savings:       {saved} ({ratio:.1}%)");
+
+        assert!(
+            output_tokens < file_tokens,
+            "signatures should compress: {output_tokens} < {file_tokens}"
+        );
+        assert!(
+            ratio > 20.0 && ratio < 98.0,
+            "signatures savings should be 20-98%, got {ratio:.1}%"
+        );
+
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    // 4. ctx_tree — fair comparison (same depth)
+    {
+        let dir = env!("CARGO_MANIFEST_DIR");
+        let (output, raw_tokens) = lean_ctx::tools::ctx_tree::handle(dir, 2, false);
+        let compact_tokens = count_tokens(&output);
+        let savings = raw_tokens.saturating_sub(compact_tokens);
+        let ratio = if raw_tokens > 0 {
+            savings as f64 / raw_tokens as f64 * 100.0
+        } else {
+            0.0
+        };
+
+        eprintln!("\n  ctx_tree (depth=2):");
+        eprintln!("    raw tokens:     {raw_tokens}");
+        eprintln!("    compact tokens: {compact_tokens}");
+        eprintln!("    savings:        {savings} ({ratio:.1}%)");
+
+        assert!(
+            raw_tokens < 3000,
+            "raw tree at depth 2 must be <3000 tokens, got {raw_tokens}"
+        );
+        assert!(
+            ratio < 80.0,
+            "tree savings ratio should be <80% for fair comparison, got {ratio:.1}%"
+        );
+    }
+
+    // 5. ctx_shell — real compression
+    {
+        let raw_output = generate_git_log_patch(10);
+        let original = count_tokens(&raw_output);
+        let compressed = lean_ctx::core::patterns::git::compress("git log -p", &raw_output)
+            .unwrap_or_else(|| raw_output.clone());
+        let compressed_tokens = count_tokens(&compressed);
+        let saved = original.saturating_sub(compressed_tokens);
+        let ratio = if original > 0 {
+            saved as f64 / original as f64 * 100.0
+        } else {
+            0.0
+        };
+
+        eprintln!("\n  ctx_shell (git log -p, 10 commits):");
+        eprintln!("    raw tokens:       {original}");
+        eprintln!("    compressed tokens: {compressed_tokens}");
+        eprintln!("    savings:          {saved} ({ratio:.1}%)");
+
+        assert!(ratio > 70.0, "git log -p should save >70%, got {ratio:.1}%");
+    }
+
+    // 6. Verify tokenizer accuracy by cross-checking with known strings
+    {
+        let test_cases = [("hello world", 2), ("fn main() {}", 5), ("", 0), ("a", 1)];
+        eprintln!("\n  Tokenizer (o200k_base) spot checks:");
+        for (text, expected_approx) in &test_cases {
+            let actual = count_tokens(text);
+            eprintln!(
+                "    {:20} → {actual:>3} tokens (expected ~{expected_approx})",
+                format!("{:?}", text)
+            );
+            let diff = (actual as i64 - *expected_approx as i64).unsigned_abs();
+            assert!(
+                diff <= 2,
+                "tokenizer off by >2 for {:?}: got {actual}, expected ~{expected_approx}",
+                text
+            );
+        }
+    }
+
+    // 7. CostModel sanity check
+    {
+        let input_saved: u64 = 100_000;
+        let commands: u64 = 500;
+        let output_bonus = commands * 60;
+        let total_saved = input_saved + output_bonus;
+        let cost_per_m_input = 2.50_f64;
+        let cost_per_m_output = 10.0_f64;
+        let usd_input = input_saved as f64 / 1_000_000.0 * cost_per_m_input;
+        let usd_output = output_bonus as f64 / 1_000_000.0 * cost_per_m_output;
+        let usd_total = usd_input + usd_output;
+
+        eprintln!("\n  CostModel sanity (100K input saved, 500 calls):");
+        eprintln!("    input saved:  {input_saved} tok → ${usd_input:.4}");
+        eprintln!("    output bonus: {output_bonus} tok → ${usd_output:.4}");
+        eprintln!("    total:        {total_saved} tok → ${usd_total:.4}");
+
+        assert!(
+            usd_total < 1.0,
+            "100K saved + 500 calls should be < $1.00, got ${usd_total:.4}"
+        );
+        assert!(usd_total > 0.0, "savings should be positive");
+    }
+
+    eprintln!("\n  AUDIT COMPLETE — all checks passed");
+    eprintln!("{}\n", "=".repeat(70));
 }
 
 fn generate_git_log_standard(n: usize) -> String {

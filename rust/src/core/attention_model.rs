@@ -11,6 +11,13 @@
 /// Compute a U-shaped attention weight for a given position.
 /// position: normalized 0.0 (begin) to 1.0 (end)
 /// Returns attention weight in [0, 1].
+///
+/// Uses a quadratic U-curve that better models the empirical findings from
+/// Liu et al. (2023) "Lost in the Middle" — attention drops more steeply
+/// toward the middle than a linear model predicts.
+///
+/// Formula: f(x) = α·(1-2x)² + γ·(2x-1)² + β·(1 - (1-2x)² - (2x-1)²)
+///        simplified for piecewise: quadratic decay from edges toward center.
 pub fn positional_attention(position: f64, alpha: f64, beta: f64, gamma: f64) -> f64 {
     if position <= 0.0 {
         return alpha;
@@ -19,13 +26,14 @@ pub fn positional_attention(position: f64, alpha: f64, beta: f64, gamma: f64) ->
         return gamma;
     }
 
-    // Piecewise linear U-curve: alpha at 0, beta at 0.5, gamma at 1.0
     if position <= 0.5 {
         let t = position / 0.5;
-        alpha * (1.0 - t) + beta * t
+        let t2 = t * t;
+        alpha * (1.0 - t2) + beta * t2
     } else {
         let t = (position - 0.5) / 0.5;
-        beta * (1.0 - t) + gamma * t
+        let t2 = t * t;
+        beta * (1.0 - t2) + gamma * t2
     }
 }
 

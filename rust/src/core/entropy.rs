@@ -67,6 +67,31 @@ pub fn token_entropy(text: &str) -> f64 {
     })
 }
 
+/// Normalized Shannon entropy: H(X) / log₂(n) where n = number of unique symbols.
+/// Returns a value in [0, 1] where 0 = perfectly predictable, 1 = maximum entropy.
+/// This makes thresholds comparable across different alphabet sizes.
+pub fn normalized_token_entropy(text: &str) -> f64 {
+    let tokens = encode_tokens(text);
+    if tokens.is_empty() {
+        return 0.0;
+    }
+    let total = tokens.len();
+    let mut freq: HashMap<u32, usize> = HashMap::new();
+    for &t in &tokens {
+        *freq.entry(t).or_default() += 1;
+    }
+    let n_unique = freq.len();
+    if n_unique <= 1 {
+        return 0.0;
+    }
+    let h = freq.values().fold(0.0_f64, |acc, &count| {
+        let p = count as f64 / total as f64;
+        acc - p * p.log2()
+    });
+    let h_max = (n_unique as f64).log2();
+    h / h_max
+}
+
 #[allow(dead_code)]
 pub fn jaccard_similarity(a: &str, b: &str) -> f64 {
     let set_a: HashSet<&str> = a.split_whitespace().collect();
@@ -217,7 +242,12 @@ fn entropy_compress_with_thresholds(
         if trimmed.is_empty() || trimmed.len() < 3 {
             return true;
         }
-        token_entropy(trimmed) >= entropy_threshold
+        let h = token_entropy(trimmed);
+        if h >= entropy_threshold {
+            return true;
+        }
+        let h_norm = normalized_token_entropy(trimmed);
+        h_norm >= 0.3
     });
     let removed = original_count - lines.len();
     if removed > 0 {

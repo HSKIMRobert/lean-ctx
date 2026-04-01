@@ -19,10 +19,30 @@ fn hash_text(text: &str) -> u64 {
     if text.len() <= 512 {
         text.hash(&mut hasher);
     } else {
-        text[..256].hash(&mut hasher);
-        text[text.len() - 256..].hash(&mut hasher);
+        let start_end = floor_char_boundary(text, 256);
+        let tail_start = ceil_char_boundary(text, text.len() - 256);
+        text[..start_end].hash(&mut hasher);
+        text[tail_start..].hash(&mut hasher);
     }
     hasher.finish()
+}
+
+fn floor_char_boundary(s: &str, idx: usize) -> usize {
+    let idx = idx.min(s.len());
+    let mut i = idx;
+    while i > 0 && !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
+fn ceil_char_boundary(s: &str, idx: usize) -> usize {
+    let idx = idx.min(s.len());
+    let mut i = idx;
+    while i < s.len() && !s.is_char_boundary(i) {
+        i += 1;
+    }
+    i
 }
 
 pub fn count_tokens(text: &str) -> usize {

@@ -34,8 +34,8 @@ pub fn handle(
         .build();
 
     let mut matches = Vec::new();
+    let mut raw_result_lines = Vec::new();
     let mut files_searched = 0u32;
-    let mut matched_file_tokens = 0usize;
 
     for entry in walker.filter_map(|e| e.ok()) {
         if entry.file_type().is_none_or(|ft| ft.is_dir()) {
@@ -61,15 +61,12 @@ pub fn handle(
         };
 
         files_searched += 1;
-        let mut file_has_match = false;
 
         for (i, line) in content.lines().enumerate() {
             if re.is_match(line) {
-                if !file_has_match {
-                    file_has_match = true;
-                    matched_file_tokens += count_tokens(&content);
-                }
                 let short_path = protocol::shorten_path(&path.to_string_lossy());
+                let full_path = path.to_string_lossy();
+                raw_result_lines.push(format!("{full_path}:{}: {}", i + 1, line.trim()));
                 matches.push(format!("{short_path}:{} {}", i + 1, line.trim()));
                 if matches.len() >= max_results {
                     break;
@@ -115,10 +112,12 @@ pub fn handle(
         }
     }
 
+    let raw_output = raw_result_lines.join("\n");
+    let raw_tokens = count_tokens(&raw_output);
     let sent = count_tokens(&result);
-    let savings = protocol::format_savings(matched_file_tokens, sent);
+    let savings = protocol::format_savings(raw_tokens, sent);
 
-    (format!("{result}\n{savings}"), matched_file_tokens)
+    (format!("{result}\n{savings}"), raw_tokens)
 }
 
 fn is_binary_ext(path: &Path) -> bool {

@@ -163,7 +163,7 @@ tr:hover td{background:var(--surface-2)}
 <div class="app">
   <header>
     <div style="display:flex;align-items:center;gap:12px">
-      <div class="logo"><h1>Lean<span>CTX</span></h1><span class="ver">v2.12.9</span></div>
+      <div class="logo"><h1>Lean<span>CTX</span></h1><span class="ver">v2.13.0</span></div>
       <a class="hdr-link" href="https://leanctx.com" target="_blank">leanctx.com</a>
     </div>
     <div class="hdr-r">
@@ -311,7 +311,7 @@ function upd(d){
   const daily=fd(d.daily||[],cR);
   const iSv=d.total_input_tokens-d.total_output_tokens;
   const co=gc(d.total_input_tokens,d.total_output_tokens,d.total_commands);
-  const tot=iSv+co.os;
+  const tot=iSv;
   const rate=pc(iSv,d.total_input_tokens);
   const cmds=Object.entries(d.commands||{});
   cmds.sort((a,b)=>(b[1].input_tokens-b[1].output_tokens)-(a[1].input_tokens-a[1].output_tokens));
