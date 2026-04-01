@@ -2,6 +2,17 @@
 
 All notable changes to lean-ctx are documented here.
 
+## [2.12.5] — 2026-04-01
+
+### Fixed
+- **Shell hook output buffering**: Commands routed through `lean-ctx -c` (via shell aliases) now stream output in real-time instead of buffering until completion. Progress bars, build output, and streaming logs appear immediately as they happen
+- **Excluded command overhead**: Interactive tools (vim, htop, ssh, etc.) now use `Stdio::inherit()` directly for zero-overhead passthrough — no piping or buffering at all
+
+### Changed
+- Shell exec refactored into 3 distinct modes: `exec_inherit` (passthrough), `exec_streaming` (terminal, real-time), `exec_buffered` (AI agent, compressed) — each optimized for its use case
+- Streaming mode captures output in parallel threads (4KB chunks) for stats recording while forwarding to terminal with immediate flush
+- Savings summary shown on stderr after streaming commands complete (only when >50 tokens and >10% savings)
+
 ## [2.12.4] — 2026-04-01
 
 ### Fixed

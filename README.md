@@ -360,7 +360,7 @@ $ lean-ctx gain
   ctx_read           103x  █▌                    59.1K  38%
     ... +33 more commands
 
-  lean-ctx v2.12.4  |  leanctx.com  |  lean-ctx dashboard
+  lean-ctx v2.12.5  |  leanctx.com  |  lean-ctx dashboard
 ```
 
 </details>
