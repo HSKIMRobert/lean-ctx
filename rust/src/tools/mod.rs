@@ -180,9 +180,6 @@ impl LeanCtxServer {
         if tool == "ctx_shell" {
             session.record_command();
         }
-        if tool == "ctx_read" && saved > 0 && original > 0 {
-            session.record_cache_hit();
-        }
         if session.should_save() {
             let _ = session.save();
         }

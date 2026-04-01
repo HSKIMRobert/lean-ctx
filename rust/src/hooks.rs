@@ -276,9 +276,16 @@ pub fn install_agent_hook(agent: &str, global: bool) {
                 .unwrap_or_default()
                 .join(".kiro/settings/mcp.json"),
         ),
+        "verdent" => install_mcp_json_agent(
+            "Verdent",
+            "~/.verdent/mcp.json",
+            &dirs::home_dir()
+                .unwrap_or_default()
+                .join(".verdent/mcp.json"),
+        ),
         _ => {
             eprintln!("Unknown agent: {agent}");
-            eprintln!("  Supported: claude, cursor, gemini, codex, windsurf, cline, roo, copilot, pi, qwen, trae, amazonq, jetbrains, kiro");
+            eprintln!("  Supported: claude, cursor, gemini, codex, windsurf, cline, roo, copilot, pi, qwen, trae, amazonq, jetbrains, kiro, verdent");
             std::process::exit(1);
         }
     }

@@ -2,6 +2,27 @@
 
 All notable changes to lean-ctx are documented here.
 
+## [2.13.0] — 2026-04-01
+
+### Added
+- **Verdent IDE support**: Full integration for Verdent AI — MCP config at `~/.verdent/mcp.json`, rules injection at `~/.verdent/rules/lean-ctx.md`, auto-detection via `~/.verdent` directory, `lean-ctx init --agent verdent`, `lean-ctx setup` auto-detection, `lean-ctx doctor` diagnostics, and `lean-ctx uninstall` cleanup
+- **21 total supported IDEs/agents** (up from 20): Cursor, Claude Code, GitHub Copilot, Windsurf, VS Code, Zed, Codex CLI, Gemini CLI, OpenCode, Pi, Qwen Code, Trae, Amazon Q Developer, JetBrains IDEs, Antigravity, Cline, Roo Code, Aider, Amp, AWS Kiro, Verdent
+- **Scientific verification test suite**: 34 new tests mathematically validating Shannon Entropy, Normalized BPE Entropy, Kolmogorov Complexity proxy, Jaccard Similarity, LITM attention model, Information Bottleneck filter, Symbol Map ROI, Safeguard Ratio, and Cost Model
+- **Normalized BPE token entropy** (`normalized_token_entropy`): Shannon entropy normalized to `[0, 1]` for more robust entropy-based content filtering — dual-gate mechanism requires both raw and normalized entropy to be below thresholds before removing a line
+
+### Fixed
+- **Token savings inflation in Terminal + Dashboard**: The headline "tokens saved" number in `lean-ctx gain` and the web dashboard incorrectly included speculative output token savings. Now shows only measured input token savings. Output savings remain in the USD cost breakdown where they are clearly labeled as estimates
+- **VS Code uninstall**: Fixed wrong file path (`settings.json` → `mcp.json`) and added `servers` key removal alongside `mcpServers` for correct MCP config cleanup
+- **Zed macOS path mismatch**: Setup now uses `~/Library/Application Support/Zed/` on macOS (matching uninstall), instead of `~/.config/zed/` which is the Linux path
+- **Gemini uninstall path**: Added `~/.gemini/GEMINI.md` (the actual inject target) to the uninstall cleanup list, alongside the legacy `~/.gemini/rules/` path
+- **Incomplete uninstall rules list**: Added 8 missing IDEs to `remove_rules_files`: Zed, Cline, Roo Code, OpenCode, Continue, Codex instructions.md, Verdent
+- **Cursor MDC version marker**: Added `<!-- lean-ctx-rules-v5 -->` and `<!-- /lean-ctx -->` markers to the `lean-ctx.mdc` template, preventing `inject_all_rules` from overwriting the richer project-level template with the shorter embedded version
+
+### Changed
+- **LITM positional attention**: Upgraded from piecewise linear to quadratic U-curve, better matching empirical findings (Liu et al., 2023) on LLM attention distribution
+- **Information Bottleneck score**: Replaced additive constants with weighted factors (relevance ×0.6, information ×0.25, attention ×0.15) plus a 0.05 floor, improving discrimination of task-relevant content
+- **Entropy compression**: Dual-gate filtering — lines are only removed if both raw token entropy AND normalized token entropy fall below thresholds
+
 ## [2.12.9] — 2026-04-01
 
 ### Fixed

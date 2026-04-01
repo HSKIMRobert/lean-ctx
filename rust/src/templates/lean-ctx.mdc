@@ -5,6 +5,7 @@ alwaysApply: true
 ---
 
 # lean-ctx — Context Engineering Layer
+<!-- lean-ctx-rules-v5 -->
 
 CRITICAL: NEVER use native Read, Shell, Grep, or ls tools. ALWAYS use lean-ctx MCP equivalents below.
 
@@ -90,3 +91,4 @@ Every token costs money. This applies to input, output, AND thinking tokens.
 - Multi-file refactors, architecture → default model
 
 REMINDER: NEVER use native Read, Shell, Grep, or ls. ALWAYS use ctx_read, ctx_shell, ctx_search, ctx_tree. Every single time.
+<!-- /lean-ctx -->

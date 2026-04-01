@@ -234,8 +234,11 @@ pub fn information_bottleneck_filter(
             let pos = i as f64 / n.max(1) as f64;
             let attention = positional_attention(pos, 0.9, 0.3, 0.85);
 
-            // IB composite: maximize relevance * information_density * attention_weight
-            let score = (relevance + 0.15) * (information * 0.3 + 0.7) * (attention * 0.3 + 0.7);
+            // IB composite: maximize relevance × information_density × attention_weight
+            // Weights: relevance dominates (×0.6), information density secondary (×0.25),
+            // attention tertiary (×0.15). Floor of 0.05 prevents zero-multiplication.
+            let score =
+                (relevance * 0.6 + 0.05) * (information * 0.25 + 0.05) * (attention * 0.15 + 0.05);
 
             (i, *line, score)
         })

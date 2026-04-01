@@ -18,7 +18,7 @@ impl ServerHandler for LeanCtxServer {
         let instructions = build_instructions(self.crp_mode);
 
         InitializeResult::new(capabilities)
-            .with_server_info(Implementation::new("lean-ctx", "2.12.9"))
+            .with_server_info(Implementation::new("lean-ctx", "2.13.0"))
             .with_instructions(instructions)
     }
 
@@ -43,7 +43,7 @@ impl ServerHandler for LeanCtxServer {
         let capabilities = ServerCapabilities::builder().enable_tools().build();
 
         Ok(InitializeResult::new(capabilities)
-            .with_server_info(Implementation::new("lean-ctx", "2.12.9"))
+            .with_server_info(Implementation::new("lean-ctx", "2.13.0"))
             .with_instructions(instructions))
     }
 
@@ -572,12 +572,16 @@ list, info.",
                 let original = cache.get(&path).map_or(0, |e| e.original_tokens);
                 let output_tokens = crate::core::tokens::count_tokens(&output);
                 let saved = original.saturating_sub(output_tokens);
+                let is_cache_hit = output.contains(" cached ");
                 let output = format!("{stale_note}{output}");
                 let file_ref = cache.file_ref_map().get(&path).cloned();
                 drop(cache);
                 {
                     let mut session = self.session.write().await;
                     session.touch_file(&path, file_ref.as_deref(), &effective_mode, original);
+                    if is_cache_hit {
+                        session.record_cache_hit();
+                    }
                     if session.project_root.is_none() {
                         if let Some(root) = detect_project_root(&path) {
                             session.project_root = Some(root.clone());

@@ -500,6 +500,11 @@ fn build_rules_targets(home: &std::path::Path) -> Vec<RulesTarget> {
             path: home.join(".kiro/rules/lean-ctx.md"),
             format: RulesFormat::DedicatedMarkdown,
         },
+        RulesTarget {
+            name: "Verdent",
+            path: home.join(".verdent/rules/lean-ctx.md"),
+            format: RulesFormat::DedicatedMarkdown,
+        },
     ]
 }
 
@@ -709,6 +714,6 @@ mod tests {
     fn target_count() {
         let home = std::path::PathBuf::from("/tmp/fake_home");
         let targets = build_rules_targets(&home);
-        assert_eq!(targets.len(), 20);
+        assert_eq!(targets.len(), 21);
     }
 }

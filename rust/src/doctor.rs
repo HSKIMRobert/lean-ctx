@@ -315,6 +315,11 @@ fn mcp_config_locations(home: &std::path::Path) -> Vec<McpLocation> {
         display: "~/.kiro/settings/mcp.json",
         path: home.join(".kiro").join("settings").join("mcp.json"),
     });
+    locations.push(McpLocation {
+        name: "Verdent",
+        display: "~/.verdent/mcp.json",
+        path: home.join(".verdent").join("mcp.json"),
+    });
 
     {
         #[cfg(unix)]

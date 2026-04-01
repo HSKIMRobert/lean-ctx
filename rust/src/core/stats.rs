@@ -259,29 +259,21 @@ pub struct GainSummary {
 
 pub fn load_stats() -> GainSummary {
     let store = load();
-    let cm = CostModel::default();
     let input_saved = store
         .total_input_tokens
         .saturating_sub(store.total_output_tokens);
-    let output_saved =
-        store.total_commands * (cm.avg_verbose_output_per_call - cm.avg_concise_output_per_call);
     GainSummary {
-        total_saved: input_saved + output_saved,
+        total_saved: input_saved,
         total_calls: store.total_commands,
     }
 }
 
-fn cmd_total_saved(s: &CommandStats, cm: &CostModel) -> u64 {
-    let input_saved = s.input_tokens.saturating_sub(s.output_tokens);
-    let output_saved = s.count * (cm.avg_verbose_output_per_call - cm.avg_concise_output_per_call);
-    input_saved + output_saved
+fn cmd_total_saved(s: &CommandStats, _cm: &CostModel) -> u64 {
+    s.input_tokens.saturating_sub(s.output_tokens)
 }
 
-fn day_total_saved(d: &DayStats, cm: &CostModel) -> u64 {
-    let input_saved = d.input_tokens.saturating_sub(d.output_tokens);
-    let output_saved =
-        d.commands * (cm.avg_verbose_output_per_call - cm.avg_concise_output_per_call);
-    input_saved + output_saved
+fn day_total_saved(d: &DayStats, _cm: &CostModel) -> u64 {
+    d.input_tokens.saturating_sub(d.output_tokens)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -798,7 +790,7 @@ pub fn format_gain_themed(t: &Theme) -> String {
     };
     let cost_model = CostModel::default();
     let cost = cost_model.calculate(&store);
-    let total_saved = input_saved + cost.output_tokens_saved;
+    let total_saved = input_saved;
     let days_active = store.daily.len();
 
     let w = 62;
