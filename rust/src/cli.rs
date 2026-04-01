@@ -744,6 +744,9 @@ pub fn cmd_init(args: &[String]) {
         for agent_name in &agents {
             crate::hooks::install_agent_hook(agent_name, global);
         }
+        if !global {
+            crate::hooks::install_project_rules();
+        }
         println!("\nRun 'lean-ctx gain' after using some commands to see your savings.");
         return;
     }

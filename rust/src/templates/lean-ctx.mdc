@@ -1,18 +1,18 @@
 ---
-description: Token optimization via lean-ctx Hybrid (Shell Hook + MCP)
+description: "lean-ctx: ALWAYS use ctx_read/ctx_shell/ctx_search/ctx_tree instead of Read/Shell/Grep/ls"
 globs: **/*
 alwaysApply: true
 ---
 
-# lean-ctx MCP Tools
+# lean-ctx — Context Engineering Layer
 
-Always use lean-ctx MCP tools. Never use the standard equivalents.
+CRITICAL: NEVER use native Read, Shell, Grep, or ls tools. ALWAYS use lean-ctx MCP equivalents below.
 
-## Tool Mapping
+## Tool Mapping (MANDATORY)
 
-| Instead of | Use | Why |
-|---|-----|-----|
-| `Read` | `ctx_read` | Session caching, 6 compression modes, re-reads cost ~13 tokens |
+| FORBIDDEN | USE INSTEAD | Why |
+|-----------|-------------|-----|
+| `Read` | `ctx_read` | Session caching, 8 compression modes, re-reads cost ~13 tokens |
 | `Shell` | `ctx_shell` | Pattern-based compression for git, npm, cargo, docker, tsc |
 | `Grep` | `ctx_search` | Compact context, token-efficient results |
 | `ls`, `find` | `ctx_tree` | Compact directory maps with file counts |
@@ -20,15 +20,16 @@ Always use lean-ctx MCP tools. Never use the standard equivalents.
 ## ctx_read Modes
 
 - `full` — default, cached read (use for files you will edit)
-- `map` — dependency graph + exports + API signatures (use for context-only files)
-- `signatures` — API surface only (tree-sitter AST for 14 languages)
+- `map` — dependency graph + exports + key signatures (use for context-only files)
+- `signatures` — API surface only
 - `diff` — changed lines only (use after edits)
 - `aggressive` — syntax stripped
 - `entropy` — Shannon + Jaccard filtering
+- `lines:N-M` — specific range
 
 Re-reads cost ~13 tokens. File refs F1, F2.. persist across the session.
 
-Set `fresh=true` on ctx_read to bypass cache. Use when: spawned as a subagent, after context compaction, or if you see a [cached] response but do not have the file content in your context.
+Set `fresh=true` on ctx_read to bypass cache when spawned as a subagent or after context compaction.
 
 ## Default Strategy
 
@@ -87,3 +88,5 @@ Every token costs money. This applies to input, output, AND thinking tokens.
 - Grep/search/explore → `model: "fast"`
 - Simple edits (rename, add field, fix typo) → `model: "fast"`
 - Multi-file refactors, architecture → default model
+
+REMINDER: NEVER use native Read, Shell, Grep, or ls. ALWAYS use ctx_read, ctx_shell, ctx_search, ctx_tree. Every single time.

@@ -199,6 +199,9 @@ fn try_specific_pattern(cmd: &str, output: &str) -> Option<String> {
     if c.starts_with("poetry ")
         || c.starts_with("uv sync")
         || (c.starts_with("uv ") && c.contains("pip install"))
+        || c.starts_with("conda ")
+        || c.starts_with("mamba ")
+        || c.starts_with("pipx ")
     {
         return poetry::compress(c, output);
     }

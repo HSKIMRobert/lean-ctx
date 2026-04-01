@@ -43,6 +43,15 @@ pub fn compress(command: &str, output: &str) -> Option<String> {
     if command.contains("exec") || command.contains("run") {
         return Some(compress_exec(output));
     }
+    if command.contains("system") && command.contains("df") {
+        return Some(compress_system_df(output));
+    }
+    if command.contains("info") {
+        return Some(compress_info(output));
+    }
+    if command.contains("version") {
+        return Some(compress_version(output));
+    }
     None
 }
 
@@ -308,6 +317,124 @@ fn compress_exec(output: &str) -> String {
         return format!("... ({} lines)\n{}", lines.len(), last.join("\n"));
     }
     trimmed.to_string()
+}
+
+fn compress_system_df(output: &str) -> String {
+    let mut parts = Vec::new();
+    let mut current_type = String::new();
+
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("TYPE") {
+            continue;
+        }
+        if trimmed.starts_with("Images")
+            || trimmed.starts_with("Containers")
+            || trimmed.starts_with("Local Volumes")
+            || trimmed.starts_with("Build Cache")
+        {
+            current_type = trimmed.to_string();
+            continue;
+        }
+        if !current_type.is_empty() && trimmed.contains("RECLAIMABLE") {
+            current_type.clear();
+            continue;
+        }
+    }
+
+    let lines: Vec<&str> = output
+        .lines()
+        .filter(|l| {
+            let t = l.trim();
+            !t.is_empty()
+                && (t.contains("RECLAIMABLE")
+                    || t.contains("SIZE")
+                    || t.starts_with("Images")
+                    || t.starts_with("Containers")
+                    || t.starts_with("Local Volumes")
+                    || t.starts_with("Build Cache")
+                    || t.chars().next().is_some_and(|c| c.is_ascii_digit()))
+        })
+        .collect();
+
+    if lines.is_empty() {
+        return compact_output(output, 10);
+    }
+
+    for line in &lines {
+        let trimmed = line.trim();
+        if !trimmed.starts_with("TYPE") && !trimmed.is_empty() {
+            parts.push(trimmed.to_string());
+        }
+    }
+
+    if parts.is_empty() {
+        compact_output(output, 10)
+    } else {
+        parts.join("\n")
+    }
+}
+
+fn compress_info(output: &str) -> String {
+    let mut key_info = Vec::new();
+    let important_keys = [
+        "Server Version",
+        "Operating System",
+        "Architecture",
+        "CPUs",
+        "Total Memory",
+        "Docker Root Dir",
+        "Storage Driver",
+        "Containers:",
+        "Images:",
+    ];
+
+    for line in output.lines() {
+        let trimmed = line.trim();
+        for key in &important_keys {
+            if trimmed.starts_with(key) {
+                key_info.push(trimmed.to_string());
+                break;
+            }
+        }
+    }
+
+    if key_info.is_empty() {
+        return compact_output(output, 10);
+    }
+    key_info.join("\n")
+}
+
+fn compress_version(output: &str) -> String {
+    let mut parts = Vec::new();
+    let important = ["Version:", "API version:", "Go version:", "OS/Arch:"];
+
+    for line in output.lines() {
+        let trimmed = line.trim();
+        for key in &important {
+            if trimmed.starts_with(key) {
+                parts.push(trimmed.to_string());
+                break;
+            }
+        }
+    }
+
+    if parts.is_empty() {
+        return compact_output(output, 5);
+    }
+    parts.join("\n")
+}
+
+fn compact_output(text: &str, max: usize) -> String {
+    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    if lines.len() <= max {
+        return lines.join("\n");
+    }
+    format!(
+        "{}\n... ({} more lines)",
+        lines[..max].join("\n"),
+        lines.len() - max
+    )
 }
 
 fn compress_json_value(val: &serde_json::Value, depth: usize) -> String {

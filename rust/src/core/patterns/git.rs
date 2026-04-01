@@ -90,6 +90,21 @@ pub fn compress(command: &str, output: &str) -> Option<String> {
     if command.contains("cherry-pick") {
         return Some(compress_cherry_pick(output));
     }
+    if command.contains("show") {
+        return Some(compress_show(output));
+    }
+    if command.contains("rebase") {
+        return Some(compress_rebase(output));
+    }
+    if command.contains("submodule") {
+        return Some(compress_submodule(output));
+    }
+    if command.contains("worktree") {
+        return Some(compress_worktree(output));
+    }
+    if command.contains("bisect") {
+        return Some(compress_bisect(output));
+    }
     None
 }
 
@@ -135,6 +150,16 @@ fn compress_status(output: &str) -> String {
             let file = trimmed.trim_start_matches("deleted:").trim();
             if section == "staged" {
                 staged.push(format!("-{file}"));
+            }
+        } else if trimmed.starts_with("renamed:") {
+            let file = trimmed.trim_start_matches("renamed:").trim();
+            if section == "staged" {
+                staged.push(format!("→{file}"));
+            }
+        } else if trimmed.starts_with("copied:") {
+            let file = trimmed.trim_start_matches("copied:").trim();
+            if section == "staged" {
+                staged.push(format!("©{file}"));
             }
         } else if section == "untracked"
             && !trimmed.is_empty()
@@ -717,6 +742,164 @@ fn compress_cherry_pick(output: &str) -> String {
     compact_lines(trimmed, 3)
 }
 
+fn compress_show(output: &str) -> String {
+    let lines: Vec<&str> = output.lines().collect();
+    if lines.is_empty() {
+        return String::new();
+    }
+
+    let mut hash = String::new();
+    let mut message = String::new();
+    let mut additions = 0u32;
+    let mut deletions = 0u32;
+
+    for line in &lines {
+        let trimmed = line.trim();
+        if trimmed.starts_with("commit ") && hash.is_empty() {
+            hash = trimmed[7..14.min(trimmed.len())].to_string();
+        } else if trimmed.starts_with('+') && !trimmed.starts_with("+++") {
+            additions += 1;
+        } else if trimmed.starts_with('-') && !trimmed.starts_with("---") {
+            deletions += 1;
+        } else if !trimmed.is_empty()
+            && !trimmed.starts_with("Author:")
+            && !trimmed.starts_with("Date:")
+            && !trimmed.starts_with("Merge:")
+            && !is_diff_or_stat_line(trimmed)
+            && message.is_empty()
+            && !hash.is_empty()
+        {
+            message = trimmed.to_string();
+        }
+    }
+
+    let stats = extract_change_stats(output);
+    let diff_summary = if additions > 0 || deletions > 0 {
+        format!(" +{additions}/-{deletions}")
+    } else if !stats.is_empty() {
+        format!(" [{stats}]")
+    } else {
+        String::new()
+    };
+
+    if hash.is_empty() {
+        return compact_lines(output.trim(), 10);
+    }
+
+    format!("{hash} {message}{diff_summary}")
+}
+
+fn compress_rebase(output: &str) -> String {
+    let trimmed = output.trim();
+    if trimmed.is_empty() {
+        return "ok".to_string();
+    }
+    if trimmed.contains("Already up to date") || trimmed.contains("is up to date") {
+        return "ok (up-to-date)".to_string();
+    }
+    if trimmed.contains("Successfully rebased") {
+        let stats = extract_change_stats(trimmed);
+        return if stats.is_empty() {
+            "ok (rebased)".to_string()
+        } else {
+            format!("ok (rebased) {stats}")
+        };
+    }
+    if trimmed.contains("CONFLICT") {
+        let conflicts: Vec<&str> = trimmed.lines().filter(|l| l.contains("CONFLICT")).collect();
+        return format!(
+            "CONFLICT ({} files):\n{}",
+            conflicts.len(),
+            conflicts.join("\n")
+        );
+    }
+    compact_lines(trimmed, 5)
+}
+
+fn compress_submodule(output: &str) -> String {
+    let trimmed = output.trim();
+    if trimmed.is_empty() {
+        return "ok".to_string();
+    }
+
+    let mut modules = Vec::new();
+    for line in trimmed.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 2 {
+            let status_char = if line.starts_with('+') {
+                "~"
+            } else if line.starts_with('-') {
+                "!"
+            } else {
+                ""
+            };
+            modules.push(format!("{status_char}{}", parts.last().unwrap_or(&"?")));
+        }
+    }
+
+    if modules.is_empty() {
+        return compact_lines(trimmed, 5);
+    }
+    format!("{} submodules: {}", modules.len(), modules.join(", "))
+}
+
+fn compress_worktree(output: &str) -> String {
+    let trimmed = output.trim();
+    if trimmed.is_empty() {
+        return "ok".to_string();
+    }
+
+    let mut worktrees = Vec::new();
+    let mut current_path = String::new();
+    let mut current_branch = String::new();
+
+    for line in trimmed.lines() {
+        let l = line.trim();
+        if !l.contains(' ') && !l.is_empty() && current_path.is_empty() {
+            current_path = l.to_string();
+        } else if l.starts_with("HEAD ") {
+            // skip
+        } else if l.starts_with("branch ") || l.contains("detached") || l.contains("bare") {
+            current_branch = l.to_string();
+        } else if l.is_empty() && !current_path.is_empty() {
+            let short_path = current_path.rsplit('/').next().unwrap_or(&current_path);
+            worktrees.push(format!("{short_path} [{current_branch}]"));
+            current_path.clear();
+            current_branch.clear();
+        }
+    }
+    if !current_path.is_empty() {
+        let short_path = current_path.rsplit('/').next().unwrap_or(&current_path);
+        worktrees.push(format!("{short_path} [{current_branch}]"));
+    }
+
+    if worktrees.is_empty() {
+        return compact_lines(trimmed, 5);
+    }
+    format!("{} worktrees:\n{}", worktrees.len(), worktrees.join("\n"))
+}
+
+fn compress_bisect(output: &str) -> String {
+    let trimmed = output.trim();
+    if trimmed.is_empty() {
+        return "ok".to_string();
+    }
+
+    for line in trimmed.lines() {
+        let l = line.trim();
+        if l.contains("is the first bad commit") {
+            let hash = l.split_whitespace().next().unwrap_or("?");
+            let short = &hash[..7.min(hash.len())];
+            return format!("found: {short} is first bad commit");
+        }
+        if l.starts_with("Bisecting:") {
+            return l.to_string();
+        }
+    }
+
+    compact_lines(trimmed, 5)
+}
+
 fn extract_change_stats(output: &str) -> String {
     let files = files_changed_re()
         .captures(output)
@@ -891,7 +1074,7 @@ mod tests {
     #[test]
     fn git_log_with_patch_filters_diff_content() {
         let output = "commit abc1234567890\nAuthor: User <user@email.com>\nDate:   Mon Mar 25 10:00:00 2026 +0100\n\n    feat: add feature\n\ndiff --git a/src/main.rs b/src/main.rs\nindex abc1234..def5678 100644\n--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1,3 +1,4 @@\n fn main() {\n+    println!(\"hello\");\n     let x = 1;\n }\n\ncommit def4567890abc\nAuthor: User <user@email.com>\nDate:   Sun Mar 24 09:00:00 2026 +0100\n\n    fix: resolve issue\n\ndiff --git a/src/lib.rs b/src/lib.rs\nindex 111..222 100644\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1,2 @@\n+pub fn helper() {}\n";
-        let result = compress("git log -p", &output).unwrap();
+        let result = compress("git log -p", output).unwrap();
         assert!(
             !result.contains("println"),
             "should NOT contain diff content, got: {result}"

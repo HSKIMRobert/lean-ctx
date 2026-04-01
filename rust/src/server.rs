@@ -18,7 +18,7 @@ impl ServerHandler for LeanCtxServer {
         let instructions = build_instructions(self.crp_mode);
 
         InitializeResult::new(capabilities)
-            .with_server_info(Implementation::new("lean-ctx", "2.12.6"))
+            .with_server_info(Implementation::new("lean-ctx", "2.12.7"))
             .with_instructions(instructions)
     }
 
@@ -35,6 +35,7 @@ impl ServerHandler for LeanCtxServer {
             if let Some(home) = dirs::home_dir() {
                 let _ = crate::rules_inject::inject_all_rules(&home);
             }
+            crate::hooks::refresh_installed_hooks();
             crate::core::version_check::check_background();
         });
 
@@ -42,7 +43,7 @@ impl ServerHandler for LeanCtxServer {
         let capabilities = ServerCapabilities::builder().enable_tools().build();
 
         Ok(InitializeResult::new(capabilities)
-            .with_server_info(Implementation::new("lean-ctx", "2.12.6"))
+            .with_server_info(Implementation::new("lean-ctx", "2.12.7"))
             .with_instructions(instructions))
     }
 
@@ -62,16 +63,8 @@ impl ServerHandler for LeanCtxServer {
                 tools: vec![
                     tool_def(
                         "ctx_read",
-                        "Read files with session caching and 7 compression modes. REPLACES native Read — using Read wastes tokens. \
-                        Re-reads cost ~13 tokens. \
-                        When no mode is specified, auto-selects the optimal mode based on file size, type, cache state, and task context. \
-                        Modes: full (cached read), signatures (API surface), \
-                        map (deps + exports — for context files you won't edit), \
-                        diff (changed lines only), aggressive (syntax stripped), \
-                        entropy (Shannon + Jaccard), task (task-relevant lines only via IB filter), \
-                        reference (one-line metadata for irrelevant files). \
-                        Lines: mode='lines:N-M' (e.g. 'lines:400-500'). \
-                        Set fresh=true to bypass cache. Set start_line to read from a specific line.",
+                        "Read file (cached, compressed). Re-reads ~13 tok. Auto-selects optimal mode. \
+Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fresh=true re-reads.",
                         json!({
                             "type": "object",
                             "properties": {
@@ -94,9 +87,7 @@ impl ServerHandler for LeanCtxServer {
                     ),
                     tool_def(
                         "ctx_multi_read",
-                        "REPLACES multiple Read calls — read many files in one MCP round-trip. \
-                        Same modes as ctx_read (full, map, signatures, diff, aggressive, entropy). \
-                        Results are joined with --- dividers; ends with aggregate summary (files read, tokens saved).",
+                        "Batch read files in one call. Same modes as ctx_read.",
                         json!({
                             "type": "object",
                             "properties": {
@@ -116,8 +107,7 @@ impl ServerHandler for LeanCtxServer {
                     ),
                     tool_def(
                         "ctx_tree",
-                        "List directory contents with file counts. REPLACES native ls/find — using ls wastes tokens. \
-                        Token-efficient directory maps.",
+                        "Directory listing with file counts.",
                         json!({
                             "type": "object",
                             "properties": {
@@ -129,8 +119,7 @@ impl ServerHandler for LeanCtxServer {
                     ),
                     tool_def(
                         "ctx_shell",
-                        "Run shell commands with output compression. REPLACES native Shell — using Shell wastes tokens. \
-                        Pattern-based compression for git, npm, cargo, docker, tsc and 90+ commands.",
+                        "Run shell command (compressed output, 90+ patterns).",
                         json!({
                             "type": "object",
                             "properties": {
@@ -141,8 +130,7 @@ impl ServerHandler for LeanCtxServer {
                     ),
                     tool_def(
                         "ctx_search",
-                        "Search code with regex patterns. REPLACES native Grep — using Grep wastes tokens. \
-                        Respects .gitignore. Returns compact matching lines.",
+                        "Regex code search (.gitignore aware, compact results).",
                         json!({
                             "type": "object",
                             "properties": {
@@ -157,8 +145,7 @@ impl ServerHandler for LeanCtxServer {
                     ),
                     tool_def(
                         "ctx_compress",
-                        "Compress all cached files into an ultra-compact checkpoint. \
-                        Use when conversations get long to create a memory snapshot.",
+                        "Context checkpoint for long conversations.",
                         json!({
                             "type": "object",
                             "properties": {
@@ -168,7 +155,7 @@ impl ServerHandler for LeanCtxServer {
                     ),
                     tool_def(
                         "ctx_benchmark",
-                        "Benchmark compression strategies. action=file (default): single file. action=project: scan project directory with real token measurements, latency, and preservation scores.",
+                        "Benchmark compression modes for a file or project.",
                         json!({
                             "type": "object",
                             "properties": {
@@ -181,7 +168,7 @@ impl ServerHandler for LeanCtxServer {
                     ),
                     tool_def(
                         "ctx_metrics",
-                        "Session statistics with tiktoken-measured token counts, cache hit rates, and per-tool savings.",
+                        "Session token stats, cache rates, per-tool savings.",
                         json!({
                             "type": "object",
                             "properties": {}
@@ -189,8 +176,7 @@ impl ServerHandler for LeanCtxServer {
                     ),
                     tool_def(
                         "ctx_analyze",
-                        "Information-theoretic analysis using Shannon entropy and Jaccard similarity. \
-                        Recommends the optimal compression mode for a file.",
+                        "Entropy analysis — recommends optimal compression mode for a file.",
                         json!({
                             "type": "object",
                             "properties": {
@@ -201,9 +187,7 @@ impl ServerHandler for LeanCtxServer {
                     ),
                     tool_def(
                         "ctx_cache",
-                        "Manage the session cache. Actions: status (show cached files), \
-                        clear (reset entire cache), invalidate (remove one file from cache). \
-                        Use 'clear' when spawned as a subagent to start with a clean slate.",
+                        "Cache ops: status|clear|invalidate.",
                         json!({
                             "type": "object",
                             "properties": {
@@ -222,8 +206,7 @@ impl ServerHandler for LeanCtxServer {
                     ),
                     tool_def(
                         "ctx_discover",
-                        "Analyze shell history to find commands that could benefit from lean-ctx compression. \
-                        Shows missed savings opportunities with estimated token/cost savings.",
+                        "Find missed compression opportunities in shell history.",
                         json!({
                             "type": "object",
                             "properties": {
@@ -236,8 +219,7 @@ impl ServerHandler for LeanCtxServer {
                     ),
                     tool_def(
                         "ctx_smart_read",
-                        "REPLACES built-in Read tool — auto-selects optimal compression mode based on \
-                        file size, type, cache state, and token budget. Returns [auto:mode] prefix showing which mode was selected.",
+                        "Auto-select optimal read mode for a file.",
                         json!({
                             "type": "object",
                             "properties": {
@@ -248,8 +230,7 @@ impl ServerHandler for LeanCtxServer {
                     ),
                     tool_def(
                         "ctx_delta",
-                        "Incremental file update using Myers diff. Only sends changed lines (hunks with context) \
-                        instead of full file content. Automatically updates the cache after computing the delta.",
+                        "Incremental diff — sends only changed lines since last read.",
                         json!({
                             "type": "object",
                             "properties": {
@@ -260,9 +241,7 @@ impl ServerHandler for LeanCtxServer {
                     ),
                     tool_def(
                         "ctx_dedup",
-                        "Cross-file deduplication analysis and active dedup. Finds shared imports, boilerplate blocks, \
-                        and repeated patterns across all cached files. Use action=apply to register shared blocks \
-                        so subsequent ctx_read calls auto-replace duplicates with cross-file references.",
+                        "Cross-file dedup: analyze or apply shared block references.",
                         json!({
                             "type": "object",
                             "properties": {
@@ -276,9 +255,7 @@ impl ServerHandler for LeanCtxServer {
                     ),
                     tool_def(
                         "ctx_fill",
-                        "Priority-based context filling with a token budget. Given a list of files and a budget, \
-                        automatically selects the best compression mode per file to maximize information within the budget. \
-                        Higher-relevance files get more tokens (full mode); lower-relevance files get compressed (signatures).",
+                        "Budget-aware context fill — auto-selects compression per file within token limit.",
                         json!({
                             "type": "object",
                             "properties": {
@@ -297,9 +274,7 @@ impl ServerHandler for LeanCtxServer {
                     ),
                     tool_def(
                         "ctx_intent",
-                        "Semantic intent detection. Analyzes a natural language query to determine intent \
-                        (fix bug, add feature, refactor, understand, test, config, deploy) and automatically \
-                        selects and reads relevant files in the optimal compression mode.",
+                        "Intent detection — auto-reads relevant files based on task description.",
                         json!({
                             "type": "object",
                             "properties": {
@@ -311,8 +286,7 @@ impl ServerHandler for LeanCtxServer {
                     ),
                     tool_def(
                         "ctx_response",
-                        "Bi-directional response compression. Compresses LLM response text by removing filler \
-                        content and applying TDD shortcuts. Use to verify compression quality of responses.",
+                        "Compress LLM response text (remove filler, apply TDD).",
                         json!({
                             "type": "object",
                             "properties": {
@@ -323,8 +297,7 @@ impl ServerHandler for LeanCtxServer {
                     ),
                     tool_def(
                         "ctx_context",
-                        "Multi-turn context manager. Shows what files the LLM has already seen, \
-                        which are cached, and provides a session overview to avoid redundant re-reads.",
+                        "Session context overview — cached files, seen files, session state.",
                         json!({
                             "type": "object",
                             "properties": {}
@@ -332,10 +305,8 @@ impl ServerHandler for LeanCtxServer {
                     ),
                     tool_def(
                         "ctx_graph",
-                        "Persistent project intelligence graph with incremental scanning. \
-                        Actions: 'build' (scan & persist index), 'related' (BFS dependencies for a file), \
-                        'symbol' (read single symbol via file.rs::fn_name), 'impact' (reverse deps, 2 levels), \
-                        'status' (index age, file count, staleness).",
+                        "Code dependency graph. Actions: build (index project), related (find files connected to path), \
+symbol (lookup definition/usages as file::name), impact (blast radius of changes to path), status (index stats).",
                         json!({
                             "type": "object",
                             "properties": {
@@ -358,11 +329,9 @@ impl ServerHandler for LeanCtxServer {
                     ),
                     tool_def(
                         "ctx_session",
-                        "Context Continuity Protocol (CCP) — session state manager for cross-chat continuity. \
-                        Persists task context, findings, decisions, and file state across chat sessions \
-                        and context compactions. Load a previous session to instantly restore context \
-                        (~400 tokens vs ~50K cold start). LITM-aware: places critical info at attention-optimal positions. \
-                        Actions: status, load, save, task, finding, decision, reset, list, cleanup.",
+                        "Cross-session memory (CCP). Actions: load (restore previous session ~400 tok), \
+save, status, task (set current task), finding (record discovery), decision (record choice), \
+reset, list (show sessions), cleanup.",
                         json!({
                             "type": "object",
                             "properties": {
@@ -385,13 +354,9 @@ impl ServerHandler for LeanCtxServer {
                     ),
                     tool_def(
                         "ctx_knowledge",
-                        "Persistent project knowledge store — remembers facts, patterns, and insights across sessions. \
-                        Unlike session state (ephemeral), knowledge persists permanently per project. \
-                        Use 'remember' to store facts the AI learns about the project (architecture, APIs, conventions). \
-                        Use 'recall' to retrieve relevant knowledge. Use 'pattern' to record project patterns. \
-                        Use 'consolidate' to extract findings/decisions from the current session into permanent knowledge. \
-                        Use 'status' to see all stored knowledge. Use 'remove' to delete outdated facts. \
-                        Actions: remember, recall, pattern, consolidate, status, remove, export.",
+                        "Persistent project knowledge (survives sessions). Actions: remember (store fact with category+key+value), \
+recall (search by query), pattern (record naming/structure pattern), consolidate (extract session findings into knowledge), \
+status (list all), remove, export.",
                         json!({
                             "type": "object",
                             "properties": {
@@ -435,14 +400,9 @@ impl ServerHandler for LeanCtxServer {
                     ),
                     tool_def(
                         "ctx_agent",
-                        "Multi-agent coordination — register agents, share messages, and coordinate work across \
-                        parallel AI sessions (e.g. Cursor + Claude Code working simultaneously). \
-                        Use 'register' at session start to identify this agent. \
-                        Use 'list' to see other active agents. \
-                        Use 'post' to share findings, warnings, or requests with other agents. \
-                        Use 'read' to check for new messages from other agents. \
-                        Use 'status' to update your current work status. \
-                        Actions: register, list, post, read, status, info.",
+                        "Multi-agent coordination (shared message bus). Actions: register (join with agent_type+role), \
+post (broadcast or direct message with category), read (poll messages), status (update state: active|idle|finished), \
+list, info.",
                         json!({
                             "type": "object",
                             "properties": {
@@ -482,11 +442,7 @@ impl ServerHandler for LeanCtxServer {
                     ),
                     tool_def(
                         "ctx_overview",
-                        "Multi-resolution project overview with task-conditioned relevance scoring. \
-                        Shows all project files organized by relevance to the current task. \
-                        Files are grouped into three levels: directly relevant (read full), \
-                        context (read signatures), distant (reference only). \
-                        Use this at session start to get a compact project map before diving into specific files.",
+                        "Task-relevant project map — use at session start.",
                         json!({
                             "type": "object",
                             "properties": {
@@ -503,8 +459,7 @@ impl ServerHandler for LeanCtxServer {
                     ),
                     tool_def(
                         "ctx_wrapped",
-                        "Generate a LeanCTX savings report card. Shows tokens saved, cost avoided, \
-                        top commands, cache efficiency. Periods: week, month, all.",
+                        "Savings report card. Periods: week|month|all.",
                         json!({
                             "type": "object",
                             "properties": {
@@ -518,9 +473,7 @@ impl ServerHandler for LeanCtxServer {
                     ),
                     tool_def(
                         "ctx_semantic_search",
-                        "BM25 semantic code search across the project. Indexes code by symbols \
-                        (functions, classes, structs) and searches by meaning. \
-                        Use action='reindex' to rebuild the index.",
+                        "BM25 code search by meaning. action=reindex to rebuild.",
                         json!({
                             "type": "object",
                             "properties": {
@@ -612,21 +565,14 @@ impl ServerHandler for LeanCtxServer {
                     )
                 };
                 let stale_note = if effective_mode != mode {
-                    format!(
-                        "⚡ Prompt cache expired (>60min idle) — auto-upgraded {mode} → {effective_mode} for better compression\n\n"
-                    )
+                    format!("[cache stale, {mode}→{effective_mode}]\n")
                 } else {
                     String::new()
                 };
                 let original = cache.get(&path).map_or(0, |e| e.original_tokens);
                 let output_tokens = crate::core::tokens::count_tokens(&output);
                 let saved = original.saturating_sub(output_tokens);
-                let savings_note = if saved > 0 {
-                    format!("\n[saved {saved} tokens vs native Read]")
-                } else {
-                    String::new()
-                };
-                let output = format!("{stale_note}{output}{savings_note}");
+                let output = format!("{stale_note}{output}");
                 let file_ref = cache.file_ref_map().get(&path).cloned();
                 drop(cache);
                 {
@@ -1265,10 +1211,16 @@ COMMUNICATION PROTOCOL (CEP v1):\n\
 \n\
 {decoder_block}\n\
 \n\
-REMINDER: NEVER use native Read, Shell, Grep, or ls. ALWAYS use ctx_read, ctx_shell, ctx_search, ctx_tree. Every single time.\n\
+{decoder_block}\n\
 \n\
 {session_block}\
-{knowledge_block}",
+{knowledge_block}\
+\n\
+--- TOOL ENFORCEMENT (LITM-END) ---\n\
+CRITICAL REMINDER: You MUST use lean-ctx MCP tools for ALL file reads, shell commands, and code searches.\n\
+• Read/cat/head/tail → ctx_read | Shell/bash → ctx_shell | Grep/rg → ctx_search | ls/find → ctx_tree\n\
+• Write, StrReplace, Delete, Glob → use normally (no lean-ctx replacement)\n\
+NEVER use native Read, Shell, Grep, or ls. ALWAYS use ctx_read, ctx_shell, ctx_search, ctx_tree. Every single time.",
         decoder_block = crate::core::protocol::instruction_decoder_block()
     );
 
@@ -1287,46 +1239,54 @@ See the ctx() tool description for available sub-tools.\n",
         CrpMode::Compact => {
             format!(
                 "{base}\n\n\
-                CRP MODE: compact\n\
-                Respond using Compact Response Protocol:\n\
-                • Omit filler words, articles, and redundant phrases\n\
-                • Use symbol shorthand: → ∴ ≈ ✓ ✗\n\
-                • Abbreviate: fn, cfg, impl, deps, req, res, ctx, err, ok, ret, arg, val, ty, mod\n\
-                • Use compact lists instead of prose\n\
-                • Prefer code blocks over natural language explanations\n\
-                • For code changes: show only diff lines (+/-), not full files"
+CRP MODE: compact\n\
+Respond using Compact Response Protocol:\n\
+• Omit filler words, articles, and redundant phrases\n\
+• Use symbol shorthand: → ∴ ≈ ✓ ✗\n\
+• Abbreviate: fn, cfg, impl, deps, req, res, ctx, err, ok, ret, arg, val, ty, mod\n\
+• Use compact lists instead of prose\n\
+• Prefer code blocks over natural language explanations\n\
+• For code changes: show only diff lines (+/-), not full files\n\
+• TARGET: ≤200 tokens per response unless code edits require more\n\
+• THINK LESS: Tool outputs include pre-analyzed context (deps, API surface, file structure). \
+Trust these summaries instead of re-analyzing from raw content."
             )
         }
         CrpMode::Tdd => {
             format!(
                 "{base}\n\n\
-                CRP MODE: tdd (Token Dense Dialect)\n\
-                CRITICAL: Maximize information density. Every token must carry meaning.\n\
-                \n\
-                RESPONSE RULES:\n\
-                • Drop all articles (a, the, an), filler words, and pleasantries\n\
-                • Reference files by Fn refs only, never full paths\n\
-                • For code changes: show only diff lines, not full files\n\
-                • No explanations unless asked — just show the solution\n\
-                • Use tabular format for structured data\n\
-                • Abbreviations: fn, cfg, impl, deps, req, res, ctx, err, ok, ret, arg, val, ty, mod\n\
-                \n\
-                SYMBOLS (each = 1 token, replaces 5-10 tokens of prose):\n\
-                Structural: λ=function  §=module/struct  ∂=interface/trait  τ=type  ε=enum\n\
-                Actions:    ⊕=add  ⊖=remove  ∆=modify  →=returns  ⇒=implies\n\
-                Status:     ✓=ok  ✗=fail  ⚠=warning\n\
-                \n\
-                CHANGE NOTATION (use for all code modifications):\n\
-                ⊕F1:42 param(timeout:Duration)     — added parameter\n\
-                ⊖F1:10-15                           — removed lines\n\
-                ∆F1:42 validate_token → verify_jwt  — renamed/refactored\n\
-                \n\
-                STATUS NOTATION:\n\
-                ctx_read(F1) → 808L cached ✓\n\
-                cargo test → 82 passed ✓ 0 failed\n\
-                \n\
-                SYMBOL TABLE: Tool outputs include a §MAP section mapping long identifiers to short IDs.\n\
-                Use these short IDs in all subsequent references."
+CRP MODE: tdd (Token Dense Dialect)\n\
+CRITICAL: Maximize information density. Every token must carry meaning.\n\
+\n\
+RESPONSE RULES:\n\
+• Drop all articles (a, the, an), filler words, and pleasantries\n\
+• Reference files by Fn refs only, never full paths\n\
+• For code changes: show only diff lines, not full files\n\
+• No explanations unless asked — just show the solution\n\
+• Use tabular format for structured data\n\
+• Abbreviations: fn, cfg, impl, deps, req, res, ctx, err, ok, ret, arg, val, ty, mod\n\
+\n\
+SYMBOLS (each = 1 token, replaces 5-10 tokens of prose):\n\
+Structural: λ=function  §=module/struct  ∂=interface/trait  τ=type  ε=enum\n\
+Actions:    ⊕=add  ⊖=remove  ∆=modify  →=returns  ⇒=implies\n\
+Status:     ✓=ok  ✗=fail  ⚠=warning\n\
+\n\
+CHANGE NOTATION (use for all code modifications):\n\
+⊕F1:42 param(timeout:Duration)     — added parameter\n\
+⊖F1:10-15                           — removed lines\n\
+∆F1:42 validate_token → verify_jwt  — renamed/refactored\n\
+\n\
+STATUS NOTATION:\n\
+ctx_read(F1) → 808L cached ✓\n\
+cargo test → 82 passed ✓ 0 failed\n\
+\n\
+SYMBOL TABLE: Tool outputs include a §MAP section mapping long identifiers to short IDs.\n\
+Use these short IDs in all subsequent references.\n\
+\n\
+TOKEN BUDGET: ≤150 tokens per response. Exceed only for multi-file code edits.\n\
+THINK LESS: Tool outputs are pre-analyzed (deps extracted, API surfaces mapped, \
+structure summarized). Trust compressed outputs directly — do not re-derive what is already provided.\n\
+ZERO NARRATION: Never narrate tool calls ('Let me read...', 'I will now...'). Act, then report result in 1 line."
             )
         }
     }
@@ -1344,10 +1304,7 @@ fn unified_tool_defs() -> Vec<Tool> {
     vec![
         tool_def(
             "ctx_read",
-            "Read files with caching + 8 compression modes. REPLACES native Read. \
-            Auto-selects optimal mode when none specified. Re-reads ~13 tok. \
-            Modes: full, map, signatures, diff, aggressive, entropy, task, reference, lines:N-M. \
-            fresh=true bypasses cache.",
+            "Read file (cached, compressed). Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fresh=true re-reads.",
             json!({
                 "type": "object",
                 "properties": {
@@ -1361,7 +1318,7 @@ fn unified_tool_defs() -> Vec<Tool> {
         ),
         tool_def(
             "ctx_shell",
-            "Run shell commands with output compression. REPLACES native Shell.",
+            "Run shell command (compressed output).",
             json!({
                 "type": "object",
                 "properties": {
@@ -1372,7 +1329,7 @@ fn unified_tool_defs() -> Vec<Tool> {
         ),
         tool_def(
             "ctx_search",
-            "Search code with regex patterns. REPLACES native Grep. Respects .gitignore.",
+            "Regex code search (.gitignore aware).",
             json!({
                 "type": "object",
                 "properties": {
@@ -1387,7 +1344,7 @@ fn unified_tool_defs() -> Vec<Tool> {
         ),
         tool_def(
             "ctx_tree",
-            "List directory contents with file counts. REPLACES native ls/find.",
+            "Directory listing with file counts.",
             json!({
                 "type": "object",
                 "properties": {
@@ -1399,29 +1356,14 @@ fn unified_tool_defs() -> Vec<Tool> {
         ),
         tool_def(
             "ctx",
-            "Lean-ctx meta-tool — 21 sub-tools via single endpoint. Set 'tool' param + sibling fields.\n\
-            Sub-tools:\n\
-            • compress — create context checkpoint\n\
-            • metrics — show token savings stats\n\
-            • analyze(path) — optimal compression mode for file\n\
-            • cache(action=status|clear|invalidate) — manage file cache\n\
-            • discover — find missed compression opportunities\n\
-            • smart_read(path) — auto-select best read mode\n\
-            • delta(path) — show only changed lines since last read\n\
-            • dedup(paths) — deduplicate across files\n\
-            • fill(path) — suggest next likely edit location\n\
-            • intent(text) — classify user intent for routing\n\
-            • response(text) — compress LLM output, remove filler\n\
-            • context(budget) — budget-aware context assembly\n\
-            • graph(action=build|query|impact) — code dependency graph\n\
-            • session(action=load|save|status|task|finding|decision) — cross-session memory\n\
-            • knowledge(action=remember|recall|pattern|status|remove|consolidate) — persistent project memory\n\
-            • agent(action=register|list|post|read|status) — multi-agent coordination\n\
-            • overview(task) — task-relevant project map\n\
-            • wrapped(period) — savings report card\n\
-            • benchmark(path) — token counts per compression mode\n\
-            • multi_read(paths) — batch file read\n\
-            • semantic_search(query, path?, limit?) — BM25 code search",
+            "Meta-tool: set tool= to sub-tool name. Sub-tools: compress (checkpoint), metrics (stats), \
+analyze (entropy), cache (status|clear|invalidate), discover (missed patterns), smart_read (auto-mode), \
+delta (incremental diff), dedup (cross-file), fill (budget-aware batch read), intent (auto-read by task), \
+response (compress LLM text), context (session state), graph (build|related|symbol|impact|status), \
+session (load|save|task|finding|decision|status|reset|list|cleanup), \
+knowledge (remember|recall|pattern|consolidate|status|remove|export), \
+agent (register|post|read|status|list|info), overview (project map), \
+wrapped (savings report), benchmark (file|project), multi_read (batch), semantic_search (BM25).",
             json!({
                 "type": "object",
                 "properties": {
@@ -1631,6 +1573,66 @@ fn cloud_background_tasks() {
     }
 
     let _ = config.save();
+}
+
+pub fn build_instructions_for_test(crp_mode: CrpMode) -> String {
+    build_instructions(crp_mode)
+}
+
+pub fn tool_descriptions_for_test() -> Vec<(&'static str, &'static str)> {
+    let mut result = Vec::new();
+    let tools_json = list_all_tool_defs();
+    for (name, desc, _) in tools_json {
+        result.push((name, desc));
+    }
+    result
+}
+
+pub fn tool_schemas_json_for_test() -> String {
+    let tools_json = list_all_tool_defs();
+    let schemas: Vec<String> = tools_json
+        .iter()
+        .map(|(name, _, schema)| format!("{}: {}", name, schema))
+        .collect();
+    schemas.join("\n")
+}
+
+fn list_all_tool_defs() -> Vec<(&'static str, &'static str, Value)> {
+    vec![
+        ("ctx_read", "Read file (cached, compressed). Re-reads ~13 tok. Auto-selects optimal mode. \
+Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fresh=true re-reads.", json!({"type": "object", "properties": {"path": {"type": "string"}, "mode": {"type": "string"}, "start_line": {"type": "integer"}, "fresh": {"type": "boolean"}}, "required": ["path"]})),
+        ("ctx_multi_read", "Batch read files in one call. Same modes as ctx_read.", json!({"type": "object", "properties": {"paths": {"type": "array", "items": {"type": "string"}}, "mode": {"type": "string"}}, "required": ["paths"]})),
+        ("ctx_tree", "Directory listing with file counts.", json!({"type": "object", "properties": {"path": {"type": "string"}, "depth": {"type": "integer"}, "show_hidden": {"type": "boolean"}}})),
+        ("ctx_shell", "Run shell command (compressed output, 90+ patterns).", json!({"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]})),
+        ("ctx_search", "Regex code search (.gitignore aware, compact results).", json!({"type": "object", "properties": {"pattern": {"type": "string"}, "path": {"type": "string"}, "ext": {"type": "string"}, "max_results": {"type": "integer"}}, "required": ["pattern"]})),
+        ("ctx_compress", "Context checkpoint for long conversations.", json!({"type": "object", "properties": {"include_signatures": {"type": "boolean"}}})),
+        ("ctx_benchmark", "Benchmark compression modes for a file or project.", json!({"type": "object", "properties": {"path": {"type": "string"}, "action": {"type": "string"}, "format": {"type": "string"}}, "required": ["path"]})),
+        ("ctx_metrics", "Session token stats, cache rates, per-tool savings.", json!({"type": "object", "properties": {}})),
+        ("ctx_analyze", "Entropy analysis — recommends optimal compression mode for a file.", json!({"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]})),
+        ("ctx_cache", "Cache ops: status|clear|invalidate.", json!({"type": "object", "properties": {"action": {"type": "string"}, "path": {"type": "string"}}, "required": ["action"]})),
+        ("ctx_discover", "Find missed compression opportunities in shell history.", json!({"type": "object", "properties": {"limit": {"type": "integer"}}})),
+        ("ctx_smart_read", "Auto-select optimal read mode for a file.", json!({"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]})),
+        ("ctx_delta", "Incremental diff — sends only changed lines since last read.", json!({"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]})),
+        ("ctx_dedup", "Cross-file dedup: analyze or apply shared block references.", json!({"type": "object", "properties": {"action": {"type": "string"}}})),
+        ("ctx_fill", "Budget-aware context fill — auto-selects compression per file within token limit.", json!({"type": "object", "properties": {"paths": {"type": "array", "items": {"type": "string"}}, "budget": {"type": "integer"}}, "required": ["paths", "budget"]})),
+        ("ctx_intent", "Intent detection — auto-reads relevant files based on task description.", json!({"type": "object", "properties": {"query": {"type": "string"}, "project_root": {"type": "string"}}, "required": ["query"]})),
+        ("ctx_response", "Compress LLM response text (remove filler, apply TDD).", json!({"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]})),
+        ("ctx_context", "Session context overview — cached files, seen files, session state.", json!({"type": "object", "properties": {}})),
+        ("ctx_graph", "Code dependency graph. Actions: build (index project), related (find files connected to path), \
+symbol (lookup definition/usages as file::name), impact (blast radius of changes to path), status (index stats).", json!({"type": "object", "properties": {"action": {"type": "string"}, "path": {"type": "string"}, "project_root": {"type": "string"}}, "required": ["action"]})),
+        ("ctx_session", "Cross-session memory (CCP). Actions: load (restore previous session ~400 tok), \
+save, status, task (set current task), finding (record discovery), decision (record choice), \
+reset, list (show sessions), cleanup.", json!({"type": "object", "properties": {"action": {"type": "string"}, "value": {"type": "string"}, "session_id": {"type": "string"}}, "required": ["action"]})),
+        ("ctx_knowledge", "Persistent project knowledge (survives sessions). Actions: remember (store fact with category+key+value), \
+recall (search by query), pattern (record naming/structure pattern), consolidate (extract session findings into knowledge), \
+status (list all), remove, export.", json!({"type": "object", "properties": {"action": {"type": "string"}, "category": {"type": "string"}, "key": {"type": "string"}, "value": {"type": "string"}, "query": {"type": "string"}}, "required": ["action"]})),
+        ("ctx_agent", "Multi-agent coordination (shared message bus). Actions: register (join with agent_type+role), \
+post (broadcast or direct message with category), read (poll messages), status (update state: active|idle|finished), \
+list, info.", json!({"type": "object", "properties": {"action": {"type": "string"}, "agent_type": {"type": "string"}, "role": {"type": "string"}, "message": {"type": "string"}}, "required": ["action"]})),
+        ("ctx_overview", "Task-relevant project map — use at session start.", json!({"type": "object", "properties": {"task": {"type": "string"}, "path": {"type": "string"}}})),
+        ("ctx_wrapped", "Savings report card. Periods: week|month|all.", json!({"type": "object", "properties": {"period": {"type": "string"}}})),
+        ("ctx_semantic_search", "BM25 code search by meaning. action=reindex to rebuild.", json!({"type": "object", "properties": {"query": {"type": "string"}, "path": {"type": "string"}, "top_k": {"type": "integer"}, "action": {"type": "string"}}, "required": ["query"]})),
+    ]
 }
 
 #[cfg(test)]

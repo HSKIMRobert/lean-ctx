@@ -2,38 +2,43 @@ use std::path::PathBuf;
 
 const MARKER: &str = "# lean-ctx — Context Engineering Layer";
 const END_MARKER: &str = "<!-- /lean-ctx -->";
-const RULES_VERSION: &str = "lean-ctx-rules-v4";
+const RULES_VERSION: &str = "lean-ctx-rules-v5";
 
 // ---------------------------------------------------------------------------
 // Rules content for SHARED config files (appended to user's existing config).
-// Concise but forceful — these live alongside user's own rules.
+// LITM-optimized: critical instruction at START and END of block.
 // Used for: CLAUDE.md, instructions.md, GEMINI.md, copilot-instructions.md
 // ---------------------------------------------------------------------------
 const RULES_SHARED: &str = r#"# lean-ctx — Context Engineering Layer
-<!-- lean-ctx-rules-v4 -->
+<!-- lean-ctx-rules-v5 -->
 
-lean-ctx MCP tools are connected. Use them instead of native tools:
-- `ctx_read` replaces Read/cat/head/tail (cached, 8 compression modes)
-- `ctx_shell` replaces Shell/bash (pattern compression)
-- `ctx_search` replaces Grep/rg (compact results)
-- `ctx_tree` replaces ls/find (directory maps)
+MANDATORY: Use lean-ctx MCP tools for ALL reads and searches. Native Read/Grep/Shell are FORBIDDEN.
 
-Keep using Write, StrReplace, Delete, Glob normally.
+| FORBIDDEN | USE INSTEAD |
+|-----------|-------------|
+| `Read` / `cat` / `head` / `tail` | `ctx_read(path)` — cached, 8 compression modes |
+| `Shell` / `bash` / terminal | `ctx_shell(command)` — pattern compression |
+| `Grep` / `rg` / search | `ctx_search(pattern, path)` — compact results |
+| `ls` / `find` / `tree` | `ctx_tree(path, depth)` — directory maps |
+
+Keep using Write, StrReplace, Delete, Glob normally (no lean-ctx replacement).
+
+REMINDER: NEVER use Read, Shell, Grep, or ls. ALWAYS use ctx_read, ctx_shell, ctx_search, ctx_tree.
 <!-- /lean-ctx -->"#;
 
 // ---------------------------------------------------------------------------
 // Rules content for DEDICATED lean-ctx rule files (we control entire file).
-// Detailed with examples — these are standalone lean-ctx instruction files.
+// LITM-optimized with critical mapping at start and end.
 // Used for: Windsurf, Zed, Cline, Roo Code, OpenCode, Continue, Aider
 // ---------------------------------------------------------------------------
 const RULES_DEDICATED: &str = r#"# lean-ctx — Context Engineering Layer
-<!-- lean-ctx-rules-v4 -->
+<!-- lean-ctx-rules-v5 -->
 
-lean-ctx MCP tools are connected. Use them instead of native tools:
+MANDATORY: Use lean-ctx MCP tools for ALL reads and searches. Native Read/Grep/Shell are FORBIDDEN.
 
-## Tool replacements:
-| Instead of | Use | Why |
-|------------|-----|-----|
+## Tool replacements (MUST use):
+| FORBIDDEN | USE INSTEAD | Why |
+|-----------|-------------|-----|
 | `Read` / `cat` / `head` | `ctx_read(path)` | Cached, 8 compression modes, re-reads ~13 tokens |
 | `Shell` / `bash` | `ctx_shell(command)` | Pattern compression for git/npm/cargo output |
 | `Grep` / `rg` | `ctx_search(pattern, path)` | Compact, token-efficient results |
@@ -52,26 +57,29 @@ Write, StrReplace, Delete, Glob — use normally.
 ## Proactive (use without being asked):
 - `ctx_overview(task)` at session start
 - `ctx_compress` when context grows large
+
+REMINDER: NEVER use Read, Shell, Grep, or ls. ALWAYS use ctx_read, ctx_shell, ctx_search, ctx_tree.
 <!-- /lean-ctx -->"#;
 
 // ---------------------------------------------------------------------------
 // Rules for Cursor MDC format (dedicated file with frontmatter).
 // alwaysApply: true ensures this is loaded into EVERY conversation.
+// LITM-optimized: critical warning at top and bottom.
 // ---------------------------------------------------------------------------
 const RULES_CURSOR_MDC: &str = r#"---
 description: "lean-ctx: ALWAYS use ctx_read/ctx_shell/ctx_search/ctx_tree instead of Read/Shell/Grep/ls"
 alwaysApply: true
 ---
 
-# lean-ctx MCP Tools
-<!-- lean-ctx-rules-v4 -->
+# lean-ctx — Context Engineering Layer
+<!-- lean-ctx-rules-v5 -->
 
-Always use lean-ctx MCP tools. Never use the standard equivalents.
+CRITICAL: NEVER use native Read, Shell, Grep, or ls tools. ALWAYS use lean-ctx MCP equivalents below.
 
-## Tool Mapping
+## Tool Mapping (MANDATORY)
 
-| Instead of | Use | Why |
-|---|-----|-----|
+| FORBIDDEN | USE INSTEAD | Why |
+|-----------|-------------|-----|
 | `Read` | `ctx_read` | Session caching, 8 compression modes, re-reads cost ~13 tokens |
 | `Shell` | `ctx_shell` | Pattern-based compression for git, npm, cargo, docker, tsc |
 | `Grep` | `ctx_search` | Compact context, token-efficient results |
@@ -93,6 +101,8 @@ Always use lean-ctx MCP tools. Never use the standard equivalents.
 - Use `ctx_search(pattern, path)` instead of Grep
 - Use `ctx_tree` instead of `ls` or `find` for directory exploration
 - The `Write`, `StrReplace`, `Delete`, `Glob` tools have no lean-ctx equivalent — use them normally
+
+REMINDER: NEVER use native Read, Shell, Grep, or ls. ALWAYS use ctx_read, ctx_shell, ctx_search, ctx_tree. Every single time.
 <!-- /lean-ctx -->"#;
 
 // ---------------------------------------------------------------------------
@@ -284,6 +294,12 @@ fn is_tool_detected(target: &RulesTarget, home: &std::path::Path) -> bool {
         "Continue" => detect_extension_installed(home, "continue.continue"),
         "Aider" => command_exists("aider") || home.join(".aider.conf.yml").exists(),
         "Amp" => command_exists("amp") || home.join(".ampcoder").exists(),
+        "Qwen Code" => home.join(".qwen").exists(),
+        "Trae" => home.join(".trae").exists(),
+        "Amazon Q Developer" => home.join(".aws/amazonq").exists(),
+        "JetBrains IDEs" => detect_jetbrains_installed(home),
+        "Antigravity" => home.join(".gemini/antigravity").exists(),
+        "Pi Coding Agent" => home.join(".pi").exists() || command_exists("pi"),
         _ => false,
     }
 }
@@ -326,6 +342,18 @@ fn detect_vscode_installed(home: &std::path::Path) -> bool {
         }
     }
     false
+}
+
+fn detect_jetbrains_installed(home: &std::path::Path) -> bool {
+    #[cfg(target_os = "macos")]
+    if home.join("Library/Application Support/JetBrains").exists() {
+        return true;
+    }
+    #[cfg(target_os = "linux")]
+    if home.join(".config/JetBrains").exists() {
+        return true;
+    }
+    home.join(".jb-mcp.json").exists()
 }
 
 fn detect_extension_installed(home: &std::path::Path, extension_id: &str) -> bool {
@@ -436,6 +464,36 @@ fn build_rules_targets(home: &std::path::Path) -> Vec<RulesTarget> {
             path: home.join(".ampcoder/rules/lean-ctx.md"),
             format: RulesFormat::DedicatedMarkdown,
         },
+        RulesTarget {
+            name: "Qwen Code",
+            path: home.join(".qwen/rules/lean-ctx.md"),
+            format: RulesFormat::DedicatedMarkdown,
+        },
+        RulesTarget {
+            name: "Trae",
+            path: home.join(".trae/rules/lean-ctx.md"),
+            format: RulesFormat::DedicatedMarkdown,
+        },
+        RulesTarget {
+            name: "Amazon Q Developer",
+            path: home.join(".aws/amazonq/rules/lean-ctx.md"),
+            format: RulesFormat::DedicatedMarkdown,
+        },
+        RulesTarget {
+            name: "JetBrains IDEs",
+            path: home.join(".jb-rules/lean-ctx.md"),
+            format: RulesFormat::DedicatedMarkdown,
+        },
+        RulesTarget {
+            name: "Antigravity",
+            path: home.join(".gemini/antigravity/rules/lean-ctx.md"),
+            format: RulesFormat::DedicatedMarkdown,
+        },
+        RulesTarget {
+            name: "Pi Coding Agent",
+            path: home.join(".pi/rules/lean-ctx.md"),
+            format: RulesFormat::DedicatedMarkdown,
+        },
     ]
 }
 
@@ -498,12 +556,57 @@ mod tests {
     }
 
     #[test]
+    fn shared_rules_litm_optimized() {
+        let lines: Vec<&str> = RULES_SHARED.lines().collect();
+        let first_5 = lines[..5.min(lines.len())].join("\n");
+        assert!(
+            first_5.contains("MANDATORY") || first_5.contains("FORBIDDEN"),
+            "LITM: critical instruction must be near start"
+        );
+        let last_5 = lines[lines.len().saturating_sub(5)..].join("\n");
+        assert!(
+            last_5.contains("REMINDER") || last_5.contains("NEVER"),
+            "LITM: reminder must be near end"
+        );
+    }
+
+    #[test]
     fn dedicated_rules_contain_modes() {
         assert!(RULES_DEDICATED.contains("full"));
         assert!(RULES_DEDICATED.contains("map"));
         assert!(RULES_DEDICATED.contains("signatures"));
         assert!(RULES_DEDICATED.contains("diff"));
         assert!(RULES_DEDICATED.contains("ctx_read"));
+    }
+
+    #[test]
+    fn dedicated_rules_litm_optimized() {
+        let lines: Vec<&str> = RULES_DEDICATED.lines().collect();
+        let first_5 = lines[..5.min(lines.len())].join("\n");
+        assert!(
+            first_5.contains("MANDATORY") || first_5.contains("FORBIDDEN"),
+            "LITM: critical instruction must be near start"
+        );
+        let last_5 = lines[lines.len().saturating_sub(5)..].join("\n");
+        assert!(
+            last_5.contains("REMINDER") || last_5.contains("NEVER"),
+            "LITM: reminder must be near end"
+        );
+    }
+
+    #[test]
+    fn cursor_mdc_litm_optimized() {
+        let lines: Vec<&str> = RULES_CURSOR_MDC.lines().collect();
+        let first_10 = lines[..10.min(lines.len())].join("\n");
+        assert!(
+            first_10.contains("CRITICAL") || first_10.contains("NEVER"),
+            "LITM: critical instruction must be near start of MDC"
+        );
+        let last_5 = lines[lines.len().saturating_sub(5)..].join("\n");
+        assert!(
+            last_5.contains("REMINDER") || last_5.contains("NEVER"),
+            "LITM: reminder must be near end of MDC"
+        );
     }
 
     fn ensure_temp_dir() {
@@ -524,7 +627,7 @@ mod tests {
         assert!(matches!(result, RulesResult::Updated));
 
         let new_content = std::fs::read_to_string(&path).unwrap();
-        assert!(new_content.contains("lean-ctx-rules-v4"));
+        assert!(new_content.contains(RULES_VERSION));
         assert!(new_content.starts_with("user stuff"));
         assert!(new_content.contains("more user stuff"));
         assert!(!new_content.contains("lean-ctx-rules-v2"));
@@ -543,7 +646,7 @@ mod tests {
         assert!(matches!(result, RulesResult::Updated));
 
         let new_content = std::fs::read_to_string(&path).unwrap();
-        assert!(new_content.contains("lean-ctx-rules-v4"));
+        assert!(new_content.contains(RULES_VERSION));
         assert!(new_content.starts_with("user stuff"));
 
         std::fs::remove_file(&path).ok();
@@ -600,6 +703,6 @@ mod tests {
     fn target_count() {
         let home = std::path::PathBuf::from("/tmp/fake_home");
         let targets = build_rules_targets(&home);
-        assert_eq!(targets.len(), 13);
+        assert_eq!(targets.len(), 19);
     }
 }

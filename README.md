@@ -124,18 +124,25 @@ lean-ctx creates a backup of your shell config before modifying it (`~/.zshrc.le
 
 | Editor | Method | Status |
 |:---|:---|:---:|
-| **Cursor** | MCP (mcp.json) | ✅ Auto |
-| **Claude Code** | `claude mcp add` | ✅ Auto |
-| **GitHub Copilot** | MCP (.github/copilot/mcp.json) | ✅ Auto |
-| **Windsurf** | MCP (mcp_config.json) | ✅ Auto |
-| **VS Code** | MCP | ✅ Auto |
+| **Cursor** | MCP + hooks + rules | ✅ Auto |
+| **Claude Code** | MCP + PreToolUse hooks + rules | ✅ Auto |
+| **GitHub Copilot** | MCP | ✅ Auto |
+| **Windsurf** | MCP + rules | ✅ Auto |
+| **VS Code** | MCP + rules | ✅ Auto |
 | **Zed** | Context Server (settings.json) | ✅ Auto |
-| **Codex CLI** | config.toml | ✅ Auto |
-| **Gemini CLI** | mcp.json | ✅ Auto |
-| **OpenCode** | opencode.json | ✅ Auto |
-| **Pi** | `lean-ctx init --agent pi` | ✅ Auto |
-| **OpenClaw** | Shell hook + skill | 📋 Manual |
-| **Google Antigravity** | MCP | ✅ Auto |
+| **Codex CLI** | config.toml + AGENTS.md | ✅ Auto |
+| **Gemini CLI** | MCP + hooks + rules | ✅ Auto |
+| **OpenCode** | MCP + rules | ✅ Auto |
+| **Pi** | pi-lean-ctx npm package | ✅ Auto |
+| **Qwen Code** | MCP + rules | ✅ Auto |
+| **Trae** | MCP + rules | ✅ Auto |
+| **Amazon Q Developer** | MCP + rules | ✅ Auto |
+| **JetBrains IDEs** | MCP + rules | ✅ Auto |
+| **Google Antigravity** | MCP + rules | ✅ Auto |
+| **Cline / Roo Code** | MCP + rules | ✅ Auto |
+| **Aider** | Shell hook + rules | ✅ Auto |
+| **Amp** | Shell hook + rules | ✅ Auto |
+| **Continue** | MCP + rules | ✅ Auto |
 
 </details>
 
@@ -376,7 +383,7 @@ $ lean-ctx gain
   ctx_read           103x  █▌                    59.1K  38%
     ... +33 more commands
 
-  lean-ctx v2.12.6  |  leanctx.com  |  lean-ctx dashboard
+  lean-ctx v2.12.7  |  leanctx.com  |  lean-ctx dashboard
 ```
 
 </details>

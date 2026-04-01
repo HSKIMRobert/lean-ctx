@@ -2,6 +2,37 @@
 
 All notable changes to lean-ctx are documented here.
 
+## [2.12.7] — 2026-04-01
+
+### Added
+- **MCP Tool Enforcement — 3-Layer Strategy**: LLMs now reliably use lean-ctx MCP tools instead of native tools across all supported IDEs
+  - **Layer 1: PreToolUse Hooks** — Soft-redirect hooks for Claude Code, Cursor, and Gemini CLI that intercept native `Read`, `Grep`, `ListFiles`, and `ListDirectory` calls, returning a block decision with guidance to use `ctx_read`/`ctx_search`/`ctx_tree` instead. Safety fallback: if lean-ctx MCP server is unreachable, native tools are allowed through
+  - **Layer 2: LITM-Optimized Rules v5** — Rules injection now places critical "NEVER use native tools" instructions at both the beginning AND end of every rules block (exploiting LLM attention patterns). Updated from v4 to v5 with stronger "FORBIDDEN / USE INSTEAD" tool mapping tables
+  - **Layer 3: Project-Level Reinforcement** — `lean-ctx init --agent` now auto-creates `AGENTS.md` and `.cursorrules` in the project root with lean-ctx tool mappings
+- **6 new IDE/agent rules targets**: Qwen Code (`~/.qwen/rules/`), Trae (`~/.trae/rules/`), Amazon Q Developer (`~/.aws/amazonq/rules/`), JetBrains IDEs (`~/.jb-rules/`), Antigravity (`~/.gemini/antigravity/rules/`), Pi Coding Agent (`~/.pi/rules/`) — all with auto-detection and dedicated markdown rules injection
+- **19 total supported IDEs/agents** with full rules coverage (up from 13)
+- **Auto-refresh on update**: `lean-ctx update` now automatically refreshes all rules files and hook scripts after installing a new binary via `post_update_refresh()`. MCP server startup also triggers `refresh_installed_hooks()` to ensure hooks match the current binary
+- **Complete uninstall cleanup**: `lean-ctx uninstall` now removes rules files (13 locations), hook scripts (7 files), and Cursor `hooks.json` in addition to MCP configs and data directory
+
+### Changed
+- **Token Optimization Deep Dive** (Phase 1–4):
+  - Removed double savings footer on `ctx_read` (server.rs duplicate eliminated)
+  - Config caching with `OnceLock` — no more disk read on every call
+  - Entropy mode header compressed to single line (saves 20-40 tokens/read)
+  - Stale note compressed to single line (saves ~15 tokens)
+  - Stats batching with in-memory accumulator + periodic flush (reduces disk I/O)
+  - ModePredictor/FeedbackStore deferred writes (no longer synchronous on hot path)
+  - `count_tokens` caching for repeated strings
+  - Added compression patterns for `cargo doc/tree/fmt/update`, `git show/rebase/submodule`, `docker system df/info/version`, `uv/conda/pipx/poetry`
+  - Fixed npm test heuristic (proper Jest/Vitest summary parsing instead of substring matching)
+  - Strengthened CRP/TDD output constraints with token budget hints
+  - Trimmed tool descriptions to minimum viable length
+- System instructions now include redundant LITM-end reminder block for maximum LLM attention
+- Hook installation refactored into separate script-generation and config-update functions for better reusability
+
+### Fixed
+- JetBrains IDE detection now checks platform-specific paths (`Library/Application Support/JetBrains` on macOS, `.config/JetBrains` on Linux)
+
 ## [2.12.6] — 2026-04-01
 
 ### Added

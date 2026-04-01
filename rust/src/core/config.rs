@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::sync::Mutex;
+use std::time::SystemTime;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -58,14 +60,35 @@ impl Config {
     }
 
     pub fn load() -> Self {
+        static CACHE: Mutex<Option<(Config, SystemTime)>> = Mutex::new(None);
+
         let path = match Self::path() {
             Some(p) => p,
             None => return Self::default(),
         };
-        match std::fs::read_to_string(&path) {
+
+        let mtime = std::fs::metadata(&path)
+            .and_then(|m| m.modified())
+            .unwrap_or(SystemTime::UNIX_EPOCH);
+
+        if let Ok(guard) = CACHE.lock() {
+            if let Some((ref cfg, ref cached_mtime)) = *guard {
+                if *cached_mtime == mtime {
+                    return cfg.clone();
+                }
+            }
+        }
+
+        let cfg = match std::fs::read_to_string(&path) {
             Ok(content) => toml::from_str(&content).unwrap_or_default(),
             Err(_) => Self::default(),
+        };
+
+        if let Ok(mut guard) = CACHE.lock() {
+            *guard = Some((cfg.clone(), mtime));
         }
+
+        cfg
     }
 
     pub fn save(&self) -> Result<(), String> {

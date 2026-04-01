@@ -1,21 +1,13 @@
-# lean-ctx — Token Optimization
+# lean-ctx — Context Engineering Layer
 
-lean-ctx is configured as an MCP server. Use lean-ctx MCP tools instead of built-in tools:
+MANDATORY: Use lean-ctx MCP tools for ALL reads, searches, and shell commands.
 
-| Built-in | Use instead | Why |
-|----------|-------------|-----|
-| Read / cat / head | `ctx_read` | Session caching, 6 compression modes, re-reads cost ~13 tokens |
-| Bash (shell commands) | `ctx_shell` | Pattern-based compression for git, npm, cargo, docker, tsc |
-| Grep / rg | `ctx_search` | Compact context, token-efficient results |
-| ls / find | `ctx_tree` | Compact directory maps with file counts |
-
-For shell commands that don't have MCP equivalents, prefix with `lean-ctx -c`:
-
-```bash
-lean-ctx -c git status    # compressed output
-lean-ctx -c cargo test    # compressed output
-lean-ctx -c npm install   # compressed output
-```
+| FORBIDDEN | USE INSTEAD | Why |
+|-----------|-------------|-----|
+| Read / cat / head / tail | `ctx_read(path)` | Session caching, 8 compression modes, re-reads cost ~13 tokens |
+| Bash (shell commands) | `ctx_shell(command)` | Pattern-based compression for git, npm, cargo, docker, tsc |
+| Grep / rg | `ctx_search(pattern, path)` | Compact context, token-efficient results |
+| ls / find | `ctx_tree(path, depth)` | Compact directory maps with file counts |
 
 ## ctx_read Modes
 
@@ -25,5 +17,8 @@ lean-ctx -c npm install   # compressed output
 - `diff` — changed lines only (after edits)
 - `aggressive` — syntax stripped
 - `entropy` — Shannon + Jaccard filtering
+- `lines:N-M` — specific range
 
 Write, StrReplace, Delete have no lean-ctx equivalent — use them normally.
+
+REMINDER: NEVER use native Read, Bash, Grep, or ls. ALWAYS use ctx_read, ctx_shell, ctx_search, ctx_tree.

@@ -41,16 +41,24 @@ pub fn compress(command: &str, output: &str) -> Option<String> {
             _ => None,
         };
     }
-    let uv_parts: Vec<&str> = cl.split_whitespace().collect();
-    if uv_parts.len() >= 2 && uv_parts[0] == "uv" && uv_parts[1] == "sync" {
+    let parts: Vec<&str> = cl.split_whitespace().collect();
+    if parts.len() >= 2 && parts[0] == "uv" && parts[1] == "sync" {
         return Some(compress_uv(output));
     }
-    if uv_parts.len() >= 3
-        && uv_parts[0] == "uv"
-        && uv_parts[1] == "pip"
-        && uv_parts[2] == "install"
-    {
+    if parts.len() >= 3 && parts[0] == "uv" && parts[1] == "pip" && parts[2] == "install" {
         return Some(compress_uv(output));
+    }
+    if cl.starts_with("conda ") || cl.starts_with("mamba ") {
+        let sub = parts.get(1).copied().unwrap_or("");
+        return match sub {
+            "install" | "create" | "update" | "remove" => Some(compress_conda(output)),
+            "list" => Some(compress_conda_list(output)),
+            "info" => Some(compress_conda_info(output)),
+            _ => None,
+        };
+    }
+    if cl.starts_with("pipx ") {
+        return Some(compress_pipx(output));
     }
     None
 }
@@ -184,6 +192,131 @@ fn compress_uv(output: &str) -> String {
         parts.extend(errors.into_iter().take(15).map(|e| format!("  {e}")));
     }
 
+    if parts.is_empty() {
+        fallback_compact(output)
+    } else {
+        parts.join("\n")
+    }
+}
+
+fn compress_conda(output: &str) -> String {
+    let mut packages = Vec::new();
+    let mut errors = Vec::new();
+    let mut action = String::new();
+
+    for line in output.lines() {
+        let t = line.trim();
+        if t.is_empty() || is_download_noise(t) {
+            continue;
+        }
+        let tl = t.to_ascii_lowercase();
+
+        if tl.starts_with("the following packages will be")
+            || tl.starts_with("the following new packages")
+        {
+            action = t.to_string();
+            continue;
+        }
+        if t.starts_with("  ") && t.contains("::") {
+            packages.push(t.trim().to_string());
+            continue;
+        }
+        if t.starts_with("  ") && !t.starts_with("   ") && packages.is_empty() {
+            let name = t.split_whitespace().next().unwrap_or(t);
+            packages.push(name.to_string());
+            continue;
+        }
+        if tl.contains("error")
+            || tl.contains("conflictingerror")
+            || tl.contains("unsatisfiableerror")
+        {
+            errors.push(t.to_string());
+        }
+    }
+
+    let mut parts = Vec::new();
+    if !action.is_empty() {
+        parts.push(action);
+    }
+    if !packages.is_empty() {
+        parts.push(format!("{} package(s)", packages.len()));
+        for p in packages.iter().take(20) {
+            parts.push(format!("  {p}"));
+        }
+        if packages.len() > 20 {
+            parts.push(format!("  ... +{} more", packages.len() - 20));
+        }
+    }
+    if !errors.is_empty() {
+        parts.push(format!("{} error(s):", errors.len()));
+        parts.extend(errors.into_iter().take(10).map(|e| format!("  {e}")));
+    }
+
+    if parts.is_empty() {
+        fallback_compact(output)
+    } else {
+        parts.join("\n")
+    }
+}
+
+fn compress_conda_list(output: &str) -> String {
+    let lines: Vec<&str> = output
+        .lines()
+        .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+        .collect();
+    if lines.is_empty() {
+        return "no packages".to_string();
+    }
+    if lines.len() <= 10 {
+        return lines.join("\n");
+    }
+    format!(
+        "{} packages installed\n{}\n... +{} more",
+        lines.len(),
+        lines[..10].join("\n"),
+        lines.len() - 10
+    )
+}
+
+fn compress_conda_info(output: &str) -> String {
+    let important = [
+        "active environment",
+        "conda version",
+        "platform",
+        "python version",
+    ];
+    let mut info = Vec::new();
+    for line in output.lines() {
+        let trimmed = line.trim();
+        for key in &important {
+            if trimmed.to_lowercase().starts_with(key) {
+                info.push(trimmed.to_string());
+                break;
+            }
+        }
+    }
+    if info.is_empty() {
+        fallback_compact(output)
+    } else {
+        info.join("\n")
+    }
+}
+
+fn compress_pipx(output: &str) -> String {
+    let mut parts = Vec::new();
+    for line in output.lines() {
+        let t = line.trim();
+        if t.is_empty() || is_download_noise(t) {
+            continue;
+        }
+        let tl = t.to_ascii_lowercase();
+        if tl.contains("installed package")
+            || tl.contains("done!")
+            || tl.contains("these apps are now")
+        {
+            parts.push(t.to_string());
+        }
+    }
     if parts.is_empty() {
         fallback_compact(output)
     } else {

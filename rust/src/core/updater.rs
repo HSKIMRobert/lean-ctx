@@ -74,16 +74,45 @@ pub fn run(args: &[String]) {
     }
 
     println!();
-    crate::terminal_ui::print_logo_animated();
     println!("  \x1b[1;32m✓ Updated to lean-ctx v{latest_tag}\x1b[0m");
     println!("  \x1b[2mBinary: {}\x1b[0m", current_exe.display());
+
+    println!();
+    println!("  \x1b[36m\x1b[1mUpdating agent rules & hooks…\x1b[0m");
+    post_update_refresh();
+
+    println!();
+    crate::terminal_ui::print_logo_animated();
     println!();
     println!("  \x1b[33m\x1b[1m⟳ Restart your IDE / AI tool to activate the new version.\x1b[0m");
     println!("    \x1b[2mClose and re-open Cursor, VS Code, Claude Code, etc. completely.\x1b[0m");
     println!("    \x1b[2mThe MCP server must reconnect to use the updated binary.\x1b[0m");
     println!();
-    println!("    \x1b[2mAgent rules will be updated automatically on the next IDE start.\x1b[0m");
-    println!();
+}
+
+fn post_update_refresh() {
+    if let Some(home) = dirs::home_dir() {
+        let rules_result = crate::rules_inject::inject_all_rules(&home);
+        let rules_count = rules_result.injected.len() + rules_result.updated.len();
+        if rules_count > 0 {
+            let names: Vec<String> = rules_result
+                .injected
+                .iter()
+                .chain(rules_result.updated.iter())
+                .cloned()
+                .collect();
+            println!("    \x1b[32m✓\x1b[0m Rules updated: {}", names.join(", "));
+        }
+        if !rules_result.already.is_empty() {
+            println!(
+                "    \x1b[32m✓\x1b[0m Rules up-to-date: {}",
+                rules_result.already.join(", ")
+            );
+        }
+
+        crate::hooks::refresh_installed_hooks();
+        println!("    \x1b[32m✓\x1b[0m Hook scripts refreshed");
+    }
 }
 
 fn fetch_latest_release() -> Result<serde_json::Value, String> {

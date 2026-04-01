@@ -16,6 +16,8 @@ pub fn run() {
 
     removed_any |= remove_shell_hook(&home);
     removed_any |= remove_mcp_configs(&home);
+    removed_any |= remove_rules_files(&home);
+    removed_any |= remove_hook_files(&home);
     removed_any |= remove_data_dir(&home);
 
     println!();
@@ -141,6 +143,95 @@ fn remove_mcp_configs(home: &Path) -> bool {
                         println!("  ✓ MCP config removed from VS Code / Copilot");
                         removed = true;
                     }
+                }
+            }
+        }
+    }
+
+    removed
+}
+
+fn remove_rules_files(home: &Path) -> bool {
+    let rules_files: Vec<(&str, PathBuf)> = vec![
+        ("Claude Code", home.join(".claude/CLAUDE.md")),
+        ("Cursor", home.join(".cursor/rules/lean-ctx.mdc")),
+        ("Gemini CLI", home.join(".gemini/rules/lean-ctx.md")),
+        ("Codex CLI", home.join(".codex/LEAN-CTX.md")),
+        ("Windsurf", home.join(".codeium/windsurf/rules/lean-ctx.md")),
+        ("Aider", home.join(".aider/rules/lean-ctx.md")),
+        ("Amp", home.join(".ampcoder/rules/lean-ctx.md")),
+        ("Qwen Code", home.join(".qwen/rules/lean-ctx.md")),
+        ("Trae", home.join(".trae/rules/lean-ctx.md")),
+        (
+            "Amazon Q Developer",
+            home.join(".aws/amazonq/rules/lean-ctx.md"),
+        ),
+        ("JetBrains IDEs", home.join(".jb-rules/lean-ctx.md")),
+        (
+            "Antigravity",
+            home.join(".gemini/antigravity/rules/lean-ctx.md"),
+        ),
+        ("Pi Coding Agent", home.join(".pi/rules/lean-ctx.md")),
+    ];
+
+    let mut removed = false;
+    for (name, path) in &rules_files {
+        if !path.exists() {
+            continue;
+        }
+        if let Ok(content) = fs::read_to_string(path) {
+            if content.contains("lean-ctx") {
+                if let Err(e) = fs::remove_file(path) {
+                    eprintln!("  ✗ Failed to remove {name} rules: {e}");
+                } else {
+                    println!("  ✓ Rules removed from {name}");
+                    removed = true;
+                }
+            }
+        }
+    }
+
+    if !removed {
+        println!("  · No rules files found");
+    }
+    removed
+}
+
+fn remove_hook_files(home: &Path) -> bool {
+    let hook_files: Vec<PathBuf> = vec![
+        home.join(".claude/hooks/lean-ctx-rewrite.sh"),
+        home.join(".claude/hooks/lean-ctx-redirect.sh"),
+        home.join(".cursor/hooks/lean-ctx-rewrite.sh"),
+        home.join(".cursor/hooks/lean-ctx-redirect.sh"),
+        home.join(".gemini/hooks/lean-ctx-rewrite-gemini.sh"),
+        home.join(".gemini/hooks/lean-ctx-redirect-gemini.sh"),
+        home.join(".gemini/hooks/lean-ctx-hook-gemini.sh"),
+    ];
+
+    let mut removed = false;
+    for path in &hook_files {
+        if path.exists() {
+            if let Err(e) = fs::remove_file(path) {
+                eprintln!("  ✗ Failed to remove hook {}: {e}", path.display());
+            } else {
+                removed = true;
+            }
+        }
+    }
+
+    if removed {
+        println!("  ✓ Hook scripts removed");
+    }
+
+    let hooks_json = home.join(".cursor/hooks.json");
+    if hooks_json.exists() {
+        if let Ok(content) = fs::read_to_string(&hooks_json) {
+            if content.contains("lean-ctx") {
+                if let Err(e) = fs::remove_file(&hooks_json) {
+                    eprintln!("  ✗ Failed to remove Cursor hooks.json: {e}");
+                } else {
+                    println!("  ✓ Cursor hooks.json removed");
+                    removed = true;
                 }
             }
         }

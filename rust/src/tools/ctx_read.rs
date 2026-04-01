@@ -404,7 +404,8 @@ fn process_mode(
             format!("{output}\n{savings}")
         }
         "aggressive" => {
-            let compressed = compressor::aggressive_compress(content, Some(ext));
+            let raw = compressor::aggressive_compress(content, Some(ext));
+            let compressed = compressor::safeguard_ratio(content, &raw);
             let header = build_header(file_ref, short, ext, content, line_count, true);
 
             let mut sym = SymbolMap::new();
@@ -440,13 +441,8 @@ fn process_mode(
             let result = entropy::entropy_compress_adaptive(content, file_path);
             let avg_h = entropy::analyze_entropy(content).avg_entropy;
             let header = build_header(file_ref, short, ext, content, line_count, false);
-            let mut output = format!("{header} (H̄={avg_h:.1})");
-            for tech in &result.techniques {
-                output.push('\n');
-                output.push_str(tech);
-            }
-            output.push('\n');
-            output.push_str(&result.output);
+            let techs = result.techniques.join(", ");
+            let output = format!("{header} H̄={avg_h:.1} [{techs}]\n{}", result.output);
             let sent = count_tokens(&output);
             let savings = protocol::format_savings(original_tokens, sent);
             format!("{output}\n{savings}")
@@ -525,6 +521,30 @@ fn extract_line_range(content: &str, range_str: &str) -> String {
     }
 }
 
+fn handle_diff(cache: &mut SessionCache, path: &str, file_ref: &str) -> String {
+    let short = protocol::shorten_path(path);
+    let old_content = cache.get(path).map(|e| e.content.clone());
+
+    let new_content = match read_file_lossy(path) {
+        Ok(c) => c,
+        Err(e) => return format!("ERROR: {e}"),
+    };
+
+    let original_tokens = count_tokens(&new_content);
+
+    let diff_output = if let Some(old) = &old_content {
+        compressor::diff_content(old, &new_content)
+    } else {
+        format!("[first read]\n{new_content}")
+    };
+
+    cache.store(path, new_content);
+
+    let sent = count_tokens(&diff_output);
+    let savings = protocol::format_savings(original_tokens, sent);
+    format!("{file_ref}={short} [diff]\n{diff_output}\n{savings}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -557,7 +577,7 @@ mod tests {
     #[test]
     fn test_header_toon_saves_tokens() {
         let content = "use crate::foo;\nuse crate::bar;\npub fn baz() {}\npub fn qux() {}\n";
-        let old_header = format!("F1=main.rs [4L +] deps:[foo,bar] exports:[baz,qux]");
+        let old_header = "F1=main.rs [4L +] deps:[foo,bar] exports:[baz,qux]".to_string();
         let new_header = build_header("F1", "main.rs", "rs", content, 4, true);
         let old_tokens = count_tokens(&old_header);
         let new_tokens = count_tokens(&new_header);
@@ -776,28 +796,4 @@ mod tests {
         code.push("}".to_string());
         code.join("\n")
     }
-}
-
-fn handle_diff(cache: &mut SessionCache, path: &str, file_ref: &str) -> String {
-    let short = protocol::shorten_path(path);
-    let old_content = cache.get(path).map(|e| e.content.clone());
-
-    let new_content = match read_file_lossy(path) {
-        Ok(c) => c,
-        Err(e) => return format!("ERROR: {e}"),
-    };
-
-    let original_tokens = count_tokens(&new_content);
-
-    let diff_output = if let Some(old) = &old_content {
-        compressor::diff_content(old, &new_content)
-    } else {
-        format!("[first read]\n{new_content}")
-    };
-
-    cache.store(path, new_content);
-
-    let sent = count_tokens(&diff_output);
-    let savings = protocol::format_savings(original_tokens, sent);
-    format!("{file_ref}={short} [diff]\n{diff_output}\n{savings}")
 }

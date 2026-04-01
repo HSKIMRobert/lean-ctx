@@ -323,6 +323,7 @@ fn e2e_real_git_log_stat_compression() {
 fn generate_git_log_patch(n: usize) -> String {
     let mut output = String::new();
     for i in 0..n {
+        let msg = format!("implement feature number {i} with improvements");
         output.push_str(&format!(
             "commit {i:07}abc1234567890abcdef1234567890\n\
              Author: Developer <dev@example.com>\n\
@@ -338,7 +339,6 @@ fn generate_git_log_patch(n: usize) -> String {
             d = 10 + (i % 20),
             h = i % 24,
             ty = ["feat", "fix", "refactor", "docs", "test"][i % 5],
-            msg = format!("implement feature number {i} with improvements"),
             ctx = 10 + i,
             ctx2 = 12 + i,
         ));
@@ -361,6 +361,7 @@ fn generate_git_log_patch(n: usize) -> String {
 fn generate_git_log_stat(n: usize) -> String {
     let mut output = String::new();
     for i in 0..n {
+        let msg = format!("update module {i}");
         output.push_str(&format!(
             "commit {i:07}abc1234567890abcdef1234567890\n\
              Author: Developer <dev@example.com>\n\
@@ -371,7 +372,6 @@ fn generate_git_log_stat(n: usize) -> String {
             d = 10 + (i % 20),
             h = i % 24,
             ty = ["feat", "fix", "refactor", "docs", "test"][i % 5],
-            msg = format!("update module {i}"),
         ));
         for j in 0..(2 + i % 4) {
             let plus = 3 + j;
@@ -395,6 +395,7 @@ fn generate_git_log_stat(n: usize) -> String {
 fn generate_git_log_standard(n: usize) -> String {
     let mut output = String::new();
     for i in 0..n {
+        let msg = format!("update component {i} with better error handling");
         output.push_str(&format!(
             "commit {i:07}abc1234567890abcdef1234567890\n\
              Author: Developer <dev@example.com>\n\
@@ -408,7 +409,6 @@ fn generate_git_log_standard(n: usize) -> String {
             d = 10 + (i % 20),
             h = i % 24,
             ty = ["feat", "fix", "refactor", "docs", "test"][i % 5],
-            msg = format!("update component {i} with better error handling"),
         ));
     }
     output
