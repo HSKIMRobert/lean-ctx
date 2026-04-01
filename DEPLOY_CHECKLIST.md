@@ -145,11 +145,30 @@ git checkout -- .
 
 - [ ] Verify: `curl -sL https://leanctx.com/ -o /dev/null -w "%{http_code}"` → 200
 
+## Discord Release Notification (automatic)
+
+A GitHub webhook triggers an n8n workflow that posts the full changelog as a Discord embed:
+
+- **n8n Workflow:** `LeanCTX Release → Discord` (ID: `leanctx-release-discord`)
+- **Trigger:** GitHub `release` event (action: `published`)
+- **Discord Channel:** via webhook `https://discord.com/api/webhooks/1488799951445295199/...`
+- **GitHub Webhook ID:** `603876230`
+
+This fires automatically when `gh release create` is run. No manual action needed.
+
+To test manually:
+```bash
+curl -X POST "http://n8n-ggs44kcog0so4s0w4sc88gwg.n8n.185-142-213-170.sslip.io/webhook/lean-ctx-release" \
+  -H "Content-Type: application/json" \
+  -d '{"action":"published","release":{"tag_name":"vX.Y.Z","name":"vX.Y.Z — Title","body":"Changelog...","html_url":"https://github.com/yvgude/lean-ctx/releases/tag/vX.Y.Z","author":{"login":"yvgude"},"published_at":"2026-01-01T00:00:00Z"},"repository":{"full_name":"yvgude/lean-ctx"}}'
+```
+
 ## Post-Release Verification
 
 - [ ] `curl -s https://crates.io/api/v1/crates/lean-ctx | python3 -c "import sys,json; print(json.load(sys.stdin)['crate']['max_version'])"` → X.Y.Z
 - [ ] `npm view lean-ctx-bin version` → X.Y.Z
 - [ ] GitHub Release page has binary + notes
+- [ ] Discord channel has release announcement (automatic via n8n)
 - [ ] `gh issue list --repo yvgude/lean-ctx --state open` → 0 issues (or expected)
 - [ ] Close related GitHub issues with fix comment
 
