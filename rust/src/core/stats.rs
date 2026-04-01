@@ -24,6 +24,12 @@ pub struct CepStats {
     pub total_tokens_compressed: u64,
     pub modes: HashMap<String, u64>,
     pub scores: Vec<CepSessionSnapshot>,
+    #[serde(default)]
+    pub last_session_pid: Option<u32>,
+    #[serde(default)]
+    pub last_session_original: Option<u64>,
+    #[serde(default)]
+    pub last_session_compressed: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -186,6 +192,12 @@ fn normalize_command(command: &str) -> String {
     }
 }
 
+pub fn reset_cep() {
+    let mut store = load();
+    store.cep = CepStats::default();
+    save(&store);
+}
+
 pub struct GainSummary {
     pub total_saved: u64,
     pub total_calls: u64,
@@ -232,15 +244,31 @@ pub fn record_cep_session(
     let mut store = load();
     let cep = &mut store.cep;
 
-    cep.sessions += 1;
-    cep.total_cache_hits += cache_hits;
-    cep.total_cache_reads += cache_reads;
-    cep.total_tokens_original += tokens_original;
-    cep.total_tokens_compressed += tokens_compressed;
+    let pid = std::process::id();
+    let prev_original = cep.last_session_original.unwrap_or(0);
+    let prev_compressed = cep.last_session_compressed.unwrap_or(0);
+    let is_same_session = cep.last_session_pid == Some(pid);
 
-    for (mode, count) in modes {
-        *cep.modes.entry(mode.clone()).or_insert(0) += count;
+    if is_same_session {
+        let delta_original = tokens_original.saturating_sub(prev_original);
+        let delta_compressed = tokens_compressed.saturating_sub(prev_compressed);
+        cep.total_tokens_original += delta_original;
+        cep.total_tokens_compressed += delta_compressed;
+    } else {
+        cep.sessions += 1;
+        cep.total_cache_hits += cache_hits;
+        cep.total_cache_reads += cache_reads;
+        cep.total_tokens_original += tokens_original;
+        cep.total_tokens_compressed += tokens_compressed;
+
+        for (mode, count) in modes {
+            *cep.modes.entry(mode.clone()).or_insert(0) += count;
+        }
     }
+
+    cep.last_session_pid = Some(pid);
+    cep.last_session_original = Some(tokens_original);
+    cep.last_session_compressed = Some(tokens_compressed);
 
     let cache_hit_rate = if cache_reads > 0 {
         (cache_hits as f64 / cache_reads as f64 * 100.0).round() as u32

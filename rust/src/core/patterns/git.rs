@@ -17,7 +17,7 @@ fn ahead_re() -> &'static Regex {
     AHEAD_RE.get_or_init(|| Regex::new(r"ahead of .+ by (\d+) commit").unwrap())
 }
 fn commit_hash_re() -> &'static Regex {
-    COMMIT_HASH_RE.get_or_init(|| Regex::new(r"\[(\w+)\s+([a-f0-9]+)\]").unwrap())
+    COMMIT_HASH_RE.get_or_init(|| Regex::new(r"\[([\w/.:-]+)\s+([a-f0-9]+)\]").unwrap())
 }
 fn insertions_re() -> &'static Regex {
     INSERTIONS_RE.get_or_init(|| Regex::new(r"(\d+) insertions?\(\+\)").unwrap())
@@ -179,6 +179,28 @@ fn compress_status(output: &str) -> String {
     parts.join("\n")
 }
 
+fn is_diff_or_stat_line(line: &str) -> bool {
+    let t = line.trim();
+    t.starts_with("diff --git")
+        || t.starts_with("index ")
+        || t.starts_with("--- a/")
+        || t.starts_with("+++ b/")
+        || t.starts_with("@@ ")
+        || t.starts_with("Binary files")
+        || t.starts_with("new file mode")
+        || t.starts_with("deleted file mode")
+        || t.starts_with("old mode")
+        || t.starts_with("new mode")
+        || t.starts_with("similarity index")
+        || t.starts_with("rename from")
+        || t.starts_with("rename to")
+        || t.starts_with("copy from")
+        || t.starts_with("copy to")
+        || (t.starts_with('+') && !t.starts_with("+++"))
+        || (t.starts_with('-') && !t.starts_with("---"))
+        || (t.contains(" | ") && t.chars().any(|c| c == '+' || c == '-'))
+}
+
 fn compress_log(output: &str) -> String {
     let lines: Vec<&str> = output.lines().collect();
     if lines.is_empty() {
@@ -200,20 +222,58 @@ fn compress_log(output: &str) -> String {
         );
     }
 
+    let has_diff = lines.iter().any(|l| l.starts_with("diff --git"));
+    let has_stat = lines
+        .iter()
+        .any(|l| l.contains(" | ") && l.trim().ends_with(['+', '-']));
+    let mut total_additions = 0u32;
+    let mut total_deletions = 0u32;
+
     let mut entries = Vec::new();
+    let mut in_diff = false;
+    let mut got_message = false;
+
     for line in &lines {
         let trimmed = line.trim();
+
         if trimmed.starts_with("commit ") {
             let hash = &trimmed[7..14.min(trimmed.len())];
             entries.push(hash.to_string());
-        } else if !trimmed.is_empty()
-            && !trimmed.starts_with("Author:")
-            && !trimmed.starts_with("Date:")
-            && !trimmed.starts_with("Merge:")
+            in_diff = false;
+            got_message = false;
+            continue;
+        }
+
+        if trimmed.starts_with("Author:")
+            || trimmed.starts_with("Date:")
+            || trimmed.starts_with("Merge:")
         {
+            continue;
+        }
+
+        if trimmed.starts_with("diff --git") || trimmed.starts_with("---") && trimmed.contains("a/")
+        {
+            in_diff = true;
+        }
+
+        if in_diff || is_diff_or_stat_line(trimmed) {
+            if trimmed.starts_with('+') && !trimmed.starts_with("+++") {
+                total_additions += 1;
+            } else if trimmed.starts_with('-') && !trimmed.starts_with("---") {
+                total_deletions += 1;
+            }
+            continue;
+        }
+
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if !got_message {
             if let Some(last) = entries.last_mut() {
                 *last = format!("{last} {trimmed}");
             }
+            got_message = true;
         }
     }
 
@@ -221,16 +281,25 @@ fn compress_log(output: &str) -> String {
         return output.to_string();
     }
 
-    if entries.len() > max_entries {
+    let mut result = if entries.len() > max_entries {
         let shown = &entries[..max_entries];
-        return format!(
+        format!(
             "{}\n... ({} more commits)",
             shown.join("\n"),
             entries.len() - max_entries
-        );
+        )
+    } else {
+        entries.join("\n")
+    };
+
+    if (has_diff || has_stat) && (total_additions > 0 || total_deletions > 0) {
+        result.push_str(&format!(
+            "\n[{} commits, +{total_additions}/-{total_deletions} total]",
+            entries.len()
+        ));
     }
 
-    entries.join("\n")
+    result
 }
 
 fn compress_diff(output: &str) -> String {
@@ -292,16 +361,17 @@ fn compress_commit(output: &str) -> String {
     if let Some(caps) = commit_hash_re().captures(output) {
         let branch = &caps[1];
         let hash = &caps[2];
-        let commit_line = output
+        let stats = extract_change_stats(output);
+        let msg = output
             .lines()
             .find(|l| commit_hash_re().is_match(l))
-            .unwrap_or("")
-            .trim();
-        let stats = extract_change_stats(output);
+            .and_then(|l| l.split(']').nth(1))
+            .map(|m| m.trim())
+            .unwrap_or("");
         commit_part = if stats.is_empty() {
-            format!("{hash} ({branch}) {commit_line}")
+            format!("{hash} ({branch}) {msg}")
         } else {
-            format!("{hash} ({branch}) {commit_line} {stats}")
+            format!("{hash} ({branch}) {msg} [{stats}]")
         };
     }
 
@@ -317,13 +387,29 @@ fn compress_commit(output: &str) -> String {
         return commit_part;
     }
 
-    let hook_output = if hook_lines.len() > 10 {
-        let shown: Vec<&str> = hook_lines[..10].to_vec();
-        format!(
-            "{}\n... ({} more hook lines)",
-            shown.join("\n"),
-            hook_lines.len() - 10
-        )
+    let failed: Vec<&&str> = hook_lines
+        .iter()
+        .filter(|l| {
+            let low = l.to_lowercase();
+            low.contains("failed") || low.contains("error") || low.contains("warning")
+        })
+        .collect();
+    let passed_count = hook_lines.len() - failed.len();
+
+    let hook_output = if !failed.is_empty() {
+        let mut parts = Vec::new();
+        if passed_count > 0 {
+            parts.push(format!("{passed_count} checks passed"));
+        }
+        for f in failed.iter().take(5) {
+            parts.push(f.to_string());
+        }
+        if failed.len() > 5 {
+            parts.push(format!("... ({} more failures)", failed.len() - 5));
+        }
+        parts.join("\n")
+    } else if hook_lines.len() > 5 {
+        format!("{} hooks passed", hook_lines.len())
     } else {
         hook_lines.join("\n")
     };
@@ -799,6 +885,79 @@ mod tests {
         assert!(
             !result.contains("hook"),
             "should not mention hooks when none present"
+        );
+    }
+
+    #[test]
+    fn git_log_with_patch_filters_diff_content() {
+        let output = "commit abc1234567890\nAuthor: User <user@email.com>\nDate:   Mon Mar 25 10:00:00 2026 +0100\n\n    feat: add feature\n\ndiff --git a/src/main.rs b/src/main.rs\nindex abc1234..def5678 100644\n--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1,3 +1,4 @@\n fn main() {\n+    println!(\"hello\");\n     let x = 1;\n }\n\ncommit def4567890abc\nAuthor: User <user@email.com>\nDate:   Sun Mar 24 09:00:00 2026 +0100\n\n    fix: resolve issue\n\ndiff --git a/src/lib.rs b/src/lib.rs\nindex 111..222 100644\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1,2 @@\n+pub fn helper() {}\n";
+        let result = compress("git log -p", &output).unwrap();
+        assert!(
+            !result.contains("println"),
+            "should NOT contain diff content, got: {result}"
+        );
+        assert!(result.contains("abc1234"), "should contain commit hash");
+        assert!(
+            result.contains("feat: add feature"),
+            "should contain commit message"
+        );
+        assert!(
+            result.len() < output.len() / 2,
+            "compressed should be less than half of original ({} vs {})",
+            result.len(),
+            output.len()
+        );
+    }
+
+    #[test]
+    fn git_log_with_stat_filters_stat_content() {
+        let mut output = String::new();
+        for i in 0..5 {
+            output.push_str(&format!(
+                "commit {i:07}abc1234\nAuthor: U <u@e.com>\nDate:   Mon\n\n    msg {i}\n\n src/file{i}.rs | 10 ++++------\n 1 file changed, 4 insertions(+), 6 deletions(-)\n\n"
+            ));
+        }
+        let result = compress("git log --stat", &output).unwrap();
+        assert!(
+            result.len() < output.len() / 2,
+            "stat output should be compressed ({} vs {})",
+            result.len(),
+            output.len()
+        );
+    }
+
+    #[test]
+    fn git_commit_with_feature_branch() {
+        let output = "[feature/my-branch abc1234] feat: add new thing\n 3 files changed, 20 insertions(+), 5 deletions(-)\n";
+        let result = compress("git commit -m 'feat'", output).unwrap();
+        assert!(
+            result.contains("abc1234"),
+            "should extract hash from feature branch, got: {result}"
+        );
+        assert!(
+            result.contains("feature/my-branch"),
+            "should preserve branch name, got: {result}"
+        );
+    }
+
+    #[test]
+    fn git_commit_many_hooks_compressed() {
+        let mut output = String::new();
+        for i in 0..30 {
+            output.push_str(&format!("check-{i}..........passed\n"));
+        }
+        output.push_str("[main abc1234] fix: resolve bug\n 1 file changed, 1 insertion(+)\n");
+        let result = compress("git commit -m 'fix'", &output).unwrap();
+        assert!(result.contains("abc1234"), "should contain commit hash");
+        assert!(
+            result.contains("hooks passed"),
+            "should summarize passed hooks, got: {result}"
+        );
+        assert!(
+            result.len() < output.len() / 2,
+            "should compress verbose hook output ({} vs {})",
+            result.len(),
+            output.len()
         );
     }
 }

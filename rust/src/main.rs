@@ -11,7 +11,11 @@ fn main() {
 
         match args[1].as_str() {
             "-c" | "exec" => {
-                let command = shell_join(&args[2..]);
+                let command = if args.len() == 3 {
+                    args[2].clone()
+                } else {
+                    shell_join(&args[2..])
+                };
                 if std::env::var("LEAN_CTX_ACTIVE").is_ok() {
                     passthrough(&command);
                 }
@@ -110,6 +114,10 @@ fn main() {
                 cli::cmd_config(&rest);
                 return;
             }
+            "stats" => {
+                cli::cmd_stats(&rest);
+                return;
+            }
             "theme" => {
                 cli::cmd_theme(&rest);
                 return;
@@ -163,7 +171,7 @@ fn main() {
                 return;
             }
             "--version" | "-V" => {
-                println!("lean-ctx 2.12.3");
+                println!("lean-ctx 2.12.4");
                 return;
             }
             "--help" | "-h" => {
@@ -248,7 +256,7 @@ fn shell_quote(s: &str) -> String {
 
 fn print_help() {
     println!(
-        "lean-ctx 2.12.3 — The Intelligence Layer for AI Coding
+        "lean-ctx 2.12.4 — The Intelligence Layer for AI Coding
 
 90+ compression patterns | 24 MCP tools | Context Continuity Protocol
 
@@ -682,7 +690,7 @@ fn print_gain_with_logo() {
     print!("{output}");
     let d = core::theme::dim();
     let r = core::theme::rst();
-    println!("  {d}lean-ctx v2.12.3  |  leanctx.com  |  lean-ctx dashboard{r}");
+    println!("  {d}lean-ctx v2.12.4  |  leanctx.com  |  lean-ctx dashboard{r}");
     if !cloud_client::check_pro() {
         println!("  {d}Save ~25% more with Pro \u{2192} lean-ctx upgrade{r}");
     }

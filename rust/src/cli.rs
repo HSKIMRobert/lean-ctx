@@ -477,6 +477,45 @@ fn format_tokens_cli(tokens: u64) -> String {
     }
 }
 
+pub fn cmd_stats(args: &[String]) {
+    match args.first().map(|s| s.as_str()) {
+        Some("reset-cep") => {
+            crate::core::stats::reset_cep();
+            println!("CEP stats reset. Shell hook data preserved.");
+        }
+        Some("json") => {
+            let store = crate::core::stats::load();
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&store).unwrap_or_else(|_| "{}".to_string())
+            );
+        }
+        _ => {
+            let store = crate::core::stats::load();
+            let input_saved = store
+                .total_input_tokens
+                .saturating_sub(store.total_output_tokens);
+            let pct = if store.total_input_tokens > 0 {
+                input_saved as f64 / store.total_input_tokens as f64 * 100.0
+            } else {
+                0.0
+            };
+            println!("Commands:    {}", store.total_commands);
+            println!("Input:       {} tokens", store.total_input_tokens);
+            println!("Output:      {} tokens", store.total_output_tokens);
+            println!("Saved:       {} tokens ({:.1}%)", input_saved, pct);
+            println!();
+            println!("CEP sessions:  {}", store.cep.sessions);
+            println!(
+                "CEP tokens:    {} → {}",
+                store.cep.total_tokens_original, store.cep.total_tokens_compressed
+            );
+            println!();
+            println!("Subcommands: stats reset-cep | stats json");
+        }
+    }
+}
+
 pub fn cmd_config(args: &[String]) {
     let cfg = config::Config::load();
 
