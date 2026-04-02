@@ -1,6 +1,6 @@
 # lean-ctx
 
-**Context Intelligence Engine with CCP + TDD. Shell Hook + MCP Server. 21 MCP tools, 90+ shell patterns, cross-session memory (CCP), LITM-aware positioning, tree-sitter AST for 14 languages. Single Rust binary.**
+**Context Intelligence Engine with CCP + TDD. Shell Hook + MCP Server. 25 MCP tools, 90+ shell patterns, cross-session memory (CCP), LITM-aware positioning, tree-sitter AST for 18 languages. Single Rust binary.**
 
 [![CI](https://github.com/yvgude/lean-ctx/actions/workflows/ci.yml/badge.svg)](https://github.com/yvgude/lean-ctx/actions/workflows/ci.yml)
 [![Security Check](https://github.com/yvgude/lean-ctx/actions/workflows/security-check.yml/badge.svg)](https://github.com/yvgude/lean-ctx/actions/workflows/security-check.yml)
@@ -10,14 +10,14 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/pTHkG9Hew9)
 
-[Website](https://leanctx.com) · [Install](#installation) · [Quick Start](#quick-start) · [CLI Reference](#cli-commands) · [MCP Tools](#21-mcp-tools) · [Changelog](CHANGELOG.md) · [vs RTK](#lean-ctx-vs-rtk) · [Discord](https://discord.gg/pTHkG9Hew9)
+[Website](https://leanctx.com) · [Install](#installation) · [Quick Start](#quick-start) · [CLI Reference](#cli-commands) · [MCP Tools](#25-mcp-tools) · [Changelog](CHANGELOG.md) · [vs RTK](#lean-ctx-vs-rtk) · [Discord](https://discord.gg/pTHkG9Hew9)
 
 ---
 
 lean-ctx reduces LLM token consumption by **up to 99%** through two complementary strategies in a single binary:
 
 1. **Shell Hook** — Transparently compresses CLI output (90+ patterns) before it reaches the LLM. Works without LLM cooperation.
-2. **MCP Server** — 21 tools for cached file reads, adaptive mode selection, incremental deltas, dependency maps, intent detection, cross-file dedup, project graph, cross-session memory (CCP), and session metrics. Works with Cursor, GitHub Copilot, Claude Code, Windsurf, OpenAI Codex, Google Antigravity, OpenCode, and any MCP-compatible editor.
+2. **MCP Server** — 25 tools for cached file reads, adaptive mode selection, incremental deltas, dependency maps, intent detection, cross-file dedup, project graph, cross-session memory (CCP), and session metrics. Works with Cursor, GitHub Copilot, Claude Code, Windsurf, OpenAI Codex, Google Antigravity, OpenCode, and any MCP-compatible editor.
 3. **AI Tool Hooks** — One-command integration for Claude Code, Cursor, Gemini CLI, Codex, Windsurf, and Cline via `lean-ctx init --agent <tool>`.
 
 ## Token Savings (Typical Cursor/Claude Code Session)
@@ -346,9 +346,9 @@ $ lean-ctx gain
   lean-ctx v2.1.1  |  leanctx.com  |  lean-ctx dashboard
 ```
 
-## 21 MCP Tools
+## 25 MCP Tools
 
-When configured as an MCP server, lean-ctx provides 21 tools that replace or augment your editor's built-in tools:
+When configured as an MCP server, lean-ctx provides 25 tools that replace or augment your editor's built-in tools:
 
 ### Core Tools
 
@@ -652,8 +652,8 @@ Opens `http://localhost:3333` with:
 | **CLI compression** | ~50 commands | **90+ patterns** (git, npm, cargo, docker, gh, kubectl, pip, ruff, eslint, prettier, tsc, go, terraform, make, maven, gradle, dotnet, flutter, dart, poetry, uv, playwright, rubocop, bundle, vitest, aws, psql, mysql, prisma, helm, bun, deno, swift, zig, cmake, ansible, composer, mix, bazel, systemd, curl, wget, JSON, logs...) |
 | **File reading** | `rtk read` (signatures mode) | **Modes: full (cached), map, signatures, diff, aggressive, entropy, lines:N-M** |
 | **File caching** | ✗ | ✓ MD5 session cache (re-reads = ~13 tokens) |
-| **Signature engine** | Line-by-line regex | **tree-sitter AST (14 languages)** |
-| **Dependency maps** | ✗ | ✓ import/export extraction (14 languages via tree-sitter) |
+| **Signature engine** | Line-by-line regex | **tree-sitter AST (18 languages)** |
+| **Dependency maps** | ✗ | ✓ import/export extraction (18 languages via tree-sitter) |
 | **Context checkpoints** | ✗ | ✓ `ctx_compress` for long conversations |
 | **Token counting** | Estimated | tiktoken-exact (o200k_base) |
 | **Entropy analysis** | ✗ | ✓ Shannon entropy + Jaccard similarity |
@@ -678,7 +678,7 @@ Opens `http://localhost:3333` with:
 
 Since v1.5.0, lean-ctx uses [tree-sitter](https://tree-sitter.github.io/tree-sitter/) for AST-based signature extraction (enabled by default). This replaces the previous regex-based extractor with accurate parsing of multi-line signatures, arrow functions, and nested definitions.
 
-**14 languages supported**: TypeScript, JavaScript, Rust, Python, Go, Java, C, C++, Ruby, C#, Kotlin, Swift, PHP
+**18 languages supported**: TypeScript, JavaScript, Rust, Python, Go, Java, C, C++, Ruby, C#, Kotlin, Swift, PHP, Bash, Dart, Scala, Elixir, Zig
 
 | Capability | Regex (old) | tree-sitter (new) |
 |---|---|---|

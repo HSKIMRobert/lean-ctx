@@ -291,7 +291,7 @@ fn print_help() {
     println!(
         "lean-ctx 2.14.3 — The Intelligence Layer for AI Coding
 
-90+ compression patterns | 24 MCP tools | Context Continuity Protocol
+90+ compression patterns | 25 MCP tools | Context Continuity Protocol
 
 USAGE:
     lean-ctx                       Start MCP server (stdio)
@@ -353,7 +353,7 @@ SHELL HOOK PATTERNS (90+):
 READ MODES:
     full (default)                 Full content (cached re-reads = 13 tokens)
     map                            Dependency graph + API signatures
-    signatures                     tree-sitter AST extraction (14 languages)
+    signatures                     tree-sitter AST extraction (18 languages)
     aggressive                     Syntax-stripped content
     entropy                        Shannon entropy filtered
     diff                           Changed lines only

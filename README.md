@@ -11,7 +11,7 @@
 <h3 align="center">The Intelligence Layer for AI Coding</h3>
 
 <p align="center">
-  <strong>Shell Hook + Context Server · 24 tools · 90+ patterns · Single Rust binary</strong>
+  <strong>Shell Hook + Context Server · 25 tools · 90+ patterns · Single Rust binary</strong>
 </p>
 
 <p align="center">
@@ -32,7 +32,7 @@
   <a href="https://leanctx.com">Website</a> ·
   <a href="#-get-started-60-seconds">Install</a> ·
   <a href="#-how-it-works">How It Works</a> ·
-  <a href="#-24-intelligent-tools">Tools</a> ·
+  <a href="#-25-intelligent-tools">Tools</a> ·
   <a href="#-shell-hook-patterns-90">Patterns</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="https://discord.gg/pTHkG9Hew9">Discord</a>
@@ -65,7 +65,7 @@
 | Strategy | How | Impact |
 |:---|:---|:---|
 | **Shell Hook** | Transparently compresses CLI output (90+ patterns) before it reaches the LLM | **60-95%** savings |
-| **Context Server** | 24 MCP tools for cached reads, mode selection, deltas, dedup, memory | **74-99%** savings |
+| **Context Server** | 25 MCP tools for cached reads, mode selection, deltas, dedup, memory | **74-99%** savings |
 | **AI Tool Hooks** | One-command integration via `lean-ctx init --agent <tool>` | Works everywhere |
 
 <br>
@@ -190,7 +190,7 @@ Symbol shorthand (`λ` `§` `∂` `τ` `ε`) and ROI-based identifier mapping fo
 
 <br>
 
-## 🛠 24 Intelligent Tools
+## 🛠 25 Intelligent Tools
 
 ### Core
 
@@ -410,7 +410,7 @@ Built on information theory and attention modeling (v2.6):
 
 ## 🌳 tree-sitter Signature Engine
 
-AST-based signature extraction for **14 languages**: TypeScript, JavaScript, Rust, Python, Go, Java, C, C++, Ruby, C#, Kotlin, Swift, PHP.
+AST-based signature extraction for **18 languages**: TypeScript, JavaScript, Rust, Python, Go, Java, C, C++, Ruby, C#, Kotlin, Swift, PHP, Bash, Dart, Scala, Elixir, Zig.
 
 | Capability | Regex (old) | tree-sitter |
 |:---|:---:|:---:|
@@ -649,7 +649,7 @@ Pi's `bash`, `read`, `grep`, `find`, and `ls` tools are automatically routed thr
 | CLI patterns | ~50 | **90+** |
 | File reading | Signatures only | **7 modes** (full, map, signatures, diff, aggressive, entropy, lines) |
 | File caching | ✗ | ✓ (re-reads ≈ 13 tokens) |
-| Signature engine | Regex (4 langs) | **tree-sitter AST (14 langs)** |
+| Signature engine | Regex (4 langs) | **tree-sitter AST (18 langs)** |
 | Dependency maps | ✗ | ✓ |
 | Context checkpoints | ✗ | ✓ |
 | Token counting | Estimated | **tiktoken-exact** |
@@ -669,7 +669,7 @@ Pi's `bash`, `read`, `grep`, `find`, and `ls` tools are automatically routed thr
 | Truncation warnings | ✗ | ✓ (transparent markers) |
 | ANSI auto-strip | ✗ | ✓ (pre-compression) |
 | Telemetry | **Default ON (PII)** | **Zero. None. Ever.** |
-| Editor support | 3 editors | **22 editors/tools** |
+| Editor support | 3 editors | **23 editors/tools** |
 
 <br>
 
