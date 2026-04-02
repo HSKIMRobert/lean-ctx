@@ -3,6 +3,11 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.14.5] — 2026-04-02
+
+### Changed
+- **Internal cleanup** — Removed dead code (`format_type_short`, `instruction_encoding_savings`) and their orphaned test from the protocol module. Simplified cloud and help text messaging. No functional changes.
+
 ## [2.14.4] — 2026-04-02
 
 ### Fixed

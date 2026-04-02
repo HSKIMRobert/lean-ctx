@@ -291,7 +291,7 @@ fn shell_quote(s: &str) -> String {
 
 fn print_help() {
     println!(
-        "lean-ctx 2.14.4 — The Intelligence Layer for AI Coding
+        "lean-ctx 2.14.5 — The Intelligence Layer for AI Coding
 
 90+ compression patterns | 25 MCP tools | Context Continuity Protocol
 
@@ -398,10 +398,8 @@ EXAMPLES:
     lean-ctx grep \"pub fn\" src/
     lean-ctx deps .
 
-PRO:
-    upgrade                        Upgrade to Pro ($9/mo — adaptive compression)
+CLOUD:
     cloud status                   Show cloud connection status
-    cloud pull-models              Update adaptive models (Pro only)
     login <email>                  Register/login to LeanCTX Cloud
     sync                           Upload local stats to cloud dashboard
     contribute                     Share anonymized compression data
@@ -457,10 +455,8 @@ fn cmd_sync() {
         std::process::exit(1);
     }
     if !cloud_client::check_pro() {
-        println!("Stats sync is a Pro feature.\n");
-        println!("With Pro, your stats sync to the cloud dashboard");
-        println!("so you can track savings over time.\n");
-        println!("  lean-ctx upgrade    Upgrade to Pro ($9/month)");
+        println!("Stats sync requires a cloud account.");
+        println!("Run: lean-ctx login <email>");
         std::process::exit(0);
     }
 
@@ -681,10 +677,7 @@ fn cmd_cloud(args: &[String]) {
     match action {
         "pull-models" => {
             if !cloud_client::check_pro() {
-                println!("Adaptive models are available with Pro.\n");
-                println!("Your AI tools get smarter with Pro — the engine learns");
-                println!("from thousands of developers which compression works best.\n");
-                println!("  lean-ctx upgrade    Upgrade to Pro ($9/month)");
+                println!("Adaptive models are not available for your account.");
                 return;
             }
             println!("Updating adaptive models...");
@@ -708,19 +701,16 @@ fn cmd_cloud(args: &[String]) {
             }
         }
         "status" => {
-            if cloud_client::check_pro() {
-                println!("Plan: Pro (adaptive models active)");
-            } else if cloud_client::is_logged_in() {
-                println!("Plan: Free");
-                println!("Upgrade for adaptive models: lean-ctx upgrade");
+            if cloud_client::is_logged_in() {
+                println!("Connected to LeanCTX Cloud.");
             } else {
                 println!("Not connected to LeanCTX Cloud.");
-                println!("Get started: lean-ctx upgrade");
+                println!("Get started: lean-ctx login <email>");
             }
         }
         _ => {
             println!("Usage: lean-ctx cloud <command>");
-            println!("  pull-models — Update adaptive compression models (Pro)");
+            println!("  pull-models — Update adaptive compression models");
             println!("  status      — Show cloud connection status");
         }
     }
@@ -741,10 +731,7 @@ fn print_gain_with_logo() {
     print!("{output}");
     let d = core::theme::dim();
     let r = core::theme::rst();
-    println!("  {d}lean-ctx v2.14.4  |  leanctx.com  |  lean-ctx dashboard{r}");
-    if !cloud_client::check_pro() {
-        println!("  {d}Save ~25% more with Pro \u{2192} lean-ctx upgrade{r}");
-    }
+    println!("  {d}lean-ctx v2.14.5  |  leanctx.com  |  lean-ctx dashboard{r}");
     println!();
 
     core::version_check::check_background();
@@ -793,99 +780,5 @@ fn animate_kpi_countup(t: &core::theme::Theme) {
 }
 
 fn cmd_upgrade() {
-    let stats_data = core::stats::format_gain_json();
-    let weekly_savings = if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&stats_data)
-    {
-        let total_saved = parsed["total_saved_tokens"].as_f64().unwrap_or(0.0);
-        let total_calls = parsed["total_calls"].as_f64().unwrap_or(1.0);
-        let days_active = parsed["days_active"].as_f64().unwrap_or(1.0);
-        let daily_rate = total_saved / days_active.max(1.0);
-        let weekly_usd = daily_rate * 7.0 / 1_000_000.0 * core::stats::DEFAULT_INPUT_PRICE_PER_M;
-        let weekly_pro = weekly_usd * 1.25;
-        (weekly_usd, weekly_pro, total_calls as i64)
-    } else {
-        (0.0, 0.0, 0)
-    };
-
-    println!();
-    println!("  LeanCTX Pro — $9/month");
-    println!();
-    println!("  Your AI tools get smarter with Pro:");
-    println!();
-    if weekly_savings.2 > 0 {
-        println!("    Your current savings:  ${:.2}/week", weekly_savings.0);
-        println!(
-            "    Estimated with Pro:    ${:.2}/week (+25%)",
-            weekly_savings.1
-        );
-        println!();
-    }
-    println!("    \u{2713} Adaptive compression (learns from 2,300+ developers)");
-    println!("    \u{2713} Automatic optimization (nothing to configure)");
-    println!("    \u{2713} Cloud dashboard (track savings over time)");
-    println!("    \u{2713} Cancel anytime — your local engine keeps working");
-    println!();
-
-    if cloud_client::check_pro() {
-        println!("  You already have Pro! Everything is working automatically.");
-        println!("  Dashboard: https://leanctx.com/dashboard");
-        return;
-    }
-
-    print!("  Enter your email to start: ");
-    use std::io::Write;
-    std::io::stdout().flush().ok();
-    let mut email = String::new();
-    if std::io::stdin().read_line(&mut email).is_err() {
-        eprintln!("  Could not read input.");
-        return;
-    }
-    let email = email.trim().to_lowercase();
-
-    if !email.contains('@') || !email.contains('.') {
-        eprintln!("  Please enter a valid email address.");
-        return;
-    }
-
-    println!("  Creating account...");
-    match cloud_client::register(&email) {
-        Ok((api_key, user_id)) => {
-            if let Err(e) = cloud_client::save_credentials(&api_key, &user_id, &email) {
-                eprintln!("  Warning: Could not save credentials: {e}");
-            }
-        }
-        Err(e) => {
-            eprintln!("  {e}");
-            return;
-        }
-    }
-
-    let checkout_url = format!("https://leanctx.com/checkout?email={}", email);
-    println!();
-    println!("  Opening checkout in your browser...");
-
-    #[cfg(target_os = "macos")]
-    {
-        let _ = std::process::Command::new("open")
-            .arg(&checkout_url)
-            .spawn();
-    }
-    #[cfg(target_os = "linux")]
-    {
-        let _ = std::process::Command::new("xdg-open")
-            .arg(&checkout_url)
-            .spawn();
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let _ = std::process::Command::new("cmd")
-            .args(["/C", "start", &checkout_url])
-            .spawn();
-    }
-
-    println!("  If your browser didn't open, visit:");
-    println!("  {checkout_url}");
-    println!();
-    println!("  After payment, Pro activates automatically.");
-    println!("  Your engine will start learning from the community.");
+    println!("This feature is not yet available. Stay tuned at https://leanctx.com");
 }
