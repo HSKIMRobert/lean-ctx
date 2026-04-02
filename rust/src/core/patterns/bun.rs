@@ -133,20 +133,7 @@ fn compress_build(output: &str) -> String {
 }
 
 fn strip_ansi(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let mut in_escape = false;
-    for c in s.chars() {
-        if c == '\x1b' {
-            in_escape = true;
-        } else if in_escape {
-            if c.is_ascii_alphabetic() {
-                in_escape = false;
-            }
-        } else {
-            result.push(c);
-        }
-    }
-    result
+    crate::core::compressor::strip_ansi(s)
 }
 
 fn compact_lines(text: &str, max: usize) -> String {

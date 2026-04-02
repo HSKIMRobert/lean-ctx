@@ -68,3 +68,40 @@ fn shell_hook_compresses_echo() {
         "shell hook should pass through echo output"
     );
 }
+
+#[test]
+fn disabled_env_bypasses_compression() {
+    let output = Command::new(env!("CARGO_BIN_EXE_lean-ctx"))
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .env("LEAN_CTX_DISABLED", "1")
+        .env("LEAN_CTX_COMPRESS", "1")
+        .args(["-c", "echo", "passthrough test"])
+        .output()
+        .expect("failed to run lean-ctx with LEAN_CTX_DISABLED");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("passthrough"),
+        "LEAN_CTX_DISABLED should pass output through unmodified"
+    );
+    assert!(
+        !stdout.contains("[lean-ctx:"),
+        "LEAN_CTX_DISABLED should not add compression markers"
+    );
+}
+
+#[test]
+fn help_shows_environment_section() {
+    let output = lean_ctx_bin()
+        .arg("--help")
+        .output()
+        .expect("failed to run lean-ctx");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("LEAN_CTX_DISABLED"),
+        "help should document LEAN_CTX_DISABLED"
+    );
+    assert!(
+        stdout.contains("LEAN_CTX_RAW"),
+        "help should document LEAN_CTX_RAW"
+    );
+}

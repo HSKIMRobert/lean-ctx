@@ -216,80 +216,8 @@ pub fn cmd_discover(_args: &[String]) {
         return;
     }
 
-    let compressible_commands = [
-        "git ",
-        "npm ",
-        "yarn ",
-        "pnpm ",
-        "cargo ",
-        "docker ",
-        "kubectl ",
-        "gh ",
-        "pip ",
-        "pip3 ",
-        "eslint",
-        "prettier",
-        "ruff ",
-        "go ",
-        "golangci-lint",
-        "playwright",
-        "cypress",
-        "next ",
-        "vite ",
-        "tsc",
-        "curl ",
-        "wget ",
-        "grep ",
-        "rg ",
-        "find ",
-        "env",
-        "ls ",
-    ];
-
-    let mut missed: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
-    let mut total_compressible = 0u32;
-    let mut via_lean_ctx = 0u32;
-
-    for line in &history {
-        let cmd = line.trim().to_lowercase();
-        if cmd.starts_with("lean-ctx") {
-            via_lean_ctx += 1;
-            continue;
-        }
-        for pattern in &compressible_commands {
-            if cmd.starts_with(pattern) {
-                total_compressible += 1;
-                let key = cmd.split_whitespace().take(2).collect::<Vec<_>>().join(" ");
-                *missed.entry(key).or_insert(0) += 1;
-                break;
-            }
-        }
-    }
-
-    if missed.is_empty() {
-        println!("All compressible commands are already using lean-ctx!");
-        return;
-    }
-
-    let mut sorted: Vec<(String, u32)> = missed.into_iter().collect();
-    sorted.sort_by(|a, b| b.1.cmp(&a.1));
-
-    println!(
-        "Found {} compressible commands not using lean-ctx:\n",
-        total_compressible
-    );
-    for (cmd, count) in sorted.iter().take(15) {
-        let est_savings = count * 150;
-        println!("  {cmd:<30} (used {count}x, ~{est_savings} tokens saveable)");
-    }
-    if sorted.len() > 15 {
-        println!("  ... +{} more command types", sorted.len() - 15);
-    }
-
-    let total_est = total_compressible * 150;
-    println!("\nEstimated missed savings: ~{total_est} tokens");
-    println!("Already using lean-ctx: {via_lean_ctx} commands");
-    println!("\nRun 'lean-ctx init --global' to enable compression for all commands.");
+    let result = crate::tools::ctx_discover::analyze_history(&history, 20);
+    println!("{}", crate::tools::ctx_discover::format_cli_output(&result));
 }
 
 pub fn cmd_session() {
@@ -547,7 +475,17 @@ pub fn cmd_config(args: &[String]) {
             let val = &args[2];
             match key.as_str() {
                 "ultra_compact" => cfg.ultra_compact = val == "true",
-                "tee_on_error" => cfg.tee_on_error = val == "true",
+                "tee_on_error" | "tee_mode" => {
+                    cfg.tee_mode = match val.as_str() {
+                        "true" | "failures" => config::TeeMode::Failures,
+                        "always" => config::TeeMode::Always,
+                        "false" | "never" => config::TeeMode::Never,
+                        _ => {
+                            eprintln!("Valid tee_mode values: always, failures, never");
+                            std::process::exit(1);
+                        }
+                    };
+                }
                 "checkpoint_interval" => {
                     cfg.checkpoint_interval = val.parse().unwrap_or(15);
                 }
@@ -561,6 +499,12 @@ pub fn cmd_config(args: &[String]) {
                         );
                         std::process::exit(1);
                     }
+                }
+                "slow_command_threshold_ms" => {
+                    cfg.slow_command_threshold_ms = val.parse().unwrap_or(5000);
+                }
+                "passthrough_urls" => {
+                    cfg.passthrough_urls = val.split(',').map(|s| s.trim().to_string()).collect();
                 }
                 _ => {
                     eprintln!("Unknown config key: {key}");
@@ -723,8 +667,86 @@ pub fn cmd_tee(args: &[String]) {
                 }
             }
         }
+        "last" => {
+            if !tee_dir.exists() {
+                println!("No tee logs found.");
+                return;
+            }
+            let mut entries: Vec<_> = std::fs::read_dir(&tee_dir)
+                .ok()
+                .into_iter()
+                .flat_map(|d| d.filter_map(|e| e.ok()))
+                .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("log"))
+                .collect();
+            entries.sort_by_key(|e| {
+                e.metadata()
+                    .and_then(|m| m.modified())
+                    .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+            });
+            match entries.last() {
+                Some(entry) => {
+                    let path = entry.path();
+                    println!(
+                        "--- {} ---\n",
+                        path.file_name().unwrap_or_default().to_string_lossy()
+                    );
+                    match crate::tools::ctx_read::read_file_lossy(&path.to_string_lossy()) {
+                        Ok(content) => print!("{content}"),
+                        Err(e) => eprintln!("Error: {e}"),
+                    }
+                }
+                None => println!("No tee logs found."),
+            }
+        }
         _ => {
-            eprintln!("Usage: lean-ctx tee [list|clear|show <file>]");
+            eprintln!("Usage: lean-ctx tee [list|clear|show <file>|last]");
+            std::process::exit(1);
+        }
+    }
+}
+
+pub fn cmd_filter(args: &[String]) {
+    let action = args.first().map(|s| s.as_str()).unwrap_or("list");
+    match action {
+        "list" | "ls" => match crate::core::filters::FilterEngine::load() {
+            Some(engine) => {
+                let rules = engine.list_rules();
+                println!("Loaded {} filter rule(s):\n", rules.len());
+                for rule in &rules {
+                    println!("{rule}");
+                }
+            }
+            None => {
+                println!("No custom filters found.");
+                println!("Create one: lean-ctx filter init");
+            }
+        },
+        "validate" => {
+            let path = args.get(1);
+            if path.is_none() {
+                eprintln!("Usage: lean-ctx filter validate <file.toml>");
+                std::process::exit(1);
+            }
+            match crate::core::filters::validate_filter_file(path.unwrap()) {
+                Ok(count) => println!("Valid: {count} rule(s) parsed successfully."),
+                Err(e) => {
+                    eprintln!("Validation failed: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        "init" => match crate::core::filters::create_example_filter() {
+            Ok(path) => {
+                println!("Created example filter: {path}");
+                println!("Edit it to add your custom compression rules.");
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        },
+        _ => {
+            eprintln!("Usage: lean-ctx filter [list|validate <file>|init]");
             std::process::exit(1);
         }
     }
@@ -872,6 +894,7 @@ if (-not $env:LEAN_CTX_ACTIVE) {{
       & $cmd @rest
     }}
   }}
+  function lean-ctx-raw {{ $env:LEAN_CTX_RAW = '1'; & @args; Remove-Item Env:LEAN_CTX_RAW -ErrorAction SilentlyContinue }}
   if (Get-Command lean-ctx -ErrorAction SilentlyContinue) {{
     function git {{ _lc git @args }}
     function cargo {{ _lc cargo @args }}
@@ -995,6 +1018,11 @@ fn init_fish(binary: &str) {
         \techo 'lean-ctx: OFF'\n\
         end\n\
         \n\
+        function lean-ctx-raw\n\
+        \tset -lx LEAN_CTX_RAW 1\n\
+        \tcommand $argv\n\
+        end\n\
+        \n\
         function lean-ctx-status\n\
         \tif set -q LEAN_CTX_ENABLED\n\
         \t\techo 'lean-ctx: ON'\n\
@@ -1088,6 +1116,10 @@ lean-ctx-off() {{
     unalias k 2>/dev/null || true
     unset LEAN_CTX_ENABLED
     echo "lean-ctx: OFF"
+}}
+
+lean-ctx-raw() {{
+    LEAN_CTX_RAW=1 command "$@"
 }}
 
 lean-ctx-status() {{

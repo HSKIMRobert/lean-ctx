@@ -1,3 +1,15 @@
+pub fn compress_with_cmd(command: &str, output: &str) -> Option<String> {
+    let cfg = crate::core::config::Config::load();
+    if !cfg.passthrough_urls.is_empty() {
+        for url in &cfg.passthrough_urls {
+            if command.contains(url.as_str()) {
+                return None;
+            }
+        }
+    }
+    compress(output)
+}
+
 pub fn compress(output: &str) -> Option<String> {
     let trimmed = output.trim();
 
@@ -142,4 +154,30 @@ fn compress_headers(output: &str) -> Option<String> {
     }
 
     Some(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn json_gets_compressed() {
+        let json = r#"{"name":"test","value":42,"nested":{"a":1,"b":2}}"#;
+        let result = compress(json);
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("JSON"));
+    }
+
+    #[test]
+    fn html_gets_compressed() {
+        let html = "<!DOCTYPE html><html><head><title>Test</title></head><body></body></html>";
+        let result = compress(html);
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("HTML"));
+    }
+
+    #[test]
+    fn plain_text_returns_none() {
+        assert!(compress("just plain text").is_none());
+    }
 }

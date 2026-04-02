@@ -96,6 +96,9 @@ fn remove_mcp_configs(home: &Path) -> bool {
         ("JetBrains IDEs", home.join(".jb-mcp.json")),
         ("AWS Kiro", home.join(".kiro/settings/mcp.json")),
         ("Verdent", home.join(".verdent/mcp.json")),
+        ("OpenCode", home.join(".opencode/mcp.json")),
+        ("Aider", home.join(".aider/mcp.json")),
+        ("Amp", home.join(".amp/mcp.json")),
     ];
 
     let mut removed = false;
@@ -220,6 +223,7 @@ fn remove_hook_files(home: &Path) -> bool {
         home.join(".gemini/hooks/lean-ctx-rewrite-gemini.sh"),
         home.join(".gemini/hooks/lean-ctx-redirect-gemini.sh"),
         home.join(".gemini/hooks/lean-ctx-hook-gemini.sh"),
+        home.join(".codex/hooks/lean-ctx-rewrite-codex.sh"),
     ];
 
     let mut removed = false;

@@ -36,6 +36,7 @@ pub fn handle(command: &str, output: &str, crp_mode: CrpMode) -> String {
 }
 
 fn generic_compress(output: &str) -> String {
+    let output = crate::core::compressor::strip_ansi(output);
     let lines: Vec<&str> = output
         .lines()
         .filter(|l| {
@@ -50,10 +51,12 @@ fn generic_compress(output: &str) -> String {
 
     let first_3 = &lines[..3];
     let last_3 = &lines[lines.len() - 3..];
+    let omitted = lines.len() - 6;
     format!(
-        "{}\n...({} lines omitted)\n{}",
+        "{}\n[truncated: showing 6/{} lines, {} omitted. Use raw=true for full output.]\n{}",
         first_3.join("\n"),
-        lines.len() - 6,
+        lines.len(),
+        omitted,
         last_3.join("\n")
     )
 }

@@ -3,13 +3,24 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::SystemTime;
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum TeeMode {
+    Never,
+    #[default]
+    Failures,
+    Always,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
     pub ultra_compact: bool,
-    pub tee_on_error: bool,
+    #[serde(default, deserialize_with = "deserialize_tee_mode")]
+    pub tee_mode: TeeMode,
     pub checkpoint_interval: u32,
     pub excluded_commands: Vec<String>,
+    pub passthrough_urls: Vec<String>,
     pub custom_aliases: Vec<AliasEntry>,
     /// Commands taking longer than this threshold (ms) are recorded in the slow log.
     /// Set to 0 to disable slow logging.
@@ -20,6 +31,25 @@ pub struct Config {
     pub cloud: CloudConfig,
     #[serde(default)]
     pub autonomy: AutonomyConfig,
+}
+
+fn deserialize_tee_mode<'de, D>(deserializer: D) -> Result<TeeMode, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error;
+    let v = serde_json::Value::deserialize(deserializer)?;
+    match &v {
+        serde_json::Value::Bool(true) => Ok(TeeMode::Failures),
+        serde_json::Value::Bool(false) => Ok(TeeMode::Never),
+        serde_json::Value::String(s) => match s.as_str() {
+            "never" => Ok(TeeMode::Never),
+            "failures" => Ok(TeeMode::Failures),
+            "always" => Ok(TeeMode::Always),
+            other => Err(D::Error::custom(format!("unknown tee_mode: {other}"))),
+        },
+        _ => Err(D::Error::custom("tee_mode must be string or bool")),
+    }
 }
 
 fn default_theme() -> String {
@@ -126,9 +156,10 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             ultra_compact: false,
-            tee_on_error: false,
+            tee_mode: TeeMode::default(),
             checkpoint_interval: 15,
             excluded_commands: Vec::new(),
+            passthrough_urls: Vec::new(),
             custom_aliases: Vec::new(),
             slow_command_threshold_ms: 5000,
             theme: default_theme(),

@@ -35,9 +35,26 @@ const COMPRESSIBLE_COMMANDS: &[(&str, &str, &str)] = &[
     ("bun", "Bun runtime", "60-80%"),
     ("composer", "PHP Composer", "60-80%"),
     ("mix", "Elixir Mix", "60-80%"),
+    ("php", "PHP CLI/artisan", "60-80%"),
 ];
 
-pub fn discover_from_history(history: &[String], limit: usize) -> String {
+pub struct DiscoverResult {
+    pub total_commands: u32,
+    pub already_optimized: u32,
+    pub missed_commands: Vec<MissedCommand>,
+    pub potential_tokens: usize,
+    pub potential_usd: f64,
+}
+
+pub struct MissedCommand {
+    pub prefix: String,
+    pub description: String,
+    pub savings_range: String,
+    pub count: u32,
+    pub estimated_tokens: usize,
+}
+
+pub fn analyze_history(history: &[String], limit: usize) -> DiscoverResult {
     let mut missed: HashMap<&str, u32> = HashMap::new();
     let mut already_optimized = 0u32;
     let mut total_commands = 0u32;
@@ -62,52 +79,144 @@ pub fn discover_from_history(history: &[String], limit: usize) -> String {
         }
     }
 
-    if missed.is_empty() {
-        return format!(
-            "No missed savings found in last {total_commands} commands. \
-            {already_optimized} already optimized."
-        );
-    }
-
     let mut sorted: Vec<_> = missed.into_iter().collect();
     sorted.sort_by(|a, b| b.1.cmp(&a.1));
 
-    let mut result = Vec::new();
-    result.push(format!(
-        "Analyzed {total_commands} commands ({already_optimized} already optimized):"
-    ));
-    result.push(String::new());
-
     let total_missed: u32 = sorted.iter().map(|(_, c)| c).sum();
-    result.push(format!(
-        "{total_missed} commands could benefit from lean-ctx:"
-    ));
-    result.push(String::new());
-
-    for (prefix, count) in sorted.iter().take(limit) {
-        let info = COMPRESSIBLE_COMMANDS
-            .iter()
-            .find(|(p, _, _)| p == prefix)
-            .map(|(_, desc, savings)| format!("{desc} ({savings})"))
-            .unwrap_or_default();
-        result.push(format!("  {count:>4}x  {prefix:<12} {info}"));
-    }
-
     let est_tokens_per_cmd = 500;
     let est_savings_pct = 0.75;
     let potential = (total_missed as f64 * est_tokens_per_cmd as f64 * est_savings_pct) as usize;
     let potential_usd =
         potential as f64 * crate::core::stats::DEFAULT_INPUT_PRICE_PER_M / 1_000_000.0;
 
-    result.push(String::new());
-    result.push(format!(
-        "Estimated potential: ~{potential} tokens saved (~${potential_usd:.2})"
-    ));
-    result.push(String::new());
-    result.push("Fix: run 'lean-ctx init --global' to auto-compress all commands.".to_string());
-    result.push("Or:  run 'lean-ctx init --agent <tool>' for AI tool hooks.".to_string());
+    let real_stats = crate::core::stats::load();
+    let (effective_potential, effective_usd) = if real_stats.total_commands > 0 {
+        let real_savings_rate = if real_stats.total_input_tokens > 0 {
+            1.0 - (real_stats.total_output_tokens as f64 / real_stats.total_input_tokens as f64)
+        } else {
+            est_savings_pct
+        };
+        let p = (total_missed as f64 * est_tokens_per_cmd as f64 * real_savings_rate) as usize;
+        let u = p as f64 * crate::core::stats::DEFAULT_INPUT_PRICE_PER_M / 1_000_000.0;
+        (p, u)
+    } else {
+        (potential, potential_usd)
+    };
 
-    let output = result.join("\n");
+    let missed_commands = sorted
+        .into_iter()
+        .take(limit)
+        .map(|(prefix, count)| {
+            let (desc, savings) = COMPRESSIBLE_COMMANDS
+                .iter()
+                .find(|(p, _, _)| p == &prefix)
+                .map(|(_, d, s)| (d.to_string(), s.to_string()))
+                .unwrap_or_default();
+            MissedCommand {
+                prefix: prefix.to_string(),
+                description: desc,
+                savings_range: savings,
+                count,
+                estimated_tokens: (count as f64 * est_tokens_per_cmd as f64 * est_savings_pct)
+                    as usize,
+            }
+        })
+        .collect();
+
+    DiscoverResult {
+        total_commands,
+        already_optimized,
+        missed_commands,
+        potential_tokens: effective_potential,
+        potential_usd: effective_usd,
+    }
+}
+
+pub fn discover_from_history(history: &[String], limit: usize) -> String {
+    let result = analyze_history(history, limit);
+
+    if result.missed_commands.is_empty() {
+        return format!(
+            "No missed savings found in last {} commands. \
+            {} already optimized.",
+            result.total_commands, result.already_optimized
+        );
+    }
+
+    let mut lines = Vec::new();
+    lines.push(format!(
+        "Analyzed {} commands ({} already optimized):",
+        result.total_commands, result.already_optimized
+    ));
+    lines.push(String::new());
+
+    let total_missed: u32 = result.missed_commands.iter().map(|m| m.count).sum();
+    lines.push(format!(
+        "{total_missed} commands could benefit from lean-ctx:"
+    ));
+    lines.push(String::new());
+
+    for m in &result.missed_commands {
+        lines.push(format!(
+            "  {:>4}x  {:<12} {} ({})",
+            m.count, m.prefix, m.description, m.savings_range
+        ));
+    }
+
+    lines.push(String::new());
+    lines.push(format!(
+        "Estimated potential: ~{} tokens saved (~${:.2})",
+        result.potential_tokens, result.potential_usd
+    ));
+    lines.push(String::new());
+    lines.push("Fix: run 'lean-ctx init --global' to auto-compress all commands.".to_string());
+    lines.push("Or:  run 'lean-ctx init --agent <tool>' for AI tool hooks.".to_string());
+
+    let output = lines.join("\n");
     let tokens = count_tokens(&output);
     format!("{output}\n\n[{tokens} tok]")
+}
+
+pub fn format_cli_output(result: &DiscoverResult) -> String {
+    if result.missed_commands.is_empty() {
+        return format!(
+            "All compressible commands are already using lean-ctx!\n\
+             ({} commands analyzed, {} via lean-ctx)",
+            result.total_commands, result.already_optimized
+        );
+    }
+
+    let mut lines = Vec::new();
+    let total_missed: u32 = result.missed_commands.iter().map(|m| m.count).sum();
+
+    lines.push(format!(
+        "Found {total_missed} compressible commands not using lean-ctx:\n"
+    ));
+    lines.push(format!(
+        "  {:<14} {:>5}  {:>10}  {:<30} {}",
+        "COMMAND", "COUNT", "SAVINGS", "DESCRIPTION", "EST. TOKENS"
+    ));
+    lines.push(format!("  {}", "-".repeat(80)));
+
+    for m in &result.missed_commands {
+        lines.push(format!(
+            "  {:<14} {:>5}x {:>10}  {:<30} ~{}",
+            m.prefix, m.count, m.savings_range, m.description, m.estimated_tokens
+        ));
+    }
+
+    lines.push(String::new());
+    lines.push(format!(
+        "Estimated missed savings: ~{} tokens (~${:.2}/month at current rate)",
+        result.potential_tokens,
+        result.potential_usd * 30.0
+    ));
+    lines.push(format!(
+        "Already using lean-ctx: {} commands",
+        result.already_optimized
+    ));
+    lines.push(String::new());
+    lines.push("Run 'lean-ctx init --global' to enable compression for all commands.".to_string());
+
+    lines.join("\n")
 }
