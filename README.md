@@ -25,6 +25,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License"></a>
   <a href="https://discord.gg/pTHkG9Hew9"><img src="https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
   <a href="https://x.com/leanctx"><img src="https://img.shields.io/badge/𝕏-Follow-000000?logo=x&logoColor=white" alt="X/Twitter"></a>
+  <img src="https://img.shields.io/badge/Telemetry-Zero-brightgreen?logo=shield&logoColor=white" alt="Zero Telemetry">
 </p>
 
 <p align="center">
@@ -644,6 +645,7 @@ Pi's `bash`, `read`, `grep`, `find`, and `ls` tools are automatically routed thr
 | Feature | RTK | lean-ctx |
 |:---|:---:|:---:|
 | Architecture | Shell hook only | **Shell hook + MCP server** |
+| Process model | Spawns per command | **Persistent server** (no EAGAIN) |
 | CLI patterns | ~50 | **90+** |
 | File reading | Signatures only | **7 modes** (full, map, signatures, diff, aggressive, entropy, lines) |
 | File caching | ✗ | ✓ (re-reads ≈ 13 tokens) |
@@ -661,13 +663,26 @@ Pi's `bash`, `read`, `grep`, `find`, and `ls` tools are automatically routed thr
 | Project knowledge store | ✗ | ✓ |
 | Web dashboard | ✗ | ✓ |
 | Savings reports | ✗ | ✓ (`wrapped`) |
-| Editor support | 3 editors | **12+ editors** |
+| Raw mode / bypass | ✓ | ✓ (`raw=true`, `--raw`, `lean-ctx-raw`) |
+| User-defined filters | TOML rules | **TOML rules** (priority over builtins) |
+| Full output recovery | `tee` | ✓ (`tee_mode: always/failures/never`) |
+| Truncation warnings | ✗ | ✓ (transparent markers) |
+| ANSI auto-strip | ✗ | ✓ (pre-compression) |
+| Telemetry | **Default ON (PII)** | **Zero. None. Ever.** |
+| Editor support | 3 editors | **22 editors/tools** |
 
 <br>
 
-## 🔐 Security
+## 🔐 Privacy & Security
 
-lean-ctx is **local-only** — zero network requests, zero telemetry. See [SECURITY.md](SECURITY.md).
+lean-ctx is **privacy-first by design**:
+
+- **Zero telemetry** — no data collection, no analytics, no phone-home, ever
+- **Zero network requests** — everything runs locally on your machine
+- **No PII exposure** — no hostnames, usernames, or project paths leave your system
+- **Fully auditable** — MIT-licensed, single Rust binary, no hidden dependencies
+
+See [SECURITY.md](SECURITY.md).
 
 > **Note on VirusTotal:** Rust binaries are frequently flagged by ML-based heuristic scanners. This is a [known issue](https://users.rust-lang.org/t/rust-programs-flagged-as-malware/49799). Build from source with `cargo install lean-ctx` to verify.
 

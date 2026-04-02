@@ -10,6 +10,7 @@ pub mod config;
 pub mod deps;
 pub mod entropy;
 pub mod feedback;
+pub mod filters;
 pub mod graph_index;
 pub mod knowledge;
 pub mod litm;

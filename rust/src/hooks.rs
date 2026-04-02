@@ -297,9 +297,26 @@ pub fn install_agent_hook(agent: &str, global: bool) {
                 .unwrap_or_default()
                 .join(".verdent/mcp.json"),
         ),
+        "opencode" => install_mcp_json_agent(
+            "OpenCode",
+            "~/.opencode/mcp.json",
+            &dirs::home_dir()
+                .unwrap_or_default()
+                .join(".opencode/mcp.json"),
+        ),
+        "aider" => install_mcp_json_agent(
+            "Aider",
+            "~/.aider/mcp.json",
+            &dirs::home_dir().unwrap_or_default().join(".aider/mcp.json"),
+        ),
+        "amp" => install_mcp_json_agent(
+            "Amp",
+            "~/.amp/mcp.json",
+            &dirs::home_dir().unwrap_or_default().join(".amp/mcp.json"),
+        ),
         _ => {
             eprintln!("Unknown agent: {agent}");
-            eprintln!("  Supported: claude, cursor, gemini, codex, windsurf, cline, roo, copilot, pi, qwen, trae, amazonq, jetbrains, kiro, verdent");
+            eprintln!("  Supported: claude, cursor, gemini, codex, windsurf, cline, roo, copilot, pi, qwen, trae, amazonq, jetbrains, kiro, verdent, opencode, aider, amp");
             std::process::exit(1);
         }
     }
@@ -611,6 +628,8 @@ fn install_codex_hook() {
     let codex_dir = home.join(".codex");
     let _ = std::fs::create_dir_all(&codex_dir);
 
+    install_codex_hook_scripts(&home);
+
     let agents_path = codex_dir.join("AGENTS.md");
     let agents_content = "# Global Agent Instructions\n\n@LEAN-CTX.md\n";
 
@@ -628,6 +647,7 @@ Prefix all shell commands with `{binary} -c` for compressed output:
 ```
 
 This saves 60-90% tokens per command. Works with: git, cargo, npm, pnpm, docker, kubectl, pip, ruff, go, curl, grep, find, ls, aws, helm, and 90+ more commands.
+Use `{binary} -c --raw <cmd>` to skip compression and get full output.
 "#
     );
 
@@ -642,6 +662,21 @@ This saves 60-90% tokens per command. Works with: git, cargo, npm, pnpm, docker,
     write_file(&agents_path, agents_content);
     write_file(&lean_ctx_md, &lean_ctx_content);
     println!("Installed Codex instructions at {}", codex_dir.display());
+}
+
+fn install_codex_hook_scripts(home: &std::path::Path) {
+    let hooks_dir = home.join(".codex").join("hooks");
+    let _ = std::fs::create_dir_all(&hooks_dir);
+
+    let binary = resolve_binary_path_for_bash();
+    let rewrite_path = hooks_dir.join("lean-ctx-rewrite-codex.sh");
+    let rewrite_script = generate_compact_rewrite_script(&binary);
+    write_file(&rewrite_path, &rewrite_script);
+    make_executable(&rewrite_path);
+    println!(
+        "  \x1b[32m✓\x1b[0m Installed Codex hook scripts at {}",
+        hooks_dir.display()
+    );
 }
 
 fn install_windsurf_rules(global: bool) {

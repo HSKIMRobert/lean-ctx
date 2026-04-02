@@ -50,6 +50,19 @@ pub mod wget;
 pub mod zig;
 
 pub fn compress_output(command: &str, output: &str) -> Option<String> {
+    let cleaned = crate::core::compressor::strip_ansi(output);
+    let output = if cleaned.len() < output.len() {
+        &cleaned
+    } else {
+        output
+    };
+
+    if let Some(engine) = crate::core::filters::FilterEngine::load() {
+        if let Some(filtered) = engine.apply(command, output) {
+            return Some(filtered);
+        }
+    }
+
     let specific = try_specific_pattern(command, output);
     if specific.is_some() {
         return specific;
@@ -182,7 +195,7 @@ fn try_specific_pattern(cmd: &str, output: &str) -> Option<String> {
         return ls::compress(output);
     }
     if c.starts_with("curl ") {
-        return curl::compress(output);
+        return curl::compress_with_cmd(c, output);
     }
     if c.starts_with("wget ") {
         return wget::compress(output);

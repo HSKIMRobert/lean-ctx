@@ -18,7 +18,7 @@ impl ServerHandler for LeanCtxServer {
         let instructions = build_instructions(self.crp_mode);
 
         InitializeResult::new(capabilities)
-            .with_server_info(Implementation::new("lean-ctx", "2.14.2"))
+            .with_server_info(Implementation::new("lean-ctx", "2.14.3"))
             .with_instructions(instructions)
     }
 
@@ -43,7 +43,7 @@ impl ServerHandler for LeanCtxServer {
         let capabilities = ServerCapabilities::builder().enable_tools().build();
 
         Ok(InitializeResult::new(capabilities)
-            .with_server_info(Implementation::new("lean-ctx", "2.14.2"))
+            .with_server_info(Implementation::new("lean-ctx", "2.14.3"))
             .with_instructions(instructions))
     }
 
@@ -119,11 +119,12 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
                     ),
                     tool_def(
                         "ctx_shell",
-                        "Run shell command (compressed output, 90+ patterns).",
+                        "Run shell command (compressed output, 90+ patterns). Use raw=true to skip compression and get full output.",
                         json!({
                             "type": "object",
                             "properties": {
-                                "command": { "type": "string", "description": "Shell command to execute" }
+                                "command": { "type": "string", "description": "Shell command to execute" },
+                                "raw": { "type": "boolean", "description": "Skip compression, return full uncompressed output. Use for small outputs or when full detail is critical." }
                             },
                             "required": ["command"]
                         }),
@@ -732,18 +733,47 @@ list, info.",
             "ctx_shell" => {
                 let command = get_str(args, "command")
                     .ok_or_else(|| ErrorData::invalid_params("command is required", None))?;
+                let raw = get_bool(args, "raw").unwrap_or(false)
+                    || std::env::var("LEAN_CTX_DISABLED").is_ok();
                 let output = execute_command(&command);
-                let result = crate::tools::ctx_shell::handle(&command, &output, self.crp_mode);
-                let original = crate::core::tokens::count_tokens(&output);
-                let sent = crate::core::tokens::count_tokens(&result);
-                let saved = original.saturating_sub(sent);
-                self.record_call("ctx_shell", original, saved, None).await;
-                let savings_note = if saved > 0 {
-                    format!("\n[saved {saved} tokens vs native Shell]")
+
+                if raw {
+                    let original = crate::core::tokens::count_tokens(&output);
+                    self.record_call("ctx_shell", original, 0, None).await;
+                    output
                 } else {
-                    String::new()
-                };
-                format!("{result}{savings_note}")
+                    let result = crate::tools::ctx_shell::handle(&command, &output, self.crp_mode);
+                    let original = crate::core::tokens::count_tokens(&output);
+                    let sent = crate::core::tokens::count_tokens(&result);
+                    let saved = original.saturating_sub(sent);
+                    self.record_call("ctx_shell", original, saved, None).await;
+
+                    let cfg = crate::core::config::Config::load();
+                    let tee_hint = match cfg.tee_mode {
+                        crate::core::config::TeeMode::Always => {
+                            crate::shell::save_tee(&command, &output)
+                                .map(|p| format!("\n[full output: {p}]"))
+                                .unwrap_or_default()
+                        }
+                        crate::core::config::TeeMode::Failures
+                            if !output.trim().is_empty() && output.contains("error")
+                                || output.contains("Error")
+                                || output.contains("ERROR") =>
+                        {
+                            crate::shell::save_tee(&command, &output)
+                                .map(|p| format!("\n[full output: {p}]"))
+                                .unwrap_or_default()
+                        }
+                        _ => String::new(),
+                    };
+
+                    let savings_note = if saved > 0 {
+                        format!("\n[saved {saved} tokens vs native Shell]")
+                    } else {
+                        String::new()
+                    };
+                    format!("{result}{savings_note}{tee_hint}")
+                }
             }
             "ctx_search" => {
                 let pattern = get_str(args, "pattern")
@@ -1282,6 +1312,7 @@ If ctx_read returns 'cached': use fresh=true, start_line=N, or mode='lines:N-M' 
 \n\
 AUTONOMY: lean-ctx auto-runs ctx_overview, ctx_preload, ctx_dedup, ctx_compress behind the scenes.\n\
 Focus on: ctx_read, ctx_shell, ctx_search, ctx_tree. Use ctx_session for memory, ctx_knowledge for project facts.\n\
+ctx_shell raw=true: skip compression for small/critical outputs. Full output tee files at ~/.lean-ctx/tee/.\n\
 \n\
 Auto-checkpoint every 15 calls. Cache clears after 5 min idle.\n\
 \n\
@@ -1378,11 +1409,12 @@ fn unified_tool_defs() -> Vec<Tool> {
         ),
         tool_def(
             "ctx_shell",
-            "Run shell command (compressed output).",
+            "Run shell command (compressed output). raw=true skips compression.",
             json!({
                 "type": "object",
                 "properties": {
-                    "command": { "type": "string", "description": "Shell command" }
+                    "command": { "type": "string", "description": "Shell command" },
+                    "raw": { "type": "boolean", "description": "Skip compression for full output" }
                 },
                 "required": ["command"]
             }),

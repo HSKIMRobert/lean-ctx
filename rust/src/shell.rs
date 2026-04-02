@@ -9,10 +9,16 @@ use crate::core::tokens::count_tokens;
 
 pub fn exec(command: &str) -> i32 {
     let (shell, shell_flag) = shell_and_flag();
+
+    if std::env::var("LEAN_CTX_DISABLED").is_ok() {
+        return exec_inherit(command, &shell, &shell_flag);
+    }
+
     let cfg = config::Config::load();
     let force_compress = std::env::var("LEAN_CTX_COMPRESS").is_ok();
+    let raw_mode = std::env::var("LEAN_CTX_RAW").is_ok();
 
-    if !force_compress && is_excluded_command(command, &cfg.excluded_commands) {
+    if raw_mode || (!force_compress && is_excluded_command(command, &cfg.excluded_commands)) {
         return exec_inherit(command, &shell, &shell_flag);
     }
 
@@ -103,11 +109,14 @@ fn exec_buffered(command: &str, shell: &str, shell_flag: &str, cfg: &config::Con
             let _ = io::stdout().write_all(b"\n");
         }
     }
-    if cfg.tee_on_error && exit_code != 0 && !full_output.trim().is_empty() {
+    let should_tee = match cfg.tee_mode {
+        config::TeeMode::Always => !full_output.trim().is_empty(),
+        config::TeeMode::Failures => exit_code != 0 && !full_output.trim().is_empty(),
+        config::TeeMode::Never => false,
+    };
+    if should_tee {
         if let Some(path) = save_tee(command, &full_output) {
-            eprintln!(
-                "[lean-ctx: output saved to {path} (secrets redacted, auto-deleted after 24h)]"
-            );
+            eprintln!("[lean-ctx: full output -> {path} (redacted, 24h TTL)]");
         }
     }
 
@@ -241,7 +250,7 @@ fn is_excluded_command(command: &str, excluded: &[String]) -> bool {
 pub fn interactive() {
     let real_shell = detect_shell();
 
-    eprintln!("lean-ctx shell v2.14.2 (wrapping {real_shell})");
+    eprintln!("lean-ctx shell v2.14.3 (wrapping {real_shell})");
     eprintln!("All command output is automatically compressed.");
     eprintln!("Type 'exit' to quit.\n");
 
@@ -336,8 +345,9 @@ fn compress_if_beneficial(command: &str, output: &str) -> String {
             let first = &lines[..5];
             let last = &lines[lines.len() - 5..];
             let omitted = lines.len() - 10;
+            let total = lines.len();
             let compressed = format!(
-                "{}\n... ({omitted} lines omitted) ...\n{}",
+                "{}\n[truncated: showing 10/{total} lines, {omitted} omitted]\n{}",
                 first.join("\n"),
                 last.join("\n")
             );
@@ -477,7 +487,7 @@ fn which_powershell() -> Result<String, ()> {
     Err(())
 }
 
-fn save_tee(command: &str, output: &str) -> Option<String> {
+pub fn save_tee(command: &str, output: &str) -> Option<String> {
     let tee_dir = dirs::home_dir()?.join(".lean-ctx").join("tee");
     std::fs::create_dir_all(&tee_dir).ok()?;
 

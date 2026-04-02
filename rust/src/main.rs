@@ -25,13 +25,18 @@ fn main() {
 
         match args[1].as_str() {
             "-c" | "exec" => {
-                let command = if args.len() == 3 {
-                    args[2].clone()
+                let raw = rest.first().map(|a| a == "--raw").unwrap_or(false);
+                let cmd_args = if raw { &args[3..] } else { &args[2..] };
+                let command = if cmd_args.len() == 1 {
+                    cmd_args[0].clone()
                 } else {
-                    shell_join(&args[2..])
+                    shell_join(cmd_args)
                 };
                 if std::env::var("LEAN_CTX_ACTIVE").is_ok() {
                     passthrough(&command);
+                }
+                if raw {
+                    std::env::set_var("LEAN_CTX_RAW", "1");
                 }
                 let code = shell::exec(&command);
                 core::stats::flush();
@@ -112,6 +117,10 @@ fn main() {
             }
             "discover" => {
                 cli::cmd_discover(&rest);
+                return;
+            }
+            "filter" => {
+                cli::cmd_filter(&rest);
                 return;
             }
             "session" => {
@@ -280,13 +289,14 @@ fn shell_quote(s: &str) -> String {
 
 fn print_help() {
     println!(
-        "lean-ctx 2.14.2 — The Intelligence Layer for AI Coding
+        "lean-ctx 2.14.3 — The Intelligence Layer for AI Coding
 
 90+ compression patterns | 24 MCP tools | Context Continuity Protocol
 
 USAGE:
     lean-ctx                       Start MCP server (stdio)
     lean-ctx -c \"command\"          Execute with compressed output
+    lean-ctx -c --raw \"command\"    Execute without compression (full output)
     lean-ctx exec \"command\"        Same as -c
     lean-ctx shell                 Interactive shell with compression
 
@@ -313,10 +323,11 @@ COMMANDS:
     ls [path]                      Directory listing with compression
     deps [path]                    Show project dependencies
     discover                       Find uncompressed commands in shell history
+    filter [list|validate|init]    Manage custom compression filters (~/.lean-ctx/filters/)
     session                        Show adoption statistics
     config                         Show/edit configuration (~/.lean-ctx/config.toml)
     theme [list|set|export|import] Customize terminal colors and themes
-    tee [list|clear|show <file>]   Manage error log files (~/.lean-ctx/tee/)
+    tee [list|clear|show <file>|last] Manage output tee files (~/.lean-ctx/tee/)
     slow-log [list|clear]          Show/clear slow command log (~/.lean-ctx/slow-commands.log)
     update [--check]               Self-update lean-ctx binary from GitHub Releases
     doctor                         Run installation and environment diagnostics
@@ -347,6 +358,12 @@ READ MODES:
     entropy                        Shannon entropy filtered
     diff                           Changed lines only
     lines:N-M                      Specific line ranges (e.g. lines:10-50,80)
+
+ENVIRONMENT:
+    LEAN_CTX_DISABLED=1            Bypass ALL compression (kill-switch)
+    LEAN_CTX_RAW=1                 Same as --raw for current command
+    LEAN_CTX_AUTONOMY=false        Disable autonomous features
+    LEAN_CTX_COMPRESS=1            Force compression (even for excluded commands)
 
 OPTIONS:
     --version, -V                  Show version
@@ -721,7 +738,7 @@ fn print_gain_with_logo() {
     print!("{output}");
     let d = core::theme::dim();
     let r = core::theme::rst();
-    println!("  {d}lean-ctx v2.14.2  |  leanctx.com  |  lean-ctx dashboard{r}");
+    println!("  {d}lean-ctx v2.14.3  |  leanctx.com  |  lean-ctx dashboard{r}");
     if !cloud_client::check_pro() {
         println!("  {d}Save ~25% more with Pro \u{2192} lean-ctx upgrade{r}");
     }

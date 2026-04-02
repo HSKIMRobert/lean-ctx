@@ -1,5 +1,35 @@
 use similar::{ChangeTag, TextDiff};
 
+pub fn strip_ansi(s: &str) -> String {
+    if !s.contains('\x1b') {
+        return s.to_string();
+    }
+    let mut result = String::with_capacity(s.len());
+    let mut in_escape = false;
+    for c in s.chars() {
+        if c == '\x1b' {
+            in_escape = true;
+            continue;
+        }
+        if in_escape {
+            if c.is_ascii_alphabetic() {
+                in_escape = false;
+            }
+            continue;
+        }
+        result.push(c);
+    }
+    result
+}
+
+pub fn ansi_density(s: &str) -> f64 {
+    if s.is_empty() {
+        return 0.0;
+    }
+    let escape_bytes = s.chars().filter(|&c| c == '\x1b').count();
+    escape_bytes as f64 / s.len() as f64
+}
+
 pub fn aggressive_compress(content: &str, ext: Option<&str>) -> String {
     let mut result: Vec<String> = Vec::new();
     let is_python = matches!(ext, Some("py"));
@@ -255,5 +285,31 @@ mod tests {
         assert!(!result.contains("start"));
         assert!(!result.contains("middle"));
         assert!(result.contains("fn main()"));
+    }
+
+    #[test]
+    fn test_strip_ansi_removes_escape_codes() {
+        let input = "\x1b[31mERROR\x1b[0m: something failed";
+        let result = strip_ansi(input);
+        assert_eq!(result, "ERROR: something failed");
+        assert!(!result.contains('\x1b'));
+    }
+
+    #[test]
+    fn test_strip_ansi_passthrough_clean_text() {
+        let input = "clean text without escapes";
+        let result = strip_ansi(input);
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn test_ansi_density_zero_for_clean() {
+        assert_eq!(ansi_density("hello world"), 0.0);
+    }
+
+    #[test]
+    fn test_ansi_density_nonzero_for_colored() {
+        let input = "\x1b[31mred\x1b[0m";
+        assert!(ansi_density(input) > 0.0);
     }
 }
