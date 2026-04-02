@@ -1,4 +1,4 @@
-use std::io::{self, BufRead, IsTerminal, Read, Write};
+use std::io::{self, BufRead, IsTerminal, Write};
 use std::process::{Command, Stdio};
 
 use crate::core::config;
@@ -17,7 +17,7 @@ pub fn exec(command: &str) -> i32 {
     }
 
     if !force_compress && io::stdout().is_terminal() {
-        return exec_streaming(command, &shell, &shell_flag, &cfg);
+        return exec_inherit_tracked(command, &shell, &shell_flag);
     }
 
     exec_buffered(command, &shell, &shell_flag, &cfg)
@@ -42,89 +42,10 @@ fn exec_inherit(command: &str, shell: &str, shell_flag: &str) -> i32 {
     }
 }
 
-fn exec_streaming(command: &str, shell: &str, shell_flag: &str, cfg: &config::Config) -> i32 {
-    let start = std::time::Instant::now();
-
-    let mut child = match Command::new(shell)
-        .arg(shell_flag)
-        .arg(command)
-        .env("LEAN_CTX_ACTIVE", "1")
-        .stdin(Stdio::inherit())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-    {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("lean-ctx: failed to execute: {e}");
-            return 127;
-        }
-    };
-
-    let child_stdout = child.stdout.take().expect("stdout piped");
-    let child_stderr = child.stderr.take().expect("stderr piped");
-
-    let stdout_thread = spawn_stream_thread(child_stdout, io::stdout());
-    let stderr_thread = spawn_stream_thread(child_stderr, io::stderr());
-
-    let stdout_buf = stdout_thread.join().unwrap_or_default();
-    let stderr_buf = stderr_thread.join().unwrap_or_default();
-
-    let exit_code = child.wait().map(|s| s.code().unwrap_or(1)).unwrap_or(127);
-    let duration_ms = start.elapsed().as_millis();
-
-    let full_output = combine_output(&stdout_buf, &stderr_buf);
-    let input_tokens = count_tokens(&full_output);
-    let (_, output_tokens) = compress_and_measure(command, &stdout_buf, &stderr_buf);
-
-    stats::record(command, input_tokens, output_tokens);
-
-    if input_tokens > 50 && output_tokens < input_tokens {
-        let saved = input_tokens - output_tokens;
-        let pct = (saved as f64 / input_tokens as f64 * 100.0).round() as usize;
-        if pct >= 10 {
-            eprintln!(
-                "\x1b[2m[lean-ctx: {input_tokens}\u{2192}{output_tokens} tok, -{pct}%]\x1b[0m"
-            );
-        }
-    }
-
-    if cfg.tee_on_error && exit_code != 0 && !full_output.trim().is_empty() {
-        if let Some(path) = save_tee(command, &full_output) {
-            eprintln!(
-                "[lean-ctx: output saved to {path} (secrets redacted, auto-deleted after 24h)]"
-            );
-        }
-    }
-
-    let threshold = cfg.slow_command_threshold_ms;
-    if threshold > 0 && duration_ms >= threshold as u128 {
-        slow_log::record(command, duration_ms, exit_code);
-    }
-
-    exit_code
-}
-
-fn spawn_stream_thread(
-    mut pipe: impl Read + Send + 'static,
-    mut writer: impl Write + Send + 'static,
-) -> std::thread::JoinHandle<String> {
-    std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        let mut chunk = [0u8; 4096];
-        loop {
-            match pipe.read(&mut chunk) {
-                Ok(0) => break,
-                Ok(n) => {
-                    let _ = writer.write_all(&chunk[..n]);
-                    let _ = writer.flush();
-                    buf.extend_from_slice(&chunk[..n]);
-                }
-                Err(_) => break,
-            }
-        }
-        String::from_utf8_lossy(&buf).to_string()
-    })
+fn exec_inherit_tracked(command: &str, shell: &str, shell_flag: &str) -> i32 {
+    let code = exec_inherit(command, shell, shell_flag);
+    stats::record(command, 0, 0);
+    code
 }
 
 fn combine_output(stdout: &str, stderr: &str) -> String {
@@ -320,7 +241,7 @@ fn is_excluded_command(command: &str, excluded: &[String]) -> bool {
 pub fn interactive() {
     let real_shell = detect_shell();
 
-    eprintln!("lean-ctx shell v2.14.1 (wrapping {real_shell})");
+    eprintln!("lean-ctx shell v2.14.2 (wrapping {real_shell})");
     eprintln!("All command output is automatically compressed.");
     eprintln!("Type 'exit' to quit.\n");
 
