@@ -866,7 +866,7 @@ fn init_powershell(binary: &str) {
 if (-not $env:LEAN_CTX_ACTIVE) {{
   $LeanCtxBin = "{binary_escaped}"
   function _lc {{
-    & $LeanCtxBin -c "$($args -join ' ')"
+    & $LeanCtxBin -c @args
     if ($LASTEXITCODE -eq 127 -or $LASTEXITCODE -eq 126) {{
       $cmd = $args[0]; $rest = $args[1..($args.Length)]
       & $cmd @rest
@@ -968,7 +968,7 @@ fn init_fish(binary: &str) {
         set -g _lean_ctx_cmds git npm pnpm yarn cargo docker docker-compose kubectl gh pip pip3 ruff go golangci-lint eslint prettier tsc ls find grep curl wget\n\
         \n\
         function _lc\n\
-        \t'{binary}' -c \"$argv\"\n\
+        \t'{binary}' -c $argv\n\
         \tset -l _lc_rc $status\n\
         \tif test $_lc_rc -eq 127 -o $_lc_rc -eq 126\n\
         \t\tcommand $argv\n\
@@ -1062,7 +1062,7 @@ fn init_posix(is_zsh: bool, binary: &str) {
 _lean_ctx_cmds=(git npm pnpm yarn cargo docker docker-compose kubectl gh pip pip3 ruff go golangci-lint eslint prettier tsc ls find grep curl wget php composer)
 
 _lc() {{
-    '{binary}' -c "$*"
+    '{binary}' -c "$@"
     local _lc_rc=$?
     if [ "$_lc_rc" -eq 127 ] || [ "$_lc_rc" -eq 126 ]; then
         command "$@"
