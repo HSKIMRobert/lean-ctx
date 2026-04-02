@@ -874,9 +874,6 @@ if (-not $env:LEAN_CTX_ACTIVE) {{
   }}
   if (Get-Command lean-ctx -ErrorAction SilentlyContinue) {{
     function git {{ _lc git @args }}
-    function npm {{ _lc npm.cmd @args }}
-    function pnpm {{ _lc pnpm.cmd @args }}
-    function yarn {{ _lc yarn.cmd @args }}
     function cargo {{ _lc cargo @args }}
     function docker {{ _lc docker @args }}
     function kubectl {{ _lc kubectl @args }}
@@ -885,11 +882,15 @@ if (-not $env:LEAN_CTX_ACTIVE) {{
     function pip3 {{ _lc pip3 @args }}
     function ruff {{ _lc ruff @args }}
     function go {{ _lc go @args }}
-    function eslint {{ _lc eslint.cmd @args }}
-    function prettier {{ _lc prettier.cmd @args }}
-    function tsc {{ _lc tsc.cmd @args }}
     function curl {{ _lc curl @args }}
     function wget {{ _lc wget @args }}
+    foreach ($c in @('npm','pnpm','yarn','eslint','prettier','tsc')) {{
+      $a = Get-Command $c -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+      if ($a) {{
+        Set-Variable -Name "_lc_$c" -Value $a.Source -Scope Script
+        New-Item -Path "function:$c" -Value ([scriptblock]::Create("_lc `$script:_lc_$c @args")) -Force | Out-Null
+      }}
+    }}
   }}
 }}
 "#
@@ -1456,6 +1457,19 @@ export EDITOR=vim
             !result.contains("lean-ctx shell hook"),
             "block should be removed"
         );
+        assert!(result.contains("$env:FOO"), "other content preserved");
+        assert!(result.contains("$env:EDITOR"), "trailing content preserved");
+    }
+
+    #[test]
+    fn test_remove_lean_ctx_block_ps_nested() {
+        let input = "# PowerShell profile\n$env:FOO = 'bar'\n\n# lean-ctx shell hook — transparent CLI compression (90+ patterns)\nif (-not $env:LEAN_CTX_ACTIVE) {\n  $LeanCtxBin = \"lean-ctx\"\n  function _lc {\n    & $LeanCtxBin -c \"$($args -join ' ')\"\n  }\n  if (Get-Command lean-ctx -ErrorAction SilentlyContinue) {\n    function git { _lc git @args }\n    foreach ($c in @('npm','pnpm')) {\n      if ($a) {\n        Set-Variable -Name \"_lc_$c\" -Value $a.Source -Scope Script\n      }\n    }\n  }\n}\n\n# other stuff\n$env:EDITOR = 'vim'\n";
+        let result = remove_lean_ctx_block_ps(input);
+        assert!(
+            !result.contains("lean-ctx shell hook"),
+            "block should be removed"
+        );
+        assert!(!result.contains("_lc"), "function should be removed");
         assert!(result.contains("$env:FOO"), "other content preserved");
         assert!(result.contains("$env:EDITOR"), "trailing content preserved");
     }

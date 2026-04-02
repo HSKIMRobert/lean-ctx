@@ -24,9 +24,23 @@ pub fn refresh_installed_hooks() {
 }
 
 fn resolve_binary_path() -> String {
+    if is_lean_ctx_in_path() {
+        return "lean-ctx".to_string();
+    }
     std::env::current_exe()
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|_| "lean-ctx".to_string())
+}
+
+fn is_lean_ctx_in_path() -> bool {
+    let which_cmd = if cfg!(windows) { "where" } else { "which" };
+    std::process::Command::new(which_cmd)
+        .arg("lean-ctx")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 fn resolve_binary_path_for_bash() -> String {
@@ -91,7 +105,7 @@ case "$CMD" in
 esac
 
 if [ -n "$REWRITE" ]; then
-  echo "{{\"command\":\"$REWRITE\"}}"
+  echo "{{\"hookSpecificOutput\":{{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"allow\",\"updatedInput\":{{\"command\":\"$REWRITE\"}}}}}}"
 fi
 "#
     )
@@ -108,7 +122,7 @@ CMD=$(echo "$INPUT" | grep -o '"command":"[^"]*"' | head -1 | cut -d'"' -f4 2>/d
 if [ -z "$CMD" ] || echo "$CMD" | grep -qE "^(lean-ctx |$LEAN_CTX_BIN )"; then exit 0; fi
 case "$CMD" in
   git\ *|gh\ *|cargo\ *|npm\ *|pnpm\ *|docker\ *|kubectl\ *|pip\ *|ruff\ *|go\ *|curl\ *|grep\ *|rg\ *|find\ *|ls\ *|ls|cat\ *|aws\ *|helm\ *)
-    echo "{{\"command\":\"$LEAN_CTX_BIN -c $CMD\"}}" ;;
+    echo "{{\"hookSpecificOutput\":{{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"allow\",\"updatedInput\":{{\"command\":\"$LEAN_CTX_BIN -c $CMD\"}}}}}}" ;;
   *) exit 0 ;;
 esac
 "#
@@ -125,17 +139,17 @@ TOOL=$(echo "$INPUT" | grep -o '"tool_name":"[^"]*"' | head -1 | cut -d'"' -f4 2
 case "$TOOL" in
   Read|read|ReadFile|read_file|View|view)
     if pgrep -f "lean-ctx" >/dev/null 2>&1; then
-      echo '{"decision":"block","reason":"Use ctx_read(path) from lean-ctx MCP instead. Saves 60-80% input tokens with caching + compression. Modes: full, map, signatures, diff, lines:N-M."}'
+      echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"STOP. Use ctx_read(path) from the lean-ctx MCP server instead. It saves 60-80% input tokens via caching and compression. Available modes: full, map, signatures, diff, lines:N-M. Never use native Read — always use ctx_read."}}'
     fi
     ;;
   Grep|grep|Search|search|RipGrep|ripgrep)
     if pgrep -f "lean-ctx" >/dev/null 2>&1; then
-      echo '{"decision":"block","reason":"Use ctx_search(pattern, path) from lean-ctx MCP instead. Compact token-efficient results with .gitignore awareness."}'
+      echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"STOP. Use ctx_search(pattern, path) from the lean-ctx MCP server instead. It provides compact, token-efficient results with .gitignore awareness. Never use native Grep — always use ctx_search."}}'
     fi
     ;;
   ListFiles|list_files|ListDirectory|list_directory)
     if pgrep -f "lean-ctx" >/dev/null 2>&1; then
-      echo '{"decision":"block","reason":"Use ctx_tree(path) from lean-ctx MCP instead. Compact directory maps with file counts."}'
+      echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"STOP. Use ctx_tree(path, depth) from the lean-ctx MCP server instead. It provides compact directory maps with file counts. Never use native ListFiles — always use ctx_tree."}}'
     fi
     ;;
 esac
@@ -151,17 +165,17 @@ TOOL=$(echo "$INPUT" | grep -o '"tool_name":"[^"]*"' | head -1 | cut -d'"' -f4 2
 case "$TOOL" in
   Read|read|ReadFile|read_file)
     if pgrep -f "lean-ctx" >/dev/null 2>&1; then
-      echo '{"decision":"block","reason":"Use ctx_read(path) from lean-ctx MCP instead. Saves 60-80% tokens."}'
+      echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"STOP. Use ctx_read(path) from lean-ctx MCP instead. Saves 60-80% tokens."}}'
     fi
     ;;
   Grep|grep|Search|search)
     if pgrep -f "lean-ctx" >/dev/null 2>&1; then
-      echo '{"decision":"block","reason":"Use ctx_search(pattern, path) from lean-ctx MCP instead."}'
+      echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"STOP. Use ctx_search(pattern, path) from lean-ctx MCP instead."}}'
     fi
     ;;
   ListFiles|list_files|ListDirectory|list_directory)
     if pgrep -f "lean-ctx" >/dev/null 2>&1; then
-      echo '{"decision":"block","reason":"Use ctx_tree(path) from lean-ctx MCP instead."}'
+      echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"STOP. Use ctx_tree(path, depth) from lean-ctx MCP instead."}}'
     fi
     ;;
 esac
@@ -303,6 +317,8 @@ fn install_claude_hook(global: bool) {
     install_claude_hook_scripts(&home);
     install_claude_hook_config(&home);
 
+    install_claude_global_md(&home);
+
     if !global {
         let claude_md = PathBuf::from("CLAUDE.md");
         if !claude_md.exists()
@@ -316,11 +332,34 @@ fn install_claude_hook(global: bool) {
         } else {
             println!("CLAUDE.md already configured.");
         }
-    } else {
-        println!(
-            "Global mode: skipping project-local CLAUDE.md (use without --global in a project)."
-        );
     }
+}
+
+fn install_claude_global_md(home: &std::path::Path) {
+    let claude_dir = home.join(".claude");
+    let _ = std::fs::create_dir_all(&claude_dir);
+    let global_md = claude_dir.join("CLAUDE.md");
+
+    let existing = std::fs::read_to_string(&global_md).unwrap_or_default();
+    if existing.contains("lean-ctx") {
+        println!("  \x1b[32m✓\x1b[0m ~/.claude/CLAUDE.md already configured");
+        return;
+    }
+
+    let content = include_str!("templates/CLAUDE_GLOBAL.md");
+
+    if existing.is_empty() {
+        write_file(&global_md, content);
+    } else {
+        let mut merged = existing;
+        if !merged.ends_with('\n') {
+            merged.push('\n');
+        }
+        merged.push('\n');
+        merged.push_str(content);
+        write_file(&global_md, &merged);
+    }
+    println!("  \x1b[32m✓\x1b[0m Installed global ~/.claude/CLAUDE.md");
 }
 
 fn install_claude_hook_scripts(home: &std::path::Path) {

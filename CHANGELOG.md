@@ -2,6 +2,14 @@
 
 All notable changes to lean-ctx are documented here.
 
+## [2.13.1] — 2026-04-02
+
+### Fixed
+- **Claude Code hooks: correct response format** — PreToolUse hooks now use the current `hookSpecificOutput` format with `permissionDecision` instead of the deprecated top-level `decision`/`reason` fields. This fixes Claude Code ignoring lean-ctx redirect hooks and continuing to use native Read/Grep/Bash tools.
+- **Claude Code global CLAUDE.md** — `lean-ctx setup` and `lean-ctx init --agent claude --global` now install `~/.claude/CLAUDE.md` with instructions to prefer lean-ctx MCP tools. Previously, global mode skipped CLAUDE.md entirely, leaving Claude Code with no guidance to use MCP tools.
+- **PowerShell .cmd resolution (Windows)** — Fixed issue #38 where npm/pnpm/yarn/eslint/prettier/tsc functions used hardcoded `.cmd` suffixes that failed in some Windows environments (e.g., Warp terminal). Functions now resolve the real executable path at profile load time via `Get-Command -CommandType Application`.
+- **Portable binary paths in MCP configs** — `resolve_binary_path()` now returns `lean-ctx` (PATH-resolvable) instead of a hardcoded full path when lean-ctx is available in PATH. Prevents stale paths when switching between npm and cargo installations.
+
 ## [2.13.0] — 2026-04-01
 
 ### Added
