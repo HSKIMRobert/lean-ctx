@@ -264,9 +264,7 @@ pub fn information_bottleneck_filter(
         let summary = format!("[task: {}]", task_keywords.join(", "));
         let mut result = summary;
         result.push('\n');
-        result.push_str(
-            &output_lines[1..].to_vec().join("\n"),
-        );
+        result.push_str(&output_lines[1..].to_vec().join("\n"));
         return result;
     }
 
