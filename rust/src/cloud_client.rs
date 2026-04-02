@@ -145,7 +145,7 @@ pub fn push_knowledge(entries: &[serde_json::Value]) -> Result<String, String> {
 }
 
 pub fn pull_pro_models() -> Result<serde_json::Value, String> {
-    let api_key = load_api_key().ok_or("Not logged in. Run: lean-ctx upgrade")?;
+    let api_key = load_api_key().ok_or("Not logged in. Run: lean-ctx login <email>")?;
     let url = format!("{}/api/pro/models", api_url());
 
     let resp = ureq::get(&url)
@@ -154,7 +154,7 @@ pub fn pull_pro_models() -> Result<serde_json::Value, String> {
         .map_err(|e| {
             let msg = e.to_string();
             if msg.contains("403") {
-                "This feature requires Pro. Run: lean-ctx upgrade".to_string()
+                "This feature is not available for your account.".to_string()
             } else {
                 format!("Connection failed. Check your internet connection. ({e})")
             }
