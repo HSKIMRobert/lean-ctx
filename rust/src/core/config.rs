@@ -18,10 +18,93 @@ pub struct Config {
     pub theme: String,
     #[serde(default)]
     pub cloud: CloudConfig,
+    #[serde(default)]
+    pub autonomy: AutonomyConfig,
 }
 
 fn default_theme() -> String {
     "default".to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AutonomyConfig {
+    pub enabled: bool,
+    pub auto_preload: bool,
+    pub auto_dedup: bool,
+    pub auto_related: bool,
+    pub silent_preload: bool,
+    pub dedup_threshold: usize,
+}
+
+impl Default for AutonomyConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            auto_preload: true,
+            auto_dedup: true,
+            auto_related: true,
+            silent_preload: true,
+            dedup_threshold: 8,
+        }
+    }
+}
+
+impl AutonomyConfig {
+    pub fn from_env() -> Self {
+        let mut cfg = Self::default();
+        if let Ok(v) = std::env::var("LEAN_CTX_AUTONOMY") {
+            if v == "false" || v == "0" {
+                cfg.enabled = false;
+            }
+        }
+        if let Ok(v) = std::env::var("LEAN_CTX_AUTO_PRELOAD") {
+            cfg.auto_preload = v != "false" && v != "0";
+        }
+        if let Ok(v) = std::env::var("LEAN_CTX_AUTO_DEDUP") {
+            cfg.auto_dedup = v != "false" && v != "0";
+        }
+        if let Ok(v) = std::env::var("LEAN_CTX_AUTO_RELATED") {
+            cfg.auto_related = v != "false" && v != "0";
+        }
+        if let Ok(v) = std::env::var("LEAN_CTX_SILENT_PRELOAD") {
+            cfg.silent_preload = v != "false" && v != "0";
+        }
+        if let Ok(v) = std::env::var("LEAN_CTX_DEDUP_THRESHOLD") {
+            if let Ok(n) = v.parse() {
+                cfg.dedup_threshold = n;
+            }
+        }
+        cfg
+    }
+
+    pub fn load() -> Self {
+        let file_cfg = Config::load().autonomy;
+        let mut cfg = file_cfg;
+        if let Ok(v) = std::env::var("LEAN_CTX_AUTONOMY") {
+            if v == "false" || v == "0" {
+                cfg.enabled = false;
+            }
+        }
+        if let Ok(v) = std::env::var("LEAN_CTX_AUTO_PRELOAD") {
+            cfg.auto_preload = v != "false" && v != "0";
+        }
+        if let Ok(v) = std::env::var("LEAN_CTX_AUTO_DEDUP") {
+            cfg.auto_dedup = v != "false" && v != "0";
+        }
+        if let Ok(v) = std::env::var("LEAN_CTX_AUTO_RELATED") {
+            cfg.auto_related = v != "false" && v != "0";
+        }
+        if let Ok(v) = std::env::var("LEAN_CTX_SILENT_PRELOAD") {
+            cfg.silent_preload = v != "false" && v != "0";
+        }
+        if let Ok(v) = std::env::var("LEAN_CTX_DEDUP_THRESHOLD") {
+            if let Ok(n) = v.parse() {
+                cfg.dedup_threshold = n;
+            }
+        }
+        cfg
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -50,6 +133,7 @@ impl Default for Config {
             slow_command_threshold_ms: 5000,
             theme: default_theme(),
             cloud: CloudConfig::default(),
+            autonomy: AutonomyConfig::default(),
         }
     }
 }

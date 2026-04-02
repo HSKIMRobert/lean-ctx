@@ -4,6 +4,16 @@ use crate::tools::ctx_read;
 use crate::tools::CrpMode;
 
 pub fn handle(cache: &mut SessionCache, paths: &[String], mode: &str, crp_mode: CrpMode) -> String {
+    handle_with_task(cache, paths, mode, crp_mode, None)
+}
+
+pub fn handle_with_task(
+    cache: &mut SessionCache,
+    paths: &[String],
+    mode: &str,
+    crp_mode: CrpMode,
+    task: Option<&str>,
+) -> String {
     let n = paths.len();
     if n == 0 {
         return "Read 0 files | 0 tokens saved".to_string();
@@ -14,7 +24,7 @@ pub fn handle(cache: &mut SessionCache, paths: &[String], mode: &str, crp_mode: 
     let mut total_original: usize = 0;
 
     for path in paths {
-        let chunk = ctx_read::handle(cache, path, mode, crp_mode);
+        let chunk = ctx_read::handle_with_task(cache, path, mode, crp_mode, task);
         let original = cache.get(path).map(|e| e.original_tokens).unwrap_or(0);
         let sent = count_tokens(&chunk);
         total_original = total_original.saturating_add(original);

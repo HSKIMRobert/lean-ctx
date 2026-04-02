@@ -1,4 +1,5 @@
 pub mod ansible;
+pub mod artisan;
 pub mod aws;
 pub mod bazel;
 pub mod bun;
@@ -30,6 +31,7 @@ pub mod mypy;
 pub mod mysql;
 pub mod next_build;
 pub mod npm;
+pub mod php;
 pub mod pip;
 pub mod playwright;
 pub mod pnpm;
@@ -231,6 +233,12 @@ fn try_specific_pattern(cmd: &str, output: &str) -> Option<String> {
     }
     if c.starts_with("composer ") {
         return composer::compress(c, output);
+    }
+    if c.starts_with("php artisan") || c.starts_with("artisan ") {
+        return artisan::compress(c, output);
+    }
+    if c.starts_with("./vendor/bin/pest") || c.starts_with("pest ") {
+        return artisan::compress("php artisan test", output);
     }
     if c.starts_with("mix ") || c.starts_with("iex ") {
         return mix::compress(c, output);

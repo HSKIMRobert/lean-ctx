@@ -18,7 +18,7 @@ impl ServerHandler for LeanCtxServer {
         let instructions = build_instructions(self.crp_mode);
 
         InitializeResult::new(capabilities)
-            .with_server_info(Implementation::new("lean-ctx", "2.14.0"))
+            .with_server_info(Implementation::new("lean-ctx", "2.14.1"))
             .with_instructions(instructions)
     }
 
@@ -43,7 +43,7 @@ impl ServerHandler for LeanCtxServer {
         let capabilities = ServerCapabilities::builder().enable_tools().build();
 
         Ok(InitializeResult::new(capabilities)
-            .with_server_info(Implementation::new("lean-ctx", "2.14.0"))
+            .with_server_info(Implementation::new("lean-ctx", "2.14.1"))
             .with_instructions(instructions))
     }
 
@@ -540,6 +540,26 @@ list, info.",
         let name = resolved_name.as_str();
         let args = &resolved_args;
 
+        let auto_context = {
+            let task = {
+                let session = self.session.read().await;
+                session.task.as_ref().map(|t| t.description.clone())
+            };
+            let project_root = {
+                let session = self.session.read().await;
+                session.project_root.clone()
+            };
+            let mut cache = self.cache.write().await;
+            crate::tools::autonomy::session_lifecycle_pre_hook(
+                &self.autonomy,
+                name,
+                &mut cache,
+                task.as_deref(),
+                project_root.as_deref(),
+                self.crp_mode,
+            )
+        };
+
         let result_text = match name {
             "ctx_read" => {
                 let path = get_str(args, "path")
@@ -666,9 +686,18 @@ list, info.",
                 let paths = get_str_array(args, "paths")
                     .ok_or_else(|| ErrorData::invalid_params("paths array is required", None))?;
                 let mode = get_str(args, "mode").unwrap_or_else(|| "full".to_string());
+                let current_task = {
+                    let session = self.session.read().await;
+                    session.task.as_ref().map(|t| t.description.clone())
+                };
                 let mut cache = self.cache.write().await;
-                let output =
-                    crate::tools::ctx_multi_read::handle(&mut cache, &paths, &mode, self.crp_mode);
+                let output = crate::tools::ctx_multi_read::handle_with_task(
+                    &mut cache,
+                    &paths,
+                    &mode,
+                    self.crp_mode,
+                    current_task.as_deref(),
+                );
                 let mut total_original: usize = 0;
                 for path in &paths {
                     total_original = total_original
@@ -1118,6 +1147,48 @@ list, info.",
             }
         };
 
+        let mut result_text = result_text;
+
+        if let Some(ctx) = auto_context {
+            result_text = format!("{ctx}\n\n{result_text}");
+        }
+
+        if name == "ctx_read" {
+            let read_path = get_str(args, "path").unwrap_or_default();
+            let project_root = {
+                let session = self.session.read().await;
+                session.project_root.clone()
+            };
+            let mut cache = self.cache.write().await;
+            let enrich = crate::tools::autonomy::enrich_after_read(
+                &self.autonomy,
+                &mut cache,
+                &read_path,
+                project_root.as_deref(),
+            );
+            if let Some(hint) = enrich.related_hint {
+                result_text = format!("{result_text}\n{hint}");
+            }
+
+            crate::tools::autonomy::maybe_auto_dedup(&self.autonomy, &mut cache);
+        }
+
+        if name == "ctx_shell" {
+            let cmd = get_str(args, "command").unwrap_or_default();
+            let output_tokens = crate::core::tokens::count_tokens(&result_text);
+            let calls = self.tool_calls.read().await;
+            let last_original = calls.last().map(|c| c.original_tokens).unwrap_or(0);
+            drop(calls);
+            if let Some(hint) = crate::tools::autonomy::shell_efficiency_hint(
+                &self.autonomy,
+                &cmd,
+                last_original,
+                output_tokens,
+            ) {
+                result_text = format!("{result_text}\n{hint}");
+            }
+        }
+
         let skip_checkpoint = matches!(
             name,
             "ctx_compress"
@@ -1209,10 +1280,8 @@ ctx_read modes: full (cached, for edits), map (deps+API), signatures, diff, task
 reference, aggressive, entropy, lines:N-M. Auto-selects when unspecified. Re-reads ~13 tokens. File refs F1,F2.. persist.\n\
 If ctx_read returns 'cached': use fresh=true, start_line=N, or mode='lines:N-M' to re-read.\n\
 \n\
-PROACTIVE: ctx_overview(task) at start | ctx_preload(task) for focused context | ctx_compress when context grows | ctx_session load on new chat\n\
-\n\
-OTHER TOOLS: ctx_session (memory), ctx_knowledge (project facts), ctx_agent (coordination), \
-ctx_metrics, ctx_analyze, ctx_benchmark, ctx_cache, ctx_wrapped, ctx_compress\n\
+AUTONOMY: lean-ctx auto-runs ctx_overview, ctx_preload, ctx_dedup, ctx_compress behind the scenes.\n\
+Focus on: ctx_read, ctx_shell, ctx_search, ctx_tree. Use ctx_session for memory, ctx_knowledge for project facts.\n\
 \n\
 Auto-checkpoint every 15 calls. Cache clears after 5 min idle.\n\
 \n\

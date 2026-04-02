@@ -775,7 +775,7 @@ pub fn cmd_init(args: &[String]) {
         println!("  Would backup:  {rc}.lean-ctx.bak");
         println!("  Would alias:   git npm pnpm yarn cargo docker docker-compose kubectl");
         println!("                 gh pip pip3 ruff go golangci-lint eslint prettier tsc");
-        println!("                 ls find grep curl wget (22 commands + k)");
+        println!("                 ls find grep curl wget php composer (24 commands + k)");
         println!("  Would create:  ~/.lean-ctx/");
         println!("  Binary:        {binary}");
         println!("\n  Safety: aliases auto-fallback to original command if lean-ctx is removed.");
@@ -812,7 +812,7 @@ pub fn cmd_init(args: &[String]) {
         ".bashrc"
     };
 
-    println!("\nlean-ctx init complete (22 aliases installed)");
+    println!("\nlean-ctx init complete (24 aliases installed)");
     println!();
     println!("  Disable temporarily:  lean-ctx-off");
     println!("  Re-enable:            lean-ctx-on");
@@ -1059,7 +1059,7 @@ fn init_posix(is_zsh: bool, binary: &str) {
     let aliases = format!(
         r#"
 # lean-ctx shell hook — transparent CLI compression (90+ patterns)
-_lean_ctx_cmds=(git npm pnpm yarn cargo docker docker-compose kubectl gh pip pip3 ruff go golangci-lint eslint prettier tsc ls find grep curl wget)
+_lean_ctx_cmds=(git npm pnpm yarn cargo docker docker-compose kubectl gh pip pip3 ruff go golangci-lint eslint prettier tsc ls find grep curl wget php composer)
 
 _lc() {{
     '{binary}' -c "$*"
