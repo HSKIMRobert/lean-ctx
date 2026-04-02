@@ -249,23 +249,25 @@ impl NeuralLineScorer {
 
     #[cfg(feature = "neural")]
     fn neural_score(&self, features: &LineFeatures) -> f64 {
-        use rten::FloatOperators;
+        use rten_tensor::{AsView, NdTensor};
 
         let input_data = features.to_array();
-        let input = rten::Tensor::from_data(
-            &[1, 13],
-            input_data.iter().map(|&x| x as f32).collect::<Vec<f32>>(),
-        );
+        let float_data: Vec<f32> = input_data.iter().map(|&x| x as f32).collect();
+        let input = NdTensor::from_data([1, 13], float_data);
 
         match self.model.run_one(input.into(), None) {
             Ok(output) => {
-                let scores: Vec<f32> = output.into_float().unwrap().to_vec();
-                scores.first().copied().unwrap_or(0.5) as f64
+                let tensor: Vec<f32> = output
+                    .into_tensor::<f32>()
+                    .map(|t| t.to_vec())
+                    .unwrap_or_default();
+                tensor.first().copied().unwrap_or(0.5) as f64
             }
             Err(_) => 0.5,
         }
     }
 
+    #[cfg(not(feature = "neural"))]
     fn decision_tree_score(&self, features: &LineFeatures) -> f64 {
         let f = features.to_array();
 

@@ -196,9 +196,7 @@ pub fn compute_delta(previous: &str, current: &str) -> DeltaResult {
         .map(|l| l.to_string())
         .collect();
 
-    let prefix_tokens = estimate_tokens(
-        &prev_lines[..common_prefix].to_vec().join("\n"),
-    );
+    let prefix_tokens = estimate_tokens(&prev_lines[..common_prefix].to_vec().join("\n"));
 
     DeltaResult {
         common_prefix_lines: common_prefix,

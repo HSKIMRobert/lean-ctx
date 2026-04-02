@@ -21,7 +21,7 @@ path = "src/main.rs"
 
 [features]
 default = ["tree-sitter"]
-neural = ["dep:rten"]
+neural = ["dep:rten", "dep:rten-tensor"]
 tree-sitter = [
   "dep:tree-sitter",
   "dep:tree-sitter-rust",
@@ -86,6 +86,7 @@ tree-sitter-elixir = { version = "0.3", optional = true }
 tree-sitter-zig = { version = "1.1", optional = true }
 tree-sitter-dart = { version = "0.1", optional = true }
 rten = { version = "0.24", optional = true }
+rten-tensor = { version = "0.24", optional = true }
 
 [profile.release]
 opt-level = "z"

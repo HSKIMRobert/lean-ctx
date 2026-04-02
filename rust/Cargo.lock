@@ -730,6 +730,7 @@ dependencies = [
  "regex",
  "rmcp",
  "rten",
+ "rten-tensor",
  "serde",
  "serde_json",
  "similar",
