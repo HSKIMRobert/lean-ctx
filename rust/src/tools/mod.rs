@@ -6,6 +6,7 @@ use tokio::sync::RwLock;
 use crate::core::cache::SessionCache;
 use crate::core::session::SessionState;
 
+pub mod autonomy;
 pub mod ctx_agent;
 pub mod ctx_analyze;
 pub mod ctx_benchmark;
@@ -88,6 +89,7 @@ pub struct LeanCtxServer {
     pub crp_mode: CrpMode,
     pub agent_id: Arc<RwLock<Option<String>>>,
     pub client_name: Arc<RwLock<String>>,
+    pub autonomy: Arc<autonomy::AutonomyState>,
 }
 
 #[derive(Clone, Debug)]
@@ -133,6 +135,7 @@ impl LeanCtxServer {
             crp_mode,
             agent_id: Arc::new(RwLock::new(None)),
             client_name: Arc::new(RwLock::new(String::new())),
+            autonomy: Arc::new(autonomy::AutonomyState::new()),
         }
     }
 

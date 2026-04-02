@@ -367,6 +367,18 @@ fn process_mode(
             format!("{output}\n{savings}")
         }
         "map" => {
+            if ext == "php" {
+                if let Some(php_map) = crate::core::patterns::php::compress_php_map(content, short)
+                {
+                    let mut output = format!("{file_ref}={short} {line_count}L\n{php_map}");
+                    let sent = count_tokens(&output);
+                    let savings = protocol::format_savings(original_tokens, sent);
+                    output.push('\n');
+                    output.push_str(&savings);
+                    return output;
+                }
+            }
+
             let sigs = signatures::extract_signatures(content, ext);
             let dep_info = deps::extract_deps(content, ext);
 
