@@ -52,6 +52,16 @@ pub fn reorder_for_lcurve(content: &str, task_keywords: &[String]) -> String {
         return content.to_string();
     }
 
+    // Try semantic chunk-based reordering for larger content
+    if lines.len() >= 15 {
+        let chunks = crate::core::semantic_chunks::detect_chunks(content);
+        if chunks.len() >= 3 {
+            let ordered = crate::core::semantic_chunks::order_for_attention(chunks, task_keywords);
+            return crate::core::semantic_chunks::render_with_bridges(&ordered);
+        }
+    }
+
+    // Fall back to line-level reordering for small content
     let categorized: Vec<CategorizedLine> = lines
         .iter()
         .enumerate()

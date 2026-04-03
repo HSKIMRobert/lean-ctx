@@ -1,5 +1,4 @@
 use crate::core::cache::SessionCache;
-use crate::core::graph_index::ProjectIndex;
 use crate::core::task_relevance::{compute_relevance, parse_task_hints};
 use crate::core::tokens::count_tokens;
 use crate::tools::CrpMode;
@@ -20,21 +19,11 @@ pub fn handle(
     path: Option<&str>,
     _crp_mode: CrpMode,
 ) -> String {
-    let project_root = path.map(|p| p.to_string()).unwrap_or_else(|| {
-        std::env::current_dir()
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|_| ".".to_string())
-    });
+    let project_root = path
+        .map(|p| p.to_string())
+        .unwrap_or_else(|| ".".to_string());
 
-    let mut index = ProjectIndex::load(&project_root).unwrap_or_else(|| {
-        let new_index = ProjectIndex::new(&project_root);
-        let _ = new_index.save();
-        new_index
-    });
-    if index.files.is_empty() {
-        index = ProjectIndex::new(&project_root);
-        let _ = index.save();
-    }
+    let index = crate::core::graph_index::load_or_build(&project_root);
 
     let (task_files, task_keywords) = if let Some(task_desc) = task {
         parse_task_hints(task_desc)

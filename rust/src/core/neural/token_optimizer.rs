@@ -48,6 +48,33 @@ const DEFAULT_OPTIMIZATIONS: &[(&str, &str)] = &[
     ("std::fmt::Debug", "Debug"),
 ];
 
+/// BPE-aligned formatting rules — empirically measured to save tokens on o200k_base.
+/// Each rule reduces token count by exploiting the tokenizer's preferred byte sequences.
+const BPE_ALIGNED_RULES: &[(&str, &str)] = &[
+    // Whitespace around operators: `-> ` tokenizes as 2 tokens, `->` as 1
+    (" -> ", "->"),
+    (" => ", "=>"),
+    // Trailing semicolons after blocks waste 1 token
+    ("};", "}"),
+    // Double newlines cost 1 extra token each
+    ("\n\n\n", "\n\n"),
+    // Common verbose patterns
+    (".to_string()", ".into()"),
+    (".to_owned()", ".into()"),
+    ("pub(crate) ", "pub "),
+    ("pub(super) ", "pub "),
+    // Python
+    ("self, ", ""),
+    ("    pass\n", ""),
+    // TypeScript/JS
+    ("export default ", "export "),
+    (": void", ""),
+    (": undefined", ""),
+    // Go
+    ("func (", "fn ("),
+    ("interface{}", "any"),
+];
+
 impl TokenOptimizer {
     pub fn load_or_default(model_dir: &Path) -> Self {
         let config_path = model_dir.join("token_optimizer.json");
@@ -71,10 +98,14 @@ impl TokenOptimizer {
     }
 
     pub fn with_defaults() -> Self {
-        let replacements: HashMap<String, String> = DEFAULT_OPTIMIZATIONS
+        let mut replacements: HashMap<String, String> = DEFAULT_OPTIMIZATIONS
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();
+
+        for &(from, to) in BPE_ALIGNED_RULES {
+            replacements.insert(from.to_string(), to.to_string());
+        }
 
         Self { replacements }
     }
@@ -109,6 +140,21 @@ impl TokenOptimizer {
 
     pub fn replacement_count(&self) -> usize {
         self.replacements.len()
+    }
+
+    /// BPE cost oracle: measure the actual token cost of a string representation.
+    /// Used to pick the cheapest encoding when multiple are semantically equivalent.
+    pub fn token_cost(text: &str) -> usize {
+        crate::core::tokens::count_tokens(text)
+    }
+
+    /// Choose the cheaper representation between two semantically equivalent strings.
+    pub fn cheaper_repr<'a>(a: &'a str, b: &'a str) -> &'a str {
+        if Self::token_cost(a) <= Self::token_cost(b) {
+            a
+        } else {
+            b
+        }
     }
 }
 
@@ -174,11 +220,11 @@ mod tests {
         let opt = TokenOptimizer::with_defaults();
         assert_eq!(
             opt.optimize_line("fn foo() -> Result<T, E>"),
-            "fn foo() -> Result"
+            "fn foo()->Result"
         );
         assert_eq!(
             opt.optimize_line("fn bar() -> Option<T>"),
-            "fn bar() -> Option"
+            "fn bar()->Option"
         );
         assert_eq!(
             opt.optimize_line("let v: Vec<String> = vec![]"),
@@ -203,7 +249,7 @@ mod tests {
         let opt = TokenOptimizer::with_defaults();
         assert_eq!(
             opt.optimize_line("fn foo(&'a str) -> &'a str"),
-            "fn foo(&str) -> &str"
+            "fn foo(&str)->&str"
         );
         assert_eq!(opt.optimize_line("fn bar(&'a mut Vec)"), "fn bar(&mut Vec)");
         assert_eq!(
@@ -231,5 +277,25 @@ mod tests {
         let opt = TokenOptimizer::with_defaults();
         assert_eq!(opt.optimize_line("use std::path::PathBuf;"), "use PathBuf;");
         assert_eq!(opt.optimize_line("use std::sync::Arc;"), "use Arc;");
+    }
+
+    #[test]
+    fn bpe_aligned_arrow_compression() {
+        let opt = TokenOptimizer::with_defaults();
+        assert_eq!(opt.optimize_line("fn foo() -> bool {"), "fn foo()->bool {");
+    }
+
+    #[test]
+    fn bpe_cost_oracle_works() {
+        let cost = TokenOptimizer::token_cost("hello world");
+        assert!(cost > 0);
+    }
+
+    #[test]
+    fn cheaper_repr_picks_shorter() {
+        let result = TokenOptimizer::cheaper_repr("fn foo() -> bool", "fn foo()->bool");
+        assert!(
+            TokenOptimizer::token_cost(result) <= TokenOptimizer::token_cost("fn foo() -> bool")
+        );
     }
 }

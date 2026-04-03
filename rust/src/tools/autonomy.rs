@@ -59,11 +59,6 @@ pub fn session_lifecycle_pre_hook(
 
     let root = project_root
         .map(|s| s.to_string())
-        .or_else(|| {
-            std::env::current_dir()
-                .ok()
-                .map(|p| p.to_string_lossy().to_string())
-        })
         .unwrap_or_else(|| ".".to_string());
 
     let result = if let Some(task_desc) = task {
@@ -96,17 +91,12 @@ pub fn enrich_after_read(
 
     let root = project_root
         .map(|s| s.to_string())
-        .or_else(|| {
-            std::env::current_dir()
-                .ok()
-                .map(|p| p.to_string_lossy().to_string())
-        })
         .unwrap_or_else(|| ".".to_string());
 
-    let index = match ProjectIndex::load(&root) {
-        Some(idx) => idx,
-        None => return result,
-    };
+    let index = crate::core::graph_index::load_or_build(&root);
+    if index.files.is_empty() {
+        return result;
+    }
 
     if state.config.auto_related {
         result.related_hint = build_related_hints(cache, file_path, &index);

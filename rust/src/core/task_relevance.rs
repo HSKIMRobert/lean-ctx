@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 
 use super::graph_index::ProjectIndex;
 
@@ -16,41 +16,91 @@ pub fn compute_relevance(
     task_files: &[String],
     task_keywords: &[String],
 ) -> Vec<RelevanceScore> {
-    let mut scores: HashMap<String, f64> = HashMap::new();
-
-    // Seed: task files get score 1.0
-    for f in task_files {
-        scores.insert(f.clone(), 1.0);
+    let adj = build_adjacency_resolved(index);
+    let all_nodes: Vec<String> = index.files.keys().cloned().collect();
+    if all_nodes.is_empty() {
+        return Vec::new();
     }
 
-    // BFS from task files through import graph, decaying by distance
-    let adj = build_adjacency(index);
-    for seed in task_files {
-        let mut visited: HashSet<String> = HashSet::new();
-        let mut queue: VecDeque<(String, usize)> = VecDeque::new();
-        queue.push_back((seed.clone(), 0));
-        visited.insert(seed.clone());
+    let node_idx: HashMap<&str, usize> = all_nodes
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (n.as_str(), i))
+        .collect();
+    let n = all_nodes.len();
 
-        while let Some((node, depth)) = queue.pop_front() {
-            if depth > 4 {
-                continue;
-            }
-            let decay = 1.0 / (1.0 + depth as f64).powi(2); // quadratic decay
-            let entry = scores.entry(node.clone()).or_insert(0.0);
-            *entry = entry.max(decay);
+    // Build degree-normalized adjacency for heat diffusion
+    let degrees: Vec<f64> = all_nodes
+        .iter()
+        .map(|node| {
+            adj.get(node)
+                .map_or(0.0, |neigh| neigh.len() as f64)
+                .max(1.0)
+        })
+        .collect();
 
-            if let Some(neighbors) = adj.get(&node) {
+    // Seed vector: task files get 1.0
+    let mut heat: Vec<f64> = vec![0.0; n];
+    for f in task_files {
+        if let Some(&idx) = node_idx.get(f.as_str()) {
+            heat[idx] = 1.0;
+        }
+    }
+
+    // Heat diffusion: h(t+1) = (1-alpha)*h(t) + alpha * A_norm * h(t)
+    // Run for k iterations
+    let alpha = 0.5;
+    let iterations = 4;
+    for _ in 0..iterations {
+        let mut new_heat = vec![0.0; n];
+        for (i, node) in all_nodes.iter().enumerate() {
+            let self_term = (1.0 - alpha) * heat[i];
+            let mut neighbor_sum = 0.0;
+            if let Some(neighbors) = adj.get(node) {
                 for neighbor in neighbors {
-                    if !visited.contains(neighbor) {
-                        visited.insert(neighbor.clone());
-                        queue.push_back((neighbor.clone(), depth + 1));
+                    if let Some(&j) = node_idx.get(neighbor.as_str()) {
+                        neighbor_sum += heat[j] / degrees[j];
+                    }
+                }
+            }
+            new_heat[i] = self_term + alpha * neighbor_sum;
+        }
+        heat = new_heat;
+    }
+
+    // PageRank centrality for gateway detection
+    let mut pagerank = vec![1.0 / n as f64; n];
+    let damping = 0.85;
+    for _ in 0..8 {
+        let mut new_pr = vec![(1.0 - damping) / n as f64; n];
+        for (i, node) in all_nodes.iter().enumerate() {
+            if let Some(neighbors) = adj.get(node) {
+                let out_deg = neighbors.len().max(1) as f64;
+                for neighbor in neighbors {
+                    if let Some(&j) = node_idx.get(neighbor.as_str()) {
+                        new_pr[j] += damping * pagerank[i] / out_deg;
                     }
                 }
             }
         }
+        pagerank = new_pr;
     }
 
-    // Keyword boost: files containing task keywords get a relevance boost
+    // Combine: heat (primary) + pagerank centrality (gateway bonus)
+    let mut scores: HashMap<String, f64> = HashMap::new();
+    let heat_max = heat.iter().cloned().fold(0.0_f64, f64::max).max(1e-10);
+    let pr_max = pagerank.iter().cloned().fold(0.0_f64, f64::max).max(1e-10);
+
+    for (i, node) in all_nodes.iter().enumerate() {
+        let h = heat[i] / heat_max;
+        let pr = pagerank[i] / pr_max;
+        let combined = h * 0.8 + pr * 0.2;
+        if combined > 0.01 {
+            scores.insert(node.clone(), combined);
+        }
+    }
+
+    // Keyword boost
     if !task_keywords.is_empty() {
         let kw_lower: Vec<String> = task_keywords.iter().map(|k| k.to_lowercase()).collect();
         for (file_path, file_entry) in &index.files {
@@ -106,17 +156,92 @@ fn recommend_mode(score: f64) -> &'static str {
     }
 }
 
-fn build_adjacency(index: &ProjectIndex) -> HashMap<String, Vec<String>> {
+/// Build adjacency with module-path → file-path resolution.
+/// Graph edges store file paths as `from` and Rust module paths as `to`
+/// (e.g. `crate::core::tokens::count_tokens`). We resolve `to` back to file
+/// paths so heat diffusion and PageRank can propagate across the graph.
+fn build_adjacency_resolved(index: &ProjectIndex) -> HashMap<String, Vec<String>> {
+    let module_to_file = build_module_map(index);
     let mut adj: HashMap<String, Vec<String>> = HashMap::new();
+
     for edge in &index.edges {
-        adj.entry(edge.from.clone())
-            .or_default()
-            .push(edge.to.clone());
-        adj.entry(edge.to.clone())
-            .or_default()
-            .push(edge.from.clone());
+        let from = &edge.from;
+        let to_resolved = module_to_file
+            .get(&edge.to)
+            .cloned()
+            .unwrap_or_else(|| edge.to.clone());
+
+        if index.files.contains_key(from) && index.files.contains_key(&to_resolved) {
+            adj.entry(from.clone())
+                .or_default()
+                .push(to_resolved.clone());
+            adj.entry(to_resolved).or_default().push(from.clone());
+        }
     }
     adj
+}
+
+/// Map module/import paths to file paths using heuristics.
+/// e.g. `crate::core::tokens::count_tokens` → `rust/src/core/tokens.rs`
+fn build_module_map(index: &ProjectIndex) -> HashMap<String, String> {
+    let file_paths: Vec<&str> = index.files.keys().map(|s| s.as_str()).collect();
+    let mut mapping: HashMap<String, String> = HashMap::new();
+
+    let edge_targets: HashSet<String> = index.edges.iter().map(|e| e.to.clone()).collect();
+
+    for target in &edge_targets {
+        if index.files.contains_key(target) {
+            mapping.insert(target.clone(), target.clone());
+            continue;
+        }
+
+        if let Some(resolved) = resolve_module_to_file(target, &file_paths) {
+            mapping.insert(target.clone(), resolved);
+        }
+    }
+
+    mapping
+}
+
+fn resolve_module_to_file(module_path: &str, file_paths: &[&str]) -> Option<String> {
+    let cleaned = module_path
+        .trim_start_matches("crate::")
+        .trim_start_matches("super::");
+
+    // Strip trailing symbol (e.g. `core::tokens::count_tokens` → `core::tokens`)
+    let parts: Vec<&str> = cleaned.split("::").collect();
+
+    // Try progressively shorter prefixes to find a matching file
+    for end in (1..=parts.len()).rev() {
+        let candidate = parts[..end].join("/");
+
+        // Try as .rs file
+        for fp in file_paths {
+            let fp_normalized = fp
+                .trim_start_matches("rust/src/")
+                .trim_start_matches("src/");
+
+            if fp_normalized == format!("{candidate}.rs")
+                || fp_normalized == format!("{candidate}/mod.rs")
+                || fp.ends_with(&format!("/{candidate}.rs"))
+                || fp.ends_with(&format!("/{candidate}/mod.rs"))
+            {
+                return Some(fp.to_string());
+            }
+        }
+    }
+
+    // Fallback: match by last segment as filename stem
+    if let Some(last) = parts.last() {
+        let stem = format!("{last}.rs");
+        for fp in file_paths {
+            if fp.ends_with(&stem) {
+                return Some(fp.to_string());
+            }
+        }
+    }
+
+    None
 }
 
 /// Extract likely task-relevant file paths and keywords from a task description.
@@ -248,7 +373,9 @@ pub fn information_bottleneck_filter(
 
     scored_lines.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
 
-    scored_lines.truncate(budget);
+    // MMR deduplication: penalize lines that are redundant with already-selected ones.
+    // score_mmr(i) = relevance(i) - lambda * max_j∈S(similarity(i, j))
+    let selected = mmr_select(&scored_lines, budget, 0.3);
 
     let mut output_lines: Vec<&str> = Vec::with_capacity(budget + 1);
 
@@ -256,7 +383,7 @@ pub fn information_bottleneck_filter(
         output_lines.push(""); // placeholder for summary
     }
 
-    for (_, line, _) in &scored_lines {
+    for (_, line, _) in &selected {
         output_lines.push(line);
     }
 
@@ -269,6 +396,69 @@ pub fn information_bottleneck_filter(
     }
 
     output_lines.join("\n")
+}
+
+/// Maximum Marginal Relevance selection — greedy selection that penalizes
+/// redundancy with already-selected lines using token-set Jaccard similarity.
+///
+/// MMR(i) = relevance(i) - lambda * max_{j in S} jaccard(i, j)
+fn mmr_select<'a>(
+    candidates: &[(usize, &'a str, f64)],
+    budget: usize,
+    lambda: f64,
+) -> Vec<(usize, &'a str, f64)> {
+    if candidates.is_empty() || budget == 0 {
+        return Vec::new();
+    }
+
+    let mut selected: Vec<(usize, &'a str, f64)> = Vec::with_capacity(budget);
+    let mut remaining: Vec<(usize, &'a str, f64)> = candidates.to_vec();
+
+    // Always take the top-scored line first
+    selected.push(remaining.remove(0));
+
+    while selected.len() < budget && !remaining.is_empty() {
+        let mut best_idx = 0;
+        let mut best_mmr = f64::NEG_INFINITY;
+
+        for (i, &(_, cand_line, cand_score)) in remaining.iter().enumerate() {
+            let cand_tokens: HashSet<&str> = cand_line.split_whitespace().collect();
+            if cand_tokens.is_empty() {
+                if cand_score > best_mmr {
+                    best_mmr = cand_score;
+                    best_idx = i;
+                }
+                continue;
+            }
+
+            let max_sim = selected
+                .iter()
+                .map(|&(_, sel_line, _)| {
+                    let sel_tokens: HashSet<&str> = sel_line.split_whitespace().collect();
+                    if sel_tokens.is_empty() {
+                        return 0.0;
+                    }
+                    let inter = cand_tokens.intersection(&sel_tokens).count();
+                    let union = cand_tokens.union(&sel_tokens).count();
+                    if union == 0 {
+                        0.0
+                    } else {
+                        inter as f64 / union as f64
+                    }
+                })
+                .fold(0.0_f64, f64::max);
+
+            let mmr = cand_score - lambda * max_sim;
+            if mmr > best_mmr {
+                best_mmr = mmr;
+                best_idx = i;
+            }
+        }
+
+        selected.push(remaining.remove(best_idx));
+    }
+
+    selected
 }
 
 fn is_error_handling(line: &str) -> bool {

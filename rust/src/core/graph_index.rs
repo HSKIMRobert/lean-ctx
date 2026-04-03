@@ -144,6 +144,42 @@ impl ProjectIndex {
     }
 }
 
+/// Load the best available graph index, trying multiple root path variants.
+/// If no valid index exists, automatically scans the project to build one.
+/// This is the primary entry point — ensures zero-config usage.
+pub fn load_or_build(project_root: &str) -> ProjectIndex {
+    // Try the given root first
+    if let Some(idx) = ProjectIndex::load(project_root) {
+        if !idx.files.is_empty() {
+            return idx;
+        }
+    }
+
+    // ctx_graph build typically saves with ".", try that
+    if project_root != "." {
+        if let Some(idx) = ProjectIndex::load(".") {
+            if !idx.files.is_empty() {
+                return idx;
+            }
+        }
+    }
+
+    // Try absolute cwd
+    if let Ok(cwd) = std::env::current_dir() {
+        let cwd_str = cwd.to_string_lossy().to_string();
+        if cwd_str != project_root {
+            if let Some(idx) = ProjectIndex::load(&cwd_str) {
+                if !idx.files.is_empty() {
+                    return idx;
+                }
+            }
+        }
+    }
+
+    // No existing index found anywhere — auto-build
+    scan(project_root)
+}
+
 pub fn scan(project_root: &str) -> ProjectIndex {
     let existing = ProjectIndex::load(project_root);
     let mut index = ProjectIndex::new(project_root);
