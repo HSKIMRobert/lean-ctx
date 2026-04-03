@@ -37,6 +37,12 @@ Use this checklist for every release. Copy the section below and check off each 
 - [ ] Push to GitLab: `git push origin main --tags`
 - [ ] Push to GitHub: `git push github main --tags`
 
+> **⚠️ CRITICAL: NEVER push the `deploy` branch to GitHub!**
+> The `deploy` branch contains the website source, GitLab CI config, Dockerfile, and cloud configs.
+> These are **private** and must only exist on GitLab (`origin`).
+> Only push `main` and tags to the `github` remote.
+> If accidentally pushed: `git push github --delete deploy` immediately.
+
 ## crates.io
 
 - [ ] Publish: `cd rust && LEAN_CTX_ACTIVE=1 cargo publish`
@@ -119,26 +125,25 @@ an update banner when a newer version is available.
 
 ## Website (leanctx.com) — only if website changes needed
 
+> **⚠️ The deploy branch is GitLab-ONLY. NEVER push it to GitHub!**
+> It contains private infrastructure (Dockerfile, CI config, cloud/).
+
 Website deploys via GitLab CI on the `deploy` branch:
 
 ```bash
-# 1. Create deploy branch from main
+# 1. Switch to deploy branch
 git stash
-git branch -D deploy 2>/dev/null
-git checkout -b deploy
-git stash pop
+git checkout deploy
 
-# 2. Restore deploy files from last deploy
-git checkout origin/deploy -- .gitlab-ci.yml Dockerfile.web website/ cloud/
+# 2. Make changes (e.g. update version.txt, website source)
+echo "X.Y.Z" > website/public/version.txt
 
-# 3. Apply any website edits (re-apply if checkout overwrote them)
-
-# 4. Commit and push
-git add -f .gitlab-ci.yml Dockerfile.web website/ cloud/
+# 3. Commit and push TO GITLAB ONLY
+git add -f website/ .gitlab-ci.yml Dockerfile.web cloud/
 git commit -m "deploy: <description>"
-git push origin deploy --force
+git push origin deploy   # ← ONLY origin (GitLab), NEVER github!
 
-# 5. Switch back to main
+# 4. Switch back to main
 git checkout main
 git checkout -- .
 ```
