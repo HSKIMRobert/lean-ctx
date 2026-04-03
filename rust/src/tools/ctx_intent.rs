@@ -176,7 +176,12 @@ fn extract_area(query: &str) -> String {
 
 fn build_strategy(intent: &Intent, root: &str) -> Vec<(String, String)> {
     let mut files = Vec::new();
-    let graph = crate::core::graph_index::ProjectIndex::load(root);
+    let loaded = crate::core::graph_index::load_or_build(root);
+    let graph = if loaded.files.is_empty() {
+        None
+    } else {
+        Some(loaded)
+    };
 
     match intent {
         Intent::FixBug { area } => {

@@ -196,6 +196,11 @@ fn shell_aliases_outcome() -> Outcome {
         parts.push(format!("{DIM}~/.bashrc{RST}"));
     }
 
+    let fish = home.join(".config").join("fish").join("config.fish");
+    if rc_contains_lean_ctx(&fish) {
+        parts.push(format!("{DIM}~/.config/fish/config.fish{RST}"));
+    }
+
     #[cfg(windows)]
     {
         let ps_profile = home
@@ -217,7 +222,7 @@ fn shell_aliases_outcome() -> Outcome {
         let hint = if cfg!(windows) {
             "no \"lean-ctx\" in PowerShell profile, ~/.zshrc or ~/.bashrc"
         } else {
-            "no \"lean-ctx\" in ~/.zshrc or ~/.bashrc"
+            "no \"lean-ctx\" in ~/.zshrc, ~/.bashrc, or ~/.config/fish/config.fish"
         };
         Outcome {
             ok: false,

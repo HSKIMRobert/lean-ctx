@@ -21,6 +21,10 @@ pub fn refresh_installed_hooks() {
     if gemini_rewrite.exists() || gemini_legacy.exists() {
         install_gemini_hook_scripts(&home);
     }
+
+    if home.join(".codex/hooks/lean-ctx-rewrite-codex.sh").exists() {
+        install_codex_hook_scripts(&home);
+    }
 }
 
 fn resolve_binary_path() -> String {

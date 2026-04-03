@@ -239,15 +239,7 @@ fn entropy_compress_with_thresholds(
     let original_count = lines.len();
     lines.retain(|line| {
         let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.len() < 3 {
-            return true;
-        }
-        let h = token_entropy(trimmed);
-        if h >= entropy_threshold {
-            return true;
-        }
-        let h_norm = normalized_token_entropy(trimmed);
-        h_norm >= 0.3
+        super::surprise::should_keep_line(trimmed, entropy_threshold)
     });
     let removed = original_count - lines.len();
     if removed > 0 {
