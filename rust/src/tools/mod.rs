@@ -15,6 +15,7 @@ pub mod ctx_context;
 pub mod ctx_dedup;
 pub mod ctx_delta;
 pub mod ctx_discover;
+pub mod ctx_edit;
 pub mod ctx_fill;
 pub mod ctx_graph;
 pub mod ctx_intent;

@@ -3,22 +3,23 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [2.16.4] — 2026-04-04
+## [2.16.5] — 2026-04-04
 
-### Edit Compatibility Fix
+### ctx_edit — MCP-native file editing
 
-Claude Code Desktop (and similar tools) require a native `Read` call before `Edit` works. lean-ctx's previous instructions (`NEVER use native Read`) blocked this workflow entirely, causing agents to fall back to `Write` (full-file rewrites) or get stuck.
+In Windsurf + Claude Code extension (and similar environments), the native `Edit` tool requires a prior `Read` call — but `Read` doesn't exist as a tool. Agents entered infinite loops trying to make Edit work, burning through user quota. `ctx_edit` solves this by providing search-and-replace as an MCP tool that works in every environment.
+
+#### Added
+- **`ctx_edit` MCP tool** — Search-and-replace that reads, modifies, and writes files in one call. No native Read/Edit dependency. Parameters: `path`, `old_string`, `new_string`, `replace_all`, `create`.
+- Auto-approved in `lean-ctx setup` for all IDEs.
 
 #### Changed
-- **Instructions: PREFER over NEVER** — All injected rules (MCP server instructions, `.cursor/rules/lean-ctx.mdc`, `CLAUDE.md`, `AGENTS.md`, `.cursorrules`) now use "PREFER lean-ctx tools" instead of "NEVER use native tools". Native tools are explicitly allowed as fallback.
-- **Edit compatibility note** — All rule templates now include: "If your Edit tool requires a prior native Read, use native Read for that file — then edit normally."
-- **Rules version bump** — `lean-ctx-rules-v5` → `lean-ctx-rules-v6` across all templates.
-- **Table headers** — Changed from `FORBIDDEN | USE INSTEAD` to `PREFER | OVER | Why` for clarity.
+- **Instructions v7** — All rules now include `ctx_edit` in the tool mapping table and explicit anti-loop guidance: "NEVER loop on Edit failures — switch to ctx_edit immediately."
+- **PREFER over NEVER** — All injected rules use "PREFER lean-ctx tools" instead of "NEVER use native tools". Native tools are explicitly allowed as fallback.
 
 #### Fixed
-- Agents in Claude Code Desktop no longer get stuck when `Edit` requires native `Read`.
-- Agents no longer attempt `Write` (full-file rewrite) as workaround for missing `Read` permission.
-- `lean-ctx setup` now installs compatible rules for all supported IDEs.
+- Agents in Windsurf + CC extension no longer loop when Edit requires unavailable Read.
+- 10%+ quota burn from Edit/Read loops eliminated.
 
 ## [2.15.0] — 2026-04-03
 

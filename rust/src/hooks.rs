@@ -267,9 +267,10 @@ PREFER lean-ctx MCP tools over native equivalents for token savings:
 | `ctx_shell(command)` | Shell / bash / terminal | Pattern compression for git/npm/cargo output |
 | `ctx_search(pattern, path)` | Grep / rg / search | Compact, token-efficient results |
 | `ctx_tree(path, depth)` | ls / find / tree | Compact directory maps |
+| `ctx_edit(path, old_string, new_string)` | Edit (when Read unavailable) | Search-and-replace without native Read |
 
-If your Edit tool requires a prior native Read, use native Read for that file — then edit normally.
-Write, StrReplace, Delete, Glob, Edit — use normally. Native tools allowed as fallback.
+Edit files: use native Edit/StrReplace if available. If Edit requires Read and Read is unavailable, use ctx_edit.
+Write, Delete, Glob — use normally. NEVER loop on Edit failures — switch to ctx_edit immediately.
 ";
 
 const CURSORRULES_TEMPLATE: &str = "\
@@ -283,9 +284,10 @@ PREFER lean-ctx MCP tools over native equivalents for token savings:
 | `ctx_shell(command)` | `Shell` | Pattern compression |
 | `ctx_search(pattern, path)` | `Grep` | Compact results |
 | `ctx_tree(path, depth)` | `ls` / `find` | Directory maps |
+| `ctx_edit(path, old_string, new_string)` | `Edit` (when Read unavailable) | Search-and-replace without native Read |
 
-If your Edit tool requires a prior native Read, use native Read for that file — then edit normally.
-Write, StrReplace, Delete, Glob, Edit — use normally. Native tools allowed as fallback.
+Edit files: use native Edit/StrReplace if available. If Edit requires Read and Read is unavailable, use ctx_edit.
+Write, Delete, Glob — use normally. NEVER loop on Edit failures — switch to ctx_edit immediately.
 ";
 
 pub fn install_agent_hook(agent: &str, global: bool) {
