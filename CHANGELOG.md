@@ -3,6 +3,29 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.16.3] — 2026-04-04
+
+### Windows Path Fix
+
+- **fix(paths)**: `normalize_tool_path()` — automatic MSYS2/Git Bash path conversion (`/c/Users/...` -> `C:/Users/...`), backslash normalization, double-slash cleanup. Applied centrally in server.rs before every tool dispatch (ctx_read, ctx_search, ctx_tree, ctx_semantic_search, ctx_graph, ctx_fill, ctx_multi_read, and 6 more tools)
+- **fix(cache)**: Cache keys are now normalized, so `/c/Users/...` and `C:\Users\...` hit the same cache entry
+
+### Auto-Mode Safety
+
+- **fix(auto-mode)**: `task` mode (IB-filter) is no longer auto-selected — it reorders lines and breaks edit workflows. Still available via explicit `mode: "task"`
+- **fix(auto-mode)**: Raised heuristic thresholds — `map` now triggers at 3k+ tokens (was 2k), code files never auto-select `signatures` (was 5k+, now uses `map` at 8k+)
+- **feat(hints)**: All compressed outputs (`map`, `signatures`, `aggressive`, `entropy`, `task`) now include a clear hint: `[compressed — use mode="full" for complete source]` with exact ctx_read call. Agents never need to fall back to native Read
+
+### full Mode Integrity
+
+- **fix(full)**: Removed silent `maybe_apply_task_filter` that filtered content even in `mode: "full"` for files >1k tokens with active task
+- **fix(full)**: `upgrade_mode_if_stale` no longer degrades `full` to `aggressive` after 1h idle — full stays full
+
+### Tests
+
+- 12 new unit tests for path normalization (MSYS2, backslash, double-slash, trailing slash, UNC, root paths)
+- 377 total tests passing
+
 ## [2.16.2] — 2026-04-03
 
 ### Codex MCP Compatibility

@@ -18,7 +18,7 @@ impl ServerHandler for LeanCtxServer {
         let instructions = build_instructions(self.crp_mode);
 
         InitializeResult::new(capabilities)
-            .with_server_info(Implementation::new("lean-ctx", "2.16.2"))
+            .with_server_info(Implementation::new("lean-ctx", "2.16.3"))
             .with_instructions(instructions)
     }
 
@@ -43,7 +43,7 @@ impl ServerHandler for LeanCtxServer {
         let capabilities = ServerCapabilities::builder().enable_tools().build();
 
         Ok(InitializeResult::new(capabilities)
-            .with_server_info(Implementation::new("lean-ctx", "2.16.2"))
+            .with_server_info(Implementation::new("lean-ctx", "2.16.3"))
             .with_instructions(instructions))
     }
 
@@ -565,6 +565,7 @@ list, info.",
         let result_text = match name {
             "ctx_read" => {
                 let path = get_str(args, "path")
+                    .map(|p| crate::hooks::normalize_tool_path(&p))
                     .ok_or_else(|| ErrorData::invalid_params("path is required", None))?;
                 let current_task = {
                     let session = self.session.read().await;
@@ -686,7 +687,10 @@ list, info.",
             }
             "ctx_multi_read" => {
                 let paths = get_str_array(args, "paths")
-                    .ok_or_else(|| ErrorData::invalid_params("paths array is required", None))?;
+                    .ok_or_else(|| ErrorData::invalid_params("paths array is required", None))?
+                    .into_iter()
+                    .map(|p| crate::hooks::normalize_tool_path(&p))
+                    .collect::<Vec<_>>();
                 let mode = get_str(args, "mode").unwrap_or_else(|| "full".to_string());
                 let current_task = {
                     let session = self.session.read().await;
@@ -717,7 +721,9 @@ list, info.",
                 output
             }
             "ctx_tree" => {
-                let path = get_str(args, "path").unwrap_or_else(|| ".".to_string());
+                let path = crate::hooks::normalize_tool_path(
+                    &get_str(args, "path").unwrap_or_else(|| ".".to_string()),
+                );
                 let depth = get_int(args, "depth").unwrap_or(3) as usize;
                 let show_hidden = get_bool(args, "show_hidden").unwrap_or(false);
                 let (result, original) = crate::tools::ctx_tree::handle(&path, depth, show_hidden);
@@ -779,7 +785,9 @@ list, info.",
             "ctx_search" => {
                 let pattern = get_str(args, "pattern")
                     .ok_or_else(|| ErrorData::invalid_params("pattern is required", None))?;
-                let path = get_str(args, "path").unwrap_or_else(|| ".".to_string());
+                let path = crate::hooks::normalize_tool_path(
+                    &get_str(args, "path").unwrap_or_else(|| ".".to_string()),
+                );
                 let ext = get_str(args, "ext");
                 let max = get_int(args, "max_results").unwrap_or(20) as usize;
                 let no_gitignore = get_bool(args, "ignore_gitignore").unwrap_or(false);
@@ -837,6 +845,7 @@ list, info.",
             }
             "ctx_benchmark" => {
                 let path = get_str(args, "path")
+                    .map(|p| crate::hooks::normalize_tool_path(&p))
                     .ok_or_else(|| ErrorData::invalid_params("path is required", None))?;
                 let action = get_str(args, "action").unwrap_or_default();
                 let result = if action == "project" {
@@ -864,6 +873,7 @@ list, info.",
             }
             "ctx_analyze" => {
                 let path = get_str(args, "path")
+                    .map(|p| crate::hooks::normalize_tool_path(&p))
                     .ok_or_else(|| ErrorData::invalid_params("path is required", None))?;
                 let result = crate::tools::ctx_analyze::handle(&path, self.crp_mode);
                 self.record_call("ctx_analyze", 0, 0, None).await;
@@ -878,6 +888,7 @@ list, info.",
             }
             "ctx_smart_read" => {
                 let path = get_str(args, "path")
+                    .map(|p| crate::hooks::normalize_tool_path(&p))
                     .ok_or_else(|| ErrorData::invalid_params("path is required", None))?;
                 let mut cache = self.cache.write().await;
                 let output = crate::tools::ctx_smart_read::handle(&mut cache, &path, self.crp_mode);
@@ -895,6 +906,7 @@ list, info.",
             }
             "ctx_delta" => {
                 let path = get_str(args, "path")
+                    .map(|p| crate::hooks::normalize_tool_path(&p))
                     .ok_or_else(|| ErrorData::invalid_params("path is required", None))?;
                 let mut cache = self.cache.write().await;
                 let output = crate::tools::ctx_delta::handle(&mut cache, &path);
@@ -932,7 +944,10 @@ list, info.",
             }
             "ctx_fill" => {
                 let paths = get_str_array(args, "paths")
-                    .ok_or_else(|| ErrorData::invalid_params("paths array is required", None))?;
+                    .ok_or_else(|| ErrorData::invalid_params("paths array is required", None))?
+                    .into_iter()
+                    .map(|p| crate::hooks::normalize_tool_path(&p))
+                    .collect::<Vec<_>>();
                 let budget = get_int(args, "budget")
                     .ok_or_else(|| ErrorData::invalid_params("budget is required", None))?
                     as usize;
@@ -978,8 +993,10 @@ list, info.",
             "ctx_graph" => {
                 let action = get_str(args, "action")
                     .ok_or_else(|| ErrorData::invalid_params("action is required", None))?;
-                let path = get_str(args, "path");
-                let root = get_str(args, "project_root").unwrap_or_else(|| ".".to_string());
+                let path = get_str(args, "path").map(|p| crate::hooks::normalize_tool_path(&p));
+                let root = crate::hooks::normalize_tool_path(
+                    &get_str(args, "project_root").unwrap_or_else(|| ".".to_string()),
+                );
                 let mut cache = self.cache.write().await;
                 let result = crate::tools::ctx_graph::handle(
                     &action,
@@ -1025,9 +1042,11 @@ list, info.",
                         format!("Cache cleared — {count} file(s) removed. Next ctx_read will return full content.")
                     }
                     "invalidate" => {
-                        let path = get_str(args, "path").ok_or_else(|| {
-                            ErrorData::invalid_params("path is required for invalidate", None)
-                        })?;
+                        let path = get_str(args, "path")
+                            .map(|p| crate::hooks::normalize_tool_path(&p))
+                            .ok_or_else(|| {
+                                ErrorData::invalid_params("path is required for invalidate", None)
+                            })?;
                         if cache.invalidate(&path) {
                             format!(
                                 "Invalidated cache for {}. Next ctx_read will return full content.",
@@ -1146,7 +1165,7 @@ list, info.",
             }
             "ctx_overview" => {
                 let task = get_str(args, "task");
-                let path = get_str(args, "path");
+                let path = get_str(args, "path").map(|p| crate::hooks::normalize_tool_path(&p));
                 let cache = self.cache.read().await;
                 let result = crate::tools::ctx_overview::handle(
                     &cache,
@@ -1161,7 +1180,7 @@ list, info.",
             }
             "ctx_preload" => {
                 let task = get_str(args, "task").unwrap_or_default();
-                let path = get_str(args, "path");
+                let path = get_str(args, "path").map(|p| crate::hooks::normalize_tool_path(&p));
                 let mut cache = self.cache.write().await;
                 let result = crate::tools::ctx_preload::handle(
                     &mut cache,
@@ -1183,7 +1202,9 @@ list, info.",
             "ctx_semantic_search" => {
                 let query = get_str(args, "query")
                     .ok_or_else(|| ErrorData::invalid_params("query is required", None))?;
-                let path = get_str(args, "path").unwrap_or_else(|| ".".to_string());
+                let path = crate::hooks::normalize_tool_path(
+                    &get_str(args, "path").unwrap_or_else(|| ".".to_string()),
+                );
                 let top_k = get_int(args, "top_k").unwrap_or(10) as usize;
                 let action = get_str(args, "action").unwrap_or_default();
                 let result = if action == "reindex" {
@@ -1210,7 +1231,8 @@ list, info.",
         }
 
         if name == "ctx_read" {
-            let read_path = get_str(args, "path").unwrap_or_default();
+            let read_path =
+                crate::hooks::normalize_tool_path(&get_str(args, "path").unwrap_or_default());
             let project_root = {
                 let session = self.session.read().await;
                 session.project_root.clone()

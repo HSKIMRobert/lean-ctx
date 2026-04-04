@@ -224,7 +224,7 @@ impl LeanCtxServer {
             return mode;
         }
         match mode {
-            "full" => "aggressive",
+            "full" => "full",
             "map" => "signatures",
             m => m,
         }
