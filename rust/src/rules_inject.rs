@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 const MARKER: &str = "# lean-ctx — Context Engineering Layer";
 const END_MARKER: &str = "<!-- /lean-ctx -->";
-const RULES_VERSION: &str = "lean-ctx-rules-v5";
+const RULES_VERSION: &str = "lean-ctx-rules-v6";
 
 // ---------------------------------------------------------------------------
 // Rules content for SHARED config files (appended to user's existing config).
@@ -10,20 +10,20 @@ const RULES_VERSION: &str = "lean-ctx-rules-v5";
 // Used for: CLAUDE.md, instructions.md, GEMINI.md, copilot-instructions.md
 // ---------------------------------------------------------------------------
 const RULES_SHARED: &str = r#"# lean-ctx — Context Engineering Layer
-<!-- lean-ctx-rules-v5 -->
+<!-- lean-ctx-rules-v6 -->
 
-MANDATORY: Use lean-ctx MCP tools for ALL reads and searches. Native Read/Grep/Shell are FORBIDDEN.
+PREFER lean-ctx MCP tools over native equivalents for token savings:
 
-| FORBIDDEN | USE INSTEAD |
-|-----------|-------------|
-| `Read` / `cat` / `head` / `tail` | `ctx_read(path)` — cached, 8 compression modes |
-| `Shell` / `bash` / terminal | `ctx_shell(command)` — pattern compression |
-| `Grep` / `rg` / search | `ctx_search(pattern, path)` — compact results |
-| `ls` / `find` / `tree` | `ctx_tree(path, depth)` — directory maps |
+| PREFER | OVER | Why |
+|--------|------|-----|
+| `ctx_read(path)` | `Read` / `cat` | Cached, 8 compression modes, re-reads ~13 tokens |
+| `ctx_shell(command)` | `Shell` / `bash` | Pattern compression for git/npm/cargo output |
+| `ctx_search(pattern, path)` | `Grep` / `rg` | Compact, token-efficient results |
+| `ctx_tree(path, depth)` | `ls` / `find` | Compact directory maps |
 
-Keep using Write, StrReplace, Delete, Glob normally (no lean-ctx replacement).
-
-REMINDER: NEVER use Read, Shell, Grep, or ls. ALWAYS use ctx_read, ctx_shell, ctx_search, ctx_tree.
+If your Edit tool requires a prior native Read, use native Read for that file — then edit normally.
+Write, StrReplace, Delete, Glob, Edit → use normally (no replacement).
+Native tools are allowed as fallback — never get stuck.
 <!-- /lean-ctx -->"#;
 
 // ---------------------------------------------------------------------------
@@ -32,17 +32,17 @@ REMINDER: NEVER use Read, Shell, Grep, or ls. ALWAYS use ctx_read, ctx_shell, ct
 // Used for: Windsurf, Zed, Cline, Roo Code, OpenCode, Continue, Aider
 // ---------------------------------------------------------------------------
 const RULES_DEDICATED: &str = r#"# lean-ctx — Context Engineering Layer
-<!-- lean-ctx-rules-v5 -->
+<!-- lean-ctx-rules-v6 -->
 
-MANDATORY: Use lean-ctx MCP tools for ALL reads and searches. Native Read/Grep/Shell are FORBIDDEN.
+PREFER lean-ctx MCP tools over native equivalents for token savings:
 
-## Tool replacements (MUST use):
-| FORBIDDEN | USE INSTEAD | Why |
-|-----------|-------------|-----|
-| `Read` / `cat` / `head` | `ctx_read(path)` | Cached, 8 compression modes, re-reads ~13 tokens |
-| `Shell` / `bash` | `ctx_shell(command)` | Pattern compression for git/npm/cargo output |
-| `Grep` / `rg` | `ctx_search(pattern, path)` | Compact, token-efficient results |
-| `ls` / `find` | `ctx_tree(path, depth)` | Compact directory maps |
+## Tool preference:
+| PREFER | OVER | Why |
+|--------|------|-----|
+| `ctx_read(path)` | `Read` / `cat` | Cached, 8 compression modes, re-reads ~13 tokens |
+| `ctx_shell(command)` | `Shell` / `bash` | Pattern compression for git/npm/cargo output |
+| `ctx_search(pattern, path)` | `Grep` / `rg` | Compact, token-efficient results |
+| `ctx_tree(path, depth)` | `ls` / `find` | Compact directory maps |
 
 ## ctx_read modes:
 - `full` — cached read (files you edit)
@@ -51,14 +51,13 @@ MANDATORY: Use lean-ctx MCP tools for ALL reads and searches. Native Read/Grep/S
 - `diff` — changed lines after edits
 - `lines:N-M` — specific range
 
-## Keep using (no lean-ctx replacement):
-Write, StrReplace, Delete, Glob — use normally.
+## Edit compatibility:
+If your Edit tool requires a prior native Read, use native Read for that file — then edit normally.
+Write, StrReplace, Delete, Glob, Edit → use normally. Native tools are allowed as fallback.
 
 ## Proactive (use without being asked):
 - `ctx_overview(task)` at session start
 - `ctx_compress` when context grows large
-
-REMINDER: NEVER use Read, Shell, Grep, or ls. ALWAYS use ctx_read, ctx_shell, ctx_search, ctx_tree.
 <!-- /lean-ctx -->"#;
 
 // ---------------------------------------------------------------------------
@@ -67,23 +66,23 @@ REMINDER: NEVER use Read, Shell, Grep, or ls. ALWAYS use ctx_read, ctx_shell, ct
 // LITM-optimized: critical warning at top and bottom.
 // ---------------------------------------------------------------------------
 const RULES_CURSOR_MDC: &str = r#"---
-description: "lean-ctx: ALWAYS use ctx_read/ctx_shell/ctx_search/ctx_tree instead of Read/Shell/Grep/ls"
+description: "lean-ctx: prefer ctx_read/ctx_shell/ctx_search/ctx_tree over Read/Shell/Grep/ls for token savings"
 alwaysApply: true
 ---
 
 # lean-ctx — Context Engineering Layer
-<!-- lean-ctx-rules-v5 -->
+<!-- lean-ctx-rules-v6 -->
 
-CRITICAL: NEVER use native Read, Shell, Grep, or ls tools. ALWAYS use lean-ctx MCP equivalents below.
+PREFER lean-ctx MCP tools over native equivalents for token savings:
 
-## Tool Mapping (MANDATORY)
+## Tool Mapping
 
-| FORBIDDEN | USE INSTEAD | Why |
-|-----------|-------------|-----|
-| `Read` | `ctx_read` | Session caching, 8 compression modes, re-reads cost ~13 tokens |
-| `Shell` | `ctx_shell` | Pattern-based compression for git, npm, cargo, docker, tsc |
-| `Grep` | `ctx_search` | Compact context, token-efficient results |
-| `ls`, `find` | `ctx_tree` | Compact directory maps with file counts |
+| PREFER | OVER | Why |
+|--------|------|-----|
+| `ctx_read` | `Read` | Session caching, 8 compression modes, re-reads cost ~13 tokens |
+| `ctx_shell` | `Shell` | Pattern-based compression for git, npm, cargo, docker, tsc |
+| `ctx_search` | `Grep` | Compact context, token-efficient results |
+| `ctx_tree` | `ls`, `find` | Compact directory maps with file counts |
 
 ## ctx_read Modes
 
@@ -93,16 +92,11 @@ CRITICAL: NEVER use native Read, Shell, Grep, or ls tools. ALWAYS use lean-ctx M
 - `diff` — changed lines only (use after edits)
 - `lines:N-M` — specific range
 
-## Rules
+## Edit compatibility
 
-- Use `ctx_read(path, mode="full")` for every file read before editing
-- Use `ctx_read(path, mode="map")` for files you only need as context
-- Use `ctx_shell(cmd)` for every shell command
-- Use `ctx_search(pattern, path)` instead of Grep
-- Use `ctx_tree` instead of `ls` or `find` for directory exploration
-- The `Write`, `StrReplace`, `Delete`, `Glob` tools have no lean-ctx equivalent — use them normally
-
-REMINDER: NEVER use native Read, Shell, Grep, or ls. ALWAYS use ctx_read, ctx_shell, ctx_search, ctx_tree. Every single time.
+- If your Edit tool requires a prior native Read, use native Read for that file — then edit normally.
+- Write, StrReplace, Delete, Glob, Edit → use normally (no lean-ctx replacement).
+- Native tools are allowed as fallback — never get stuck.
 <!-- /lean-ctx -->"#;
 
 // ---------------------------------------------------------------------------
@@ -571,13 +565,13 @@ mod tests {
         let lines: Vec<&str> = RULES_SHARED.lines().collect();
         let first_5 = lines[..5.min(lines.len())].join("\n");
         assert!(
-            first_5.contains("MANDATORY") || first_5.contains("FORBIDDEN"),
-            "LITM: critical instruction must be near start"
+            first_5.contains("PREFER") || first_5.contains("lean-ctx"),
+            "LITM: preference instruction must be near start"
         );
         let last_5 = lines[lines.len().saturating_sub(5)..].join("\n");
         assert!(
-            last_5.contains("REMINDER") || last_5.contains("NEVER"),
-            "LITM: reminder must be near end"
+            last_5.contains("fallback") || last_5.contains("native"),
+            "LITM: fallback note must be near end"
         );
     }
 
@@ -595,13 +589,13 @@ mod tests {
         let lines: Vec<&str> = RULES_DEDICATED.lines().collect();
         let first_5 = lines[..5.min(lines.len())].join("\n");
         assert!(
-            first_5.contains("MANDATORY") || first_5.contains("FORBIDDEN"),
-            "LITM: critical instruction must be near start"
+            first_5.contains("PREFER") || first_5.contains("lean-ctx"),
+            "LITM: preference instruction must be near start"
         );
         let last_5 = lines[lines.len().saturating_sub(5)..].join("\n");
         assert!(
-            last_5.contains("REMINDER") || last_5.contains("NEVER"),
-            "LITM: reminder must be near end"
+            last_5.contains("fallback") || last_5.contains("ctx_compress"),
+            "LITM: practical note must be near end"
         );
     }
 
@@ -610,13 +604,13 @@ mod tests {
         let lines: Vec<&str> = RULES_CURSOR_MDC.lines().collect();
         let first_10 = lines[..10.min(lines.len())].join("\n");
         assert!(
-            first_10.contains("CRITICAL") || first_10.contains("NEVER"),
-            "LITM: critical instruction must be near start of MDC"
+            first_10.contains("PREFER") || first_10.contains("lean-ctx"),
+            "LITM: preference instruction must be near start of MDC"
         );
         let last_5 = lines[lines.len().saturating_sub(5)..].join("\n");
         assert!(
-            last_5.contains("REMINDER") || last_5.contains("NEVER"),
-            "LITM: reminder must be near end of MDC"
+            last_5.contains("fallback") || last_5.contains("native"),
+            "LITM: fallback note must be near end of MDC"
         );
     }
 

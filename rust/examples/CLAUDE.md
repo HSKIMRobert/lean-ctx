@@ -26,4 +26,6 @@ lean-ctx -c npm install   # compressed output
 - `aggressive` — syntax stripped
 - `entropy` — Shannon + Jaccard filtering
 
-Write, StrReplace, Delete have no lean-ctx equivalent — use them normally.
+If your Edit tool requires a prior native Read, use native Read for that file — then edit normally.
+Write, StrReplace, Delete, Edit have no lean-ctx equivalent — use them normally.
+Native tools are allowed as fallback — never get stuck.
