@@ -66,6 +66,37 @@ pub fn to_bash_compatible_path(path: &str) -> String {
     }
 }
 
+/// Normalize paths from any client format to a consistent OS-native form.
+/// Handles MSYS2/Git Bash (`/c/Users/...` -> `C:/Users/...`), mixed separators,
+/// double slashes, and trailing slashes. Always uses forward slashes for consistency.
+pub fn normalize_tool_path(path: &str) -> String {
+    let mut p = path.to_string();
+
+    // MSYS2/Git Bash: /c/Users/... -> C:/Users/...
+    if p.len() >= 3
+        && p.starts_with('/')
+        && p.as_bytes()[1].is_ascii_alphabetic()
+        && p.as_bytes()[2] == b'/'
+    {
+        let drive = p.as_bytes()[1].to_ascii_uppercase() as char;
+        p = format!("{drive}:{}", &p[2..]);
+    }
+
+    p = p.replace('\\', "/");
+
+    // Collapse double slashes (preserve UNC paths starting with //)
+    while p.contains("//") && !p.starts_with("//") {
+        p = p.replace("//", "/");
+    }
+
+    // Remove trailing slash (unless root like "/" or "C:/")
+    if p.len() > 1 && p.ends_with('/') && !p.ends_with(":/") {
+        p.pop();
+    }
+
+    p
+}
+
 fn generate_rewrite_script(binary: &str) -> String {
     format!(
         r#"#!/usr/bin/env bash
@@ -1002,5 +1033,89 @@ mod tests {
     #[test]
     fn bash_path_bare_name_unchanged() {
         assert_eq!(to_bash_compatible_path("lean-ctx"), "lean-ctx");
+    }
+
+    #[test]
+    fn normalize_msys2_path() {
+        assert_eq!(
+            normalize_tool_path("/c/Users/game/Downloads/project"),
+            "C:/Users/game/Downloads/project"
+        );
+    }
+
+    #[test]
+    fn normalize_msys2_drive_d() {
+        assert_eq!(
+            normalize_tool_path("/d/Projects/app/src"),
+            "D:/Projects/app/src"
+        );
+    }
+
+    #[test]
+    fn normalize_backslashes() {
+        assert_eq!(
+            normalize_tool_path("C:\\Users\\game\\project\\src"),
+            "C:/Users/game/project/src"
+        );
+    }
+
+    #[test]
+    fn normalize_mixed_separators() {
+        assert_eq!(
+            normalize_tool_path("C:\\Users/game\\project/src"),
+            "C:/Users/game/project/src"
+        );
+    }
+
+    #[test]
+    fn normalize_double_slashes() {
+        assert_eq!(
+            normalize_tool_path("/home/user//project///src"),
+            "/home/user/project/src"
+        );
+    }
+
+    #[test]
+    fn normalize_trailing_slash() {
+        assert_eq!(
+            normalize_tool_path("/home/user/project/"),
+            "/home/user/project"
+        );
+    }
+
+    #[test]
+    fn normalize_root_preserved() {
+        assert_eq!(normalize_tool_path("/"), "/");
+    }
+
+    #[test]
+    fn normalize_windows_root_preserved() {
+        assert_eq!(normalize_tool_path("C:/"), "C:/");
+    }
+
+    #[test]
+    fn normalize_unix_path_unchanged() {
+        assert_eq!(
+            normalize_tool_path("/home/user/project/src/main.rs"),
+            "/home/user/project/src/main.rs"
+        );
+    }
+
+    #[test]
+    fn normalize_relative_path_unchanged() {
+        assert_eq!(normalize_tool_path("src/main.rs"), "src/main.rs");
+    }
+
+    #[test]
+    fn normalize_dot_unchanged() {
+        assert_eq!(normalize_tool_path("."), ".");
+    }
+
+    #[test]
+    fn normalize_unc_path_preserved() {
+        assert_eq!(
+            normalize_tool_path("//server/share/file"),
+            "//server/share/file"
+        );
     }
 }
