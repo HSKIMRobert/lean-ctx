@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 const MARKER: &str = "# lean-ctx — Context Engineering Layer";
 const END_MARKER: &str = "<!-- /lean-ctx -->";
-const RULES_VERSION: &str = "lean-ctx-rules-v6";
+const RULES_VERSION: &str = "lean-ctx-rules-v7";
 
 // ---------------------------------------------------------------------------
 // Rules content for SHARED config files (appended to user's existing config).
@@ -10,7 +10,7 @@ const RULES_VERSION: &str = "lean-ctx-rules-v6";
 // Used for: CLAUDE.md, instructions.md, GEMINI.md, copilot-instructions.md
 // ---------------------------------------------------------------------------
 const RULES_SHARED: &str = r#"# lean-ctx — Context Engineering Layer
-<!-- lean-ctx-rules-v6 -->
+<!-- lean-ctx-rules-v7 -->
 
 PREFER lean-ctx MCP tools over native equivalents for token savings:
 
@@ -20,10 +20,10 @@ PREFER lean-ctx MCP tools over native equivalents for token savings:
 | `ctx_shell(command)` | `Shell` / `bash` | Pattern compression for git/npm/cargo output |
 | `ctx_search(pattern, path)` | `Grep` / `rg` | Compact, token-efficient results |
 | `ctx_tree(path, depth)` | `ls` / `find` | Compact directory maps |
+| `ctx_edit(path, old_string, new_string)` | `Edit` (when Read unavailable) | Search-and-replace without native Read |
 
-If your Edit tool requires a prior native Read, use native Read for that file — then edit normally.
-Write, StrReplace, Delete, Glob, Edit → use normally (no replacement).
-Native tools are allowed as fallback — never get stuck.
+Edit files: use native Edit/StrReplace if available. If Edit requires Read and Read is unavailable, use ctx_edit.
+Write, Delete, Glob → use normally. NEVER loop on Edit failures — switch to ctx_edit immediately.
 <!-- /lean-ctx -->"#;
 
 // ---------------------------------------------------------------------------
@@ -32,7 +32,7 @@ Native tools are allowed as fallback — never get stuck.
 // Used for: Windsurf, Zed, Cline, Roo Code, OpenCode, Continue, Aider
 // ---------------------------------------------------------------------------
 const RULES_DEDICATED: &str = r#"# lean-ctx — Context Engineering Layer
-<!-- lean-ctx-rules-v6 -->
+<!-- lean-ctx-rules-v7 -->
 
 PREFER lean-ctx MCP tools over native equivalents for token savings:
 
@@ -43,6 +43,7 @@ PREFER lean-ctx MCP tools over native equivalents for token savings:
 | `ctx_shell(command)` | `Shell` / `bash` | Pattern compression for git/npm/cargo output |
 | `ctx_search(pattern, path)` | `Grep` / `rg` | Compact, token-efficient results |
 | `ctx_tree(path, depth)` | `ls` / `find` | Compact directory maps |
+| `ctx_edit(path, old_string, new_string)` | `Edit` (when Read unavailable) | Search-and-replace without native Read |
 
 ## ctx_read modes:
 - `full` — cached read (files you edit)
@@ -51,9 +52,9 @@ PREFER lean-ctx MCP tools over native equivalents for token savings:
 - `diff` — changed lines after edits
 - `lines:N-M` — specific range
 
-## Edit compatibility:
-If your Edit tool requires a prior native Read, use native Read for that file — then edit normally.
-Write, StrReplace, Delete, Glob, Edit → use normally. Native tools are allowed as fallback.
+## File editing:
+Use native Edit/StrReplace if available. If Edit requires Read and Read is unavailable, use ctx_edit.
+Write, Delete, Glob → use normally. NEVER loop on Edit failures — switch to ctx_edit immediately.
 
 ## Proactive (use without being asked):
 - `ctx_overview(task)` at session start
@@ -71,7 +72,7 @@ alwaysApply: true
 ---
 
 # lean-ctx — Context Engineering Layer
-<!-- lean-ctx-rules-v6 -->
+<!-- lean-ctx-rules-v7 -->
 
 PREFER lean-ctx MCP tools over native equivalents for token savings:
 
@@ -83,6 +84,7 @@ PREFER lean-ctx MCP tools over native equivalents for token savings:
 | `ctx_shell` | `Shell` | Pattern-based compression for git, npm, cargo, docker, tsc |
 | `ctx_search` | `Grep` | Compact context, token-efficient results |
 | `ctx_tree` | `ls`, `find` | Compact directory maps with file counts |
+| `ctx_edit` | `Edit` (when Read unavailable) | Search-and-replace without native Read dependency |
 
 ## ctx_read Modes
 
@@ -92,11 +94,12 @@ PREFER lean-ctx MCP tools over native equivalents for token savings:
 - `diff` — changed lines only (use after edits)
 - `lines:N-M` — specific range
 
-## Edit compatibility
+## File editing
 
-- If your Edit tool requires a prior native Read, use native Read for that file — then edit normally.
-- Write, StrReplace, Delete, Glob, Edit → use normally (no lean-ctx replacement).
-- Native tools are allowed as fallback — never get stuck.
+- Use native Edit/StrReplace when available.
+- If Edit requires native Read and Read is unavailable: use `ctx_edit(path, old_string, new_string)` instead.
+- NEVER loop trying to make Edit work. If it fails, switch to ctx_edit immediately.
+- Write, Delete, Glob → use normally.
 <!-- /lean-ctx -->"#;
 
 // ---------------------------------------------------------------------------

@@ -18,7 +18,7 @@ impl ServerHandler for LeanCtxServer {
         let instructions = build_instructions(self.crp_mode);
 
         InitializeResult::new(capabilities)
-            .with_server_info(Implementation::new("lean-ctx", "2.16.4"))
+            .with_server_info(Implementation::new("lean-ctx", "2.16.5"))
             .with_instructions(instructions)
     }
 
@@ -43,7 +43,7 @@ impl ServerHandler for LeanCtxServer {
         let capabilities = ServerCapabilities::builder().enable_tools().build();
 
         Ok(InitializeResult::new(capabilities)
-            .with_server_info(Implementation::new("lean-ctx", "2.16.4"))
+            .with_server_info(Implementation::new("lean-ctx", "2.16.5"))
             .with_instructions(instructions))
     }
 
@@ -238,6 +238,21 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
                                 "path": { "type": "string", "description": "Absolute file path" }
                             },
                             "required": ["path"]
+                        }),
+                    ),
+                    tool_def(
+                        "ctx_edit",
+                        "Edit a file via search-and-replace. Works without native Read/Edit tools. Use this when the IDE's Edit tool requires Read but Read is unavailable.",
+                        json!({
+                            "type": "object",
+                            "properties": {
+                                "path": { "type": "string", "description": "Absolute file path" },
+                                "old_string": { "type": "string", "description": "Exact text to find and replace (must be unique unless replace_all=true)" },
+                                "new_string": { "type": "string", "description": "Replacement text" },
+                                "replace_all": { "type": "boolean", "description": "Replace all occurrences (default: false)", "default": false },
+                                "create": { "type": "boolean", "description": "Create a new file with new_string as content (ignores old_string)", "default": false }
+                            },
+                            "required": ["path", "new_string"]
                         }),
                     ),
                     tool_def(
@@ -926,6 +941,44 @@ list, info.",
                 .await;
                 output
             }
+            "ctx_edit" => {
+                let path = get_str(args, "path")
+                    .map(|p| crate::hooks::normalize_tool_path(&p))
+                    .ok_or_else(|| ErrorData::invalid_params("path is required", None))?;
+                let old_string = get_str(args, "old_string").unwrap_or_default();
+                let new_string = get_str(args, "new_string")
+                    .ok_or_else(|| ErrorData::invalid_params("new_string is required", None))?;
+                let replace_all = args
+                    .as_ref()
+                    .and_then(|a| a.get("replace_all"))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let create = args
+                    .as_ref()
+                    .and_then(|a| a.get("create"))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+
+                let mut cache = self.cache.write().await;
+                let output = crate::tools::ctx_edit::handle(
+                    &mut cache,
+                    crate::tools::ctx_edit::EditParams {
+                        path: path.clone(),
+                        old_string,
+                        new_string,
+                        replace_all,
+                        create,
+                    },
+                );
+                drop(cache);
+
+                {
+                    let mut session = self.session.write().await;
+                    session.mark_modified(&path);
+                }
+                self.record_call("ctx_edit", 0, 0, None).await;
+                output
+            }
             "ctx_dedup" => {
                 let action = get_str(args, "action").unwrap_or_default();
                 if action == "apply" {
@@ -1364,10 +1417,12 @@ lean-ctx MCP — tool mapping:\n\
 • Shell/bash -> ctx_shell(command)\n\
 • Grep/rg -> ctx_search(pattern, path)\n\
 • ls/find -> ctx_tree(path, depth)\n\
-• Write, StrReplace, Delete, Glob, Edit -> use normally (no replacement)\n\
+• Edit/StrReplace -> use native if available, otherwise use ctx_edit(path, old_string, new_string)\n\
+• Write, Delete, Glob -> use normally\n\
 \n\
-IMPORTANT: If your Edit tool requires a prior native Read, use native Read for that file. \
-ctx_read is preferred for all other reads. Native tools are allowed as fallback — never get stuck.\n\
+FILE EDITING: Use your IDE's native Edit/StrReplace when available. \
+If Edit requires native Read and Read is unavailable, use ctx_edit instead — it reads, replaces, and writes in one call. \
+NEVER loop trying to make Edit work. If Edit fails, switch to ctx_edit immediately.\n\
 \n\
 ctx_read modes: full (cached, for edits), map (deps+API), signatures, diff, task (IB-filtered), \
 reference, aggressive, entropy, lines:N-M. Auto-selects when unspecified. Re-reads ~13 tokens. File refs F1,F2.. persist.\n\
@@ -1388,8 +1443,8 @@ CEP v1: 1.ACT FIRST 2.DELTA ONLY (Fn refs) 3.STRUCTURED (+/-/~) 4.ONE LINE PER A
 \n\
 --- TOOL PREFERENCE (LITM-END) ---\n\
 Prefer: ctx_read over Read | ctx_shell over Shell | ctx_search over Grep | ctx_tree over ls\n\
-Native tools allowed when Edit/Write requires prior Read, or as fallback.\n\
-Write, StrReplace, Delete, Glob, Edit -> use normally",
+Edit files: native Edit/StrReplace if available, ctx_edit if Edit requires unavailable Read.\n\
+Write, Delete, Glob -> use normally. NEVER loop on Edit failures — use ctx_edit.",
         decoder_block = crate::core::protocol::instruction_decoder_block()
     );
 
@@ -1784,6 +1839,7 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
         ("ctx_discover", "Find missed compression opportunities in shell history.", json!({"type": "object", "properties": {"limit": {"type": "integer"}}})),
         ("ctx_smart_read", "Auto-select optimal read mode for a file.", json!({"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]})),
         ("ctx_delta", "Incremental diff — sends only changed lines since last read.", json!({"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]})),
+        ("ctx_edit", "Edit a file via search-and-replace. Works without native Read/Edit tools. Use when Edit requires Read but Read is unavailable.", json!({"type": "object", "properties": {"path": {"type": "string"}, "old_string": {"type": "string"}, "new_string": {"type": "string"}, "replace_all": {"type": "boolean"}, "create": {"type": "boolean"}}, "required": ["path", "new_string"]})),
         ("ctx_dedup", "Cross-file dedup: analyze or apply shared block references.", json!({"type": "object", "properties": {"action": {"type": "string"}}})),
         ("ctx_fill", "Budget-aware context fill — auto-selects compression per file within token limit.", json!({"type": "object", "properties": {"paths": {"type": "array", "items": {"type": "string"}}, "budget": {"type": "integer"}}, "required": ["paths", "budget"]})),
         ("ctx_intent", "Intent detection — auto-reads relevant files based on task description.", json!({"type": "object", "properties": {"query": {"type": "string"}, "project_root": {"type": "string"}}, "required": ["query"]})),
