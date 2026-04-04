@@ -978,6 +978,14 @@ pub fn format_gain_themed(t: &Theme) -> String {
         o.push(String::new());
     }
 
+    let m = t.muted.fg();
+    o.push(format!(
+        "    {m}🐛 Found a bug? Run: lean-ctx report-issue{r}"
+    ));
+    o.push(format!(
+        "    {m}📊 Help improve lean-ctx: lean-ctx contribute{r}"
+    ));
+
     o.push(String::new());
     o.push(String::new());
 
@@ -1030,9 +1038,6 @@ fn build_tips(store: &StatsStore) -> Vec<String> {
 
     tips.push("Run ctx_overview(task) at session start for a task-aware project map.".into());
     tips.push("Run lean-ctx dashboard for a live web UI with all your stats.".into());
-    tips.push(
-        "Found a bug? Run lean-ctx report-issue to submit diagnostics directly to GitHub.".into(),
-    );
 
     let cfg = crate::core::config::Config::load();
     if cfg.theme == "default" {

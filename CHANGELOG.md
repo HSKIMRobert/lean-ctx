@@ -3,6 +3,43 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.17.0] — 2026-04-04
+
+### Premium Experience Upgrade — Architecture, Performance & Polish
+
+Major internal refactoring for long-term maintainability, performance improvements for async I/O, unified error handling, and premium polish across CLI, dashboard, and CI pipeline.
+
+#### Architecture
+- **server.rs split** — Monolithic `server.rs` (1918 lines) split into 4 focused modules: `tool_defs.rs` (620L), `instructions.rs` (159L), `cloud_sync.rs` (136L), `server.rs` (1001L). Each module has a single responsibility.
+- **Centralized error handling** — New `LeanCtxError` enum in `core/error.rs` with `thiserror` derive. `From` impls for `io::Error`, `toml::de::Error`, `serde_json::Error`. `Config::save()` migrated as first consumer.
+
+#### Performance
+- **Async I/O for ctx_shell** — `execute_command` wrapped in `tokio::task::spawn_blocking` to prevent blocking the Tokio runtime during shell command execution.
+
+#### CLI
+- **Dynamic version** — All hardcoded version strings replaced with `env!("CARGO_PKG_VERSION")`. Version is now single-sourced from `Cargo.toml`.
+- **report-issue exit code** — Empty title now exits with status 1 for proper script error detection.
+- **Theme migration** — `print_command_box()` migrated from hardcoded ANSI to the `core::theme` system.
+- **upgrade → update** — `lean-ctx upgrade` now prints deprecation notice and delegates to `lean-ctx update`.
+
+#### Dashboard
+- **Offline fonts** — Removed Google Fonts CDN dependency, switched to system font stacks.
+- **Dynamic version** — Version display fetched from `/api/version` instead of hardcoded.
+- **Empty state UX** — "No data yet" message links to Getting Started guide.
+- **Connection retry** — Auto-retry with clear user message when dashboard API is unavailable.
+
+#### Setup
+- **Compact doctor** — New `doctor::run_compact()` provides concise diagnostics during `lean-ctx setup`, reducing noise for new users.
+
+#### Tool Robustness
+- **ctx_search** — Reports count of files skipped due to encoding/permission errors.
+- **ctx_read** — Warns on unknown mode (falls back to `full`). Shows message when cached content is used after file read failure.
+- **ctx_analyze / ctx_benchmark** — `.unwrap()` on `min_by_key` replaced with `if let Some(...)` to prevent potential panics.
+
+#### CI
+- **Deduplicated audit** — Removed redundant `cargo audit` job (handled in `security-check.yml`).
+- **Release tests** — `cargo test --all-features` now runs before release builds in `release.yml`.
+
 ## [2.16.6] — 2026-04-04
 
 ### ctx_edit — MCP-native file editing with Windows CRLF support

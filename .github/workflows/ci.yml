@@ -54,13 +54,4 @@ jobs:
         working-directory: rust
         run: cargo fmt --check
 
-  audit:
-    name: Security Audit
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install cargo-audit
-        run: cargo install cargo-audit
-      - name: Run audit
-        working-directory: rust
-        run: cargo audit
+  # Security audit runs in security-check.yml workflow
