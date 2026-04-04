@@ -138,7 +138,7 @@ pub fn run_setup() {
     } else {
         terminal_ui::print_status_ok("~/.lean-ctx/ ready");
     }
-    crate::doctor::run();
+    crate::doctor::run_compact();
 
     // Step 5: Data sharing
     terminal_ui::print_step_header(5, 5, "Help Improve lean-ctx");

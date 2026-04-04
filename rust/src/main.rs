@@ -299,7 +299,7 @@ fn shell_quote(s: &str) -> String {
 
 fn print_help() {
     println!(
-        "lean-ctx 2.16.6 — The Intelligence Layer for AI Coding
+        "lean-ctx {version} — The Intelligence Layer for AI Coding
 
 90+ compression patterns | 25 MCP tools | Context Continuity Protocol
 
@@ -421,7 +421,8 @@ TROUBLESHOOTING:
 
 WEBSITE: https://leanctx.com
 GITHUB:  https://github.com/yvgude/lean-ctx
-"
+",
+        version = env!("CARGO_PKG_VERSION"),
     );
 }
 
@@ -788,5 +789,6 @@ fn animate_kpi_countup(t: &core::theme::Theme) {
 }
 
 fn cmd_upgrade() {
-    println!("This feature is not yet available. Stay tuned at https://leanctx.com");
+    println!("'upgrade' has been renamed to 'update'. Running 'lean-ctx update' instead.\n");
+    core::updater::run(&[]);
 }

@@ -136,7 +136,7 @@ fn handle_full_with_auto_delta(
             cache.record_cache_hit(path);
             let existing = cache.get(path).unwrap();
             return format!(
-                "{file_ref}={short} cached {}t {}L",
+                "[using cached version — file read failed]\n{file_ref}={short} cached {}t {}L",
                 existing.read_count, existing.line_count
             );
         }
@@ -440,9 +440,11 @@ fn process_mode(
             let savings = protocol::format_savings(original_tokens, sent);
             format!("{header}\n{extracted}\n{savings}")
         }
-        _ => {
+        unknown => {
             let header = build_header(file_ref, short, ext, content, line_count, true);
-            format!("{header}\n{content}")
+            format!(
+                "[WARNING: unknown mode '{unknown}', falling back to full]\n{header}\n{content}"
+            )
         }
     }
 }
