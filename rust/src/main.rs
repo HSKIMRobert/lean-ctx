@@ -262,7 +262,7 @@ fn run_mcp_server() -> Result<()> {
             .with_writer(std::io::stderr)
             .init();
 
-        tracing::info!("lean-ctx v2.16.5 MCP server starting");
+        tracing::info!("lean-ctx v2.16.6 MCP server starting");
 
         let server = tools::create_server();
         let transport =
@@ -299,7 +299,7 @@ fn shell_quote(s: &str) -> String {
 
 fn print_help() {
     println!(
-        "lean-ctx 2.16.5 — The Intelligence Layer for AI Coding
+        "lean-ctx 2.16.6 — The Intelligence Layer for AI Coding
 
 90+ compression patterns | 25 MCP tools | Context Continuity Protocol
 
@@ -739,7 +739,7 @@ fn print_gain_with_logo() {
     print!("{output}");
     let d = core::theme::dim();
     let r = core::theme::rst();
-    println!("  {d}lean-ctx v2.16.5  |  leanctx.com  |  lean-ctx dashboard{r}");
+    println!("  {d}lean-ctx v2.16.6  |  leanctx.com  |  lean-ctx dashboard{r}");
     println!();
 
     core::version_check::check_background();

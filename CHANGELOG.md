@@ -3,23 +3,22 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [2.16.5] — 2026-04-04
+## [2.16.6] — 2026-04-04
 
-### ctx_edit — MCP-native file editing
+### ctx_edit — MCP-native file editing with Windows CRLF support
 
-In Windsurf + Claude Code extension (and similar environments), the native `Edit` tool requires a prior `Read` call — but `Read` doesn't exist as a tool. Agents entered infinite loops trying to make Edit work, burning through user quota. `ctx_edit` solves this by providing search-and-replace as an MCP tool that works in every environment.
+Agents in Windsurf + Claude Code extension loop when Edit requires unavailable Read.
+`ctx_edit` provides search-and-replace as an MCP tool — no native Read/Edit dependency.
 
 #### Added
-- **`ctx_edit` MCP tool** — Search-and-replace that reads, modifies, and writes files in one call. No native Read/Edit dependency. Parameters: `path`, `old_string`, `new_string`, `replace_all`, `create`.
-- Auto-approved in `lean-ctx setup` for all IDEs.
-
-#### Changed
-- **Instructions v7** — All rules now include `ctx_edit` in the tool mapping table and explicit anti-loop guidance: "NEVER loop on Edit failures — switch to ctx_edit immediately."
-- **PREFER over NEVER** — All injected rules use "PREFER lean-ctx tools" instead of "NEVER use native tools". Native tools are explicitly allowed as fallback.
+- **`ctx_edit` MCP tool** — reads, replaces, and writes files in one call. Parameters: `path`, `old_string`, `new_string`, `replace_all`, `create`.
 
 #### Fixed
-- Agents in Windsurf + CC extension no longer loop when Edit requires unavailable Read.
-- 10%+ quota burn from Edit/Read loops eliminated.
+- **CRLF/LF auto-normalization** — Windows files with `\r\n` now match when agents send `\n` strings (and vice versa). Line endings are preserved.
+- **Trailing whitespace tolerance** — retries with trimmed trailing whitespace per line if exact match fails.
+- **Edit loop prevention** — instructions say "NEVER loop on Edit failures — use ctx_edit immediately".
+- **PREFER over NEVER** — all injected rules use "PREFER lean-ctx tools" instead of "NEVER use native tools".
+- **9 unit tests** covering CRLF, LF, trailing whitespace, and combined scenarios.
 
 ## [2.15.0] — 2026-04-03
 
