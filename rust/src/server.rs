@@ -18,7 +18,7 @@ impl ServerHandler for LeanCtxServer {
         let instructions = build_instructions(self.crp_mode);
 
         InitializeResult::new(capabilities)
-            .with_server_info(Implementation::new("lean-ctx", "2.16.3"))
+            .with_server_info(Implementation::new("lean-ctx", "2.16.4"))
             .with_instructions(instructions)
     }
 
@@ -43,7 +43,7 @@ impl ServerHandler for LeanCtxServer {
         let capabilities = ServerCapabilities::builder().enable_tools().build();
 
         Ok(InitializeResult::new(capabilities)
-            .with_server_info(Implementation::new("lean-ctx", "2.16.3"))
+            .with_server_info(Implementation::new("lean-ctx", "2.16.4"))
             .with_instructions(instructions))
     }
 
@@ -1357,14 +1357,17 @@ fn build_instructions_with_client(crp_mode: CrpMode, client_name: &str) -> Strin
     // Prefix-cache alignment: stable instructions first (API providers cache KV states
     // for shared prefixes), then variable session state after.
     let mut base = format!("\
-CRITICAL: NEVER use native Read, Shell, Grep, or ls tools. ALWAYS use ctx_read, ctx_shell, ctx_search, ctx_tree instead.\n\
+PREFER lean-ctx tools over native equivalents for token savings:\n\
 \n\
 lean-ctx MCP — tool mapping:\n\
 • Read/cat/head/tail -> ctx_read(path, mode)\n\
 • Shell/bash -> ctx_shell(command)\n\
 • Grep/rg -> ctx_search(pattern, path)\n\
 • ls/find -> ctx_tree(path, depth)\n\
-• Write, StrReplace, Delete, Glob -> use normally (no replacement)\n\
+• Write, StrReplace, Delete, Glob, Edit -> use normally (no replacement)\n\
+\n\
+IMPORTANT: If your Edit tool requires a prior native Read, use native Read for that file. \
+ctx_read is preferred for all other reads. Native tools are allowed as fallback — never get stuck.\n\
 \n\
 ctx_read modes: full (cached, for edits), map (deps+API), signatures, diff, task (IB-filtered), \
 reference, aggressive, entropy, lines:N-M. Auto-selects when unspecified. Re-reads ~13 tokens. File refs F1,F2.. persist.\n\
@@ -1383,9 +1386,10 @@ CEP v1: 1.ACT FIRST 2.DELTA ONLY (Fn refs) 3.STRUCTURED (+/-/~) 4.ONE LINE PER A
 {session_block}\
 {knowledge_block}\
 \n\
---- TOOL ENFORCEMENT (LITM-END) ---\n\
-Read/cat/head/tail -> ctx_read | Shell/bash -> ctx_shell | Grep/rg -> ctx_search | ls/find -> ctx_tree\n\
-Write, StrReplace, Delete, Glob -> use normally",
+--- TOOL PREFERENCE (LITM-END) ---\n\
+Prefer: ctx_read over Read | ctx_shell over Shell | ctx_search over Grep | ctx_tree over ls\n\
+Native tools allowed when Edit/Write requires prior Read, or as fallback.\n\
+Write, StrReplace, Delete, Glob, Edit -> use normally",
         decoder_block = crate::core::protocol::instruction_decoder_block()
     );
 

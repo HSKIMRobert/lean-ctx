@@ -259,35 +259,33 @@ pub fn install_project_rules() {
 const AGENTS_MD_TEMPLATE: &str = "\
 # lean-ctx — Context Engineering Layer
 
-MANDATORY: Use lean-ctx MCP tools for ALL reads, searches, and shell commands.
+PREFER lean-ctx MCP tools over native equivalents for token savings:
 
-| FORBIDDEN | USE INSTEAD |
-|-----------|-------------|
-| Read / cat / head / tail | `ctx_read(path)` — cached, 8 compression modes, re-reads ~13 tokens |
-| Shell / bash / terminal | `ctx_shell(command)` — pattern compression for git/npm/cargo output |
-| Grep / rg / search | `ctx_search(pattern, path)` — compact, token-efficient results |
-| ls / find / tree | `ctx_tree(path, depth)` — compact directory maps |
+| PREFER | OVER | Why |
+|--------|------|-----|
+| `ctx_read(path)` | Read / cat / head / tail | Cached, 8 compression modes, re-reads ~13 tokens |
+| `ctx_shell(command)` | Shell / bash / terminal | Pattern compression for git/npm/cargo output |
+| `ctx_search(pattern, path)` | Grep / rg / search | Compact, token-efficient results |
+| `ctx_tree(path, depth)` | ls / find / tree | Compact directory maps |
 
-Keep using Write, StrReplace, Delete, Glob normally (no lean-ctx replacement).
-
-REMINDER: NEVER use native Read, Shell, Grep, or ls. ALWAYS use ctx_read, ctx_shell, ctx_search, ctx_tree.
+If your Edit tool requires a prior native Read, use native Read for that file — then edit normally.
+Write, StrReplace, Delete, Glob, Edit — use normally. Native tools allowed as fallback.
 ";
 
 const CURSORRULES_TEMPLATE: &str = "\
 # lean-ctx — Context Engineering Layer
 
-CRITICAL: NEVER use native Read, Shell, Grep, or ls tools. ALWAYS use lean-ctx MCP equivalents.
+PREFER lean-ctx MCP tools over native equivalents for token savings:
 
-| FORBIDDEN | USE INSTEAD |
-|-----------|-------------|
-| `Read` | `ctx_read(path)` — cached, 8 compression modes |
-| `Shell` | `ctx_shell(command)` — pattern compression |
-| `Grep` | `ctx_search(pattern, path)` — compact results |
-| `ls` / `find` | `ctx_tree(path, depth)` — directory maps |
+| PREFER | OVER | Why |
+|--------|------|-----|
+| `ctx_read(path)` | `Read` | Cached, 8 compression modes |
+| `ctx_shell(command)` | `Shell` | Pattern compression |
+| `ctx_search(pattern, path)` | `Grep` | Compact results |
+| `ctx_tree(path, depth)` | `ls` / `find` | Directory maps |
 
-Write, StrReplace, Delete, Glob — use normally.
-
-REMINDER: NEVER use native Read, Shell, Grep, or ls. ALWAYS use ctx_read, ctx_shell, ctx_search, ctx_tree.
+If your Edit tool requires a prior native Read, use native Read for that file — then edit normally.
+Write, StrReplace, Delete, Glob, Edit — use normally. Native tools allowed as fallback.
 ";
 
 pub fn install_agent_hook(agent: &str, global: bool) {

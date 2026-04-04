@@ -3,79 +3,22 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [2.16.3] — 2026-04-04
+## [2.16.4] — 2026-04-04
 
-### Windows Path Fix
+### Edit Compatibility Fix
 
-- **fix(paths)**: `normalize_tool_path()` — automatic MSYS2/Git Bash path conversion (`/c/Users/...` -> `C:/Users/...`), backslash normalization, double-slash cleanup. Applied centrally in server.rs before every tool dispatch (ctx_read, ctx_search, ctx_tree, ctx_semantic_search, ctx_graph, ctx_fill, ctx_multi_read, and 6 more tools)
-- **fix(cache)**: Cache keys are now normalized, so `/c/Users/...` and `C:\Users\...` hit the same cache entry
+Claude Code Desktop (and similar tools) require a native `Read` call before `Edit` works. lean-ctx's previous instructions (`NEVER use native Read`) blocked this workflow entirely, causing agents to fall back to `Write` (full-file rewrites) or get stuck.
 
-### Auto-Mode Safety
+#### Changed
+- **Instructions: PREFER over NEVER** — All injected rules (MCP server instructions, `.cursor/rules/lean-ctx.mdc`, `CLAUDE.md`, `AGENTS.md`, `.cursorrules`) now use "PREFER lean-ctx tools" instead of "NEVER use native tools". Native tools are explicitly allowed as fallback.
+- **Edit compatibility note** — All rule templates now include: "If your Edit tool requires a prior native Read, use native Read for that file — then edit normally."
+- **Rules version bump** — `lean-ctx-rules-v5` → `lean-ctx-rules-v6` across all templates.
+- **Table headers** — Changed from `FORBIDDEN | USE INSTEAD` to `PREFER | OVER | Why` for clarity.
 
-- **fix(auto-mode)**: `task` mode (IB-filter) is no longer auto-selected — it reorders lines and breaks edit workflows. Still available via explicit `mode: "task"`
-- **fix(auto-mode)**: Raised heuristic thresholds — `map` now triggers at 3k+ tokens (was 2k), code files never auto-select `signatures` (was 5k+, now uses `map` at 8k+)
-- **feat(hints)**: All compressed outputs (`map`, `signatures`, `aggressive`, `entropy`, `task`) now include a clear hint: `[compressed — use mode="full" for complete source]` with exact ctx_read call. Agents never need to fall back to native Read
-
-### full Mode Integrity
-
-- **fix(full)**: Removed silent `maybe_apply_task_filter` that filtered content even in `mode: "full"` for files >1k tokens with active task
-- **fix(full)**: `upgrade_mode_if_stale` no longer degrades `full` to `aggressive` after 1h idle — full stays full
-
-### Tests
-
-- 12 new unit tests for path normalization (MSYS2, backslash, double-slash, trailing slash, UNC, root paths)
-- 377 total tests passing
-
-## [2.16.2] — 2026-04-03
-
-### Codex MCP Compatibility
-
-- **feat(mcp)**: Hybrid stdio transport that auto-detects `Content-Length` framing (Codex/LSP-style) vs JSONL (Cursor/Claude/etc.) and responds in the same protocol — contributed by [@JulienJBO](https://github.com/JulienJBO) ([#48](https://github.com/yvgude/lean-ctx/pull/48))
-- **fix(hooks)**: Suppress Codex hook setup stdout noise during MCP server mode to keep the transport clean
-- 3 new unit tests for JSONL decoding, Content-Length decoding, and framed response encoding
-- New dependencies: `futures`, `tokio-util` (codec), `thiserror`
-
-## [2.16.1] — 2026-04-03
-
-### Patch Release
-
-- **fix(report)**: `lean-ctx report-issue` now reliably finds the `gh` CLI binary by searching common install locations (`/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`) and falling back to `which gh`
-- **fix(report)**: Graceful fallback when GitHub labels don't exist yet on the repository
-- **fix(ci)**: Removed unused import causing CI failure with `RUSTFLAGS=-Dwarnings`
-- **feat(gain)**: Added `report-issue` hint to rotating tips in `lean-ctx gain`
-- **docs**: Added deploy branch security warnings to DEPLOY_CHECKLIST
-
-## [2.16.0] — 2026-04-03
-
-### Intelligence Layer & Bug Fixes
-
-ctx_search hang fix, built-in issue reporting, graph impact analysis, and the intelligence layer that optimizes output tokens without affecting thinking quality.
-
-### Added
-- **`lean-ctx report-issue`** — One-command bug reporting with full diagnostics. Collects 9 sections (environment, config, MCP status, recent tool calls, session state, performance metrics, slow commands, tee logs, project context), anonymizes all paths and secrets, and creates a GitHub issue directly. Supports `--dry-run`, `--include-tee`, `--title`, and `--description` flags. Report is also saved locally to `~/.lean-ctx/last-report.md`.
-- **Per-Tool Latency Tracking** — Every MCP tool call over 100ms is now logged to `~/.lean-ctx/tool-calls.log` with timestamp, duration, token counts, and mode. Calls exceeding 5 seconds are marked `**SLOW**`. Log is ring-buffered at 50 entries and included in `report-issue` output.
-- **Intelligence Block (Output Efficiency)** — MCP server instructions now include output optimization hints: no-echo (don't repeat tool output), no-narration comments, delta-only code changes. These reduce output tokens by 15–40% without affecting thinking quality. Architecture tasks are explicitly protected: "architecture tasks need thorough analysis".
-- **Task Briefing Pipeline** — Automatic task classification (9 types: Generate, FixBug, Refactor, Explore, Test, Debug, Config, Deploy, Review) with confidence scoring. Each classification carries an `OUTPUT-HINT` directive (CodeOnly, DiffOnly, ExplainConcise, Trace, StepList) that guides the LLM's response format. Injected automatically via the autonomy pipeline on session start.
-- **Report Issue hint in CLI** — `lean-ctx` command box now shows `lean-ctx report-issue` alongside other commands.
-- **Report Issue link in Dashboard** — Header now includes a "Report Issue" link that copies the CLI command to clipboard.
-
-### Fixed
-- **ctx_search hanging for minutes** — Root cause: synchronous regex search blocked the Tokio runtime, no file size limits, no max directory depth, incomplete binary file filter. Fix: `spawn_blocking` wrapper with 30-second timeout, 512KB file size limit (`MAX_FILE_SIZE`), max directory depth of 20 (`MAX_WALK_DEPTH`), extended binary extension list (43 types including `.map`, `.snap`, `.db`, `.sqlite`, `.parquet`), and generated file detection (`.min.js`, `.bundle.js`, `.d.ts`, `.js.map`, `.css.map`). Searches that previously hung now complete in <100ms.
-- **`ctx_graph impact` always returning "No files depend on X"** — The graph stored import edges with Rust module paths (`lean_ctx::core::cache::SessionCache`) but `impact` compared against file paths (`src/core/cache.rs`). Added `file_path_to_module_prefixes()` converter and `edge_matches_file()` matcher that resolves `crate::`, `super::`, and crate-name prefixes. `ctx_graph impact cache.rs` now correctly reports 17 dependents.
-
-### Changed
-- **Security audit** — Removed all lab-specific references from tracked source code (Ollama `/no_think` directive, lab-only tool comments). Thinking budget instructions are now platform-neutral hints that work across all LLMs.
-- **Test suite cleanup** — Removed 7 machine-dependent throughput benchmarks unsuitable for open-source CI. Fixed hardcoded developer paths in `savings_verification.rs` (now uses `env!("CARGO_MANIFEST_DIR")`). Marked environment-dependent test as `#[ignore]`.
-
-### Performance
-- **462/462** tests pass (362 unit + 100 integration/benchmark)
-- **59%** average token savings in Cursor sessions
-- **91%** compression on `git log --stat` output
-- **98%** compression on `cargo test --no-run` output
-- **<100ms** ctx_search response time (previously minutes/hang)
-- **$0.05** estimated session savings (including thinking token reduction)
-
----
+#### Fixed
+- Agents in Claude Code Desktop no longer get stuck when `Edit` requires native `Read`.
+- Agents no longer attempt `Write` (full-file rewrite) as workaround for missing `Read` permission.
+- `lean-ctx setup` now installs compatible rules for all supported IDEs.
 
 ## [2.15.0] — 2026-04-03
 
