@@ -250,7 +250,10 @@ fn is_excluded_command(command: &str, excluded: &[String]) -> bool {
 pub fn interactive() {
     let real_shell = detect_shell();
 
-    eprintln!("lean-ctx shell v{} (wrapping {real_shell})", env!("CARGO_PKG_VERSION"));
+    eprintln!(
+        "lean-ctx shell v{} (wrapping {real_shell})",
+        env!("CARGO_PKG_VERSION")
+    );
     eprintln!("All command output is automatically compressed.");
     eprintln!("Type 'exit' to quit.\n");
 
