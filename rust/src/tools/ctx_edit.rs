@@ -18,30 +18,101 @@ pub fn handle(cache: &mut SessionCache, params: EditParams) -> String {
         return handle_create(cache, file_path, &params.new_string);
     }
 
-    let content = match std::fs::read_to_string(file_path) {
-        Ok(c) => c,
+    let raw_bytes = match std::fs::read(file_path) {
+        Ok(b) => b,
         Err(e) => return format!("ERROR: cannot read {file_path}: {e}"),
     };
+
+    let content = String::from_utf8_lossy(&raw_bytes).into_owned();
 
     if params.old_string.is_empty() {
         return "ERROR: old_string must not be empty (use create=true to create a new file)".into();
     }
 
-    let occurrences = content.matches(&params.old_string).count();
+    let uses_crlf = content.contains("\r\n");
+    let old_str = &params.old_string;
+    let new_str = &params.new_string;
 
-    if occurrences == 0 {
-        let preview = if params.old_string.len() > 80 {
-            format!("{}...", &params.old_string[..77])
-        } else {
-            params.old_string.clone()
-        };
-        return format!(
-            "ERROR: old_string not found in {file_path}. \
-             Make sure it matches exactly (including whitespace/indentation).\n\
-             Searched for: {preview}"
+    let occurrences = content.matches(old_str).count();
+
+    if occurrences > 0 {
+        return do_replace(
+            cache,
+            file_path,
+            &content,
+            old_str,
+            new_str,
+            occurrences,
+            &params,
         );
     }
 
+    // Direct match failed -- try CRLF/LF normalization
+    if uses_crlf && !old_str.contains('\r') {
+        let old_crlf = old_str.replace('\n', "\r\n");
+        let occ = content.matches(&old_crlf).count();
+        if occ > 0 {
+            let new_crlf = new_str.replace('\n', "\r\n");
+            return do_replace(
+                cache, file_path, &content, &old_crlf, &new_crlf, occ, &params,
+            );
+        }
+    } else if !uses_crlf && old_str.contains("\r\n") {
+        let old_lf = old_str.replace("\r\n", "\n");
+        let occ = content.matches(&old_lf).count();
+        if occ > 0 {
+            let new_lf = new_str.replace("\r\n", "\n");
+            return do_replace(cache, file_path, &content, &old_lf, &new_lf, occ, &params);
+        }
+    }
+
+    // Still not found -- try trimmed trailing whitespace per line
+    let normalized_content = trim_trailing_per_line(&content);
+    let normalized_old = trim_trailing_per_line(old_str);
+    if !normalized_old.is_empty() && normalized_content.contains(&normalized_old) {
+        let line_sep = if uses_crlf { "\r\n" } else { "\n" };
+        let adapted_new = adapt_new_string_to_line_sep(new_str, line_sep);
+        let adapted_old = find_original_span(&content, &normalized_old);
+        if let Some(original_match) = adapted_old {
+            let occ = content.matches(&original_match).count();
+            return do_replace(
+                cache,
+                file_path,
+                &content,
+                &original_match,
+                &adapted_new,
+                occ,
+                &params,
+            );
+        }
+    }
+
+    let preview = if old_str.len() > 80 {
+        format!("{}...", &old_str[..77])
+    } else {
+        old_str.clone()
+    };
+    let hint = if uses_crlf {
+        " (file uses CRLF line endings)"
+    } else {
+        ""
+    };
+    format!(
+        "ERROR: old_string not found in {file_path}{hint}. \
+         Make sure it matches exactly (including whitespace/indentation).\n\
+         Searched for: {preview}"
+    )
+}
+
+fn do_replace(
+    cache: &mut SessionCache,
+    file_path: &str,
+    content: &str,
+    old_str: &str,
+    new_str: &str,
+    occurrences: usize,
+    params: &EditParams,
+) -> String {
     if occurrences > 1 && !params.replace_all {
         return format!(
             "ERROR: old_string found {occurrences} times in {file_path}. \
@@ -50,9 +121,9 @@ pub fn handle(cache: &mut SessionCache, params: EditParams) -> String {
     }
 
     let new_content = if params.replace_all {
-        content.replace(&params.old_string, &params.new_string)
+        content.replace(old_str, new_str)
     } else {
-        content.replacen(&params.old_string, &params.new_string, 1)
+        content.replacen(old_str, new_str, 1)
     };
 
     if let Err(e) = std::fs::write(file_path, &new_content) {
@@ -110,6 +181,51 @@ fn handle_create(cache: &mut SessionCache, file_path: &str, content: &str) -> St
         .unwrap_or_else(|| file_path.to_string());
 
     format!("✓ created {short}: {lines} lines, {tokens} tok")
+}
+
+fn trim_trailing_per_line(s: &str) -> String {
+    s.lines()
+        .map(|l| l.trim_end())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn adapt_new_string_to_line_sep(s: &str, sep: &str) -> String {
+    let normalized = s.replace("\r\n", "\n");
+    if sep == "\r\n" {
+        normalized.replace('\n', "\r\n")
+    } else {
+        normalized
+    }
+}
+
+/// Find the original (un-trimmed) span in `content` that matches `normalized_needle`
+/// after trailing-whitespace trimming per line.
+fn find_original_span(content: &str, normalized_needle: &str) -> Option<String> {
+    let needle_lines: Vec<&str> = normalized_needle.lines().collect();
+    if needle_lines.is_empty() {
+        return None;
+    }
+
+    let content_lines: Vec<&str> = content.lines().collect();
+
+    'outer: for start in 0..content_lines.len() {
+        if start + needle_lines.len() > content_lines.len() {
+            break;
+        }
+        for (i, nl) in needle_lines.iter().enumerate() {
+            if content_lines[start + i].trim_end() != *nl {
+                continue 'outer;
+            }
+        }
+        let sep = if content.contains("\r\n") {
+            "\r\n"
+        } else {
+            "\n"
+        };
+        return Some(content_lines[start..start + needle_lines.len()].join(sep));
+    }
+    None
 }
 
 #[cfg(test)]
@@ -215,5 +331,99 @@ mod tests {
         assert!(result.contains("1 replacement"));
         let content = std::fs::read_to_string(f.path()).unwrap();
         assert!(content.contains("let x = 99"));
+    }
+
+    #[test]
+    fn crlf_file_with_lf_search() {
+        let f = make_temp("line1\r\nline2\r\nline3\r\n");
+        let mut cache = SessionCache::new();
+        let result = handle(
+            &mut cache,
+            EditParams {
+                path: f.path().to_str().unwrap().to_string(),
+                old_string: "line1\nline2".into(),
+                new_string: "changed1\nchanged2".into(),
+                replace_all: false,
+                create: false,
+            },
+        );
+        assert!(result.contains("✓"), "CRLF fallback should work: {result}");
+        let content = std::fs::read_to_string(f.path()).unwrap();
+        assert!(
+            content.contains("changed1\r\nchanged2"),
+            "new_string should be adapted to CRLF: {content:?}"
+        );
+        assert!(
+            content.contains("\r\nline3\r\n"),
+            "rest of file should keep CRLF: {content:?}"
+        );
+    }
+
+    #[test]
+    fn lf_file_with_crlf_search() {
+        let f = make_temp("line1\nline2\nline3\n");
+        let mut cache = SessionCache::new();
+        let result = handle(
+            &mut cache,
+            EditParams {
+                path: f.path().to_str().unwrap().to_string(),
+                old_string: "line1\r\nline2".into(),
+                new_string: "a\r\nb".into(),
+                replace_all: false,
+                create: false,
+            },
+        );
+        assert!(result.contains("✓"), "LF fallback should work: {result}");
+        let content = std::fs::read_to_string(f.path()).unwrap();
+        assert!(
+            content.contains("a\nb"),
+            "new_string should be adapted to LF: {content:?}"
+        );
+    }
+
+    #[test]
+    fn trailing_whitespace_tolerance() {
+        let f = make_temp("  let x = 1;  \n  let y = 2;\n");
+        let mut cache = SessionCache::new();
+        let result = handle(
+            &mut cache,
+            EditParams {
+                path: f.path().to_str().unwrap().to_string(),
+                old_string: "  let x = 1;\n  let y = 2;".into(),
+                new_string: "  let x = 10;\n  let y = 20;".into(),
+                replace_all: false,
+                create: false,
+            },
+        );
+        assert!(
+            result.contains("✓"),
+            "trailing whitespace tolerance should work: {result}"
+        );
+        let content = std::fs::read_to_string(f.path()).unwrap();
+        assert!(content.contains("let x = 10;"));
+        assert!(content.contains("let y = 20;"));
+    }
+
+    #[test]
+    fn crlf_with_trailing_whitespace() {
+        let f = make_temp("  const a = 1;  \r\n  const b = 2;\r\n");
+        let mut cache = SessionCache::new();
+        let result = handle(
+            &mut cache,
+            EditParams {
+                path: f.path().to_str().unwrap().to_string(),
+                old_string: "  const a = 1;\n  const b = 2;".into(),
+                new_string: "  const a = 10;\n  const b = 20;".into(),
+                replace_all: false,
+                create: false,
+            },
+        );
+        assert!(
+            result.contains("✓"),
+            "CRLF + trailing whitespace should work: {result}"
+        );
+        let content = std::fs::read_to_string(f.path()).unwrap();
+        assert!(content.contains("const a = 10;"));
+        assert!(content.contains("const b = 20;"));
     }
 }
