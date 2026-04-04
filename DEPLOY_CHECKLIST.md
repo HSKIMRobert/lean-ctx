@@ -80,15 +80,35 @@ Use this checklist for every release. Copy the section below and check off each 
 
 ## AUR (Arch Linux)
 
+> **⚠️ AUR directories are SEPARATE git repos** (`ssh://aur@aur.archlinux.org/...`).
+> They live inside the main lean-ctx repo but have their own `.git`.
+> You must push them **twice**: once to the AUR remote, once as part of the main repo to GitHub.
+
 ### lean-ctx (source build from crates.io)
 - [ ] Update `aur/lean-ctx/PKGBUILD`: bump `pkgver`, update `sha256sums` with crates.io SHA
 - [ ] Update `aur/lean-ctx/.SRCINFO`: bump version, update source URL + SHA
-- [ ] Push: `cd aur/lean-ctx && git add -A && git commit -m "X.Y.Z" && git push`
+- [ ] **Push to AUR** (separate git repo):
+  ```bash
+  cd aur/lean-ctx && git add -A && git commit -m "X.Y.Z" && git push
+  ```
 
 ### lean-ctx-bin (pre-built binary from GitHub)
 - [ ] Update `aur/lean-ctx-bin/PKGBUILD`: bump `pkgver`
 - [ ] Update `aur/lean-ctx-bin/.SRCINFO`: bump version, update source URL
-- [ ] Push: `cd aur/lean-ctx-bin && git add -A && git commit -m "X.Y.Z" && git push`
+- [ ] **Push to AUR** (separate git repo):
+  ```bash
+  cd aur/lean-ctx-bin && git add -A && git commit -m "X.Y.Z" && git push
+  ```
+
+### Commit AUR changes to main repo
+After pushing to AUR, also commit the updated files to the main lean-ctx repo:
+```bash
+cd /path/to/lean-ctx
+git add -f aur/
+git commit -m "chore: update AUR packages to X.Y.Z"
+git push origin main
+git push github main
+```
 
 ## Homebrew
 
@@ -100,10 +120,13 @@ Use this checklist for every release. Copy the section below and check off each 
 
 ## Commit package updates
 
-After all bundles are published, commit the updated package files back to both remotes:
+After all packages are published (crates.io, npm, AUR, Homebrew), commit any remaining
+updated package files back to both remotes. Note: AUR files need `git add -f` because
+the `aur/` directory is gitignored.
 ```bash
-git add -A
-git commit -m "chore: update AUR + npm packages to X.Y.Z"
+git add -f aur/
+git add packages/ CHANGELOG.md
+git commit -m "chore: update packages to X.Y.Z"
 git push origin main
 git push github main
 ```
