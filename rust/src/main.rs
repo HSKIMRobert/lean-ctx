@@ -262,7 +262,10 @@ fn run_mcp_server() -> Result<()> {
             .with_writer(std::io::stderr)
             .init();
 
-        tracing::info!("lean-ctx v{} MCP server starting", env!("CARGO_PKG_VERSION"));
+        tracing::info!(
+            "lean-ctx v{} MCP server starting",
+            env!("CARGO_PKG_VERSION")
+        );
 
         let server = tools::create_server();
         let transport =
@@ -740,7 +743,10 @@ fn print_gain_with_logo() {
     print!("{output}");
     let d = core::theme::dim();
     let r = core::theme::rst();
-    println!("  {d}lean-ctx v{}  |  leanctx.com  |  lean-ctx dashboard{r}", env!("CARGO_PKG_VERSION"));
+    println!(
+        "  {d}lean-ctx v{}  |  leanctx.com  |  lean-ctx dashboard{r}",
+        env!("CARGO_PKG_VERSION")
+    );
     println!();
 
     core::version_check::check_background();
