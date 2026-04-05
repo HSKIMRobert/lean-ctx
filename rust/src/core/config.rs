@@ -31,6 +31,12 @@ pub struct Config {
     pub cloud: CloudConfig,
     #[serde(default)]
     pub autonomy: AutonomyConfig,
+    #[serde(default = "default_buddy_enabled")]
+    pub buddy_enabled: bool,
+}
+
+fn default_buddy_enabled() -> bool {
+    true
 }
 
 fn deserialize_tee_mode<'de, D>(deserializer: D) -> Result<TeeMode, D::Error>
@@ -165,6 +171,7 @@ impl Default for Config {
             theme: default_theme(),
             cloud: CloudConfig::default(),
             autonomy: AutonomyConfig::default(),
+            buddy_enabled: default_buddy_enabled(),
         }
     }
 }

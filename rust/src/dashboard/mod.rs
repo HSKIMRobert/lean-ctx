@@ -119,6 +119,17 @@ async fn handle_request(mut stream: tokio::net::TcpStream) {
             let json = serde_json::to_string(&knowledge).unwrap_or_else(|_| "{}".to_string());
             ("200 OK", "application/json", json)
         }
+        "/api/gotchas" => {
+            let project_root = detect_project_root_for_dashboard();
+            let store = crate::core::gotcha_tracker::GotchaStore::load(&project_root);
+            let json = serde_json::to_string(&store).unwrap_or_else(|_| "{}".to_string());
+            ("200 OK", "application/json", json)
+        }
+        "/api/buddy" => {
+            let buddy = crate::core::buddy::BuddyState::compute();
+            let json = serde_json::to_string(&buddy).unwrap_or_else(|_| "{}".to_string());
+            ("200 OK", "application/json", json)
+        }
         "/api/version" => {
             let json = crate::core::version_check::version_info_json();
             ("200 OK", "application/json", json)

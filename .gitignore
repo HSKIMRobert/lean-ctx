@@ -19,10 +19,11 @@ memory-bank/
 server.md
 
 .DS_Store
-DEPLOY_CHECKLIST.md
 DISCORD_POST.md
+DEPLOY_CHECKLIST.md
 
 # ── Lab / Neural (private, not for OSS) ──
+
 lab/
 rust/models/
 *.onnx

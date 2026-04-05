@@ -297,9 +297,10 @@ impl ServerHandler for LeanCtxServer {
                 let raw = get_bool(args, "raw").unwrap_or(false)
                     || std::env::var("LEAN_CTX_DISABLED").is_ok();
                 let cmd_clone = command.clone();
-                let output = tokio::task::spawn_blocking(move || execute_command(&cmd_clone))
-                    .await
-                    .unwrap_or_else(|e| format!("ERROR: shell task failed: {e}"));
+                let (output, real_exit_code) =
+                    tokio::task::spawn_blocking(move || execute_command(&cmd_clone))
+                        .await
+                        .unwrap_or_else(|e| (format!("ERROR: shell task failed: {e}"), 1));
 
                 if raw {
                     let original = crate::core::tokens::count_tokens(&output);
@@ -336,6 +337,61 @@ impl ServerHandler for LeanCtxServer {
                     } else {
                         String::new()
                     };
+
+                    // Bug Memory: detect errors / resolve pending
+                    {
+                        let sess = self.session.read().await;
+                        let root = sess.project_root.clone();
+                        let sid = sess.id.clone();
+                        let files: Vec<String> = sess
+                            .files_touched
+                            .iter()
+                            .map(|ft| ft.path.clone())
+                            .collect();
+                        drop(sess);
+
+                        if let Some(ref root) = root {
+                            let mut store = crate::core::gotcha_tracker::GotchaStore::load(root);
+
+                            if real_exit_code != 0 {
+                                store.detect_error(&output, &command, real_exit_code, &files, &sid);
+                            } else {
+                                // Success: check if any injected gotchas prevented a repeat
+                                let relevant = store.top_relevant(&files, 7);
+                                let relevant_ids: Vec<String> =
+                                    relevant.iter().map(|g| g.id.clone()).collect();
+                                for gid in &relevant_ids {
+                                    store.mark_prevented(gid);
+                                }
+
+                                if store.try_resolve_pending(&command, &files, &sid).is_some() {
+                                    store.cross_session_boost();
+                                }
+
+                                // Promote mature gotchas to ProjectKnowledge
+                                let promotions = store.check_promotions();
+                                if !promotions.is_empty() {
+                                    let mut knowledge =
+                                        crate::core::knowledge::ProjectKnowledge::load_or_create(
+                                            root,
+                                        );
+                                    for (cat, trigger, resolution, conf) in &promotions {
+                                        knowledge.remember(
+                                            &format!("gotcha-{cat}"),
+                                            trigger,
+                                            resolution,
+                                            &sid,
+                                            *conf,
+                                        );
+                                    }
+                                    let _ = knowledge.save();
+                                }
+                            }
+
+                            let _ = store.save(root);
+                        }
+                    }
+
                     format!("{result}{savings_note}{tee_hint}")
                 }
             }
@@ -700,6 +756,30 @@ impl ServerHandler for LeanCtxServer {
                 });
                 drop(session);
 
+                if action == "gotcha" {
+                    let trigger = get_str(args, "trigger").unwrap_or_default();
+                    let resolution = get_str(args, "resolution").unwrap_or_default();
+                    let severity = get_str(args, "severity").unwrap_or_default();
+                    let cat = category.as_deref().unwrap_or("convention");
+
+                    if trigger.is_empty() || resolution.is_empty() {
+                        self.record_call("ctx_knowledge", 0, 0, Some(action)).await;
+                        return Ok(CallToolResult::success(vec![Content::text(
+                            "ERROR: trigger and resolution are required for gotcha action",
+                        )]));
+                    }
+
+                    let mut store = crate::core::gotcha_tracker::GotchaStore::load(&project_root);
+                    let gotcha =
+                        store.report_gotcha(&trigger, &resolution, cat, &severity, &session_id);
+                    let conf = (gotcha.confidence * 100.0) as u32;
+                    let label = gotcha.category.short_label();
+                    let msg = format!("Gotcha recorded: [{label}] {trigger} (confidence: {conf}%)");
+                    let _ = store.save(&project_root);
+                    self.record_call("ctx_knowledge", 0, 0, Some(action)).await;
+                    return Ok(CallToolResult::success(vec![Content::text(msg)]));
+                }
+
                 let result = crate::tools::ctx_knowledge::handle(
                     &project_root,
                     &action,
@@ -936,7 +1016,7 @@ fn get_bool(args: &Option<serde_json::Map<String, Value>>, key: &str) -> Option<
     args.as_ref()?.get(key)?.as_bool()
 }
 
-fn execute_command(command: &str) -> String {
+fn execute_command(command: &str) -> (String, i32) {
     let (shell, flag) = crate::shell::shell_and_flag();
     let output = std::process::Command::new(&shell)
         .arg(&flag)
@@ -946,17 +1026,19 @@ fn execute_command(command: &str) -> String {
 
     match output {
         Ok(out) => {
+            let code = out.status.code().unwrap_or(1);
             let stdout = String::from_utf8_lossy(&out.stdout);
             let stderr = String::from_utf8_lossy(&out.stderr);
-            if stdout.is_empty() {
+            let text = if stdout.is_empty() {
                 stderr.to_string()
             } else if stderr.is_empty() {
                 stdout.to_string()
             } else {
                 format!("{stdout}\n{stderr}")
-            }
+            };
+            (text, code)
         }
-        Err(e) => format!("ERROR: {e}"),
+        Err(e) => (format!("ERROR: {e}"), 1),
     }
 }
 
