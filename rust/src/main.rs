@@ -170,6 +170,14 @@ fn main() {
                 doctor::run();
                 return;
             }
+            "gotchas" | "bugs" => {
+                cmd_gotchas(&rest);
+                return;
+            }
+            "buddy" | "pet" => {
+                cmd_buddy(&rest);
+                return;
+            }
             "report-issue" | "report" => {
                 report::run(&rest);
                 return;
@@ -343,6 +351,8 @@ COMMANDS:
     tee [list|clear|show <file>|last] Manage output tee files (~/.lean-ctx/tee/)
     slow-log [list|clear]          Show/clear slow command log (~/.lean-ctx/slow-commands.log)
     update [--check]               Self-update lean-ctx binary from GitHub Releases
+    gotchas [list|clear|export|stats] Bug Memory: view/manage auto-detected error patterns
+    buddy [show|stats|ascii|json]  Token Guardian: your data-driven coding companion
     doctor                         Run installation and environment diagnostics
     uninstall                      Remove shell hook, MCP configs, and data directory
 
@@ -792,6 +802,87 @@ fn animate_kpi_countup(t: &core::theme::Theme) {
     }
     print!("\x1b[1A\x1b[K");
     let _ = stdout.flush();
+}
+
+fn cmd_gotchas(args: &[String]) {
+    let action = args.first().map(|s| s.as_str()).unwrap_or("list");
+    let project_root = std::env::current_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| ".".to_string());
+
+    match action {
+        "list" | "ls" => {
+            let store = core::gotcha_tracker::GotchaStore::load(&project_root);
+            println!("{}", store.format_list());
+        }
+        "clear" => {
+            let mut store = core::gotcha_tracker::GotchaStore::load(&project_root);
+            let count = store.gotchas.len();
+            store.clear();
+            let _ = store.save(&project_root);
+            println!("Cleared {count} gotchas.");
+        }
+        "export" => {
+            let store = core::gotcha_tracker::GotchaStore::load(&project_root);
+            match serde_json::to_string_pretty(&store.gotchas) {
+                Ok(json) => println!("{json}"),
+                Err(e) => eprintln!("Export failed: {e}"),
+            }
+        }
+        "stats" => {
+            let store = core::gotcha_tracker::GotchaStore::load(&project_root);
+            println!("Bug Memory Stats:");
+            println!("  Active gotchas:      {}", store.gotchas.len());
+            println!(
+                "  Errors detected:     {}",
+                store.stats.total_errors_detected
+            );
+            println!(
+                "  Fixes correlated:    {}",
+                store.stats.total_fixes_correlated
+            );
+            println!("  Bugs prevented:      {}", store.stats.total_prevented);
+            println!("  Promoted to knowledge: {}", store.stats.gotchas_promoted);
+            println!("  Decayed/archived:    {}", store.stats.gotchas_decayed);
+            println!("  Session logs:        {}", store.error_log.len());
+        }
+        _ => {
+            println!("Usage: lean-ctx gotchas [list|clear|export|stats]");
+        }
+    }
+}
+
+fn cmd_buddy(args: &[String]) {
+    let cfg = core::config::Config::load();
+    if !cfg.buddy_enabled {
+        println!("Buddy is disabled. Enable with: lean-ctx config buddy_enabled true");
+        return;
+    }
+
+    let action = args.first().map(|s| s.as_str()).unwrap_or("show");
+    let buddy = core::buddy::BuddyState::compute();
+    let theme = core::theme::load_theme(&cfg.theme);
+
+    match action {
+        "show" | "status" => {
+            println!("{}", core::buddy::format_buddy_full(&buddy, &theme));
+        }
+        "stats" => {
+            println!("{}", core::buddy::format_buddy_full(&buddy, &theme));
+        }
+        "ascii" => {
+            for line in &buddy.ascii_art {
+                println!("  {line}");
+            }
+        }
+        "json" => match serde_json::to_string_pretty(&buddy) {
+            Ok(json) => println!("{json}"),
+            Err(e) => eprintln!("JSON error: {e}"),
+        },
+        _ => {
+            println!("Usage: lean-ctx buddy [show|stats|ascii|json]");
+        }
+    }
 }
 
 fn cmd_upgrade() {

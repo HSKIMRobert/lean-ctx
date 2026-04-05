@@ -322,16 +322,30 @@ reset, list (show sessions), cleanup.",
         ),
         tool_def(
             "ctx_knowledge",
-            "Persistent project knowledge (survives sessions). Actions: remember (store fact with category+key+value), \
-recall (search by query), pattern (record naming/structure pattern), consolidate (extract session findings into knowledge), \
+            "Persistent project knowledge (survives sessions). Actions: remember (store fact), \
+recall (search), pattern (record convention), consolidate (extract session findings), \
+gotcha (record a bug/mistake to never repeat — trigger+resolution required), \
 status (list all), remove, export.",
             json!({
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["remember", "recall", "pattern", "consolidate", "status", "remove", "export"],
-                        "description": "Knowledge operation to perform"
+                        "enum": ["remember", "recall", "pattern", "consolidate", "gotcha", "status", "remove", "export"],
+                        "description": "Knowledge operation to perform. Use 'gotcha' to record a bug or mistake that should never be repeated."
+                    },
+                    "trigger": {
+                        "type": "string",
+                        "description": "For gotcha action: what triggers the bug (e.g. 'cargo build fails with E0507 on match arms')"
+                    },
+                    "resolution": {
+                        "type": "string",
+                        "description": "For gotcha action: how to fix/avoid it (e.g. 'Use .clone() or ref pattern')"
+                    },
+                    "severity": {
+                        "type": "string",
+                        "enum": ["critical", "warning", "info"],
+                        "description": "For gotcha action: severity level (default: warning)"
                     },
                     "category": {
                         "type": "string",
@@ -606,9 +620,8 @@ symbol (lookup definition/usages as file::name), impact (blast radius of changes
         ("ctx_session", "Cross-session memory (CCP). Actions: load (restore previous session ~400 tok), \
 save, status, task (set current task), finding (record discovery), decision (record choice), \
 reset, list (show sessions), cleanup.", json!({"type": "object", "properties": {"action": {"type": "string"}, "value": {"type": "string"}, "session_id": {"type": "string"}}, "required": ["action"]})),
-        ("ctx_knowledge", "Persistent project knowledge (survives sessions). Actions: remember (store fact with category+key+value), \
-recall (search by query), pattern (record naming/structure pattern), consolidate (extract session findings into knowledge), \
-status (list all), remove, export.", json!({"type": "object", "properties": {"action": {"type": "string"}, "category": {"type": "string"}, "key": {"type": "string"}, "value": {"type": "string"}, "query": {"type": "string"}}, "required": ["action"]})),
+        ("ctx_knowledge", "Persistent project knowledge (survives sessions). Actions: remember, recall, pattern, consolidate, \
+gotcha (record a bug to never repeat — trigger+resolution), status, remove, export.", json!({"type": "object", "properties": {"action": {"type": "string"}, "category": {"type": "string"}, "key": {"type": "string"}, "value": {"type": "string"}, "query": {"type": "string"}, "trigger": {"type": "string"}, "resolution": {"type": "string"}, "severity": {"type": "string"}}, "required": ["action"]})),
         ("ctx_agent", "Multi-agent coordination (shared message bus). Actions: register (join with agent_type+role), \
 post (broadcast or direct message with category), read (poll messages), status (update state: active|idle|finished), \
 list, info.", json!({"type": "object", "properties": {"action": {"type": "string"}, "agent_type": {"type": "string"}, "role": {"type": "string"}, "message": {"type": "string"}}, "required": ["action"]})),
