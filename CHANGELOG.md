@@ -5,38 +5,40 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [2.17.5] — 2026-04-06
 
-### Fix: ctx_shell File-Write Guard (#50)
+### Fix: ctx_shell Input Validation (#50)
 
 #### Added
-- **ctx_shell input validation** — Blocks file-write commands (`cat >`, `echo >`, heredocs, `tee`) with clear error redirecting to the native Write tool. Prevents MCP stream corruption from oversized shell payloads
-- **Command size limit** — Rejects commands over 8KB, preventing heredocs with 200+ lines of code from corrupting the MCP protocol
-- **4 unit tests** covering safe commands, file-write detection, oversized commands, and quote-aware redirect parsing
+- **File-write command blocking** — `ctx_shell` now detects and rejects shell redirects (`>`, `>>`), heredocs (`<< EOF`), and `tee` commands. Returns a clear error redirecting to the native Write tool
+- **Command size limit** — Rejects commands over 8KB, preventing oversized heredocs from corrupting the MCP protocol stream
+- **Quote-aware redirect parsing** — Redirect detection respects single/double quotes, ignores `2>` (stderr) and `> /dev/null`
+
+This prevents the cascading failure reported in #50:
+Oversized `ctx_shell` → API Error 400 → MCP stream corruption → "path is required" → MCP stops
 
 ## [2.17.4] — 2026-04-06
 
 ### Feature: Hook Redirect Path Exclusion + Automated Publishing
 
 #### Added
-- **Path exclusion for hook redirect** — Exclude specific paths from PreToolUse redirect hook. Paths matching patterns bypass the redirect and allow native Read/Grep/ListFiles (#60)
+- **Path exclusion for hook redirect** (#60) — Exclude specific paths from PreToolUse redirect hook. Paths matching patterns bypass the redirect and allow native Read/Grep/ListFiles to proceed
   - Config: `redirect_exclude = [".wolf/**", ".claude/**", "*.json"]` in `~/.lean-ctx/config.toml`
   - Env var: `LEAN_CTX_HOOK_EXCLUDE=".wolf/**,.claude/**"` (takes precedence)
   - Glob patterns support `*`, `?`, and `**` (recursive directory match)
-  - 5 unit tests covering glob matching and path extraction
 - **Automated crates.io publishing** — `cargo publish` runs automatically after GitHub Release
-- **Automated npm publishing** — `lean-ctx-bin` and `pi-lean-ctx` published automatically after release
+- **Automated npm publishing** — `lean-ctx-bin` and `pi-lean-ctx` published automatically
 
 ## [2.17.3] — 2026-04-06
 
-### Fix: MCP Stdout Pollution + Website UX
+### Fix: MCP Stdout Pollution on Windows
 
 #### Fixed
-- **Windows MCP "not valid JSON" error** — `println!("Installed...")` in `install_claude/cursor/gemini_hook_config` polluted stdout during MCP server initialization, breaking JSON-RPC protocol. Now guarded with `mcp_server_quiet_mode()` (fixes Lorenzo Rossi's report)
+- **Windows MCP "not valid JSON" error** — `println!("Installed...")` messages in `install_claude/cursor/gemini_hook_config` polluted stdout during MCP server initialization, breaking JSON-RPC protocol. Now suppressed via `mcp_server_quiet_mode()` guard. (Fixes Lorenzo Rossi's report on Discord)
 
 #### Changed
-- **LanguageSwitcher position** — Moved to the right of the "Get Started" button in the header for better visual hierarchy
+- **LanguageSwitcher position** — Moved to the right of the "Get Started" button in the header
 - **Token Guardian Buddy** — Now shown inline in `lean-ctx gain` output when enabled
-- **Bug Memory stats** — Shown in `lean-ctx gain` output when gotchas are active
-- **Helpful footer** — `lean-ctx gain` now shows links to `report-issue`, `contribute`, and `gotchas` commands
+- **Bug Memory stats** — Active gotchas and prevention stats shown in `lean-ctx gain`
+- **Helpful footer** — `lean-ctx gain` now shows links to `report-issue`, `contribute`, and `gotchas`
 
 ## [2.17.2] — 2026-04-06
 
