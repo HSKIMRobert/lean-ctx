@@ -169,6 +169,15 @@ const currentPath = removeLocalePrefix(Astro.url.pathname);
         switcher.classList.contains('is-open') ? 'true' : 'false'
       );
     });
+
+    switcher.querySelectorAll('.lang-option').forEach(option => {
+      option.addEventListener('click', () => {
+        const hreflang = option.getAttribute('hreflang');
+        if (hreflang) {
+          localStorage.setItem('leanctx-locale', hreflang);
+        }
+      });
+    });
   });
 
   document.addEventListener('click', () => {
