@@ -93,6 +93,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           merge-multiple: true
@@ -100,14 +102,36 @@ jobs:
       - name: Generate checksums
         run: sha256sum lean-ctx-*.tar.gz lean-ctx-*.zip > SHA256SUMS
 
+      - name: Extract release notes from CHANGELOG
+        id: notes
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          PREV_TAG=$(git tag --sort=-v:refname | grep -A1 "^v${VERSION}$" | tail -1)
+          NOTES=$(awk "/^## \\[${VERSION}\\]/{found=1; next} /^## \\[/{if(found) exit} found{print}" CHANGELOG.md)
+
+          {
+            echo "body<<BODY_EOF"
+            echo "$NOTES"
+            echo ""
+            echo "#### Upgrade"
+            echo '```bash'
+            echo "cargo install lean-ctx          # or"
+            echo "npm update -g lean-ctx-bin      # or"
+            echo "brew upgrade lean-ctx"
+            echo '```'
+            echo ""
+            echo "**Full Changelog**: https://github.com/yvgude/lean-ctx/compare/${PREV_TAG}...v${VERSION}"
+            echo "BODY_EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          body: ${{ steps.notes.outputs.body }}
           files: |
             lean-ctx-*.tar.gz
             lean-ctx-*.zip
             SHA256SUMS
-          generate_release_notes: true
 
   publish-crates:
     name: Publish to crates.io
