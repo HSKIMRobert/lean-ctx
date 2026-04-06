@@ -7,8 +7,15 @@ use crate::tools::CrpMode;
 const MAX_COMMAND_BYTES: usize = 8192;
 
 const HEREDOC_PATTERNS: &[&str] = &[
-    "<< 'EOF'", "<<'EOF'", "<< 'ENDOFFILE'", "<<'ENDOFFILE'",
-    "<< 'END'", "<<'END'", "<< EOF", "<<EOF", "cat <<",
+    "<< 'EOF'",
+    "<<'EOF'",
+    "<< 'ENDOFFILE'",
+    "<<'ENDOFFILE'",
+    "<< 'END'",
+    "<<'END'",
+    "<< EOF",
+    "<<EOF",
+    "cat <<",
 ];
 
 /// Validates a shell command before execution. Returns Some(error_message) if
