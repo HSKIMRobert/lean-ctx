@@ -3,6 +3,19 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.17.3] — 2026-04-06
+
+### Fix: MCP Stdout Pollution + Website UX
+
+#### Fixed
+- **Windows MCP "not valid JSON" error** — `println!("Installed...")` in `install_claude/cursor/gemini_hook_config` polluted stdout during MCP server initialization, breaking JSON-RPC protocol. Now guarded with `mcp_server_quiet_mode()` (fixes Lorenzo Rossi's report)
+
+#### Changed
+- **LanguageSwitcher position** — Moved to the right of the "Get Started" button in the header for better visual hierarchy
+- **Token Guardian Buddy** — Now shown inline in `lean-ctx gain` output when enabled
+- **Bug Memory stats** — Shown in `lean-ctx gain` output when gotchas are active
+- **Helpful footer** — `lean-ctx gain` now shows links to `report-issue`, `contribute`, and `gotchas` commands
+
 ## [2.17.2] — 2026-04-06
 
 ### Fix: Cross-Platform Hook Handlers
