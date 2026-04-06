@@ -3,6 +3,19 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.17.2] — 2026-04-06
+
+### Fix: Cross-Platform Hook Handlers
+
+#### Fixed
+- **Windows: PreToolUse hook errors** — Agent hooks (Claude Code, Cursor, Gemini) no longer require Bash. Hook logic is now implemented natively in the lean-ctx binary via `lean-ctx hook rewrite` and `lean-ctx hook redirect` (#49)
+- **"Stuck in file reading"** — Fixed hook redirect loop where denied Read/Grep tools caused repeated retries when the MCP server wasn't properly connected
+- **Hook auto-migration** — Existing `.sh`-based hook configs are automatically upgraded to native binary commands on next MCP server start
+
+#### Changed
+- Hook configs now point to `lean-ctx hook rewrite` / `lean-ctx hook redirect` instead of `.sh` scripts
+- `refresh_installed_hooks()` also updates hook configs (not just scripts) to ensure migration
+
 ## [2.17.1] — 2026-04-05
 
 ### Token Guardian Buddy — Data-Driven ASCII Companion

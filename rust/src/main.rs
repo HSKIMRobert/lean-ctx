@@ -1,7 +1,7 @@
 use anyhow::Result;
 use lean_ctx::{
-    cli, cloud_client, core, dashboard, doctor, mcp_stdio, report, setup, shell, terminal_ui,
-    tools, uninstall,
+    cli, cloud_client, core, dashboard, doctor, hook_handlers, mcp_stdio, report, setup, shell,
+    terminal_ui, tools, uninstall,
 };
 
 fn main() {
@@ -176,6 +176,19 @@ fn main() {
             }
             "buddy" | "pet" => {
                 cmd_buddy(&rest);
+                return;
+            }
+            "hook" => {
+                let action = rest.first().map(|s| s.as_str()).unwrap_or("help");
+                match action {
+                    "rewrite" => hook_handlers::handle_rewrite(),
+                    "redirect" => hook_handlers::handle_redirect(),
+                    _ => {
+                        eprintln!("Usage: lean-ctx hook <rewrite|redirect>");
+                        eprintln!("  Internal commands used by agent hooks (Claude, Cursor, etc.)");
+                        std::process::exit(1);
+                    }
+                }
                 return;
             }
             "report-issue" | "report" => {

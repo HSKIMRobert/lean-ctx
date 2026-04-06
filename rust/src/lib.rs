@@ -4,6 +4,7 @@ pub mod cloud_sync;
 pub mod core;
 pub mod dashboard;
 pub mod doctor;
+pub mod hook_handlers;
 pub mod hooks;
 pub mod instructions;
 pub mod mcp_stdio;
