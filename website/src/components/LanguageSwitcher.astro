@@ -1,5 +1,5 @@
 ---
-import { locales, localeNames, type Locale } from '../i18n/config';
+import { locales, localeNames, localeFlags, type Locale } from '../i18n/config';
 import { getLocaleFromUrl, getLocalizedPath, removeLocalePrefix } from '../i18n/utils';
 
 const currentLocale = getLocaleFromUrl(Astro.url);
@@ -27,6 +27,7 @@ const currentPath = removeLocalePrefix(Astro.url.pathname);
         role="menuitem"
         hreflang={locale}
       >
+        <span class="lang-option-flag">{localeFlags[locale]}</span>
         <span class="lang-option-name">{localeNames[locale]}</span>
         {locale === currentLocale && (
           <svg class="lang-check" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
@@ -86,17 +87,20 @@ const currentPath = removeLocalePrefix(Astro.url.pathname);
     position: absolute;
     top: calc(100% + 6px);
     right: 0;
-    min-width: 140px;
-    padding: 4px;
+    width: 280px;
+    padding: 6px;
     background: var(--color-surface-3);
     border: 1px solid var(--color-border);
-    border-radius: 8px;
+    border-radius: 10px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
     animation: langDropIn 0.15s ease;
+    display: none;
   }
 
   .lang-switcher.is-open .lang-dropdown {
-    display: block;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2px;
   }
 
   @keyframes langDropIn {
@@ -107,13 +111,14 @@ const currentPath = removeLocalePrefix(Astro.url.pathname);
   .lang-option {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 6px;
     padding: 7px 10px;
     font-size: 0.8125rem;
     color: var(--color-text);
     text-decoration: none;
-    border-radius: 5px;
+    border-radius: 6px;
     transition: background 0.15s, color 0.15s;
+    white-space: nowrap;
   }
 
   .lang-option:hover {
@@ -126,8 +131,30 @@ const currentPath = removeLocalePrefix(Astro.url.pathname);
     font-weight: 500;
   }
 
+  .lang-option-flag {
+    font-size: 0.875rem;
+    line-height: 1;
+  }
+
+  .lang-option-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   .lang-check {
     color: var(--color-accent);
+    flex-shrink: 0;
+  }
+
+  @media (max-width: 480px) {
+    .lang-dropdown {
+      width: 220px;
+    }
+
+    .lang-switcher.is-open .lang-dropdown {
+      grid-template-columns: 1fr;
+    }
   }
 </style>
 

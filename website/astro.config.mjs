@@ -7,7 +7,7 @@ export default defineConfig({
   site: 'https://leanctx.com',
   i18n: {
     defaultLocale: 'en',
-    locales: ['en', 'de', 'ar'],
+    locales: ['en', 'de', 'ar', 'zh', 'hi', 'es', 'fr', 'bn', 'pt', 'ru', 'ja'],
     routing: {
       prefixDefaultLocale: false,
     },
@@ -21,6 +21,14 @@ export default defineConfig({
           en: 'en',
           de: 'de',
           ar: 'ar',
+          zh: 'zh',
+          hi: 'hi',
+          es: 'es',
+          fr: 'fr',
+          bn: 'bn',
+          pt: 'pt',
+          ru: 'ru',
+          ja: 'ja',
         },
       },
     }),

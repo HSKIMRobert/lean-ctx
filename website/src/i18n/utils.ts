@@ -1,43 +1,19 @@
-import { defaultLocale, isValidLocale, type Locale } from './config';
+import { defaultLocale, isValidLocale, locales, type Locale } from './config';
 
-type NestedRecord = { [key: string]: string | NestedRecord };
+type FlatTranslations = Record<string, string>;
 
-const translationCache = new Map<string, NestedRecord>();
+const translationCache = new Map<string, FlatTranslations>();
 
-function loadTranslation(locale: Locale): NestedRecord {
+function loadTranslation(locale: Locale): FlatTranslations {
   const cached = translationCache.get(locale);
   if (cached) return cached;
 
   const modules = import.meta.glob('./locales/*.json', { eager: true });
   const key = `./locales/${locale}.json`;
-  const mod = modules[key] as { default: NestedRecord } | undefined;
+  const mod = modules[key] as { default: FlatTranslations } | undefined;
   const data = mod?.default ?? {};
   translationCache.set(locale, data);
   return data;
-}
-
-function getNestedValue(obj: NestedRecord, path: string): string | undefined {
-  const parts = path.split('.');
-
-  function resolve(current: NestedRecord, idx: number): string | undefined {
-    if (idx >= parts.length) return undefined;
-    for (let len = parts.length - idx; len >= 1; len--) {
-      const key = parts.slice(idx, idx + len).join('.');
-      if (!Object.prototype.hasOwnProperty.call(current, key)) continue;
-      const next = (current as NestedRecord)[key];
-      if (idx + len === parts.length) {
-        if (typeof next === 'string') return next;
-        continue;
-      }
-      if (typeof next === 'object' && next !== null && !Array.isArray(next)) {
-        const result = resolve(next as NestedRecord, idx + len);
-        if (result !== undefined) return result;
-      }
-    }
-    return undefined;
-  }
-
-  return resolve(obj, 0);
 }
 
 export function useTranslations(locale: Locale) {
@@ -45,11 +21,11 @@ export function useTranslations(locale: Locale) {
   const fallback = locale !== defaultLocale ? loadTranslation(defaultLocale) : translations;
 
   return function t(key: string, replacements?: Record<string, string>): string {
-    let value = getNestedValue(translations, key) ?? getNestedValue(fallback, key) ?? key;
+    let value = translations[key] ?? fallback[key] ?? key;
 
     if (replacements) {
       for (const [placeholder, replacement] of Object.entries(replacements)) {
-        value = value.replace(new RegExp(`\\{${placeholder}\\}`, 'g'), replacement);
+        value = value.replaceAll(`{${placeholder}}`, replacement);
       }
     }
 
@@ -76,4 +52,27 @@ export function removeLocalePrefix(path: string): string {
     segments.shift();
   }
   return '/' + segments.join('/');
+}
+
+export function validateTranslations(): string[] {
+  const errors: string[] = [];
+  const enKeys = new Set(Object.keys(loadTranslation('en')));
+
+  for (const locale of locales) {
+    if (locale === 'en') continue;
+    const localeKeys = new Set(Object.keys(loadTranslation(locale)));
+
+    for (const key of enKeys) {
+      if (!localeKeys.has(key)) {
+        errors.push(`[${locale}] missing key: ${key}`);
+      }
+    }
+    for (const key of localeKeys) {
+      if (!enKeys.has(key)) {
+        errors.push(`[${locale}] extra key: ${key}`);
+      }
+    }
+  }
+
+  return errors;
 }
