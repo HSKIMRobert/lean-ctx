@@ -12,18 +12,33 @@ pub fn refresh_installed_hooks() {
         None => return,
     };
 
-    if home.join(".claude/hooks/lean-ctx-rewrite.sh").exists() {
+    let claude_hooks = home.join(".claude/hooks/lean-ctx-rewrite.sh").exists()
+        || home.join(".claude/settings.json").exists()
+            && std::fs::read_to_string(home.join(".claude/settings.json"))
+                .unwrap_or_default()
+                .contains("lean-ctx");
+
+    if claude_hooks {
         install_claude_hook_scripts(&home);
+        install_claude_hook_config(&home);
     }
 
-    if home.join(".cursor/hooks/lean-ctx-rewrite.sh").exists() {
+    let cursor_hooks = home.join(".cursor/hooks/lean-ctx-rewrite.sh").exists()
+        || home.join(".cursor/hooks.json").exists()
+            && std::fs::read_to_string(home.join(".cursor/hooks.json"))
+                .unwrap_or_default()
+                .contains("lean-ctx");
+
+    if cursor_hooks {
         install_cursor_hook_scripts(&home);
+        install_cursor_hook_config(&home);
     }
 
     let gemini_rewrite = home.join(".gemini/hooks/lean-ctx-rewrite-gemini.sh");
     let gemini_legacy = home.join(".gemini/hooks/lean-ctx-hook-gemini.sh");
     if gemini_rewrite.exists() || gemini_legacy.exists() {
         install_gemini_hook_scripts(&home);
+        install_gemini_hook_config(&home);
     }
 
     if home.join(".codex/hooks/lean-ctx-rewrite-codex.sh").exists() {
@@ -422,22 +437,54 @@ fn install_claude_hook_scripts(home: &std::path::Path) {
     let hooks_dir = home.join(".claude").join("hooks");
     let _ = std::fs::create_dir_all(&hooks_dir);
 
-    let binary = resolve_binary_path_for_bash();
+    let binary = resolve_binary_path();
 
     let rewrite_path = hooks_dir.join("lean-ctx-rewrite.sh");
-    let rewrite_script = generate_rewrite_script(&binary);
+    let rewrite_script = generate_rewrite_script(&resolve_binary_path_for_bash());
     write_file(&rewrite_path, &rewrite_script);
     make_executable(&rewrite_path);
 
     let redirect_path = hooks_dir.join("lean-ctx-redirect.sh");
     write_file(&redirect_path, REDIRECT_SCRIPT_CLAUDE);
     make_executable(&redirect_path);
+
+    let wrapper = |subcommand: &str| -> String {
+        if cfg!(windows) {
+            format!("{binary} hook {subcommand}")
+        } else {
+            format!("{} hook {subcommand}", resolve_binary_path_for_bash())
+        }
+    };
+
+    let rewrite_native = hooks_dir.join("lean-ctx-rewrite-native");
+    write_file(
+        &rewrite_native,
+        &format!(
+            "#!/bin/sh\nexec {} hook rewrite\n",
+            resolve_binary_path_for_bash()
+        ),
+    );
+    make_executable(&rewrite_native);
+
+    let redirect_native = hooks_dir.join("lean-ctx-redirect-native");
+    write_file(
+        &redirect_native,
+        &format!(
+            "#!/bin/sh\nexec {} hook redirect\n",
+            resolve_binary_path_for_bash()
+        ),
+    );
+    make_executable(&redirect_native);
+
+    let _ = wrapper; // suppress unused warning on unix
 }
 
 fn install_claude_hook_config(home: &std::path::Path) {
     let hooks_dir = home.join(".claude").join("hooks");
-    let rewrite_path = hooks_dir.join("lean-ctx-rewrite.sh");
-    let redirect_path = hooks_dir.join("lean-ctx-redirect.sh");
+    let binary = resolve_binary_path();
+
+    let rewrite_cmd = format!("{binary} hook rewrite");
+    let redirect_cmd = format!("{binary} hook redirect");
 
     let settings_path = home.join(".claude").join("settings.json");
     let settings_content = if settings_path.exists() {
@@ -446,9 +493,12 @@ fn install_claude_hook_config(home: &std::path::Path) {
         String::new()
     };
 
-    if settings_content.contains("lean-ctx-rewrite")
-        && settings_content.contains("lean-ctx-redirect")
-    {
+    let needs_update =
+        !settings_content.contains("hook rewrite") || !settings_content.contains("hook redirect");
+    let has_old_hooks = settings_content.contains("lean-ctx-rewrite.sh")
+        || settings_content.contains("lean-ctx-redirect.sh");
+
+    if !needs_update && !has_old_hooks {
         return;
     }
 
@@ -459,14 +509,14 @@ fn install_claude_hook_config(home: &std::path::Path) {
                     "matcher": "Bash|bash",
                     "hooks": [{
                         "type": "command",
-                        "command": rewrite_path.to_string_lossy()
+                        "command": rewrite_cmd
                     }]
                 },
                 {
                     "matcher": "Read|read|ReadFile|read_file|View|view|Grep|grep|Search|search|ListFiles|list_files|ListDirectory|list_directory",
                     "hooks": [{
                         "type": "command",
-                        "command": redirect_path.to_string_lossy()
+                        "command": redirect_cmd
                     }]
                 }
             ]
@@ -534,12 +584,27 @@ fn install_cursor_hook_scripts(home: &std::path::Path) {
     let redirect_path = hooks_dir.join("lean-ctx-redirect.sh");
     write_file(&redirect_path, REDIRECT_SCRIPT_GENERIC);
     make_executable(&redirect_path);
+
+    let native_binary = resolve_binary_path();
+    let rewrite_native = hooks_dir.join("lean-ctx-rewrite-native");
+    write_file(
+        &rewrite_native,
+        &format!("#!/bin/sh\nexec {} hook rewrite\n", native_binary),
+    );
+    make_executable(&rewrite_native);
+
+    let redirect_native = hooks_dir.join("lean-ctx-redirect-native");
+    write_file(
+        &redirect_native,
+        &format!("#!/bin/sh\nexec {} hook redirect\n", native_binary),
+    );
+    make_executable(&redirect_native);
 }
 
 fn install_cursor_hook_config(home: &std::path::Path) {
-    let hooks_dir = home.join(".cursor").join("hooks");
-    let rewrite_path = hooks_dir.join("lean-ctx-rewrite.sh");
-    let redirect_path = hooks_dir.join("lean-ctx-redirect.sh");
+    let binary = resolve_binary_path();
+    let rewrite_cmd = format!("{binary} hook rewrite");
+    let redirect_cmd = format!("{binary} hook redirect");
 
     let hooks_json = home.join(".cursor").join("hooks.json");
     let hook_config = serde_json::json!({
@@ -549,14 +614,14 @@ fn install_cursor_hook_config(home: &std::path::Path) {
                 "matcher": {
                     "tool": "terminal_command"
                 },
-                "command": rewrite_path.to_string_lossy()
+                "command": rewrite_cmd
             },
             {
                 "event": "preToolUse",
                 "matcher": {
                     "tool": "read_file|grep|search|list_files|list_directory"
                 },
-                "command": redirect_path.to_string_lossy()
+                "command": redirect_cmd
             }
         ]
     });
@@ -608,9 +673,9 @@ fn install_gemini_hook_scripts(home: &std::path::Path) {
 }
 
 fn install_gemini_hook_config(home: &std::path::Path) {
-    let hooks_dir = home.join(".gemini").join("hooks");
-    let rewrite_path = hooks_dir.join("lean-ctx-rewrite-gemini.sh");
-    let redirect_path = hooks_dir.join("lean-ctx-redirect-gemini.sh");
+    let binary = resolve_binary_path();
+    let rewrite_cmd = format!("{binary} hook rewrite");
+    let redirect_cmd = format!("{binary} hook redirect");
 
     let settings_path = home.join(".gemini").join("settings.json");
     let settings_content = if settings_path.exists() {
@@ -619,9 +684,12 @@ fn install_gemini_hook_config(home: &std::path::Path) {
         String::new()
     };
 
-    if settings_content.contains("lean-ctx-rewrite")
-        && settings_content.contains("lean-ctx-redirect")
-    {
+    let needs_update =
+        !settings_content.contains("hook rewrite") || !settings_content.contains("hook redirect");
+    let has_old_hooks = settings_content.contains("lean-ctx-rewrite")
+        || settings_content.contains("lean-ctx-redirect");
+
+    if !needs_update && !has_old_hooks {
         return;
     }
 
@@ -629,10 +697,10 @@ fn install_gemini_hook_config(home: &std::path::Path) {
         "hooks": {
             "BeforeTool": [
                 {
-                    "command": rewrite_path.to_string_lossy()
+                    "command": rewrite_cmd
                 },
                 {
-                    "command": redirect_path.to_string_lossy()
+                    "command": redirect_cmd
                 }
             ]
         }
@@ -652,7 +720,10 @@ fn install_gemini_hook_config(home: &std::path::Path) {
             );
         }
     }
-    println!("Installed Gemini CLI hooks at {}", hooks_dir.display());
+    println!(
+        "Installed Gemini CLI hooks at {}",
+        settings_path.parent().unwrap_or(&settings_path).display()
+    );
 }
 
 fn install_codex_hook() {
