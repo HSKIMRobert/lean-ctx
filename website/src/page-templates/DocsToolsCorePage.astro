@@ -258,6 +258,18 @@ ctx_read auth.ts
     <code>~/.lean-ctx/tee/</code>. Use <code>lean-ctx tee last</code> to view the most recent saved output.
   </p>
 
+  <h3>Input Validation</h3>
+  <p>
+    <code>ctx_shell</code> validates commands before execution and rejects file-write operations:
+  </p>
+  <ul>
+    <li><strong>File-write blocking</strong> — Shell redirects (<code>&gt;</code>, <code>&gt;&gt;</code>), heredocs (<code>&lt;&lt; EOF</code>), and <code>tee</code> are rejected with a clear error. Use the native Write tool instead.</li>
+    <li><strong>Command size limit</strong> — Commands over 8KB are rejected. Large heredocs corrupt the MCP protocol stream.</li>
+  </ul>
+  <p>
+    This prevents cascading MCP failures caused by oversized shell payloads (see <a href="https://github.com/yvgude/lean-ctx/issues/50">#50</a>).
+  </p>
+
   <h3>Supported Patterns (90+)</h3>
 
   <table>

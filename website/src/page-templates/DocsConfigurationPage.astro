@@ -16,6 +16,7 @@ const sidebar = [
       { label: t('docsConfiguration.sidebarAutonomyConfig'), href: lp('/docs/configuration') + '#autonomy-configuration' },
       { label: t('docsConfiguration.sidebarUserTomlFilters'), href: lp('/docs/configuration') + '#user-toml-filters' },
       { label: t('docsConfiguration.sidebarEnvVars'), href: lp('/docs/configuration') + '#environment-variables' },
+      { label: t('docsConfiguration.sidebarHookRedirect'), href: lp('/docs/configuration') + '#hook-redirect' },
       { label: t('docsConfiguration.sidebarCursorRule'), href: lp('/docs/configuration') + '#cursor-rule' },
       { label: t('docsConfiguration.sidebarExitCodes'), href: lp('/docs/configuration') + '#exit-codes' },
       { label: t('docsConfiguration.sidebarTokenCounting'), href: lp('/docs/configuration') + '#token-counting' },
@@ -100,6 +101,12 @@ lean-ctx config set passthrough_urls localhost:3000,api.internal</code></pre>
         <td><code>[]</code></td>
         <td set:html={t('docsConfiguration.customAliasesDesc')} />
       </tr>
+      <tr>
+        <td><code>redirect_exclude</code></td>
+        <td>list</td>
+        <td><code>[]</code></td>
+        <td set:html={t('docsConfiguration.redirectExcludeDesc')} />
+      </tr>
     </tbody>
   </table>
 
@@ -147,8 +154,24 @@ lean-ctx config set passthrough_urls localhost:3000,api.internal</code></pre>
         <td><code>true</code> / <code>false</code></td>
         <td set:html={t('docsConfiguration.autonomyEnvDesc')} />
       </tr>
+      <tr>
+        <td><code>LEAN_CTX_HOOK_EXCLUDE</code></td>
+        <td>comma-separated globs</td>
+        <td set:html={t('docsConfiguration.hookExcludeEnvDesc')} />
+      </tr>
     </tbody>
   </table>
+
+  <hr />
+
+  <h2 id="hook-redirect" set:html={t('docsConfiguration.hookRedirectTitle')} />
+
+  <p set:html={t('docsConfiguration.hookRedirectDesc')} />
+  <pre><code># ~/.lean-ctx/config.toml
+redirect_exclude = [".wolf/**", ".claude/**", "*.json", "CLAUDE.md"]</code></pre>
+
+  <pre><code># Or via environment variable (takes precedence)
+export LEAN_CTX_HOOK_EXCLUDE=".wolf/**,.claude/**,*.json"</code></pre>
 
   <hr />
 
