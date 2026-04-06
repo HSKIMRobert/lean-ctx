@@ -1,0 +1,204 @@
+---
+import DocsLayout from '../../../layouts/DocsLayout.astro';
+import { getLocaleFromUrl, getLocalizedPath, useTranslations } from '../../../i18n/utils';
+
+const locale = getLocaleFromUrl(Astro.url);
+const t = useTranslations(locale);
+const lp = (path: string) => getLocalizedPath(path, locale);
+
+const sidebar = [
+  {
+    title: t('docsConfiguration.sidebarConfiguration'),
+    items: [
+      { label: t('docsConfiguration.sidebarOverview'), href: lp('/docs/configuration') },
+      { label: t('docsConfiguration.sidebarConfigFile'), href: lp('/docs/configuration') + '#config-file' },
+      { label: t('docsConfiguration.sidebarConfigOptions'), href: lp('/docs/configuration') + '#config-options' },
+      { label: t('docsConfiguration.sidebarAutonomyConfig'), href: lp('/docs/configuration') + '#autonomy-configuration' },
+      { label: t('docsConfiguration.sidebarUserTomlFilters'), href: lp('/docs/configuration') + '#user-toml-filters' },
+      { label: t('docsConfiguration.sidebarEnvVars'), href: lp('/docs/configuration') + '#environment-variables' },
+      { label: t('docsConfiguration.sidebarCursorRule'), href: lp('/docs/configuration') + '#cursor-rule' },
+      { label: t('docsConfiguration.sidebarExitCodes'), href: lp('/docs/configuration') + '#exit-codes' },
+      { label: t('docsConfiguration.sidebarTokenCounting'), href: lp('/docs/configuration') + '#token-counting' },
+    ],
+  },
+  {
+    title: t('docsConfiguration.sidebarRelated'),
+    items: [
+      { label: t('docsConfiguration.sidebarAnalytics'), href: lp('/docs/analytics') },
+      { label: t('docsConfiguration.sidebarCliReference'), href: lp('/docs/cli-reference') },
+      { label: t('docsConfiguration.sidebarGettingStarted'), href: lp('/docs/getting-started') },
+      { label: t('docsConfiguration.sidebarQuickReference'), href: lp('/docs/quick-reference') },
+    ],
+  },
+];
+---
+
+<DocsLayout title={t('docsConfiguration.title')} description={t('docsConfiguration.description')} sidebar={sidebar}>
+
+  <p set:html={t('docsConfiguration.intro')} />
+
+  <hr />
+
+  <h2 id="config-file" set:html={t('docsConfiguration.configFileTitle')} />
+
+  <p set:html={t('docsConfiguration.configFileDesc')} />
+
+  <h3 set:html={t('docsConfiguration.createDefaultConfig')} />
+  <pre><code>lean-ctx config init</code></pre>
+
+  <h3 set:html={t('docsConfiguration.viewCurrentConfig')} />
+  <pre><code>lean-ctx config</code></pre>
+
+  <h3 set:html={t('docsConfiguration.setIndividualValues')} />
+  <pre><code>lean-ctx config set ultra_compact true
+lean-ctx config set checkpoint_interval 15
+lean-ctx config set tee_mode always
+lean-ctx config set passthrough_urls localhost:3000,api.internal</code></pre>
+
+  <hr />
+
+  <h2 id="config-options" set:html={t('docsConfiguration.configOptionsTitle')} />
+
+  <table>
+    <thead>
+      <tr><th>{t('docsConfiguration.tableKey')}</th><th>{t('docsConfiguration.tableType')}</th><th>{t('docsConfiguration.tableDefault')}</th><th>{t('docsConfiguration.tableDescription')}</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>ultra_compact</code></td>
+        <td>bool</td>
+        <td><code>false</code></td>
+        <td set:html={t('docsConfiguration.ultraCompactDesc')} />
+      </tr>
+      <tr>
+        <td><code>tee_mode</code></td>
+        <td>string</td>
+        <td><code>"failures"</code></td>
+        <td set:html={t('docsConfiguration.teeModeDesc')} />
+      </tr>
+      <tr>
+        <td><code>passthrough_urls</code></td>
+        <td>list</td>
+        <td><code>[]</code></td>
+        <td set:html={t('docsConfiguration.passthroughUrlsDesc')} />
+      </tr>
+      <tr>
+        <td><code>checkpoint_interval</code></td>
+        <td>u32</td>
+        <td><code>15</code></td>
+        <td set:html={t('docsConfiguration.checkpointIntervalDesc')} />
+      </tr>
+      <tr>
+        <td><code>excluded_commands</code></td>
+        <td>list</td>
+        <td><code>[]</code></td>
+        <td set:html={t('docsConfiguration.excludedCommandsDesc')} />
+      </tr>
+      <tr>
+        <td><code>custom_aliases</code></td>
+        <td>list</td>
+        <td><code>[]</code></td>
+        <td set:html={t('docsConfiguration.customAliasesDesc')} />
+      </tr>
+    </tbody>
+  </table>
+
+  <hr />
+
+  <h2 id="environment-variables" set:html={t('docsConfiguration.envVarsTitle')} />
+
+  <table>
+    <thead>
+      <tr><th>{t('docsConfiguration.tableVariable')}</th><th>{t('docsConfiguration.tableValues')}</th><th>{t('docsConfiguration.tableDescription')}</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>LEAN_CTX_CRP_MODE</code></td>
+        <td>tdd (default), compact, off</td>
+        <td set:html={t('docsConfiguration.crpModeDesc')} />
+      </tr>
+      <tr>
+        <td><code>LEAN_CTX_CHECKPOINT_INTERVAL</code></td>
+        <td>number (default: 10)</td>
+        <td set:html={t('docsConfiguration.checkpointIntervalEnvDesc')} />
+      </tr>
+      <tr>
+        <td><code>LEAN_CTX_CACHE_TTL</code></td>
+        <td>number (default: 300)</td>
+        <td set:html={t('docsConfiguration.cacheTtlDesc')} />
+      </tr>
+      <tr>
+        <td><code>LEAN_CTX_ACTIVE</code></td>
+        <td>set / unset</td>
+        <td set:html={t('docsConfiguration.activeDesc')} />
+      </tr>
+      <tr>
+        <td><code>LEAN_CTX_DISABLED</code></td>
+        <td>set / unset</td>
+        <td set:html={t('docsConfiguration.disabledDesc')} />
+      </tr>
+      <tr>
+        <td><code>LEAN_CTX_RAW</code></td>
+        <td>set / unset</td>
+        <td set:html={t('docsConfiguration.rawDesc')} />
+      </tr>
+      <tr>
+        <td><code>LEAN_CTX_AUTONOMY</code></td>
+        <td><code>true</code> / <code>false</code></td>
+        <td set:html={t('docsConfiguration.autonomyEnvDesc')} />
+      </tr>
+    </tbody>
+  </table>
+
+  <hr />
+
+  <h2 id="cursor-rule" set:html={t('docsConfiguration.cursorRuleTitle')} />
+
+  <p set:html={t('docsConfiguration.cursorRuleDesc1')} />
+  <p set:html={t('docsConfiguration.cursorRuleDesc2')} />
+
+  <hr />
+
+  <h2 id="autonomy-configuration" set:html={t('docsConfiguration.autonomyConfigTitle')} />
+
+  <p set:html={t('docsConfiguration.autonomyConfigDesc')} />
+  <pre><code>[autonomy]
+enabled = true          # Master switch for all autonomy features
+auto_preload = true     # Pre-cache imported files after ctx_read
+auto_dedup = true       # Auto-deduplicate at 8+ cached files
+auto_related = true     # Suggest related files via import graph
+silent_preload = true   # Cache files without output
+dedup_threshold = 8     # Files before auto-dedup triggers</code></pre>
+  <p set:html={t('docsConfiguration.autonomyConfigOverride')} />
+
+  <hr />
+
+  <h2 id="user-toml-filters" set:html={t('docsConfiguration.userTomlFiltersTitle')} />
+
+  <p set:html={t('docsConfiguration.userTomlFiltersDesc')} />
+  <pre><code># ~/.lean-ctx/filters/my-api.toml
+name = "My API filter"
+commands = ["curl"]
+
+[[rules]]
+pattern = "X-Request-Id: [a-f0-9-]+"
+replacement = ""
+
+[[rules]]
+pattern = "^\\s+$"
+replacement = ""</code></pre>
+  <p set:html={t('docsConfiguration.userTomlFiltersManage')} />
+
+  <hr />
+
+  <h2 id="exit-codes" set:html={t('docsConfiguration.exitCodesTitle')} />
+
+  <p set:html={t('docsConfiguration.exitCodesDesc')} />
+
+  <hr />
+
+  <h2 id="token-counting" set:html={t('docsConfiguration.tokenCountingTitle')} />
+
+  <p set:html={t('docsConfiguration.tokenCountingDesc')} />
+
+</DocsLayout>
