@@ -1,7 +1,7 @@
 use anyhow::Result;
 use lean_ctx::{
-    cli, cloud_client, core, dashboard, doctor, hook_handlers, mcp_stdio, report, setup, shell,
-    terminal_ui, tools, uninstall,
+    cli, cloud_client, core, dashboard, doctor, heatmap, hook_handlers, mcp_stdio, report, setup,
+    shell, terminal_ui, tools, uninstall,
 };
 
 fn main() {
@@ -124,6 +124,10 @@ fn main() {
             }
             "filter" => {
                 cli::cmd_filter(&rest);
+                return;
+            }
+            "heatmap" => {
+                heatmap::cmd_heatmap(&rest);
                 return;
             }
             "session" => {
