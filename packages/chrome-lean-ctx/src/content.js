@@ -135,42 +135,36 @@ function findSendButton(config) {
   return null;
 }
 
-function clickSendButton(config, retries = 3) {
+function triggerSend(input, config) {
+  const form = input.closest("form");
+  if (form) {
+    try {
+      form.requestSubmit();
+      return;
+    } catch {
+      try {
+        form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+        return;
+      } catch { /* fall through */ }
+    }
+  }
+
   const btn = findSendButton(config);
   if (btn) {
-    btn.disabled = false;
     btn.click();
-    return true;
+    return;
   }
-  if (retries > 0) {
-    setTimeout(() => clickSendButton(config, retries - 1), 150);
-    return true;
-  }
-  return false;
-}
 
-function dispatchEnter(el) {
   const opts = {
     key: "Enter",
     code: "Enter",
     keyCode: 13,
     which: 13,
     bubbles: true,
-    cancelable: true,
   };
-  el.dispatchEvent(new KeyboardEvent("keydown", opts));
-  el.dispatchEvent(new KeyboardEvent("keypress", opts));
-  el.dispatchEvent(new KeyboardEvent("keyup", opts));
-}
-
-function triggerSend(input, config) {
-  requestAnimationFrame(() => {
-    setTimeout(() => {
-      if (!clickSendButton(config)) {
-        dispatchEnter(input);
-      }
-    }, 120);
-  });
+  input.dispatchEvent(new KeyboardEvent("keydown", opts));
+  input.dispatchEvent(new KeyboardEvent("keypress", opts));
+  input.dispatchEvent(new KeyboardEvent("keyup", opts));
 }
 
 async function handleSubmit(input, config) {
@@ -190,12 +184,17 @@ async function handleSubmit(input, config) {
     setInputText(input, response.compressed);
     showSavings(response.inputTokens || 0, response.outputTokens || 0, response.savings || 0);
     updateStats(response);
-    await new Promise((r) => setTimeout(r, 150));
   }
 
   hideCompressing();
   isCompressing = false;
-  triggerSend(input, config);
+
+  await new Promise((resolve) => {
+    requestAnimationFrame(() => setTimeout(resolve, 200));
+  });
+
+  const freshInput = getActiveInput(config) || input;
+  triggerSend(freshInput, config);
 }
 
 let hookedInputs = new WeakSet();
