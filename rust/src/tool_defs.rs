@@ -384,18 +384,19 @@ status (list all), remove, export.",
             "ctx_agent",
             "Multi-agent coordination (shared message bus). Actions: register (join with agent_type+role), \
 post (broadcast or direct message with category), read (poll messages), status (update state: active|idle|finished), \
+handoff (transfer task to another agent with summary), sync (overview of all agents + pending messages + shared contexts), \
 list, info.",
             json!({
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["register", "list", "post", "read", "status", "info"],
+                        "enum": ["register", "list", "post", "read", "status", "info", "handoff", "sync"],
                         "description": "Agent operation to perform"
                     },
                     "agent_type": {
                         "type": "string",
-                        "description": "Agent type for register (cursor, claude, codex, gemini, subagent)"
+                        "description": "Agent type for register (cursor, claude, codex, gemini, crush, subagent)"
                     },
                     "role": {
                         "type": "string",
@@ -417,6 +418,34 @@ list, info.",
                         "type": "string",
                         "enum": ["active", "idle", "finished"],
                         "description": "New status for status action"
+                    }
+                },
+                "required": ["action"]
+            }),
+        ),
+        tool_def(
+            "ctx_share",
+            "Share cached file contexts between agents. Actions: push (share files from your cache to another agent), \
+pull (receive files shared by other agents), list (show all shared contexts), clear (remove your shared contexts).",
+            json!({
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["push", "pull", "list", "clear"],
+                        "description": "Share operation to perform"
+                    },
+                    "paths": {
+                        "type": "string",
+                        "description": "Comma-separated file paths to share (for push action)"
+                    },
+                    "to_agent": {
+                        "type": "string",
+                        "description": "Target agent ID (omit for broadcast to all agents)"
+                    },
+                    "message": {
+                        "type": "string",
+                        "description": "Optional context message explaining what was shared"
                     }
                 },
                 "required": ["action"]
@@ -624,7 +653,10 @@ reset, list (show sessions), cleanup.", json!({"type": "object", "properties": {
 gotcha (record a bug to never repeat — trigger+resolution), status, remove, export.", json!({"type": "object", "properties": {"action": {"type": "string"}, "category": {"type": "string"}, "key": {"type": "string"}, "value": {"type": "string"}, "query": {"type": "string"}, "trigger": {"type": "string"}, "resolution": {"type": "string"}, "severity": {"type": "string"}}, "required": ["action"]})),
         ("ctx_agent", "Multi-agent coordination (shared message bus). Actions: register (join with agent_type+role), \
 post (broadcast or direct message with category), read (poll messages), status (update state: active|idle|finished), \
-list, info.", json!({"type": "object", "properties": {"action": {"type": "string"}, "agent_type": {"type": "string"}, "role": {"type": "string"}, "message": {"type": "string"}}, "required": ["action"]})),
+handoff (transfer task to another agent with summary), sync (overview of all agents + pending messages + shared contexts), \
+list, info.", json!({"type": "object", "properties": {"action": {"type": "string"}, "agent_type": {"type": "string"}, "role": {"type": "string"}, "message": {"type": "string"}, "to_agent": {"type": "string"}, "status": {"type": "string"}}, "required": ["action"]})),
+        ("ctx_share", "Share cached file contexts between agents. Actions: push (share files from cache), \
+pull (receive shared files), list (show all shared contexts), clear (remove your shared contexts).", json!({"type": "object", "properties": {"action": {"type": "string"}, "paths": {"type": "string"}, "to_agent": {"type": "string"}, "message": {"type": "string"}}, "required": ["action"]})),
         ("ctx_overview", "Task-relevant project map — use at session start.", json!({"type": "object", "properties": {"task": {"type": "string"}, "path": {"type": "string"}}})),
         ("ctx_preload", "Proactive context loader — reads and caches task-relevant files, returns compact L-curve-optimized summary with critical lines, imports, and signatures. Costs ~50-100 tokens instead of ~5000 for individual reads.", json!({"type": "object", "properties": {"task": {"type": "string", "description": "Task description (e.g. 'fix auth bug in validate_token')"}, "path": {"type": "string", "description": "Project root (default: .)"}}, "required": ["task"]})),
         ("ctx_wrapped", "Savings report card. Periods: week|month|all.", json!({"type": "object", "properties": {"period": {"type": "string"}}})),

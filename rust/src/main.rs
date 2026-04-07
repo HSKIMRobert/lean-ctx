@@ -1,7 +1,7 @@
 use anyhow::Result;
 use lean_ctx::{
-    cli, cloud_client, core, dashboard, doctor, hook_handlers, mcp_stdio, report, setup, shell,
-    terminal_ui, tools, uninstall,
+    cli, cloud_client, core, dashboard, doctor, heatmap, hook_handlers, mcp_stdio, report, setup,
+    shell, terminal_ui, tools, uninstall,
 };
 
 fn main() {
@@ -124,6 +124,43 @@ fn main() {
             }
             "filter" => {
                 cli::cmd_filter(&rest);
+                return;
+            }
+            "heatmap" => {
+                heatmap::cmd_heatmap(&rest);
+                return;
+            }
+            "graph" => {
+                let mut action = "build";
+                let mut path_arg: Option<&str> = None;
+                for arg in &rest {
+                    if arg == "build" {
+                        action = "build";
+                    } else {
+                        path_arg = Some(arg.as_str());
+                    }
+                }
+                let root = path_arg
+                    .map(String::from)
+                    .or_else(|| {
+                        std::env::current_dir()
+                            .ok()
+                            .map(|p| p.to_string_lossy().to_string())
+                    })
+                    .unwrap_or_else(|| ".".to_string());
+                match action {
+                    "build" => {
+                        let index = core::graph_index::load_or_build(&root);
+                        println!(
+                            "Graph built: {} files, {} edges",
+                            index.files.len(),
+                            index.edges.len()
+                        );
+                    }
+                    _ => {
+                        eprintln!("Usage: lean-ctx graph [build] [path]");
+                    }
+                }
                 return;
             }
             "session" => {
@@ -325,7 +362,7 @@ fn print_help() {
     println!(
         "lean-ctx {version} — The Intelligence Layer for AI Coding
 
-90+ compression patterns | 25 MCP tools | Context Continuity Protocol
+90+ compression patterns | 28 MCP tools | Context Continuity Protocol
 
 USAGE:
     lean-ctx                       Start MCP server (stdio)

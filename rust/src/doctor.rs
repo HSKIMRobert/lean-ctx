@@ -325,6 +325,11 @@ fn mcp_config_locations(home: &std::path::Path) -> Vec<McpLocation> {
         display: "~/.verdent/mcp.json",
         path: home.join(".verdent").join("mcp.json"),
     });
+    locations.push(McpLocation {
+        name: "Crush",
+        display: "~/.config/crush/crush.json",
+        path: home.join(".config").join("crush").join("crush.json"),
+    });
 
     {
         #[cfg(unix)]
@@ -430,7 +435,7 @@ fn mcp_config_outcome() -> Outcome {
         Outcome {
             ok: false,
             line: format!(
-                "{BOLD}MCP config{RST}  {YELLOW}no MCP config found{RST}  {DIM}(checked: Cursor, Claude, Windsurf, Codex, Gemini, Antigravity, Zed){RST}"
+                "{BOLD}MCP config{RST}  {YELLOW}no MCP config found{RST}  {DIM}(checked: Cursor, Claude, Windsurf, Codex, Gemini, Antigravity, Crush, Zed){RST}"
             ),
         }
     }
