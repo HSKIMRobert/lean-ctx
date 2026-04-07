@@ -13,6 +13,7 @@ const sidebar = [
     items: [
       { label: 'ctx_knowledge', href: lp('/docs/tools/memory') + '#ctx_knowledge' },
       { label: 'ctx_agent', href: lp('/docs/tools/memory') + '#ctx_agent' },
+      { label: 'ctx_share', href: lp('/docs/tools/memory') + '#ctx_share' },
       { label: 'ctx_overview', href: lp('/docs/tools/memory') + '#ctx_overview' },
     ],
   },
@@ -87,6 +88,8 @@ ctx_knowledge action=consolidate
       <tr><td><code>read</code></td><td>—</td><td>Check for new messages from other agents</td></tr>
       <tr><td><code>status</code></td><td><code>status</code> (<code>active</code>/<code>idle</code>/<code>finished</code>), <code>message</code></td><td>Update work status</td></tr>
       <tr><td><code>info</code></td><td>—</td><td>Show registry summary</td></tr>
+      <tr><td><code>handoff</code></td><td><code>to_agent</code>, <code>message</code></td><td>Transfer task to another agent with summary</td></tr>
+      <tr><td><code>sync</code></td><td>—</td><td>Multi-agent sync status: active agents, pending messages, shared contexts</td></tr>
     </tbody>
   </table>
 
@@ -97,13 +100,49 @@ ctx_knowledge action=consolidate
 ctx_agent action=post message="auth.ts refactored — new export: verifyJWT" category=change tags=["auth","breaking"]
 → Posted to scratchpad (1 other agent online)
 
-ctx_agent action=read
-→ 1 new message:
-  [cursor-b7c2] warning: db.ts schema changed, re-read before querying</code></pre>
+ctx_agent action=handoff to_agent=claude message="auth module complete, needs review"
+→ Handoff: cursor-a3f8 → claude | Status: finished
+
+ctx_agent action=sync
+→ Multi-Agent Sync Status:
+  Active agents: 2 | Pending messages: 1 | Shared contexts: 3</code></pre>
 
   <h3>Storage</h3>
   <p>
     Agent registry and scratchpad are stored at <code>~/.lean-ctx/agents/registry.json</code>.
+  </p>
+
+  <h2 id="ctx_share">ctx_share — Multi-Agent Context Sharing</h2>
+  <p>
+    Enables agents to share cached file contents with each other. When one agent has read and cached files,
+    it can push them to another agent, avoiding redundant file reads and enabling efficient task handoffs.
+  </p>
+
+  <h3>{t('docsToolsCore.parameters')}</h3>
+  <table>
+    <thead>
+      <tr><th>Action</th><th>{t('docsToolsCore.parameters')}</th><th>{t('docsToolsCore.thDescription')}</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>push</code></td><td><code>paths</code>, <code>to_agent</code>, <code>message</code></td><td>Share cached file contexts with a specific agent or all agents</td></tr>
+      <tr><td><code>pull</code></td><td>—</td><td>Receive shared contexts from other agents</td></tr>
+      <tr><td><code>list</code></td><td>—</td><td>List all shared contexts across agents</td></tr>
+      <tr><td><code>clear</code></td><td>—</td><td>Remove contexts shared by this agent</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Example</h3>
+  <pre><code>ctx_share action=push paths="src/auth.ts,src/middleware.ts" to_agent=claude message="auth files for review"
+→ Shared 2 files with claude (1,247 tokens)
+
+ctx_share action=pull
+→ 1 shared context from cursor-a3f8:
+  src/auth.ts (892 tok) + src/middleware.ts (355 tok)
+  Message: "auth files for review"</code></pre>
+
+  <h3>Storage</h3>
+  <p>
+    Shared contexts are stored at <code>~/.lean-ctx/agents/shared/</code> as JSON files.
   </p>
 
   <h2 id="ctx_overview">ctx_overview — Task-Aware Project Map</h2>

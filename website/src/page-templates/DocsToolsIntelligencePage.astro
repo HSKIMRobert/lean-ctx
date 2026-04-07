@@ -20,6 +20,9 @@ const sidebar = [
       { label: 'ctx_dedup', href: lp('/docs/tools/intelligence') + '#ctx_dedup' },
       { label: 'ctx_response', href: lp('/docs/tools/intelligence') + '#ctx_response' },
       { label: 'ctx_discover', href: lp('/docs/tools/intelligence') + '#ctx_discover' },
+      { label: 'ctx_edit', href: lp('/docs/tools/intelligence') + '#ctx_edit' },
+      { label: 'ctx_preload', href: lp('/docs/tools/intelligence') + '#ctx_preload' },
+      { label: 'ctx_semantic_search', href: lp('/docs/tools/intelligence') + '#ctx_semantic_search' },
     ],
   },
   {
@@ -88,22 +91,30 @@ const sidebar = [
 
   <h2 id="ctx_intent">ctx_intent</h2>
   <p>
-    Semantic intent detection. Analyzes a natural language query to determine intent
-    (fix bug, add feature, refactor, understand, test, config, deploy) and automatically
-    selects and reads relevant files in the optimal compression mode.
+    Semantic intent detection with multi-intent support. Analyzes natural language queries to determine intent
+    (fix bug, add feature, refactor, understand, test, config, deploy, review), classifies complexity
+    (mechanical/standard/architectural), and auto-loads relevant files ranked by heat score.
   </p>
   <h3>{t('docsToolsCore.parameters')}</h3>
   <ul>
     <li><code>query</code> (required) — natural language description of what you want to do</li>
     <li><code>project_root</code> (optional) — project root path (defaults to <code>.</code>)</li>
   </ul>
+  <h3>Features (v2.18.0)</h3>
+  <ul>
+    <li><strong>Multi-intent</strong> — compound queries like "fix X and then test Y" are split into sub-intents</li>
+    <li><strong>Complexity</strong> — returns mechanical/standard/architectural classification</li>
+    <li><strong>Heat ranking</strong> — files ranked by token density + graph connectivity</li>
+  </ul>
   <h3>Example</h3>
-  <pre><code>ctx_intent "fix the authentication bug in the login flow"
-→ Intent: fix_bug | Confidence: 0.92
-  Loaded 3 relevant files:
-  F1=src/auth.ts (full, 915t) — contains auth logic
-  F2=src/login.ts (full, 412t) — login handler
-  F3=src/middleware.ts (map, 89t) — auth middleware</code></pre>
+  <pre><code>ctx_intent "fix the auth bug and then add tests for it"
+→ Intent 1: fix_bug | Complexity: standard
+  Intent 2: test | Complexity: mechanical
+  Loaded 4 relevant files (heat-ranked):
+  F1=src/auth.ts (full, 915t) — heat: 0.92
+  F2=src/login.ts (full, 412t) — heat: 0.78
+  F3=src/__tests__/auth.test.ts (full, 340t) — heat: 0.65
+  F4=src/middleware.ts (map, 89t) — heat: 0.45</code></pre>
 
   <h2 id="ctx_context">ctx_context</h2>
   <p>
@@ -246,4 +257,54 @@ const sidebar = [
 → Shell commands that would benefit from lean-ctx:
   docker ps -a        — ran 12x, ~800 tokens each → ~9,600 tokens saveable
   kubectl get pods    — ran 8x, ~1,200 tokens each → ~9,600 tokens saveable</code></pre>
+
+  <h2 id="ctx_edit">ctx_edit</h2>
+  <p>
+    Search-and-replace file editing that works without needing native Read or Edit tools.
+    Reads the file, replaces the specified string, and writes the result — all in one MCP call.
+  </p>
+  <h3>{t('docsToolsCore.parameters')}</h3>
+  <ul>
+    <li><code>path</code> (required) — file path to edit</li>
+    <li><code>old_string</code> (required) — exact text to find</li>
+    <li><code>new_string</code> (required) — replacement text</li>
+  </ul>
+  <h3>Example</h3>
+  <pre><code>ctx_edit path=src/config.ts old_string="timeout: 5000" new_string="timeout: 10000"
+→ Replaced 1 occurrence in src/config.ts (cache updated)</code></pre>
+
+  <h2 id="ctx_preload">ctx_preload</h2>
+  <p>
+    Proactive context loader. Given a task description, automatically identifies and caches
+    task-relevant files, returning a compact summary. Use at session start alongside <code>ctx_overview</code>.
+  </p>
+  <h3>{t('docsToolsCore.parameters')}</h3>
+  <ul>
+    <li><code>task</code> (optional) — description of current task</li>
+    <li><code>path</code> (optional) — project root path</li>
+  </ul>
+  <h3>Example</h3>
+  <pre><code>ctx_preload task="fix JWT token refresh"
+→ Preloaded 5 files (2,340 tokens):
+  F1=src/auth.ts (full) F2=src/lib/jwt.ts (full) F3=src/middleware.ts (map)
+  F4=src/config.ts (signatures) F5=src/routes.ts (signatures)</code></pre>
+
+  <h2 id="ctx_semantic_search">ctx_semantic_search</h2>
+  <p>
+    BM25-based code search that finds symbols, patterns, and code by meaning across the project.
+    Supports reindexing for fresh results.
+  </p>
+  <h3>{t('docsToolsCore.parameters')}</h3>
+  <ul>
+    <li><code>query</code> (required) — natural language search query</li>
+    <li><code>path</code> (optional) — project root to search</li>
+    <li><code>top_k</code> (optional) — number of results (default 10)</li>
+    <li><code>action</code> (optional) — <code>reindex</code> to rebuild index</li>
+  </ul>
+  <h3>Example</h3>
+  <pre><code>ctx_semantic_search query="JWT token validation" top_k=5
+→ 5 results:
+  1. src/auth.ts:18-42 — verifyJWT function (score: 0.89)
+  2. src/middleware.ts:5-20 — auth middleware (score: 0.76)
+  3. src/lib/jwt.ts:1-35 — JWT utilities (score: 0.71)</code></pre>
 </DocsLayout>
