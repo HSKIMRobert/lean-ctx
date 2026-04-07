@@ -330,6 +330,154 @@ impl SessionState {
         lines.join("\n")
     }
 
+    pub fn build_compaction_snapshot(&self) -> String {
+        const MAX_SNAPSHOT_BYTES: usize = 2048;
+
+        let mut sections: Vec<(u8, String)> = Vec::new();
+
+        if let Some(ref task) = self.task {
+            let pct = task
+                .progress_pct
+                .map_or(String::new(), |p| format!(" [{p}%]"));
+            sections.push((1, format!("<task>{}{pct}</task>", task.description)));
+        }
+
+        if !self.files_touched.is_empty() {
+            let modified: Vec<&str> = self
+                .files_touched
+                .iter()
+                .filter(|f| f.modified)
+                .map(|f| f.path.as_str())
+                .collect();
+            let read_only: Vec<&str> = self
+                .files_touched
+                .iter()
+                .filter(|f| !f.modified)
+                .take(10)
+                .map(|f| f.path.as_str())
+                .collect();
+            let mut files_section = String::new();
+            if !modified.is_empty() {
+                files_section.push_str(&format!("Modified: {}", modified.join(", ")));
+            }
+            if !read_only.is_empty() {
+                if !files_section.is_empty() {
+                    files_section.push_str(" | ");
+                }
+                files_section.push_str(&format!("Read: {}", read_only.join(", ")));
+            }
+            sections.push((1, format!("<files>{files_section}</files>")));
+        }
+
+        if !self.decisions.is_empty() {
+            let items: Vec<&str> = self.decisions.iter().map(|d| d.summary.as_str()).collect();
+            sections.push((2, format!("<decisions>{}</decisions>", items.join(" | "))));
+        }
+
+        if !self.findings.is_empty() {
+            let items: Vec<String> = self
+                .findings
+                .iter()
+                .rev()
+                .take(5)
+                .map(|f| f.summary.clone())
+                .collect();
+            sections.push((2, format!("<findings>{}</findings>", items.join(" | "))));
+        }
+
+        if !self.progress.is_empty() {
+            let items: Vec<String> = self
+                .progress
+                .iter()
+                .rev()
+                .take(5)
+                .map(|p| {
+                    let detail = p.detail.as_deref().unwrap_or("");
+                    if detail.is_empty() {
+                        p.action.clone()
+                    } else {
+                        format!("{}: {detail}", p.action)
+                    }
+                })
+                .collect();
+            sections.push((2, format!("<progress>{}</progress>", items.join(" | "))));
+        }
+
+        if let Some(ref tests) = self.test_results {
+            sections.push((
+                3,
+                format!(
+                    "<tests>{}/{} pass ({})</tests>",
+                    tests.passed, tests.total, tests.command
+                ),
+            ));
+        }
+
+        if !self.next_steps.is_empty() {
+            sections.push((
+                3,
+                format!("<next_steps>{}</next_steps>", self.next_steps.join(" | ")),
+            ));
+        }
+
+        sections.push((
+            4,
+            format!(
+                "<stats>calls={} saved={}tok</stats>",
+                self.stats.total_tool_calls, self.stats.total_tokens_saved
+            ),
+        ));
+
+        sections.sort_by_key(|(priority, _)| *priority);
+
+        let mut snapshot = String::from("<session_snapshot>\n");
+        for (_, section) in &sections {
+            if snapshot.len() + section.len() + 25 > MAX_SNAPSHOT_BYTES {
+                break;
+            }
+            snapshot.push_str(section);
+            snapshot.push('\n');
+        }
+        snapshot.push_str("</session_snapshot>");
+        snapshot
+    }
+
+    pub fn save_compaction_snapshot(&self) -> Result<String, String> {
+        let snapshot = self.build_compaction_snapshot();
+        let dir = sessions_dir().ok_or("cannot determine home directory")?;
+        if !dir.exists() {
+            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        }
+        let path = dir.join(format!("{}_snapshot.txt", self.id));
+        std::fs::write(&path, &snapshot).map_err(|e| e.to_string())?;
+        Ok(snapshot)
+    }
+
+    pub fn load_compaction_snapshot(session_id: &str) -> Option<String> {
+        let dir = sessions_dir()?;
+        let path = dir.join(format!("{session_id}_snapshot.txt"));
+        std::fs::read_to_string(&path).ok()
+    }
+
+    pub fn load_latest_snapshot() -> Option<String> {
+        let dir = sessions_dir()?;
+        let mut snapshots: Vec<(std::time::SystemTime, PathBuf)> = std::fs::read_dir(&dir)
+            .ok()?
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().to_string_lossy().ends_with("_snapshot.txt"))
+            .filter_map(|e| {
+                let meta = e.metadata().ok()?;
+                let modified = meta.modified().ok()?;
+                Some((modified, e.path()))
+            })
+            .collect();
+
+        snapshots.sort_by(|a, b| b.0.cmp(&a.0));
+        snapshots
+            .first()
+            .and_then(|(_, path)| std::fs::read_to_string(path).ok())
+    }
+
     pub fn save(&mut self) -> Result<(), String> {
         let dir = sessions_dir().ok_or("cannot determine home directory")?;
         if !dir.exists() {
@@ -478,4 +626,64 @@ fn shorten_path(path: &str) -> String {
     }
     let last_two: Vec<&str> = parts.iter().rev().take(2).copied().collect();
     format!("…/{}/{}", last_two[1], last_two[0])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compaction_snapshot_includes_task() {
+        let mut session = SessionState::new();
+        session.set_task("fix auth bug", None);
+        let snapshot = session.build_compaction_snapshot();
+        assert!(snapshot.contains("<task>fix auth bug</task>"));
+        assert!(snapshot.contains("<session_snapshot>"));
+        assert!(snapshot.contains("</session_snapshot>"));
+    }
+
+    #[test]
+    fn compaction_snapshot_includes_files() {
+        let mut session = SessionState::new();
+        session.touch_file("src/auth.rs", None, "full", 500);
+        session.files_touched[0].modified = true;
+        session.touch_file("src/main.rs", None, "map", 100);
+        let snapshot = session.build_compaction_snapshot();
+        assert!(snapshot.contains("auth.rs"));
+        assert!(snapshot.contains("<files>"));
+    }
+
+    #[test]
+    fn compaction_snapshot_includes_decisions() {
+        let mut session = SessionState::new();
+        session.add_decision("Use JWT RS256", None);
+        let snapshot = session.build_compaction_snapshot();
+        assert!(snapshot.contains("JWT RS256"));
+        assert!(snapshot.contains("<decisions>"));
+    }
+
+    #[test]
+    fn compaction_snapshot_respects_size_limit() {
+        let mut session = SessionState::new();
+        session.set_task("a]task", None);
+        for i in 0..100 {
+            session.add_finding(
+                Some(&format!("file{i}.rs")),
+                Some(i),
+                &format!("Finding number {i} with some detail text here"),
+            );
+        }
+        let snapshot = session.build_compaction_snapshot();
+        assert!(snapshot.len() <= 2200);
+    }
+
+    #[test]
+    fn compaction_snapshot_includes_stats() {
+        let mut session = SessionState::new();
+        session.stats.total_tool_calls = 42;
+        session.stats.total_tokens_saved = 10000;
+        let snapshot = session.build_compaction_snapshot();
+        assert!(snapshot.contains("calls=42"));
+        assert!(snapshot.contains("saved=10000"));
+    }
 }

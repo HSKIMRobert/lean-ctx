@@ -17,6 +17,8 @@ pub mod gotcha_tracker;
 pub mod graph_index;
 pub mod intent_engine;
 pub mod knowledge;
+pub mod loop_detection;
+
 pub mod litm;
 pub mod mode_predictor;
 pub mod neural;
@@ -24,6 +26,7 @@ pub mod patterns;
 pub mod preservation;
 pub mod protocol;
 pub mod quality;
+pub mod sandbox;
 pub mod semantic_cache;
 pub mod semantic_chunks;
 pub mod session;
