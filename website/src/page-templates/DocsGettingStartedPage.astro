@@ -64,6 +64,7 @@ const sidebar = [
           <button data-v="copilot" class="pg-btn">Copilot</button>
           <button data-v="windsurf" class="pg-btn">Windsurf</button>
           <button data-v="codex" class="pg-btn">Codex</button>
+          <button data-v="crush" class="pg-btn">Crush</button>
           <button data-v="gemini" class="pg-btn">Gemini</button>
           <button data-v="antigravity" class="pg-btn">Antigravity</button>
           <button data-v="zed" class="pg-btn">Zed</button>
@@ -180,6 +181,23 @@ const sidebar = [
         manual: ['Or manually: codex mcp add lean-ctx'],
         agent: 'lean-ctx init --agent codex',
         restart: 'Restart Codex CLI.'
+      },
+      crush: {
+        name: 'Crush',
+        note: 'Configure via lean-ctx init --agent crush. Crush by Charmbracelet uses ~/.config/crush/crush.json with a "mcp" key.',
+        manual: [
+          'If auto-setup fails, create ~/.config/crush/crush.json:',
+          '{',
+          '  "mcp": {',
+          '    "lean-ctx": {',
+          '      "type": "stdio",',
+          '      "command": "lean-ctx"',
+          '    }',
+          '  }',
+          '}'
+        ],
+        agent: 'lean-ctx init --agent crush',
+        restart: 'Restart Crush.'
       },
       gemini: {
         name: 'Gemini CLI',

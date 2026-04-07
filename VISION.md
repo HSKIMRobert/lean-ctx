@@ -78,7 +78,7 @@ LeanCTX v2.1 delivers Dimension 1 (Compression) and Dimension 3 (Context Managem
 - **LITM-Aware Positioning** — places critical information at attention-optimal positions (begin α=0.9, end γ=0.85) based on Liu et al., 2023
 - Persistent stats with USD tracking, visual dashboards, and shareable "Wrapped" reports
 - **Project Benchmark Engine** — real token measurements with tiktoken, latency tracking, AST-based preservation scoring, session simulation
-- Works with every MCP editor: Cursor, Copilot, Claude Code, Windsurf, Codex, Antigravity, OpenCode, OpenClaw
+- Works with every MCP editor: Cursor, Copilot, Claude Code, Windsurf, Codex, Crush, Antigravity, OpenCode, OpenClaw
 
 Future directions:
 - **Semantic Routing** — Automatic mode selection based on query intent

@@ -146,6 +146,7 @@ lean-ctx creates a backup of your shell config before modifying it (`~/.zshrc.le
 | **Amp** | Shell hook + rules | ✅ Auto |
 | **AWS Kiro** | MCP + rules | ✅ Auto |
 | **Continue** | MCP + rules | ✅ Auto |
+| **Crush** | MCP + rules | ✅ Auto |
 
 </details>
 
@@ -471,6 +472,7 @@ lean-ctx init --agent gemini   # Gemini CLI hook
 lean-ctx init --agent codex    # Codex AGENTS.md
 lean-ctx init --agent windsurf # .windsurfrules
 lean-ctx init --agent cline    # .clinerules
+lean-ctx init --agent crush    # Crush by Charmbracelet
 lean-ctx init --agent pi       # Pi Coding Agent extension
 lean-ctx gain                  # Visual terminal dashboard
 lean-ctx gain --live           # Live auto-updating dashboard
@@ -669,7 +671,7 @@ Pi's `bash`, `read`, `grep`, `find`, and `ls` tools are automatically routed thr
 | Truncation warnings | ✗ | ✓ (transparent markers) |
 | ANSI auto-strip | ✗ | ✓ (pre-compression) |
 | Telemetry | **Default ON (PII)** | **Zero. None. Ever.** |
-| Editor support | 3 editors | **23 editors/tools** |
+| Editor support | 3 editors | **24 editors/tools** |
 
 <br>
 
