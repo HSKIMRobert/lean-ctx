@@ -1,54 +1,96 @@
-#!/usr/bin/env bash
-# Native messaging bridge: reads JSON from Chrome, passes to lean-ctx, returns result
+#!/usr/bin/env python3
+"""lean-ctx native messaging bridge for Chrome.
 
-LEAN_CTX=$(command -v lean-ctx 2>/dev/null || echo "$HOME/.cargo/bin/lean-ctx")
+Reads JSON messages from Chrome via stdin (length-prefixed),
+compresses text using the local lean-ctx binary,
+returns compressed result via stdout.
+"""
+import json
+import struct
+import subprocess
+import sys
+import os
 
-read_message() {
-  local length_bytes
-  IFS= read -r -n 4 length_bytes
-  if [[ -z "$length_bytes" ]]; then
-    exit 0
-  fi
-  local length
-  length=$(printf '%d' "'${length_bytes:0:1}")
-  length=$((length + $(printf '%d' "'${length_bytes:1:1}") * 256))
-  length=$((length + $(printf '%d' "'${length_bytes:2:1}") * 65536))
-  length=$((length + $(printf '%d' "'${length_bytes:3:1}") * 16777216))
-  local message
-  IFS= read -r -n "$length" message
-  echo "$message"
-}
+def find_lean_ctx():
+    for candidate in [
+        os.path.expanduser("~/.cargo/bin/lean-ctx"),
+        "/usr/local/bin/lean-ctx",
+        "/opt/homebrew/bin/lean-ctx",
+    ]:
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
 
-send_message() {
-  local message="$1"
-  local length=${#message}
-  printf "\\x$(printf '%02x' $((length & 0xFF)))"
-  printf "\\x$(printf '%02x' $(((length >> 8) & 0xFF)))"
-  printf "\\x$(printf '%02x' $(((length >> 16) & 0xFF)))"
-  printf "\\x$(printf '%02x' $(((length >> 24) & 0xFF)))"
-  printf '%s' "$message"
-}
+    import shutil
+    found = shutil.which("lean-ctx")
+    if found:
+        return found
 
-while true; do
-  msg=$(read_message)
-  if [[ -z "$msg" ]]; then
-    exit 0
-  fi
+    return None
 
-  action=$(echo "$msg" | python3 -c "import sys,json;print(json.load(sys.stdin).get('action',''))" 2>/dev/null || echo "")
-  text=$(echo "$msg" | python3 -c "import sys,json;print(json.load(sys.stdin).get('text',''))" 2>/dev/null || echo "")
+def read_message():
+    raw = sys.stdin.buffer.read(4)
+    if len(raw) < 4:
+        return None
+    length = struct.unpack("I", raw)[0]
+    data = sys.stdin.buffer.read(length)
+    if len(data) < length:
+        return None
+    return json.loads(data.decode("utf-8"))
 
-  if [[ "$action" == "compress" && -n "$text" ]]; then
-    compressed=$(echo "$text" | LEAN_CTX_ACTIVE=0 NO_COLOR=1 "$LEAN_CTX" -c cat 2>/dev/null || echo "$text")
-    input_tokens=$(( ${#text} / 4 ))
-    output_tokens=$(( ${#compressed} / 4 ))
-    savings=0
-    if [[ $input_tokens -gt 0 ]]; then
-      savings=$(( (input_tokens - output_tokens) * 100 / input_tokens ))
-    fi
-    response="{\"compressed\":$(python3 -c "import json;print(json.dumps('''$compressed'''))" 2>/dev/null || echo "\"$compressed\""),\"inputTokens\":$input_tokens,\"outputTokens\":$output_tokens,\"savings\":$savings}"
-    send_message "$response"
-  else
-    send_message '{"error":"unknown action"}'
-  fi
-done
+def send_message(obj):
+    encoded = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+    sys.stdout.buffer.write(struct.pack("I", len(encoded)))
+    sys.stdout.buffer.write(encoded)
+    sys.stdout.buffer.flush()
+
+def compress(text, binary_path):
+    try:
+        env = os.environ.copy()
+        env["LEAN_CTX_ACTIVE"] = "0"
+        env["NO_COLOR"] = "1"
+        result = subprocess.run(
+            [binary_path, "-c", "cat"],
+            input=text,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env=env,
+        )
+        compressed = result.stdout if result.returncode == 0 else text
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        compressed = text
+
+    input_tokens = len(text) // 4
+    output_tokens = len(compressed) // 4
+    savings = ((input_tokens - output_tokens) / max(input_tokens, 1)) * 100
+
+    return {
+        "compressed": compressed,
+        "inputTokens": input_tokens,
+        "outputTokens": output_tokens,
+        "savings": round(savings, 1),
+    }
+
+def main():
+    binary = find_lean_ctx()
+
+    while True:
+        msg = read_message()
+        if msg is None:
+            break
+
+        action = msg.get("action", "")
+        text = msg.get("text", "")
+
+        if action == "compress" and text:
+            if binary:
+                send_message(compress(text, binary))
+            else:
+                send_message({"compressed": text, "savings": 0, "error": "lean-ctx not found"})
+        elif action == "ping":
+            send_message({"status": "ok", "binary": binary or "not found"})
+        else:
+            send_message({"error": "unknown action"})
+
+if __name__ == "__main__":
+    main()
