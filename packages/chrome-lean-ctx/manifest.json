@@ -24,8 +24,7 @@
     "https://labs.perplexity.ai/*"
   ],
   "background": {
-    "service_worker": "src/background.js",
-    "type": "module"
+    "service_worker": "src/background.js"
   },
   "content_scripts": [
     {

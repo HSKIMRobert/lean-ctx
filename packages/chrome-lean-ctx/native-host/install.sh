@@ -33,14 +33,33 @@ esac
 
 mkdir -p "$TARGET_DIR"
 
-BRIDGE_SCRIPT="$(cd "$(dirname "$0")" && pwd)/bridge.sh"
-chmod +x "$BRIDGE_SCRIPT"
+INSTALL_DIR="$HOME/.lean-ctx/chrome-bridge"
+mkdir -p "$INSTALL_DIR"
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cp "$SCRIPT_DIR/bridge.py" "$INSTALL_DIR/bridge.py"
+chmod +x "$INSTALL_DIR/bridge.py"
+
+PYTHON="/usr/bin/python3"
+if [[ ! -x "$PYTHON" ]]; then
+  PYTHON="$(command -v python3 2>/dev/null || true)"
+fi
+if [[ -z "$PYTHON" ]]; then
+  echo "Error: python3 not found"
+  exit 1
+fi
+
+cat > "$INSTALL_DIR/bridge.sh" <<BRIDGE
+#!/bin/bash
+exec "$PYTHON" -u "$INSTALL_DIR/bridge.py" 2>>"\$HOME/.lean-ctx/bridge-stderr.log"
+BRIDGE
+chmod +x "$INSTALL_DIR/bridge.sh"
 
 cat > "$TARGET_DIR/$HOST_NAME.json" <<MANIFEST
 {
   "name": "$HOST_NAME",
   "description": "lean-ctx native messaging bridge for Chrome",
-  "path": "$BRIDGE_SCRIPT",
+  "path": "$INSTALL_DIR/bridge.sh",
   "type": "stdio",
   "allowed_origins": [
     "chrome-extension://$EXTENSION_ID/"
@@ -50,7 +69,7 @@ MANIFEST
 
 echo "Native messaging host installed successfully."
 echo "  Manifest: $TARGET_DIR/$HOST_NAME.json"
-echo "  Extension ID: $EXTENSION_ID"
-echo "  Bridge: $BRIDGE_SCRIPT"
+echo "  Bridge:   $INSTALL_DIR/bridge.sh"
+echo "  Python:   $PYTHON"
 echo ""
-echo "Restart Chrome to activate."
+echo "Restart Chrome completely (Cmd+Q) to activate."

@@ -1,15 +1,27 @@
 #!/usr/bin/env python3
 """lean-ctx native messaging bridge for Chrome.
 
-Reads JSON messages from Chrome via stdin (length-prefixed),
-compresses text using the local lean-ctx binary,
-returns compressed result via stdout.
+One-shot mode: reads a single JSON message from Chrome via stdin
+(length-prefixed), processes it, returns the result, then exits.
 """
 import json
 import struct
 import subprocess
 import sys
 import os
+import traceback
+
+LOG_PATH = os.path.expanduser("~/.lean-ctx/bridge-debug.log")
+
+
+def log(msg):
+    try:
+        os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
+        with open(LOG_PATH, "a") as f:
+            f.write(msg + "\n")
+    except Exception:
+        pass
+
 
 def find_lean_ctx():
     for candidate in [
@@ -19,34 +31,39 @@ def find_lean_ctx():
     ]:
         if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
             return candidate
-
     import shutil
-    found = shutil.which("lean-ctx")
-    if found:
-        return found
+    return shutil.which("lean-ctx")
 
-    return None
 
 def read_message():
     raw = sys.stdin.buffer.read(4)
+    log(f"header bytes: {len(raw)}")
     if len(raw) < 4:
         return None
     length = struct.unpack("I", raw)[0]
+    log(f"message length: {length}")
+    if length > 1024 * 1024:
+        return None
     data = sys.stdin.buffer.read(length)
+    log(f"body bytes: {len(data)}")
     if len(data) < length:
         return None
     return json.loads(data.decode("utf-8"))
+
 
 def send_message(obj):
     encoded = json.dumps(obj, ensure_ascii=False).encode("utf-8")
     sys.stdout.buffer.write(struct.pack("I", len(encoded)))
     sys.stdout.buffer.write(encoded)
     sys.stdout.buffer.flush()
+    log(f"sent: {len(encoded)} bytes")
+
 
 def compress(text, binary_path):
     try:
         env = os.environ.copy()
-        env["LEAN_CTX_ACTIVE"] = "0"
+        env.pop("LEAN_CTX_ACTIVE", None)
+        env.pop("LEAN_CTX_DISABLED", None)
         env["NO_COLOR"] = "1"
         result = subprocess.run(
             [binary_path, "-c", "cat"],
@@ -56,8 +73,9 @@ def compress(text, binary_path):
             timeout=10,
             env=env,
         )
-        compressed = result.stdout if result.returncode == 0 else text
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+        compressed = result.stdout.strip() if result.returncode == 0 else text
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        log(f"compress error: {e}")
         compressed = text
 
     input_tokens = len(text) // 4
@@ -71,26 +89,37 @@ def compress(text, binary_path):
         "savings": round(savings, 1),
     }
 
-def main():
-    binary = find_lean_ctx()
 
-    while True:
+def main():
+    log("--- bridge started ---")
+    try:
         msg = read_message()
         if msg is None:
-            break
+            log("no input received")
+            send_message({"error": "no input"})
+            return
 
+        binary = find_lean_ctx()
         action = msg.get("action", "")
-        text = msg.get("text", "")
+        log(f"action: {action}, binary: {binary}")
 
-        if action == "compress" and text:
-            if binary:
+        if action == "ping":
+            send_message({"status": "ok", "binary": binary or "not found"})
+        elif action == "compress":
+            text = msg.get("text", "")
+            if binary and text:
                 send_message(compress(text, binary))
             else:
-                send_message({"compressed": text, "savings": 0, "error": "lean-ctx not found"})
-        elif action == "ping":
-            send_message({"status": "ok", "binary": binary or "not found"})
+                send_message({"error": "lean-ctx not found or empty text"})
         else:
-            send_message({"error": "unknown action"})
+            send_message({"error": f"unknown action: {action}"})
+    except Exception as e:
+        log(f"EXCEPTION: {traceback.format_exc()}")
+        try:
+            send_message({"error": str(e)})
+        except Exception:
+            pass
+
 
 if __name__ == "__main__":
     main()
