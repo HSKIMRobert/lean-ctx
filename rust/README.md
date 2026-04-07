@@ -10,14 +10,14 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/pTHkG9Hew9)
 
-[Website](https://leanctx.com) · [Install](#installation) · [Quick Start](#quick-start) · [CLI Reference](#cli-commands) · [MCP Tools](#25-mcp-tools) · [Changelog](CHANGELOG.md) · [vs RTK](#lean-ctx-vs-rtk) · [Discord](https://discord.gg/pTHkG9Hew9)
+[Website](https://leanctx.com) · [Install](#installation) · [Quick Start](#quick-start) · [CLI Reference](#cli-commands) · [MCP Tools](#28-mcp-tools) · [Changelog](CHANGELOG.md) · [vs RTK](#lean-ctx-vs-rtk) · [Discord](https://discord.gg/pTHkG9Hew9)
 
 ---
 
 lean-ctx reduces LLM token consumption by **up to 99%** through two complementary strategies in a single binary:
 
 1. **Shell Hook** — Transparently compresses CLI output (90+ patterns) before it reaches the LLM. Works without LLM cooperation.
-2. **MCP Server** — 25 tools for cached file reads, adaptive mode selection, incremental deltas, dependency maps, intent detection, cross-file dedup, project graph, cross-session memory (CCP), and session metrics. Works with Cursor, GitHub Copilot, Claude Code, Windsurf, OpenAI Codex, Google Antigravity, OpenCode, and any MCP-compatible editor.
+2. **MCP Server** — 28 tools for cached file reads, adaptive mode selection, incremental deltas, dependency maps, intent detection, cross-file dedup, project graph, cross-session memory (CCP), multi-agent coordination, semantic caching, and session metrics. Works with Cursor, GitHub Copilot, Claude Code, Windsurf, OpenAI Codex, Google Antigravity, OpenCode, and any MCP-compatible editor.
 3. **AI Tool Hooks** — One-command integration for Claude Code, Cursor, Gemini CLI, Codex, Crush, Windsurf, and Cline via `lean-ctx init --agent <tool>`.
 
 ## Token Savings (Typical Cursor/Claude Code Session)
@@ -347,9 +347,9 @@ $ lean-ctx gain
   lean-ctx v2.1.1  |  leanctx.com  |  lean-ctx dashboard
 ```
 
-## 25 MCP Tools
+## 28 MCP Tools
 
-When configured as an MCP server, lean-ctx provides 25 tools that replace or augment your editor's built-in tools:
+When configured as an MCP server, lean-ctx provides 28 tools that replace or augment your editor's built-in tools:
 
 ### Core Tools
 
@@ -375,12 +375,19 @@ When configured as an MCP server, lean-ctx provides 25 tools that replace or aug
 | `ctx_context` | Multi-turn session overview — tracks what the LLM already knows |
 | `ctx_graph` | Project intelligence graph — dependency analysis and related file discovery |
 | `ctx_discover` | Shell history analysis — finds missed compression opportunities |
+| `ctx_edit` | Search-and-replace file editing — works without native Read/Edit tools |
+| `ctx_overview` | Task-relevant project map — use at session start |
+| `ctx_preload` | Proactive context loader — caches task-relevant files, returns compact summary |
+| `ctx_semantic_search` | BM25 code search by meaning — finds symbols and patterns across the project |
 
-### Session Continuity Tools (new in v2.0.0)
+### Memory & Multi-Agent Tools
 
 | Tool | Purpose |
 |---|---|
 | `ctx_session` | Cross-session memory — persist task, findings, decisions, files across chats and context compactions |
+| `ctx_knowledge` | Persistent project knowledge — remember facts, recall by query/category |
+| `ctx_agent` | Multi-agent coordination — register, post/read scratchpad, handoff tasks, sync status |
+| `ctx_share` | Multi-agent context sharing — push/pull cached file contexts between agents |
 | `ctx_wrapped` | Shareable savings report — "Spotify Wrapped" for your token savings |
 
 ### Analysis Tools

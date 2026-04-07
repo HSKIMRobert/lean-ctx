@@ -11,7 +11,7 @@
 <h3 align="center">The Intelligence Layer for AI Coding</h3>
 
 <p align="center">
-  <strong>Shell Hook + Context Server · 25 tools · 90+ patterns · Single Rust binary</strong>
+  <strong>Shell Hook + Context Server · 28 tools · 90+ patterns · Single Rust binary</strong>
 </p>
 
 <p align="center">
@@ -32,7 +32,7 @@
   <a href="https://leanctx.com">Website</a> ·
   <a href="#-get-started-60-seconds">Install</a> ·
   <a href="#-how-it-works">How It Works</a> ·
-  <a href="#-25-intelligent-tools">Tools</a> ·
+  <a href="#-28-intelligent-tools">Tools</a> ·
   <a href="#-shell-hook-patterns-90">Patterns</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="https://discord.gg/pTHkG9Hew9">Discord</a>
@@ -191,7 +191,7 @@ Symbol shorthand (`λ` `§` `∂` `τ` `ε`) and ROI-based identifier mapping fo
 
 <br>
 
-## 🛠 25 Intelligent Tools
+## 🛠 28 Intelligent Tools
 
 ### Core
 
@@ -217,6 +217,10 @@ Symbol shorthand (`λ` `§` `∂` `τ` `ε`) and ROI-based identifier mapping fo
 | `ctx_context` | Multi-turn session overview — tracks what the LLM already knows |
 | `ctx_graph` | Project intelligence graph — dependency analysis + related file discovery |
 | `ctx_discover` | Shell history analysis — finds missed compression opportunities |
+| `ctx_edit` | Search-and-replace file editing — works without native Read/Edit tools |
+| `ctx_overview` | Task-relevant project map — use at session start |
+| `ctx_preload` | Proactive context loader — caches task-relevant files, returns compact summary |
+| `ctx_semantic_search` | BM25 code search by meaning — finds symbols and patterns across the project |
 
 ### Memory & Multi-Agent
 
@@ -224,7 +228,8 @@ Symbol shorthand (`λ` `§` `∂` `τ` `ε`) and ROI-based identifier mapping fo
 |:---|:---|
 | `ctx_session` | Cross-session memory — persist task, findings, decisions across chats |
 | `ctx_knowledge` | Persistent project knowledge — remember facts, recall by query/category |
-| `ctx_agent` | Multi-agent sharing — register agents, post/read scratchpad, coordinate sessions |
+| `ctx_agent` | Multi-agent coordination — register, post/read scratchpad, handoff tasks, sync status |
+| `ctx_share` | Multi-agent context sharing — push/pull cached file contexts between agents |
 | `ctx_wrapped` | Shareable savings report — "Spotify Wrapped" for your tokens |
 
 ### Analysis
@@ -235,6 +240,13 @@ Symbol shorthand (`λ` `§` `∂` `τ` `ε`) and ROI-based identifier mapping fo
 | `ctx_metrics` | Session statistics with USD cost estimates |
 | `ctx_analyze` | Shannon entropy analysis + mode recommendation |
 | `ctx_cache` | Cache management: status, clear, invalidate |
+
+### Integrations
+
+| Package | What it provides |
+|:---|:---|
+| **VS Code Extension** (`packages/vscode-lean-ctx`) | Status bar token savings, one-click setup, MCP auto-config |
+| **Chrome Extension** (`packages/chrome-lean-ctx`) | Auto-compress pastes in ChatGPT, Claude, Gemini via native messaging |
 
 <br>
 
@@ -387,7 +399,7 @@ $ lean-ctx gain
   ctx_read           103x  █▌                    59.1K  38%
     ... +33 more commands
 
-  lean-ctx v2.17.2  |  leanctx.com  |  lean-ctx dashboard
+  lean-ctx v2.18.0  |  leanctx.com  |  lean-ctx dashboard
 ```
 
 </details>
