@@ -35,7 +35,8 @@ pub async fn start(port: Option<u16>, host: Option<String>) {
         let t = token.as_ref().unwrap();
         eprintln!(
             "  \x1b[33m⚠\x1b[0m Binding to {host} — authentication enabled.\n  \
-             Bearer token: \x1b[1;32m{t}\x1b[0m"
+             Bearer token: \x1b[1;32m{t}\x1b[0m\n  \
+             Browser URL:  http://<your-ip>:{port}/?token={t}"
         );
     }
 
@@ -117,8 +118,34 @@ async fn handle_request(mut stream: tokio::net::TcpStream, token: Option<Arc<Str
 
     let request = String::from_utf8_lossy(&buf[..n]);
 
+    let raw_path = request
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .unwrap_or("/");
+
+    let (path, query_token) = if let Some(idx) = raw_path.find('?') {
+        let p = &raw_path[..idx];
+        let qs = &raw_path[idx + 1..];
+        let tok = qs
+            .split('&')
+            .find_map(|pair| pair.strip_prefix("token="))
+            .map(|t| t.to_string());
+        (p.to_string(), tok)
+    } else {
+        (raw_path.to_string(), None)
+    };
+
+    let is_api = path.starts_with("/api/");
+
     if let Some(ref expected) = token {
-        if !check_auth(&request, expected) {
+        let has_header_auth = check_auth(&request, expected);
+        let has_query_auth = query_token
+            .as_deref()
+            .map(|t| t == expected.as_str())
+            .unwrap_or(false);
+
+        if is_api && !has_header_auth && !has_query_auth {
             let body = r#"{"error":"unauthorized"}"#;
             let response = format!(
                 "HTTP/1.1 401 Unauthorized\r\n\
@@ -135,11 +162,7 @@ async fn handle_request(mut stream: tokio::net::TcpStream, token: Option<Arc<Str
         }
     }
 
-    let path = request
-        .lines()
-        .next()
-        .and_then(|line| line.split_whitespace().nth(1))
-        .unwrap_or("/");
+    let path = path.as_str();
 
     let (status, content_type, body) = match path {
         "/api/stats" => {
@@ -185,11 +208,23 @@ async fn handle_request(mut stream: tokio::net::TcpStream, token: Option<Arc<Str
             let entries = build_heatmap_json(&index);
             ("200 OK", "application/json", entries)
         }
-        "/" | "/index.html" => (
-            "200 OK",
-            "text/html; charset=utf-8",
-            DASHBOARD_HTML.to_string(),
-        ),
+        "/" | "/index.html" => {
+            let mut html = DASHBOARD_HTML.to_string();
+            if let Some(ref tok) = query_token {
+                let script = format!(
+                    "<script>window.__LEAN_CTX_TOKEN__=\"{}\";</script>",
+                    tok.replace('"', "")
+                );
+                html = html.replacen("<head>", &format!("<head>{script}"), 1);
+            } else if let Some(ref t) = token {
+                let script = format!(
+                    "<script>window.__LEAN_CTX_TOKEN__=\"{}\";</script>",
+                    t.as_str()
+                );
+                html = html.replacen("<head>", &format!("<head>{script}"), 1);
+            }
+            ("200 OK", "text/html; charset=utf-8", html)
+        }
         "/favicon.ico" => ("204 No Content", "text/plain", String::new()),
         _ => ("404 Not Found", "text/plain", "Not Found".to_string()),
     };
@@ -325,4 +360,53 @@ fn detect_project_root_for_dashboard() -> String {
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|_| ".".to_string());
     crate::core::protocol::detect_project_root_or_cwd(&cwd)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn check_auth_with_valid_bearer() {
+        let req = "GET /api/stats HTTP/1.1\r\nAuthorization: Bearer lctx_abc123\r\n\r\n";
+        assert!(check_auth(req, "lctx_abc123"));
+    }
+
+    #[test]
+    fn check_auth_with_invalid_bearer() {
+        let req = "GET /api/stats HTTP/1.1\r\nAuthorization: Bearer wrong_token\r\n\r\n";
+        assert!(!check_auth(req, "lctx_abc123"));
+    }
+
+    #[test]
+    fn check_auth_missing_header() {
+        let req = "GET /api/stats HTTP/1.1\r\nHost: localhost\r\n\r\n";
+        assert!(!check_auth(req, "lctx_abc123"));
+    }
+
+    #[test]
+    fn check_auth_lowercase_bearer() {
+        let req = "GET /api/stats HTTP/1.1\r\nauthorization: bearer lctx_abc123\r\n\r\n";
+        assert!(check_auth(req, "lctx_abc123"));
+    }
+
+    #[test]
+    fn query_token_parsing() {
+        let raw_path = "/index.html?token=lctx_abc123&other=val";
+        let idx = raw_path.find('?').unwrap();
+        let qs = &raw_path[idx + 1..];
+        let tok = qs
+            .split('&')
+            .find_map(|pair| pair.strip_prefix("token="));
+        assert_eq!(tok, Some("lctx_abc123"));
+    }
+
+    #[test]
+    fn api_path_detection() {
+        assert!("/api/stats".starts_with("/api/"));
+        assert!("/api/version".starts_with("/api/"));
+        assert!(!"/".starts_with("/api/"));
+        assert!(!"/index.html".starts_with("/api/"));
+        assert!(!"/favicon.ico".starts_with("/api/"));
+    }
 }

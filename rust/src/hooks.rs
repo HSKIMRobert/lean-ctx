@@ -705,12 +705,14 @@ fn install_gemini_hook_config(home: &std::path::Path) {
         String::new()
     };
 
-    let needs_update =
-        !settings_content.contains("hook rewrite") || !settings_content.contains("hook redirect");
+    let has_new_format = settings_content.contains("hook rewrite")
+        && settings_content.contains("hook redirect")
+        && settings_content.contains("\"type\"");
     let has_old_hooks = settings_content.contains("lean-ctx-rewrite")
-        || settings_content.contains("lean-ctx-redirect");
+        || settings_content.contains("lean-ctx-redirect")
+        || (settings_content.contains("hook rewrite") && !settings_content.contains("\"type\""));
 
-    if !needs_update && !has_old_hooks {
+    if has_new_format && !has_old_hooks {
         return;
     }
 
@@ -718,10 +720,16 @@ fn install_gemini_hook_config(home: &std::path::Path) {
         "hooks": {
             "BeforeTool": [
                 {
-                    "command": rewrite_cmd
+                    "hooks": [{
+                        "type": "command",
+                        "command": rewrite_cmd
+                    }]
                 },
                 {
-                    "command": redirect_cmd
+                    "hooks": [{
+                        "type": "command",
+                        "command": redirect_cmd
+                    }]
                 }
             ]
         }
@@ -1305,5 +1313,52 @@ mod tests {
             !has_correct,
             "Old format should be detected as needing migration"
         );
+    }
+
+    #[test]
+    fn gemini_hook_config_has_type_command() {
+        let binary = "lean-ctx";
+        let rewrite_cmd = format!("{binary} hook rewrite");
+        let redirect_cmd = format!("{binary} hook redirect");
+
+        let hook_config = serde_json::json!({
+            "hooks": {
+                "BeforeTool": [
+                    {
+                        "hooks": [{
+                            "type": "command",
+                            "command": rewrite_cmd
+                        }]
+                    },
+                    {
+                        "hooks": [{
+                            "type": "command",
+                            "command": redirect_cmd
+                        }]
+                    }
+                ]
+            }
+        });
+
+        let parsed = hook_config;
+        let before_tool = parsed["hooks"]["BeforeTool"].as_array().unwrap();
+        assert_eq!(before_tool.len(), 2);
+
+        let first_hook = &before_tool[0]["hooks"][0];
+        assert_eq!(first_hook["type"], "command");
+        assert_eq!(first_hook["command"], "lean-ctx hook rewrite");
+
+        let second_hook = &before_tool[1]["hooks"][0];
+        assert_eq!(second_hook["type"], "command");
+        assert_eq!(second_hook["command"], "lean-ctx hook redirect");
+    }
+
+    #[test]
+    fn gemini_hook_old_format_detected() {
+        let old_format = r#"{"hooks":{"BeforeTool":[{"command":"lean-ctx hook rewrite"}]}}"#;
+        let has_new = old_format.contains("hook rewrite")
+            && old_format.contains("hook redirect")
+            && old_format.contains("\"type\"");
+        assert!(!has_new, "Missing 'type' field should trigger migration");
     }
 }
