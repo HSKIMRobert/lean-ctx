@@ -3,6 +3,20 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.18.0] — 2026-04-07
+
+### Feature: Multi-Agent Context Sharing & Intent-Driven Enhancements
+
+#### Added
+- **`ctx_share` tool** (26th MCP tool) — Share cached file contexts between agents. Actions: `push` (share files from cache), `pull` (receive shared files), `list` (show all), `clear` (remove yours)
+- **`ctx_agent` handoff action** — Transfer a task to another agent with a summary message, automatically marks the handing-off agent as finished
+- **`ctx_agent` sync action** — Get a combined overview of all active agents, pending messages, and shared contexts
+- **Multi-intent detection** — `ctx_intent` now detects compound queries ("fix X and then test Y") and splits them into sub-intents with individual classifications
+- **Complexity classification** — `ctx_intent` returns task complexity (mechanical/standard/architectural) based on query analysis, target count, and cross-cutting keywords
+- **Heat-ranked file strategy** — `ctx_intent` file discovery now ranks results by heat score (token density + graph connectivity) for more relevant context loading
+- **`lctx --agents` flag** — Launch multiple agents in parallel: `lctx --agents claude,gemini` starts both in the background with shared context
+- **Dashboard `/api/agents` enhancement** — Returns structured JSON with active agents, pending messages, and shared context count
+
 ## [2.17.6] — 2026-04-07
 
 ### Feature: Crush Support (#61)

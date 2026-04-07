@@ -850,7 +850,7 @@ pub fn cmd_init(args: &[String]) {
     }
     println!();
     println!("For AI tool integration: lean-ctx init --agent <tool>");
-    println!("  Supported: claude, cursor, gemini, codex, windsurf, cline, copilot, pi");
+    println!("  Supported: claude, cursor, gemini, codex, windsurf, cline, copilot, crush, pi");
 }
 
 fn backup_shell_config(path: &std::path::Path) {

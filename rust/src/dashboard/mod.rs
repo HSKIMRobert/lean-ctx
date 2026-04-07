@@ -155,8 +155,7 @@ async fn handle_request(mut stream: tokio::net::TcpStream, token: Option<Arc<Str
             ("200 OK", "application/json", json)
         }
         "/api/agents" => {
-            let registry = crate::core::agents::AgentRegistry::load_or_create();
-            let json = serde_json::to_string(&registry).unwrap_or_else(|_| "{}".to_string());
+            let json = build_agents_json();
             ("200 OK", "application/json", json)
         }
         "/api/knowledge" => {
@@ -275,6 +274,50 @@ fn build_heatmap_json(index: &crate::core::graph_index::ProjectIndex) -> String 
     });
 
     serde_json::to_string(&entries).unwrap_or_else(|_| "[]".to_string())
+}
+
+fn build_agents_json() -> String {
+    let registry = crate::core::agents::AgentRegistry::load_or_create();
+    let agents: Vec<serde_json::Value> = registry
+        .agents
+        .iter()
+        .filter(|a| a.status != crate::core::agents::AgentStatus::Finished)
+        .map(|a| {
+            let age_min = (chrono::Utc::now() - a.last_active).num_minutes();
+            serde_json::json!({
+                "id": a.agent_id,
+                "type": a.agent_type,
+                "role": a.role,
+                "status": format!("{}", a.status),
+                "status_message": a.status_message,
+                "last_active_minutes_ago": age_min,
+                "pid": a.pid
+            })
+        })
+        .collect();
+
+    let pending_msgs = registry.scratchpad.len();
+
+    let shared_dir = dirs::home_dir()
+        .unwrap_or_default()
+        .join(".lean-ctx")
+        .join("agents")
+        .join("shared");
+    let shared_count = if shared_dir.exists() {
+        std::fs::read_dir(&shared_dir)
+            .map(|rd| rd.count())
+            .unwrap_or(0)
+    } else {
+        0
+    };
+
+    serde_json::json!({
+        "agents": agents,
+        "total_active": agents.len(),
+        "pending_messages": pending_msgs,
+        "shared_contexts": shared_count
+    })
+    .to_string()
 }
 
 fn detect_project_root_for_dashboard() -> String {
