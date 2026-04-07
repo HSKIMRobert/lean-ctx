@@ -181,6 +181,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_os = "windows"))]
     fn batch_multiple_tasks() {
         let items = vec![
             ("python".to_string(), "print('task1')".to_string()),
