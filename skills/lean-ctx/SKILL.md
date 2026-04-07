@@ -60,6 +60,7 @@ lean-ctx init --agent gemini    # Gemini CLI BeforeTool hook
 lean-ctx init --agent codex     # Codex AGENTS.md
 lean-ctx init --agent windsurf  # .windsurfrules
 lean-ctx init --agent cline     # .clinerules
+lean-ctx init --agent crush     # Crush MCP config
 lean-ctx init --agent copilot   # VS Code / Copilot .vscode/mcp.json
 ```
 

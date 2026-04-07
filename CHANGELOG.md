@@ -3,6 +3,17 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.17.6] — 2026-04-07
+
+### Feature: Crush Support (#61)
+
+#### Added
+- **Crush integration** — `lean-ctx init --agent crush` configures MCP in `~/.config/crush/crush.json` with the Crush-specific `"mcp"` key format (instead of `"mcpServers"`)
+- **Auto-detection** — `lean-ctx setup` and `lean-ctx doctor` now detect Crush installations
+- **Rules injection** — `lean-ctx rules` creates `~/.config/crush/rules/lean-ctx.md` when Crush is installed
+- **Prompt generator** — Website getting-started page includes Crush with manual config instructions
+- **Compatibility page** — Crush listed in all compatibility matrices across 11 languages
+
 ## [2.17.5] — 2026-04-06
 
 ### Fix: ctx_shell Input Validation (#50)
