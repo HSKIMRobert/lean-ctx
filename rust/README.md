@@ -18,7 +18,7 @@ lean-ctx reduces LLM token consumption by **up to 99%** through two complementar
 
 1. **Shell Hook** — Transparently compresses CLI output (90+ patterns) before it reaches the LLM. Works without LLM cooperation.
 2. **MCP Server** — 25 tools for cached file reads, adaptive mode selection, incremental deltas, dependency maps, intent detection, cross-file dedup, project graph, cross-session memory (CCP), and session metrics. Works with Cursor, GitHub Copilot, Claude Code, Windsurf, OpenAI Codex, Google Antigravity, OpenCode, and any MCP-compatible editor.
-3. **AI Tool Hooks** — One-command integration for Claude Code, Cursor, Gemini CLI, Codex, Windsurf, and Cline via `lean-ctx init --agent <tool>`.
+3. **AI Tool Hooks** — One-command integration for Claude Code, Cursor, Gemini CLI, Codex, Crush, Windsurf, and Cline via `lean-ctx init --agent <tool>`.
 
 ## Token Savings (Typical Cursor/Claude Code Session)
 
@@ -185,6 +185,7 @@ lean-ctx init --agent gemini   # Install Gemini CLI BeforeTool hook
 lean-ctx init --agent codex    # Install Codex AGENTS.md
 lean-ctx init --agent windsurf # Install .windsurfrules
 lean-ctx init --agent cline    # Install .clinerules
+lean-ctx init --agent crush    # Install Crush MCP config
 lean-ctx gain                  # Persistent token savings (CLI)
 lean-ctx gain --graph          # ASCII chart of last 30 days
 lean-ctx gain --daily          # Day-by-day breakdown

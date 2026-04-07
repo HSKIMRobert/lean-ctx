@@ -9,7 +9,7 @@ labels: bug
 
 **OS:** (macOS / Linux / Windows)
 
-**AI tool:** (Cursor / Claude Code / Copilot / other)
+**AI tool:** (Cursor / Claude Code / Copilot / Crush / other)
 
 **What happened:**
 
