@@ -1,11 +1,12 @@
 const NATIVE_HOST = "com.leanctx.bridge";
 
-let nativePort = null;
 let settings = {
   enabled: true,
-  autoCompress: true,
-  threshold: 500,
+  autoCompressPaste: true,
+  threshold: 200,
 };
+
+let nativeAvailable = null; // null = unknown, true/false = tested
 
 chrome.storage.local.get(["settings"], (result) => {
   if (result.settings) {
@@ -19,47 +20,30 @@ chrome.storage.onChanged.addListener((changes) => {
   }
 });
 
-function connectNative() {
-  if (nativePort) {
-    return nativePort;
-  }
-  try {
-    nativePort = chrome.runtime.connectNative(NATIVE_HOST);
-    nativePort.onDisconnect.addListener(() => {
-      nativePort = null;
-    });
-    return nativePort;
-  } catch {
-    return null;
-  }
-}
-
-async function compressWithNative(text) {
+function sendNativeMessage(msg) {
   return new Promise((resolve) => {
-    const port = connectNative();
-    if (!port) {
-      resolve({ compressed: text, savings: 0, error: "native host not available" });
-      return;
+    try {
+      chrome.runtime.sendNativeMessage(NATIVE_HOST, msg, (response) => {
+        if (chrome.runtime.lastError) {
+          console.log("lean-ctx native error:", chrome.runtime.lastError.message);
+          nativeAvailable = false;
+          resolve({ error: chrome.runtime.lastError.message });
+        } else {
+          nativeAvailable = true;
+          resolve(response);
+        }
+      });
+    } catch (e) {
+      nativeAvailable = false;
+      resolve({ error: e.message || "native messaging failed" });
     }
 
-    const handler = (response) => {
-      port.onMessage.removeListener(handler);
-      resolve(response);
-    };
-
-    port.onMessage.addListener(handler);
-    port.postMessage({ action: "compress", text });
-
-    setTimeout(() => {
-      port.onMessage.removeListener(handler);
-      resolve({ compressed: text, savings: 0, error: "timeout" });
-    }, 5000);
+    setTimeout(() => resolve({ error: "timeout" }), 8000);
   });
 }
 
 function compressFallback(text) {
   let result = text;
-
   result = result.replace(/\r\n/g, "\n");
   result = result.replace(/\n{3,}/g, "\n\n");
   result = result.replace(/[ \t]+$/gm, "");
@@ -85,7 +69,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       return true;
     }
 
-    compressWithNative(text).then((result) => {
+    sendNativeMessage({ action: "compress", text }).then((result) => {
       if (result.error) {
         sendResponse(compressFallback(text));
       } else {
@@ -108,25 +92,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.action === "pingNative") {
-    try {
-      const port = connectNative();
-      if (port) {
-        const handler = (response) => {
-          port.onMessage.removeListener(handler);
-          sendResponse({ nativeOk: true, binary: response.binary || "unknown" });
-        };
-        port.onMessage.addListener(handler);
-        port.postMessage({ action: "ping" });
-        setTimeout(() => {
-          port.onMessage.removeListener(handler);
-          sendResponse({ nativeOk: false });
-        }, 2000);
+    sendNativeMessage({ action: "ping" }).then((result) => {
+      if (result.error) {
+        sendResponse({ nativeOk: false, error: result.error });
       } else {
-        sendResponse({ nativeOk: false });
+        sendResponse({ nativeOk: true, binary: result.binary || "connected" });
       }
-    } catch {
-      sendResponse({ nativeOk: false });
-    }
+    });
     return true;
   }
 
