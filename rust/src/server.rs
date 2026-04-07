@@ -844,6 +844,28 @@ impl ServerHandler for LeanCtxServer {
                 self.record_call("ctx_agent", 0, 0, Some(action)).await;
                 result
             }
+            "ctx_share" => {
+                let action = get_str(args, "action")
+                    .ok_or_else(|| ErrorData::invalid_params("action is required", None))?;
+                let to_agent = get_str(args, "to_agent");
+                let paths = get_str(args, "paths");
+                let message = get_str(args, "message");
+
+                let from_agent = self.agent_id.read().await.clone();
+                let cache = self.cache.read().await;
+                let result = crate::tools::ctx_share::handle(
+                    &action,
+                    from_agent.as_deref(),
+                    to_agent.as_deref(),
+                    paths.as_deref(),
+                    message.as_deref(),
+                    &cache,
+                );
+                drop(cache);
+
+                self.record_call("ctx_share", 0, 0, Some(action)).await;
+                result
+            }
             "ctx_overview" => {
                 let task = get_str(args, "task");
                 let path = get_str(args, "path").map(|p| crate::hooks::normalize_tool_path(&p));
@@ -960,6 +982,7 @@ impl ServerHandler for LeanCtxServer {
                 | "ctx_session"
                 | "ctx_knowledge"
                 | "ctx_agent"
+                | "ctx_share"
                 | "ctx_wrapped"
                 | "ctx_overview"
                 | "ctx_preload"

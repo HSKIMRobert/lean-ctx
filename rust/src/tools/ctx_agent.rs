@@ -144,6 +144,85 @@ pub fn handle(
             )
         }
 
-        _ => format!("Unknown action: {action}. Use: register, list, post, read, status, info"),
+        "handoff" => {
+            let from = match current_agent_id {
+                Some(id) => id,
+                None => return "Error: agent must be registered first".to_string(),
+            };
+            let target = match to_agent {
+                Some(id) => id,
+                None => return "Error: to_agent is required for handoff".to_string(),
+            };
+            let summary = message.unwrap_or("(no summary provided)");
+
+            let mut registry = AgentRegistry::load_or_create();
+
+            registry.post_message(
+                from,
+                Some(target),
+                "handoff",
+                &format!("HANDOFF from {from}: {summary}"),
+            );
+
+            registry.set_status(from, AgentStatus::Finished, Some("handed off"));
+            let _ = registry.save();
+
+            format!("Handoff complete: {from} → {target}\nSummary: {summary}")
+        }
+
+        "sync" => {
+            let registry = AgentRegistry::load_or_create();
+            let agents: Vec<&crate::core::agents::AgentEntry> = registry
+                .agents
+                .iter()
+                .filter(|a| a.status != AgentStatus::Finished)
+                .collect();
+
+            if agents.is_empty() {
+                return "No active agents to sync with.".to_string();
+            }
+
+            let pending_count = registry
+                .scratchpad
+                .iter()
+                .filter(|e| {
+                    if let Some(ref id) = current_agent_id {
+                        !e.read_by.contains(&id.to_string()) && e.from_agent != *id
+                    } else {
+                        false
+                    }
+                })
+                .count();
+
+            let shared_dir = dirs::home_dir()
+                .unwrap_or_default()
+                .join(".lean-ctx")
+                .join("agents")
+                .join("shared");
+
+            let shared_count = if shared_dir.exists() {
+                std::fs::read_dir(&shared_dir)
+                    .map(|rd| rd.count())
+                    .unwrap_or(0)
+            } else {
+                0
+            };
+
+            let mut out = "Multi-Agent Sync Status:\n".to_string();
+            out.push_str(&format!("  Active agents: {}\n", agents.len()));
+            for a in &agents {
+                let role = a.role.as_deref().unwrap_or("-");
+                let age = (chrono::Utc::now() - a.last_active).num_minutes();
+                out.push_str(&format!(
+                    "    {} [{}] role={} ({}m ago)\n",
+                    a.agent_id, a.agent_type, role, age
+                ));
+            }
+            out.push_str(&format!("  Pending messages: {pending_count}\n"));
+            out.push_str(&format!("  Shared contexts: {shared_count}\n"));
+            out
+        }
+
+        _ => format!("Unknown action: {action}. Use: register, list, post, read, status, info, handoff, sync"),
     }
 }

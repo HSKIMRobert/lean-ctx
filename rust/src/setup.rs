@@ -383,6 +383,13 @@ fn build_targets(home: &std::path::Path, _binary: &str) -> Vec<EditorTarget> {
             detect_path: home.join(".verdent"),
             config_type: ConfigType::McpJson,
         },
+        EditorTarget {
+            name: "Crush",
+            agent_key: "crush",
+            config_path: home.join(".config/crush/crush.json"),
+            detect_path: home.join(".config/crush"),
+            config_type: ConfigType::McpJson,
+        },
     ]
 }
 

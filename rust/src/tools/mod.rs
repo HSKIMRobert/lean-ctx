@@ -29,6 +29,7 @@ pub mod ctx_response;
 pub mod ctx_search;
 pub mod ctx_semantic_search;
 pub mod ctx_session;
+pub mod ctx_share;
 pub mod ctx_shell;
 pub mod ctx_smart_read;
 pub mod ctx_tree;
