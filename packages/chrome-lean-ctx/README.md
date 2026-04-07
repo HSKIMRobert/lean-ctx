@@ -16,6 +16,12 @@
 - [Claude.ai](https://claude.ai)
 - [Gemini](https://gemini.google.com)
 - [GitHub Copilot Chat](https://github.com/copilot)
+- [Lovable](https://lovable.dev)
+- [Bolt.new](https://bolt.new)
+- [v0.dev](https://v0.dev)
+- [Poe](https://poe.com)
+- [Google AI Studio](https://aistudio.google.com)
+- [Perplexity Labs](https://labs.perplexity.ai)
 
 ## Installation
 

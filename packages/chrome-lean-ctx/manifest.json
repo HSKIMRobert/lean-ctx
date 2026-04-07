@@ -14,7 +14,14 @@
     "https://chat.openai.com/*",
     "https://claude.ai/*",
     "https://gemini.google.com/*",
-    "https://github.com/copilot/*"
+    "https://github.com/copilot/*",
+    "https://lovable.dev/*",
+    "https://*.bolt.new/*",
+    "https://bolt.new/*",
+    "https://v0.dev/*",
+    "https://poe.com/*",
+    "https://aistudio.google.com/*",
+    "https://labs.perplexity.ai/*"
   ],
   "background": {
     "service_worker": "src/background.js",
@@ -27,7 +34,14 @@
         "https://chat.openai.com/*",
         "https://claude.ai/*",
         "https://gemini.google.com/*",
-        "https://github.com/copilot/*"
+        "https://github.com/copilot/*",
+        "https://lovable.dev/*",
+        "https://*.bolt.new/*",
+        "https://bolt.new/*",
+        "https://v0.dev/*",
+        "https://poe.com/*",
+        "https://aistudio.google.com/*",
+        "https://labs.perplexity.ai/*"
       ],
       "js": ["src/content.js"],
       "css": ["src/content.css"]

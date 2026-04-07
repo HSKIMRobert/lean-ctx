@@ -4,6 +4,12 @@ const SELECTORS = {
   "claude.ai": 'div[contenteditable="true"].ProseMirror',
   "gemini.google.com": 'div[contenteditable="true"].ql-editor, rich-textarea .ql-editor',
   "github.com": 'textarea[name="message"], textarea.js-copilot-chat-input',
+  "lovable.dev": 'textarea, div[contenteditable="true"]',
+  "bolt.new": 'textarea, div[contenteditable="true"]',
+  "v0.dev": 'textarea, div[contenteditable="true"]',
+  "poe.com": 'textarea, div[contenteditable="true"]',
+  "aistudio.google.com": 'textarea, div[contenteditable="true"]',
+  "labs.perplexity.ai": 'textarea, div[contenteditable="true"]',
 };
 
 let badge = null;

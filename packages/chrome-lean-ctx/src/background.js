@@ -107,5 +107,28 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message.action === "pingNative") {
+    try {
+      const port = connectNative();
+      if (port) {
+        const handler = (response) => {
+          port.onMessage.removeListener(handler);
+          sendResponse({ nativeOk: true, binary: response.binary || "unknown" });
+        };
+        port.onMessage.addListener(handler);
+        port.postMessage({ action: "ping" });
+        setTimeout(() => {
+          port.onMessage.removeListener(handler);
+          sendResponse({ nativeOk: false });
+        }, 2000);
+      } else {
+        sendResponse({ nativeOk: false });
+      }
+    } catch {
+      sendResponse({ nativeOk: false });
+    }
+    return true;
+  }
+
   return false;
 });
