@@ -64,7 +64,7 @@ lean-ctx init --agent crush     # Crush MCP config
 lean-ctx init --agent copilot   # VS Code / Copilot .vscode/mcp.json
 ```
 
-## New in v2.7.0 — Persistent AI Memory + Multi-Agent
+## Multi-Agent & Knowledge (v2.7.0+)
 
 MCP tools:
 - `ctx_knowledge(action="remember", category, key, value)` — persistent cross-session project knowledge store
@@ -73,8 +73,21 @@ MCP tools:
 - `ctx_agent(action="register", agent_type, role)` — multi-agent context sharing with scratchpad messaging
 - `ctx_agent(action="post", message, tags)` — share findings/warnings between concurrent agents
 - `ctx_agent(action="read")` — read messages from other agents
-- Antigravity editor support in setup + doctor
-- Dashboard: agents panel, knowledge panel, improved CEP score calculation
+- `ctx_agent(action="handoff", to_agent, message)` — transfer task to another agent
+- `ctx_agent(action="sync")` — multi-agent sync status (active agents, pending messages, shared contexts)
+- `ctx_share(action="push", paths, to_agent, message)` — push cached file contexts to another agent
+- `ctx_share(action="pull")` — pull shared contexts from other agents
+- `ctx_share(action="list")` — list all shared contexts
+- `ctx_share(action="clear")` — remove contexts shared by this agent
+
+## Additional Intelligence Tools (v2.18.0)
+
+- `ctx_edit(path, old_string, new_string)` — search-and-replace file editing without native Read/Edit
+- `ctx_overview(task)` — task-relevant project map at session start
+- `ctx_preload(task)` — proactive context loader, caches task-relevant files
+- `ctx_semantic_search(query)` — BM25 code search by meaning across the project
+- `ctx_intent` now supports multi-intent detection and complexity classification
+- Semantic cache: TF-IDF + cosine similarity for finding similar files across reads
 
 ## Session Continuity (CCP)
 
