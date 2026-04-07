@@ -264,6 +264,14 @@ tr:hover td{background:var(--surface-2)}
   <div class="footer">LeanCTX — The Intelligence Layer for AI Coding · <a href="https://leanctx.com" target="_blank">leanctx.com</a></div>
 </div>
 <script>
+const _origFetch=window.fetch;
+window.fetch=function(url,opts){
+  if(window.__LEAN_CTX_TOKEN__&&typeof url==='string'&&url.startsWith('/api/')){
+    opts=opts||{};opts.headers=opts.headers||{};
+    opts.headers['Authorization']='Bearer '+window.__LEAN_CTX_TOKEN__;
+  }
+  return _origFetch.call(this,url,opts);
+};
 const $=id=>document.getElementById(id);
 let aOn=true,aI=null,cR=0,raw=null,built=false,ch={},pH='',showAll=false;
 
