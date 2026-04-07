@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
@@ -22,10 +23,19 @@ pub async fn start(port: Option<u16>, host: Option<String>) {
     let addr = format!("{host}:{port}");
     let is_local = host == "127.0.0.1" || host == "localhost" || host == "::1";
 
+    let token = if !is_local {
+        let t = generate_token();
+        save_token(&t);
+        Some(Arc::new(t))
+    } else {
+        None
+    };
+
     if !is_local {
+        let t = token.as_ref().unwrap();
         eprintln!(
-            "  ⚠ WARNING: Binding to {host} exposes the dashboard to the network.\n  \
-             The dashboard has NO authentication. Only use on trusted networks."
+            "  \x1b[33m⚠\x1b[0m Binding to {host} — authentication enabled.\n  \
+             Bearer token: \x1b[1;32m{t}\x1b[0m"
         );
     }
 
@@ -57,8 +67,25 @@ pub async fn start(port: Option<u16>, host: Option<String>) {
 
     loop {
         if let Ok((stream, _)) = listener.accept().await {
-            tokio::spawn(handle_request(stream));
+            let token_ref = token.clone();
+            tokio::spawn(handle_request(stream, token_ref));
         }
+    }
+}
+
+fn generate_token() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let seed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    format!("lctx_{:016x}", seed ^ 0xdeadbeef_cafebabe)
+}
+
+fn save_token(token: &str) {
+    if let Some(dir) = dirs::home_dir().map(|h| h.join(".lean-ctx")) {
+        let _ = std::fs::create_dir_all(&dir);
+        let _ = std::fs::write(dir.join("dashboard.token"), token);
     }
 }
 
@@ -81,7 +108,7 @@ fn open_browser(url: &str) {
     }
 }
 
-async fn handle_request(mut stream: tokio::net::TcpStream) {
+async fn handle_request(mut stream: tokio::net::TcpStream, token: Option<Arc<String>>) {
     let mut buf = vec![0u8; 4096];
     let n = match stream.read(&mut buf).await {
         Ok(n) if n > 0 => n,
@@ -89,6 +116,25 @@ async fn handle_request(mut stream: tokio::net::TcpStream) {
     };
 
     let request = String::from_utf8_lossy(&buf[..n]);
+
+    if let Some(ref expected) = token {
+        if !check_auth(&request, expected) {
+            let body = r#"{"error":"unauthorized"}"#;
+            let response = format!(
+                "HTTP/1.1 401 Unauthorized\r\n\
+                 Content-Type: application/json\r\n\
+                 Content-Length: {}\r\n\
+                 WWW-Authenticate: Bearer\r\n\
+                 Connection: close\r\n\
+                 \r\n\
+                 {body}",
+                body.len()
+            );
+            let _ = stream.write_all(response.as_bytes()).await;
+            return;
+        }
+    }
+
     let path = request
         .lines()
         .next()
@@ -134,6 +180,12 @@ async fn handle_request(mut stream: tokio::net::TcpStream) {
             let json = crate::core::version_check::version_info_json();
             ("200 OK", "application/json", json)
         }
+        "/api/heatmap" => {
+            let project_root = detect_project_root_for_dashboard();
+            let index = crate::core::graph_index::load_or_build(&project_root);
+            let entries = build_heatmap_json(&index);
+            ("200 OK", "application/json", entries)
+        }
         "/" | "/index.html" => (
             "200 OK",
             "text/html; charset=utf-8",
@@ -162,6 +214,67 @@ async fn handle_request(mut stream: tokio::net::TcpStream) {
     );
 
     let _ = stream.write_all(response.as_bytes()).await;
+}
+
+fn check_auth(request: &str, expected_token: &str) -> bool {
+    for line in request.lines() {
+        let lower = line.to_lowercase();
+        if lower.starts_with("authorization:") {
+            let value = line["authorization:".len()..].trim();
+            if let Some(token) = value.strip_prefix("Bearer ") {
+                return token.trim() == expected_token;
+            }
+            if let Some(token) = value.strip_prefix("bearer ") {
+                return token.trim() == expected_token;
+            }
+        }
+    }
+    false
+}
+
+fn build_heatmap_json(index: &crate::core::graph_index::ProjectIndex) -> String {
+    let mut connection_counts: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
+    for edge in &index.edges {
+        *connection_counts.entry(edge.from.clone()).or_default() += 1;
+        *connection_counts.entry(edge.to.clone()).or_default() += 1;
+    }
+
+    let max_tokens = index
+        .files
+        .values()
+        .map(|f| f.token_count)
+        .max()
+        .unwrap_or(1) as f64;
+    let max_connections = connection_counts.values().max().copied().unwrap_or(1) as f64;
+
+    let mut entries: Vec<serde_json::Value> = index
+        .files
+        .values()
+        .map(|f| {
+            let connections = connection_counts.get(&f.path).copied().unwrap_or(0);
+            let token_norm = f.token_count as f64 / max_tokens;
+            let conn_norm = connections as f64 / max_connections;
+            let heat = token_norm * 0.4 + conn_norm * 0.6;
+            serde_json::json!({
+                "path": f.path,
+                "tokens": f.token_count,
+                "connections": connections,
+                "language": f.language,
+                "heat": (heat * 100.0).round() / 100.0,
+            })
+        })
+        .collect();
+
+    entries.sort_by(|a, b| {
+        b["heat"]
+            .as_f64()
+            .unwrap_or(0.0)
+            .partial_cmp(&a["heat"].as_f64().unwrap_or(0.0))
+            .unwrap()
+    });
+
+    serde_json::to_string(&entries).unwrap_or_else(|_| "[]".to_string())
 }
 
 fn detect_project_root_for_dashboard() -> String {
