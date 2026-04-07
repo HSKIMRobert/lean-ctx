@@ -101,13 +101,28 @@ fn resolve_runtime(language: &str) -> Option<RuntimeConfig> {
             file_extension: "py".to_string(),
             env: HashMap::from([("PYTHONDONTWRITEBYTECODE".into(), "1".into())]),
         }),
-        "shell" | "bash" | "sh" => Some(RuntimeConfig {
-            command: find_binary(&["bash", "sh"])?,
-            args: vec!["-c".to_string()],
-            needs_temp_file: false,
-            file_extension: "sh".to_string(),
-            env: HashMap::new(),
-        }),
+        "shell" | "bash" | "sh" => {
+            #[cfg(target_os = "windows")]
+            {
+                Some(RuntimeConfig {
+                    command: "cmd".to_string(),
+                    args: vec!["/C".to_string()],
+                    needs_temp_file: false,
+                    file_extension: "bat".to_string(),
+                    env: HashMap::new(),
+                })
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                Some(RuntimeConfig {
+                    command: find_binary(&["bash", "sh"])?,
+                    args: vec!["-c".to_string()],
+                    needs_temp_file: false,
+                    file_extension: "sh".to_string(),
+                    env: HashMap::new(),
+                })
+            }
+        }
         "ruby" | "rb" => Some(RuntimeConfig {
             command: find_binary(&["ruby"])?,
             args: vec!["-e".to_string()],
@@ -310,13 +325,21 @@ fn find_binary(candidates: &[&str]) -> Option<String> {
 }
 
 fn which_exists(name: &str) -> bool {
-    Command::new("which")
+    #[cfg(target_os = "windows")]
+    let check_cmd = Command::new("where")
         .arg(name)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+        .status();
+
+    #[cfg(not(target_os = "windows"))]
+    let check_cmd = Command::new("which")
+        .arg(name)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+
+    check_cmd.map(|s| s.success()).unwrap_or(false)
 }
 
 fn truncate_output(output: &str) -> String {
@@ -391,6 +414,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_os = "windows"))]
     fn execute_shell_echo() {
         let result = execute("shell", "echo 'test output'", None);
         assert_eq!(result.exit_code, 0);
@@ -450,6 +474,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_os = "windows"))]
     fn batch_execute_multiple() {
         let items = vec![
             ("python".to_string(), "print(1+1)".to_string()),
