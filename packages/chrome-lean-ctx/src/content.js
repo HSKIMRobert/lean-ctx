@@ -1,23 +1,22 @@
 const MIN_LENGTH = 200;
-const LEAN_CTX_MARKER = "__lean_ctx_sent__";
 let isCompressing = false;
 let extensionSettings = { enabled: true, autoCompressPaste: true };
 
 const SITE_CONFIG = {
   "chatgpt.com": {
-    input: 'div#prompt-textarea[contenteditable="true"], textarea',
-    send: 'button[data-testid="send-button"], button[data-testid="composer-send-button"]',
+    input: '#prompt-textarea, div[contenteditable="true"]#prompt-textarea',
+    send: 'button[data-testid="send-button"], button[data-testid="composer-send-button"], form button[type="button"]:last-child',
   },
   "chat.openai.com": {
-    input: 'div#prompt-textarea[contenteditable="true"], textarea',
+    input: '#prompt-textarea, div[contenteditable="true"]#prompt-textarea',
     send: 'button[data-testid="send-button"]',
   },
   "claude.ai": {
     input: 'div.ProseMirror[contenteditable="true"]',
-    send: 'button[aria-label="Send Message"], button[aria-label="Send message"]',
+    send: 'button[aria-label="Send Message"], button[aria-label="Send message"], fieldset button:last-child',
   },
   "gemini.google.com": {
-    input: 'div.ql-editor[contenteditable="true"], rich-textarea .ql-editor',
+    input: '.ql-editor[contenteditable="true"], rich-textarea .ql-editor',
     send: 'button[aria-label="Send message"], button.send-button',
   },
   "github.com": {
@@ -25,27 +24,27 @@ const SITE_CONFIG = {
     send: 'button[type="submit"]',
   },
   "lovable.dev": {
-    input: 'textarea, div[contenteditable="true"]',
-    send: 'button[type="submit"], button[aria-label*="Send"], button[aria-label*="send"]',
+    input: 'textarea',
+    send: 'button[type="submit"]',
   },
   "bolt.new": {
-    input: 'textarea, div[contenteditable="true"]',
-    send: 'button[type="submit"], button[aria-label*="Send"]',
+    input: 'textarea',
+    send: 'button[type="submit"]',
   },
   "v0.dev": {
-    input: 'textarea, div[contenteditable="true"]',
-    send: 'button[type="submit"], button[aria-label*="Send"]',
+    input: 'textarea',
+    send: 'button[type="submit"]',
   },
   "poe.com": {
-    input: 'textarea, div[contenteditable="true"]',
-    send: 'button[class*="send"], button[aria-label*="Send"]',
+    input: 'textarea',
+    send: 'button[class*="send"], button[class*="Send"]',
   },
   "aistudio.google.com": {
-    input: 'textarea, div[contenteditable="true"]',
+    input: 'textarea',
     send: 'button[aria-label*="Send"], button[aria-label*="Run"]',
   },
   "labs.perplexity.ai": {
-    input: 'textarea, div[contenteditable="true"]',
+    input: 'textarea',
     send: 'button[aria-label*="Submit"], button[aria-label*="Send"]',
   },
 };
@@ -56,6 +55,14 @@ function getSiteConfig() {
     if (host.includes(domain)) return config;
   }
   return null;
+}
+
+function getActiveInput(config) {
+  const els = document.querySelectorAll(config.input);
+  for (const el of els) {
+    if (el.offsetParent !== null) return el;
+  }
+  return els[0] || null;
 }
 
 function getInputText(el) {
@@ -73,17 +80,17 @@ function setTextareaValue(el, text) {
   } else {
     el.value = text;
   }
-  el.dispatchEvent(new Event("input", { bubbles: true }));
+  el.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }));
   el.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
 function setContentEditableText(el, text) {
   el.focus();
-  const selection = window.getSelection();
+  const sel = window.getSelection();
   const range = document.createRange();
   range.selectNodeContents(el);
-  selection.removeAllRanges();
-  selection.addRange(range);
+  sel.removeAllRanges();
+  sel.addRange(range);
   document.execCommand("insertText", false, text);
 }
 
@@ -109,8 +116,10 @@ async function compressText(text) {
 
 function findSendButton(config) {
   if (config.send) {
-    const btn = document.querySelector(config.send);
-    if (btn && !btn.disabled) return btn;
+    const btns = document.querySelectorAll(config.send);
+    for (const btn of btns) {
+      if (btn.offsetParent !== null) return btn;
+    }
   }
   const fallbacks = [
     'button[type="submit"]',
@@ -118,37 +127,58 @@ function findSendButton(config) {
     'button[aria-label*="send"]',
   ];
   for (const sel of fallbacks) {
-    const btn = document.querySelector(sel);
-    if (btn && !btn.disabled) return btn;
+    const btns = document.querySelectorAll(sel);
+    for (const btn of btns) {
+      if (btn.offsetParent !== null) return btn;
+    }
   }
   return null;
 }
 
-function triggerSend(input, config) {
-  const sendBtn = findSendButton(config);
-  if (sendBtn) {
-    setTimeout(() => sendBtn.click(), 80);
-  } else {
-    setTimeout(() => {
-      const ev = new KeyboardEvent("keydown", {
-        key: "Enter",
-        code: "Enter",
-        keyCode: 13,
-        which: 13,
-        bubbles: true,
-        cancelable: true,
-      });
-      Object.defineProperty(ev, LEAN_CTX_MARKER, { value: true });
-      input.dispatchEvent(ev);
-    }, 80);
+function clickSendButton(config, retries = 3) {
+  const btn = findSendButton(config);
+  if (btn) {
+    btn.disabled = false;
+    btn.click();
+    return true;
   }
+  if (retries > 0) {
+    setTimeout(() => clickSendButton(config, retries - 1), 150);
+    return true;
+  }
+  return false;
+}
+
+function dispatchEnter(el) {
+  const opts = {
+    key: "Enter",
+    code: "Enter",
+    keyCode: 13,
+    which: 13,
+    bubbles: true,
+    cancelable: true,
+  };
+  el.dispatchEvent(new KeyboardEvent("keydown", opts));
+  el.dispatchEvent(new KeyboardEvent("keypress", opts));
+  el.dispatchEvent(new KeyboardEvent("keyup", opts));
+}
+
+function triggerSend(input, config) {
+  requestAnimationFrame(() => {
+    setTimeout(() => {
+      if (!clickSendButton(config)) {
+        dispatchEnter(input);
+      }
+    }, 120);
+  });
 }
 
 async function handleSubmit(input, config) {
   const text = getInputText(input).trim();
+
   if (text.length < MIN_LENGTH) {
     triggerSend(input, config);
-    return false;
+    return;
   }
 
   isCompressing = true;
@@ -160,30 +190,31 @@ async function handleSubmit(input, config) {
     setInputText(input, response.compressed);
     showSavings(response.inputTokens || 0, response.outputTokens || 0, response.savings || 0);
     updateStats(response);
-    await new Promise((r) => setTimeout(r, 60));
+    await new Promise((r) => setTimeout(r, 150));
   }
 
   hideCompressing();
   isCompressing = false;
   triggerSend(input, config);
-  return true;
 }
 
+let hookedInputs = new WeakSet();
+
 function hookInput(input, config) {
-  if (input.dataset.leanCtxHooked) return;
-  input.dataset.leanCtxHooked = "true";
+  if (hookedInputs.has(input)) return;
+  hookedInputs.add(input);
 
   input.addEventListener(
     "keydown",
     (e) => {
-      if (e.key !== "Enter" || e.shiftKey || e.isComposing) return;
+      if (e.key !== "Enter" || e.shiftKey || e.isComposing || e.metaKey || e.ctrlKey) return;
       if (!extensionSettings.enabled) return;
       if (isCompressing) {
         e.preventDefault();
         e.stopImmediatePropagation();
         return;
       }
-      if (e[LEAN_CTX_MARKER]) return;
+      if (e._leanCtxPassthrough) return;
 
       const text = getInputText(input).trim();
       if (text.length < MIN_LENGTH) return;
@@ -221,46 +252,10 @@ function hookInput(input, config) {
   });
 }
 
-function hookSendButton(config) {
-  const observer = new MutationObserver(() => {
-    if (!config.send) return;
-    const btns = document.querySelectorAll(config.send);
-    btns.forEach((btn) => {
-      if (btn.dataset.leanCtxHooked) return;
-      btn.dataset.leanCtxHooked = "true";
-
-      btn.addEventListener(
-        "click",
-        (e) => {
-          if (!extensionSettings.enabled) return;
-          if (isCompressing || btn.dataset.leanCtxSending) return;
-
-          const input = document.querySelector(config.input);
-          if (!input) return;
-
-          const text = getInputText(input).trim();
-          if (text.length < MIN_LENGTH) return;
-
-          e.preventDefault();
-          e.stopImmediatePropagation();
-
-          btn.dataset.leanCtxSending = "true";
-          handleSubmit(input, config).then(() => {
-            delete btn.dataset.leanCtxSending;
-          });
-        },
-        true
-      );
-    });
-  });
-
-  observer.observe(document.body, { childList: true, subtree: true });
-}
-
 let badge = null;
 
 function createBadge() {
-  if (badge) return badge;
+  if (badge && document.body.contains(badge)) return badge;
   badge = document.createElement("div");
   badge.id = "lean-ctx-badge";
   document.body.appendChild(badge);
@@ -274,8 +269,7 @@ function showCompressing() {
 }
 
 function hideCompressing() {
-  const b = createBadge();
-  b.classList.remove("visible");
+  if (badge) badge.classList.remove("visible");
 }
 
 function showSavings(inputTokens, outputTokens, savings) {
@@ -306,23 +300,28 @@ function loadSettings() {
   });
 }
 
+function observeAndHook(config) {
+  const tryHook = () => {
+    const inputs = document.querySelectorAll(config.input);
+    inputs.forEach((input) => hookInput(input, config));
+  };
+
+  tryHook();
+
+  const observer = new MutationObserver(tryHook);
+  observer.observe(document.body, { childList: true, subtree: true });
+}
+
 function init() {
   const config = getSiteConfig();
   if (!config) return;
 
   loadSettings();
-
-  const observer = new MutationObserver(() => {
-    const inputs = document.querySelectorAll(config.input);
-    inputs.forEach((input) => hookInput(input, config));
-  });
-
-  observer.observe(document.body, { childList: true, subtree: true });
-
-  const inputs = document.querySelectorAll(config.input);
-  inputs.forEach((input) => hookInput(input, config));
-
-  hookSendButton(config);
+  observeAndHook(config);
 }
 
-init();
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", init);
+} else {
+  init();
+}

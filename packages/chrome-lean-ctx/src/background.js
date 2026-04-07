@@ -3,7 +3,7 @@ const NATIVE_HOST = "com.leanctx.bridge";
 let settings = {
   enabled: true,
   autoCompressPaste: true,
-  threshold: 200,
+  threshold: 50,
 };
 
 let nativeAvailable = null; // null = unknown, true/false = tested
