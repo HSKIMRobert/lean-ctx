@@ -322,17 +322,19 @@ reset, list (show sessions), cleanup.",
         ),
         tool_def(
             "ctx_knowledge",
-            "Persistent project knowledge (survives sessions). Actions: remember (store fact), \
+            "Persistent project knowledge (survives sessions). Actions: remember (store fact with temporal tracking + contradiction detection), \
 recall (search), pattern (record convention), consolidate (extract session findings), \
 gotcha (record a bug/mistake to never repeat — trigger+resolution required), \
+timeline (view fact history for a category), rooms (list knowledge categories), \
+search (cross-session search across ALL projects), wakeup (compact AAAK briefing), \
 status (list all), remove, export.",
             json!({
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["remember", "recall", "pattern", "consolidate", "gotcha", "status", "remove", "export"],
-                        "description": "Knowledge operation to perform. Use 'gotcha' to record a bug or mistake that should never be repeated."
+                        "enum": ["remember", "recall", "pattern", "consolidate", "gotcha", "status", "remove", "export", "timeline", "rooms", "search", "wakeup"],
+                        "description": "Knowledge operation. remember: auto-detects contradictions + tracks temporal validity. timeline: view version history. rooms: list categories. search: cross-project search. wakeup: compact AAAK briefing."
                     },
                     "trigger": {
                         "type": "string",
@@ -382,17 +384,19 @@ status (list all), remove, export.",
         ),
         tool_def(
             "ctx_agent",
-            "Multi-agent coordination (shared message bus). Actions: register (join with agent_type+role), \
+            "Multi-agent coordination (shared message bus + persistent diaries). Actions: register (join with agent_type+role), \
 post (broadcast or direct message with category), read (poll messages), status (update state: active|idle|finished), \
 handoff (transfer task to another agent with summary), sync (overview of all agents + pending messages + shared contexts), \
+diary (log discovery/decision/blocker/progress/insight — persisted across sessions), \
+recall_diary (read agent diary), diaries (list all agent diaries), \
 list, info.",
             json!({
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["register", "list", "post", "read", "status", "info", "handoff", "sync"],
-                        "description": "Agent operation to perform"
+                        "enum": ["register", "list", "post", "read", "status", "info", "handoff", "sync", "diary", "recall_diary", "diaries"],
+                        "description": "Agent operation. diary: persistent log (category=discovery|decision|blocker|progress|insight). recall_diary: read diary. diaries: list all."
                     },
                     "agent_type": {
                         "type": "string",
@@ -579,8 +583,8 @@ analyze (entropy), cache (status|clear|invalidate), discover (missed patterns), 
 delta (incremental diff), dedup (cross-file), fill (budget-aware batch read), intent (auto-read by task), \
 response (compress LLM text), context (session state), graph (build|related|symbol|impact|status), \
 session (load|save|task|finding|decision|status|reset|list|cleanup), \
-knowledge (remember|recall|pattern|consolidate|status|remove|export), \
-agent (register|post|read|status|list|info), overview (project map), \
+knowledge (remember|recall|pattern|consolidate|timeline|rooms|search|wakeup|status|remove|export), \
+agent (register|post|read|status|list|info|diary|recall_diary|diaries), overview (project map), \
 wrapped (savings report), benchmark (file|project), multi_read (batch), semantic_search (BM25).",
             json!({
                 "type": "object",
@@ -649,12 +653,12 @@ symbol (lookup definition/usages as file::name), impact (blast radius of changes
         ("ctx_session", "Cross-session memory (CCP). Actions: load (restore previous session ~400 tok), \
 save, status, task (set current task), finding (record discovery), decision (record choice), \
 reset, list (show sessions), cleanup.", json!({"type": "object", "properties": {"action": {"type": "string"}, "value": {"type": "string"}, "session_id": {"type": "string"}}, "required": ["action"]})),
-        ("ctx_knowledge", "Persistent project knowledge (survives sessions). Actions: remember, recall, pattern, consolidate, \
-gotcha (record a bug to never repeat — trigger+resolution), status, remove, export.", json!({"type": "object", "properties": {"action": {"type": "string"}, "category": {"type": "string"}, "key": {"type": "string"}, "value": {"type": "string"}, "query": {"type": "string"}, "trigger": {"type": "string"}, "resolution": {"type": "string"}, "severity": {"type": "string"}}, "required": ["action"]})),
-        ("ctx_agent", "Multi-agent coordination (shared message bus). Actions: register (join with agent_type+role), \
-post (broadcast or direct message with category), read (poll messages), status (update state: active|idle|finished), \
-handoff (transfer task to another agent with summary), sync (overview of all agents + pending messages + shared contexts), \
-list, info.", json!({"type": "object", "properties": {"action": {"type": "string"}, "agent_type": {"type": "string"}, "role": {"type": "string"}, "message": {"type": "string"}, "to_agent": {"type": "string"}, "status": {"type": "string"}}, "required": ["action"]})),
+        ("ctx_knowledge", "Persistent project knowledge with temporal facts + contradiction detection. Actions: remember (auto-tracks validity + detects contradictions), recall, pattern, consolidate, \
+gotcha (record a bug to never repeat — trigger+resolution), timeline (fact version history), rooms (list knowledge categories), \
+search (cross-session/cross-project), wakeup (compact AAAK briefing), status, remove, export.", json!({"type": "object", "properties": {"action": {"type": "string"}, "category": {"type": "string"}, "key": {"type": "string"}, "value": {"type": "string"}, "query": {"type": "string"}, "trigger": {"type": "string"}, "resolution": {"type": "string"}, "severity": {"type": "string"}}, "required": ["action"]})),
+        ("ctx_agent", "Multi-agent coordination with persistent diaries. Actions: register, \
+post, read, status, handoff, sync, diary (log discovery/decision/blocker/progress/insight — persisted), \
+recall_diary (read diary), diaries (list all), list, info.", json!({"type": "object", "properties": {"action": {"type": "string"}, "agent_type": {"type": "string"}, "role": {"type": "string"}, "message": {"type": "string"}, "to_agent": {"type": "string"}, "status": {"type": "string"}}, "required": ["action"]})),
         ("ctx_share", "Share cached file contexts between agents. Actions: push (share files from cache), \
 pull (receive shared files), list (show all shared contexts), clear (remove your shared contexts).", json!({"type": "object", "properties": {"action": {"type": "string"}, "paths": {"type": "string"}, "to_agent": {"type": "string"}, "message": {"type": "string"}}, "required": ["action"]})),
         ("ctx_overview", "Task-relevant project map — use at session start.", json!({"type": "object", "properties": {"task": {"type": "string"}, "path": {"type": "string"}}})),

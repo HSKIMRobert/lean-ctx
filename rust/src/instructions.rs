@@ -30,7 +30,12 @@ pub fn build_instructions_with_client(crp_mode: CrpMode, client_name: &str) -> S
             let knowledge = crate::core::knowledge::ProjectKnowledge::load(root);
             match knowledge {
                 Some(k) if !k.facts.is_empty() || !k.patterns.is_empty() => {
-                    format!("\n--- PROJECT KNOWLEDGE ---\n{}\n---\n", k.format_summary())
+                    let aaak = k.format_aaak();
+                    if aaak.is_empty() {
+                        String::new()
+                    } else {
+                        format!("\n--- PROJECT MEMORY (AAAK) ---\n{}\n---\n", aaak.trim())
+                    }
                 }
                 _ => String::new(),
             }
@@ -77,6 +82,8 @@ AUTONOMY: lean-ctx auto-runs ctx_overview, ctx_preload, ctx_dedup, ctx_compress 
 Multi-agent: ctx_share auto-pushes context at checkpoints. Use ctx_agent(action=handoff) to transfer tasks, ctx_agent(action=sync) for status.\n\
 Semantic: ctx_semantic_search finds similar code by meaning — use when exact search (ctx_search) misses.\n\
 Focus on: ctx_read, ctx_shell, ctx_search, ctx_tree. Use ctx_session for memory, ctx_knowledge for project facts.\n\
+Knowledge: ctx_knowledge actions: remember, recall, timeline, rooms, search (cross-session), wakeup. Facts have temporal validity + contradiction detection.\n\
+Agent diary: ctx_agent(action=diary, category=discovery|decision|blocker|progress|insight) to log agent work. ctx_agent(action=recall_diary) to review.\n\
 ctx_shell raw=true: skip compression for small/critical outputs. Full output tee files at ~/.lean-ctx/tee/.\n\
 \n\
 Auto-checkpoint every 15 calls. Cache clears after 5 min idle.\n\

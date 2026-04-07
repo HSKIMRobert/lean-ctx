@@ -1,4 +1,4 @@
-use crate::core::agents::{AgentRegistry, AgentStatus};
+use crate::core::agents::{AgentDiary, AgentRegistry, AgentStatus, DiaryEntryType};
 
 #[allow(clippy::too_many_arguments)]
 pub fn handle(
@@ -223,6 +223,68 @@ pub fn handle(
             out
         }
 
-        _ => format!("Unknown action: {action}. Use: register, list, post, read, status, info, handoff, sync"),
+        "diary" => {
+            let agent_id = match current_agent_id {
+                Some(id) => id,
+                None => return "Error: agent must be registered first".to_string(),
+            };
+            let content = match message {
+                Some(m) => m,
+                None => return "Error: message is required for diary entry".to_string(),
+            };
+            let entry_type = match category.unwrap_or("progress") {
+                "discovery" | "found" => DiaryEntryType::Discovery,
+                "decision" | "decided" => DiaryEntryType::Decision,
+                "blocker" | "blocked" => DiaryEntryType::Blocker,
+                "progress" | "done" => DiaryEntryType::Progress,
+                "insight" => DiaryEntryType::Insight,
+                other => return format!("Unknown diary type: {other}. Use: discovery, decision, blocker, progress, insight"),
+            };
+            let atype = agent_type.unwrap_or("unknown");
+            let mut diary = AgentDiary::load_or_create(agent_id, atype, project_root);
+            let context_str = to_agent;
+            diary.add_entry(entry_type.clone(), content, context_str);
+            match diary.save() {
+                Ok(()) => format!("Diary entry [{entry_type}] added: {content}"),
+                Err(e) => format!("Diary entry added but save failed: {e}"),
+            }
+        }
+
+        "recall_diary" | "diary_recall" => {
+            let agent_id = match current_agent_id {
+                Some(id) => id,
+                None => {
+                    let diaries = AgentDiary::list_all();
+                    if diaries.is_empty() {
+                        return "No agent diaries found.".to_string();
+                    }
+                    let mut out = format!("Agent Diaries ({}):\n", diaries.len());
+                    for (id, count, updated) in &diaries {
+                        let age = (chrono::Utc::now() - *updated).num_minutes();
+                        out.push_str(&format!("  {id}: {count} entries ({age}m ago)\n"));
+                    }
+                    return out;
+                }
+            };
+            match AgentDiary::load(agent_id) {
+                Some(diary) => diary.format_summary(),
+                None => format!("No diary found for agent '{agent_id}'."),
+            }
+        }
+
+        "diaries" => {
+            let diaries = AgentDiary::list_all();
+            if diaries.is_empty() {
+                return "No agent diaries found.".to_string();
+            }
+            let mut out = format!("Agent Diaries ({}):\n", diaries.len());
+            for (id, count, updated) in &diaries {
+                let age = (chrono::Utc::now() - *updated).num_minutes();
+                out.push_str(&format!("  {id}: {count} entries ({age}m ago)\n"));
+            }
+            out
+        }
+
+        _ => format!("Unknown action: {action}. Use: register, list, post, read, status, info, handoff, sync, diary, recall_diary, diaries"),
     }
 }
