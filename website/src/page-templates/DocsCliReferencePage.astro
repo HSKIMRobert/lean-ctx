@@ -21,6 +21,8 @@ const sidebar = [
       { label: t('docs.cliReference.sidebarBenchmarking'), href: lp('/docs/cli-reference#benchmarking') },
       { label: t('docs.cliReference.sidebarTeeFilters'), href: lp('/docs/cli-reference#tee-filters') },
       { label: t('docs.cliReference.sidebarUtilities'), href: lp('/docs/cli-reference#utilities') },
+      { label: t('docs.cliReference.sidebarProjectGraph'), href: lp('/docs/cli-reference#project-graph') },
+      { label: t('docs.cliReference.sidebarHeatmap'), href: lp('/docs/cli-reference#heatmap') },
       { label: t('docs.cliReference.sidebarShellAliases'), href: lp('/docs/cli-reference#shell-aliases') },
     ],
   },
@@ -351,6 +353,26 @@ lean-ctx tee clear</code></pre>
   <p><Fragment set:html={t('docs.cliReference.slowLogDesc')} /></p>
   <pre><code>lean-ctx slow-log list
 lean-ctx slow-log clear</code></pre>
+
+  <hr />
+
+  <h2 id="project-graph">{t('docs.cliReference.graphTitle')}</h2>
+
+  <p>{t('docs.cliReference.graphDesc')}</p>
+
+  <h3 id="graph-build"><code>lean-ctx graph build</code></h3>
+  <p>{t('docs.cliReference.graphBuildDesc')}</p>
+  <pre><code>lean-ctx graph build</code></pre>
+
+  <hr />
+
+  <h2 id="heatmap">{t('docs.cliReference.heatmapTitle')}</h2>
+
+  <p>{t('docs.cliReference.heatmapDesc')}</p>
+
+  <h3 id="heatmap-cmd"><code>lean-ctx heatmap</code></h3>
+  <p>{t('docs.cliReference.heatmapCliDesc')}</p>
+  <pre><code>lean-ctx heatmap</code></pre>
 
   <hr />
 
