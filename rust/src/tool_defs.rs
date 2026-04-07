@@ -518,6 +518,44 @@ pull (receive files shared by other agents), list (show all shared contexts), cl
                 "required": ["query"]
             }),
         ),
+        tool_def(
+            "ctx_execute",
+            "Run code in sandbox (11 languages). Only stdout enters context. Raw data never leaves subprocess. Languages: javascript, typescript, python, shell, ruby, go, rust, php, perl, r, elixir.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "language": {
+                        "type": "string",
+                        "description": "Language: javascript|typescript|python|shell|ruby|go|rust|php|perl|r|elixir"
+                    },
+                    "code": {
+                        "type": "string",
+                        "description": "Code to execute in sandbox"
+                    },
+                    "intent": {
+                        "type": "string",
+                        "description": "What you want from the output (triggers intent-driven filtering for large results)"
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Timeout in seconds (default: 30)"
+                    },
+                    "action": {
+                        "type": "string",
+                        "description": "batch — execute multiple scripts. Provide items as JSON array [{language, code}]"
+                    },
+                    "items": {
+                        "type": "string",
+                        "description": "JSON array of [{\"language\": \"...\", \"code\": \"...\"}] for batch execution"
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "For action=file: process a file in sandbox (auto-detects language)"
+                    }
+                },
+                "required": ["language", "code"]
+            }),
+        ),
     ]
 }
 
@@ -652,7 +690,8 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
 symbol (lookup definition/usages as file::name), impact (blast radius of changes to path), status (index stats).", json!({"type": "object", "properties": {"action": {"type": "string"}, "path": {"type": "string"}, "project_root": {"type": "string"}}, "required": ["action"]})),
         ("ctx_session", "Cross-session memory (CCP). Actions: load (restore previous session ~400 tok), \
 save, status, task (set current task), finding (record discovery), decision (record choice), \
-reset, list (show sessions), cleanup.", json!({"type": "object", "properties": {"action": {"type": "string"}, "value": {"type": "string"}, "session_id": {"type": "string"}}, "required": ["action"]})),
+reset, list (show sessions), cleanup, snapshot (build compaction snapshot ~2KB), \
+restore (rebuild state from snapshot after context compaction).", json!({"type": "object", "properties": {"action": {"type": "string"}, "value": {"type": "string"}, "session_id": {"type": "string"}}, "required": ["action"]})),
         ("ctx_knowledge", "Persistent project knowledge with temporal facts + contradiction detection. Actions: remember (auto-tracks validity + detects contradictions), recall, pattern, consolidate, \
 gotcha (record a bug to never repeat — trigger+resolution), timeline (fact version history), rooms (list knowledge categories), \
 search (cross-session/cross-project), wakeup (compact AAAK briefing), status, remove, export.", json!({"type": "object", "properties": {"action": {"type": "string"}, "category": {"type": "string"}, "key": {"type": "string"}, "value": {"type": "string"}, "query": {"type": "string"}, "trigger": {"type": "string"}, "resolution": {"type": "string"}, "severity": {"type": "string"}}, "required": ["action"]})),
@@ -665,5 +704,6 @@ pull (receive shared files), list (show all shared contexts), clear (remove your
         ("ctx_preload", "Proactive context loader — reads and caches task-relevant files, returns compact L-curve-optimized summary with critical lines, imports, and signatures. Costs ~50-100 tokens instead of ~5000 for individual reads.", json!({"type": "object", "properties": {"task": {"type": "string", "description": "Task description (e.g. 'fix auth bug in validate_token')"}, "path": {"type": "string", "description": "Project root (default: .)"}}, "required": ["task"]})),
         ("ctx_wrapped", "Savings report card. Periods: week|month|all.", json!({"type": "object", "properties": {"period": {"type": "string"}}})),
         ("ctx_semantic_search", "BM25 code search by meaning. action=reindex to rebuild.", json!({"type": "object", "properties": {"query": {"type": "string"}, "path": {"type": "string"}, "top_k": {"type": "integer"}, "action": {"type": "string"}}, "required": ["query"]})),
+        ("ctx_execute", "Run code in sandbox (11 languages). Only stdout enters context. Languages: javascript, typescript, python, shell, ruby, go, rust, php, perl, r, elixir. Actions: batch (multiple scripts), file (process file in sandbox).", json!({"type": "object", "properties": {"language": {"type": "string"}, "code": {"type": "string"}, "intent": {"type": "string"}, "timeout": {"type": "integer"}, "action": {"type": "string"}, "items": {"type": "string"}, "path": {"type": "string"}}, "required": ["language", "code"]})),
     ]
 }
