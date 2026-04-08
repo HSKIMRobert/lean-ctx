@@ -9,6 +9,6 @@ pkgbase = lean-ctx
 	makedepends = gcc
 	depends = gcc-libs
 	source = lean-ctx-2.21.1.tar.gz::https://github.com/yvgude/lean-ctx/archive/refs/tags/v2.21.1.tar.gz
-	sha256sums = 8d36d29a07eda3386141fcaa3a43243e1b3c41a97c10ebf03ee4ab6c9db674f7
+	sha256sums = e493befbdd796494d81728108a616c7fbfd5d3b1f90bd9483a912cae017d3cf6
 
 pkgname = lean-ctx
