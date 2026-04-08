@@ -52,6 +52,9 @@ fn run_with_env(
 
 #[test]
 fn lean_ctx_shell_override_uses_specified_shell() {
+    if cfg!(windows) {
+        return; // /bin/sh not available on Windows
+    }
     let (stdout, _stderr, code) = run_with_env(
         &["-c", "echo lean_ctx_shell_works"],
         &[("LEAN_CTX_SHELL", "/bin/sh")],
@@ -101,6 +104,9 @@ fn shell_exec_simple_command() {
 
 #[test]
 fn shell_exec_pipe_command() {
+    if cfg!(windows) {
+        return; // head -1 not available on Windows
+    }
     let (stdout, _stderr, code) =
         run_with_env(&["-c", "echo 'line1\nline2\nline3' | head -1"], &[], None);
     assert_eq!(code, 0, "pipe should work");
@@ -125,6 +131,9 @@ fn shell_exec_semicolon_chain() {
 
 #[test]
 fn shell_exec_subshell() {
+    if cfg!(windows) {
+        return; // $(...) subshell syntax varies on Windows
+    }
     let (stdout, _stderr, code) = run_with_env(&["-c", "echo $(echo subshell_output)"], &[], None);
     assert_eq!(code, 0, "subshell should work");
     assert!(stdout.contains("subshell_output"), "subshell: {stdout}");
@@ -132,6 +141,9 @@ fn shell_exec_subshell() {
 
 #[test]
 fn shell_exec_env_var_expansion() {
+    if cfg!(windows) {
+        return; // $VAR syntax is bash-only; PowerShell uses $env:VAR
+    }
     let (stdout, _stderr, code) = run_with_env(
         &["-c", "echo $TEST_LEAN_CTX_VAR"],
         &[("TEST_LEAN_CTX_VAR", "expanded_value")],
@@ -286,12 +298,13 @@ fn generated_script_skips_own_binary() {
 
 #[test]
 fn bash_script_with_windows_binary_path_produces_valid_json() {
+    if cfg!(windows) {
+        return; // bash not available on Windows CI
+    }
     let script =
         lean_ctx::hooks::generate_compact_rewrite_script("/c/Users/Jaina/bin/lean-ctx.exe");
-    let script_path = std::path::PathBuf::from(format!(
-        "/tmp/lean_ctx_winpath_test_{}.sh",
-        std::process::id()
-    ));
+    let script_path =
+        std::env::temp_dir().join(format!("lean_ctx_winpath_test_{}.sh", std::process::id()));
     std::fs::write(&script_path, &script).expect("write script");
 
     let input = r#"{"tool_name":"Bash","command":"git status"}"#;
