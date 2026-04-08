@@ -5,6 +5,7 @@ pub mod attention_model;
 pub mod benchmark;
 pub mod buddy;
 pub mod cache;
+pub mod cli_cache;
 pub mod codebook;
 pub mod compressor;
 pub mod config;
@@ -17,9 +18,8 @@ pub mod gotcha_tracker;
 pub mod graph_index;
 pub mod intent_engine;
 pub mod knowledge;
-pub mod loop_detection;
-
 pub mod litm;
+pub mod loop_detection;
 pub mod mode_predictor;
 pub mod neural;
 pub mod patterns;
