@@ -220,7 +220,10 @@ mod disabled_tools_tests {
         }
         let mut cfg = Config::default();
         cfg.disabled_tools = vec!["ctx_graph".to_string(), "ctx_agent".to_string()];
-        assert_eq!(cfg.disabled_tools_effective(), vec!["ctx_graph", "ctx_agent"]);
+        assert_eq!(
+            cfg.disabled_tools_effective(),
+            vec!["ctx_graph", "ctx_agent"]
+        );
     }
 
     #[test]
@@ -255,8 +258,7 @@ mod disabled_tools_tests {
 
     #[test]
     fn disabled_tools_deserialization_from_toml() {
-        let cfg: Config =
-            toml::from_str(r#"disabled_tools = ["ctx_graph", "ctx_agent"]"#).unwrap();
+        let cfg: Config = toml::from_str(r#"disabled_tools = ["ctx_graph", "ctx_agent"]"#).unwrap();
         assert_eq!(cfg.disabled_tools, vec!["ctx_graph", "ctx_agent"]);
     }
 }

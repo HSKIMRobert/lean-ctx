@@ -3,6 +3,22 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.21.0] — 2026-04-08
+
+### Binary File Passthrough, Disabled Tools, Community Contributions
+
+#### Fixed — Hook Blocks Image Viewing (#67)
+- **Binary file passthrough** — Hook redirect now detects binary files (images, PDFs, archives, fonts, videos, compiled files) by extension and passes them through to the native Read tool. Previously, the hook would deny all `read_file` calls when lean-ctx was running, which blocked AI agents from viewing screenshots and images.
+- Updated both Rust `handle_redirect()` and all bash hook scripts (Claude, Cursor, Gemini CLI) with the same binary extension check.
+
+#### Added — Disabled Tools Config (#66, @DustinReynoldsPE)
+- **`disabled_tools`** config field — Exclude unused tools from the MCP tool list to reduce token overhead from tool definitions. Configure via `~/.lean-ctx/config.toml` or `LEAN_CTX_DISABLED_TOOLS` env var (comma-separated).
+- Example: `disabled_tools = ["ctx_benchmark", "ctx_metrics", "ctx_analyze", "ctx_wrapped"]`
+- 10 new tests covering parsing, TOML deserialization, and filtering logic.
+
+#### Closed — Cache Hits Documentation (#65)
+- Clarified that file caching requires MCP server mode (`ctx_read`), not shell hook mode (`lean-ctx -c`). Shell hooks compress command output only; the MCP server provides file caching with ~13 token re-reads.
+
 ## [2.20.0] — 2026-04-07
 
 ### Sandbox Execution, Progressive Throttling, Compaction Recovery
