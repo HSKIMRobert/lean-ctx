@@ -29,14 +29,14 @@ impl TaskType {
     pub fn thinking_budget(&self) -> ThinkingBudget {
         match self {
             Self::Generate => ThinkingBudget::Minimal,
-            Self::FixBug => ThinkingBudget::Minimal,
+            Self::FixBug => ThinkingBudget::Medium,
             Self::Refactor => ThinkingBudget::Medium,
-            Self::Explore => ThinkingBudget::Medium,
+            Self::Explore => ThinkingBudget::Minimal,
             Self::Test => ThinkingBudget::Minimal,
-            Self::Debug => ThinkingBudget::Medium,
+            Self::Debug => ThinkingBudget::Trace,
             Self::Config => ThinkingBudget::Minimal,
             Self::Deploy => ThinkingBudget::Minimal,
-            Self::Review => ThinkingBudget::Medium,
+            Self::Review => ThinkingBudget::Trace,
         }
     }
 

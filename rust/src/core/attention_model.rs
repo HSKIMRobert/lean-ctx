@@ -110,6 +110,19 @@ pub fn structural_importance(line: &str) -> f64 {
         return 0.3;
     }
 
+    if trimmed.len() < 15
+        || trimmed.ends_with("++;")
+        || trimmed.ends_with("--;")
+        || trimmed.contains("+= 1")
+        || trimmed.contains("-= 1")
+    {
+        return 0.5;
+    }
+
+    if trimmed.starts_with("let ") || trimmed.starts_with("const ") || trimmed.starts_with("var ") {
+        return 0.7;
+    }
+
     0.8
 }
 

@@ -3,7 +3,7 @@ use crate::core::preservation;
 use crate::core::tokens::count_tokens;
 
 const QUALITY_THRESHOLD: f64 = 0.95;
-const MIN_DENSITY: f64 = 0.15;
+const MIN_DENSITY: f64 = 0.03;
 
 #[derive(Debug, Clone)]
 pub struct QualityScore {
