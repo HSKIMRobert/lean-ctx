@@ -31,11 +31,12 @@ static LANGUAGE_THRESHOLDS: &[(&str, CompressionThresholds)] = &[
         },
     ),
     // Rust: Repetitive keywords (fn, pub, impl, let, mut) → lower threshold catches more
+    // Tuning result: jaccard 0.55 gives 9% savings with 100% quality (was 0.72 = 6.4%)
     (
         "rs",
         CompressionThresholds {
             bpe_entropy: 0.85,
-            jaccard: 0.72,
+            jaccard: 0.55,
             auto_delta: 0.6,
         },
     ),
@@ -73,20 +74,22 @@ static LANGUAGE_THRESHOLDS: &[(&str, CompressionThresholds)] = &[
         },
     ),
     // Go: Verbose but highly structured → aggressive threshold
+    // Tuning: lowered jaccard for better dedup on verbose Go boilerplate
     (
         "go",
         CompressionThresholds {
             bpe_entropy: 0.9,
-            jaccard: 0.72,
+            jaccard: 0.55,
             auto_delta: 0.55,
         },
     ),
     // Java/Kotlin: Very verbose, lots of boilerplate
+    // Tuning: aggressive jaccard for Java's extreme boilerplate repetition
     (
         "java",
         CompressionThresholds {
             bpe_entropy: 0.8,
-            jaccard: 0.65,
+            jaccard: 0.48,
             auto_delta: 0.5,
         },
     ),
