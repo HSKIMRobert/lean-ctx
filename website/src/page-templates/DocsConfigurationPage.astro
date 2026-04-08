@@ -20,6 +20,7 @@ const sidebar = [
       { label: t('docsConfiguration.sidebarCursorRule'), href: lp('/docs/configuration') + '#cursor-rule' },
       { label: 'CLI File Cache', href: lp('/docs/configuration') + '#cli-cache' },
       { label: 'Loop Detection', href: lp('/docs/configuration') + '#loop-detection' },
+      { label: 'Pipe Guard', href: lp('/docs/configuration') + '#pipe-guard' },
       { label: t('docsConfiguration.sidebarExitCodes'), href: lp('/docs/configuration') + '#exit-codes' },
       { label: t('docsConfiguration.sidebarTokenCounting'), href: lp('/docs/configuration') + '#token-counting' },
     ],
@@ -172,6 +173,11 @@ lean-ctx config set passthrough_urls localhost:3000,api.internal</code></pre>
         <td>comma-separated tool names</td>
         <td>Exclude specific tools from the MCP tool list. Overrides <code>disabled_tools</code> in config.toml when set. Example: <code>ctx_benchmark,ctx_metrics,ctx_wrapped</code></td>
       </tr>
+      <tr>
+        <td><code>LEAN_CTX_SHELL</code></td>
+        <td>path to shell binary</td>
+        <td>Override which shell lean-ctx uses for <code>ctx_shell</code> / <code>lean-ctx -c</code>. Useful on Windows when PowerShell detection fails. Example: <code>C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe</code></td>
+      </tr>
     </tbody>
   </table>
 
@@ -285,6 +291,26 @@ lean-ctx read file.rs --fresh     # Bypass cache for one read</code></pre>
     This is fully automatic — no configuration needed. Different arguments are tracked separately,
     so only truly redundant calls are throttled.
   </p>
+
+  <hr />
+
+  <h2 id="pipe-guard">Pipe Guard <span class="text-xs font-normal text-muted ml-2">v2.21.6</span></h2>
+  <p>
+    Since v2.21.6, the shell hook automatically detects when stdout is piped (not a terminal)
+    and bypasses all compression. This prevents corruption when piping command output — for
+    example, <code>curl -fsSL https://example.com/install.sh | sh</code> now works correctly
+    even with the lean-ctx shell hook active.
+  </p>
+  <table>
+    <thead>
+      <tr><th>Shell</th><th>Detection Method</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Bash / Zsh</td><td><code>[ ! -t 1 ]</code></td></tr>
+      <tr><td>Fish</td><td><code>not isatty stdout</code></td></tr>
+      <tr><td>PowerShell</td><td><code>[Console]::IsOutputRedirected</code></td></tr>
+    </tbody>
+  </table>
 
   <hr />
 
