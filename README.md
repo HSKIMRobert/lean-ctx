@@ -755,7 +755,7 @@ lean-ctx has **zero telemetry** — no data collection, no analytics, no network
 </details>
 
 <details>
-<summary><strong>What's the difference between lean-ctx and RTK (Reduce Token Kit)?</strong></summary>
+<summary><strong>What's the difference between lean-ctx and RTK (Rust Token Killer)?</strong></summary>
 
 lean-ctx is a hybrid architecture (shell hook + MCP server) while RTK is shell-hook only. lean-ctx offers 28 tools vs RTK's basic compression, supports 24 editors vs 3, has tree-sitter AST parsing for 18 languages, cross-session memory, multi-agent coordination, and — critically — zero telemetry (RTK has default-on telemetry with PII).
 
