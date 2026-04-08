@@ -16,6 +16,7 @@ pub mod ctx_dedup;
 pub mod ctx_delta;
 pub mod ctx_discover;
 pub mod ctx_edit;
+pub mod ctx_execute;
 pub mod ctx_fill;
 pub mod ctx_graph;
 pub mod ctx_intent;
@@ -92,6 +93,7 @@ pub struct LeanCtxServer {
     pub agent_id: Arc<RwLock<Option<String>>>,
     pub client_name: Arc<RwLock<String>>,
     pub autonomy: Arc<autonomy::AutonomyState>,
+    pub loop_detector: Arc<RwLock<crate::core::loop_detection::LoopDetector>>,
 }
 
 #[derive(Clone, Debug)]
@@ -140,6 +142,7 @@ impl LeanCtxServer {
             agent_id: Arc::new(RwLock::new(None)),
             client_name: Arc::new(RwLock::new(String::new())),
             autonomy: Arc::new(autonomy::AutonomyState::new()),
+            loop_detector: Arc::new(RwLock::new(crate::core::loop_detection::LoopDetector::new())),
         }
     }
 

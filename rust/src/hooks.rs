@@ -190,8 +190,22 @@ set -euo pipefail
 INPUT=$(cat)
 TOOL=$(echo "$INPUT" | grep -o '"tool_name":"[^"]*"' | head -1 | cut -d'"' -f4 2>/dev/null || echo "")
 
+is_binary() {
+  local f="$1"
+  case "${f##*.}" in
+    png|jpg|jpeg|gif|webp|svg|ico|bmp|tiff|tif|avif|heic|heif|pdf|zip|gz|tar|bz2|xz|7z|rar|wasm|exe|dll|so|dylib|bin|dat|db|sqlite|sqlite3|mp3|mp4|wav|ogg|flac|avi|mov|mkv|webm|ttf|otf|woff|woff2|eot|psd|class|jar|pyc|o|a|lib|obj) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+FILE_PATH=$(echo "$INPUT" | grep -o '"file_path":"[^"]*"' | head -1 | cut -d'"' -f4 2>/dev/null || echo "")
+[ -z "$FILE_PATH" ] && FILE_PATH=$(echo "$INPUT" | grep -o '"path":"[^"]*"' | head -1 | cut -d'"' -f4 2>/dev/null || echo "")
+
 case "$TOOL" in
   Read|read|ReadFile|read_file|View|view)
+    if [ -n "$FILE_PATH" ] && is_binary "$FILE_PATH"; then
+      exit 0
+    fi
     if pgrep -f "lean-ctx" >/dev/null 2>&1; then
       echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"STOP. Use ctx_read(path) from the lean-ctx MCP server instead. It saves 60-80% input tokens via caching and compression. Available modes: full, map, signatures, diff, lines:N-M. Never use native Read — always use ctx_read."}}'
     fi
@@ -216,8 +230,22 @@ set -euo pipefail
 INPUT=$(cat)
 TOOL=$(echo "$INPUT" | grep -o '"tool_name":"[^"]*"' | head -1 | cut -d'"' -f4 2>/dev/null || echo "")
 
+is_binary() {
+  local f="$1"
+  case "${f##*.}" in
+    png|jpg|jpeg|gif|webp|svg|ico|bmp|tiff|tif|avif|heic|heif|pdf|zip|gz|tar|bz2|xz|7z|rar|wasm|exe|dll|so|dylib|bin|dat|db|sqlite|sqlite3|mp3|mp4|wav|ogg|flac|avi|mov|mkv|webm|ttf|otf|woff|woff2|eot|psd|class|jar|pyc|o|a|lib|obj) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+FILE_PATH=$(echo "$INPUT" | grep -o '"file_path":"[^"]*"' | head -1 | cut -d'"' -f4 2>/dev/null || echo "")
+[ -z "$FILE_PATH" ] && FILE_PATH=$(echo "$INPUT" | grep -o '"path":"[^"]*"' | head -1 | cut -d'"' -f4 2>/dev/null || echo "")
+
 case "$TOOL" in
   Read|read|ReadFile|read_file)
+    if [ -n "$FILE_PATH" ] && is_binary "$FILE_PATH"; then
+      exit 0
+    fi
     if pgrep -f "lean-ctx" >/dev/null 2>&1; then
       echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"STOP. Use ctx_read(path) from lean-ctx MCP instead. Saves 60-80% tokens."}}'
     fi
@@ -705,12 +733,14 @@ fn install_gemini_hook_config(home: &std::path::Path) {
         String::new()
     };
 
-    let needs_update =
-        !settings_content.contains("hook rewrite") || !settings_content.contains("hook redirect");
+    let has_new_format = settings_content.contains("hook rewrite")
+        && settings_content.contains("hook redirect")
+        && settings_content.contains("\"type\"");
     let has_old_hooks = settings_content.contains("lean-ctx-rewrite")
-        || settings_content.contains("lean-ctx-redirect");
+        || settings_content.contains("lean-ctx-redirect")
+        || (settings_content.contains("hook rewrite") && !settings_content.contains("\"type\""));
 
-    if !needs_update && !has_old_hooks {
+    if has_new_format && !has_old_hooks {
         return;
     }
 
@@ -718,10 +748,16 @@ fn install_gemini_hook_config(home: &std::path::Path) {
         "hooks": {
             "BeforeTool": [
                 {
-                    "command": rewrite_cmd
+                    "hooks": [{
+                        "type": "command",
+                        "command": rewrite_cmd
+                    }]
                 },
                 {
-                    "command": redirect_cmd
+                    "hooks": [{
+                        "type": "command",
+                        "command": redirect_cmd
+                    }]
                 }
             ]
         }
@@ -1305,5 +1341,52 @@ mod tests {
             !has_correct,
             "Old format should be detected as needing migration"
         );
+    }
+
+    #[test]
+    fn gemini_hook_config_has_type_command() {
+        let binary = "lean-ctx";
+        let rewrite_cmd = format!("{binary} hook rewrite");
+        let redirect_cmd = format!("{binary} hook redirect");
+
+        let hook_config = serde_json::json!({
+            "hooks": {
+                "BeforeTool": [
+                    {
+                        "hooks": [{
+                            "type": "command",
+                            "command": rewrite_cmd
+                        }]
+                    },
+                    {
+                        "hooks": [{
+                            "type": "command",
+                            "command": redirect_cmd
+                        }]
+                    }
+                ]
+            }
+        });
+
+        let parsed = hook_config;
+        let before_tool = parsed["hooks"]["BeforeTool"].as_array().unwrap();
+        assert_eq!(before_tool.len(), 2);
+
+        let first_hook = &before_tool[0]["hooks"][0];
+        assert_eq!(first_hook["type"], "command");
+        assert_eq!(first_hook["command"], "lean-ctx hook rewrite");
+
+        let second_hook = &before_tool[1]["hooks"][0];
+        assert_eq!(second_hook["type"], "command");
+        assert_eq!(second_hook["command"], "lean-ctx hook redirect");
+    }
+
+    #[test]
+    fn gemini_hook_old_format_detected() {
+        let old_format = r#"{"hooks":{"BeforeTool":[{"command":"lean-ctx hook rewrite"}]}}"#;
+        let has_new = old_format.contains("hook rewrite")
+            && old_format.contains("hook redirect")
+            && old_format.contains("\"type\"");
+        assert!(!has_new, "Missing 'type' field should trigger migration");
     }
 }

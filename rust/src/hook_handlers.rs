@@ -46,6 +46,11 @@ pub fn handle_redirect() {
 
     let reason = match tool.as_str() {
         "Read" | "read" | "ReadFile" | "read_file" | "View" | "view" => {
+            if let Some(ref path) = extract_tool_path(&input) {
+                if is_binary_file(path) {
+                    return;
+                }
+            }
             "STOP. Use ctx_read(path) from the lean-ctx MCP server instead. \
              It saves 60-80% input tokens via caching and compression. \
              Available modes: full, map, signatures, diff, lines:N-M. \
@@ -200,6 +205,20 @@ fn is_lean_ctx_running() -> bool {
     }
 }
 
+fn is_binary_file(path: &str) -> bool {
+    const BINARY_EXTENSIONS: &[&str] = &[
+        "png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "bmp", "tiff", "tif", "avif", "heic",
+        "heif", "pdf", "zip", "gz", "tar", "bz2", "xz", "7z", "rar", "wasm", "exe", "dll", "so",
+        "dylib", "bin", "dat", "db", "sqlite", "sqlite3", "mp3", "mp4", "wav", "ogg", "flac",
+        "avi", "mov", "mkv", "webm", "ttf", "otf", "woff", "woff2", "eot", "psd", "ai", "sketch",
+        "fig", "xd", "class", "jar", "pyc", "pyo", "o", "a", "lib", "obj",
+    ];
+    let lower = path.to_lowercase();
+    BINARY_EXTENSIONS
+        .iter()
+        .any(|ext| lower.ends_with(&format!(".{ext}")))
+}
+
 fn extract_json_field(input: &str, field: &str) -> Option<String> {
     let pattern = format!("\"{}\":\"", field);
     let start = input.find(&pattern)? + pattern.len();
@@ -238,6 +257,22 @@ mod tests {
         assert!(glob_match("CLAUDE.md", "CLAUDE.md"));
         assert!(glob_match("CLAUDE.md", "/home/user/.claude/CLAUDE.md"));
         assert!(!glob_match("CLAUDE.md", "CLAUDE.md.bak"));
+    }
+
+    #[test]
+    fn binary_file_detection() {
+        assert!(is_binary_file("screenshot.png"));
+        assert!(is_binary_file("/tmp/photo.jpg"));
+        assert!(is_binary_file("image.JPEG"));
+        assert!(is_binary_file("doc.pdf"));
+        assert!(is_binary_file("archive.zip"));
+        assert!(is_binary_file("font.woff2"));
+        assert!(is_binary_file("video.mp4"));
+        assert!(!is_binary_file("main.rs"));
+        assert!(!is_binary_file("config.json"));
+        assert!(!is_binary_file("README.md"));
+        assert!(!is_binary_file("style.css"));
+        assert!(!is_binary_file("index.html"));
     }
 
     #[test]

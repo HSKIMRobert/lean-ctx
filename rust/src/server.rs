@@ -48,17 +48,26 @@ impl ServerHandler for LeanCtxServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        if std::env::var("LEAN_CTX_UNIFIED").is_ok()
+        let all_tools = if std::env::var("LEAN_CTX_UNIFIED").is_ok()
             && std::env::var("LEAN_CTX_FULL_TOOLS").is_err()
         {
-            return Ok(ListToolsResult {
-                tools: crate::tool_defs::unified_tool_defs(),
-                ..Default::default()
-            });
-        }
+            crate::tool_defs::unified_tool_defs()
+        } else {
+            crate::tool_defs::granular_tool_defs()
+        };
+
+        let disabled = crate::core::config::Config::load().disabled_tools_effective();
+        let tools = if disabled.is_empty() {
+            all_tools
+        } else {
+            all_tools
+                .into_iter()
+                .filter(|t| !disabled.iter().any(|d| t.name.as_ref() == d.as_str()))
+                .collect()
+        };
 
         Ok(ListToolsResult {
-            tools: crate::tool_defs::granular_tool_defs(),
+            tools,
             ..Default::default()
         })
     }
@@ -114,6 +123,31 @@ impl ServerHandler for LeanCtxServer {
                 self.crp_mode,
             )
         };
+
+        let throttle_result = {
+            let fp = args
+                .as_ref()
+                .map(|a| {
+                    crate::core::loop_detection::LoopDetector::fingerprint(
+                        &serde_json::Value::Object(a.clone()),
+                    )
+                })
+                .unwrap_or_default();
+            let mut detector = self.loop_detector.write().await;
+            detector.record_call(name, &fp)
+        };
+
+        if throttle_result.level == crate::core::loop_detection::ThrottleLevel::Blocked {
+            let msg = throttle_result.message.unwrap_or_default();
+            return Ok(CallToolResult::success(vec![Content::text(msg)]));
+        }
+
+        let throttle_warning =
+            if throttle_result.level == crate::core::loop_detection::ThrottleLevel::Reduced {
+                throttle_result.message.clone()
+            } else {
+                None
+            };
 
         let tool_start = std::time::Instant::now();
         let result_text = match name {
@@ -931,6 +965,45 @@ impl ServerHandler for LeanCtxServer {
                     .await;
                 result
             }
+            "ctx_execute" => {
+                let action = get_str(args, "action").unwrap_or_default();
+
+                let result = if action == "batch" {
+                    let items_str = get_str(args, "items").ok_or_else(|| {
+                        ErrorData::invalid_params("items is required for batch", None)
+                    })?;
+                    let items: Vec<serde_json::Value> =
+                        serde_json::from_str(&items_str).map_err(|e| {
+                            ErrorData::invalid_params(format!("Invalid items JSON: {e}"), None)
+                        })?;
+                    let batch: Vec<(String, String)> = items
+                        .iter()
+                        .filter_map(|item| {
+                            let lang = item.get("language")?.as_str()?.to_string();
+                            let code = item.get("code")?.as_str()?.to_string();
+                            Some((lang, code))
+                        })
+                        .collect();
+                    crate::tools::ctx_execute::handle_batch(&batch)
+                } else if action == "file" {
+                    let path = get_str(args, "path").ok_or_else(|| {
+                        ErrorData::invalid_params("path is required for action=file", None)
+                    })?;
+                    let intent = get_str(args, "intent");
+                    crate::tools::ctx_execute::handle_file(&path, intent.as_deref())
+                } else {
+                    let language = get_str(args, "language")
+                        .ok_or_else(|| ErrorData::invalid_params("language is required", None))?;
+                    let code = get_str(args, "code")
+                        .ok_or_else(|| ErrorData::invalid_params("code is required", None))?;
+                    let intent = get_str(args, "intent");
+                    let timeout = get_int(args, "timeout").map(|t| t as u64);
+                    crate::tools::ctx_execute::handle(&language, &code, intent.as_deref(), timeout)
+                };
+
+                self.record_call("ctx_execute", 0, 0, Some(action)).await;
+                result
+            }
             _ => {
                 return Err(ErrorData::invalid_params(
                     format!("Unknown tool: {name}"),
@@ -943,6 +1016,10 @@ impl ServerHandler for LeanCtxServer {
 
         if let Some(ctx) = auto_context {
             result_text = format!("{ctx}\n\n{result_text}");
+        }
+
+        if let Some(warning) = throttle_warning {
+            result_text = format!("{result_text}\n\n{warning}");
         }
 
         if name == "ctx_read" {
@@ -1110,5 +1187,43 @@ mod tests {
     fn test_granular_tool_count() {
         let tools = crate::tool_defs::granular_tool_defs();
         assert!(tools.len() >= 25, "Expected at least 25 granular tools");
+    }
+
+    #[test]
+    fn disabled_tools_filters_list() {
+        let all = crate::tool_defs::granular_tool_defs();
+        let total = all.len();
+        let disabled = vec!["ctx_graph".to_string(), "ctx_agent".to_string()];
+        let filtered: Vec<_> = all
+            .into_iter()
+            .filter(|t| !disabled.iter().any(|d| t.name.as_ref() == d.as_str()))
+            .collect();
+        assert_eq!(filtered.len(), total - 2);
+        assert!(!filtered.iter().any(|t| t.name.as_ref() == "ctx_graph"));
+        assert!(!filtered.iter().any(|t| t.name.as_ref() == "ctx_agent"));
+    }
+
+    #[test]
+    fn empty_disabled_tools_returns_all() {
+        let all = crate::tool_defs::granular_tool_defs();
+        let total = all.len();
+        let disabled: Vec<String> = vec![];
+        let filtered: Vec<_> = all
+            .into_iter()
+            .filter(|t| !disabled.iter().any(|d| t.name.as_ref() == d.as_str()))
+            .collect();
+        assert_eq!(filtered.len(), total);
+    }
+
+    #[test]
+    fn misspelled_disabled_tool_is_silently_ignored() {
+        let all = crate::tool_defs::granular_tool_defs();
+        let total = all.len();
+        let disabled = vec!["ctx_nonexistent_tool".to_string()];
+        let filtered: Vec<_> = all
+            .into_iter()
+            .filter(|t| !disabled.iter().any(|d| t.name.as_ref() == d.as_str()))
+            .collect();
+        assert_eq!(filtered.len(), total);
     }
 }

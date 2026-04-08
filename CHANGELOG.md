@@ -3,6 +3,64 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.21.1] — 2026-04-08
+
+### CLI File Caching
+
+#### Added — Persistent CLI Read Cache (#65)
+- **File-based CLI caching** — `lean-ctx read <file>` now caches file content to `~/.lean-ctx/cli-cache/cache.json`. Second and subsequent reads of unchanged files return a compact ~13-token cache-hit response instead of the full file content. This directly addresses Issue #65 (pi-lean-ctx zero cache hits) by enabling caching for CLI-mode integrations that don't use the MCP server.
+- **Cache management** — New `lean-ctx cache` subcommand with `stats`, `clear`, and `invalidate <path>` actions.
+- **`--fresh` / `--no-cache` flag** — Bypass the CLI cache for a single read when needed.
+- **5-minute TTL** — Cache entries expire after 300 seconds, matching the MCP server cache behavior.
+- **MD5 change detection** — Files are re-read when their content changes, even within the TTL window.
+- **Max 200 entries** — Oldest entries are evicted when the cache exceeds capacity.
+- 6 new unit tests including integration test for full cache lifecycle.
+
+#### Fixed — Missing Module Registrations
+- Registered `sandbox` and `loop_detection` modules that were present on disk but missing from `core/mod.rs`.
+
+## [2.21.0] — 2026-04-08
+
+### Binary File Passthrough, Disabled Tools, Community Contributions
+
+#### Fixed — Hook Blocks Image Viewing (#67)
+- **Binary file passthrough** — Hook redirect now detects binary files (images, PDFs, archives, fonts, videos, compiled files) by extension and passes them through to the native Read tool. Previously, the hook would deny all `read_file` calls when lean-ctx was running, which blocked AI agents from viewing screenshots and images.
+- Updated both Rust `handle_redirect()` and all bash hook scripts (Claude, Cursor, Gemini CLI) with the same binary extension check.
+
+#### Added — Disabled Tools Config (#66, @DustinReynoldsPE)
+- **`disabled_tools`** config field — Exclude unused tools from the MCP tool list to reduce token overhead from tool definitions. Configure via `~/.lean-ctx/config.toml` or `LEAN_CTX_DISABLED_TOOLS` env var (comma-separated).
+- Example: `disabled_tools = ["ctx_benchmark", "ctx_metrics", "ctx_analyze", "ctx_wrapped"]`
+- 10 new tests covering parsing, TOML deserialization, and filtering logic.
+
+#### Closed — Cache Hits Documentation (#65)
+- Clarified that file caching requires MCP server mode (`ctx_read`), not shell hook mode (`lean-ctx -c`). Shell hooks compress command output only; the MCP server provides file caching with ~13 token re-reads.
+
+## [2.20.0] — 2026-04-07
+
+### Sandbox Execution, Progressive Throttling, Compaction Recovery
+
+#### Added — Sandbox Code Execution
+- **`ctx_execute`** — New MCP tool that runs code in 11 languages (JavaScript, TypeScript, Python, Shell, Ruby, Go, Rust, PHP, Perl, R, Elixir) in an isolated subprocess. Only stdout enters the context window — raw data never leaves the sandbox. Supports `action=batch` for multiple scripts in one call, and `action=file` to process files in sandbox with auto-detected language.
+- **Smart truncation** — Large outputs (>32 KB) are truncated with head (60%) + tail (40%) preservation, keeping both setup context and error messages visible.
+- **`LEAN_CTX_SANDBOX=1` env** — Set in all sandbox processes for detection by user code.
+- **Timeout support** — Default 30s, configurable per-call.
+
+#### Added — Progressive Throttling (Loop Detection)
+- **Automatic agent loop detection** — Tracks tool call fingerprints within a 5-minute sliding window. Calls 1-3: normal. Calls 4-8: reduced results + warning. Calls 9-12: stronger warning. Calls 13+: blocked with suggestion to use `ctx_batch_execute` or vary approach.
+- **Deterministic fingerprinting** — JSON args are canonicalized (key-sorted) before hashing, so `{path: "a", mode: "b"}` and `{mode: "b", path: "a"}` are treated as the same call.
+- **Per-tool tracking** — Different tools with different args are tracked independently.
+
+#### Added — Compaction Recovery
+- **`ctx_session(action=snapshot)`** — Builds a priority-tiered XML snapshot (~2 KB max) of the current session state including task, modified files, decisions, findings, progress, test results, and stats. Saved to `~/.lean-ctx/sessions/{id}_snapshot.txt`.
+- **`ctx_session(action=restore)`** — Rebuilds session state from the most recent compaction snapshot. When the context window fills up and the agent compacts, the snapshot allows seamless continuation.
+- **Priority tiers** — Task and files (P1) are always included. Decisions and findings (P2) next. Tests, next steps, and stats (P3/P4) are dropped first if the 2 KB budget is tight.
+
+## [2.19.2] — 2026-04-07
+
+### Fixed
+- **Gemini CLI hook schema** — Fixed "Discarding invalid hook definition for BeforeTool" error. Hook definitions now include the required `"type": "command"` field and nested `"hooks"` array structure expected by the Gemini CLI validator. Existing configs without `"type"` are automatically migrated. (#63)
+- **Remote dashboard auth** — Fixed dashboard returning `{"error":"unauthorized"}` when accessed remotely via browser. Auth is now only enforced on `/api/*` endpoints. HTML pages load freely, with the bearer token automatically injected into API calls. Browser URL with `?token=` query parameter is printed on startup for easy remote access. (#64)
+
 ## [2.19.1] — 2026-04-07
 
 ### Fixed

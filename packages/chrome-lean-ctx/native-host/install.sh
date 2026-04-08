@@ -1,9 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-LEAN_CTX=$(command -v lean-ctx 2>/dev/null || echo "")
-if [[ -z "$LEAN_CTX" ]]; then
-  echo "Error: lean-ctx not found in PATH"
+EXTENSION_ID="${1:-}"
+if [[ -z "$EXTENSION_ID" ]]; then
+  echo "Usage: ./install.sh <chrome-extension-id>"
+  echo ""
+  echo "The extension ID is shown in the lean-ctx popup or at chrome://extensions"
+  exit 1
+fi
+
+LEAN_CTX=$(command -v lean-ctx 2>/dev/null || echo "$HOME/.cargo/bin/lean-ctx")
+if [[ ! -x "$LEAN_CTX" ]]; then
+  echo "Error: lean-ctx not found in PATH or ~/.cargo/bin/"
   echo "Install: cargo install lean-ctx"
   exit 1
 fi
@@ -25,20 +33,43 @@ esac
 
 mkdir -p "$TARGET_DIR"
 
-BRIDGE_SCRIPT="$(cd "$(dirname "$0")" && pwd)/bridge.sh"
-chmod +x "$BRIDGE_SCRIPT"
+INSTALL_DIR="$HOME/.lean-ctx/chrome-bridge"
+mkdir -p "$INSTALL_DIR"
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cp "$SCRIPT_DIR/bridge.py" "$INSTALL_DIR/bridge.py"
+chmod +x "$INSTALL_DIR/bridge.py"
+
+PYTHON="/usr/bin/python3"
+if [[ ! -x "$PYTHON" ]]; then
+  PYTHON="$(command -v python3 2>/dev/null || true)"
+fi
+if [[ -z "$PYTHON" ]]; then
+  echo "Error: python3 not found"
+  exit 1
+fi
+
+cat > "$INSTALL_DIR/bridge.sh" <<BRIDGE
+#!/bin/bash
+exec "$PYTHON" -u "$INSTALL_DIR/bridge.py" 2>>"\$HOME/.lean-ctx/bridge-stderr.log"
+BRIDGE
+chmod +x "$INSTALL_DIR/bridge.sh"
 
 cat > "$TARGET_DIR/$HOST_NAME.json" <<MANIFEST
 {
   "name": "$HOST_NAME",
-  "description": "lean-ctx native messaging bridge",
-  "path": "$BRIDGE_SCRIPT",
+  "description": "lean-ctx native messaging bridge for Chrome",
+  "path": "$INSTALL_DIR/bridge.sh",
   "type": "stdio",
   "allowed_origins": [
-    "chrome-extension://EXTENSION_ID_HERE/"
+    "chrome-extension://$EXTENSION_ID/"
   ]
 }
 MANIFEST
 
-echo "Native messaging host installed: $TARGET_DIR/$HOST_NAME.json"
-echo "Update EXTENSION_ID_HERE with your actual extension ID after loading."
+echo "Native messaging host installed successfully."
+echo "  Manifest: $TARGET_DIR/$HOST_NAME.json"
+echo "  Bridge:   $INSTALL_DIR/bridge.sh"
+echo "  Python:   $PYTHON"
+echo ""
+echo "Restart Chrome completely (Cmd+Q) to activate."
