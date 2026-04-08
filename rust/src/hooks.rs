@@ -112,7 +112,7 @@ pub fn normalize_tool_path(path: &str) -> String {
     p
 }
 
-fn generate_rewrite_script(binary: &str) -> String {
+pub fn generate_rewrite_script(binary: &str) -> String {
     format!(
         r#"#!/usr/bin/env bash
 # lean-ctx PreToolUse hook — rewrites bash commands to lean-ctx equivalents
@@ -147,7 +147,7 @@ esac
     )
 }
 
-fn generate_compact_rewrite_script(binary: &str) -> String {
+pub fn generate_compact_rewrite_script(binary: &str) -> String {
     format!(
         r#"#!/usr/bin/env bash
 # lean-ctx hook — rewrites shell commands
@@ -254,7 +254,7 @@ pub fn install_agent_hook(agent: &str, global: bool) {
     match agent {
         "claude" | "claude-code" => install_claude_hook(global),
         "cursor" => install_cursor_hook(global),
-        "gemini" => install_gemini_hook(),
+        "gemini" | "antigravity" => install_gemini_hook(),
         "codex" => install_codex_hook(),
         "windsurf" => install_windsurf_rules(global),
         "cline" | "roo" => install_cline_rules(global),
@@ -316,7 +316,7 @@ pub fn install_agent_hook(agent: &str, global: bool) {
         "crush" => install_crush_hook(),
         _ => {
             eprintln!("Unknown agent: {agent}");
-            eprintln!("  Supported: claude, cursor, gemini, codex, windsurf, cline, roo, copilot, pi, qwen, trae, amazonq, jetbrains, kiro, verdent, opencode, aider, amp, crush");
+            eprintln!("  Supported: claude, cursor, gemini, antigravity, codex, windsurf, cline, roo, copilot, pi, qwen, trae, amazonq, jetbrains, kiro, verdent, opencode, aider, amp, crush");
             std::process::exit(1);
         }
     }
