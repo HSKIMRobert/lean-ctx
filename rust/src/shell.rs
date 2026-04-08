@@ -455,10 +455,11 @@ fn find_real_shell() -> String {
 
 #[cfg(windows)]
 fn find_real_shell() -> String {
-    if is_running_in_powershell() {
-        if let Ok(pwsh) = which_powershell() {
-            return pwsh;
-        }
+    // Always prefer PowerShell over cmd.exe — AI agents send bash-like syntax
+    // that cmd.exe cannot parse (e.g. `&&`, pipes, subshells).
+    // PSModulePath may not be set when the MCP server is spawned by an IDE.
+    if let Ok(pwsh) = which_powershell() {
+        return pwsh;
     }
     if let Ok(comspec) = std::env::var("COMSPEC") {
         return comspec;
@@ -694,5 +695,93 @@ mod passthrough_tests {
         let excl = vec!["myapp".to_string()];
         assert!(is_excluded_command("myapp serve", &excl));
         assert!(!is_excluded_command("git status", &excl));
+    }
+}
+
+#[cfg(test)]
+mod shell_detection_tests {
+    use super::*;
+
+    #[test]
+    fn lean_ctx_shell_env_takes_priority() {
+        std::env::set_var("LEAN_CTX_SHELL", "/custom/shell");
+        let shell = detect_shell();
+        std::env::remove_var("LEAN_CTX_SHELL");
+        assert_eq!(shell, "/custom/shell");
+    }
+
+    #[test]
+    fn shell_env_respected_when_no_override() {
+        let orig_lcs = std::env::var("LEAN_CTX_SHELL").ok();
+        std::env::remove_var("LEAN_CTX_SHELL");
+
+        let orig = std::env::var("SHELL").ok();
+        std::env::set_var("SHELL", "/bin/bash");
+        let shell = detect_shell();
+        if let Some(v) = orig {
+            std::env::set_var("SHELL", v);
+        } else {
+            std::env::remove_var("SHELL");
+        }
+        if let Some(v) = orig_lcs {
+            std::env::set_var("LEAN_CTX_SHELL", v);
+        }
+        assert_eq!(shell, "/bin/bash");
+    }
+
+    #[test]
+    fn lean_ctx_shell_self_reference_triggers_fallback() {
+        let orig_lcs = std::env::var("LEAN_CTX_SHELL").ok();
+        std::env::remove_var("LEAN_CTX_SHELL");
+
+        let orig = std::env::var("SHELL").ok();
+        std::env::set_var("SHELL", "/usr/local/bin/lean-ctx");
+        let shell = detect_shell();
+        if let Some(v) = orig {
+            std::env::set_var("SHELL", v);
+        } else {
+            std::env::remove_var("SHELL");
+        }
+        if let Some(v) = orig_lcs {
+            std::env::set_var("LEAN_CTX_SHELL", v);
+        }
+        assert_ne!(shell, "/usr/local/bin/lean-ctx");
+    }
+
+    #[test]
+    fn shell_and_flag_returns_dash_c_on_unix() {
+        let (_shell, flag) = shell_and_flag();
+        if !cfg!(windows) {
+            assert_eq!(flag, "-c");
+        }
+    }
+}
+
+#[cfg(test)]
+mod windows_shell_detection_tests {
+    #[test]
+    fn windows_flag_powershell_variants() {
+        use super::windows_shell_flag_for_exe_basename;
+        assert_eq!(windows_shell_flag_for_exe_basename("pwsh.exe"), "-Command");
+        assert_eq!(
+            windows_shell_flag_for_exe_basename("powershell.exe"),
+            "-Command"
+        );
+        assert_eq!(windows_shell_flag_for_exe_basename("pwsh"), "-Command");
+    }
+
+    #[test]
+    fn windows_flag_git_bash_variants() {
+        use super::windows_shell_flag_for_exe_basename;
+        assert_eq!(windows_shell_flag_for_exe_basename("bash.exe"), "-c");
+        assert_eq!(windows_shell_flag_for_exe_basename("sh.exe"), "-c");
+        assert_eq!(windows_shell_flag_for_exe_basename("git-bash.exe"), "-c");
+    }
+
+    #[test]
+    fn windows_flag_unknown_defaults_to_posix() {
+        use super::windows_shell_flag_for_exe_basename;
+        assert_eq!(windows_shell_flag_for_exe_basename("unknown.exe"), "-c");
+        assert_eq!(windows_shell_flag_for_exe_basename("myshell"), "-c");
     }
 }
