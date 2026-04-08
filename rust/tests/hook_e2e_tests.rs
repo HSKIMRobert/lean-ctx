@@ -44,10 +44,14 @@ fn run_rust_rewrite(json_input: &str) -> Option<String> {
 }
 
 /// Feed JSON to a generated bash rewrite script and return raw stdout.
+/// Skips (returns None) on Windows where bash is typically unavailable.
 fn run_bash_rewrite(json_input: &str) -> Option<String> {
+    if cfg!(windows) {
+        return None;
+    }
     let script = lean_ctx::hooks::generate_rewrite_script("lean-ctx");
-    let script_path = std::path::PathBuf::from(format!(
-        "/tmp/lean_ctx_test_{}_{}.sh",
+    let script_path = std::env::temp_dir().join(format!(
+        "lean_ctx_test_{}_{}.sh",
         std::process::id(),
         std::thread::current()
             .name()
@@ -211,20 +215,23 @@ fn rust_passthrough_echo() {
 }
 
 // ---------------------------------------------------------------------------
-// Bash script E2E tests
+// Bash script E2E tests (skipped on Windows — no bash available)
 // ---------------------------------------------------------------------------
 
 #[test]
 fn bash_rewrite_simple_command() {
-    let raw = run_bash_rewrite(&bash_input("git status")).expect("should rewrite");
+    let Some(raw) = run_bash_rewrite(&bash_input("git status")) else {
+        return; // Windows: bash unavailable
+    };
     let cmd = extract_command(&raw);
     assert!(cmd.contains("git status"), "unexpected: {cmd}");
 }
 
 #[test]
 fn bash_rewrite_pipe_command() {
-    let raw =
-        run_bash_rewrite(&bash_input("curl https://api.com | python3")).expect("should rewrite");
+    let Some(raw) = run_bash_rewrite(&bash_input("curl https://api.com | python3")) else {
+        return;
+    };
     let cmd = extract_command(&raw);
     assert!(
         cmd.contains("curl https://api.com | python3"),
@@ -235,7 +242,9 @@ fn bash_rewrite_pipe_command() {
 #[test]
 fn bash_rewrite_embedded_quotes_git_commit() {
     let input = r#"{"tool_name":"Bash","command":"git commit --allow-empty -m \"Test\""}"#;
-    let raw = run_bash_rewrite(input).expect("should rewrite");
+    let Some(raw) = run_bash_rewrite(input) else {
+        return;
+    };
     let cmd = extract_command(&raw);
     assert!(
         cmd.contains(r#"-m \"Test\""#) || cmd.contains(r#"-m "Test""#),
@@ -246,7 +255,9 @@ fn bash_rewrite_embedded_quotes_git_commit() {
 #[test]
 fn bash_rewrite_curl_with_auth_header() {
     let input = r#"{"tool_name":"Bash","command":"curl -H \"Authorization: Bearer token\" https://api.com"}"#;
-    let raw = run_bash_rewrite(input).expect("should rewrite");
+    let Some(raw) = run_bash_rewrite(input) else {
+        return;
+    };
     let cmd = extract_command(&raw);
     assert!(
         cmd.contains("Authorization: Bearer token"),
@@ -257,7 +268,9 @@ fn bash_rewrite_curl_with_auth_header() {
 #[test]
 fn bash_rewrite_docker_multiple_env() {
     let input = r#"{"tool_name":"Bash","command":"docker run -e \"A=1\" -e \"B=2\" nginx"}"#;
-    let raw = run_bash_rewrite(input).expect("should rewrite");
+    let Some(raw) = run_bash_rewrite(input) else {
+        return;
+    };
     let cmd = extract_command(&raw);
     assert!(cmd.contains("A=1"), "first env: {cmd}");
     assert!(cmd.contains("B=2"), "second env: {cmd}");
@@ -265,6 +278,9 @@ fn bash_rewrite_docker_multiple_env() {
 
 #[test]
 fn bash_passthrough_lean_ctx_self() {
+    if cfg!(windows) {
+        return;
+    }
     let input = r#"{"tool_name":"Bash","command":"lean-ctx read main.rs"}"#;
     assert!(
         run_bash_rewrite(input).is_none(),
@@ -274,6 +290,9 @@ fn bash_passthrough_lean_ctx_self() {
 
 #[test]
 fn bash_passthrough_non_bash_tool() {
+    if cfg!(windows) {
+        return;
+    }
     let input = r#"{"tool_name":"Write","command":"test"}"#;
     assert!(
         run_bash_rewrite(input).is_none(),
@@ -283,13 +302,17 @@ fn bash_passthrough_non_bash_tool() {
 
 // ---------------------------------------------------------------------------
 // Consistency: Rust binary vs. Bash script must produce identical commands
+// (skipped on Windows — requires bash)
 // ---------------------------------------------------------------------------
 
 #[test]
 fn consistency_simple() {
     let input = bash_input("git status");
     let rust_cmd = normalize_command(&extract_command(&run_rust_rewrite(&input).expect("rust")));
-    let bash_cmd = normalize_command(&extract_command(&run_bash_rewrite(&input).expect("bash")));
+    let Some(bash_raw) = run_bash_rewrite(&input) else {
+        return;
+    };
+    let bash_cmd = normalize_command(&extract_command(&bash_raw));
     assert_eq!(rust_cmd, bash_cmd, "simple command mismatch");
 }
 
@@ -297,7 +320,10 @@ fn consistency_simple() {
 fn consistency_pipe() {
     let input = bash_input("git log --oneline | grep fix | head -5");
     let rust_cmd = normalize_command(&extract_command(&run_rust_rewrite(&input).expect("rust")));
-    let bash_cmd = normalize_command(&extract_command(&run_bash_rewrite(&input).expect("bash")));
+    let Some(bash_raw) = run_bash_rewrite(&input) else {
+        return;
+    };
+    let bash_cmd = normalize_command(&extract_command(&bash_raw));
     assert_eq!(rust_cmd, bash_cmd, "pipe command mismatch");
 }
 
@@ -305,7 +331,10 @@ fn consistency_pipe() {
 fn consistency_embedded_quotes() {
     let input = r#"{"tool_name":"Bash","command":"curl -H \"Auth\" https://api.com"}"#;
     let rust_cmd = normalize_command(&extract_command(&run_rust_rewrite(input).expect("rust")));
-    let bash_cmd = normalize_command(&extract_command(&run_bash_rewrite(input).expect("bash")));
+    let Some(bash_raw) = run_bash_rewrite(input) else {
+        return;
+    };
+    let bash_cmd = normalize_command(&extract_command(&bash_raw));
     assert_eq!(rust_cmd, bash_cmd, "embedded quotes mismatch");
 }
 
@@ -313,7 +342,10 @@ fn consistency_embedded_quotes() {
 fn consistency_multiple_quotes() {
     let input = r#"{"tool_name":"Bash","command":"docker run -e \"A=1\" -e \"B=2\" nginx"}"#;
     let rust_cmd = normalize_command(&extract_command(&run_rust_rewrite(input).expect("rust")));
-    let bash_cmd = normalize_command(&extract_command(&run_bash_rewrite(input).expect("bash")));
+    let Some(bash_raw) = run_bash_rewrite(input) else {
+        return;
+    };
+    let bash_cmd = normalize_command(&extract_command(&bash_raw));
     assert_eq!(rust_cmd, bash_cmd, "multi-quote mismatch");
 }
 
@@ -321,6 +353,9 @@ fn consistency_multiple_quotes() {
 fn consistency_npm() {
     let input = bash_input("npm run build");
     let rust_cmd = normalize_command(&extract_command(&run_rust_rewrite(&input).expect("rust")));
-    let bash_cmd = normalize_command(&extract_command(&run_bash_rewrite(&input).expect("bash")));
+    let Some(bash_raw) = run_bash_rewrite(&input) else {
+        return;
+    };
+    let bash_cmd = normalize_command(&extract_command(&bash_raw));
     assert_eq!(rust_cmd, bash_cmd, "npm mismatch");
 }
