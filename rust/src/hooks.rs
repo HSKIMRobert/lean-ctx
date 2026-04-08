@@ -121,28 +121,28 @@ set -euo pipefail
 LEAN_CTX_BIN="{binary}"
 
 INPUT=$(cat)
-TOOL=$(echo "$INPUT" | grep -o '"tool_name":"[^"]*"' | head -1 | cut -d'"' -f4)
+TOOL=$(echo "$INPUT" | grep -oE '"tool_name":"([^"\\]|\\.)*"' | head -1 | sed 's/^"tool_name":"//;s/"$//' | sed 's/\\"/"/g;s/\\\\/\\/g')
 
 if [ "$TOOL" != "Bash" ] && [ "$TOOL" != "bash" ]; then
   exit 0
 fi
 
-CMD=$(echo "$INPUT" | grep -o '"command":"[^"]*"' | head -1 | cut -d'"' -f4)
+CMD=$(echo "$INPUT" | grep -oE '"command":"([^"\\]|\\.)*"' | head -1 | sed 's/^"command":"//;s/"$//' | sed 's/\\"/"/g;s/\\\\/\\/g')
 
-if echo "$CMD" | grep -qE "^(lean-ctx |$LEAN_CTX_BIN )"; then
+if [ -z "$CMD" ] || echo "$CMD" | grep -qE "^(lean-ctx |$LEAN_CTX_BIN )"; then
   exit 0
 fi
 
-REWRITE=""
 case "$CMD" in
   git\ *|gh\ *|cargo\ *|npm\ *|pnpm\ *|yarn\ *|docker\ *|kubectl\ *|pip\ *|pip3\ *|ruff\ *|go\ *|curl\ *|grep\ *|rg\ *|find\ *|cat\ *|head\ *|tail\ *|ls\ *|ls|eslint*|prettier*|tsc*|pytest*|mypy*|aws\ *|helm\ *)
-    REWRITE="$LEAN_CTX_BIN -c \\\"$CMD\\\"" ;;
-  *)            exit 0 ;;
+    # Shell-escape then JSON-escape (two passes)
+    SHELL_ESC=$(printf '%s' "$CMD" | sed 's/\\/\\\\/g;s/"/\\"/g')
+    REWRITE="$LEAN_CTX_BIN -c \"$SHELL_ESC\""
+    JSON_CMD=$(printf '%s' "$REWRITE" | sed 's/\\/\\\\/g;s/"/\\"/g')
+    printf '{{"hookSpecificOutput":{{"hookEventName":"PreToolUse","permissionDecision":"allow","updatedInput":{{"command":"%s"}}}}}}' "$JSON_CMD"
+    ;;
+  *) exit 0 ;;
 esac
-
-if [ -n "$REWRITE" ]; then
-  echo "{{\"hookSpecificOutput\":{{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"allow\",\"updatedInput\":{{\"command\":\"$REWRITE\"}}}}}}"
-fi
 "#
     )
 }
@@ -154,11 +154,14 @@ fn generate_compact_rewrite_script(binary: &str) -> String {
 set -euo pipefail
 LEAN_CTX_BIN="{binary}"
 INPUT=$(cat)
-CMD=$(echo "$INPUT" | grep -o '"command":"[^"]*"' | head -1 | cut -d'"' -f4 2>/dev/null || echo "")
+CMD=$(echo "$INPUT" | grep -oE '"command":"([^"\\]|\\.)*"' | head -1 | sed 's/^"command":"//;s/"$//' | sed 's/\\"/"/g;s/\\\\/\\/g' 2>/dev/null || echo "")
 if [ -z "$CMD" ] || echo "$CMD" | grep -qE "^(lean-ctx |$LEAN_CTX_BIN )"; then exit 0; fi
 case "$CMD" in
   git\ *|gh\ *|cargo\ *|npm\ *|pnpm\ *|docker\ *|kubectl\ *|pip\ *|ruff\ *|go\ *|curl\ *|grep\ *|rg\ *|find\ *|ls\ *|ls|cat\ *|aws\ *|helm\ *)
-    echo "{{\"hookSpecificOutput\":{{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"allow\",\"updatedInput\":{{\"command\":\"$LEAN_CTX_BIN -c \\\"$CMD\\\"\"}}}}}}" ;;
+    SHELL_ESC=$(printf '%s' "$CMD" | sed 's/\\/\\\\/g;s/"/\\"/g')
+    REWRITE="$LEAN_CTX_BIN -c \"$SHELL_ESC\""
+    JSON_CMD=$(printf '%s' "$REWRITE" | sed 's/\\/\\\\/g;s/"/\\"/g')
+    printf '{{"hookSpecificOutput":{{"hookEventName":"PreToolUse","permissionDecision":"allow","updatedInput":{{"command":"%s"}}}}}}' "$JSON_CMD" ;;
   *) exit 0 ;;
 esac
 "#
@@ -166,65 +169,15 @@ esac
 }
 
 const REDIRECT_SCRIPT_CLAUDE: &str = r#"#!/usr/bin/env bash
-# lean-ctx PreToolUse hook — redirects Read/Grep/List to MCP equivalents
-set -euo pipefail
-
-INPUT=$(cat)
-TOOL=$(echo "$INPUT" | grep -o '"tool_name":"[^"]*"' | head -1 | cut -d'"' -f4 2>/dev/null || echo "")
-
-is_binary() {
-  local f="$1"
-  case "${f##*.}" in
-    png|jpg|jpeg|gif|webp|svg|ico|bmp|tiff|tif|avif|heic|heif|pdf|zip|gz|tar|bz2|xz|7z|rar|wasm|exe|dll|so|dylib|bin|dat|db|sqlite|sqlite3|mp3|mp4|wav|ogg|flac|avi|mov|mkv|webm|ttf|otf|woff|woff2|eot|psd|class|jar|pyc|o|a|lib|obj) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
-FILE_PATH=$(echo "$INPUT" | grep -o '"file_path":"[^"]*"' | head -1 | cut -d'"' -f4 2>/dev/null || echo "")
-[ -z "$FILE_PATH" ] && FILE_PATH=$(echo "$INPUT" | grep -o '"path":"[^"]*"' | head -1 | cut -d'"' -f4 2>/dev/null || echo "")
-
-case "$TOOL" in
-  Read|read|ReadFile|read_file|View|view)
-    exit 0
-    ;;
-  Grep|grep|Search|search|RipGrep|ripgrep)
-    exit 0
-    ;;
-  ListFiles|list_files|ListDirectory|list_directory)
-    exit 0
-    ;;
-esac
+# lean-ctx PreToolUse hook — all native tools pass through
+# Read/Grep/ListFiles are allowed so Edit (which requires native Read) works.
+# The MCP instructions guide the AI to prefer ctx_read/ctx_search/ctx_tree.
+exit 0
 "#;
 
 const REDIRECT_SCRIPT_GENERIC: &str = r#"#!/usr/bin/env bash
-# lean-ctx hook — redirects Read/Grep to MCP equivalents
-set -euo pipefail
-
-INPUT=$(cat)
-TOOL=$(echo "$INPUT" | grep -o '"tool_name":"[^"]*"' | head -1 | cut -d'"' -f4 2>/dev/null || echo "")
-
-is_binary() {
-  local f="$1"
-  case "${f##*.}" in
-    png|jpg|jpeg|gif|webp|svg|ico|bmp|tiff|tif|avif|heic|heif|pdf|zip|gz|tar|bz2|xz|7z|rar|wasm|exe|dll|so|dylib|bin|dat|db|sqlite|sqlite3|mp3|mp4|wav|ogg|flac|avi|mov|mkv|webm|ttf|otf|woff|woff2|eot|psd|class|jar|pyc|o|a|lib|obj) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
-FILE_PATH=$(echo "$INPUT" | grep -o '"file_path":"[^"]*"' | head -1 | cut -d'"' -f4 2>/dev/null || echo "")
-[ -z "$FILE_PATH" ] && FILE_PATH=$(echo "$INPUT" | grep -o '"path":"[^"]*"' | head -1 | cut -d'"' -f4 2>/dev/null || echo "")
-
-case "$TOOL" in
-  Read|read|ReadFile|read_file)
-    exit 0
-    ;;
-  Grep|grep|Search|search)
-    exit 0
-    ;;
-  ListFiles|list_files|ListDirectory|list_directory)
-    exit 0
-    ;;
-esac
+# lean-ctx hook — all native tools pass through
+exit 0
 "#;
 
 pub fn install_project_rules() {

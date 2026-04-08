@@ -198,7 +198,7 @@ fn handle_full_with_auto_delta(
 
     if is_hit {
         return format!(
-            "{file_ref}={short} cached {}t {}L",
+            "{file_ref}={short} cached {}t {}L\nFile already in context from previous read. Use fresh=true to re-read if content needed again.",
             entry.read_count, entry.line_count
         );
     }
