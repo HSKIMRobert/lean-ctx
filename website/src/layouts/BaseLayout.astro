@@ -18,10 +18,10 @@ interface Props {
 
 const {
   title,
-  description = 'LeanCTX — The Intelligence Layer for AI Coding. Reduces AI costs by up to 99% per operation. Single Rust binary with 25 intelligent tools, shell hook, and 90+ CLI compression patterns.',
+  description = 'Reduce Claude Code, Cursor & Copilot token costs by 99%. Open-source MCP server + shell hook with 28 tools and 90+ compression patterns. Single Rust binary, zero telemetry.',
   ogImage = '/og-image.png',
   noindex = false,
-  keywords = 'lean-ctx, AI coding costs, context compression, intelligence layer, AI coding tools, tree-sitter, Rust, Cursor, Claude Code, GitHub Copilot',
+  keywords = 'lean-ctx, reduce AI token costs, MCP server, Claude Code costs, Cursor token optimization, Copilot API costs, context compression, Rust, Gemini CLI, Windsurf, context engineering, agentic coding',
   breadcrumbs,
   extraJsonLd,
 } = Astro.props;
@@ -41,14 +41,14 @@ const softwareJsonLd = JSON.stringify({
   operatingSystem: 'macOS, Linux, Windows',
   url: 'https://leanctx.com',
   downloadUrl: 'https://crates.io/crates/lean-ctx',
-  softwareVersion: '2.7.1',
+  softwareVersion: '2.21.1',
   license: 'https://opensource.org/licenses/MIT',
-  description: 'The Intelligence Layer for AI Coding — reduces AI costs by up to 99% per operation. Single Rust binary with context server, shell hook, and CLI.',
+  description: 'Reduce Claude Code, Cursor & Copilot token costs by 99%. Open-source MCP server + shell hook with 28 intelligent tools. Zero telemetry.',
   offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
   author: { '@type': 'Person', name: 'Yves Gugger', url: 'https://github.com/yvgude' },
   codeRepository: 'https://github.com/yvgude/lean-ctx',
   programmingLanguage: 'Rust',
-  dateModified: '2026-03-29',
+  dateModified: '2026-04-08',
   aggregateRating: undefined,
 });
 
@@ -60,7 +60,7 @@ const webPageJsonLd = !isHome ? JSON.stringify({
   url: canonicalURL.toString(),
   isPartOf: { '@type': 'WebSite', name: 'LeanCTX', url: 'https://leanctx.com' },
   author: { '@type': 'Person', name: 'Yves Gugger' },
-  dateModified: '2026-03-29',
+  dateModified: '2026-04-08',
 }) : null;
 
 const breadcrumbJsonLd = breadcrumbs ? JSON.stringify({
