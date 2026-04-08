@@ -14,7 +14,9 @@ use crate::hooks::to_bash_compatible_path;
 
 pub fn cmd_read(args: &[String]) {
     if args.is_empty() {
-        eprintln!("Usage: lean-ctx read <file> [--mode full|map|signatures|aggressive|entropy]");
+        eprintln!(
+            "Usage: lean-ctx read <file> [--mode full|map|signatures|aggressive|entropy] [--fresh]"
+        );
         std::process::exit(1);
     }
 
@@ -25,6 +27,32 @@ pub fn cmd_read(args: &[String]) {
         .and_then(|i| args.get(i + 1))
         .map(|s| s.as_str())
         .unwrap_or("full");
+    let force_fresh = args.iter().any(|a| a == "--fresh" || a == "--no-cache");
+
+    let short = protocol::shorten_path(path);
+
+    if !force_fresh && mode == "full" {
+        use crate::core::cli_cache::{self, CacheResult};
+        match cli_cache::check_and_read(path) {
+            CacheResult::Hit { entry, file_ref } => {
+                let msg = cli_cache::format_hit(&entry, &file_ref, &short);
+                println!("{msg}");
+                stats::record("cli_read", entry.original_tokens, msg.len());
+                return;
+            }
+            CacheResult::Miss { content } if content.is_empty() => {
+                eprintln!("Error: could not read {path}");
+                std::process::exit(1);
+            }
+            CacheResult::Miss { content } => {
+                let line_count = content.lines().count();
+                println!("{short} [{line_count}L]");
+                println!("{content}");
+                stats::record("cli_read", count_tokens(&content), count_tokens(&content));
+                return;
+            }
+        }
+    }
 
     let content = match crate::tools::ctx_read::read_file_lossy(path) {
         Ok(c) => c,
@@ -38,7 +66,6 @@ pub fn cmd_read(args: &[String]) {
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("");
-    let short = protocol::shorten_path(path);
     let line_count = content.lines().count();
     let original_tokens = count_tokens(&content);
 
@@ -478,6 +505,51 @@ pub fn cmd_stats(args: &[String]) {
             );
             println!();
             println!("Subcommands: stats reset-cep | stats json");
+        }
+    }
+}
+
+pub fn cmd_cache(args: &[String]) {
+    use crate::core::cli_cache;
+    match args.first().map(|s| s.as_str()) {
+        Some("clear") => {
+            let count = cli_cache::clear();
+            println!("Cleared {count} cached entries.");
+        }
+        Some("stats") => {
+            let (hits, reads, entries) = cli_cache::stats();
+            let rate = if reads > 0 {
+                (hits as f64 / reads as f64 * 100.0).round() as u32
+            } else {
+                0
+            };
+            println!("CLI Cache Stats:");
+            println!("  Entries:   {entries}");
+            println!("  Reads:     {reads}");
+            println!("  Hits:      {hits}");
+            println!("  Hit Rate:  {rate}%");
+        }
+        Some("invalidate") => {
+            if args.len() < 2 {
+                eprintln!("Usage: lean-ctx cache invalidate <path>");
+                std::process::exit(1);
+            }
+            cli_cache::invalidate(&args[1]);
+            println!("Invalidated cache for {}", args[1]);
+        }
+        _ => {
+            let (hits, reads, entries) = cli_cache::stats();
+            let rate = if reads > 0 {
+                (hits as f64 / reads as f64 * 100.0).round() as u32
+            } else {
+                0
+            };
+            println!("CLI File Cache: {entries} entries, {hits}/{reads} hits ({rate}%)");
+            println!();
+            println!("Subcommands:");
+            println!("  cache stats       Show detailed stats");
+            println!("  cache clear       Clear all cached entries");
+            println!("  cache invalidate  Remove specific file from cache");
         }
     }
 }

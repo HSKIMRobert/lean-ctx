@@ -187,6 +187,10 @@ fn main() {
                 cli::cmd_stats(&rest);
                 return;
             }
+            "cache" => {
+                cli::cmd_cache(&rest);
+                return;
+            }
             "theme" => {
                 cli::cmd_theme(&rest);
                 return;

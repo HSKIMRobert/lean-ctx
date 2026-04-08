@@ -3,6 +3,22 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.21.1] — 2026-04-08
+
+### CLI File Caching
+
+#### Added — Persistent CLI Read Cache (#65)
+- **File-based CLI caching** — `lean-ctx read <file>` now caches file content to `~/.lean-ctx/cli-cache/cache.json`. Second and subsequent reads of unchanged files return a compact ~13-token cache-hit response instead of the full file content. This directly addresses Issue #65 (pi-lean-ctx zero cache hits) by enabling caching for CLI-mode integrations that don't use the MCP server.
+- **Cache management** — New `lean-ctx cache` subcommand with `stats`, `clear`, and `invalidate <path>` actions.
+- **`--fresh` / `--no-cache` flag** — Bypass the CLI cache for a single read when needed.
+- **5-minute TTL** — Cache entries expire after 300 seconds, matching the MCP server cache behavior.
+- **MD5 change detection** — Files are re-read when their content changes, even within the TTL window.
+- **Max 200 entries** — Oldest entries are evicted when the cache exceeds capacity.
+- 6 new unit tests including integration test for full cache lifecycle.
+
+#### Fixed — Missing Module Registrations
+- Registered `sandbox` and `loop_detection` modules that were present on disk but missing from `core/mod.rs`.
+
 ## [2.21.0] — 2026-04-08
 
 ### Binary File Passthrough, Disabled Tools, Community Contributions
