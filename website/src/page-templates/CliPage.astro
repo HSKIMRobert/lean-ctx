@@ -315,6 +315,10 @@ const lp = (path: string) => getLocalizedPath(path, locale);
             <td class="py-3 pr-4 whitespace-nowrap"><code class="text-accent">lean-ctx config set &lt;key&gt; &lt;value&gt;</code></td>
             <td class="py-3 text-muted fluid-sm font-sans">{t('cli.configTableDesc')}</td>
           </tr>
+          <tr class="border-b border-border/30 hover:bg-surface/50 transition-colors">
+            <td class="py-3 pr-4 whitespace-nowrap"><code class="text-accent">lean-ctx cache [stats|clear|invalidate]</code></td>
+            <td class="py-3 text-muted fluid-sm font-sans">{t('cli.cacheTableDesc')}</td>
+          </tr>
           <tr class="hover:bg-surface/50 transition-colors">
             <td class="py-3 pr-4 whitespace-nowrap"><code class="text-accent-2">lctx</code></td>
             <td class="py-3 text-muted fluid-sm font-sans">{t('cli.lctxTableDesc')}</td>

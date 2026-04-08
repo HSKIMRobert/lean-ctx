@@ -18,6 +18,7 @@ const sidebar = [
       { label: t('docsConfiguration.sidebarEnvVars'), href: lp('/docs/configuration') + '#environment-variables' },
       { label: t('docsConfiguration.sidebarHookRedirect'), href: lp('/docs/configuration') + '#hook-redirect' },
       { label: t('docsConfiguration.sidebarCursorRule'), href: lp('/docs/configuration') + '#cursor-rule' },
+      { label: 'CLI File Cache', href: lp('/docs/configuration') + '#cli-cache' },
       { label: 'Loop Detection', href: lp('/docs/configuration') + '#loop-detection' },
       { label: t('docsConfiguration.sidebarExitCodes'), href: lp('/docs/configuration') + '#exit-codes' },
       { label: t('docsConfiguration.sidebarTokenCounting'), href: lp('/docs/configuration') + '#token-counting' },
@@ -230,6 +231,34 @@ replacement = ""
 pattern = "^\\s+$"
 replacement = ""</code></pre>
   <p set:html={t('docsConfiguration.userTomlFiltersManage')} />
+
+  <hr />
+
+  <h2 id="cli-cache">CLI File Cache <span class="text-xs font-normal text-muted ml-2">v2.21.1</span></h2>
+  <p>
+    Since v2.21.1, <code>lean-ctx read &lt;file&gt;</code> in CLI mode caches file content to
+    <code>~/.lean-ctx/cli-cache/cache.json</code>. Subsequent reads of unchanged files return a
+    compact ~13-token cache-hit response instead of the full file content. This enables caching
+    for CLI-mode integrations (e.g. pi-lean-ctx) that don't use the MCP server.
+  </p>
+  <table>
+    <thead>
+      <tr><th>Parameter</th><th>Value</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>TTL</td><td>5 minutes (300s)</td></tr>
+      <tr><td>Max entries</td><td>200</td></tr>
+      <tr><td>Change detection</td><td>MD5 hash</td></tr>
+      <tr><td>Cache location</td><td><code>~/.lean-ctx/cli-cache/cache.json</code></td></tr>
+    </tbody>
+  </table>
+  <h3>Management Commands</h3>
+  <pre><code>lean-ctx cache              # Overview with hit rate
+lean-ctx cache stats        # Detailed statistics
+lean-ctx cache clear        # Remove all entries
+lean-ctx cache invalidate &lt;path&gt;  # Remove specific file
+
+lean-ctx read file.rs --fresh     # Bypass cache for one read</code></pre>
 
   <hr />
 
