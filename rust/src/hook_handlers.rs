@@ -26,10 +26,11 @@ pub fn handle_rewrite() {
         .any(|prefix| cmd.starts_with(prefix) || cmd == prefix.trim_end_matches(' '));
 
     if should_rewrite {
-        let escaped = cmd.replace('\\', "\\\\").replace('"', "\\\"");
-        let rewrite = format!("{binary} -c \\\"{escaped}\\\"");
+        let shell_escaped = cmd.replace('\\', "\\\\").replace('"', "\\\"");
+        let shell_cmd = format!("{binary} -c \"{shell_escaped}\"");
+        let json_escaped = shell_cmd.replace('\\', "\\\\").replace('"', "\\\"");
         print!(
-            "{{\"hookSpecificOutput\":{{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"allow\",\"updatedInput\":{{\"command\":\"{rewrite}\"}}}}}}"
+            "{{\"hookSpecificOutput\":{{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"allow\",\"updatedInput\":{{\"command\":\"{json_escaped}\"}}}}}}"
         );
     }
 }
@@ -57,31 +58,58 @@ fn extract_json_field(input: &str, field: &str) -> Option<String> {
     let pattern = format!("\"{}\":\"", field);
     let start = input.find(&pattern)? + pattern.len();
     let rest = &input[start..];
-    let end = rest.find('"')?;
-    Some(rest[..end].to_string())
+    let bytes = rest.as_bytes();
+    let mut end = 0;
+    while end < bytes.len() {
+        if bytes[end] == b'\\' && end + 1 < bytes.len() {
+            end += 2;
+            continue;
+        }
+        if bytes[end] == b'"' {
+            break;
+        }
+        end += 1;
+    }
+    if end >= bytes.len() {
+        return None;
+    }
+    let raw = &rest[..end];
+    Some(raw.replace("\\\"", "\"").replace("\\\\", "\\"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn rewrite_quotes_pipe_commands() {
-        let cmd = "git log --oneline | grep fix";
-        let escaped = cmd.replace('\\', "\\\\").replace('"', "\\\"");
-        let rewrite = format!("lean-ctx -c \\\"{escaped}\\\"");
-        assert!(
-            rewrite.contains("\\\"git log"),
-            "pipe command must be quoted: {rewrite}"
-        );
+    fn build_rewrite(cmd: &str) -> String {
+        let shell_escaped = cmd.replace('\\', "\\\\").replace('"', "\\\"");
+        let shell_cmd = format!("lean-ctx -c \"{shell_escaped}\"");
+        shell_cmd.replace('\\', "\\\\").replace('"', "\\\"")
     }
 
     #[test]
     fn rewrite_simple_command() {
-        let cmd = "git status";
-        let escaped = cmd.replace('\\', "\\\\").replace('"', "\\\"");
-        let rewrite = format!("lean-ctx -c \\\"{escaped}\\\"");
-        assert_eq!(rewrite, "lean-ctx -c \\\"git status\\\"");
+        let json = build_rewrite("git status");
+        assert_eq!(json, "lean-ctx -c \\\"git status\\\"");
+    }
+
+    #[test]
+    fn rewrite_pipe_command() {
+        let json = build_rewrite("git log --oneline | grep fix");
+        assert_eq!(json, "lean-ctx -c \\\"git log --oneline | grep fix\\\"");
+    }
+
+    #[test]
+    fn rewrite_embedded_quotes() {
+        let json = build_rewrite("curl -H \"Auth\" https://api.com");
+        assert_eq!(
+            json,
+            "lean-ctx -c \\\"curl -H \\\\\\\"Auth\\\\\\\" https://api.com\\\""
+        );
+        assert!(
+            json.contains("\\\\\\\"Auth\\\\\\\""),
+            "embedded quotes must be double-escaped: {json}"
+        );
     }
 
     #[test]
@@ -94,6 +122,42 @@ mod tests {
         assert_eq!(
             extract_json_field(input, "command"),
             Some("git status".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_field_handles_escaped_quotes() {
+        let input = r#"{"tool_name":"Bash","command":"grep -r \"TODO\" src/"}"#;
+        assert_eq!(
+            extract_json_field(input, "command"),
+            Some(r#"grep -r "TODO" src/"#.to_string())
+        );
+    }
+
+    #[test]
+    fn extract_field_handles_escaped_backslash() {
+        let input = r#"{"tool_name":"Bash","command":"echo \\\"hello\\\""}"#;
+        assert_eq!(
+            extract_json_field(input, "command"),
+            Some(r#"echo \"hello\""#.to_string())
+        );
+    }
+
+    #[test]
+    fn extract_field_handles_complex_curl() {
+        let input = r#"{"tool_name":"Bash","command":"curl -H \"Authorization: Bearer token\" https://api.com"}"#;
+        assert_eq!(
+            extract_json_field(input, "command"),
+            Some(r#"curl -H "Authorization: Bearer token" https://api.com"#.to_string())
+        );
+    }
+
+    #[test]
+    fn rewrite_grep_with_quoted_pattern() {
+        let json = build_rewrite("grep -r \"TODO\" src/");
+        assert!(
+            json.contains("\\\\\\\"TODO\\\\\\\""),
+            "grep pattern quotes must be double-escaped: {json}"
         );
     }
 }

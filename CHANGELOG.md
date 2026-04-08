@@ -3,6 +3,26 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.21.3] — 2026-04-08
+
+### Robust Hook Escaping + Auto-Context Fix
+
+#### Fixed — Commands with Embedded Quotes Truncated
+- **JSON parser rewrite** — Hook scripts and Rust handler now correctly parse JSON values containing escaped quotes (e.g. `curl -H "Authorization: Bearer token"`). Previously, the naive `[^"]*` regex stopped at the first `\"` inside the value, truncating the command. Now uses `([^"\\]|\\.)*` pattern with proper unescape pass. Affects both bash scripts and Rust `extract_json_field`.
+- **Double-escaping for rewrites** — Rewrite output now applies two escaping passes: shell-escape (for the `-c "..."` wrapper) then JSON-escape (for the hook protocol). Previously, only one pass was applied, causing inner quotes to break both shell and JSON parsing.
+
+#### Fixed — Auto-Context Noise from Wrong Project (#62 Issue 4)
+- **Project root guard** — `session_lifecycle_pre_hook` and `enrich_after_read` now require a known, non-trivial `project_root` before triggering auto-context. Previously, when `project_root` was `None` or `"."`, the autonomy system would run `ctx_overview` on the MCP server's working directory (often a completely different project), injecting irrelevant "AUTO CONTEXT" blocks into responses.
+
+#### Improved — Cache Hit Message Clarity (#62 Issue 3)
+- **Actionable stub** — Cache hit responses now include guidance: `"File already in context from previous read. Use fresh=true to re-read if content needed again."` Previously, the terse `F1=main.rs cached 2t 4L` stub left AI agents confused about what to do next.
+
+#### Housekeeping
+- Redirect scripts reduced to minimal `exit 0` (removed ~30 lines of dead `is_binary`/`FILE_PATH` parsing code that was never reached).
+- 4 new unit tests for escaped-quote JSON parsing and double-escaping.
+- 1 new integration test for auto-context project_root guard.
+- All 611 tests passing, zero clippy warnings.
+
 ## [2.21.2] — 2026-04-08
 
 ### Critical Hook Fixes — Production Quality (Discussion #62)
