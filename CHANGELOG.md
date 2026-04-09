@@ -3,6 +3,92 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.21.8] — 2026-04-09
+
+### Self-Updater Shell Alias Refresh + Thinking Budget Tuning
+
+#### Fixed — `lean-ctx update` now refreshes shell aliases automatically
+- **Shell alias auto-refresh** — `post_update_refresh()` now detects all shell configs (`~/.zshrc`, `~/.bashrc`, `config.fish`, PowerShell profile) with lean-ctx hooks and rewrites them with the latest `_lc()` function. Previously, `lean-ctx update` only refreshed AI tool hooks (Claude, Cursor, Gemini, Codex) but left shell aliases untouched, meaning users had to manually run `lean-ctx setup` to get new hook logic like the pipe guard.
+- **Multi-shell support** — If a user has hooks in both `.zshrc` and `.bashrc`, both are now updated (previously only the first match was handled).
+- **Post-update message** — Now explicitly tells users to `source ~/.zshrc` or restart their terminal.
+
+#### Changed — Thinking Budget Tuning
+- `FixBug` intent: Minimal → **Medium** (bug fixes benefit from deeper reasoning)
+- `Explore` intent: Medium → **Minimal** (exploration is lightweight)
+- `Debug` intent: Medium → **Trace** (debugging needs full chain-of-thought)
+- `Review` intent: Medium → **Trace** (code review needs thorough analysis)
+
+#### Improved — README & Deploy Checklist
+- **README** — Added "Updating lean-ctx" section with all update methods, added pipe guard troubleshooting entry.
+- **Deploy checklist** — Added "Shell Hook Refresh", "README / GitHub Updates" sections, and two new common pitfalls.
+
+## [2.21.7] — 2026-04-09
+
+### Cleanup + Website Redesign
+
+#### Changed — Remove Hook E2E Test Suite
+- **Removed `hook_e2e_tests.rs`** — The hook E2E test file and its corresponding CI workflow (`hook-integration`) have been removed. The pipe guard behavior is already covered by the integration tests in `integration_tests.rs` and the unit tests in `cli.rs`. This eliminates a redundant CI job that depended on `generate_rewrite_script`, simplifying the test matrix.
+
+#### Changed — Website: LeanCTL Section Redesigned
+- **Consistent page design** — The LeanCTL ecosystem section on the homepage now uses the same visual patterns (compare-cards, layer-cards, stats-grid) as the rest of the page, replacing the custom TUI terminal mockup with ~150 lines of dedicated CSS.
+- **Real product facts** — Compare cards show concrete token savings from leanctl.com (4,200 → 48 tokens for file reads, 847 → 42 for test output, 4,200 → ~13 for re-reads).
+- **Three feature cards** — "23 Built-in Tools", "Thinking Steering", "Bring Your Own Key" in the standard layer-card layout.
+- **Stats grid** — "up to 90% savings", "23 tools", "8 compression modes", "0 data sent to us".
+
+#### Changed — Navigation: Dedicated Ecosystem Dropdown
+- **New top-level nav item** — "Ecosystem" mega dropdown with two columns: "AI Agents" (LeanCTL) and "Community" (GitHub, Discord, Blog).
+- **Product dropdown cleaned** — Removed the ecosystem column from the Product mega dropdown (now 3 columns instead of 4).
+- **Mobile menu updated** — Ecosystem section with LeanCTL, GitHub, Discord links.
+
+#### i18n
+- All 11 locale files updated with new ecosystem keys (en/de with translations, others with English fallbacks).
+
+## [2.21.6] — 2026-04-08
+
+### Shell Hook Pipe Guard — Fix `curl | sh` Broken by lean-ctx
+
+#### Fixed — Piped commands corrupted by lean-ctx compression
+- **Pipe guard for Bash/Zsh** — `_lc()` now checks `[ ! -t 1 ]` (stdout is not a terminal) before routing through lean-ctx. When piped (e.g. `curl -fsSL https://example.com/install.sh | sh`), commands run directly without compression. Previously, lean-ctx would buffer and compress the output, corrupting install scripts and other piped data.
+- **Pipe guard for Fish** — `_lc` now checks `not isatty stdout` before routing through lean-ctx.
+- **Pipe guard for PowerShell** — `_lc` now checks `[Console]::IsOutputRedirected` before routing through lean-ctx.
+
+#### Important
+After updating, run `lean-ctx init` to regenerate the shell hooks with the pipe guard. Or open a new terminal tab.
+
+#### Testing
+- 5 new E2E tests for pipe-guard behavior and piped output preservation.
+- 3 new unit tests verifying pipe-guard presence in all shell hook variants (Bash, Fish, PowerShell).
+- All 677 tests passing, zero clippy warnings.
+
+## [2.21.5] — 2026-04-08
+
+### Windows Updater Infinite Loop Fix (#69)
+
+#### Fixed — Updater enters infinite loop with 100% CPU on Windows
+- **Replaced `timeout /t` with `ping` delay** — The deferred update `.bat` script used `timeout /t 1 /nobreak` for delays. On Windows systems with GNU coreutils in PATH (Git Bash, Cygwin, MSYS2), the GNU `timeout` binary takes precedence over the Windows built-in, fails instantly with "invalid time interval '/t'", and causes a tight retry loop at 100% CPU. Now uses `ping 127.0.0.1 -n 2 >nul` which works on every Windows system regardless of PATH.
+- **Added retry limit (60 attempts)** — The script now exits with an error message after 60 failed attempts (~60 seconds) instead of looping indefinitely. Cleans up the pending binary on timeout.
+- **Extracted `generate_update_script()` as public function** for testability.
+
+#### Testing
+- 10 new unit tests covering: no `timeout` command usage, `ping` delay, retry limit, counter increment, timeout exit, pending file cleanup, path substitution (incl. spaces), batch syntax validity, rollback on failure.
+- All 669 tests passing, zero clippy warnings.
+
+## [2.21.4] — 2026-04-08
+
+### Windows Shell Fix + Antigravity Support
+
+#### Fixed — Windows: `ctx_shell` fails with "& was unexpected at this time"
+- **PowerShell always preferred** — On Windows, `find_real_shell()` now always attempts to locate PowerShell (`pwsh.exe` or `powershell.exe`) before falling back to `cmd.exe`. Previously, PowerShell was only used if `PSModulePath` was set — but when IDEs (VS Code, Codex, Antigravity) spawn the MCP server, this env var is often absent. Since AI agents send bash-like syntax (`&&`, pipes, subshells), `cmd.exe` cannot parse these commands. This was the root cause of "& was unexpected at this time" errors reported by Windows users.
+- **`LEAN_CTX_SHELL` override** — Users can set `LEAN_CTX_SHELL=powershell.exe` (or any shell path) to force a specific shell, bypassing all detection logic.
+
+#### Added — `antigravity` agent support
+- **`lean-ctx init --agent antigravity`** — Now recognized as alias for `gemini`, creating the same hook scripts and settings under `~/.gemini/`. Previously, Antigravity users had to know to use `--agent gemini` or run `lean-ctx setup`.
+
+#### Testing
+- 19 new E2E tests covering shell detection, `LEAN_CTX_SHELL` override, shell command execution (pipes, `&&`, subshells, env vars), agent init (antigravity alias, unknown agent handling), Windows path handling in generated scripts, and bash script execution with Windows binary paths.
+- 10 new unit tests for Windows shell flag detection and shell detection logic.
+- All 659 tests passing, zero clippy warnings.
+
 ## [2.21.3] — 2026-04-08
 
 ### Robust Hook Escaping + Auto-Context Fix
