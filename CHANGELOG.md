@@ -3,6 +3,28 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.21.9] — 2026-04-09
+
+### First-Class MCP Support for Pi Coding Agent
+
+#### Added — pi-lean-ctx v2.0.0 with Embedded MCP Bridge
+- **Embedded MCP client** — pi-lean-ctx now spawns the lean-ctx binary as an MCP server (JSON-RPC over stdio) and registers all 20+ advanced tools (ctx_session, ctx_knowledge, ctx_semantic_search, ctx_overview, ctx_compress, ctx_metrics, ctx_agent, ctx_graph, ctx_discover, ctx_context, ctx_preload, ctx_delta, ctx_edit, ctx_dedup, ctx_fill, ctx_intent, ctx_response, ctx_wrapped, ctx_benchmark, ctx_analyze, ctx_cache, ctx_execute) as native Pi tools.
+- **Automatic pi-mcp-adapter compatibility** — If lean-ctx is already configured in `~/.pi/agent/mcp.json` (via pi-mcp-adapter), the embedded bridge is skipped to avoid duplicate tool registration.
+- **Dynamic tool discovery** — Tool schemas come directly from the MCP server at runtime, not hardcoded. The `disabled_tools` config is respected.
+- **Auto-reconnect** — If the MCP server process crashes, the bridge reconnects automatically (3 attempts with exponential backoff). CLI-based tools (bash, read, grep, find, ls) continue working regardless.
+- **`/lean-ctx` command enhanced** — Now shows binary path, MCP bridge status (embedded vs. adapter), and list of registered MCP tools.
+
+#### Added — Pi auto-detection in `lean-ctx setup`
+- **Pi Coding Agent** is now auto-detected alongside Cursor, Claude Code, VS Code, Zed, and all other supported editors. Running `lean-ctx setup` writes `~/.pi/agent/mcp.json` automatically.
+- **`lean-ctx init --agent pi`** now also writes the MCP server config to `~/.pi/agent/mcp.json` with `lifecycle: lazy` and `directTools: true`.
+
+#### Improved — Pi diagnostics
+- **`lean-ctx doctor`** now shows three Pi states: "pi-lean-ctx + MCP configured", "pi-lean-ctx installed (embedded bridge active)", or "not installed".
+
+#### Documentation
+- **README** for pi-lean-ctx completely rewritten with MCP tools table, pi-mcp-adapter compatibility guide, and `disabled_tools` configuration.
+- **PI_AGENTS.md** template updated with MCP tools section.
+
 ## [2.21.8] — 2026-04-09
 
 ### Self-Updater Shell Alias Refresh + Thinking Budget Tuning

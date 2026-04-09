@@ -466,11 +466,24 @@ fn pi_outcome() -> Option<Outcome> {
                 .map(|o| String::from_utf8_lossy(&o.stdout).contains("pi-lean-ctx"))
                 .unwrap_or(false);
 
-            if has_plugin {
+            let has_mcp = dirs::home_dir()
+                .map(|h| h.join(".pi/agent/mcp.json"))
+                .and_then(|p| std::fs::read_to_string(p).ok())
+                .map(|c| c.contains("lean-ctx"))
+                .unwrap_or(false);
+
+            if has_plugin && has_mcp {
                 Some(Outcome {
                     ok: true,
                     line: format!(
-                        "{BOLD}Pi Coding Agent{RST}  {GREEN}{version}, pi-lean-ctx installed{RST}"
+                        "{BOLD}Pi Coding Agent{RST}  {GREEN}{version}, pi-lean-ctx + MCP configured{RST}"
+                    ),
+                })
+            } else if has_plugin {
+                Some(Outcome {
+                    ok: true,
+                    line: format!(
+                        "{BOLD}Pi Coding Agent{RST}  {GREEN}{version}, pi-lean-ctx installed{RST}  {DIM}(MCP not configured — embedded bridge active){RST}"
                     ),
                 })
             } else {
