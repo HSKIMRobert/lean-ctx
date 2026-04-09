@@ -403,10 +403,23 @@ fn mcp_config_outcome() -> Outcome {
     let mut found: Vec<String> = Vec::new();
     let mut exists_no_ref: Vec<String> = Vec::new();
 
+    let mut broken: Vec<String> = Vec::new();
+
     for loc in &locations {
         match std::fs::read_to_string(&loc.path) {
             Ok(content) if content.contains("lean-ctx") => {
-                found.push(format!("{} {DIM}({}){RST}", loc.name, loc.display));
+                let validation = validate_mcp_entry(&content, loc.name);
+                match validation {
+                    McpValidation::Valid => {
+                        found.push(format!("{} {DIM}({}){RST}", loc.name, loc.display));
+                    }
+                    McpValidation::InvalidCommand(detail) => {
+                        broken.push(format!("{}: {detail}", loc.name));
+                    }
+                    McpValidation::MalformedJson => {
+                        broken.push(format!("{}: malformed JSON", loc.name));
+                    }
+                }
             }
             Ok(_) => {
                 exists_no_ref.push(loc.name.to_string());
@@ -415,11 +428,24 @@ fn mcp_config_outcome() -> Outcome {
         }
     }
 
-    if !found.is_empty() {
+    if !broken.is_empty() && found.is_empty() {
+        Outcome {
+            ok: false,
+            line: format!(
+                "{BOLD}MCP config{RST}  {RED}broken config: {}{RST}  {DIM}(run: lean-ctx init --agent <editor>){RST}",
+                broken.join("; ")
+            ),
+        }
+    } else if !found.is_empty() {
+        let warn = if broken.is_empty() {
+            String::new()
+        } else {
+            format!("  {YELLOW}(broken: {}){RST}", broken.join(", "))
+        };
         Outcome {
             ok: true,
             line: format!(
-                "{BOLD}MCP config{RST}  {GREEN}lean-ctx found in: {}{RST}",
+                "{BOLD}MCP config{RST}  {GREEN}lean-ctx configured in: {}{RST}{warn}",
                 found.join(", ")
             ),
         }
@@ -432,13 +458,64 @@ fn mcp_config_outcome() -> Outcome {
             ),
         }
     } else {
+        let checked: Vec<&str> = locations.iter().map(|l| l.name).collect();
         Outcome {
             ok: false,
             line: format!(
-                "{BOLD}MCP config{RST}  {YELLOW}no MCP config found{RST}  {DIM}(checked: Cursor, Claude, Windsurf, Codex, Gemini, Antigravity, Crush, Zed){RST}"
+                "{BOLD}MCP config{RST}  {YELLOW}no MCP config found{RST}  {DIM}(checked: {}){RST}",
+                checked.join(", ")
             ),
         }
     }
+}
+
+enum McpValidation {
+    Valid,
+    InvalidCommand(String),
+    MalformedJson,
+}
+
+fn validate_mcp_entry(content: &str, ide_name: &str) -> McpValidation {
+    let parsed: serde_json::Value = match serde_json::from_str(content) {
+        Ok(v) => v,
+        Err(_) => return McpValidation::MalformedJson,
+    };
+
+    let servers = parsed.get("mcpServers")
+        .or_else(|| parsed.get("mcp_servers"))
+        .or_else(|| parsed.get("mcp").and_then(|m| m.get("servers")));
+
+    let entry = match servers {
+        Some(s) => s.get("lean-ctx").or_else(|| s.get("lean_ctx")),
+        None => {
+            if ide_name == "Codex" && content.contains("lean-ctx") {
+                return McpValidation::Valid;
+            }
+            return McpValidation::InvalidCommand("no mcpServers section found".to_string());
+        }
+    };
+
+    let entry = match entry {
+        Some(e) => e,
+        None => return McpValidation::InvalidCommand("no lean-ctx entry in mcpServers".to_string()),
+    };
+
+    let command = entry.get("command").and_then(|c| c.as_str()).unwrap_or("");
+    if command.is_empty() {
+        return McpValidation::InvalidCommand("missing 'command' field".to_string());
+    }
+
+    let binary = command.split('/').last().unwrap_or(command);
+    if !binary.contains("lean-ctx") {
+        return McpValidation::InvalidCommand(format!("command points to '{binary}', not lean-ctx"));
+    }
+
+    let path = std::path::Path::new(command);
+    if command.contains('/') && !path.exists() {
+        return McpValidation::InvalidCommand(format!("binary not found at '{command}'"));
+    }
+
+    McpValidation::Valid
 }
 
 fn port_3333_outcome() -> Outcome {
@@ -590,12 +667,11 @@ pub fn run() {
             ),
         },
         None => {
-            passed += 1;
             Outcome {
-                ok: true,
+                ok: false,
                 line: match &stats_path {
                     Some(p) => format!(
-                        "{BOLD}stats.json{RST}  {YELLOW}not yet created{RST}  {DIM}(will appear after first use) {}{RST}",
+                        "{BOLD}stats.json{RST}  {YELLOW}not yet created — MCP server has not been used yet{RST}  {DIM}(try: open your IDE and use a lean-ctx tool) {}{RST}",
                         p.display()
                     ),
                     None => format!("{BOLD}stats.json{RST}  {RED}could not resolve path{RST}"),
