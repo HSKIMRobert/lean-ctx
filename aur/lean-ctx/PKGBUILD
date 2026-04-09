@@ -9,7 +9,7 @@ license=('MIT')
 makedepends=('cargo' 'gcc')
 depends=('gcc-libs')
 source=("$pkgname-$pkgver.tar.gz::https://github.com/yvgude/lean-ctx/releases/download/v$pkgver/lean-ctx-$pkgver-source.tar.gz")
-sha256sums=('f062395a9d3a0de55d92c36ca2341a9f050926835c6603af0c8615c813b426e2')
+sha256sums=('b2f7e6895c6521428df4bc73b549b79081f5c7369966073d32c8e1c512119d13')
 
 prepare() {
   cd "$pkgname-$pkgver/rust"
