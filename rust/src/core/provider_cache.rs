@@ -69,7 +69,10 @@ impl ProviderCacheState {
 
     /// Filter sections to only include those that changed.
     /// Stable sections that haven't changed can be skipped (provider caches them).
-    pub fn filter_changed<'a>(&mut self, sections: &'a [CacheableSection]) -> Vec<&'a CacheableSection> {
+    pub fn filter_changed<'a>(
+        &mut self,
+        sections: &'a [CacheableSection],
+    ) -> Vec<&'a CacheableSection> {
         let mut result = Vec::new();
         for section in sections {
             if self.needs_update(section) {
@@ -173,14 +176,16 @@ mod tests {
     #[test]
     fn needs_update_new_section() {
         let state = ProviderCacheState::new();
-        let section = CacheableSection::new("test", "content".into(), SectionPriority::System, true);
+        let section =
+            CacheableSection::new("test", "content".into(), SectionPriority::System, true);
         assert!(state.needs_update(&section));
     }
 
     #[test]
     fn needs_update_unchanged() {
         let mut state = ProviderCacheState::new();
-        let section = CacheableSection::new("test", "content".into(), SectionPriority::System, true);
+        let section =
+            CacheableSection::new("test", "content".into(), SectionPriority::System, true);
         state.mark_sent(&section);
         assert!(!state.needs_update(&section));
     }
@@ -213,9 +218,19 @@ mod tests {
     #[test]
     fn order_stable_first() {
         let sections = vec![
-            CacheableSection::new("task", "current".into(), SectionPriority::CurrentTask, false),
+            CacheableSection::new(
+                "task",
+                "current".into(),
+                SectionPriority::CurrentTask,
+                false,
+            ),
             CacheableSection::new("system", "system".into(), SectionPriority::System, true),
-            CacheableSection::new("types", "types".into(), SectionPriority::TypeDefinitions, true),
+            CacheableSection::new(
+                "types",
+                "types".into(),
+                SectionPriority::TypeDefinitions,
+                true,
+            ),
         ];
         let ordered = order_for_caching(sections);
         assert!(ordered[0].stable);
@@ -229,7 +244,12 @@ mod tests {
     fn render_marks_dynamic_boundary() {
         let sections = vec![
             CacheableSection::new("sys", "system prompt".into(), SectionPriority::System, true),
-            CacheableSection::new("task", "current task".into(), SectionPriority::CurrentTask, false),
+            CacheableSection::new(
+                "task",
+                "current task".into(),
+                SectionPriority::CurrentTask,
+                false,
+            ),
         ];
         let output = render_with_cache_hints(&sections);
         assert!(output.contains("--- dynamic context ---"));

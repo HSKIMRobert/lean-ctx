@@ -70,10 +70,7 @@ impl ScanResult {
     }
 
     pub fn changed_files(&self) -> Vec<&PathBuf> {
-        self.added
-            .iter()
-            .chain(self.modified.iter())
-            .collect()
+        self.added.iter().chain(self.modified.iter()).collect()
     }
 }
 

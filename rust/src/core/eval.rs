@@ -46,7 +46,10 @@ pub struct RetrievedItem {
 }
 
 /// Evaluate search results against a set of queries with known relevance.
-pub fn evaluate(queries: &[EvalQuery], retrieve_fn: &dyn Fn(&str) -> Vec<RetrievedItem>) -> EvalReport {
+pub fn evaluate(
+    queries: &[EvalQuery],
+    retrieve_fn: &dyn Fn(&str) -> Vec<RetrievedItem>,
+) -> EvalReport {
     let mut per_query = Vec::with_capacity(queries.len());
     let mut sum_p5 = 0.0;
     let mut sum_p10 = 0.0;
@@ -130,7 +133,11 @@ fn ndcg_at_k(results: &[RetrievedItem], relevant: &HashSet<&str>, k: usize) -> f
         .take(k)
         .enumerate()
         .map(|(i, r)| {
-            let gain = if relevant.contains(r.file_path.as_str()) { 1.0 } else { 0.0 };
+            let gain = if relevant.contains(r.file_path.as_str()) {
+                1.0
+            } else {
+                0.0
+            };
             gain / (2.0f64 + i as f64).log2()
         })
         .sum::<f64>();
@@ -240,7 +247,10 @@ mod tests {
         let relevant: HashSet<&str> = ["a.rs", "b.rs"].into_iter().collect();
         let results = items(&["a.rs", "b.rs", "c.rs"]);
         let score = ndcg_at_k(&results, &relevant, 3);
-        assert!((score - 1.0).abs() < 1e-6, "perfect ranking should give nDCG=1.0, got {score}");
+        assert!(
+            (score - 1.0).abs() < 1e-6,
+            "perfect ranking should give nDCG=1.0, got {score}"
+        );
     }
 
     #[test]
@@ -276,7 +286,11 @@ mod tests {
 
         assert_eq!(report.query_count, 2);
         assert!(report.mrr > 0.5, "MRR should be high: {}", report.mrr);
-        assert!(report.ndcg_at_10 > 0.5, "nDCG should be high: {}", report.ndcg_at_10);
+        assert!(
+            report.ndcg_at_10 > 0.5,
+            "nDCG should be high: {}",
+            report.ndcg_at_10
+        );
     }
 
     #[test]

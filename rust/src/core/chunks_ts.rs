@@ -135,7 +135,10 @@ pub fn extract_chunks_ts(file_path: &str, content: &str, file_ext: &str) -> Opti
             let end_line = node.end_position().row;
 
             let range = (start_line, end_line);
-            if seen_ranges.iter().any(|&(s, e)| s <= start_line && end_line <= e && range != (s, e)) {
+            if seen_ranges
+                .iter()
+                .any(|&(s, e)| s <= start_line && end_line <= e && range != (s, e))
+            {
                 continue;
             }
             seen_ranges.push(range);
@@ -222,18 +225,30 @@ fn find_capture_index(query: &Query, name: &str) -> Option<u32> {
 
 fn node_kind_to_chunk_kind(kind: &str) -> ChunkKind {
     match kind {
-        "function_item" | "function_declaration" | "function_definition"
-        | "method_declaration" | "method_definition" | "constructor_declaration" => ChunkKind::Function,
+        "function_item"
+        | "function_declaration"
+        | "function_definition"
+        | "method_declaration"
+        | "method_definition"
+        | "constructor_declaration" => ChunkKind::Function,
 
-        "struct_item" | "struct_specifier" | "struct_declaration"
-        | "enum_item" | "enum_specifier" | "enum_declaration"
-        | "trait_item" | "interface_declaration"
-        | "type_alias_declaration" | "type_spec" => ChunkKind::Struct,
+        "struct_item"
+        | "struct_specifier"
+        | "struct_declaration"
+        | "enum_item"
+        | "enum_specifier"
+        | "enum_declaration"
+        | "trait_item"
+        | "interface_declaration"
+        | "type_alias_declaration"
+        | "type_spec" => ChunkKind::Struct,
 
         "impl_item" => ChunkKind::Impl,
 
-        "class_declaration" | "abstract_class_declaration"
-        | "class_specifier" | "class_definition" => ChunkKind::Class,
+        "class_declaration"
+        | "abstract_class_declaration"
+        | "class_specifier"
+        | "class_definition" => ChunkKind::Class,
 
         "variable_declarator" => ChunkKind::Function,
 
@@ -271,7 +286,11 @@ fn helper() -> bool {
 }
 "#;
         let chunks = extract_chunks_ts("main.rs", src, "rs").unwrap();
-        assert!(chunks.len() >= 4, "expected >=4 chunks, got {}", chunks.len());
+        assert!(
+            chunks.len() >= 4,
+            "expected >=4 chunks, got {}",
+            chunks.len()
+        );
 
         let names: Vec<&str> = chunks.iter().map(|c| c.symbol_name.as_str()).collect();
         assert!(names.contains(&"process"), "got {:?}", names);
@@ -301,7 +320,11 @@ const handler = async (req: Request): Promise<Response> => {
 };
 "#;
         let chunks = extract_chunks_ts("app.ts", src, "ts").unwrap();
-        assert!(chunks.len() >= 3, "expected >=3 chunks, got {}", chunks.len());
+        assert!(
+            chunks.len() >= 3,
+            "expected >=3 chunks, got {}",
+            chunks.len()
+        );
 
         let names: Vec<&str> = chunks.iter().map(|c| c.symbol_name.as_str()).collect();
         assert!(names.contains(&"greet"), "got {:?}", names);
@@ -323,13 +346,20 @@ def create_app():
     return Flask(__name__)
 "#;
         let chunks = extract_chunks_ts("app.py", src, "py").unwrap();
-        assert!(chunks.len() >= 2, "expected >=2 chunks, got {}", chunks.len());
+        assert!(
+            chunks.len() >= 2,
+            "expected >=2 chunks, got {}",
+            chunks.len()
+        );
 
         let names: Vec<&str> = chunks.iter().map(|c| c.symbol_name.as_str()).collect();
         assert!(names.contains(&"AuthService"), "got {:?}", names);
         assert!(names.contains(&"create_app"), "got {:?}", names);
 
-        let auth = chunks.iter().find(|c| c.symbol_name == "AuthService").unwrap();
+        let auth = chunks
+            .iter()
+            .find(|c| c.symbol_name == "AuthService")
+            .unwrap();
         assert!(auth.content.contains("authenticate"));
     }
 

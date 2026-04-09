@@ -81,9 +81,8 @@ impl EmbeddingEngine {
             .first()
             .ok_or_else(|| anyhow::anyhow!("Model has no outputs"))?;
 
-        let dimensions =
-            Self::detect_dimensions(&model, &tokenizer, &input_names, output_id)
-                .unwrap_or(DEFAULT_DIMENSIONS);
+        let dimensions = Self::detect_dimensions(&model, &tokenizer, &input_names, output_id)
+            .unwrap_or(DEFAULT_DIMENSIONS);
 
         tracing::info!(
             "Embedding engine loaded: {}d, max_seq_len={}",
