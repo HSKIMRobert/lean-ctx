@@ -34,6 +34,14 @@ impl ServerHandler for LeanCtxServer {
             crate::core::version_check::check_background();
         });
 
+        Self::start_background_intelligence();
+
+        {
+            let mut session = self.session.write().await;
+            session.mark_initialized();
+            let _ = session.save();
+        }
+
         let instructions =
             crate::instructions::build_instructions_with_client(self.crp_mode, &name);
         let capabilities = ServerCapabilities::builder().enable_tools().build();
@@ -1088,16 +1096,16 @@ impl ServerHandler for LeanCtxServer {
         }
 
         let tool_duration_ms = tool_start.elapsed().as_millis() as u64;
-        if tool_duration_ms > 100 {
-            LeanCtxServer::append_tool_call_log(
-                name,
-                tool_duration_ms,
-                0,
-                0,
-                None,
-                &chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
-            );
-        }
+        crate::core::telemetry::global_metrics()
+            .record_tool_call(tool_start.elapsed().as_micros() as u64, true);
+        LeanCtxServer::append_tool_call_log(
+            name,
+            tool_duration_ms,
+            0,
+            0,
+            None,
+            &chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+        );
 
         let current_count = self.call_count.load(std::sync::atomic::Ordering::Relaxed);
         if current_count > 0 && current_count.is_multiple_of(100) {
@@ -1105,6 +1113,102 @@ impl ServerHandler for LeanCtxServer {
         }
 
         Ok(CallToolResult::success(vec![Content::text(result_text)]))
+    }
+}
+
+impl LeanCtxServer {
+    fn start_background_intelligence() {
+        tokio::task::spawn_blocking(|| {
+            Self::ensure_embedding_model();
+            Self::run_watcher_loop();
+        });
+    }
+
+    fn ensure_embedding_model() {
+        #[cfg(feature = "embeddings")]
+        {
+            use crate::core::embeddings::EmbeddingEngine;
+            if EmbeddingEngine::is_available() {
+                tracing::debug!("Embedding model already available");
+                return;
+            }
+            tracing::info!("Downloading embedding model in background...");
+            match EmbeddingEngine::load_default() {
+                Ok(_) => tracing::info!("Embedding model ready"),
+                Err(e) => tracing::warn!("Embedding model download failed (non-fatal): {e}"),
+            }
+        }
+    }
+
+    fn run_watcher_loop() {
+        use crate::core::watcher::FileTracker;
+
+        let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        if !root.join(".git").exists() && !root.join("src").exists() && !root.join("Cargo.toml").exists() {
+            tracing::debug!("No project root detected, skipping file watcher");
+            return;
+        }
+
+        tracing::info!("Starting file watcher for {:?}", root);
+        let mut tracker = FileTracker::new(&root);
+        let _ = tracker.scan();
+
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(10));
+
+            let result = tracker.scan();
+            if !result.has_changes() {
+                continue;
+            }
+
+            let changed = result.total_changes();
+            tracing::info!(
+                "Watcher: {changed} changes detected ({}+/{}~/{}−), rebuilding index",
+                result.added.len(),
+                result.modified.len(),
+                result.removed.len()
+            );
+
+            use crate::core::vector_index::BM25Index;
+            let idx = BM25Index::build_from_directory(&root);
+            let _ = idx.save(&root);
+
+            #[cfg(feature = "embeddings")]
+            {
+                use crate::core::embeddings::EmbeddingEngine;
+                use crate::core::embedding_index::EmbeddingIndex;
+
+                if let Ok(engine) = EmbeddingEngine::load_default() {
+                    let mut embed_idx = EmbeddingIndex::load_or_new(&root, engine.dimensions());
+                    let changed_files: Vec<String> =
+                        result.changed_files().iter()
+                            .filter_map(|p| p.strip_prefix(&root).ok())
+                            .map(|p| p.to_string_lossy().to_string())
+                            .collect();
+
+                    let changed_set: std::collections::HashSet<&str> =
+                        changed_files.iter().map(|s| s.as_str()).collect();
+
+                    let mut updates = Vec::new();
+                    for (i, chunk) in idx.chunks.iter().enumerate() {
+                        if changed_set.contains(chunk.file_path.as_str()) {
+                            if let Ok(emb) = engine.embed(&chunk.content) {
+                                updates.push((i, emb));
+                            }
+                        }
+                    }
+
+                    if !updates.is_empty() {
+                        embed_idx.update(&idx.chunks, &updates, &changed_files);
+                        let _ = embed_idx.save(&root);
+                        let us = updates.len();
+                        crate::core::telemetry::global_metrics()
+                            .record_embedding(0, us as u64);
+                        tracing::info!("Watcher: updated {us} embeddings");
+                    }
+                }
+            }
+        }
     }
 }
 

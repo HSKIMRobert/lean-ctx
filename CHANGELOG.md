@@ -3,6 +3,26 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.21.11] — 2026-04-09
+
+### Fix: Dashboard, Doctor, and MCP Reliability (#72)
+
+#### Fixed — Doctor gave false positives for broken MCP configs
+- **MCP JSON validation** — `doctor` now validates the actual JSON structure of each MCP config file instead of just checking for the string "lean-ctx". Checks for `mcpServers` → `lean-ctx` → `command` fields, verifies the binary path exists, and reports **per-IDE** status (valid vs. broken configs).
+- **Honest stats check** — A missing `stats.json` is now reported as a warning ("MCP server has not been used yet") instead of counting as a passed check.
+
+#### Fixed — Dashboard showed empty state without guidance
+- The empty state now includes an actionable **troubleshooting checklist** with IDE-specific steps (Cursor reload, Claude Code init, config validation).
+
+#### Fixed — No session created until first tool call batch
+- A session is now created immediately on MCP `initialize`, so `doctor --report` always shows session info even before any tools are used.
+
+#### Fixed — Tool calls only logged when >100ms
+- All tool calls are now logged regardless of duration. Previously, fast calls were silently dropped, making the tool call log appear empty.
+
+#### Fixed — macOS binary hangs at `_dyld_start` after install
+- On macOS, copying the binary (via `cp`, `install`, or download) could strip the ad-hoc code signature, causing the dynamic linker to hang indefinitely on startup. Both `install.sh` and the self-updater now run `xattr -cr` + `codesign --force --sign -` after placing the binary.
+
 ## [2.21.10] — 2026-04-09
 
 ### Fix: Auth/Device Code Flow Output Preserved

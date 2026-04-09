@@ -244,6 +244,34 @@ pub fn handle(cache: &SessionCache, tool_calls: &[ToolCallRecord], crp_mode: Crp
     let complexity = crate::core::adaptive::classify_from_context(cache);
     out.push(format!("  Task complexity:   {:?}", complexity));
 
+    let telem = crate::core::telemetry::global_metrics().snapshot();
+    out.push(String::new());
+    if crp_mode.is_tdd() {
+        out.push("§telemetry".to_string());
+    } else {
+        out.push("Telemetry:".to_string());
+    }
+    out.push(format!(
+        "  Search queries:    {} (avg {:.1}ms)",
+        telem.search_queries_total, telem.search_avg_latency_ms
+    ));
+    out.push(format!(
+        "  Embedding infer:   {} (avg {:.1}ms)",
+        telem.embedding_inferences, telem.embedding_avg_latency_ms
+    ));
+    out.push(format!(
+        "  Cache hit rate:    {:.1}%",
+        telem.cache_hit_rate * 100.0
+    ));
+    out.push(format!(
+        "  Compression ratio: {:.1}%",
+        telem.compression_ratio * 100.0
+    ));
+    out.push(format!(
+        "  Session uptime:    {}s",
+        telem.session_uptime_secs
+    ));
+
     out.join("\n")
 }
 

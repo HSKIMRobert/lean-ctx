@@ -272,8 +272,12 @@ fn replace_binary(
 
         #[cfg(target_os = "macos")]
         {
+            let exe_str = current_exe.display().to_string();
+            let _ = std::process::Command::new("xattr")
+                .args(["-cr", &exe_str])
+                .output();
             let _ = std::process::Command::new("codesign")
-                .args(["--force", "-s", "-", &current_exe.display().to_string()])
+                .args(["--force", "-s", "-", &exe_str])
                 .output();
         }
 

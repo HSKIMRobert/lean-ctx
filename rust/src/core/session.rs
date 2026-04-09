@@ -128,6 +128,16 @@ impl SessionState {
         self.stats.unsaved_changes >= BATCH_SAVE_INTERVAL
     }
 
+    pub fn mark_initialized(&mut self) {
+        if self.version == 0 {
+            self.version = 1;
+            self.updated_at = chrono::Utc::now();
+            self.project_root = std::env::current_dir()
+                .ok()
+                .map(|p| p.to_string_lossy().to_string());
+        }
+    }
+
     pub fn set_task(&mut self, description: &str, intent: Option<&str>) {
         self.task = Some(TaskInfo {
             description: description.to_string(),
