@@ -49,8 +49,8 @@ pub struct Metrics {
     pub session_start: Instant,
 }
 
-impl Metrics {
-    pub fn new() -> Self {
+impl Default for Metrics {
+    fn default() -> Self {
         Self {
             tokens_input: AtomicU64::new(0),
             tokens_output: AtomicU64::new(0),
@@ -71,6 +71,12 @@ impl Metrics {
             compression_output_bytes: AtomicU64::new(0),
             session_start: Instant::now(),
         }
+    }
+}
+
+impl Metrics {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn record_tool_call(&self, latency_us: u64, success: bool) {

@@ -143,11 +143,8 @@ pub fn extract_chunks_ts(file_path: &str, content: &str, file_ext: &str) -> Opti
             }
             seen_ranges.push(range);
 
-            let block: String = lines[start_line..=end_line.min(lines.len() - 1)]
-                .iter()
-                .copied()
-                .collect::<Vec<_>>()
-                .join("\n");
+            let block: String =
+                lines[start_line..=end_line.min(lines.len() - 1)].to_vec().join("\n");
 
             let kind = node_kind_to_chunk_kind(node.kind());
             let tokens = super::vector_index::tokenize_for_index(&block);

@@ -19,9 +19,9 @@ pub fn mean_pool(
     for pos in 0..seq_len {
         if attention_mask.get(pos).copied().unwrap_or(0) > 0 {
             let offset = pos * dim;
-            for d in 0..dim {
+            for (d, sum_val) in sum.iter_mut().enumerate().take(dim) {
                 if let Some(&val) = hidden_states.get(offset + d) {
-                    sum[d] += val;
+                    *sum_val += val;
                 }
             }
             count += 1.0;

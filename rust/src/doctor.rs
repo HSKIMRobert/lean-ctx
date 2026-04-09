@@ -508,7 +508,7 @@ fn validate_mcp_entry(content: &str, ide_name: &str) -> McpValidation {
         return McpValidation::InvalidCommand("missing 'command' field".to_string());
     }
 
-    let binary = command.split('/').last().unwrap_or(command);
+    let binary = command.rsplit('/').next().unwrap_or(command);
     if !binary.contains("lean-ctx") {
         return McpValidation::InvalidCommand(format!(
             "command points to '{binary}', not lean-ctx"
