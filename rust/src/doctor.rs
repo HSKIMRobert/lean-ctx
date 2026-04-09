@@ -172,6 +172,13 @@ fn rc_contains_lean_ctx(path: &PathBuf) -> bool {
     }
 }
 
+fn rc_has_pipe_guard(path: &PathBuf) -> bool {
+    match std::fs::read_to_string(path) {
+        Ok(s) => s.contains("! -t 1") || s.contains("isatty stdout") || s.contains("IsOutputRedirected"),
+        Err(_) => false,
+    }
+}
+
 fn shell_aliases_outcome() -> Outcome {
     let home = match dirs::home_dir() {
         Some(h) => h,
@@ -186,19 +193,29 @@ fn shell_aliases_outcome() -> Outcome {
     };
 
     let mut parts = Vec::new();
+    let mut needs_update = Vec::new();
 
     let zsh = home.join(".zshrc");
     if rc_contains_lean_ctx(&zsh) {
         parts.push(format!("{DIM}~/.zshrc{RST}"));
+        if !rc_has_pipe_guard(&zsh) {
+            needs_update.push("~/.zshrc");
+        }
     }
     let bash = home.join(".bashrc");
     if rc_contains_lean_ctx(&bash) {
         parts.push(format!("{DIM}~/.bashrc{RST}"));
+        if !rc_has_pipe_guard(&bash) {
+            needs_update.push("~/.bashrc");
+        }
     }
 
     let fish = home.join(".config").join("fish").join("config.fish");
     if rc_contains_lean_ctx(&fish) {
         parts.push(format!("{DIM}~/.config/fish/config.fish{RST}"));
+        if !rc_has_pipe_guard(&fish) {
+            needs_update.push("~/.config/fish/config.fish");
+        }
     }
 
     #[cfg(windows)]
@@ -213,8 +230,14 @@ fn shell_aliases_outcome() -> Outcome {
             .join("Microsoft.PowerShell_profile.ps1");
         if rc_contains_lean_ctx(&ps_profile) {
             parts.push(format!("{DIM}PowerShell profile{RST}"));
+            if !rc_has_pipe_guard(&ps_profile) {
+                needs_update.push("PowerShell profile");
+            }
         } else if rc_contains_lean_ctx(&ps_profile_legacy) {
             parts.push(format!("{DIM}WindowsPowerShell profile{RST}"));
+            if !rc_has_pipe_guard(&ps_profile_legacy) {
+                needs_update.push("WindowsPowerShell profile");
+            }
         }
     }
 
@@ -227,6 +250,14 @@ fn shell_aliases_outcome() -> Outcome {
         Outcome {
             ok: false,
             line: format!("{BOLD}Shell aliases{RST}  {RED}{hint}{RST}"),
+        }
+    } else if !needs_update.is_empty() {
+        Outcome {
+            ok: false,
+            line: format!(
+                "{BOLD}Shell aliases{RST}  {YELLOW}outdated hook in {} — run {BOLD}lean-ctx init --global{RST}{YELLOW} to fix (pipe guard missing){RST}",
+                needs_update.join(", ")
+            ),
         }
     } else {
         Outcome {

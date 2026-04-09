@@ -22,8 +22,11 @@ pub fn exec(command: &str) -> i32 {
         return exec_inherit(command, &shell, &shell_flag);
     }
 
-    if !force_compress && io::stdout().is_terminal() {
-        return exec_inherit_tracked(command, &shell, &shell_flag);
+    if !force_compress {
+        if io::stdout().is_terminal() {
+            return exec_inherit_tracked(command, &shell, &shell_flag);
+        }
+        return exec_inherit(command, &shell, &shell_flag);
     }
 
     exec_buffered(command, &shell, &shell_flag, &cfg)

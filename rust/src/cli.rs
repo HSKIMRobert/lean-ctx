@@ -1011,7 +1011,7 @@ fn init_powershell(binary: &str) {
 if (-not $env:LEAN_CTX_ACTIVE -and -not $env:LEAN_CTX_DISABLED) {{
   $LeanCtxBin = "{binary_escaped}"
   function _lc {{
-    if ($env:LEAN_CTX_DISABLED) {{ & $args[0] $args[1..($args.Length)]; return }}
+    if ($env:LEAN_CTX_DISABLED -or [Console]::IsOutputRedirected) {{ & $args[0] $args[1..($args.Length)]; return }}
     & $LeanCtxBin -c @args
     if ($LASTEXITCODE -eq 127 -or $LASTEXITCODE -eq 126) {{
       $cmd = $args[0]; $rest = $args[1..($args.Length)]
@@ -1115,7 +1115,7 @@ fn init_fish(binary: &str) {
         set -g _lean_ctx_cmds git npm pnpm yarn cargo docker docker-compose kubectl gh pip pip3 ruff go golangci-lint eslint prettier tsc ls find grep curl wget\n\
         \n\
         function _lc\n\
-        \tif set -q LEAN_CTX_DISABLED\n\
+        \tif set -q LEAN_CTX_DISABLED; or not isatty stdout\n\
         \t\tcommand $argv\n\
         \t\treturn\n\
         \tend\n\
@@ -1220,7 +1220,7 @@ fn init_posix(is_zsh: bool, binary: &str) {
 _lean_ctx_cmds=(git npm pnpm yarn cargo docker docker-compose kubectl gh pip pip3 ruff go golangci-lint eslint prettier tsc ls find grep curl wget php composer)
 
 _lc() {{
-    if [ -n "${{LEAN_CTX_DISABLED:-}}" ]; then
+    if [ -n "${{LEAN_CTX_DISABLED:-}}" ] || [ ! -t 1 ]; then
         command "$@"
         return
     fi
@@ -1647,6 +1647,46 @@ export EDITOR=vim
         let input = "# normal bashrc\nexport PATH=\"$HOME/bin:$PATH\"\n";
         let result = remove_lean_ctx_block(input);
         assert!(result.contains("export PATH"), "content unchanged");
+    }
+
+    #[test]
+    fn test_bash_hook_contains_pipe_guard() {
+        let binary = "/usr/local/bin/lean-ctx";
+        let hook = format!(
+            r#"_lc() {{
+    if [ -n "${{LEAN_CTX_DISABLED:-}}" ] || [ ! -t 1 ]; then
+        command "$@"
+        return
+    fi
+    '{binary}' -c "$@"
+}}"#
+        );
+        assert!(
+            hook.contains("! -t 1"),
+            "bash/zsh hook must contain pipe guard [ ! -t 1 ]"
+        );
+        assert!(
+            hook.contains("LEAN_CTX_DISABLED") && hook.contains("! -t 1"),
+            "pipe guard must be in the same conditional as LEAN_CTX_DISABLED"
+        );
+    }
+
+    #[test]
+    fn test_fish_hook_contains_pipe_guard() {
+        let hook = "function _lc\n\tif set -q LEAN_CTX_DISABLED; or not isatty stdout\n\t\tcommand $argv\n\t\treturn\n\tend\nend";
+        assert!(
+            hook.contains("isatty stdout"),
+            "fish hook must contain pipe guard (isatty stdout)"
+        );
+    }
+
+    #[test]
+    fn test_powershell_hook_contains_pipe_guard() {
+        let hook = "function _lc { if ($env:LEAN_CTX_DISABLED -or [Console]::IsOutputRedirected) { & $args[0] $args[1..($args.Length)]; return } }";
+        assert!(
+            hook.contains("IsOutputRedirected"),
+            "PowerShell hook must contain pipe guard ([Console]::IsOutputRedirected)"
+        );
     }
 
     #[test]
