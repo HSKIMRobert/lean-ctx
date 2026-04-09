@@ -852,6 +852,8 @@ fn install_pi_hook(global: bool) {
         }
     }
 
+    write_pi_mcp_config();
+
     if !global {
         let agents_md = PathBuf::from("AGENTS.md");
         if !agents_md.exists()
@@ -872,10 +874,71 @@ fn install_pi_hook(global: bool) {
     }
 
     println!();
-    println!(
-        "Setup complete. All Pi tools (bash, read, grep, find, ls) now route through lean-ctx."
-    );
-    println!("Use /lean-ctx in Pi to verify the binary path.");
+    println!("Setup complete. All Pi tools (bash, read, grep, find, ls) route through lean-ctx.");
+    println!("MCP tools (ctx_session, ctx_knowledge, ctx_semantic_search, ...) also available.");
+    println!("Use /lean-ctx in Pi to verify the binary path and MCP status.");
+}
+
+fn write_pi_mcp_config() {
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => return,
+    };
+
+    let mcp_config_path = home.join(".pi/agent/mcp.json");
+
+    if !home.join(".pi/agent").exists() {
+        println!("  \x1b[2m○ ~/.pi/agent/ not found — skipping MCP config\x1b[0m");
+        return;
+    }
+
+    if mcp_config_path.exists() {
+        let content = match std::fs::read_to_string(&mcp_config_path) {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+        if content.contains("lean-ctx") {
+            println!("  \x1b[32m✓\x1b[0m Pi MCP config already contains lean-ctx");
+            return;
+        }
+
+        if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(obj) = json.as_object_mut() {
+                let servers = obj
+                    .entry("mcpServers")
+                    .or_insert_with(|| serde_json::json!({}));
+                if let Some(servers_obj) = servers.as_object_mut() {
+                    servers_obj.insert("lean-ctx".to_string(), pi_mcp_server_entry());
+                }
+                if let Ok(formatted) = serde_json::to_string_pretty(&json) {
+                    let _ = std::fs::write(&mcp_config_path, formatted);
+                    println!(
+                        "  \x1b[32m✓\x1b[0m Added lean-ctx to Pi MCP config (~/.pi/agent/mcp.json)"
+                    );
+                }
+            }
+        }
+        return;
+    }
+
+    let content = serde_json::json!({
+        "mcpServers": {
+            "lean-ctx": pi_mcp_server_entry()
+        }
+    });
+    if let Ok(formatted) = serde_json::to_string_pretty(&content) {
+        let _ = std::fs::write(&mcp_config_path, formatted);
+        println!("  \x1b[32m✓\x1b[0m Created Pi MCP config (~/.pi/agent/mcp.json)");
+    }
+}
+
+fn pi_mcp_server_entry() -> serde_json::Value {
+    let binary = resolve_binary_path();
+    serde_json::json!({
+        "command": binary,
+        "lifecycle": "lazy",
+        "directTools": true
+    })
 }
 
 fn install_copilot_hook(global: bool) {
