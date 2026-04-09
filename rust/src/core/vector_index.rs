@@ -94,10 +94,7 @@ impl BM25Index {
                     .unwrap_or(path)
                     .to_string_lossy()
                     .to_string();
-                let ext = path
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .unwrap_or("");
+                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
                 let chunks = super::chunks_ts::extract_chunks_ts(&rel, &content, ext)
                     .unwrap_or_else(|| extract_chunks(&rel, &content));
                 for chunk in chunks {

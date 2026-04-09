@@ -481,7 +481,8 @@ fn validate_mcp_entry(content: &str, ide_name: &str) -> McpValidation {
         Err(_) => return McpValidation::MalformedJson,
     };
 
-    let servers = parsed.get("mcpServers")
+    let servers = parsed
+        .get("mcpServers")
         .or_else(|| parsed.get("mcp_servers"))
         .or_else(|| parsed.get("mcp").and_then(|m| m.get("servers")));
 
@@ -497,7 +498,9 @@ fn validate_mcp_entry(content: &str, ide_name: &str) -> McpValidation {
 
     let entry = match entry {
         Some(e) => e,
-        None => return McpValidation::InvalidCommand("no lean-ctx entry in mcpServers".to_string()),
+        None => {
+            return McpValidation::InvalidCommand("no lean-ctx entry in mcpServers".to_string())
+        }
     };
 
     let command = entry.get("command").and_then(|c| c.as_str()).unwrap_or("");
@@ -507,7 +510,9 @@ fn validate_mcp_entry(content: &str, ide_name: &str) -> McpValidation {
 
     let binary = command.split('/').last().unwrap_or(command);
     if !binary.contains("lean-ctx") {
-        return McpValidation::InvalidCommand(format!("command points to '{binary}', not lean-ctx"));
+        return McpValidation::InvalidCommand(format!(
+            "command points to '{binary}', not lean-ctx"
+        ));
     }
 
     let path = std::path::Path::new(command);

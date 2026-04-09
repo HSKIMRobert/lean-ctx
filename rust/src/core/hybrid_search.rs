@@ -13,7 +13,7 @@
 
 use std::collections::HashMap;
 
-use super::vector_index::{BM25Index, SearchResult, ChunkKind};
+use super::vector_index::{BM25Index, ChunkKind, SearchResult};
 
 #[cfg(feature = "embeddings")]
 use super::embeddings::{cosine_similarity, EmbeddingEngine};
@@ -121,7 +121,13 @@ pub fn hybrid_search(
     let bm25_results = index.search(query, config.bm25_candidates);
 
     let dense_results = match (engine, chunk_embeddings) {
-        (Some(eng), Some(embeddings)) => dense_search(query, eng, &index.chunks, embeddings, config.dense_candidates),
+        (Some(eng), Some(embeddings)) => dense_search(
+            query,
+            eng,
+            &index.chunks,
+            embeddings,
+            config.dense_candidates,
+        ),
         _ => Vec::new(),
     };
 
@@ -137,11 +143,7 @@ pub fn hybrid_search(
 }
 
 #[cfg(not(feature = "embeddings"))]
-pub fn hybrid_search(
-    query: &str,
-    index: &BM25Index,
-    top_k: usize,
-) -> Vec<HybridResult> {
+pub fn hybrid_search(query: &str, index: &BM25Index, top_k: usize) -> Vec<HybridResult> {
     index
         .search(query, top_k)
         .into_iter()
@@ -377,8 +379,14 @@ mod tests {
         let results = reciprocal_rank_fusion(&bm25, &dense, &config, 10);
 
         let both = results.iter().find(|r| r.symbol_name == "both").unwrap();
-        let only_bm25 = results.iter().find(|r| r.symbol_name == "only_bm25").unwrap();
-        let only_dense = results.iter().find(|r| r.symbol_name == "only_dense").unwrap();
+        let only_bm25 = results
+            .iter()
+            .find(|r| r.symbol_name == "only_bm25")
+            .unwrap();
+        let only_dense = results
+            .iter()
+            .find(|r| r.symbol_name == "only_dense")
+            .unwrap();
 
         assert!(
             both.rrf_score > only_bm25.rrf_score,

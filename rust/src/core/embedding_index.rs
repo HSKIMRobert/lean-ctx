@@ -272,15 +272,14 @@ mod tests {
         );
         assert_eq!(idx.entries.len(), 2);
 
-        idx.update(
-            &chunks,
-            &[(0, vec![0.5; 384])],
-            &["a.rs".to_string()],
-        );
+        idx.update(&chunks, &[(0, vec![0.5; 384])], &["a.rs".to_string()]);
         assert_eq!(idx.entries.len(), 2);
 
         let b_entry = idx.entries.iter().find(|e| e.file_path == "b.rs").unwrap();
-        assert!((b_entry.embedding[0] - 0.1).abs() < 1e-6, "b.rs embedding should be preserved");
+        assert!(
+            (b_entry.embedding[0] - 0.1).abs() < 1e-6,
+            "b.rs embedding should be preserved"
+        );
     }
 
     #[test]

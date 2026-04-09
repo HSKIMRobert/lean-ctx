@@ -1144,7 +1144,10 @@ impl LeanCtxServer {
         use crate::core::watcher::FileTracker;
 
         let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-        if !root.join(".git").exists() && !root.join("src").exists() && !root.join("Cargo.toml").exists() {
+        if !root.join(".git").exists()
+            && !root.join("src").exists()
+            && !root.join("Cargo.toml").exists()
+        {
             tracing::debug!("No project root detected, skipping file watcher");
             return;
         }
@@ -1175,16 +1178,17 @@ impl LeanCtxServer {
 
             #[cfg(feature = "embeddings")]
             {
-                use crate::core::embeddings::EmbeddingEngine;
                 use crate::core::embedding_index::EmbeddingIndex;
+                use crate::core::embeddings::EmbeddingEngine;
 
                 if let Ok(engine) = EmbeddingEngine::load_default() {
                     let mut embed_idx = EmbeddingIndex::load_or_new(&root, engine.dimensions());
-                    let changed_files: Vec<String> =
-                        result.changed_files().iter()
-                            .filter_map(|p| p.strip_prefix(&root).ok())
-                            .map(|p| p.to_string_lossy().to_string())
-                            .collect();
+                    let changed_files: Vec<String> = result
+                        .changed_files()
+                        .iter()
+                        .filter_map(|p| p.strip_prefix(&root).ok())
+                        .map(|p| p.to_string_lossy().to_string())
+                        .collect();
 
                     let changed_set: std::collections::HashSet<&str> =
                         changed_files.iter().map(|s| s.as_str()).collect();
@@ -1202,8 +1206,7 @@ impl LeanCtxServer {
                         embed_idx.update(&idx.chunks, &updates, &changed_files);
                         let _ = embed_idx.save(&root);
                         let us = updates.len();
-                        crate::core::telemetry::global_metrics()
-                            .record_embedding(0, us as u64);
+                        crate::core::telemetry::global_metrics().record_embedding(0, us as u64);
                         tracing::info!("Watcher: updated {us} embeddings");
                     }
                 }

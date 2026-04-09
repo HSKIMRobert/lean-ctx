@@ -6,8 +6,7 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-const HF_BASE: &str =
-    "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main";
+const HF_BASE: &str = "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main";
 const USER_AGENT: &str = concat!("lean-ctx/", env!("CARGO_PKG_VERSION"));
 
 struct ModelFile {
@@ -40,7 +39,10 @@ pub fn ensure_model(model_dir: &Path) -> anyhow::Result<PathBuf> {
         return Ok(model_dir.to_path_buf());
     }
 
-    tracing::info!("Embedding model not found, downloading to {}", model_dir.display());
+    tracing::info!(
+        "Embedding model not found, downloading to {}",
+        model_dir.display()
+    );
     std::fs::create_dir_all(model_dir)?;
 
     for file in MODEL_FILES {
@@ -82,11 +84,7 @@ fn download_file(file: &ModelFile, model_dir: &Path) -> anyhow::Result<()> {
 
     let status = response.status();
     if status != 200 {
-        anyhow::bail!(
-            "Download of {} returned HTTP {}",
-            file.local_name,
-            status
-        );
+        anyhow::bail!("Download of {} returned HTTP {}", file.local_name, status);
     }
 
     let content_length = response
@@ -112,11 +110,19 @@ fn download_file(file: &ModelFile, model_dir: &Path) -> anyhow::Result<()> {
         if total - last_report > 1_000_000 {
             if let Some(cl) = content_length {
                 let pct = (total as f64 / cl as f64 * 100.0) as u32;
-                tracing::info!("  {} — {:.1}MB / {:.1}MB ({}%)", file.local_name,
-                    total as f64 / 1_048_576.0, cl as f64 / 1_048_576.0, pct);
+                tracing::info!(
+                    "  {} — {:.1}MB / {:.1}MB ({}%)",
+                    file.local_name,
+                    total as f64 / 1_048_576.0,
+                    cl as f64 / 1_048_576.0,
+                    pct
+                );
             } else {
-                tracing::info!("  {} — {:.1}MB downloaded", file.local_name,
-                    total as f64 / 1_048_576.0);
+                tracing::info!(
+                    "  {} — {:.1}MB downloaded",
+                    file.local_name,
+                    total as f64 / 1_048_576.0
+                );
             }
             last_report = total;
         }
@@ -134,7 +140,11 @@ fn download_file(file: &ModelFile, model_dir: &Path) -> anyhow::Result<()> {
     }
 
     std::fs::rename(&tmp_path, &local_path)?;
-    tracing::info!("  {} — {:.1}MB saved", file.local_name, total as f64 / 1_048_576.0);
+    tracing::info!(
+        "  {} — {:.1}MB saved",
+        file.local_name,
+        total as f64 / 1_048_576.0
+    );
 
     Ok(())
 }
