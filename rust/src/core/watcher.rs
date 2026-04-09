@@ -125,10 +125,10 @@ impl FileTracker {
             match self.states.get(path) {
                 None => added.push(path.clone()),
                 Some(old) => {
-                    if old.modified != state.modified || old.size != state.size {
-                        if has_content_changed(path, old) {
-                            modified.push(path.clone());
-                        }
+                    if (old.modified != state.modified || old.size != state.size)
+                        && has_content_changed(path, old)
+                    {
+                        modified.push(path.clone());
                     }
                 }
             }

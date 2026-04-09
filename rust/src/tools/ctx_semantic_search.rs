@@ -115,7 +115,7 @@ fn run_hybrid_search(
     let bm25_results = index.search(query, top_k);
     let results = bm25_results
         .into_iter()
-        .map(|r| HybridResult::from_bm25_public(r))
+        .map(HybridResult::from_bm25_public)
         .collect();
     (results, "bm25")
 }
@@ -155,11 +155,11 @@ fn try_build_embeddings(index: &BM25Index, root: &Path) -> String {
         let embed_us = embed_start.elapsed().as_micros() as u64;
         global_metrics().record_embedding(embed_us, new_embeddings.len() as u64);
 
-        return format!(
+        format!(
             " | embeddings: {} updated, {} total",
             new_embeddings.len(),
             embed_idx.entries.len()
-        );
+        )
     }
 
     #[cfg(not(feature = "embeddings"))]
