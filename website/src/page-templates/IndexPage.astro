@@ -325,6 +325,78 @@ const lp = (path: string) => getLocalizedPath(path, locale);
 <div class="section-divider content-grid"></div>
 
 <!-- ═══════════════════════════════════════════════════════
+     ECOSYSTEM: LeanCTL
+     ═══════════════════════════════════════════════════════ -->
+<section class="section-y">
+  <div class="content-grid">
+    <p class="fluid-label text-muted animate-entrance" style="margin-bottom: clamp(1rem, 0.75rem + 0.5vw, 1.5rem);">
+      {t('index.ecoLabel')}
+    </p>
+    <h2 class="font-display fluid-h2 font-bold text-text-bright animate-entrance stagger-1" style="margin-bottom: clamp(1rem, 0.75rem + 0.5vw, 1.5rem);">
+      {t('index.ecoTitle')} <span class="gradient-text">{t('index.ecoTitleHighlight')}</span>
+    </h2>
+    <p class="text-muted fluid-body animate-entrance stagger-2" style="margin-bottom: clamp(2.5rem, 2rem + 2vw, 4rem); max-width: 48rem;">
+      {t('index.ecoDesc')}
+    </p>
+
+    <div class="grid md:grid-cols-3 animate-entrance stagger-3" style="gap: clamp(0.75rem, 0.5rem + 0.5vw, 1rem); margin-bottom: clamp(2rem, 1.5rem + 1.5vw, 3rem);">
+      <div class="eco-card">
+        <div class="eco-icon" style="color: var(--color-accent);">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/></svg>
+        </div>
+        <h3 class="font-display fluid-h3 font-semibold text-text-bright" style="margin: 0.625rem 0 0.375rem;">{t('index.ecoCard1Title')}</h3>
+        <p class="fluid-sm text-muted leading-relaxed">{t('index.ecoCard1Desc')}</p>
+      </div>
+      <div class="eco-card">
+        <div class="eco-icon" style="color: var(--color-accent-2);">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+        </div>
+        <h3 class="font-display fluid-h3 font-semibold text-text-bright" style="margin: 0.625rem 0 0.375rem;">{t('index.ecoCard2Title')}</h3>
+        <p class="fluid-sm text-muted leading-relaxed">{t('index.ecoCard2Desc')}</p>
+      </div>
+      <div class="eco-card">
+        <div class="eco-icon" style="color: var(--color-accent-3);">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244"/></svg>
+        </div>
+        <h3 class="font-display fluid-h3 font-semibold text-text-bright" style="margin: 0.625rem 0 0.375rem;">{t('index.ecoCard3Title')}</h3>
+        <p class="fluid-sm text-muted leading-relaxed">{t('index.ecoCard3Desc')}</p>
+      </div>
+    </div>
+
+    <div class="eco-terminal animate-entrance stagger-4">
+      <div class="terminal-chrome">
+        <div class="terminal-header flex items-center gap-2 px-4 py-2.5">
+          <span class="terminal-dot bg-[#ff5f57]"></span>
+          <span class="terminal-dot bg-[#febc2e]"></span>
+          <span class="terminal-dot bg-[#28c840]"></span>
+          <span class="ml-3 text-xs text-muted font-mono">leanctl — session</span>
+        </div>
+        <div class="terminal-body px-5 py-5 font-mono space-y-2" style="font-size: clamp(0.6875rem, 0.65rem + 0.1vw, 0.8125rem); line-height: 1.7;">
+          <div><span class="text-accent">&#10095;</span> <span class="text-text-bright">leanctl</span></div>
+          <div class="term-divider"></div>
+          <div><span class="text-accent-2">LeanCTL v0.1</span> <span class="text-muted">· claude-4-sonnet · session #42</span></div>
+          <div style="height:2px;"></div>
+          <div><span class="text-muted">You:</span> <span class="text-text">fix the auth bug in login.ts</span></div>
+          <div style="height:2px;"></div>
+          <div class="flex justify-between"><span class="text-muted">Intent</span> <span class="text-accent">fix_bug → Medium thinking</span></div>
+          <div class="flex justify-between"><span class="text-muted">Files read</span> <span class="text-text">3 (compressed: 94.2%)</span></div>
+          <div class="flex justify-between"><span class="text-muted">Tokens saved</span> <span class="text-accent font-semibold">12,847</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="animate-entrance stagger-5" style="margin-top: clamp(2rem, 1.5rem + 1vw, 3rem); text-align: center;">
+      <a href="https://leanctl.com" target="_blank" rel="noopener" class="btn-outline inline-flex items-center gap-2 rounded-lg" style="padding: clamp(0.7rem, 0.55rem + 0.3vw, 0.9rem) clamp(1.5rem, 1rem + 0.75vw, 2.25rem); font-size: clamp(0.8125rem, 0.78rem + 0.15vw, 0.9375rem);">
+        {t('index.ecoCta')}
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+      </a>
+    </div>
+  </div>
+</section>
+
+<div class="section-divider content-grid"></div>
+
+<!-- ═══════════════════════════════════════════════════════
      COMPATIBILITY
      ═══════════════════════════════════════════════════════ -->
 <section class="section-y">
@@ -471,6 +543,14 @@ const lp = (path: string) => getLocalizedPath(path, locale);
           {t('index.starOnGithub')}
         </a>
       </div>
+
+      <p class="text-muted animate-entrance stagger-5" style="margin-top: clamp(1.5rem, 1rem + 1vw, 2.5rem); font-size: clamp(0.8125rem, 0.78rem + 0.1vw, 0.875rem);">
+        {t('index.ctaLeanctl')}
+        <a href="https://leanctl.com" target="_blank" rel="noopener" class="text-accent hover:text-text-bright transition-colors inline-flex items-center gap-1" style="margin-left: 0.25rem;">
+          {t('index.ctaLeanctlLink')}
+          <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+        </a>
+      </p>
     </div>
   </div>
 </section>
@@ -646,6 +726,29 @@ const lp = (path: string) => getLocalizedPath(path, locale);
     display: flex;
     justify-content: space-between;
     align-items: center;
+  }
+
+  /* ── Ecosystem ────────────────────────────────────── */
+  .eco-card {
+    padding: clamp(1.25rem, 1rem + 0.75vw, 1.75rem);
+    border: 1px solid var(--color-border);
+    border-radius: clamp(10px, 0.8vw, 14px);
+    background: var(--color-bg);
+    transition: border-color 0.2s ease;
+  }
+  .eco-card:hover {
+    border-color: var(--color-border-light);
+  }
+  .eco-icon {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .eco-terminal {
+    max-width: 32rem;
+    margin: 0 auto;
   }
 
   /* ── Compatibility ──────────────────────────────────── */

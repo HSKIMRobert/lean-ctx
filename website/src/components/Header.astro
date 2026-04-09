@@ -73,6 +73,17 @@ const productColumns = [
       },
     ],
   },
+  {
+    title: t('nav.product.ecosystem'),
+    items: [
+      {
+        label: t('nav.product.leanctl'),
+        href: 'https://leanctl.com',
+        description: t('nav.product.leanctlDesc'),
+        icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>',
+      },
+    ],
+  },
 ];
 
 const docsColumns = [
@@ -184,6 +195,11 @@ const docsColumns = [
         <a href={lp('/docs/token-guide')} class="mobile-nav-link">{t('nav.docs.tokenGuide')}</a>
         <a href={lp('/docs/tools')} class="mobile-nav-link">{t('nav.docs.toolApi')}</a>
         <a href={lp('/docs/tree-sitter')} class="mobile-nav-link">{t('nav.docs.treeSitter')}</a>
+      </div>
+
+      <div class="mobile-section">
+        <span class="mobile-section-title">{t('nav.product.ecosystem')}</span>
+        <a href="https://leanctl.com" target="_blank" rel="noopener" class="mobile-nav-link">{t('nav.product.leanctl')}</a>
       </div>
 
       <div class="mobile-lang-area">
