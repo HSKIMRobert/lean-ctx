@@ -1172,8 +1172,11 @@ function renderCompressionFileList(files) {
   const el = $('compressionFileList');
   if (!el) return;
   el.innerHTML = files.slice(0, 100).map(f =>
-    `<div class="file-item${f === compressionSelected ? ' selected' : ''}" onclick="selectCompressionFile('${esc(f.replace(/'/g, "\\'"))}')">${esc(f)}</div>`
+    `<div class="file-item${f === compressionSelected ? ' selected' : ''}" data-path="${esc(f)}">${esc(f)}</div>`
   ).join('');
+  el.querySelectorAll('.file-item').forEach(item => {
+    item.onclick = () => selectCompressionFile(item.dataset.path);
+  });
 }
 
 async function selectCompressionFile(path) {
