@@ -174,7 +174,9 @@ fn rc_contains_lean_ctx(path: &PathBuf) -> bool {
 
 fn rc_has_pipe_guard(path: &PathBuf) -> bool {
     match std::fs::read_to_string(path) {
-        Ok(s) => s.contains("! -t 1") || s.contains("isatty stdout") || s.contains("IsOutputRedirected"),
+        Ok(s) => {
+            s.contains("! -t 1") || s.contains("isatty stdout") || s.contains("IsOutputRedirected")
+        }
         Err(_) => false,
     }
 }
@@ -530,6 +532,36 @@ fn pi_outcome() -> Option<Outcome> {
     }
 }
 
+fn session_state_outcome() -> Outcome {
+    use crate::core::session::SessionState;
+
+    match SessionState::load_latest() {
+        Some(session) => {
+            let root = session
+                .project_root
+                .as_deref()
+                .unwrap_or("(not set)");
+            let cwd = session
+                .shell_cwd
+                .as_deref()
+                .unwrap_or("(not tracked)");
+            Outcome {
+                ok: true,
+                line: format!(
+                    "{BOLD}Session state{RST}  {GREEN}active{RST}  {DIM}root: {root}, cwd: {cwd}, v{}{RST}",
+                    session.version
+                ),
+            }
+        }
+        None => Outcome {
+            ok: true,
+            line: format!(
+                "{BOLD}Session state{RST}  {YELLOW}no active session{RST}  {DIM}(will be created on first tool call){RST}"
+            ),
+        },
+    }
+}
+
 /// Run diagnostic checks and print colored results to stdout.
 pub fn run() {
     let mut passed = 0u32;
@@ -696,7 +728,11 @@ pub fn run() {
     }
     print_check(&port);
 
-    // 9) Pi Coding Agent (optional)
+    // 9) Session state (project_root + shell_cwd)
+    let session_outcome = session_state_outcome();
+    print_check(&session_outcome);
+
+    // 10) Pi Coding Agent (optional)
     let pi = pi_outcome();
     if let Some(ref pi_check) = pi {
         if pi_check.ok {
@@ -705,7 +741,7 @@ pub fn run() {
         print_check(pi_check);
     }
 
-    let effective_total = if pi.is_some() { total + 1 } else { total };
+    let effective_total = if pi.is_some() { total + 2 } else { total + 1 };
     println!();
     println!("  {BOLD}{WHITE}Summary:{RST}  {GREEN}{passed}{RST}{DIM}/{effective_total}{RST} checks passed");
     println!("  {DIM}This binary: lean-ctx {VERSION} (Cargo package version){RST}");
