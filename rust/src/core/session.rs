@@ -713,7 +713,11 @@ mod tests {
     #[test]
     fn extract_cd_relative_path() {
         let result = extract_cd_target("cd subdir", "/home/user");
-        assert_eq!(result, Some("/home/user/subdir".to_string()));
+        let expected = std::path::Path::new("/home/user")
+            .join("subdir")
+            .to_string_lossy()
+            .to_string();
+        assert_eq!(result, Some(expected));
     }
 
     #[test]
@@ -731,7 +735,11 @@ mod tests {
     #[test]
     fn extract_cd_parent_dir() {
         let result = extract_cd_target("cd ..", "/home/user/project");
-        assert_eq!(result, Some("/home/user/project/..".to_string()));
+        let expected = std::path::Path::new("/home/user/project")
+            .join("..")
+            .to_string_lossy()
+            .to_string();
+        assert_eq!(result, Some(expected));
     }
 
     #[test]
