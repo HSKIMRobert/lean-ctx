@@ -1650,37 +1650,42 @@ export EDITOR=vim
     }
 
     #[test]
-    fn bash_hook_has_pipe_guard() {
-        let binary = "lean-ctx";
+    fn test_bash_hook_contains_pipe_guard() {
+        let binary = "/usr/local/bin/lean-ctx";
         let hook = format!(
             r#"_lc() {{
     if [ -n "${{LEAN_CTX_DISABLED:-}}" ] || [ ! -t 1 ]; then
         command "$@"
         return
     fi
-    '{binary}' -c "$@""#
+    '{binary}' -c "$@"
+}}"#
         );
         assert!(
             hook.contains("! -t 1"),
-            "bash _lc() must skip lean-ctx when stdout is not a terminal (piped)"
+            "bash/zsh hook must contain pipe guard [ ! -t 1 ]"
         );
-    }
-
-    #[test]
-    fn fish_hook_has_pipe_guard() {
-        let hook = "if set -q LEAN_CTX_DISABLED; or not isatty stdout";
         assert!(
-            hook.contains("not isatty stdout"),
-            "fish _lc must skip when stdout is piped"
+            hook.contains("LEAN_CTX_DISABLED") && hook.contains("! -t 1"),
+            "pipe guard must be in the same conditional as LEAN_CTX_DISABLED"
         );
     }
 
     #[test]
-    fn powershell_hook_has_pipe_guard() {
-        let hook = "if ($env:LEAN_CTX_DISABLED -or [Console]::IsOutputRedirected)";
+    fn test_fish_hook_contains_pipe_guard() {
+        let hook = "function _lc\n\tif set -q LEAN_CTX_DISABLED; or not isatty stdout\n\t\tcommand $argv\n\t\treturn\n\tend\nend";
+        assert!(
+            hook.contains("isatty stdout"),
+            "fish hook must contain pipe guard (isatty stdout)"
+        );
+    }
+
+    #[test]
+    fn test_powershell_hook_contains_pipe_guard() {
+        let hook = "function _lc { if ($env:LEAN_CTX_DISABLED -or [Console]::IsOutputRedirected) { & $args[0] $args[1..($args.Length)]; return } }";
         assert!(
             hook.contains("IsOutputRedirected"),
-            "PowerShell _lc must skip when output is redirected"
+            "PowerShell hook must contain pipe guard ([Console]::IsOutputRedirected)"
         );
     }
 

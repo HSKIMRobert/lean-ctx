@@ -94,9 +94,7 @@ impl BM25Index {
                     .unwrap_or(path)
                     .to_string_lossy()
                     .to_string();
-                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-                let chunks = super::chunks_ts::extract_chunks_ts(&rel, &content, ext)
-                    .unwrap_or_else(|| extract_chunks(&rel, &content));
+                let chunks = extract_chunks(&rel, &content);
                 for chunk in chunks {
                     index.add_chunk(chunk);
                 }
@@ -254,10 +252,6 @@ fn is_code_file(path: &Path) -> bool {
     )
 }
 
-pub fn tokenize_for_index(text: &str) -> Vec<String> {
-    tokenize(text)
-}
-
 fn tokenize(text: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut current = String::new();
@@ -276,19 +270,7 @@ fn tokenize(text: &str) -> Vec<String> {
         tokens.push(current);
     }
 
-    let mut expanded = Vec::new();
-    for token in &tokens {
-        expanded.push(token.clone());
-        if token.contains('_') {
-            for part in token.split('_') {
-                if part.len() >= 2 {
-                    expanded.push(part.to_string());
-                }
-            }
-        }
-    }
-
-    split_camel_case_tokens(&expanded)
+    split_camel_case_tokens(&tokens)
 }
 
 fn split_camel_case_tokens(tokens: &[String]) -> Vec<String> {

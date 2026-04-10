@@ -18,6 +18,8 @@ pub struct SessionState {
     pub started_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub project_root: Option<String>,
+    #[serde(default)]
+    pub shell_cwd: Option<String>,
     pub task: Option<TaskInfo>,
     pub findings: Vec<Finding>,
     pub decisions: Vec<Decision>,
@@ -107,6 +109,7 @@ impl SessionState {
             started_at: now,
             updated_at: now,
             project_root: None,
+            shell_cwd: None,
             task: None,
             findings: Vec::new(),
             decisions: Vec::new(),
@@ -126,16 +129,6 @@ impl SessionState {
 
     pub fn should_save(&self) -> bool {
         self.stats.unsaved_changes >= BATCH_SAVE_INTERVAL
-    }
-
-    pub fn mark_initialized(&mut self) {
-        if self.version == 0 {
-            self.version = 1;
-            self.updated_at = chrono::Utc::now();
-            self.project_root = std::env::current_dir()
-                .ok()
-                .map(|p| p.to_string_lossy().to_string());
-        }
     }
 
     pub fn set_task(&mut self, description: &str, intent: Option<&str>) {
@@ -241,6 +234,43 @@ impl SessionState {
 
     pub fn record_command(&mut self) {
         self.stats.commands_run += 1;
+    }
+
+    /// Returns the effective working directory for shell commands.
+    /// Priority: explicit cwd arg > session shell_cwd > project_root > process cwd
+    pub fn effective_cwd(&self, explicit_cwd: Option<&str>) -> String {
+        if let Some(cwd) = explicit_cwd {
+            if !cwd.is_empty() && cwd != "." {
+                return cwd.to_string();
+            }
+        }
+        if let Some(ref cwd) = self.shell_cwd {
+            return cwd.clone();
+        }
+        if let Some(ref root) = self.project_root {
+            return root.clone();
+        }
+        std::env::current_dir()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| ".".to_string())
+    }
+
+    /// Updates shell_cwd by detecting `cd` in the command.
+    /// Handles: `cd /abs/path`, `cd rel/path` (relative to current cwd),
+    /// `cd ..`, and chained commands like `cd foo && ...`.
+    pub fn update_shell_cwd(&mut self, command: &str) {
+        let base = self.effective_cwd(None);
+        if let Some(new_cwd) = extract_cd_target(command, &base) {
+            let path = std::path::Path::new(&new_cwd);
+            if path.exists() && path.is_dir() {
+                self.shell_cwd = Some(
+                    path.canonicalize()
+                        .unwrap_or_else(|_| path.to_path_buf())
+                        .to_string_lossy()
+                        .to_string(),
+                );
+            }
+        }
     }
 
     pub fn format_compact(&self) -> String {
@@ -629,6 +659,38 @@ fn generate_session_id() -> String {
     format!("{ts}-{random:04}")
 }
 
+/// Extracts the `cd` target from a command string.
+/// Handles patterns like `cd /foo`, `cd foo && bar`, `cd ../dir; cmd`, etc.
+fn extract_cd_target(command: &str, base_cwd: &str) -> Option<String> {
+    let first_cmd = command
+        .split("&&")
+        .next()
+        .unwrap_or(command)
+        .split(';')
+        .next()
+        .unwrap_or(command)
+        .trim();
+
+    if !first_cmd.starts_with("cd ") && first_cmd != "cd" {
+        return None;
+    }
+
+    let target = first_cmd.strip_prefix("cd")?.trim();
+    if target.is_empty() || target == "~" {
+        return dirs::home_dir().map(|h| h.to_string_lossy().to_string());
+    }
+
+    let target = target.trim_matches('"').trim_matches('\'');
+    let path = std::path::Path::new(target);
+
+    if path.is_absolute() {
+        Some(target.to_string())
+    } else {
+        let base = std::path::Path::new(base_cwd);
+        Some(base.join(target).to_string_lossy().to_string())
+    }
+}
+
 fn shorten_path(path: &str) -> String {
     let parts: Vec<&str> = path.split('/').collect();
     if parts.len() <= 2 {
@@ -641,6 +703,78 @@ fn shorten_path(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extract_cd_absolute_path() {
+        let result = extract_cd_target("cd /usr/local/bin", "/home/user");
+        assert_eq!(result, Some("/usr/local/bin".to_string()));
+    }
+
+    #[test]
+    fn extract_cd_relative_path() {
+        let result = extract_cd_target("cd subdir", "/home/user");
+        assert_eq!(result, Some("/home/user/subdir".to_string()));
+    }
+
+    #[test]
+    fn extract_cd_with_chained_command() {
+        let result = extract_cd_target("cd /tmp && ls", "/home/user");
+        assert_eq!(result, Some("/tmp".to_string()));
+    }
+
+    #[test]
+    fn extract_cd_with_semicolon() {
+        let result = extract_cd_target("cd /tmp; ls", "/home/user");
+        assert_eq!(result, Some("/tmp".to_string()));
+    }
+
+    #[test]
+    fn extract_cd_parent_dir() {
+        let result = extract_cd_target("cd ..", "/home/user/project");
+        assert_eq!(result, Some("/home/user/project/..".to_string()));
+    }
+
+    #[test]
+    fn extract_cd_no_cd_returns_none() {
+        let result = extract_cd_target("ls -la", "/home/user");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn extract_cd_bare_cd_goes_home() {
+        let result = extract_cd_target("cd", "/home/user");
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn effective_cwd_explicit_takes_priority() {
+        let mut session = SessionState::new();
+        session.project_root = Some("/project".to_string());
+        session.shell_cwd = Some("/project/src".to_string());
+        assert_eq!(session.effective_cwd(Some("/explicit")), "/explicit");
+    }
+
+    #[test]
+    fn effective_cwd_shell_cwd_second_priority() {
+        let mut session = SessionState::new();
+        session.project_root = Some("/project".to_string());
+        session.shell_cwd = Some("/project/src".to_string());
+        assert_eq!(session.effective_cwd(None), "/project/src");
+    }
+
+    #[test]
+    fn effective_cwd_project_root_third_priority() {
+        let mut session = SessionState::new();
+        session.project_root = Some("/project".to_string());
+        assert_eq!(session.effective_cwd(None), "/project");
+    }
+
+    #[test]
+    fn effective_cwd_dot_ignored() {
+        let mut session = SessionState::new();
+        session.project_root = Some("/project".to_string());
+        assert_eq!(session.effective_cwd(Some(".")), "/project");
+    }
 
     #[test]
     fn compaction_snapshot_includes_task() {

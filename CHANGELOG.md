@@ -3,6 +3,72 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.0.0] — 2026-04-10
+
+### Major Release: Waves 1-5 — Intelligence Engine, Knowledge Graph, A2A Protocol, Adaptive Compression
+
+This is a **major release** bringing lean-ctx from 28 to **34 MCP tools**, adding 8 read modes (new: `task`), persistent knowledge with temporal facts, multi-agent orchestration (A2A protocol), adaptive compression with Thompson Sampling bandits, and a complete fix for the context dropout bug (#73).
+
+---
+
+#### Wave 1 — Neural Token Optimization & Graph-Aware Filtering
+
+- **Neural token optimizer** — Attention-weighted compression that preserves high-information-density lines using Shannon entropy scoring with configurable thresholds.
+- **Graph-aware Information Bottleneck filter** — Integrates the project knowledge graph into `task` mode filtering, preserving lines that reference known entities (functions, types, modules) from the dependency graph.
+- **Task relevance scoring** — Renamed `information_bottleneck_filter` → `graph_aware_ib_filter` with KG-powered entity recognition for smarter context selection.
+
+#### Wave 2 — Context Reordering & Entropy Engine
+
+- **LITM-aware context reordering** — Reorders compressed output using a U-curve attention model (Lost-in-the-Middle), placing high-importance content at the start and end of context windows where LLM attention is strongest.
+- **Adaptive entropy thresholds** — Per-language BPE entropy thresholds with Kolmogorov complexity adjustment that auto-tune based on file characteristics.
+- **`task` read mode** — New compression mode that filters content through the Information Bottleneck principle, preserving only task-relevant lines. Achieves 65-85% savings while maintaining semantic completeness.
+
+#### Wave 3 — Persistent Knowledge & Episodic Memory
+
+- **`ctx_knowledge` tool** — Persistent project knowledge store with temporal validity, confidence decay, and contradiction detection. Actions: `remember`, `recall`, `timeline`, `rooms`, `search`, `wakeup`.
+- **Episodic memory** — Facts have temporal validity (`valid_from`/`valid_until`) and confidence scores that decay over time for unused knowledge.
+- **Procedural memory** — Cross-session knowledge that automatically surfaces relevant facts based on the current task context.
+- **Contradiction detection** — When storing a new fact that contradicts an existing one in the same category, the old fact is automatically superseded.
+
+#### Wave 4 — A2A Protocol & Multi-Agent Orchestration
+
+- **`ctx_task` tool** — Google A2A (Agent-to-Agent) protocol implementation with full task lifecycle: `create`, `assign`, `update`, `complete`, `cancel`, `list`, `get`.
+- **`ctx_cost` tool** — Cost attribution per agent with token tracking. Actions: `record`, `summary`, `by_agent`, `reset`.
+- **`ctx_heatmap` tool** — File access heatmap tracking read counts, compression ratios, and access patterns. Actions: `show`, `hot`, `cold`, `reset`.
+- **`ctx_impact` tool** — Measures the impact of code changes by analyzing dependency chains in the knowledge graph.
+- **`ctx_architecture` tool** — Generates architectural overviews from the project's dependency graph and module structure.
+- **Agent Card** — `.well-known/agent.json` endpoint for A2A agent discovery with capabilities, supported modes, and rate limits.
+- **Rate limiter** — Per-agent sliding window rate limiting (configurable, default 100 req/min).
+
+#### Wave 5 — Adaptive Compression (ACON + Bandits)
+
+- **ACON feedback loop** — Adaptive Compression via Outcome Normalization. Tracks compression outcomes (quality signals from LLM responses) and adjusts thresholds automatically.
+- **Thompson Sampling bandits** — Multi-armed bandit approach for selecting optimal compression parameters per file type and language. Uses Beta distributions with configurable priors.
+- **Quality signal detection** — Automatically detects quality signals in LLM responses (re-reads, error patterns, follow-up questions) to feed the ACON loop.
+- **`ctx_shell` cwd tracking** — Shell working directory is now tracked across calls. `cd` commands are parsed and persisted in the session. New `cwd` parameter for explicit directory control.
+
+#### Fix: Context Dropout Bug (#73)
+
+All five root causes of the "lean-ctx loses context after initial read phase" bug have been fixed:
+
+- **Monorepo-aware `project_root`** — `detect_project_root()` now finds the outermost ancestor with a project marker (`.git`, `Cargo.toml`, `package.json`, `go.work`, `pnpm-workspace.yaml`, `nx.json`, `turbo.json`, etc.), not the nearest `.git`.
+- **`ctx_shell` cwd persistence** — New `shell_cwd` field in session state. `cd` commands are parsed and the working directory persists across `ctx_shell` calls. Priority: explicit `cwd` arg → session `shell_cwd` → `project_root` → process cwd.
+- **`ctx_overview`/`ctx_preload` root fallback** — Both tools now fall back to `session.project_root` when no `path` parameter is given (previously defaulted to server process cwd).
+- **Relative path resolution** — All 15+ path-based tools now use `resolve_path()` which tries: original path → `project_root` + relative → `shell_cwd` + relative → fallback.
+- **Windows shell chaining** — `;` in commands is automatically converted to `&&` when running under `cmd.exe`.
+
+#### Improved — Diagnostics
+
+- **`lean-ctx doctor`** — New session state check showing `project_root`, `shell_cwd`, and session version.
+
+#### Stats
+
+- **34 MCP tools** (was 28)
+- **8 read modes** (was 7, new: `task`)
+- **656+ unit tests** passing
+- **14 integration tests** passing
+- **24 supported editors/AI tools**
+
 ## [2.21.11] — 2026-04-09
 
 ### Fix: Dashboard, Doctor, and MCP Reliability (#72)

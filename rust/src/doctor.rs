@@ -172,6 +172,15 @@ fn rc_contains_lean_ctx(path: &PathBuf) -> bool {
     }
 }
 
+fn rc_has_pipe_guard(path: &PathBuf) -> bool {
+    match std::fs::read_to_string(path) {
+        Ok(s) => {
+            s.contains("! -t 1") || s.contains("isatty stdout") || s.contains("IsOutputRedirected")
+        }
+        Err(_) => false,
+    }
+}
+
 fn shell_aliases_outcome() -> Outcome {
     let home = match dirs::home_dir() {
         Some(h) => h,
@@ -186,19 +195,29 @@ fn shell_aliases_outcome() -> Outcome {
     };
 
     let mut parts = Vec::new();
+    let mut needs_update = Vec::new();
 
     let zsh = home.join(".zshrc");
     if rc_contains_lean_ctx(&zsh) {
         parts.push(format!("{DIM}~/.zshrc{RST}"));
+        if !rc_has_pipe_guard(&zsh) {
+            needs_update.push("~/.zshrc");
+        }
     }
     let bash = home.join(".bashrc");
     if rc_contains_lean_ctx(&bash) {
         parts.push(format!("{DIM}~/.bashrc{RST}"));
+        if !rc_has_pipe_guard(&bash) {
+            needs_update.push("~/.bashrc");
+        }
     }
 
     let fish = home.join(".config").join("fish").join("config.fish");
     if rc_contains_lean_ctx(&fish) {
         parts.push(format!("{DIM}~/.config/fish/config.fish{RST}"));
+        if !rc_has_pipe_guard(&fish) {
+            needs_update.push("~/.config/fish/config.fish");
+        }
     }
 
     #[cfg(windows)]
@@ -213,8 +232,14 @@ fn shell_aliases_outcome() -> Outcome {
             .join("Microsoft.PowerShell_profile.ps1");
         if rc_contains_lean_ctx(&ps_profile) {
             parts.push(format!("{DIM}PowerShell profile{RST}"));
+            if !rc_has_pipe_guard(&ps_profile) {
+                needs_update.push("PowerShell profile");
+            }
         } else if rc_contains_lean_ctx(&ps_profile_legacy) {
             parts.push(format!("{DIM}WindowsPowerShell profile{RST}"));
+            if !rc_has_pipe_guard(&ps_profile_legacy) {
+                needs_update.push("WindowsPowerShell profile");
+            }
         }
     }
 
@@ -227,6 +252,14 @@ fn shell_aliases_outcome() -> Outcome {
         Outcome {
             ok: false,
             line: format!("{BOLD}Shell aliases{RST}  {RED}{hint}{RST}"),
+        }
+    } else if !needs_update.is_empty() {
+        Outcome {
+            ok: false,
+            line: format!(
+                "{BOLD}Shell aliases{RST}  {YELLOW}outdated hook in {} — run {BOLD}lean-ctx init --global{RST}{YELLOW} to fix (pipe guard missing){RST}",
+                needs_update.join(", ")
+            ),
         }
     } else {
         Outcome {
@@ -403,23 +436,10 @@ fn mcp_config_outcome() -> Outcome {
     let mut found: Vec<String> = Vec::new();
     let mut exists_no_ref: Vec<String> = Vec::new();
 
-    let mut broken: Vec<String> = Vec::new();
-
     for loc in &locations {
         match std::fs::read_to_string(&loc.path) {
             Ok(content) if content.contains("lean-ctx") => {
-                let validation = validate_mcp_entry(&content, loc.name);
-                match validation {
-                    McpValidation::Valid => {
-                        found.push(format!("{} {DIM}({}){RST}", loc.name, loc.display));
-                    }
-                    McpValidation::InvalidCommand(detail) => {
-                        broken.push(format!("{}: {detail}", loc.name));
-                    }
-                    McpValidation::MalformedJson => {
-                        broken.push(format!("{}: malformed JSON", loc.name));
-                    }
-                }
+                found.push(format!("{} {DIM}({}){RST}", loc.name, loc.display));
             }
             Ok(_) => {
                 exists_no_ref.push(loc.name.to_string());
@@ -428,24 +448,11 @@ fn mcp_config_outcome() -> Outcome {
         }
     }
 
-    if !broken.is_empty() && found.is_empty() {
-        Outcome {
-            ok: false,
-            line: format!(
-                "{BOLD}MCP config{RST}  {RED}broken config: {}{RST}  {DIM}(run: lean-ctx init --agent <editor>){RST}",
-                broken.join("; ")
-            ),
-        }
-    } else if !found.is_empty() {
-        let warn = if broken.is_empty() {
-            String::new()
-        } else {
-            format!("  {YELLOW}(broken: {}){RST}", broken.join(", "))
-        };
+    if !found.is_empty() {
         Outcome {
             ok: true,
             line: format!(
-                "{BOLD}MCP config{RST}  {GREEN}lean-ctx configured in: {}{RST}{warn}",
+                "{BOLD}MCP config{RST}  {GREEN}lean-ctx found in: {}{RST}",
                 found.join(", ")
             ),
         }
@@ -458,69 +465,13 @@ fn mcp_config_outcome() -> Outcome {
             ),
         }
     } else {
-        let checked: Vec<&str> = locations.iter().map(|l| l.name).collect();
         Outcome {
             ok: false,
             line: format!(
-                "{BOLD}MCP config{RST}  {YELLOW}no MCP config found{RST}  {DIM}(checked: {}){RST}",
-                checked.join(", ")
+                "{BOLD}MCP config{RST}  {YELLOW}no MCP config found{RST}  {DIM}(checked: Cursor, Claude, Windsurf, Codex, Gemini, Antigravity, Crush, Zed){RST}"
             ),
         }
     }
-}
-
-enum McpValidation {
-    Valid,
-    InvalidCommand(String),
-    MalformedJson,
-}
-
-fn validate_mcp_entry(content: &str, ide_name: &str) -> McpValidation {
-    let parsed: serde_json::Value = match serde_json::from_str(content) {
-        Ok(v) => v,
-        Err(_) => return McpValidation::MalformedJson,
-    };
-
-    let servers = parsed
-        .get("mcpServers")
-        .or_else(|| parsed.get("mcp_servers"))
-        .or_else(|| parsed.get("mcp").and_then(|m| m.get("servers")));
-
-    let entry = match servers {
-        Some(s) => s.get("lean-ctx").or_else(|| s.get("lean_ctx")),
-        None => {
-            if ide_name == "Codex" && content.contains("lean-ctx") {
-                return McpValidation::Valid;
-            }
-            return McpValidation::InvalidCommand("no mcpServers section found".to_string());
-        }
-    };
-
-    let entry = match entry {
-        Some(e) => e,
-        None => {
-            return McpValidation::InvalidCommand("no lean-ctx entry in mcpServers".to_string())
-        }
-    };
-
-    let command = entry.get("command").and_then(|c| c.as_str()).unwrap_or("");
-    if command.is_empty() {
-        return McpValidation::InvalidCommand("missing 'command' field".to_string());
-    }
-
-    let binary = command.rsplit('/').next().unwrap_or(command);
-    if !binary.contains("lean-ctx") {
-        return McpValidation::InvalidCommand(format!(
-            "command points to '{binary}', not lean-ctx"
-        ));
-    }
-
-    let path = std::path::Path::new(command);
-    if command.contains('/') && !path.exists() {
-        return McpValidation::InvalidCommand(format!("binary not found at '{command}'"));
-    }
-
-    McpValidation::Valid
 }
 
 fn port_3333_outcome() -> Outcome {
@@ -578,6 +529,36 @@ fn pi_outcome() -> Option<Outcome> {
             }
         }
         _ => None,
+    }
+}
+
+fn session_state_outcome() -> Outcome {
+    use crate::core::session::SessionState;
+
+    match SessionState::load_latest() {
+        Some(session) => {
+            let root = session
+                .project_root
+                .as_deref()
+                .unwrap_or("(not set)");
+            let cwd = session
+                .shell_cwd
+                .as_deref()
+                .unwrap_or("(not tracked)");
+            Outcome {
+                ok: true,
+                line: format!(
+                    "{BOLD}Session state{RST}  {GREEN}active{RST}  {DIM}root: {root}, cwd: {cwd}, v{}{RST}",
+                    session.version
+                ),
+            }
+        }
+        None => Outcome {
+            ok: true,
+            line: format!(
+                "{BOLD}Session state{RST}  {YELLOW}no active session{RST}  {DIM}(will be created on first tool call){RST}"
+            ),
+        },
     }
 }
 
@@ -672,11 +653,12 @@ pub fn run() {
             ),
         },
         None => {
+            passed += 1;
             Outcome {
-                ok: false,
+                ok: true,
                 line: match &stats_path {
                     Some(p) => format!(
-                        "{BOLD}stats.json{RST}  {YELLOW}not yet created — MCP server has not been used yet{RST}  {DIM}(try: open your IDE and use a lean-ctx tool) {}{RST}",
+                        "{BOLD}stats.json{RST}  {YELLOW}not yet created{RST}  {DIM}(will appear after first use) {}{RST}",
                         p.display()
                     ),
                     None => format!("{BOLD}stats.json{RST}  {RED}could not resolve path{RST}"),
@@ -746,7 +728,11 @@ pub fn run() {
     }
     print_check(&port);
 
-    // 9) Pi Coding Agent (optional)
+    // 9) Session state (project_root + shell_cwd)
+    let session_outcome = session_state_outcome();
+    print_check(&session_outcome);
+
+    // 10) Pi Coding Agent (optional)
     let pi = pi_outcome();
     if let Some(ref pi_check) = pi {
         if pi_check.ok {
@@ -755,7 +741,7 @@ pub fn run() {
         print_check(pi_check);
     }
 
-    let effective_total = if pi.is_some() { total + 1 } else { total };
+    let effective_total = if pi.is_some() { total + 2 } else { total + 1 };
     println!();
     println!("  {BOLD}{WHITE}Summary:{RST}  {GREEN}{passed}{RST}{DIM}/{effective_total}{RST} checks passed");
     println!("  {DIM}This binary: lean-ctx {VERSION} (Cargo package version){RST}");

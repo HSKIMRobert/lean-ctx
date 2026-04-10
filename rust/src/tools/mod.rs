@@ -146,6 +146,34 @@ impl LeanCtxServer {
         }
     }
 
+    /// Resolves a (possibly relative) tool path against the session's project_root.
+    /// Absolute paths and "." are returned as-is. Relative paths like "src/main.rs"
+    /// are joined with project_root so tools work regardless of the server's cwd.
+    pub async fn resolve_path(&self, path: &str) -> String {
+        let normalized = crate::hooks::normalize_tool_path(path);
+        if normalized.is_empty() || normalized == "." {
+            return normalized;
+        }
+        let p = std::path::Path::new(&normalized);
+        if p.is_absolute() || p.exists() {
+            return normalized;
+        }
+        let session = self.session.read().await;
+        if let Some(ref root) = session.project_root {
+            let resolved = std::path::Path::new(root).join(&normalized);
+            if resolved.exists() {
+                return resolved.to_string_lossy().to_string();
+            }
+        }
+        if let Some(ref cwd) = session.shell_cwd {
+            let resolved = std::path::Path::new(cwd).join(&normalized);
+            if resolved.exists() {
+                return resolved.to_string_lossy().to_string();
+            }
+        }
+        normalized
+    }
+
     pub async fn check_idle_expiry(&self) {
         if self.cache_ttl_secs == 0 {
             return;
