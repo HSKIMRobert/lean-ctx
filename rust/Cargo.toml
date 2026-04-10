@@ -92,7 +92,7 @@ tree-sitter-dart = { version = "0.1", optional = true }
 rten = { version = "0.24", optional = true }
 rten-tensor = { version = "0.24", optional = true }
 glob = "0.3.3"
-ratatui = "0.29"
+ratatui = "0.30"
 crossterm = "0.28"
 
 [profile.release]
