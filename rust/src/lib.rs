@@ -1,6 +1,7 @@
 pub mod cli;
 pub mod cloud_client;
 pub mod cloud_sync;
+pub mod config_io;
 pub mod core;
 pub mod dashboard;
 pub mod doctor;

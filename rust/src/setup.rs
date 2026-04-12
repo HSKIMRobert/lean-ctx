@@ -1,5 +1,12 @@
 use std::path::PathBuf;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WriteAction {
+    Created,
+    Updated,
+    Already,
+}
+
 struct EditorTarget {
     name: &'static str,
     agent_key: &'static str,
@@ -14,6 +21,7 @@ enum ConfigType {
     Codex,
     VsCodeMcp,
     OpenCode,
+    Crush,
 }
 
 pub fn run_setup() {
@@ -54,22 +62,15 @@ pub fn run_setup() {
             continue;
         }
 
-        let has_config = target.config_path.exists()
-            && std::fs::read_to_string(&target.config_path)
-                .map(|c| c.contains("lean-ctx"))
-                .unwrap_or(false);
-
-        if has_config {
-            terminal_ui::print_status_ok(&format!(
-                "{:<20} \x1b[2m{short_path}\x1b[0m",
-                target.name
-            ));
-            already_configured.push(target.name);
-            continue;
-        }
-
         match write_config(target, &binary) {
-            Ok(()) => {
+            Ok(WriteAction::Already) => {
+                terminal_ui::print_status_ok(&format!(
+                    "{:<20} \x1b[2m{short_path}\x1b[0m",
+                    target.name
+                ));
+                already_configured.push(target.name);
+            }
+            Ok(WriteAction::Created | WriteAction::Updated) => {
                 terminal_ui::print_status_new(&format!(
                     "{:<20} \x1b[2m{short_path}\x1b[0m",
                     target.name
@@ -263,6 +264,25 @@ fn shorten_path(path: &str, home: &str) -> String {
 }
 
 fn build_targets(home: &std::path::Path, _binary: &str) -> Vec<EditorTarget> {
+    #[cfg(windows)]
+    let opencode_cfg = if let Ok(appdata) = std::env::var("APPDATA") {
+        std::path::PathBuf::from(appdata)
+            .join("opencode")
+            .join("opencode.json")
+    } else {
+        home.join(".config/opencode/opencode.json")
+    };
+    #[cfg(not(windows))]
+    let opencode_cfg = home.join(".config/opencode/opencode.json");
+
+    #[cfg(windows)]
+    let opencode_detect = opencode_cfg
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| home.join(".config/opencode"));
+    #[cfg(not(windows))]
+    let opencode_detect = home.join(".config/opencode");
+
     vec![
         EditorTarget {
             name: "Cursor",
@@ -323,8 +343,8 @@ fn build_targets(home: &std::path::Path, _binary: &str) -> Vec<EditorTarget> {
         EditorTarget {
             name: "OpenCode",
             agent_key: "",
-            config_path: home.join(".config/opencode/opencode.json"),
-            detect_path: home.join(".config/opencode"),
+            config_path: opencode_cfg,
+            detect_path: opencode_detect,
             config_type: ConfigType::OpenCode,
         },
         EditorTarget {
@@ -388,7 +408,7 @@ fn build_targets(home: &std::path::Path, _binary: &str) -> Vec<EditorTarget> {
             agent_key: "crush",
             config_path: home.join(".config/crush/crush.json"),
             detect_path: home.join(".config/crush"),
-            config_type: ConfigType::McpJson,
+            config_type: ConfigType::Crush,
         },
         EditorTarget {
             name: "Pi Coding Agent",
@@ -455,6 +475,7 @@ fn write_config(target: &EditorTarget, binary: &str) -> Result<(), String> {
         ConfigType::Codex => write_codex_config(target, binary),
         ConfigType::VsCodeMcp => write_vscode_mcp(target, binary),
         ConfigType::OpenCode => write_opencode_config(target, binary),
+        ConfigType::Crush => write_crush_config(target, binary),
     }
 }
 
@@ -473,27 +494,33 @@ fn lean_ctx_server_entry(binary: &str) -> serde_json::Value {
     })
 }
 
-fn write_mcp_json(target: &EditorTarget, binary: &str) -> Result<(), String> {
+fn write_mcp_json(target: &EditorTarget, binary: &str) -> Result<WriteAction, String> {
+    let desired = lean_ctx_server_entry(binary);
     if target.config_path.exists() {
         let content = std::fs::read_to_string(&target.config_path).map_err(|e| e.to_string())?;
+        let mut json = serde_json::from_str::<serde_json::Value>(&content).map_err(|e| e.to_string())?;
+        let obj = json
+            .as_object_mut()
+            .ok_or_else(|| "root JSON must be an object".to_string())?;
+        let servers = obj
+            .entry("mcpServers")
+            .or_insert_with(|| serde_json::json!({}));
+        let servers_obj = servers
+            .as_object_mut()
+            .ok_or_else(|| "\"mcpServers\" must be an object".to_string())?;
 
-        if content.contains("lean-ctx") {
-            return Ok(());
+        let existing = servers_obj.get("lean-ctx").cloned();
+        if existing.as_ref() == Some(&desired) {
+            return Ok(WriteAction::Already);
         }
-
-        if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
-            if let Some(obj) = json.as_object_mut() {
-                let servers = obj
-                    .entry("mcpServers")
-                    .or_insert_with(|| serde_json::json!({}));
-                if let Some(servers_obj) = servers.as_object_mut() {
-                    servers_obj.insert("lean-ctx".to_string(), lean_ctx_server_entry(binary));
-                }
-                let formatted = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
-                std::fs::write(&target.config_path, formatted).map_err(|e| e.to_string())?;
-                return Ok(());
-            }
-        }
+        servers_obj.insert("lean-ctx".to_string(), desired);
+        let formatted = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
+        crate::config_io::write_atomic_with_backup(&target.config_path, &formatted)?;
+        return Ok(if existing.is_some() {
+            WriteAction::Updated
+        } else {
+            WriteAction::Updated
+        });
         return Err(format!(
             "Could not parse existing config at {}. Please add lean-ctx manually:\n\
              Add to \"mcpServers\": \"lean-ctx\": {{ \"command\": \"{}\" }}",
@@ -504,43 +531,43 @@ fn write_mcp_json(target: &EditorTarget, binary: &str) -> Result<(), String> {
 
     let content = serde_json::to_string_pretty(&serde_json::json!({
         "mcpServers": {
-            "lean-ctx": lean_ctx_server_entry(binary)
+            "lean-ctx": desired
         }
     }))
     .map_err(|e| e.to_string())?;
 
-    std::fs::write(&target.config_path, content).map_err(|e| e.to_string())
+    crate::config_io::write_atomic_with_backup(&target.config_path, &content)?;
+    Ok(WriteAction::Created)
 }
 
-fn write_zed_config(target: &EditorTarget, binary: &str) -> Result<(), String> {
+fn write_zed_config(target: &EditorTarget, binary: &str) -> Result<WriteAction, String> {
+    let desired = serde_json::json!({
+        "source": "custom",
+        "command": binary,
+        "args": [],
+        "env": {}
+    });
     if target.config_path.exists() {
         let content = std::fs::read_to_string(&target.config_path).map_err(|e| e.to_string())?;
+        let mut json = serde_json::from_str::<serde_json::Value>(&content).map_err(|e| e.to_string())?;
+        let obj = json
+            .as_object_mut()
+            .ok_or_else(|| "root JSON must be an object".to_string())?;
+        let servers = obj
+            .entry("context_servers")
+            .or_insert_with(|| serde_json::json!({}));
+        let servers_obj = servers
+            .as_object_mut()
+            .ok_or_else(|| "\"context_servers\" must be an object".to_string())?;
 
-        if content.contains("lean-ctx") {
-            return Ok(());
+        let existing = servers_obj.get("lean-ctx").cloned();
+        if existing.as_ref() == Some(&desired) {
+            return Ok(WriteAction::Already);
         }
-
-        if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
-            if let Some(obj) = json.as_object_mut() {
-                let servers = obj
-                    .entry("context_servers")
-                    .or_insert_with(|| serde_json::json!({}));
-                if let Some(servers_obj) = servers.as_object_mut() {
-                    servers_obj.insert(
-                        "lean-ctx".to_string(),
-                        serde_json::json!({
-                            "source": "custom",
-                            "command": binary,
-                            "args": [],
-                            "env": {}
-                        }),
-                    );
-                }
-                let formatted = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
-                std::fs::write(&target.config_path, formatted).map_err(|e| e.to_string())?;
-                return Ok(());
-            }
-        }
+        servers_obj.insert("lean-ctx".to_string(), desired);
+        let formatted = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
+        crate::config_io::write_atomic_with_backup(&target.config_path, &formatted)?;
+        return Ok(WriteAction::Updated);
         return Err(format!(
             "Could not parse existing config at {}. Please add lean-ctx manually to \"context_servers\".",
             target.config_path.display()
@@ -549,68 +576,57 @@ fn write_zed_config(target: &EditorTarget, binary: &str) -> Result<(), String> {
 
     let content = serde_json::to_string_pretty(&serde_json::json!({
         "context_servers": {
-            "lean-ctx": {
-                "source": "custom",
-                "command": binary,
-                "args": [],
-                "env": {}
-            }
+            "lean-ctx": desired
         }
     }))
     .map_err(|e| e.to_string())?;
 
-    std::fs::write(&target.config_path, content).map_err(|e| e.to_string())
+    crate::config_io::write_atomic_with_backup(&target.config_path, &content)?;
+    Ok(WriteAction::Created)
 }
 
-fn write_codex_config(target: &EditorTarget, binary: &str) -> Result<(), String> {
+fn write_codex_config(target: &EditorTarget, binary: &str) -> Result<WriteAction, String> {
     if target.config_path.exists() {
         let content = std::fs::read_to_string(&target.config_path).map_err(|e| e.to_string())?;
-
-        if content.contains("lean-ctx") {
-            return Ok(());
+        let updated = upsert_codex_toml(&content, binary);
+        if updated == content {
+            return Ok(WriteAction::Already);
         }
-
-        let mut new_content = content.clone();
-        if !new_content.ends_with('\n') {
-            new_content.push('\n');
-        }
-        new_content.push_str(&format!(
-            "\n[mcp_servers.lean-ctx]\ncommand = \"{}\"\nargs = []\n",
-            binary
-        ));
-        std::fs::write(&target.config_path, new_content).map_err(|e| e.to_string())?;
-        return Ok(());
+        crate::config_io::write_atomic_with_backup(&target.config_path, &updated)?;
+        return Ok(WriteAction::Updated);
     }
 
     let content = format!(
         "[mcp_servers.lean-ctx]\ncommand = \"{}\"\nargs = []\n",
         binary
     );
-    std::fs::write(&target.config_path, content).map_err(|e| e.to_string())
+    crate::config_io::write_atomic_with_backup(&target.config_path, &content)?;
+    Ok(WriteAction::Created)
 }
 
-fn write_vscode_mcp(target: &EditorTarget, binary: &str) -> Result<(), String> {
+fn write_vscode_mcp(target: &EditorTarget, binary: &str) -> Result<WriteAction, String> {
+    let desired = serde_json::json!({ "command": binary, "args": [] });
     if target.config_path.exists() {
         let content = std::fs::read_to_string(&target.config_path).map_err(|e| e.to_string())?;
-        if content.contains("lean-ctx") {
-            return Ok(());
+        let mut json = serde_json::from_str::<serde_json::Value>(&content).map_err(|e| e.to_string())?;
+        let obj = json
+            .as_object_mut()
+            .ok_or_else(|| "root JSON must be an object".to_string())?;
+        let servers = obj
+            .entry("servers")
+            .or_insert_with(|| serde_json::json!({}));
+        let servers_obj = servers
+            .as_object_mut()
+            .ok_or_else(|| "\"servers\" must be an object".to_string())?;
+
+        let existing = servers_obj.get("lean-ctx").cloned();
+        if existing.as_ref() == Some(&desired) {
+            return Ok(WriteAction::Already);
         }
-        if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
-            if let Some(obj) = json.as_object_mut() {
-                let servers = obj
-                    .entry("servers")
-                    .or_insert_with(|| serde_json::json!({}));
-                if let Some(servers_obj) = servers.as_object_mut() {
-                    servers_obj.insert(
-                        "lean-ctx".to_string(),
-                        serde_json::json!({ "command": binary, "args": [] }),
-                    );
-                }
-                let formatted = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
-                std::fs::write(&target.config_path, formatted).map_err(|e| e.to_string())?;
-                return Ok(());
-            }
-        }
+        servers_obj.insert("lean-ctx".to_string(), desired);
+        let formatted = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
+        crate::config_io::write_atomic_with_backup(&target.config_path, &formatted)?;
+        return Ok(WriteAction::Updated);
         return Err(format!(
             "Could not parse existing config at {}. Please add lean-ctx manually to \"servers\".",
             target.config_path.display()
@@ -631,33 +647,34 @@ fn write_vscode_mcp(target: &EditorTarget, binary: &str) -> Result<(), String> {
     }))
     .map_err(|e| e.to_string())?;
 
-    std::fs::write(&target.config_path, content).map_err(|e| e.to_string())
+    crate::config_io::write_atomic_with_backup(&target.config_path, &content)?;
+    Ok(WriteAction::Created)
 }
 
-fn write_opencode_config(target: &EditorTarget, binary: &str) -> Result<(), String> {
+fn write_opencode_config(target: &EditorTarget, binary: &str) -> Result<WriteAction, String> {
+    let desired = serde_json::json!({
+        "type": "local",
+        "command": [binary],
+        "enabled": true
+    });
     if target.config_path.exists() {
         let content = std::fs::read_to_string(&target.config_path).map_err(|e| e.to_string())?;
-        if content.contains("lean-ctx") {
-            return Ok(());
+        let mut json = serde_json::from_str::<serde_json::Value>(&content).map_err(|e| e.to_string())?;
+        let obj = json
+            .as_object_mut()
+            .ok_or_else(|| "root JSON must be an object".to_string())?;
+        let mcp = obj.entry("mcp").or_insert_with(|| serde_json::json!({}));
+        let mcp_obj = mcp
+            .as_object_mut()
+            .ok_or_else(|| "\"mcp\" must be an object".to_string())?;
+        let existing = mcp_obj.get("lean-ctx").cloned();
+        if existing.as_ref() == Some(&desired) {
+            return Ok(WriteAction::Already);
         }
-        if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
-            if let Some(obj) = json.as_object_mut() {
-                let mcp = obj.entry("mcp").or_insert_with(|| serde_json::json!({}));
-                if let Some(mcp_obj) = mcp.as_object_mut() {
-                    mcp_obj.insert(
-                        "lean-ctx".to_string(),
-                        serde_json::json!({
-                            "type": "local",
-                            "command": [binary],
-                            "enabled": true
-                        }),
-                    );
-                }
-                let formatted = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
-                std::fs::write(&target.config_path, formatted).map_err(|e| e.to_string())?;
-                return Ok(());
-            }
-        }
+        mcp_obj.insert("lean-ctx".to_string(), desired);
+        let formatted = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
+        crate::config_io::write_atomic_with_backup(&target.config_path, &formatted)?;
+        return Ok(WriteAction::Updated);
         return Err(format!(
             "Could not parse existing config at {}. Please add lean-ctx manually:\n\
              Add to the \"mcp\" section: \"lean-ctx\": {{ \"type\": \"local\", \"command\": [\"{}\"], \"enabled\": true }}",
@@ -682,7 +699,103 @@ fn write_opencode_config(target: &EditorTarget, binary: &str) -> Result<(), Stri
     }))
     .map_err(|e| e.to_string())?;
 
-    std::fs::write(&target.config_path, content).map_err(|e| e.to_string())
+    crate::config_io::write_atomic_with_backup(&target.config_path, &content)?;
+    Ok(WriteAction::Created)
+}
+
+fn write_crush_config(target: &EditorTarget, binary: &str) -> Result<WriteAction, String> {
+    let desired = serde_json::json!({ "type": "stdio", "command": binary });
+    if target.config_path.exists() {
+        let content = std::fs::read_to_string(&target.config_path).map_err(|e| e.to_string())?;
+        let mut json = serde_json::from_str::<serde_json::Value>(&content).map_err(|e| e.to_string())?;
+        let obj = json
+            .as_object_mut()
+            .ok_or_else(|| "root JSON must be an object".to_string())?;
+        let mcp = obj.entry("mcp").or_insert_with(|| serde_json::json!({}));
+        let mcp_obj = mcp
+            .as_object_mut()
+            .ok_or_else(|| "\"mcp\" must be an object".to_string())?;
+
+        let existing = mcp_obj.get("lean-ctx").cloned();
+        if existing.as_ref() == Some(&desired) {
+            return Ok(WriteAction::Already);
+        }
+        mcp_obj.insert("lean-ctx".to_string(), desired);
+        let formatted = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
+        crate::config_io::write_atomic_with_backup(&target.config_path, &formatted)?;
+        return Ok(WriteAction::Updated);
+    }
+
+    let content = serde_json::to_string_pretty(&serde_json::json!({
+        "mcp": { "lean-ctx": desired }
+    }))
+    .map_err(|e| e.to_string())?;
+
+    crate::config_io::write_atomic_with_backup(&target.config_path, &content)?;
+    Ok(WriteAction::Created)
+}
+
+fn upsert_codex_toml(existing: &str, binary: &str) -> String {
+    let mut out = String::with_capacity(existing.len() + 128);
+    let mut in_section = false;
+    let mut saw_section = false;
+    let mut wrote_command = false;
+    let mut wrote_args = false;
+
+    for line in existing.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            if in_section && !wrote_command {
+                out.push_str(&format!("command = \"{}\"\n", binary));
+                wrote_command = true;
+            }
+            if in_section && !wrote_args {
+                out.push_str("args = []\n");
+                wrote_args = true;
+            }
+            in_section = trimmed == "[mcp_servers.lean-ctx]";
+            if in_section {
+                saw_section = true;
+            }
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+
+        if in_section {
+            if trimmed.starts_with("command") && trimmed.contains('=') {
+                out.push_str(&format!("command = \"{}\"\n", binary));
+                wrote_command = true;
+                continue;
+            }
+            if trimmed.starts_with("args") && trimmed.contains('=') {
+                out.push_str("args = []\n");
+                wrote_args = true;
+                continue;
+            }
+        }
+
+        out.push_str(line);
+        out.push('\n');
+    }
+
+    if saw_section {
+        if in_section && !wrote_command {
+            out.push_str(&format!("command = \"{}\"\n", binary));
+        }
+        if in_section && !wrote_args {
+            out.push_str("args = []\n");
+        }
+        return out;
+    }
+
+    if !out.ends_with('\n') {
+        out.push('\n');
+    }
+    out.push_str("\n[mcp_servers.lean-ctx]\n");
+    out.push_str(&format!("command = \"{}\"\n", binary));
+    out.push_str("args = []\n");
+    out
 }
 
 fn detect_vscode_path() -> PathBuf {
