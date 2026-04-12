@@ -255,6 +255,109 @@ pub fn run_setup() {
     terminal_ui::print_command_box();
 }
 
+pub fn configure_agent_mcp(agent: &str) -> Result<(), String> {
+    let home = dirs::home_dir().ok_or_else(|| "Cannot determine home directory".to_string())?;
+    let binary = resolve_portable_binary();
+
+    let mut targets = Vec::<EditorTarget>::new();
+
+    let push = |targets: &mut Vec<EditorTarget>,
+                name: &'static str,
+                config_path: PathBuf,
+                config_type: ConfigType| {
+        targets.push(EditorTarget {
+            name,
+            agent_key: agent,
+            detect_path: PathBuf::from("/nonexistent"), // not used in direct agent config
+            config_path,
+            config_type,
+        });
+    };
+
+    match agent {
+        "cursor" => push(&mut targets, "Cursor", home.join(".cursor/mcp.json"), ConfigType::McpJson),
+        "claude" | "claude-code" => push(
+            &mut targets,
+            "Claude Code",
+            home.join(".claude.json"),
+            ConfigType::McpJson,
+        ),
+        "windsurf" => push(
+            &mut targets,
+            "Windsurf",
+            home.join(".codeium/windsurf/mcp_config.json"),
+            ConfigType::McpJson,
+        ),
+        "codex" => push(
+            &mut targets,
+            "Codex CLI",
+            home.join(".codex/config.toml"),
+            ConfigType::Codex,
+        ),
+        "gemini" => {
+            push(
+                &mut targets,
+                "Gemini CLI",
+                home.join(".gemini/settings/mcp.json"),
+                ConfigType::McpJson,
+            );
+            push(
+                &mut targets,
+                "Antigravity",
+                home.join(".gemini/antigravity/mcp_config.json"),
+                ConfigType::McpJson,
+            );
+        }
+        "copilot" => push(
+            &mut targets,
+            "VS Code / Copilot",
+            vscode_mcp_path(),
+            ConfigType::VsCodeMcp,
+        ),
+        "crush" => push(
+            &mut targets,
+            "Crush",
+            home.join(".config/crush/crush.json"),
+            ConfigType::Crush,
+        ),
+        "pi" => push(
+            &mut targets,
+            "Pi Coding Agent",
+            home.join(".pi/agent/mcp.json"),
+            ConfigType::McpJson,
+        ),
+        "cline" => push(&mut targets, "Cline", cline_mcp_path(), ConfigType::McpJson),
+        "roo" => push(&mut targets, "Roo Code", roo_mcp_path(), ConfigType::McpJson),
+        "kiro" => push(
+            &mut targets,
+            "AWS Kiro",
+            home.join(".kiro/settings/mcp.json"),
+            ConfigType::McpJson,
+        ),
+        "verdent" => push(
+            &mut targets,
+            "Verdent",
+            home.join(".verdent/mcp.json"),
+            ConfigType::McpJson,
+        ),
+        "jetbrains" => push(
+            &mut targets,
+            "JetBrains IDEs",
+            home.join(".jb-mcp.json"),
+            ConfigType::McpJson,
+        ),
+        _ => {
+            return Err(format!("Unknown agent '{agent}'"));
+        }
+    }
+
+    for t in &targets {
+        let _ = write_config(t, &binary)?;
+    }
+
+    Ok(())
+}
+
 fn shorten_path(path: &str, home: &str) -> String {
     if let Some(stripped) = path.strip_prefix(home) {
         format!("~{stripped}")
