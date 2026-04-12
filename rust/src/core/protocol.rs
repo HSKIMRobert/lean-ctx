@@ -1,29 +1,30 @@
 use std::path::Path;
 
-/// Finds the outermost project root by walking up from `file_path`.
-/// For monorepos with nested `.git` dirs (e.g. `mono/backend/.git` + `mono/frontend/.git`),
-/// returns the outermost ancestor containing `.git`, a workspace marker, or a known
-/// monorepo config file — so the whole monorepo is treated as one project.
+/// Finds a project root by walking up from `file_path`.
+/// Prefers the closest Git root (`.git`) to avoid accidentally selecting unrelated ancestor repos.
 pub fn detect_project_root(file_path: &str) -> Option<String> {
-    let mut dir = Path::new(file_path).parent()?;
-    let mut best: Option<String> = None;
+    let p = Path::new(file_path);
+    let mut dir = if p.is_dir() { p } else { p.parent()? };
+    let mut best_non_git: Option<String> = None;
 
     loop {
+        if dir.join(".git").exists() {
+            return Some(dir.to_string_lossy().to_string());
+        }
         if is_project_root_marker(dir) {
-            best = Some(dir.to_string_lossy().to_string());
+            best_non_git = Some(dir.to_string_lossy().to_string());
         }
         match dir.parent() {
             Some(parent) if parent != dir => dir = parent,
             _ => break,
         }
     }
-    best
+    best_non_git
 }
 
 /// Checks if a directory looks like a project root (has `.git`, workspace config, etc.).
 fn is_project_root_marker(dir: &Path) -> bool {
     const MARKERS: &[&str] = &[
-        ".git",
         "Cargo.toml",
         "package.json",
         "go.work",
@@ -43,6 +44,16 @@ fn is_project_root_marker(dir: &Path) -> bool {
 
 pub fn detect_project_root_or_cwd(file_path: &str) -> String {
     detect_project_root(file_path).unwrap_or_else(|| {
+        let p = Path::new(file_path);
+        if p.exists() {
+            if p.is_dir() {
+                return file_path.to_string();
+            }
+            if let Some(parent) = p.parent() {
+                return parent.to_string_lossy().to_string();
+            }
+            return file_path.to_string();
+        }
         std::env::current_dir()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|_| ".".to_string())
@@ -299,12 +310,13 @@ mod tests {
     }
 
     #[test]
-    fn is_project_root_marker_detects_git() {
-        let tmp = std::env::temp_dir().join("lean-ctx-test-root-marker");
+    fn detect_project_root_finds_git_root() {
+        let tmp = std::env::temp_dir().join("lean-ctx-test-git-root");
         let _ = std::fs::create_dir_all(&tmp);
         let git_dir = tmp.join(".git");
         let _ = std::fs::create_dir_all(&git_dir);
-        assert!(is_project_root_marker(&tmp));
+        let root = detect_project_root(tmp.to_str().unwrap());
+        assert_eq!(root.as_deref(), Some(tmp.to_string_lossy().as_ref()));
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
@@ -318,8 +330,8 @@ mod tests {
     }
 
     #[test]
-    fn detect_project_root_finds_outermost() {
-        let base = std::env::temp_dir().join("lean-ctx-test-monorepo");
+    fn detect_project_root_prefers_closest_git_root() {
+        let base = std::env::temp_dir().join("lean-ctx-test-nested-git");
         let inner = base.join("packages").join("app");
         let _ = std::fs::create_dir_all(&inner);
         let _ = std::fs::create_dir_all(base.join(".git"));
@@ -329,13 +341,7 @@ mod tests {
         let _ = std::fs::write(&test_file, "fn main() {}");
 
         let root = detect_project_root(test_file.to_str().unwrap());
-        assert!(root.is_some(), "should find a project root for nested .git");
-        let root_path = std::path::PathBuf::from(root.unwrap());
-        assert_eq!(
-            root_path.canonicalize().ok(),
-            base.canonicalize().ok(),
-            "should return outermost .git, not inner"
-        );
+        assert_eq!(root.as_deref(), Some(inner.to_string_lossy().as_ref()));
 
         let _ = std::fs::remove_dir_all(&base);
     }
