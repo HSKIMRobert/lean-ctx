@@ -22,6 +22,7 @@ pub mod filters;
 pub mod gotcha_tracker;
 pub mod graph_index;
 pub mod hybrid_search;
+pub mod index_orchestrator;
 pub mod intent_engine;
 pub mod knowledge;
 pub mod litm;

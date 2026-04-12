@@ -455,47 +455,49 @@ fn render_sprite_pack(traits: &CreatureTraits, mood: &Mood, level: u32) -> Sprit
 
 fn render_sprite_with_eyes(
     traits: &CreatureTraits,
-    mood: &Mood,
+    _mood: &Mood,
     el: &str,
     er: &str,
 ) -> Vec<String> {
-    let ear_line = ear_part(traits.ears);
+    let ears = ear_part(traits.ears);
     let head_top = head_top_part(traits.head);
-    let eye_line = eye_part(traits.head, traits.eyes, el, er, mood);
-    let mouth_line = mouth_part(traits.head, traits.mouth);
-    let head_bottom = head_bottom_part(traits.head, traits.body);
-    let body_line = body_part(traits.body, traits.markings);
-    let leg_line = leg_part(traits.legs, traits.tail);
+    let face = face_line(traits.head, traits.eyes, el, er);
+    let mouth = mouth_line(traits.head, traits.mouth);
+    let neck = neck_part(traits.head);
+    let body = body_part(traits.body, traits.markings);
+    let feet = leg_part(traits.legs, traits.tail);
 
     vec![
-        pad(&ear_line),
+        pad(&ears),
         pad(&head_top),
-        pad(&eye_line),
-        pad(&mouth_line),
-        pad(&head_bottom),
-        pad(&body_line),
-        pad(&leg_line),
+        pad(&face),
+        pad(&mouth),
+        pad(&neck),
+        pad(&body),
+        pad(&feet),
     ]
 }
 
 fn sparkle_edges(line: &str, left: char, right: char) -> String {
-    let mut chars: Vec<char> = line.chars().collect();
-    if !chars.is_empty() {
-        chars[0] = left;
-        let last = chars.len().saturating_sub(1);
-        chars[last] = right;
-    }
-    pad(&chars.into_iter().collect::<String>())
-}
-
-fn edge_aura(line: &str, left: char, right: char) -> String {
-    let mut chars: Vec<char> = line.chars().collect();
+    let s = pad(line);
+    let mut chars: Vec<char> = s.chars().collect();
     if chars.len() >= 2 {
         chars[0] = left;
         let last = chars.len() - 1;
         chars[last] = right;
     }
-    pad(&chars.into_iter().collect::<String>())
+    chars.into_iter().collect()
+}
+
+fn edge_aura(line: &str, left: char, right: char) -> String {
+    let s = pad(line);
+    let mut chars: Vec<char> = s.chars().collect();
+    if chars.len() >= 2 {
+        chars[0] = left;
+        let last = chars.len() - 1;
+        chars[last] = right;
+    }
+    chars.into_iter().collect()
 }
 
 fn shift(line: &str, offset: i32) -> String {
@@ -702,208 +704,207 @@ fn format_compact(n: u64) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Procedural sprite renderer (7 lines, ~16 chars)
+// Procedural sprite renderer (7 lines, 20 chars wide, center-aligned)
 // 12 heads x 10 eyes x 10 mouths x 12 ears x 10 bodies x 10 legs x 8 tails x 6 markings
 // = 69,120,000 unique creatures
 // ---------------------------------------------------------------------------
 
-const W: usize = 16;
+const W: usize = 20;
 
 fn pad(s: &str) -> String {
     let len = s.chars().count();
     if len >= W {
-        s.to_string()
+        s.chars().take(W).collect()
     } else {
-        format!("{}{}", s, " ".repeat(W - len))
+        let left = (W - len) / 2;
+        let right = W - len - left;
+        format!("{}{}{}", " ".repeat(left), s, " ".repeat(right))
     }
 }
 
 pub fn render_sprite(traits: &CreatureTraits, mood: &Mood) -> Vec<String> {
-    let eye_l = mood_eye_left(mood);
-    let eye_r = mood_eye_right(mood);
-
-    let ear_line = ear_part(traits.ears);
+    let (el, er) = mood_eyes(mood);
+    let ears = ear_part(traits.ears);
     let head_top = head_top_part(traits.head);
-    let eye_line = eye_part(traits.head, traits.eyes, eye_l, eye_r, mood);
-    let mouth_line = mouth_part(traits.head, traits.mouth);
-    let head_bottom = head_bottom_part(traits.head, traits.body);
-    let body_line = body_part(traits.body, traits.markings);
-    let leg_line = leg_part(traits.legs, traits.tail);
+    let face = face_line(traits.head, traits.eyes, el, er);
+    let mouth = mouth_line(traits.head, traits.mouth);
+    let neck = neck_part(traits.head);
+    let body = body_part(traits.body, traits.markings);
+    let feet = leg_part(traits.legs, traits.tail);
 
     vec![
-        pad(&ear_line),
+        pad(&ears),
         pad(&head_top),
-        pad(&eye_line),
-        pad(&mouth_line),
-        pad(&head_bottom),
-        pad(&body_line),
-        pad(&leg_line),
+        pad(&face),
+        pad(&mouth),
+        pad(&neck),
+        pad(&body),
+        pad(&feet),
     ]
 }
 
-fn mood_eye_left(mood: &Mood) -> &'static str {
+fn mood_eyes(mood: &Mood) -> (&'static str, &'static str) {
     match mood {
-        Mood::Ecstatic => "*",
-        Mood::Happy => "o",
-        Mood::Content => "-",
-        Mood::Worried => ">",
-        Mood::Sleeping => "u",
-    }
-}
-
-fn mood_eye_right(mood: &Mood) -> &'static str {
-    match mood {
-        Mood::Ecstatic => "*",
-        Mood::Happy => "o",
-        Mood::Content => "-",
-        Mood::Worried => "<",
-        Mood::Sleeping => "u",
+        Mood::Ecstatic => ("*", "*"),
+        Mood::Happy => ("o", "o"),
+        Mood::Content => ("-", "-"),
+        Mood::Worried => (">", "<"),
+        Mood::Sleeping => ("u", "u"),
     }
 }
 
 fn ear_part(idx: u8) -> String {
     match idx % 12 {
-        0 => "      /\\  /\\".into(),
-        1 => "     /  \\/  \\".into(),
-        2 => "     \\\\    //".into(),
-        3 => "      ||  ||".into(),
-        4 => "     ~'    '~".into(),
-        5 => "      >>  <<".into(),
-        6 => "      **  **".into(),
-        7 => "     .''  ''. ".into(),
-        8 => "      ~~  ~~".into(),
-        9 => "      ##  ##".into(),
-        10 => "      ^^  ^^".into(),
-        _ => "      <>  <>".into(),
+        0 => r"  /\    /\".into(),
+        1 => r" /  \  /  \".into(),
+        2 => r"  ()    ()".into(),
+        3 => r"  ||    ||".into(),
+        4 => r" ~'      '~".into(),
+        5 => r"  >>    <<".into(),
+        6 => r"  **    **".into(),
+        7 => r" .'      '.".into(),
+        8 => r"  ~~    ~~".into(),
+        9 => r"  ^^    ^^".into(),
+        10 => r"  {}    {}".into(),
+        _ => r"  <>    <>".into(),
     }
 }
 
 fn head_top_part(idx: u8) -> String {
     match idx % 12 {
-        0 => "     .____.    ".into(),
-        1 => "     .----.    ".into(),
-        2 => "     /----\\    ".into(),
-        3 => "     .====.    ".into(),
-        4 => "    .------.   ".into(),
-        5 => "     .____.    ".into(),
-        6 => "     /~~~~\\    ".into(),
-        7 => "     {____}    ".into(),
-        8 => "     <____>    ".into(),
-        9 => "     .^--^.    ".into(),
-        10 => "     /****\\    ".into(),
-        _ => "     (____)    ".into(),
+        0 => " .--------. ".into(),
+        1 => " +--------+ ".into(),
+        2 => " /--------\\ ".into(),
+        3 => " .========. ".into(),
+        4 => " (--------) ".into(),
+        5 => " .~~~~~~~~. ".into(),
+        6 => " /~~~~~~~~\\ ".into(),
+        7 => " {--------} ".into(),
+        8 => " <--------> ".into(),
+        9 => " .'^----^'. ".into(),
+        10 => " /********\\ ".into(),
+        _ => " (________) ".into(),
     }
 }
 
-fn eye_part(head: u8, _eye_idx: u8, el: &str, er: &str, _mood: &Mood) -> String {
-    let bracket = head_bracket(head);
+fn head_bracket(head: u8) -> (char, char) {
     match head % 12 {
-        2 => format!("    / {} {} \\   ", el, er),
-        _ => format!("   {} {} {} {}   ", bracket.0, el, er, bracket.1),
+        0 => ('|', '|'),
+        1 => ('|', '|'),
+        2 => ('/', '\\'),
+        3 => ('|', '|'),
+        4 => ('(', ')'),
+        5 => ('|', '|'),
+        6 => ('/', '\\'),
+        7 => ('{', '}'),
+        8 => ('<', '>'),
+        9 => ('(', ')'),
+        10 => ('/', '\\'),
+        _ => ('(', ')'),
     }
 }
 
-fn head_bracket(head: u8) -> (&'static str, &'static str) {
-    match head % 12 {
-        0 => ("/", "\\"),
-        1 => ("|", "|"),
-        2 => ("/", "\\"),
-        3 => ("/", "\\"),
-        4 => ("(", ")"),
-        5 => ("|", "|"),
-        6 => ("|", "|"),
-        7 => ("{", "}"),
-        8 => ("<", ">"),
-        9 => ("(", ")"),
-        10 => ("/", "\\"),
-        _ => ("(", ")"),
-    }
-}
-
-fn mouth_part(head: u8, mouth: u8) -> String {
-    let m = match mouth % 10 {
-        0 => "\\_/",
-        1 => " w ",
-        2 => " ^ ",
-        3 => " ~ ",
-        4 => "===",
-        5 => " o ",
-        6 => " 3 ",
-        7 => " v ",
-        8 => "---",
-        _ => " U ",
+fn face_line(head: u8, eye_idx: u8, el: &str, er: &str) -> String {
+    let (bl, br) = head_bracket(head);
+    let deco = match eye_idx % 10 {
+        0 => (" ", " "),
+        1 => ("'", "'"),
+        2 => (".", "."),
+        3 => ("~", "~"),
+        4 => ("*", "*"),
+        5 => ("`", "`"),
+        6 => ("^", "^"),
+        7 => (",", ","),
+        8 => (":", ":"),
+        _ => (" ", " "),
     };
-    let bracket = head_bracket(head);
-    format!("   {}  {}  {}   ", bracket.0, m, bracket.1)
+    format!(" {bl}  {}{el}  {er}{}  {br} ", deco.0, deco.1)
 }
 
-fn head_bottom_part(head: u8, _body: u8) -> String {
+fn mouth_line(head: u8, mouth: u8) -> String {
+    let (bl, br) = head_bracket(head);
+    let m = match mouth % 10 {
+        0 => " \\_/  ",
+        1 => "  w   ",
+        2 => "  ^   ",
+        3 => "  ~   ",
+        4 => " ===  ",
+        5 => "  o   ",
+        6 => "  3   ",
+        7 => "  v   ",
+        8 => " ---  ",
+        _ => "  U   ",
+    };
+    format!(" {bl}  {}  {br} ", m)
+}
+
+fn neck_part(head: u8) -> String {
     match head % 12 {
-        0 => "     '----'    ".into(),
-        1 => "     '+--+'    ".into(),
-        2 => "     \\____/    ".into(),
-        3 => "     '===='    ".into(),
-        4 => "    '------'   ".into(),
-        5 => "     '----'    ".into(),
-        6 => "     \\~~~~/    ".into(),
-        7 => "     {____}    ".into(),
-        8 => "     <____>    ".into(),
-        9 => "     '^--^'    ".into(),
-        10 => "     \\****/    ".into(),
-        _ => "     (____)    ".into(),
+        0 => " '--------' ".into(),
+        1 => " +--------+ ".into(),
+        2 => " \\--------/ ".into(),
+        3 => " '========' ".into(),
+        4 => " (--------) ".into(),
+        5 => " '~~~~~~~~' ".into(),
+        6 => " \\~~~~~~~~/ ".into(),
+        7 => " {--------} ".into(),
+        8 => " <--------> ".into(),
+        9 => " '.^----^.' ".into(),
+        10 => " \\********/ ".into(),
+        _ => " (__________) ".into(),
     }
 }
 
 fn body_part(body: u8, markings: u8) -> String {
-    let mark = match markings % 6 {
-        0 => "    ",
-        1 => "||||",
-        2 => "....",
-        3 => ">>>>",
-        4 => "~~~~",
-        _ => "::::",
+    let fill = match markings % 6 {
+        0 => "      ",
+        1 => " |||| ",
+        2 => " .... ",
+        3 => " >><< ",
+        4 => " ~~~~ ",
+        _ => " :::: ",
     };
     match body % 10 {
-        0 => format!("     /{mark}\\    "),
-        1 => format!("     |{mark}|    "),
-        2 => format!("    ({mark})     "),
-        3 => format!("    [{mark}]     "),
-        4 => format!("    ~{mark}~     "),
-        5 => format!("     <{mark}>    "),
-        6 => format!("     {{{mark}}}    "),
-        7 => format!("     |{mark}|    "),
-        8 => format!("    /{mark}\\     "),
-        _ => format!("    _{mark}_     "),
+        0 => format!("  /{fill}\\  "),
+        1 => format!("  |{fill}|  "),
+        2 => format!("  ({fill})  "),
+        3 => format!("  [{fill}]  "),
+        4 => format!("  ~{fill}~  "),
+        5 => format!("  <{fill}>  "),
+        6 => format!("  {{{fill}}}  "),
+        7 => format!("  |{fill}|  "),
+        8 => format!("  /{fill}\\  "),
+        _ => format!("  _{fill}_  "),
     }
 }
 
 fn leg_part(legs: u8, tail: u8) -> String {
     let t = match tail % 8 {
-        0 => "",
-        1 => "~",
-        2 => ">",
-        3 => ")",
-        4 => "^",
-        5 => "*",
-        6 => "=",
-        _ => "/",
+        0 => ' ',
+        1 => '~',
+        2 => '>',
+        3 => ')',
+        4 => '^',
+        5 => '*',
+        6 => '=',
+        _ => '/',
     };
     let base = match legs % 10 {
-        0 => "   /|    |\\",
-        1 => "   ~~    ~~",
-        2 => "  _/|    |\\_",
-        3 => "   ||    ||",
-        4 => "   /\\    /\\",
-        5 => "   <>    <>",
-        6 => "   ()    ()",
-        7 => "   }{    }{",
-        8 => "   //    \\\\",
-        _ => "   \\/    \\/",
+        0 => " /|      |\\",
+        1 => " ~~      ~~",
+        2 => "_/|      |\\_",
+        3 => " ||      ||",
+        4 => " /\\      /\\",
+        5 => " <>      <>",
+        6 => " ()      ()",
+        7 => " }{      }{",
+        8 => " //      \\\\",
+        _ => " \\/      \\/",
     };
-    if t.is_empty() {
-        format!("{base}    ")
+    if t == ' ' {
+        pad(base)
     } else {
-        format!("{base} {t}  ")
+        pad(&format!("{base} {t}"))
     }
 }
 
