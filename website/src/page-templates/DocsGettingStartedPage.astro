@@ -306,7 +306,7 @@ const sidebar = [
       },
       kiro: {
         name: 'AWS Kiro',
-        note: 'Configure via lean-ctx init --agent kiro. Kiro uses ~/.kiro/settings/mcp.json for global config or .kiro/settings/mcp.json per workspace.',
+        note: 'Configure via lean-ctx init --agent kiro. This creates both ~/.kiro/settings/mcp.json (MCP connection) AND .kiro/steering/lean-ctx.md (steering file that makes Kiro prefer lean-ctx tools over native readFile/executeBash).',
         manual: [
           'If auto-setup fails, create ~/.kiro/settings/mcp.json:',
           '{',
@@ -314,7 +314,9 @@ const sidebar = [
           '    "lean-ctx": { "command": "lean-ctx" }',
           '  }',
           '}',
-          '(Get path from: which lean-ctx)'
+          'Then create .kiro/steering/lean-ctx.md with the steering template from:',
+          'https://github.com/yvgude/lean-ctx (see KIRO_STEERING_TEMPLATE in hooks.rs)',
+          '(The steering file is REQUIRED for Kiro to use lean-ctx tools)'
         ],
         agent: 'kiro',
         restart: 'Restart Kiro.'
@@ -887,13 +889,10 @@ nano ~/.config/opencode/opencode.json</code></pre>
       <pre><code>lean-ctx init --agent kiro</code></pre>
     </li>
     <li><span set:html={t('docs.gettingStarted.editorKiroStep3')} />
-      <pre><code>{`{
-  "mcpServers": {
-    "lean-ctx": {
-      "command": "lean-ctx"
-    }
-  }
-}`}</code></pre>
+      <ul>
+        <li set:html={t('docs.gettingStarted.editorKiroStep3a')} />
+        <li set:html={t('docs.gettingStarted.editorKiroStep3b')} />
+      </ul>
     </li>
     <li>{t('docs.gettingStarted.editorKiroStep4')}</li>
   </ol>
