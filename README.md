@@ -173,7 +173,7 @@ After updating, restart your shell (`source ~/.zshrc`) and IDE to activate the n
 | **Cline / Roo Code** | MCP + rules | ✅ Auto |
 | **Aider** | Shell hook + rules | ✅ Auto |
 | **Amp** | Shell hook + rules | ✅ Auto |
-| **AWS Kiro** | MCP + rules | ✅ Auto |
+| **AWS Kiro** | MCP + steering file | ✅ Auto |
 | **Continue** | MCP + rules | ✅ Auto |
 | **Crush** | MCP + rules | ✅ Auto |
 
@@ -519,6 +519,7 @@ lean-ctx init --agent gemini   # Gemini CLI hook
 lean-ctx init --agent codex    # Codex AGENTS.md
 lean-ctx init --agent windsurf # .windsurfrules
 lean-ctx init --agent cline    # .clinerules
+lean-ctx init --agent kiro     # AWS Kiro (MCP + steering file)
 lean-ctx init --agent crush    # Crush by Charmbracelet
 lean-ctx init --agent pi       # Pi Coding Agent extension
 lean-ctx gain                  # Visual terminal dashboard

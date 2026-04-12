@@ -3,6 +3,37 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.0.3] — 2026-04-12
+
+### Dashboard Reliability + Automatic Background Indexing
+
+#### Added
+
+- **Background indexing orchestrator** — automatically builds and refreshes dependency graph, BM25 index, call graph, and route map in the background once a project root is known.
+- **Dashboard status endpoint** — `GET /api/status` exposes per-index build states (`idle|building|ready|failed`) for progress display and troubleshooting.
+- **Routes cache** — dashboard route map results are cached per project to avoid repeated scans.
+
+#### Improved
+
+- **Dashboard APIs are non-blocking** — graph/search/call-graph/routes endpoints return a `building` status instead of hanging while indexes are being built.
+- **Dashboard UI** — views show “Indexing…” + auto-retry with backoff instead of confusing empty states or timeouts.
+- **Auto-build on real usage** — MCP server triggers background builds when the project root is detected from `ctx_read` and also from `ctx_shell` (via effective working directory), without requiring manual reindex commands.
+
+#### CI
+
+- **AUR release hardening** — AUR job runs only when `AUR_SSH_KEY` is present, verifies SSH access up front, and fails loudly on auth issues.
+- **Homebrew verification** — formula update step asserts the expected version + SHA are written before pushing.
+
+#### Kiro IDE Support
+
+- **Kiro steering file** — `lean-ctx init --agent kiro` and `lean-ctx setup` now create `.kiro/steering/lean-ctx.md` alongside the MCP config, ensuring Kiro uses lean-ctx tools instead of native equivalents.
+- **Project-level detection** — `install_project_rules()` automatically creates the steering file when a `.kiro/` directory exists.
+
+#### Fixed
+
+- **`lean-ctx doctor` showed 9/10 instead of 10/10** — session state check was displayed but never counted towards the pass total.
+- **Dashboard browser error on Linux** — suppressed Chromium stderr noise (`sharing_service.cc`) when opening dashboard via `xdg-open`.
+
 ## [3.0.2] — 2026-04-12
 
 ### Symbol Intelligence + Hybrid Semantic Search

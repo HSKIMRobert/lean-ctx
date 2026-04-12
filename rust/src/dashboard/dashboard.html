@@ -617,6 +617,25 @@ function showLoading(container) { container.innerHTML = '<div class="loading-sta
 function showEmpty(container, msg) { container.innerHTML = `<div class="empty-state"><h2>No data yet</h2><p>${msg}</p></div>`; }
 function showError(container, msg) { container.innerHTML = `<div class="empty-state"><h2>Connection Error</h2><p>${esc(msg)}</p></div>`; }
 
+const retryTimers = new Map();
+const retryDelays = new Map();
+function scheduleRetry(view, fn) {
+  if (retryTimers.get(view)) return;
+  const d = retryDelays.get(view) || 1000;
+  retryDelays.set(view, Math.min(15000, Math.round(d * 1.7)));
+  retryTimers.set(view, setTimeout(() => {
+    retryTimers.delete(view);
+    if (currentView === view) fn();
+  }, d));
+}
+function resetRetry(view) {
+  retryDelays.set(view, 1000);
+  const t = retryTimers.get(view);
+  if (t) { clearTimeout(t); retryTimers.delete(view); }
+}
+function isBuildingData(d) { return d && d.status === 'building'; }
+function showIndexing(container, msg, view, fn) { showEmpty(container, msg); scheduleRetry(view, fn); }
+
 const inFlight = new Map();
 async function apiFetch(path, opts) {
   const timeoutMs = (opts && opts.timeoutMs) ?? (
@@ -1086,6 +1105,11 @@ async function loadDeps() {
     if (inFlight.get('deps')) return;
     inFlight.set('deps', true);
     const data = await apiFetch('/api/graph', { timeoutMs: 8000 });
+    if (isBuildingData(data)) {
+      showIndexing(container, 'Dependency graph is building in the background. This view will refresh automatically in a few seconds.', 'deps', loadDeps);
+      return;
+    }
+    resetRetry('deps');
     const files = data.files ? Object.values(data.files) : [];
     const edges = data.edges || [];
     if (!files.length) { showEmpty(container, 'No dependency data yet. LeanCTX builds a dependency graph using tree-sitter parsing.'); return; }
@@ -1208,6 +1232,11 @@ async function loadCompression() {
         apiFetch('/api/graph').catch(() => null),
         apiFetch('/api/search-index').catch(() => null),
       ]);
+      if (isBuildingData(graph) || isBuildingData(searchIdx)) {
+        showIndexing(container, 'Indexes are building in the background. This view will refresh automatically in a few seconds.', 'compression', loadCompression);
+        return;
+      }
+      resetRetry('compression');
       const graphPaths = graph && graph.files ? Object.values(graph.files).map(f => f.path) : [];
       const searchPaths = searchIdx && searchIdx.top_chunks_by_token_count ? searchIdx.top_chunks_by_token_count.map(c => c.file_path) : [];
       const all = new Set([...graphPaths, ...searchPaths]);
@@ -1388,6 +1417,11 @@ async function loadSearch() {
   const container = $('view-search');
   try {
     const data = await apiFetch('/api/search-index');
+    if (isBuildingData(data)) {
+      showIndexing(container, 'Search index is building in the background. This view will refresh automatically in a few seconds.', 'search', loadSearch);
+      return;
+    }
+    resetRetry('search');
 
     container.innerHTML = `
       <div class="row r3" style="margin-bottom:16px">
@@ -1412,7 +1446,11 @@ async function loadSearch() {
       </div>
       <div class="card" style="margin-top:10px">
         <h3>Search Playground</h3>
-        <input type="text" class="search-input" placeholder="Search index stats displayed above. Full search coming soon..." disabled>
+        <div style="display:flex;gap:8px;margin-bottom:12px">
+          <input id="searchPlaygroundInput" type="text" class="search-input" placeholder="Search your codebase (BM25)…" onkeydown="if(event.key==='Enter')runSearch()">
+          <button class="btn" onclick="runSearch()" style="white-space:nowrap;padding:8px 20px">Search</button>
+        </div>
+        <div id="searchPlaygroundResults" style="font-size:12px;color:var(--muted)">Enter a query and press Enter to search.</div>
       </div>
       ${howItWorks('BM25 Search Index', 'The search index uses the <strong>BM25 (Best Matching 25)</strong> ranking algorithm, a probabilistic retrieval model. Source files are broken into <strong>chunks</strong> by function/class boundaries using tree-sitter. Each chunk is indexed with term frequency (TF) and inverse document frequency (IDF). BM25 uses parameters <code>k1=1.2</code> and <code>b=0.75</code> to balance term saturation and document length normalization.')}`;
 
@@ -1442,6 +1480,33 @@ async function loadSearch() {
       <td class="r">${c.start_line}-${c.end_line}</td>
     </tr>`).join('');
   } catch (e) { showError(container, 'Could not load search index data.'); }
+}
+
+async function runSearch() {
+  const q = ($('searchPlaygroundInput') || {}).value || '';
+  const el = $('searchPlaygroundResults');
+  if (!el || !q.trim()) return;
+  el.innerHTML = '<div class="loading-state" style="padding:20px">Searching…</div>';
+  try {
+    const data = await apiFetch('/api/search?q=' + encodeURIComponent(q.trim()) + '&limit=20', { timeoutMs: 5000 });
+    if (isBuildingData(data)) {
+      el.innerHTML = '<div style="color:var(--muted);padding:16px">Search index is still building…</div>';
+      return;
+    }
+    const results = data.results || [];
+    if (!results.length) {
+      el.innerHTML = '<div style="color:var(--muted);padding:16px">No results for <strong>' + esc(q) + '</strong></div>';
+      return;
+    }
+    el.innerHTML = '<div style="margin-bottom:8px;font-size:11px;color:var(--muted)">' + results.length + ' result(s) for <strong>' + esc(q) + '</strong></div>'
+      + '<table style="width:100%;border-collapse:collapse"><thead><tr style="text-align:left;font-size:11px;color:var(--muted)"><th style="padding:6px">Score</th><th style="padding:6px">Symbol</th><th style="padding:6px">Kind</th><th style="padding:6px">File</th><th style="padding:6px">Lines</th></tr></thead><tbody>'
+      + results.map(r => `<tr style="border-top:1px solid var(--border)"><td style="padding:6px;font-family:var(--mono);color:var(--yellow)">${r.score.toFixed(2)}</td><td style="padding:6px;font-family:var(--mono);color:var(--green)">${esc(r.symbol_name || '—')}</td><td style="padding:6px"><span style="background:var(--surface-2);padding:2px 6px;border-radius:4px;font-size:10px">${esc(r.kind)}</span></td><td style="padding:6px;font-size:11px;color:var(--muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.file_path)}</td><td style="padding:6px;font-size:11px">${r.start_line}-${r.end_line}</td></tr>`)
+      .join('')
+      + '</tbody></table>'
+      + (results.length > 0 ? '<div style="margin-top:12px"><div style="font-size:10px;color:var(--muted);margin-bottom:6px">Preview: ' + esc(results[0].symbol_name || results[0].file_path) + '</div><pre style="background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:12px;font-family:var(--mono);font-size:11px;line-height:1.6;max-height:200px;overflow:auto;white-space:pre-wrap;word-break:break-all">' + esc(results[0].snippet || '') + '</pre></div>' : '');
+  } catch (e) {
+    el.innerHTML = '<div style="color:var(--red);padding:16px">Search failed: ' + esc(e.message || 'unknown error') + '</div>';
+  }
 }
 
 async function loadLearning() {
@@ -1549,6 +1614,12 @@ async function filterSymbols() {
     const data = await apiFetch('/api/symbols?' + params.toString());
     const el = $('symResults');
     if (!el) return;
+    if (isBuildingData(data)) {
+      el.innerHTML = '<div style="color:var(--dim);padding:16px">Indexing symbols…</div>';
+      scheduleRetry('symbols', filterSymbols);
+      return;
+    }
+    resetRetry('symbols');
     if (!data || !data.length) { el.innerHTML = '<div style="color:var(--dim);padding:16px">No symbols found</div>'; return; }
     el.innerHTML = '<table style="width:100%;border-collapse:collapse"><thead><tr style="text-align:left;font-size:11px;color:var(--dim)"><th style="padding:6px">Name</th><th style="padding:6px">Kind</th><th style="padding:6px">File</th><th style="padding:6px">Lines</th><th style="padding:6px">Vis</th></tr></thead><tbody>'
       + data.map(s => `<tr style="border-top:1px solid var(--border)"><td style="padding:6px;font-family:var(--mono);color:var(--green)">${esc(s.name)}</td><td style="padding:6px"><span style="background:var(--surface-2);padding:2px 6px;border-radius:4px;font-size:11px">${esc(s.kind)}</span></td><td style="padding:6px;font-size:12px;color:var(--dim)">${esc(s.file)}</td><td style="padding:6px;font-size:12px">${s.start_line}-${s.end_line}</td><td style="padding:6px">${s.is_exported ? '⊛' : '−'}</td></tr>`).join('')
@@ -1563,8 +1634,13 @@ async function loadCallGraph() {
   container.innerHTML = '<div style="color:var(--dim);padding:16px">Loading call graph…</div>';
   try {
     const data = await apiFetch('/api/call-graph', { timeoutMs: 10000 });
+    if (isBuildingData(data)) {
+      showIndexing(container, 'Call graph is building in the background. This view will refresh automatically in a few seconds.', 'callgraph', loadCallGraph);
+      return;
+    }
+    resetRetry('callgraph');
     if (!data || !data.edges || !data.edges.length) {
-      container.innerHTML = '<div style="color:var(--dim);padding:24px;text-align:center">No call graph data available. Use <code>ctx_callers</code> or <code>ctx_callees</code> to build the call graph.</div>';
+      container.innerHTML = '<div style="color:var(--dim);padding:24px;text-align:center">No call graph data available yet. LeanCTX builds it automatically once indexing finishes.</div>';
       return;
     }
     const nodes = new Map();
@@ -1613,6 +1689,11 @@ async function loadRoutes() {
   container.innerHTML = '<div style="color:var(--dim);padding:16px">Loading routes…</div>';
   try {
     const data = await apiFetch('/api/routes', { timeoutMs: 8000 });
+    if (isBuildingData(data)) {
+      showIndexing(container, 'Route map is building in the background. This view will refresh automatically in a few seconds.', 'routes', loadRoutes);
+      return;
+    }
+    resetRetry('routes');
     if (!data || !data.length) {
       container.innerHTML = '<div style="color:var(--dim);padding:24px;text-align:center">No HTTP routes found in this project.</div>';
       return;

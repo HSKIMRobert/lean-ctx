@@ -371,7 +371,30 @@ pub fn configure_agent_mcp(agent: &str) -> Result<(), String> {
         let _ = write_config(t, &binary)?;
     }
 
+    if agent == "kiro" {
+        install_kiro_steering(&home);
+    }
+
     Ok(())
+}
+
+fn install_kiro_steering(home: &std::path::Path) {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| home.to_path_buf());
+    let steering_dir = cwd.join(".kiro").join("steering");
+    let steering_file = steering_dir.join("lean-ctx.md");
+
+    if steering_file.exists()
+        && std::fs::read_to_string(&steering_file)
+            .unwrap_or_default()
+            .contains("lean-ctx")
+    {
+        println!("  Kiro steering file already exists at .kiro/steering/lean-ctx.md");
+        return;
+    }
+
+    let _ = std::fs::create_dir_all(&steering_dir);
+    let _ = std::fs::write(&steering_file, crate::hooks::KIRO_STEERING_TEMPLATE);
+    println!("  \x1b[32m✓\x1b[0m Created .kiro/steering/lean-ctx.md (Kiro will now prefer lean-ctx tools)");
 }
 
 fn shorten_path(path: &str, home: &str) -> String {
