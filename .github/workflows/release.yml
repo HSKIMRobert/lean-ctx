@@ -227,7 +227,7 @@ jobs:
     name: Update AUR
     needs: release
     runs-on: ubuntu-latest
-    if: ${{ !contains(github.ref_name, '-rc') && secrets.AUR_SSH_KEY != '' }}
+    if: ${{ !contains(github.ref_name, '-rc') }}
     steps:
       - name: Download checksums and extract hashes
         id: checksums
