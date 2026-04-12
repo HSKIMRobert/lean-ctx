@@ -1038,8 +1038,8 @@ fn write_vscode_mcp_file(mcp_path: &PathBuf, binary: &str, label: &str) {
     println!("  \x1b[32m✓\x1b[0m Created {label} with lean-ctx MCP server");
 }
 
-fn write_file(path: &PathBuf, content: &str) {
-    if let Err(e) = crate::config_io::write_atomic_with_backup(path.as_path(), content) {
+fn write_file(path: &std::path::Path, content: &str) {
+    if let Err(e) = crate::config_io::write_atomic_with_backup(path, content) {
         eprintln!("Error writing {}: {e}", path.display());
     }
 }

@@ -66,6 +66,87 @@ pub fn format_savings(original: usize, compressed: usize) -> String {
     format!("[{saved} tok saved ({pct}%)]")
 }
 
+/// Compresses tool output text based on density level.
+/// - Normal: no changes
+/// - Terse: strip blank lines, strip comment-only lines, remove banners
+/// - Ultra: additionally abbreviate common words
+pub fn compress_output(text: &str, density: &super::config::OutputDensity) -> String {
+    use super::config::OutputDensity;
+    match density {
+        OutputDensity::Normal => text.to_string(),
+        OutputDensity::Terse => compress_terse(text),
+        OutputDensity::Ultra => compress_ultra(text),
+    }
+}
+
+fn compress_terse(text: &str) -> String {
+    text.lines()
+        .filter(|line| {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                return false;
+            }
+            if is_comment_only(trimmed) {
+                return false;
+            }
+            if is_banner_line(trimmed) {
+                return false;
+            }
+            true
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn compress_ultra(text: &str) -> String {
+    let terse = compress_terse(text);
+    let mut result = terse;
+    for (long, short) in ABBREVIATIONS {
+        result = result.replace(long, short);
+    }
+    result
+}
+
+const ABBREVIATIONS: &[(&str, &str)] = &[
+    ("function", "fn"),
+    ("configuration", "cfg"),
+    ("implementation", "impl"),
+    ("dependencies", "deps"),
+    ("dependency", "dep"),
+    ("request", "req"),
+    ("response", "res"),
+    ("context", "ctx"),
+    ("error", "err"),
+    ("return", "ret"),
+    ("argument", "arg"),
+    ("value", "val"),
+    ("module", "mod"),
+    ("package", "pkg"),
+    ("directory", "dir"),
+    ("parameter", "param"),
+    ("variable", "var"),
+];
+
+fn is_comment_only(line: &str) -> bool {
+    line.starts_with("//")
+        || line.starts_with('#')
+        || line.starts_with("--")
+        || (line.starts_with("/*") && line.ends_with("*/"))
+}
+
+fn is_banner_line(line: &str) -> bool {
+    if line.len() < 4 {
+        return false;
+    }
+    let chars: Vec<char> = line.chars().collect();
+    let first = chars[0];
+    if matches!(first, '=' | '-' | '*' | '─' | '━' | '▀' | '▄') {
+        let same_count = chars.iter().filter(|c| **c == first).count();
+        return same_count as f64 / chars.len() as f64 > 0.7;
+    }
+    false
+}
+
 pub struct InstructionTemplate {
     pub code: &'static str,
     pub full: &'static str,
@@ -174,6 +255,48 @@ pub fn encode_instructions_with_snr(complexity: &str, compression_pct: f64) -> S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compress_output_normal_unchanged() {
+        use crate::core::config::OutputDensity;
+        let input = "line1\n\nline3\n// comment\n====\nline6";
+        let result = compress_output(input, &OutputDensity::Normal);
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn compress_output_terse_strips_blanks_and_comments() {
+        use crate::core::config::OutputDensity;
+        let input = "line1\n\n// comment\nline4\n----\nline6";
+        let result = compress_output(input, &OutputDensity::Terse);
+        assert!(!result.contains("\n\n"), "should remove blank lines");
+        assert!(!result.contains("// comment"), "should remove comments");
+        assert!(!result.contains("----"), "should remove banners");
+        assert!(result.contains("line1"));
+        assert!(result.contains("line4"));
+        assert!(result.contains("line6"));
+    }
+
+    #[test]
+    fn compress_output_ultra_abbreviates() {
+        use crate::core::config::OutputDensity;
+        let input = "function configuration implementation dependencies";
+        let result = compress_output(input, &OutputDensity::Ultra);
+        assert!(result.contains("fn"));
+        assert!(result.contains("cfg"));
+        assert!(result.contains("impl"));
+        assert!(result.contains("deps"));
+        assert!(!result.contains("function"));
+    }
+
+    #[test]
+    fn terse_shorter_than_normal() {
+        use crate::core::config::OutputDensity;
+        let input = "line1\n\n// header comment\nline3\n======\nline5\n\nline7";
+        let normal = compress_output(input, &OutputDensity::Normal);
+        let terse = compress_output(input, &OutputDensity::Terse);
+        assert!(terse.len() < normal.len());
+    }
 
     #[test]
     fn is_project_root_marker_detects_git() {

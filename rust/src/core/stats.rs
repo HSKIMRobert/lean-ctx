@@ -801,6 +801,10 @@ pub fn format_gain() -> String {
 }
 
 pub fn format_gain_themed(t: &Theme) -> String {
+    format_gain_themed_at(t, None)
+}
+
+pub fn format_gain_themed_at(t: &Theme, tick: Option<u64>) -> String {
     let store = load();
     let mut o = Vec::new();
     let r = theme::rst();
@@ -879,7 +883,7 @@ pub fn format_gain_themed(t: &Theme) -> String {
         let cfg = crate::core::config::Config::load();
         if cfg.buddy_enabled {
             let buddy = crate::core::buddy::BuddyState::compute();
-            o.push(crate::core::buddy::format_buddy_block(&buddy, t));
+            o.push(crate::core::buddy::format_buddy_block_at(&buddy, t, tick));
         }
     }
 
@@ -1128,20 +1132,24 @@ fn build_tips(store: &StatsStore) -> Vec<String> {
 pub fn gain_live() {
     use std::io::Write;
 
-    let interval = std::time::Duration::from_secs(2);
+    let interval = std::time::Duration::from_secs(1);
     let mut line_count = 0usize;
     let d = theme::dim();
     let r = theme::rst();
 
-    eprintln!("  {d}▸ Live mode (2s refresh) · Ctrl+C to exit{r}");
+    eprintln!("  {d}▸ Live mode (1s refresh) · Ctrl+C to exit{r}");
 
     loop {
         if line_count > 0 {
             print!("\x1B[{line_count}A\x1B[J");
         }
 
-        let output = format_gain();
-        let footer = format!("\n  {d}▸ Live · updates every 2s · Ctrl+C to exit{r}\n");
+        let tick = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()
+            .map(|d| d.as_millis() as u64);
+        let output = format_gain_themed_at(&active_theme(), tick);
+        let footer = format!("\n  {d}▸ Live · updates every 1s · Ctrl+C to exit{r}\n");
         let full = format!("{output}{footer}");
         line_count = full.lines().count();
 
