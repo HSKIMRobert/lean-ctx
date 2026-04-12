@@ -9,7 +9,7 @@ enum WriteAction {
 
 struct EditorTarget {
     name: &'static str,
-    agent_key: &'static str,
+    agent_key: String,
     config_path: PathBuf,
     detect_path: PathBuf,
     config_type: ConfigType,
@@ -127,7 +127,7 @@ pub fn run_setup() {
         if !target.detect_path.exists() || target.agent_key.is_empty() {
             continue;
         }
-        crate::hooks::install_agent_hook(target.agent_key, true);
+        crate::hooks::install_agent_hook(&target.agent_key, true);
     }
 
     // Step 4: Data directory + diagnostics
@@ -267,7 +267,7 @@ pub fn configure_agent_mcp(agent: &str) -> Result<(), String> {
                 config_type: ConfigType| {
         targets.push(EditorTarget {
             name,
-            agent_key: agent,
+            agent_key: agent.to_string(),
             detect_path: PathBuf::from("/nonexistent"), // not used in direct agent config
             config_path,
             config_type,
@@ -313,6 +313,12 @@ pub fn configure_agent_mcp(agent: &str) -> Result<(), String> {
                 ConfigType::McpJson,
             );
         }
+        "antigravity" => push(
+            &mut targets,
+            "Antigravity",
+            home.join(".gemini/antigravity/mcp_config.json"),
+            ConfigType::McpJson,
+        ),
         "copilot" => push(
             &mut targets,
             "VS Code / Copilot",
@@ -399,133 +405,133 @@ fn build_targets(home: &std::path::Path, _binary: &str) -> Vec<EditorTarget> {
     vec![
         EditorTarget {
             name: "Cursor",
-            agent_key: "cursor",
+            agent_key: "cursor".to_string(),
             config_path: home.join(".cursor/mcp.json"),
             detect_path: home.join(".cursor"),
             config_type: ConfigType::McpJson,
         },
         EditorTarget {
             name: "Claude Code",
-            agent_key: "claude",
+            agent_key: "claude".to_string(),
             config_path: home.join(".claude.json"),
             detect_path: detect_claude_path(),
             config_type: ConfigType::McpJson,
         },
         EditorTarget {
             name: "Windsurf",
-            agent_key: "windsurf",
+            agent_key: "windsurf".to_string(),
             config_path: home.join(".codeium/windsurf/mcp_config.json"),
             detect_path: home.join(".codeium/windsurf"),
             config_type: ConfigType::McpJson,
         },
         EditorTarget {
             name: "Codex CLI",
-            agent_key: "codex",
+            agent_key: "codex".to_string(),
             config_path: home.join(".codex/config.toml"),
             detect_path: detect_codex_path(home),
             config_type: ConfigType::Codex,
         },
         EditorTarget {
             name: "Gemini CLI",
-            agent_key: "gemini",
+            agent_key: "gemini".to_string(),
             config_path: home.join(".gemini/settings/mcp.json"),
             detect_path: home.join(".gemini"),
             config_type: ConfigType::McpJson,
         },
         EditorTarget {
             name: "Antigravity",
-            agent_key: "gemini",
+            agent_key: "gemini".to_string(),
             config_path: home.join(".gemini/antigravity/mcp_config.json"),
             detect_path: home.join(".gemini/antigravity"),
             config_type: ConfigType::McpJson,
         },
         EditorTarget {
             name: "Zed",
-            agent_key: "",
+            agent_key: "".to_string(),
             config_path: zed_settings_path(home),
             detect_path: zed_config_dir(home),
             config_type: ConfigType::Zed,
         },
         EditorTarget {
             name: "VS Code / Copilot",
-            agent_key: "copilot",
+            agent_key: "copilot".to_string(),
             config_path: vscode_mcp_path(),
             detect_path: detect_vscode_path(),
             config_type: ConfigType::VsCodeMcp,
         },
         EditorTarget {
             name: "OpenCode",
-            agent_key: "",
+            agent_key: "".to_string(),
             config_path: opencode_cfg,
             detect_path: opencode_detect,
             config_type: ConfigType::OpenCode,
         },
         EditorTarget {
             name: "Qwen Code",
-            agent_key: "qwen",
+            agent_key: "qwen".to_string(),
             config_path: home.join(".qwen/mcp.json"),
             detect_path: home.join(".qwen"),
             config_type: ConfigType::McpJson,
         },
         EditorTarget {
             name: "Trae",
-            agent_key: "trae",
+            agent_key: "trae".to_string(),
             config_path: home.join(".trae/mcp.json"),
             detect_path: home.join(".trae"),
             config_type: ConfigType::McpJson,
         },
         EditorTarget {
             name: "Amazon Q Developer",
-            agent_key: "amazonq",
+            agent_key: "amazonq".to_string(),
             config_path: home.join(".aws/amazonq/mcp.json"),
             detect_path: home.join(".aws/amazonq"),
             config_type: ConfigType::McpJson,
         },
         EditorTarget {
             name: "JetBrains IDEs",
-            agent_key: "jetbrains",
+            agent_key: "jetbrains".to_string(),
             config_path: home.join(".jb-mcp.json"),
             detect_path: detect_jetbrains_path(home),
             config_type: ConfigType::McpJson,
         },
         EditorTarget {
             name: "Cline",
-            agent_key: "cline",
+            agent_key: "cline".to_string(),
             config_path: cline_mcp_path(),
             detect_path: detect_cline_path(),
             config_type: ConfigType::McpJson,
         },
         EditorTarget {
             name: "Roo Code",
-            agent_key: "roo",
+            agent_key: "roo".to_string(),
             config_path: roo_mcp_path(),
             detect_path: detect_roo_path(),
             config_type: ConfigType::McpJson,
         },
         EditorTarget {
             name: "AWS Kiro",
-            agent_key: "kiro",
+            agent_key: "kiro".to_string(),
             config_path: home.join(".kiro/settings/mcp.json"),
             detect_path: home.join(".kiro"),
             config_type: ConfigType::McpJson,
         },
         EditorTarget {
             name: "Verdent",
-            agent_key: "verdent",
+            agent_key: "verdent".to_string(),
             config_path: home.join(".verdent/mcp.json"),
             detect_path: home.join(".verdent"),
             config_type: ConfigType::McpJson,
         },
         EditorTarget {
             name: "Crush",
-            agent_key: "crush",
+            agent_key: "crush".to_string(),
             config_path: home.join(".config/crush/crush.json"),
             detect_path: home.join(".config/crush"),
             config_type: ConfigType::Crush,
         },
         EditorTarget {
             name: "Pi Coding Agent",
-            agent_key: "pi",
+            agent_key: "pi".to_string(),
             config_path: home.join(".pi/agent/mcp.json"),
             detect_path: home.join(".pi/agent"),
             config_type: ConfigType::McpJson,
@@ -577,7 +583,7 @@ fn zed_config_dir(home: &std::path::Path) -> PathBuf {
     }
 }
 
-fn write_config(target: &EditorTarget, binary: &str) -> Result<(), String> {
+fn write_config(target: &EditorTarget, binary: &str) -> Result<WriteAction, String> {
     if let Some(parent) = target.config_path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -630,17 +636,7 @@ fn write_mcp_json(target: &EditorTarget, binary: &str) -> Result<WriteAction, St
         servers_obj.insert("lean-ctx".to_string(), desired);
         let formatted = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
         crate::config_io::write_atomic_with_backup(&target.config_path, &formatted)?;
-        return Ok(if existing.is_some() {
-            WriteAction::Updated
-        } else {
-            WriteAction::Updated
-        });
-        return Err(format!(
-            "Could not parse existing config at {}. Please add lean-ctx manually:\n\
-             Add to \"mcpServers\": \"lean-ctx\": {{ \"command\": \"{}\" }}",
-            target.config_path.display(),
-            binary
-        ));
+        return Ok(WriteAction::Updated);
     }
 
     let content = serde_json::to_string_pretty(&serde_json::json!({
@@ -683,10 +679,6 @@ fn write_zed_config(target: &EditorTarget, binary: &str) -> Result<WriteAction, 
         let formatted = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
         crate::config_io::write_atomic_with_backup(&target.config_path, &formatted)?;
         return Ok(WriteAction::Updated);
-        return Err(format!(
-            "Could not parse existing config at {}. Please add lean-ctx manually to \"context_servers\".",
-            target.config_path.display()
-        ));
     }
 
     let content = serde_json::to_string_pretty(&serde_json::json!({
@@ -743,10 +735,6 @@ fn write_vscode_mcp(target: &EditorTarget, binary: &str) -> Result<WriteAction, 
         let formatted = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
         crate::config_io::write_atomic_with_backup(&target.config_path, &formatted)?;
         return Ok(WriteAction::Updated);
-        return Err(format!(
-            "Could not parse existing config at {}. Please add lean-ctx manually to \"servers\".",
-            target.config_path.display()
-        ));
     }
 
     if let Some(parent) = target.config_path.parent() {
@@ -792,12 +780,6 @@ fn write_opencode_config(target: &EditorTarget, binary: &str) -> Result<WriteAct
         let formatted = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
         crate::config_io::write_atomic_with_backup(&target.config_path, &formatted)?;
         return Ok(WriteAction::Updated);
-        return Err(format!(
-            "Could not parse existing config at {}. Please add lean-ctx manually:\n\
-             Add to the \"mcp\" section: \"lean-ctx\": {{ \"type\": \"local\", \"command\": [\"{}\"], \"enabled\": true }}",
-            target.config_path.display(),
-            binary
-        ));
     }
 
     if let Some(parent) = target.config_path.parent() {
@@ -923,7 +905,7 @@ mod tests {
     fn target(path: PathBuf, ty: ConfigType) -> EditorTarget {
         EditorTarget {
             name: "test",
-            agent_key: "test",
+            agent_key: "test".to_string(),
             config_path: path,
             detect_path: PathBuf::from("/nonexistent"),
             config_type: ty,
