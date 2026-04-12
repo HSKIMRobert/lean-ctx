@@ -1624,9 +1624,6 @@ async function loadRoutes() {
       + '</tbody></table>';
   } catch (e) { showError(container, 'Could not load routes.'); }
 }
-
-function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
-
 buildSidebar();
 loadCurrentView();
 startAutoRefresh();
