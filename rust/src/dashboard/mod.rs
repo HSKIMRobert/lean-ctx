@@ -99,7 +99,10 @@ fn open_browser(url: &str) {
 
     #[cfg(target_os = "linux")]
     {
-        let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+        let _ = std::process::Command::new("xdg-open")
+            .arg(url)
+            .stderr(std::process::Stdio::null())
+            .spawn();
     }
 
     #[cfg(target_os = "windows")]

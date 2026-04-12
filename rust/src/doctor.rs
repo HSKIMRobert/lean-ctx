@@ -730,6 +730,9 @@ pub fn run() {
 
     // 9) Session state (project_root + shell_cwd)
     let session_outcome = session_state_outcome();
+    if session_outcome.ok {
+        passed += 1;
+    }
     print_check(&session_outcome);
 
     // 10) Pi Coding Agent (optional)

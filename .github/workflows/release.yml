@@ -212,6 +212,9 @@ jobs:
           sed -i "s|sha256 \".*\"|sha256 \"${SHA}\"|" Formula/lean-ctx.rb
           sed -i "s|assert_match \"lean-ctx .*\"|assert_match \"lean-ctx ${VERSION}\"|" Formula/lean-ctx.rb
 
+          grep -q "v${VERSION}/lean-ctx-${VERSION}-source.tar.gz" Formula/lean-ctx.rb
+          grep -q "sha256 \"${SHA}\"" Formula/lean-ctx.rb
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Formula/lean-ctx.rb
@@ -255,6 +258,10 @@ jobs:
             User aur
             StrictHostKeyChecking accept-new
           SSHEOF
+
+      - name: Verify AUR SSH access
+        run: |
+          ssh -o BatchMode=yes aur.archlinux.org true
 
       - name: Update lean-ctx (source build)
         run: |

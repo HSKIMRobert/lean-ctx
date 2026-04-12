@@ -206,6 +206,7 @@ impl ServerHandler for LeanCtxServer {
                 let output = format!("{stale_note}{output}");
                 let file_ref = cache.file_ref_map().get(&path).cloned();
                 drop(cache);
+                let mut ensured_root: Option<String> = None;
                 {
                     let mut session = self.session.write().await;
                     session.touch_file(&path, file_ref.as_deref(), &effective_mode, original);
@@ -215,6 +216,7 @@ impl ServerHandler for LeanCtxServer {
                     if session.project_root.is_none() {
                         if let Some(root) = crate::core::protocol::detect_project_root(&path) {
                             session.project_root = Some(root.clone());
+                            ensured_root = Some(root.clone());
                             let mut current = self.agent_id.write().await;
                             if current.is_none() {
                                 let mut registry =
@@ -227,6 +229,9 @@ impl ServerHandler for LeanCtxServer {
                             }
                         }
                     }
+                }
+                if let Some(root) = ensured_root.as_deref() {
+                    crate::core::index_orchestrator::ensure_all_background(root);
                 }
                 self.record_call("ctx_read", original, saved, Some(mode.clone()))
                     .await;
@@ -343,9 +348,39 @@ impl ServerHandler for LeanCtxServer {
                     session.effective_cwd(explicit_cwd.as_deref())
                 };
 
-                {
+                let ensured_root = {
                     let mut session = self.session.write().await;
                     session.update_shell_cwd(&command);
+                    let root_missing = session
+                        .project_root
+                        .as_deref()
+                        .map(|r| r.trim().is_empty())
+                        .unwrap_or(true);
+                    if !root_missing {
+                        None
+                    } else {
+                        let home = dirs::home_dir().map(|h| h.to_string_lossy().to_string());
+                        crate::core::protocol::detect_project_root(&effective_cwd).and_then(|r| {
+                            if home.as_deref() == Some(r.as_str()) {
+                                None
+                            } else {
+                                session.project_root = Some(r.clone());
+                                Some(r)
+                            }
+                        })
+                    }
+                };
+                if let Some(root) = ensured_root.as_deref() {
+                    crate::core::index_orchestrator::ensure_all_background(root);
+                    let mut current = self.agent_id.write().await;
+                    if current.is_none() {
+                        let mut registry = crate::core::agents::AgentRegistry::load_or_create();
+                        registry.cleanup_stale(24);
+                        let role = std::env::var("LEAN_CTX_AGENT_ROLE").ok();
+                        let id = registry.register("mcp", role.as_deref(), root);
+                        let _ = registry.save();
+                        *current = Some(id);
+                    }
                 }
 
                 let raw = get_bool(args, "raw").unwrap_or(false)
