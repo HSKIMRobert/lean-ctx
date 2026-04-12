@@ -262,6 +262,10 @@ pub struct BuddyState {
     pub bugs_prevented: u64,
     pub streak_days: u32,
     pub ascii_art: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ascii_frames: Vec<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anim_ms: Option<u32>,
     pub traits: CreatureTraits,
 }
 
@@ -272,9 +276,7 @@ impl BuddyState {
             .total_input_tokens
             .saturating_sub(store.total_output_tokens);
 
-        let project_root = std::env::current_dir()
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_default();
+        let project_root = detect_project_root_for_buddy();
         let gotcha_store = if !project_root.is_empty() {
             super::gotcha_tracker::GotchaStore::load(&project_root)
         } else {
@@ -318,7 +320,8 @@ impl BuddyState {
         let seed = user_seed();
         let traits = CreatureTraits::from_seed(seed);
         let name = generate_name(seed);
-        let ascii_art = render_sprite(&traits, &mood);
+        let sprite = render_sprite_pack(&traits, &mood, level);
+        let ascii_art = sprite.base.clone();
         let speech = generate_speech(&mood, tokens_saved, bugs_prevented, streak_days);
 
         Self {
@@ -335,9 +338,197 @@ impl BuddyState {
             bugs_prevented,
             streak_days,
             ascii_art,
+            ascii_frames: sprite.frames,
+            anim_ms: sprite.anim_ms,
             traits,
         }
     }
+}
+
+fn detect_project_root_for_buddy() -> String {
+    if let Some(session) = super::session::SessionState::load_latest() {
+        if let Some(root) = session.project_root.as_deref() {
+            if !root.trim().is_empty() {
+                return root.to_string();
+            }
+        }
+        if let Some(cwd) = session.shell_cwd.as_deref() {
+            if !cwd.trim().is_empty() {
+                return super::protocol::detect_project_root_or_cwd(cwd);
+            }
+        }
+        if let Some(last) = session.files_touched.last() {
+            if !last.path.trim().is_empty() {
+                if let Some(parent) = std::path::Path::new(&last.path).parent() {
+                    let p = parent.to_string_lossy().to_string();
+                    return super::protocol::detect_project_root_or_cwd(&p);
+                }
+            }
+        }
+    }
+    std::env::current_dir()
+        .map(|p| super::protocol::detect_project_root_or_cwd(&p.to_string_lossy()))
+        .unwrap_or_default()
+}
+
+struct SpritePack {
+    base: Vec<String>,
+    frames: Vec<Vec<String>>,
+    anim_ms: Option<u32>,
+}
+
+fn sprite_tier(level: u32) -> u8 {
+    if level >= 75 {
+        4
+    } else if level >= 50 {
+        3
+    } else if level >= 25 {
+        2
+    } else if level >= 10 {
+        1
+    } else {
+        0
+    }
+}
+
+fn tier_anim_ms(tier: u8) -> Option<u32> {
+    match tier {
+        0 => None,
+        1 => Some(950),
+        2 => Some(700),
+        3 => Some(520),
+        _ => Some(380),
+    }
+}
+
+fn render_sprite_pack(traits: &CreatureTraits, mood: &Mood, level: u32) -> SpritePack {
+    let base = render_sprite(traits, mood);
+    let tier = sprite_tier(level);
+    if tier == 0 {
+        return SpritePack {
+            base,
+            frames: Vec::new(),
+            anim_ms: None,
+        };
+    }
+
+    let mut frames = Vec::new();
+    frames.push(base.clone());
+
+    // Frame 1: blink
+    let blink = match mood {
+        Mood::Sleeping => ("u", "u"),
+        _ => (".", "."),
+    };
+    frames.push(render_sprite_with_eyes(traits, mood, blink.0, blink.1));
+
+    // Frame 2+: level-based effects
+    if tier >= 2 {
+        let mut s = base.clone();
+        if let Some(l0) = s.get_mut(0) {
+            *l0 = sparkle_edges(l0, '*', '+');
+        }
+        frames.push(s);
+    }
+    if tier >= 3 {
+        let mut s = base.clone();
+        for line in &mut s {
+            *line = shift(line, 1);
+        }
+        frames.push(s);
+    }
+    if tier >= 4 {
+        let mut s = base.clone();
+        for (i, line) in s.iter_mut().enumerate() {
+            let (l, r) = if i % 2 == 0 { ('+', '+') } else { ('*', '*') };
+            *line = edge_aura(line, l, r);
+        }
+        frames.push(s);
+    }
+
+    SpritePack {
+        base,
+        frames,
+        anim_ms: tier_anim_ms(tier),
+    }
+}
+
+fn render_sprite_with_eyes(
+    traits: &CreatureTraits,
+    mood: &Mood,
+    el: &str,
+    er: &str,
+) -> Vec<String> {
+    let ear_line = ear_part(traits.ears);
+    let head_top = head_top_part(traits.head);
+    let eye_line = eye_part(traits.head, traits.eyes, el, er, mood);
+    let mouth_line = mouth_part(traits.head, traits.mouth);
+    let head_bottom = head_bottom_part(traits.head, traits.body);
+    let body_line = body_part(traits.body, traits.markings);
+    let leg_line = leg_part(traits.legs, traits.tail);
+
+    vec![
+        pad(&ear_line),
+        pad(&head_top),
+        pad(&eye_line),
+        pad(&mouth_line),
+        pad(&head_bottom),
+        pad(&body_line),
+        pad(&leg_line),
+    ]
+}
+
+fn sparkle_edges(line: &str, left: char, right: char) -> String {
+    let mut chars: Vec<char> = line.chars().collect();
+    if !chars.is_empty() {
+        chars[0] = left;
+        let last = chars.len().saturating_sub(1);
+        chars[last] = right;
+    }
+    pad(&chars.into_iter().collect::<String>())
+}
+
+fn edge_aura(line: &str, left: char, right: char) -> String {
+    let mut chars: Vec<char> = line.chars().collect();
+    if chars.len() >= 2 {
+        chars[0] = left;
+        let last = chars.len() - 1;
+        chars[last] = right;
+    }
+    pad(&chars.into_iter().collect::<String>())
+}
+
+fn shift(line: &str, offset: i32) -> String {
+    if offset == 0 {
+        return pad(line);
+    }
+    let s = pad(line);
+    let mut chars: Vec<char> = s.chars().collect();
+    if chars.is_empty() {
+        return s;
+    }
+    if offset > 0 {
+        for _ in 0..offset {
+            chars.insert(0, ' ');
+            chars.pop();
+        }
+    } else {
+        for _ in 0..(-offset) {
+            chars.remove(0);
+            chars.push(' ');
+        }
+    }
+    chars.into_iter().collect()
+}
+
+fn sprite_lines_for_tick(state: &BuddyState, tick: Option<u64>) -> &[String] {
+    if let Some(t) = tick {
+        if !state.ascii_frames.is_empty() {
+            let idx = (t as usize) % state.ascii_frames.len();
+            return &state.ascii_frames[idx];
+        }
+    }
+    &state.ascii_art
 }
 
 // ---------------------------------------------------------------------------
@@ -572,44 +763,43 @@ fn mood_eye_right(mood: &Mood) -> &'static str {
 
 fn ear_part(idx: u8) -> String {
     match idx % 12 {
-        0 => "                ".into(),
-        1 => "    \\\\  //      ".into(),
-        2 => "    ||  ||      ".into(),
-        3 => "    /\\  /\\      ".into(),
-        4 => "   ~'    '~     ".into(),
-        5 => "    >>  <<      ".into(),
-        6 => "    **  **      ".into(),
-        7 => "   .''  ''.     ".into(),
-        8 => "    ~~  ~~      ".into(),
-        9 => "    ##  ##      ".into(),
-        10 => "    ^^  ^^      ".into(),
-        _ => "    <>  <>      ".into(),
+        0 => "      /\\  /\\".into(),
+        1 => "     /  \\/  \\".into(),
+        2 => "     \\\\    //".into(),
+        3 => "      ||  ||".into(),
+        4 => "     ~'    '~".into(),
+        5 => "      >>  <<".into(),
+        6 => "      **  **".into(),
+        7 => "     .''  ''. ".into(),
+        8 => "      ~~  ~~".into(),
+        9 => "      ##  ##".into(),
+        10 => "      ^^  ^^".into(),
+        _ => "      <>  <>".into(),
     }
 }
 
 fn head_top_part(idx: u8) -> String {
     match idx % 12 {
-        0 => "    .----.      ".into(),
-        1 => "    +----+      ".into(),
-        2 => "     /\\         ".into(),
-        3 => "    .===-.      ".into(),
-        4 => "   .------.    ".into(),
-        5 => "     .--.       ".into(),
-        6 => "    /~~~~\\      ".into(),
-        7 => "    {----}      ".into(),
-        8 => "    <---->      ".into(),
-        9 => "    .^~~^.      ".into(),
-        10 => "    /****\\      ".into(),
-        _ => "    (----)      ".into(),
+        0 => "     .____.    ".into(),
+        1 => "     .----.    ".into(),
+        2 => "     /----\\    ".into(),
+        3 => "     .====.    ".into(),
+        4 => "    .------.   ".into(),
+        5 => "     .____.    ".into(),
+        6 => "     /~~~~\\    ".into(),
+        7 => "     {____}    ".into(),
+        8 => "     <____>    ".into(),
+        9 => "     .^--^.    ".into(),
+        10 => "     /****\\    ".into(),
+        _ => "     (____)    ".into(),
     }
 }
 
 fn eye_part(head: u8, _eye_idx: u8, el: &str, er: &str, _mood: &Mood) -> String {
     let bracket = head_bracket(head);
     match head % 12 {
-        2 => format!("    / {} {} \\     ", el, er),
-        5 => format!("   {} {} {} {}      ", bracket.0, el, er, bracket.1),
-        _ => format!("   {} {} {} {}     ", bracket.0, el, er, bracket.1),
+        2 => format!("    / {} {} \\   ", el, er),
+        _ => format!("   {} {} {} {}   ", bracket.0, el, er, bracket.1),
     }
 }
 
@@ -644,46 +834,46 @@ fn mouth_part(head: u8, mouth: u8) -> String {
         _ => " U ",
     };
     let bracket = head_bracket(head);
-    format!("   {}  {}  {}     ", bracket.0, m, bracket.1)
+    format!("   {}  {}  {}   ", bracket.0, m, bracket.1)
 }
 
 fn head_bottom_part(head: u8, _body: u8) -> String {
     match head % 12 {
-        0 => "    '----'      ".into(),
-        1 => "    +----+      ".into(),
-        2 => "     \\/         ".into(),
-        3 => "    '====-'     ".into(),
-        4 => "   '------'    ".into(),
-        5 => "     '--'       ".into(),
-        6 => "    \\~~~~/$     ".into(),
-        7 => "    {----}      ".into(),
-        8 => "    <---->      ".into(),
-        9 => "    '^~~^'      ".into(),
-        10 => "    \\****/      ".into(),
-        _ => "    (----)      ".into(),
+        0 => "     '----'    ".into(),
+        1 => "     '+--+'    ".into(),
+        2 => "     \\____/    ".into(),
+        3 => "     '===='    ".into(),
+        4 => "    '------'   ".into(),
+        5 => "     '----'    ".into(),
+        6 => "     \\~~~~/    ".into(),
+        7 => "     {____}    ".into(),
+        8 => "     <____>    ".into(),
+        9 => "     '^--^'    ".into(),
+        10 => "     \\****/    ".into(),
+        _ => "     (____)    ".into(),
     }
 }
 
 fn body_part(body: u8, markings: u8) -> String {
     let mark = match markings % 6 {
-        0 => "      ",
-        1 => "|||   ",
-        2 => "...   ",
-        3 => ">>>   ",
-        4 => "~~~   ",
-        _ => ":::   ",
+        0 => "    ",
+        1 => "||||",
+        2 => "....",
+        3 => ">>>>",
+        4 => "~~~~",
+        _ => "::::",
     };
     match body % 10 {
-        0 => format!("   /|{}|\\  ", &mark[..4]),
-        1 => format!("    |{}|   ", &mark[..4]),
-        2 => format!("   ({}{})", &mark[..4], " "),
-        3 => format!("   [{}]    ", &mark[..4]),
-        4 => format!("   ~{}~    ", &mark[..4]),
-        5 => format!("   <{}{}> ", &mark[..3], " "),
-        6 => format!("   {{{}}}    ", &mark[..4]),
-        7 => format!("   |{}|    ", &mark[..4]),
-        8 => format!("   ({}()   ", &mark[..4]),
-        _ => format!("   /{}\\    ", &mark[..4]),
+        0 => format!("     /{mark}\\    "),
+        1 => format!("     |{mark}|    "),
+        2 => format!("    ({mark})     "),
+        3 => format!("    [{mark}]     "),
+        4 => format!("    ~{mark}~     "),
+        5 => format!("     <{mark}>    "),
+        6 => format!("     {{{mark}}}    "),
+        7 => format!("     |{mark}|    "),
+        8 => format!("    /{mark}\\     "),
+        _ => format!("    _{mark}_     "),
     }
 }
 
@@ -722,6 +912,14 @@ fn leg_part(legs: u8, tail: u8) -> String {
 // ---------------------------------------------------------------------------
 
 pub fn format_buddy_block(state: &BuddyState, theme: &super::theme::Theme) -> String {
+    format_buddy_block_at(state, theme, None)
+}
+
+pub fn format_buddy_block_at(
+    state: &BuddyState,
+    theme: &super::theme::Theme,
+    tick: Option<u64>,
+) -> String {
     let r = super::theme::rst();
     let a = theme.accent.fg();
     let m = theme.muted.fg();
@@ -746,7 +944,8 @@ pub fn format_buddy_block(state: &BuddyState, theme: &super::theme::Theme) -> St
 
     let mut lines = Vec::with_capacity(9);
     lines.push(String::new());
-    for (i, sprite_line) in state.ascii_art.iter().enumerate() {
+    let sprite = sprite_lines_for_tick(state, tick);
+    for (i, sprite_line) in sprite.iter().enumerate() {
         let info = if i < info_lines.len() {
             &info_lines[i]
         } else {

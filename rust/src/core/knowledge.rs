@@ -637,8 +637,18 @@ fn string_similarity(a: &str, b: &str) -> f32 {
 }
 
 fn knowledge_dir(project_hash: &str) -> Result<PathBuf, String> {
+    Ok(lean_ctx_data_dir()?.join("knowledge").join(project_hash))
+}
+
+fn lean_ctx_data_dir() -> Result<PathBuf, String> {
+    if let Ok(dir) = std::env::var("LEAN_CTX_DATA_DIR") {
+        let trimmed = dir.trim();
+        if !trimmed.is_empty() {
+            return Ok(PathBuf::from(trimmed));
+        }
+    }
     let home = dirs::home_dir().ok_or("Cannot determine home directory")?;
-    Ok(home.join(".lean-ctx").join("knowledge").join(project_hash))
+    Ok(home.join(".lean-ctx"))
 }
 
 fn hash_project_root(root: &str) -> String {

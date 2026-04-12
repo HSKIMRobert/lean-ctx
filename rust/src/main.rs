@@ -384,7 +384,7 @@ USAGE:
 
 COMMANDS:
     gain                           Visual dashboard (colors, bars, sparklines, USD)
-    gain --live                    Live mode: auto-refreshes every 2s in-place
+    gain --live                    Live mode: auto-refreshes every 1s in-place
     gain --graph                   30-day savings chart
     gain --daily                   Bordered day-by-day table with USD
     gain --json                    Raw JSON export of all stats

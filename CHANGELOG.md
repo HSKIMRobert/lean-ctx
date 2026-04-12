@@ -3,6 +3,37 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.0.2] — 2026-04-12
+
+### Symbol Intelligence + Hybrid Semantic Search
+
+#### Added — New MCP Tools
+
+- **Symbol & outline navigation**
+  - `ctx_symbol` — read a specific symbol by name (code span only)
+  - `ctx_outline` — compact file outline (symbols + signatures)
+- **Call graph navigation**
+  - `ctx_callers` — find callers of a symbol
+  - `ctx_callees` — list callees of a symbol
+- **API surface extraction**
+  - `ctx_routes` — extract HTTP routes/endpoints across common frameworks
+- **Visualization**
+  - `ctx_graph_diagram` — Mermaid diagram for dependency graph / call graph
+- **Memory hygiene**
+  - `ctx_compress_memory` — compress large memory/config markdown while preserving code fences/URLs
+
+#### Improved — `ctx_semantic_search`
+
+- **Search modes**: `bm25`, `dense`, `hybrid` (default)
+- **Filters**: `languages` + `path_glob` to scope results
+- **Automation**: auto-refreshes stale BM25 indexes; incremental embedding index updates
+- **Performance**: process-level embedding engine cache (no repeated model load)
+
+#### Fixed
+
+- **Route extraction**: Spring-style Java methods with generic return types are now detected correctly.
+- **Graph diagrams**: `depth` is now respected when filtering edges for `ctx_graph_diagram`.
+
 ## [3.0.1] — 2026-04-10
 
 ### LeanCTX Observatory — Real-Time Data Visualization Dashboard
