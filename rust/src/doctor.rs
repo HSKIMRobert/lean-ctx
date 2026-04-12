@@ -460,7 +460,7 @@ fn mcp_config_outcome() -> Outcome {
         Outcome {
             ok: false,
             line: format!(
-                "{BOLD}MCP config{RST}  {YELLOW}config exists for {} but does not reference lean-ctx{RST}  {DIM}(run: lean-ctx init --agent <editor>){RST}",
+                "{BOLD}MCP config{RST}  {YELLOW}config exists for {} but does not reference lean-ctx{RST}  {DIM}(run: lean-ctx setup){RST}",
                 exists_no_ref.join(", ")
             ),
         }
@@ -468,7 +468,7 @@ fn mcp_config_outcome() -> Outcome {
         Outcome {
             ok: false,
             line: format!(
-                "{BOLD}MCP config{RST}  {YELLOW}no MCP config found{RST}  {DIM}(checked: Cursor, Claude, Windsurf, Codex, Gemini, Antigravity, Crush, Zed){RST}"
+                "{BOLD}MCP config{RST}  {YELLOW}no MCP config found{RST}  {DIM}(run: lean-ctx setup){RST}"
             ),
         }
     }
