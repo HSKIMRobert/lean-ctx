@@ -901,6 +901,82 @@ fn upsert_codex_toml(existing: &str, binary: &str) -> String {
     out
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn target(path: PathBuf, ty: ConfigType) -> EditorTarget {
+        EditorTarget {
+            name: "test",
+            agent_key: "test",
+            config_path: path,
+            detect_path: PathBuf::from("/nonexistent"),
+            config_type: ty,
+        }
+    }
+
+    #[test]
+    fn mcp_json_upserts_and_preserves_other_servers() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mcp.json");
+        std::fs::write(
+            &path,
+            r#"{ "mcpServers": { "other": { "command": "other-bin" }, "lean-ctx": { "command": "/old/path/lean-ctx", "autoApprove": [] } } }"#,
+        )
+        .unwrap();
+
+        let t = target(path.clone(), ConfigType::McpJson);
+        let action = write_mcp_json(&t, "/new/path/lean-ctx").unwrap();
+        assert_eq!(action, WriteAction::Updated);
+
+        let json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap())
+            .unwrap();
+        assert_eq!(json["mcpServers"]["other"]["command"], "other-bin");
+        assert_eq!(json["mcpServers"]["lean-ctx"]["command"], "/new/path/lean-ctx");
+        assert!(json["mcpServers"]["lean-ctx"]["autoApprove"].is_array());
+        assert!(json["mcpServers"]["lean-ctx"]["autoApprove"].as_array().unwrap().len() > 5);
+    }
+
+    #[test]
+    fn crush_config_writes_mcp_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("crush.json");
+        std::fs::write(&path, r#"{ "mcp": { "lean-ctx": { "type": "stdio", "command": "old" } } }"#)
+            .unwrap();
+
+        let t = target(path.clone(), ConfigType::Crush);
+        let action = write_crush_config(&t, "new").unwrap();
+        assert_eq!(action, WriteAction::Updated);
+
+        let json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap())
+            .unwrap();
+        assert_eq!(json["mcp"]["lean-ctx"]["type"], "stdio");
+        assert_eq!(json["mcp"]["lean-ctx"]["command"], "new");
+    }
+
+    #[test]
+    fn codex_toml_upserts_existing_section() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            r#"[mcp_servers.lean-ctx]
+command = "old"
+args = ["x"]
+"#,
+        )
+        .unwrap();
+
+        let t = target(path.clone(), ConfigType::Codex);
+        let action = write_codex_config(&t, "new").unwrap();
+        assert_eq!(action, WriteAction::Updated);
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains(r#"command = "new""#));
+        assert!(content.contains("args = []"));
+    }
+}
+
 fn detect_vscode_path() -> PathBuf {
     #[cfg(target_os = "macos")]
     {
