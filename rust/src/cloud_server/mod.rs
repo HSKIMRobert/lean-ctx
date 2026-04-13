@@ -51,6 +51,8 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/api/auth/request-link", post(auth::request_magic_link))
         .route("/api/auth/exchange", get(auth::exchange_magic_link))
         .route("/api/auth/logout", post(auth::logout))
+        .route("/api/auth/set-password", post(auth::set_password))
+        .route("/api/auth/login", post(auth::login_password))
         .route("/api/stats", get(stats::get_stats).post(stats::post_stats))
         .route("/api/contribute", post(contribute::post_contribute))
         .route(

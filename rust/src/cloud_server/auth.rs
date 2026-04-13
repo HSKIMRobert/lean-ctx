@@ -391,6 +391,92 @@ async fn consume_magic_link(pool: &Pool, token_sha: &str) -> Result<Uuid, Consum
     Ok(user_id)
 }
 
+// ── Password auth ──────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct SetPasswordBody {
+    pub password: String,
+}
+
+pub async fn set_password(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<SetPasswordBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let (user_id, _) = auth_user(&state, &headers).await?;
+    let pw = body.password.trim();
+    if pw.len() < 8 {
+        return Err((StatusCode::BAD_REQUEST, "Password must be at least 8 characters".into()));
+    }
+    let hash = hash_password(pw)?;
+    let client = state.pool.get().await.map_err(internal_error)?;
+    client
+        .execute(
+            "UPDATE users SET password_hash = $1 WHERE id = $2",
+            &[&hash, &user_id],
+        )
+        .await
+        .map_err(internal_error)?;
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+#[derive(Deserialize)]
+pub struct LoginPasswordBody {
+    pub email: String,
+    pub password: String,
+}
+
+pub async fn login_password(
+    State(state): State<AppState>,
+    Json(body): Json<LoginPasswordBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let email = body.email.trim().to_lowercase();
+    let password = body.password.trim();
+    if email.is_empty() || password.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "Email and password required".into()));
+    }
+
+    let client = state.pool.get().await.map_err(internal_error)?;
+    let row = client
+        .query_opt(
+            "SELECT id, password_hash FROM users WHERE email = $1",
+            &[&email],
+        )
+        .await
+        .map_err(internal_error)?
+        .ok_or((StatusCode::UNAUTHORIZED, "Invalid credentials".into()))?;
+
+    let user_id: Uuid = row.get(0);
+    let stored_hash: Option<String> = row.get(1);
+    let stored_hash = stored_hash
+        .ok_or((StatusCode::UNAUTHORIZED, "No password set — use magic link first, then set a password".into()))?;
+
+    verify_password(password, &stored_hash)?;
+
+    let jwt = mint_jwt(&state, user_id)?;
+    Ok(Json(serde_json::json!({ "token": jwt })))
+}
+
+fn hash_password(password: &str) -> Result<String, (StatusCode, String)> {
+    let salt: [u8; 16] = rand::random();
+    let salt_hex = hex::encode(salt);
+    let salted = format!("{salt_hex}:{password}");
+    let hash = sha256_hex(&salted);
+    Ok(format!("{salt_hex}${hash}"))
+}
+
+fn verify_password(password: &str, stored: &str) -> Result<(), (StatusCode, String)> {
+    let (salt_hex, expected_hash) = stored
+        .split_once('$')
+        .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "Corrupt password hash".into()))?;
+    let salted = format!("{salt_hex}:{password}");
+    let computed = sha256_hex(&salted);
+    if computed != expected_hash {
+        return Err((StatusCode::UNAUTHORIZED, "Invalid credentials".into()));
+    }
+    Ok(())
+}
+
 fn generate_api_key() -> String {
     let bytes: [u8; 32] = rand::random();
     hex::encode(bytes)
