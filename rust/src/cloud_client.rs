@@ -144,21 +144,11 @@ pub fn push_knowledge(entries: &[serde_json::Value]) -> Result<String, String> {
     ))
 }
 
-pub fn pull_pro_models() -> Result<serde_json::Value, String> {
-    let api_key = load_api_key().ok_or("Not logged in. Run: lean-ctx login <email>")?;
-    let url = format!("{}/api/pro/models", api_url());
-
-    let resp = ureq::get(&url)
+fn fetch_models_json(url: &str, api_key: &str) -> Result<serde_json::Value, String> {
+    let resp = ureq::get(url)
         .header("Authorization", &format!("Bearer {api_key}"))
         .call()
-        .map_err(|e| {
-            let msg = e.to_string();
-            if msg.contains("403") {
-                "This feature is not available for your account.".to_string()
-            } else {
-                format!("Connection failed. Check your internet connection. ({e})")
-            }
-        })?;
+        .map_err(|e| format!("Connection failed. Check your internet connection. ({e})"))?;
 
     let resp_body = resp
         .into_body()
@@ -168,50 +158,37 @@ pub fn pull_pro_models() -> Result<serde_json::Value, String> {
     serde_json::from_str(&resp_body).map_err(|e| format!("Invalid response: {e}"))
 }
 
-pub fn save_pro_models(data: &serde_json::Value) -> std::io::Result<()> {
+pub fn pull_adaptive_models() -> Result<serde_json::Value, String> {
+    let api_key = load_api_key().ok_or("Not logged in. Run: lean-ctx login <email>")?;
+    let base = api_url();
+    let url_new = format!("{base}/api/cloud/models");
+    match fetch_models_json(&url_new, &api_key) {
+        Ok(v) => Ok(v),
+        Err(_) => {
+            let url_old = format!("{base}/api/pro/models");
+            fetch_models_json(&url_old, &api_key)
+        }
+    }
+}
+
+pub fn save_adaptive_models(data: &serde_json::Value) -> std::io::Result<()> {
     let dir = config_dir();
     std::fs::create_dir_all(&dir)?;
     let json = serde_json::to_string_pretty(data).map_err(std::io::Error::other)?;
-    std::fs::write(dir.join("pro_models.json"), json)
+    std::fs::write(dir.join("adaptive_models.json"), json)
 }
 
-pub fn load_pro_models() -> Option<serde_json::Value> {
-    let path = config_dir().join("pro_models.json");
-    let data = std::fs::read_to_string(path).ok()?;
-    serde_json::from_str(&data).ok()
-}
-
-pub fn check_pro() -> bool {
-    let path = config_dir().join("plan.txt");
-    std::fs::read_to_string(path)
-        .map(|p| p.trim() == "pro")
-        .unwrap_or(false)
-}
-
-pub fn save_plan(plan: &str) -> std::io::Result<()> {
+pub fn load_adaptive_models() -> Option<serde_json::Value> {
     let dir = config_dir();
-    std::fs::create_dir_all(&dir)?;
-    std::fs::write(dir.join("plan.txt"), plan)
-}
-
-pub fn fetch_plan() -> Result<String, String> {
-    let api_key = load_api_key().ok_or("Not logged in")?;
-    let url = format!("{}/api/auth/me", api_url());
-
-    let resp = ureq::get(&url)
-        .header("Authorization", &format!("Bearer {api_key}"))
-        .call()
-        .map_err(|e| format!("Failed to check plan: {e}"))?;
-
-    let resp_body = resp
-        .into_body()
-        .read_to_string()
-        .map_err(|e| format!("Failed to read response: {e}"))?;
-
-    let json: serde_json::Value =
-        serde_json::from_str(&resp_body).map_err(|e| format!("Invalid response: {e}"))?;
-
-    Ok(json["plan"].as_str().unwrap_or("free").to_string())
+    let new_path = dir.join("adaptive_models.json");
+    if let Ok(data) = std::fs::read_to_string(&new_path) {
+        if let Ok(v) = serde_json::from_str(&data) {
+            return Some(v);
+        }
+    }
+    let old_path = dir.join("pro_models.json");
+    let data = std::fs::read_to_string(old_path).ok()?;
+    serde_json::from_str(&data).ok()
 }
 
 pub fn pull_knowledge() -> Result<Vec<serde_json::Value>, String> {

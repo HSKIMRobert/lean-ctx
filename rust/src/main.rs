@@ -1,7 +1,7 @@
 use anyhow::Result;
 use lean_ctx::{
-    cli, cloud_client, core, dashboard, doctor, heatmap, hook_handlers, mcp_stdio, report, setup,
-    shell, terminal_ui, tools, tui, uninstall,
+    cli, cloud_client, cloud_sync, core, dashboard, doctor, heatmap, hook_handlers, mcp_stdio,
+    report, setup, shell, terminal_ui, tools, tui, uninstall,
 };
 
 fn main() {
@@ -22,6 +22,8 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() > 1 {
+        spawn_cloud_background_tasks(&args);
+
         let rest = args[2..].to_vec();
 
         match args[1].as_str() {
@@ -300,6 +302,25 @@ fn main() {
     }
 }
 
+fn spawn_cloud_background_tasks(args: &[String]) {
+    if std::env::var("LEAN_CTX_DISABLED").is_ok() || std::env::var("LEAN_CTX_ACTIVE").is_ok() {
+        return;
+    }
+    if std::env::var("LEAN_CTX_AUTONOMY")
+        .ok()
+        .is_some_and(|v| v == "false" || v == "0")
+    {
+        return;
+    }
+    if matches!(args.get(1).map(|s| s.as_str()), Some("-c" | "exec")) {
+        return;
+    }
+
+    std::thread::spawn(|| {
+        let _ = std::panic::catch_unwind(|| cloud_sync::cloud_background_tasks());
+    });
+}
+
 fn passthrough(command: &str) -> ! {
     let (shell, flag) = shell::shell_and_flag();
     let status = std::process::Command::new(&shell)
@@ -537,11 +558,6 @@ fn cmd_sync() {
         eprintln!("Not logged in. Run: lean-ctx login <email>");
         std::process::exit(1);
     }
-    if !cloud_client::check_pro() {
-        println!("Stats sync requires a cloud account.");
-        println!("Run: lean-ctx login <email>");
-        std::process::exit(0);
-    }
 
     let stats_data = core::stats::format_gain_json();
     let parsed: serde_json::Value = match serde_json::from_str(&stats_data) {
@@ -759,16 +775,16 @@ fn cmd_cloud(args: &[String]) {
 
     match action {
         "pull-models" => {
-            if !cloud_client::check_pro() {
-                println!("Adaptive models are not available for your account.");
-                return;
+            if !cloud_client::is_logged_in() {
+                eprintln!("Not logged in. Run: lean-ctx login <email>");
+                std::process::exit(1);
             }
             println!("Updating adaptive models...");
-            match cloud_client::pull_pro_models() {
+            match cloud_client::pull_adaptive_models() {
                 Ok(data) => {
                     let count = data["models"].as_array().map(|a| a.len()).unwrap_or(0);
 
-                    if let Err(e) = cloud_client::save_pro_models(&data) {
+                    if let Err(e) = cloud_client::save_adaptive_models(&data) {
                         eprintln!("Warning: Could not save models: {e}");
                         return;
                     }

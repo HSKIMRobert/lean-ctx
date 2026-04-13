@@ -30,7 +30,7 @@ pub fn cloud_background_tasks() {
         }
     }
 
-    if crate::cloud_client::check_pro() {
+    if crate::cloud_client::is_logged_in() {
         if !already_synced {
             let stats_data = crate::core::stats::format_gain_json();
             if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&stats_data) {
@@ -50,8 +50,8 @@ pub fn cloud_background_tasks() {
         }
 
         if !already_pulled {
-            if let Ok(data) = crate::cloud_client::pull_pro_models() {
-                let _ = crate::cloud_client::save_pro_models(&data);
+            if let Ok(data) = crate::cloud_client::pull_adaptive_models() {
+                let _ = crate::cloud_client::save_adaptive_models(&data);
                 config.cloud.last_model_pull = Some(today.clone());
             }
         }

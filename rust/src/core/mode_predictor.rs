@@ -73,7 +73,7 @@ impl ModePredictor {
     }
 
     /// Returns the best mode based on historical efficiency.
-    /// Chain: local history -> Pro adaptive models -> built-in defaults.
+    /// Chain: local history -> cloud adaptive models -> built-in defaults.
     pub fn predict_best_mode(&self, sig: &FileSignature) -> Option<String> {
         if let Some(local) = self.predict_from_local(sig) {
             return Some(local);
@@ -109,10 +109,10 @@ impl ModePredictor {
             .map(|(mode, _)| mode.to_string())
     }
 
-    /// Loads Pro adaptive models (requires Pro subscription).
-    /// Pro models are cached locally and auto-updated for Pro users.
+    /// Loads cloud adaptive models (opt-in via login).
+    /// Models are cached locally and can be auto-updated in the background.
     fn predict_from_pro(&self, sig: &FileSignature) -> Option<String> {
-        let data = crate::cloud_client::load_pro_models()?;
+        let data = crate::cloud_client::load_adaptive_models()?;
         let models = data["models"].as_array()?;
 
         let ext_with_dot = format!(".{}", sig.ext);
@@ -156,7 +156,7 @@ impl ModePredictor {
     }
 
     /// Built-in defaults for common file types and sizes.
-    /// Ensures reasonable compression even without local history or Pro models.
+    /// Ensures reasonable compression even without local history or cloud models.
     /// Respects Kolmogorov-Gate: files with K>0.7 skip aggressive modes.
     fn predict_from_defaults(sig: &FileSignature) -> Option<String> {
         let mode = match (sig.ext.as_str(), sig.size_bucket) {
