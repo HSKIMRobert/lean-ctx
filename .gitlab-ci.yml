@@ -24,10 +24,10 @@ deploy-website:
   script:
     # Sync website/dist + nginx.conf + Dockerfile to server
     - |
-      rsync -avz --delete \
-        website/dist/ \
-        website/nginx.conf \
-        website/Dockerfile \
+      ssh "$LEANCTX_SSH_USER@$LEANCTX_SSH_HOST" "mkdir -p /home/$LEANCTX_SSH_USER/lean-ctx-web/dist"
+      rsync -avz --delete website/dist/ \
+        "$LEANCTX_SSH_USER@$LEANCTX_SSH_HOST:/home/$LEANCTX_SSH_USER/lean-ctx-web/dist/"
+      rsync -avz website/nginx.conf website/Dockerfile \
         "$LEANCTX_SSH_USER@$LEANCTX_SSH_HOST:/home/$LEANCTX_SSH_USER/lean-ctx-web/"
     # Rebuild image and restart container on server
     - |
