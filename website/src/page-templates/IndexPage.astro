@@ -37,8 +37,8 @@ const lp = (path: string) => getLocalizedPath(path, locale);
       </div>
       <div class="hero-proof-divider"></div>
       <div class="hero-proof-item">
-        <span class="hero-proof-number font-display">18</span>
-        <span class="hero-proof-label">{t('index.heroProofLanguages')}</span>
+        <span class="hero-proof-number font-display hero-proof-number--accent" id="global-tokens-saved">—</span>
+        <span class="hero-proof-label">{t('index.heroProofTokensSaved')}</span>
       </div>
       <div class="hero-proof-divider"></div>
       <div class="hero-proof-item">
@@ -64,60 +64,6 @@ const lp = (path: string) => getLocalizedPath(path, locale);
         <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M20.317 4.37a19.791 19.791 0 00-4.885-1.515.074.074 0 00-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 00-5.487 0 12.64 12.64 0 00-.617-1.25.077.077 0 00-.079-.037A19.736 19.736 0 003.677 4.37a.07.07 0 00-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 00.031.057 19.9 19.9 0 005.993 3.03.078.078 0 00.084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 00-.041-.106 13.107 13.107 0 01-1.872-.892.077.077 0 01-.008-.128 10.2 10.2 0 00.372-.292.074.074 0 01.077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 01.078.01c.12.098.246.198.373.292a.077.077 0 01-.006.127 12.299 12.299 0 01-1.873.892.077.077 0 00-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 00.084.028 19.839 19.839 0 006.002-3.03.077.077 0 00.032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 00-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
         {t('index.joinDiscord')}
         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
-      </a>
-    </div>
-  </div>
-</section>
-
-<div class="section-divider content-grid"></div>
-
-<!-- ═══════════════════════════════════════════════════════
-     COMMUNITY STATS (live counter)
-     ═══════════════════════════════════════════════════════ -->
-<section class="section-y">
-  <div class="content-grid">
-    <p class="fluid-label text-muted animate-entrance" style="margin-bottom: clamp(1rem, 0.75rem + 0.5vw, 1.5rem);">
-      {t('community.label')}
-    </p>
-    <h2 class="font-display fluid-h2 font-bold text-text-bright animate-entrance stagger-1" style="margin-bottom: clamp(1rem, 0.75rem + 0.5vw, 1.5rem);">
-      {t('community.title')} <span class="gradient-text">{t('community.titleHighlight')}</span>
-    </h2>
-    <p class="text-muted fluid-body animate-entrance stagger-2" style="margin-bottom: clamp(2.5rem, 2rem + 2vw, 4rem); max-width: 48rem;">
-      {t('community.subtitle')}
-    </p>
-
-    <div class="community-stats-grid animate-entrance stagger-3">
-      <div class="community-hero-stat">
-        <span class="community-hero-num font-display" id="global-tokens-saved">—</span>
-        <span class="community-hero-label">{t('community.tokensSaved')}</span>
-      </div>
-      <div class="community-stats-row">
-        <div class="community-stat-card">
-          <span class="community-stat-num font-display" id="global-users">—</span>
-          <span class="community-stat-label">{t('community.activeUsers')}</span>
-        </div>
-        <div class="community-stat-card">
-          <span class="community-stat-num font-display" id="global-teams">—</span>
-          <span class="community-stat-label">{t('community.teams')}</span>
-        </div>
-        <div class="community-stat-card">
-          <span class="community-stat-num font-display" id="global-contributions">—</span>
-          <span class="community-stat-label">{t('community.contributions')}</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="flex flex-wrap items-center animate-entrance stagger-4" style="gap: clamp(0.75rem, 0.5rem + 0.5vw, 1.25rem); margin-top: clamp(2rem, 1.5rem + 1vw, 3rem);">
-      <a href={lp('/leaderboard')} class="btn-primary inline-flex items-center gap-2 rounded-lg" style="padding: clamp(0.7rem, 0.55rem + 0.3vw, 0.9rem) clamp(1.5rem, 1rem + 0.75vw, 2.25rem); font-size: clamp(0.8125rem, 0.78rem + 0.15vw, 0.9375rem);">
-        {t('community.viewLeaderboard')}
-        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
-      </a>
-      <a href={lp('/cloud')} class="btn-outline inline-flex items-center gap-2 rounded-lg" style="padding: clamp(0.7rem, 0.55rem + 0.3vw, 0.9rem) clamp(1.5rem, 1rem + 0.75vw, 2.25rem); font-size: clamp(0.8125rem, 0.78rem + 0.15vw, 0.9375rem);">
-        {t('community.joinCloud')}
-      </a>
-      <a href={lp('/docs/getting-started')} class="fluid-sm text-muted hover:text-text-bright transition-colors inline-flex items-center gap-1.5 font-medium">
-        {t('community.joinTheRace')}
-        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
       </a>
     </div>
   </div>
@@ -701,6 +647,12 @@ const lp = (path: string) => getLocalizedPath(path, locale);
     letter-spacing: -0.03em;
     line-height: 1;
   }
+  .hero-proof-number--accent {
+    background: linear-gradient(135deg, var(--color-accent), #60a5fa);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
   .hero-proof-label {
     font-size: clamp(0.75rem, 0.7rem + 0.15vw, 0.875rem);
     color: var(--color-muted);
@@ -1074,110 +1026,25 @@ const lp = (path: string) => getLocalizedPath(path, locale);
 })();
 </script>
 
-<script>
+<script is:inline>
 (function() {
-  var API = 'https://api.leanctx.com';
-
-  function fmt(n) {
+  function fmtShort(n) {
     if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
     if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
     if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
-    return n.toLocaleString('en-US');
+    return String(n);
   }
-
-  function animateCount(el, target, duration) {
-    if (!el) return;
-    var start = 0;
-    var startTime = null;
-    function step(ts) {
-      if (!startTime) startTime = ts;
-      var progress = Math.min((ts - startTime) / duration, 1);
-      var eased = 1 - Math.pow(1 - progress, 3);
-      var current = Math.floor(eased * target);
-      el.textContent = fmt(current);
-      if (progress < 1) requestAnimationFrame(step);
-    }
-    requestAnimationFrame(step);
-  }
-
-  fetch(API + '/api/global-stats')
+  fetch('https://api.leanctx.com/api/global-stats')
     .then(function(r) { return r.json(); })
     .then(function(d) {
-      animateCount(document.getElementById('global-tokens-saved'), d.total_tokens_saved || 0, 2000);
-      animateCount(document.getElementById('global-users'), d.total_users || 0, 1500);
-      animateCount(document.getElementById('global-teams'), d.total_teams || 0, 1500);
-      animateCount(document.getElementById('global-contributions'), d.total_contributions || 0, 1500);
+      var el = document.getElementById('global-tokens-saved');
+      var val = d.total_tokens_saved || 0;
+      if (el && val > 0) el.textContent = fmtShort(val);
+      else if (el) el.textContent = '—';
     })
     .catch(function() {});
 })();
 </script>
-
-<style>
-  .community-stats-grid {
-    display: grid;
-    gap: 1px;
-    background: var(--color-border);
-    border: 1px solid var(--color-border);
-    border-radius: clamp(10px, 0.8vw, 14px);
-    overflow: hidden;
-  }
-  .community-hero-stat {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.5rem;
-    padding: clamp(2rem, 1.5rem + 1.5vw, 3.5rem) clamp(1.5rem, 1rem + 1vw, 3rem);
-    background: var(--color-bg);
-  }
-  .community-hero-num {
-    font-size: clamp(2.5rem, 2rem + 2vw, 4.5rem);
-    font-weight: 800;
-    letter-spacing: -0.03em;
-    background: linear-gradient(135deg, var(--color-accent), #60a5fa);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    line-height: 1.1;
-  }
-  .community-hero-label {
-    font-size: clamp(0.75rem, 0.7rem + 0.15vw, 0.875rem);
-    color: var(--color-muted);
-    font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-  .community-stats-row {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 1px;
-    background: var(--color-border);
-  }
-  .community-stat-card {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.25rem;
-    padding: clamp(1.25rem, 1rem + 0.75vw, 2rem);
-    background: var(--color-bg);
-  }
-  .community-stat-num {
-    font-size: clamp(1.5rem, 1.25rem + 1vw, 2.5rem);
-    font-weight: 700;
-    color: var(--color-text-bright);
-    letter-spacing: -0.02em;
-  }
-  .community-stat-label {
-    font-size: clamp(0.6875rem, 0.65rem + 0.1vw, 0.8125rem);
-    color: var(--color-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-  @media (max-width: 480px) {
-    .community-stats-row {
-      grid-template-columns: 1fr;
-    }
-  }
-</style>
 
 </BaseLayout>
 <!-- v2.14.3 deploy trigger -->
