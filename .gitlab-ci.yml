@@ -1,5 +1,5 @@
 # GitLab CI/CD — lean-ctx website deployment
-# Triggered on the `deploy` branch → builds & restarts the lean-ctx-web Docker container
+# Triggered on the `deploy` branch → builds website (Node 22) and deploys to server (nginx container)
 #
 # Required GitLab CI/CD Variables (Settings → CI/CD → Variables):
 #   LEANCTX_SSH_KEY   — private SSH key content (type: File, protected: yes)
@@ -7,13 +7,32 @@
 #   LEANCTX_SSH_USER  — SSH username (e.g. administrator)
 
 stages:
+  - build
   - deploy
+
+build-website:
+  stage: build
+  image: node:22.12.0-bullseye
+  only:
+    - deploy
+  script:
+    - cd website
+    - npm ci --silent
+    - npm run -s build
+  artifacts:
+    paths:
+      - website/dist
+      - website/nginx.conf
+      - website/Dockerfile
+    expire_in: 1 week
 
 deploy-website:
   stage: deploy
   image: alpine:latest
   only:
     - deploy
+  dependencies:
+    - build-website
   before_script:
     - apk add --no-cache openssh-client rsync
     - eval $(ssh-agent -s)
@@ -22,7 +41,7 @@ deploy-website:
     - mkdir -p ~/.ssh
     - ssh-keyscan -H "$LEANCTX_SSH_HOST" >> ~/.ssh/known_hosts
   script:
-    # Sync website/dist + nginx.conf + Dockerfile to server
+    # Sync built dist + nginx.conf + Dockerfile to server
     - |
       ssh "$LEANCTX_SSH_USER@$LEANCTX_SSH_HOST" "mkdir -p /home/$LEANCTX_SSH_USER/lean-ctx-web/dist"
       rsync -avz --delete website/dist/ \

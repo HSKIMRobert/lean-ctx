@@ -1,0 +1,252 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { getLocaleFromUrl, useTranslations } from '../i18n/utils';
+
+const locale = getLocaleFromUrl(Astro.url);
+const t = useTranslations(locale);
+---
+
+<BaseLayout
+  title={`LeanCTX Cloud`}
+  description="Sync stats, knowledge, and adaptive models across devices. Free for all logged-in users."
+  breadcrumbs={[{ name: 'Cloud', url: '/cloud' }]}
+>
+  <section class="content-grid py-12 md:py-16">
+    <div class="max-w-5xl mx-auto">
+      <div class="glass-panel p-8 md:p-10 animate-entrance">
+        <div class="flex flex-col gap-3">
+          <p class="text-sm text-muted">{t('nav.product.contextServer')}</p>
+          <h1 class="text-3xl md:text-4xl font-display text-text-bright">LeanCTX Cloud</h1>
+          <p class="text-base md:text-lg text-text max-w-3xl">
+            Kostenlos. Opt-in via Login. Self-hosted auf unseren Servern. Synchronisiert Stats, Knowledge und adaptive models.
+          </p>
+        </div>
+
+        <div id="cloudError" class="mt-6 hidden rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200"></div>
+        <div id="cloudInfo" class="mt-6 hidden rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-200"></div>
+
+        <div id="loginCard" class="mt-8 grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 items-end">
+          <div>
+            <label for="email" class="block text-sm text-muted mb-2">Email</label>
+            <input
+              id="email"
+              type="email"
+              autocomplete="email"
+              inputmode="email"
+              class="w-full rounded-xl bg-bg/40 border border-white/10 px-4 py-3 text-text-bright placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/50"
+              placeholder="you@company.com"
+            />
+          </div>
+          <button
+            id="sendLinkBtn"
+            class="rounded-xl px-5 py-3 bg-accent text-bg font-semibold hover:brightness-110 transition disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Magic-Link senden
+          </button>
+        </div>
+
+        <div id="authedArea" class="mt-10 hidden">
+          <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div class="text-sm text-muted">
+              Status: <span id="cloudStatus" class="text-text-bright font-medium">verbunden</span>
+            </div>
+            <div class="flex gap-2">
+              <button id="refreshBtn" class="rounded-xl px-4 py-2 border border-white/10 bg-bg/30 hover:bg-bg/40 transition">
+                Refresh
+              </button>
+              <button id="logoutBtn" class="rounded-xl px-4 py-2 border border-white/10 bg-bg/30 hover:bg-bg/40 transition">
+                Logout
+              </button>
+            </div>
+          </div>
+
+          <div class="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="glass-panel p-6">
+              <h2 class="text-lg font-semibold text-text-bright">Stats</h2>
+              <p class="text-sm text-muted mt-1">Letzte 120 Tage (daily sync).</p>
+              <div id="statsBox" class="mt-4 text-sm text-muted">Loading…</div>
+            </div>
+
+            <div class="glass-panel p-6">
+              <h2 class="text-lg font-semibold text-text-bright">Adaptive models</h2>
+              <p class="text-sm text-muted mt-1">Empfohlene Read-Modes pro Datei-Signatur.</p>
+              <div id="modelsBox" class="mt-4 text-sm text-muted">Loading…</div>
+            </div>
+
+            <div class="glass-panel p-6">
+              <h2 class="text-lg font-semibold text-text-bright">Knowledge</h2>
+              <p class="text-sm text-muted mt-1">Dein synchronisiertes Wissen.</p>
+              <div id="knowledgeBox" class="mt-4 text-sm text-muted">Loading…</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <script type="module">
+    const API_BASE = 'https://api.leanctx.com';
+
+    const elError = document.getElementById('cloudError');
+    const elInfo = document.getElementById('cloudInfo');
+    const loginCard = document.getElementById('loginCard');
+    const authedArea = document.getElementById('authedArea');
+    const statusEl = document.getElementById('cloudStatus');
+
+    const statsBox = document.getElementById('statsBox');
+    const modelsBox = document.getElementById('modelsBox');
+    const knowledgeBox = document.getElementById('knowledgeBox');
+
+    const emailInput = document.getElementById('email');
+    const sendBtn = document.getElementById('sendLinkBtn');
+    const refreshBtn = document.getElementById('refreshBtn');
+    const logoutBtn = document.getElementById('logoutBtn');
+
+    function show(el, html) {
+      el.classList.remove('hidden');
+      el.textContent = html;
+    }
+    function hide(el) {
+      el.classList.add('hidden');
+      el.textContent = '';
+    }
+
+    async function fetchJson(path, opts = {}) {
+      const res = await fetch(API_BASE + path, {
+        ...opts,
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(opts.headers || {}),
+        },
+      });
+      const text = await res.text();
+      const data = text ? (() => { try { return JSON.parse(text); } catch { return text; } })() : null;
+      if (!res.ok) {
+        const msg = typeof data === 'string' ? data : (data?.message || data?.error || res.statusText);
+        const err = new Error(msg || `HTTP ${res.status}`);
+        err.status = res.status;
+        throw err;
+      }
+      return data;
+    }
+
+    function renderStats(rows) {
+      if (!Array.isArray(rows) || rows.length === 0) {
+        statsBox.textContent = 'Noch keine Stats (run: lean-ctx sync).';
+        return;
+      }
+      const top = rows.slice(0, 10);
+      const lines = top.map(r => {
+        const d = r.date ?? '?';
+        const saved = r.tokens_saved ?? 0;
+        const calls = r.tool_calls ?? 0;
+        return `${d}  ·  saved=${saved}  ·  calls=${calls}`;
+      });
+      statsBox.textContent = lines.join('\n');
+      statsBox.style.whiteSpace = 'pre';
+    }
+
+    function renderModels(resp) {
+      const models = resp?.models;
+      if (!Array.isArray(models) || models.length === 0) {
+        modelsBox.textContent = 'Noch keine Models (contributions fehlen).';
+        return;
+      }
+      const top = models.slice(0, 12);
+      const lines = top.map(m => {
+        const ext = m.file_ext ?? '?';
+        const b = m.size_bucket ?? '?';
+        const mode = m.recommended_mode ?? '?';
+        const c = typeof m.confidence === 'number' ? Math.round(m.confidence * 100) : 0;
+        return `${ext} ${b}  →  ${mode}  (${c}%)`;
+      });
+      modelsBox.textContent = lines.join('\n');
+      modelsBox.style.whiteSpace = 'pre';
+    }
+
+    function renderKnowledge(entries) {
+      if (!Array.isArray(entries) || entries.length === 0) {
+        knowledgeBox.textContent = 'Noch keine Knowledge Entries.';
+        return;
+      }
+      const top = entries.slice(0, 12);
+      const lines = top.map(e => {
+        const cat = e.category ?? '?';
+        const key = e.key ?? '?';
+        return `[${cat}] ${key}`;
+      });
+      knowledgeBox.textContent = lines.join('\n');
+      knowledgeBox.style.whiteSpace = 'pre';
+    }
+
+    async function loadAll() {
+      hide(elError);
+      hide(elInfo);
+      statusEl.textContent = 'verbinde…';
+
+      try {
+        const stats = await fetchJson('/api/stats', { method: 'GET' });
+        loginCard.classList.add('hidden');
+        authedArea.classList.remove('hidden');
+        statusEl.textContent = 'verbunden';
+        renderStats(stats);
+
+        const [models, knowledge] = await Promise.all([
+          fetchJson('/api/cloud/models', { method: 'GET' }),
+          fetchJson('/api/sync/knowledge', { method: 'GET' }),
+        ]);
+        renderModels(models);
+        renderKnowledge(knowledge);
+      } catch (e) {
+        if (e?.status === 401) {
+          statusEl.textContent = 'nicht eingeloggt';
+          loginCard.classList.remove('hidden');
+          authedArea.classList.add('hidden');
+          statsBox.textContent = '—';
+          modelsBox.textContent = '—';
+          knowledgeBox.textContent = '—';
+          return;
+        }
+        show(elError, e?.message || 'Request failed');
+        statusEl.textContent = 'error';
+      }
+    }
+
+    sendBtn?.addEventListener('click', async () => {
+      const email = (emailInput?.value || '').trim();
+      hide(elError);
+      hide(elInfo);
+      if (!email) {
+        show(elError, 'Bitte Email eingeben.');
+        return;
+      }
+      sendBtn.disabled = true;
+      try {
+        await fetchJson('/api/auth/request-link', {
+          method: 'POST',
+          body: JSON.stringify({ email }),
+        });
+        show(elInfo, 'Magic-Link gesendet. Bitte Email öffnen und Link klicken.');
+      } catch (e) {
+        show(elError, e?.message || 'Request failed');
+      } finally {
+        sendBtn.disabled = false;
+      }
+    });
+
+    refreshBtn?.addEventListener('click', loadAll);
+
+    logoutBtn?.addEventListener('click', async () => {
+      hide(elError);
+      hide(elInfo);
+      try {
+        await fetchJson('/api/auth/logout', { method: 'POST', body: '{}' });
+      } catch {}
+      await loadAll();
+    });
+
+    loadAll();
+  </script>
+</BaseLayout>
+

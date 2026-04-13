@@ -152,7 +152,7 @@ const breadcrumbJsonLd = breadcrumbs ? JSON.stringify({
     }
     if (match) {
       localStorage.setItem(STORAGE_KEY, match);
-      window.location.replace('/' + match + path);
+      window.location.replace('/' + match + path + window.location.search + window.location.hash);
     }
   })();
   </script>

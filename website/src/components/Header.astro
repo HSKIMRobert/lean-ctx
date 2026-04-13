@@ -138,6 +138,9 @@ const docsColumns = [
         </a>
         <MegaDropdown id="product" label={t('nav.product')} columns={productColumns} />
         <MegaDropdown id="docs" label={t('nav.docs')} columns={docsColumns} />
+        <a href={lp('/cloud')} class:list={['header-nav-item', currentPath.includes('/cloud') ? 'is-active' : '']}>
+          {t('nav.cloud')}
+        </a>
       </div>
 
       <div class="header-right">
@@ -175,6 +178,7 @@ const docsColumns = [
   <div id="mobile-menu" class="mobile-menu-closed">
     <div class="mobile-menu-inner">
       <a href={lp('/how-it-works')} class="mobile-nav-link">{t('nav.howItWorks')}</a>
+      <a href={lp('/cloud')} class="mobile-nav-link">{t('nav.cloud')}</a>
 
       <div class="mobile-section">
         <span class="mobile-section-title">{t('nav.product')}</span>
