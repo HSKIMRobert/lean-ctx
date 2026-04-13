@@ -66,8 +66,8 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/api/profile/leave-team", post(profile::leave_team))
         .route("/api/profile/rename-team", post(profile::rename_team))
         .route("/api/invite/generate", post(invite::generate_invite))
-        .route("/api/invite/:code", get(invite::get_invite_info))
-        .route("/api/invite/:code/accept", post(invite::accept_invite))
+        .route("/api/invite/{code}", get(invite::get_invite_info))
+        .route("/api/invite/{code}/accept", post(invite::accept_invite))
         .with_state(state)
         .layer(cors);
 
