@@ -12,60 +12,88 @@ const lp = (path: string) => getLocalizedPath(path, locale);
   description={t('leaderboard.description')}
   breadcrumbs={[{ name: t('leaderboard.title'), url: '/leaderboard' }]}
 >
-  <section class="content-grid py-12 md:py-16">
-    <div class="max-w-4xl mx-auto">
-      <div class="animate-entrance">
-        <h1 class="text-3xl md:text-4xl font-display font-bold text-text-bright" style="margin-bottom: 0.75rem;">
-          {t('leaderboard.title')}
-        </h1>
-        <p class="text-muted text-base" style="margin-bottom: clamp(2rem, 1.5rem + 1vw, 3rem); max-width: 40rem;">
-          {t('leaderboard.description')}
-        </p>
-      </div>
 
-      <div class="lb-tabs animate-entrance stagger-1">
-        <button class="lb-tab is-active" data-tab="individual">{t('leaderboard.individual')}</button>
-        <button class="lb-tab" data-tab="teams">{t('leaderboard.teams')}</button>
-      </div>
+<!-- ═══════ HERO ═══════ -->
+<section class="section-hero">
+  <div class="content-grid">
+    <div class="animate-entrance">
+      <p class="fluid-label text-muted" style="margin-bottom: clamp(1.25rem, 1rem + 1vw, 2.5rem);">
+        {t('leaderboard.heroLabel')}
+      </p>
+    </div>
+    <h1 class="font-display fluid-h1 font-bold text-text-bright animate-entrance stagger-1" style="margin-bottom: clamp(1.5rem, 1rem + 1.5vw, 3rem);">
+      {t('leaderboard.heroTitle')}<br/>
+      <span class="gradient-text">{t('leaderboard.heroTitleHighlight')}</span>
+    </h1>
+    <p class="fluid-body text-muted animate-entrance stagger-2" style="margin-bottom: clamp(2rem, 1.5rem + 1.5vw, 3.5rem); max-width: 44rem;">
+      {t('leaderboard.description')}
+    </p>
+  </div>
+</section>
 
-      <div id="lb-individual" class="lb-panel animate-entrance stagger-2">
-        <div class="lb-table-wrap">
-          <table class="lb-table">
-            <thead>
-              <tr>
-                <th class="lb-th-rank">{t('leaderboard.rank')}</th>
-                <th>{t('leaderboard.user')}</th>
-                <th class="lb-th-saved">{t('leaderboard.saved')}</th>
-                <th class="lb-th-badges">{t('leaderboard.badges')}</th>
-              </tr>
-            </thead>
-            <tbody id="lb-individual-body">
-              <tr><td colspan="4" class="lb-empty">{t('leaderboard.empty')}</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
+<div class="section-divider content-grid"></div>
 
-      <div id="lb-teams" class="lb-panel" style="display: none;">
-        <div class="lb-table-wrap">
-          <table class="lb-table">
-            <thead>
-              <tr>
-                <th class="lb-th-rank">{t('leaderboard.rank')}</th>
-                <th>{t('leaderboard.teamName')}</th>
-                <th class="lb-th-saved">{t('leaderboard.saved')}</th>
-                <th>{t('leaderboard.members')}</th>
-              </tr>
-            </thead>
-            <tbody id="lb-teams-body">
-              <tr><td colspan="4" class="lb-empty">{t('leaderboard.teamsEmpty')}</td></tr>
-            </tbody>
-          </table>
-        </div>
+<!-- ═══════ LEADERBOARD ═══════ -->
+<section class="section-y">
+  <div class="content-grid">
+    <div class="lb-tabs animate-entrance">
+      <button class="lb-tab is-active" data-tab="individual">{t('leaderboard.individual')}</button>
+      <button class="lb-tab" data-tab="teams">{t('leaderboard.teams')}</button>
+    </div>
+
+    <div id="lb-individual" class="lb-panel animate-entrance stagger-1">
+      <div class="lb-table-wrap">
+        <table class="lb-table">
+          <thead>
+            <tr>
+              <th class="lb-th-rank">{t('leaderboard.rank')}</th>
+              <th>{t('leaderboard.user')}</th>
+              <th class="lb-th-saved">{t('leaderboard.saved')}</th>
+              <th class="lb-th-badges">{t('leaderboard.badges')}</th>
+            </tr>
+          </thead>
+          <tbody id="lb-individual-body">
+            <tr><td colspan="4" class="lb-empty">{t('leaderboard.empty')}</td></tr>
+          </tbody>
+        </table>
       </div>
     </div>
-  </section>
-</BaseLayout>
+
+    <div id="lb-teams" class="lb-panel" style="display: none;">
+      <div class="lb-table-wrap">
+        <table class="lb-table">
+          <thead>
+            <tr>
+              <th class="lb-th-rank">{t('leaderboard.rank')}</th>
+              <th>{t('leaderboard.teamName')}</th>
+              <th class="lb-th-saved">{t('leaderboard.saved')}</th>
+              <th>{t('leaderboard.members')}</th>
+            </tr>
+          </thead>
+          <tbody id="lb-teams-body">
+            <tr><td colspan="4" class="lb-empty">{t('leaderboard.teamsEmpty')}</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="animate-entrance stagger-2" style="margin-top: clamp(2rem, 1.5rem + 1vw, 3rem);">
+      <p class="fluid-sm text-muted" style="max-width: 40rem;">
+        {t('leaderboard.footer')}
+      </p>
+      <div class="flex flex-wrap items-center" style="gap: clamp(0.75rem, 0.5rem + 0.5vw, 1.25rem); margin-top: 1.5rem;">
+        <a href={lp('/cloud')} class="btn-primary inline-flex items-center gap-2 rounded-lg" style="padding: clamp(0.7rem, 0.55rem + 0.3vw, 0.9rem) clamp(1.5rem, 1rem + 0.75vw, 2.25rem); font-size: clamp(0.8125rem, 0.78rem + 0.15vw, 0.9375rem);">
+          {t('leaderboard.joinCta')}
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+        </a>
+        <a href={lp('/docs/getting-started')} class="fluid-sm text-muted hover:text-text-bright transition-colors inline-flex items-center gap-1.5 font-medium">
+          {t('leaderboard.installCta')}
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
 
 <script>
 (function() {
@@ -75,26 +103,19 @@ const lp = (path: string) => getLocalizedPath(path, locale);
     if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
     if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
     if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
-    return String(n);
+    return n.toLocaleString('en-US');
   }
 
   var badgeIcons = {
-    'First Save': '\u2B50',
-    'Token Saver 1M': '\uD83E\uDD47',
-    'Token Saver 10M': '\uD83E\uDD48',
-    'Token Saver 100M': '\uD83C\uDFC6',
-    'Evangelist': '\uD83D\uDCE3',
-    'Team Builder': '\uD83D\uDC65',
-    'Early Adopter': '\uD83D\uDE80',
-    'Contributor': '\uD83D\uDEE0\uFE0F'
+    'First Save': '\u2B50', 'Token Saver 1M': '\uD83E\uDD47',
+    'Token Saver 10M': '\uD83E\uDD48', 'Token Saver 100M': '\uD83C\uDFC6',
+    'Evangelist': '\uD83D\uDCE3', 'Team Builder': '\uD83D\uDC65',
+    'Early Adopter': '\uD83D\uDE80', 'Contributor': '\uD83D\uDEE0\uFE0F'
   };
 
   function renderBadges(badges) {
     if (!badges || !badges.length) return '';
-    return badges.map(function(b) {
-      var icon = badgeIcons[b] || '';
-      return '<span class="lb-badge" title="' + b + '">' + icon + '</span>';
-    }).join(' ');
+    return badges.map(function(b) { return '<span class="lb-badge" title="' + b + '">' + (badgeIcons[b] || '') + '</span>'; }).join(' ');
   }
 
   function rankMedal(rank) {
@@ -104,50 +125,42 @@ const lp = (path: string) => getLocalizedPath(path, locale);
     return '#' + rank;
   }
 
-  fetch(API + '/api/leaderboard')
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      var tbody = document.getElementById('lb-individual-body');
-      if (!tbody || !data.length) return;
-      tbody.innerHTML = '';
-      data.forEach(function(e) {
-        var name = e.username || e.display_hash;
-        var tr = document.createElement('tr');
-        tr.innerHTML =
-          '<td class="lb-rank">' + rankMedal(e.rank) + '</td>' +
-          '<td class="lb-user"><span class="lb-user-hash">' + name + '</span></td>' +
-          '<td class="lb-saved">' + fmt(e.total_tokens_saved) + '</td>' +
-          '<td class="lb-badges-cell">' + renderBadges(e.badges) + '</td>';
-        tbody.appendChild(tr);
-      });
-    })
-    .catch(function() {});
+  fetch(API + '/api/leaderboard').then(function(r) { return r.json(); }).then(function(data) {
+    var tbody = document.getElementById('lb-individual-body');
+    if (!tbody || !data.length) return;
+    tbody.innerHTML = '';
+    data.forEach(function(e) {
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td class="lb-rank">' + rankMedal(e.rank) + '</td>' +
+        '<td class="lb-user"><span class="lb-user-hash">' + (e.username || e.display_hash) + '</span></td>' +
+        '<td class="lb-saved">' + fmt(e.total_tokens_saved) + '</td>' +
+        '<td class="lb-badges-cell">' + renderBadges(e.badges) + '</td>';
+      tbody.appendChild(tr);
+    });
+  }).catch(function() {});
 
-  fetch(API + '/api/leaderboard/teams')
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      var tbody = document.getElementById('lb-teams-body');
-      if (!tbody || !data.length) return;
-      tbody.innerHTML = '';
-      data.forEach(function(e) {
-        var tr = document.createElement('tr');
-        tr.innerHTML =
-          '<td class="lb-rank">' + rankMedal(e.rank) + '</td>' +
-          '<td class="lb-team-name">' + e.team_name + '</td>' +
-          '<td class="lb-saved">' + fmt(e.total_tokens_saved) + '</td>' +
-          '<td>' + e.member_count + '</td>';
-        tbody.appendChild(tr);
-      });
-    })
-    .catch(function() {});
+  fetch(API + '/api/leaderboard/teams').then(function(r) { return r.json(); }).then(function(data) {
+    var tbody = document.getElementById('lb-teams-body');
+    if (!tbody || !data.length) return;
+    tbody.innerHTML = '';
+    data.forEach(function(e) {
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td class="lb-rank">' + rankMedal(e.rank) + '</td>' +
+        '<td class="lb-team-name">' + e.team_name + '</td>' +
+        '<td class="lb-saved">' + fmt(e.total_tokens_saved) + '</td>' +
+        '<td>' + e.member_count + '</td>';
+      tbody.appendChild(tr);
+    });
+  }).catch(function() {});
 
   document.querySelectorAll('.lb-tab').forEach(function(tab) {
     tab.addEventListener('click', function() {
       document.querySelectorAll('.lb-tab').forEach(function(t) { t.classList.remove('is-active'); });
       tab.classList.add('is-active');
-      var target = tab.getAttribute('data-tab');
       document.querySelectorAll('.lb-panel').forEach(function(p) { p.style.display = 'none'; });
-      var panel = document.getElementById('lb-' + target);
+      var panel = document.getElementById('lb-' + tab.getAttribute('data-tab'));
       if (panel) panel.style.display = 'block';
     });
   });
@@ -174,24 +187,15 @@ const lp = (path: string) => getLocalizedPath(path, locale);
     font-family: inherit;
   }
   .lb-tab:hover { color: var(--color-text-bright); }
-  .lb-tab.is-active {
-    color: var(--color-accent);
-    border-bottom-color: var(--color-accent);
-  }
+  .lb-tab.is-active { color: var(--color-accent); border-bottom-color: var(--color-accent); }
   .lb-table-wrap {
     overflow-x: auto;
-    border-radius: 12px;
+    border-radius: clamp(10px, 0.8vw, 14px);
     border: 1px solid var(--color-border);
     background: var(--color-surface);
   }
-  .lb-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.875rem;
-  }
-  .lb-table thead {
-    border-bottom: 1px solid var(--color-border);
-  }
+  .lb-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+  .lb-table thead { border-bottom: 1px solid var(--color-border); }
   .lb-table th {
     padding: 0.875rem 1rem;
     text-align: left;
@@ -201,44 +205,17 @@ const lp = (path: string) => getLocalizedPath(path, locale);
     letter-spacing: 0.06em;
     color: var(--color-muted);
   }
-  .lb-table td {
-    padding: 0.75rem 1rem;
-    border-top: 1px solid rgba(255,255,255,0.04);
-  }
-  .lb-table tbody tr:hover {
-    background: rgba(255,255,255,0.02);
-  }
+  .lb-table td { padding: 0.75rem 1rem; border-top: 1px solid rgba(255,255,255,0.04); }
+  .lb-table tbody tr:hover { background: rgba(255,255,255,0.02); }
   .lb-th-rank { width: 5rem; }
   .lb-th-saved { width: 10rem; }
   .lb-th-badges { width: 10rem; }
-  .lb-rank {
-    font-weight: 700;
-    font-size: 1rem;
-    color: var(--color-text-bright);
-  }
-  .lb-user-hash {
-    font-family: var(--font-mono, monospace);
-    font-size: 0.8125rem;
-    color: var(--color-text-bright);
-  }
-  .lb-saved {
-    font-weight: 600;
-    color: var(--color-accent);
-    font-variant-numeric: tabular-nums;
-  }
-  .lb-badge {
-    display: inline-block;
-    font-size: 1rem;
-    cursor: help;
-  }
-  .lb-empty {
-    text-align: center;
-    color: var(--color-muted);
-    padding: 3rem 1rem !important;
-    font-style: italic;
-  }
-  .lb-team-name {
-    font-weight: 500;
-    color: var(--color-text-bright);
-  }
+  .lb-rank { font-weight: 700; font-size: 1rem; color: var(--color-text-bright); }
+  .lb-user-hash { font-family: var(--font-mono, monospace); font-size: 0.8125rem; color: var(--color-text-bright); }
+  .lb-saved { font-weight: 600; color: var(--color-accent); font-variant-numeric: tabular-nums; }
+  .lb-badge { display: inline-block; font-size: 1rem; cursor: help; }
+  .lb-empty { text-align: center; color: var(--color-muted); padding: 3rem 1rem !important; font-style: italic; }
+  .lb-team-name { font-weight: 500; color: var(--color-text-bright); }
 </style>
+
+</BaseLayout>

@@ -1,357 +1,514 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
-import { getLocaleFromUrl, useTranslations } from '../i18n/utils';
+import { getLocaleFromUrl, getLocalizedPath, useTranslations } from '../i18n/utils';
 
 const locale = getLocaleFromUrl(Astro.url);
 const t = useTranslations(locale);
+const lp = (path: string) => getLocalizedPath(path, locale);
 ---
 
 <BaseLayout
-  title={`LeanCTX Cloud`}
-  description="Sync stats, knowledge, and adaptive models across devices. Free for all logged-in users."
-  breadcrumbs={[{ name: 'Cloud', url: '/cloud' }]}
+  title={t('cloud.metaTitle')}
+  description={t('cloud.metaDesc')}
+  breadcrumbs={[{ name: t('cloud.breadcrumb'), url: '/cloud' }]}
 >
-  <section class="content-grid py-12 md:py-16">
-    <div class="max-w-5xl mx-auto">
-      <div class="glass-panel p-8 md:p-10 animate-entrance">
-        <div class="flex flex-col gap-3">
-          <p class="text-sm text-muted">{t('nav.product.contextServer')}</p>
-          <h1 class="text-3xl md:text-4xl font-display text-text-bright">LeanCTX Cloud</h1>
-          <p class="text-base md:text-lg text-text max-w-3xl">
-            Kostenlos. Opt-in via Login. Self-hosted auf unseren Servern. Synchronisiert Stats, Knowledge und adaptive models.
-          </p>
+
+<!-- ═══════ HERO ═══════ -->
+<section class="section-hero">
+  <div class="content-grid">
+    <div class="animate-entrance">
+      <p class="fluid-label text-muted" style="margin-bottom: clamp(1.25rem, 1rem + 1vw, 2.5rem);">
+        {t('cloud.heroLabel')}
+      </p>
+    </div>
+    <h1 class="font-display fluid-h1 font-bold text-text-bright animate-entrance stagger-1" style="margin-bottom: clamp(1.5rem, 1rem + 1.5vw, 3rem);">
+      {t('cloud.heroTitle')}<br/>
+      <span class="gradient-text">{t('cloud.heroTitleHighlight')}</span>
+    </h1>
+    <p class="fluid-body text-muted animate-entrance stagger-2" style="margin-bottom: clamp(2rem, 1.5rem + 1.5vw, 3.5rem); max-width: 44rem;">
+      {t('cloud.heroDesc')}
+    </p>
+    <div class="flex flex-wrap items-center animate-entrance stagger-3" style="gap: clamp(0.75rem, 0.5rem + 0.5vw, 1.25rem);">
+      <a href="#login" class="btn-primary inline-flex items-center gap-2 rounded-lg" style="padding: clamp(0.7rem, 0.55rem + 0.3vw, 0.9rem) clamp(1.5rem, 1rem + 0.75vw, 2.25rem); font-size: clamp(0.8125rem, 0.78rem + 0.15vw, 0.9375rem);">
+        {t('cloud.heroLoginCta')}
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+      </a>
+      <a href={lp('/docs/cloud')} class="btn-outline inline-flex items-center gap-2 rounded-lg" style="padding: clamp(0.7rem, 0.55rem + 0.3vw, 0.9rem) clamp(1.5rem, 1rem + 0.75vw, 2.25rem); font-size: clamp(0.8125rem, 0.78rem + 0.15vw, 0.9375rem);">
+        {t('cloud.heroDocs')}
+      </a>
+    </div>
+  </div>
+</section>
+
+<div class="section-divider content-grid"></div>
+
+<!-- ═══════ FEATURES ═══════ -->
+<section class="section-y">
+  <div class="content-grid">
+    <p class="fluid-label text-muted animate-entrance" style="margin-bottom: clamp(1rem, 0.75rem + 0.5vw, 1.5rem);">
+      {t('cloud.featLabel')}
+    </p>
+    <h2 class="font-display fluid-h2 font-bold text-text-bright animate-entrance stagger-1" style="margin-bottom: clamp(1rem, 0.75rem + 0.5vw, 1.5rem);">
+      {t('cloud.featTitle')} <span class="gradient-text">{t('cloud.featTitleHighlight')}</span>
+    </h2>
+    <p class="text-muted fluid-body animate-entrance stagger-2" style="margin-bottom: clamp(3rem, 2rem + 3vw, 6rem); max-width: 48rem;">
+      {t('cloud.featDesc')}
+    </p>
+
+    <div class="grid sm:grid-cols-2 lg:grid-cols-3 animate-entrance stagger-3" style="gap: clamp(1rem, 0.75rem + 0.75vw, 1.5rem);">
+      <div class="card" style="padding: 1.5rem;">
+        <div class="flex items-center gap-3 mb-3">
+          <div class="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center">
+            <svg class="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/></svg>
+          </div>
+          <h3 class="font-display text-sm font-semibold text-text-bright">{t('cloud.feat1Title')}</h3>
+        </div>
+        <p class="text-xs text-muted leading-relaxed">{t('cloud.feat1Desc')}</p>
+      </div>
+
+      <div class="card" style="padding: 1.5rem;">
+        <div class="flex items-center gap-3 mb-3">
+          <div class="w-8 h-8 rounded-lg bg-accent-2/10 flex items-center justify-center">
+            <svg class="w-4 h-4 text-accent-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4.26 10.147a60.438 60.438 0 00-.491 6.347A48.627 48.627 0 0112 20.904a48.627 48.627 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.636 50.636 0 00-2.658-.813A59.906 59.906 0 0112 3.493a59.903 59.903 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.717 50.717 0 0112 13.489a50.702 50.702 0 017.74-3.342M6.75 15a.75.75 0 100-1.5.75.75 0 000 1.5zm0 0v-3.675A55.378 55.378 0 0112 8.443m-7.007 11.55A5.981 5.981 0 006.75 15.75v-1.5"/></svg>
+          </div>
+          <h3 class="font-display text-sm font-semibold text-text-bright">{t('cloud.feat2Title')}</h3>
+        </div>
+        <p class="text-xs text-muted leading-relaxed">{t('cloud.feat2Desc')}</p>
+      </div>
+
+      <div class="card" style="padding: 1.5rem;">
+        <div class="flex items-center gap-3 mb-3">
+          <div class="w-8 h-8 rounded-lg bg-accent-3/10 flex items-center justify-center">
+            <svg class="w-4 h-4 text-accent-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"/></svg>
+          </div>
+          <h3 class="font-display text-sm font-semibold text-text-bright">{t('cloud.feat3Title')}</h3>
+        </div>
+        <p class="text-xs text-muted leading-relaxed">{t('cloud.feat3Desc')}</p>
+      </div>
+
+      <div class="card" style="padding: 1.5rem;">
+        <div class="flex items-center gap-3 mb-3">
+          <div class="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center">
+            <svg class="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18v-5.25m0 0a6.01 6.01 0 001.5-.189m-1.5.189a6.01 6.01 0 01-1.5-.189m3.75 7.478a12.06 12.06 0 01-4.5 0m3.75 2.383a14.406 14.406 0 01-3 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 10-7.517 0c.85.493 1.509 1.333 1.509 2.316V18"/></svg>
+          </div>
+          <h3 class="font-display text-sm font-semibold text-text-bright">{t('cloud.feat4Title')}</h3>
+        </div>
+        <p class="text-xs text-muted leading-relaxed">{t('cloud.feat4Desc')}</p>
+      </div>
+
+      <div class="card" style="padding: 1.5rem;">
+        <div class="flex items-center gap-3 mb-3">
+          <div class="w-8 h-8 rounded-lg bg-accent-2/10 flex items-center justify-center">
+            <svg class="w-4 h-4 text-accent-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z"/></svg>
+          </div>
+          <h3 class="font-display text-sm font-semibold text-text-bright">{t('cloud.feat5Title')}</h3>
+        </div>
+        <p class="text-xs text-muted leading-relaxed">{t('cloud.feat5Desc')}</p>
+      </div>
+
+      <div class="card" style="padding: 1.5rem;">
+        <div class="flex items-center gap-3 mb-3">
+          <div class="w-8 h-8 rounded-lg bg-accent-3/10 flex items-center justify-center">
+            <svg class="w-4 h-4 text-accent-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/></svg>
+          </div>
+          <h3 class="font-display text-sm font-semibold text-text-bright">{t('cloud.feat6Title')}</h3>
+        </div>
+        <p class="text-xs text-muted leading-relaxed">{t('cloud.feat6Desc')}</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="section-divider content-grid"></div>
+
+<!-- ═══════ HOW IT WORKS ═══════ -->
+<section class="section-y">
+  <div class="content-grid">
+    <p class="fluid-label text-muted animate-entrance" style="margin-bottom: clamp(1rem, 0.75rem + 0.5vw, 1.5rem);">
+      {t('cloud.howLabel')}
+    </p>
+    <h2 class="font-display fluid-h2 font-bold text-text-bright animate-entrance stagger-1" style="margin-bottom: clamp(3rem, 2rem + 3vw, 6rem);">
+      {t('cloud.howTitle')}
+    </h2>
+
+    <div class="grid md:grid-cols-3 animate-entrance stagger-2" style="gap: clamp(1rem, 0.75rem + 0.75vw, 1.5rem);">
+      <div class="card" style="padding: 1.5rem;">
+        <div class="font-display text-2xl font-bold text-accent opacity-30 mb-3">01</div>
+        <h3 class="fluid-h3 font-semibold font-display text-text-bright mb-2">{t('cloud.how1Title')}</h3>
+        <p class="fluid-sm text-muted mb-4">{t('cloud.how1Desc')}</p>
+        <code class="block font-mono text-xs text-accent bg-accent/8 border border-accent/14 rounded-lg px-3 py-2">lean-ctx login you@email.com</code>
+      </div>
+      <div class="card" style="padding: 1.5rem;">
+        <div class="font-display text-2xl font-bold text-accent opacity-30 mb-3">02</div>
+        <h3 class="fluid-h3 font-semibold font-display text-text-bright mb-2">{t('cloud.how2Title')}</h3>
+        <p class="fluid-sm text-muted mb-4">{t('cloud.how2Desc')}</p>
+        <code class="block font-mono text-xs text-accent bg-accent/8 border border-accent/14 rounded-lg px-3 py-2">lean-ctx sync</code>
+      </div>
+      <div class="card" style="padding: 1.5rem;">
+        <div class="font-display text-2xl font-bold text-accent opacity-30 mb-3">03</div>
+        <h3 class="fluid-h3 font-semibold font-display text-text-bright mb-2">{t('cloud.how3Title')}</h3>
+        <p class="fluid-sm text-muted">{t('cloud.how3Desc')}</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="section-divider content-grid"></div>
+
+<!-- ═══════ LOGIN / DASHBOARD ═══════ -->
+<section id="login" class="section-y">
+  <div class="content-grid">
+    <p class="fluid-label text-muted animate-entrance" style="margin-bottom: clamp(1rem, 0.75rem + 0.5vw, 1.5rem);">
+      {t('cloud.dashLabel')}
+    </p>
+    <h2 class="font-display fluid-h2 font-bold text-text-bright animate-entrance stagger-1" style="margin-bottom: clamp(3rem, 2rem + 3vw, 5rem);">
+      {t('cloud.dashTitle')}
+    </h2>
+
+    <div class="cloud-dashboard animate-entrance stagger-2">
+      <div id="cloudError" class="cloud-msg cloud-msg--error hidden"></div>
+      <div id="cloudInfo" class="cloud-msg cloud-msg--success hidden"></div>
+
+      <div id="loginCard" class="cloud-login-card">
+        <div>
+          <label for="email" class="block text-sm text-muted mb-2">{t('cloud.emailLabel')}</label>
+          <input
+            id="email"
+            type="email"
+            autocomplete="email"
+            inputmode="email"
+            class="cloud-input"
+            placeholder="you@company.com"
+          />
+        </div>
+        <button id="sendLinkBtn" class="btn-primary rounded-lg" style="padding: 0.75rem 1.5rem; font-size: 0.875rem; white-space: nowrap;">
+          {t('cloud.sendLink')}
+        </button>
+      </div>
+
+      <div id="authedArea" class="hidden">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-6">
+          <div class="text-sm text-muted">
+            Status: <span id="cloudStatus" class="text-text-bright font-medium">{t('cloud.statusConnected')}</span>
+          </div>
+          <div class="flex gap-2">
+            <button id="refreshBtn" class="btn-outline rounded-lg" style="padding: 0.5rem 1rem; font-size: 0.8125rem;">
+              {t('cloud.refresh')}
+            </button>
+            <button id="logoutBtn" class="btn-outline rounded-lg" style="padding: 0.5rem 1rem; font-size: 0.8125rem;">
+              {t('cloud.logout')}
+            </button>
+          </div>
         </div>
 
-        <div id="cloudError" class="mt-6 hidden rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200"></div>
-        <div id="cloudInfo" class="mt-6 hidden rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-200"></div>
-
-        <div id="loginCard" class="mt-8 grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 items-end">
-          <div>
-            <label for="email" class="block text-sm text-muted mb-2">Email</label>
-            <input
-              id="email"
-              type="email"
-              autocomplete="email"
-              inputmode="email"
-              class="w-full rounded-xl bg-bg/40 border border-white/10 px-4 py-3 text-text-bright placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/50"
-              placeholder="you@company.com"
-            />
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+          <div class="card" style="padding: 1.25rem;">
+            <h3 class="font-display text-sm font-semibold text-text-bright mb-3">{t('profile.title')}</h3>
+            <div id="profileBox" class="text-sm text-muted">Loading…</div>
           </div>
-          <button
-            id="sendLinkBtn"
-            class="rounded-xl px-5 py-3 bg-accent text-bg font-semibold hover:brightness-110 transition disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Magic-Link senden
-          </button>
+          <div class="card" style="padding: 1.25rem;">
+            <h3 class="font-display text-sm font-semibold text-text-bright mb-3">{t('profile.team')}</h3>
+            <div id="teamBox" class="text-sm text-muted">Loading…</div>
+          </div>
         </div>
 
-        <div id="authedArea" class="mt-10 hidden">
-          <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div class="text-sm text-muted">
-              Status: <span id="cloudStatus" class="text-text-bright font-medium">verbunden</span>
-            </div>
-            <div class="flex gap-2">
-              <button id="refreshBtn" class="rounded-xl px-4 py-2 border border-white/10 bg-bg/30 hover:bg-bg/40 transition">
-                Refresh
-              </button>
-              <button id="logoutBtn" class="rounded-xl px-4 py-2 border border-white/10 bg-bg/30 hover:bg-bg/40 transition">
-                Logout
-              </button>
-            </div>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div class="card" style="padding: 1.25rem;">
+            <h3 class="font-display text-sm font-semibold text-text-bright mb-1">{t('cloud.statsTitle')}</h3>
+            <p class="text-xs text-muted mb-3">{t('cloud.statsDesc')}</p>
+            <div id="statsBox" class="text-sm text-muted">Loading…</div>
           </div>
-
-          <div class="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div class="glass-panel p-6">
-              <h2 class="text-lg font-semibold text-text-bright">{t('profile.title')}</h2>
-              <div id="profileBox" class="mt-4 text-sm text-muted">Loading…</div>
-            </div>
-
-            <div class="glass-panel p-6">
-              <h2 class="text-lg font-semibold text-text-bright">{t('profile.team')}</h2>
-              <div id="teamBox" class="mt-4 text-sm text-muted">Loading…</div>
-            </div>
+          <div class="card" style="padding: 1.25rem;">
+            <h3 class="font-display text-sm font-semibold text-text-bright mb-1">{t('cloud.modelsTitle')}</h3>
+            <p class="text-xs text-muted mb-3">{t('cloud.modelsDesc')}</p>
+            <div id="modelsBox" class="text-sm text-muted">Loading…</div>
           </div>
-
-          <div class="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div class="glass-panel p-6">
-              <h2 class="text-lg font-semibold text-text-bright">Stats</h2>
-              <p class="text-sm text-muted mt-1">Letzte 120 Tage (daily sync).</p>
-              <div id="statsBox" class="mt-4 text-sm text-muted">Loading…</div>
-            </div>
-
-            <div class="glass-panel p-6">
-              <h2 class="text-lg font-semibold text-text-bright">Adaptive models</h2>
-              <p class="text-sm text-muted mt-1">Empfohlene Read-Modes pro Datei-Signatur.</p>
-              <div id="modelsBox" class="mt-4 text-sm text-muted">Loading…</div>
-            </div>
-
-            <div class="glass-panel p-6">
-              <h2 class="text-lg font-semibold text-text-bright">Knowledge</h2>
-              <p class="text-sm text-muted mt-1">Dein synchronisiertes Wissen.</p>
-              <div id="knowledgeBox" class="mt-4 text-sm text-muted">Loading…</div>
-            </div>
+          <div class="card" style="padding: 1.25rem;">
+            <h3 class="font-display text-sm font-semibold text-text-bright mb-1">{t('cloud.knowledgeTitle')}</h3>
+            <p class="text-xs text-muted mb-3">{t('cloud.knowledgeDesc')}</p>
+            <div id="knowledgeBox" class="text-sm text-muted">Loading…</div>
           </div>
         </div>
       </div>
     </div>
-  </section>
+  </div>
+</section>
 
-  <script type="module">
-    const API_BASE = 'https://api.leanctx.com';
+<div class="section-divider content-grid"></div>
 
-    const elError = document.getElementById('cloudError');
-    const elInfo = document.getElementById('cloudInfo');
-    const loginCard = document.getElementById('loginCard');
-    const authedArea = document.getElementById('authedArea');
-    const statusEl = document.getElementById('cloudStatus');
+<!-- ═══════ PRIVACY ═══════ -->
+<section class="section-y">
+  <div class="content-grid">
+    <p class="fluid-label text-muted animate-entrance" style="margin-bottom: clamp(1rem, 0.75rem + 0.5vw, 1.5rem);">
+      {t('cloud.privacyLabel')}
+    </p>
+    <h2 class="font-display fluid-h2 font-bold text-text-bright animate-entrance stagger-1" style="margin-bottom: clamp(1rem, 0.75rem + 0.5vw, 1.5rem);">
+      {t('cloud.privacyTitle')}
+    </h2>
+    <p class="text-muted fluid-body animate-entrance stagger-2" style="margin-bottom: clamp(3rem, 2rem + 3vw, 5rem); max-width: 48rem;">
+      {t('cloud.privacyDesc')}
+    </p>
 
-    const statsBox = document.getElementById('statsBox');
-    const modelsBox = document.getElementById('modelsBox');
-    const knowledgeBox = document.getElementById('knowledgeBox');
-    const profileBox = document.getElementById('profileBox');
-    const teamBox = document.getElementById('teamBox');
+    <div class="grid md:grid-cols-2 animate-entrance stagger-3" style="gap: clamp(1px, 0.1vw, 1px);">
+      <div class="compare-card">
+        <div class="compare-header compare-header--good">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          {t('cloud.weCollect')}
+        </div>
+        <div class="compare-body font-mono" style="font-size: clamp(0.6875rem, 0.65rem + 0.1vw, 0.8125rem);">
+          <div class="compare-line"><span class="text-accent">{t('cloud.collect1')}</span></div>
+          <div class="compare-line"><span class="text-accent">{t('cloud.collect2')}</span></div>
+          <div class="compare-line"><span class="text-accent">{t('cloud.collect3')}</span></div>
+          <div class="compare-line"><span class="text-accent">{t('cloud.collect4')}</span></div>
+        </div>
+      </div>
+      <div class="compare-card">
+        <div class="compare-header compare-header--bad">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
+          {t('cloud.weNeverCollect')}
+        </div>
+        <div class="compare-body font-mono" style="font-size: clamp(0.6875rem, 0.65rem + 0.1vw, 0.8125rem);">
+          <div class="compare-line"><span class="text-danger">{t('cloud.never1')}</span></div>
+          <div class="compare-line"><span class="text-danger">{t('cloud.never2')}</span></div>
+          <div class="compare-line"><span class="text-danger">{t('cloud.never3')}</span></div>
+          <div class="compare-line"><span class="text-danger">{t('cloud.never4')}</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
 
-    const emailInput = document.getElementById('email');
-    const sendBtn = document.getElementById('sendLinkBtn');
-    const refreshBtn = document.getElementById('refreshBtn');
-    const logoutBtn = document.getElementById('logoutBtn');
+<style>
+  .cloud-dashboard {
+    border: 1px solid var(--color-border);
+    border-radius: clamp(10px, 0.8vw, 14px);
+    padding: clamp(1.5rem, 1.25rem + 1vw, 2.5rem);
+    background: var(--color-surface);
+  }
+  .cloud-login-card {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.75rem;
+    align-items: end;
+  }
+  @media (max-width: 640px) {
+    .cloud-login-card { grid-template-columns: 1fr; }
+  }
+  .cloud-input {
+    width: 100%;
+    border-radius: 8px;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    padding: 0.75rem 1rem;
+    color: var(--color-text-bright);
+    font-size: 0.875rem;
+    font-family: inherit;
+  }
+  .cloud-input:focus {
+    outline: none;
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 2px rgba(52, 211, 153, 0.15);
+  }
+  .cloud-input::placeholder { color: var(--color-muted); }
+  .cloud-msg {
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    font-size: 0.8125rem;
+    margin-bottom: 1rem;
+  }
+  .cloud-msg--error {
+    border: 1px solid rgba(248, 113, 113, 0.3);
+    background: rgba(248, 113, 113, 0.06);
+    color: #fca5a5;
+  }
+  .cloud-msg--success {
+    border: 1px solid rgba(52, 211, 153, 0.3);
+    background: rgba(52, 211, 153, 0.06);
+    color: #6ee7b7;
+  }
+  .compare-card { border: 1px solid var(--color-border); border-radius: clamp(10px, 0.8vw, 14px); overflow: hidden; }
+  .compare-header { display: flex; align-items: center; gap: 0.5rem; padding: 0.75rem 1.25rem; font-size: clamp(0.6875rem, 0.65rem + 0.1vw, 0.8125rem); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid var(--color-border); }
+  .compare-header--good { background: rgba(52, 211, 153, 0.04); color: var(--color-accent); }
+  .compare-header--bad { background: rgba(248, 113, 113, 0.04); color: var(--color-danger); }
+  .compare-body { padding: 1.25rem; background: var(--color-surface); }
+  .compare-line { padding: 0.3rem 0; }
+</style>
 
-    function show(el, html) {
-      el.classList.remove('hidden');
-      el.textContent = html;
-    }
-    function hide(el) {
-      el.classList.add('hidden');
-      el.textContent = '';
-    }
+<script type="module">
+  const API_BASE = 'https://api.leanctx.com';
+  const elError = document.getElementById('cloudError');
+  const elInfo = document.getElementById('cloudInfo');
+  const loginCard = document.getElementById('loginCard');
+  const authedArea = document.getElementById('authedArea');
+  const statusEl = document.getElementById('cloudStatus');
+  const statsBox = document.getElementById('statsBox');
+  const modelsBox = document.getElementById('modelsBox');
+  const knowledgeBox = document.getElementById('knowledgeBox');
+  const profileBox = document.getElementById('profileBox');
+  const teamBox = document.getElementById('teamBox');
+  const emailInput = document.getElementById('email');
+  const sendBtn = document.getElementById('sendLinkBtn');
+  const refreshBtn = document.getElementById('refreshBtn');
+  const logoutBtn = document.getElementById('logoutBtn');
 
-    async function fetchJson(path, opts = {}) {
-      const res = await fetch(API_BASE + path, {
-        ...opts,
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(opts.headers || {}),
-        },
-      });
-      const text = await res.text();
-      const data = text ? (() => { try { return JSON.parse(text); } catch { return text; } })() : null;
-      if (!res.ok) {
-        const msg = typeof data === 'string' ? data : (data?.message || data?.error || res.statusText);
-        const err = new Error(msg || `HTTP ${res.status}`);
-        err.status = res.status;
-        throw err;
-      }
-      return data;
-    }
+  function show(el, html) { el.classList.remove('hidden'); el.textContent = html; }
+  function hide(el) { el.classList.add('hidden'); el.textContent = ''; }
 
-    function renderStats(rows) {
-      if (!Array.isArray(rows) || rows.length === 0) {
-        statsBox.textContent = 'Noch keine Stats (run: lean-ctx sync).';
-        return;
-      }
-      const top = rows.slice(0, 10);
-      const lines = top.map(r => {
-        const d = r.date ?? '?';
-        const saved = r.tokens_saved ?? 0;
-        const calls = r.tool_calls ?? 0;
-        return `${d}  ·  saved=${saved}  ·  calls=${calls}`;
-      });
-      statsBox.textContent = lines.join('\n');
-      statsBox.style.whiteSpace = 'pre';
-    }
-
-    function renderModels(resp) {
-      const models = resp?.models;
-      if (!Array.isArray(models) || models.length === 0) {
-        modelsBox.textContent = 'Noch keine Models (contributions fehlen).';
-        return;
-      }
-      const top = models.slice(0, 12);
-      const lines = top.map(m => {
-        const ext = m.file_ext ?? '?';
-        const b = m.size_bucket ?? '?';
-        const mode = m.recommended_mode ?? '?';
-        const c = typeof m.confidence === 'number' ? Math.round(m.confidence * 100) : 0;
-        return `${ext} ${b}  →  ${mode}  (${c}%)`;
-      });
-      modelsBox.textContent = lines.join('\n');
-      modelsBox.style.whiteSpace = 'pre';
-    }
-
-    function renderKnowledge(entries) {
-      if (!Array.isArray(entries) || entries.length === 0) {
-        knowledgeBox.textContent = 'Noch keine Knowledge Entries.';
-        return;
-      }
-      const top = entries.slice(0, 12);
-      const lines = top.map(e => {
-        const cat = e.category ?? '?';
-        const key = e.key ?? '?';
-        return `[${cat}] ${key}`;
-      });
-      knowledgeBox.textContent = lines.join('\n');
-      knowledgeBox.style.whiteSpace = 'pre';
-    }
-
-    function fmtTokens(n) {
-      if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
-      if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
-      if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
-      return String(n);
-    }
-
-    const badgeEmoji = {
-      'First Save': '\u2B50', 'Token Saver 1M': '\uD83E\uDD47',
-      'Token Saver 10M': '\uD83E\uDD48', 'Token Saver 100M': '\uD83C\uDFC6',
-      'Evangelist': '\uD83D\uDCE3', 'Team Builder': '\uD83D\uDC65',
-      'Early Adopter': '\uD83D\uDE80', 'Contributor': '\uD83D\uDEE0\uFE0F'
-    };
-
-    function renderProfile(data) {
-      if (!data || !data.display_hash) {
-        profileBox.textContent = 'Could not load profile.';
-        return;
-      }
-      const name = data.username || data.display_hash;
-      const badges = (data.badges || []).map(b => `<span title="${b}" style="cursor:help">${badgeEmoji[b] || b}</span>`).join(' ');
-      const inviteUrl = `${window.location.origin}/docs/getting-started?ref=${data.invite_code}`;
-
-      profileBox.innerHTML = `
-        <div style="display:flex;flex-direction:column;gap:0.75rem;">
-          <div><span style="color:var(--color-muted)">Hash:</span> <strong style="color:var(--color-text-bright)">${name}</strong></div>
-          <div><span style="color:var(--color-muted)">Rank:</span> <strong style="color:var(--color-accent)">#${data.rank}</strong></div>
-          <div><span style="color:var(--color-muted)">Saved:</span> <strong style="color:var(--color-accent)">${fmtTokens(data.total_tokens_saved)}</strong></div>
-          <div><span style="color:var(--color-muted)">Badges:</span> ${badges || '<span style="opacity:0.5">none yet</span>'}</div>
-          <div style="margin-top:0.5rem;">
-            <span style="color:var(--color-muted);font-size:0.75rem">Invite Link:</span>
-            <div style="display:flex;gap:0.5rem;margin-top:0.25rem;">
-              <input id="inviteInput" type="text" readonly value="${inviteUrl}" style="flex:1;padding:0.4rem 0.6rem;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(0,0,0,0.3);color:var(--color-text-bright);font-size:0.75rem;font-family:var(--font-mono,monospace);" />
-              <button id="copyInviteBtn" style="padding:0.4rem 0.8rem;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:transparent;color:var(--color-accent);font-size:0.75rem;cursor:pointer;">Copy</button>
-            </div>
-          </div>
-        </div>`;
-
-      document.getElementById('copyInviteBtn')?.addEventListener('click', () => {
-        const input = document.getElementById('inviteInput');
-        if (input) {
-          navigator.clipboard.writeText(input.value).then(() => {
-            document.getElementById('copyInviteBtn').textContent = 'Copied!';
-            setTimeout(() => { document.getElementById('copyInviteBtn').textContent = 'Copy'; }, 2000);
-          });
-        }
-      });
-    }
-
-    function renderTeam(data) {
-      if (!data || !data.team) {
-        teamBox.innerHTML = '<p style="color:var(--color-muted)">No team yet — share your invite code to create one!</p>';
-        return;
-      }
-      const t = data.team;
-      teamBox.innerHTML = `
-        <div style="display:flex;flex-direction:column;gap:0.75rem;">
-          <div><span style="color:var(--color-muted)">Name:</span> <strong style="color:var(--color-text-bright)">${t.name}</strong> ${t.is_owner ? '<span style="color:var(--color-accent);font-size:0.75rem">(Owner)</span>' : ''}</div>
-          <div><span style="color:var(--color-muted)">Members:</span> <strong>${t.member_count}</strong></div>
-          <div><span style="color:var(--color-muted)">Team Saved:</span> <strong style="color:var(--color-accent)">${fmtTokens(t.total_tokens_saved)}</strong></div>
-          <div style="display:flex;gap:0.5rem;margin-top:0.5rem;">
-            <button id="leaveTeamBtn" style="padding:0.4rem 0.8rem;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:transparent;color:var(--color-muted);font-size:0.75rem;cursor:pointer;">Leave Team</button>
-            ${t.is_owner ? '<button id="renameTeamBtn" style="padding:0.4rem 0.8rem;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:transparent;color:var(--color-muted);font-size:0.75rem;cursor:pointer;">Rename</button>' : ''}
-          </div>
-        </div>`;
-
-      document.getElementById('leaveTeamBtn')?.addEventListener('click', async () => {
-        if (!confirm('Leave team?')) return;
-        try {
-          await fetchJson('/api/profile/leave-team', { method: 'POST', body: '{}' });
-          loadAll();
-        } catch (e) { show(elError, e?.message || 'Failed'); }
-      });
-
-      document.getElementById('renameTeamBtn')?.addEventListener('click', async () => {
-        const name = prompt('New team name:', t.name);
-        if (!name || !name.trim()) return;
-        try {
-          await fetchJson('/api/profile/rename-team', { method: 'POST', body: JSON.stringify({ name: name.trim() }) });
-          loadAll();
-        } catch (e) { show(elError, e?.message || 'Failed'); }
-      });
-    }
-
-    async function loadAll() {
-      hide(elError);
-      hide(elInfo);
-      statusEl.textContent = 'verbinde…';
-
-      try {
-        const stats = await fetchJson('/api/stats', { method: 'GET' });
-        loginCard.classList.add('hidden');
-        authedArea.classList.remove('hidden');
-        statusEl.textContent = 'verbunden';
-        renderStats(stats);
-
-        const [models, knowledge, profile] = await Promise.all([
-          fetchJson('/api/cloud/models', { method: 'GET' }),
-          fetchJson('/api/sync/knowledge', { method: 'GET' }),
-          fetchJson('/api/profile', { method: 'GET' }).catch(() => null),
-        ]);
-        renderModels(models);
-        renderKnowledge(knowledge);
-        if (profile) {
-          renderProfile(profile);
-          renderTeam(profile);
-        }
-      } catch (e) {
-        if (e?.status === 401) {
-          statusEl.textContent = 'nicht eingeloggt';
-          loginCard.classList.remove('hidden');
-          authedArea.classList.add('hidden');
-          statsBox.textContent = '—';
-          modelsBox.textContent = '—';
-          knowledgeBox.textContent = '—';
-          profileBox.textContent = '—';
-          teamBox.textContent = '—';
-          return;
-        }
-        show(elError, e?.message || 'Request failed');
-        statusEl.textContent = 'error';
-      }
-    }
-
-    sendBtn?.addEventListener('click', async () => {
-      const email = (emailInput?.value || '').trim();
-      hide(elError);
-      hide(elInfo);
-      if (!email) {
-        show(elError, 'Bitte Email eingeben.');
-        return;
-      }
-      sendBtn.disabled = true;
-      try {
-        await fetchJson('/api/auth/request-link', {
-          method: 'POST',
-          body: JSON.stringify({ email }),
-        });
-        show(elInfo, 'Magic-Link gesendet. Bitte Email öffnen und Link klicken.');
-      } catch (e) {
-        show(elError, e?.message || 'Request failed');
-      } finally {
-        sendBtn.disabled = false;
-      }
+  async function fetchJson(path, opts = {}) {
+    const res = await fetch(API_BASE + path, {
+      ...opts, credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
     });
+    const text = await res.text();
+    const data = text ? (() => { try { return JSON.parse(text); } catch { return text; } })() : null;
+    if (!res.ok) {
+      const msg = typeof data === 'string' ? data : (data?.message || data?.error || res.statusText);
+      const err = new Error(msg || `HTTP ${res.status}`);
+      err.status = res.status;
+      throw err;
+    }
+    return data;
+  }
 
-    refreshBtn?.addEventListener('click', loadAll);
+  function fmtTokens(n) {
+    if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+    return n.toLocaleString('en-US');
+  }
 
-    logoutBtn?.addEventListener('click', async () => {
-      hide(elError);
-      hide(elInfo);
-      try {
-        await fetchJson('/api/auth/logout', { method: 'POST', body: '{}' });
-      } catch {}
-      await loadAll();
+  const badgeEmoji = {
+    'First Save': '\u2B50', 'Token Saver 1M': '\uD83E\uDD47',
+    'Token Saver 10M': '\uD83E\uDD48', 'Token Saver 100M': '\uD83C\uDFC6',
+    'Evangelist': '\uD83D\uDCE3', 'Team Builder': '\uD83D\uDC65',
+    'Early Adopter': '\uD83D\uDE80', 'Contributor': '\uD83D\uDEE0\uFE0F'
+  };
+
+  function renderStats(rows) {
+    if (!Array.isArray(rows) || !rows.length) { statsBox.textContent = 'No stats yet (run: lean-ctx sync).'; return; }
+    statsBox.textContent = rows.slice(0, 10).map(r =>
+      `${r.date ?? '?'}  ·  saved=${r.tokens_saved ?? 0}  ·  calls=${r.tool_calls ?? 0}`
+    ).join('\n');
+    statsBox.style.whiteSpace = 'pre';
+  }
+
+  function renderModels(resp) {
+    const models = resp?.models;
+    if (!Array.isArray(models) || !models.length) { modelsBox.textContent = 'No models yet.'; return; }
+    modelsBox.textContent = models.slice(0, 12).map(m =>
+      `${m.file_ext ?? '?'} ${m.size_bucket ?? '?'}  →  ${m.recommended_mode ?? '?'}  (${Math.round((m.confidence || 0) * 100)}%)`
+    ).join('\n');
+    modelsBox.style.whiteSpace = 'pre';
+  }
+
+  function renderKnowledge(entries) {
+    if (!Array.isArray(entries) || !entries.length) { knowledgeBox.textContent = 'No knowledge entries.'; return; }
+    knowledgeBox.textContent = entries.slice(0, 12).map(e => `[${e.category ?? '?'}] ${e.key ?? '?'}`).join('\n');
+    knowledgeBox.style.whiteSpace = 'pre';
+  }
+
+  function renderProfile(data) {
+    if (!data?.display_hash) { profileBox.textContent = 'Could not load profile.'; return; }
+    const name = data.username || data.display_hash;
+    const badges = (data.badges || []).map(b => `<span title="${b}" style="cursor:help">${badgeEmoji[b] || b}</span>`).join(' ');
+    const inviteUrl = `${window.location.origin}/docs/getting-started?ref=${data.invite_code}`;
+    profileBox.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:0.6rem;">
+        <div class="text-xs"><span class="text-muted">Hash:</span> <strong class="text-text-bright">${name}</strong></div>
+        <div class="text-xs"><span class="text-muted">Rank:</span> <strong class="text-accent">#${data.rank}</strong></div>
+        <div class="text-xs"><span class="text-muted">Saved:</span> <strong class="text-accent">${fmtTokens(data.total_tokens_saved)}</strong></div>
+        <div class="text-xs"><span class="text-muted">Badges:</span> ${badges || '<span style="opacity:0.5">none yet</span>'}</div>
+        <div style="margin-top:0.25rem;">
+          <span class="text-muted" style="font-size:0.6875rem">Invite Link:</span>
+          <div style="display:flex;gap:0.5rem;margin-top:0.25rem;">
+            <input id="inviteInput" type="text" readonly value="${inviteUrl}" class="cloud-input" style="font-size:0.6875rem;padding:0.4rem 0.6rem;font-family:var(--font-mono,monospace);" />
+            <button id="copyInviteBtn" class="btn-outline rounded-lg" style="padding:0.35rem 0.75rem;font-size:0.6875rem;white-space:nowrap;">Copy</button>
+          </div>
+        </div>
+      </div>`;
+    document.getElementById('copyInviteBtn')?.addEventListener('click', () => {
+      navigator.clipboard.writeText(document.getElementById('inviteInput')?.value || '').then(() => {
+        const btn = document.getElementById('copyInviteBtn');
+        if (btn) { btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = 'Copy', 2000); }
+      });
     });
+  }
 
-    loadAll();
-  </script>
+  function renderTeam(data) {
+    if (!data?.team) { teamBox.innerHTML = '<p class="text-xs text-muted">No team yet — share your invite code to create one!</p>'; return; }
+    const t = data.team;
+    teamBox.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:0.6rem;">
+        <div class="text-xs"><span class="text-muted">Name:</span> <strong class="text-text-bright">${t.name}</strong> ${t.is_owner ? '<span class="text-accent" style="font-size:0.6875rem">(Owner)</span>' : ''}</div>
+        <div class="text-xs"><span class="text-muted">Members:</span> <strong>${t.member_count}</strong></div>
+        <div class="text-xs"><span class="text-muted">Team Saved:</span> <strong class="text-accent">${fmtTokens(t.total_tokens_saved)}</strong></div>
+        <div style="display:flex;gap:0.5rem;margin-top:0.25rem;">
+          <button id="leaveTeamBtn" class="btn-outline rounded-lg" style="padding:0.35rem 0.75rem;font-size:0.6875rem;">Leave</button>
+          ${t.is_owner ? '<button id="renameTeamBtn" class="btn-outline rounded-lg" style="padding:0.35rem 0.75rem;font-size:0.6875rem;">Rename</button>' : ''}
+        </div>
+      </div>`;
+    document.getElementById('leaveTeamBtn')?.addEventListener('click', async () => {
+      if (!confirm('Leave team?')) return;
+      try { await fetchJson('/api/profile/leave-team', { method: 'POST', body: '{}' }); loadAll(); }
+      catch (e) { show(elError, e?.message || 'Failed'); }
+    });
+    document.getElementById('renameTeamBtn')?.addEventListener('click', async () => {
+      const name = prompt('New team name:', t.name);
+      if (!name?.trim()) return;
+      try { await fetchJson('/api/profile/rename-team', { method: 'POST', body: JSON.stringify({ name: name.trim() }) }); loadAll(); }
+      catch (e) { show(elError, e?.message || 'Failed'); }
+    });
+  }
+
+  async function loadAll() {
+    hide(elError); hide(elInfo);
+    statusEl.textContent = 'connecting…';
+    try {
+      const stats = await fetchJson('/api/stats');
+      loginCard.classList.add('hidden');
+      authedArea.classList.remove('hidden');
+      statusEl.textContent = 'connected';
+      renderStats(stats);
+      const [models, knowledge, profile] = await Promise.all([
+        fetchJson('/api/cloud/models').catch(() => null),
+        fetchJson('/api/sync/knowledge').catch(() => null),
+        fetchJson('/api/profile').catch(() => null),
+      ]);
+      if (models) renderModels(models);
+      if (knowledge) renderKnowledge(knowledge);
+      if (profile) { renderProfile(profile); renderTeam(profile); }
+    } catch (e) {
+      if (e?.status === 401) {
+        statusEl.textContent = 'not logged in';
+        loginCard.classList.remove('hidden');
+        authedArea.classList.add('hidden');
+        return;
+      }
+      show(elError, e?.message || 'Request failed');
+      statusEl.textContent = 'error';
+    }
+  }
+
+  sendBtn?.addEventListener('click', async () => {
+    const email = (emailInput?.value || '').trim();
+    hide(elError); hide(elInfo);
+    if (!email) { show(elError, 'Please enter your email.'); return; }
+    sendBtn.disabled = true;
+    try {
+      await fetchJson('/api/auth/request-link', { method: 'POST', body: JSON.stringify({ email }) });
+      show(elInfo, 'Magic link sent! Check your inbox.');
+    } catch (e) { show(elError, e?.message || 'Request failed'); }
+    finally { sendBtn.disabled = false; }
+  });
+
+  refreshBtn?.addEventListener('click', loadAll);
+  logoutBtn?.addEventListener('click', async () => {
+    hide(elError); hide(elInfo);
+    try { await fetchJson('/api/auth/logout', { method: 'POST', body: '{}' }); } catch {}
+    await loadAll();
+  });
+
+  loadAll();
+</script>
+
 </BaseLayout>
-
