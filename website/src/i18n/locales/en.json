@@ -2200,6 +2200,7 @@
   "pro.freeFeature7": "Local terminal dashboard",
   "pro.freeFeature8": "Semantic code search",
   "pro.freeFeature9": "Self-update from GitHub",
+  "pro.freeFeature10": "Chrome extension (ChatGPT, Claude, Gemini…)",
   "pro.freeFeatureAbsent1": "No cloud dashboard",
   "pro.freeFeatureAbsent2": "No adaptive optimization",
   "pro.freeTier": "Free",
