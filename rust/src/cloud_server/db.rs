@@ -109,6 +109,9 @@ INSERT INTO global_counters (key, value) VALUES ('total_users', 0)
 INSERT INTO global_counters (key, value) VALUES ('total_contributions', 0)
   ON CONFLICT (key) DO NOTHING;
 
+-- Migrations: add columns that may be missing on existing tables
+ALTER TABLE contribute_entries ADD COLUMN IF NOT EXISTS device_hash TEXT;
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_contribute_device_day
   ON contribute_entries (device_hash, (created_at::date))
   WHERE device_hash IS NOT NULL;
