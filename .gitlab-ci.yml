@@ -27,11 +27,11 @@ deploy-cloud-api:
     - main
   before_script:
     - apk add --no-cache openssh-client rsync
-    - test -n "$LEANCTX_SSH_HOST" || (echo "Missing CI var: LEANCTX_SSH_HOST" && exit 1)
-    - test -n "$LEANCTX_SSH_USER" || (echo "Missing CI var: LEANCTX_SSH_USER" && exit 1)
-    - test -f "$LEANCTX_SSH_KEY" || (echo "Missing CI var: LEANCTX_SSH_KEY (type: File)" && exit 1)
-    - test -n "$LEANCTX_CLOUD_DB_PASSWORD" || (echo "Missing CI var: LEANCTX_CLOUD_DB_PASSWORD" && exit 1)
-    - test -n "$LEANCTX_CLOUD_JWT_SECRET" || (echo "Missing CI var: LEANCTX_CLOUD_JWT_SECRET" && exit 1)
+    - '[ -n "$LEANCTX_SSH_HOST" ] || (echo "Missing CI var LEANCTX_SSH_HOST" && exit 1)'
+    - '[ -n "$LEANCTX_SSH_USER" ] || (echo "Missing CI var LEANCTX_SSH_USER" && exit 1)'
+    - '[ -f "$LEANCTX_SSH_KEY" ] || (echo "Missing CI var LEANCTX_SSH_KEY (type File)" && exit 1)'
+    - '[ -n "$LEANCTX_CLOUD_DB_PASSWORD" ] || (echo "Missing CI var LEANCTX_CLOUD_DB_PASSWORD" && exit 1)'
+    - '[ -n "$LEANCTX_CLOUD_JWT_SECRET" ] || (echo "Missing CI var LEANCTX_CLOUD_JWT_SECRET" && exit 1)'
     - eval $(ssh-agent -s)
     - chmod 600 "$LEANCTX_SSH_KEY"
     - ssh-add "$LEANCTX_SSH_KEY"
