@@ -30,7 +30,7 @@ rust/models/
 *.pt
 
 # ── Private ──
-cloud/
+/cloud/
 docker-compose.yml
 DEVELOPMENT.md
 Makefile.deploy
