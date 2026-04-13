@@ -32,13 +32,14 @@ const lp = (path: string) => getLocalizedPath(path, locale);
         return;
       }
       try {
-        const res = await fetch(API_BASE + '/api/auth/exchange?token=' + encodeURIComponent(token), {
-          method: 'GET',
-          credentials: 'include',
-        });
+        const res = await fetch(API_BASE + '/api/auth/exchange?token=' + encodeURIComponent(token));
         if (!res.ok) {
           const msg = await res.text();
           throw new Error(msg || 'Login failed');
+        }
+        const data = await res.json();
+        if (data?.token) {
+          localStorage.setItem('leanctx_token', data.token);
         }
         window.location.replace(cloudUrl);
       } catch (e) {

@@ -2676,5 +2676,18 @@
   "leaderboard.heroTitleHighlight": "Leaderboard",
   "leaderboard.footer": "Alle Zahlen auf diesem Leaderboard sind echt — berechnet aus echten stats_daily-Datensätzen. Keine Boosts, keine Multiplikatoren, keine Inflation. Jeder gesparte Token ist verifiziert.",
   "leaderboard.joinCta": "Leaderboard beitreten",
-  "leaderboard.installCta": "lean-ctx installieren"
+  "leaderboard.installCta": "lean-ctx installieren",
+  "index.ecoBadge": "100% local · Bring your own API key · Zero data sent to us",
+  "index.ecoCard4Desc": "Full-screen TUI with inline diffs, syntax highlighting, and live token streaming. Built with Ratatui — SSH-friendly, keyboard-first.",
+  "index.ecoCard4Title": "Terminal-Native TUI",
+  "index.ecoCard5Desc": "23 built-in tools: read, write, edit, multi_edit, search, semantic_search, run_command, git_status, git_diff, git_commit, web_search, web_fetch, and more. Plus full MCP support.",
+  "index.ecoCard5Title": "23 Built-in Tools",
+  "index.ecoCard6Desc": "Same tool call 3× gets throttled, 12× gets blocked. AST quality guard checks every compression. Your wallet is protected from runaway token burn.",
+  "index.ecoCard6Title": "Loop & Quality Guard",
+  "index.ecoCard7Desc": "Every conversation persists locally in SQLite. Resume any session, search across all chats. Auto-checkpoint every 15 tool calls — crash recovery built in.",
+  "index.ecoCard7Title": "Session Memory",
+  "index.ecoCard8Desc": "git status, diff, and commit are built-in tools. The agent commits its own work with permission control — every file write shows a diff preview first.",
+  "index.ecoCard8Title": "Git-Native Workflow",
+  "benchmark.modeTaskPreserves": "Task-relevant code + dependency context via Knowledge Graph + IB filter",
+  "benchmark.modeTaskUseCase": "Task-focused reads (e.g. 'fix auth bug')"
 }
