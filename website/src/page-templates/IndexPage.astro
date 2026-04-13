@@ -72,6 +72,52 @@ const lp = (path: string) => getLocalizedPath(path, locale);
 <div class="section-divider content-grid"></div>
 
 <!-- ═══════════════════════════════════════════════════════
+     COMMUNITY STATS (live counter)
+     ═══════════════════════════════════════════════════════ -->
+<section class="section-y">
+  <div class="content-grid">
+    <div class="community-stats-card animate-entrance">
+      <p class="fluid-label text-accent" style="margin-bottom: 0.75rem;">{t('community.title')}</p>
+      <p class="text-muted text-sm" style="margin-bottom: clamp(1.5rem, 1rem + 1vw, 2.5rem); max-width: 36rem;">
+        {t('community.subtitle')}
+      </p>
+
+      <div class="community-counter">
+        <span class="community-number font-display" id="global-tokens-saved">—</span>
+        <span class="community-label">{t('community.tokensSaved')}</span>
+      </div>
+
+      <div class="community-row">
+        <div class="community-stat">
+          <span class="community-stat-num font-display" id="global-users">—</span>
+          <span class="community-stat-label">{t('community.activeUsers')}</span>
+        </div>
+        <div class="community-stat">
+          <span class="community-stat-num font-display" id="global-teams">—</span>
+          <span class="community-stat-label">{t('community.teams')}</span>
+        </div>
+        <div class="community-stat">
+          <span class="community-stat-num font-display" id="global-contributions">—</span>
+          <span class="community-stat-label">{t('community.contributions')}</span>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center" style="gap: 1rem; margin-top: clamp(1.5rem, 1rem + 1vw, 2.5rem);">
+        <a href={lp('/leaderboard')} class="btn-outline inline-flex items-center gap-2 rounded-lg" style="padding: 0.6rem 1.25rem; font-size: 0.8125rem;">
+          {t('community.viewLeaderboard')}
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+        </a>
+        <a href={lp('/docs/getting-started')} class="text-muted hover:text-text-bright transition-colors" style="font-size: 0.8125rem; font-weight: 500;">
+          {t('community.joinTheRace')} &rarr;
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="section-divider content-grid"></div>
+
+<!-- ═══════════════════════════════════════════════════════
      WHAT HAPPENS (replaces confusing numbers section)
      ═══════════════════════════════════════════════════════ -->
 <section class="section-y">
@@ -1019,6 +1065,99 @@ const lp = (path: string) => getLocalizedPath(path, locale);
   }
 })();
 </script>
+
+<script>
+(function() {
+  var API = 'https://api.leanctx.com';
+
+  function fmt(n) {
+    if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+    return String(n);
+  }
+
+  function animateCount(el, target, duration) {
+    if (!el) return;
+    var start = 0;
+    var startTime = null;
+    function step(ts) {
+      if (!startTime) startTime = ts;
+      var progress = Math.min((ts - startTime) / duration, 1);
+      var eased = 1 - Math.pow(1 - progress, 3);
+      var current = Math.floor(eased * target);
+      el.textContent = fmt(current);
+      if (progress < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+
+  fetch(API + '/api/global-stats')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      animateCount(document.getElementById('global-tokens-saved'), d.total_tokens_saved || 0, 2000);
+      animateCount(document.getElementById('global-users'), d.total_users || 0, 1500);
+      animateCount(document.getElementById('global-teams'), d.total_teams || 0, 1500);
+      animateCount(document.getElementById('global-contributions'), d.total_contributions || 0, 1500);
+    })
+    .catch(function() {});
+})();
+</script>
+
+<style>
+  .community-stats-card {
+    text-align: center;
+    padding: clamp(2rem, 1.5rem + 2vw, 4rem) clamp(1.5rem, 1rem + 1vw, 3rem);
+    border-radius: clamp(12px, 1vw, 16px);
+    border: 1px solid var(--color-border);
+    background: linear-gradient(180deg, rgba(52, 211, 153, 0.03) 0%, transparent 100%);
+  }
+  .community-counter {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: clamp(1.5rem, 1rem + 1vw, 2.5rem);
+  }
+  .community-number {
+    font-size: clamp(2.5rem, 2rem + 2vw, 4.5rem);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    background: linear-gradient(135deg, var(--color-accent), #60a5fa);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    line-height: 1.1;
+  }
+  .community-label {
+    font-size: clamp(0.8125rem, 0.75rem + 0.2vw, 1rem);
+    color: var(--color-muted);
+    font-weight: 500;
+  }
+  .community-row {
+    display: flex;
+    justify-content: center;
+    gap: clamp(2rem, 1.5rem + 2vw, 4rem);
+    flex-wrap: wrap;
+  }
+  .community-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+  }
+  .community-stat-num {
+    font-size: clamp(1.25rem, 1rem + 0.75vw, 2rem);
+    font-weight: 700;
+    color: var(--color-text-bright);
+  }
+  .community-stat-label {
+    font-size: 0.75rem;
+    color: var(--color-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+</style>
 
 </BaseLayout>
 <!-- v2.14.3 deploy trigger -->

@@ -60,6 +60,18 @@ const t = useTranslations(locale);
             </div>
           </div>
 
+          <div class="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="glass-panel p-6">
+              <h2 class="text-lg font-semibold text-text-bright">{t('profile.title')}</h2>
+              <div id="profileBox" class="mt-4 text-sm text-muted">Loading…</div>
+            </div>
+
+            <div class="glass-panel p-6">
+              <h2 class="text-lg font-semibold text-text-bright">{t('profile.team')}</h2>
+              <div id="teamBox" class="mt-4 text-sm text-muted">Loading…</div>
+            </div>
+          </div>
+
           <div class="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div class="glass-panel p-6">
               <h2 class="text-lg font-semibold text-text-bright">Stats</h2>
@@ -96,6 +108,8 @@ const t = useTranslations(locale);
     const statsBox = document.getElementById('statsBox');
     const modelsBox = document.getElementById('modelsBox');
     const knowledgeBox = document.getElementById('knowledgeBox');
+    const profileBox = document.getElementById('profileBox');
+    const teamBox = document.getElementById('teamBox');
 
     const emailInput = document.getElementById('email');
     const sendBtn = document.getElementById('sendLinkBtn');
@@ -180,6 +194,90 @@ const t = useTranslations(locale);
       knowledgeBox.style.whiteSpace = 'pre';
     }
 
+    function fmtTokens(n) {
+      if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+      if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+      if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+      return String(n);
+    }
+
+    const badgeEmoji = {
+      'First Save': '\u2B50', 'Token Saver 1M': '\uD83E\uDD47',
+      'Token Saver 10M': '\uD83E\uDD48', 'Token Saver 100M': '\uD83C\uDFC6',
+      'Evangelist': '\uD83D\uDCE3', 'Team Builder': '\uD83D\uDC65',
+      'Early Adopter': '\uD83D\uDE80', 'Contributor': '\uD83D\uDEE0\uFE0F'
+    };
+
+    function renderProfile(data) {
+      if (!data || !data.display_hash) {
+        profileBox.textContent = 'Could not load profile.';
+        return;
+      }
+      const name = data.username || data.display_hash;
+      const badges = (data.badges || []).map(b => `<span title="${b}" style="cursor:help">${badgeEmoji[b] || b}</span>`).join(' ');
+      const inviteUrl = `${window.location.origin}/docs/getting-started?ref=${data.invite_code}`;
+
+      profileBox.innerHTML = `
+        <div style="display:flex;flex-direction:column;gap:0.75rem;">
+          <div><span style="color:var(--color-muted)">Hash:</span> <strong style="color:var(--color-text-bright)">${name}</strong></div>
+          <div><span style="color:var(--color-muted)">Rank:</span> <strong style="color:var(--color-accent)">#${data.rank}</strong></div>
+          <div><span style="color:var(--color-muted)">Saved:</span> <strong style="color:var(--color-accent)">${fmtTokens(data.total_tokens_saved)}</strong></div>
+          <div><span style="color:var(--color-muted)">Badges:</span> ${badges || '<span style="opacity:0.5">none yet</span>'}</div>
+          <div style="margin-top:0.5rem;">
+            <span style="color:var(--color-muted);font-size:0.75rem">Invite Link:</span>
+            <div style="display:flex;gap:0.5rem;margin-top:0.25rem;">
+              <input id="inviteInput" type="text" readonly value="${inviteUrl}" style="flex:1;padding:0.4rem 0.6rem;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(0,0,0,0.3);color:var(--color-text-bright);font-size:0.75rem;font-family:var(--font-mono,monospace);" />
+              <button id="copyInviteBtn" style="padding:0.4rem 0.8rem;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:transparent;color:var(--color-accent);font-size:0.75rem;cursor:pointer;">Copy</button>
+            </div>
+          </div>
+        </div>`;
+
+      document.getElementById('copyInviteBtn')?.addEventListener('click', () => {
+        const input = document.getElementById('inviteInput');
+        if (input) {
+          navigator.clipboard.writeText(input.value).then(() => {
+            document.getElementById('copyInviteBtn').textContent = 'Copied!';
+            setTimeout(() => { document.getElementById('copyInviteBtn').textContent = 'Copy'; }, 2000);
+          });
+        }
+      });
+    }
+
+    function renderTeam(data) {
+      if (!data || !data.team) {
+        teamBox.innerHTML = '<p style="color:var(--color-muted)">No team yet — share your invite code to create one!</p>';
+        return;
+      }
+      const t = data.team;
+      teamBox.innerHTML = `
+        <div style="display:flex;flex-direction:column;gap:0.75rem;">
+          <div><span style="color:var(--color-muted)">Name:</span> <strong style="color:var(--color-text-bright)">${t.name}</strong> ${t.is_owner ? '<span style="color:var(--color-accent);font-size:0.75rem">(Owner)</span>' : ''}</div>
+          <div><span style="color:var(--color-muted)">Members:</span> <strong>${t.member_count}</strong></div>
+          <div><span style="color:var(--color-muted)">Team Saved:</span> <strong style="color:var(--color-accent)">${fmtTokens(t.total_tokens_saved)}</strong></div>
+          <div style="display:flex;gap:0.5rem;margin-top:0.5rem;">
+            <button id="leaveTeamBtn" style="padding:0.4rem 0.8rem;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:transparent;color:var(--color-muted);font-size:0.75rem;cursor:pointer;">Leave Team</button>
+            ${t.is_owner ? '<button id="renameTeamBtn" style="padding:0.4rem 0.8rem;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:transparent;color:var(--color-muted);font-size:0.75rem;cursor:pointer;">Rename</button>' : ''}
+          </div>
+        </div>`;
+
+      document.getElementById('leaveTeamBtn')?.addEventListener('click', async () => {
+        if (!confirm('Leave team?')) return;
+        try {
+          await fetchJson('/api/profile/leave-team', { method: 'POST', body: '{}' });
+          loadAll();
+        } catch (e) { show(elError, e?.message || 'Failed'); }
+      });
+
+      document.getElementById('renameTeamBtn')?.addEventListener('click', async () => {
+        const name = prompt('New team name:', t.name);
+        if (!name || !name.trim()) return;
+        try {
+          await fetchJson('/api/profile/rename-team', { method: 'POST', body: JSON.stringify({ name: name.trim() }) });
+          loadAll();
+        } catch (e) { show(elError, e?.message || 'Failed'); }
+      });
+    }
+
     async function loadAll() {
       hide(elError);
       hide(elInfo);
@@ -192,12 +290,17 @@ const t = useTranslations(locale);
         statusEl.textContent = 'verbunden';
         renderStats(stats);
 
-        const [models, knowledge] = await Promise.all([
+        const [models, knowledge, profile] = await Promise.all([
           fetchJson('/api/cloud/models', { method: 'GET' }),
           fetchJson('/api/sync/knowledge', { method: 'GET' }),
+          fetchJson('/api/profile', { method: 'GET' }).catch(() => null),
         ]);
         renderModels(models);
         renderKnowledge(knowledge);
+        if (profile) {
+          renderProfile(profile);
+          renderTeam(profile);
+        }
       } catch (e) {
         if (e?.status === 401) {
           statusEl.textContent = 'nicht eingeloggt';
@@ -206,6 +309,8 @@ const t = useTranslations(locale);
           statsBox.textContent = '—';
           modelsBox.textContent = '—';
           knowledgeBox.textContent = '—';
+          profileBox.textContent = '—';
+          teamBox.textContent = '—';
           return;
         }
         show(elError, e?.message || 'Request failed');
