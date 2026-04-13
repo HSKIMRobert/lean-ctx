@@ -24,6 +24,57 @@ pub struct StatsEntry {
     pub cache_misses: i64,
 }
 
+#[derive(serde::Serialize)]
+pub struct StatsOutEntry {
+    pub date: String,
+    pub tokens_original: i64,
+    pub tokens_compressed: i64,
+    pub tokens_saved: i64,
+    pub tool_calls: i64,
+    pub cache_hits: i64,
+    pub cache_misses: i64,
+    pub updated_at: String,
+}
+
+pub async fn get_stats(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<StatsOutEntry>>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let client = state.pool.get().await.map_err(internal_error)?;
+    let rows = client
+        .query(
+            r#"
+SELECT date, tokens_original, tokens_compressed, tokens_saved, tool_calls, cache_hits, cache_misses, updated_at
+FROM stats_daily
+WHERE user_id=$1
+ORDER BY date DESC
+LIMIT 120
+"#,
+            &[&user_id],
+        )
+        .await
+        .map_err(internal_error)?;
+
+    let mut out = Vec::with_capacity(rows.len());
+    for r in rows {
+        let date: NaiveDate = r.get(0);
+        let updated_at: chrono::DateTime<chrono::Utc> = r.get(7);
+        out.push(StatsOutEntry {
+            date: date.format("%Y-%m-%d").to_string(),
+            tokens_original: r.get(1),
+            tokens_compressed: r.get(2),
+            tokens_saved: r.get(3),
+            tool_calls: r.get(4),
+            cache_hits: r.get(5),
+            cache_misses: r.get(6),
+            updated_at: updated_at.to_rfc3339(),
+        });
+    }
+
+    Ok(Json(out))
+}
+
 pub async fn post_stats(
     State(state): State<AppState>,
     headers: HeaderMap,
