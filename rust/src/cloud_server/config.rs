@@ -14,10 +14,17 @@ pub struct Config {
 
 impl Config {
     pub fn from_env() -> anyhow::Result<Self> {
+        fn env_opt(name: &str) -> Option<String> {
+            std::env::var(name)
+                .ok()
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty())
+        }
+
         let bind_host = std::env::var("LEANCTX_CLOUD_BIND_HOST").unwrap_or_else(|_| "0.0.0.0".into());
         let bind_port = std::env::var("LEANCTX_CLOUD_BIND_PORT")
             .ok()
-            .and_then(|v| v.parse::<u16>().ok())
+            .and_then(|v| v.trim().parse::<u16>().ok())
             .unwrap_or(8088);
         let public_base_url =
             std::env::var("LEANCTX_CLOUD_PUBLIC_BASE_URL").unwrap_or_else(|_| "https://leanctx.com".into());
@@ -27,13 +34,11 @@ impl Config {
         let jwt_secret =
             std::env::var("LEANCTX_CLOUD_JWT_SECRET").map_err(|_| anyhow::anyhow!("Missing env: LEANCTX_CLOUD_JWT_SECRET"))?;
 
-        let smtp_host = std::env::var("LEANCTX_CLOUD_SMTP_HOST").ok();
-        let smtp_port = std::env::var("LEANCTX_CLOUD_SMTP_PORT")
-            .ok()
-            .and_then(|v| v.parse::<u16>().ok());
-        let smtp_username = std::env::var("LEANCTX_CLOUD_SMTP_USERNAME").ok();
-        let smtp_password = std::env::var("LEANCTX_CLOUD_SMTP_PASSWORD").ok();
-        let smtp_from = std::env::var("LEANCTX_CLOUD_SMTP_FROM").ok();
+        let smtp_host = env_opt("LEANCTX_CLOUD_SMTP_HOST");
+        let smtp_port = env_opt("LEANCTX_CLOUD_SMTP_PORT").and_then(|v| v.parse::<u16>().ok());
+        let smtp_username = env_opt("LEANCTX_CLOUD_SMTP_USERNAME");
+        let smtp_password = env_opt("LEANCTX_CLOUD_SMTP_PASSWORD");
+        let smtp_from = env_opt("LEANCTX_CLOUD_SMTP_FROM");
 
         Ok(Self {
             bind_host,
