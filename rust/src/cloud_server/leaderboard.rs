@@ -70,12 +70,12 @@ pub async fn get_team_leaderboard(
         .query(
             r#"
 SELECT t.name,
-       COALESCE(SUM(p.total_tokens_saved), 0) as team_saved,
-       COUNT(p.user_id) as member_count
+       COALESCE(SUM(p.total_tokens_saved), 0)::BIGINT as team_saved,
+       COUNT(p.user_id)::BIGINT as member_count
 FROM teams t
 LEFT JOIN user_profiles p ON p.team_id = t.id
 GROUP BY t.id, t.name
-HAVING COALESCE(SUM(p.total_tokens_saved), 0) > 0
+HAVING COALESCE(SUM(p.total_tokens_saved), 0)::BIGINT > 0
 ORDER BY team_saved DESC
 LIMIT 20
 "#,

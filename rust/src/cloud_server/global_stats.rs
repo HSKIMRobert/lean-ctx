@@ -20,7 +20,7 @@ pub async fn get_global_stats(
 
     let tokens_saved: i64 = client
         .query_one(
-            "SELECT COALESCE(SUM(total_tokens_saved), 0) FROM user_profiles",
+            "SELECT COALESCE(SUM(total_tokens_saved), 0)::BIGINT FROM user_profiles",
             &[],
         )
         .await

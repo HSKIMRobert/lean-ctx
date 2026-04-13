@@ -286,7 +286,7 @@ async fn recalculate_badges(
 
     let team_member_count: i64 = client
         .query_one(
-            "SELECT COALESCE((SELECT COUNT(*) FROM user_profiles p JOIN teams t ON p.team_id=t.id WHERE t.owner_id=$1), 0)",
+            "SELECT COALESCE((SELECT COUNT(*) FROM user_profiles p JOIN teams t ON p.team_id=t.id WHERE t.owner_id=$1), 0)::BIGINT",
             &[&user_id],
         )
         .await?
@@ -294,7 +294,7 @@ async fn recalculate_badges(
 
     let contribution_count: i64 = client
         .query_one(
-            "SELECT COALESCE((SELECT COUNT(*) FROM contribute_entries WHERE device_hash=(SELECT display_hash FROM user_profiles WHERE user_id=$1)), 0)",
+            "SELECT COALESCE((SELECT COUNT(*) FROM contribute_entries WHERE device_hash=(SELECT display_hash FROM user_profiles WHERE user_id=$1)), 0)::BIGINT",
             &[&user_id],
         )
         .await
@@ -363,7 +363,7 @@ async fn fetch_team_info(
 
     let agg = client
         .query_one(
-            "SELECT COALESCE(SUM(total_tokens_saved),0), COUNT(*) FROM user_profiles WHERE team_id=$1",
+            "SELECT COALESCE(SUM(total_tokens_saved),0)::BIGINT, COUNT(*)::BIGINT FROM user_profiles WHERE team_id=$1",
             &[&team_id],
         )
         .await?;
