@@ -12,14 +12,14 @@ const lp = (path: string) => getLocalizedPath(path, locale);
       <div class="glass-panel p-8 md:p-10 animate-entrance">
         <h1 class="text-2xl md:text-3xl font-display text-text-bright">Signing you in…</h1>
         <p class="mt-3 text-sm text-muted">
-          Wenn du nicht automatisch weitergeleitet wirst, öffne <a class="text-accent underline" href={lp('/cloud')}>/cloud</a>.
+          Wenn du nicht automatisch weitergeleitet wirst, öffne <a class="text-accent underline" href={lp('/dashboard')}>/dashboard</a>.
         </p>
         <div id="authError" class="mt-6 hidden rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200"></div>
       </div>
     </div>
   </section>
 
-  <script type="module" define:vars={{ cloudUrl: lp('/cloud') }}>
+  <script type="module" define:vars={{ cloudUrl: lp('/dashboard') }}>
     const API_BASE = 'https://api.leanctx.com';
     const el = document.getElementById('authError');
     const url = new URL(window.location.href);

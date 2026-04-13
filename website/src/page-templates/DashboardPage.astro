@@ -1,0 +1,536 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { getLocaleFromUrl, getLocalizedPath, useTranslations } from '../i18n/utils';
+
+const locale = getLocaleFromUrl(Astro.url);
+const t = useTranslations(locale);
+const lp = (path: string) => getLocalizedPath(path, locale);
+---
+
+<BaseLayout
+  title={t('dash.metaTitle')}
+  description={t('dash.metaDesc')}
+  breadcrumbs={[{ name: t('dash.breadcrumb'), url: '/dashboard' }]}
+>
+
+<!-- ═══════ AUTH GATE ═══════ -->
+<section class="section-hero">
+  <div class="content-grid">
+
+    <!-- Login state -->
+    <div id="authGate">
+      <div class="animate-entrance">
+        <p class="fluid-label text-accent" style="margin-bottom: clamp(1.25rem, 1rem + 1vw, 2rem);">
+          {t('dash.authLabel')}
+        </p>
+      </div>
+      <h1 class="font-display fluid-display font-bold text-text-bright animate-entrance stagger-1" style="margin-bottom: clamp(1.25rem, 1rem + 1vw, 2rem);">
+        {t('dash.authTitle')}<br/>
+        <span class="gradient-text">{t('dash.authTitleHighlight')}</span>
+      </h1>
+      <p class="fluid-body text-muted animate-entrance stagger-2" style="margin-bottom: clamp(2rem, 1.5rem + 1.5vw, 3rem); max-width: 44rem;">
+        {t('dash.authDesc')}
+      </p>
+
+      <div id="authError" class="dash-msg dash-msg--error hidden"></div>
+      <div id="authInfo" class="dash-msg dash-msg--success hidden"></div>
+
+      <!-- Tab toggle -->
+      <div class="dash-auth-tabs animate-entrance stagger-3">
+        <button class="dash-auth-tab is-active" data-auth-tab="password">{t('dash.tabPassword')}</button>
+        <button class="dash-auth-tab" data-auth-tab="magic">{t('dash.tabMagicLink')}</button>
+      </div>
+
+      <!-- Password login -->
+      <div id="authPassword" class="dash-auth-form animate-entrance stagger-3">
+        <input id="loginEmail" type="email" autocomplete="email" class="dash-input" placeholder={t('dash.emailPlaceholder')} />
+        <input id="loginPassword" type="password" autocomplete="current-password" class="dash-input" placeholder={t('dash.passwordPlaceholder')} />
+        <button id="loginBtn" class="btn-primary rounded-lg" style="padding: 0.75rem 1.5rem; font-size: 0.875rem; white-space: nowrap;">
+          {t('dash.loginBtn')}
+        </button>
+      </div>
+
+      <!-- Magic link -->
+      <div id="authMagic" class="dash-auth-form hidden animate-entrance stagger-3">
+        <input id="magicEmail" type="email" autocomplete="email" class="dash-input" placeholder={t('dash.emailPlaceholder')} />
+        <button id="sendMagicBtn" class="btn-primary rounded-lg" style="padding: 0.75rem 1.5rem; font-size: 0.875rem; white-space: nowrap;">
+          {t('dash.sendMagicBtn')}
+        </button>
+      </div>
+
+      <p class="fluid-sm text-muted animate-entrance stagger-4" style="margin-top: 1.5rem;">
+        {t('dash.noAccount')} <a href={lp('/cloud')} class="text-accent hover:underline">{t('dash.learnMore')}</a>
+      </p>
+    </div>
+
+    <!-- Dashboard state (hidden until authed) -->
+    <div id="dashMain" class="hidden">
+      <div class="dash-header">
+        <div>
+          <p class="fluid-label text-accent" style="margin-bottom: 0.5rem;">{t('dash.dashLabel')}</p>
+          <h1 class="font-display fluid-h1 font-bold text-text-bright" id="dashGreeting">{t('dash.dashTitle')}</h1>
+        </div>
+        <div class="flex gap-2 items-center">
+          <button id="refreshBtn" class="btn-outline rounded-lg" style="padding: 0.5rem 1rem; font-size: 0.8125rem;">
+            {t('dash.refresh')}
+          </button>
+          <button id="logoutBtn" class="btn-outline rounded-lg" style="padding: 0.5rem 1rem; font-size: 0.8125rem;">
+            {t('dash.logout')}
+          </button>
+        </div>
+      </div>
+
+      <div id="dashError" class="dash-msg dash-msg--error hidden"></div>
+
+      <!-- Stats overview -->
+      <div class="dash-stats-bar">
+        <div class="dash-stat-item">
+          <span class="dash-stat-value font-display" id="statTokensSaved">—</span>
+          <span class="dash-stat-label">{t('dash.statTokensSaved')}</span>
+        </div>
+        <div class="dash-stat-divider"></div>
+        <div class="dash-stat-item">
+          <span class="dash-stat-value font-display" id="statRank">—</span>
+          <span class="dash-stat-label">{t('dash.statRank')}</span>
+        </div>
+        <div class="dash-stat-divider"></div>
+        <div class="dash-stat-item">
+          <span class="dash-stat-value font-display" id="statBadges">—</span>
+          <span class="dash-stat-label">{t('dash.statBadges')}</span>
+        </div>
+        <div class="dash-stat-divider"></div>
+        <div class="dash-stat-item">
+          <span class="dash-stat-value font-display" id="statTeam">—</span>
+          <span class="dash-stat-label">{t('dash.statTeam')}</span>
+        </div>
+      </div>
+
+      <!-- Panels -->
+      <div class="dash-grid">
+        <div class="dash-panel">
+          <div class="dash-panel-header">
+            <h2 class="font-display text-sm font-semibold text-text-bright">{t('dash.profileTitle')}</h2>
+          </div>
+          <div id="profilePanel" class="dash-panel-body">Loading…</div>
+        </div>
+
+        <div class="dash-panel">
+          <div class="dash-panel-header">
+            <h2 class="font-display text-sm font-semibold text-text-bright">{t('dash.teamTitle')}</h2>
+          </div>
+          <div id="teamPanel" class="dash-panel-body">Loading…</div>
+        </div>
+
+        <div class="dash-panel dash-panel--wide">
+          <div class="dash-panel-header">
+            <h2 class="font-display text-sm font-semibold text-text-bright">{t('dash.statsTitle')}</h2>
+          </div>
+          <div id="statsPanel" class="dash-panel-body">Loading…</div>
+        </div>
+
+        <div class="dash-panel">
+          <div class="dash-panel-header">
+            <h2 class="font-display text-sm font-semibold text-text-bright">{t('dash.modelsTitle')}</h2>
+          </div>
+          <div id="modelsPanel" class="dash-panel-body">Loading…</div>
+        </div>
+
+        <div class="dash-panel">
+          <div class="dash-panel-header">
+            <h2 class="font-display text-sm font-semibold text-text-bright">{t('dash.knowledgeTitle')}</h2>
+          </div>
+          <div id="knowledgePanel" class="dash-panel-body">Loading…</div>
+        </div>
+      </div>
+
+      <!-- Security section -->
+      <div class="dash-panel" style="margin-top: 1rem;">
+        <div class="dash-panel-header">
+          <h2 class="font-display text-sm font-semibold text-text-bright">{t('dash.securityTitle')}</h2>
+        </div>
+        <div class="dash-panel-body">
+          <p class="text-xs text-muted mb-3">{t('dash.securityDesc')}</p>
+          <div class="dash-pw-form">
+            <input id="newPassword" type="password" autocomplete="new-password" class="dash-input" placeholder={t('dash.newPasswordPlaceholder')} />
+            <button id="setPasswordBtn" class="btn-outline rounded-lg" style="padding: 0.5rem 1rem; font-size: 0.8125rem; white-space: nowrap;">
+              {t('dash.setPasswordBtn')}
+            </button>
+          </div>
+          <div id="pwMsg" class="hidden dash-msg dash-msg--success" style="margin-top: 0.75rem;"></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<style>
+  .dash-header {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-bottom: clamp(2rem, 1.5rem + 1vw, 3rem);
+  }
+  @media (min-width: 768px) {
+    .dash-header { flex-direction: row; align-items: flex-end; justify-content: space-between; }
+  }
+
+  .dash-stats-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: clamp(1.5rem, 1rem + 1vw, 2.5rem);
+    padding: clamp(1.5rem, 1.25rem + 0.75vw, 2.25rem);
+    border: 1px solid var(--color-border);
+    border-radius: clamp(10px, 0.8vw, 14px);
+    background: var(--color-surface);
+    margin-bottom: clamp(1.5rem, 1rem + 1vw, 2rem);
+  }
+  .dash-stat-item { display: flex; flex-direction: column; gap: 0.25rem; }
+  .dash-stat-value {
+    font-size: clamp(1.5rem, 1.25rem + 0.75vw, 2rem);
+    font-weight: 700;
+    color: var(--color-text-bright);
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+  .dash-stat-label {
+    font-size: clamp(0.6875rem, 0.65rem + 0.1vw, 0.8125rem);
+    color: var(--color-muted);
+    font-weight: 450;
+  }
+  .dash-stat-divider { width: 1px; height: 2rem; background: var(--color-border); }
+
+  .dash-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+  }
+  @media (max-width: 768px) {
+    .dash-grid { grid-template-columns: 1fr; }
+  }
+  .dash-panel--wide { grid-column: 1 / -1; }
+
+  .dash-panel {
+    border: 1px solid var(--color-border);
+    border-radius: clamp(10px, 0.8vw, 14px);
+    background: var(--color-surface);
+    overflow: hidden;
+  }
+  .dash-panel-header {
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .dash-panel-body {
+    padding: 1.25rem;
+    font-size: 0.8125rem;
+    color: var(--color-muted);
+  }
+
+  .dash-auth-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--color-border);
+    margin-bottom: 1.5rem;
+    max-width: 28rem;
+  }
+  .dash-auth-tab {
+    padding: 0.625rem 1.25rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--color-muted);
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s;
+    font-family: inherit;
+  }
+  .dash-auth-tab:hover { color: var(--color-text-bright); }
+  .dash-auth-tab.is-active { color: var(--color-accent); border-bottom-color: var(--color-accent); }
+
+  .dash-auth-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    max-width: 28rem;
+  }
+  .dash-input {
+    width: 100%;
+    border-radius: 8px;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    padding: 0.75rem 1rem;
+    color: var(--color-text-bright);
+    font-size: 0.875rem;
+    font-family: inherit;
+  }
+  .dash-input:focus {
+    outline: none;
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 2px rgba(52, 211, 153, 0.15);
+  }
+  .dash-input::placeholder { color: var(--color-muted); }
+
+  .dash-pw-form {
+    display: flex;
+    gap: 0.75rem;
+    max-width: 28rem;
+  }
+  @media (max-width: 480px) {
+    .dash-pw-form { flex-direction: column; }
+  }
+
+  .dash-msg {
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    font-size: 0.8125rem;
+    margin-bottom: 1rem;
+  }
+  .dash-msg--error {
+    border: 1px solid rgba(248, 113, 113, 0.3);
+    background: rgba(248, 113, 113, 0.06);
+    color: #fca5a5;
+  }
+  .dash-msg--success {
+    border: 1px solid rgba(52, 211, 153, 0.3);
+    background: rgba(52, 211, 153, 0.06);
+    color: #6ee7b7;
+  }
+
+  .dash-kv { display: flex; gap: 0.5rem; align-items: baseline; padding: 0.3rem 0; }
+  .dash-kv-key { font-size: 0.6875rem; color: var(--color-muted); min-width: 4rem; }
+  .dash-kv-val { font-size: 0.75rem; color: var(--color-text-bright); font-weight: 500; }
+</style>
+
+<script type="module">
+  const API = 'https://api.leanctx.com';
+  const $ = (id) => document.getElementById(id);
+
+  function show(el, txt) { el.classList.remove('hidden'); el.textContent = txt; }
+  function hide(el) { el.classList.add('hidden'); el.textContent = ''; }
+  function getToken() { return localStorage.getItem('leanctx_token'); }
+  function setToken(t) { if (t) localStorage.setItem('leanctx_token', t); }
+  function clearToken() { localStorage.removeItem('leanctx_token'); }
+  function fmt(n) {
+    if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+    return n.toLocaleString('en-US');
+  }
+
+  async function api(path, opts = {}) {
+    const token = getToken();
+    const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+    const res = await fetch(API + path, { ...opts, headers });
+    const text = await res.text();
+    const data = text ? (() => { try { return JSON.parse(text); } catch { return text; } })() : null;
+    if (!res.ok) {
+      const msg = typeof data === 'string' ? data : (data?.message || data?.error || res.statusText);
+      const err = new Error(msg || `HTTP ${res.status}`);
+      err.status = res.status;
+      throw err;
+    }
+    return data;
+  }
+
+  const badge = { 'First Save': '\u2B50', 'Token Saver 1M': '\uD83E\uDD47', 'Token Saver 10M': '\uD83E\uDD48', 'Token Saver 100M': '\uD83C\uDFC6', 'Evangelist': '\uD83D\uDCE3', 'Team Builder': '\uD83D\uDC65', 'Early Adopter': '\uD83D\uDE80', 'Contributor': '\uD83D\uDEE0\uFE0F' };
+
+  // Auth tabs
+  document.querySelectorAll('.dash-auth-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.dash-auth-tab').forEach(t => t.classList.remove('is-active'));
+      tab.classList.add('is-active');
+      const isPassword = tab.dataset.authTab === 'password';
+      $('authPassword').classList.toggle('hidden', !isPassword);
+      $('authMagic').classList.toggle('hidden', isPassword);
+    });
+  });
+
+  // Password login
+  $('loginBtn')?.addEventListener('click', async () => {
+    hide($('authError')); hide($('authInfo'));
+    const email = $('loginEmail')?.value?.trim();
+    const pw = $('loginPassword')?.value;
+    if (!email || !pw) { show($('authError'), 'Email and password required.'); return; }
+    $('loginBtn').disabled = true;
+    try {
+      const data = await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password: pw }) });
+      if (data?.token) setToken(data.token);
+      showDashboard();
+    } catch (e) { show($('authError'), e?.message || 'Login failed'); }
+    finally { $('loginBtn').disabled = false; }
+  });
+
+  // Magic link
+  $('sendMagicBtn')?.addEventListener('click', async () => {
+    hide($('authError')); hide($('authInfo'));
+    const email = $('magicEmail')?.value?.trim();
+    if (!email) { show($('authError'), 'Enter your email.'); return; }
+    $('sendMagicBtn').disabled = true;
+    try {
+      await api('/api/auth/request-link', { method: 'POST', body: JSON.stringify({ email }) });
+      show($('authInfo'), 'Magic link sent! Check your inbox.');
+    } catch (e) { show($('authError'), e?.message || 'Failed'); }
+    finally { $('sendMagicBtn').disabled = false; }
+  });
+
+  // Logout
+  $('logoutBtn')?.addEventListener('click', () => {
+    clearToken();
+    $('authGate').classList.remove('hidden');
+    $('dashMain').classList.add('hidden');
+  });
+
+  // Refresh
+  $('refreshBtn')?.addEventListener('click', loadDashboard);
+
+  // Set password
+  $('setPasswordBtn')?.addEventListener('click', async () => {
+    const pw = $('newPassword')?.value;
+    if (!pw || pw.length < 8) { show($('pwMsg'), 'Min. 8 characters.'); $('pwMsg').classList.remove('dash-msg--success'); $('pwMsg').classList.add('dash-msg--error'); return; }
+    try {
+      await api('/api/auth/set-password', { method: 'POST', body: JSON.stringify({ password: pw }) });
+      $('pwMsg').classList.remove('dash-msg--error');
+      $('pwMsg').classList.add('dash-msg--success');
+      show($('pwMsg'), 'Password saved!');
+      $('newPassword').value = '';
+    } catch (e) {
+      $('pwMsg').classList.remove('dash-msg--success');
+      $('pwMsg').classList.add('dash-msg--error');
+      show($('pwMsg'), e?.message || 'Failed');
+    }
+  });
+
+  function showDashboard() {
+    $('authGate').classList.add('hidden');
+    $('dashMain').classList.remove('hidden');
+    loadDashboard();
+  }
+
+  async function loadDashboard() {
+    hide($('dashError'));
+    try {
+      const [statsData, profile, models, knowledge] = await Promise.all([
+        api('/api/stats').catch(() => []),
+        api('/api/profile').catch(() => null),
+        api('/api/cloud/models').catch(() => null),
+        api('/api/sync/knowledge').catch(() => null),
+      ]);
+
+      // Stats bar
+      if (profile) {
+        $('statTokensSaved').textContent = fmt(profile.total_tokens_saved || 0);
+        $('statRank').textContent = '#' + (profile.rank || '?');
+        $('statBadges').textContent = String((profile.badges || []).length);
+        $('statTeam').textContent = profile.team?.name || 'None';
+        $('dashGreeting').textContent = profile.username || profile.display_hash || 'Dashboard';
+      }
+
+      // Profile panel
+      if (profile) {
+        const badges = (profile.badges || []).map(b => `<span title="${b}" style="cursor:help;font-size:1.1rem">${badge[b] || b}</span>`).join(' ');
+        const inviteUrl = `${window.location.origin}/docs/getting-started?ref=${profile.invite_code}`;
+        $('profilePanel').innerHTML = `
+          <div class="dash-kv"><span class="dash-kv-key">Hash</span><span class="dash-kv-val">${profile.username || profile.display_hash}</span></div>
+          <div class="dash-kv"><span class="dash-kv-key">Rank</span><span class="dash-kv-val text-accent">#${profile.rank}</span></div>
+          <div class="dash-kv"><span class="dash-kv-key">Saved</span><span class="dash-kv-val text-accent">${fmt(profile.total_tokens_saved)}</span></div>
+          <div class="dash-kv"><span class="dash-kv-key">Badges</span><span class="dash-kv-val">${badges || 'none yet'}</span></div>
+          <div style="margin-top:0.75rem;display:flex;gap:0.5rem;">
+            <input id="inviteInput" type="text" readonly value="${inviteUrl}" class="dash-input" style="font-size:0.6875rem;padding:0.4rem 0.6rem;font-family:var(--font-mono,monospace);" />
+            <button id="copyInviteBtn" class="btn-outline rounded-lg" style="padding:0.35rem 0.75rem;font-size:0.6875rem;white-space:nowrap;">Copy</button>
+          </div>`;
+        $('copyInviteBtn')?.addEventListener('click', () => {
+          navigator.clipboard.writeText($('inviteInput')?.value || '').then(() => {
+            const btn = $('copyInviteBtn');
+            if (btn) { btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = 'Copy', 2000); }
+          });
+        });
+      }
+
+      // Team panel
+      const team = profile?.team;
+      if (team) {
+        $('teamPanel').innerHTML = `
+          <div class="dash-kv"><span class="dash-kv-key">Name</span><span class="dash-kv-val">${team.name} ${team.is_owner ? '<span class="text-accent" style="font-size:0.6875rem">(Owner)</span>' : ''}</span></div>
+          <div class="dash-kv"><span class="dash-kv-key">Members</span><span class="dash-kv-val">${team.member_count}</span></div>
+          <div class="dash-kv"><span class="dash-kv-key">Saved</span><span class="dash-kv-val text-accent">${fmt(team.total_tokens_saved)}</span></div>
+          <div style="display:flex;gap:0.5rem;margin-top:0.75rem;">
+            <button id="leaveTeamBtn" class="btn-outline rounded-lg" style="padding:0.35rem 0.75rem;font-size:0.6875rem;">Leave</button>
+            ${team.is_owner ? '<button id="renameTeamBtn" class="btn-outline rounded-lg" style="padding:0.35rem 0.75rem;font-size:0.6875rem;">Rename</button>' : ''}
+          </div>`;
+        $('leaveTeamBtn')?.addEventListener('click', async () => {
+          if (!confirm('Leave team?')) return;
+          try { await api('/api/profile/leave-team', { method: 'POST', body: '{}' }); loadDashboard(); }
+          catch (e) { show($('dashError'), e?.message || 'Failed'); }
+        });
+        $('renameTeamBtn')?.addEventListener('click', async () => {
+          const name = prompt('New team name:', team.name);
+          if (!name?.trim()) return;
+          try { await api('/api/profile/rename-team', { method: 'POST', body: JSON.stringify({ name: name.trim() }) }); loadDashboard(); }
+          catch (e) { show($('dashError'), e?.message || 'Failed'); }
+        });
+      } else {
+        $('teamPanel').innerHTML = '<p class="text-xs text-muted">No team yet — share your invite code!</p>';
+      }
+
+      // Stats panel
+      if (Array.isArray(statsData) && statsData.length) {
+        $('statsPanel').innerHTML = '<div style="font-family:var(--font-mono,monospace);font-size:0.75rem;white-space:pre;line-height:1.6">' +
+          statsData.slice(0, 14).map(r => `${r.date}  saved=${fmt(r.tokens_saved)}  calls=${r.tool_calls}`).join('\n') +
+          '</div>';
+      } else {
+        $('statsPanel').textContent = 'No stats yet — run: lean-ctx sync';
+      }
+
+      // Models panel
+      const ms = models?.models;
+      if (Array.isArray(ms) && ms.length) {
+        $('modelsPanel').innerHTML = '<div style="font-family:var(--font-mono,monospace);font-size:0.75rem;white-space:pre;line-height:1.6">' +
+          ms.slice(0, 10).map(m => `${m.file_ext} ${m.size_bucket}  →  ${m.recommended_mode}  (${Math.round((m.confidence||0)*100)}%)`).join('\n') +
+          '</div>';
+      } else {
+        $('modelsPanel').textContent = 'No models yet.';
+      }
+
+      // Knowledge panel
+      if (Array.isArray(knowledge) && knowledge.length) {
+        $('knowledgePanel').innerHTML = '<div style="font-family:var(--font-mono,monospace);font-size:0.75rem;white-space:pre;line-height:1.6">' +
+          knowledge.slice(0, 10).map(e => `[${e.category}] ${e.key}`).join('\n') +
+          '</div>';
+      } else {
+        $('knowledgePanel').textContent = 'No knowledge entries.';
+      }
+
+    } catch (e) {
+      if (e?.status === 401) {
+        clearToken();
+        $('authGate').classList.remove('hidden');
+        $('dashMain').classList.add('hidden');
+        return;
+      }
+      show($('dashError'), e?.message || 'Request failed');
+    }
+  }
+
+  // Init — check for magic link token or existing session
+  (async function init() {
+    const params = new URLSearchParams(window.location.search);
+    const magicToken = params.get('token');
+    if (magicToken) {
+      try {
+        const data = await api('/api/auth/exchange?token=' + encodeURIComponent(magicToken));
+        if (data?.token) setToken(data.token);
+        window.history.replaceState({}, '', window.location.pathname);
+      } catch (e) {
+        show($('authError'), e?.message || 'Login failed');
+      }
+    }
+    if (getToken()) {
+      showDashboard();
+    }
+  })();
+</script>
+
+</BaseLayout>

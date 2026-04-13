@@ -37,7 +37,7 @@ const lp = (path: string) => getLocalizedPath(path, locale);
       </div>
       <div class="hero-proof-divider"></div>
       <div class="hero-proof-item">
-        <span class="hero-proof-number font-display hero-proof-number--accent" id="global-tokens-saved">—</span>
+        <span class="hero-proof-number font-display" id="global-tokens-saved">—</span>
         <span class="hero-proof-label">{t('index.heroProofTokensSaved')}</span>
       </div>
       <div class="hero-proof-divider"></div>
@@ -646,12 +646,6 @@ const lp = (path: string) => getLocalizedPath(path, locale);
     color: var(--color-text-bright);
     letter-spacing: -0.03em;
     line-height: 1;
-  }
-  .hero-proof-number--accent {
-    background: linear-gradient(135deg, var(--color-accent), #60a5fa);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
   }
   .hero-proof-label {
     font-size: clamp(0.75rem, 0.7rem + 0.15vw, 0.875rem);
