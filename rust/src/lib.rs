@@ -1,6 +1,8 @@
 pub mod cli;
 pub mod cloud_client;
 pub mod cloud_sync;
+#[cfg(feature = "cloud-server")]
+pub mod cloud_server;
 pub mod config_io;
 pub mod core;
 pub mod dashboard;

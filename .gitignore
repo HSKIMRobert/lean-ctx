@@ -6,7 +6,6 @@ dist/
 deploy.sh
 Dockerfile.web
 website/
-.gitlab-ci.yml
 /src/
 /package.json
 /package-lock.json

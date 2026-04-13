@@ -19,10 +19,27 @@ path = "src/lib.rs"
 name = "lean-ctx"
 path = "src/main.rs"
 
+[[bin]]
+name = "lean-ctx-cloud-api"
+path = "src/bin/lean-ctx-cloud-api.rs"
+required-features = ["cloud-server"]
+
 [features]
 default = ["tree-sitter", "embeddings"]
 neural = ["dep:rten", "dep:rten-tensor"]
 embeddings = ["dep:rten", "dep:rten-tensor"]
+cloud-server = [
+  "dep:axum",
+  "dep:tower-http",
+  "dep:uuid",
+  "dep:rand",
+  "dep:sha2",
+  "dep:hex",
+  "dep:jsonwebtoken",
+  "dep:deadpool-postgres",
+  "dep:tokio-postgres",
+  "dep:lettre",
+]
 tree-sitter = [
   "dep:tree-sitter",
   "dep:tree-sitter-rust",
@@ -66,6 +83,16 @@ chrono = { version = "0.4", features = ["serde"] }
 toml = "0.8"
 similar = "2"
 flate2 = "1"
+axum = { version = "0.8", optional = true }
+tower-http = { version = "0.6", features = ["cors"], optional = true }
+uuid = { version = "1", features = ["v4", "serde"], optional = true }
+rand = { version = "0.9", optional = true }
+sha2 = { version = "0.10", optional = true }
+hex = { version = "0.4", optional = true }
+jsonwebtoken = { version = "9", optional = true }
+deadpool-postgres = { version = "0.14", optional = true }
+tokio-postgres = { version = "0.7", features = ["with-uuid-1", "with-chrono-0_4"], optional = true }
+lettre = { version = "0.11", default-features = false, features = ["smtp-transport", "tokio1-rustls-tls", "builder"], optional = true }
 tree-sitter = { version = "0.26", optional = true }
 tree-sitter-rust = { version = "0.24", optional = true }
 tree-sitter-typescript = { version = "0.23", optional = true }

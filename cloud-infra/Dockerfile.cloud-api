@@ -1,0 +1,22 @@
+FROM rust:1-bookworm AS builder
+
+WORKDIR /app
+COPY rust ./rust
+
+RUN cd rust && cargo build --release --features cloud-server --bin lean-ctx-cloud-api
+
+FROM debian:bookworm-slim
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /app/rust/target/release/lean-ctx-cloud-api /usr/local/bin/lean-ctx-cloud-api
+
+ENV LEANCTX_CLOUD_BIND_HOST=0.0.0.0
+ENV LEANCTX_CLOUD_BIND_PORT=8088
+
+EXPOSE 8088
+
+CMD ["lean-ctx-cloud-api"]
+
