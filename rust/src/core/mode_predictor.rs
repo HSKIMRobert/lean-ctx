@@ -78,8 +78,8 @@ impl ModePredictor {
         if let Some(local) = self.predict_from_local(sig) {
             return Some(local);
         }
-        if let Some(pro) = self.predict_from_pro(sig) {
-            return Some(pro);
+        if let Some(cloud) = self.predict_from_cloud(sig) {
+            return Some(cloud);
         }
         Self::predict_from_defaults(sig)
     }
@@ -111,7 +111,7 @@ impl ModePredictor {
 
     /// Loads cloud adaptive models (opt-in via login).
     /// Models are cached locally and can be auto-updated in the background.
-    fn predict_from_pro(&self, sig: &FileSignature) -> Option<String> {
+    fn predict_from_cloud(&self, sig: &FileSignature) -> Option<String> {
         let data = crate::cloud_client::load_adaptive_models()?;
         let models = data["models"].as_array()?;
 
