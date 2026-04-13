@@ -112,8 +112,9 @@ INSERT INTO global_counters (key, value) VALUES ('total_contributions', 0)
 -- Migrations: add columns that may be missing on existing tables
 ALTER TABLE contribute_entries ADD COLUMN IF NOT EXISTS device_hash TEXT;
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_contribute_device_day
-  ON contribute_entries (device_hash, (created_at::date))
+-- Dedup: one contribution per device per day (application-layer check in contribute.rs)
+CREATE INDEX IF NOT EXISTS idx_contribute_device_hash
+  ON contribute_entries (device_hash)
   WHERE device_hash IS NOT NULL;
 "#,
         )
