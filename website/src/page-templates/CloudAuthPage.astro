@@ -10,44 +10,18 @@ const lp = (path: string) => getLocalizedPath(path, locale);
   <section class="content-grid py-12 md:py-16">
     <div class="max-w-3xl mx-auto">
       <div class="glass-panel p-8 md:p-10 animate-entrance">
-        <h1 class="text-2xl md:text-3xl font-display text-text-bright">Signing you in…</h1>
+        <h1 class="text-2xl md:text-3xl font-display text-text-bright">Redirecting…</h1>
         <p class="mt-3 text-sm text-muted">
-          Wenn du nicht automatisch weitergeleitet wirst, öffne <a class="text-accent underline" href={lp('/dashboard')}>/dashboard</a>.
+          Bitte öffne <a class="text-accent underline" href={lp('/dashboard')}>/dashboard</a> und melde dich dort mit deiner E‑Mail an.
         </p>
-        <div id="authError" class="mt-6 hidden rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200"></div>
       </div>
     </div>
   </section>
 
   <script type="module" define:vars={{ cloudUrl: lp('/dashboard') }}>
-    const API_BASE = 'https://api.leanctx.com';
-    const el = document.getElementById('authError');
-    const url = new URL(window.location.href);
-    const token = url.searchParams.get('token');
-
-    async function run() {
-      if (!token) {
-        el.classList.remove('hidden');
-        el.textContent = 'Missing token.';
-        return;
-      }
-      try {
-        const res = await fetch(API_BASE + '/api/auth/exchange?token=' + encodeURIComponent(token));
-        if (!res.ok) {
-          const msg = await res.text();
-          throw new Error(msg || 'Login failed');
-        }
-        const data = await res.json();
-        if (data?.token) {
-          localStorage.setItem('leanctx_token', data.token);
-        }
-        window.location.replace(cloudUrl);
-      } catch (e) {
-        el.classList.remove('hidden');
-        el.textContent = e?.message || 'Login failed';
-      }
-    }
-    run();
+    // Magic-link exchange is not used in the current public API.
+    // Keep this route for old links and redirect to the dashboard.
+    window.location.replace(cloudUrl);
   </script>
 </BaseLayout>
 

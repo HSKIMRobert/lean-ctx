@@ -37,11 +37,6 @@ const lp = (path: string) => getLocalizedPath(path, locale);
       </div>
       <div class="hero-proof-divider"></div>
       <div class="hero-proof-item">
-        <span class="hero-proof-number font-display" id="global-tokens-saved">—</span>
-        <span class="hero-proof-label">{t('index.heroProofTokensSaved')}</span>
-      </div>
-      <div class="hero-proof-divider"></div>
-      <div class="hero-proof-item">
         <span class="hero-proof-number font-display">34</span>
         <span class="hero-proof-label">{t('index.heroProofTools')}</span>
       </div>
@@ -1017,26 +1012,6 @@ const lp = (path: string) => getLocalizedPath(path, locale);
       })
       .catch(function() {});
   }
-})();
-</script>
-
-<script is:inline>
-(function() {
-  function fmtShort(n) {
-    if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
-    if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
-    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
-    return String(n);
-  }
-  fetch('https://api.leanctx.com/api/global-stats')
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-      var el = document.getElementById('global-tokens-saved');
-      var val = d.total_tokens_saved || 0;
-      if (el && val > 0) el.textContent = fmtShort(val);
-      else if (el) el.textContent = '—';
-    })
-    .catch(function() {});
 })();
 </script>
 

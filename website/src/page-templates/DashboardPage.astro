@@ -32,23 +32,10 @@ const lp = (path: string) => getLocalizedPath(path, locale);
     <div id="authError" class="obs-msg obs-msg--error hidden"></div>
     <div id="authInfo" class="obs-msg obs-msg--success hidden"></div>
 
-    <div class="obs-auth-tabs animate-entrance stagger-3">
-      <button class="obs-auth-tab is-active" data-auth-tab="password">{t('dash.tabPassword')}</button>
-      <button class="obs-auth-tab" data-auth-tab="magic">{t('dash.tabMagicLink')}</button>
-    </div>
-
-    <div id="authPassword" class="obs-auth-form animate-entrance stagger-3">
+    <div class="obs-auth-form animate-entrance stagger-3">
       <input id="loginEmail" type="email" autocomplete="email" class="obs-input" placeholder={t('dash.emailPlaceholder')} />
-      <input id="loginPassword" type="password" autocomplete="current-password" class="obs-input" placeholder={t('dash.passwordPlaceholder')} />
       <button id="loginBtn" class="btn-primary rounded-lg" style="padding: 0.75rem 1.5rem; font-size: 0.875rem; white-space: nowrap;">
         {t('dash.loginBtn')}
-      </button>
-    </div>
-
-    <div id="authMagic" class="obs-auth-form hidden animate-entrance stagger-3">
-      <input id="magicEmail" type="email" autocomplete="email" class="obs-input" placeholder={t('dash.emailPlaceholder')} />
-      <button id="sendMagicBtn" class="btn-primary rounded-lg" style="padding: 0.75rem 1.5rem; font-size: 0.875rem; white-space: nowrap;">
-        {t('dash.sendMagicBtn')}
       </button>
     </div>
 
@@ -79,10 +66,6 @@ const lp = (path: string) => getLocalizedPath(path, locale);
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6m6 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0h6m2 0v-4a2 2 0 012-2h2a2 2 0 012 2v4m-4 0h4"/></svg>
           {t('dash.viewStats')}
         </button>
-        <button class="obs-nav-item" data-view="leaderboard">
-          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 18.75h-9m9 0a3 3 0 013 3h-15a3 3 0 013-3m9 0v-3.375c0-.621-.504-1.125-1.125-1.125h-.871M7.5 18.75v-3.375c0-.621.504-1.125 1.125-1.125h.872m5.007 0H9.497m5.007 0a7.454 7.454 0 01-.982-3.172M9.497 14.25a7.454 7.454 0 00.981-3.172M5.25 4.236c-.982.143-1.954.317-2.916.52A6.003 6.003 0 007.73 9.728M5.25 4.236V4.5c0 2.108.966 3.99 2.48 5.228M5.25 4.236V2.721C7.456 2.41 9.71 2.25 12 2.25c2.291 0 4.545.16 6.75.47v1.516M18.75 4.236c.982.143 1.954.317 2.916.52A6.003 6.003 0 0016.27 9.728M18.75 4.236V4.5c0 2.108-.966 3.99-2.48 5.228m0 0a6.023 6.023 0 01-2.77.896m5.25-5.123V2.721"/></svg>
-          {t('dash.viewLeaderboard')}
-        </button>
         <button class="obs-nav-item" data-view="models">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714a2.25 2.25 0 00.659 1.591L19 14.5M14.25 3.104c.251.023.501.05.75.082M19 14.5l-1.591-1.591A2.25 2.25 0 0016.75 11.25V8.636c0-.16.008-.32.023-.478M5 14.5l1.591-1.591A2.25 2.25 0 007.25 11.25V8.636c0-.16-.008-.32-.023-.478"/></svg>
           {t('dash.viewModels')}
@@ -90,10 +73,6 @@ const lp = (path: string) => getLocalizedPath(path, locale);
         <button class="obs-nav-item" data-view="knowledge">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"/></svg>
           {t('dash.viewKnowledge')}
-        </button>
-        <button class="obs-nav-item" data-view="team">
-          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z"/></svg>
-          {t('dash.viewTeam')}
         </button>
         <button class="obs-nav-item" data-view="settings">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 010 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 010-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
@@ -115,12 +94,6 @@ const lp = (path: string) => getLocalizedPath(path, locale);
       </button>
       <button class="obs-mobile-tab" data-view="stats" title={t('dash.viewStats')}>
         <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6m6 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0h6"/></svg>
-      </button>
-      <button class="obs-mobile-tab" data-view="leaderboard" title={t('dash.viewLeaderboard')}>
-        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 18.75h-9m9 0a3 3 0 013 3h-15a3 3 0 013-3m9 0v-3.375c0-.621-.504-1.125-1.125-1.125h-.871M7.5 18.75v-3.375c0-.621.504-1.125 1.125-1.125h.872"/></svg>
-      </button>
-      <button class="obs-mobile-tab" data-view="team" title={t('dash.viewTeam')}>
-        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72M15 6.75a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
       </button>
       <button class="obs-mobile-tab" data-view="settings" title={t('dash.viewSettings')}>
         <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281"/></svg>
@@ -174,17 +147,6 @@ const lp = (path: string) => getLocalizedPath(path, locale);
         </div>
       </div>
 
-      <!-- ═══ VIEW: Leaderboard ═══ -->
-      <div class="obs-view" data-panel="leaderboard">
-        <div class="obs-subtabs">
-          <button class="obs-subtab is-active" data-lb="individual">{t('dash.lbIndividual')}</button>
-          <button class="obs-subtab" data-lb="teams">{t('dash.lbTeams')}</button>
-        </div>
-        <div class="obs-card">
-          <div class="obs-card-body obs-card-body--flush" id="lbContent">{t('dash.loading')}</div>
-        </div>
-      </div>
-
       <!-- ═══ VIEW: Models ═══ -->
       <div class="obs-view" data-panel="models">
         <div class="obs-card">
@@ -201,32 +163,11 @@ const lp = (path: string) => getLocalizedPath(path, locale);
         </div>
       </div>
 
-      <!-- ═══ VIEW: Team ═══ -->
-      <div class="obs-view" data-panel="team">
-        <div class="obs-card">
-          <div class="obs-card-header">{t('dash.teamTitle')}</div>
-          <div class="obs-card-body" id="teamContent">{t('dash.loading')}</div>
-        </div>
-      </div>
-
       <!-- ═══ VIEW: Settings ═══ -->
       <div class="obs-view" data-panel="settings">
         <div class="obs-card">
           <div class="obs-card-header">{t('dash.settingsProfile')}</div>
           <div class="obs-card-body" id="settingsProfile">{t('dash.loading')}</div>
-        </div>
-        <div class="obs-card">
-          <div class="obs-card-header">{t('dash.securityTitle')}</div>
-          <div class="obs-card-body">
-            <p class="text-xs text-muted" style="margin-bottom: 0.75rem;">{t('dash.securityDesc')}</p>
-            <div class="obs-inline-form">
-              <input id="newPassword" type="password" autocomplete="new-password" class="obs-input" placeholder={t('dash.newPasswordPlaceholder')} />
-              <button id="setPasswordBtn" class="btn-outline rounded-lg" style="padding: 0.5rem 1rem; font-size: 0.8125rem; white-space: nowrap;">
-                {t('dash.setPasswordBtn')}
-              </button>
-            </div>
-            <div id="pwMsg" class="hidden obs-msg obs-msg--success" style="margin-top: 0.75rem;"></div>
-          </div>
         </div>
         <div class="obs-card">
           <div class="obs-card-header">{t('dash.settingsCli')}</div>
@@ -365,9 +306,10 @@ const lp = (path: string) => getLocalizedPath(path, locale);
 
   function show(el, txt) { if (!el) return; el.classList.remove('hidden'); el.textContent = txt; }
   function hide(el) { if (!el) return; el.classList.add('hidden'); el.textContent = ''; }
-  function getToken() { return localStorage.getItem('leanctx_token'); }
-  function setToken(t) { if (t) localStorage.setItem('leanctx_token', t); }
-  function clearToken() { localStorage.removeItem('leanctx_token'); }
+  function getApiKey() { return localStorage.getItem('leanctx_api_key'); }
+  function setApiKey(k) { if (k) localStorage.setItem('leanctx_api_key', k); }
+  function clearApiKey() { localStorage.removeItem('leanctx_api_key'); }
+  function clearLegacyAuth() { localStorage.removeItem('leanctx_token'); }
   function fmt(n) {
     if (n == null) return '—';
     if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
@@ -377,9 +319,9 @@ const lp = (path: string) => getLocalizedPath(path, locale);
   }
 
   async function api(path, opts = {}) {
-    const token = getToken();
+    const apiKey = getApiKey();
     const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
-    if (token) headers['Authorization'] = 'Bearer ' + token;
+    if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
     const res = await fetch(API + path, { ...opts, headers });
     const text = await res.text();
     const data = text ? (() => { try { return JSON.parse(text); } catch { return text; } })() : null;
@@ -392,60 +334,33 @@ const lp = (path: string) => getLocalizedPath(path, locale);
     return data;
   }
 
-  const badgeIcons = { 'First Save': '\u2B50', 'Token Saver 1M': '\uD83E\uDD47', 'Token Saver 10M': '\uD83E\uDD48', 'Token Saver 100M': '\uD83C\uDFC6', 'Evangelist': '\uD83D\uDCE3', 'Team Builder': '\uD83D\uDC65', 'Early Adopter': '\uD83D\uDE80', 'Contributor': '\uD83D\uDEE0\uFE0F' };
-  function renderBadges(badges) {
-    if (!badges?.length) return '<span style="color:var(--color-muted)">—</span>';
-    return badges.map(b => `<span title="${b}" style="cursor:help;font-size:1.1rem">${badgeIcons[b] || b}</span>`).join(' ');
-  }
-  function rankMedal(r) { return r === 1 ? '\uD83E\uDD47' : r === 2 ? '\uD83E\uDD48' : r === 3 ? '\uD83E\uDD49' : '#' + r; }
-
-  // ═══ Auth tab switching ═══
-  document.querySelectorAll('.obs-auth-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('.obs-auth-tab').forEach(t => t.classList.remove('is-active'));
-      tab.classList.add('is-active');
-      const isPw = tab.dataset.authTab === 'password';
-      $('authPassword')?.classList.toggle('hidden', !isPw);
-      $('authMagic')?.classList.toggle('hidden', isPw);
-    });
-  });
-
-  // ═══ Password login ═══
+  // ═══ Register / Login (API key) ═══
   $('loginBtn')?.addEventListener('click', async () => {
     hide($('authError')); hide($('authInfo'));
     const email = $('loginEmail')?.value?.trim();
-    const pw = $('loginPassword')?.value;
-    if (!email || !pw) { show($('authError'), 'Email and password required.'); return; }
+    if (!email) { show($('authError'), 'Enter your email.'); return; }
     $('loginBtn').disabled = true;
     try {
-      const data = await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password: pw }) });
-      if (data?.token) setToken(data.token);
+      const data = await api('/api/auth/register', { method: 'POST', body: JSON.stringify({ email }) });
+      const apiKey = data?.api_key;
+      if (!apiKey) throw new Error('Missing api_key in response');
+      setApiKey(apiKey);
+      await api('/api/auth/me');
       enterDashboard();
-    } catch (e) { show($('authError'), e?.message || 'Login failed'); }
-    finally { $('loginBtn').disabled = false; }
-  });
-
-  // ═══ Magic link ═══
-  $('sendMagicBtn')?.addEventListener('click', async () => {
-    hide($('authError')); hide($('authInfo'));
-    const email = $('magicEmail')?.value?.trim();
-    if (!email) { show($('authError'), 'Enter your email.'); return; }
-    $('sendMagicBtn').disabled = true;
-    try {
-      await api('/api/auth/request-link', { method: 'POST', body: JSON.stringify({ email }) });
-      show($('authInfo'), 'Magic link sent! Check your inbox.');
-    } catch (e) { show($('authError'), e?.message || 'Failed'); }
-    finally { $('sendMagicBtn').disabled = false; }
+    } catch (e) {
+      clearApiKey();
+      show($('authError'), e?.message || 'Login failed');
+    } finally {
+      $('loginBtn').disabled = false;
+    }
   });
 
   // ═══ View switching ═══
   const viewLabels = {
     overview: $('viewTitle')?.textContent || 'Overview',
     stats: 'Stats',
-    leaderboard: 'Leaderboard',
     models: 'Adaptive Models',
     knowledge: 'Knowledge',
-    team: 'Team',
     settings: 'Settings',
   };
 
@@ -466,64 +381,14 @@ const lp = (path: string) => getLocalizedPath(path, locale);
 
   // ═══ Logout ═══
   $('logoutBtn')?.addEventListener('click', () => {
-    clearToken();
+    clearApiKey();
+    clearLegacyAuth();
     $('authGate')?.classList.remove('hidden');
     $('dashApp')?.classList.add('hidden');
   });
 
   // ═══ Refresh ═══
   $('refreshBtn')?.addEventListener('click', loadDashboard);
-
-  // ═══ Set password ═══
-  $('setPasswordBtn')?.addEventListener('click', async () => {
-    const pw = $('newPassword')?.value;
-    const msg = $('pwMsg');
-    if (!pw || pw.length < 8) {
-      msg?.classList.remove('hidden', 'obs-msg--success');
-      msg?.classList.add('obs-msg--error');
-      show(msg, 'Min. 8 characters.');
-      return;
-    }
-    try {
-      await api('/api/auth/set-password', { method: 'POST', body: JSON.stringify({ password: pw }) });
-      msg?.classList.remove('obs-msg--error');
-      msg?.classList.add('obs-msg--success');
-      show(msg, 'Password saved!');
-      $('newPassword').value = '';
-    } catch (e) {
-      msg?.classList.remove('obs-msg--success');
-      msg?.classList.add('obs-msg--error');
-      show(msg, e?.message || 'Failed');
-    }
-  });
-
-  // ═══ Leaderboard subtabs ═══
-  let lbData = { individual: [], teams: [] };
-  document.querySelectorAll('.obs-subtab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('.obs-subtab').forEach(t => t.classList.remove('is-active'));
-      tab.classList.add('is-active');
-      renderLeaderboard(tab.dataset.lb);
-    });
-  });
-
-  function renderLeaderboard(type) {
-    const el = $('lbContent');
-    if (!el) return;
-    if (type === 'teams') {
-      const data = lbData.teams;
-      if (!data.length) { el.innerHTML = '<p style="padding:2rem;text-align:center;color:var(--color-muted)">No teams yet.</p>'; return; }
-      el.innerHTML = `<table class="obs-lb-table"><thead><tr><th style="width:4rem">Rank</th><th>Team</th><th style="width:8rem">Saved</th><th style="width:6rem">Members</th></tr></thead><tbody>${
-        data.map(e => `<tr><td style="font-weight:700;color:var(--color-text-bright)">${rankMedal(e.rank)}</td><td style="font-weight:500;color:var(--color-text-bright)">${e.team_name}</td><td style="font-weight:600;color:var(--color-accent)">${fmt(e.total_tokens_saved)}</td><td>${e.member_count}</td></tr>`).join('')
-      }</tbody></table>`;
-    } else {
-      const data = lbData.individual;
-      if (!data.length) { el.innerHTML = '<p style="padding:2rem;text-align:center;color:var(--color-muted)">No entries yet.</p>'; return; }
-      el.innerHTML = `<table class="obs-lb-table"><thead><tr><th style="width:4rem">Rank</th><th>User</th><th style="width:8rem">Saved</th><th style="width:8rem">Badges</th></tr></thead><tbody>${
-        data.map(e => `<tr><td style="font-weight:700;color:var(--color-text-bright)">${rankMedal(e.rank)}</td><td style="font-family:var(--font-mono,monospace);font-size:0.8125rem;color:var(--color-text-bright)">${e.username || e.display_hash}</td><td style="font-weight:600;color:var(--color-accent)">${fmt(e.total_tokens_saved)}</td><td>${renderBadges(e.badges)}</td></tr>`).join('')
-      }</tbody></table>`;
-    }
-  }
 
   // ═══ Charts ═══
   let tokensChart = null, compressionChart = null, dailyChart = null;
@@ -635,30 +500,36 @@ const lp = (path: string) => getLocalizedPath(path, locale);
   async function loadDashboard() {
     hide($('dashError'));
     try {
-      const [statsData, profile, models, knowledge, lbIndividual, lbTeams] = await Promise.all([
-        api('/api/stats').catch(() => []),
-        api('/api/profile').catch(() => null),
-        api('/api/cloud/models').catch(() => null),
-        api('/api/sync/knowledge').catch(() => null),
-        api('/api/leaderboard').catch(() => []),
-        api('/api/leaderboard/teams').catch(() => []),
+      async function apiOptional(path) {
+        try { return await api(path); }
+        catch (e) {
+          if (e?.status === 403 || e?.status === 404) return { __error: true, status: e.status, message: e.message };
+          throw e;
+        }
+      }
+
+      const [statsData, me, knowledge, models] = await Promise.all([
+        api('/api/stats'),
+        api('/api/auth/me'),
+        api('/api/sync/knowledge'),
+        apiOptional('/api/pro/models'),
       ]);
 
       const stats = Array.isArray(statsData) ? statsData : [];
+      const totalSaved = stats.reduce((a, s) => a + (Number(s?.tokens_saved) || 0), 0);
+
+      const displayName = (me?.email || me?.user_id || 'User').toString();
 
       // ═══ Sidebar user ═══
-      if (profile) {
-        const name = profile.username || profile.display_hash || '?';
-        $('sidebarName').textContent = name;
-        $('sidebarRank').textContent = '#' + (profile.rank || '?');
-        $('sidebarAvatar').textContent = (name[0] || '?').toUpperCase();
-      }
+      $('sidebarName').textContent = displayName;
+      $('sidebarRank').textContent = me?.plan ? `Plan: ${me.plan}` : '—';
+      $('sidebarAvatar').textContent = (displayName[0] || '?').toUpperCase();
 
       // ═══ Overview KPIs ═══
-      $('kpiTokens').textContent = fmt(profile?.total_tokens_saved || 0);
-      $('kpiRank').textContent = '#' + (profile?.rank || '?');
-      $('kpiBadges').textContent = String((profile?.badges || []).length);
-      $('kpiTeam').textContent = profile?.team?.name || '—';
+      $('kpiTokens').textContent = fmt(totalSaved);
+      $('kpiRank').textContent = '—';
+      $('kpiBadges').textContent = '—';
+      $('kpiTeam').textContent = '—';
 
       // ═══ Overview charts ═══
       createTokensChart(stats.slice(0, 30));
@@ -668,24 +539,13 @@ const lp = (path: string) => getLocalizedPath(path, locale);
       createCompressionGauge(compressionRatio);
 
       // ═══ Overview profile ═══
-      if (profile) {
-        const inviteUrl = `${window.location.origin}/docs/getting-started?ref=${profile.invite_code}`;
-        $('overviewProfile').innerHTML = `
-          <div class="obs-kv"><span class="obs-kv-key">User</span><span class="obs-kv-val">${profile.username || profile.display_hash}</span></div>
-          <div class="obs-kv"><span class="obs-kv-key">Rank</span><span class="obs-kv-val" style="color:var(--color-accent)">#${profile.rank}</span></div>
-          <div class="obs-kv"><span class="obs-kv-key">Saved</span><span class="obs-kv-val" style="color:var(--color-accent)">${fmt(profile.total_tokens_saved)}</span></div>
-          <div class="obs-kv"><span class="obs-kv-key">Badges</span><span class="obs-kv-val">${renderBadges(profile.badges)}</span></div>
-          <div style="margin-top:0.75rem;display:flex;gap:0.5rem;align-items:center;">
-            <input id="inviteInput" type="text" readonly value="${inviteUrl}" class="obs-input" style="font-size:0.6875rem;padding:0.4rem 0.6rem;font-family:var(--font-mono,monospace);" />
-            <button id="copyInviteBtn" class="btn-outline rounded-lg" style="padding:0.35rem 0.75rem;font-size:0.6875rem;white-space:nowrap;">Copy</button>
-          </div>`;
-        $('copyInviteBtn')?.addEventListener('click', () => {
-          navigator.clipboard.writeText($('inviteInput')?.value || '').then(() => {
-            const btn = $('copyInviteBtn');
-            if (btn) { btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = 'Copy', 2000); }
-          });
-        });
-      }
+      $('overviewProfile').innerHTML = `
+        <div class="obs-kv"><span class="obs-kv-key">Email</span><span class="obs-kv-val">${me?.email || '—'}</span></div>
+        <div class="obs-kv"><span class="obs-kv-key">User ID</span><span class="obs-kv-val" style="font-family:var(--font-mono,monospace);font-size:0.75rem">${me?.user_id || '—'}</span></div>
+        <div class="obs-kv"><span class="obs-kv-key">Plan</span><span class="obs-kv-val">${me?.plan || '—'}</span></div>
+        <div class="obs-kv"><span class="obs-kv-key">Saved</span><span class="obs-kv-val" style="color:var(--color-accent)">${fmt(totalSaved)}</span></div>
+        <div class="obs-kv"><span class="obs-kv-key">Days</span><span class="obs-kv-val">${stats.length}</span></div>
+      `;
 
       // ═══ Stats view ═══
       createDailyChart(stats.slice(0, 30));
@@ -697,19 +557,17 @@ const lp = (path: string) => getLocalizedPath(path, locale);
         $('statsTable').innerHTML = '<p style="color:var(--color-muted)">No stats yet — run: <code style="color:var(--color-accent)">lean-ctx sync</code></p>';
       }
 
-      // ═══ Leaderboard view ═══
-      lbData.individual = Array.isArray(lbIndividual) ? lbIndividual : [];
-      lbData.teams = Array.isArray(lbTeams) ? lbTeams : [];
-      renderLeaderboard('individual');
-
       // ═══ Models view ═══
-      const ms = models?.models;
-      if (Array.isArray(ms) && ms.length) {
-        $('modelsContent').innerHTML = `<div class="obs-models-grid">${
-          ms.slice(0, 20).map(m => `<div class="obs-model-row"><span class="obs-model-ext">${m.file_ext}</span><span style="color:var(--color-muted)">${m.size_bucket}</span><span class="obs-model-mode">${m.recommended_mode}</span><span class="obs-model-conf">${Math.round((m.confidence||0)*100)}%</span></div>`).join('')
-        }</div>`;
+      if (models?.__error) {
+        const msg = models.status === 403 ? 'Not available for your account.' : 'Models endpoint not available.';
+        $('modelsContent').innerHTML = `<p style="color:var(--color-muted)">${msg}</p>`;
+      } else if (Array.isArray(models)) {
+        $('modelsContent').innerHTML = `<pre style="white-space:pre-wrap;word-break:break-word;font-family:var(--font-mono,monospace);font-size:0.75rem;line-height:1.6">${JSON.stringify(models.slice(0, 10), null, 2)}</pre>`;
+      } else if (models && typeof models === 'object') {
+        const keys = Object.keys(models);
+        $('modelsContent').innerHTML = `<div class="obs-kv"><span class="obs-kv-key">Keys</span><span class="obs-kv-val" style="font-family:var(--font-mono,monospace);font-size:0.75rem">${keys.join(', ') || '—'}</span></div>`;
       } else {
-        $('modelsContent').innerHTML = '<p style="color:var(--color-muted)">No models yet — sync your stats to enable adaptive learning.</p>';
+        $('modelsContent').innerHTML = '<p style="color:var(--color-muted)">No models data.</p>';
       }
 
       // ═══ Knowledge view ═══
@@ -721,43 +579,17 @@ const lp = (path: string) => getLocalizedPath(path, locale);
         $('knowledgeContent').innerHTML = '<p style="color:var(--color-muted)">No knowledge entries synced yet.</p>';
       }
 
-      // ═══ Team view ═══
-      const team = profile?.team;
-      if (team) {
-        $('teamContent').innerHTML = `
-          <div class="obs-kv"><span class="obs-kv-key">Name</span><span class="obs-kv-val">${team.name} ${team.is_owner ? '<span style="color:var(--color-accent);font-size:0.6875rem">(Owner)</span>' : ''}</span></div>
-          <div class="obs-kv"><span class="obs-kv-key">Members</span><span class="obs-kv-val">${team.member_count}</span></div>
-          <div class="obs-kv"><span class="obs-kv-key">Total Saved</span><span class="obs-kv-val" style="color:var(--color-accent)">${fmt(team.total_tokens_saved)}</span></div>
-          <div style="display:flex;gap:0.5rem;margin-top:1rem;">
-            <button id="leaveTeamBtn" class="btn-outline rounded-lg" style="padding:0.5rem 1rem;font-size:0.8125rem;">Leave Team</button>
-            ${team.is_owner ? '<button id="renameTeamBtn" class="btn-outline rounded-lg" style="padding:0.5rem 1rem;font-size:0.8125rem;">Rename</button>' : ''}
-          </div>`;
-        $('leaveTeamBtn')?.addEventListener('click', async () => {
-          if (!confirm('Leave this team?')) return;
-          try { await api('/api/profile/leave-team', { method: 'POST', body: '{}' }); loadDashboard(); }
-          catch (e) { show($('dashError'), e?.message || 'Failed'); }
-        });
-        $('renameTeamBtn')?.addEventListener('click', async () => {
-          const name = prompt('New team name:', team.name);
-          if (!name?.trim()) return;
-          try { await api('/api/profile/rename-team', { method: 'POST', body: JSON.stringify({ name: name.trim() }) }); loadDashboard(); }
-          catch (e) { show($('dashError'), e?.message || 'Failed'); }
-        });
-      } else {
-        $('teamContent').innerHTML = '<p style="color:var(--color-muted)">No team yet — invite a friend to create one!</p>';
-      }
-
       // ═══ Settings profile ═══
-      if (profile) {
-        $('settingsProfile').innerHTML = `
-          <div class="obs-kv"><span class="obs-kv-key">Username</span><span class="obs-kv-val">${profile.username || '—'}</span></div>
-          <div class="obs-kv"><span class="obs-kv-key">Hash</span><span class="obs-kv-val" style="font-family:var(--font-mono,monospace);font-size:0.75rem">${profile.display_hash || '—'}</span></div>
-          <div class="obs-kv"><span class="obs-kv-key">Invite Code</span><span class="obs-kv-val" style="font-family:var(--font-mono,monospace);font-size:0.75rem">${profile.invite_code || '—'}</span></div>`;
-      }
+      $('settingsProfile').innerHTML = `
+        <div class="obs-kv"><span class="obs-kv-key">Email</span><span class="obs-kv-val">${me?.email || '—'}</span></div>
+        <div class="obs-kv"><span class="obs-kv-key">User ID</span><span class="obs-kv-val" style="font-family:var(--font-mono,monospace);font-size:0.75rem">${me?.user_id || '—'}</span></div>
+        <div class="obs-kv"><span class="obs-kv-key">Plan</span><span class="obs-kv-val">${me?.plan || '—'}</span></div>
+      `;
 
     } catch (e) {
       if (e?.status === 401) {
-        clearToken();
+        clearApiKey();
+        clearLegacyAuth();
         $('authGate')?.classList.remove('hidden');
         $('dashApp')?.classList.add('hidden');
         return;
@@ -768,18 +600,15 @@ const lp = (path: string) => getLocalizedPath(path, locale);
 
   // ═══ Init ═══
   (async function init() {
-    const params = new URLSearchParams(window.location.search);
-    const magicToken = params.get('token');
-    if (magicToken) {
-      try {
-        const data = await api('/api/auth/exchange?token=' + encodeURIComponent(magicToken));
-        if (data?.token) setToken(data.token);
-        window.history.replaceState({}, '', window.location.pathname);
-      } catch (e) {
-        show($('authError'), e?.message || 'Login failed');
-      }
+    clearLegacyAuth();
+    const apiKey = getApiKey();
+    if (!apiKey) return;
+    try {
+      await api('/api/auth/me');
+      enterDashboard();
+    } catch (e) {
+      if (e?.status === 401) clearApiKey();
     }
-    if (getToken()) enterDashboard();
   })();
 </script>
 
