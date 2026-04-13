@@ -38,13 +38,15 @@ deploy-cloud-api:
     - mkdir -p ~/.ssh
     - ssh-keyscan -H "$LEANCTX_SSH_HOST" >> ~/.ssh/known_hosts
   script:
-    # Sync build context to server
+    # Sync build context to server (separate rsyncs to preserve directory structure)
     - |
-      ssh "$LEANCTX_SSH_USER@$LEANCTX_SSH_HOST" "mkdir -p /home/$LEANCTX_SSH_USER/lean-ctx-cloud"
+      ssh "$LEANCTX_SSH_USER@$LEANCTX_SSH_HOST" "mkdir -p /home/$LEANCTX_SSH_USER/lean-ctx-cloud/rust /home/$LEANCTX_SSH_USER/lean-ctx-cloud/cloud-infra"
       rsync -avz --delete \
         rust/ \
+        "$LEANCTX_SSH_USER@$LEANCTX_SSH_HOST:/home/$LEANCTX_SSH_USER/lean-ctx-cloud/rust/"
+      rsync -avz --delete \
         cloud-infra/ \
-        "$LEANCTX_SSH_USER@$LEANCTX_SSH_HOST:/home/$LEANCTX_SSH_USER/lean-ctx-cloud/"
+        "$LEANCTX_SSH_USER@$LEANCTX_SSH_HOST:/home/$LEANCTX_SSH_USER/lean-ctx-cloud/cloud-infra/"
 
     # Build + start DB (if missing) + restart API
     - |
