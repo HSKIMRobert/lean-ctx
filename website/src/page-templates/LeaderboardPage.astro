@@ -5,6 +5,7 @@ import { getLocaleFromUrl, getLocalizedPath, useTranslations } from '../i18n/uti
 const locale = getLocaleFromUrl(Astro.url);
 const t = useTranslations(locale);
 const lp = (path: string) => getLocalizedPath(path, locale);
+const dashUrl = lp('/dashboard');
 ---
 
 <BaseLayout
@@ -13,278 +14,28 @@ const lp = (path: string) => getLocalizedPath(path, locale);
   breadcrumbs={[{ name: t('leaderboard.title'), url: '/leaderboard' }]}
 >
 
-<!-- ═══════ HERO ═══════ -->
 <section class="section-hero">
-  <div class="content-grid">
+  <div class="content-grid" style="text-align: center; max-width: 36rem; margin: 0 auto;">
     <div class="animate-entrance">
-      <p class="fluid-label text-accent" style="margin-bottom: clamp(1.25rem, 1rem + 1vw, 2.5rem);">
+      <p class="fluid-label text-accent" style="margin-bottom: clamp(1.25rem, 1rem + 1vw, 2rem);">
         {t('leaderboard.heroLabel')}
       </p>
     </div>
-    <h1 class="font-display fluid-display font-bold text-text-bright animate-entrance stagger-1" style="margin-bottom: clamp(1.25rem, 1rem + 1vw, 2rem);">
-      {t('leaderboard.heroTitle')}<br/>
-      <span class="gradient-text">{t('leaderboard.heroTitleHighlight')}</span>
+    <h1 class="font-display fluid-h1 font-bold text-text-bright animate-entrance stagger-1" style="margin-bottom: 1.25rem;">
+      {t('leaderboard.movedTitle')}
     </h1>
-
-    <div class="lb-hero-stats animate-entrance stagger-2" style="margin-bottom: clamp(1.5rem, 1rem + 1.5vw, 2.5rem);">
-      <div class="lb-hero-stat">
-        <span class="lb-hero-stat-num font-display" id="lb-total-saved">—</span>
-        <span class="lb-hero-stat-label">{t('leaderboard.totalSaved')}</span>
-      </div>
-      <div class="lb-hero-stat-divider"></div>
-      <div class="lb-hero-stat">
-        <span class="lb-hero-stat-num font-display" id="lb-total-users">—</span>
-        <span class="lb-hero-stat-label">{t('leaderboard.totalUsers')}</span>
-      </div>
-      <div class="lb-hero-stat-divider"></div>
-      <div class="lb-hero-stat">
-        <span class="lb-hero-stat-num font-display" id="lb-total-teams">—</span>
-        <span class="lb-hero-stat-label">{t('leaderboard.totalTeams')}</span>
-      </div>
-    </div>
-
-    <p class="fluid-body text-muted animate-entrance stagger-3" style="margin-bottom: clamp(2rem, 1.5rem + 1.5vw, 3.5rem); max-width: 44rem;">
-      {t('leaderboard.description')}
+    <p class="fluid-body text-muted animate-entrance stagger-2" style="margin-bottom: 2rem;">
+      {t('leaderboard.movedDesc')}
     </p>
-
-    <div class="flex flex-wrap items-center animate-entrance stagger-4" style="gap: clamp(0.75rem, 0.5rem + 0.5vw, 1.25rem);">
-      <a href={lp('/cloud')} class="btn-primary inline-flex items-center gap-2 rounded-lg" style="padding: clamp(0.7rem, 0.55rem + 0.3vw, 0.9rem) clamp(1.5rem, 1rem + 0.75vw, 2.25rem); font-size: clamp(0.8125rem, 0.78rem + 0.15vw, 0.9375rem);">
-        {t('leaderboard.joinCta')}
-        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
-      </a>
-      <a href={lp('/docs/getting-started')} class="fluid-sm text-muted hover:text-text-bright transition-colors inline-flex items-center gap-1.5 font-medium">
-        {t('leaderboard.installCta')}
-        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
-      </a>
-    </div>
+    <a href={dashUrl} class="btn-primary inline-flex items-center gap-2 rounded-lg animate-entrance stagger-3" style="padding: 0.75rem 2rem; font-size: 0.9375rem;">
+      {t('leaderboard.goToDashboard')}
+      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+    </a>
   </div>
 </section>
-
-<div class="section-divider content-grid"></div>
-
-<!-- ═══════ LEADERBOARD TABLES ═══════ -->
-<section class="section-y">
-  <div class="content-grid">
-    <div class="lb-tabs animate-entrance">
-      <button class="lb-tab is-active" data-tab="individual">{t('leaderboard.individual')}</button>
-      <button class="lb-tab" data-tab="teams">{t('leaderboard.teams')}</button>
-    </div>
-
-    <div id="lb-individual" class="lb-panel animate-entrance stagger-1">
-      <div class="lb-table-wrap">
-        <table class="lb-table">
-          <thead>
-            <tr>
-              <th class="lb-th-rank">{t('leaderboard.rank')}</th>
-              <th>{t('leaderboard.user')}</th>
-              <th class="lb-th-saved">{t('leaderboard.saved')}</th>
-              <th class="lb-th-badges">{t('leaderboard.badges')}</th>
-            </tr>
-          </thead>
-          <tbody id="lb-individual-body">
-            <tr><td colspan="4" class="lb-empty">{t('leaderboard.empty')}</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <div id="lb-teams" class="lb-panel" style="display: none;">
-      <div class="lb-table-wrap">
-        <table class="lb-table">
-          <thead>
-            <tr>
-              <th class="lb-th-rank">{t('leaderboard.rank')}</th>
-              <th>{t('leaderboard.teamName')}</th>
-              <th class="lb-th-saved">{t('leaderboard.saved')}</th>
-              <th>{t('leaderboard.members')}</th>
-            </tr>
-          </thead>
-          <tbody id="lb-teams-body">
-            <tr><td colspan="4" class="lb-empty">{t('leaderboard.teamsEmpty')}</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <div class="animate-entrance stagger-2" style="margin-top: clamp(2rem, 1.5rem + 1vw, 3rem);">
-      <p class="fluid-sm text-muted" style="max-width: 40rem;">
-        {t('leaderboard.footer')}
-      </p>
-    </div>
-  </div>
-</section>
-
-<script is:inline>
-(function() {
-  var API = 'https://api.leanctx.com';
-
-  function fmt(n) {
-    if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
-    if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
-    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
-    return n.toLocaleString('en-US');
-  }
-
-  var badgeIcons = {
-    'First Save': '\u2B50', 'Token Saver 1M': '\uD83E\uDD47',
-    'Token Saver 10M': '\uD83E\uDD48', 'Token Saver 100M': '\uD83C\uDFC6',
-    'Evangelist': '\uD83D\uDCE3', 'Team Builder': '\uD83D\uDC65',
-    'Early Adopter': '\uD83D\uDE80', 'Contributor': '\uD83D\uDEE0\uFE0F'
-  };
-
-  function renderBadges(badges) {
-    if (!badges || !badges.length) return '';
-    return badges.map(function(b) { return '<span class="lb-badge" title="' + b + '">' + (badgeIcons[b] || '') + '</span>'; }).join(' ');
-  }
-
-  function rankMedal(rank) {
-    if (rank === 1) return '\uD83E\uDD47';
-    if (rank === 2) return '\uD83E\uDD48';
-    if (rank === 3) return '\uD83E\uDD49';
-    return '#' + rank;
-  }
-
-  fetch(API + '/api/global-stats')
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-      var savedEl = document.getElementById('lb-total-saved');
-      var usersEl = document.getElementById('lb-total-users');
-      var teamsEl = document.getElementById('lb-total-teams');
-      if (savedEl) savedEl.textContent = fmt(d.total_tokens_saved || 0);
-      if (usersEl) usersEl.textContent = fmt(d.total_users || 0);
-      if (teamsEl) teamsEl.textContent = fmt(d.total_teams || 0);
-    })
-    .catch(function() {});
-
-  fetch(API + '/api/leaderboard').then(function(r) { return r.json(); }).then(function(data) {
-    var tbody = document.getElementById('lb-individual-body');
-    if (!tbody || !data.length) return;
-    tbody.innerHTML = '';
-    data.forEach(function(e) {
-      var tr = document.createElement('tr');
-      tr.innerHTML =
-        '<td class="lb-rank">' + rankMedal(e.rank) + '</td>' +
-        '<td class="lb-user"><span class="lb-user-hash">' + (e.username || e.display_hash) + '</span></td>' +
-        '<td class="lb-saved">' + fmt(e.total_tokens_saved) + '</td>' +
-        '<td class="lb-badges-cell">' + renderBadges(e.badges) + '</td>';
-      tbody.appendChild(tr);
-    });
-  }).catch(function() {});
-
-  fetch(API + '/api/leaderboard/teams').then(function(r) { return r.json(); }).then(function(data) {
-    var tbody = document.getElementById('lb-teams-body');
-    if (!tbody || !data.length) return;
-    tbody.innerHTML = '';
-    data.forEach(function(e) {
-      var tr = document.createElement('tr');
-      tr.innerHTML =
-        '<td class="lb-rank">' + rankMedal(e.rank) + '</td>' +
-        '<td class="lb-team-name">' + e.team_name + '</td>' +
-        '<td class="lb-saved">' + fmt(e.total_tokens_saved) + '</td>' +
-        '<td>' + e.member_count + '</td>';
-      tbody.appendChild(tr);
-    });
-  }).catch(function() {});
-
-  document.querySelectorAll('.lb-tab').forEach(function(tab) {
-    tab.addEventListener('click', function() {
-      document.querySelectorAll('.lb-tab').forEach(function(t) { t.classList.remove('is-active'); });
-      tab.classList.add('is-active');
-      document.querySelectorAll('.lb-panel').forEach(function(p) { p.style.display = 'none'; });
-      var panel = document.getElementById('lb-' + tab.getAttribute('data-tab'));
-      if (panel) panel.style.display = 'block';
-    });
-  });
-})();
-</script>
-
-<style>
-  /* Hero stats bar */
-  .lb-hero-stats {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: clamp(1.25rem, 1rem + 0.75vw, 2rem);
-  }
-  .lb-hero-stat {
-    display: flex;
-    flex-direction: column;
-    align-items: baseline;
-    gap: 0.375rem;
-  }
-  .lb-hero-stat-num {
-    font-size: clamp(1.5rem, 1.25rem + 1vw, 2.25rem);
-    font-weight: 700;
-    color: var(--color-text-bright);
-    letter-spacing: -0.03em;
-    line-height: 1;
-    background: linear-gradient(135deg, var(--color-accent), #60a5fa);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
-  .lb-hero-stat-label {
-    font-size: clamp(0.75rem, 0.7rem + 0.15vw, 0.875rem);
-    color: var(--color-muted);
-    font-weight: 450;
-  }
-  .lb-hero-stat-divider {
-    width: 1px;
-    height: 1.5rem;
-    background: var(--color-border);
-  }
-
-  /* Tabs */
-  .lb-tabs {
-    display: flex;
-    gap: 0;
-    border-bottom: 1px solid var(--color-border);
-    margin-bottom: clamp(1.5rem, 1rem + 1vw, 2.5rem);
-  }
-  .lb-tab {
-    padding: 0.75rem 1.5rem;
-    font-size: 0.875rem;
-    font-weight: 500;
-    color: var(--color-muted);
-    background: none;
-    border: none;
-    border-bottom: 2px solid transparent;
-    cursor: pointer;
-    transition: color 0.2s ease, border-color 0.2s ease;
-    font-family: inherit;
-  }
-  .lb-tab:hover { color: var(--color-text-bright); }
-  .lb-tab.is-active { color: var(--color-accent); border-bottom-color: var(--color-accent); }
-
-  /* Table */
-  .lb-table-wrap {
-    overflow-x: auto;
-    border-radius: clamp(10px, 0.8vw, 14px);
-    border: 1px solid var(--color-border);
-    background: var(--color-surface);
-  }
-  .lb-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
-  .lb-table thead { border-bottom: 1px solid var(--color-border); }
-  .lb-table th {
-    padding: 0.875rem 1rem;
-    text-align: left;
-    font-weight: 600;
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--color-muted);
-  }
-  .lb-table td { padding: 0.75rem 1rem; border-top: 1px solid rgba(255,255,255,0.04); }
-  .lb-table tbody tr:hover { background: rgba(255,255,255,0.02); }
-  .lb-th-rank { width: 5rem; }
-  .lb-th-saved { width: 10rem; }
-  .lb-th-badges { width: 10rem; }
-  .lb-rank { font-weight: 700; font-size: 1rem; color: var(--color-text-bright); }
-  .lb-user-hash { font-family: var(--font-mono, monospace); font-size: 0.8125rem; color: var(--color-text-bright); }
-  .lb-saved { font-weight: 600; color: var(--color-accent); font-variant-numeric: tabular-nums; }
-  .lb-badge { display: inline-block; font-size: 1rem; cursor: help; }
-  .lb-empty { text-align: center; color: var(--color-muted); padding: 3rem 1rem !important; font-style: italic; }
-  .lb-team-name { font-weight: 500; color: var(--color-text-bright); }
-</style>
 
 </BaseLayout>
+
+<script define:vars={{ dashUrl }}>
+  setTimeout(() => { window.location.href = dashUrl; }, 3000);
+</script>

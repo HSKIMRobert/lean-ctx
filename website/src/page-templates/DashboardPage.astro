@@ -14,305 +14,362 @@ const lp = (path: string) => getLocalizedPath(path, locale);
 >
 
 <!-- ═══════ AUTH GATE ═══════ -->
-<section class="section-hero">
+<section id="authGate" class="section-hero">
   <div class="content-grid">
-
-    <!-- Login state -->
-    <div id="authGate">
-      <div class="animate-entrance">
-        <p class="fluid-label text-accent" style="margin-bottom: clamp(1.25rem, 1rem + 1vw, 2rem);">
-          {t('dash.authLabel')}
-        </p>
-      </div>
-      <h1 class="font-display fluid-display font-bold text-text-bright animate-entrance stagger-1" style="margin-bottom: clamp(1.25rem, 1rem + 1vw, 2rem);">
-        {t('dash.authTitle')}<br/>
-        <span class="gradient-text">{t('dash.authTitleHighlight')}</span>
-      </h1>
-      <p class="fluid-body text-muted animate-entrance stagger-2" style="margin-bottom: clamp(2rem, 1.5rem + 1.5vw, 3rem); max-width: 44rem;">
-        {t('dash.authDesc')}
-      </p>
-
-      <div id="authError" class="dash-msg dash-msg--error hidden"></div>
-      <div id="authInfo" class="dash-msg dash-msg--success hidden"></div>
-
-      <!-- Tab toggle -->
-      <div class="dash-auth-tabs animate-entrance stagger-3">
-        <button class="dash-auth-tab is-active" data-auth-tab="password">{t('dash.tabPassword')}</button>
-        <button class="dash-auth-tab" data-auth-tab="magic">{t('dash.tabMagicLink')}</button>
-      </div>
-
-      <!-- Password login -->
-      <div id="authPassword" class="dash-auth-form animate-entrance stagger-3">
-        <input id="loginEmail" type="email" autocomplete="email" class="dash-input" placeholder={t('dash.emailPlaceholder')} />
-        <input id="loginPassword" type="password" autocomplete="current-password" class="dash-input" placeholder={t('dash.passwordPlaceholder')} />
-        <button id="loginBtn" class="btn-primary rounded-lg" style="padding: 0.75rem 1.5rem; font-size: 0.875rem; white-space: nowrap;">
-          {t('dash.loginBtn')}
-        </button>
-      </div>
-
-      <!-- Magic link -->
-      <div id="authMagic" class="dash-auth-form hidden animate-entrance stagger-3">
-        <input id="magicEmail" type="email" autocomplete="email" class="dash-input" placeholder={t('dash.emailPlaceholder')} />
-        <button id="sendMagicBtn" class="btn-primary rounded-lg" style="padding: 0.75rem 1.5rem; font-size: 0.875rem; white-space: nowrap;">
-          {t('dash.sendMagicBtn')}
-        </button>
-      </div>
-
-      <p class="fluid-sm text-muted animate-entrance stagger-4" style="margin-top: 1.5rem;">
-        {t('dash.noAccount')} <a href={lp('/cloud')} class="text-accent hover:underline">{t('dash.learnMore')}</a>
+    <div class="animate-entrance">
+      <p class="fluid-label text-accent" style="margin-bottom: clamp(1.25rem, 1rem + 1vw, 2rem);">
+        {t('dash.authLabel')}
       </p>
     </div>
+    <h1 class="font-display fluid-display font-bold text-text-bright animate-entrance stagger-1" style="margin-bottom: clamp(1.25rem, 1rem + 1vw, 2rem);">
+      {t('dash.authTitle')}<br/>
+      <span class="gradient-text">{t('dash.authTitleHighlight')}</span>
+    </h1>
+    <p class="fluid-body text-muted animate-entrance stagger-2" style="margin-bottom: clamp(2rem, 1.5rem + 1.5vw, 3rem); max-width: 44rem;">
+      {t('dash.authDesc')}
+    </p>
 
-    <!-- Dashboard state (hidden until authed) -->
-    <div id="dashMain" class="hidden">
-      <div class="dash-header">
-        <div>
-          <p class="fluid-label text-accent" style="margin-bottom: 0.5rem;">{t('dash.dashLabel')}</p>
-          <h1 class="font-display fluid-h1 font-bold text-text-bright" id="dashGreeting">{t('dash.dashTitle')}</h1>
-        </div>
-        <div class="flex gap-2 items-center">
-          <button id="refreshBtn" class="btn-outline rounded-lg" style="padding: 0.5rem 1rem; font-size: 0.8125rem;">
-            {t('dash.refresh')}
-          </button>
-          <button id="logoutBtn" class="btn-outline rounded-lg" style="padding: 0.5rem 1rem; font-size: 0.8125rem;">
-            {t('dash.logout')}
-          </button>
-        </div>
-      </div>
+    <div id="authError" class="obs-msg obs-msg--error hidden"></div>
+    <div id="authInfo" class="obs-msg obs-msg--success hidden"></div>
 
-      <div id="dashError" class="dash-msg dash-msg--error hidden"></div>
-
-      <!-- Stats overview -->
-      <div class="dash-stats-bar">
-        <div class="dash-stat-item">
-          <span class="dash-stat-value font-display" id="statTokensSaved">—</span>
-          <span class="dash-stat-label">{t('dash.statTokensSaved')}</span>
-        </div>
-        <div class="dash-stat-divider"></div>
-        <div class="dash-stat-item">
-          <span class="dash-stat-value font-display" id="statRank">—</span>
-          <span class="dash-stat-label">{t('dash.statRank')}</span>
-        </div>
-        <div class="dash-stat-divider"></div>
-        <div class="dash-stat-item">
-          <span class="dash-stat-value font-display" id="statBadges">—</span>
-          <span class="dash-stat-label">{t('dash.statBadges')}</span>
-        </div>
-        <div class="dash-stat-divider"></div>
-        <div class="dash-stat-item">
-          <span class="dash-stat-value font-display" id="statTeam">—</span>
-          <span class="dash-stat-label">{t('dash.statTeam')}</span>
-        </div>
-      </div>
-
-      <!-- Panels -->
-      <div class="dash-grid">
-        <div class="dash-panel">
-          <div class="dash-panel-header">
-            <h2 class="font-display text-sm font-semibold text-text-bright">{t('dash.profileTitle')}</h2>
-          </div>
-          <div id="profilePanel" class="dash-panel-body">Loading…</div>
-        </div>
-
-        <div class="dash-panel">
-          <div class="dash-panel-header">
-            <h2 class="font-display text-sm font-semibold text-text-bright">{t('dash.teamTitle')}</h2>
-          </div>
-          <div id="teamPanel" class="dash-panel-body">Loading…</div>
-        </div>
-
-        <div class="dash-panel dash-panel--wide">
-          <div class="dash-panel-header">
-            <h2 class="font-display text-sm font-semibold text-text-bright">{t('dash.statsTitle')}</h2>
-          </div>
-          <div id="statsPanel" class="dash-panel-body">Loading…</div>
-        </div>
-
-        <div class="dash-panel">
-          <div class="dash-panel-header">
-            <h2 class="font-display text-sm font-semibold text-text-bright">{t('dash.modelsTitle')}</h2>
-          </div>
-          <div id="modelsPanel" class="dash-panel-body">Loading…</div>
-        </div>
-
-        <div class="dash-panel">
-          <div class="dash-panel-header">
-            <h2 class="font-display text-sm font-semibold text-text-bright">{t('dash.knowledgeTitle')}</h2>
-          </div>
-          <div id="knowledgePanel" class="dash-panel-body">Loading…</div>
-        </div>
-      </div>
-
-      <!-- Security section -->
-      <div class="dash-panel" style="margin-top: 1rem;">
-        <div class="dash-panel-header">
-          <h2 class="font-display text-sm font-semibold text-text-bright">{t('dash.securityTitle')}</h2>
-        </div>
-        <div class="dash-panel-body">
-          <p class="text-xs text-muted mb-3">{t('dash.securityDesc')}</p>
-          <div class="dash-pw-form">
-            <input id="newPassword" type="password" autocomplete="new-password" class="dash-input" placeholder={t('dash.newPasswordPlaceholder')} />
-            <button id="setPasswordBtn" class="btn-outline rounded-lg" style="padding: 0.5rem 1rem; font-size: 0.8125rem; white-space: nowrap;">
-              {t('dash.setPasswordBtn')}
-            </button>
-          </div>
-          <div id="pwMsg" class="hidden dash-msg dash-msg--success" style="margin-top: 0.75rem;"></div>
-        </div>
-      </div>
+    <div class="obs-auth-tabs animate-entrance stagger-3">
+      <button class="obs-auth-tab is-active" data-auth-tab="password">{t('dash.tabPassword')}</button>
+      <button class="obs-auth-tab" data-auth-tab="magic">{t('dash.tabMagicLink')}</button>
     </div>
 
+    <div id="authPassword" class="obs-auth-form animate-entrance stagger-3">
+      <input id="loginEmail" type="email" autocomplete="email" class="obs-input" placeholder={t('dash.emailPlaceholder')} />
+      <input id="loginPassword" type="password" autocomplete="current-password" class="obs-input" placeholder={t('dash.passwordPlaceholder')} />
+      <button id="loginBtn" class="btn-primary rounded-lg" style="padding: 0.75rem 1.5rem; font-size: 0.875rem; white-space: nowrap;">
+        {t('dash.loginBtn')}
+      </button>
+    </div>
+
+    <div id="authMagic" class="obs-auth-form hidden animate-entrance stagger-3">
+      <input id="magicEmail" type="email" autocomplete="email" class="obs-input" placeholder={t('dash.emailPlaceholder')} />
+      <button id="sendMagicBtn" class="btn-primary rounded-lg" style="padding: 0.75rem 1.5rem; font-size: 0.875rem; white-space: nowrap;">
+        {t('dash.sendMagicBtn')}
+      </button>
+    </div>
+
+    <p class="fluid-sm text-muted animate-entrance stagger-4" style="margin-top: 1.5rem;">
+      {t('dash.noAccount')} <a href={lp('/cloud')} class="text-accent hover:underline">{t('dash.learnMore')}</a>
+    </p>
   </div>
 </section>
 
+<!-- ═══════ OBSERVATORY DASHBOARD ═══════ -->
+<div id="dashApp" class="hidden">
+  <div class="obs-shell">
+    <!-- Sidebar -->
+    <aside class="obs-sidebar">
+      <div class="obs-sidebar-header">
+        <div class="obs-avatar" id="sidebarAvatar">?</div>
+        <div class="obs-sidebar-user">
+          <span class="obs-sidebar-name" id="sidebarName">—</span>
+          <span class="obs-sidebar-rank" id="sidebarRank">—</span>
+        </div>
+      </div>
+      <nav class="obs-sidebar-nav">
+        <button class="obs-nav-item is-active" data-view="overview">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0a1 1 0 01-1-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 01-1 1h-2z"/></svg>
+          {t('dash.viewOverview')}
+        </button>
+        <button class="obs-nav-item" data-view="stats">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6m6 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0h6m2 0v-4a2 2 0 012-2h2a2 2 0 012 2v4m-4 0h4"/></svg>
+          {t('dash.viewStats')}
+        </button>
+        <button class="obs-nav-item" data-view="leaderboard">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 18.75h-9m9 0a3 3 0 013 3h-15a3 3 0 013-3m9 0v-3.375c0-.621-.504-1.125-1.125-1.125h-.871M7.5 18.75v-3.375c0-.621.504-1.125 1.125-1.125h.872m5.007 0H9.497m5.007 0a7.454 7.454 0 01-.982-3.172M9.497 14.25a7.454 7.454 0 00.981-3.172M5.25 4.236c-.982.143-1.954.317-2.916.52A6.003 6.003 0 007.73 9.728M5.25 4.236V4.5c0 2.108.966 3.99 2.48 5.228M5.25 4.236V2.721C7.456 2.41 9.71 2.25 12 2.25c2.291 0 4.545.16 6.75.47v1.516M18.75 4.236c.982.143 1.954.317 2.916.52A6.003 6.003 0 0016.27 9.728M18.75 4.236V4.5c0 2.108-.966 3.99-2.48 5.228m0 0a6.023 6.023 0 01-2.77.896m5.25-5.123V2.721"/></svg>
+          {t('dash.viewLeaderboard')}
+        </button>
+        <button class="obs-nav-item" data-view="models">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714a2.25 2.25 0 00.659 1.591L19 14.5M14.25 3.104c.251.023.501.05.75.082M19 14.5l-1.591-1.591A2.25 2.25 0 0016.75 11.25V8.636c0-.16.008-.32.023-.478M5 14.5l1.591-1.591A2.25 2.25 0 007.25 11.25V8.636c0-.16-.008-.32-.023-.478"/></svg>
+          {t('dash.viewModels')}
+        </button>
+        <button class="obs-nav-item" data-view="knowledge">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"/></svg>
+          {t('dash.viewKnowledge')}
+        </button>
+        <button class="obs-nav-item" data-view="team">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z"/></svg>
+          {t('dash.viewTeam')}
+        </button>
+        <button class="obs-nav-item" data-view="settings">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 010 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 010-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+          {t('dash.viewSettings')}
+        </button>
+      </nav>
+      <div class="obs-sidebar-footer">
+        <button id="logoutBtn" class="obs-nav-item obs-nav-item--danger">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3-3h-9m0 0l3-3m-3 3l3 3"/></svg>
+          {t('dash.logout')}
+        </button>
+      </div>
+    </aside>
+
+    <!-- Mobile tab bar -->
+    <div class="obs-mobile-tabs">
+      <button class="obs-mobile-tab is-active" data-view="overview" title={t('dash.viewOverview')}>
+        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0a1 1 0 01-1-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 01-1 1h-2z"/></svg>
+      </button>
+      <button class="obs-mobile-tab" data-view="stats" title={t('dash.viewStats')}>
+        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6m6 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0h6"/></svg>
+      </button>
+      <button class="obs-mobile-tab" data-view="leaderboard" title={t('dash.viewLeaderboard')}>
+        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 18.75h-9m9 0a3 3 0 013 3h-15a3 3 0 013-3m9 0v-3.375c0-.621-.504-1.125-1.125-1.125h-.871M7.5 18.75v-3.375c0-.621.504-1.125 1.125-1.125h.872"/></svg>
+      </button>
+      <button class="obs-mobile-tab" data-view="team" title={t('dash.viewTeam')}>
+        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72M15 6.75a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+      </button>
+      <button class="obs-mobile-tab" data-view="settings" title={t('dash.viewSettings')}>
+        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281"/></svg>
+      </button>
+    </div>
+
+    <!-- Main content -->
+    <main class="obs-main">
+      <div class="obs-topbar">
+        <h1 class="obs-topbar-title font-display" id="viewTitle">{t('dash.viewOverview')}</h1>
+        <button id="refreshBtn" class="obs-topbar-btn" title={t('dash.refresh')}>
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.185"/></svg>
+        </button>
+      </div>
+
+      <div id="dashError" class="obs-msg obs-msg--error hidden"></div>
+
+      <!-- ═══ VIEW: Overview ═══ -->
+      <div class="obs-view is-active" data-panel="overview">
+        <div class="obs-kpi-row">
+          <div class="obs-kpi"><span class="obs-kpi-val font-display" id="kpiTokens">—</span><span class="obs-kpi-label">{t('dash.statTokensSaved')}</span></div>
+          <div class="obs-kpi"><span class="obs-kpi-val font-display" id="kpiRank">—</span><span class="obs-kpi-label">{t('dash.statRank')}</span></div>
+          <div class="obs-kpi"><span class="obs-kpi-val font-display" id="kpiBadges">—</span><span class="obs-kpi-label">{t('dash.statBadges')}</span></div>
+          <div class="obs-kpi"><span class="obs-kpi-val font-display" id="kpiTeam">—</span><span class="obs-kpi-label">{t('dash.statTeam')}</span></div>
+        </div>
+        <div class="obs-chart-grid">
+          <div class="obs-card obs-card--wide">
+            <div class="obs-card-header">{t('dash.chartTokensTitle')}</div>
+            <div class="obs-card-body"><canvas id="chartTokens" height="220"></canvas></div>
+          </div>
+          <div class="obs-card">
+            <div class="obs-card-header">{t('dash.chartCompressionTitle')}</div>
+            <div class="obs-card-body obs-card-body--center"><canvas id="chartCompression" height="180" width="180"></canvas></div>
+          </div>
+        </div>
+        <div class="obs-card">
+          <div class="obs-card-header">{t('dash.profileTitle')}</div>
+          <div class="obs-card-body" id="overviewProfile">{t('dash.loading')}</div>
+        </div>
+      </div>
+
+      <!-- ═══ VIEW: Stats ═══ -->
+      <div class="obs-view" data-panel="stats">
+        <div class="obs-card">
+          <div class="obs-card-header">{t('dash.chartDailyTitle')}</div>
+          <div class="obs-card-body"><canvas id="chartDaily" height="260"></canvas></div>
+        </div>
+        <div class="obs-card">
+          <div class="obs-card-header">{t('dash.statsTitle')}</div>
+          <div class="obs-card-body" id="statsTable">{t('dash.loading')}</div>
+        </div>
+      </div>
+
+      <!-- ═══ VIEW: Leaderboard ═══ -->
+      <div class="obs-view" data-panel="leaderboard">
+        <div class="obs-subtabs">
+          <button class="obs-subtab is-active" data-lb="individual">{t('dash.lbIndividual')}</button>
+          <button class="obs-subtab" data-lb="teams">{t('dash.lbTeams')}</button>
+        </div>
+        <div class="obs-card">
+          <div class="obs-card-body obs-card-body--flush" id="lbContent">{t('dash.loading')}</div>
+        </div>
+      </div>
+
+      <!-- ═══ VIEW: Models ═══ -->
+      <div class="obs-view" data-panel="models">
+        <div class="obs-card">
+          <div class="obs-card-header">{t('dash.modelsTitle')}</div>
+          <div class="obs-card-body" id="modelsContent">{t('dash.loading')}</div>
+        </div>
+      </div>
+
+      <!-- ═══ VIEW: Knowledge ═══ -->
+      <div class="obs-view" data-panel="knowledge">
+        <div class="obs-card">
+          <div class="obs-card-header">{t('dash.knowledgeTitle')}</div>
+          <div class="obs-card-body" id="knowledgeContent">{t('dash.loading')}</div>
+        </div>
+      </div>
+
+      <!-- ═══ VIEW: Team ═══ -->
+      <div class="obs-view" data-panel="team">
+        <div class="obs-card">
+          <div class="obs-card-header">{t('dash.teamTitle')}</div>
+          <div class="obs-card-body" id="teamContent">{t('dash.loading')}</div>
+        </div>
+      </div>
+
+      <!-- ═══ VIEW: Settings ═══ -->
+      <div class="obs-view" data-panel="settings">
+        <div class="obs-card">
+          <div class="obs-card-header">{t('dash.settingsProfile')}</div>
+          <div class="obs-card-body" id="settingsProfile">{t('dash.loading')}</div>
+        </div>
+        <div class="obs-card">
+          <div class="obs-card-header">{t('dash.securityTitle')}</div>
+          <div class="obs-card-body">
+            <p class="text-xs text-muted" style="margin-bottom: 0.75rem;">{t('dash.securityDesc')}</p>
+            <div class="obs-inline-form">
+              <input id="newPassword" type="password" autocomplete="new-password" class="obs-input" placeholder={t('dash.newPasswordPlaceholder')} />
+              <button id="setPasswordBtn" class="btn-outline rounded-lg" style="padding: 0.5rem 1rem; font-size: 0.8125rem; white-space: nowrap;">
+                {t('dash.setPasswordBtn')}
+              </button>
+            </div>
+            <div id="pwMsg" class="hidden obs-msg obs-msg--success" style="margin-top: 0.75rem;"></div>
+          </div>
+        </div>
+        <div class="obs-card">
+          <div class="obs-card-header">{t('dash.settingsCli')}</div>
+          <div class="obs-card-body">
+            <p class="text-xs text-muted" style="margin-bottom: 0.75rem;">{t('dash.settingsCliDesc')}</p>
+            <code class="obs-code-block">lean-ctx login your@email.com</code>
+            <code class="obs-code-block" style="margin-top: 0.5rem;">lean-ctx sync</code>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
 <style>
-  .dash-header {
+  /* ═══ Messages ═══ */
+  .obs-msg { border-radius: 8px; padding: 0.75rem 1rem; font-size: 0.8125rem; margin-bottom: 1rem; }
+  .obs-msg--error { border: 1px solid rgba(248,113,113,0.3); background: rgba(248,113,113,0.06); color: #fca5a5; }
+  .obs-msg--success { border: 1px solid rgba(52,211,153,0.3); background: rgba(52,211,153,0.06); color: #6ee7b7; }
+
+  /* ═══ Auth form ═══ */
+  .obs-auth-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--color-border); margin-bottom: 1.5rem; max-width: 28rem; }
+  .obs-auth-tab { padding: 0.625rem 1.25rem; font-size: 0.8125rem; font-weight: 500; color: var(--color-muted); background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer; transition: color 0.2s, border-color 0.2s; font-family: inherit; }
+  .obs-auth-tab:hover { color: var(--color-text-bright); }
+  .obs-auth-tab.is-active { color: var(--color-accent); border-bottom-color: var(--color-accent); }
+  .obs-auth-form { display: flex; flex-direction: column; gap: 0.75rem; max-width: 28rem; }
+  .obs-input { width: 100%; border-radius: 8px; background: var(--color-bg); border: 1px solid var(--color-border); padding: 0.75rem 1rem; color: var(--color-text-bright); font-size: 0.875rem; font-family: inherit; }
+  .obs-input:focus { outline: none; border-color: var(--color-accent); box-shadow: 0 0 0 2px rgba(52,211,153,0.15); }
+  .obs-input::placeholder { color: var(--color-muted); }
+  .obs-inline-form { display: flex; gap: 0.75rem; max-width: 28rem; }
+  @media (max-width: 480px) { .obs-inline-form { flex-direction: column; } }
+
+  /* ═══ Observatory shell ═══ */
+  .obs-shell { display: flex; min-height: calc(100vh - 4rem); }
+  .obs-sidebar {
+    width: 15rem;
+    flex-shrink: 0;
+    background: var(--color-surface);
+    border-right: 1px solid var(--color-border);
     display: flex;
     flex-direction: column;
-    gap: 1rem;
-    margin-bottom: clamp(2rem, 1.5rem + 1vw, 3rem);
+    position: sticky;
+    top: 4rem;
+    height: calc(100vh - 4rem);
+    overflow-y: auto;
   }
-  @media (min-width: 768px) {
-    .dash-header { flex-direction: row; align-items: flex-end; justify-content: space-between; }
-  }
+  .obs-sidebar-header { padding: 1.25rem 1rem; border-bottom: 1px solid var(--color-border); display: flex; align-items: center; gap: 0.75rem; }
+  .obs-avatar { width: 2.25rem; height: 2.25rem; border-radius: 50%; background: rgba(52,211,153,0.12); border: 1px solid rgba(52,211,153,0.25); display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; color: var(--color-accent); flex-shrink: 0; }
+  .obs-sidebar-user { display: flex; flex-direction: column; min-width: 0; }
+  .obs-sidebar-name { font-size: 0.8125rem; font-weight: 600; color: var(--color-text-bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .obs-sidebar-rank { font-size: 0.6875rem; color: var(--color-muted); }
+  .obs-sidebar-nav { flex: 1; padding: 0.5rem 0.5rem; display: flex; flex-direction: column; gap: 2px; }
+  .obs-sidebar-footer { padding: 0.5rem; border-top: 1px solid var(--color-border); }
+  .obs-nav-item { display: flex; align-items: center; gap: 0.625rem; width: 100%; padding: 0.5rem 0.75rem; font-size: 0.8125rem; font-weight: 450; color: var(--color-muted); background: none; border: none; border-radius: 6px; cursor: pointer; transition: color 0.15s, background 0.15s; font-family: inherit; text-align: left; }
+  .obs-nav-item:hover { color: var(--color-text-bright); background: rgba(255,255,255,0.04); }
+  .obs-nav-item.is-active { color: var(--color-accent); background: rgba(52,211,153,0.08); }
+  .obs-nav-item--danger { color: var(--color-danger, #f87171); }
+  .obs-nav-item--danger:hover { background: rgba(248,113,113,0.08); }
+  @media (max-width: 768px) { .obs-sidebar { display: none; } }
 
-  .dash-stats-bar {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: clamp(1.5rem, 1rem + 1vw, 2.5rem);
-    padding: clamp(1.5rem, 1.25rem + 0.75vw, 2.25rem);
-    border: 1px solid var(--color-border);
-    border-radius: clamp(10px, 0.8vw, 14px);
-    background: var(--color-surface);
-    margin-bottom: clamp(1.5rem, 1rem + 1vw, 2rem);
-  }
-  .dash-stat-item { display: flex; flex-direction: column; gap: 0.25rem; }
-  .dash-stat-value {
-    font-size: clamp(1.5rem, 1.25rem + 0.75vw, 2rem);
-    font-weight: 700;
-    color: var(--color-text-bright);
-    letter-spacing: -0.02em;
-    line-height: 1;
-  }
-  .dash-stat-label {
-    font-size: clamp(0.6875rem, 0.65rem + 0.1vw, 0.8125rem);
-    color: var(--color-muted);
-    font-weight: 450;
-  }
-  .dash-stat-divider { width: 1px; height: 2rem; background: var(--color-border); }
+  /* ═══ Mobile tabs ═══ */
+  .obs-mobile-tabs { display: none; position: fixed; bottom: 0; left: 0; right: 0; z-index: 40; background: var(--color-surface); border-top: 1px solid var(--color-border); padding: 0.375rem 0; justify-content: space-around; }
+  @media (max-width: 768px) { .obs-mobile-tabs { display: flex; } }
+  .obs-mobile-tab { background: none; border: none; padding: 0.5rem; color: var(--color-muted); cursor: pointer; border-radius: 8px; transition: color 0.15s; }
+  .obs-mobile-tab:hover { color: var(--color-text-bright); }
+  .obs-mobile-tab.is-active { color: var(--color-accent); }
 
-  .dash-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1rem;
-  }
-  @media (max-width: 768px) {
-    .dash-grid { grid-template-columns: 1fr; }
-  }
-  .dash-panel--wide { grid-column: 1 / -1; }
+  /* ═══ Main content ═══ */
+  .obs-main { flex: 1; min-width: 0; padding: clamp(1rem, 0.75rem + 1vw, 2rem); }
+  @media (max-width: 768px) { .obs-main { padding-bottom: 5rem; } }
+  .obs-topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: clamp(1.25rem, 1rem + 0.75vw, 2rem); }
+  .obs-topbar-title { font-size: clamp(1.125rem, 1rem + 0.4vw, 1.5rem); font-weight: 700; color: var(--color-text-bright); letter-spacing: -0.02em; }
+  .obs-topbar-btn { background: none; border: 1px solid var(--color-border); border-radius: 8px; padding: 0.5rem; color: var(--color-muted); cursor: pointer; transition: color 0.2s, border-color 0.2s; }
+  .obs-topbar-btn:hover { color: var(--color-accent); border-color: var(--color-accent); }
 
-  .dash-panel {
-    border: 1px solid var(--color-border);
-    border-radius: clamp(10px, 0.8vw, 14px);
-    background: var(--color-surface);
-    overflow: hidden;
-  }
-  .dash-panel-header {
-    padding: 1rem 1.25rem;
-    border-bottom: 1px solid var(--color-border);
-  }
-  .dash-panel-body {
-    padding: 1.25rem;
-    font-size: 0.8125rem;
-    color: var(--color-muted);
-  }
+  /* ═══ Views ═══ */
+  .obs-view { display: none; }
+  .obs-view.is-active { display: block; }
 
-  .dash-auth-tabs {
-    display: flex;
-    gap: 0;
-    border-bottom: 1px solid var(--color-border);
-    margin-bottom: 1.5rem;
-    max-width: 28rem;
-  }
-  .dash-auth-tab {
-    padding: 0.625rem 1.25rem;
-    font-size: 0.8125rem;
-    font-weight: 500;
-    color: var(--color-muted);
-    background: none;
-    border: none;
-    border-bottom: 2px solid transparent;
-    cursor: pointer;
-    transition: color 0.2s, border-color 0.2s;
-    font-family: inherit;
-  }
-  .dash-auth-tab:hover { color: var(--color-text-bright); }
-  .dash-auth-tab.is-active { color: var(--color-accent); border-bottom-color: var(--color-accent); }
+  /* ═══ KPI row ═══ */
+  .obs-kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; margin-bottom: 1.25rem; }
+  @media (max-width: 640px) { .obs-kpi-row { grid-template-columns: repeat(2, 1fr); } }
+  .obs-kpi { border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-surface); padding: 1rem 1.25rem; display: flex; flex-direction: column; gap: 0.25rem; }
+  .obs-kpi-val { font-size: clamp(1.25rem, 1rem + 0.5vw, 1.75rem); font-weight: 700; color: var(--color-text-bright); letter-spacing: -0.02em; line-height: 1; }
+  .obs-kpi-label { font-size: 0.6875rem; color: var(--color-muted); font-weight: 450; text-transform: uppercase; letter-spacing: 0.04em; }
 
-  .dash-auth-form {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    max-width: 28rem;
-  }
-  .dash-input {
-    width: 100%;
-    border-radius: 8px;
-    background: var(--color-bg);
-    border: 1px solid var(--color-border);
-    padding: 0.75rem 1rem;
-    color: var(--color-text-bright);
-    font-size: 0.875rem;
-    font-family: inherit;
-  }
-  .dash-input:focus {
-    outline: none;
-    border-color: var(--color-accent);
-    box-shadow: 0 0 0 2px rgba(52, 211, 153, 0.15);
-  }
-  .dash-input::placeholder { color: var(--color-muted); }
+  /* ═══ Cards ═══ */
+  .obs-card { border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-surface); margin-bottom: 0.75rem; overflow: hidden; }
+  .obs-card-header { padding: 0.875rem 1.25rem; border-bottom: 1px solid var(--color-border); font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-muted); }
+  .obs-card-body { padding: 1.25rem; font-size: 0.8125rem; color: var(--color-muted); }
+  .obs-card-body--center { display: flex; align-items: center; justify-content: center; }
+  .obs-card-body--flush { padding: 0; }
+  .obs-chart-grid { display: grid; grid-template-columns: 1fr 16rem; gap: 0.75rem; margin-bottom: 0.75rem; }
+  @media (max-width: 768px) { .obs-chart-grid { grid-template-columns: 1fr; } }
+  .obs-card--wide { grid-column: 1; }
 
-  .dash-pw-form {
-    display: flex;
-    gap: 0.75rem;
-    max-width: 28rem;
-  }
-  @media (max-width: 480px) {
-    .dash-pw-form { flex-direction: column; }
-  }
+  /* ═══ Subtabs ═══ */
+  .obs-subtabs { display: flex; gap: 0; border-bottom: 1px solid var(--color-border); margin-bottom: 0.75rem; }
+  .obs-subtab { padding: 0.625rem 1.25rem; font-size: 0.8125rem; font-weight: 500; color: var(--color-muted); background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer; transition: color 0.2s, border-color 0.2s; font-family: inherit; }
+  .obs-subtab:hover { color: var(--color-text-bright); }
+  .obs-subtab.is-active { color: var(--color-accent); border-bottom-color: var(--color-accent); }
 
-  .dash-msg {
-    border-radius: 8px;
-    padding: 0.75rem 1rem;
-    font-size: 0.8125rem;
-    margin-bottom: 1rem;
-  }
-  .dash-msg--error {
-    border: 1px solid rgba(248, 113, 113, 0.3);
-    background: rgba(248, 113, 113, 0.06);
-    color: #fca5a5;
-  }
-  .dash-msg--success {
-    border: 1px solid rgba(52, 211, 153, 0.3);
-    background: rgba(52, 211, 153, 0.06);
-    color: #6ee7b7;
-  }
+  /* ═══ Leaderboard table ═══ */
+  .obs-lb-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
+  .obs-lb-table th { padding: 0.75rem 1rem; text-align: left; font-weight: 600; font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-muted); border-bottom: 1px solid var(--color-border); }
+  .obs-lb-table td { padding: 0.625rem 1rem; border-top: 1px solid rgba(255,255,255,0.04); }
+  .obs-lb-table tbody tr:hover { background: rgba(255,255,255,0.02); }
 
-  .dash-kv { display: flex; gap: 0.5rem; align-items: baseline; padding: 0.3rem 0; }
-  .dash-kv-key { font-size: 0.6875rem; color: var(--color-muted); min-width: 4rem; }
-  .dash-kv-val { font-size: 0.75rem; color: var(--color-text-bright); font-weight: 500; }
+  /* ═══ Key-Value rows ═══ */
+  .obs-kv { display: flex; gap: 0.75rem; align-items: baseline; padding: 0.375rem 0; }
+  .obs-kv-key { font-size: 0.6875rem; color: var(--color-muted); min-width: 5rem; flex-shrink: 0; }
+  .obs-kv-val { font-size: 0.8125rem; color: var(--color-text-bright); font-weight: 500; }
+
+  /* ═══ Code block ═══ */
+  .obs-code-block { display: block; font-family: var(--font-mono, monospace); font-size: 0.8125rem; color: var(--color-accent); background: rgba(52,211,153,0.06); border: 1px solid rgba(52,211,153,0.14); border-radius: 8px; padding: 0.75rem 1rem; }
+
+  /* ═══ Models table ═══ */
+  .obs-models-grid { display: grid; gap: 0.5rem; }
+  .obs-model-row { display: grid; grid-template-columns: 5rem 5rem 1fr 4rem; gap: 0.75rem; align-items: center; padding: 0.5rem 0; border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 0.8125rem; }
+  @media (max-width: 640px) { .obs-model-row { grid-template-columns: 1fr 1fr; } }
+  .obs-model-ext { font-family: var(--font-mono, monospace); font-weight: 600; color: var(--color-text-bright); }
+  .obs-model-mode { color: var(--color-accent); }
+  .obs-model-conf { color: var(--color-muted); font-variant-numeric: tabular-nums; }
+
+  /* ═══ Knowledge list ═══ */
+  .obs-knowledge-item { display: flex; gap: 0.75rem; align-items: baseline; padding: 0.5rem 0; border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 0.8125rem; }
+  .obs-knowledge-cat { font-size: 0.625rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-accent); background: rgba(52,211,153,0.08); padding: 0.2rem 0.5rem; border-radius: 4px; flex-shrink: 0; }
+  .obs-knowledge-key { color: var(--color-text-bright); }
 </style>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js" is:inline></script>
 
 <script type="module">
   const API = 'https://api.leanctx.com';
   const $ = (id) => document.getElementById(id);
 
-  function show(el, txt) { el.classList.remove('hidden'); el.textContent = txt; }
-  function hide(el) { el.classList.add('hidden'); el.textContent = ''; }
+  function show(el, txt) { if (!el) return; el.classList.remove('hidden'); el.textContent = txt; }
+  function hide(el) { if (!el) return; el.classList.add('hidden'); el.textContent = ''; }
   function getToken() { return localStorage.getItem('leanctx_token'); }
   function setToken(t) { if (t) localStorage.setItem('leanctx_token', t); }
   function clearToken() { localStorage.removeItem('leanctx_token'); }
   function fmt(n) {
+    if (n == null) return '—';
     if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
     if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
     if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
@@ -335,20 +392,25 @@ const lp = (path: string) => getLocalizedPath(path, locale);
     return data;
   }
 
-  const badge = { 'First Save': '\u2B50', 'Token Saver 1M': '\uD83E\uDD47', 'Token Saver 10M': '\uD83E\uDD48', 'Token Saver 100M': '\uD83C\uDFC6', 'Evangelist': '\uD83D\uDCE3', 'Team Builder': '\uD83D\uDC65', 'Early Adopter': '\uD83D\uDE80', 'Contributor': '\uD83D\uDEE0\uFE0F' };
+  const badgeIcons = { 'First Save': '\u2B50', 'Token Saver 1M': '\uD83E\uDD47', 'Token Saver 10M': '\uD83E\uDD48', 'Token Saver 100M': '\uD83C\uDFC6', 'Evangelist': '\uD83D\uDCE3', 'Team Builder': '\uD83D\uDC65', 'Early Adopter': '\uD83D\uDE80', 'Contributor': '\uD83D\uDEE0\uFE0F' };
+  function renderBadges(badges) {
+    if (!badges?.length) return '<span style="color:var(--color-muted)">—</span>';
+    return badges.map(b => `<span title="${b}" style="cursor:help;font-size:1.1rem">${badgeIcons[b] || b}</span>`).join(' ');
+  }
+  function rankMedal(r) { return r === 1 ? '\uD83E\uDD47' : r === 2 ? '\uD83E\uDD48' : r === 3 ? '\uD83E\uDD49' : '#' + r; }
 
-  // Auth tabs
-  document.querySelectorAll('.dash-auth-tab').forEach(tab => {
+  // ═══ Auth tab switching ═══
+  document.querySelectorAll('.obs-auth-tab').forEach(tab => {
     tab.addEventListener('click', () => {
-      document.querySelectorAll('.dash-auth-tab').forEach(t => t.classList.remove('is-active'));
+      document.querySelectorAll('.obs-auth-tab').forEach(t => t.classList.remove('is-active'));
       tab.classList.add('is-active');
-      const isPassword = tab.dataset.authTab === 'password';
-      $('authPassword').classList.toggle('hidden', !isPassword);
-      $('authMagic').classList.toggle('hidden', isPassword);
+      const isPw = tab.dataset.authTab === 'password';
+      $('authPassword')?.classList.toggle('hidden', !isPw);
+      $('authMagic')?.classList.toggle('hidden', isPw);
     });
   });
 
-  // Password login
+  // ═══ Password login ═══
   $('loginBtn')?.addEventListener('click', async () => {
     hide($('authError')); hide($('authInfo'));
     const email = $('loginEmail')?.value?.trim();
@@ -358,12 +420,12 @@ const lp = (path: string) => getLocalizedPath(path, locale);
     try {
       const data = await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password: pw }) });
       if (data?.token) setToken(data.token);
-      showDashboard();
+      enterDashboard();
     } catch (e) { show($('authError'), e?.message || 'Login failed'); }
     finally { $('loginBtn').disabled = false; }
   });
 
-  // Magic link
+  // ═══ Magic link ═══
   $('sendMagicBtn')?.addEventListener('click', async () => {
     hide($('authError')); hide($('authInfo'));
     const email = $('magicEmail')?.value?.trim();
@@ -376,69 +438,245 @@ const lp = (path: string) => getLocalizedPath(path, locale);
     finally { $('sendMagicBtn').disabled = false; }
   });
 
-  // Logout
-  $('logoutBtn')?.addEventListener('click', () => {
-    clearToken();
-    $('authGate').classList.remove('hidden');
-    $('dashMain').classList.add('hidden');
+  // ═══ View switching ═══
+  const viewLabels = {
+    overview: $('viewTitle')?.textContent || 'Overview',
+    stats: 'Stats',
+    leaderboard: 'Leaderboard',
+    models: 'Adaptive Models',
+    knowledge: 'Knowledge',
+    team: 'Team',
+    settings: 'Settings',
+  };
+
+  function switchView(name) {
+    document.querySelectorAll('.obs-view').forEach(v => v.classList.remove('is-active'));
+    document.querySelector(`.obs-view[data-panel="${name}"]`)?.classList.add('is-active');
+    document.querySelectorAll('.obs-nav-item[data-view]').forEach(n => n.classList.toggle('is-active', n.dataset.view === name));
+    document.querySelectorAll('.obs-mobile-tab[data-view]').forEach(n => n.classList.toggle('is-active', n.dataset.view === name));
+    if ($('viewTitle')) $('viewTitle').textContent = viewLabels[name] || name;
+  }
+
+  document.querySelectorAll('.obs-nav-item[data-view]').forEach(btn => {
+    btn.addEventListener('click', () => switchView(btn.dataset.view));
+  });
+  document.querySelectorAll('.obs-mobile-tab[data-view]').forEach(btn => {
+    btn.addEventListener('click', () => switchView(btn.dataset.view));
   });
 
-  // Refresh
+  // ═══ Logout ═══
+  $('logoutBtn')?.addEventListener('click', () => {
+    clearToken();
+    $('authGate')?.classList.remove('hidden');
+    $('dashApp')?.classList.add('hidden');
+  });
+
+  // ═══ Refresh ═══
   $('refreshBtn')?.addEventListener('click', loadDashboard);
 
-  // Set password
+  // ═══ Set password ═══
   $('setPasswordBtn')?.addEventListener('click', async () => {
     const pw = $('newPassword')?.value;
-    if (!pw || pw.length < 8) { show($('pwMsg'), 'Min. 8 characters.'); $('pwMsg').classList.remove('dash-msg--success'); $('pwMsg').classList.add('dash-msg--error'); return; }
+    const msg = $('pwMsg');
+    if (!pw || pw.length < 8) {
+      msg?.classList.remove('hidden', 'obs-msg--success');
+      msg?.classList.add('obs-msg--error');
+      show(msg, 'Min. 8 characters.');
+      return;
+    }
     try {
       await api('/api/auth/set-password', { method: 'POST', body: JSON.stringify({ password: pw }) });
-      $('pwMsg').classList.remove('dash-msg--error');
-      $('pwMsg').classList.add('dash-msg--success');
-      show($('pwMsg'), 'Password saved!');
+      msg?.classList.remove('obs-msg--error');
+      msg?.classList.add('obs-msg--success');
+      show(msg, 'Password saved!');
       $('newPassword').value = '';
     } catch (e) {
-      $('pwMsg').classList.remove('dash-msg--success');
-      $('pwMsg').classList.add('dash-msg--error');
-      show($('pwMsg'), e?.message || 'Failed');
+      msg?.classList.remove('obs-msg--success');
+      msg?.classList.add('obs-msg--error');
+      show(msg, e?.message || 'Failed');
     }
   });
 
-  function showDashboard() {
-    $('authGate').classList.add('hidden');
-    $('dashMain').classList.remove('hidden');
+  // ═══ Leaderboard subtabs ═══
+  let lbData = { individual: [], teams: [] };
+  document.querySelectorAll('.obs-subtab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.obs-subtab').forEach(t => t.classList.remove('is-active'));
+      tab.classList.add('is-active');
+      renderLeaderboard(tab.dataset.lb);
+    });
+  });
+
+  function renderLeaderboard(type) {
+    const el = $('lbContent');
+    if (!el) return;
+    if (type === 'teams') {
+      const data = lbData.teams;
+      if (!data.length) { el.innerHTML = '<p style="padding:2rem;text-align:center;color:var(--color-muted)">No teams yet.</p>'; return; }
+      el.innerHTML = `<table class="obs-lb-table"><thead><tr><th style="width:4rem">Rank</th><th>Team</th><th style="width:8rem">Saved</th><th style="width:6rem">Members</th></tr></thead><tbody>${
+        data.map(e => `<tr><td style="font-weight:700;color:var(--color-text-bright)">${rankMedal(e.rank)}</td><td style="font-weight:500;color:var(--color-text-bright)">${e.team_name}</td><td style="font-weight:600;color:var(--color-accent)">${fmt(e.total_tokens_saved)}</td><td>${e.member_count}</td></tr>`).join('')
+      }</tbody></table>`;
+    } else {
+      const data = lbData.individual;
+      if (!data.length) { el.innerHTML = '<p style="padding:2rem;text-align:center;color:var(--color-muted)">No entries yet.</p>'; return; }
+      el.innerHTML = `<table class="obs-lb-table"><thead><tr><th style="width:4rem">Rank</th><th>User</th><th style="width:8rem">Saved</th><th style="width:8rem">Badges</th></tr></thead><tbody>${
+        data.map(e => `<tr><td style="font-weight:700;color:var(--color-text-bright)">${rankMedal(e.rank)}</td><td style="font-family:var(--font-mono,monospace);font-size:0.8125rem;color:var(--color-text-bright)">${e.username || e.display_hash}</td><td style="font-weight:600;color:var(--color-accent)">${fmt(e.total_tokens_saved)}</td><td>${renderBadges(e.badges)}</td></tr>`).join('')
+      }</tbody></table>`;
+    }
+  }
+
+  // ═══ Charts ═══
+  let tokensChart = null, compressionChart = null, dailyChart = null;
+  const chartColors = { accent: '#34d399', accentFaded: 'rgba(52,211,153,0.15)', blue: '#60a5fa', surface: 'rgba(255,255,255,0.06)', border: 'rgba(255,255,255,0.08)', muted: 'rgba(255,255,255,0.4)' };
+
+  function createTokensChart(stats) {
+    const ctx = $('chartTokens')?.getContext('2d');
+    if (!ctx || !stats.length) return;
+    const labels = stats.map(s => s.date?.slice(5) || '');
+    const values = stats.map(s => s.tokens_saved || 0);
+    if (tokensChart) tokensChart.destroy();
+    tokensChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Tokens Saved',
+          data: values,
+          borderColor: chartColors.accent,
+          backgroundColor: chartColors.accentFaded,
+          fill: true,
+          tension: 0.35,
+          pointRadius: 2,
+          pointHoverRadius: 5,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { color: chartColors.surface }, ticks: { color: chartColors.muted, font: { size: 10 } } },
+          y: { grid: { color: chartColors.surface }, ticks: { color: chartColors.muted, font: { size: 10 }, callback: v => fmt(v) } },
+        },
+      }
+    });
+  }
+
+  function createCompressionGauge(ratio) {
+    const ctx = $('chartCompression')?.getContext('2d');
+    if (!ctx) return;
+    const pct = Math.min(Math.max(ratio || 0, 0), 100);
+    if (compressionChart) compressionChart.destroy();
+    compressionChart = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels: ['Saved', 'Used'],
+        datasets: [{ data: [pct, 100 - pct], backgroundColor: [chartColors.accent, chartColors.surface], borderWidth: 0 }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        cutout: '75%',
+        plugins: {
+          legend: { display: false },
+          tooltip: { enabled: false },
+        },
+      },
+      plugins: [{
+        id: 'centerText',
+        afterDraw(chart) {
+          const { ctx: c, chartArea: { width, height, top, left } } = chart;
+          c.save();
+          c.font = 'bold 1.5rem system-ui';
+          c.fillStyle = '#34d399';
+          c.textAlign = 'center';
+          c.textBaseline = 'middle';
+          c.fillText(pct.toFixed(0) + '%', left + width / 2, top + height / 2);
+          c.restore();
+        }
+      }]
+    });
+  }
+
+  function createDailyChart(stats) {
+    const ctx = $('chartDaily')?.getContext('2d');
+    if (!ctx || !stats.length) return;
+    const labels = stats.map(s => s.date?.slice(5) || '');
+    if (dailyChart) dailyChart.destroy();
+    dailyChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          { label: 'Tokens Saved', data: stats.map(s => s.tokens_saved || 0), backgroundColor: chartColors.accent, borderRadius: 4, barPercentage: 0.7 },
+          { label: 'Tool Calls', data: stats.map(s => s.tool_calls || 0), backgroundColor: chartColors.blue, borderRadius: 4, barPercentage: 0.7 },
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: chartColors.muted, font: { size: 11 } } } },
+        scales: {
+          x: { grid: { color: chartColors.surface }, ticks: { color: chartColors.muted, font: { size: 10 } } },
+          y: { grid: { color: chartColors.surface }, ticks: { color: chartColors.muted, font: { size: 10 }, callback: v => fmt(v) } },
+        },
+      }
+    });
+  }
+
+  // ═══ Enter dashboard ═══
+  function enterDashboard() {
+    $('authGate')?.classList.add('hidden');
+    $('dashApp')?.classList.remove('hidden');
     loadDashboard();
   }
 
+  // ═══ Load all data ═══
   async function loadDashboard() {
     hide($('dashError'));
     try {
-      const [statsData, profile, models, knowledge] = await Promise.all([
+      const [statsData, profile, models, knowledge, lbIndividual, lbTeams] = await Promise.all([
         api('/api/stats').catch(() => []),
         api('/api/profile').catch(() => null),
         api('/api/cloud/models').catch(() => null),
         api('/api/sync/knowledge').catch(() => null),
+        api('/api/leaderboard').catch(() => []),
+        api('/api/leaderboard/teams').catch(() => []),
       ]);
 
-      // Stats bar
+      const stats = Array.isArray(statsData) ? statsData : [];
+
+      // ═══ Sidebar user ═══
       if (profile) {
-        $('statTokensSaved').textContent = fmt(profile.total_tokens_saved || 0);
-        $('statRank').textContent = '#' + (profile.rank || '?');
-        $('statBadges').textContent = String((profile.badges || []).length);
-        $('statTeam').textContent = profile.team?.name || 'None';
-        $('dashGreeting').textContent = profile.username || profile.display_hash || 'Dashboard';
+        const name = profile.username || profile.display_hash || '?';
+        $('sidebarName').textContent = name;
+        $('sidebarRank').textContent = '#' + (profile.rank || '?');
+        $('sidebarAvatar').textContent = (name[0] || '?').toUpperCase();
       }
 
-      // Profile panel
+      // ═══ Overview KPIs ═══
+      $('kpiTokens').textContent = fmt(profile?.total_tokens_saved || 0);
+      $('kpiRank').textContent = '#' + (profile?.rank || '?');
+      $('kpiBadges').textContent = String((profile?.badges || []).length);
+      $('kpiTeam').textContent = profile?.team?.name || '—';
+
+      // ═══ Overview charts ═══
+      createTokensChart(stats.slice(0, 30));
+      const totalTokens = stats.reduce((a, s) => a + (s.tokens_saved || 0), 0);
+      const totalOriginal = stats.reduce((a, s) => a + (s.original_tokens || s.tokens_saved * 2 || 0), 0);
+      const compressionRatio = totalOriginal > 0 ? ((totalOriginal - totalTokens) / totalOriginal) * 100 : 0;
+      createCompressionGauge(compressionRatio);
+
+      // ═══ Overview profile ═══
       if (profile) {
-        const badges = (profile.badges || []).map(b => `<span title="${b}" style="cursor:help;font-size:1.1rem">${badge[b] || b}</span>`).join(' ');
         const inviteUrl = `${window.location.origin}/docs/getting-started?ref=${profile.invite_code}`;
-        $('profilePanel').innerHTML = `
-          <div class="dash-kv"><span class="dash-kv-key">Hash</span><span class="dash-kv-val">${profile.username || profile.display_hash}</span></div>
-          <div class="dash-kv"><span class="dash-kv-key">Rank</span><span class="dash-kv-val text-accent">#${profile.rank}</span></div>
-          <div class="dash-kv"><span class="dash-kv-key">Saved</span><span class="dash-kv-val text-accent">${fmt(profile.total_tokens_saved)}</span></div>
-          <div class="dash-kv"><span class="dash-kv-key">Badges</span><span class="dash-kv-val">${badges || 'none yet'}</span></div>
-          <div style="margin-top:0.75rem;display:flex;gap:0.5rem;">
-            <input id="inviteInput" type="text" readonly value="${inviteUrl}" class="dash-input" style="font-size:0.6875rem;padding:0.4rem 0.6rem;font-family:var(--font-mono,monospace);" />
+        $('overviewProfile').innerHTML = `
+          <div class="obs-kv"><span class="obs-kv-key">User</span><span class="obs-kv-val">${profile.username || profile.display_hash}</span></div>
+          <div class="obs-kv"><span class="obs-kv-key">Rank</span><span class="obs-kv-val" style="color:var(--color-accent)">#${profile.rank}</span></div>
+          <div class="obs-kv"><span class="obs-kv-key">Saved</span><span class="obs-kv-val" style="color:var(--color-accent)">${fmt(profile.total_tokens_saved)}</span></div>
+          <div class="obs-kv"><span class="obs-kv-key">Badges</span><span class="obs-kv-val">${renderBadges(profile.badges)}</span></div>
+          <div style="margin-top:0.75rem;display:flex;gap:0.5rem;align-items:center;">
+            <input id="inviteInput" type="text" readonly value="${inviteUrl}" class="obs-input" style="font-size:0.6875rem;padding:0.4rem 0.6rem;font-family:var(--font-mono,monospace);" />
             <button id="copyInviteBtn" class="btn-outline rounded-lg" style="padding:0.35rem 0.75rem;font-size:0.6875rem;white-space:nowrap;">Copy</button>
           </div>`;
         $('copyInviteBtn')?.addEventListener('click', () => {
@@ -449,19 +687,53 @@ const lp = (path: string) => getLocalizedPath(path, locale);
         });
       }
 
-      // Team panel
+      // ═══ Stats view ═══
+      createDailyChart(stats.slice(0, 30));
+      if (stats.length) {
+        $('statsTable').innerHTML = `<div style="overflow-x:auto"><table class="obs-lb-table"><thead><tr><th>Date</th><th>Tokens Saved</th><th>Tool Calls</th></tr></thead><tbody>${
+          stats.slice(0, 30).map(r => `<tr><td style="font-family:var(--font-mono,monospace);color:var(--color-text-bright);font-size:0.75rem">${r.date}</td><td style="font-weight:600;color:var(--color-accent)">${fmt(r.tokens_saved)}</td><td>${r.tool_calls || 0}</td></tr>`).join('')
+        }</tbody></table></div>`;
+      } else {
+        $('statsTable').innerHTML = '<p style="color:var(--color-muted)">No stats yet — run: <code style="color:var(--color-accent)">lean-ctx sync</code></p>';
+      }
+
+      // ═══ Leaderboard view ═══
+      lbData.individual = Array.isArray(lbIndividual) ? lbIndividual : [];
+      lbData.teams = Array.isArray(lbTeams) ? lbTeams : [];
+      renderLeaderboard('individual');
+
+      // ═══ Models view ═══
+      const ms = models?.models;
+      if (Array.isArray(ms) && ms.length) {
+        $('modelsContent').innerHTML = `<div class="obs-models-grid">${
+          ms.slice(0, 20).map(m => `<div class="obs-model-row"><span class="obs-model-ext">${m.file_ext}</span><span style="color:var(--color-muted)">${m.size_bucket}</span><span class="obs-model-mode">${m.recommended_mode}</span><span class="obs-model-conf">${Math.round((m.confidence||0)*100)}%</span></div>`).join('')
+        }</div>`;
+      } else {
+        $('modelsContent').innerHTML = '<p style="color:var(--color-muted)">No models yet — sync your stats to enable adaptive learning.</p>';
+      }
+
+      // ═══ Knowledge view ═══
+      if (Array.isArray(knowledge) && knowledge.length) {
+        $('knowledgeContent').innerHTML = knowledge.slice(0, 30).map(e =>
+          `<div class="obs-knowledge-item"><span class="obs-knowledge-cat">${e.category}</span><span class="obs-knowledge-key">${e.key}</span></div>`
+        ).join('');
+      } else {
+        $('knowledgeContent').innerHTML = '<p style="color:var(--color-muted)">No knowledge entries synced yet.</p>';
+      }
+
+      // ═══ Team view ═══
       const team = profile?.team;
       if (team) {
-        $('teamPanel').innerHTML = `
-          <div class="dash-kv"><span class="dash-kv-key">Name</span><span class="dash-kv-val">${team.name} ${team.is_owner ? '<span class="text-accent" style="font-size:0.6875rem">(Owner)</span>' : ''}</span></div>
-          <div class="dash-kv"><span class="dash-kv-key">Members</span><span class="dash-kv-val">${team.member_count}</span></div>
-          <div class="dash-kv"><span class="dash-kv-key">Saved</span><span class="dash-kv-val text-accent">${fmt(team.total_tokens_saved)}</span></div>
-          <div style="display:flex;gap:0.5rem;margin-top:0.75rem;">
-            <button id="leaveTeamBtn" class="btn-outline rounded-lg" style="padding:0.35rem 0.75rem;font-size:0.6875rem;">Leave</button>
-            ${team.is_owner ? '<button id="renameTeamBtn" class="btn-outline rounded-lg" style="padding:0.35rem 0.75rem;font-size:0.6875rem;">Rename</button>' : ''}
+        $('teamContent').innerHTML = `
+          <div class="obs-kv"><span class="obs-kv-key">Name</span><span class="obs-kv-val">${team.name} ${team.is_owner ? '<span style="color:var(--color-accent);font-size:0.6875rem">(Owner)</span>' : ''}</span></div>
+          <div class="obs-kv"><span class="obs-kv-key">Members</span><span class="obs-kv-val">${team.member_count}</span></div>
+          <div class="obs-kv"><span class="obs-kv-key">Total Saved</span><span class="obs-kv-val" style="color:var(--color-accent)">${fmt(team.total_tokens_saved)}</span></div>
+          <div style="display:flex;gap:0.5rem;margin-top:1rem;">
+            <button id="leaveTeamBtn" class="btn-outline rounded-lg" style="padding:0.5rem 1rem;font-size:0.8125rem;">Leave Team</button>
+            ${team.is_owner ? '<button id="renameTeamBtn" class="btn-outline rounded-lg" style="padding:0.5rem 1rem;font-size:0.8125rem;">Rename</button>' : ''}
           </div>`;
         $('leaveTeamBtn')?.addEventListener('click', async () => {
-          if (!confirm('Leave team?')) return;
+          if (!confirm('Leave this team?')) return;
           try { await api('/api/profile/leave-team', { method: 'POST', body: '{}' }); loadDashboard(); }
           catch (e) { show($('dashError'), e?.message || 'Failed'); }
         });
@@ -472,49 +744,29 @@ const lp = (path: string) => getLocalizedPath(path, locale);
           catch (e) { show($('dashError'), e?.message || 'Failed'); }
         });
       } else {
-        $('teamPanel').innerHTML = '<p class="text-xs text-muted">No team yet — share your invite code!</p>';
+        $('teamContent').innerHTML = '<p style="color:var(--color-muted)">No team yet — invite a friend to create one!</p>';
       }
 
-      // Stats panel
-      if (Array.isArray(statsData) && statsData.length) {
-        $('statsPanel').innerHTML = '<div style="font-family:var(--font-mono,monospace);font-size:0.75rem;white-space:pre;line-height:1.6">' +
-          statsData.slice(0, 14).map(r => `${r.date}  saved=${fmt(r.tokens_saved)}  calls=${r.tool_calls}`).join('\n') +
-          '</div>';
-      } else {
-        $('statsPanel').textContent = 'No stats yet — run: lean-ctx sync';
-      }
-
-      // Models panel
-      const ms = models?.models;
-      if (Array.isArray(ms) && ms.length) {
-        $('modelsPanel').innerHTML = '<div style="font-family:var(--font-mono,monospace);font-size:0.75rem;white-space:pre;line-height:1.6">' +
-          ms.slice(0, 10).map(m => `${m.file_ext} ${m.size_bucket}  →  ${m.recommended_mode}  (${Math.round((m.confidence||0)*100)}%)`).join('\n') +
-          '</div>';
-      } else {
-        $('modelsPanel').textContent = 'No models yet.';
-      }
-
-      // Knowledge panel
-      if (Array.isArray(knowledge) && knowledge.length) {
-        $('knowledgePanel').innerHTML = '<div style="font-family:var(--font-mono,monospace);font-size:0.75rem;white-space:pre;line-height:1.6">' +
-          knowledge.slice(0, 10).map(e => `[${e.category}] ${e.key}`).join('\n') +
-          '</div>';
-      } else {
-        $('knowledgePanel').textContent = 'No knowledge entries.';
+      // ═══ Settings profile ═══
+      if (profile) {
+        $('settingsProfile').innerHTML = `
+          <div class="obs-kv"><span class="obs-kv-key">Username</span><span class="obs-kv-val">${profile.username || '—'}</span></div>
+          <div class="obs-kv"><span class="obs-kv-key">Hash</span><span class="obs-kv-val" style="font-family:var(--font-mono,monospace);font-size:0.75rem">${profile.display_hash || '—'}</span></div>
+          <div class="obs-kv"><span class="obs-kv-key">Invite Code</span><span class="obs-kv-val" style="font-family:var(--font-mono,monospace);font-size:0.75rem">${profile.invite_code || '—'}</span></div>`;
       }
 
     } catch (e) {
       if (e?.status === 401) {
         clearToken();
-        $('authGate').classList.remove('hidden');
-        $('dashMain').classList.add('hidden');
+        $('authGate')?.classList.remove('hidden');
+        $('dashApp')?.classList.add('hidden');
         return;
       }
       show($('dashError'), e?.message || 'Request failed');
     }
   }
 
-  // Init — check for magic link token or existing session
+  // ═══ Init ═══
   (async function init() {
     const params = new URLSearchParams(window.location.search);
     const magicToken = params.get('token');
@@ -527,9 +779,7 @@ const lp = (path: string) => getLocalizedPath(path, locale);
         show($('authError'), e?.message || 'Login failed');
       }
     }
-    if (getToken()) {
-      showDashboard();
-    }
+    if (getToken()) enterDashboard();
   })();
 </script>
 
