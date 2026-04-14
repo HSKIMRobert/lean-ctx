@@ -641,7 +641,6 @@ impl SessionState {
 }
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct SessionSummary {
     pub id: String,
     pub started_at: DateTime<Utc>,
