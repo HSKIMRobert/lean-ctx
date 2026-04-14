@@ -21,6 +21,8 @@ pub async fn init_schema(pool: &DbPool) -> anyhow::Result<()> {
 CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY,
   email TEXT NOT NULL UNIQUE,
+  password_hash TEXT,
+  email_verified_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -60,11 +62,17 @@ CREATE TABLE IF NOT EXISTS contribute_entries (
   file_ext TEXT NOT NULL,
   size_bucket TEXT NOT NULL,
   best_mode TEXT NOT NULL,
-  compression_ratio DOUBLE PRECISION NOT NULL,
-  device_hash TEXT
+  compression_ratio DOUBLE PRECISION NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS magic_links (
+  token_sha256 TEXT PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  consumed_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS email_verifications (
   token_sha256 TEXT PRIMARY KEY,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   expires_at TIMESTAMPTZ NOT NULL,
@@ -77,50 +85,81 @@ CREATE TABLE IF NOT EXISTS models_snapshot (
   payload_json TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS teams (
+CREATE TABLE IF NOT EXISTS command_stats (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  command TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'unknown',
+  count BIGINT NOT NULL DEFAULT 0,
+  input_tokens BIGINT NOT NULL DEFAULT 0,
+  output_tokens BIGINT NOT NULL DEFAULT 0,
+  tokens_saved BIGINT NOT NULL DEFAULT 0,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (user_id, command)
+);
+
+CREATE TABLE IF NOT EXISTS cep_scores (
   id UUID PRIMARY KEY,
-  name TEXT NOT NULL,
-  owner_id UUID NOT NULL REFERENCES users(id),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  recorded_at TIMESTAMPTZ NOT NULL,
+  score DOUBLE PRECISION NOT NULL,
+  cache_hit_rate DOUBLE PRECISION,
+  mode_diversity DOUBLE PRECISION,
+  compression_rate DOUBLE PRECISION,
+  tool_calls BIGINT,
+  tokens_saved BIGINT,
+  complexity DOUBLE PRECISION
 );
 
-CREATE TABLE IF NOT EXISTS user_profiles (
+CREATE TABLE IF NOT EXISTS gotchas (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  pattern TEXT NOT NULL,
+  fix TEXT NOT NULL,
+  severity TEXT,
+  category TEXT,
+  occurrences BIGINT NOT NULL DEFAULT 0,
+  prevented_count BIGINT NOT NULL DEFAULT 0,
+  confidence DOUBLE PRECISION,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (user_id, pattern)
+);
+
+CREATE TABLE IF NOT EXISTS buddy_state (
   user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-  display_hash TEXT NOT NULL UNIQUE,
-  username TEXT,
-  total_tokens_saved BIGINT NOT NULL DEFAULT 0,
-  badge_flags INTEGER NOT NULL DEFAULT 0,
-  invite_code TEXT NOT NULL UNIQUE,
-  invited_by UUID REFERENCES users(id),
-  team_id UUID REFERENCES teams(id) ON DELETE SET NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS global_counters (
-  key TEXT PRIMARY KEY,
-  value BIGINT NOT NULL DEFAULT 0,
+  name TEXT,
+  species TEXT,
+  level INTEGER NOT NULL DEFAULT 1,
+  xp BIGINT NOT NULL DEFAULT 0,
+  mood TEXT,
+  streak INTEGER NOT NULL DEFAULT 0,
+  rarity TEXT,
+  state_json TEXT,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-INSERT INTO global_counters (key, value) VALUES ('total_tokens_saved', 0)
-  ON CONFLICT (key) DO NOTHING;
-INSERT INTO global_counters (key, value) VALUES ('total_users', 0)
-  ON CONFLICT (key) DO NOTHING;
-INSERT INTO global_counters (key, value) VALUES ('total_contributions', 0)
-  ON CONFLICT (key) DO NOTHING;
+CREATE TABLE IF NOT EXISTS feedback_thresholds (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  language TEXT NOT NULL,
+  entropy DOUBLE PRECISION NOT NULL,
+  jaccard DOUBLE PRECISION NOT NULL,
+  sample_count INTEGER NOT NULL DEFAULT 0,
+  avg_efficiency DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (user_id, language)
+);
 
--- Migrations: add columns that may be missing on existing tables
-ALTER TABLE contribute_entries ADD COLUMN IF NOT EXISTS device_hash TEXT;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
+DROP TABLE IF EXISTS team_invites CASCADE;
+DROP TABLE IF EXISTS team_members CASCADE;
+DROP TABLE IF EXISTS teams CASCADE;
 
--- Dedup: one contribution per device per day (application-layer check in contribute.rs)
-CREATE INDEX IF NOT EXISTS idx_contribute_device_hash
-  ON contribute_entries (device_hash)
-  WHERE device_hash IS NOT NULL;
+DO $$ BEGIN
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ;
+  ALTER TABLE buddy_state ADD COLUMN IF NOT EXISTS state_json TEXT;
+EXCEPTION WHEN others THEN NULL;
+END $$;
 "#,
         )
         .await?;
 
     Ok(())
 }
-

@@ -556,15 +556,7 @@ impl SessionState {
         let dir = sessions_dir()?;
         let path = dir.join(format!("{id}.json"));
         let json = std::fs::read_to_string(&path).ok()?;
-        let mut session: Self = serde_json::from_str(&json).ok()?;
-        // Legacy/malformed sessions may serialize empty strings instead of null.
-        if matches!(session.project_root.as_deref(), Some(r) if r.trim().is_empty()) {
-            session.project_root = None;
-        }
-        if matches!(session.shell_cwd.as_deref(), Some(c) if c.trim().is_empty()) {
-            session.shell_cwd = None;
-        }
-        Some(session)
+        serde_json::from_str(&json).ok()
     }
 
     pub fn list_sessions() -> Vec<SessionSummary> {
@@ -721,11 +713,7 @@ mod tests {
     #[test]
     fn extract_cd_relative_path() {
         let result = extract_cd_target("cd subdir", "/home/user");
-        let expected = std::path::Path::new("/home/user")
-            .join("subdir")
-            .to_string_lossy()
-            .to_string();
-        assert_eq!(result, Some(expected));
+        assert_eq!(result, Some("/home/user/subdir".to_string()));
     }
 
     #[test]
@@ -743,11 +731,7 @@ mod tests {
     #[test]
     fn extract_cd_parent_dir() {
         let result = extract_cd_target("cd ..", "/home/user/project");
-        let expected = std::path::Path::new("/home/user/project")
-            .join("..")
-            .to_string_lossy()
-            .to_string();
-        assert_eq!(result, Some(expected));
+        assert_eq!(result, Some("/home/user/project/..".to_string()));
     }
 
     #[test]

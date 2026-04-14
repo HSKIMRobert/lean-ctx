@@ -4,7 +4,6 @@ use axum::response::IntoResponse;
 use axum::Json;
 use chrono::{DateTime, Duration, Utc};
 use deadpool_postgres::Pool;
-use jsonwebtoken::{EncodingKey, Header, Validation};
 use lettre::message::{Mailbox, Message};
 use lettre::{AsyncSmtpTransport, AsyncTransport, Tokio1Executor};
 use serde::{Deserialize, Serialize};
@@ -37,6 +36,8 @@ impl AppState {
     }
 }
 
+// ─── Mailer ───────────────────────────────────────────────────
+
 #[derive(Clone)]
 pub struct Mailer {
     transport: AsyncSmtpTransport<Tokio1Executor>,
@@ -64,29 +65,47 @@ impl Mailer {
         Ok(Self { transport, from })
     }
 
-    pub async fn send_magic_link(&self, to_email: &str, link: &str) -> anyhow::Result<()> {
+    pub async fn send_verification(&self, to_email: &str, link: &str) -> anyhow::Result<()> {
         let to: Mailbox = to_email.parse()?;
         let email = Message::builder()
             .from(self.from.clone())
             .to(to)
-            .subject("LeanCTX Cloud Login")
+            .subject("Verify your LeanCTX account")
             .body(format!(
-                "Click to sign in:\n\n{link}\n\nIf you didn't request this, ignore this email."
+                "Welcome to LeanCTX!\n\nPlease verify your email address:\n\n{link}\n\nThis link expires in 24 hours."
+            ))?;
+        self.transport.send(email).await?;
+        Ok(())
+    }
+
+    pub async fn send_password_reset(&self, to_email: &str, link: &str) -> anyhow::Result<()> {
+        let to: Mailbox = to_email.parse()?;
+        let email = Message::builder()
+            .from(self.from.clone())
+            .to(to)
+            .subject("Reset your LeanCTX password")
+            .body(format!(
+                "You requested a password reset for your LeanCTX account.\n\nClick to reset your password:\n\n{link}\n\nThis link expires in 1 hour.\nIf you didn't request this, ignore this email."
             ))?;
         self.transport.send(email).await?;
         Ok(())
     }
 }
 
+// ─── POST /api/auth/register ──────────────────────────────────
+
 #[derive(Deserialize)]
 pub struct RegisterBody {
     pub email: String,
+    pub password: String,
 }
 
 #[derive(Serialize)]
 pub struct RegisterResponse {
     pub api_key: String,
     pub user_id: String,
+    pub email_verified: bool,
+    pub verification_sent: bool,
 }
 
 pub async fn register(
@@ -97,8 +116,62 @@ pub async fn register(
     if !email.contains('@') || !email.contains('.') {
         return Err((StatusCode::BAD_REQUEST, "Invalid email".into()));
     }
+    if body.password.len() < 8 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Password must be at least 8 characters".into(),
+        ));
+    }
 
-    let user_id = upsert_user(&state.pool, &email)
+    let existing = lookup_user_credentials(&state.pool, &email)
+        .await
+        .map_err(internal_error)?;
+    if let Some((user_id, stored_hash)) = existing {
+        if stored_hash.is_some() {
+            return Err((
+                StatusCode::CONFLICT,
+                "An account with this email already exists. Please sign in.".into(),
+            ));
+        }
+        let password_hash = hash_password(&body.password);
+        update_password(&state.pool, user_id, &password_hash)
+            .await
+            .map_err(internal_error)?;
+
+        let api_key = generate_api_key();
+        let api_key_sha = sha256_hex(&api_key);
+        rotate_api_key(&state.pool, user_id, &api_key_sha)
+            .await
+            .map_err(internal_error)?;
+
+        let mut verification_sent = false;
+        if let Some(ref mailer) = state.mailer {
+            let token = generate_token();
+            let token_sha = sha256_hex(&token);
+            let expires_at = Utc::now() + Duration::hours(24);
+            store_email_verification(&state.pool, &token_sha, user_id, expires_at)
+                .await
+                .map_err(internal_error)?;
+            let link = format!(
+                "{}/api/auth/verify-email?token={}",
+                state.cfg.public_base_url.trim_end_matches('/'),
+                token
+            );
+            if mailer.send_verification(&email, &link).await.is_ok() {
+                verification_sent = true;
+            }
+        }
+
+        return Ok(Json(RegisterResponse {
+            api_key,
+            user_id: user_id.to_string(),
+            email_verified: false,
+            verification_sent,
+        }));
+    }
+
+    let password_hash = hash_password(&body.password);
+    let (user_id, _is_new) = upsert_user(&state.pool, &email, Some(&password_hash))
         .await
         .map_err(internal_error)?;
 
@@ -108,128 +181,308 @@ pub async fn register(
         .await
         .map_err(internal_error)?;
 
+    let mut verification_sent = false;
+    if let Some(ref mailer) = state.mailer {
+        let token = generate_token();
+        let token_sha = sha256_hex(&token);
+        let expires_at = Utc::now() + Duration::hours(24);
+        store_email_verification(&state.pool, &token_sha, user_id, expires_at)
+            .await
+            .map_err(internal_error)?;
+        let link = format!(
+            "{}/api/auth/verify-email?token={}",
+            state.cfg.public_base_url.trim_end_matches('/'),
+            token
+        );
+        if mailer.send_verification(&email, &link).await.is_ok() {
+            verification_sent = true;
+        }
+    }
+
     Ok(Json(RegisterResponse {
         api_key,
         user_id: user_id.to_string(),
+        email_verified: false,
+        verification_sent,
     }))
 }
 
+// ─── POST /api/auth/login ─────────────────────────────────────
+
 #[derive(Deserialize)]
-pub struct RequestLinkBody {
+pub struct LoginBody {
     pub email: String,
+    pub password: String,
 }
 
 #[derive(Serialize)]
-pub struct RequestLinkResponse {
-    pub ok: bool,
+pub struct LoginResponse {
+    pub api_key: String,
+    pub user_id: String,
+    pub email_verified: bool,
 }
 
-pub async fn request_magic_link(
+pub async fn login(
     State(state): State<AppState>,
-    Json(body): Json<RequestLinkBody>,
-) -> Result<Json<RequestLinkResponse>, (StatusCode, String)> {
+    Json(body): Json<LoginBody>,
+) -> Result<Json<LoginResponse>, (StatusCode, String)> {
     let email = body.email.trim().to_lowercase();
-    if !email.contains('@') || !email.contains('.') {
-        return Err((StatusCode::BAD_REQUEST, "Invalid email".into()));
+    if email.is_empty() || body.password.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "Email and password required".into()));
     }
-    let mailer = state
-        .mailer
-        .clone()
-        .ok_or((StatusCode::FAILED_DEPENDENCY, "SMTP not configured".into()))?;
 
-    let user_id = upsert_user(&state.pool, &email)
+    let (user_id, stored_hash) = lookup_user_credentials(&state.pool, &email)
+        .await
+        .map_err(internal_error)?
+        .ok_or((StatusCode::UNAUTHORIZED, "Invalid email or password".into()))?;
+
+    let stored_hash = stored_hash.ok_or((
+        StatusCode::UNAUTHORIZED,
+        "Invalid email or password".into(),
+    ))?;
+
+    if !verify_password(&body.password, &stored_hash) {
+        return Err((StatusCode::UNAUTHORIZED, "Invalid email or password".into()));
+    }
+
+    let email_verified = is_email_verified(&state.pool, user_id)
         .await
         .map_err(internal_error)?;
 
-    let token = generate_token();
-    let token_sha = sha256_hex(&token);
-    let expires_at = Utc::now() + Duration::minutes(15);
-    store_magic_link(&state.pool, &token_sha, user_id, expires_at)
+    if !email_verified {
+        // Resend verification email on login attempt if not verified
+        if let Some(ref mailer) = state.mailer {
+            let token = generate_token();
+            let token_sha = sha256_hex(&token);
+            let expires_at = Utc::now() + Duration::hours(24);
+            store_email_verification(&state.pool, &token_sha, user_id, expires_at)
+                .await
+                .map_err(internal_error)?;
+            let link = format!(
+                "{}/api/auth/verify-email?token={}",
+                state.cfg.public_base_url.trim_end_matches('/'),
+                token
+            );
+            let _ = mailer.send_verification(&email, &link).await;
+        }
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Please verify your email before signing in. A new verification email has been sent."
+                .into(),
+        ));
+    }
+
+    let api_key = generate_api_key();
+    let api_key_sha = sha256_hex(&api_key);
+    rotate_api_key(&state.pool, user_id, &api_key_sha)
         .await
         .map_err(internal_error)?;
 
-    let link = format!(
-        "{}/cloud/auth?token={}",
-        state.cfg.public_base_url.trim_end_matches('/'),
-        token
-    );
-    mailer
-        .send_magic_link(&email, &link)
-        .await
-        .map_err(internal_error)?;
-
-    Ok(Json(RequestLinkResponse { ok: true }))
+    Ok(Json(LoginResponse {
+        api_key,
+        user_id: user_id.to_string(),
+        email_verified,
+    }))
 }
+
+// ─── POST /api/auth/forgot-password ───────────────────────────
 
 #[derive(Deserialize)]
-pub struct ExchangeQuery {
+pub struct ForgotPasswordBody {
+    pub email: String,
+}
+
+pub async fn forgot_password(
+    State(state): State<AppState>,
+    Json(body): Json<ForgotPasswordBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let email = body.email.trim().to_lowercase();
+    if !email.contains('@') {
+        return Err((StatusCode::BAD_REQUEST, "Invalid email".into()));
+    }
+
+    // Always return success to avoid email enumeration
+    let user = lookup_user_credentials(&state.pool, &email)
+        .await
+        .map_err(internal_error)?;
+
+    if let Some((user_id, _)) = user {
+        if let Some(ref mailer) = state.mailer {
+            let token = generate_token();
+            let token_sha = sha256_hex(&token);
+            let expires_at = Utc::now() + Duration::hours(1);
+            store_password_reset(&state.pool, &token_sha, user_id, expires_at)
+                .await
+                .map_err(internal_error)?;
+            let link = format!(
+                "{}/login?reset_token={}",
+                state.cfg.public_base_url.trim_end_matches('/'),
+                token
+            );
+            let _ = mailer.send_password_reset(&email, &link).await;
+        }
+    }
+
+    Ok(Json(
+        serde_json::json!({ "message": "If an account exists, a reset email has been sent." }),
+    ))
+}
+
+// ─── POST /api/auth/reset-password ────────────────────────────
+
+#[derive(Deserialize)]
+pub struct ResetPasswordBody {
+    pub token: String,
+    pub password: String,
+}
+
+pub async fn reset_password(
+    State(state): State<AppState>,
+    Json(body): Json<ResetPasswordBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    if body.password.len() < 8 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Password must be at least 8 characters".into(),
+        ));
+    }
+
+    let token_sha = sha256_hex(body.token.trim());
+    let user_id = consume_password_reset(&state.pool, &token_sha)
+        .await
+        .map_err(|e| match e {
+            ConsumeError::NotFound => (
+                StatusCode::UNAUTHORIZED,
+                "Invalid or expired reset link".into(),
+            ),
+            ConsumeError::Db(s) => (StatusCode::INTERNAL_SERVER_ERROR, s),
+        })?;
+
+    let new_hash = hash_password(&body.password);
+    update_password(&state.pool, user_id, &new_hash)
+        .await
+        .map_err(internal_error)?;
+
+    // Also verify email since they proved ownership
+    mark_email_verified(&state.pool, user_id)
+        .await
+        .map_err(internal_error)?;
+
+    Ok(Json(
+        serde_json::json!({ "message": "Password has been reset. You can now sign in." }),
+    ))
+}
+
+// ─── GET /api/auth/verify-email ───────────────────────────────
+
+#[derive(Deserialize)]
+pub struct VerifyEmailQuery {
     pub token: String,
 }
 
-pub async fn exchange_magic_link(
+pub async fn verify_email(
     State(state): State<AppState>,
-    Query(q): Query<ExchangeQuery>,
+    Query(q): Query<VerifyEmailQuery>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let token = q.token.trim();
     if token.len() < 20 {
         return Err((StatusCode::BAD_REQUEST, "Invalid token".into()));
     }
     let token_sha = sha256_hex(token);
-    let user_id = consume_magic_link(&state.pool, &token_sha)
+    let user_id = consume_email_verification(&state.pool, &token_sha)
         .await
         .map_err(|e| match e {
-            ConsumeError::NotFound => (StatusCode::UNAUTHORIZED, "Invalid or expired".into()),
+            ConsumeError::NotFound => (
+                StatusCode::UNAUTHORIZED,
+                "Invalid or expired verification link".into(),
+            ),
             ConsumeError::Db(s) => (StatusCode::INTERNAL_SERVER_ERROR, s),
         })?;
 
-    let jwt = mint_jwt(&state, user_id)?;
-    let cookie = format!(
-        "leanctx_session={jwt}; Path=/; HttpOnly; Secure; SameSite=None; Max-Age={}",
-        60 * 60 * 24 * 7
+    mark_email_verified(&state.pool, user_id)
+        .await
+        .map_err(internal_error)?;
+
+    let redirect_url = format!(
+        "{}/login?verified=true",
+        state.cfg.public_base_url.trim_end_matches('/')
     );
 
-    let body = serde_json::json!({ "token": jwt });
-    let mut res = axum::response::Response::new(
-        axum::body::Body::from(serde_json::to_string(&body).unwrap()),
-    );
-    *res.status_mut() = StatusCode::OK;
-    res.headers_mut()
-        .insert(axum::http::header::SET_COOKIE, cookie.parse().unwrap());
-    res.headers_mut().insert(
-        axum::http::header::CONTENT_TYPE,
-        "application/json".parse().unwrap(),
-    );
-    Ok(res)
+    Ok(axum::response::Redirect::temporary(&redirect_url))
 }
 
-pub async fn logout() -> impl IntoResponse {
-    let cookie = "leanctx_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0";
-    let mut res = axum::response::Response::new(axum::body::Body::from("ok"));
-    *res.status_mut() = StatusCode::OK;
-    res.headers_mut()
-        .insert(axum::http::header::SET_COOKIE, cookie.parse().unwrap());
-    res
+// ─── POST /api/auth/resend-verification ───────────────────────
+
+#[derive(Deserialize)]
+pub struct ResendVerificationBody {
+    pub email: String,
 }
 
-#[derive(Serialize, Deserialize)]
-struct Claims {
-    sub: String,
-    exp: usize,
-    iat: usize,
+pub async fn resend_verification(
+    State(state): State<AppState>,
+    Json(body): Json<ResendVerificationBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let email = body.email.trim().to_lowercase();
+
+    if let Some((user_id, _)) = lookup_user_credentials(&state.pool, &email)
+        .await
+        .map_err(internal_error)?
+    {
+        let verified = is_email_verified(&state.pool, user_id)
+            .await
+            .map_err(internal_error)?;
+        if !verified {
+            if let Some(ref mailer) = state.mailer {
+                let token = generate_token();
+                let token_sha = sha256_hex(&token);
+                let expires_at = Utc::now() + Duration::hours(24);
+                store_email_verification(&state.pool, &token_sha, user_id, expires_at)
+                    .await
+                    .map_err(internal_error)?;
+                let link = format!(
+                    "{}/api/auth/verify-email?token={}",
+                    state.cfg.public_base_url.trim_end_matches('/'),
+                    token
+                );
+                let _ = mailer.send_verification(&email, &link).await;
+            }
+        }
+    }
+
+    Ok(Json(
+        serde_json::json!({ "message": "If an unverified account exists, a verification email has been sent." }),
+    ))
 }
 
-fn mint_jwt(state: &AppState, user_id: Uuid) -> Result<String, (StatusCode, String)> {
-    let now = Utc::now().timestamp() as usize;
-    let exp = (Utc::now() + Duration::days(7)).timestamp() as usize;
-    let claims = Claims {
-        sub: user_id.to_string(),
-        iat: now,
-        exp,
-    };
-    let key = EncodingKey::from_secret(&state.jwt_secret);
-    jsonwebtoken::encode(&Header::default(), &claims, &key)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("JWT encode failed: {e}")))
+// ─── GET /api/auth/me ─────────────────────────────────────────
+
+#[derive(Serialize)]
+pub struct MeResponse {
+    pub user_id: String,
+    pub email: String,
+    pub plan: String,
+    pub email_verified: bool,
 }
+
+pub async fn me(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<MeResponse>, (StatusCode, String)> {
+    let (user_id, email) = auth_user(&state, &headers).await?;
+
+    let verified = is_email_verified(&state.pool, user_id)
+        .await
+        .map_err(internal_error)?;
+
+    Ok(Json(MeResponse {
+        user_id: user_id.to_string(),
+        email,
+        plan: "cloud".to_string(),
+        email_verified: verified,
+    }))
+}
+
+// ─── Auth middleware ──────────────────────────────────────────
 
 pub async fn auth_user(
     state: &AppState,
@@ -238,47 +491,13 @@ pub async fn auth_user(
     if let Some(v) = headers.get(axum::http::header::AUTHORIZATION) {
         if let Ok(s) = v.to_str() {
             if let Some(key) = s.strip_prefix("Bearer ").map(|x| x.trim()) {
-                if let Ok(td) = jsonwebtoken::decode::<Claims>(
-                    key,
-                    &jsonwebtoken::DecodingKey::from_secret(&state.jwt_secret),
-                    &Validation::default(),
-                ) {
-                    let user_id: Uuid = td.claims.sub.parse()
-                        .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid JWT".into()))?;
-                    let email = lookup_user_email(&state.pool, user_id).await
-                        .map_err(internal_error)?
-                        .unwrap_or_default();
-                    return Ok((user_id, email));
-                }
                 let sha = sha256_hex(key);
-                if let Some((user_id, email)) = lookup_api_key(&state.pool, &sha).await.map_err(internal_error)? {
+                if let Some((user_id, email)) =
+                    lookup_api_key(&state.pool, &sha).await.map_err(internal_error)?
+                {
                     return Ok((user_id, email));
                 }
-                return Err((StatusCode::UNAUTHORIZED, "Invalid token".into()));
-            }
-        }
-    }
-
-    if let Some(cookie) = headers.get(axum::http::header::COOKIE).and_then(|v| v.to_str().ok()) {
-        for part in cookie.split(';') {
-            let p = part.trim();
-            if let Some(v) = p.strip_prefix("leanctx_session=") {
-                let claims = jsonwebtoken::decode::<Claims>(
-                    v,
-                    &jsonwebtoken::DecodingKey::from_secret(&state.jwt_secret),
-                    &Validation::default(),
-                )
-                .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid session".into()))?
-                .claims;
-                let user_id: Uuid = claims
-                    .sub
-                    .parse()
-                    .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid session".into()))?;
-                let email = lookup_user_email(&state.pool, user_id)
-                    .await
-                    .map_err(internal_error)?
-                    .ok_or((StatusCode::UNAUTHORIZED, "Unknown user".into()))?;
-                return Ok((user_id, email));
+                return Err((StatusCode::UNAUTHORIZED, "Invalid API key".into()));
             }
         }
     }
@@ -286,25 +505,87 @@ pub async fn auth_user(
     Err((StatusCode::UNAUTHORIZED, "Unauthorized".into()))
 }
 
-async fn upsert_user(pool: &Pool, email: &str) -> anyhow::Result<Uuid> {
+// ─── Database helpers ─────────────────────────────────────────
+
+async fn upsert_user(
+    pool: &Pool,
+    email: &str,
+    password_hash: Option<&str>,
+) -> anyhow::Result<(Uuid, bool)> {
     let client = pool.get().await?;
     let row = client
         .query_opt("SELECT id FROM users WHERE email=$1", &[&email])
         .await?;
     if let Some(r) = row {
-        return Ok(r.get(0));
+        let user_id: Uuid = r.get(0);
+        if let Some(ph) = password_hash {
+            client
+                .execute(
+                    "UPDATE users SET password_hash=$1 WHERE id=$2 AND password_hash IS NULL",
+                    &[&ph, &user_id],
+                )
+                .await?;
+        }
+        return Ok((user_id, false));
     }
     let id = Uuid::new_v4();
     client
         .execute(
-            "INSERT INTO users (id,email) VALUES ($1,$2) ON CONFLICT (email) DO NOTHING",
-            &[&id, &email],
+            "INSERT INTO users (id, email, password_hash) VALUES ($1, $2, $3) ON CONFLICT (email) DO NOTHING",
+            &[&id, &email, &password_hash],
         )
         .await?;
     let row = client
         .query_one("SELECT id FROM users WHERE email=$1", &[&email])
         .await?;
+    Ok((row.get(0), true))
+}
+
+async fn lookup_user_credentials(
+    pool: &Pool,
+    email: &str,
+) -> anyhow::Result<Option<(Uuid, Option<String>)>> {
+    let client = pool.get().await?;
+    let row = client
+        .query_opt(
+            "SELECT id, password_hash FROM users WHERE email=$1",
+            &[&email],
+        )
+        .await?;
+    Ok(row.map(|r| (r.get(0), r.get(1))))
+}
+
+async fn is_email_verified(pool: &Pool, user_id: Uuid) -> anyhow::Result<bool> {
+    let client = pool.get().await?;
+    let row = client
+        .query_one(
+            "SELECT email_verified_at IS NOT NULL FROM users WHERE id=$1",
+            &[&user_id],
+        )
+        .await?;
     Ok(row.get(0))
+}
+
+async fn mark_email_verified(pool: &Pool, user_id: Uuid) -> anyhow::Result<()> {
+    let client = pool.get().await?;
+    client
+        .execute(
+            "UPDATE users SET email_verified_at=NOW() WHERE id=$1 AND email_verified_at IS NULL",
+            &[&user_id],
+        )
+        .await?;
+    Ok(())
+}
+
+async fn update_password(pool: &Pool, user_id: Uuid, password_hash: &str) -> anyhow::Result<()> {
+    let client = pool.get().await?;
+    client
+        .execute(
+            "UPDATE users SET password_hash=$1 WHERE id=$2",
+            &[&password_hash, &user_id],
+        )
+        .await?;
+    Ok(())
 }
 
 async fn rotate_api_key(pool: &Pool, user_id: Uuid, api_key_sha: &str) -> anyhow::Result<()> {
@@ -315,7 +596,7 @@ async fn rotate_api_key(pool: &Pool, user_id: Uuid, api_key_sha: &str) -> anyhow
     let id = Uuid::new_v4();
     client
         .execute(
-            "INSERT INTO api_keys (id,user_id,api_key_sha256) VALUES ($1,$2,$3)",
+            "INSERT INTO api_keys (id, user_id, api_key_sha256) VALUES ($1, $2, $3)",
             &[&id, &user_id, &api_key_sha],
         )
         .await?;
@@ -336,15 +617,7 @@ async fn lookup_api_key(pool: &Pool, api_key_sha: &str) -> anyhow::Result<Option
     Ok(None)
 }
 
-async fn lookup_user_email(pool: &Pool, user_id: Uuid) -> anyhow::Result<Option<String>> {
-    let client = pool.get().await?;
-    Ok(client
-        .query_opt("SELECT email FROM users WHERE id=$1", &[&user_id])
-        .await?
-        .map(|r| r.get(0)))
-}
-
-async fn store_magic_link(
+async fn store_email_verification(
     pool: &Pool,
     token_sha: &str,
     user_id: Uuid,
@@ -353,7 +626,23 @@ async fn store_magic_link(
     let client = pool.get().await?;
     client
         .execute(
-            "INSERT INTO magic_links (token_sha256,user_id,expires_at) VALUES ($1,$2,$3)",
+            "INSERT INTO email_verifications (token_sha256, user_id, expires_at) VALUES ($1, $2, $3)",
+            &[&token_sha, &user_id, &expires_at],
+        )
+        .await?;
+    Ok(())
+}
+
+async fn store_password_reset(
+    pool: &Pool,
+    token_sha: &str,
+    user_id: Uuid,
+    expires_at: DateTime<Utc>,
+) -> anyhow::Result<()> {
+    let client = pool.get().await?;
+    client
+        .execute(
+            "INSERT INTO email_verifications (token_sha256, user_id, expires_at) VALUES ($1, $2, $3)",
             &[&token_sha, &user_id, &expires_at],
         )
         .await?;
@@ -365,11 +654,14 @@ enum ConsumeError {
     Db(String),
 }
 
-async fn consume_magic_link(pool: &Pool, token_sha: &str) -> Result<Uuid, ConsumeError> {
-    let client = pool.get().await.map_err(|e| ConsumeError::Db(e.to_string()))?;
+async fn consume_email_verification(pool: &Pool, token_sha: &str) -> Result<Uuid, ConsumeError> {
+    let client = pool
+        .get()
+        .await
+        .map_err(|e| ConsumeError::Db(e.to_string()))?;
     let row = client
         .query_opt(
-            "SELECT user_id, expires_at, consumed_at FROM magic_links WHERE token_sha256=$1",
+            "SELECT user_id, expires_at, consumed_at FROM email_verifications WHERE token_sha256=$1",
             &[&token_sha],
         )
         .await
@@ -383,7 +675,7 @@ async fn consume_magic_link(pool: &Pool, token_sha: &str) -> Result<Uuid, Consum
     }
     client
         .execute(
-            "UPDATE magic_links SET consumed_at=NOW() WHERE token_sha256=$1",
+            "UPDATE email_verifications SET consumed_at=NOW() WHERE token_sha256=$1",
             &[&token_sha],
         )
         .await
@@ -391,91 +683,42 @@ async fn consume_magic_link(pool: &Pool, token_sha: &str) -> Result<Uuid, Consum
     Ok(user_id)
 }
 
-// ── Password auth ──────────────────────────────────────────────
-
-#[derive(Deserialize)]
-pub struct SetPasswordBody {
-    pub password: String,
+async fn consume_password_reset(pool: &Pool, token_sha: &str) -> Result<Uuid, ConsumeError> {
+    consume_email_verification(pool, token_sha).await
 }
 
-pub async fn set_password(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(body): Json<SetPasswordBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let (user_id, _) = auth_user(&state, &headers).await?;
-    let pw = body.password.trim();
-    if pw.len() < 8 {
-        return Err((StatusCode::BAD_REQUEST, "Password must be at least 8 characters".into()));
-    }
-    let hash = hash_password(pw)?;
-    let client = state.pool.get().await.map_err(internal_error)?;
-    client
-        .execute(
-            "UPDATE users SET password_hash = $1 WHERE id = $2",
-            &[&hash, &user_id],
-        )
-        .await
-        .map_err(internal_error)?;
-    Ok(Json(serde_json::json!({ "ok": true })))
-}
+// ─── Password hashing (salted SHA256) ─────────────────────────
 
-#[derive(Deserialize)]
-pub struct LoginPasswordBody {
-    pub email: String,
-    pub password: String,
-}
-
-pub async fn login_password(
-    State(state): State<AppState>,
-    Json(body): Json<LoginPasswordBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let email = body.email.trim().to_lowercase();
-    let password = body.password.trim();
-    if email.is_empty() || password.is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "Email and password required".into()));
-    }
-
-    let client = state.pool.get().await.map_err(internal_error)?;
-    let row = client
-        .query_opt(
-            "SELECT id, password_hash FROM users WHERE email = $1",
-            &[&email],
-        )
-        .await
-        .map_err(internal_error)?
-        .ok_or((StatusCode::UNAUTHORIZED, "Invalid credentials".into()))?;
-
-    let user_id: Uuid = row.get(0);
-    let stored_hash: Option<String> = row.get(1);
-    let stored_hash = stored_hash
-        .ok_or((StatusCode::UNAUTHORIZED, "No password set — use magic link first, then set a password".into()))?;
-
-    verify_password(password, &stored_hash)?;
-
-    let jwt = mint_jwt(&state, user_id)?;
-    Ok(Json(serde_json::json!({ "token": jwt })))
-}
-
-fn hash_password(password: &str) -> Result<String, (StatusCode, String)> {
+fn hash_password(password: &str) -> String {
     let salt: [u8; 16] = rand::random();
     let salt_hex = hex::encode(salt);
-    let salted = format!("{salt_hex}:{password}");
-    let hash = sha256_hex(&salted);
-    Ok(format!("{salt_hex}${hash}"))
+    let digest = sha256_hex(&format!("{salt_hex}:{password}"));
+    format!("{salt_hex}:{digest}")
 }
 
-fn verify_password(password: &str, stored: &str) -> Result<(), (StatusCode, String)> {
-    let (salt_hex, expected_hash) = stored
-        .split_once('$')
-        .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "Corrupt password hash".into()))?;
-    let salted = format!("{salt_hex}:{password}");
-    let computed = sha256_hex(&salted);
-    if computed != expected_hash {
-        return Err((StatusCode::UNAUTHORIZED, "Invalid credentials".into()));
+fn verify_password(password: &str, stored: &str) -> bool {
+    let parts: Vec<&str> = stored.splitn(2, ':').collect();
+    if parts.len() != 2 {
+        return false;
     }
-    Ok(())
+    let salt_hex = parts[0];
+    let expected_digest = parts[1];
+    let actual_digest = sha256_hex(&format!("{salt_hex}:{password}"));
+    constant_time_eq(expected_digest.as_bytes(), actual_digest.as_bytes())
 }
+
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+// ─── Token/key generation ─────────────────────────────────────
 
 fn generate_api_key() -> String {
     let bytes: [u8; 32] = rand::random();
@@ -496,4 +739,3 @@ fn sha256_hex(input: &str) -> String {
 fn internal_error<E: std::fmt::Display>(e: E) -> (StatusCode, String) {
     (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
 }
-

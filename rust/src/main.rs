@@ -1,7 +1,7 @@
 use anyhow::Result;
 use lean_ctx::{
-    cli, cloud_client, cloud_sync, core, dashboard, doctor, heatmap, hook_handlers, mcp_stdio,
-    report, setup, shell, terminal_ui, tools, tui, uninstall,
+    cli, cloud_client, core, dashboard, doctor, heatmap, hook_handlers, mcp_stdio, report, setup,
+    shell, terminal_ui, tools, tui, uninstall,
 };
 
 fn main() {
@@ -22,8 +22,6 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() > 1 {
-        spawn_cloud_background_tasks(&args);
-
         let rest = args[2..].to_vec();
 
         match args[1].as_str() {
@@ -265,20 +263,8 @@ fn main() {
                 cmd_contribute();
                 return;
             }
-            "team" => {
-                cmd_team(&rest);
-                return;
-            }
             "cloud" => {
                 cmd_cloud(&rest);
-                return;
-            }
-            "leaderboard" | "lb" => {
-                cmd_leaderboard();
-                return;
-            }
-            "profile" => {
-                cmd_profile();
                 return;
             }
             "upgrade" => {
@@ -308,25 +294,6 @@ fn main() {
         eprintln!("lean-ctx: {e}");
         std::process::exit(1);
     }
-}
-
-fn spawn_cloud_background_tasks(args: &[String]) {
-    if std::env::var("LEAN_CTX_DISABLED").is_ok() || std::env::var("LEAN_CTX_ACTIVE").is_ok() {
-        return;
-    }
-    if std::env::var("LEAN_CTX_AUTONOMY")
-        .ok()
-        .is_some_and(|v| v == "false" || v == "0")
-    {
-        return;
-    }
-    if matches!(args.get(1).map(|s| s.as_str()), Some("-c" | "exec")) {
-        return;
-    }
-
-    std::thread::spawn(|| {
-        let _ = std::panic::catch_unwind(|| cloud_sync::cloud_background_tasks());
-    });
 }
 
 fn passthrough(command: &str) -> ! {
@@ -413,7 +380,7 @@ USAGE:
 
 COMMANDS:
     gain                           Visual dashboard (colors, bars, sparklines, USD)
-    gain --live                    Live mode: auto-refreshes every 1s in-place
+    gain --live                    Live mode: auto-refreshes every 2s in-place
     gain --graph                   30-day savings chart
     gain --daily                   Bordered day-by-day table with USD
     gain --json                    Raw JSON export of all stats
@@ -531,14 +498,14 @@ GITHUB:  https://github.com/yvgude/lean-ctx
 
 fn cmd_login(args: &[String]) {
     let mut email = String::new();
-    let mut invite_code: Option<String> = None;
+    let mut password: Option<String> = None;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
-            "--invite" => {
+            "--password" | "-p" => {
                 i += 1;
                 if i < args.len() {
-                    invite_code = Some(args[i].clone());
+                    password = Some(args[i].clone());
                 }
             }
             _ => {
@@ -551,7 +518,7 @@ fn cmd_login(args: &[String]) {
     }
 
     if email.is_empty() {
-        eprintln!("Usage: lean-ctx login <email> [--invite CODE]");
+        eprintln!("Usage: lean-ctx login <email> [--password <password>]");
         std::process::exit(1);
     }
 
@@ -560,23 +527,53 @@ fn cmd_login(args: &[String]) {
         std::process::exit(1);
     }
 
-    println!("Registering with LeanCTX Cloud...");
-    match cloud_client::register(&email) {
-        Ok((api_key, user_id)) => {
-            if let Err(e) = cloud_client::save_credentials(&api_key, &user_id, &email) {
+    let pw = match password {
+        Some(p) => p,
+        None => {
+            eprint!("Password: ");
+            let mut buf = String::new();
+            let _ = std::io::stdin().read_line(&mut buf);
+            buf.trim().to_string()
+        }
+    };
+
+    if pw.len() < 8 {
+        eprintln!("Password must be at least 8 characters.");
+        std::process::exit(1);
+    }
+
+    println!("Connecting to LeanCTX Cloud...");
+
+    let result = {
+        let login_result = cloud_client::login(&email, &pw);
+        match &login_result {
+            Ok(_) => login_result,
+            Err(e) if e.contains("403") => {
+                eprintln!("Please verify your email first. Check your inbox.");
+                std::process::exit(1);
+            }
+            Err(e) if e.contains("Invalid email or password") => login_result,
+            Err(_) => cloud_client::register(&email, Some(&pw)),
+        }
+    };
+
+    match result {
+        Ok(r) => {
+            if let Err(e) = cloud_client::save_credentials(&r.api_key, &r.user_id, &email) {
                 eprintln!("Warning: Could not save credentials: {e}");
-                eprintln!("Your API key: {api_key}");
+                eprintln!("Your API key: {}", r.api_key);
                 return;
+            }
+            if let Ok(plan) = cloud_client::fetch_plan() {
+                let _ = cloud_client::save_plan(&plan);
             }
             println!("Logged in as {email}");
             println!("API key saved to ~/.lean-ctx/cloud/credentials.json");
-
-            if let Some(code) = invite_code {
-                println!("Accepting invite {code}...");
-                match cloud_client::accept_invite(&code) {
-                    Ok(_) => println!("Joined team via invite!"),
-                    Err(e) => eprintln!("Could not accept invite: {e}"),
-                }
+            if r.verification_sent {
+                println!("Verification email sent — please check your inbox.");
+            }
+            if !r.email_verified {
+                println!("Note: Your email is not yet verified.");
             }
         }
         Err(e) => {
@@ -592,33 +589,321 @@ fn cmd_sync() {
         std::process::exit(1);
     }
 
-    let stats_data = core::stats::format_gain_json();
-    let parsed: serde_json::Value = match serde_json::from_str(&stats_data) {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("Failed to read local stats: {e}");
-            std::process::exit(1);
-        }
-    };
-
-    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-    let entry = serde_json::json!({
-        "date": today,
-        "tokens_original": parsed["total_original_tokens"].as_i64().unwrap_or(0),
-        "tokens_compressed": parsed["total_compressed_tokens"].as_i64().unwrap_or(0),
-        "tokens_saved": parsed["total_saved_tokens"].as_i64().unwrap_or(0),
-        "tool_calls": parsed["total_calls"].as_i64().unwrap_or(0),
-        "cache_hits": parsed["cache_hits"].as_i64().unwrap_or(0),
-        "cache_misses": parsed["cache_misses"].as_i64().unwrap_or(0),
-    });
-
-    match cloud_client::sync_stats(&[entry]) {
-        Ok(msg) => println!("{msg}"),
-        Err(e) => {
-            eprintln!("Sync failed: {e}");
-            std::process::exit(1);
+    println!("Syncing stats...");
+    let store = core::stats::load();
+    let entries = build_sync_entries(&store);
+    if entries.is_empty() {
+        println!("No stats to sync yet.");
+    } else {
+        match cloud_client::sync_stats(&entries) {
+            Ok(msg) => println!("  Stats: {msg}"),
+            Err(e) => eprintln!("  Stats sync failed: {e}"),
         }
     }
+
+    println!("Syncing commands...");
+    let command_entries = collect_command_entries(&store);
+    if command_entries.is_empty() {
+        println!("  No command data to sync.");
+    } else {
+        match cloud_client::push_commands(&command_entries) {
+            Ok(msg) => println!("  Commands: {msg}"),
+            Err(e) => eprintln!("  Commands sync failed: {e}"),
+        }
+    }
+
+    println!("Syncing CEP scores...");
+    let cep_entries = collect_cep_entries(&store);
+    if cep_entries.is_empty() {
+        println!("  No CEP sessions to sync.");
+    } else {
+        match cloud_client::push_cep(&cep_entries) {
+            Ok(msg) => println!("  CEP: {msg}"),
+            Err(e) => eprintln!("  CEP sync failed: {e}"),
+        }
+    }
+
+    println!("Syncing knowledge...");
+    let knowledge_entries = collect_knowledge_entries();
+    if knowledge_entries.is_empty() {
+        println!("  No knowledge to sync.");
+    } else {
+        match cloud_client::push_knowledge(&knowledge_entries) {
+            Ok(msg) => println!("  Knowledge: {msg}"),
+            Err(e) => eprintln!("  Knowledge sync failed: {e}"),
+        }
+    }
+
+    println!("Syncing gotchas...");
+    let gotcha_entries = collect_gotcha_entries();
+    if gotcha_entries.is_empty() {
+        println!("  No gotchas to sync.");
+    } else {
+        match cloud_client::push_gotchas(&gotcha_entries) {
+            Ok(msg) => println!("  Gotchas: {msg}"),
+            Err(e) => eprintln!("  Gotchas sync failed: {e}"),
+        }
+    }
+
+    println!("Syncing buddy...");
+    let buddy = core::buddy::BuddyState::compute();
+    let buddy_data = serde_json::to_value(&buddy).unwrap_or_default();
+    match cloud_client::push_buddy(&buddy_data) {
+        Ok(msg) => println!("  Buddy: {msg}"),
+        Err(e) => eprintln!("  Buddy sync failed: {e}"),
+    }
+
+    println!("Syncing feedback thresholds...");
+    let feedback_entries = collect_feedback_entries();
+    if feedback_entries.is_empty() {
+        println!("  No feedback thresholds to sync.");
+    } else {
+        match cloud_client::push_feedback(&feedback_entries) {
+            Ok(msg) => println!("  Feedback: {msg}"),
+            Err(e) => eprintln!("  Feedback sync failed: {e}"),
+        }
+    }
+
+    if let Ok(plan) = cloud_client::fetch_plan() {
+        let _ = cloud_client::save_plan(&plan);
+    }
+
+    println!("Sync complete.");
+}
+
+fn build_sync_entries(store: &core::stats::StatsStore) -> Vec<serde_json::Value> {
+    let mut entries = Vec::new();
+    let cep = &store.cep;
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+
+    let mut cep_cache_by_day: std::collections::HashMap<String, (u64, u64)> =
+        std::collections::HashMap::new();
+    for s in &cep.scores {
+        if let Some(date) = s.timestamp.get(..10) {
+            let entry = cep_cache_by_day.entry(date.to_string()).or_default();
+            let calls = s.tool_calls.max(1);
+            let hits = (calls as f64 * s.cache_hit_rate as f64 / 100.0).round() as u64;
+            entry.0 += calls;
+            entry.1 += hits;
+        }
+    }
+
+    for day in &store.daily {
+        let tokens_original = day.input_tokens;
+        let tokens_compressed = day.output_tokens;
+        let tokens_saved = tokens_original.saturating_sub(tokens_compressed);
+        let (day_calls, day_hits) = cep_cache_by_day
+            .get(&day.date)
+            .copied()
+            .unwrap_or((0, 0));
+        let cache_hits = day_hits;
+        let cache_misses = day_calls.saturating_sub(day_hits);
+        entries.push(serde_json::json!({
+            "date": day.date,
+            "tokens_original": tokens_original,
+            "tokens_compressed": tokens_compressed,
+            "tokens_saved": tokens_saved,
+            "tool_calls": day.commands,
+            "cache_hits": cache_hits,
+            "cache_misses": cache_misses,
+        }));
+    }
+
+    let has_today = entries.iter().any(|e| e["date"].as_str() == Some(&today));
+    if !has_today && (cep.total_tokens_original > 0 || store.total_commands > 0) {
+        entries.push(serde_json::json!({
+            "date": today,
+            "tokens_original": cep.total_tokens_original,
+            "tokens_compressed": cep.total_tokens_compressed,
+            "tokens_saved": cep.total_tokens_original.saturating_sub(cep.total_tokens_compressed),
+            "tool_calls": store.total_commands,
+            "cache_hits": cep.total_cache_hits,
+            "cache_misses": cep.total_cache_reads.saturating_sub(cep.total_cache_hits),
+        }));
+    }
+
+    entries
+}
+
+fn collect_knowledge_entries() -> Vec<serde_json::Value> {
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => return Vec::new(),
+    };
+    let knowledge_dir = home.join(".lean-ctx").join("knowledge");
+    if !knowledge_dir.is_dir() {
+        return Vec::new();
+    }
+
+    let mut entries = Vec::new();
+
+    for project_entry in std::fs::read_dir(&knowledge_dir).into_iter().flatten() {
+        let project_entry = match project_entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        let project_path = project_entry.path();
+        if !project_path.is_dir() {
+            continue;
+        }
+
+        for file_entry in std::fs::read_dir(&project_path).into_iter().flatten() {
+            let file_entry = match file_entry {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+            let file_path = file_entry.path();
+            if file_path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let data = match std::fs::read_to_string(&file_path) {
+                Ok(d) => d,
+                Err(_) => continue,
+            };
+            let parsed: serde_json::Value = match serde_json::from_str(&data) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+
+            if let Some(facts) = parsed["facts"].as_array() {
+                for fact in facts {
+                    let cat = fact["category"].as_str().unwrap_or("general");
+                    let key = fact["key"].as_str().unwrap_or("");
+                    let val = fact["value"].as_str()
+                        .or_else(|| fact["description"].as_str())
+                        .unwrap_or("");
+                    if !key.is_empty() {
+                        entries.push(serde_json::json!({
+                            "category": cat,
+                            "key": key,
+                            "value": val,
+                        }));
+                    }
+                }
+            }
+
+            if let Some(gotchas) = parsed["gotchas"].as_array() {
+                for g in gotchas {
+                    let pattern = g["pattern"].as_str().unwrap_or("");
+                    let fix = g["fix"].as_str().unwrap_or("");
+                    if !pattern.is_empty() {
+                        entries.push(serde_json::json!({
+                            "category": "gotcha",
+                            "key": pattern,
+                            "value": fix,
+                        }));
+                    }
+                }
+            }
+        }
+    }
+
+    entries
+}
+
+fn collect_command_entries(store: &core::stats::StatsStore) -> Vec<serde_json::Value> {
+    store
+        .commands
+        .iter()
+        .map(|(name, stats)| {
+            let tokens_saved = stats.input_tokens.saturating_sub(stats.output_tokens);
+            serde_json::json!({
+                "command": name,
+                "source": if name.starts_with("ctx_") { "mcp" } else { "hook" },
+                "count": stats.count,
+                "input_tokens": stats.input_tokens,
+                "output_tokens": stats.output_tokens,
+                "tokens_saved": tokens_saved,
+            })
+        })
+        .collect()
+}
+
+fn complexity_to_float(s: &str) -> f64 {
+    match s.to_lowercase().as_str() {
+        "trivial" => 0.1,
+        "simple" => 0.3,
+        "moderate" => 0.5,
+        "complex" => 0.7,
+        "architectural" => 0.9,
+        other => other.parse::<f64>().unwrap_or(0.5),
+    }
+}
+
+fn collect_cep_entries(store: &core::stats::StatsStore) -> Vec<serde_json::Value> {
+    store
+        .cep
+        .scores
+        .iter()
+        .map(|s| {
+            serde_json::json!({
+                "recorded_at": s.timestamp,
+                "score": s.score as f64 / 100.0,
+                "cache_hit_rate": s.cache_hit_rate as f64 / 100.0,
+                "mode_diversity": s.mode_diversity as f64 / 100.0,
+                "compression_rate": s.compression_rate as f64 / 100.0,
+                "tool_calls": s.tool_calls,
+                "tokens_saved": s.tokens_saved,
+                "complexity": complexity_to_float(&s.complexity),
+            })
+        })
+        .collect()
+}
+
+fn collect_gotcha_entries() -> Vec<serde_json::Value> {
+    let mut all_gotchas = core::gotcha_tracker::load_universal_gotchas();
+
+    if let Some(home) = dirs::home_dir() {
+        let knowledge_dir = home.join(".lean-ctx").join("knowledge");
+        if let Ok(entries) = std::fs::read_dir(&knowledge_dir) {
+            for entry in entries.flatten() {
+                let gotcha_path = entry.path().join("gotchas.json");
+                if gotcha_path.exists() {
+                    if let Ok(content) = std::fs::read_to_string(&gotcha_path) {
+                        if let Ok(store) = serde_json::from_str::<core::gotcha_tracker::GotchaStore>(&content) {
+                            for g in store.gotchas {
+                                if !all_gotchas.iter().any(|existing| existing.trigger == g.trigger) {
+                                    all_gotchas.push(g);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    all_gotchas
+        .iter()
+        .map(|g| {
+            serde_json::json!({
+                "pattern": g.trigger,
+                "fix": g.resolution,
+                "severity": format!("{:?}", g.severity).to_lowercase(),
+                "category": format!("{:?}", g.category).to_lowercase(),
+                "occurrences": g.occurrences,
+                "prevented_count": g.prevented_count,
+                "confidence": g.confidence,
+            })
+        })
+        .collect()
+}
+
+fn collect_feedback_entries() -> Vec<serde_json::Value> {
+    let store = core::feedback::FeedbackStore::load();
+    store
+        .learned_thresholds
+        .iter()
+        .map(|(lang, thresholds)| {
+            serde_json::json!({
+                "language": lang,
+                "entropy": thresholds.entropy,
+                "jaccard": thresholds.jaccard,
+                "sample_count": thresholds.sample_count,
+                "avg_efficiency": thresholds.avg_efficiency,
+            })
+        })
+        .collect()
 }
 
 fn cmd_contribute() {
@@ -714,110 +999,21 @@ fn cmd_contribute() {
     }
 }
 
-fn cmd_team(args: &[String]) {
-    let action = args.first().map(|s| s.as_str()).unwrap_or("help");
-
-    match action {
-        "push" => {
-            if !cloud_client::is_logged_in() {
-                eprintln!("Not logged in. Run: lean-ctx login <email>");
-                std::process::exit(1);
-            }
-            let knowledge_dir = dirs::home_dir()
-                .unwrap_or_default()
-                .join(".lean-ctx")
-                .join("knowledge");
-            if !knowledge_dir.exists() {
-                println!("No local knowledge to push.");
-                return;
-            }
-
-            let mut entries = Vec::new();
-            if let Ok(files) = std::fs::read_dir(&knowledge_dir) {
-                for entry in files.flatten() {
-                    if entry.path().extension().and_then(|e| e.to_str()) == Some("json") {
-                        if let Ok(content) = std::fs::read_to_string(entry.path()) {
-                            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                                let category =
-                                    json["category"].as_str().unwrap_or("general").to_string();
-                                let key = json["key"].as_str().unwrap_or("").to_string();
-                                let value = json["value"].as_str().unwrap_or("").to_string();
-                                if !key.is_empty() {
-                                    entries.push(serde_json::json!({
-                                        "category": category,
-                                        "key": key,
-                                        "value": value,
-                                        "updated_by": "",
-                                        "updated_at": "",
-                                    }));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            if entries.is_empty() {
-                println!("No knowledge entries to push.");
-                return;
-            }
-
-            match cloud_client::push_knowledge(&entries) {
-                Ok(msg) => println!("{msg}"),
-                Err(e) => {
-                    eprintln!("Push failed: {e}");
-                    std::process::exit(1);
-                }
-            }
-        }
-        "pull" => {
-            if !cloud_client::is_logged_in() {
-                eprintln!("Not logged in. Run: lean-ctx login <email>");
-                std::process::exit(1);
-            }
-            match cloud_client::pull_knowledge() {
-                Ok(entries) => {
-                    if entries.is_empty() {
-                        println!("No team knowledge found.");
-                        return;
-                    }
-                    println!("{} team knowledge entries:", entries.len());
-                    for e in &entries {
-                        let cat = e["category"].as_str().unwrap_or("?");
-                        let key = e["key"].as_str().unwrap_or("?");
-                        let by = e["updated_by"].as_str().unwrap_or("?");
-                        println!("  [{cat}] {key} (by {by})");
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Pull failed: {e}");
-                    std::process::exit(1);
-                }
-            }
-        }
-        _ => {
-            println!("Usage: lean-ctx team <push|pull>");
-            println!("  push — Upload local knowledge to team cloud");
-            println!("  pull — Download team knowledge from cloud");
-        }
-    }
-}
-
 fn cmd_cloud(args: &[String]) {
     let action = args.first().map(|s| s.as_str()).unwrap_or("help");
 
     match action {
         "pull-models" => {
-            if !cloud_client::is_logged_in() {
-                eprintln!("Not logged in. Run: lean-ctx login <email>");
-                std::process::exit(1);
+            if !cloud_client::check_pro() {
+                println!("Adaptive models are not available for your account.");
+                return;
             }
             println!("Updating adaptive models...");
-            match cloud_client::pull_adaptive_models() {
+            match cloud_client::pull_pro_models() {
                 Ok(data) => {
                     let count = data["models"].as_array().map(|a| a.len()).unwrap_or(0);
 
-                    if let Err(e) = cloud_client::save_adaptive_models(&data) {
+                    if let Err(e) = cloud_client::save_pro_models(&data) {
                         eprintln!("Warning: Could not save models: {e}");
                         return;
                     }
@@ -845,113 +1041,6 @@ fn cmd_cloud(args: &[String]) {
             println!("  pull-models — Update adaptive compression models");
             println!("  status      — Show cloud connection status");
         }
-    }
-}
-
-fn cmd_leaderboard() {
-    match cloud_client::fetch_leaderboard() {
-        Ok(data) => {
-            if let Some(arr) = data.as_array() {
-                if arr.is_empty() {
-                    println!("Leaderboard is empty. Be the first to sync stats!");
-                    return;
-                }
-                println!("\n  LeanCTX Leaderboard — Top Token Savers\n");
-                println!("  {:<4} {:<14} {:<12} {}", "#", "User", "Saved", "Badges");
-                println!("  {}", "-".repeat(56));
-                for entry in arr.iter().take(15) {
-                    let rank = entry["rank"].as_i64().unwrap_or(0);
-                    let hash = entry["display_hash"].as_str().unwrap_or("?");
-                    let name = entry["username"].as_str().unwrap_or(hash);
-                    let saved = entry["total_tokens_saved"].as_i64().unwrap_or(0);
-                    let badges = entry["badges"]
-                        .as_array()
-                        .map(|b| {
-                            b.iter()
-                                .filter_map(|v| v.as_str())
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        })
-                        .unwrap_or_default();
-                    let saved_str = format_token_count(saved);
-                    println!("  {:<4} {:<14} {:<12} {}", rank, name, saved_str, badges);
-                }
-                println!();
-            } else {
-                println!("Unexpected response format.");
-            }
-        }
-        Err(e) => {
-            eprintln!("Failed to fetch leaderboard: {e}");
-            std::process::exit(1);
-        }
-    }
-}
-
-fn cmd_profile() {
-    if !cloud_client::is_logged_in() {
-        eprintln!("Not logged in. Run: lean-ctx login <email>");
-        std::process::exit(1);
-    }
-
-    match cloud_client::fetch_profile() {
-        Ok(data) => {
-            let hash = data["display_hash"].as_str().unwrap_or("?");
-            let username = data["username"].as_str();
-            let saved = data["total_tokens_saved"].as_i64().unwrap_or(0);
-            let rank = data["rank"].as_i64().unwrap_or(0);
-            let invite = data["invite_code"].as_str().unwrap_or("?");
-            let badges = data["badges"]
-                .as_array()
-                .map(|b| {
-                    b.iter()
-                        .filter_map(|v| v.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                })
-                .unwrap_or_else(|| "none yet".into());
-
-            println!("\n  LeanCTX Profile\n");
-            println!("  Hash:     {hash}");
-            if let Some(name) = username {
-                println!("  Username: {name}");
-            }
-            println!("  Rank:     #{rank}");
-            println!("  Saved:    {}", format_token_count(saved));
-            println!("  Badges:   {badges}");
-            println!("  Invite:   {invite}");
-
-            if let Some(team) = data["team"].as_object() {
-                let team_name = team["name"].as_str().unwrap_or("?");
-                let team_saved = team["total_tokens_saved"].as_i64().unwrap_or(0);
-                let members = team["member_count"].as_i64().unwrap_or(0);
-                let is_owner = team["is_owner"].as_bool().unwrap_or(false);
-                println!("\n  Team:     {team_name} ({members} members)");
-                println!("  Team Saved: {}", format_token_count(team_saved));
-                if is_owner {
-                    println!("  Role:     Owner");
-                }
-            } else {
-                println!("\n  Team:     none (share your invite code to create one!)");
-            }
-            println!();
-        }
-        Err(e) => {
-            eprintln!("Failed to fetch profile: {e}");
-            std::process::exit(1);
-        }
-    }
-}
-
-fn format_token_count(tokens: i64) -> String {
-    if tokens >= 1_000_000_000 {
-        format!("{:.1}B", tokens as f64 / 1_000_000_000.0)
-    } else if tokens >= 1_000_000 {
-        format!("{:.1}M", tokens as f64 / 1_000_000.0)
-    } else if tokens >= 1_000 {
-        format!("{:.1}K", tokens as f64 / 1_000.0)
-    } else {
-        format!("{tokens}")
     }
 }
 

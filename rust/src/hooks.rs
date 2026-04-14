@@ -112,7 +112,7 @@ pub fn normalize_tool_path(path: &str) -> String {
     p
 }
 
-pub fn generate_rewrite_script(binary: &str) -> String {
+fn generate_rewrite_script(binary: &str) -> String {
     format!(
         r#"#!/usr/bin/env bash
 # lean-ctx PreToolUse hook — rewrites bash commands to lean-ctx equivalents
@@ -147,7 +147,7 @@ esac
     )
 }
 
-pub fn generate_compact_rewrite_script(binary: &str) -> String {
+fn generate_compact_rewrite_script(binary: &str) -> String {
     format!(
         r#"#!/usr/bin/env bash
 # lean-ctx hook — rewrites shell commands
@@ -310,7 +310,7 @@ pub fn install_agent_hook(agent: &str, global: bool) {
     match agent {
         "claude" | "claude-code" => install_claude_hook(global),
         "cursor" => install_cursor_hook(global),
-        "gemini" | "antigravity" => install_gemini_hook(),
+        "gemini" => install_gemini_hook(),
         "codex" => install_codex_hook(),
         "windsurf" => install_windsurf_rules(global),
         "cline" | "roo" => install_cline_rules(global),
@@ -366,7 +366,7 @@ pub fn install_agent_hook(agent: &str, global: bool) {
         "crush" => install_crush_hook(),
         _ => {
             eprintln!("Unknown agent: {agent}");
-            eprintln!("  Supported: claude, cursor, gemini, antigravity, codex, windsurf, cline, roo, copilot, pi, qwen, trae, amazonq, jetbrains, kiro, verdent, opencode, aider, amp, crush");
+            eprintln!("  Supported: claude, cursor, gemini, codex, windsurf, cline, roo, copilot, pi, qwen, trae, amazonq, jetbrains, kiro, verdent, opencode, aider, amp, crush");
             std::process::exit(1);
         }
     }
@@ -1033,39 +1033,32 @@ fn copilot_global_mcp_path() -> PathBuf {
 }
 
 fn write_vscode_mcp_file(mcp_path: &PathBuf, binary: &str, label: &str) {
-    let desired = serde_json::json!({ "command": binary, "args": [] });
     if mcp_path.exists() {
         let content = std::fs::read_to_string(mcp_path).unwrap_or_default();
-        match serde_json::from_str::<serde_json::Value>(&content) {
-            Ok(mut json) => {
-                if let Some(obj) = json.as_object_mut() {
-                    let servers = obj
-                        .entry("servers")
-                        .or_insert_with(|| serde_json::json!({}));
-                    if let Some(servers_obj) = servers.as_object_mut() {
-                        if servers_obj.get("lean-ctx") == Some(&desired) {
-                            println!("  \x1b[32m✓\x1b[0m Copilot already configured in {label}");
-                            return;
-                        }
-                        servers_obj.insert("lean-ctx".to_string(), desired);
-                    }
-                    write_file(
-                        mcp_path,
-                        &serde_json::to_string_pretty(&json).unwrap_or_default(),
+        if content.contains("lean-ctx") {
+            println!("  \x1b[32m✓\x1b[0m Copilot already configured in {label}");
+            return;
+        }
+
+        if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(obj) = json.as_object_mut() {
+                let servers = obj
+                    .entry("servers")
+                    .or_insert_with(|| serde_json::json!({}));
+                if let Some(servers_obj) = servers.as_object_mut() {
+                    servers_obj.insert(
+                        "lean-ctx".to_string(),
+                        serde_json::json!({ "command": binary, "args": [] }),
                     );
-                    println!("  \x1b[32m✓\x1b[0m Added lean-ctx to {label}");
-                    return;
                 }
-            }
-            Err(e) => {
-                eprintln!(
-                    "Could not parse VS Code MCP config at {}: {e}\nAdd to \"servers\": \"lean-ctx\": {{ \"command\": \"{}\", \"args\": [] }}",
-                    mcp_path.display(),
-                    binary
+                write_file(
+                    mcp_path,
+                    &serde_json::to_string_pretty(&json).unwrap_or_default(),
                 );
+                println!("  \x1b[32m✓\x1b[0m Added lean-ctx to {label}");
                 return;
             }
-        };
+        }
     }
 
     if let Some(parent) = mcp_path.parent() {
@@ -1088,8 +1081,8 @@ fn write_vscode_mcp_file(mcp_path: &PathBuf, binary: &str, label: &str) {
     println!("  \x1b[32m✓\x1b[0m Created {label} with lean-ctx MCP server");
 }
 
-fn write_file(path: &std::path::Path, content: &str) {
-    if let Err(e) = crate::config_io::write_atomic_with_backup(path, content) {
+fn write_file(path: &PathBuf, content: &str) {
+    if let Err(e) = std::fs::write(path, content) {
         eprintln!("Error writing {}: {e}", path.display());
     }
 }

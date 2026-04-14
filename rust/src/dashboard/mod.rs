@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -24,15 +23,6 @@ pub async fn start(port: Option<u16>, host: Option<String>) {
 
     let addr = format!("{host}:{port}");
     let is_local = host == "127.0.0.1" || host == "localhost" || host == "::1";
-
-    // Avoid accidental multiple dashboard instances (common source of "it hangs").
-    // Only safe to auto-detect for local dashboards without auth.
-    if is_local && dashboard_responding(&host, port) {
-        println!("\n  lean-ctx dashboard already running → http://{host}:{port}");
-        println!("  Tip: use Ctrl+C in the existing terminal to stop it.\n");
-        open_browser(&format!("http://localhost:{port}"));
-        return;
-    }
 
     let token = if !is_local {
         let t = generate_token();
@@ -123,35 +113,6 @@ fn open_browser(url: &str) {
     }
 }
 
-fn dashboard_responding(host: &str, port: u16) -> bool {
-    use std::io::{Read, Write};
-    use std::net::TcpStream;
-    use std::time::Duration;
-
-    let addr = format!("{host}:{port}");
-    let Ok(mut s) = TcpStream::connect_timeout(
-        &addr
-            .parse()
-            .unwrap_or_else(|_| std::net::SocketAddr::from(([127, 0, 0, 1], port))),
-        Duration::from_millis(150),
-    ) else {
-        return false;
-    };
-    let _ = s.set_read_timeout(Some(Duration::from_millis(150)));
-    let _ = s.set_write_timeout(Some(Duration::from_millis(150)));
-
-    let req = "GET /api/version HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
-    if s.write_all(req.as_bytes()).is_err() {
-        return false;
-    }
-    let mut buf = [0u8; 256];
-    let Ok(n) = s.read(&mut buf) else {
-        return false;
-    };
-    let head = String::from_utf8_lossy(&buf[..n]);
-    head.starts_with("HTTP/1.1 200") || head.starts_with("HTTP/1.0 200")
-}
-
 async fn handle_request(mut stream: tokio::net::TcpStream, token: Option<Arc<String>>) {
     let mut buf = vec![0u8; 4096];
     let n = match stream.read(&mut buf).await {
@@ -228,8 +189,6 @@ async fn handle_request(mut stream: tokio::net::TcpStream, token: Option<Arc<Str
         }
         "/api/knowledge" => {
             let project_root = detect_project_root_for_dashboard();
-            let _ =
-                crate::core::knowledge::ProjectKnowledge::migrate_legacy_empty_root(&project_root);
             let knowledge = crate::core::knowledge::ProjectKnowledge::load_or_create(&project_root);
             let json = serde_json::to_string(&knowledge).unwrap_or_else(|_| "{}".to_string());
             ("200 OK", "application/json", json)
@@ -289,45 +248,6 @@ async fn handle_request(mut stream: tokio::net::TcpStream, token: Option<Arc<Str
             let json = serde_json::to_string(&summary).unwrap_or_else(|_| {
                 "{\"error\":\"failed to serialize search index summary\"}".to_string()
             });
-            ("200 OK", "application/json", json)
-        }
-        "/api/symbols" => {
-            let root = detect_project_root_for_dashboard();
-            let query = extract_query_param(query_str, "q").unwrap_or_default();
-            let kind = extract_query_param(query_str, "kind");
-            let index = crate::core::graph_index::load_or_build(&root);
-            let mut results: Vec<_> = index
-                .symbols
-                .values()
-                .filter(|s| {
-                    let name_match =
-                        query.is_empty() || s.name.to_lowercase().contains(&query.to_lowercase());
-                    let kind_match = kind
-                        .as_ref()
-                        .map(|k| s.kind.to_lowercase() == k.to_lowercase())
-                        .unwrap_or(true);
-                    name_match && kind_match
-                })
-                .collect();
-            results.sort_by(|a, b| a.name.cmp(&b.name));
-            results.truncate(100);
-            let json = serde_json::to_string(&results).unwrap_or_else(|_| "[]".to_string());
-            ("200 OK", "application/json", json)
-        }
-        "/api/call-graph" => {
-            let root = detect_project_root_for_dashboard();
-            let index = crate::core::graph_index::load_or_build(&root);
-            let cg = crate::core::call_graph::CallGraph::load_or_build(&root, &index);
-            let _ = cg.save();
-            let json = serde_json::to_string(&cg).unwrap_or_else(|_| "{\"edges\":[]}".to_string());
-            ("200 OK", "application/json", json)
-        }
-        "/api/routes" => {
-            let root = detect_project_root_for_dashboard();
-            let index = crate::core::graph_index::load_or_build(&root);
-            let routes =
-                crate::core::route_extractor::extract_routes_from_project(&root, &index.files);
-            let json = serde_json::to_string(&routes).unwrap_or_else(|_| "[]".to_string());
             ("200 OK", "application/json", json)
         }
         "/api/compression-demo" => {
@@ -642,51 +562,10 @@ fn build_agents_json() -> String {
 }
 
 fn detect_project_root_for_dashboard() -> String {
-    // Prefer last known project context from the persisted session. This makes the dashboard
-    // show the same project data even if it is launched from an arbitrary working directory.
-    if let Some(session) = crate::core::session::SessionState::load_latest() {
-        if let Some(root) = session.project_root.as_deref() {
-            if !root.trim().is_empty() {
-                return promote_to_git_root(root);
-            }
-        }
-        if let Some(cwd) = session.shell_cwd.as_deref() {
-            if !cwd.trim().is_empty() {
-                let r = crate::core::protocol::detect_project_root_or_cwd(cwd);
-                return promote_to_git_root(&r);
-            }
-        }
-        if let Some(last) = session.files_touched.last() {
-            if !last.path.trim().is_empty() {
-                if let Some(parent) = Path::new(&last.path).parent() {
-                    let p = parent.to_string_lossy().to_string();
-                    let r = crate::core::protocol::detect_project_root_or_cwd(&p);
-                    return promote_to_git_root(&r);
-                }
-            }
-        }
-    }
-
     let cwd = std::env::current_dir()
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|_| ".".to_string());
-    let r = crate::core::protocol::detect_project_root_or_cwd(&cwd);
-    promote_to_git_root(&r)
-}
-
-fn promote_to_git_root(path: &str) -> String {
-    git_root_for(path).unwrap_or_else(|| path.to_string())
-}
-
-fn git_root_for(path: &str) -> Option<String> {
-    let mut p = Path::new(path);
-    loop {
-        let git = p.join(".git");
-        if git.exists() {
-            return Some(p.to_string_lossy().to_string());
-        }
-        p = p.parent()?;
-    }
+    crate::core::protocol::detect_project_root_or_cwd(&cwd)
 }
 
 #[cfg(test)]

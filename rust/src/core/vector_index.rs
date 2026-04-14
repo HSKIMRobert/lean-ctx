@@ -216,10 +216,6 @@ impl BM25Index {
             built
         })
     }
-
-    pub fn index_file_path(root: &Path) -> PathBuf {
-        index_dir(root).join("bm25_index.json")
-    }
 }
 
 fn index_dir(root: &Path) -> PathBuf {
@@ -233,7 +229,7 @@ fn index_dir(root: &Path) -> PathBuf {
         .join(hash)
 }
 
-pub(crate) fn is_code_file(path: &Path) -> bool {
+fn is_code_file(path: &Path) -> bool {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     matches!(
         ext,

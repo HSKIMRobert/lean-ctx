@@ -460,7 +460,7 @@ fn mcp_config_outcome() -> Outcome {
         Outcome {
             ok: false,
             line: format!(
-                "{BOLD}MCP config{RST}  {YELLOW}config exists for {} but does not reference lean-ctx{RST}  {DIM}(run: lean-ctx setup){RST}",
+                "{BOLD}MCP config{RST}  {YELLOW}config exists for {} but does not reference lean-ctx{RST}  {DIM}(run: lean-ctx init --agent <editor>){RST}",
                 exists_no_ref.join(", ")
             ),
         }
@@ -468,7 +468,7 @@ fn mcp_config_outcome() -> Outcome {
         Outcome {
             ok: false,
             line: format!(
-                "{BOLD}MCP config{RST}  {YELLOW}no MCP config found{RST}  {DIM}(run: lean-ctx setup){RST}"
+                "{BOLD}MCP config{RST}  {YELLOW}no MCP config found{RST}  {DIM}(checked: Cursor, Claude, Windsurf, Codex, Gemini, Antigravity, Crush, Zed){RST}"
             ),
         }
     }
@@ -559,54 +559,6 @@ fn session_state_outcome() -> Outcome {
                 "{BOLD}Session state{RST}  {YELLOW}no active session{RST}  {DIM}(will be created on first tool call){RST}"
             ),
         },
-    }
-}
-
-fn tool_adoption_outcome() -> Outcome {
-    let store = crate::core::stats::load();
-    let cep = &store.cep;
-
-    let total_mode_calls: u64 = cep.modes.values().sum();
-    let shell_commands = store.total_commands;
-
-    if total_mode_calls == 0 && shell_commands == 0 {
-        return Outcome {
-            ok: true,
-            line: format!(
-                "{BOLD}Tool adoption{RST}  {YELLOW}no usage data yet{RST}  {DIM}(use lean-ctx tools to see adoption stats){RST}"
-            ),
-        };
-    }
-
-    let data_tools_used =
-        total_mode_calls > 0 && cep.modes.keys().any(|k| k != "overview" && k != "metrics");
-
-    if shell_commands > 20 && !data_tools_used {
-        return Outcome {
-            ok: false,
-            line: format!(
-                "{BOLD}Tool adoption{RST}  {RED}shell hook active but MCP data tools not used{RST}\n\
-                 {DIM}     Your AI client may be using native Read/Shell instead of ctx_read/ctx_shell.{RST}\n\
-                 {DIM}     Fix: run {BOLD}lean-ctx init{RST}{DIM} to update rules, or check for conflicting{RST}\n\
-                 {DIM}     instructions in CLAUDE.md / .cursorrules that say \"use Read/Edit tools only\".{RST}"
-            ),
-        };
-    }
-
-    if data_tools_used {
-        Outcome {
-            ok: true,
-            line: format!(
-                "{BOLD}Tool adoption{RST}  {GREEN}MCP tools active{RST}  {DIM}{total_mode_calls} reads, {shell_commands} shell commands{RST}"
-            ),
-        }
-    } else {
-        Outcome {
-            ok: true,
-            line: format!(
-                "{BOLD}Tool adoption{RST}  {YELLOW}shell hook only{RST}  {DIM}{shell_commands} commands (enable MCP for full savings){RST}"
-            ),
-        }
     }
 }
 
@@ -792,14 +744,7 @@ pub fn run() {
         print_check(pi_check);
     }
 
-    // 11) Tool adoption check
-    let adoption = tool_adoption_outcome();
-    print_check(&adoption);
-
-    let effective_total = if pi.is_some() { total + 3 } else { total + 2 };
-    if adoption.ok {
-        passed += 1;
-    }
+    let effective_total = if pi.is_some() { total + 2 } else { total + 1 };
     println!();
     println!("  {BOLD}{WHITE}Summary:{RST}  {GREEN}{passed}{RST}{DIM}/{effective_total}{RST} checks passed");
     println!("  {DIM}This binary: lean-ctx {VERSION} (Cargo package version){RST}");

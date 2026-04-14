@@ -3,7 +3,7 @@ use axum::http::HeaderMap;
 use axum::http::StatusCode;
 use axum::Json;
 use chrono::NaiveDate;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::auth::{auth_user, AppState};
@@ -24,8 +24,8 @@ pub struct StatsEntry {
     pub cache_misses: i64,
 }
 
-#[derive(serde::Serialize)]
-pub struct StatsOutEntry {
+#[derive(Serialize)]
+pub struct StatsRow {
     pub date: String,
     pub tokens_original: i64,
     pub tokens_compressed: i64,
@@ -33,46 +33,39 @@ pub struct StatsOutEntry {
     pub tool_calls: i64,
     pub cache_hits: i64,
     pub cache_misses: i64,
-    pub updated_at: String,
 }
 
 pub async fn get_stats(
     State(state): State<AppState>,
     headers: HeaderMap,
-) -> Result<Json<Vec<StatsOutEntry>>, (StatusCode, String)> {
+) -> Result<Json<Vec<StatsRow>>, (StatusCode, String)> {
     let (user_id, _email) = auth_user(&state, &headers).await?;
     let client = state.pool.get().await.map_err(internal_error)?;
     let rows = client
         .query(
-            r#"
-SELECT date, tokens_original, tokens_compressed, tokens_saved, tool_calls, cache_hits, cache_misses, updated_at
-FROM stats_daily
-WHERE user_id=$1
-ORDER BY date DESC
-LIMIT 120
-"#,
+            "SELECT date, tokens_original, tokens_compressed, tokens_saved, tool_calls, cache_hits, cache_misses FROM stats_daily WHERE user_id=$1 ORDER BY date DESC LIMIT 90",
             &[&user_id],
         )
         .await
         .map_err(internal_error)?;
 
-    let mut out = Vec::with_capacity(rows.len());
-    for r in rows {
-        let date: NaiveDate = r.get(0);
-        let updated_at: chrono::DateTime<chrono::Utc> = r.get(7);
-        out.push(StatsOutEntry {
-            date: date.format("%Y-%m-%d").to_string(),
-            tokens_original: r.get(1),
-            tokens_compressed: r.get(2),
-            tokens_saved: r.get(3),
-            tool_calls: r.get(4),
-            cache_hits: r.get(5),
-            cache_misses: r.get(6),
-            updated_at: updated_at.to_rfc3339(),
-        });
-    }
+    let stats: Vec<StatsRow> = rows
+        .iter()
+        .map(|r| {
+            let date: NaiveDate = r.get(0);
+            StatsRow {
+                date: date.format("%Y-%m-%d").to_string(),
+                tokens_original: r.get(1),
+                tokens_compressed: r.get(2),
+                tokens_saved: r.get(3),
+                tool_calls: r.get(4),
+                cache_hits: r.get(5),
+                cache_misses: r.get(6),
+            }
+        })
+        .collect();
 
-    Ok(Json(out))
+    Ok(Json(stats))
 }
 
 pub async fn post_stats(
@@ -84,15 +77,6 @@ pub async fn post_stats(
     for entry in env.stats {
         upsert_daily(&state, user_id, entry).await?;
     }
-
-    let client = state.pool.get().await.map_err(internal_error)?;
-    super::profile::ensure_profile(&client, user_id)
-        .await
-        .map_err(internal_error)?;
-    super::profile::recalculate_tokens(&client, user_id)
-        .await
-        .map_err(internal_error)?;
-
     Ok(Json(serde_json::json!({ "message": "Synced" })))
 }
 

@@ -1,18 +1,18 @@
 mod auth;
+mod buddy;
+mod cep;
+mod commands;
 mod config;
 mod contribute;
 mod db;
-mod global_stats;
-mod invite;
+mod feedback;
+mod gotchas;
 mod knowledge;
-mod leaderboard;
 mod models;
-pub(crate) mod profile;
 mod stats;
 
 use axum::routing::{get, post};
 use axum::Router;
-use axum::http::{HeaderName, Method};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
 pub async fn run() -> anyhow::Result<()> {
@@ -32,44 +32,60 @@ pub async fn run() -> anyhow::Result<()> {
         .allow_origin(AllowOrigin::list([
             "https://leanctx.com".parse().unwrap(),
             "https://www.leanctx.com".parse().unwrap(),
+            "http://localhost:4321".parse().unwrap(),
         ]))
         .allow_methods([
-            Method::GET,
-            Method::POST,
-            Method::PATCH,
-            Method::OPTIONS,
+            axum::http::Method::GET,
+            axum::http::Method::POST,
+            axum::http::Method::OPTIONS,
         ])
         .allow_headers([
-            HeaderName::from_static("content-type"),
-            HeaderName::from_static("authorization"),
+            axum::http::header::CONTENT_TYPE,
+            axum::http::header::AUTHORIZATION,
+            axum::http::header::ACCEPT,
         ])
         .allow_credentials(true);
 
     let app = Router::new()
         .route("/health", get(auth::health))
         .route("/api/auth/register", post(auth::register))
-        .route("/api/auth/request-link", post(auth::request_magic_link))
-        .route("/api/auth/exchange", get(auth::exchange_magic_link))
-        .route("/api/auth/logout", post(auth::logout))
-        .route("/api/auth/set-password", post(auth::set_password))
-        .route("/api/auth/login", post(auth::login_password))
+        .route("/api/auth/login", post(auth::login))
+        .route("/api/auth/forgot-password", post(auth::forgot_password))
+        .route("/api/auth/reset-password", post(auth::reset_password))
+        .route("/api/auth/verify-email", get(auth::verify_email))
+        .route(
+            "/api/auth/resend-verification",
+            post(auth::resend_verification),
+        )
+        .route("/api/auth/me", get(auth::me))
         .route("/api/stats", get(stats::get_stats).post(stats::post_stats))
         .route("/api/contribute", post(contribute::post_contribute))
         .route(
             "/api/sync/knowledge",
             get(knowledge::get_knowledge).post(knowledge::post_knowledge),
         )
+        .route(
+            "/api/sync/commands",
+            get(commands::get_commands).post(commands::post_commands),
+        )
+        .route(
+            "/api/sync/cep",
+            get(cep::get_cep).post(cep::post_cep),
+        )
+        .route(
+            "/api/sync/gotchas",
+            get(gotchas::get_gotchas).post(gotchas::post_gotchas),
+        )
+        .route(
+            "/api/sync/buddy",
+            get(buddy::get_buddy).post(buddy::post_buddy),
+        )
+        .route(
+            "/api/sync/feedback",
+            get(feedback::get_feedback).post(feedback::post_feedback),
+        )
         .route("/api/cloud/models", get(models::get_models))
         .route("/api/pro/models", get(models::get_models))
-        .route("/api/leaderboard", get(leaderboard::get_leaderboard))
-        .route("/api/leaderboard/teams", get(leaderboard::get_team_leaderboard))
-        .route("/api/global-stats", get(global_stats::get_global_stats))
-        .route("/api/profile", get(profile::get_profile).post(profile::patch_profile))
-        .route("/api/profile/leave-team", post(profile::leave_team))
-        .route("/api/profile/rename-team", post(profile::rename_team))
-        .route("/api/invite/generate", post(invite::generate_invite))
-        .route("/api/invite/{code}", get(invite::get_invite_info))
-        .route("/api/invite/{code}/accept", post(invite::accept_invite))
         .with_state(state)
         .layer(cors);
 
@@ -77,4 +93,3 @@ pub async fn run() -> anyhow::Result<()> {
     axum::serve(listener, app).await?;
     Ok(())
 }
-

@@ -1,114 +1,83 @@
-# GitLab CI/CD — lean-ctx main (Cloud API + Worker + Dashboard)
+# GitLab CI/CD — lean-ctx website deployment
+# Triggered on the `deploy` branch → builds website (Node 22) and deploys to server (nginx container)
 #
 # Required GitLab CI/CD Variables (Settings → CI/CD → Variables):
-#   LEANCTX_SSH_KEY            — private SSH key content (type: File)
-#   LEANCTX_SSH_HOST           — server IP (e.g. 185.142.213.170)
-#   LEANCTX_SSH_USER           — SSH username (e.g. administrator)
-#
-#   LEANCTX_CLOUD_DB_PASSWORD  — Postgres password (for lean-ctx-cloud-db container)
-#   LEANCTX_CLOUD_JWT_SECRET   — JWT secret (random, long)
-#
-#   LEANCTX_CLOUD_SMTP_HOST    — smtp.zeptomail.eu
-#   LEANCTX_CLOUD_SMTP_PORT    — 587
-#   LEANCTX_CLOUD_SMTP_USERNAME— e.g. emailapikey
-#   LEANCTX_CLOUD_SMTP_PASSWORD— ZeptoMail password
-#   LEANCTX_CLOUD_SMTP_FROM    — e.g. noreply@leanctx.com
-#
-# Optional:
-#   LEANCTX_CLOUD_PUBLIC_BASE_URL — default https://leanctx.com
+#   LEANCTX_SSH_KEY   — private SSH key content (type: File, protected: yes)
+#   LEANCTX_SSH_HOST  — server IP (e.g. 185.142.213.170)
+#   LEANCTX_SSH_USER  — SSH username (e.g. administrator)
 
 stages:
+  - build
   - deploy
 
-deploy-cloud-api:
+build-website:
+  stage: build
+  image: node:22.12.0-bullseye
+  only:
+    - deploy
+  script:
+    - cd website
+    - npm ci --silent
+    - npm run -s build
+  artifacts:
+    paths:
+      - website/dist
+      - website/nginx.conf
+      - website/Dockerfile
+    expire_in: 1 week
+
+deploy-website:
   stage: deploy
   image: alpine:latest
   only:
-    - main
+    - deploy
+  dependencies:
+    - build-website
   before_script:
     - apk add --no-cache openssh-client rsync
-    - '[ -n "$LEANCTX_SSH_HOST" ] || (echo "Missing CI var LEANCTX_SSH_HOST" && exit 1)'
-    - '[ -n "$LEANCTX_SSH_USER" ] || (echo "Missing CI var LEANCTX_SSH_USER" && exit 1)'
-    - '[ -f "$LEANCTX_SSH_KEY" ] || (echo "Missing CI var LEANCTX_SSH_KEY (type File)" && exit 1)'
-    - '[ -n "$LEANCTX_CLOUD_DB_PASSWORD" ] || (echo "Missing CI var LEANCTX_CLOUD_DB_PASSWORD" && exit 1)'
-    - '[ -n "$LEANCTX_CLOUD_JWT_SECRET" ] || (echo "Missing CI var LEANCTX_CLOUD_JWT_SECRET" && exit 1)'
     - eval $(ssh-agent -s)
     - chmod 600 "$LEANCTX_SSH_KEY"
     - ssh-add "$LEANCTX_SSH_KEY"
     - mkdir -p ~/.ssh
     - ssh-keyscan -H "$LEANCTX_SSH_HOST" >> ~/.ssh/known_hosts
   script:
-    # Sync build context to server (separate rsyncs to preserve directory structure)
+    # Sync built dist + nginx.conf + Dockerfile to server
     - |
-      ssh "$LEANCTX_SSH_USER@$LEANCTX_SSH_HOST" "mkdir -p /home/$LEANCTX_SSH_USER/lean-ctx-cloud/rust /home/$LEANCTX_SSH_USER/lean-ctx-cloud/cloud-infra"
-      rsync -avz --delete \
-        rust/ \
-        "$LEANCTX_SSH_USER@$LEANCTX_SSH_HOST:/home/$LEANCTX_SSH_USER/lean-ctx-cloud/rust/"
-      rsync -avz --delete \
-        cloud-infra/ \
-        "$LEANCTX_SSH_USER@$LEANCTX_SSH_HOST:/home/$LEANCTX_SSH_USER/lean-ctx-cloud/cloud-infra/"
-
-    # Build + start DB (if missing) + restart API
+      ssh "$LEANCTX_SSH_USER@$LEANCTX_SSH_HOST" "mkdir -p /home/$LEANCTX_SSH_USER/lean-ctx-web/dist"
+      rsync -avz --delete website/dist/ \
+        "$LEANCTX_SSH_USER@$LEANCTX_SSH_HOST:/home/$LEANCTX_SSH_USER/lean-ctx-web/dist/"
+      rsync -avz website/nginx.conf website/Dockerfile \
+        "$LEANCTX_SSH_USER@$LEANCTX_SSH_HOST:/home/$LEANCTX_SSH_USER/lean-ctx-web/"
+    # Rebuild image and restart container on server
     - |
       ssh "$LEANCTX_SSH_USER@$LEANCTX_SSH_HOST" '
         set -e
-        cd /home/'"$LEANCTX_SSH_USER"'/lean-ctx-cloud
+        cd /home/'"$LEANCTX_SSH_USER"'/lean-ctx-web
 
-        if ! docker inspect lean-ctx-cloud-db >/dev/null 2>&1; then
-          docker run -d \
-            --name lean-ctx-cloud-db \
-            --network coolify \
-            --restart unless-stopped \
-            -e POSTGRES_USER=leanctx_cloud \
-            -e POSTGRES_PASSWORD="'"$LEANCTX_CLOUD_DB_PASSWORD"'" \
-            -e POSTGRES_DB=leanctx_cloud \
-            -v lean-ctx-cloud-db:/var/lib/postgresql/data \
-            postgres:16-alpine
-        fi
+        echo "[1/4] Building Docker image..."
+        docker build -t lean-ctx-web .
 
-        echo "[1/3] Building API image..."
-        docker rmi lean-ctx-cloud-api 2>/dev/null || true
-        DOCKER_BUILDKIT=0 docker build --no-cache -t lean-ctx-cloud-api -f cloud-infra/Dockerfile.cloud-api .
+        echo "[2/4] Stopping old container..."
+        docker stop lean-ctx-web || true
+        docker rm lean-ctx-web || true
 
-        echo "[2/3] Restarting API container..."
-        docker stop lean-ctx-cloud-api || true
-        docker rm lean-ctx-cloud-api || true
-
+        echo "[3/4] Starting new container..."
         docker run -d \
-          --name lean-ctx-cloud-api \
+          --name lean-ctx-web \
           --network coolify \
           --restart unless-stopped \
-          -e LEANCTX_CLOUD_DATABASE_URL="postgres://leanctx_cloud:'"$LEANCTX_CLOUD_DB_PASSWORD"'@lean-ctx-cloud-db:5432/leanctx_cloud" \
-          -e LEANCTX_CLOUD_JWT_SECRET="'"$LEANCTX_CLOUD_JWT_SECRET"'" \
-          -e LEANCTX_CLOUD_PUBLIC_BASE_URL="'"${LEANCTX_CLOUD_PUBLIC_BASE_URL:-https://leanctx.com}"'" \
-          -e LEANCTX_CLOUD_SMTP_HOST="'"$LEANCTX_CLOUD_SMTP_HOST"'" \
-          -e LEANCTX_CLOUD_SMTP_PORT="'"$LEANCTX_CLOUD_SMTP_PORT"'" \
-          -e LEANCTX_CLOUD_SMTP_USERNAME="'"$LEANCTX_CLOUD_SMTP_USERNAME"'" \
-          -e LEANCTX_CLOUD_SMTP_PASSWORD="'"$LEANCTX_CLOUD_SMTP_PASSWORD"'" \
-          -e LEANCTX_CLOUD_SMTP_FROM="'"$LEANCTX_CLOUD_SMTP_FROM"'" \
           --label "traefik.enable=true" \
           --label "traefik.docker.network=coolify" \
-          --label "traefik.http.routers.lean-ctx-cloud-api.entrypoints=https" \
-          --label "traefik.http.routers.lean-ctx-cloud-api.rule=Host(\`api.leanctx.com\`)" \
-          --label "traefik.http.routers.lean-ctx-cloud-api.tls=true" \
-          --label "traefik.http.routers.lean-ctx-cloud-api.tls.certresolver=letsencrypt" \
-          --label "traefik.http.services.lean-ctx-cloud-api.loadbalancer.server.port=8088" \
-          lean-ctx-cloud-api
+          --label "traefik.http.routers.lean-ctx.entrypoints=https" \
+          --label "traefik.http.routers.lean-ctx.rule=Host(\`leanctx.com\`) || Host(\`www.leanctx.com\`) || Host(\`lean-ctx.pounce.ch\`) || Host(\`leanctx.tech\`) || Host(\`www.leanctx.tech\`)" \
+          --label "traefik.http.routers.lean-ctx.tls=true" \
+          --label "traefik.http.routers.lean-ctx.tls.certresolver=letsencrypt" \
+          --label "traefik.http.services.lean-ctx.loadbalancer.server.port=80" \
+          lean-ctx-web
 
-        echo "[3/3] Health check..."
-        for i in 1 2 3 4 5; do
-          if curl -fsS https://api.leanctx.com/health >/dev/null 2>&1; then
-            echo "OK"
-            exit 0
-          fi
-          sleep 2
-        done
-        echo "Health check failed"
-        docker logs lean-ctx-cloud-api --tail 200 || true
-        exit 1
+        echo "[4/4] Done. Container status:"
+        docker ps --filter name=lean-ctx-web --format "table {{.Names}}\t{{.Status}}"
       '
-
   environment:
     name: production
-    url: https://api.leanctx.com
-
+    url: https://leanctx.com
