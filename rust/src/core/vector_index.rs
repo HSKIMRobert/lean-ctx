@@ -229,7 +229,7 @@ fn index_dir(root: &Path) -> PathBuf {
         .join(hash)
 }
 
-fn is_code_file(path: &Path) -> bool {
+pub(crate) fn is_code_file(path: &Path) -> bool {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     matches!(
         ext,

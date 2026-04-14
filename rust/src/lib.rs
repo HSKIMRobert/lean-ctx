@@ -4,6 +4,7 @@ pub mod config_io;
 #[cfg(feature = "cloud-server")]
 pub mod cloud_server;
 pub mod cloud_sync;
+pub mod config_io;
 pub mod core;
 pub mod dashboard;
 pub mod doctor;
