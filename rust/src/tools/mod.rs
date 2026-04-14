@@ -153,7 +153,11 @@ impl LeanCtxServer {
             agent_id: Arc::new(RwLock::new(None)),
             client_name: Arc::new(RwLock::new(String::new())),
             autonomy: Arc::new(autonomy::AutonomyState::new()),
-            loop_detector: Arc::new(RwLock::new(crate::core::loop_detection::LoopDetector::new())),
+            loop_detector: Arc::new(RwLock::new(
+                crate::core::loop_detection::LoopDetector::with_config(
+                    &crate::core::config::Config::load().loop_detection,
+                ),
+            )),
         }
     }
 
