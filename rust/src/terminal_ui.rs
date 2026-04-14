@@ -9,7 +9,7 @@ const LOGO: [&str; 6] = [
     r"  ╚══════╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝     ╚═════╝   ╚═╝   ╚═╝  ╚═╝",
 ];
 
-const TAGLINE: &str = "The Intelligence Layer for AI Coding";
+const TAGLINE: &str = "Context Runtime for AI Agents";
 
 pub fn print_logo_animated() {
     let cfg = crate::core::config::Config::load();

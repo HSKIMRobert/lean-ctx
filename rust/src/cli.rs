@@ -1014,11 +1014,10 @@ pub fn init_powershell(binary: &str) {
 if (-not $env:LEAN_CTX_ACTIVE -and -not $env:LEAN_CTX_DISABLED) {{
   $LeanCtxBin = "{binary_escaped}"
   function _lc {{
-    if ($env:LEAN_CTX_DISABLED -or [Console]::IsOutputRedirected) {{ & $args[0] $args[1..($args.Length)]; return }}
+    if ($env:LEAN_CTX_DISABLED -or [Console]::IsOutputRedirected) {{ & @args; return }}
     & $LeanCtxBin -c @args
     if ($LASTEXITCODE -eq 127 -or $LASTEXITCODE -eq 126) {{
-      $cmd = $args[0]; $rest = $args[1..($args.Length)]
-      & $cmd @rest
+      & @args
     }}
   }}
   function lean-ctx-raw {{ $env:LEAN_CTX_RAW = '1'; & @args; Remove-Item Env:LEAN_CTX_RAW -ErrorAction SilentlyContinue }}
@@ -1035,10 +1034,8 @@ if (-not $env:LEAN_CTX_ACTIVE -and -not $env:LEAN_CTX_DISABLED) {{
     function curl {{ _lc curl @args }}
     function wget {{ _lc wget @args }}
     foreach ($c in @('npm','pnpm','yarn','eslint','prettier','tsc')) {{
-      $a = Get-Command $c -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-      if ($a) {{
-        Set-Variable -Name "_lc_$c" -Value $a.Source -Scope Script
-        New-Item -Path "function:$c" -Value ([scriptblock]::Create("_lc `$script:_lc_$c @args")) -Force | Out-Null
+      if (Get-Command $c -CommandType Application -ErrorAction SilentlyContinue) {{
+        New-Item -Path "function:$c" -Value ([scriptblock]::Create("_lc $c @args")) -Force | Out-Null
       }}
     }}
   }}
@@ -1685,7 +1682,7 @@ export EDITOR=vim
 
     #[test]
     fn test_powershell_hook_contains_pipe_guard() {
-        let hook = "function _lc { if ($env:LEAN_CTX_DISABLED -or [Console]::IsOutputRedirected) { & $args[0] $args[1..($args.Length)]; return } }";
+        let hook = "function _lc { if ($env:LEAN_CTX_DISABLED -or [Console]::IsOutputRedirected) { & @args; return } }";
         assert!(
             hook.contains("IsOutputRedirected"),
             "PowerShell hook must contain pipe guard ([Console]::IsOutputRedirected)"

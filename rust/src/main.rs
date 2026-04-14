@@ -31,7 +31,7 @@ fn main() {
                 let command = if cmd_args.len() == 1 {
                     cmd_args[0].clone()
                 } else {
-                    shell_join(cmd_args)
+                    shell::join_command(cmd_args)
                 };
                 if std::env::var("LEAN_CTX_ACTIVE").is_ok()
                     || std::env::var("LEAN_CTX_DISABLED").is_ok()
@@ -346,30 +346,11 @@ fn run_mcp_server() -> Result<()> {
     })
 }
 
-fn shell_join(args: &[String]) -> String {
-    args.iter()
-        .map(|a| shell_quote(a))
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-fn shell_quote(s: &str) -> String {
-    if s.is_empty() {
-        return "''".to_string();
-    }
-    if s.bytes()
-        .all(|b| b.is_ascii_alphanumeric() || b"-_./=:@,+%^".contains(&b))
-    {
-        return s.to_string();
-    }
-    format!("'{}'", s.replace('\'', "'\\''"))
-}
-
 fn print_help() {
     println!(
-        "lean-ctx {version} — The Intelligence Layer for AI Coding
+        "lean-ctx {version} — Context Runtime for AI Agents
 
-90+ compression patterns | 36 MCP tools | Context Continuity Protocol
+90+ compression patterns | 42 MCP tools | Context Continuity Protocol
 
 USAGE:
     lean-ctx                       Start MCP server (stdio)
@@ -476,11 +457,10 @@ EXAMPLES:
     lean-ctx grep \"pub fn\" src/
     lean-ctx deps .
 
-CLOUD (https://leanctx.com/dashboard):
-    login <email>                  Register/login to LeanCTX Cloud
-    sync                           Sync all data to cloud (stats, knowledge, buddy, etc.)
+CLOUD:
     cloud status                   Show cloud connection status
-    cloud pull-models              Update adaptive compression models from cloud
+    login <email>                  Register/login to LeanCTX Cloud
+    sync                           Upload local stats to cloud dashboard
     contribute                     Share anonymized compression data
 
 TROUBLESHOOTING:
@@ -530,12 +510,13 @@ fn cmd_login(args: &[String]) {
 
     let pw = match password {
         Some(p) => p,
-        None => {
-            eprint!("Password: ");
-            let mut buf = String::new();
-            let _ = std::io::stdin().read_line(&mut buf);
-            buf.trim().to_string()
-        }
+        None => match rpassword::prompt_password("Password: ") {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("Could not read password: {e}");
+                std::process::exit(1);
+            }
+        },
     };
 
     if pw.len() < 8 {
@@ -562,7 +543,7 @@ fn cmd_login(args: &[String]) {
         Ok(r) => {
             if let Err(e) = cloud_client::save_credentials(&r.api_key, &r.user_id, &email) {
                 eprintln!("Warning: Could not save credentials: {e}");
-                eprintln!("API key generated but could not be saved. Re-run login to retry.");
+                eprintln!("Your API key: {}", r.api_key);
                 return;
             }
             if let Ok(plan) = cloud_client::fetch_plan() {
@@ -597,7 +578,7 @@ fn cmd_sync() {
         println!("No stats to sync yet.");
     } else {
         match cloud_client::sync_stats(&entries) {
-            Ok(_) => println!("  Stats: {} entries synced", entries.len()),
+            Ok(msg) => println!("  Stats: {msg}"),
             Err(e) => eprintln!("  Stats sync failed: {e}"),
         }
     }
@@ -608,7 +589,7 @@ fn cmd_sync() {
         println!("  No command data to sync.");
     } else {
         match cloud_client::push_commands(&command_entries) {
-            Ok(_) => println!("  Commands: {} entries synced", command_entries.len()),
+            Ok(msg) => println!("  Commands: {msg}"),
             Err(e) => eprintln!("  Commands sync failed: {e}"),
         }
     }
@@ -619,7 +600,7 @@ fn cmd_sync() {
         println!("  No CEP sessions to sync.");
     } else {
         match cloud_client::push_cep(&cep_entries) {
-            Ok(_) => println!("  CEP: {} sessions synced", cep_entries.len()),
+            Ok(msg) => println!("  CEP: {msg}"),
             Err(e) => eprintln!("  CEP sync failed: {e}"),
         }
     }
@@ -630,7 +611,7 @@ fn cmd_sync() {
         println!("  No knowledge to sync.");
     } else {
         match cloud_client::push_knowledge(&knowledge_entries) {
-            Ok(_) => println!("  Knowledge: {} entries synced", knowledge_entries.len()),
+            Ok(msg) => println!("  Knowledge: {msg}"),
             Err(e) => eprintln!("  Knowledge sync failed: {e}"),
         }
     }
@@ -641,7 +622,7 @@ fn cmd_sync() {
         println!("  No gotchas to sync.");
     } else {
         match cloud_client::push_gotchas(&gotcha_entries) {
-            Ok(_) => println!("  Gotchas: {} entries synced", gotcha_entries.len()),
+            Ok(msg) => println!("  Gotchas: {msg}"),
             Err(e) => eprintln!("  Gotchas sync failed: {e}"),
         }
     }
@@ -650,7 +631,7 @@ fn cmd_sync() {
     let buddy = core::buddy::BuddyState::compute();
     let buddy_data = serde_json::to_value(&buddy).unwrap_or_default();
     match cloud_client::push_buddy(&buddy_data) {
-        Ok(_) => println!("  Buddy: synced"),
+        Ok(msg) => println!("  Buddy: {msg}"),
         Err(e) => eprintln!("  Buddy sync failed: {e}"),
     }
 
@@ -660,7 +641,7 @@ fn cmd_sync() {
         println!("  No feedback thresholds to sync.");
     } else {
         match cloud_client::push_feedback(&feedback_entries) {
-            Ok(_) => println!("  Feedback: {} thresholds synced", feedback_entries.len()),
+            Ok(msg) => println!("  Feedback: {msg}"),
             Err(e) => eprintln!("  Feedback sync failed: {e}"),
         }
     }
@@ -1008,21 +989,21 @@ fn cmd_cloud(args: &[String]) {
 
     match action {
         "pull-models" => {
-            if !cloud_client::is_cloud_user() {
-                println!("Cloud models require a cloud account. Run: lean-ctx login <email>");
-                return;
-            }
             println!("Updating adaptive models...");
             match cloud_client::pull_cloud_models() {
                 Ok(data) => {
-                    let count = data["models"].as_array().map(|a| a.len()).unwrap_or(0);
+                    let count = data
+                        .get("models")
+                        .and_then(|v| v.as_array())
+                        .map(|a| a.len())
+                        .unwrap_or(0);
 
                     if let Err(e) = cloud_client::save_cloud_models(&data) {
                         eprintln!("Warning: Could not save models: {e}");
                         return;
                     }
                     println!("{count} adaptive models updated.");
-                    if let Some(est) = data["improvement_estimate"].as_f64() {
+                    if let Some(est) = data.get("improvement_estimate").and_then(|v| v.as_f64()) {
                         println!("Estimated compression improvement: +{:.0}%", est * 100.0);
                     }
                 }

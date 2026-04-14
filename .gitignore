@@ -34,3 +34,7 @@ docker-compose.yml
 DEVELOPMENT.md
 Makefile.deploy
 PROJECT.md
+
+# ── Local artifacts ──
+lean-ctx-chrome-extension.zip
+
