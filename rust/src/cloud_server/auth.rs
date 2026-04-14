@@ -228,7 +228,10 @@ pub async fn login(
 ) -> Result<Json<LoginResponse>, (StatusCode, String)> {
     let email = body.email.trim().to_lowercase();
     if email.is_empty() || body.password.is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "Email and password required".into()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Email and password required".into(),
+        ));
     }
 
     let (user_id, stored_hash) = lookup_user_credentials(&state.pool, &email)
@@ -236,10 +239,8 @@ pub async fn login(
         .map_err(internal_error)?
         .ok_or((StatusCode::UNAUTHORIZED, "Invalid email or password".into()))?;
 
-    let stored_hash = stored_hash.ok_or((
-        StatusCode::UNAUTHORIZED,
-        "Invalid email or password".into(),
-    ))?;
+    let stored_hash =
+        stored_hash.ok_or((StatusCode::UNAUTHORIZED, "Invalid email or password".into()))?;
 
     if !verify_password(&body.password, &stored_hash) {
         return Err((StatusCode::UNAUTHORIZED, "Invalid email or password".into()));
@@ -492,8 +493,9 @@ pub async fn auth_user(
         if let Ok(s) = v.to_str() {
             if let Some(key) = s.strip_prefix("Bearer ").map(|x| x.trim()) {
                 let sha = sha256_hex(key);
-                if let Some((user_id, email)) =
-                    lookup_api_key(&state.pool, &sha).await.map_err(internal_error)?
+                if let Some((user_id, email)) = lookup_api_key(&state.pool, &sha)
+                    .await
+                    .map_err(internal_error)?
                 {
                     return Ok((user_id, email));
                 }

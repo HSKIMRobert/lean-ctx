@@ -21,7 +21,10 @@ pub async fn post_buddy(
     let level = body["level"].as_i64().unwrap_or(1) as i32;
     let xp = body["xp"].as_i64().unwrap_or(0);
     let mood = body["mood"].as_str().map(|s| s.to_string());
-    let streak = body["streak"].as_i64().or_else(|| body["streak_days"].as_i64()).unwrap_or(0) as i32;
+    let streak = body["streak"]
+        .as_i64()
+        .or_else(|| body["streak_days"].as_i64())
+        .unwrap_or(0) as i32;
     let rarity = body["rarity"].as_str().map(|s| s.to_string());
     let state_json = serde_json::to_string(&body).unwrap_or_default();
 

@@ -68,10 +68,7 @@ pub async fn run() -> anyhow::Result<()> {
             "/api/sync/commands",
             get(commands::get_commands).post(commands::post_commands),
         )
-        .route(
-            "/api/sync/cep",
-            get(cep::get_cep).post(cep::post_cep),
-        )
+        .route("/api/sync/cep", get(cep::get_cep).post(cep::post_cep))
         .route(
             "/api/sync/gotchas",
             get(gotchas::get_gotchas).post(gotchas::post_gotchas),

@@ -45,10 +45,11 @@ pub async fn post_contribute(
         inserted += 1;
     }
 
-    Ok(Json(serde_json::json!({ "message": format!("Contributed {inserted} entries") })))
+    Ok(Json(
+        serde_json::json!({ "message": format!("Contributed {inserted} entries") }),
+    ))
 }
 
 fn internal_error<E: std::fmt::Display>(e: E) -> (StatusCode, String) {
     (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
 }
-

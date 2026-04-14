@@ -47,7 +47,9 @@ pub async fn post_knowledge(
         upsert(&state, user_id, &e.category, &e.key, &e.value).await?;
         synced += 1;
     }
-    Ok(Json(serde_json::json!({ "synced": synced, "updated_by": email })))
+    Ok(Json(
+        serde_json::json!({ "synced": synced, "updated_by": email }),
+    ))
 }
 
 pub async fn get_knowledge(
@@ -104,4 +106,3 @@ DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()
 fn internal_error<E: std::fmt::Display>(e: E) -> (StatusCode, String) {
     (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
 }
-

@@ -692,10 +692,7 @@ fn build_sync_entries(store: &core::stats::StatsStore) -> Vec<serde_json::Value>
         let tokens_original = day.input_tokens;
         let tokens_compressed = day.output_tokens;
         let tokens_saved = tokens_original.saturating_sub(tokens_compressed);
-        let (day_calls, day_hits) = cep_cache_by_day
-            .get(&day.date)
-            .copied()
-            .unwrap_or((0, 0));
+        let (day_calls, day_hits) = cep_cache_by_day.get(&day.date).copied().unwrap_or((0, 0));
         let cache_hits = day_hits;
         let cache_misses = day_calls.saturating_sub(day_hits);
         entries.push(serde_json::json!({
@@ -769,7 +766,8 @@ fn collect_knowledge_entries() -> Vec<serde_json::Value> {
                 for fact in facts {
                     let cat = fact["category"].as_str().unwrap_or("general");
                     let key = fact["key"].as_str().unwrap_or("");
-                    let val = fact["value"].as_str()
+                    let val = fact["value"]
+                        .as_str()
                         .or_else(|| fact["description"].as_str())
                         .unwrap_or("");
                     if !key.is_empty() {
@@ -860,9 +858,14 @@ fn collect_gotcha_entries() -> Vec<serde_json::Value> {
                 let gotcha_path = entry.path().join("gotchas.json");
                 if gotcha_path.exists() {
                     if let Ok(content) = std::fs::read_to_string(&gotcha_path) {
-                        if let Ok(store) = serde_json::from_str::<core::gotcha_tracker::GotchaStore>(&content) {
+                        if let Ok(store) =
+                            serde_json::from_str::<core::gotcha_tracker::GotchaStore>(&content)
+                        {
                             for g in store.gotchas {
-                                if !all_gotchas.iter().any(|existing| existing.trigger == g.trigger) {
+                                if !all_gotchas
+                                    .iter()
+                                    .any(|existing| existing.trigger == g.trigger)
+                                {
                                     all_gotchas.push(g);
                                 }
                             }

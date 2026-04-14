@@ -14,18 +14,21 @@ pub struct Config {
 
 impl Config {
     pub fn from_env() -> anyhow::Result<Self> {
-        let bind_host = std::env::var("LEANCTX_CLOUD_BIND_HOST").unwrap_or_else(|_| "0.0.0.0".into());
+        let bind_host =
+            std::env::var("LEANCTX_CLOUD_BIND_HOST").unwrap_or_else(|_| "0.0.0.0".into());
         let bind_port = std::env::var("LEANCTX_CLOUD_BIND_PORT")
             .ok()
             .and_then(|v| v.parse::<u16>().ok())
             .unwrap_or(8088);
-        let public_base_url =
-            std::env::var("LEANCTX_CLOUD_PUBLIC_BASE_URL").unwrap_or_else(|_| "https://leanctx.com".into());
+        let public_base_url = std::env::var("LEANCTX_CLOUD_PUBLIC_BASE_URL")
+            .unwrap_or_else(|_| "https://leanctx.com".into());
         let database_url = std::env::var("LEANCTX_CLOUD_DATABASE_URL")
             .or_else(|_| std::env::var("DATABASE_URL"))
-            .map_err(|_| anyhow::anyhow!("Missing env: LEANCTX_CLOUD_DATABASE_URL (or DATABASE_URL)"))?;
-        let jwt_secret =
-            std::env::var("LEANCTX_CLOUD_JWT_SECRET").map_err(|_| anyhow::anyhow!("Missing env: LEANCTX_CLOUD_JWT_SECRET"))?;
+            .map_err(|_| {
+                anyhow::anyhow!("Missing env: LEANCTX_CLOUD_DATABASE_URL (or DATABASE_URL)")
+            })?;
+        let jwt_secret = std::env::var("LEANCTX_CLOUD_JWT_SECRET")
+            .map_err(|_| anyhow::anyhow!("Missing env: LEANCTX_CLOUD_JWT_SECRET"))?;
 
         let smtp_host = std::env::var("LEANCTX_CLOUD_SMTP_HOST").ok();
         let smtp_port = std::env::var("LEANCTX_CLOUD_SMTP_PORT")
@@ -61,4 +64,3 @@ impl Config {
             && self.smtp_from.is_some()
     }
 }
-
