@@ -3,6 +3,23 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.1.2] — 2026-04-14
+
+### Fix Agent Search Loops in Large Projects
+
+#### Fixed
+
+- **Agents looping endlessly on search in large/monorepo projects** — root cause was a triple failure: over-aggressive compression hid search results from the agent (only 5 matches/file, 80-char truncation, then generic_compress cut to 6 lines), loop detection only caught exact-duplicate calls (threshold 12 was far too high), and no cross-tool or pattern-similarity tracking existed. Agents alternating between `ctx_search`, `ctx_shell rg`, and `ctx_semantic_search` with slight query variations were never detected as looping.
+
+#### Improved
+
+- **Smarter loop detection** — thresholds lowered from 3/8/12 to 2/4/6 (warn/reduce/block). Added cross-tool search-group tracking: any 10+ search calls within 300s triggers block regardless of tool or arguments. Added pattern-similarity detection: searching for "compress", "compression", "compress_output" etc. now counts as the same semantic loop via alpha-root extraction.
+- **Configurable loop thresholds** — new `[loop_detection]` section in `config.toml` with `normal_threshold`, `reduced_threshold`, `blocked_threshold`, `window_secs`, and `search_group_limit` fields.
+- **Better search result fidelity** — grep compression now shows 10 matches per file (was 5) with 160-char line truncation (was 80), preserving full function signatures. `generic_compress` scales with output size (shows ~1/3 of lines, max 30) instead of a fixed 6-line truncation.
+- **Search commands bypass generic compression** — grep, rg, find, fd, ag, and ack output is no longer crushed by `generic_compress`. Pattern-specific compression is applied when available, otherwise results are returned uncompressed.
+- **Actionable loop-detected messages** — blocked messages now guide agents to use `ctx_tree` for orientation, narrow with `path` parameter, and use `ctx_read mode='map'` instead of generic "change your approach" text.
+- **Monorepo scope hints** — when `ctx_search` results span more than 3 top-level directories, a hint is appended suggesting the agent use the `path` parameter to scope to a specific service.
+
 ## [3.1.1] — 2026-04-14
 
 ### Windows Shell Hook Fix + Security
