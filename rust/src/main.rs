@@ -543,12 +543,7 @@ fn cmd_login(args: &[String]) {
         Ok(r) => {
             if let Err(e) = cloud_client::save_credentials(&r.api_key, &r.user_id, &email) {
                 eprintln!("Warning: Could not save credentials: {e}");
-                let masked = if r.api_key.len() > 4 {
-                    format!("{}…{}", &r.api_key[..4], &r.api_key[r.api_key.len() - 4..])
-                } else {
-                    "****".to_string()
-                };
-                eprintln!("Your API key (masked): {masked}");
+                eprintln!("Please try logging in again.");
                 return;
             }
             if let Ok(plan) = cloud_client::fetch_plan() {
