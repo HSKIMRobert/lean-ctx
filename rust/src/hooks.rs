@@ -364,7 +364,6 @@ pub fn install_agent_hook(agent: &str, global: bool) {
             &dirs::home_dir().unwrap_or_default().join(".amp/mcp.json"),
         ),
         "crush" => install_crush_hook(),
-        "antigravity" => install_gemini_hook(),
         _ => {
             eprintln!("Unknown agent: {agent}");
             eprintln!("  Supported: claude, cursor, gemini, codex, windsurf, cline, roo, copilot, pi, qwen, trae, amazonq, jetbrains, kiro, verdent, opencode, aider, amp, crush, antigravity");

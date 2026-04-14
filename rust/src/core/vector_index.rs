@@ -216,6 +216,10 @@ impl BM25Index {
             built
         })
     }
+
+    pub fn index_file_path(root: &Path) -> PathBuf {
+        index_dir(root).join("bm25_index.json")
+    }
 }
 
 fn index_dir(root: &Path) -> PathBuf {
