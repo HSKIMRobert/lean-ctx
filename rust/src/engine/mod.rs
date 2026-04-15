@@ -118,3 +118,9 @@ impl ContextEngine {
         Ok(out)
     }
 }
+
+impl Default for ContextEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}

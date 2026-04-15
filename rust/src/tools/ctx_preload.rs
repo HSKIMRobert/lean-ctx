@@ -93,6 +93,10 @@ pub fn handle(
         output.push(format!("[task: {task}] | {complexity_label}"));
     }
 
+    for r in crate::core::prospective_memory::reminders_for_task(&project_root, task) {
+        output.push(r);
+    }
+
     let mut total_estimated_saved = 0usize;
     let mut critical_count = 0usize;
 

@@ -126,7 +126,7 @@ fn remove_mcp_configs(home: &Path) -> bool {
         }
     }
 
-    let zed_path = zed_settings_path(home);
+    let zed_path = crate::core::editor_registry::zed_settings_path(home);
     if zed_path.exists() {
         if let Ok(content) = fs::read_to_string(&zed_path) {
             if content.contains("lean-ctx") {
@@ -138,7 +138,7 @@ fn remove_mcp_configs(home: &Path) -> bool {
         }
     }
 
-    let vscode_path = vscode_mcp_path();
+    let vscode_path = crate::core::editor_registry::vscode_mcp_path();
     if vscode_path.exists() {
         if let Ok(content) = fs::read_to_string(&vscode_path) {
             if content.contains("lean-ctx") {
@@ -380,24 +380,4 @@ fn shorten(path: &Path, home: &Path) -> String {
     }
 }
 
-fn zed_settings_path(home: &Path) -> PathBuf {
-    if cfg!(target_os = "macos") {
-        home.join("Library/Application Support/Zed/settings.json")
-    } else {
-        home.join(".config/zed/settings.json")
-    }
-}
-
-fn vscode_mcp_path() -> PathBuf {
-    let home = dirs::home_dir().unwrap_or_default();
-    if cfg!(target_os = "macos") {
-        home.join("Library/Application Support/Code/User/mcp.json")
-    } else if cfg!(target_os = "windows") {
-        if let Ok(appdata) = std::env::var("APPDATA") {
-            return PathBuf::from(appdata).join("Code/User/mcp.json");
-        }
-        home.join("AppData/Roaming/Code/User/mcp.json")
-    } else {
-        home.join(".config/Code/User/mcp.json")
-    }
-}
+// moved to core/editor_registry/paths.rs

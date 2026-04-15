@@ -1433,8 +1433,15 @@ impl ServerHandler for LeanCtxServer {
             let action = get_str(args, "action");
             let agent_id = self.agent_id.read().await.clone();
             let client_name = self.client_name.read().await.clone();
+            let mut explicit_intent: Option<(
+                crate::core::intent_protocol::IntentRecord,
+                Option<String>,
+                String,
+            )> = None;
 
             {
+                let empty_args = serde_json::Map::new();
+                let args_map = args.as_ref().unwrap_or(&empty_args);
                 let mut session = self.session.write().await;
                 session.record_tool_receipt(
                     name,
@@ -1444,8 +1451,52 @@ impl ServerHandler for LeanCtxServer {
                     agent_id.as_deref(),
                     Some(&client_name),
                 );
+
+                if let Some(intent) = crate::core::intent_protocol::infer_from_tool_call(
+                    name,
+                    action.as_deref(),
+                    args_map,
+                    session.project_root.as_deref(),
+                ) {
+                    let is_explicit =
+                        intent.source == crate::core::intent_protocol::IntentSource::Explicit;
+                    let root = session.project_root.clone();
+                    let sid = session.id.clone();
+                    session.record_intent(intent.clone());
+                    if is_explicit {
+                        explicit_intent = Some((intent, root, sid));
+                    }
+                }
                 if session.should_save() {
                     let _ = session.save();
+                }
+            }
+
+            if let Some((intent, root, session_id)) = explicit_intent {
+                crate::core::intent_protocol::apply_side_effects(
+                    &intent,
+                    root.as_deref(),
+                    &session_id,
+                );
+            }
+
+            // Autopilot: consolidation loop (silent, deterministic, budgeted).
+            if self.autonomy.is_enabled() {
+                let (calls, project_root) = {
+                    let session = self.session.read().await;
+                    (session.stats.total_tool_calls, session.project_root.clone())
+                };
+
+                if let Some(root) = project_root {
+                    if crate::tools::autonomy::should_auto_consolidate(&self.autonomy, calls) {
+                        let root_clone = root.clone();
+                        tokio::task::spawn_blocking(move || {
+                            let _ = crate::core::consolidation_engine::consolidate_latest(
+                                &root_clone,
+                                crate::core::consolidation_engine::ConsolidationBudgets::default(),
+                            );
+                        });
+                    }
                 }
             }
 

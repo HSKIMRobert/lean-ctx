@@ -111,8 +111,11 @@ pub struct AutonomyConfig {
     pub auto_preload: bool,
     pub auto_dedup: bool,
     pub auto_related: bool,
+    pub auto_consolidate: bool,
     pub silent_preload: bool,
     pub dedup_threshold: usize,
+    pub consolidate_every_calls: u32,
+    pub consolidate_cooldown_secs: u64,
 }
 
 impl Default for AutonomyConfig {
@@ -122,8 +125,11 @@ impl Default for AutonomyConfig {
             auto_preload: true,
             auto_dedup: true,
             auto_related: true,
+            auto_consolidate: true,
             silent_preload: true,
             dedup_threshold: 8,
+            consolidate_every_calls: 25,
+            consolidate_cooldown_secs: 120,
         }
     }
 }
@@ -145,12 +151,25 @@ impl AutonomyConfig {
         if let Ok(v) = std::env::var("LEAN_CTX_AUTO_RELATED") {
             cfg.auto_related = v != "false" && v != "0";
         }
+        if let Ok(v) = std::env::var("LEAN_CTX_AUTO_CONSOLIDATE") {
+            cfg.auto_consolidate = v != "false" && v != "0";
+        }
         if let Ok(v) = std::env::var("LEAN_CTX_SILENT_PRELOAD") {
             cfg.silent_preload = v != "false" && v != "0";
         }
         if let Ok(v) = std::env::var("LEAN_CTX_DEDUP_THRESHOLD") {
             if let Ok(n) = v.parse() {
                 cfg.dedup_threshold = n;
+            }
+        }
+        if let Ok(v) = std::env::var("LEAN_CTX_CONSOLIDATE_EVERY_CALLS") {
+            if let Ok(n) = v.parse() {
+                cfg.consolidate_every_calls = n;
+            }
+        }
+        if let Ok(v) = std::env::var("LEAN_CTX_CONSOLIDATE_COOLDOWN_SECS") {
+            if let Ok(n) = v.parse() {
+                cfg.consolidate_cooldown_secs = n;
             }
         }
         cfg
@@ -380,7 +399,9 @@ mod loop_detection_config_tests {
 
 impl Config {
     pub fn path() -> Option<PathBuf> {
-        dirs::home_dir().map(|h| h.join(".lean-ctx").join("config.toml"))
+        crate::core::data_dir::lean_ctx_data_dir()
+            .ok()
+            .map(|d| d.join("config.toml"))
     }
 
     pub fn load() -> Self {

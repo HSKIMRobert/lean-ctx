@@ -154,8 +154,8 @@ impl ProceduralStore {
     }
 
     fn store_path(project_hash: &str) -> Option<PathBuf> {
-        let dir = dirs::home_dir()?
-            .join(".lean-ctx")
+        let dir = crate::core::data_dir::lean_ctx_data_dir()
+            .ok()?
             .join("memory")
             .join("procedures");
         Some(dir.join(format!("{project_hash}.json")))
@@ -173,7 +173,7 @@ impl ProceduralStore {
 
     pub fn save(&self) -> Result<(), String> {
         let path = Self::store_path(&self.project_hash)
-            .ok_or_else(|| "Cannot determine home directory".to_string())?;
+            .ok_or_else(|| "Cannot determine data directory".to_string())?;
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(|e| format!("{e}"))?;
         }

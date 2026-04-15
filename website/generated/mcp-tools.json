@@ -553,7 +553,7 @@
         "schema_md5": "d003c71639c192aca0ded2bb087aba14"
       },
       {
-        "description": "Intent detection — auto-reads relevant files based on task description.",
+        "description": "Structured intent input (optional) — submit compact JSON or short text; server also infers intents automatically from tool calls.",
         "input_schema": {
           "properties": {
             "project_root": {
@@ -561,7 +561,7 @@
               "type": "string"
             },
             "query": {
-              "description": "Natural language description of the task",
+              "description": "Compact JSON intent or short text",
               "type": "string"
             }
           },
@@ -571,7 +571,7 @@
           "type": "object"
         },
         "name": "ctx_intent",
-        "schema_md5": "3beff15502666f133f1f8bc6e9ded57c"
+        "schema_md5": "168f950ebaf7aef713d6a787ae0d78f6"
       },
       {
         "description": "Persistent project knowledge (survives sessions). Actions: remember (store fact with temporal tracking + contradiction detection), recall (search), pattern (record convention), consolidate (extract session findings), gotcha (record a bug/mistake to never repeat — trigger+resolution required), timeline (view fact history for a category), rooms (list knowledge categories), search (cross-session search across ALL projects), wakeup (compact AAAK briefing), status (list all), remove, export.",

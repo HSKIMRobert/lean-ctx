@@ -149,9 +149,8 @@ fn build_skills() -> Vec<AgentSkill> {
 }
 
 pub fn save_agent_card(card: &AgentCard) -> std::io::Result<()> {
-    let dir = dirs::home_dir()
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "no home dir"))?
-        .join(".lean-ctx");
+    let dir = crate::core::data_dir::lean_ctx_data_dir()
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::NotFound, format!("data dir: {e}")))?;
     std::fs::create_dir_all(&dir)?;
 
     let well_known = dir.join(".well-known");
@@ -163,7 +162,10 @@ pub fn save_agent_card(card: &AgentCard) -> std::io::Result<()> {
 }
 
 pub fn load_agent_card() -> Option<AgentCard> {
-    let path = dirs::home_dir()?.join(".lean-ctx/.well-known/agent.json");
+    let path = crate::core::data_dir::lean_ctx_data_dir()
+        .ok()?
+        .join(".well-known")
+        .join("agent.json");
     let content = std::fs::read_to_string(path).ok()?;
     serde_json::from_str(&content).ok()
 }

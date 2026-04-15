@@ -60,7 +60,9 @@ impl ProjectIndex {
 
     pub fn index_dir(project_root: &str) -> Option<std::path::PathBuf> {
         let hash = short_hash(project_root);
-        dirs::home_dir().map(|h| h.join(".lean-ctx").join("graphs").join(hash))
+        crate::core::data_dir::lean_ctx_data_dir()
+            .ok()
+            .map(|d| d.join("graphs").join(hash))
     }
 
     pub fn load(project_root: &str) -> Option<Self> {
@@ -72,7 +74,7 @@ impl ProjectIndex {
 
     pub fn save(&self) -> Result<(), String> {
         let dir = Self::index_dir(&self.project_root)
-            .ok_or_else(|| "Cannot determine home directory".to_string())?;
+            .ok_or_else(|| "Cannot determine data directory".to_string())?;
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
         std::fs::write(dir.join("index.json"), json).map_err(|e| e.to_string())

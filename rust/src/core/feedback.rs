@@ -208,9 +208,8 @@ impl FeedbackStore {
 }
 
 fn feedback_path() -> std::path::PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".lean-ctx")
+    crate::core::data_dir::lean_ctx_data_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
         .join("feedback.json")
 }
 

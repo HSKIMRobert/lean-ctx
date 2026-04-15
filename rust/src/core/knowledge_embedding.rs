@@ -81,7 +81,9 @@ impl KnowledgeEmbeddingIndex {
     }
 
     fn index_path(project_hash: &str) -> Option<PathBuf> {
-        let dir = dirs::home_dir()?.join(".lean-ctx").join("knowledge");
+        let dir = crate::core::data_dir::lean_ctx_data_dir()
+            .ok()?
+            .join("knowledge");
         Some(dir.join(format!("{project_hash}.embeddings.json")))
     }
 
@@ -93,7 +95,7 @@ impl KnowledgeEmbeddingIndex {
 
     pub fn save(&self) -> Result<(), String> {
         let path = Self::index_path(&self.project_hash)
-            .ok_or_else(|| "Cannot determine home directory".to_string())?;
+            .ok_or_else(|| "Cannot determine data directory".to_string())?;
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(|e| format!("{e}"))?;
         }
@@ -280,6 +282,8 @@ mod tests {
             confidence: 0.9,
             created_at: chrono::Utc::now(),
             last_confirmed: chrono::Utc::now(),
+            retrieval_count: 0,
+            last_retrieved: None,
             valid_from: None,
             valid_until: None,
             supersedes: None,
@@ -303,6 +307,8 @@ mod tests {
             confidence: 0.5,
             created_at: old_date,
             last_confirmed: old_date,
+            retrieval_count: 0,
+            last_retrieved: None,
             valid_from: None,
             valid_until: None,
             supersedes: None,
@@ -341,6 +347,8 @@ mod tests {
             confidence: 0.95,
             created_at: chrono::Utc::now(),
             last_confirmed: chrono::Utc::now(),
+            retrieval_count: 0,
+            last_retrieved: None,
             valid_from: None,
             valid_until: None,
             supersedes: None,

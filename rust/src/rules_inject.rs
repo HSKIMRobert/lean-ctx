@@ -1,8 +1,10 @@
 use std::path::PathBuf;
 
+use serde::{Deserialize, Serialize};
+
 const MARKER: &str = "# lean-ctx — Context Engineering Layer";
 const END_MARKER: &str = "<!-- /lean-ctx -->";
-const RULES_VERSION: &str = "lean-ctx-rules-v8";
+const RULES_VERSION: &str = "lean-ctx-rules-v9";
 
 // ---------------------------------------------------------------------------
 // Rules content for SHARED config files (appended to user's existing config).
@@ -10,13 +12,13 @@ const RULES_VERSION: &str = "lean-ctx-rules-v8";
 // Used for: CLAUDE.md, instructions.md, GEMINI.md, copilot-instructions.md
 // ---------------------------------------------------------------------------
 const RULES_SHARED: &str = r#"# lean-ctx — Context Engineering Layer
-<!-- lean-ctx-rules-v8 -->
+<!-- lean-ctx-rules-v9 -->
 
 CRITICAL: ALWAYS use lean-ctx MCP tools instead of native equivalents. This is NOT optional.
 
 | ALWAYS USE | NEVER USE | Why |
 |------------|-----------|-----|
-| `ctx_read(path)` | `Read` / `cat` / `head` / `tail` | Cached, 8 compression modes, re-reads ~13 tokens |
+| `ctx_read(path, mode)` | `Read` / `cat` / `head` / `tail` | Cached, 10 read modes, re-reads ~13 tokens |
 | `ctx_shell(command)` | `Shell` / `bash` / terminal | Pattern compression for git/npm/cargo output |
 | `ctx_search(pattern, path)` | `Grep` / `rg` | Compact, token-efficient results |
 | `ctx_tree(path, depth)` | `ls` / `find` | Compact directory maps |
@@ -25,6 +27,10 @@ Compatibility: ctx_read replaces READ operations only. Your native Edit/Write/St
 
 If Edit requires native Read and Read is unavailable, use `ctx_edit(path, old_string, new_string)` instead.
 Write, Delete, Glob → use normally. NEVER loop on Edit failures — switch to ctx_edit immediately.
+
+Preferred workflow control: use `ctx_workflow` to track states + enforce tool gates + evidence.
+
+Fallback only if a lean-ctx tool is unavailable: use native equivalents.
 <!-- /lean-ctx -->"#;
 
 // ---------------------------------------------------------------------------
@@ -33,24 +39,29 @@ Write, Delete, Glob → use normally. NEVER loop on Edit failures — switch to 
 // Used for: Windsurf, Zed, Cline, Roo Code, OpenCode, Continue, Aider
 // ---------------------------------------------------------------------------
 const RULES_DEDICATED: &str = r#"# lean-ctx — Context Engineering Layer
-<!-- lean-ctx-rules-v8 -->
+<!-- lean-ctx-rules-v9 -->
 
 PREFER lean-ctx MCP tools over native equivalents for token savings:
 
 ## Tool preference:
 | PREFER | OVER | Why |
 |--------|------|-----|
-| `ctx_read(path)` | `Read` / `cat` | Cached, 8 compression modes, re-reads ~13 tokens |
+| `ctx_read(path, mode)` | `Read` / `cat` | Cached, 10 read modes, re-reads ~13 tokens |
 | `ctx_shell(command)` | `Shell` / `bash` | Pattern compression for git/npm/cargo output |
 | `ctx_search(pattern, path)` | `Grep` / `rg` | Compact, token-efficient results |
 | `ctx_tree(path, depth)` | `ls` / `find` | Compact directory maps |
 | `ctx_edit(path, old_string, new_string)` | `Edit` (when Read unavailable) | Search-and-replace without native Read |
 
 ## ctx_read modes:
+- `auto` — auto-select optimal mode (recommended default)
 - `full` — cached read (files you edit)
 - `map` — deps + exports (context-only files)
 - `signatures` — API surface only
 - `diff` — changed lines after edits
+- `aggressive` — maximum compression (context only)
+- `entropy` — highlight high-entropy fragments
+- `task` — IB-filtered (task relevant)
+- `reference` — quote-friendly minimal excerpts
 - `lines:N-M` — specific range
 
 ## File editing:
@@ -73,7 +84,7 @@ alwaysApply: true
 ---
 
 # lean-ctx — Context Engineering Layer
-<!-- lean-ctx-rules-v8 -->
+<!-- lean-ctx-rules-v9 -->
 
 PREFER lean-ctx MCP tools over native equivalents for token savings:
 
@@ -81,7 +92,7 @@ PREFER lean-ctx MCP tools over native equivalents for token savings:
 
 | PREFER | OVER | Why |
 |--------|------|-----|
-| `ctx_read` | `Read` | Session caching, 8 compression modes, re-reads cost ~13 tokens |
+| `ctx_read` | `Read` | Session caching, 10 read modes, re-reads cost ~13 tokens |
 | `ctx_shell` | `Shell` | Pattern-based compression for git, npm, cargo, docker, tsc |
 | `ctx_search` | `Grep` | Compact context, token-efficient results |
 | `ctx_tree` | `ls`, `find` | Compact directory maps with file counts |
@@ -89,10 +100,15 @@ PREFER lean-ctx MCP tools over native equivalents for token savings:
 
 ## ctx_read Modes
 
-- `full` — default, cached read (use for files you will edit)
+- `auto` — auto-select optimal mode (recommended default)
+- `full` — cached read (use for files you will edit)
 - `map` — dependency graph + exports + key signatures (use for context-only files)
 - `signatures` — API surface only
 - `diff` — changed lines only (use after edits)
+- `aggressive` — maximum compression (context only)
+- `entropy` — highlight high-entropy fragments
+- `task` — IB-filtered (task relevant)
+- `reference` — quote-friendly minimal excerpts
 - `lines:N-M` — specific range
 
 ## File editing
@@ -101,6 +117,7 @@ PREFER lean-ctx MCP tools over native equivalents for token savings:
 - If Edit requires native Read and Read is unavailable: use `ctx_edit(path, old_string, new_string)` instead.
 - NEVER loop trying to make Edit work. If it fails, switch to ctx_edit immediately.
 - Write, Delete, Glob → use normally.
+- Fallback only if a lean-ctx tool is unavailable: use native equivalents.
 <!-- /lean-ctx -->"#;
 
 // ---------------------------------------------------------------------------
@@ -122,6 +139,15 @@ pub struct InjectResult {
     pub updated: Vec<String>,
     pub already: Vec<String>,
     pub errors: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RulesTargetStatus {
+    pub name: String,
+    pub detected: bool,
+    pub path: String,
+    pub state: String,
+    pub note: Option<String>,
 }
 
 pub fn inject_all_rules(home: &std::path::Path) -> InjectResult {
@@ -148,6 +174,47 @@ pub fn inject_all_rules(home: &std::path::Path) -> InjectResult {
     }
 
     result
+}
+
+pub fn collect_rules_status(home: &std::path::Path) -> Vec<RulesTargetStatus> {
+    let targets = build_rules_targets(home);
+    let mut out = Vec::new();
+
+    for target in &targets {
+        let detected = is_tool_detected(target, home);
+        let path = target.path.to_string_lossy().to_string();
+
+        let state = if !detected {
+            "not_detected".to_string()
+        } else if !target.path.exists() {
+            "missing".to_string()
+        } else {
+            match std::fs::read_to_string(&target.path) {
+                Ok(content) => {
+                    if content.contains(MARKER) {
+                        if content.contains(RULES_VERSION) {
+                            "up_to_date".to_string()
+                        } else {
+                            "outdated".to_string()
+                        }
+                    } else {
+                        "present_without_marker".to_string()
+                    }
+                }
+                Err(_) => "read_error".to_string(),
+            }
+        };
+
+        out.push(RulesTargetStatus {
+            name: target.name.to_string(),
+            detected,
+            path,
+            state,
+            note: None,
+        });
+    }
+
+    out
 }
 
 // ---------------------------------------------------------------------------
@@ -587,10 +654,15 @@ mod tests {
 
     #[test]
     fn dedicated_rules_contain_modes() {
+        assert!(RULES_DEDICATED.contains("auto"));
         assert!(RULES_DEDICATED.contains("full"));
         assert!(RULES_DEDICATED.contains("map"));
         assert!(RULES_DEDICATED.contains("signatures"));
         assert!(RULES_DEDICATED.contains("diff"));
+        assert!(RULES_DEDICATED.contains("aggressive"));
+        assert!(RULES_DEDICATED.contains("entropy"));
+        assert!(RULES_DEDICATED.contains("task"));
+        assert!(RULES_DEDICATED.contains("reference"));
         assert!(RULES_DEDICATED.contains("ctx_read"));
     }
 

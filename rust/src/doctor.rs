@@ -3,6 +3,8 @@
 use std::net::TcpListener;
 use std::path::PathBuf;
 
+use chrono::Utc;
+
 const GREEN: &str = "\x1b[32m";
 const RED: &str = "\x1b[31m";
 const BOLD: &str = "\x1b[1m";
@@ -421,6 +423,42 @@ fn mcp_config_locations(home: &std::path::Path) -> Vec<McpLocation> {
     locations
 }
 
+fn docker_bash_env_outcome() -> Option<Outcome> {
+    if !crate::shell::is_container() {
+        return None;
+    }
+    let shell_name = std::env::var("SHELL").unwrap_or_default();
+    let is_bash = shell_name.contains("bash") || shell_name.is_empty();
+    if !is_bash {
+        return None;
+    }
+    let has_bash_env = std::env::var("BASH_ENV").is_ok();
+    if has_bash_env {
+        Some(Outcome {
+            ok: true,
+            line: format!(
+                "{BOLD}BASH_ENV{RST}  {GREEN}set{RST}  {DIM}({}){RST}",
+                std::env::var("BASH_ENV").unwrap_or_default()
+            ),
+        })
+    } else {
+        let env_sh = dirs::home_dir()
+            .map(|h| {
+                h.join(".lean-ctx")
+                    .join("env.sh")
+                    .to_string_lossy()
+                    .to_string()
+            })
+            .unwrap_or_else(|| "/root/.lean-ctx/env.sh".to_string());
+        Some(Outcome {
+            ok: false,
+            line: format!(
+                "{BOLD}BASH_ENV{RST}  {RED}not set{RST}  {YELLOW}(Docker detected — add to Dockerfile: ENV BASH_ENV=\"{env_sh}\"){RST}"
+            ),
+        })
+    }
+}
+
 fn mcp_config_outcome() -> Outcome {
     let home = match dirs::home_dir() {
         Some(h) => h,
@@ -714,14 +752,23 @@ pub fn run() {
     }
     print_check(&aliases);
 
-    // 7) MCP
+    // 7) Docker BASH_ENV (only shown when in a container)
+    let docker_outcome = docker_bash_env_outcome();
+    if let Some(ref docker_check) = docker_outcome {
+        if docker_check.ok {
+            passed += 1;
+        }
+        print_check(docker_check);
+    }
+
+    // 8) MCP
     let mcp = mcp_config_outcome();
     if mcp.ok {
         passed += 1;
     }
     print_check(&mcp);
 
-    // 8) Port
+    // 9) Port
     let port = port_3333_outcome();
     if port.ok {
         passed += 1;
@@ -744,13 +791,258 @@ pub fn run() {
         print_check(pi_check);
     }
 
-    let effective_total = if pi.is_some() { total + 2 } else { total + 1 };
+    let mut effective_total = total + 1; // +1 for session state
+    if docker_outcome.is_some() {
+        effective_total += 1;
+    }
+    if pi.is_some() {
+        effective_total += 1;
+    }
     println!();
     println!("  {BOLD}{WHITE}Summary:{RST}  {GREEN}{passed}{RST}{DIM}/{effective_total}{RST} checks passed");
     println!("  {DIM}This binary: lean-ctx {VERSION} (Cargo package version){RST}");
 }
 
 pub fn run_compact() {
+    let (passed, total) = compact_score();
+    print_compact_status(passed, total);
+}
+
+pub fn run_cli(args: &[String]) -> i32 {
+    let fix = args.iter().any(|a| a == "--fix");
+    let json = args.iter().any(|a| a == "--json");
+    let help = args.iter().any(|a| a == "--help" || a == "-h");
+
+    if help {
+        println!("Usage:");
+        println!("  lean-ctx doctor");
+        println!("  lean-ctx doctor --fix [--json]");
+        return 0;
+    }
+
+    if !fix {
+        run();
+        return 0;
+    }
+
+    match run_fix(DoctorFixOptions { json }) {
+        Ok(code) => code,
+        Err(e) => {
+            eprintln!("{RED}doctor --fix failed:{RST} {e}");
+            2
+        }
+    }
+}
+
+struct DoctorFixOptions {
+    json: bool,
+}
+
+fn run_fix(opts: DoctorFixOptions) -> Result<i32, String> {
+    use crate::core::setup_report::{
+        doctor_report_path, PlatformInfo, SetupItem, SetupReport, SetupStepReport,
+    };
+
+    let started_at = Utc::now();
+    let home = dirs::home_dir().ok_or_else(|| "Cannot determine home directory".to_string())?;
+
+    let mut steps: Vec<SetupStepReport> = Vec::new();
+
+    // Step: shell hook repair
+    let mut shell_step = SetupStepReport {
+        name: "shell_hook".to_string(),
+        ok: true,
+        items: Vec::new(),
+        warnings: Vec::new(),
+        errors: Vec::new(),
+    };
+    let before = shell_aliases_outcome();
+    if before.ok {
+        shell_step.items.push(SetupItem {
+            name: "init --global".to_string(),
+            status: "already".to_string(),
+            path: None,
+            note: None,
+        });
+    } else {
+        if opts.json {
+            crate::cli::cmd_init_quiet(&["--global".to_string()]);
+        } else {
+            crate::cli::cmd_init(&["--global".to_string()]);
+        }
+        let after = shell_aliases_outcome();
+        shell_step.ok = after.ok;
+        shell_step.items.push(SetupItem {
+            name: "init --global".to_string(),
+            status: if after.ok {
+                "fixed".to_string()
+            } else {
+                "failed".to_string()
+            },
+            path: None,
+            note: if after.ok {
+                None
+            } else {
+                Some("shell hook still not detected by doctor checks".to_string())
+            },
+        });
+        if !after.ok {
+            shell_step
+                .warnings
+                .push("shell hook not detected after init --global".to_string());
+        }
+    }
+    steps.push(shell_step);
+
+    // Step: MCP config repair (detected tools)
+    let mut mcp_step = SetupStepReport {
+        name: "mcp_config".to_string(),
+        ok: true,
+        items: Vec::new(),
+        warnings: Vec::new(),
+        errors: Vec::new(),
+    };
+    let binary = crate::core::portable_binary::resolve_portable_binary();
+    let targets = crate::core::editor_registry::build_targets(&home);
+    for t in &targets {
+        if !t.detect_path.exists() {
+            continue;
+        }
+        let short = t.config_path.to_string_lossy().to_string();
+        let res = crate::core::editor_registry::write_config_with_options(
+            t,
+            &binary,
+            crate::core::editor_registry::WriteOptions {
+                overwrite_invalid: true,
+            },
+        );
+        match res {
+            Ok(r) => {
+                let status = match r.action {
+                    crate::core::editor_registry::WriteAction::Created => "created",
+                    crate::core::editor_registry::WriteAction::Updated => "updated",
+                    crate::core::editor_registry::WriteAction::Already => "already",
+                };
+                mcp_step.items.push(SetupItem {
+                    name: t.name.to_string(),
+                    status: status.to_string(),
+                    path: Some(short),
+                    note: r.note,
+                });
+            }
+            Err(e) => {
+                mcp_step.ok = false;
+                mcp_step.items.push(SetupItem {
+                    name: t.name.to_string(),
+                    status: "error".to_string(),
+                    path: Some(short),
+                    note: Some(e.clone()),
+                });
+                mcp_step.errors.push(format!("{}: {e}", t.name));
+            }
+        }
+    }
+    if mcp_step.items.is_empty() {
+        mcp_step
+            .warnings
+            .push("no supported AI tools detected; skipped MCP config repair".to_string());
+    }
+    steps.push(mcp_step);
+
+    // Step: agent rules injection
+    let mut rules_step = SetupStepReport {
+        name: "agent_rules".to_string(),
+        ok: true,
+        items: Vec::new(),
+        warnings: Vec::new(),
+        errors: Vec::new(),
+    };
+    let inj = crate::rules_inject::inject_all_rules(&home);
+    if !inj.injected.is_empty() {
+        rules_step.items.push(SetupItem {
+            name: "injected".to_string(),
+            status: inj.injected.len().to_string(),
+            path: None,
+            note: Some(inj.injected.join(", ")),
+        });
+    }
+    if !inj.updated.is_empty() {
+        rules_step.items.push(SetupItem {
+            name: "updated".to_string(),
+            status: inj.updated.len().to_string(),
+            path: None,
+            note: Some(inj.updated.join(", ")),
+        });
+    }
+    if !inj.already.is_empty() {
+        rules_step.items.push(SetupItem {
+            name: "already".to_string(),
+            status: inj.already.len().to_string(),
+            path: None,
+            note: Some(inj.already.join(", ")),
+        });
+    }
+    if !inj.errors.is_empty() {
+        rules_step.ok = false;
+        rules_step.errors.extend(inj.errors.clone());
+    }
+    steps.push(rules_step);
+
+    // Step: verify (compact)
+    let mut verify_step = SetupStepReport {
+        name: "verify".to_string(),
+        ok: true,
+        items: Vec::new(),
+        warnings: Vec::new(),
+        errors: Vec::new(),
+    };
+    let (passed, total) = compact_score();
+    verify_step.items.push(SetupItem {
+        name: "doctor_compact".to_string(),
+        status: format!("{passed}/{total}"),
+        path: None,
+        note: None,
+    });
+    if passed != total {
+        verify_step.warnings.push(format!(
+            "doctor compact not fully passing: {passed}/{total}"
+        ));
+    }
+    steps.push(verify_step);
+
+    let finished_at = Utc::now();
+    let success = steps.iter().all(|s| s.ok);
+
+    let report = SetupReport {
+        schema_version: 1,
+        started_at,
+        finished_at,
+        success,
+        platform: PlatformInfo {
+            os: std::env::consts::OS.to_string(),
+            arch: std::env::consts::ARCH.to_string(),
+        },
+        steps,
+        warnings: Vec::new(),
+        errors: Vec::new(),
+    };
+
+    let path = doctor_report_path()?;
+    let json_text = serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?;
+    crate::config_io::write_atomic_with_backup(&path, &json_text)?;
+
+    if opts.json {
+        println!("{json_text}");
+    } else {
+        let (passed, total) = compact_score();
+        print_compact_status(passed, total);
+        println!("  {DIM}report saved:{RST} {}", path.display());
+    }
+
+    Ok(if report.success { 0 } else { 1 })
+}
+
+pub fn compact_score() -> (u32, u32) {
     let mut passed = 0u32;
     let total = 5u32;
 
@@ -776,6 +1068,10 @@ pub fn run_compact() {
         passed += 1;
     }
 
+    (passed, total)
+}
+
+fn print_compact_status(passed: u32, total: u32) {
     let status = if passed == total {
         format!("{GREEN}✓ All {total} checks passed{RST}")
     } else {

@@ -63,7 +63,9 @@ pub fn collect_contribute_entries() -> Vec<serde_json::Value> {
     let mut entries = Vec::new();
 
     if let Some(home) = dirs::home_dir() {
-        let mode_stats_path = home.join(".lean-ctx").join("mode_stats.json");
+        let mode_stats_path = crate::core::data_dir::lean_ctx_data_dir()
+            .unwrap_or_else(|_| home.join(".lean-ctx"))
+            .join("mode_stats.json");
         if let Ok(data) = std::fs::read_to_string(&mode_stats_path) {
             if let Ok(predictor) = serde_json::from_str::<serde_json::Value>(&data) {
                 if let Some(history) = predictor["history"].as_object() {
@@ -115,7 +117,18 @@ pub fn collect_contribute_entries() -> Vec<serde_json::Value> {
                 0.0
             };
             if let Some(modes) = parsed["cep"]["modes"].as_object() {
-                let read_modes = ["full", "map", "signatures", "auto", "aggressive", "entropy"];
+                let read_modes = [
+                    "full",
+                    "map",
+                    "signatures",
+                    "auto",
+                    "aggressive",
+                    "entropy",
+                    "diff",
+                    "lines",
+                    "task",
+                    "reference",
+                ];
                 for (mode, count) in modes {
                     if !read_modes.contains(&mode.as_str()) || count.as_u64().unwrap_or(0) == 0 {
                         continue;

@@ -2,6 +2,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+use crate::core::intent_protocol::{IntentRecord, IntentSource};
+
 const MAX_FINDINGS: usize = 20;
 const MAX_DECISIONS: usize = 10;
 const MAX_FILES: usize = 50;
@@ -30,6 +32,8 @@ pub struct SessionState {
     pub next_steps: Vec<String>,
     #[serde(default)]
     pub evidence: Vec<EvidenceRecord>,
+    #[serde(default)]
+    pub intents: Vec<IntentRecord>,
     pub stats: SessionStats,
 }
 
@@ -102,6 +106,7 @@ pub struct EvidenceRecord {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(default)]
 pub struct SessionStats {
     pub total_tool_calls: u32,
     pub total_tokens_saved: u64,
@@ -109,6 +114,8 @@ pub struct SessionStats {
     pub cache_hits: u32,
     pub files_read: u32,
     pub commands_run: u32,
+    pub intents_inferred: u32,
+    pub intents_explicit: u32,
     pub unsaved_changes: u32,
 }
 
@@ -141,6 +148,7 @@ impl SessionState {
             progress: Vec::new(),
             next_steps: Vec::new(),
             evidence: Vec::new(),
+            intents: Vec::new(),
             stats: SessionStats::default(),
         }
     }
@@ -250,6 +258,36 @@ impl SessionState {
         self.stats.total_tool_calls += 1;
         self.stats.total_tokens_saved += tokens_saved;
         self.stats.total_tokens_input += tokens_input;
+    }
+
+    pub fn record_intent(&mut self, mut intent: IntentRecord) {
+        if intent.occurrences == 0 {
+            intent.occurrences = 1;
+        }
+
+        if let Some(last) = self.intents.last_mut() {
+            if last.fingerprint() == intent.fingerprint() {
+                last.occurrences = last.occurrences.saturating_add(intent.occurrences);
+                last.timestamp = intent.timestamp;
+                match intent.source {
+                    IntentSource::Inferred => self.stats.intents_inferred += 1,
+                    IntentSource::Explicit => self.stats.intents_explicit += 1,
+                }
+                self.increment();
+                return;
+            }
+        }
+
+        match intent.source {
+            IntentSource::Inferred => self.stats.intents_inferred += 1,
+            IntentSource::Explicit => self.stats.intents_explicit += 1,
+        }
+
+        self.intents.push(intent);
+        while self.intents.len() > crate::core::budgets::INTENTS_PER_SESSION_LIMIT {
+            self.intents.remove(0);
+        }
+        self.increment();
     }
 
     pub fn record_tool_receipt(
@@ -732,7 +770,9 @@ pub struct SessionSummary {
 }
 
 fn sessions_dir() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| h.join(".lean-ctx").join("sessions"))
+    crate::core::data_dir::lean_ctx_data_dir()
+        .ok()
+        .map(|d| d.join("sessions"))
 }
 
 fn generate_session_id() -> String {

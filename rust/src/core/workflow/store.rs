@@ -11,7 +11,8 @@ pub fn load_active() -> Result<Option<WorkflowRun>, String> {
     };
     let content = match std::fs::read_to_string(&path) {
         Ok(c) => c,
-        Err(_) => return Ok(None),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("read {}: {e}", path.display())),
     };
     let run: WorkflowRun =
         serde_json::from_str(&content).map_err(|e| format!("Invalid workflow JSON: {e}"))?;
@@ -36,6 +37,9 @@ pub fn clear_active() -> Result<(), String> {
     let Some(path) = active_workflow_path() else {
         return Ok(());
     };
-    let _ = std::fs::remove_file(&path);
-    Ok(())
+    match std::fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("remove {}: {e}", path.display())),
+    }
 }

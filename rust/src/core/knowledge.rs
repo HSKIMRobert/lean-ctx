@@ -27,6 +27,10 @@ pub struct KnowledgeFact {
     pub created_at: DateTime<Utc>,
     pub last_confirmed: DateTime<Utc>,
     #[serde(default)]
+    pub retrieval_count: u32,
+    #[serde(default)]
+    pub last_retrieved: Option<DateTime<Utc>>,
+    #[serde(default)]
     pub valid_from: Option<DateTime<Utc>>,
     #[serde(default)]
     pub valid_until: Option<DateTime<Utc>>,
@@ -70,6 +74,14 @@ pub struct ConsolidatedInsight {
 }
 
 impl ProjectKnowledge {
+    pub fn run_memory_lifecycle(&mut self) -> crate::core::memory_lifecycle::LifecycleReport {
+        let cfg = crate::core::memory_lifecycle::LifecycleConfig {
+            max_facts: MAX_FACTS,
+            ..Default::default()
+        };
+        crate::core::memory_lifecycle::run_lifecycle(&mut self.facts, &cfg)
+    }
+
     pub fn new(project_root: &str) -> Self {
         Self {
             project_root: project_root.to_string(),
@@ -162,6 +174,8 @@ impl ProjectKnowledge {
                         confidence,
                         created_at: now,
                         last_confirmed: now,
+                        retrieval_count: 0,
+                        last_retrieved: None,
                         valid_from: Some(now),
                         valid_until: None,
                         supersedes: Some(superseded_id),
@@ -191,6 +205,8 @@ impl ProjectKnowledge {
                 confidence,
                 created_at: now,
                 last_confirmed: now,
+                retrieval_count: 0,
+                last_retrieved: None,
                 valid_from: Some(now),
                 valid_until: None,
                 supersedes: None,
@@ -198,10 +214,9 @@ impl ProjectKnowledge {
             });
         }
 
-        if self.facts.len() > MAX_FACTS {
-            self.facts
-                .sort_by(|a, b| b.last_confirmed.cmp(&a.last_confirmed));
-            self.facts.truncate(MAX_FACTS);
+        // No hard-prune: archive-only lifecycle will compact if needed.
+        if self.facts.len() > MAX_FACTS * 2 {
+            let _ = self.run_memory_lifecycle();
         }
 
         self.updated_at = Utc::now();
@@ -371,14 +386,26 @@ impl ProjectKnowledge {
 
         if !current_facts.is_empty() {
             out.push_str("PROJECT KNOWLEDGE:\n");
-            let mut categories: Vec<&str> =
-                current_facts.iter().map(|f| f.category.as_str()).collect();
-            categories.sort();
-            categories.dedup();
+            let mut rooms: Vec<(String, usize)> = self.list_rooms();
+            rooms.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
 
-            for cat in categories {
+            let total_rooms = rooms.len();
+            rooms.truncate(crate::core::budgets::KNOWLEDGE_SUMMARY_ROOMS_LIMIT);
+
+            for (cat, _count) in rooms {
                 out.push_str(&format!("  [{cat}]\n"));
-                for f in current_facts.iter().filter(|f| f.category == cat) {
+
+                let mut facts_in_cat: Vec<&KnowledgeFact> = current_facts
+                    .iter()
+                    .copied()
+                    .filter(|f| f.category == cat)
+                    .collect();
+                facts_in_cat.sort_by(|a, b| sort_fact_for_output(a, b));
+
+                let total_in_cat = facts_in_cat.len();
+                facts_in_cat.truncate(crate::core::budgets::KNOWLEDGE_SUMMARY_FACTS_PER_ROOM_LIMIT);
+
+                for f in facts_in_cat {
                     out.push_str(&format!(
                         "    {}: {} (confidence: {:.0}%)\n",
                         f.key,
@@ -386,13 +413,41 @@ impl ProjectKnowledge {
                         f.confidence * 100.0
                     ));
                 }
+                if total_in_cat > crate::core::budgets::KNOWLEDGE_SUMMARY_FACTS_PER_ROOM_LIMIT {
+                    out.push_str(&format!(
+                        "    … +{} more\n",
+                        total_in_cat - crate::core::budgets::KNOWLEDGE_SUMMARY_FACTS_PER_ROOM_LIMIT
+                    ));
+                }
+            }
+
+            if total_rooms > crate::core::budgets::KNOWLEDGE_SUMMARY_ROOMS_LIMIT {
+                out.push_str(&format!(
+                    "  … +{} more rooms\n",
+                    total_rooms - crate::core::budgets::KNOWLEDGE_SUMMARY_ROOMS_LIMIT
+                ));
             }
         }
 
         if !self.patterns.is_empty() {
             out.push_str("PROJECT PATTERNS:\n");
-            for p in &self.patterns {
+            let mut patterns = self.patterns.clone();
+            patterns.sort_by(|a, b| {
+                b.created_at
+                    .cmp(&a.created_at)
+                    .then_with(|| a.pattern_type.cmp(&b.pattern_type))
+                    .then_with(|| a.description.cmp(&b.description))
+            });
+            let total = patterns.len();
+            patterns.truncate(crate::core::budgets::KNOWLEDGE_PATTERNS_LIMIT);
+            for p in &patterns {
                 out.push_str(&format!("  [{}] {}\n", p.pattern_type, p.description));
+            }
+            if total > crate::core::budgets::KNOWLEDGE_PATTERNS_LIMIT {
+                out.push_str(&format!(
+                    "  … +{} more\n",
+                    total - crate::core::budgets::KNOWLEDGE_PATTERNS_LIMIT
+                ));
             }
         }
 
@@ -408,13 +463,20 @@ impl ProjectKnowledge {
         }
 
         let mut out = String::new();
-        let mut categories: Vec<&str> = current_facts.iter().map(|f| f.category.as_str()).collect();
-        categories.sort();
-        categories.dedup();
 
-        for cat in categories {
-            let facts_in_cat: Vec<&&KnowledgeFact> =
-                current_facts.iter().filter(|f| f.category == cat).collect();
+        let mut rooms: Vec<(String, usize)> = self.list_rooms();
+        rooms.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        rooms.truncate(crate::core::budgets::KNOWLEDGE_AAAK_ROOMS_LIMIT);
+
+        for (cat, _count) in rooms {
+            let mut facts_in_cat: Vec<&KnowledgeFact> = current_facts
+                .iter()
+                .copied()
+                .filter(|f| f.category == cat)
+                .collect();
+            facts_in_cat.sort_by(|a, b| sort_fact_for_output(a, b));
+            facts_in_cat.truncate(crate::core::budgets::KNOWLEDGE_AAAK_FACTS_PER_ROOM_LIMIT);
+
             let items: Vec<String> = facts_in_cat
                 .iter()
                 .map(|f| {
@@ -426,8 +488,15 @@ impl ProjectKnowledge {
         }
 
         if !self.patterns.is_empty() {
-            let pat_items: Vec<String> = self
-                .patterns
+            let mut patterns = self.patterns.clone();
+            patterns.sort_by(|a, b| {
+                b.created_at
+                    .cmp(&a.created_at)
+                    .then_with(|| a.pattern_type.cmp(&b.pattern_type))
+                    .then_with(|| a.description.cmp(&b.description))
+            });
+            patterns.truncate(crate::core::budgets::KNOWLEDGE_PATTERNS_LIMIT);
+            let pat_items: Vec<String> = patterns
                 .iter()
                 .map(|p| format!("{}.{}", p.pattern_type, p.description))
                 .collect();
@@ -449,12 +518,7 @@ impl ProjectKnowledge {
         }
 
         let mut top_facts: Vec<&KnowledgeFact> = current_facts;
-        top_facts.sort_by(|a, b| {
-            b.confidence
-                .partial_cmp(&a.confidence)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| b.confirmation_count.cmp(&a.confirmation_count))
-        });
+        top_facts.sort_by(|a, b| sort_fact_for_output(a, b));
         top_facts.truncate(10);
 
         let items: Vec<String> = top_facts
@@ -588,6 +652,95 @@ impl ProjectKnowledge {
 
         Ok(true)
     }
+
+    pub fn recall_for_output(&mut self, query: &str, limit: usize) -> (Vec<KnowledgeFact>, usize) {
+        let q = query.to_lowercase();
+        let terms: Vec<&str> = q.split_whitespace().filter(|t| !t.is_empty()).collect();
+        if terms.is_empty() {
+            return (Vec::new(), 0);
+        }
+
+        struct Scored {
+            idx: usize,
+            relevance: f32,
+        }
+
+        let mut scored: Vec<Scored> = self
+            .facts
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| f.is_current())
+            .filter_map(|(idx, f)| {
+                let searchable = format!(
+                    "{} {} {} {}",
+                    f.category.to_lowercase(),
+                    f.key.to_lowercase(),
+                    f.value.to_lowercase(),
+                    f.source_session
+                );
+                let match_count = terms.iter().filter(|t| searchable.contains(**t)).count();
+                if match_count > 0 {
+                    let relevance = (match_count as f32 / terms.len() as f32) * f.confidence;
+                    Some(Scored { idx, relevance })
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        scored.sort_by(|a, b| {
+            b.relevance
+                .partial_cmp(&a.relevance)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| sort_fact_for_output(&self.facts[a.idx], &self.facts[b.idx]))
+        });
+
+        let total = scored.len();
+        scored.truncate(limit);
+
+        let now = Utc::now();
+        let mut out: Vec<KnowledgeFact> = Vec::new();
+        for s in scored {
+            if let Some(f) = self.facts.get_mut(s.idx) {
+                f.retrieval_count = f.retrieval_count.saturating_add(1);
+                f.last_retrieved = Some(now);
+                out.push(f.clone());
+            }
+        }
+
+        (out, total)
+    }
+
+    pub fn recall_by_category_for_output(
+        &mut self,
+        category: &str,
+        limit: usize,
+    ) -> (Vec<KnowledgeFact>, usize) {
+        let mut idxs: Vec<usize> = self
+            .facts
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| f.is_current() && f.category == category)
+            .map(|(i, _)| i)
+            .collect();
+
+        idxs.sort_by(|a, b| sort_fact_for_output(&self.facts[*a], &self.facts[*b]));
+
+        let total = idxs.len();
+        idxs.truncate(limit);
+
+        let now = Utc::now();
+        let mut out = Vec::new();
+        for idx in idxs {
+            if let Some(f) = self.facts.get_mut(idx) {
+                f.retrieval_count = f.retrieval_count.saturating_add(1);
+                f.last_retrieved = Some(now);
+                out.push(f.clone());
+            }
+        }
+
+        (out, total)
+    }
 }
 
 impl KnowledgeFact {
@@ -637,18 +790,61 @@ fn string_similarity(a: &str, b: &str) -> f32 {
 }
 
 fn knowledge_dir(project_hash: &str) -> Result<PathBuf, String> {
-    Ok(lean_ctx_data_dir()?.join("knowledge").join(project_hash))
+    Ok(crate::core::data_dir::lean_ctx_data_dir()?
+        .join("knowledge")
+        .join(project_hash))
 }
 
-fn lean_ctx_data_dir() -> Result<PathBuf, String> {
-    if let Ok(dir) = std::env::var("LEAN_CTX_DATA_DIR") {
-        let trimmed = dir.trim();
-        if !trimmed.is_empty() {
-            return Ok(PathBuf::from(trimmed));
-        }
-    }
-    let home = dirs::home_dir().ok_or("Cannot determine home directory")?;
-    Ok(home.join(".lean-ctx"))
+fn sort_fact_for_output(a: &KnowledgeFact, b: &KnowledgeFact) -> std::cmp::Ordering {
+    salience_score(b)
+        .cmp(&salience_score(a))
+        .then_with(|| {
+            b.confidence
+                .partial_cmp(&a.confidence)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .then_with(|| b.confirmation_count.cmp(&a.confirmation_count))
+        .then_with(|| b.retrieval_count.cmp(&a.retrieval_count))
+        .then_with(|| b.last_retrieved.cmp(&a.last_retrieved))
+        .then_with(|| b.last_confirmed.cmp(&a.last_confirmed))
+        .then_with(|| a.category.cmp(&b.category))
+        .then_with(|| a.key.cmp(&b.key))
+        .then_with(|| a.value.cmp(&b.value))
+}
+
+fn salience_score(f: &KnowledgeFact) -> u32 {
+    let cat = f.category.to_lowercase();
+    let base: u32 = match cat.as_str() {
+        "decision" => 70,
+        "gotcha" => 75,
+        "architecture" | "arch" => 60,
+        "security" => 65,
+        "testing" | "tests" => 55,
+        "deployment" | "deploy" => 55,
+        "conventions" | "convention" => 45,
+        "finding" => 40,
+        _ => 30,
+    };
+
+    let confidence_bonus = (f.confidence.clamp(0.0, 1.0) * 30.0) as u32;
+    let confirmation_bonus = f.confirmation_count.min(15);
+    let retrieval_bonus = ((f.retrieval_count as f32).ln_1p() * 8.0).min(20.0) as u32;
+
+    let recency_bonus = f
+        .last_retrieved
+        .map(|t| {
+            let days = Utc::now().signed_duration_since(t).num_days();
+            if days <= 7 {
+                10u32
+            } else if days <= 30 {
+                5u32
+            } else {
+                0u32
+            }
+        })
+        .unwrap_or(0u32);
+
+    base + confidence_bonus + confirmation_bonus + retrieval_bonus + recency_bonus
 }
 
 fn hash_project_root(root: &str) -> String {
@@ -829,6 +1025,26 @@ mod tests {
         assert!(wakeup.contains("FACTS:"));
         assert!(wakeup.contains("arch/auth=JWT"));
         assert!(wakeup.contains("arch/db=PG"));
+    }
+
+    #[test]
+    fn salience_prioritizes_decisions_over_findings_at_similar_confidence() {
+        let mut k = ProjectKnowledge::new("/tmp/test");
+        k.remember("finding", "f1", "some thing", "s1", 0.9);
+        k.remember("decision", "d1", "important", "s1", 0.85);
+
+        let wakeup = k.format_wakeup();
+        let items = wakeup
+            .strip_prefix("FACTS:")
+            .unwrap_or(&wakeup)
+            .split('|')
+            .collect::<Vec<_>>();
+        assert!(
+            items
+                .first()
+                .is_some_and(|s| s.contains("decision/d1=important")),
+            "expected decision first in wakeup: {wakeup}"
+        );
     }
 
     #[test]

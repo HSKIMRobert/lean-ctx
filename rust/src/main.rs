@@ -1,7 +1,7 @@
 use anyhow::Result;
 use lean_ctx::{
     cli, cloud_client, core, dashboard, doctor, heatmap, hook_handlers, mcp_stdio, report, setup,
-    shell, terminal_ui, tools, tui, uninstall,
+    shell, status, terminal_ui, tools, tui, uninstall,
 };
 
 fn main() {
@@ -67,6 +67,13 @@ fn main() {
                     println!("{}", core::stats::format_gain_json());
                 } else {
                     print_gain_with_logo();
+                }
+                return;
+            }
+            "token-report" | "report-tokens" => {
+                let code = lean_ctx::token_report::run_cli(&rest);
+                if code != 0 {
+                    std::process::exit(code);
                 }
                 return;
             }
@@ -272,7 +279,74 @@ fn main() {
                 return;
             }
             "setup" => {
-                setup::run_setup();
+                let non_interactive = rest.iter().any(|a| a == "--non-interactive");
+                let yes = rest.iter().any(|a| a == "--yes" || a == "-y");
+                let fix = rest.iter().any(|a| a == "--fix");
+                let json = rest.iter().any(|a| a == "--json");
+
+                if non_interactive || fix || json || yes {
+                    let opts = setup::SetupOptions {
+                        non_interactive,
+                        yes,
+                        fix,
+                        json,
+                    };
+                    match setup::run_setup_with_options(opts) {
+                        Ok(report) => {
+                            if json {
+                                println!(
+                                    "{}",
+                                    serde_json::to_string_pretty(&report)
+                                        .unwrap_or_else(|_| "{}".to_string())
+                                );
+                            }
+                            if !report.success {
+                                std::process::exit(1);
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("{e}");
+                            std::process::exit(1);
+                        }
+                    }
+                } else {
+                    setup::run_setup();
+                }
+                return;
+            }
+            "bootstrap" => {
+                let json = rest.iter().any(|a| a == "--json");
+                let opts = setup::SetupOptions {
+                    non_interactive: true,
+                    yes: true,
+                    fix: true,
+                    json,
+                };
+                match setup::run_setup_with_options(opts) {
+                    Ok(report) => {
+                        if json {
+                            println!(
+                                "{}",
+                                serde_json::to_string_pretty(&report)
+                                    .unwrap_or_else(|_| "{}".to_string())
+                            );
+                        }
+                        if !report.success {
+                            std::process::exit(1);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("{e}");
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
+            "status" => {
+                let code = status::run_cli(&rest);
+                if code != 0 {
+                    std::process::exit(code);
+                }
                 return;
             }
             "read" => {
@@ -389,7 +463,10 @@ fn main() {
                 return;
             }
             "doctor" => {
-                doctor::run();
+                let code = doctor::run_cli(&rest);
+                if code != 0 {
+                    std::process::exit(code);
+                }
                 return;
             }
             "gotchas" | "bugs" => {
@@ -540,6 +617,7 @@ COMMANDS:
     gain --graph                   30-day savings chart
     gain --daily                   Bordered day-by-day table with USD
     gain --json                    Raw JSON export of all stats
+         token-report [--json]          Token + memory report (project + session + CEP)
     cep                            CEP impact report (score trends, cache, modes)
     dashboard [--port=N] [--host=H] Open web dashboard (default: http://localhost:3333)
     serve [--host H] [--port N]    MCP over HTTP (Streamable HTTP, local-first)
@@ -549,6 +627,8 @@ COMMANDS:
     benchmark report [path]        Generate shareable Markdown report
     cheatsheet                     Command cheat sheet & workflow quick reference
     setup                          One-command setup: shell + editor + verify
+    bootstrap                      Non-interactive setup + fix (zero-config)
+    status [--json]                Show setup + MCP + rules status
     init [--global]                Install shell aliases (zsh/bash/fish/PowerShell)
     init --agent <name>            Configure MCP for specific editor/agent
     read <file> [-m mode]          Read file with compression
@@ -567,7 +647,7 @@ COMMANDS:
     update [--check]               Self-update lean-ctx binary from GitHub Releases
     gotchas [list|clear|export|stats] Bug Memory: view/manage auto-detected error patterns
     buddy [show|stats|ascii|json]  Token Guardian: your data-driven coding companion
-    doctor                         Run installation and environment diagnostics
+    doctor [--fix] [--json]        Run diagnostics (and optionally repair)
     uninstall                      Remove shell hook, MCP configs, and data directory
 
 SHELL HOOK PATTERNS (90+):
@@ -618,6 +698,7 @@ EXAMPLES:
     lean-ctx gain --live           Live auto-updating terminal dashboard
     lean-ctx gain --graph          30-day savings chart
     lean-ctx gain --daily          Day-by-day breakdown with USD
+         lean-ctx token-report --json   Machine-readable token + memory report
     lean-ctx dashboard             Open web dashboard at localhost:3333
     lean-ctx dashboard --host=0.0.0.0  Bind to all interfaces (remote access)
     lean-ctx wrapped               Weekly savings report card
@@ -626,12 +707,16 @@ EXAMPLES:
     lean-ctx sessions show         Show latest session state
     lean-ctx discover              Find missed savings in shell history
     lean-ctx setup                 One-command setup (shell + editors + verify)
+    lean-ctx bootstrap             Non-interactive setup + fix (zero-config)
+    lean-ctx bootstrap --json      Machine-readable bootstrap report
     lean-ctx init --global         Install shell aliases (includes lean-ctx-on/off/status)
     lean-ctx-on                    Enable all compression aliases (after init)
     lean-ctx-off                   Disable all compression aliases (human-readable mode)
     lean-ctx-status                Show whether compression is active
     lean-ctx init --agent pi       Install Pi Coding Agent extension
     lean-ctx doctor                Check PATH, config, MCP, and dashboard port
+    lean-ctx doctor --fix --json   Repair + machine-readable report
+    lean-ctx status --json         Machine-readable current status
     lean-ctx read src/main.rs -m map
     lean-ctx grep \"pub fn\" src/
     lean-ctx deps .

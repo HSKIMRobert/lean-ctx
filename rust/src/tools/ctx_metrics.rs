@@ -263,7 +263,7 @@ fn compute_cep_compliance(cache: &SessionCache, tool_calls: &[ToolCallRecord]) -
         .iter()
         .filter_map(|c| c.mode.as_deref())
         .collect();
-    let possible_modes = 6.0; // full, map, signatures, aggressive, entropy, cache_hit
+    let possible_modes = crate::core::budgets::READ_MODE_COUNT;
     let mode_diversity = (modes_used.len() as f64 / possible_modes).min(1.0);
 
     let total_original: u64 = tool_calls.iter().map(|c| c.original_tokens as u64).sum();

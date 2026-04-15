@@ -229,9 +229,9 @@ impl ModePredictor {
     }
 
     fn save_to_disk(&self) {
-        let dir = match dirs::home_dir() {
-            Some(d) => d.join(".lean-ctx"),
-            None => return,
+        let dir = match crate::core::data_dir::lean_ctx_data_dir() {
+            Ok(d) => d,
+            Err(_) => return,
         };
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join(STATS_FILE);
@@ -251,7 +251,9 @@ impl ModePredictor {
     }
 
     fn load_from_disk() -> Option<Self> {
-        let path = dirs::home_dir()?.join(".lean-ctx").join(STATS_FILE);
+        let path = crate::core::data_dir::lean_ctx_data_dir()
+            .ok()?
+            .join(STATS_FILE);
         let data = std::fs::read_to_string(path).ok()?;
         serde_json::from_str(&data).ok()
     }

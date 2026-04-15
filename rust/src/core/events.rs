@@ -109,7 +109,9 @@ fn bus() -> &'static EventBus {
 }
 
 fn jsonl_path() -> Option<std::path::PathBuf> {
-    dirs::home_dir().map(|h| h.join(".lean-ctx").join("events.jsonl"))
+    crate::core::data_dir::lean_ctx_data_dir()
+        .ok()
+        .map(|d| d.join("events.jsonl"))
 }
 
 fn append_jsonl(event: &LeanCtxEvent) {

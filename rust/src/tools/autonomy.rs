@@ -1,4 +1,5 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::core::cache::SessionCache;
 use crate::core::config::AutonomyConfig;
@@ -10,6 +11,7 @@ use crate::tools::CrpMode;
 pub struct AutonomyState {
     pub session_initialized: AtomicBool,
     pub dedup_applied: AtomicBool,
+    pub last_consolidation_unix: AtomicU64,
     pub config: AutonomyConfig,
 }
 
@@ -24,6 +26,7 @@ impl AutonomyState {
         Self {
             session_initialized: AtomicBool::new(false),
             dedup_applied: AtomicBool::new(false),
+            last_consolidation_unix: AtomicU64::new(0),
             config: AutonomyConfig::load(),
         }
     }
@@ -184,6 +187,27 @@ pub fn maybe_auto_dedup(state: &AutonomyState, cache: &mut SessionCache) {
     }
 
     crate::tools::ctx_dedup::handle_action(cache, "apply");
+}
+
+pub fn should_auto_consolidate(state: &AutonomyState, tool_calls: u32) -> bool {
+    if !state.is_enabled() || !state.config.auto_consolidate {
+        return false;
+    }
+    let every = state.config.consolidate_every_calls.max(1);
+    if !tool_calls.is_multiple_of(every) {
+        return false;
+    }
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let last = state.last_consolidation_unix.load(Ordering::SeqCst);
+    if now.saturating_sub(last) < state.config.consolidate_cooldown_secs {
+        return false;
+    }
+    state.last_consolidation_unix.store(now, Ordering::SeqCst);
+    true
 }
 
 pub fn shell_efficiency_hint(

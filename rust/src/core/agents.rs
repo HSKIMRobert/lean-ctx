@@ -415,8 +415,8 @@ impl std::fmt::Display for DiaryEntryType {
 }
 
 fn diary_dir() -> Result<PathBuf, String> {
-    let home = dirs::home_dir().ok_or("Cannot determine home directory")?;
-    Ok(home.join(".lean-ctx").join("agents").join("diaries"))
+    let dir = crate::core::data_dir::lean_ctx_data_dir()?;
+    Ok(dir.join("agents").join("diaries"))
 }
 
 fn sanitize_filename(name: &str) -> String {
@@ -440,8 +440,8 @@ fn truncate(s: &str, max: usize) -> String {
 }
 
 fn agents_dir() -> Result<PathBuf, String> {
-    let home = dirs::home_dir().ok_or("Cannot determine home directory")?;
-    Ok(home.join(".lean-ctx").join("agents"))
+    let dir = crate::core::data_dir::lean_ctx_data_dir()?;
+    Ok(dir.join("agents"))
 }
 
 fn generate_short_id() -> String {

@@ -62,13 +62,7 @@ pub struct DayStats {
 }
 
 fn stats_dir() -> Option<PathBuf> {
-    if let Ok(dir) = std::env::var("LEAN_CTX_DATA_DIR") {
-        let trimmed = dir.trim();
-        if !trimmed.is_empty() {
-            return Some(PathBuf::from(trimmed));
-        }
-    }
-    dirs::home_dir().map(|h| h.join(".lean-ctx"))
+    crate::core::data_dir::lean_ctx_data_dir().ok()
 }
 
 fn stats_path() -> Option<PathBuf> {

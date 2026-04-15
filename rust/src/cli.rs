@@ -875,6 +875,18 @@ pub fn cmd_filter(args: &[String]) {
     }
 }
 
+fn quiet_enabled() -> bool {
+    matches!(std::env::var("LEAN_CTX_QUIET"), Ok(v) if v.trim() == "1")
+}
+
+macro_rules! qprintln {
+    ($($t:tt)*) => {
+        if !quiet_enabled() {
+            println!($($t)*);
+        }
+    };
+}
+
 pub fn cmd_init(args: &[String]) {
     let global = args.iter().any(|a| a == "--global" || a == "-g");
     let dry_run = args.iter().any(|a| a == "--dry-run");
@@ -895,7 +907,7 @@ pub fn cmd_init(args: &[String]) {
         if !global {
             crate::hooks::install_project_rules();
         }
-        println!("\nRun 'lean-ctx gain' after using some commands to see your savings.");
+        qprintln!("\nRun 'lean-ctx gain' after using some commands to see your savings.");
         return;
     }
 
@@ -918,16 +930,16 @@ pub fn cmd_init(args: &[String]) {
         } else {
             "~/.bashrc".to_string()
         };
-        println!("\nlean-ctx init --dry-run\n");
-        println!("  Would modify:  {rc}");
-        println!("  Would backup:  {rc}.lean-ctx.bak");
-        println!("  Would alias:   git npm pnpm yarn cargo docker docker-compose kubectl");
-        println!("                 gh pip pip3 ruff go golangci-lint eslint prettier tsc");
-        println!("                 ls find grep curl wget php composer (24 commands + k)");
-        println!("  Would create:  ~/.lean-ctx/");
-        println!("  Binary:        {binary}");
-        println!("\n  Safety: aliases auto-fallback to original command if lean-ctx is removed.");
-        println!("\n  Run without --dry-run to apply.");
+        qprintln!("\nlean-ctx init --dry-run\n");
+        qprintln!("  Would modify:  {rc}");
+        qprintln!("  Would backup:  {rc}.lean-ctx.bak");
+        qprintln!("  Would alias:   git npm pnpm yarn cargo docker docker-compose kubectl");
+        qprintln!("                 gh pip pip3 ruff go golangci-lint eslint prettier tsc");
+        qprintln!("                 ls find grep curl wget php composer (24 commands + k)");
+        qprintln!("  Would create:  ~/.lean-ctx/");
+        qprintln!("  Binary:        {binary}");
+        qprintln!("\n  Safety: aliases auto-fallback to original command if lean-ctx is removed.");
+        qprintln!("\n  Run without --dry-run to apply.");
         return;
     }
 
@@ -946,7 +958,7 @@ pub fn cmd_init(args: &[String]) {
     if let Some(dir) = lean_dir {
         if !dir.exists() {
             let _ = std::fs::create_dir_all(&dir);
-            println!("Created {}", dir.display());
+            qprintln!("Created {}", dir.display());
         }
     }
 
@@ -960,23 +972,29 @@ pub fn cmd_init(args: &[String]) {
         ".bashrc"
     };
 
-    println!("\nlean-ctx init complete (24 aliases installed)");
-    println!();
-    println!("  Disable temporarily:  lean-ctx-off");
-    println!("  Re-enable:            lean-ctx-on");
-    println!("  Check status:         lean-ctx-status");
-    println!("  Full uninstall:       lean-ctx uninstall");
-    println!("  Diagnose issues:      lean-ctx doctor");
-    println!("  Preview changes:      lean-ctx init --global --dry-run");
-    println!();
+    qprintln!("\nlean-ctx init complete (24 aliases installed)");
+    qprintln!();
+    qprintln!("  Disable temporarily:  lean-ctx-off");
+    qprintln!("  Re-enable:            lean-ctx-on");
+    qprintln!("  Check status:         lean-ctx-status");
+    qprintln!("  Full uninstall:       lean-ctx uninstall");
+    qprintln!("  Diagnose issues:      lean-ctx doctor");
+    qprintln!("  Preview changes:      lean-ctx init --global --dry-run");
+    qprintln!();
     if is_powershell {
-        println!("  Restart PowerShell or run: . {rc}");
+        qprintln!("  Restart PowerShell or run: . {rc}");
     } else {
-        println!("  Restart your shell or run: source ~/{rc}");
+        qprintln!("  Restart your shell or run: source ~/{rc}");
     }
-    println!();
-    println!("For AI tool integration: lean-ctx init --agent <tool>");
-    println!("  Supported: claude, cursor, gemini, codex, windsurf, cline, copilot, crush, pi");
+    qprintln!();
+    qprintln!("For AI tool integration: lean-ctx init --agent <tool>");
+    qprintln!("  Supported: claude, cursor, gemini, codex, windsurf, cline, copilot, crush, pi");
+}
+
+pub fn cmd_init_quiet(args: &[String]) {
+    std::env::set_var("LEAN_CTX_QUIET", "1");
+    cmd_init(args);
+    std::env::remove_var("LEAN_CTX_QUIET");
 }
 
 fn backup_shell_config(path: &std::path::Path) {
@@ -985,7 +1003,7 @@ fn backup_shell_config(path: &std::path::Path) {
     }
     let bak = path.with_extension("lean-ctx.bak");
     if std::fs::copy(path, &bak).is_ok() {
-        println!(
+        qprintln!(
             "  Backup: {}",
             bak.file_name()
                 .map(|n| format!("~/{}", n.to_string_lossy()))
@@ -1050,8 +1068,8 @@ if (-not $env:LEAN_CTX_ACTIVE -and -not $env:LEAN_CTX_DISABLED) {{
             let cleaned = remove_lean_ctx_block_ps(&existing);
             match std::fs::write(&profile_path, format!("{cleaned}{functions}")) {
                 Ok(()) => {
-                    println!("Updated lean-ctx functions in {}", profile_path.display());
-                    println!("  Binary: {binary}");
+                    qprintln!("Updated lean-ctx functions in {}", profile_path.display());
+                    qprintln!("  Binary: {binary}");
                     return;
                 }
                 Err(e) => {
@@ -1070,8 +1088,8 @@ if (-not $env:LEAN_CTX_ACTIVE -and -not $env:LEAN_CTX_DISABLED) {{
         Ok(mut f) => {
             use std::io::Write;
             let _ = f.write_all(functions.as_bytes());
-            println!("Added lean-ctx functions to {}", profile_path.display());
-            println!("  Binary: {binary}");
+            qprintln!("Added lean-ctx functions to {}", profile_path.display());
+            qprintln!("  Binary: {binary}");
         }
         Err(e) => eprintln!("Error writing {}: {e}", profile_path.display()),
     }
@@ -1176,8 +1194,8 @@ pub fn init_fish(binary: &str) {
             let cleaned = remove_lean_ctx_block(&existing);
             match std::fs::write(&config, format!("{cleaned}{aliases}")) {
                 Ok(()) => {
-                    println!("Updated lean-ctx aliases in {}", config.display());
-                    println!("  Binary: {binary}");
+                    qprintln!("Updated lean-ctx aliases in {}", config.display());
+                    qprintln!("  Binary: {binary}");
                     return;
                 }
                 Err(e) => {
@@ -1196,8 +1214,8 @@ pub fn init_fish(binary: &str) {
         Ok(mut f) => {
             use std::io::Write;
             let _ = f.write_all(aliases.as_bytes());
-            println!("Added lean-ctx aliases to {}", config.display());
-            println!("  Binary: {binary}");
+            qprintln!("Added lean-ctx aliases to {}", config.display());
+            qprintln!("  Binary: {binary}");
         }
         Err(e) => eprintln!("Error writing {}: {e}", config.display()),
     }
@@ -1280,8 +1298,8 @@ fi
             let cleaned = remove_lean_ctx_block(&existing);
             match std::fs::write(&rc_file, format!("{cleaned}{aliases}")) {
                 Ok(()) => {
-                    println!("Updated lean-ctx aliases in {}", rc_file.display());
-                    println!("  Binary: {binary}");
+                    qprintln!("Updated lean-ctx aliases in {}", rc_file.display());
+                    qprintln!("  Binary: {binary}");
                     return;
                 }
                 Err(e) => {
@@ -1300,11 +1318,54 @@ fi
         Ok(mut f) => {
             use std::io::Write;
             let _ = f.write_all(aliases.as_bytes());
-            println!("Added lean-ctx aliases to {}", rc_file.display());
-            println!("  Binary: {binary}");
+            qprintln!("Added lean-ctx aliases to {}", rc_file.display());
+            qprintln!("  Binary: {binary}");
         }
         Err(e) => eprintln!("Error writing {}: {e}", rc_file.display()),
     }
+
+    write_env_sh_for_containers(&aliases);
+    print_docker_bash_env_hint(is_zsh);
+}
+
+/// Writes lean-ctx hook to ~/.lean-ctx/env.sh (no interactive guard).
+/// Used for BASH_ENV in Docker/CI where ~/.bashrc has `[ -z "$PS1" ] && return`.
+fn write_env_sh_for_containers(aliases: &str) {
+    let env_sh = match dirs::home_dir() {
+        Some(h) => h.join(".lean-ctx").join("env.sh"),
+        None => return,
+    };
+    if let Some(parent) = env_sh.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    match std::fs::write(&env_sh, aliases) {
+        Ok(()) => qprintln!("  env.sh: {}", env_sh.display()),
+        Err(e) => eprintln!("  Warning: could not write {}: {e}", env_sh.display()),
+    }
+}
+
+fn print_docker_bash_env_hint(is_zsh: bool) {
+    if is_zsh || !crate::shell::is_container() {
+        return;
+    }
+    if std::env::var("BASH_ENV").is_ok() {
+        return;
+    }
+    let env_sh = dirs::home_dir()
+        .map(|h| {
+            h.join(".lean-ctx")
+                .join("env.sh")
+                .to_string_lossy()
+                .to_string()
+        })
+        .unwrap_or_else(|| "/root/.lean-ctx/env.sh".to_string());
+    eprintln!();
+    eprintln!("  \x1b[33m⚠  Docker detected — BASH_ENV is not set\x1b[0m");
+    eprintln!("  AI agents run commands via bash -c (non-interactive),");
+    eprintln!("  which skips ~/.bashrc. Add this to your Dockerfile:");
+    eprintln!();
+    eprintln!("    \x1b[1mENV BASH_ENV=\"{env_sh}\"\x1b[0m");
+    eprintln!();
 }
 
 fn remove_lean_ctx_block(content: &str) -> String {
