@@ -577,7 +577,7 @@ fn check_mcp_configs() -> String {
     ];
 
     for (full, name) in &configs {
-        if let Ok(content) = std::fs::read_to_string(&full) {
+        if let Ok(content) = std::fs::read_to_string(full) {
             if content.contains("lean-ctx") {
                 found.push(*name);
             }
