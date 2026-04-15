@@ -1305,6 +1305,47 @@ fi
         }
         Err(e) => eprintln!("Error writing {}: {e}", rc_file.display()),
     }
+
+    write_env_sh_for_containers(&aliases);
+    print_docker_bash_env_hint(is_zsh);
+}
+
+fn write_env_sh_for_containers(aliases: &str) {
+    let env_sh = match dirs::home_dir() {
+        Some(h) => h.join(".lean-ctx").join("env.sh"),
+        None => return,
+    };
+    if let Some(parent) = env_sh.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    match std::fs::write(&env_sh, aliases) {
+        Ok(()) => println!("  env.sh: {}", env_sh.display()),
+        Err(e) => eprintln!("  Warning: could not write {}: {e}", env_sh.display()),
+    }
+}
+
+fn print_docker_bash_env_hint(is_zsh: bool) {
+    if is_zsh || !crate::shell::is_container() {
+        return;
+    }
+    if std::env::var("BASH_ENV").is_ok() {
+        return;
+    }
+    let env_sh = dirs::home_dir()
+        .map(|h| {
+            h.join(".lean-ctx")
+                .join("env.sh")
+                .to_string_lossy()
+                .to_string()
+        })
+        .unwrap_or_else(|| "/root/.lean-ctx/env.sh".to_string());
+    eprintln!();
+    eprintln!("  \x1b[33m⚠  Docker detected — BASH_ENV is not set\x1b[0m");
+    eprintln!("  AI agents run commands via bash -c (non-interactive),");
+    eprintln!("  which skips ~/.bashrc. Add this to your Dockerfile:");
+    eprintln!();
+    eprintln!("    \x1b[1mENV BASH_ENV=\"{env_sh}\"\x1b[0m");
+    eprintln!();
 }
 
 fn remove_lean_ctx_block(content: &str) -> String {

@@ -562,6 +562,42 @@ fn session_state_outcome() -> Outcome {
     }
 }
 
+#[allow(dead_code)]
+fn docker_bash_env_outcome() -> Option<Outcome> {
+    if !crate::shell::is_container() {
+        return None;
+    }
+    let shell_name = std::env::var("SHELL").unwrap_or_default();
+    let is_bash = shell_name.contains("bash") || shell_name.is_empty();
+    if !is_bash {
+        return None;
+    }
+    if std::env::var("BASH_ENV").is_ok() {
+        Some(Outcome {
+            ok: true,
+            line: format!(
+                "{BOLD}BASH_ENV{RST}  {GREEN}set{RST}  {DIM}({}){RST}",
+                std::env::var("BASH_ENV").unwrap_or_default()
+            ),
+        })
+    } else {
+        let env_sh = dirs::home_dir()
+            .map(|h| {
+                h.join(".lean-ctx")
+                    .join("env.sh")
+                    .to_string_lossy()
+                    .to_string()
+            })
+            .unwrap_or_else(|| "/root/.lean-ctx/env.sh".to_string());
+        Some(Outcome {
+            ok: false,
+            line: format!(
+                "{BOLD}BASH_ENV{RST}  {RED}not set{RST}  {YELLOW}(Docker detected — add to Dockerfile: ENV BASH_ENV=\"{env_sh}\"){RST}"
+            ),
+        })
+    }
+}
+
 /// Run diagnostic checks and print colored results to stdout.
 pub fn run() {
     let mut passed = 0u32;
@@ -735,7 +771,16 @@ pub fn run() {
     }
     print_check(&session_outcome);
 
-    // 10) Pi Coding Agent (optional)
+    // 10) Docker BASH_ENV (optional, only in containers)
+    let docker = docker_bash_env_outcome();
+    if let Some(ref docker_check) = docker {
+        if docker_check.ok {
+            passed += 1;
+        }
+        print_check(docker_check);
+    }
+
+    // 11) Pi Coding Agent (optional)
     let pi = pi_outcome();
     if let Some(ref pi_check) = pi {
         if pi_check.ok {
@@ -744,7 +789,13 @@ pub fn run() {
         print_check(pi_check);
     }
 
-    let effective_total = if pi.is_some() { total + 2 } else { total + 1 };
+    let mut effective_total = total + 1; // session_state always shown
+    if docker.is_some() {
+        effective_total += 1;
+    }
+    if pi.is_some() {
+        effective_total += 1;
+    }
     println!();
     println!("  {BOLD}{WHITE}Summary:{RST}  {GREEN}{passed}{RST}{DIM}/{effective_total}{RST} checks passed");
     println!("  {DIM}This binary: lean-ctx {VERSION} (Cargo package version){RST}");

@@ -25,6 +25,12 @@ enum ConfigType {
 }
 
 pub fn run_setup() {
+    if crate::shell::is_non_interactive() {
+        eprintln!("Non-interactive terminal detected — running shell hook install only.");
+        crate::cli::cmd_init(&["--global".to_string()]);
+        return;
+    }
+
     use crate::terminal_ui;
 
     let home = match dirs::home_dir() {
