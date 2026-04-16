@@ -80,8 +80,13 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 
 .main{
   flex:1;margin-left:var(--sidebar-w);padding:24px 32px 80px;
-  transition:margin-left .25s cubic-bezier(.22,1,.36,1);
-  width: calc(100% - var(--sidebar-w));max-width:1400px;
+  transition:all .25s cubic-bezier(.22,1,.36,1);
+  min-width: 0;
+}
+.content-container{
+  max-width:1720px;
+  margin:0 auto;
+  width:100%;
 }
 
 .view{display:none;opacity:0;transition:opacity .2s ease}
@@ -143,13 +148,13 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 .hc .hl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.18em;font-weight:600}
 .hc .hs{font-size:10px;color:var(--muted);margin-top:8px;font-family:var(--mono)}
 
-.row{display:grid;gap:10px;margin-bottom:10px}
-.r3{grid-template-columns:1fr 1fr 1fr}
-.r21{grid-template-columns:2fr 1fr}
-.r12{grid-template-columns:1fr 2fr}
-.r11{grid-template-columns:1fr 1fr}
+.row{display:grid;gap:12px;margin-bottom:12px}
+.r3{grid-template-columns:repeat(auto-fit, minmax(320px, 1fr))}
+.r21{grid-template-columns:2.2fr 1fr}
+.r12{grid-template-columns:1fr 2.2fr}
+.r11{grid-template-columns:repeat(auto-fit, minmax(400px, 1fr))}
 .r1{grid-template-columns:1fr}
-.r4{grid-template-columns:1fr 1fr 1fr 1fr}
+.r4{grid-template-columns:repeat(auto-fit, minmax(280px, 1fr))}
 
 .card{
   background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
@@ -448,6 +453,7 @@ tr:hover td{background:var(--surface-2)}
   </aside>
 
   <main class="main" id="mainContent">
+    <div class="content-container">
     <div class="topbar">
       <div style="display:flex;align-items:center;gap:12px">
         <span class="topbar-title" id="viewTitle">Overview</span>
@@ -476,6 +482,7 @@ tr:hover td{background:var(--surface-2)}
     <section id="view-symbols" class="view"></section>
     <section id="view-callgraph" class="view"></section>
     <section id="view-routes" class="view"></section>
+      </div>
   </main>
 </div>
 
