@@ -6,6 +6,13 @@ const MARKER: &str = "# lean-ctx — Context Engineering Layer";
 const END_MARKER: &str = "<!-- /lean-ctx -->";
 const RULES_VERSION: &str = "lean-ctx-rules-v9";
 
+pub const RULES_MARKER: &str = MARKER;
+pub const RULES_VERSION_STR: &str = RULES_VERSION;
+
+pub fn rules_dedicated_markdown() -> &'static str {
+    RULES_DEDICATED
+}
+
 // ---------------------------------------------------------------------------
 // Rules content for SHARED config files (appended to user's existing config).
 // LITM-optimized: critical instruction at START and END of block.
@@ -345,7 +352,14 @@ fn is_tool_detected(target: &RulesTarget, home: &std::path::Path) -> bool {
             if command_exists("claude") {
                 return true;
             }
-            home.join(".claude.json").exists() || home.join(".claude").exists()
+            let has_cfg_dir = std::env::var("CLAUDE_CONFIG_DIR")
+                .ok()
+                .map(std::path::PathBuf::from)
+                .map(|p| p.exists())
+                .unwrap_or(false);
+            has_cfg_dir
+                || crate::core::editor_registry::claude_mcp_json_path(home).exists()
+                || crate::core::editor_registry::claude_state_dir(home).exists()
         }
         "Codex CLI" => home.join(".codex").exists() || command_exists("codex"),
         "Cursor" => home.join(".cursor").exists(),
@@ -467,8 +481,8 @@ fn build_rules_targets(home: &std::path::Path) -> Vec<RulesTarget> {
         // --- Shared config files (append-only) ---
         RulesTarget {
             name: "Claude Code",
-            path: home.join(".claude/CLAUDE.md"),
-            format: RulesFormat::SharedMarkdown,
+            path: crate::core::editor_registry::claude_rules_dir(home).join("lean-ctx.md"),
+            format: RulesFormat::DedicatedMarkdown,
         },
         RulesTarget {
             name: "Codex CLI",

@@ -18,6 +18,7 @@ pub fn run() {
     removed_any |= remove_mcp_configs(&home);
     removed_any |= remove_rules_files(&home);
     removed_any |= remove_hook_files(&home);
+    removed_any |= remove_project_agent_files();
     removed_any |= remove_data_dir(&home);
 
     println!();
@@ -30,6 +31,70 @@ pub fn run() {
     }
 
     print_binary_removal_instructions();
+}
+
+fn remove_project_agent_files() -> bool {
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let agents = cwd.join("AGENTS.md");
+    let lean_ctx_md = cwd.join("LEAN-CTX.md");
+
+    const START: &str = "<!-- lean-ctx -->";
+    const END: &str = "<!-- /lean-ctx -->";
+    const OWNED: &str = "<!-- lean-ctx-owned: PROJECT-LEAN-CTX.md v1 -->";
+
+    let mut removed = false;
+
+    if agents.exists() {
+        if let Ok(content) = fs::read_to_string(&agents) {
+            if content.contains(START) {
+                let cleaned = remove_marked_block(&content, START, END);
+                if cleaned != content {
+                    if let Err(e) = fs::write(&agents, cleaned) {
+                        eprintln!("  ✗ Failed to update project AGENTS.md: {e}");
+                    } else {
+                        println!("  ✓ Project: removed lean-ctx block from AGENTS.md");
+                        removed = true;
+                    }
+                }
+            }
+        }
+    }
+
+    if lean_ctx_md.exists() {
+        if let Ok(content) = fs::read_to_string(&lean_ctx_md) {
+            if content.contains(OWNED) {
+                if let Err(e) = fs::remove_file(&lean_ctx_md) {
+                    eprintln!("  ✗ Failed to remove project LEAN-CTX.md: {e}");
+                } else {
+                    println!("  ✓ Project: removed LEAN-CTX.md");
+                    removed = true;
+                }
+            }
+        }
+    }
+
+    removed
+}
+
+fn remove_marked_block(content: &str, start: &str, end: &str) -> String {
+    let s = content.find(start);
+    let e = content.find(end);
+    match (s, e) {
+        (Some(si), Some(ei)) if ei >= si => {
+            let after_end = ei + end.len();
+            let before = &content[..si];
+            let after = &content[after_end..];
+            let mut out = String::new();
+            out.push_str(before.trim_end_matches('\n'));
+            out.push('\n');
+            if !after.trim().is_empty() {
+                out.push('\n');
+                out.push_str(after.trim_start_matches('\n'));
+            }
+            out
+        }
+        _ => content.to_string(),
+    }
 }
 
 fn remove_shell_hook(home: &Path) -> bool {
@@ -164,7 +229,12 @@ fn remove_mcp_configs(home: &Path) -> bool {
 
 fn remove_rules_files(home: &Path) -> bool {
     let rules_files: Vec<(&str, PathBuf)> = vec![
-        ("Claude Code", home.join(".claude/CLAUDE.md")),
+        (
+            "Claude Code",
+            crate::core::editor_registry::claude_rules_dir(home).join("lean-ctx.md"),
+        ),
+        // Legacy location (previous releases)
+        ("Claude Code (legacy)", home.join(".claude/CLAUDE.md")),
         ("Cursor", home.join(".cursor/rules/lean-ctx.mdc")),
         ("Gemini CLI", home.join(".gemini/GEMINI.md")),
         (
@@ -222,11 +292,16 @@ fn remove_rules_files(home: &Path) -> bool {
 }
 
 fn remove_hook_files(home: &Path) -> bool {
+    let claude_hooks_dir = crate::core::editor_registry::claude_state_dir(home).join("hooks");
     let hook_files: Vec<PathBuf> = vec![
-        home.join(".claude/hooks/lean-ctx-rewrite.sh"),
-        home.join(".claude/hooks/lean-ctx-redirect.sh"),
+        claude_hooks_dir.join("lean-ctx-rewrite.sh"),
+        claude_hooks_dir.join("lean-ctx-redirect.sh"),
+        claude_hooks_dir.join("lean-ctx-rewrite-native"),
+        claude_hooks_dir.join("lean-ctx-redirect-native"),
         home.join(".cursor/hooks/lean-ctx-rewrite.sh"),
         home.join(".cursor/hooks/lean-ctx-redirect.sh"),
+        home.join(".cursor/hooks/lean-ctx-rewrite-native"),
+        home.join(".cursor/hooks/lean-ctx-redirect-native"),
         home.join(".gemini/hooks/lean-ctx-rewrite-gemini.sh"),
         home.join(".gemini/hooks/lean-ctx-redirect-gemini.sh"),
         home.join(".gemini/hooks/lean-ctx-hook-gemini.sh"),

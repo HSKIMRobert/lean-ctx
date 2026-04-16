@@ -636,9 +636,8 @@ fn build_agents_json() -> String {
 
     let pending_msgs = registry.scratchpad.len();
 
-    let shared_dir = dirs::home_dir()
-        .unwrap_or_default()
-        .join(".lean-ctx")
+    let shared_dir = crate::core::data_dir::lean_ctx_data_dir()
+        .unwrap_or_else(|_| dirs::home_dir().unwrap_or_default().join(".lean-ctx"))
         .join("agents")
         .join("shared");
     let shared_count = if shared_dir.exists() {

@@ -183,16 +183,7 @@ exit 0
 pub fn install_project_rules() {
     let cwd = std::env::current_dir().unwrap_or_default();
 
-    let agents_md = cwd.join("AGENTS.md");
-    if !agents_md.exists()
-        || !std::fs::read_to_string(&agents_md)
-            .unwrap_or_default()
-            .contains("lean-ctx")
-    {
-        let content = AGENTS_MD_TEMPLATE;
-        write_file(&agents_md, content);
-        println!("Created AGENTS.md in project root.");
-    }
+    ensure_project_agents_integration(&cwd);
 
     let cursorrules = cwd.join(".cursorrules");
     if !cursorrules.exists()
@@ -231,22 +222,90 @@ pub fn install_project_rules() {
     }
 }
 
-const AGENTS_MD_TEMPLATE: &str = "\
-# lean-ctx — Context Engineering Layer
+const PROJECT_LEAN_CTX_MD_MARKER: &str = "<!-- lean-ctx-owned: PROJECT-LEAN-CTX.md v1 -->";
+const PROJECT_LEAN_CTX_MD: &str = "LEAN-CTX.md";
+const PROJECT_AGENTS_MD: &str = "AGENTS.md";
+const AGENTS_BLOCK_START: &str = "<!-- lean-ctx -->";
+const AGENTS_BLOCK_END: &str = "<!-- /lean-ctx -->";
 
-PREFER lean-ctx MCP tools over native equivalents for token savings:
+fn ensure_project_agents_integration(cwd: &std::path::Path) {
+    let lean_ctx_md = cwd.join(PROJECT_LEAN_CTX_MD);
+    let desired = format!(
+        "{PROJECT_LEAN_CTX_MD_MARKER}\n{}\n",
+        crate::rules_inject::rules_dedicated_markdown()
+    );
 
-| PREFER | OVER | Why |
-|--------|------|-----|
-| `ctx_read(path)` | Read / cat / head / tail | Cached, 8 compression modes, re-reads ~13 tokens |
-| `ctx_shell(command)` | Shell / bash / terminal | Pattern compression for git/npm/cargo output |
-| `ctx_search(pattern, path)` | Grep / rg / search | Compact, token-efficient results |
-| `ctx_tree(path, depth)` | ls / find / tree | Compact directory maps |
-| `ctx_edit(path, old_string, new_string)` | Edit (when Read unavailable) | Search-and-replace without native Read |
+    if !lean_ctx_md.exists() {
+        write_file(&lean_ctx_md, &desired);
+    } else if std::fs::read_to_string(&lean_ctx_md)
+        .unwrap_or_default()
+        .contains(PROJECT_LEAN_CTX_MD_MARKER)
+    {
+        let current = std::fs::read_to_string(&lean_ctx_md).unwrap_or_default();
+        if !current.contains(crate::rules_inject::RULES_VERSION_STR) {
+            write_file(&lean_ctx_md, &desired);
+        }
+    }
 
-Edit files: use native Edit/StrReplace if available. If Edit requires Read and Read is unavailable, use ctx_edit.
-Write, Delete, Glob — use normally. NEVER loop on Edit failures — switch to ctx_edit immediately.
-";
+    let block = format!(
+        "{AGENTS_BLOCK_START}\n\
+## lean-ctx\n\n\
+Prefer lean-ctx MCP tools over native equivalents for token savings.\n\
+Full rules: @{PROJECT_LEAN_CTX_MD}\n\
+{AGENTS_BLOCK_END}\n"
+    );
+
+    let agents_md = cwd.join(PROJECT_AGENTS_MD);
+    if !agents_md.exists() {
+        let content = format!("# Agent Instructions\n\n{block}");
+        write_file(&agents_md, &content);
+        println!("Created AGENTS.md in project root (lean-ctx reference only).");
+        return;
+    }
+
+    let existing = std::fs::read_to_string(&agents_md).unwrap_or_default();
+    if existing.contains(AGENTS_BLOCK_START) {
+        let updated = replace_marked_block(&existing, AGENTS_BLOCK_START, AGENTS_BLOCK_END, &block);
+        if updated != existing {
+            write_file(&agents_md, &updated);
+        }
+        return;
+    }
+
+    if existing.contains("lean-ctx") && existing.contains(PROJECT_LEAN_CTX_MD) {
+        return;
+    }
+
+    let mut out = existing;
+    if !out.ends_with('\n') {
+        out.push('\n');
+    }
+    out.push('\n');
+    out.push_str(&block);
+    write_file(&agents_md, &out);
+    println!("Updated AGENTS.md (added lean-ctx reference block).");
+}
+
+fn replace_marked_block(content: &str, start: &str, end: &str, replacement: &str) -> String {
+    let s = content.find(start);
+    let e = content.find(end);
+    match (s, e) {
+        (Some(si), Some(ei)) if ei >= si => {
+            let after_end = ei + end.len();
+            let before = &content[..si];
+            let after = &content[after_end..];
+            let mut out = String::new();
+            out.push_str(before.trim_end_matches('\n'));
+            out.push('\n');
+            out.push('\n');
+            out.push_str(replacement.trim_end_matches('\n'));
+            out.push('\n');
+            out.push_str(after.trim_start_matches('\n'));
+            out
+        }
+        _ => content.to_string(),
+    }
+}
 
 const CURSORRULES_TEMPLATE: &str = "\
 # lean-ctx — Context Engineering Layer
@@ -384,53 +443,33 @@ fn install_claude_hook(global: bool) {
     install_claude_hook_scripts(&home);
     install_claude_hook_config(&home);
 
-    install_claude_global_md(&home);
+    install_claude_rules_file(&home);
 
-    if !global {
-        let claude_md = PathBuf::from("CLAUDE.md");
-        if !claude_md.exists()
-            || !std::fs::read_to_string(&claude_md)
-                .unwrap_or_default()
-                .contains("lean-ctx")
-        {
-            let content = include_str!("templates/CLAUDE.md");
-            write_file(&claude_md, content);
-            println!("Created CLAUDE.md in current project directory.");
-        } else {
-            println!("CLAUDE.md already configured.");
-        }
-    }
+    let _ = global;
 }
 
-fn install_claude_global_md(home: &std::path::Path) {
-    let claude_dir = home.join(".claude");
-    let _ = std::fs::create_dir_all(&claude_dir);
-    let global_md = claude_dir.join("CLAUDE.md");
+fn install_claude_rules_file(home: &std::path::Path) {
+    let rules_dir = crate::core::editor_registry::claude_rules_dir(home);
+    let _ = std::fs::create_dir_all(&rules_dir);
+    let rules_path = rules_dir.join("lean-ctx.md");
 
-    let existing = std::fs::read_to_string(&global_md).unwrap_or_default();
-    if existing.contains("lean-ctx") {
-        println!("  \x1b[32m✓\x1b[0m ~/.claude/CLAUDE.md already configured");
-        return;
-    }
-
-    let content = include_str!("templates/CLAUDE_GLOBAL.md");
+    let desired = crate::rules_inject::rules_dedicated_markdown();
+    let existing = std::fs::read_to_string(&rules_path).unwrap_or_default();
 
     if existing.is_empty() {
-        write_file(&global_md, content);
-    } else {
-        let mut merged = existing;
-        if !merged.ends_with('\n') {
-            merged.push('\n');
-        }
-        merged.push('\n');
-        merged.push_str(content);
-        write_file(&global_md, &merged);
+        write_file(&rules_path, desired);
+        return;
     }
-    println!("  \x1b[32m✓\x1b[0m Installed global ~/.claude/CLAUDE.md");
+    if existing.contains(crate::rules_inject::RULES_VERSION_STR) {
+        return;
+    }
+    if existing.contains("<!-- lean-ctx-rules-") {
+        write_file(&rules_path, desired);
+    }
 }
 
 fn install_claude_hook_scripts(home: &std::path::Path) {
-    let hooks_dir = home.join(".claude").join("hooks");
+    let hooks_dir = crate::core::editor_registry::claude_state_dir(home).join("hooks");
     let _ = std::fs::create_dir_all(&hooks_dir);
 
     let binary = resolve_binary_path();
@@ -476,13 +515,13 @@ fn install_claude_hook_scripts(home: &std::path::Path) {
 }
 
 fn install_claude_hook_config(home: &std::path::Path) {
-    let hooks_dir = home.join(".claude").join("hooks");
+    let hooks_dir = crate::core::editor_registry::claude_state_dir(home).join("hooks");
     let binary = resolve_binary_path();
 
     let rewrite_cmd = format!("{binary} hook rewrite");
     let redirect_cmd = format!("{binary} hook redirect");
 
-    let settings_path = home.join(".claude").join("settings.json");
+    let settings_path = crate::core::editor_registry::claude_state_dir(home).join("settings.json");
     let settings_content = if settings_path.exists() {
         std::fs::read_to_string(&settings_path).unwrap_or_default()
     } else {

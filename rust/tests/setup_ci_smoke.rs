@@ -97,7 +97,7 @@ fn setup_bootstrap_doctor_status_json_smoke() {
 
     // init --agent claude should prefer `claude mcp add-json` when available.
     let out = Command::new(bin)
-        .args(["init", "--agent", "claude"])
+        .args(["init", "--agent", "claude", "--global"])
         .envs(envs.iter().copied())
         .output()
         .expect("init --agent claude");
@@ -180,7 +180,7 @@ fn claude_config_dir_fallback_writes_dot_claude_json() {
     envs.push(("PATH", new_path.as_str()));
 
     let out = Command::new(bin)
-        .args(["init", "--agent", "claude"])
+        .args(["init", "--agent", "claude", "--global"])
         .envs(envs.iter().copied())
         .output()
         .expect("init --agent claude");
@@ -205,5 +205,148 @@ fn claude_config_dir_fallback_writes_dot_claude_json() {
     assert!(
         stdout.contains("MCP config") && stdout.contains("lean-ctx found"),
         "doctor should report lean-ctx found in MCP config; got:\n{stdout}"
+    );
+}
+
+#[test]
+fn init_agent_preserves_agents_md_and_is_idempotent() {
+    let bin = env!("CARGO_BIN_EXE_lean-ctx");
+
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let data_dir = tmp.path().join("data");
+    std::fs::create_dir_all(&data_dir).unwrap();
+    let bin_dir = tmp.path().join("bin");
+    std::fs::create_dir_all(&bin_dir).unwrap();
+    let project = tmp.path().join("project");
+    std::fs::create_dir_all(&project).unwrap();
+
+    // Existing user AGENTS.md should be preserved.
+    let agents_path = project.join("AGENTS.md");
+    std::fs::write(&agents_path, "# My Agents\n\nDo not overwrite.\n").unwrap();
+
+    let home_str = home.to_string_lossy().to_string();
+    let data_str = data_dir.to_string_lossy().to_string();
+
+    // Fake claude (success) so init --agent claude prefers `claude mcp add-json`.
+    let claude_path = bin_dir.join(if cfg!(windows) {
+        "claude.cmd"
+    } else {
+        "claude"
+    });
+    if cfg!(windows) {
+        write_exe(&claude_path, "@echo off\r\nrem succeed\r\nexit /b 0\r\n");
+    } else {
+        write_exe(&claude_path, "#!/bin/sh\nexit 0\n");
+    }
+
+    let mut envs = vec![
+        ("HOME", home_str.as_str()),
+        ("LEAN_CTX_DATA_DIR", data_str.as_str()),
+        ("LEAN_CTX_ACTIVE", "1"),
+    ];
+    #[cfg(not(windows))]
+    {
+        envs.push(("SHELL", "/bin/bash"));
+    }
+    #[cfg(windows)]
+    {
+        envs.push(("USERPROFILE", home_str.as_str()));
+    }
+
+    let old_path = std::env::var("PATH").unwrap_or_default();
+    let new_path = format!("{}:{}", bin_dir.to_string_lossy(), old_path);
+    envs.push(("PATH", new_path.as_str()));
+
+    for _ in 0..2 {
+        let out = Command::new(bin)
+            .args(["init", "--agent", "claude"])
+            .current_dir(&project)
+            .envs(envs.iter().copied())
+            .output()
+            .expect("init --agent claude");
+        assert!(out.status.success(), "init --agent claude exit");
+    }
+
+    let agents = std::fs::read_to_string(&agents_path).unwrap();
+    assert!(agents.contains("# My Agents"), "must preserve user header");
+    assert!(
+        agents.contains("Do not overwrite."),
+        "must preserve user content"
+    );
+    assert!(
+        agents.contains("<!-- lean-ctx -->") && agents.contains("@LEAN-CTX.md"),
+        "must add lean-ctx reference block"
+    );
+    assert_eq!(
+        agents.matches("<!-- lean-ctx -->").count(),
+        1,
+        "must not duplicate marker block"
+    );
+
+    let lean_ctx_md = project.join("LEAN-CTX.md");
+    let lean_ctx_content = std::fs::read_to_string(&lean_ctx_md).expect("LEAN-CTX.md exists");
+    assert!(
+        lean_ctx_content.contains("lean-ctx — Context Engineering Layer"),
+        "LEAN-CTX.md must contain rules"
+    );
+}
+
+#[test]
+fn init_claude_installs_dedicated_rules_file_without_claude_md() {
+    let bin = env!("CARGO_BIN_EXE_lean-ctx");
+
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let data_dir = tmp.path().join("data");
+    std::fs::create_dir_all(&data_dir).unwrap();
+    let project = tmp.path().join("project");
+    std::fs::create_dir_all(&project).unwrap();
+
+    let home_str = home.to_string_lossy().to_string();
+    let data_str = data_dir.to_string_lossy().to_string();
+
+    let mut envs = vec![
+        ("HOME", home_str.as_str()),
+        ("LEAN_CTX_DATA_DIR", data_str.as_str()),
+        ("LEAN_CTX_ACTIVE", "1"),
+    ];
+    #[cfg(not(windows))]
+    {
+        envs.push(("SHELL", "/bin/bash"));
+    }
+    #[cfg(windows)]
+    {
+        envs.push(("USERPROFILE", home_str.as_str()));
+    }
+
+    let out = Command::new(bin)
+        .args(["init", "--agent", "claude", "--global"])
+        .current_dir(&project)
+        .envs(envs.iter().copied())
+        .output()
+        .expect("init --agent claude --global");
+    assert!(out.status.success(), "init --agent claude --global exit");
+
+    assert!(
+        !home.join(".claude/CLAUDE.md").exists(),
+        "must not create ~/.claude/CLAUDE.md"
+    );
+    assert!(
+        !project.join("CLAUDE.md").exists(),
+        "must not create project CLAUDE.md"
+    );
+
+    let rules_path = home.join(".claude/rules/lean-ctx.md");
+    assert!(
+        rules_path.exists(),
+        "must create dedicated Claude rules file"
+    );
+    let content = std::fs::read_to_string(&rules_path).expect("rules readable");
+    assert!(
+        content.contains("lean-ctx-rules-"),
+        "rules must contain marker"
     );
 }
