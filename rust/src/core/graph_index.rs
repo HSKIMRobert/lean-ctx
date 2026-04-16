@@ -3,7 +3,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::deps;
+use crate::core::import_resolver;
 use crate::core::signatures;
 
 const INDEX_VERSION: u32 = 1;
@@ -263,7 +263,6 @@ pub fn scan(project_root: &str) -> ProjectIndex {
                         index.symbols.insert(key.clone(), sym.clone());
                     }
                     reused += 1;
-                    add_edges(&mut index, &rel_path, &content, ext);
                     continue;
                 }
             }
@@ -309,9 +308,10 @@ pub fn scan(project_root: &str) -> ProjectIndex {
             );
         }
 
-        add_edges(&mut index, &rel_path, &content, ext);
         scanned += 1;
     }
+
+    build_edges(&mut index);
 
     if let Err(e) = index.save() {
         eprintln!("Warning: could not save graph index: {e}");
@@ -329,15 +329,65 @@ pub fn scan(project_root: &str) -> ProjectIndex {
     index
 }
 
-fn add_edges(index: &mut ProjectIndex, rel_path: &str, content: &str, ext: &str) {
-    let dep_info = deps::extract_deps(content, ext);
-    for imp in &dep_info.imports {
-        index.edges.push(IndexEdge {
-            from: rel_path.to_string(),
-            to: imp.clone(),
-            kind: "import".to_string(),
-        });
+fn build_edges(index: &mut ProjectIndex) {
+    index.edges.clear();
+
+    let root = index.project_root.clone();
+    let root_path = Path::new(&root);
+
+    let mut file_paths: Vec<String> = index.files.keys().cloned().collect();
+    file_paths.sort();
+
+    let resolver_ctx = import_resolver::ResolverContext::new(root_path, file_paths.clone());
+
+    for rel_path in &file_paths {
+        let abs_path = root_path.join(rel_path);
+        let content = match std::fs::read_to_string(&abs_path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        let ext = Path::new(rel_path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
+
+        // Vue/Svelte store JS/TS imports inside <script>; resolution is best-effort TS-like.
+        let resolve_ext = match ext {
+            "vue" | "svelte" => "ts",
+            _ => ext,
+        };
+
+        let imports = crate::core::deep_queries::analyze(&content, resolve_ext).imports;
+        if imports.is_empty() {
+            continue;
+        }
+
+        let resolved =
+            import_resolver::resolve_imports(&imports, rel_path, resolve_ext, &resolver_ctx);
+        for r in resolved {
+            if r.is_external {
+                continue;
+            }
+            if let Some(to) = r.resolved_path {
+                index.edges.push(IndexEdge {
+                    from: rel_path.clone(),
+                    to,
+                    kind: "import".to_string(),
+                });
+            }
+        }
     }
+
+    index.edges.sort_by(|a, b| {
+        a.from
+            .cmp(&b.from)
+            .then_with(|| a.to.cmp(&b.to))
+            .then_with(|| a.kind.cmp(&b.kind))
+    });
+    index
+        .edges
+        .dedup_by(|a, b| a.from == b.from && a.to == b.to && a.kind == b.kind);
 }
 
 fn find_symbol_range(content: &str, sig: &signatures::Signature) -> (usize, usize) {
@@ -473,29 +523,7 @@ fn make_relative(path: &str, root: &str) -> String {
 }
 
 fn is_indexable_ext(ext: &str) -> bool {
-    matches!(
-        ext,
-        "rs" | "ts"
-            | "tsx"
-            | "js"
-            | "jsx"
-            | "py"
-            | "go"
-            | "java"
-            | "c"
-            | "cpp"
-            | "h"
-            | "hpp"
-            | "rb"
-            | "cs"
-            | "kt"
-            | "swift"
-            | "php"
-            | "ex"
-            | "exs"
-            | "vue"
-            | "svelte"
-    )
+    crate::core::language_capabilities::is_indexable_ext(ext)
 }
 
 #[cfg(test)]

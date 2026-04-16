@@ -252,8 +252,8 @@ impl ServerHandler for LeanCtxServer {
                 let stale = self.is_prompt_cache_stale().await;
                 let effective_mode = LeanCtxServer::upgrade_mode_if_stale(&mode, stale).to_string();
                 let mut cache = self.cache.write().await;
-                let output = if fresh {
-                    crate::tools::ctx_read::handle_fresh_with_task(
+                let (output, resolved_mode) = if fresh {
+                    crate::tools::ctx_read::handle_fresh_with_task_resolved(
                         &mut cache,
                         &path,
                         &effective_mode,
@@ -261,7 +261,7 @@ impl ServerHandler for LeanCtxServer {
                         task_ref,
                     )
                 } else {
-                    crate::tools::ctx_read::handle_with_task(
+                    crate::tools::ctx_read::handle_with_task_resolved(
                         &mut cache,
                         &path,
                         &effective_mode,
@@ -284,7 +284,7 @@ impl ServerHandler for LeanCtxServer {
                 let mut ensured_root: Option<String> = None;
                 {
                     let mut session = self.session.write().await;
-                    session.touch_file(&path, file_ref.as_deref(), &effective_mode, original);
+                    session.touch_file(&path, file_ref.as_deref(), &resolved_mode, original);
                     if is_cache_hit {
                         session.record_cache_hit();
                     }
@@ -313,7 +313,7 @@ impl ServerHandler for LeanCtxServer {
                 if let Some(root) = ensured_root.as_deref() {
                     crate::core::index_orchestrator::ensure_all_background(root);
                 }
-                self.record_call("ctx_read", original, saved, Some(mode.clone()))
+                self.record_call("ctx_read", original, saved, Some(resolved_mode.clone()))
                     .await;
                 crate::core::heatmap::record_file_access(&path, original, saved);
                 {
@@ -325,7 +325,7 @@ impl ServerHandler for LeanCtxServer {
                         1.0
                     };
                     let outcome = crate::core::mode_predictor::ModeOutcome {
-                        mode: mode.clone(),
+                        mode: resolved_mode.clone(),
                         tokens_in: original,
                         tokens_out: output_tokens,
                         density: density.min(1.0),
@@ -779,9 +779,15 @@ impl ServerHandler for LeanCtxServer {
                 let budget = get_int(args, "budget")
                     .ok_or_else(|| ErrorData::invalid_params("budget is required", None))?
                     as usize;
+                let task = get_str(args, "task");
                 let mut cache = self.cache.write().await;
-                let output =
-                    crate::tools::ctx_fill::handle(&mut cache, &paths, budget, self.crp_mode);
+                let output = crate::tools::ctx_fill::handle(
+                    &mut cache,
+                    &paths,
+                    budget,
+                    self.crp_mode,
+                    task.as_deref(),
+                );
                 drop(cache);
                 self.record_call("ctx_fill", 0, 0, Some(format!("budget:{budget}")))
                     .await;
@@ -1097,6 +1103,48 @@ impl ServerHandler for LeanCtxServer {
                     .await;
                 result
             }
+            "ctx_prefetch" => {
+                let root = match get_str(args, "root") {
+                    Some(r) => r,
+                    None => {
+                        let session = self.session.read().await;
+                        session
+                            .project_root
+                            .clone()
+                            .unwrap_or_else(|| ".".to_string())
+                    }
+                };
+                let task = get_str(args, "task");
+                let changed_files = get_str_array(args, "changed_files");
+                let budget_tokens = get_int(args, "budget_tokens")
+                    .map(|n| n.max(0) as usize)
+                    .unwrap_or(3000);
+                let max_files = get_int(args, "max_files").map(|n| n.max(1) as usize);
+
+                let mut resolved_changed: Option<Vec<String>> = None;
+                if let Some(files) = changed_files {
+                    let mut v = Vec::with_capacity(files.len());
+                    for p in files {
+                        v.push(self.resolve_path(&p).await);
+                    }
+                    resolved_changed = Some(v);
+                }
+
+                let mut cache = self.cache.write().await;
+                let result = crate::tools::ctx_prefetch::handle(
+                    &mut cache,
+                    &root,
+                    task.as_deref(),
+                    resolved_changed.as_deref(),
+                    budget_tokens,
+                    max_files,
+                    self.crp_mode,
+                );
+                drop(cache);
+                self.record_call("ctx_prefetch", 0, 0, Some("prefetch".to_string()))
+                    .await;
+                result
+            }
             "ctx_wrapped" => {
                 let period = get_str(args, "period").unwrap_or_else(|| "week".to_string());
                 let result = crate::tools::ctx_wrapped::handle(&period);
@@ -1290,6 +1338,263 @@ impl ServerHandler for LeanCtxServer {
                 let result = crate::tools::ctx_cost::handle(&action, agent_id.as_deref(), limit);
                 self.record_call("ctx_cost", 0, 0, Some(action)).await;
                 result
+            }
+            "ctx_feedback" => {
+                let action = get_str(args, "action").unwrap_or_else(|| "report".to_string());
+                let limit = get_int(args, "limit")
+                    .map(|n| n.max(1) as usize)
+                    .unwrap_or(500);
+                match action.as_str() {
+                    "record" => {
+                        let current_agent_id = { self.agent_id.read().await.clone() };
+                        let agent_id = get_str(args, "agent_id").or(current_agent_id);
+                        let agent_id = agent_id.ok_or_else(|| {
+                            ErrorData::invalid_params(
+                                "agent_id is required (or register an agent via project_root detection first)",
+                                None,
+                            )
+                        })?;
+
+                        let (ctx_read_last_mode, ctx_read_modes) = {
+                            let calls = self.tool_calls.read().await;
+                            let mut last: Option<String> = None;
+                            let mut modes: std::collections::BTreeMap<String, u64> =
+                                std::collections::BTreeMap::new();
+                            for rec in calls.iter().rev().take(50) {
+                                if rec.tool != "ctx_read" {
+                                    continue;
+                                }
+                                if let Some(m) = rec.mode.as_ref() {
+                                    *modes.entry(m.clone()).or_insert(0) += 1;
+                                    if last.is_none() {
+                                        last = Some(m.clone());
+                                    }
+                                }
+                            }
+                            (last, if modes.is_empty() { None } else { Some(modes) })
+                        };
+
+                        let llm_input_tokens =
+                            get_int(args, "llm_input_tokens").ok_or_else(|| {
+                                ErrorData::invalid_params("llm_input_tokens is required", None)
+                            })?;
+                        let llm_output_tokens =
+                            get_int(args, "llm_output_tokens").ok_or_else(|| {
+                                ErrorData::invalid_params("llm_output_tokens is required", None)
+                            })?;
+                        if llm_input_tokens <= 0 || llm_output_tokens <= 0 {
+                            return Err(ErrorData::invalid_params(
+                                "llm_input_tokens and llm_output_tokens must be > 0",
+                                None,
+                            ));
+                        }
+
+                        let ev = crate::core::llm_feedback::LlmFeedbackEvent {
+                            agent_id,
+                            intent: get_str(args, "intent"),
+                            model: get_str(args, "model"),
+                            llm_input_tokens: llm_input_tokens as u64,
+                            llm_output_tokens: llm_output_tokens as u64,
+                            latency_ms: get_int(args, "latency_ms").map(|n| n.max(0) as u64),
+                            note: get_str(args, "note"),
+                            ctx_read_last_mode,
+                            ctx_read_modes,
+                            timestamp: chrono::Local::now().to_rfc3339(),
+                        };
+                        let result = crate::tools::ctx_feedback::record(ev)
+                            .unwrap_or_else(|e| format!("Error recording feedback: {e}"));
+                        self.record_call("ctx_feedback", 0, 0, Some(action)).await;
+                        result
+                    }
+                    "status" => {
+                        let result = crate::tools::ctx_feedback::status();
+                        self.record_call("ctx_feedback", 0, 0, Some(action)).await;
+                        result
+                    }
+                    "json" => {
+                        let result = crate::tools::ctx_feedback::json(limit);
+                        self.record_call("ctx_feedback", 0, 0, Some(action)).await;
+                        result
+                    }
+                    "reset" => {
+                        let result = crate::tools::ctx_feedback::reset();
+                        self.record_call("ctx_feedback", 0, 0, Some(action)).await;
+                        result
+                    }
+                    _ => {
+                        let result = crate::tools::ctx_feedback::report(limit);
+                        self.record_call("ctx_feedback", 0, 0, Some(action)).await;
+                        result
+                    }
+                }
+            }
+            "ctx_handoff" => {
+                let action = get_str(args, "action").unwrap_or_else(|| "list".to_string());
+                match action.as_str() {
+                    "list" => {
+                        let items = crate::core::handoff_ledger::list_ledgers();
+                        let result = crate::tools::ctx_handoff::format_list(&items);
+                        self.record_call("ctx_handoff", 0, 0, Some(action)).await;
+                        result
+                    }
+                    "clear" => {
+                        let removed =
+                            crate::core::handoff_ledger::clear_ledgers().unwrap_or_default();
+                        let result = crate::tools::ctx_handoff::format_clear(removed);
+                        self.record_call("ctx_handoff", 0, 0, Some(action)).await;
+                        result
+                    }
+                    "show" => {
+                        let path = get_str(args, "path").ok_or_else(|| {
+                            ErrorData::invalid_params("path is required for action=show", None)
+                        })?;
+                        let path = self.resolve_path(&path).await;
+                        let ledger =
+                            crate::core::handoff_ledger::load_ledger(std::path::Path::new(&path))
+                                .map_err(|e| {
+                                ErrorData::internal_error(format!("load ledger: {e}"), None)
+                            })?;
+                        let result = crate::tools::ctx_handoff::format_show(
+                            std::path::Path::new(&path),
+                            &ledger,
+                        );
+                        self.record_call("ctx_handoff", 0, 0, Some(action)).await;
+                        result
+                    }
+                    "create" => {
+                        let curated_paths = get_str_array(args, "paths").unwrap_or_default();
+                        let mut curated_refs: Vec<(String, String)> = Vec::new();
+                        if !curated_paths.is_empty() {
+                            let mut cache = self.cache.write().await;
+                            for p in curated_paths.into_iter().take(20) {
+                                let abs = self.resolve_path(&p).await;
+                                let text = crate::tools::ctx_read::handle_with_task(
+                                    &mut cache,
+                                    &abs,
+                                    "signatures",
+                                    self.crp_mode,
+                                    None,
+                                );
+                                curated_refs.push((abs, text));
+                            }
+                        }
+
+                        let session = { self.session.read().await.clone() };
+                        let tool_calls = { self.tool_calls.read().await.clone() };
+                        let workflow = { self.workflow.read().await.clone() };
+                        let agent_id = { self.agent_id.read().await.clone() };
+                        let client_name = { self.client_name.read().await.clone() };
+                        let project_root = session.project_root.clone();
+
+                        let (ledger, path) = crate::core::handoff_ledger::create_ledger(
+                            crate::core::handoff_ledger::CreateLedgerInput {
+                                agent_id,
+                                client_name: Some(client_name),
+                                project_root,
+                                session,
+                                tool_calls,
+                                workflow,
+                                curated_refs,
+                            },
+                        )
+                        .map_err(|e| {
+                            ErrorData::internal_error(format!("create ledger: {e}"), None)
+                        })?;
+
+                        let result = crate::tools::ctx_handoff::format_created(&path, &ledger);
+                        self.record_call("ctx_handoff", 0, 0, Some(action)).await;
+                        result
+                    }
+                    "pull" => {
+                        let path = get_str(args, "path").ok_or_else(|| {
+                            ErrorData::invalid_params("path is required for action=pull", None)
+                        })?;
+                        let path = self.resolve_path(&path).await;
+                        let ledger =
+                            crate::core::handoff_ledger::load_ledger(std::path::Path::new(&path))
+                                .map_err(|e| {
+                                ErrorData::internal_error(format!("load ledger: {e}"), None)
+                            })?;
+
+                        let apply_workflow = get_bool(args, "apply_workflow").unwrap_or(true);
+                        let apply_session = get_bool(args, "apply_session").unwrap_or(true);
+                        let apply_knowledge = get_bool(args, "apply_knowledge").unwrap_or(true);
+
+                        if apply_workflow {
+                            let mut wf = self.workflow.write().await;
+                            *wf = ledger.workflow.clone();
+                        }
+
+                        if apply_session {
+                            let mut session = self.session.write().await;
+                            if let Some(t) = ledger.session.task.as_deref() {
+                                session.set_task(t, None);
+                            }
+                            for d in &ledger.session.decisions {
+                                session.add_decision(d, None);
+                            }
+                            for f in &ledger.session.findings {
+                                session.add_finding(None, None, f);
+                            }
+                            session.next_steps = ledger.session.next_steps.clone();
+                            let _ = session.save();
+                        }
+
+                        let mut knowledge_imported = 0u32;
+                        let mut contradictions = 0u32;
+                        if apply_knowledge {
+                            let root = if let Some(r) = ledger.project_root.as_deref() {
+                                r.to_string()
+                            } else {
+                                let session = self.session.read().await;
+                                session
+                                    .project_root
+                                    .clone()
+                                    .unwrap_or_else(|| ".".to_string())
+                            };
+                            let session_id = {
+                                let s = self.session.read().await;
+                                s.id.clone()
+                            };
+                            let mut knowledge =
+                                crate::core::knowledge::ProjectKnowledge::load_or_create(&root);
+                            for fact in &ledger.knowledge.facts {
+                                let c = knowledge.remember(
+                                    &fact.category,
+                                    &fact.key,
+                                    &fact.value,
+                                    &session_id,
+                                    fact.confidence,
+                                );
+                                if c.is_some() {
+                                    contradictions += 1;
+                                }
+                                knowledge_imported += 1;
+                            }
+                            let _ = knowledge.run_memory_lifecycle();
+                            let _ = knowledge.save();
+                        }
+
+                        let lines = [
+                            "ctx_handoff pull".to_string(),
+                            format!(" path: {}", path),
+                            format!(" md5: {}", ledger.content_md5),
+                            format!(" applied_workflow: {}", apply_workflow),
+                            format!(" applied_session: {}", apply_session),
+                            format!(" imported_knowledge: {}", knowledge_imported),
+                            format!(" contradictions: {}", contradictions),
+                        ];
+                        let result = lines.join("\n");
+                        self.record_call("ctx_handoff", 0, 0, Some(action)).await;
+                        result
+                    }
+                    _ => {
+                        let result =
+                            "Unknown action. Use: create, show, list, pull, clear".to_string();
+                        self.record_call("ctx_handoff", 0, 0, Some(action)).await;
+                        result
+                    }
+                }
             }
             "ctx_heatmap" => {
                 let action = get_str(args, "action").unwrap_or_else(|| "status".to_string());
@@ -1720,7 +2025,7 @@ mod tests {
     fn disabled_tools_filters_list() {
         let all = crate::tool_defs::granular_tool_defs();
         let total = all.len();
-        let disabled = vec!["ctx_graph".to_string(), "ctx_agent".to_string()];
+        let disabled = ["ctx_graph".to_string(), "ctx_agent".to_string()];
         let filtered: Vec<_> = all
             .into_iter()
             .filter(|t| !disabled.iter().any(|d| t.name.as_ref() == d.as_str()))
@@ -1746,7 +2051,7 @@ mod tests {
     fn misspelled_disabled_tool_is_silently_ignored() {
         let all = crate::tool_defs::granular_tool_defs();
         let total = all.len();
-        let disabled = vec!["ctx_nonexistent_tool".to_string()];
+        let disabled = ["ctx_nonexistent_tool".to_string()];
         let filtered: Vec<_> = all
             .into_iter()
             .filter(|t| !disabled.iter().any(|d| t.name.as_ref() == d.as_str()))

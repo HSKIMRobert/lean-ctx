@@ -42,6 +42,16 @@ pub fn handle_with_task(
     handle_with_options(cache, path, mode, false, crp_mode, task)
 }
 
+pub fn handle_with_task_resolved(
+    cache: &mut SessionCache,
+    path: &str,
+    mode: &str,
+    crp_mode: CrpMode,
+    task: Option<&str>,
+) -> (String, String) {
+    handle_with_options_resolved(cache, path, mode, false, crp_mode, task)
+}
+
 pub fn handle_fresh_with_task(
     cache: &mut SessionCache,
     path: &str,
@@ -52,6 +62,16 @@ pub fn handle_fresh_with_task(
     handle_with_options(cache, path, mode, true, crp_mode, task)
 }
 
+pub fn handle_fresh_with_task_resolved(
+    cache: &mut SessionCache,
+    path: &str,
+    mode: &str,
+    crp_mode: CrpMode,
+    task: Option<&str>,
+) -> (String, String) {
+    handle_with_options_resolved(cache, path, mode, true, crp_mode, task)
+}
+
 fn handle_with_options(
     cache: &mut SessionCache,
     path: &str,
@@ -60,6 +80,17 @@ fn handle_with_options(
     crp_mode: CrpMode,
     task: Option<&str>,
 ) -> String {
+    handle_with_options_resolved(cache, path, mode, fresh, crp_mode, task).0
+}
+
+fn handle_with_options_resolved(
+    cache: &mut SessionCache,
+    path: &str,
+    mode: &str,
+    fresh: bool,
+    crp_mode: CrpMode,
+    task: Option<&str>,
+) -> (String, String) {
     let file_ref = cache.get_file_ref(path);
     let short = protocol::shorten_path(path);
     let ext = Path::new(path)
@@ -72,18 +103,26 @@ fn handle_with_options(
     }
 
     if mode == "diff" {
-        return handle_diff(cache, path, &file_ref);
+        return (handle_diff(cache, path, &file_ref), "diff".to_string());
     }
 
     if let Some(existing) = cache.get(path) {
         if mode == "full" {
-            return handle_full_with_auto_delta(cache, path, &file_ref, &short, ext, crp_mode);
+            return (
+                handle_full_with_auto_delta(cache, path, &file_ref, &short, ext, crp_mode),
+                "full".to_string(),
+            );
         }
         let content = existing.content.clone();
         let original_tokens = existing.original_tokens;
-        return process_mode(
+        let resolved_mode = if mode == "auto" {
+            resolve_auto_mode(path, original_tokens, task)
+        } else {
+            mode.to_string()
+        };
+        let out = process_mode(
             &content,
-            mode,
+            &resolved_mode,
             &file_ref,
             &short,
             ext,
@@ -92,11 +131,12 @@ fn handle_with_options(
             path,
             task,
         );
+        return (out, resolved_mode);
     }
 
     let content = match read_file_lossy(path) {
         Ok(c) => c,
-        Err(e) => return format!("ERROR: {e}"),
+        Err(e) => return (format!("ERROR: {e}"), "error".to_string()),
     };
 
     let similar_hint = find_semantic_similar(path, &content);
@@ -111,12 +151,18 @@ fn handle_with_options(
         if let Some(hint) = similar_hint {
             output.push_str(&format!("\n{hint}"));
         }
-        return output;
+        return (output, "full".to_string());
     }
+
+    let resolved_mode = if mode == "auto" {
+        resolve_auto_mode(path, entry.original_tokens, task)
+    } else {
+        mode.to_string()
+    };
 
     let mut output = process_mode(
         &content,
-        mode,
+        &resolved_mode,
         &file_ref,
         &short,
         ext,
@@ -128,7 +174,20 @@ fn handle_with_options(
     if let Some(hint) = similar_hint {
         output.push_str(&format!("\n{hint}"));
     }
-    output
+    (output, resolved_mode)
+}
+
+fn resolve_auto_mode(file_path: &str, original_tokens: usize, task: Option<&str>) -> String {
+    let sig = crate::core::mode_predictor::FileSignature::from_path(file_path, original_tokens);
+    let predictor = crate::core::mode_predictor::ModePredictor::new();
+    let mut predicted = predictor
+        .predict_best_mode(&sig)
+        .unwrap_or_else(|| "full".to_string());
+    if predicted == "auto" {
+        predicted = "full".to_string();
+    }
+    let policy = crate::core::adaptive_mode_policy::AdaptiveModePolicyStore::load();
+    policy.choose_auto_mode(task, &predicted)
 }
 
 fn find_semantic_similar(path: &str, content: &str) -> Option<String> {
@@ -313,15 +372,10 @@ fn process_mode(
 
     match mode {
         "auto" => {
-            let sig =
-                crate::core::mode_predictor::FileSignature::from_path(file_path, original_tokens);
-            let predictor = crate::core::mode_predictor::ModePredictor::new();
-            let resolved = predictor
-                .predict_best_mode(&sig)
-                .unwrap_or_else(|| "full".to_string());
+            let chosen = resolve_auto_mode(file_path, original_tokens, task);
             process_mode(
                 content,
-                &resolved,
+                &chosen,
                 file_ref,
                 short,
                 ext,
@@ -472,9 +526,21 @@ fn process_mode(
             let header = format!(
                 "{file_ref}={short} {line_count}L [task-filtered: {line_count}→{filtered_lines}]"
             );
-            let sent = count_tokens(&filtered) + count_tokens(&header);
+            let project_root = detect_project_root(file_path);
+            let graph_ctx = crate::core::graph_context::build_graph_context(
+                file_path,
+                &project_root,
+                Some(crate::core::graph_context::GraphContextOptions::default()),
+            )
+            .map(|c| crate::core::graph_context::format_graph_context(&c))
+            .unwrap_or_default();
+
+            let sent = count_tokens(&filtered) + count_tokens(&header) + count_tokens(&graph_ctx);
             let savings = protocol::format_savings(original_tokens, sent);
-            append_compressed_hint(&format!("{header}\n{filtered}\n{savings}"), file_path)
+            append_compressed_hint(
+                &format!("{header}\n{filtered}{graph_ctx}\n{savings}"),
+                file_path,
+            )
         }
         "reference" => {
             let tok = count_tokens(content);

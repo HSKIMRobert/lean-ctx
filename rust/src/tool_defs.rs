@@ -235,6 +235,10 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
                     "budget": {
                         "type": "integer",
                         "description": "Maximum token budget to fill"
+                    },
+                    "task": {
+                        "type": "string",
+                        "description": "Optional task for POP intent-driven pruning"
                     }
                 },
                 "required": ["paths", "budget"]
@@ -327,14 +331,14 @@ recall (search), pattern (record convention), consolidate (extract session findi
 gotcha (record a bug/mistake to never repeat — trigger+resolution required), \
 timeline (view fact history for a category), rooms (list knowledge categories), \
 search (cross-session search across ALL projects), wakeup (compact AAAK briefing), \
-status (list all), remove, export.",
+status (list all), remove, export, embeddings_status|embeddings_reset|embeddings_reindex (local semantic index management for recall).",
             json!({
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["remember", "recall", "pattern", "consolidate", "gotcha", "status", "remove", "export", "timeline", "rooms", "search", "wakeup"],
-                        "description": "Knowledge operation. remember: auto-detects contradictions + tracks temporal validity. timeline: view version history. rooms: list categories. search: cross-project search. wakeup: compact AAAK briefing."
+                        "enum": ["remember", "recall", "pattern", "consolidate", "gotcha", "status", "remove", "export", "timeline", "rooms", "search", "wakeup", "embeddings_status", "embeddings_reset", "embeddings_reindex"],
+                        "description": "Knowledge operation. remember: auto-detects contradictions + tracks temporal validity. timeline: view version history. rooms: list categories. search: cross-project search. wakeup: compact AAAK briefing. embeddings_*: manage local semantic index for recall."
                     },
                     "trigger": {
                         "type": "string",
@@ -491,6 +495,20 @@ pull (receive files shared by other agents), list (show all shared contexts), cl
             }),
         ),
         tool_def(
+            "ctx_prefetch",
+            "Predictive prefetch — prewarm cache for blast radius files (graph + task signals) within budgets.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "root": { "type": "string", "description": "Project root (default: .)" },
+                    "task": { "type": "string", "description": "Optional task for relevance scoring" },
+                    "changed_files": { "type": "array", "items": { "type": "string" }, "description": "Optional changed files (paths) to compute blast radius" },
+                    "budget_tokens": { "type": "integer", "description": "Soft budget hint for mode selection (default: 3000)" },
+                    "max_files": { "type": "integer", "description": "Max files to prefetch (default: 10)" }
+                }
+            }),
+        ),
+        tool_def(
             "ctx_wrapped",
             "Savings report card. Periods: week|month|all.",
             json!({
@@ -523,6 +541,47 @@ pull (receive files shared by other agents), list (show all shared contexts), cl
                         "type": "integer",
                         "description": "Max rows (default: 10)"
                     }
+                }
+            }),
+        ),
+        tool_def(
+            "ctx_feedback",
+            "Harness feedback for LLM output tokens/latency (local-first). Actions: record|report|json|reset|status.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["record", "report", "json", "reset", "status"],
+                        "description": "Operation to perform (default: report)"
+                    },
+                    "agent_id": { "type": "string", "description": "Agent ID (optional; defaults to current agent when available)" },
+                    "intent": { "type": "string", "description": "Intent/task string (optional)" },
+                    "model": { "type": "string", "description": "Model identifier (optional)" },
+                    "llm_input_tokens": { "type": "integer", "description": "Required for action=record" },
+                    "llm_output_tokens": { "type": "integer", "description": "Required for action=record" },
+                    "latency_ms": { "type": "integer", "description": "Optional for action=record" },
+                    "note": { "type": "string", "description": "Optional note (no prompts/PII)" },
+                    "limit": { "type": "integer", "description": "For report/json: how many recent events to consider (default: 500)" }
+                }
+            }),
+        ),
+        tool_def(
+            "ctx_handoff",
+            "Context Ledger Protocol (hashed, deterministic, local-first). Actions: create|show|list|pull|clear.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["create", "show", "list", "pull", "clear"],
+                        "description": "Operation to perform (default: list)"
+                    },
+                    "path": { "type": "string", "description": "Ledger file path (for show/pull)" },
+                    "paths": { "type": "array", "items": { "type": "string" }, "description": "Optional file paths to include as signatures-only curated refs (for create)" },
+                    "apply_workflow": { "type": "boolean", "description": "For pull: apply workflow state (default: true)" },
+                    "apply_session": { "type": "boolean", "description": "For pull: apply session/task snapshot (default: true)" },
+                    "apply_knowledge": { "type": "boolean", "description": "For pull: import knowledge facts (default: true)" }
                 }
             }),
         ),
@@ -834,7 +893,7 @@ analyze (entropy), cache (status|clear|invalidate), discover (missed patterns), 
 delta (incremental diff), dedup (cross-file), fill (budget-aware batch read), intent (auto-read by task), \
 response (compress LLM text), context (session state), graph (build|related|symbol|impact|status), \
 session (load|save|task|finding|decision|status|reset|list|cleanup), \
-knowledge (remember|recall|pattern|consolidate|timeline|rooms|search|wakeup|status|remove|export), \
+knowledge (remember|recall|pattern|consolidate|timeline|rooms|search|wakeup|status|remove|export|embeddings_status|embeddings_reset|embeddings_reindex), \
 agent (register|post|read|status|list|info|diary|recall_diary|diaries), overview (project map), \
 wrapped (savings report), benchmark (file|project), multi_read (batch), semantic_search (BM25), \
 cost (attribution), heatmap (file access), impact (graph impact), architecture (graph structure), \
@@ -905,7 +964,7 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
         ("ctx_delta", "Incremental diff — sends only changed lines since last read.", json!({"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]})),
         ("ctx_edit", "Edit a file via search-and-replace. Works without native Read/Edit tools. Use when Edit requires Read but Read is unavailable.", json!({"type": "object", "properties": {"path": {"type": "string"}, "old_string": {"type": "string"}, "new_string": {"type": "string"}, "replace_all": {"type": "boolean"}, "create": {"type": "boolean"}}, "required": ["path", "new_string"]})),
         ("ctx_dedup", "Cross-file dedup: analyze or apply shared block references.", json!({"type": "object", "properties": {"action": {"type": "string"}}})),
-        ("ctx_fill", "Budget-aware context fill — auto-selects compression per file within token limit.", json!({"type": "object", "properties": {"paths": {"type": "array", "items": {"type": "string"}}, "budget": {"type": "integer"}}, "required": ["paths", "budget"]})),
+        ("ctx_fill", "Budget-aware context fill — auto-selects compression per file within token limit.", json!({"type": "object", "properties": {"paths": {"type": "array", "items": {"type": "string"}}, "budget": {"type": "integer"}, "task": {"type": "string"}}, "required": ["paths", "budget"]})),
         ("ctx_intent", "Structured intent input (optional) — submit compact JSON or short text; server also infers intents automatically from tool calls.", json!({"type": "object", "properties": {"query": {"type": "string"}, "project_root": {"type": "string"}}, "required": ["query"]})),
         ("ctx_response", "Compress LLM response text (remove filler, apply TDD).", json!({"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]})),
         ("ctx_context", "Session context overview — cached files, seen files, session state.", json!({"type": "object", "properties": {}})),
@@ -917,7 +976,7 @@ reset, list (show sessions), cleanup, snapshot (build compaction snapshot ~2KB),
 restore (rebuild state from snapshot after context compaction).", json!({"type": "object", "properties": {"action": {"type": "string"}, "value": {"type": "string"}, "session_id": {"type": "string"}}, "required": ["action"]})),
         ("ctx_knowledge", "Persistent project knowledge with temporal facts + contradiction detection. Actions: remember (auto-tracks validity + detects contradictions), recall, pattern, consolidate, \
 gotcha (record a bug to never repeat — trigger+resolution), timeline (fact version history), rooms (list knowledge categories), \
-search (cross-session/cross-project), wakeup (compact AAAK briefing), status, remove, export.", json!({"type": "object", "properties": {"action": {"type": "string"}, "category": {"type": "string"}, "key": {"type": "string"}, "value": {"type": "string"}, "query": {"type": "string"}, "trigger": {"type": "string"}, "resolution": {"type": "string"}, "severity": {"type": "string"}}, "required": ["action"]})),
+search (cross-session/cross-project), wakeup (compact AAAK briefing), status, remove, export, embeddings_status|embeddings_reset|embeddings_reindex.", json!({"type": "object", "properties": {"action": {"type": "string"}, "category": {"type": "string"}, "key": {"type": "string"}, "value": {"type": "string"}, "query": {"type": "string"}, "trigger": {"type": "string"}, "resolution": {"type": "string"}, "severity": {"type": "string"}}, "required": ["action"]})),
         ("ctx_agent", "Multi-agent coordination with persistent diaries. Actions: register, \
 post, read, status, handoff, sync, diary (log discovery/decision/blocker/progress/insight — persisted), \
 recall_diary (read diary), diaries (list all), list, info.", json!({"type": "object", "properties": {"action": {"type": "string"}, "agent_type": {"type": "string"}, "role": {"type": "string"}, "message": {"type": "string"}, "to_agent": {"type": "string"}, "status": {"type": "string"}}, "required": ["action"]})),
@@ -925,8 +984,11 @@ recall_diary (read diary), diaries (list all), list, info.", json!({"type": "obj
 pull (receive shared files), list (show all shared contexts), clear (remove your shared contexts).", json!({"type": "object", "properties": {"action": {"type": "string"}, "paths": {"type": "string"}, "to_agent": {"type": "string"}, "message": {"type": "string"}}, "required": ["action"]})),
         ("ctx_overview", "Task-relevant project map — use at session start.", json!({"type": "object", "properties": {"task": {"type": "string"}, "path": {"type": "string"}}})),
         ("ctx_preload", "Proactive context loader — reads and caches task-relevant files, returns compact L-curve-optimized summary with critical lines, imports, and signatures. Costs ~50-100 tokens instead of ~5000 for individual reads.", json!({"type": "object", "properties": {"task": {"type": "string", "description": "Task description (e.g. 'fix auth bug in validate_token')"}, "path": {"type": "string", "description": "Project root (default: .)"}}, "required": ["task"]})),
+        ("ctx_prefetch", "Predictive prefetch — prewarm cache for blast radius files (graph + task signals) within budgets.", json!({"type": "object", "properties": {"root": {"type": "string"}, "task": {"type": "string"}, "changed_files": {"type": "array", "items": {"type": "string"}}, "budget_tokens": {"type": "integer"}, "max_files": {"type": "integer"}}})),
         ("ctx_wrapped", "Savings report card. Periods: week|month|all.", json!({"type": "object", "properties": {"period": {"type": "string"}}})),
         ("ctx_cost", "Cost attribution (local-first). Actions: report|agent|tools|json|reset.", json!({"type": "object", "properties": {"action": {"type": "string"}, "agent_id": {"type": "string"}, "limit": {"type": "integer"}}})),
+        ("ctx_feedback", "Harness feedback for LLM output tokens/latency (local-first). Actions: record|report|json|reset|status.", json!({"type": "object", "properties": {"action": {"type": "string"}, "agent_id": {"type": "string"}, "intent": {"type": "string"}, "model": {"type": "string"}, "llm_input_tokens": {"type": "integer"}, "llm_output_tokens": {"type": "integer"}, "latency_ms": {"type": "integer"}, "note": {"type": "string"}, "limit": {"type": "integer"}}})),
+        ("ctx_handoff", "Context Ledger Protocol (hashed, deterministic, local-first). Actions: create|show|list|pull|clear.", json!({"type": "object", "properties": {"action": {"type": "string"}, "path": {"type": "string"}, "paths": {"type": "array", "items": {"type": "string"}}, "apply_workflow": {"type": "boolean"}, "apply_session": {"type": "boolean"}, "apply_knowledge": {"type": "boolean"}}})),
         ("ctx_heatmap", "File access heatmap (local-first). Actions: status|directory|cold|json.", json!({"type": "object", "properties": {"action": {"type": "string"}, "path": {"type": "string"}}})),
         ("ctx_task", "Multi-agent task orchestration. Actions: create|update|list|get|cancel|message|info.", json!({"type": "object", "properties": {"action": {"type": "string"}, "task_id": {"type": "string"}, "to_agent": {"type": "string"}, "description": {"type": "string"}, "state": {"type": "string"}, "message": {"type": "string"}}, "required": ["action"]})),
         ("ctx_impact", "Graph-based impact analysis. Actions: analyze|chain|build|status.", json!({"type": "object", "properties": {"action": {"type": "string"}, "path": {"type": "string"}, "root": {"type": "string"}, "depth": {"type": "integer"}}})),

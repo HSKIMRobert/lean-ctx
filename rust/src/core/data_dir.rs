@@ -12,3 +12,9 @@ pub fn lean_ctx_data_dir() -> Result<PathBuf, String> {
         .ok_or_else(|| "Cannot determine home directory".to_string())?
         .join(".lean-ctx"))
 }
+
+pub fn test_env_lock() -> std::sync::MutexGuard<'static, ()> {
+    use std::sync::{Mutex, OnceLock};
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+}

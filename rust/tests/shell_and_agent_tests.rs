@@ -356,7 +356,7 @@ fn piped_output_is_not_compressed() {
         return;
     }
     let bin = lean_ctx_bin();
-    let script = format!(r#"echo "line one"; echo "line two"; echo "line three""#);
+    let script = r#"echo "line one"; echo "line two"; echo "line three""#.to_string();
     let output = Command::new(&bin)
         .args(["-c", &script])
         .env("LEAN_CTX_DISABLED", "0")

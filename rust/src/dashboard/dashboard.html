@@ -1256,6 +1256,7 @@ function showFileDetail(d) {
 let compressionFiles = [];
 let compressionSelected = null;
 let compressionMode = 'map';
+let compressionTask = '';
 
 async function loadCompression() {
   const container = $('view-compression');
@@ -1282,13 +1283,14 @@ async function loadCompression() {
         <div class="card" style="max-height:600px;overflow:hidden;display:flex;flex-direction:column">
           <h3>Select File</h3>
           <input type="text" class="search-input" placeholder="Filter files..." oninput="filterCompressionFiles(this.value)" style="margin-bottom:8px">
+          <input type="text" class="search-input" placeholder="Optional task (enables task-mode view)..." id="compressionTaskInput" oninput="compressionTask=this.value" style="margin-bottom:8px">
           <div class="file-list" id="compressionFileList"></div>
         </div>
         <div class="card" id="compressionResult">
           <div class="empty-state" style="padding:40px"><h2>Select a file</h2><p>Choose a file from the list to see compression modes in action.</p></div>
         </div>
       </div>
-      ${howItWorks('Compression Algorithms', '<strong>map</strong> &mdash; Extracts dependency graph + exports + key function signatures. Best for understanding file structure without reading code.<br><br><strong>signatures</strong> &mdash; Extracts only the API surface (function/class/type signatures). Strips all implementation details.<br><br><strong>aggressive</strong> &mdash; Removes all comments, blank lines, and non-essential whitespace. Preserves code logic but minimizes formatting.<br><br><strong>entropy</strong> &mdash; Uses Shannon entropy analysis and Jaccard similarity to identify and remove low-information-density sections. Keeps only the most unique, information-rich lines.')}`;
+      ${howItWorks('Compression Algorithms', '<strong>map</strong> &mdash; Extracts dependency graph + exports + key function signatures. Best for understanding file structure without reading code.<br><br><strong>signatures</strong> &mdash; Extracts only the API surface (function/class/type signatures). Strips all implementation details.<br><br><strong>reference</strong> &mdash; A compact file reference (tokens + lines) without content.<br><br><strong>task</strong> &mdash; Task-aware compression (IB filter + graph context) when a task is provided.<br><br><strong>aggressive</strong> &mdash; Removes all comments, blank lines, and non-essential whitespace. Preserves code logic but minimizes formatting.<br><br><strong>entropy</strong> &mdash; Uses Shannon entropy analysis and Jaccard similarity to identify and remove low-information-density sections. Keeps only the most unique, information-rich lines.')}`;
     container.dataset.built = 'true';
     renderCompressionFileList(compressionFiles);
   }
@@ -1318,7 +1320,10 @@ async function selectCompressionFile(path) {
   if (!result) return;
   result.innerHTML = '<div class="loading-state">Compressing...</div>';
   try {
-    const data = await apiFetch('/api/compression-demo?path=' + encodeURIComponent(path));
+    let url = '/api/compression-demo?path=' + encodeURIComponent(path);
+    const t = (compressionTask || '').trim();
+    if (t) url += '&task=' + encodeURIComponent(t);
+    const data = await apiFetch(url);
     if (data.error) { result.innerHTML = `<div class="empty-state"><p>${esc(data.error)}</p></div>`; return; }
     renderCompressionResult(data);
   } catch (e) { result.innerHTML = '<div class="empty-state"><p>Failed to load compression demo.</p></div>'; }
@@ -1328,7 +1333,8 @@ function renderCompressionResult(data) {
   const result = $('compressionResult');
   if (!result) return;
   const modes = data.modes || {};
-  const modeKeys = ['map', 'signatures', 'aggressive', 'entropy'];
+  const modeKeys = ['map', 'signatures', 'reference', 'aggressive', 'entropy'];
+  if (data.task) modeKeys.push('task');
 
   result.innerHTML = `
     <h3>Compression: ${esc(data.path.split('/').pop())} <span class="badge">${ff(data.original_tokens)} tokens &middot; ${ff(data.original_lines)} lines</span></h3>

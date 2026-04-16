@@ -1,5 +1,8 @@
 use chrono::Utc;
 
+#[cfg(feature = "embeddings")]
+use crate::core::embeddings::EmbeddingEngine;
+
 use crate::core::knowledge::ProjectKnowledge;
 use crate::core::session::SessionState;
 
@@ -28,9 +31,156 @@ pub fn handle(
         "rooms" => handle_rooms(project_root),
         "search" => handle_search(query),
         "wakeup" => handle_wakeup(project_root),
+        "embeddings_status" => handle_embeddings_status(project_root),
+        "embeddings_reset" => handle_embeddings_reset(project_root),
+        "embeddings_reindex" => handle_embeddings_reindex(project_root),
         _ => format!(
-            "Unknown action: {action}. Use: remember, recall, pattern, status, remove, export, consolidate, timeline, rooms, search, wakeup"
+            "Unknown action: {action}. Use: remember, recall, pattern, status, remove, export, consolidate, timeline, rooms, search, wakeup, embeddings_status, embeddings_reset, embeddings_reindex"
         ),
+    }
+}
+
+#[cfg(feature = "embeddings")]
+fn embeddings_auto_download_allowed() -> bool {
+    std::env::var("LEAN_CTX_EMBEDDINGS_AUTO_DOWNLOAD")
+        .ok()
+        .map(|v| {
+            matches!(
+                v.trim().to_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(feature = "embeddings")]
+fn embedding_engine() -> Option<&'static EmbeddingEngine> {
+    use std::sync::OnceLock;
+
+    if !EmbeddingEngine::is_available() && !embeddings_auto_download_allowed() {
+        return None;
+    }
+
+    static ENGINE: OnceLock<anyhow::Result<EmbeddingEngine>> = OnceLock::new();
+    ENGINE
+        .get_or_init(EmbeddingEngine::load_default)
+        .as_ref()
+        .ok()
+}
+
+fn handle_embeddings_status(project_root: &str) -> String {
+    #[cfg(feature = "embeddings")]
+    {
+        let knowledge = ProjectKnowledge::load_or_create(project_root);
+        let model_available = EmbeddingEngine::is_available();
+        let auto = embeddings_auto_download_allowed();
+
+        let entries = crate::core::knowledge_embedding::KnowledgeEmbeddingIndex::load(
+            &knowledge.project_hash,
+        )
+        .map(|i| i.entries.len())
+        .unwrap_or(0);
+
+        let path = crate::core::data_dir::lean_ctx_data_dir()
+            .ok()
+            .map(|d| {
+                d.join("knowledge")
+                    .join(&knowledge.project_hash)
+                    .join("embeddings.json")
+            })
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "<unknown>".to_string());
+
+        format!(
+            "Knowledge embeddings: model={}, auto_download={}, index_entries={}, path={path}",
+            if model_available {
+                "present"
+            } else {
+                "missing"
+            },
+            if auto { "on" } else { "off" },
+            entries
+        )
+    }
+    #[cfg(not(feature = "embeddings"))]
+    {
+        let _ = project_root;
+        "ERR: embeddings feature not enabled".to_string()
+    }
+}
+
+fn handle_embeddings_reset(project_root: &str) -> String {
+    #[cfg(feature = "embeddings")]
+    {
+        let knowledge = ProjectKnowledge::load_or_create(project_root);
+        match crate::core::knowledge_embedding::reset(&knowledge.project_hash) {
+            Ok(()) => "Embeddings index reset.".to_string(),
+            Err(e) => format!("Embeddings reset failed: {e}"),
+        }
+    }
+    #[cfg(not(feature = "embeddings"))]
+    {
+        let _ = project_root;
+        "ERR: embeddings feature not enabled".to_string()
+    }
+}
+
+fn handle_embeddings_reindex(project_root: &str) -> String {
+    #[cfg(feature = "embeddings")]
+    {
+        let knowledge = match ProjectKnowledge::load(project_root) {
+            Some(k) => k,
+            None => return "No knowledge stored for this project yet.".to_string(),
+        };
+
+        let engine = match embedding_engine() {
+            Some(e) => e,
+            None => {
+                return "Embeddings model not available. Set LEAN_CTX_EMBEDDINGS_AUTO_DOWNLOAD=1 to allow auto-download, then re-run."
+                    .to_string()
+            }
+        };
+
+        let mut idx =
+            crate::core::knowledge_embedding::KnowledgeEmbeddingIndex::new(&knowledge.project_hash);
+
+        let mut facts: Vec<&crate::core::knowledge::KnowledgeFact> =
+            knowledge.facts.iter().filter(|f| f.is_current()).collect();
+        facts.sort_by(|a, b| {
+            b.confidence
+                .partial_cmp(&a.confidence)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| b.last_confirmed.cmp(&a.last_confirmed))
+                .then_with(|| a.category.cmp(&b.category))
+                .then_with(|| a.key.cmp(&b.key))
+        });
+
+        let max = crate::core::budgets::KNOWLEDGE_EMBEDDINGS_MAX_FACTS;
+        let mut embedded = 0usize;
+        for f in facts.into_iter().take(max) {
+            if crate::core::knowledge_embedding::embed_and_store(
+                &mut idx,
+                engine,
+                &f.category,
+                &f.key,
+                &f.value,
+            )
+            .is_ok()
+            {
+                embedded += 1;
+            }
+        }
+
+        crate::core::knowledge_embedding::compact_against_knowledge(&mut idx, &knowledge);
+        match idx.save() {
+            Ok(()) => format!("Embeddings reindex ok (embedded {embedded} facts)."),
+            Err(e) => format!("Embeddings reindex failed: {e}"),
+        }
+    }
+    #[cfg(not(feature = "embeddings"))]
+    {
+        let _ = project_root;
+        "ERR: embeddings feature not enabled".to_string()
     }
 }
 
@@ -66,6 +216,34 @@ fn handle_remember(
 
     if let Some(c) = contradiction {
         result.push_str(&format!("\n⚠ CONTRADICTION DETECTED: {}", c.resolution));
+    }
+
+    #[cfg(feature = "embeddings")]
+    {
+        if let Some(engine) = embedding_engine() {
+            let mut idx = crate::core::knowledge_embedding::KnowledgeEmbeddingIndex::load(
+                &knowledge.project_hash,
+            )
+            .unwrap_or_else(|| {
+                crate::core::knowledge_embedding::KnowledgeEmbeddingIndex::new(
+                    &knowledge.project_hash,
+                )
+            });
+
+            match crate::core::knowledge_embedding::embed_and_store(&mut idx, engine, cat, k, v) {
+                Ok(()) => {
+                    crate::core::knowledge_embedding::compact_against_knowledge(
+                        &mut idx, &knowledge,
+                    );
+                    if let Err(e) = idx.save() {
+                        result.push_str(&format!("\n(warn: embeddings save failed: {e})"));
+                    }
+                }
+                Err(e) => {
+                    result.push_str(&format!("\n(warn: embeddings update failed: {e})"));
+                }
+            }
+        }
     }
 
     match knowledge.save() {
@@ -115,6 +293,41 @@ fn handle_recall(
     }
 
     if let Some(q) = query {
+        #[cfg(feature = "embeddings")]
+        {
+            if let Some(engine) = embedding_engine() {
+                if let Some(idx) = crate::core::knowledge_embedding::KnowledgeEmbeddingIndex::load(
+                    &knowledge.project_hash,
+                ) {
+                    let limit = crate::core::budgets::KNOWLEDGE_RECALL_FACTS_LIMIT;
+                    let scored = crate::core::knowledge_embedding::semantic_recall(
+                        &knowledge, &idx, engine, q, limit,
+                    );
+                    if !scored.is_empty() {
+                        let hits: Vec<SemanticHit> = scored
+                            .iter()
+                            .map(|s| SemanticHit {
+                                category: s.fact.category.clone(),
+                                key: s.fact.key.clone(),
+                                value: s.fact.value.clone(),
+                                score: s.score,
+                                semantic_score: s.semantic_score,
+                                confidence_score: s.confidence_score,
+                            })
+                            .collect();
+                        apply_retrieval_signals_from_hits(&mut knowledge, &hits);
+                        let mut out = format_semantic_facts(q, &hits);
+                        if let Err(e) = knowledge.save() {
+                            out.push_str(&format!(
+                                "\n(warn: failed to persist retrieval signals: {e})"
+                            ));
+                        }
+                        return out;
+                    }
+                }
+            }
+        }
+
         let limit = crate::core::budgets::KNOWLEDGE_RECALL_FACTS_LIMIT;
         let (facts, total) = knowledge.recall_for_output(q, limit);
         if facts.is_empty() || total == 0 {
@@ -333,6 +546,18 @@ fn handle_remove(project_root: &str, category: Option<&str>, key: Option<&str>) 
     let mut knowledge = ProjectKnowledge::load_or_create(project_root);
     if knowledge.remove_fact(cat, k) {
         let _ = knowledge.run_memory_lifecycle();
+
+        #[cfg(feature = "embeddings")]
+        {
+            if let Some(mut idx) = crate::core::knowledge_embedding::KnowledgeEmbeddingIndex::load(
+                &knowledge.project_hash,
+            ) {
+                idx.remove(cat, k);
+                crate::core::knowledge_embedding::compact_against_knowledge(&mut idx, &knowledge);
+                let _ = idx.save();
+            }
+        }
+
         match knowledge.save() {
             Ok(()) => format!("Removed [{cat}] {k}"),
             Err(e) => format!("Removed but save failed: {e}"),
@@ -679,6 +904,53 @@ fn handle_wakeup(project_root: &str) -> String {
         return "No knowledge yet. Start using ctx_knowledge(action=\"remember\") to build project memory.".to_string();
     }
     format!("WAKE-UP BRIEFING:\n{aaak}")
+}
+
+#[cfg(feature = "embeddings")]
+struct SemanticHit {
+    category: String,
+    key: String,
+    value: String,
+    score: f32,
+    semantic_score: f32,
+    confidence_score: f32,
+}
+
+#[cfg(feature = "embeddings")]
+fn apply_retrieval_signals_from_hits(knowledge: &mut ProjectKnowledge, hits: &[SemanticHit]) {
+    let now = Utc::now();
+    for s in hits {
+        for f in &mut knowledge.facts {
+            if !f.is_current() {
+                continue;
+            }
+            if f.category == s.category && f.key == s.key {
+                f.retrieval_count = f.retrieval_count.saturating_add(1);
+                f.last_retrieved = Some(now);
+                break;
+            }
+        }
+    }
+}
+
+#[cfg(feature = "embeddings")]
+fn format_semantic_facts(query: &str, hits: &[SemanticHit]) -> String {
+    if hits.is_empty() {
+        return format!("No facts matching '{query}'.");
+    }
+    let mut out = format!("Semantic recall '{query}' (showing {}):\n", hits.len());
+    for s in hits {
+        out.push_str(&format!(
+            "  [{}/{}]: {} (score: {:.0}%, sem: {:.0}%, conf: {:.0}%)\n",
+            s.category,
+            s.key,
+            s.value,
+            s.score * 100.0,
+            s.semantic_score * 100.0,
+            s.confidence_score * 100.0
+        ));
+    }
+    out
 }
 
 fn format_facts(

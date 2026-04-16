@@ -571,6 +571,27 @@ fn upsert_codex_toml(existing: &str, binary: &str) -> String {
     out
 }
 
+fn backup_invalid_file(path: &std::path::Path) -> Result<(), String> {
+    if !path.exists() {
+        return Ok(());
+    }
+    let parent = path
+        .parent()
+        .ok_or_else(|| "invalid path (no parent directory)".to_string())?;
+    let filename = path
+        .file_name()
+        .ok_or_else(|| "invalid path (no filename)".to_string())?
+        .to_string_lossy();
+    let pid = std::process::id();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let bak = parent.join(format!("{filename}.lean-ctx.invalid.{pid}.{nanos}.bak"));
+    std::fs::rename(path, bak).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -674,25 +695,4 @@ args = ["x"]
         assert!(tools.contains(&"ctx_workflow"));
         assert!(tools.contains(&"ctx_cost"));
     }
-}
-
-fn backup_invalid_file(path: &std::path::Path) -> Result<(), String> {
-    if !path.exists() {
-        return Ok(());
-    }
-    let parent = path
-        .parent()
-        .ok_or_else(|| "invalid path (no parent directory)".to_string())?;
-    let filename = path
-        .file_name()
-        .ok_or_else(|| "invalid path (no filename)".to_string())?
-        .to_string_lossy();
-    let pid = std::process::id();
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let bak = parent.join(format!("{filename}.lean-ctx.invalid.{pid}.{nanos}.bak"));
-    std::fs::rename(path, bak).map_err(|e| e.to_string())?;
-    Ok(())
 }

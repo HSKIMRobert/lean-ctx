@@ -158,6 +158,7 @@ mod tests {
 
     #[test]
     fn consolidate_promotes_decisions_and_salient_findings_only() {
+        let _lock = crate::core::data_dir::test_env_lock();
         let tmp = tempfile::tempdir().expect("tempdir");
         std::env::set_var(
             "LEAN_CTX_DATA_DIR",

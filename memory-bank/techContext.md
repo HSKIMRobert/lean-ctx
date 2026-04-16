@@ -24,6 +24,7 @@
 ## Website
 - Astro SSG (separater Deploy-Worktree/Branch `deploy`)
 - Tool-Counts/Read-Modes werden aus `website/generated/mcp-tools.json` gerendert
+- TDD/CRP Schema Export (SSOT): `website/generated/tdd-schema.json` (Generator: `cargo run --bin gen_tdd_schema`)
 - Node.js >= 22.12.0 erforderlich
 - Tailwind CSS 4.x
 
@@ -31,6 +32,7 @@
 - `cargo test` muss grün sein (Unit + Integration, aktuell 769+ lib + ~85 integration)
 - Manifest drift wird durch `mcp_manifest_is_up_to_date` verhindert
 - `cargo run --bin gen_mcp_manifest` regeneriert SSOT
+- TDD schema drift wird durch `tdd_schema_is_up_to_date` verhindert
 
 ## Release Profile
 ```toml

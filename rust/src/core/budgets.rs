@@ -22,3 +22,12 @@ pub const PROSPECTIVE_REMINDERS_LIMIT: usize = 2;
 pub const PROSPECTIVE_REMINDER_MAX_CHARS: usize = 160;
 
 pub const INTENTS_PER_SESSION_LIMIT: usize = 50;
+
+// Graph-driven context (budgeted, deterministic)
+pub const GRAPH_CONTEXT_TOKEN_BUDGET: usize = 8000;
+pub const GRAPH_CONTEXT_MAX_FILES: usize = 8;
+pub const GRAPH_CONTEXT_MAX_EDGES: usize = 250;
+pub const GRAPH_CONTEXT_MAX_DEPTH: usize = 2;
+
+// Knowledge embeddings index (bounded growth)
+pub const KNOWLEDGE_EMBEDDINGS_MAX_FACTS: usize = 2000;

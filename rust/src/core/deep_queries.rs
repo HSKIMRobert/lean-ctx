@@ -119,6 +119,18 @@ fn get_language(ext: &str) -> Option<Language> {
         "py" => Some(tree_sitter_python::LANGUAGE.into()),
         "go" => Some(tree_sitter_go::LANGUAGE.into()),
         "java" => Some(tree_sitter_java::LANGUAGE.into()),
+        "c" | "h" => Some(tree_sitter_c::LANGUAGE.into()),
+        "cpp" | "cc" | "cxx" | "hpp" | "hxx" | "hh" => Some(tree_sitter_cpp::LANGUAGE.into()),
+        "rb" => Some(tree_sitter_ruby::LANGUAGE.into()),
+        "cs" => Some(tree_sitter_c_sharp::LANGUAGE.into()),
+        "kt" | "kts" => Some(tree_sitter_kotlin_ng::LANGUAGE.into()),
+        "swift" => Some(tree_sitter_swift::LANGUAGE.into()),
+        "php" => Some(tree_sitter_php::LANGUAGE_PHP.into()),
+        "sh" | "bash" => Some(tree_sitter_bash::LANGUAGE.into()),
+        "dart" => Some(tree_sitter_dart::LANGUAGE.into()),
+        "scala" | "sc" => Some(tree_sitter_scala::LANGUAGE.into()),
+        "ex" | "exs" => Some(tree_sitter_elixir::LANGUAGE.into()),
+        "zig" => Some(tree_sitter_zig::LANGUAGE.into()),
         _ => None,
     }
 }
@@ -135,8 +147,315 @@ fn extract_imports(root: Node, src: &str, ext: &str) -> Vec<ImportInfo> {
         "py" => extract_imports_python(root, src),
         "go" => extract_imports_go(root, src),
         "java" => extract_imports_java(root, src),
+        "c" | "h" | "cpp" | "cc" | "cxx" | "hpp" | "hxx" | "hh" => {
+            extract_imports_c_like(root, src)
+        }
+        "rb" => extract_imports_ruby(root, src),
+        "cs" => extract_imports_csharp(root, src),
+        "kt" | "kts" => extract_imports_kotlin(root, src),
+        "swift" => extract_imports_swift(root, src),
+        "php" => extract_imports_php(root, src),
+        "sh" | "bash" => extract_imports_bash(root, src),
+        "dart" => extract_imports_dart(root, src),
+        "scala" | "sc" => extract_imports_scala(root, src),
+        "ex" | "exs" => extract_imports_elixir(root, src),
+        "zig" => extract_imports_zig(root, src),
         _ => Vec::new(),
     }
+}
+
+#[cfg(feature = "tree-sitter")]
+fn extract_imports_c_like(root: Node, src: &str) -> Vec<ImportInfo> {
+    let mut imports = Vec::new();
+    let mut cursor = root.walk();
+
+    for node in root.children(&mut cursor) {
+        if node.kind() == "preproc_include" {
+            if let Some(s) = find_descendant_by_kind(node, "string_literal")
+                .or_else(|| find_descendant_by_kind(node, "system_lib_string"))
+            {
+                let raw = node_text(s, src);
+                let cleaned = raw
+                    .trim()
+                    .trim_start_matches('"')
+                    .trim_end_matches('"')
+                    .trim_start_matches('<')
+                    .trim_end_matches('>')
+                    .to_string();
+                if !cleaned.is_empty() {
+                    imports.push(ImportInfo {
+                        source: cleaned,
+                        names: Vec::new(),
+                        kind: ImportKind::Named,
+                        line: node.start_position().row + 1,
+                        is_type_only: false,
+                    });
+                }
+            }
+        }
+    }
+    imports
+}
+
+#[cfg(feature = "tree-sitter")]
+fn extract_imports_ruby(root: Node, src: &str) -> Vec<ImportInfo> {
+    let mut imports = Vec::new();
+    let mut cursor = root.walk();
+    for node in root.children(&mut cursor) {
+        let text = node_text(node, src).trim_start().to_string();
+        if text.starts_with("require ") || text.starts_with("require_relative ") {
+            if let Some(s) = find_descendant_by_kind(node, "string") {
+                let source_text = unquote(node_text(s, src));
+                if !source_text.is_empty() {
+                    imports.push(ImportInfo {
+                        source: source_text,
+                        names: Vec::new(),
+                        kind: ImportKind::Named,
+                        line: node.start_position().row + 1,
+                        is_type_only: false,
+                    });
+                }
+            }
+        }
+    }
+    imports
+}
+
+#[cfg(feature = "tree-sitter")]
+fn extract_imports_csharp(root: Node, src: &str) -> Vec<ImportInfo> {
+    let mut imports = Vec::new();
+    let mut cursor = root.walk();
+    for node in root.children(&mut cursor) {
+        if node.kind() == "using_directive" {
+            let text = node_text(node, src)
+                .trim()
+                .trim_start_matches("using")
+                .trim()
+                .trim_end_matches(';')
+                .trim()
+                .to_string();
+            if !text.is_empty() {
+                imports.push(ImportInfo {
+                    source: text,
+                    names: Vec::new(),
+                    kind: ImportKind::Named,
+                    line: node.start_position().row + 1,
+                    is_type_only: false,
+                });
+            }
+        }
+    }
+    imports
+}
+
+#[cfg(feature = "tree-sitter")]
+fn extract_imports_kotlin(root: Node, src: &str) -> Vec<ImportInfo> {
+    let mut imports = Vec::new();
+    let mut cursor = root.walk();
+    for node in root.children(&mut cursor) {
+        if node.kind() == "import_header" {
+            let text = node_text(node, src)
+                .trim()
+                .trim_start_matches("import")
+                .trim()
+                .to_string();
+            if !text.is_empty() {
+                imports.push(ImportInfo {
+                    source: text,
+                    names: Vec::new(),
+                    kind: ImportKind::Named,
+                    line: node.start_position().row + 1,
+                    is_type_only: false,
+                });
+            }
+        }
+    }
+    imports
+}
+
+#[cfg(feature = "tree-sitter")]
+fn extract_imports_swift(root: Node, src: &str) -> Vec<ImportInfo> {
+    let mut imports = Vec::new();
+    let mut cursor = root.walk();
+    for node in root.children(&mut cursor) {
+        if node.kind() == "import_declaration" {
+            let text = node_text(node, src)
+                .trim()
+                .trim_start_matches("import")
+                .trim()
+                .to_string();
+            if !text.is_empty() {
+                imports.push(ImportInfo {
+                    source: text,
+                    names: Vec::new(),
+                    kind: ImportKind::Named,
+                    line: node.start_position().row + 1,
+                    is_type_only: false,
+                });
+            }
+        }
+    }
+    imports
+}
+
+#[cfg(feature = "tree-sitter")]
+fn extract_imports_php(root: Node, src: &str) -> Vec<ImportInfo> {
+    let mut imports = Vec::new();
+    let mut cursor = root.walk();
+    for node in root.children(&mut cursor) {
+        let kind = node.kind();
+        if kind.contains("include") || kind.contains("require") {
+            if let Some(s) = find_descendant_by_kind(node, "string") {
+                let source_text = unquote(node_text(s, src));
+                if !source_text.is_empty() {
+                    imports.push(ImportInfo {
+                        source: source_text,
+                        names: Vec::new(),
+                        kind: ImportKind::Named,
+                        line: node.start_position().row + 1,
+                        is_type_only: false,
+                    });
+                }
+            }
+        }
+    }
+    imports
+}
+
+#[cfg(feature = "tree-sitter")]
+fn extract_imports_bash(root: Node, src: &str) -> Vec<ImportInfo> {
+    let mut imports = Vec::new();
+    let mut cursor = root.walk();
+    for node in root.children(&mut cursor) {
+        if node.kind() == "command" {
+            let text = node_text(node, src).trim().to_string();
+            if text.starts_with("source ") || text.starts_with(". ") {
+                let parts: Vec<&str> = text.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    let p = parts[1].trim_matches('"').trim_matches('\'').to_string();
+                    if !p.is_empty() {
+                        imports.push(ImportInfo {
+                            source: p,
+                            names: Vec::new(),
+                            kind: ImportKind::Named,
+                            line: node.start_position().row + 1,
+                            is_type_only: false,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    imports
+}
+
+#[cfg(feature = "tree-sitter")]
+fn extract_imports_dart(root: Node, src: &str) -> Vec<ImportInfo> {
+    let mut imports = Vec::new();
+    let mut cursor = root.walk();
+    for node in root.children(&mut cursor) {
+        if node.kind() == "import_or_export" || node.kind() == "library_import" {
+            if let Some(s) = find_descendant_by_kind(node, "string_literal")
+                .or_else(|| find_descendant_by_kind(node, "string"))
+            {
+                let source_text = unquote(node_text(s, src));
+                if !source_text.is_empty() {
+                    imports.push(ImportInfo {
+                        source: source_text,
+                        names: Vec::new(),
+                        kind: ImportKind::Named,
+                        line: node.start_position().row + 1,
+                        is_type_only: false,
+                    });
+                }
+            }
+        }
+    }
+    imports
+}
+
+#[cfg(feature = "tree-sitter")]
+fn extract_imports_scala(root: Node, src: &str) -> Vec<ImportInfo> {
+    let mut imports = Vec::new();
+    let mut cursor = root.walk();
+    for node in root.children(&mut cursor) {
+        if node.kind() == "import_declaration" {
+            let text = node_text(node, src)
+                .trim()
+                .trim_start_matches("import")
+                .trim()
+                .to_string();
+            if !text.is_empty() {
+                imports.push(ImportInfo {
+                    source: text,
+                    names: Vec::new(),
+                    kind: ImportKind::Named,
+                    line: node.start_position().row + 1,
+                    is_type_only: false,
+                });
+            }
+        }
+    }
+    imports
+}
+
+#[cfg(feature = "tree-sitter")]
+fn extract_imports_elixir(root: Node, src: &str) -> Vec<ImportInfo> {
+    let mut imports = Vec::new();
+    let mut cursor = root.walk();
+    for node in root.children(&mut cursor) {
+        let text = node_text(node, src).trim().to_string();
+        for kw in ["alias ", "import ", "require ", "use "] {
+            if text.starts_with(kw) {
+                let rest = text.trim_start_matches(kw).trim();
+                if !rest.is_empty() {
+                    let module = rest
+                        .split_whitespace()
+                        .next()
+                        .unwrap_or("")
+                        .trim_end_matches(',')
+                        .trim_end_matches(';')
+                        .to_string();
+                    if !module.is_empty() {
+                        imports.push(ImportInfo {
+                            source: module,
+                            names: Vec::new(),
+                            kind: ImportKind::Named,
+                            line: node.start_position().row + 1,
+                            is_type_only: false,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    imports
+}
+
+#[cfg(feature = "tree-sitter")]
+fn extract_imports_zig(root: Node, src: &str) -> Vec<ImportInfo> {
+    let mut imports = Vec::new();
+    let mut cursor = root.walk();
+    for node in root.children(&mut cursor) {
+        let text = node_text(node, src);
+        if text.contains("@import") {
+            if let Some(s) = find_descendant_by_kind(node, "string_literal")
+                .or_else(|| find_descendant_by_kind(node, "string"))
+            {
+                let source_text = unquote(node_text(s, src));
+                if !source_text.is_empty() {
+                    imports.push(ImportInfo {
+                        source: source_text,
+                        names: Vec::new(),
+                        kind: ImportKind::Named,
+                        line: node.start_position().row + 1,
+                        is_type_only: false,
+                    });
+                }
+            }
+        }
+    }
+    imports
 }
 
 #[cfg(feature = "tree-sitter")]
@@ -1327,5 +1646,41 @@ app.listen(3000);
     fn unsupported_extension() {
         let analysis = analyze("some content", "txt");
         assert!(analysis.imports.is_empty());
+    }
+
+    #[test]
+    fn c_include_import() {
+        let src = r#"
+#include "foo/bar.h"
+#include <stdio.h>
+"#;
+        let analysis = analyze(src, "c");
+        assert!(analysis.imports.iter().any(|i| i.source == "foo/bar.h"));
+    }
+
+    #[test]
+    fn bash_source_import() {
+        let src = r#"
+source "./scripts/env.sh"
+. ../common.sh
+"#;
+        let analysis = analyze(src, "sh");
+        assert!(
+            analysis
+                .imports
+                .iter()
+                .any(|i| i.source.contains("scripts/env.sh")),
+            "expected source import"
+        );
+    }
+
+    #[test]
+    fn zig_at_import() {
+        let src = r#"
+const m = @import("lib/math.zig");
+const std = @import("std");
+"#;
+        let analysis = analyze(src, "zig");
+        assert!(analysis.imports.iter().any(|i| i.source == "lib/math.zig"));
     }
 }

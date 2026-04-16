@@ -2,6 +2,7 @@
 
 ## Fertig (Phase 1–3)
 - **SSOT Manifest**: Generator + CI Gate, `website/generated/mcp-tools.json`
+- **SSOT TDD Schema**: Generator + CI Gate, `website/generated/tdd-schema.json` (`cargo run --bin gen_tdd_schema`)
 - **42 Tools / 10 Read Modes**: Runtime + Website aligned
 - **Rails**: Workflow State Machine + Gatekeeper + Evidence + `ctx_workflow`
 - **Observability**: `ctx_cost`, `ctx_heatmap` wired + default-on (local-first)

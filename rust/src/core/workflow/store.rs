@@ -2,7 +2,9 @@ use crate::core::workflow::types::WorkflowRun;
 use std::path::PathBuf;
 
 fn active_workflow_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| h.join(".lean-ctx/workflows/active.json"))
+    crate::core::data_dir::lean_ctx_data_dir()
+        .ok()
+        .map(|d| d.join("workflows").join("active.json"))
 }
 
 pub fn load_active() -> Result<Option<WorkflowRun>, String> {

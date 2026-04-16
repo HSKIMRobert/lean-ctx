@@ -37,7 +37,9 @@ pub fn handle(
 
     apply_heat_ranking(&mut scored, &index, &project_root);
 
-    let candidates = scored;
+    let pop = crate::core::pop_pruning::decide_for_candidates(task, &project_root, &scored);
+    let candidates =
+        crate::core::pop_pruning::filter_candidates_by_pop(&project_root, &scored, &pop);
 
     if candidates.is_empty() {
         return format!(
@@ -95,6 +97,16 @@ pub fn handle(
 
     for r in crate::core::prospective_memory::reminders_for_task(&project_root, task) {
         output.push(r);
+    }
+
+    if !pop.excluded_modules.is_empty() {
+        output.push("POP:".to_string());
+        for ex in &pop.excluded_modules {
+            output.push(format!(
+                "  - exclude {}/ ({} candidates) — {}",
+                ex.module, ex.candidate_files, ex.reason
+            ));
+        }
     }
 
     let mut total_estimated_saved = 0usize;

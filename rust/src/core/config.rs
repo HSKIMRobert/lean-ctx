@@ -296,8 +296,10 @@ mod disabled_tools_tests {
         if std::env::var("LEAN_CTX_DISABLED_TOOLS").is_ok() {
             return;
         }
-        let mut cfg = Config::default();
-        cfg.disabled_tools = vec!["ctx_graph".to_string(), "ctx_agent".to_string()];
+        let cfg = Config {
+            disabled_tools: vec!["ctx_graph".to_string(), "ctx_agent".to_string()],
+            ..Default::default()
+        };
         assert_eq!(
             cfg.disabled_tools_effective(),
             vec!["ctx_graph", "ctx_agent"]

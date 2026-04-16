@@ -115,6 +115,7 @@ mod tests {
 
     #[test]
     fn reminders_budgeted() {
+        let _lock = crate::core::data_dir::test_env_lock();
         let tmp = tempfile::tempdir().expect("tempdir");
         std::env::set_var(
             "LEAN_CTX_DATA_DIR",

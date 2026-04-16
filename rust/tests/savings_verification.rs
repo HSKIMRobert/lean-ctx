@@ -475,16 +475,13 @@ fn audit_full_savings_pipeline() {
             code.push(format!(
                 "    let data = db.query(\"SELECT * FROM table_{i}\");"
             ));
-            code.push(format!(
+            code.push(
                 "    let filtered = data.iter().filter(|r| r.active).collect::<Vec<_>>();"
-            ));
-            code.push(format!(
-                "    let result = process_items(&filtered, req.params());"
-            ));
-            code.push(format!(
-                "    if result.is_err() {{ return Response::error(500); }}"
-            ));
-            code.push(format!("    Response::json(result.unwrap())"));
+                    .to_string(),
+            );
+            code.push("    let result = process_items(&filtered, req.params());".to_string());
+            code.push("    if result.is_err() { return Response::error(500); }".to_string());
+            code.push("    Response::json(result.unwrap())".to_string());
             code.push("}".to_string());
             code.push(String::new());
         }

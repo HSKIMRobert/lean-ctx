@@ -295,6 +295,7 @@ async fn handle_request(mut stream: tokio::net::TcpStream, token: Option<Arc<Str
             let body = match extract_query_param(query_str, "path") {
                 None => r#"{"error":"missing path query parameter"}"#.to_string(),
                 Some(rel) => {
+                    let task = extract_query_param(query_str, "task");
                     let root = detect_project_root_for_dashboard();
                     let root_pb = std::path::Path::new(&root);
                     let candidate = std::path::Path::new(&rel);
@@ -324,10 +325,12 @@ async fn handle_request(mut stream: tokio::net::TcpStream, token: Option<Arc<Str
                                 &path_str,
                                 ext,
                                 original_tokens,
+                                task.as_deref(),
                             );
                             let original_preview: String = content.chars().take(8000).collect();
                             serde_json::json!({
                                 "path": path_str,
+                                "task": task,
                                 "original_lines": original_lines,
                                 "original_tokens": original_tokens,
                                 "original": original_preview,
@@ -462,6 +465,7 @@ fn compression_demo_modes_json(
     path: &str,
     ext: &str,
     original_tokens: usize,
+    task: Option<&str>,
 ) -> serde_json::Value {
     let map_out = crate::core::signatures::extract_file_map(path, content);
     let sig_out = crate::core::signatures::extract_signatures(content, ext)
@@ -471,11 +475,27 @@ fn compression_demo_modes_json(
         .join("\n");
     let aggressive_out = crate::core::filters::aggressive_filter(content);
     let entropy_out = crate::core::entropy::entropy_compress_adaptive(content, path).output;
+
+    let mut cache = crate::core::cache::SessionCache::new();
+    let reference_out =
+        crate::tools::ctx_read::handle(&mut cache, path, "reference", crate::tools::CrpMode::Off);
+    let task_out = task.filter(|t| !t.trim().is_empty()).map(|t| {
+        crate::tools::ctx_read::handle_with_task(
+            &mut cache,
+            path,
+            "task",
+            crate::tools::CrpMode::Off,
+            Some(t),
+        )
+    });
+
     serde_json::json!({
         "map": compression_mode_json(&map_out, original_tokens),
         "signatures": compression_mode_json(&sig_out, original_tokens),
+        "reference": compression_mode_json(&reference_out, original_tokens),
         "aggressive": compression_mode_json(&aggressive_out, original_tokens),
         "entropy": compression_mode_json(&entropy_out, original_tokens),
+        "task": task_out.as_deref().map(|s| compression_mode_json(s, original_tokens)).unwrap_or(serde_json::Value::Null),
     })
 }
 

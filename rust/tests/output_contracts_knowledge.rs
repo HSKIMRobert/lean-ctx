@@ -4,6 +4,7 @@ use lean_ctx::core::knowledge::ProjectKnowledge;
 
 #[test]
 fn ctx_knowledge_recall_is_budgeted_and_deterministic() {
+    let _g = lean_ctx::core::data_dir::test_env_lock();
     let tmp = tempfile::tempdir().expect("tempdir");
     let data_dir = tmp.path().join("data");
     std::fs::create_dir_all(&data_dir).expect("create data dir");
@@ -68,6 +69,7 @@ fn ctx_knowledge_recall_is_budgeted_and_deterministic() {
 
 #[test]
 fn ctx_knowledge_export_is_file_backed_not_json_stdout() {
+    let _g = lean_ctx::core::data_dir::test_env_lock();
     let tmp = tempfile::tempdir().expect("tempdir");
     let data_dir = tmp.path().join("data");
     std::fs::create_dir_all(&data_dir).expect("create data dir");

@@ -919,14 +919,12 @@ mod passthrough_tests {
 
     #[test]
     fn is_container_returns_bool() {
-        let result = super::is_container();
-        assert!(result == true || result == false);
+        let _ = super::is_container();
     }
 
     #[test]
     fn is_non_interactive_returns_bool() {
-        let result = super::is_non_interactive();
-        assert!(result == true || result == false);
+        let _ = super::is_non_interactive();
     }
 
     #[test]
