@@ -2,6 +2,9 @@ use regex::Regex;
 use std::collections::HashSet;
 use std::sync::OnceLock;
 
+#[cfg(feature = "tree-sitter")]
+use super::deep_queries::{self, ImportKind};
+
 static IMPORT_RE: OnceLock<Regex> = OnceLock::new();
 static REQUIRE_RE: OnceLock<Regex> = OnceLock::new();
 static RUST_USE_RE: OnceLock<Regex> = OnceLock::new();
@@ -55,6 +58,9 @@ pub fn extract_deps(content: &str, ext: &str) -> DepInfo {
         Some(crate::core::language_capabilities::LanguageId::Ruby) => extract_ruby_deps(content),
         Some(crate::core::language_capabilities::LanguageId::Php) => extract_php_deps(content),
         Some(crate::core::language_capabilities::LanguageId::Bash) => extract_bash_deps(content),
+        Some(crate::core::language_capabilities::LanguageId::Kotlin) => {
+            extract_kotlin_deps(content)
+        }
         Some(crate::core::language_capabilities::LanguageId::Dart) => {
             let mut imports = HashSet::new();
             let re = DART_IMPORT_RE.get_or_init(|| {
@@ -249,6 +255,32 @@ fn extract_go_deps(content: &str) -> DepInfo {
     DepInfo {
         imports: imports.into_iter().collect(),
         exports,
+    }
+}
+
+#[cfg(feature = "tree-sitter")]
+fn extract_kotlin_deps(content: &str) -> DepInfo {
+    let analysis = deep_queries::analyze(content, "kt");
+    let imports = analysis
+        .imports
+        .into_iter()
+        .map(|import| match import.kind {
+            ImportKind::Star => format!("{}.*", import.source),
+            _ => import.source,
+        })
+        .collect();
+
+    DepInfo {
+        imports,
+        exports: analysis.exports,
+    }
+}
+
+#[cfg(not(feature = "tree-sitter"))]
+fn extract_kotlin_deps(_content: &str) -> DepInfo {
+    DepInfo {
+        imports: Vec::new(),
+        exports: Vec::new(),
     }
 }
 
@@ -466,5 +498,25 @@ const std = @import("std");
         let deps = extract_deps(src, "zig");
         assert!(deps.imports.contains(&"lib/math".to_string()));
         assert!(!deps.imports.iter().any(|i| i == "std"), "std is external");
+    }
+
+    #[test]
+    fn kotlin_deps_are_extracted_from_ast() {
+        let content = r#"
+package com.example.app
+
+import com.example.services.UserService
+import com.example.shared.*
+
+class Feature
+fun build(): Feature = Feature()
+"#;
+        let deps = extract_deps(content, "kt");
+        assert!(deps
+            .imports
+            .contains(&"com.example.services.UserService".to_string()));
+        assert!(deps.imports.contains(&"com.example.shared.*".to_string()));
+        assert!(deps.exports.contains(&"Feature".to_string()));
+        assert!(deps.exports.contains(&"build".to_string()));
     }
 }

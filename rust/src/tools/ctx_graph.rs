@@ -209,13 +209,19 @@ fn handle_symbol(
     format!("{result}[ctx_graph symbol: {tokens} tok (full file: {full_tokens} tok, -{pct}%)]")
 }
 
-fn file_path_to_module_prefixes(rel_path: &str, project_root: &str) -> Vec<String> {
+fn file_path_to_module_prefixes(
+    rel_path: &str,
+    project_root: &str,
+    index: &ProjectIndex,
+) -> Vec<String> {
     let without_ext = rel_path
         .strip_suffix(".rs")
         .or_else(|| rel_path.strip_suffix(".ts"))
         .or_else(|| rel_path.strip_suffix(".tsx"))
         .or_else(|| rel_path.strip_suffix(".js"))
         .or_else(|| rel_path.strip_suffix(".py"))
+        .or_else(|| rel_path.strip_suffix(".kt"))
+        .or_else(|| rel_path.strip_suffix(".kts"))
         .unwrap_or(rel_path);
 
     let module_path = without_ext
@@ -251,6 +257,33 @@ fn file_path_to_module_prefixes(rel_path: &str, project_root: &str) -> Vec<Strin
     if !crate_name.is_empty() {
         prefixes.insert(0, format!("{crate_name}::{module_path}"));
     }
+
+    let ext = Path::new(rel_path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+    if matches!(ext, "kt" | "kts") {
+        let abs_path = Path::new(project_root).join(rel_path);
+        if let Ok(content) = std::fs::read_to_string(abs_path) {
+            if let Some(package_name) = content.lines().map(str::trim).find_map(|line| {
+                line.strip_prefix("package ")
+                    .map(|rest| rest.trim().trim_end_matches(';').to_string())
+            }) {
+                prefixes.push(package_name.clone());
+                if let Some(entry) = index.files.get(rel_path) {
+                    for export in &entry.exports {
+                        prefixes.push(format!("{package_name}.{export}"));
+                    }
+                }
+                if let Some(file_stem) = Path::new(rel_path).file_stem().and_then(|s| s.to_str()) {
+                    prefixes.push(format!("{package_name}.{file_stem}"));
+                }
+            }
+        }
+    }
+
+    prefixes.sort();
+    prefixes.dedup();
     prefixes
 }
 
@@ -280,7 +313,7 @@ fn handle_impact(path: Option<&str>, root: &str) -> String {
         .unwrap_or(target)
         .trim_start_matches('/');
 
-    let module_prefixes = file_path_to_module_prefixes(rel_target, root);
+    let module_prefixes = file_path_to_module_prefixes(rel_target, root, &index);
 
     let direct: Vec<&str> = index
         .edges
@@ -398,14 +431,16 @@ mod tests {
 
     #[test]
     fn test_file_path_to_module_prefixes_rust() {
-        let prefixes = file_path_to_module_prefixes("src/core/cache.rs", "/nonexistent");
+        let index = ProjectIndex::new("/nonexistent");
+        let prefixes = file_path_to_module_prefixes("src/core/cache.rs", "/nonexistent", &index);
         assert!(prefixes.contains(&"crate::core::cache".to_string()));
         assert!(prefixes.contains(&"core::cache".to_string()));
     }
 
     #[test]
     fn test_file_path_to_module_prefixes_mod_rs() {
-        let prefixes = file_path_to_module_prefixes("src/core/mod.rs", "/nonexistent");
+        let index = ProjectIndex::new("/nonexistent");
+        let prefixes = file_path_to_module_prefixes("src/core/mod.rs", "/nonexistent", &index);
         assert!(prefixes.contains(&"crate::core".to_string()));
         assert!(!prefixes.iter().any(|p| p.contains("mod")));
     }
