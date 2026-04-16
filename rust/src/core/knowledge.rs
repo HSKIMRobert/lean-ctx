@@ -306,7 +306,7 @@ impl ProjectKnowledge {
             .iter()
             .filter(|f| f.category == category)
             .collect();
-        facts.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        facts.sort_by_key(|x| x.created_at);
         facts
     }
 
@@ -658,11 +658,13 @@ impl ProjectKnowledge {
         }
         target
             .patterns
-            .sort_by(|a, b| b.created_at.cmp(&a.created_at));
+            .sort_by_key(|x| std::cmp::Reverse(x.created_at));
         if target.patterns.len() > MAX_PATTERNS {
             target.patterns.truncate(MAX_PATTERNS);
         }
-        target.history.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        target
+            .history
+            .sort_by_key(|x| std::cmp::Reverse(x.timestamp));
         if target.history.len() > MAX_HISTORY {
             target.history.truncate(MAX_HISTORY);
         }

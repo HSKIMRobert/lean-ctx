@@ -82,7 +82,7 @@ fn compress_eslint(output: &str) -> String {
     ));
 
     let mut rules: Vec<(String, (u32, u32))> = by_rule.into_iter().collect();
-    rules.sort_by(|a, b| (b.1 .0 + b.1 .1).cmp(&(a.1 .0 + a.1 .1)));
+    rules.sort_by_key(|(_, (errors, warnings))| std::cmp::Reverse(*errors + *warnings));
 
     for (rule, (errors, warnings)) in rules.iter().take(10) {
         let total = errors + warnings;

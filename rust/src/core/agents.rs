@@ -397,7 +397,7 @@ impl AgentDiary {
                 }
             }
         }
-        results.sort_by(|a, b| b.2.cmp(&a.2));
+        results.sort_by_key(|x| std::cmp::Reverse(x.2));
         results
     }
 }

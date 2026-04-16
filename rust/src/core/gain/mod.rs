@@ -133,13 +133,13 @@ impl GainEngine {
         }
 
         let mut out: Vec<TaskGainRow> = by_cat.into_values().collect();
-        out.sort_by(|a, b| b.tokens_saved.cmp(&a.tokens_saved));
+        out.sort_by_key(|x| std::cmp::Reverse(x.tokens_saved));
         out
     }
 
     pub fn heatmap_gains(&self, limit: usize) -> Vec<FileGainRow> {
         let mut items: Vec<_> = self.heatmap.entries.values().collect();
-        items.sort_by(|a, b| b.total_tokens_saved.cmp(&a.total_tokens_saved));
+        items.sort_by_key(|x| std::cmp::Reverse(x.total_tokens_saved));
         items.truncate(limit);
         items
             .into_iter()

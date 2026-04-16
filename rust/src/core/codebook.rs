@@ -67,7 +67,7 @@ impl Codebook {
             .collect();
 
         // Sort by frequency descending (most common boilerplate first)
-        candidates.sort_by(|a, b| b.1.cmp(&a.1));
+        candidates.sort_by_key(|x| std::cmp::Reverse(x.1));
 
         // Take top 50 patterns to keep codebook compact
         for (pattern, freq, idf) in candidates.into_iter().take(50) {

@@ -145,7 +145,7 @@ fn compress_golint(output: &str) -> String {
 
     let total: u32 = by_linter.values().sum();
     let mut linters: Vec<(String, u32)> = by_linter.into_iter().collect();
-    linters.sort_by(|a, b| b.1.cmp(&a.1));
+    linters.sort_by_key(|x| std::cmp::Reverse(x.1));
 
     let mut parts = Vec::new();
     parts.push(format!("{total} issues in {} files", files.len()));

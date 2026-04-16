@@ -188,7 +188,7 @@ fn scan_project(root: &str) -> Vec<PathBuf> {
         files.push((path, size));
     }
 
-    files.sort_by(|a, b| b.1.cmp(&a.1));
+    files.sort_by_key(|x| std::cmp::Reverse(x.1));
 
     let mut selected = Vec::new();
     let mut ext_counts: HashMap<String, usize> = HashMap::new();
@@ -333,7 +333,7 @@ fn aggregate_languages(files: &[FileMeasurement]) -> Vec<LanguageStats> {
             total_tokens,
         })
         .collect();
-    stats.sort_by(|a, b| b.total_tokens.cmp(&a.total_tokens));
+    stats.sort_by_key(|x| std::cmp::Reverse(x.total_tokens));
     stats
 }
 

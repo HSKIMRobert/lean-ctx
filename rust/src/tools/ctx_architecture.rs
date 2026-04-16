@@ -434,7 +434,7 @@ fn compute_clusters(data: &GraphData) -> Vec<Cluster> {
         });
     }
 
-    clusters.sort_by(|a, b| b.files.len().cmp(&a.files.len()));
+    clusters.sort_by_key(|x| std::cmp::Reverse(x.files.len()));
     clusters
 }
 

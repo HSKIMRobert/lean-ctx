@@ -173,7 +173,7 @@ fn compress_logs(output: &str) -> String {
         }
     }
     let mut sorted: Vec<_> = deduped.into_iter().collect();
-    sorted.sort_by(|a, b| b.1.cmp(&a.1));
+    sorted.sort_by_key(|x| std::cmp::Reverse(x.1));
     let top: Vec<String> = sorted
         .iter()
         .take(15)

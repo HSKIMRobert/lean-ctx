@@ -397,17 +397,17 @@ fn command_exists(name: &str) -> bool {
     result
 }
 
-fn detect_vscode_installed(home: &std::path::Path) -> bool {
+fn detect_vscode_installed(_home: &std::path::Path) -> bool {
     let check_dir = |dir: PathBuf| -> bool {
         dir.join("settings.json").exists() || dir.join("mcp.json").exists()
     };
 
     #[cfg(target_os = "macos")]
-    if check_dir(home.join("Library/Application Support/Code/User")) {
+    if check_dir(_home.join("Library/Application Support/Code/User")) {
         return true;
     }
     #[cfg(target_os = "linux")]
-    if check_dir(home.join(".config/Code/User")) {
+    if check_dir(_home.join(".config/Code/User")) {
         return true;
     }
     #[cfg(target_os = "windows")]
@@ -431,10 +431,10 @@ fn detect_jetbrains_installed(home: &std::path::Path) -> bool {
     home.join(".jb-mcp.json").exists()
 }
 
-fn detect_extension_installed(home: &std::path::Path, extension_id: &str) -> bool {
+fn detect_extension_installed(_home: &std::path::Path, extension_id: &str) -> bool {
     #[cfg(target_os = "macos")]
     {
-        if home
+        if _home
             .join(format!(
                 "Library/Application Support/Code/User/globalStorage/{extension_id}"
             ))
@@ -445,7 +445,7 @@ fn detect_extension_installed(home: &std::path::Path, extension_id: &str) -> boo
     }
     #[cfg(target_os = "linux")]
     {
-        if home
+        if _home
             .join(format!(".config/Code/User/globalStorage/{extension_id}"))
             .exists()
         {

@@ -75,7 +75,7 @@ impl HeatMap {
 
     pub fn top_files(&self, limit: usize) -> Vec<&HeatEntry> {
         let mut sorted: Vec<&HeatEntry> = self.entries.values().collect();
-        sorted.sort_by(|a, b| b.access_count.cmp(&a.access_count));
+        sorted.sort_by_key(|x| std::cmp::Reverse(x.access_count));
         sorted.truncate(limit);
         sorted
     }
@@ -95,7 +95,7 @@ impl HeatMap {
             .into_iter()
             .map(|(dir, (count, saved))| (dir, count, saved))
             .collect();
-        result.sort_by(|a, b| b.1.cmp(&a.1));
+        result.sort_by_key(|x| std::cmp::Reverse(x.1));
         result
     }
 

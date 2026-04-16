@@ -57,7 +57,7 @@ impl WrappedReport {
                 (cmd.clone(), saved, pct)
             })
             .collect();
-        top_commands.sort_by(|a, b| b.1.cmp(&a.1));
+        top_commands.sort_by_key(|x| std::cmp::Reverse(x.1));
         top_commands.truncate(5);
 
         let cache_hit_rate = if tokens_input > 0 {

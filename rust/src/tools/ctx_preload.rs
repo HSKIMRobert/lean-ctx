@@ -301,7 +301,7 @@ fn extract_critical_lines(content: &str, keywords: &[String], max: usize) -> Vec
         })
         .collect();
 
-    hits.sort_by(|a, b| b.2.cmp(&a.2));
+    hits.sort_by_key(|x| std::cmp::Reverse(x.2));
     hits.truncate(max);
     hits.iter().map(|(n, l, _)| (*n, l.clone())).collect()
 }

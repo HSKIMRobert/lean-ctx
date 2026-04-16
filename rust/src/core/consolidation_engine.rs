@@ -39,7 +39,7 @@ pub fn consolidate_latest(
     let mut promoted_findings = 0u32;
 
     let mut decisions = session.decisions.clone();
-    decisions.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    decisions.sort_by_key(|x| std::cmp::Reverse(x.timestamp));
     decisions.truncate(budgets.max_decisions);
     for d in &decisions {
         let key = slug_key(&d.summary, 50);
@@ -48,7 +48,7 @@ pub fn consolidate_latest(
     }
 
     let mut findings = session.findings.clone();
-    findings.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    findings.sort_by_key(|x| std::cmp::Reverse(x.timestamp));
     let mut kept = Vec::new();
     for f in &findings {
         if kept.len() >= budgets.max_findings {

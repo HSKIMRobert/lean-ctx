@@ -200,7 +200,7 @@ impl LoopDetector {
             .filter(|(_, &count)| count > 1)
             .map(|(k, &v)| (k.clone(), v))
             .collect();
-        entries.sort_by(|a, b| b.1.cmp(&a.1));
+        entries.sort_by_key(|x| std::cmp::Reverse(x.1));
         entries
     }
 

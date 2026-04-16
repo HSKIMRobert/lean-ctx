@@ -630,7 +630,7 @@ impl SessionState {
             })
             .collect();
 
-        snapshots.sort_by(|a, b| b.0.cmp(&a.0));
+        snapshots.sort_by_key(|x| std::cmp::Reverse(x.0));
         snapshots
             .first()
             .and_then(|(_, path)| std::fs::read_to_string(path).ok())
@@ -717,7 +717,7 @@ impl SessionState {
             }
         }
 
-        summaries.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        summaries.sort_by_key(|x| std::cmp::Reverse(x.updated_at));
         summaries
     }
 

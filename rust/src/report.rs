@@ -213,7 +213,7 @@ fn section_performance() -> String {
                             v.get("count").and_then(|c| c.as_u64()).map(|c| (k, c))
                         })
                         .collect();
-                    top.sort_by(|a, b| b.1.cmp(&a.1));
+                    top.sort_by_key(|x| std::cmp::Reverse(x.1));
                     top.truncate(5);
                     out.push_str("\n**Top 5 tools:**\n");
                     for (name, count) in top {

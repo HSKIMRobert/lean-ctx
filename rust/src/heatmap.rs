@@ -48,8 +48,8 @@ pub fn cmd_heatmap(args: &[String]) {
     let mut sorted = entries;
     match sort_by {
         SortBy::Heat => sorted.sort_by(|a, b| b.heat_score.partial_cmp(&a.heat_score).unwrap()),
-        SortBy::Tokens => sorted.sort_by(|a, b| b.token_count.cmp(&a.token_count)),
-        SortBy::Connections => sorted.sort_by(|a, b| b.connections.cmp(&a.connections)),
+        SortBy::Tokens => sorted.sort_by_key(|x| std::cmp::Reverse(x.token_count)),
+        SortBy::Connections => sorted.sort_by_key(|x| std::cmp::Reverse(x.connections)),
     }
 
     let top = &sorted[..sorted.len().min(top_n)];

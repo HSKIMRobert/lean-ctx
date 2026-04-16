@@ -40,7 +40,7 @@ fn handle_build(root: &str) -> String {
     ));
 
     let mut langs: Vec<_> = by_lang.iter().collect();
-    langs.sort_by(|a, b| b.1 .1.cmp(&a.1 .1));
+    langs.sort_by_key(|(_, v)| std::cmp::Reverse(v.1));
     result.push("\nLanguages:".to_string());
     for (lang, (count, tokens)) in &langs {
         result.push(format!("  {lang}: {count} files, {tokens} tok"));
@@ -53,7 +53,7 @@ fn handle_build(root: &str) -> String {
         }
     }
     let mut hotspots: Vec<_> = import_counts.iter().collect();
-    hotspots.sort_by(|a, b| b.1.cmp(a.1));
+    hotspots.sort_by_key(|x| std::cmp::Reverse(*x.1));
 
     if !hotspots.is_empty() {
         result.push(format!("\nMost imported ({}):", hotspots.len().min(10)));

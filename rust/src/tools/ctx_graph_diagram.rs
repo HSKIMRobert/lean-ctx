@@ -183,7 +183,7 @@ fn select_top_edges<'a>(
     }
 
     let mut nodes_sorted: Vec<_> = node_counts.into_iter().collect();
-    nodes_sorted.sort_by(|a, b| b.1.cmp(&a.1));
+    nodes_sorted.sort_by_key(|x| std::cmp::Reverse(x.1));
     let top: std::collections::HashSet<&str> = nodes_sorted
         .iter()
         .take(max_nodes)
@@ -208,7 +208,7 @@ fn select_top_call_nodes<'a>(
     }
 
     let mut sorted: Vec<_> = counts.into_iter().collect();
-    sorted.sort_by(|a, b| b.1.cmp(&a.1));
+    sorted.sort_by_key(|x| std::cmp::Reverse(x.1));
     sorted.into_iter().take(max_nodes).map(|(n, _)| n).collect()
 }
 

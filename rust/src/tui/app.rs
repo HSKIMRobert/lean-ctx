@@ -296,7 +296,7 @@ fn draw_task_activity(f: &mut ratatui::Frame, area: Rect, state: &AppState) {
     }
 
     let mut rows: Vec<(TaskCategory, u64)> = counts.into_iter().collect();
-    rows.sort_by(|a, b| b.1.cmp(&a.1));
+    rows.sort_by_key(|x| std::cmp::Reverse(x.1));
 
     let max_items = area.height.saturating_sub(2) as usize;
     let items: Vec<ListItem> = if rows.is_empty() {
@@ -451,7 +451,7 @@ fn draw_heatmap(f: &mut ratatui::Frame, area: Rect, state: &AppState) {
         .style(Style::default().bg(SURFACE));
 
     let mut files: Vec<_> = state.files.iter().collect();
-    files.sort_by(|a, b| b.1.access_count.cmp(&a.1.access_count));
+    files.sort_by_key(|x| std::cmp::Reverse(x.1.access_count));
     let max_access = files.first().map(|f| f.1.access_count).unwrap_or(1).max(1);
 
     let visible = (area.height.saturating_sub(2)) as usize;

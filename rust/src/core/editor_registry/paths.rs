@@ -40,42 +40,53 @@ pub fn vscode_mcp_path() -> PathBuf {
 }
 
 pub fn cline_mcp_path() -> PathBuf {
-    if let Some(home) = dirs::home_dir() {
-        #[cfg(target_os = "macos")]
-        {
-            return home.join("Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json");
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            return PathBuf::from(appdata).join(
+                "Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json",
+            );
         }
-        #[cfg(target_os = "linux")]
-        {
-            return home.join(".config/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json");
-        }
-        #[cfg(target_os = "windows")]
-        {
-            if let Ok(appdata) = std::env::var("APPDATA") {
-                return PathBuf::from(appdata).join("Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json");
-            }
-        }
+        return PathBuf::from("/nonexistent");
     }
+
+    let Some(home) = dirs::home_dir() else {
+        return PathBuf::from("/nonexistent");
+    };
+    #[cfg(target_os = "macos")]
+    {
+        return home.join("Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json");
+    }
+    #[cfg(target_os = "linux")]
+    {
+        return home.join(".config/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json");
+    }
+    #[allow(unreachable_code)]
     PathBuf::from("/nonexistent")
 }
 
 pub fn roo_mcp_path() -> PathBuf {
-    if let Some(home) = dirs::home_dir() {
-        #[cfg(target_os = "macos")]
-        {
-            return home.join("Library/Application Support/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json");
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            return PathBuf::from(appdata)
+                .join("Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json");
         }
-        #[cfg(target_os = "linux")]
-        {
-            return home.join(".config/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json");
-        }
-        #[cfg(target_os = "windows")]
-        {
-            if let Ok(appdata) = std::env::var("APPDATA") {
-                return PathBuf::from(appdata).join("Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json");
-            }
-        }
+        return PathBuf::from("/nonexistent");
     }
+
+    let Some(home) = dirs::home_dir() else {
+        return PathBuf::from("/nonexistent");
+    };
+    #[cfg(target_os = "macos")]
+    {
+        return home.join("Library/Application Support/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json");
+    }
+    #[cfg(target_os = "linux")]
+    {
+        return home.join(".config/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json");
+    }
+    #[allow(unreachable_code)]
     PathBuf::from("/nonexistent")
 }
 

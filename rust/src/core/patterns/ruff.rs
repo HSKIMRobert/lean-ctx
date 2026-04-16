@@ -45,7 +45,7 @@ fn compress_check(output: &str) -> String {
 
     let total: u32 = by_rule.values().sum();
     let mut rules: Vec<(String, u32)> = by_rule.into_iter().collect();
-    rules.sort_by(|a, b| b.1.cmp(&a.1));
+    rules.sort_by_key(|x| std::cmp::Reverse(x.1));
 
     let mut parts = Vec::new();
     parts.push(format!("{total} issues in {} files", files.len()));

@@ -386,7 +386,7 @@ impl LeanCtxServer {
         let entries = cache.get_all_entries();
         if !entries.is_empty() {
             let mut by_access: Vec<_> = entries.iter().collect();
-            by_access.sort_by(|a, b| b.1.read_count.cmp(&a.1.read_count));
+            by_access.sort_by_key(|x| std::cmp::Reverse(x.1.read_count));
             let top_paths: Vec<&str> = by_access
                 .iter()
                 .take(5)

@@ -107,7 +107,7 @@ pub fn handle(cache: &SessionCache, tool_calls: &[ToolCallRecord], crp_mode: Crp
         }
 
         let mut sorted: Vec<_> = by_tool.iter().collect();
-        sorted.sort_by(|a, b| b.1.saved.cmp(&a.1.saved));
+        sorted.sort_by_key(|x| std::cmp::Reverse(x.1.saved));
 
         for (tool, ts) in &sorted {
             let avg = if ts.original > 0 {
@@ -156,7 +156,7 @@ pub fn handle(cache: &SessionCache, tool_calls: &[ToolCallRecord], crp_mode: Crp
             out.push("─".repeat(if crp_mode.is_tdd() { 28 } else { 30 }));
 
             let mut sorted_modes: Vec<_> = by_mode.iter().collect();
-            sorted_modes.sort_by(|a, b| b.1.saved.cmp(&a.1.saved));
+            sorted_modes.sort_by_key(|x| std::cmp::Reverse(x.1.saved));
 
             for (mode, ms) in &sorted_modes {
                 if crp_mode.is_tdd() {

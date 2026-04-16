@@ -48,7 +48,7 @@ impl SymbolMap {
         }
 
         let mut sorted: Vec<(&String, &String)> = self.forward.iter().collect();
-        sorted.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+        sorted.sort_by_key(|x| std::cmp::Reverse(x.0.len()));
 
         let mut result = text.to_string();
         for (long, short) in &sorted {
