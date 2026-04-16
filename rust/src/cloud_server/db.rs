@@ -110,6 +110,21 @@ CREATE TABLE IF NOT EXISTS cep_scores (
   complexity DOUBLE PRECISION
 );
 
+CREATE TABLE IF NOT EXISTS gain_scores (
+  id UUID PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  recorded_at TIMESTAMPTZ NOT NULL,
+  total DOUBLE PRECISION NOT NULL,
+  compression DOUBLE PRECISION NOT NULL,
+  cost_efficiency DOUBLE PRECISION NOT NULL,
+  quality DOUBLE PRECISION NOT NULL,
+  consistency DOUBLE PRECISION NOT NULL,
+  trend TEXT,
+  avoided_usd DOUBLE PRECISION,
+  tool_spend_usd DOUBLE PRECISION,
+  model_key TEXT
+);
+
 CREATE TABLE IF NOT EXISTS gotchas (
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   pattern TEXT NOT NULL,

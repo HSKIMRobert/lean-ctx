@@ -62,13 +62,7 @@ pub struct DayStats {
 }
 
 fn stats_dir() -> Option<PathBuf> {
-    if let Ok(dir) = std::env::var("LEAN_CTX_DATA_DIR") {
-        let trimmed = dir.trim();
-        if !trimmed.is_empty() {
-            return Some(PathBuf::from(trimmed));
-        }
-    }
-    dirs::home_dir().map(|h| h.join(".lean-ctx"))
+    crate::core::data_dir::lean_ctx_data_dir().ok()
 }
 
 fn stats_path() -> Option<PathBuf> {
@@ -149,6 +143,7 @@ pub fn flush() {
 
 pub fn record(command: &str, input_tokens: usize, output_tokens: usize) {
     with_buffer(|store, last_flush| {
+        let is_first_command = store.total_commands == 0;
         let now = chrono::Local::now();
         let today = now.format("%Y-%m-%d").to_string();
         let timestamp = now.to_rfc3339();
@@ -194,7 +189,14 @@ pub fn record(command: &str, input_tokens: usize, output_tokens: usize) {
             store.daily.drain(..store.daily.len() - 90);
         }
 
-        maybe_flush(store, last_flush);
+        // First observable interaction should appear on disk immediately.
+        // This avoids confusing "No commands recorded yet" right after the first MCP call.
+        if is_first_command {
+            save_to_disk(store);
+            *last_flush = Instant::now();
+        } else {
+            maybe_flush(store, last_flush);
+        }
     });
 }
 
@@ -380,9 +382,14 @@ pub struct CostModel {
 
 impl Default for CostModel {
     fn default() -> Self {
+        let env_model = std::env::var("LEAN_CTX_MODEL")
+            .or_else(|_| std::env::var("LCTX_MODEL"))
+            .ok();
+        let pricing = crate::core::gain::model_pricing::ModelPricing::load();
+        let quote = pricing.quote(env_model.as_deref());
         Self {
-            input_price_per_m: DEFAULT_INPUT_PRICE_PER_M,
-            output_price_per_m: DEFAULT_OUTPUT_PRICE_PER_M,
+            input_price_per_m: quote.cost.input_per_m,
+            output_price_per_m: quote.cost.output_per_m,
             avg_verbose_output_per_call: 180,
             avg_concise_output_per_call: 120,
         }
@@ -455,7 +462,12 @@ fn format_usd(amount: f64) -> String {
 }
 
 fn usd_estimate(tokens: u64) -> String {
-    let cost = tokens as f64 * DEFAULT_INPUT_PRICE_PER_M / 1_000_000.0;
+    let env_model = std::env::var("LEAN_CTX_MODEL")
+        .or_else(|_| std::env::var("LCTX_MODEL"))
+        .ok();
+    let pricing = crate::core::gain::model_pricing::ModelPricing::load();
+    let quote = pricing.quote(env_model.as_deref());
+    let cost = tokens as f64 * quote.cost.input_per_m / 1_000_000.0;
     format_usd(cost)
 }
 

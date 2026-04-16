@@ -18,6 +18,7 @@ pub fn run() {
     removed_any |= remove_mcp_configs(&home);
     removed_any |= remove_rules_files(&home);
     removed_any |= remove_hook_files(&home);
+    removed_any |= remove_project_agent_files();
     removed_any |= remove_data_dir(&home);
 
     println!();
@@ -30,6 +31,70 @@ pub fn run() {
     }
 
     print_binary_removal_instructions();
+}
+
+fn remove_project_agent_files() -> bool {
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let agents = cwd.join("AGENTS.md");
+    let lean_ctx_md = cwd.join("LEAN-CTX.md");
+
+    const START: &str = "<!-- lean-ctx -->";
+    const END: &str = "<!-- /lean-ctx -->";
+    const OWNED: &str = "<!-- lean-ctx-owned: PROJECT-LEAN-CTX.md v1 -->";
+
+    let mut removed = false;
+
+    if agents.exists() {
+        if let Ok(content) = fs::read_to_string(&agents) {
+            if content.contains(START) {
+                let cleaned = remove_marked_block(&content, START, END);
+                if cleaned != content {
+                    if let Err(e) = fs::write(&agents, cleaned) {
+                        eprintln!("  ✗ Failed to update project AGENTS.md: {e}");
+                    } else {
+                        println!("  ✓ Project: removed lean-ctx block from AGENTS.md");
+                        removed = true;
+                    }
+                }
+            }
+        }
+    }
+
+    if lean_ctx_md.exists() {
+        if let Ok(content) = fs::read_to_string(&lean_ctx_md) {
+            if content.contains(OWNED) {
+                if let Err(e) = fs::remove_file(&lean_ctx_md) {
+                    eprintln!("  ✗ Failed to remove project LEAN-CTX.md: {e}");
+                } else {
+                    println!("  ✓ Project: removed LEAN-CTX.md");
+                    removed = true;
+                }
+            }
+        }
+    }
+
+    removed
+}
+
+fn remove_marked_block(content: &str, start: &str, end: &str) -> String {
+    let s = content.find(start);
+    let e = content.find(end);
+    match (s, e) {
+        (Some(si), Some(ei)) if ei >= si => {
+            let after_end = ei + end.len();
+            let before = &content[..si];
+            let after = &content[after_end..];
+            let mut out = String::new();
+            out.push_str(before.trim_end_matches('\n'));
+            out.push('\n');
+            if !after.trim().is_empty() {
+                out.push('\n');
+                out.push_str(after.trim_start_matches('\n'));
+            }
+            out
+        }
+        _ => content.to_string(),
+    }
 }
 
 fn remove_shell_hook(home: &Path) -> bool {
@@ -79,9 +144,14 @@ fn remove_shell_hook(home: &Path) -> bool {
 }
 
 fn remove_mcp_configs(home: &Path) -> bool {
+    let claude_cfg_dir_json = std::env::var("CLAUDE_CONFIG_DIR")
+        .ok()
+        .map(|d| PathBuf::from(d).join(".claude.json"))
+        .unwrap_or_else(|| PathBuf::from("/nonexistent"));
     let configs: Vec<(&str, PathBuf)> = vec![
         ("Cursor", home.join(".cursor/mcp.json")),
-        ("Claude Code", crate::setup::claude_config_json_path(home)),
+        ("Claude Code (config dir)", claude_cfg_dir_json),
+        ("Claude Code (home)", home.join(".claude.json")),
         ("Windsurf", home.join(".codeium/windsurf/mcp_config.json")),
         ("Gemini CLI", home.join(".gemini/settings/mcp.json")),
         (
@@ -126,7 +196,7 @@ fn remove_mcp_configs(home: &Path) -> bool {
         }
     }
 
-    let zed_path = zed_settings_path(home);
+    let zed_path = crate::core::editor_registry::zed_settings_path(home);
     if zed_path.exists() {
         if let Ok(content) = fs::read_to_string(&zed_path) {
             if content.contains("lean-ctx") {
@@ -138,7 +208,7 @@ fn remove_mcp_configs(home: &Path) -> bool {
         }
     }
 
-    let vscode_path = vscode_mcp_path();
+    let vscode_path = crate::core::editor_registry::vscode_mcp_path();
     if vscode_path.exists() {
         if let Ok(content) = fs::read_to_string(&vscode_path) {
             if content.contains("lean-ctx") {
@@ -161,8 +231,15 @@ fn remove_rules_files(home: &Path) -> bool {
     let rules_files: Vec<(&str, PathBuf)> = vec![
         (
             "Claude Code",
-            crate::setup::claude_config_dir(home).join("CLAUDE.md"),
+            crate::core::editor_registry::claude_rules_dir(home).join("lean-ctx.md"),
         ),
+        // Legacy: shared CLAUDE.md (older releases).
+        (
+            "Claude Code (legacy)",
+            crate::core::editor_registry::claude_state_dir(home).join("CLAUDE.md"),
+        ),
+        // Legacy: hardcoded home path (very old releases).
+        ("Claude Code (legacy home)", home.join(".claude/CLAUDE.md")),
         ("Cursor", home.join(".cursor/rules/lean-ctx.mdc")),
         ("Gemini CLI", home.join(".gemini/GEMINI.md")),
         (
@@ -220,11 +297,16 @@ fn remove_rules_files(home: &Path) -> bool {
 }
 
 fn remove_hook_files(home: &Path) -> bool {
+    let claude_hooks_dir = crate::core::editor_registry::claude_state_dir(home).join("hooks");
     let hook_files: Vec<PathBuf> = vec![
-        crate::setup::claude_config_dir(home).join("hooks/lean-ctx-rewrite.sh"),
-        crate::setup::claude_config_dir(home).join("hooks/lean-ctx-redirect.sh"),
+        claude_hooks_dir.join("lean-ctx-rewrite.sh"),
+        claude_hooks_dir.join("lean-ctx-redirect.sh"),
+        claude_hooks_dir.join("lean-ctx-rewrite-native"),
+        claude_hooks_dir.join("lean-ctx-redirect-native"),
         home.join(".cursor/hooks/lean-ctx-rewrite.sh"),
         home.join(".cursor/hooks/lean-ctx-redirect.sh"),
+        home.join(".cursor/hooks/lean-ctx-rewrite-native"),
+        home.join(".cursor/hooks/lean-ctx-redirect-native"),
         home.join(".gemini/hooks/lean-ctx-rewrite-gemini.sh"),
         home.join(".gemini/hooks/lean-ctx-redirect-gemini.sh"),
         home.join(".gemini/hooks/lean-ctx-hook-gemini.sh"),
@@ -383,24 +465,4 @@ fn shorten(path: &Path, home: &Path) -> String {
     }
 }
 
-fn zed_settings_path(home: &Path) -> PathBuf {
-    if cfg!(target_os = "macos") {
-        home.join("Library/Application Support/Zed/settings.json")
-    } else {
-        home.join(".config/zed/settings.json")
-    }
-}
-
-fn vscode_mcp_path() -> PathBuf {
-    let home = dirs::home_dir().unwrap_or_default();
-    if cfg!(target_os = "macos") {
-        home.join("Library/Application Support/Code/User/mcp.json")
-    } else if cfg!(target_os = "windows") {
-        if let Ok(appdata) = std::env::var("APPDATA") {
-            return PathBuf::from(appdata).join("Code/User/mcp.json");
-        }
-        home.join("AppData/Roaming/Code/User/mcp.json")
-    } else {
-        home.join(".config/Code/User/mcp.json")
-    }
-}
+// moved to core/editor_registry/paths.rs

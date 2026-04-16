@@ -16,6 +16,12 @@ pub fn cloud_background_tasks() {
         .as_deref()
         .map(|d| d == today)
         .unwrap_or(false);
+    let already_gain_synced = config
+        .cloud
+        .last_gain_sync
+        .as_deref()
+        .map(|d| d == today)
+        .unwrap_or(false);
     let already_pulled = config
         .cloud
         .last_model_pull
@@ -48,6 +54,31 @@ pub fn cloud_background_tasks() {
             }
         }
 
+        if !already_gain_synced {
+            let engine = crate::core::gain::GainEngine::load();
+            let summary = engine.summary(None);
+            let trend = match summary.score.trend {
+                crate::core::gain::gain_score::Trend::Rising => "rising",
+                crate::core::gain::gain_score::Trend::Stable => "stable",
+                crate::core::gain::gain_score::Trend::Declining => "declining",
+            };
+            let entry = serde_json::json!({
+                "recorded_at": format!("{today}T00:00:00Z"),
+                "total": summary.score.total as f64,
+                "compression": summary.score.compression as f64,
+                "cost_efficiency": summary.score.cost_efficiency as f64,
+                "quality": summary.score.quality as f64,
+                "consistency": summary.score.consistency as f64,
+                "trend": trend,
+                "avoided_usd": summary.avoided_usd,
+                "tool_spend_usd": summary.tool_spend_usd,
+                "model_key": summary.model.model_key,
+            });
+            if crate::cloud_client::push_gain(&[entry]).is_ok() {
+                config.cloud.last_gain_sync = Some(today.clone());
+            }
+        }
+
         if !already_pulled {
             if let Ok(data) = crate::cloud_client::pull_cloud_models() {
                 let _ = crate::cloud_client::save_cloud_models(&data);
@@ -63,7 +94,9 @@ pub fn collect_contribute_entries() -> Vec<serde_json::Value> {
     let mut entries = Vec::new();
 
     if let Some(home) = dirs::home_dir() {
-        let mode_stats_path = home.join(".lean-ctx").join("mode_stats.json");
+        let mode_stats_path = crate::core::data_dir::lean_ctx_data_dir()
+            .unwrap_or_else(|_| home.join(".lean-ctx"))
+            .join("mode_stats.json");
         if let Ok(data) = std::fs::read_to_string(&mode_stats_path) {
             if let Ok(predictor) = serde_json::from_str::<serde_json::Value>(&data) {
                 if let Some(history) = predictor["history"].as_object() {
@@ -115,7 +148,18 @@ pub fn collect_contribute_entries() -> Vec<serde_json::Value> {
                 0.0
             };
             if let Some(modes) = parsed["cep"]["modes"].as_object() {
-                let read_modes = ["full", "map", "signatures", "auto", "aggressive", "entropy"];
+                let read_modes = [
+                    "full",
+                    "map",
+                    "signatures",
+                    "auto",
+                    "aggressive",
+                    "entropy",
+                    "diff",
+                    "lines",
+                    "task",
+                    "reference",
+                ];
                 for (mode, count) in modes {
                     if !read_modes.contains(&mode.as_str()) || count.as_u64().unwrap_or(0) == 0 {
                         continue;

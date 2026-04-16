@@ -35,7 +35,9 @@ pub enum CacheResult {
 }
 
 fn cache_dir() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| h.join(".lean-ctx").join("cli-cache"))
+    crate::core::data_dir::lean_ctx_data_dir()
+        .ok()
+        .map(|d| d.join("cli-cache"))
 }
 
 fn cache_file() -> Option<PathBuf> {

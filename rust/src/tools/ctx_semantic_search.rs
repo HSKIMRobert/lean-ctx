@@ -534,7 +534,7 @@ mod filter_tests {
 
     #[test]
     fn filter_language_rust() {
-        let f = SearchFilter::new(Some(&vec!["rust".into()]), None).unwrap();
+        let f = SearchFilter::new(Some(&["rust".into()]), None).unwrap();
         assert!(f.matches("src/main.rs"));
         assert!(!f.matches("src/main.ts"));
     }

@@ -1,3 +1,8 @@
+use chrono::Utc;
+
+#[cfg(feature = "embeddings")]
+use crate::core::embeddings::EmbeddingEngine;
+
 use crate::core::knowledge::ProjectKnowledge;
 use crate::core::session::SessionState;
 
@@ -16,7 +21,7 @@ pub fn handle(
 ) -> String {
     match action {
         "remember" => handle_remember(project_root, category, key, value, session_id, confidence),
-        "recall" => handle_recall(project_root, category, query),
+        "recall" => handle_recall(project_root, category, query, session_id),
         "pattern" => handle_pattern(project_root, pattern_type, value, examples, session_id),
         "status" => handle_status(project_root),
         "remove" => handle_remove(project_root, category, key),
@@ -26,9 +31,156 @@ pub fn handle(
         "rooms" => handle_rooms(project_root),
         "search" => handle_search(query),
         "wakeup" => handle_wakeup(project_root),
+        "embeddings_status" => handle_embeddings_status(project_root),
+        "embeddings_reset" => handle_embeddings_reset(project_root),
+        "embeddings_reindex" => handle_embeddings_reindex(project_root),
         _ => format!(
-            "Unknown action: {action}. Use: remember, recall, pattern, status, remove, export, consolidate, timeline, rooms, search, wakeup"
+            "Unknown action: {action}. Use: remember, recall, pattern, status, remove, export, consolidate, timeline, rooms, search, wakeup, embeddings_status, embeddings_reset, embeddings_reindex"
         ),
+    }
+}
+
+#[cfg(feature = "embeddings")]
+fn embeddings_auto_download_allowed() -> bool {
+    std::env::var("LEAN_CTX_EMBEDDINGS_AUTO_DOWNLOAD")
+        .ok()
+        .map(|v| {
+            matches!(
+                v.trim().to_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(feature = "embeddings")]
+fn embedding_engine() -> Option<&'static EmbeddingEngine> {
+    use std::sync::OnceLock;
+
+    if !EmbeddingEngine::is_available() && !embeddings_auto_download_allowed() {
+        return None;
+    }
+
+    static ENGINE: OnceLock<anyhow::Result<EmbeddingEngine>> = OnceLock::new();
+    ENGINE
+        .get_or_init(EmbeddingEngine::load_default)
+        .as_ref()
+        .ok()
+}
+
+fn handle_embeddings_status(project_root: &str) -> String {
+    #[cfg(feature = "embeddings")]
+    {
+        let knowledge = ProjectKnowledge::load_or_create(project_root);
+        let model_available = EmbeddingEngine::is_available();
+        let auto = embeddings_auto_download_allowed();
+
+        let entries = crate::core::knowledge_embedding::KnowledgeEmbeddingIndex::load(
+            &knowledge.project_hash,
+        )
+        .map(|i| i.entries.len())
+        .unwrap_or(0);
+
+        let path = crate::core::data_dir::lean_ctx_data_dir()
+            .ok()
+            .map(|d| {
+                d.join("knowledge")
+                    .join(&knowledge.project_hash)
+                    .join("embeddings.json")
+            })
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "<unknown>".to_string());
+
+        format!(
+            "Knowledge embeddings: model={}, auto_download={}, index_entries={}, path={path}",
+            if model_available {
+                "present"
+            } else {
+                "missing"
+            },
+            if auto { "on" } else { "off" },
+            entries
+        )
+    }
+    #[cfg(not(feature = "embeddings"))]
+    {
+        let _ = project_root;
+        "ERR: embeddings feature not enabled".to_string()
+    }
+}
+
+fn handle_embeddings_reset(project_root: &str) -> String {
+    #[cfg(feature = "embeddings")]
+    {
+        let knowledge = ProjectKnowledge::load_or_create(project_root);
+        match crate::core::knowledge_embedding::reset(&knowledge.project_hash) {
+            Ok(()) => "Embeddings index reset.".to_string(),
+            Err(e) => format!("Embeddings reset failed: {e}"),
+        }
+    }
+    #[cfg(not(feature = "embeddings"))]
+    {
+        let _ = project_root;
+        "ERR: embeddings feature not enabled".to_string()
+    }
+}
+
+fn handle_embeddings_reindex(project_root: &str) -> String {
+    #[cfg(feature = "embeddings")]
+    {
+        let knowledge = match ProjectKnowledge::load(project_root) {
+            Some(k) => k,
+            None => return "No knowledge stored for this project yet.".to_string(),
+        };
+
+        let engine = match embedding_engine() {
+            Some(e) => e,
+            None => {
+                return "Embeddings model not available. Set LEAN_CTX_EMBEDDINGS_AUTO_DOWNLOAD=1 to allow auto-download, then re-run."
+                    .to_string()
+            }
+        };
+
+        let mut idx =
+            crate::core::knowledge_embedding::KnowledgeEmbeddingIndex::new(&knowledge.project_hash);
+
+        let mut facts: Vec<&crate::core::knowledge::KnowledgeFact> =
+            knowledge.facts.iter().filter(|f| f.is_current()).collect();
+        facts.sort_by(|a, b| {
+            b.confidence
+                .partial_cmp(&a.confidence)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| b.last_confirmed.cmp(&a.last_confirmed))
+                .then_with(|| a.category.cmp(&b.category))
+                .then_with(|| a.key.cmp(&b.key))
+        });
+
+        let max = crate::core::budgets::KNOWLEDGE_EMBEDDINGS_MAX_FACTS;
+        let mut embedded = 0usize;
+        for f in facts.into_iter().take(max) {
+            if crate::core::knowledge_embedding::embed_and_store(
+                &mut idx,
+                engine,
+                &f.category,
+                &f.key,
+                &f.value,
+            )
+            .is_ok()
+            {
+                embedded += 1;
+            }
+        }
+
+        crate::core::knowledge_embedding::compact_against_knowledge(&mut idx, &knowledge);
+        match idx.save() {
+            Ok(()) => format!("Embeddings reindex ok (embedded {embedded} facts)."),
+            Err(e) => format!("Embeddings reindex failed: {e}"),
+        }
+    }
+    #[cfg(not(feature = "embeddings"))]
+    {
+        let _ = project_root;
+        "ERR: embeddings feature not enabled".to_string()
     }
 }
 
@@ -55,6 +207,7 @@ fn handle_remember(
     let conf = confidence.unwrap_or(0.8);
     let mut knowledge = ProjectKnowledge::load_or_create(project_root);
     let contradiction = knowledge.remember(cat, k, v, session_id, conf);
+    let _ = knowledge.run_memory_lifecycle();
 
     let mut result = format!(
         "Remembered [{cat}] {k}: {v} (confidence: {:.0}%)",
@@ -65,35 +218,261 @@ fn handle_remember(
         result.push_str(&format!("\n⚠ CONTRADICTION DETECTED: {}", c.resolution));
     }
 
+    #[cfg(feature = "embeddings")]
+    {
+        if let Some(engine) = embedding_engine() {
+            let mut idx = crate::core::knowledge_embedding::KnowledgeEmbeddingIndex::load(
+                &knowledge.project_hash,
+            )
+            .unwrap_or_else(|| {
+                crate::core::knowledge_embedding::KnowledgeEmbeddingIndex::new(
+                    &knowledge.project_hash,
+                )
+            });
+
+            match crate::core::knowledge_embedding::embed_and_store(&mut idx, engine, cat, k, v) {
+                Ok(()) => {
+                    crate::core::knowledge_embedding::compact_against_knowledge(
+                        &mut idx, &knowledge,
+                    );
+                    if let Err(e) = idx.save() {
+                        result.push_str(&format!("\n(warn: embeddings save failed: {e})"));
+                    }
+                }
+                Err(e) => {
+                    result.push_str(&format!("\n(warn: embeddings update failed: {e})"));
+                }
+            }
+        }
+    }
+
     match knowledge.save() {
         Ok(()) => result,
         Err(e) => format!("{result}\n(save failed: {e})"),
     }
 }
 
-fn handle_recall(project_root: &str, category: Option<&str>, query: Option<&str>) -> String {
-    let knowledge = match ProjectKnowledge::load(project_root) {
+fn handle_recall(
+    project_root: &str,
+    category: Option<&str>,
+    query: Option<&str>,
+    session_id: &str,
+) -> String {
+    let mut knowledge = match ProjectKnowledge::load(project_root) {
         Some(k) => k,
         None => return "No knowledge stored for this project yet.".to_string(),
     };
 
     if let Some(cat) = category {
-        let facts = knowledge.recall_by_category(cat);
-        if facts.is_empty() {
+        let limit = crate::core::budgets::KNOWLEDGE_RECALL_FACTS_LIMIT;
+        let (facts, total) = knowledge.recall_by_category_for_output(cat, limit);
+        if facts.is_empty() || total == 0 {
+            // System 2: archive rehydrate (category-only)
+            let rehydrated = rehydrate_from_archives(&mut knowledge, Some(cat), None, session_id);
+            if rehydrated {
+                let (facts2, total2) = knowledge.recall_by_category_for_output(cat, limit);
+                if !facts2.is_empty() && total2 > 0 {
+                    let mut out2 = format_facts(&facts2, total2, Some(cat));
+                    if let Err(e) = knowledge.save() {
+                        out2.push_str(&format!(
+                            "\n(warn: failed to persist retrieval signals: {e})"
+                        ));
+                    }
+                    return out2;
+                }
+            }
             return format!("No facts in category '{cat}'.");
         }
-        return format_facts(&facts, Some(cat));
+        let mut out = format_facts(&facts, total, Some(cat));
+        if let Err(e) = knowledge.save() {
+            out.push_str(&format!(
+                "\n(warn: failed to persist retrieval signals: {e})"
+            ));
+        }
+        return out;
     }
 
     if let Some(q) = query {
-        let facts = knowledge.recall(q);
-        if facts.is_empty() {
+        #[cfg(feature = "embeddings")]
+        {
+            if let Some(engine) = embedding_engine() {
+                if let Some(idx) = crate::core::knowledge_embedding::KnowledgeEmbeddingIndex::load(
+                    &knowledge.project_hash,
+                ) {
+                    let limit = crate::core::budgets::KNOWLEDGE_RECALL_FACTS_LIMIT;
+                    let scored = crate::core::knowledge_embedding::semantic_recall(
+                        &knowledge, &idx, engine, q, limit,
+                    );
+                    if !scored.is_empty() {
+                        let hits: Vec<SemanticHit> = scored
+                            .iter()
+                            .map(|s| SemanticHit {
+                                category: s.fact.category.clone(),
+                                key: s.fact.key.clone(),
+                                value: s.fact.value.clone(),
+                                score: s.score,
+                                semantic_score: s.semantic_score,
+                                confidence_score: s.confidence_score,
+                            })
+                            .collect();
+                        apply_retrieval_signals_from_hits(&mut knowledge, &hits);
+                        let mut out = format_semantic_facts(q, &hits);
+                        if let Err(e) = knowledge.save() {
+                            out.push_str(&format!(
+                                "\n(warn: failed to persist retrieval signals: {e})"
+                            ));
+                        }
+                        return out;
+                    }
+                }
+            }
+        }
+
+        let limit = crate::core::budgets::KNOWLEDGE_RECALL_FACTS_LIMIT;
+        let (facts, total) = knowledge.recall_for_output(q, limit);
+        if facts.is_empty() || total == 0 {
+            // System 2: archive rehydrate (query)
+            let rehydrated = rehydrate_from_archives(&mut knowledge, None, Some(q), session_id);
+            if rehydrated {
+                let (facts2, total2) = knowledge.recall_for_output(q, limit);
+                if !facts2.is_empty() && total2 > 0 {
+                    let mut out2 = format_facts(&facts2, total2, None);
+                    if let Err(e) = knowledge.save() {
+                        out2.push_str(&format!(
+                            "\n(warn: failed to persist retrieval signals: {e})"
+                        ));
+                    }
+                    return out2;
+                }
+            }
             return format!("No facts matching '{q}'.");
         }
-        return format_facts(&facts, None);
+        let mut out = format_facts(&facts, total, None);
+        if let Err(e) = knowledge.save() {
+            out.push_str(&format!(
+                "\n(warn: failed to persist retrieval signals: {e})"
+            ));
+        }
+        return out;
     }
 
     "Error: provide query or category for recall".to_string()
+}
+
+fn rehydrate_from_archives(
+    knowledge: &mut ProjectKnowledge,
+    category: Option<&str>,
+    query: Option<&str>,
+    session_id: &str,
+) -> bool {
+    let mut archives = crate::core::memory_lifecycle::list_archives();
+    if archives.is_empty() {
+        return false;
+    }
+    archives.sort();
+    let max_archives = crate::core::budgets::KNOWLEDGE_REHYDRATE_MAX_ARCHIVES;
+    if archives.len() > max_archives {
+        archives = archives[archives.len() - max_archives..].to_vec();
+    }
+
+    let terms: Vec<String> = query
+        .unwrap_or("")
+        .to_lowercase()
+        .split_whitespace()
+        .filter(|t| !t.is_empty())
+        .map(|s| s.to_string())
+        .collect();
+
+    #[derive(Clone)]
+    struct Cand {
+        category: String,
+        key: String,
+        value: String,
+        confidence: f32,
+        score: f32,
+    }
+
+    let mut cands: Vec<Cand> = Vec::new();
+
+    for p in &archives {
+        let p_str = p.to_string_lossy().to_string();
+        let facts = match crate::core::memory_lifecycle::restore_archive(&p_str) {
+            Ok(f) => f,
+            Err(_) => continue,
+        };
+        for f in facts {
+            if let Some(cat) = category {
+                if f.category != cat {
+                    continue;
+                }
+            }
+            if !terms.is_empty() {
+                let searchable = format!(
+                    "{} {} {} {}",
+                    f.category.to_lowercase(),
+                    f.key.to_lowercase(),
+                    f.value.to_lowercase(),
+                    f.source_session.to_lowercase()
+                );
+                let match_count = terms.iter().filter(|t| searchable.contains(*t)).count();
+                if match_count == 0 {
+                    continue;
+                }
+                let rel = match_count as f32 / terms.len() as f32;
+                let score = rel * f.confidence;
+                cands.push(Cand {
+                    category: f.category,
+                    key: f.key,
+                    value: f.value,
+                    confidence: f.confidence,
+                    score,
+                });
+            } else {
+                cands.push(Cand {
+                    category: f.category,
+                    key: f.key,
+                    value: f.value,
+                    confidence: f.confidence,
+                    score: f.confidence,
+                });
+            }
+        }
+    }
+
+    if cands.is_empty() {
+        return false;
+    }
+
+    cands.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| {
+                b.confidence
+                    .partial_cmp(&a.confidence)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .then_with(|| a.category.cmp(&b.category))
+            .then_with(|| a.key.cmp(&b.key))
+            .then_with(|| a.value.cmp(&b.value))
+    });
+    cands.truncate(crate::core::budgets::KNOWLEDGE_REHYDRATE_LIMIT);
+
+    let mut any = false;
+    for c in &cands {
+        knowledge.remember(
+            &c.category,
+            &c.key,
+            &c.value,
+            session_id,
+            c.confidence.max(0.6),
+        );
+        any = true;
+    }
+    if any {
+        let _ = knowledge.run_memory_lifecycle();
+    }
+    any
 }
 
 fn handle_pattern(
@@ -166,6 +545,19 @@ fn handle_remove(project_root: &str, category: Option<&str>, key: Option<&str>) 
     };
     let mut knowledge = ProjectKnowledge::load_or_create(project_root);
     if knowledge.remove_fact(cat, k) {
+        let _ = knowledge.run_memory_lifecycle();
+
+        #[cfg(feature = "embeddings")]
+        {
+            if let Some(mut idx) = crate::core::knowledge_embedding::KnowledgeEmbeddingIndex::load(
+                &knowledge.project_hash,
+            ) {
+                idx.remove(cat, k);
+                crate::core::knowledge_embedding::compact_against_knowledge(&mut idx, &knowledge);
+                let _ = idx.save();
+            }
+        }
+
         match knowledge.save() {
             Ok(()) => format!("Removed [{cat}] {k}"),
             Err(e) => format!("Removed but save failed: {e}"),
@@ -180,8 +572,33 @@ fn handle_export(project_root: &str) -> String {
         Some(k) => k,
         None => return "No knowledge to export.".to_string(),
     };
+    let data_dir = match crate::core::data_dir::lean_ctx_data_dir() {
+        Ok(d) => d,
+        Err(e) => return format!("Export failed: {e}"),
+    };
+
+    let export_dir = data_dir.join("exports").join("knowledge");
+    let ts = Utc::now().format("%Y%m%d-%H%M%S");
+    let filename = format!(
+        "knowledge-{}-{ts}.json",
+        short_hash(&knowledge.project_hash)
+    );
+    let path = export_dir.join(filename);
+
     match serde_json::to_string_pretty(&knowledge) {
-        Ok(json) => json,
+        Ok(mut json) => {
+            json.push('\n');
+            match crate::config_io::write_atomic_with_backup(&path, &json) {
+                Ok(()) => format!(
+                    "Export saved: {} (active facts: {}, patterns: {}, history: {})",
+                    path.display(),
+                    knowledge.facts.iter().filter(|f| f.is_current()).count(),
+                    knowledge.patterns.len(),
+                    knowledge.history.len()
+                ),
+                Err(e) => format!("Export failed: {e}"),
+            }
+        }
         Err(e) => format!("Export failed: {e}"),
     }
 }
@@ -237,6 +654,7 @@ fn handle_consolidate(project_root: &str) -> String {
         session.decisions.len()
     );
     knowledge.consolidate(&summary, vec![session.id.clone()]);
+    let _ = knowledge.run_memory_lifecycle();
 
     match knowledge.save() {
         Ok(()) => format!(
@@ -267,8 +685,29 @@ fn handle_timeline(project_root: &str, category: Option<&str>) -> String {
         return format!("No history for category '{cat}'.");
     }
 
-    let mut out = format!("Timeline [{cat}] ({} entries):\n", facts.len());
-    for f in &facts {
+    let mut ordered: Vec<&crate::core::knowledge::KnowledgeFact> = facts;
+    ordered.sort_by(|a, b| {
+        let a_start = a.valid_from.unwrap_or(a.created_at);
+        let b_start = b.valid_from.unwrap_or(b.created_at);
+        a_start
+            .cmp(&b_start)
+            .then_with(|| a.last_confirmed.cmp(&b.last_confirmed))
+            .then_with(|| a.key.cmp(&b.key))
+            .then_with(|| a.value.cmp(&b.value))
+    });
+
+    let total = ordered.len();
+    let limit = crate::core::budgets::KNOWLEDGE_TIMELINE_LIMIT;
+    if ordered.len() > limit {
+        ordered = ordered[ordered.len() - limit..].to_vec();
+    }
+
+    let mut out = format!(
+        "Timeline [{cat}] (showing {}/{} entries):\n",
+        ordered.len(),
+        total
+    );
+    for f in &ordered {
         let status = if f.is_current() {
             "CURRENT"
         } else {
@@ -305,9 +744,15 @@ fn handle_rooms(project_root: &str) -> String {
         return "No knowledge rooms yet. Use ctx_knowledge(action=\"remember\", category=\"...\") to create rooms.".to_string();
     }
 
+    let mut rooms = rooms;
+    rooms.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    let total = rooms.len();
+    rooms.truncate(crate::core::budgets::KNOWLEDGE_ROOMS_LIMIT);
+
     let mut out = format!(
-        "Knowledge Rooms ({} rooms, project: {}):\n",
+        "Knowledge Rooms (showing {}/{} rooms, project: {}):\n",
         rooms.len(),
+        total,
         short_hash(&knowledge.project_hash)
     );
     for (cat, count) in &rooms {
@@ -322,19 +767,18 @@ fn handle_search(query: Option<&str>) -> String {
         None => return "Error: query is required for search".to_string(),
     };
 
-    let sessions_dir = match dirs::home_dir() {
-        Some(h) => h.join(".lean-ctx").join("sessions"),
-        None => return "Cannot determine home directory.".to_string(),
+    let data_dir = match crate::core::data_dir::lean_ctx_data_dir() {
+        Ok(d) => d,
+        Err(_) => return "Cannot determine data directory.".to_string(),
     };
+
+    let sessions_dir = data_dir.join("sessions");
 
     if !sessions_dir.exists() {
         return "No sessions found.".to_string();
     }
 
-    let knowledge_dir = match dirs::home_dir() {
-        Some(h) => h.join(".lean-ctx").join("knowledge"),
-        None => return "Cannot determine home directory.".to_string(),
-    };
+    let knowledge_dir = data_dir.join("knowledge");
 
     let q_lower = q.to_lowercase();
     let terms: Vec<&str> = q_lower.split_whitespace().collect();
@@ -428,8 +872,16 @@ fn handle_search(query: Option<&str>) -> String {
         return format!("No results found for '{q}' across all sessions and projects.");
     }
 
-    results.sort_by(|a, b| b.5.partial_cmp(&a.5).unwrap_or(std::cmp::Ordering::Equal));
-    results.truncate(20);
+    results.sort_by(|a, b| {
+        b.5.partial_cmp(&a.5)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| b.4.partial_cmp(&a.4).unwrap_or(std::cmp::Ordering::Equal))
+            .then_with(|| a.0.cmp(&b.0))
+            .then_with(|| a.1.cmp(&b.1))
+            .then_with(|| a.2.cmp(&b.2))
+            .then_with(|| a.3.cmp(&b.3))
+    });
+    results.truncate(crate::core::budgets::KNOWLEDGE_CROSS_PROJECT_SEARCH_LIMIT);
 
     let mut out = format!("Cross-session search '{q}' ({} results):\n", results.len());
     for (project, cat, key, value, conf, _relevance) in &results {
@@ -454,15 +906,74 @@ fn handle_wakeup(project_root: &str) -> String {
     format!("WAKE-UP BRIEFING:\n{aaak}")
 }
 
+#[cfg(feature = "embeddings")]
+struct SemanticHit {
+    category: String,
+    key: String,
+    value: String,
+    score: f32,
+    semantic_score: f32,
+    confidence_score: f32,
+}
+
+#[cfg(feature = "embeddings")]
+fn apply_retrieval_signals_from_hits(knowledge: &mut ProjectKnowledge, hits: &[SemanticHit]) {
+    let now = Utc::now();
+    for s in hits {
+        for f in &mut knowledge.facts {
+            if !f.is_current() {
+                continue;
+            }
+            if f.category == s.category && f.key == s.key {
+                f.retrieval_count = f.retrieval_count.saturating_add(1);
+                f.last_retrieved = Some(now);
+                break;
+            }
+        }
+    }
+}
+
+#[cfg(feature = "embeddings")]
+fn format_semantic_facts(query: &str, hits: &[SemanticHit]) -> String {
+    if hits.is_empty() {
+        return format!("No facts matching '{query}'.");
+    }
+    let mut out = format!("Semantic recall '{query}' (showing {}):\n", hits.len());
+    for s in hits {
+        out.push_str(&format!(
+            "  [{}/{}]: {} (score: {:.0}%, sem: {:.0}%, conf: {:.0}%)\n",
+            s.category,
+            s.key,
+            s.value,
+            s.score * 100.0,
+            s.semantic_score * 100.0,
+            s.confidence_score * 100.0
+        ));
+    }
+    out
+}
+
 fn format_facts(
-    facts: &[&crate::core::knowledge::KnowledgeFact],
+    facts: &[crate::core::knowledge::KnowledgeFact],
+    total: usize,
     category: Option<&str>,
 ) -> String {
+    let mut facts: Vec<&crate::core::knowledge::KnowledgeFact> = facts.iter().collect();
+    facts.sort_by(|a, b| sort_fact_for_output(a, b));
+
     let mut out = String::new();
     if let Some(cat) = category {
-        out.push_str(&format!("Facts [{cat}] ({}):\n", facts.len()));
+        out.push_str(&format!(
+            "Facts [{cat}] (showing {}/{}):\n",
+            facts.len(),
+            total
+        ));
     } else {
-        out.push_str(&format!("Matching facts ({}):\n", facts.len()));
+        out.push_str(&format!(
+            "Matching facts (showing {}/{}):\n",
+            facts.len(),
+            total
+        ));
     }
     for f in facts {
         let temporal = if !f.is_current() { " [archived]" } else { "" };
@@ -493,4 +1004,58 @@ fn short_hash(hash: &str) -> &str {
     } else {
         hash
     }
+}
+
+fn sort_fact_for_output(
+    a: &crate::core::knowledge::KnowledgeFact,
+    b: &crate::core::knowledge::KnowledgeFact,
+) -> std::cmp::Ordering {
+    salience_score(b)
+        .cmp(&salience_score(a))
+        .then_with(|| {
+            b.confidence
+                .partial_cmp(&a.confidence)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .then_with(|| b.confirmation_count.cmp(&a.confirmation_count))
+        .then_with(|| b.retrieval_count.cmp(&a.retrieval_count))
+        .then_with(|| b.last_retrieved.cmp(&a.last_retrieved))
+        .then_with(|| b.last_confirmed.cmp(&a.last_confirmed))
+        .then_with(|| a.category.cmp(&b.category))
+        .then_with(|| a.key.cmp(&b.key))
+        .then_with(|| a.value.cmp(&b.value))
+}
+
+fn salience_score(f: &crate::core::knowledge::KnowledgeFact) -> u32 {
+    let cat = f.category.to_lowercase();
+    let base: u32 = match cat.as_str() {
+        "decision" => 70,
+        "gotcha" => 75,
+        "architecture" | "arch" => 60,
+        "security" => 65,
+        "testing" | "tests" => 55,
+        "deployment" | "deploy" => 55,
+        "conventions" | "convention" => 45,
+        "finding" => 40,
+        _ => 30,
+    };
+
+    let confidence_bonus = (f.confidence.clamp(0.0, 1.0) * 30.0) as u32;
+    let confirmation_bonus = f.confirmation_count.min(15);
+    let retrieval_bonus = ((f.retrieval_count as f32).ln_1p() * 8.0).min(20.0) as u32;
+    let recency_bonus = f
+        .last_retrieved
+        .map(|t| {
+            let days = chrono::Utc::now().signed_duration_since(t).num_days();
+            if days <= 7 {
+                10u32
+            } else if days <= 30 {
+                5u32
+            } else {
+                0u32
+            }
+        })
+        .unwrap_or(0u32);
+
+    base + confidence_bonus + confirmation_bonus + retrieval_bonus + recency_bonus
 }

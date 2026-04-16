@@ -294,7 +294,7 @@ fn litm_monotonic_first_half() {
 fn combined_attention_geometric_mean_bounded() {
     let score = combined_attention("fn main() {", 0.5, 0.9, 0.5, 0.85);
     assert!(
-        score >= 0.0 && score <= 2.0,
+        (0.0..=2.0).contains(&score),
         "combined score must be bounded: {score}"
     );
 }
@@ -327,7 +327,7 @@ fn attention_efficiency_bounds() {
     let importances = vec![0.8, 0.3, 0.3, 0.3, 0.8];
     let eff = attention_efficiency(&importances, 0.9, 0.5, 0.85);
     assert!(
-        eff >= 0.0 && eff <= 100.0,
+        (0.0..=100.0).contains(&eff),
         "efficiency must be in [0, 100]: {eff}"
     );
 }
@@ -372,8 +372,7 @@ fn symbol_map_net_savings_correct() {
 
     let ident = "authenticate_user_credentials_handler";
     let occurrences = 15;
-    let content = std::iter::repeat(ident)
-        .take(occurrences)
+    let content = std::iter::repeat_n(ident, occurrences)
         .collect::<Vec<_>>()
         .join(" some_code ");
 
@@ -540,7 +539,7 @@ fn full_scientific_audit() {
 
     check!("Normalized H ∈ [0,1]", {
         let h = normalized_token_entropy("fn main() { let x = compute(); }");
-        h >= 0.0 && h <= 1.0
+        (0.0..=1.0).contains(&h)
     });
 
     check!(

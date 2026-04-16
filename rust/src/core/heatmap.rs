@@ -112,8 +112,9 @@ impl HeatMap {
     }
 
     fn storage_path() -> PathBuf {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        PathBuf::from(home).join(".lean-ctx").join("heatmap.json")
+        crate::core::data_dir::lean_ctx_data_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join("heatmap.json")
     }
 }
 

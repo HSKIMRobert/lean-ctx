@@ -170,7 +170,7 @@ pub fn handle(
         }
     }
 
-    let wakeup = build_wakeup_briefing(&project_root);
+    let wakeup = build_wakeup_briefing(&project_root, task);
     if !wakeup.is_empty() {
         output.push(String::new());
         output.push(wakeup);
@@ -184,7 +184,7 @@ pub fn handle(
     output.join("\n")
 }
 
-fn build_wakeup_briefing(project_root: &str) -> String {
+fn build_wakeup_briefing(project_root: &str, task: Option<&str>) -> String {
     let mut parts = Vec::new();
 
     if let Some(knowledge) = crate::core::knowledge::ProjectKnowledge::load(project_root) {
@@ -207,6 +207,12 @@ fn build_wakeup_briefing(project_root: &str) -> String {
                 .map(|d| d.summary.clone())
                 .collect();
             parts.push(format!("RECENT_DECISIONS:{}", recent.join("|")));
+        }
+    }
+
+    if let Some(t) = task {
+        for r in crate::core::prospective_memory::reminders_for_task(project_root, t) {
+            parts.push(r);
         }
     }
 

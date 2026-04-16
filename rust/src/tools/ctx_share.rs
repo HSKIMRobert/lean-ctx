@@ -19,9 +19,8 @@ struct SharedFile {
 }
 
 fn shared_dir() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_default()
-        .join(".lean-ctx")
+    crate::core::data_dir::lean_ctx_data_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
         .join("agents")
         .join("shared")
 }

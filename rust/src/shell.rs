@@ -918,6 +918,16 @@ mod passthrough_tests {
     }
 
     #[test]
+    fn is_container_returns_bool() {
+        let _ = super::is_container();
+    }
+
+    #[test]
+    fn is_non_interactive_returns_bool() {
+        let _ = super::is_non_interactive();
+    }
+
+    #[test]
     fn auth_commands_excluded() {
         assert!(is_excluded_command("az login --use-device-code", &[]));
         assert!(is_excluded_command("gh auth login", &[]));
@@ -940,17 +950,5 @@ mod passthrough_tests {
         assert!(!is_excluded_command("aws s3 ls", &[]));
         assert!(!is_excluded_command("gcloud compute instances list", &[]));
         assert!(!is_excluded_command("az vm list", &[]));
-    }
-
-    #[test]
-    fn is_container_returns_bool() {
-        let result = super::is_container();
-        assert!(result || !result);
-    }
-
-    #[test]
-    fn is_non_interactive_returns_bool() {
-        let result = super::is_non_interactive();
-        assert!(result || !result);
     }
 }

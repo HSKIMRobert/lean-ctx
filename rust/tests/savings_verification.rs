@@ -201,7 +201,10 @@ fn verify_cep_delta_tracking_prevents_overcounting() {
     let stats_path = lean_ctx_dir.join("stats.json");
     let _ = std::fs::remove_file(&stats_path);
 
-    std::env::set_var("HOME", test_dir.to_str().unwrap());
+    std::env::set_var(
+        "LEAN_CTX_DATA_DIR",
+        lean_ctx_dir.to_string_lossy().to_string(),
+    );
 
     let mut modes = HashMap::new();
     modes.insert("full".to_string(), 5u64);
@@ -246,6 +249,7 @@ fn verify_cep_delta_tracking_prevents_overcounting() {
     eprintln!("  Without fix: totals would be 3000/1800 (1000+2000 / 600+1200)");
 
     let _ = std::fs::remove_dir_all(&test_dir);
+    std::env::remove_var("LEAN_CTX_DATA_DIR");
 }
 
 #[test]
@@ -471,16 +475,13 @@ fn audit_full_savings_pipeline() {
             code.push(format!(
                 "    let data = db.query(\"SELECT * FROM table_{i}\");"
             ));
-            code.push(format!(
+            code.push(
                 "    let filtered = data.iter().filter(|r| r.active).collect::<Vec<_>>();"
-            ));
-            code.push(format!(
-                "    let result = process_items(&filtered, req.params());"
-            ));
-            code.push(format!(
-                "    if result.is_err() {{ return Response::error(500); }}"
-            ));
-            code.push(format!("    Response::json(result.unwrap())"));
+                    .to_string(),
+            );
+            code.push("    let result = process_items(&filtered, req.params());".to_string());
+            code.push("    if result.is_err() { return Response::error(500); }".to_string());
+            code.push("    Response::json(result.unwrap())".to_string());
             code.push("}".to_string());
             code.push(String::new());
         }

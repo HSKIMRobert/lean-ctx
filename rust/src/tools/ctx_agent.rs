@@ -194,9 +194,8 @@ pub fn handle(
                 })
                 .count();
 
-            let shared_dir = dirs::home_dir()
+            let shared_dir = crate::core::data_dir::lean_ctx_data_dir()
                 .unwrap_or_default()
-                .join(".lean-ctx")
                 .join("agents")
                 .join("shared");
 

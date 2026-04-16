@@ -59,10 +59,9 @@ pub async fn start(port: Option<u16>, host: Option<String>) {
         }
     };
 
-    let stats_path = dirs::home_dir()
-        .map(|h| h.join(".lean-ctx/stats.json"))
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|| "~/.lean-ctx/stats.json".to_string());
+    let stats_path = crate::core::data_dir::lean_ctx_data_dir()
+        .map(|d| d.join("stats.json").display().to_string())
+        .unwrap_or_else(|_| "~/.lean-ctx/stats.json".to_string());
 
     if host == "0.0.0.0" {
         println!("\n  lean-ctx dashboard → http://0.0.0.0:{port} (all interfaces)");
@@ -75,6 +74,12 @@ pub async fn start(port: Option<u16>, host: Option<String>) {
 
     if is_local {
         open_browser(&format!("http://localhost:{port}"));
+    }
+    if crate::shell::is_container() && is_local {
+        println!("  Tip (Docker): bind 0.0.0.0 + publish port:");
+        println!("    lean-ctx dashboard --host=0.0.0.0 --port={port}");
+        println!("    docker run ... -p {port}:{port} ...");
+        println!();
     }
 
     loop {
@@ -95,7 +100,7 @@ fn generate_token() -> String {
 }
 
 fn save_token(token: &str) {
-    if let Some(dir) = dirs::home_dir().map(|h| h.join(".lean-ctx")) {
+    if let Ok(dir) = crate::core::data_dir::lean_ctx_data_dir() {
         let _ = std::fs::create_dir_all(&dir);
         let _ = std::fs::write(dir.join("dashboard.token"), token);
     }
@@ -209,15 +214,66 @@ async fn handle_request(mut stream: tokio::net::TcpStream, token: Option<Arc<Str
 
     let path = path.as_str();
 
-    let (status, content_type, body) = match path {
+    let compute =
+        std::panic::catch_unwind(|| route_response(path, query_str, &query_token, &token));
+    let (status, content_type, body) = match compute {
+        Ok(v) => v,
+        Err(_) => (
+            "500 Internal Server Error",
+            "application/json",
+            r#"{"error":"dashboard route panicked"}"#.to_string(),
+        ),
+    };
+
+    let cache_header = if content_type.starts_with("application/json") {
+        "Cache-Control: no-cache, no-store, must-revalidate\r\nPragma: no-cache\r\n"
+    } else {
+        ""
+    };
+
+    let response = format!(
+        "HTTP/1.1 {status}\r\n\
+         Content-Type: {content_type}\r\n\
+         Content-Length: {}\r\n\
+         {cache_header}\
+         Access-Control-Allow-Origin: *\r\n\
+         Connection: close\r\n\
+         \r\n\
+         {body}",
+        body.len()
+    );
+
+    let _ = stream.write_all(response.as_bytes()).await;
+}
+
+fn route_response(
+    path: &str,
+    query_str: &str,
+    query_token: &Option<String>,
+    token: &Option<Arc<String>>,
+) -> (&'static str, &'static str, String) {
+    match path {
         "/api/stats" => {
             let store = crate::core::stats::load();
             let json = serde_json::to_string(&store).unwrap_or_else(|_| "{}".to_string());
             ("200 OK", "application/json", json)
         }
+        "/api/gain" => {
+            let env_model = std::env::var("LEAN_CTX_MODEL")
+                .or_else(|_| std::env::var("LCTX_MODEL"))
+                .ok();
+            let engine = crate::core::gain::GainEngine::load();
+            let payload = serde_json::json!({
+                "summary": engine.summary(env_model.as_deref()),
+                "tasks": engine.task_breakdown(),
+                "heatmap": engine.heatmap_gains(20),
+            });
+            let json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+            ("200 OK", "application/json", json)
+        }
         "/api/mcp" => {
-            let mcp_path = dirs::home_dir()
-                .map(|h| h.join(".lean-ctx").join("mcp-live.json"))
+            let mcp_path = crate::core::data_dir::lean_ctx_data_dir()
+                .map(|d| d.join("mcp-live.json"))
                 .unwrap_or_default();
             let json = std::fs::read_to_string(&mcp_path).unwrap_or_else(|_| "{}".to_string());
             ("200 OK", "application/json", json)
@@ -295,6 +351,7 @@ async fn handle_request(mut stream: tokio::net::TcpStream, token: Option<Arc<Str
             let body = match extract_query_param(query_str, "path") {
                 None => r#"{"error":"missing path query parameter"}"#.to_string(),
                 Some(rel) => {
+                    let task = extract_query_param(query_str, "task");
                     let root = detect_project_root_for_dashboard();
                     let root_pb = std::path::Path::new(&root);
                     let candidate = std::path::Path::new(&rel);
@@ -324,10 +381,12 @@ async fn handle_request(mut stream: tokio::net::TcpStream, token: Option<Arc<Str
                                 &path_str,
                                 ext,
                                 original_tokens,
+                                task.as_deref(),
                             );
                             let original_preview: String = content.chars().take(8000).collect();
                             serde_json::json!({
                                 "path": path_str,
+                                "task": task,
                                 "original_lines": original_lines,
                                 "original_tokens": original_tokens,
                                 "original": original_preview,
@@ -360,27 +419,7 @@ async fn handle_request(mut stream: tokio::net::TcpStream, token: Option<Arc<Str
         }
         "/favicon.ico" => ("204 No Content", "text/plain", String::new()),
         _ => ("404 Not Found", "text/plain", "Not Found".to_string()),
-    };
-
-    let cache_header = if content_type.starts_with("application/json") {
-        "Cache-Control: no-cache, no-store, must-revalidate\r\nPragma: no-cache\r\n"
-    } else {
-        ""
-    };
-
-    let response = format!(
-        "HTTP/1.1 {status}\r\n\
-         Content-Type: {content_type}\r\n\
-         Content-Length: {}\r\n\
-         {cache_header}\
-         Access-Control-Allow-Origin: *\r\n\
-         Connection: close\r\n\
-         \r\n\
-         {body}",
-        body.len()
-    );
-
-    let _ = stream.write_all(response.as_bytes()).await;
+    }
 }
 
 fn check_auth(request: &str, expected_token: &str) -> bool {
@@ -462,6 +501,7 @@ fn compression_demo_modes_json(
     path: &str,
     ext: &str,
     original_tokens: usize,
+    task: Option<&str>,
 ) -> serde_json::Value {
     let map_out = crate::core::signatures::extract_file_map(path, content);
     let sig_out = crate::core::signatures::extract_signatures(content, ext)
@@ -471,11 +511,27 @@ fn compression_demo_modes_json(
         .join("\n");
     let aggressive_out = crate::core::filters::aggressive_filter(content);
     let entropy_out = crate::core::entropy::entropy_compress_adaptive(content, path).output;
+
+    let mut cache = crate::core::cache::SessionCache::new();
+    let reference_out =
+        crate::tools::ctx_read::handle(&mut cache, path, "reference", crate::tools::CrpMode::Off);
+    let task_out = task.filter(|t| !t.trim().is_empty()).map(|t| {
+        crate::tools::ctx_read::handle_with_task(
+            &mut cache,
+            path,
+            "task",
+            crate::tools::CrpMode::Off,
+            Some(t),
+        )
+    });
+
     serde_json::json!({
         "map": compression_mode_json(&map_out, original_tokens),
         "signatures": compression_mode_json(&sig_out, original_tokens),
+        "reference": compression_mode_json(&reference_out, original_tokens),
         "aggressive": compression_mode_json(&aggressive_out, original_tokens),
         "entropy": compression_mode_json(&entropy_out, original_tokens),
+        "task": task_out.as_deref().map(|s| compression_mode_json(s, original_tokens)).unwrap_or(serde_json::Value::Null),
     })
 }
 
@@ -580,9 +636,8 @@ fn build_agents_json() -> String {
 
     let pending_msgs = registry.scratchpad.len();
 
-    let shared_dir = dirs::home_dir()
-        .unwrap_or_default()
-        .join(".lean-ctx")
+    let shared_dir = crate::core::data_dir::lean_ctx_data_dir()
+        .unwrap_or_else(|_| dirs::home_dir().unwrap_or_default().join(".lean-ctx"))
         .join("agents")
         .join("shared");
     let shared_count = if shared_dir.exists() {

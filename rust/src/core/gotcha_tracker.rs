@@ -609,6 +609,8 @@ impl GotchaStore {
             let label = g.category.short_label();
             let sessions = g.session_ids.len();
             let age = format_age(g.last_seen);
+            let trigger = crate::core::sanitize::neutralize_metadata(&g.trigger);
+            let resolution = crate::core::sanitize::neutralize_metadata(&g.resolution);
 
             let source_hint = match &g.source {
                 GotchaSource::AgentReported { .. } => ", agent-confirmed".to_string(),
@@ -625,15 +627,15 @@ impl GotchaStore {
                 String::new()
             };
 
-            lines.push(format!("[{prefix}{label}] {}", g.trigger));
+            lines.push(format!("[{prefix}{label}] {trigger}"));
             lines.push(format!(
                 "  FIX: {} (seen {}x{}{}, {})",
-                g.resolution, g.occurrences, source_hint, prevented, age
+                resolution, g.occurrences, source_hint, prevented, age
             ));
         }
 
         lines.push("---".to_string());
-        lines.join("\n")
+        crate::core::sanitize::fence_content("project_gotchas", &lines.join("\n"))
     }
 
     // -- Prevention tracking ------------------------------------------------
@@ -964,10 +966,11 @@ pub fn relevance_score(gotcha: &Gotcha, files_touched: &[String]) -> f32 {
 // ---------------------------------------------------------------------------
 
 pub fn load_universal_gotchas() -> Vec<Gotcha> {
-    let Some(home) = dirs::home_dir() else {
-        return Vec::new();
+    let dir = match crate::core::data_dir::lean_ctx_data_dir() {
+        Ok(d) => d,
+        Err(_) => return Vec::new(),
     };
-    let path = home.join(".lean-ctx").join("universal-gotchas.json");
+    let path = dir.join("universal-gotchas.json");
     if let Ok(content) = std::fs::read_to_string(&path) {
         serde_json::from_str(&content).unwrap_or_default()
     } else {
@@ -976,10 +979,8 @@ pub fn load_universal_gotchas() -> Vec<Gotcha> {
 }
 
 pub fn save_universal_gotchas(gotchas: &[Gotcha]) -> Result<(), String> {
-    let Some(home) = dirs::home_dir() else {
-        return Err("Cannot determine home directory".into());
-    };
-    let path = home.join(".lean-ctx").join("universal-gotchas.json");
+    let dir = crate::core::data_dir::lean_ctx_data_dir()?;
+    let path = dir.join("universal-gotchas.json");
     let tmp = path.with_extension("tmp");
     let json = serde_json::to_string_pretty(gotchas).map_err(|e| e.to_string())?;
     std::fs::write(&tmp, &json).map_err(|e| e.to_string())?;
@@ -992,8 +993,8 @@ pub fn save_universal_gotchas(gotchas: &[Gotcha]) -> Result<(), String> {
 // ---------------------------------------------------------------------------
 
 fn gotcha_path(project_hash: &str) -> PathBuf {
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    home.join(".lean-ctx")
+    crate::core::data_dir::lean_ctx_data_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
         .join("knowledge")
         .join(project_hash)
         .join("gotchas.json")

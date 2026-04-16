@@ -23,7 +23,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ### Fixed
 - **Claude Code `_lc` not found in Docker** (#89): Root cause was that `BASH_ENV` alone doesn't work for Claude Code — it uses `CLAUDE_ENV_FILE` to source shell hooks before each command. Recommended Dockerfile now includes `ENV CLAUDE_ENV_FILE="/root/.lean-ctx/env.sh"`.
 - **`CLAUDE_CONFIG_DIR` ignored everywhere**: `setup.rs`, `rules_inject.rs`, `doctor.rs`, `hooks.rs`, `uninstall.rs`, and `report.rs` all hardcoded `~/.claude.json` / `~/.claude/`. Now all paths go through `claude_config_json_path()` / `claude_config_dir()` which check `$CLAUDE_CONFIG_DIR` first.
-
 ## [3.1.3] — 2026-04-15
 
 ### Docker & Container Support
@@ -31,7 +30,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - **Auto-detect Docker/container environments** via `/.dockerenv`, `/proc/1/cgroup`, and `/proc/self/mountinfo`
 - **Write `~/.lean-ctx/env.sh`** during `lean-ctx init --global` — a standalone shell hook file without the non-interactive guard (`[ -z "$PS1" ] && return`) that most `~/.bashrc` files have
 - **Docker BASH_ENV warning**: when Docker is detected and `BASH_ENV` is not set, `lean-ctx init` now prints the exact Dockerfile line needed: `ENV BASH_ENV="/root/.lean-ctx/env.sh"`
-- **`lean-ctx setup` auto-fallback**: detects non-interactive terminals (no TTY on stdin) and automatically runs shell hook install only instead of hanging
+- **`lean-ctx setup` auto-fallback**: detects non-interactive terminals (no TTY on stdin) and automatically runs in `--non-interactive --yes` mode instead of hanging
 - **`lean-ctx doctor` Docker check**: new diagnostic that warns when running in a container with bash but without `BASH_ENV` set
 
 ### Critical Fix

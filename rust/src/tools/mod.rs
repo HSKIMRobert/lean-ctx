@@ -22,9 +22,12 @@ pub mod ctx_delta;
 pub mod ctx_discover;
 pub mod ctx_edit;
 pub mod ctx_execute;
+pub mod ctx_feedback;
 pub mod ctx_fill;
+pub mod ctx_gain;
 pub mod ctx_graph;
 pub mod ctx_graph_diagram;
+pub mod ctx_handoff;
 pub mod ctx_heatmap;
 pub mod ctx_impact;
 pub mod ctx_intent;
@@ -33,6 +36,7 @@ pub mod ctx_metrics;
 pub mod ctx_multi_read;
 pub mod ctx_outline;
 pub mod ctx_overview;
+pub mod ctx_prefetch;
 pub mod ctx_preload;
 pub mod ctx_read;
 pub mod ctx_response;
@@ -46,6 +50,7 @@ pub mod ctx_smart_read;
 pub mod ctx_symbol;
 pub mod ctx_task;
 pub mod ctx_tree;
+pub mod ctx_workflow;
 pub mod ctx_wrapped;
 
 const DEFAULT_CACHE_TTL_SECS: u64 = 300;
@@ -106,6 +111,7 @@ pub struct LeanCtxServer {
     pub client_name: Arc<RwLock<String>>,
     pub autonomy: Arc<autonomy::AutonomyState>,
     pub loop_detector: Arc<RwLock<crate::core::loop_detection::LoopDetector>>,
+    pub workflow: Arc<RwLock<Option<crate::core::workflow::WorkflowRun>>>,
 }
 
 #[derive(Clone, Debug)]
@@ -126,6 +132,10 @@ impl Default for LeanCtxServer {
 
 impl LeanCtxServer {
     pub fn new() -> Self {
+        Self::new_with_project_root(None)
+    }
+
+    pub fn new_with_project_root(project_root: Option<String>) -> Self {
         let config = crate::core::config::Config::load();
 
         let interval = std::env::var("LEAN_CTX_CHECKPOINT_INTERVAL")
@@ -140,7 +150,10 @@ impl LeanCtxServer {
 
         let crp_mode = CrpMode::from_env();
 
-        let session = SessionState::load_latest().unwrap_or_default();
+        let mut session = SessionState::load_latest().unwrap_or_default();
+        if project_root.is_some() {
+            session.project_root = project_root;
+        }
         Self {
             cache: Arc::new(RwLock::new(SessionCache::new())),
             session: Arc::new(RwLock::new(session)),
@@ -158,35 +171,55 @@ impl LeanCtxServer {
                     &crate::core::config::Config::load().loop_detection,
                 ),
             )),
+            workflow: Arc::new(RwLock::new(
+                crate::core::workflow::load_active().ok().flatten(),
+            )),
         }
     }
 
     /// Resolves a (possibly relative) tool path against the session's project_root.
     /// Absolute paths and "." are returned as-is. Relative paths like "src/main.rs"
     /// are joined with project_root so tools work regardless of the server's cwd.
-    pub async fn resolve_path(&self, path: &str) -> String {
+    pub async fn resolve_path(&self, path: &str) -> Result<String, String> {
         let normalized = crate::hooks::normalize_tool_path(path);
         if normalized.is_empty() || normalized == "." {
-            return normalized;
+            return Ok(normalized);
         }
         let p = std::path::Path::new(&normalized);
-        if p.is_absolute() || p.exists() {
-            return normalized;
-        }
         let session = self.session.read().await;
-        if let Some(ref root) = session.project_root {
-            let resolved = std::path::Path::new(root).join(&normalized);
-            if resolved.exists() {
-                return resolved.to_string_lossy().to_string();
+        let jail_root = session
+            .project_root
+            .as_deref()
+            .or(session.shell_cwd.as_deref())
+            .unwrap_or(".");
+
+        let resolved = if p.is_absolute() || p.exists() {
+            std::path::PathBuf::from(&normalized)
+        } else if let Some(ref root) = session.project_root {
+            let joined = std::path::Path::new(root).join(&normalized);
+            if joined.exists() {
+                joined
+            } else if let Some(ref cwd) = session.shell_cwd {
+                std::path::Path::new(cwd).join(&normalized)
+            } else {
+                std::path::Path::new(jail_root).join(&normalized)
             }
-        }
-        if let Some(ref cwd) = session.shell_cwd {
-            let resolved = std::path::Path::new(cwd).join(&normalized);
-            if resolved.exists() {
-                return resolved.to_string_lossy().to_string();
-            }
-        }
-        normalized
+        } else if let Some(ref cwd) = session.shell_cwd {
+            std::path::Path::new(cwd).join(&normalized)
+        } else {
+            std::path::Path::new(jail_root).join(&normalized)
+        };
+
+        let jailed = crate::core::pathjail::jail_path(&resolved, std::path::Path::new(jail_root))?;
+        Ok(crate::hooks::normalize_tool_path(
+            &jailed.to_string_lossy().replace('\\', "/"),
+        ))
+    }
+
+    pub async fn resolve_path_or_passthrough(&self, path: &str) -> String {
+        self.resolve_path(path)
+            .await
+            .unwrap_or_else(|_| path.to_string())
     }
 
     pub async fn check_idle_expiry(&self) {
@@ -371,9 +404,8 @@ impl LeanCtxServer {
             .filter(|e| !e.read_by.contains(&my_id) && e.from_agent != my_id)
             .count();
 
-        let shared_dir = dirs::home_dir()
+        let shared_dir = crate::core::data_dir::lean_ctx_data_dir()
             .unwrap_or_default()
-            .join(".lean-ctx")
             .join("agents")
             .join("shared");
         let shared_count = if shared_dir.exists() {
@@ -409,7 +441,7 @@ impl LeanCtxServer {
         timestamp: &str,
     ) {
         const MAX_LOG_LINES: usize = 50;
-        if let Some(dir) = dirs::home_dir().map(|h| h.join(".lean-ctx")) {
+        if let Ok(dir) = crate::core::data_dir::lean_ctx_data_dir() {
             let log_path = dir.join("tool-calls.log");
             let mode_str = mode.unwrap_or("-");
             let slow = if duration_ms > 5000 { " **SLOW**" } else { "" };
@@ -448,7 +480,7 @@ impl LeanCtxServer {
 
         let modes_used: std::collections::HashSet<&str> =
             calls.iter().filter_map(|c| c.mode.as_deref()).collect();
-        let mode_diversity = (modes_used.len() as f64 / 6.0).min(1.0);
+        let mode_diversity = (modes_used.len() as f64 / 10.0).min(1.0);
         let cache_util = stats.hit_rate() / 100.0;
         let cep_score = cache_util * 0.3 + mode_diversity * 0.2 + compression_rate * 0.5;
 
@@ -502,7 +534,7 @@ impl LeanCtxServer {
             "updated_at": chrono::Local::now().to_rfc3339(),
         });
 
-        if let Some(dir) = dirs::home_dir().map(|h| h.join(".lean-ctx")) {
+        if let Ok(dir) = crate::core::data_dir::lean_ctx_data_dir() {
             let _ = std::fs::write(dir.join("mcp-live.json"), live.to_string());
         }
     }

@@ -31,7 +31,9 @@ pub struct FilterEngine {
 
 impl FilterEngine {
     pub fn load() -> Option<Self> {
-        let dir = dirs::home_dir()?.join(".lean-ctx").join("filters");
+        let dir = crate::core::data_dir::lean_ctx_data_dir()
+            .ok()?
+            .join("filters");
         if !dir.exists() {
             return None;
         }
@@ -167,10 +169,7 @@ pub fn validate_filter_file(path: &str) -> Result<usize, String> {
 }
 
 pub fn create_example_filter() -> Result<String, String> {
-    let dir = dirs::home_dir()
-        .ok_or("Cannot determine home directory")?
-        .join(".lean-ctx")
-        .join("filters");
+    let dir = crate::core::data_dir::lean_ctx_data_dir()?.join("filters");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
 
     let path = dir.join("example.toml");
@@ -179,7 +178,7 @@ pub fn create_example_filter() -> Result<String, String> {
     }
 
     let content = r#"# lean-ctx custom filter example
-# Place .toml files in ~/.lean-ctx/filters/ to define custom compression rules.
+# Place .toml files in $LEAN_CTX_DATA_DIR/filters (default: ~/.lean-ctx/filters) to define custom compression rules.
 # User filters are applied BEFORE builtin patterns.
 
 # Rule 1: Replace verbose upload logs with a summary

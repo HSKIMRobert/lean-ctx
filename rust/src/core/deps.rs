@@ -7,6 +7,12 @@ static REQUIRE_RE: OnceLock<Regex> = OnceLock::new();
 static RUST_USE_RE: OnceLock<Regex> = OnceLock::new();
 static PY_IMPORT_RE: OnceLock<Regex> = OnceLock::new();
 static GO_IMPORT_RE: OnceLock<Regex> = OnceLock::new();
+static C_INCLUDE_RE: OnceLock<Regex> = OnceLock::new();
+static RUBY_REQUIRE_RE: OnceLock<Regex> = OnceLock::new();
+static PHP_INCLUDE_RE: OnceLock<Regex> = OnceLock::new();
+static BASH_SOURCE_RE: OnceLock<Regex> = OnceLock::new();
+static DART_IMPORT_RE: OnceLock<Regex> = OnceLock::new();
+static ZIG_IMPORT_RE: OnceLock<Regex> = OnceLock::new();
 
 fn import_re() -> &'static Regex {
     IMPORT_RE.get_or_init(|| {
@@ -33,11 +39,59 @@ pub struct DepInfo {
 }
 
 pub fn extract_deps(content: &str, ext: &str) -> DepInfo {
-    match ext {
-        "ts" | "tsx" | "js" | "jsx" | "svelte" | "vue" => extract_ts_deps(content),
-        "rs" => extract_rust_deps(content),
-        "py" => extract_python_deps(content),
-        "go" => extract_go_deps(content),
+    let lang = crate::core::language_capabilities::language_for_ext(ext);
+    match lang {
+        Some(crate::core::language_capabilities::LanguageId::TypeScript)
+        | Some(crate::core::language_capabilities::LanguageId::JavaScript)
+        | Some(crate::core::language_capabilities::LanguageId::Vue)
+        | Some(crate::core::language_capabilities::LanguageId::Svelte) => extract_ts_deps(content),
+        Some(crate::core::language_capabilities::LanguageId::Rust) => extract_rust_deps(content),
+        Some(crate::core::language_capabilities::LanguageId::Python) => {
+            extract_python_deps(content)
+        }
+        Some(crate::core::language_capabilities::LanguageId::Go) => extract_go_deps(content),
+        Some(crate::core::language_capabilities::LanguageId::C)
+        | Some(crate::core::language_capabilities::LanguageId::Cpp) => extract_c_like_deps(content),
+        Some(crate::core::language_capabilities::LanguageId::Ruby) => extract_ruby_deps(content),
+        Some(crate::core::language_capabilities::LanguageId::Php) => extract_php_deps(content),
+        Some(crate::core::language_capabilities::LanguageId::Bash) => extract_bash_deps(content),
+        Some(crate::core::language_capabilities::LanguageId::Dart) => {
+            let mut imports = HashSet::new();
+            let re = DART_IMPORT_RE.get_or_init(|| {
+                Regex::new(r#"^\s*(?:import|export|part)\s+['"]([^'"]+)['"]"#).unwrap()
+            });
+            for line in content.lines() {
+                let trimmed = line.trim();
+                if let Some(caps) = re.captures(trimmed) {
+                    let p = caps[1].trim();
+                    if p.starts_with('.') || p.starts_with('/') {
+                        imports.insert(clean_path_like(p));
+                    }
+                }
+            }
+            DepInfo {
+                imports: imports.into_iter().collect(),
+                exports: Vec::new(),
+            }
+        }
+        Some(crate::core::language_capabilities::LanguageId::Zig) => {
+            let mut imports = HashSet::new();
+            let re =
+                ZIG_IMPORT_RE.get_or_init(|| Regex::new(r#"@import\(\s*"([^"]+)"\s*\)"#).unwrap());
+            for line in content.lines() {
+                let trimmed = line.trim();
+                if let Some(caps) = re.captures(trimmed) {
+                    let p = caps[1].trim();
+                    if p.starts_with('.') || p.contains('/') || p.ends_with(".zig") {
+                        imports.insert(clean_path_like(p));
+                    }
+                }
+            }
+            DepInfo {
+                imports: imports.into_iter().collect(),
+                exports: Vec::new(),
+            }
+        }
         _ => DepInfo {
             imports: Vec::new(),
             exports: Vec::new(),
@@ -207,6 +261,106 @@ fn clean_import_path(path: &str) -> String {
         .to_string()
 }
 
+fn clean_path_like(path: &str) -> String {
+    path.trim()
+        .trim_start_matches("./")
+        .trim_end_matches(".js")
+        .trim_end_matches(".ts")
+        .trim_end_matches(".tsx")
+        .trim_end_matches(".jsx")
+        .trim_end_matches(".py")
+        .trim_end_matches(".go")
+        .trim_end_matches(".rs")
+        .trim_end_matches(".c")
+        .trim_end_matches(".cpp")
+        .trim_end_matches(".h")
+        .trim_end_matches(".hpp")
+        .trim_end_matches(".php")
+        .trim_end_matches(".dart")
+        .trim_end_matches(".zig")
+        .trim_end_matches(".sh")
+        .trim_end_matches(".bash")
+        .to_string()
+}
+
+fn extract_c_like_deps(content: &str) -> DepInfo {
+    let mut imports = HashSet::new();
+    let re =
+        C_INCLUDE_RE.get_or_init(|| Regex::new(r#"^\s*#\s*include\s*[<"]([^">]+)[">]"#).unwrap());
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if let Some(caps) = re.captures(trimmed) {
+            let inc = caps[1].trim();
+            if inc.starts_with('.') || inc.contains('/') {
+                imports.insert(clean_path_like(inc));
+            }
+        }
+    }
+    DepInfo {
+        imports: imports.into_iter().collect(),
+        exports: Vec::new(),
+    }
+}
+
+fn extract_ruby_deps(content: &str) -> DepInfo {
+    let mut imports = HashSet::new();
+    let re = RUBY_REQUIRE_RE
+        .get_or_init(|| Regex::new(r#"^\s*require(?:_relative)?\s+['"]([^'"]+)['"]"#).unwrap());
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if let Some(caps) = re.captures(trimmed) {
+            let req = caps[1].trim();
+            if req.starts_with('.') || req.contains('/') {
+                imports.insert(clean_path_like(req));
+            }
+        }
+    }
+    DepInfo {
+        imports: imports.into_iter().collect(),
+        exports: Vec::new(),
+    }
+}
+
+fn extract_php_deps(content: &str) -> DepInfo {
+    let mut imports = HashSet::new();
+    let re = PHP_INCLUDE_RE.get_or_init(|| {
+        Regex::new(r#"\b(?:require|require_once|include|include_once)\s*\(?\s*['"]([^'"]+)['"]"#)
+            .unwrap()
+    });
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if let Some(caps) = re.captures(trimmed) {
+            let p = caps[1].trim();
+            if p.starts_with('.') || p.starts_with('/') {
+                imports.insert(clean_path_like(p));
+            }
+        }
+    }
+    DepInfo {
+        imports: imports.into_iter().collect(),
+        exports: Vec::new(),
+    }
+}
+
+fn extract_bash_deps(content: &str) -> DepInfo {
+    let mut imports = HashSet::new();
+    let re = BASH_SOURCE_RE
+        .get_or_init(|| Regex::new(r#"^\s*(?:source|\.)\s+['"]?([^'"\s;]+)['"]?"#).unwrap());
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if let Some(caps) = re.captures(trimmed) {
+            let p = caps[1].trim();
+            if p.starts_with('.') || p.starts_with('/') {
+                imports.insert(clean_path_like(p));
+            }
+        }
+    }
+    DepInfo {
+        imports: imports.into_iter().collect(),
+        exports: Vec::new(),
+    }
+}
+
 fn extract_export_name(line: &str) -> Option<String> {
     let without_export = line.strip_prefix("export ")?;
     let without_default = without_export
@@ -234,4 +388,83 @@ fn extract_export_name(line: &str) -> Option<String> {
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn c_include_relative_is_extracted() {
+        let src = r#"#include "foo/bar.h"
+#include <stdio.h>
+"#;
+        let deps = extract_deps(src, "c");
+        assert!(deps.imports.contains(&"foo/bar".to_string()));
+        assert!(
+            !deps.imports.iter().any(|i| i.contains("stdio")),
+            "system includes should not be treated as internal deps"
+        );
+    }
+
+    #[test]
+    fn ruby_require_relative_is_extracted() {
+        let src = r#"require_relative "./lib/utils"
+require "json"
+"#;
+        let deps = extract_deps(src, "rb");
+        assert!(deps.imports.contains(&"lib/utils".to_string()));
+        assert!(
+            !deps.imports.iter().any(|i| i == "json"),
+            "external requires should not be treated as internal deps"
+        );
+    }
+
+    #[test]
+    fn php_require_is_extracted() {
+        let src = r#"<?php
+require_once "./vendor/autoload.php";
+include "http://example.com/a.php";
+"#;
+        let deps = extract_deps(src, "php");
+        assert!(deps.imports.contains(&"vendor/autoload".to_string()));
+        assert!(
+            deps.imports.iter().all(|i| !i.starts_with("http")),
+            "remote includes should not be treated as internal deps"
+        );
+    }
+
+    #[test]
+    fn bash_source_is_extracted() {
+        let src = r#"#!/usr/bin/env bash
+source "./scripts/env.sh"
+. ../common.sh
+"#;
+        let deps = extract_deps(src, "sh");
+        assert!(deps.imports.contains(&"scripts/env".to_string()));
+        assert!(deps.imports.contains(&"../common".to_string()));
+    }
+
+    #[test]
+    fn dart_import_relative_is_extracted() {
+        let src = r#"import "./src/util.dart";
+import "package:foo/bar.dart";
+"#;
+        let deps = extract_deps(src, "dart");
+        assert!(deps.imports.contains(&"src/util".to_string()));
+        assert!(
+            deps.imports.iter().all(|i| !i.starts_with("package:")),
+            "package imports should not be treated as internal deps"
+        );
+    }
+
+    #[test]
+    fn zig_import_is_extracted() {
+        let src = r#"const m = @import("lib/math.zig");
+const std = @import("std");
+"#;
+        let deps = extract_deps(src, "zig");
+        assert!(deps.imports.contains(&"lib/math".to_string()));
+        assert!(!deps.imports.iter().any(|i| i == "std"), "std is external");
+    }
 }

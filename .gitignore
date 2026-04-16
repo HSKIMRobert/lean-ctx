@@ -13,7 +13,6 @@ lean-ctx.config.example.json
 INTERNAL_ARCHITECTURE.md
 RELEASE_SUMMARY.md
 aur/
-memory-bank/
 server.md
 
 .lean-ctx/
@@ -37,4 +36,5 @@ PROJECT.md
 
 # ── Local artifacts ──
 lean-ctx-chrome-extension.zip
+/docs/_local/
 

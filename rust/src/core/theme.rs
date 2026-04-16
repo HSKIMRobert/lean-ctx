@@ -457,7 +457,9 @@ pub fn from_preset(name: &str) -> Option<Theme> {
 }
 
 pub fn theme_file_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| h.join(".lean-ctx").join("theme.toml"))
+    crate::core::data_dir::lean_ctx_data_dir()
+        .ok()
+        .map(|d| d.join("theme.toml"))
 }
 
 pub fn load_theme(config_theme: &str) -> Theme {

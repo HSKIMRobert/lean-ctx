@@ -1,4 +1,7 @@
 use crate::core::events::{EventKind, LeanCtxEvent};
+use crate::core::gain::gain_score::GainScore;
+use crate::core::gain::model_pricing::ModelPricing;
+use crate::core::gain::task_classifier::{TaskCategory, TaskClassifier};
 use crate::tui::event_reader::EventTail;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use crossterm::terminal::{
@@ -28,6 +31,8 @@ struct AppState {
     cache_hits: u64,
     total_calls: u64,
     files: std::collections::HashMap<String, FileHeat>,
+    gain_score: Option<GainScore>,
+    last_gain_refresh: Instant,
     quit: bool,
     focus: usize,
 }
@@ -46,6 +51,8 @@ impl AppState {
             cache_hits: 0,
             total_calls: 0,
             files: std::collections::HashMap::new(),
+            gain_score: None,
+            last_gain_refresh: Instant::now(),
             quit: false,
             focus: 0,
         }
@@ -106,6 +113,15 @@ impl AppState {
         }
         self.cache_hits as f64 / self.total_calls as f64 * 100.0
     }
+
+    fn refresh_gain_score(&mut self) {
+        if self.last_gain_refresh.elapsed() < Duration::from_secs(2) {
+            return;
+        }
+        let engine = crate::core::gain::GainEngine::load();
+        self.gain_score = Some(engine.gain_score(None));
+        self.last_gain_refresh = Instant::now();
+    }
 }
 
 pub fn run() -> anyhow::Result<()> {
@@ -128,11 +144,12 @@ pub fn run() -> anyhow::Result<()> {
                 if key.kind == KeyEventKind::Press {
                     match key.code {
                         KeyCode::Char('q') | KeyCode::Esc => state.quit = true,
-                        KeyCode::Tab => state.focus = (state.focus + 1) % 4,
+                        KeyCode::Tab => state.focus = (state.focus + 1) % 5,
                         KeyCode::Char('1') => state.focus = 0,
                         KeyCode::Char('2') => state.focus = 1,
                         KeyCode::Char('3') => state.focus = 2,
                         KeyCode::Char('4') => state.focus = 3,
+                        KeyCode::Char('5') => state.focus = 4,
                         _ => {}
                     }
                 }
@@ -144,6 +161,7 @@ pub fn run() -> anyhow::Result<()> {
             if !new.is_empty() {
                 state.ingest(new);
             }
+            state.refresh_gain_score();
             last_tick = Instant::now();
         }
 
@@ -179,19 +197,33 @@ fn draw(f: &mut ratatui::Frame, state: &AppState) {
 
     let right = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .constraints([
+            Constraint::Percentage(38),
+            Constraint::Percentage(37),
+            Constraint::Percentage(25),
+        ])
         .split(columns[1]);
 
     draw_live_feed(f, left[0], state);
     draw_heatmap(f, left[1], state);
     draw_savings(f, right[0], state);
     draw_session(f, right[1], state);
+    draw_task_activity(f, right[2], state);
 }
 
 fn draw_header(f: &mut ratatui::Frame, area: Rect, state: &AppState) {
     let saved = format_tokens(state.total_saved);
     let pct = format!("{:.0}%", state.savings_pct());
-    let cost = format!("${:.3}", state.total_saved as f64 * 2.5 / 1_000_000.0);
+    let env_model = std::env::var("LEAN_CTX_MODEL")
+        .or_else(|_| std::env::var("LCTX_MODEL"))
+        .ok();
+    let pricing = ModelPricing::load();
+    let quote = pricing.quote(env_model.as_deref());
+    let cost = format!(
+        "${:.3}",
+        state.total_saved as f64 * quote.cost.input_per_m / 1_000_000.0
+    );
+    let gain_score = state.gain_score.as_ref().map(|s| s.total).unwrap_or(0);
 
     let spans = vec![
         Span::styled(
@@ -206,6 +238,8 @@ fn draw_header(f: &mut ratatui::Frame, area: Rect, state: &AppState) {
         Span::raw("  "),
         Span::styled(format!("{cost} avoided"), Style::default().fg(BLUE)),
         Span::raw("  "),
+        Span::styled(format!("{gain_score}/100 gain"), Style::default().fg(GREEN)),
+        Span::raw("  "),
         Span::styled(
             format!("{} events", state.events.len()),
             Style::default().fg(MUTED),
@@ -218,6 +252,56 @@ fn draw_header(f: &mut ratatui::Frame, area: Rect, state: &AppState) {
             .border_style(Style::default().fg(Color::Rgb(30, 30, 50))),
     );
     f.render_widget(header, area);
+}
+
+fn draw_task_activity(f: &mut ratatui::Frame, area: Rect, state: &AppState) {
+    let block = Block::default()
+        .title(Span::styled(
+            " Task Activity ",
+            Style::default().fg(GREEN).add_modifier(Modifier::BOLD),
+        ))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(if state.focus == 4 {
+            GREEN
+        } else {
+            Color::Rgb(30, 30, 50)
+        }))
+        .style(Style::default().bg(SURFACE));
+
+    let mut counts: std::collections::HashMap<TaskCategory, u64> = std::collections::HashMap::new();
+    for ev in state.events.iter().rev().take(120) {
+        if let EventKind::ToolCall { tool, .. } = &ev.kind {
+            let cat = TaskClassifier::classify_tool(tool);
+            *counts.entry(cat).or_insert(0) += 1;
+        }
+    }
+
+    let mut rows: Vec<(TaskCategory, u64)> = counts.into_iter().collect();
+    rows.sort_by(|a, b| b.1.cmp(&a.1));
+
+    let max_items = area.height.saturating_sub(2) as usize;
+    let items: Vec<ListItem> = if rows.is_empty() {
+        vec![ListItem::new(Line::from(vec![Span::styled(
+            "No tool calls yet.",
+            Style::default().fg(MUTED),
+        )]))]
+    } else {
+        rows.into_iter()
+            .take(max_items)
+            .map(|(cat, n)| {
+                ListItem::new(Line::from(vec![
+                    Span::styled(
+                        format!("{:<14}", cat.label()),
+                        Style::default().fg(Color::Rgb(220, 220, 240)),
+                    ),
+                    Span::styled(format!("{:>4}", n), Style::default().fg(MUTED)),
+                ]))
+            })
+            .collect()
+    };
+
+    let list = List::new(items).block(block);
+    f.render_widget(list, area);
 }
 
 fn draw_live_feed(f: &mut ratatui::Frame, area: Rect, state: &AppState) {

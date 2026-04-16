@@ -306,6 +306,27 @@ pub fn push_cep(entries: &[serde_json::Value]) -> Result<String, String> {
     ))
 }
 
+pub fn push_gain(entries: &[serde_json::Value]) -> Result<String, String> {
+    let api_key = load_api_key().ok_or("Not logged in. Run: lean-ctx login")?;
+    let url = format!("{}/api/sync/gain", api_url());
+    let body = serde_json::json!({ "scores": entries });
+    let resp = ureq::post(&url)
+        .header("Authorization", &format!("Bearer {api_key}"))
+        .header("Content-Type", "application/json")
+        .send(serde_json::to_vec(&body).unwrap().as_slice())
+        .map_err(|e| format!("Push failed: {e}"))?;
+    let resp_body = resp
+        .into_body()
+        .read_to_string()
+        .map_err(|e| format!("Failed to read response: {e}"))?;
+    let json: serde_json::Value =
+        serde_json::from_str(&resp_body).map_err(|e| format!("Invalid JSON: {e}"))?;
+    Ok(format!(
+        "{} gain scores synced",
+        json["synced"].as_i64().unwrap_or(0)
+    ))
+}
+
 pub fn push_gotchas(entries: &[serde_json::Value]) -> Result<String, String> {
     let api_key = load_api_key().ok_or("Not logged in. Run: lean-ctx login")?;
     let url = format!("{}/api/sync/gotchas", api_url());
