@@ -292,6 +292,8 @@ mod tests {
 
     #[test]
     fn cache_result_integration() {
+        let _lock = crate::core::data_dir::test_env_lock();
+
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
