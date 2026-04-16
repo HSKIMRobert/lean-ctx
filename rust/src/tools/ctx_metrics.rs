@@ -3,11 +3,6 @@ use std::collections::HashMap;
 use crate::core::cache::SessionCache;
 use crate::tools::{CrpMode, ToolCallRecord};
 
-use crate::core::stats::{DEFAULT_INPUT_PRICE_PER_M, DEFAULT_OUTPUT_PRICE_PER_M};
-
-const COST_PER_1M_INPUT: f64 = DEFAULT_INPUT_PRICE_PER_M;
-const COST_PER_1M_OUTPUT: f64 = DEFAULT_OUTPUT_PRICE_PER_M;
-
 pub fn handle(cache: &SessionCache, tool_calls: &[ToolCallRecord], crp_mode: CrpMode) -> String {
     let cache_stats = cache.get_stats();
     let refs = cache.file_ref_map();
@@ -22,6 +17,11 @@ pub fn handle(cache: &SessionCache, tool_calls: &[ToolCallRecord], crp_mode: Crp
     };
 
     let mut out = Vec::new();
+    let env_model = std::env::var("LEAN_CTX_MODEL")
+        .or_else(|_| std::env::var("LCTX_MODEL"))
+        .ok();
+    let pricing = crate::core::gain::model_pricing::ModelPricing::load();
+    let quote = pricing.quote(env_model.as_deref());
 
     if crp_mode.is_tdd() {
         out.push("§metrics".to_string());
@@ -43,8 +43,8 @@ pub fn handle(cache: &SessionCache, tool_calls: &[ToolCallRecord], crp_mode: Crp
             pct
         ));
 
-        let cost_saved = total_saved as f64 / 1_000_000.0 * COST_PER_1M_INPUT;
-        let cost_without = total_original as f64 / 1_000_000.0 * COST_PER_1M_INPUT;
+        let cost_saved = total_saved as f64 / 1_000_000.0 * quote.cost.input_per_m;
+        let cost_without = total_original as f64 / 1_000_000.0 * quote.cost.input_per_m;
         out.push(format!(
             "cost: ${:.4}→${:.4} | -${:.4}",
             cost_without,
@@ -71,9 +71,9 @@ pub fn handle(cache: &SessionCache, tool_calls: &[ToolCallRecord], crp_mode: Crp
             pct
         ));
 
-        let cost_saved = total_saved as f64 / 1_000_000.0 * COST_PER_1M_INPUT;
-        let cost_without = total_original as f64 / 1_000_000.0 * COST_PER_1M_INPUT;
-        let cost_with = total_sent as f64 / 1_000_000.0 * COST_PER_1M_INPUT;
+        let cost_saved = total_saved as f64 / 1_000_000.0 * quote.cost.input_per_m;
+        let cost_without = total_original as f64 / 1_000_000.0 * quote.cost.input_per_m;
+        let cost_with = total_sent as f64 / 1_000_000.0 * quote.cost.input_per_m;
         out.push(format!(
             "Cost estimate: ${:.4} without → ${:.4} with lean-ctx | ${:.4} saved",
             cost_without, cost_with, cost_saved
@@ -201,7 +201,7 @@ pub fn handle(cache: &SessionCache, tool_calls: &[ToolCallRecord], crp_mode: Crp
     }
 
     let projected_session =
-        total_saved as f64 / 1_000_000.0 * (COST_PER_1M_INPUT + COST_PER_1M_OUTPUT * 0.3);
+        total_saved as f64 / 1_000_000.0 * (quote.cost.input_per_m + quote.cost.output_per_m * 0.3);
     if projected_session > 0.001 {
         out.push(String::new());
         if crp_mode.is_tdd() {

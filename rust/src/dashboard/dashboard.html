@@ -115,7 +115,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 }
 .tf-btn:hover{border-color:var(--border-light);color:var(--text)}
 .tf-btn.active{border-color:var(--green-glow);background:var(--green-dim);color:var(--green)}
-.hero{display:grid;grid-template-columns:1.8fr 1fr 1fr 1fr;gap:10px;margin-bottom:14px}
+  .hero{display:grid;grid-template-columns:1.8fr 1fr 1fr 1fr 1fr;gap:10px;margin-bottom:14px}
 .hero-main{
   position:relative;border-radius:var(--r);padding:32px 28px;overflow:hidden;
   background:linear-gradient(145deg,rgba(52,211,153,0.06),rgba(129,140,248,0.03));
@@ -547,6 +547,7 @@ let autoRefreshInterval = null;
 let charts = {};
 let overviewBuilt = false;
 let overviewRaw = null;
+let overviewGain = null;
 let overviewCR = 0;
 let overviewTF = 0;
 let overviewShowAll = false;
@@ -679,8 +680,9 @@ function chartDefaults() {
 async function loadOverview() {
   const container = $('view-overview');
   try {
-    const [stats, buddy, gotchas, version] = await Promise.all([
+    const [stats, gain, buddy, gotchas, version] = await Promise.all([
       apiFetch('/api/stats').catch(() => null),
+      apiFetch('/api/gain').catch(() => null),
       apiFetch('/api/buddy').catch(() => null),
       apiFetch('/api/gotchas').catch(() => null),
       apiFetch('/api/version').catch(() => null),
@@ -697,6 +699,7 @@ async function loadOverview() {
     }
 
     overviewRaw = stats;
+    overviewGain = gain;
     if (!stats || !stats.total_commands) {
       showEmpty(container, 'Start using LeanCTX tools (ctx_read, ctx_shell, etc.) in your IDE to see savings here.');
       overviewBuilt = false;
@@ -704,7 +707,7 @@ async function loadOverview() {
     }
 
     if (!overviewBuilt) buildOverview(container);
-    updateOverview(stats);
+    updateOverview(stats, gain);
     renderBuddy(buddy);
   } catch (e) {
     showError(container, 'Dashboard API not responding. Make sure lean-ctx dashboard is running.');
@@ -714,7 +717,7 @@ async function loadOverview() {
 function setOverviewTF(days) {
   overviewTF = days;
   document.querySelectorAll('.tf-btn').forEach(b => b.classList.toggle('active', Number(b.dataset.tf) === days));
-  if (overviewRaw) { overviewPH = ''; updateOverview(overviewRaw); }
+  if (overviewRaw) { overviewPH = ''; updateOverview(overviewRaw, overviewGain); }
 }
 
 function buildOverview(container) {
@@ -733,6 +736,21 @@ function buildOverview(container) {
       </div>
       <div class="hc"><div class="hv" data-live id="vCost" style="color:var(--yellow)"></div><div class="hl">Cost Saved</div><div class="hs" data-live id="vCostSub"></div></div>
       <div class="hc"><div class="hv" data-live id="vRate" style="color:var(--purple)"></div><div class="hl">Compression</div><div class="hs" data-live id="vRateSub"></div></div>
+      <div class="hc">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div class="stat-gauge" style="width:42px;height:42px;margin:0">
+            <svg viewBox="0 0 36 36">
+              <circle class="bg" cx="18" cy="18" r="15.9"/>
+              <circle class="fg" id="gGainRing" cx="18" cy="18" r="15.9" stroke="var(--green)" stroke-dasharray="100" stroke-dashoffset="100"/>
+            </svg>
+          </div>
+          <div style="min-width:0">
+            <div class="hv" data-live id="vGain" style="color:var(--green)"></div>
+            <div class="hl">Gain Score</div>
+            <div class="hs" data-live id="vGainSub"></div>
+          </div>
+        </div>
+      </div>
       <div class="hc"><div class="hv" data-live id="vCalls" style="color:var(--blue)"></div><div class="hl">Total Calls</div><div class="hs" data-live id="vCallsSub"></div></div>
     </div>
     <div class="row r1" id="buddySection" style="display:none">
@@ -756,7 +774,7 @@ function buildOverview(container) {
     <div class="row r21">
       <div class="card"><h3>Cumulative Token Savings</h3><canvas id="cCum"></canvas></div>
       <div class="card">
-        <h3>Cost Analysis <span class="badge">$2.50/M in &middot; $10/M out</span></h3>
+        <h3>Cost Analysis <span class="badge" data-live id="vCostBadge"></span></h3>
         <div class="cost-row">
           <div class="cost-box bad"><div class="amt" data-live id="vCW" style="color:var(--red)"></div><div class="lb">Without</div></div>
           <div class="cost-arrow">&#8594;</div>
@@ -769,7 +787,7 @@ function buildOverview(container) {
         <div style="text-align:center;margin-top:8px;font-size:8px;color:var(--muted)">~<span data-live id="vOT"></span> output tokens reduced via CEP/TDD</div>
       </div>
     </div>
-    <div class="row r3">
+    <div class="row r4">
       <div class="card"><h3>Daily Activity</h3><canvas id="cDay"></canvas></div>
       <div class="card"><h3>Savings Rate</h3><canvas id="cRate"></canvas></div>
       <div class="card">
@@ -780,6 +798,7 @@ function buildOverview(container) {
           <div class="src-item"><h4><span class="d" style="background:var(--blue)"></span>Shell Hook</h4><div class="sr"><span class="sl">Calls</span><span class="sv" data-live id="vHC"></span></div><div class="sr"><span class="sl">Saved</span><span class="sv" style="color:var(--green)" data-live id="vHS"></span></div><div class="sr"><span class="sl">Rate</span><span class="sv" style="color:var(--blue)" data-live id="vHR"></span></div></div>
         </div>
       </div>
+      <div class="card"><h3>Task Breakdown</h3><canvas id="cTasks" style="max-height:140px"></canvas></div>
     </div>
     <div class="row r1">
       <div class="card">
@@ -799,7 +818,7 @@ function filterDailyByDays(daily, days) {
   return daily.filter(d => d.date >= cutStr);
 }
 
-function updateOverview(d) {
+function updateOverview(d, gain) {
   const allDaily = d.daily || [];
   const daily = overviewTF ? filterDailyByDays(allDaily, overviewTF) : fd(allDaily, overviewCR);
 
@@ -818,6 +837,22 @@ function updateOverview(d) {
   lv('vCost', fu(co.sv)); lv('vCostSub', 'input '+fu(co.iW-co.iC)+' \u00B7 output '+fu(co.oW-co.oC));
   lv('vRate', rate+'%'); lv('vRateSub', fmt(tfInp)+' \u2192 '+fmt(tfOut));
   lv('vCalls', ff(tfCmds)); lv('vCallsSub', daily.length+' days \u00B7 since '+fu1);
+  if (gain && gain.summary && gain.summary.score) {
+    const s = gain.summary;
+    lv('vGain', String(s.score.total));
+    lv('vGainSub', 'cmp '+s.score.compression+' \u00B7 cost '+s.score.cost_efficiency+' \u00B7 qual '+s.score.quality+' \u00B7 cons '+s.score.consistency);
+    const ring = $('gGainRing');
+    if (ring) ring.style.strokeDashoffset = String(Math.max(0, 100 - Number(s.score.total||0)));
+    if (s.model && s.model.cost) {
+      lv('vCostBadge', `$${(s.model.cost.input_per_m||0).toFixed(2)}/M in \u00B7 $${(s.model.cost.output_per_m||0).toFixed(2)}/M out`);
+    }
+  } else {
+    lv('vGain', '—');
+    lv('vGainSub', 'no gain data yet');
+    lv('vCostBadge', '$2.50/M in \u00B7 $10/M out');
+    const ring = $('gGainRing');
+    if (ring) ring.style.strokeDashoffset = '100';
+  }
   lv('vCW', fu(co.tW)); lv('vCC', fu(co.tC));
   lv('vIS', fu(co.iW-co.iC)); lv('vOS', fu(co.oW-co.oC)); lv('vOT', fmt(co.os));
   lv('vMC', ff(sp.m.c)); lv('vMS', fmt(sp.m.s)); lv('vMR', pc(sp.m.s,sp.m.i)+'%');
@@ -825,10 +860,11 @@ function updateOverview(d) {
 
   const dh = JSON.stringify(daily.map(x => x.date+x.commands));
   const chh = JSON.stringify(cmds.map(c => c[0]+c[1].count));
-  if (dh+chh !== overviewPH) { updateOverviewCharts(daily, cmds, sp); renderCmds(cmds); overviewPH = dh+chh; }
+  const gh = JSON.stringify(((gain && gain.tasks) ? gain.tasks : []).map(x => (x.category||'') + (x.tokens_saved||0) + (x.tool_spend_usd||0)));
+  if (dh+chh+gh !== overviewPH) { updateOverviewCharts(daily, cmds, sp, gain); renderCmds(cmds); overviewPH = dh+chh+gh; }
 }
 
-function updateOverviewCharts(daily, cmds, sp) {
+function updateOverviewCharts(daily, cmds, sp, gain) {
   const lb = daily.map(d => d.date.substring(5));
   const sv = daily.map(d => d.input_tokens - d.output_tokens);
   const ot = daily.map(d => d.output_tokens);
@@ -848,6 +884,26 @@ function updateOverviewCharts(daily, cmds, sp) {
 
   if (charts.pie) { charts.pie.data.datasets[0].data = [sp.m.s, sp.h.s]; charts.pie.update('none'); }
   else { charts.pie = new Chart($('cPie'), { type:'doughnut', data:{ labels:['MCP Tools','Shell Hook'], datasets:[{data:[sp.m.s,sp.h.s],backgroundColor:['#818cf8','#38bdf8'],borderWidth:0,hoverOffset:4,borderRadius:3}] }, options:{ responsive:true, maintainAspectRatio:true, cutout:'70%', plugins:{legend:{position:'bottom',labels:{color:'#6b6b88',font:{size:9},padding:10,usePointStyle:true,pointStyle:'circle'}},tooltip:{callbacks:{label:c=>`${c.label}: ${fmt(c.parsed)} tokens`}}} } }); }
+
+  const rows = (gain && gain.tasks) ? gain.tasks.slice(0) : [];
+  if (rows.length > 0) {
+    rows.sort((a,b) => (b.tokens_saved||0) - (a.tokens_saved||0));
+    const top = rows.slice(0, 8);
+    const labels = top.map(r => String(r.category||'General'));
+    const data = top.map(r => Number(r.tokens_saved||0));
+    const colors = ['#34d399','#818cf8','#38bdf8','#fbbf24','#f472b6','#f87171','#a78bfa','#6ee7b7'];
+    if (charts.tasks) {
+      charts.tasks.data.labels = labels;
+      charts.tasks.data.datasets[0].data = data;
+      charts.tasks.update('none');
+    } else {
+      charts.tasks = new Chart($('cTasks'), {
+        type:'doughnut',
+        data:{ labels, datasets:[{ data, backgroundColor: colors.slice(0, labels.length), borderWidth:0, hoverOffset:4, borderRadius:3 }] },
+        options:{ responsive:true, maintainAspectRatio:true, cutout:'70%', plugins:{ legend:{ position:'bottom', labels:{ color:'#6b6b88', font:{size:9}, padding:10, usePointStyle:true, pointStyle:'circle' } }, tooltip:{ callbacks:{ label:c=>`${c.label}: ${fmt(c.parsed)} tok saved` } } } }
+      });
+    }
+  }
 }
 
 function toggleCmds() {

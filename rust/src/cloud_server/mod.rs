@@ -6,6 +6,7 @@ mod config;
 mod contribute;
 mod db;
 mod feedback;
+mod gain;
 mod global_stats;
 mod gotchas;
 mod helpers;
@@ -83,6 +84,7 @@ pub async fn run() -> anyhow::Result<()> {
             "/api/sync/feedback",
             get(feedback::get_feedback).post(feedback::post_feedback),
         )
+        .route("/api/sync/gain", get(gain::get_gain).post(gain::post_gain))
         .route("/api/global-stats", get(global_stats::get_global_stats))
         .route("/api/cloud/models", get(models::get_models))
         .with_state(state)

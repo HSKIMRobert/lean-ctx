@@ -31,8 +31,12 @@ impl WrappedReport {
             ),
         };
 
-        let cost_per_token = crate::core::stats::DEFAULT_INPUT_PRICE_PER_M / 1_000_000.0;
-        let cost_avoided_usd = tokens_saved as f64 * cost_per_token;
+        let env_model = std::env::var("LEAN_CTX_MODEL")
+            .or_else(|_| std::env::var("LCTX_MODEL"))
+            .ok();
+        let pricing = crate::core::gain::model_pricing::ModelPricing::load();
+        let quote = pricing.quote(env_model.as_deref());
+        let cost_avoided_usd = quote.cost.estimate_usd(tokens_saved, 0, 0, 0);
 
         let sessions_count = match period {
             "week" => count_recent_sessions(&sessions, 7),

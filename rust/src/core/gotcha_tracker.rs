@@ -609,6 +609,8 @@ impl GotchaStore {
             let label = g.category.short_label();
             let sessions = g.session_ids.len();
             let age = format_age(g.last_seen);
+            let trigger = crate::core::sanitize::neutralize_metadata(&g.trigger);
+            let resolution = crate::core::sanitize::neutralize_metadata(&g.resolution);
 
             let source_hint = match &g.source {
                 GotchaSource::AgentReported { .. } => ", agent-confirmed".to_string(),
@@ -625,15 +627,15 @@ impl GotchaStore {
                 String::new()
             };
 
-            lines.push(format!("[{prefix}{label}] {}", g.trigger));
+            lines.push(format!("[{prefix}{label}] {trigger}"));
             lines.push(format!(
                 "  FIX: {} (seen {}x{}{}, {})",
-                g.resolution, g.occurrences, source_hint, prevented, age
+                resolution, g.occurrences, source_hint, prevented, age
             ));
         }
 
         lines.push("---".to_string());
-        lines.join("\n")
+        crate::core::sanitize::fence_content("project_gotchas", &lines.join("\n"))
     }
 
     // -- Prevention tracking ------------------------------------------------

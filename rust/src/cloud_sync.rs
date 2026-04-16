@@ -16,6 +16,12 @@ pub fn cloud_background_tasks() {
         .as_deref()
         .map(|d| d == today)
         .unwrap_or(false);
+    let already_gain_synced = config
+        .cloud
+        .last_gain_sync
+        .as_deref()
+        .map(|d| d == today)
+        .unwrap_or(false);
     let already_pulled = config
         .cloud
         .last_model_pull
@@ -45,6 +51,31 @@ pub fn cloud_background_tasks() {
             });
             if crate::cloud_client::sync_stats(&[entry]).is_ok() {
                 config.cloud.last_sync = Some(today.clone());
+            }
+        }
+
+        if !already_gain_synced {
+            let engine = crate::core::gain::GainEngine::load();
+            let summary = engine.summary(None);
+            let trend = match summary.score.trend {
+                crate::core::gain::gain_score::Trend::Rising => "rising",
+                crate::core::gain::gain_score::Trend::Stable => "stable",
+                crate::core::gain::gain_score::Trend::Declining => "declining",
+            };
+            let entry = serde_json::json!({
+                "recorded_at": format!("{today}T00:00:00Z"),
+                "total": summary.score.total as f64,
+                "compression": summary.score.compression as f64,
+                "cost_efficiency": summary.score.cost_efficiency as f64,
+                "quality": summary.score.quality as f64,
+                "consistency": summary.score.consistency as f64,
+                "trend": trend,
+                "avoided_usd": summary.avoided_usd,
+                "tool_spend_usd": summary.tool_spend_usd,
+                "model_key": summary.model.model_key,
+            });
+            if crate::cloud_client::push_gain(&[entry]).is_ok() {
+                config.cloud.last_gain_sync = Some(today.clone());
             }
         }
 

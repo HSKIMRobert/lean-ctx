@@ -215,6 +215,19 @@ async fn handle_request(mut stream: tokio::net::TcpStream, token: Option<Arc<Str
             let json = serde_json::to_string(&store).unwrap_or_else(|_| "{}".to_string());
             ("200 OK", "application/json", json)
         }
+        "/api/gain" => {
+            let env_model = std::env::var("LEAN_CTX_MODEL")
+                .or_else(|_| std::env::var("LCTX_MODEL"))
+                .ok();
+            let engine = crate::core::gain::GainEngine::load();
+            let payload = serde_json::json!({
+                "summary": engine.summary(env_model.as_deref()),
+                "tasks": engine.task_breakdown(),
+                "heatmap": engine.heatmap_gains(20),
+            });
+            let json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+            ("200 OK", "application/json", json)
+        }
         "/api/mcp" => {
             let mcp_path = dirs::home_dir()
                 .map(|h| h.join(".lean-ctx").join("mcp-live.json"))

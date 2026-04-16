@@ -210,6 +210,7 @@ pub struct CloudConfig {
     pub contribute_enabled: bool,
     pub last_contribute: Option<String>,
     pub last_sync: Option<String>,
+    pub last_gain_sync: Option<String>,
     pub last_model_pull: Option<String>,
 }
 

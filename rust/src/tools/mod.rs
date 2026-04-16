@@ -24,6 +24,7 @@ pub mod ctx_edit;
 pub mod ctx_execute;
 pub mod ctx_feedback;
 pub mod ctx_fill;
+pub mod ctx_gain;
 pub mod ctx_graph;
 pub mod ctx_graph_diagram;
 pub mod ctx_handoff;
@@ -179,29 +180,46 @@ impl LeanCtxServer {
     /// Resolves a (possibly relative) tool path against the session's project_root.
     /// Absolute paths and "." are returned as-is. Relative paths like "src/main.rs"
     /// are joined with project_root so tools work regardless of the server's cwd.
-    pub async fn resolve_path(&self, path: &str) -> String {
+    pub async fn resolve_path(&self, path: &str) -> Result<String, String> {
         let normalized = crate::hooks::normalize_tool_path(path);
         if normalized.is_empty() || normalized == "." {
-            return normalized;
+            return Ok(normalized);
         }
         let p = std::path::Path::new(&normalized);
-        if p.is_absolute() || p.exists() {
-            return normalized;
-        }
         let session = self.session.read().await;
-        if let Some(ref root) = session.project_root {
-            let resolved = std::path::Path::new(root).join(&normalized);
-            if resolved.exists() {
-                return resolved.to_string_lossy().to_string();
+        let jail_root = session
+            .project_root
+            .as_deref()
+            .or(session.shell_cwd.as_deref())
+            .unwrap_or(".");
+
+        let resolved = if p.is_absolute() || p.exists() {
+            std::path::PathBuf::from(&normalized)
+        } else if let Some(ref root) = session.project_root {
+            let joined = std::path::Path::new(root).join(&normalized);
+            if joined.exists() {
+                joined
+            } else if let Some(ref cwd) = session.shell_cwd {
+                std::path::Path::new(cwd).join(&normalized)
+            } else {
+                std::path::Path::new(jail_root).join(&normalized)
             }
-        }
-        if let Some(ref cwd) = session.shell_cwd {
-            let resolved = std::path::Path::new(cwd).join(&normalized);
-            if resolved.exists() {
-                return resolved.to_string_lossy().to_string();
-            }
-        }
-        normalized
+        } else if let Some(ref cwd) = session.shell_cwd {
+            std::path::Path::new(cwd).join(&normalized)
+        } else {
+            std::path::Path::new(jail_root).join(&normalized)
+        };
+
+        let jailed = crate::core::pathjail::jail_path(&resolved, std::path::Path::new(jail_root))?;
+        Ok(crate::hooks::normalize_tool_path(
+            &jailed.to_string_lossy().replace('\\', "/"),
+        ))
+    }
+
+    pub async fn resolve_path_or_passthrough(&self, path: &str) -> String {
+        self.resolve_path(path)
+            .await
+            .unwrap_or_else(|_| path.to_string())
     }
 
     pub async fn check_idle_expiry(&self) {

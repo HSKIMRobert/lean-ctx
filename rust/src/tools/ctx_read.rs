@@ -17,6 +17,16 @@ fn append_compressed_hint(output: &str, file_path: &str) -> String {
 }
 
 pub fn read_file_lossy(path: &str) -> Result<String, std::io::Error> {
+    let cap = crate::core::limits::max_read_bytes();
+    if let Ok(meta) = std::fs::metadata(path) {
+        if meta.len() > cap as u64 {
+            return Err(std::io::Error::other(format!(
+                "file too large ({} bytes, cap {} via LCTX_MAX_READ_BYTES)",
+                meta.len(),
+                cap
+            )));
+        }
+    }
     let bytes = std::fs::read(path)?;
     match String::from_utf8(bytes) {
         Ok(s) => Ok(s),

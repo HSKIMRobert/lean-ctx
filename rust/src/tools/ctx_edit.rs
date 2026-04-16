@@ -11,6 +11,16 @@ pub struct EditParams {
     pub create: bool,
 }
 
+struct ReplaceArgs<'a> {
+    content: &'a str,
+    old_str: &'a str,
+    new_str: &'a str,
+    occurrences: usize,
+    replace_all: bool,
+    old_tokens: usize,
+    new_tokens: usize,
+}
+
 pub fn handle(cache: &mut SessionCache, params: EditParams) -> String {
     let file_path = &params.path;
 
@@ -18,10 +28,40 @@ pub fn handle(cache: &mut SessionCache, params: EditParams) -> String {
         return handle_create(cache, file_path, &params.new_string);
     }
 
-    let raw_bytes = match std::fs::read(file_path) {
-        Ok(b) => b,
-        Err(e) => return format!("ERROR: cannot read {file_path}: {e}"),
+    let cap = crate::core::limits::max_read_bytes();
+    if let Ok(meta) = std::fs::metadata(file_path) {
+        if meta.len() > cap as u64 {
+            return format!(
+                "ERROR: file too large ({} bytes, cap {} via LCTX_MAX_READ_BYTES): {file_path}",
+                meta.len(),
+                cap
+            );
+        }
+    }
+
+    let mut file = match std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(file_path)
+    {
+        Ok(f) => f,
+        Err(e) => return format!("ERROR: cannot open {file_path}: {e}"),
     };
+
+    let mut raw_bytes: Vec<u8> = Vec::new();
+    {
+        use std::io::Read;
+        let mut limited = (&mut file).take((cap as u64).saturating_add(1));
+        if let Err(e) = limited.read_to_end(&mut raw_bytes) {
+            return format!("ERROR: cannot read {file_path}: {e}");
+        }
+    }
+    if raw_bytes.len() > cap {
+        return format!(
+            "ERROR: file too large (cap {} via LCTX_MAX_READ_BYTES): {file_path}",
+            cap
+        );
+    }
 
     let content = String::from_utf8_lossy(&raw_bytes).into_owned();
 
@@ -36,15 +76,16 @@ pub fn handle(cache: &mut SessionCache, params: EditParams) -> String {
     let occurrences = content.matches(old_str).count();
 
     if occurrences > 0 {
-        return do_replace(
-            cache,
-            file_path,
-            &content,
+        let args = ReplaceArgs {
+            content: &content,
             old_str,
             new_str,
             occurrences,
-            &params,
-        );
+            replace_all: params.replace_all,
+            old_tokens: count_tokens(&params.old_string),
+            new_tokens: count_tokens(&params.new_string),
+        };
+        return do_replace(cache, &mut file, file_path, args);
     }
 
     // Direct match failed -- try CRLF/LF normalization
@@ -53,16 +94,32 @@ pub fn handle(cache: &mut SessionCache, params: EditParams) -> String {
         let occ = content.matches(&old_crlf).count();
         if occ > 0 {
             let new_crlf = new_str.replace('\n', "\r\n");
-            return do_replace(
-                cache, file_path, &content, &old_crlf, &new_crlf, occ, &params,
-            );
+            let args = ReplaceArgs {
+                content: &content,
+                old_str: &old_crlf,
+                new_str: &new_crlf,
+                occurrences: occ,
+                replace_all: params.replace_all,
+                old_tokens: count_tokens(&params.old_string),
+                new_tokens: count_tokens(&params.new_string),
+            };
+            return do_replace(cache, &mut file, file_path, args);
         }
     } else if !uses_crlf && old_str.contains("\r\n") {
         let old_lf = old_str.replace("\r\n", "\n");
         let occ = content.matches(&old_lf).count();
         if occ > 0 {
             let new_lf = new_str.replace("\r\n", "\n");
-            return do_replace(cache, file_path, &content, &old_lf, &new_lf, occ, &params);
+            let args = ReplaceArgs {
+                content: &content,
+                old_str: &old_lf,
+                new_str: &new_lf,
+                occurrences: occ,
+                replace_all: params.replace_all,
+                old_tokens: count_tokens(&params.old_string),
+                new_tokens: count_tokens(&params.new_string),
+            };
+            return do_replace(cache, &mut file, file_path, args);
         }
     }
 
@@ -75,15 +132,16 @@ pub fn handle(cache: &mut SessionCache, params: EditParams) -> String {
         let adapted_old = find_original_span(&content, &normalized_old);
         if let Some(original_match) = adapted_old {
             let occ = content.matches(&original_match).count();
-            return do_replace(
-                cache,
-                file_path,
-                &content,
-                &original_match,
-                &adapted_new,
-                occ,
-                &params,
-            );
+            let args = ReplaceArgs {
+                content: &content,
+                old_str: &original_match,
+                new_str: &adapted_new,
+                occurrences: occ,
+                replace_all: params.replace_all,
+                old_tokens: count_tokens(&params.old_string),
+                new_tokens: count_tokens(&params.new_string),
+            };
+            return do_replace(cache, &mut file, file_path, args);
         }
     }
 
@@ -106,33 +164,40 @@ pub fn handle(cache: &mut SessionCache, params: EditParams) -> String {
 
 fn do_replace(
     cache: &mut SessionCache,
+    file: &mut std::fs::File,
     file_path: &str,
-    content: &str,
-    old_str: &str,
-    new_str: &str,
-    occurrences: usize,
-    params: &EditParams,
+    args: ReplaceArgs<'_>,
 ) -> String {
-    if occurrences > 1 && !params.replace_all {
+    if args.occurrences > 1 && !args.replace_all {
         return format!(
-            "ERROR: old_string found {occurrences} times in {file_path}. \
+            "ERROR: old_string found {} times in {file_path}. \
              Use replace_all=true to replace all, or provide more context to make old_string unique."
+            , args.occurrences
         );
     }
 
-    let new_content = if params.replace_all {
-        content.replace(old_str, new_str)
+    let new_content = if args.replace_all {
+        args.content.replace(args.old_str, args.new_str)
     } else {
-        content.replacen(old_str, new_str, 1)
+        args.content.replacen(args.old_str, args.new_str, 1)
     };
 
-    if let Err(e) = std::fs::write(file_path, &new_content) {
+    use std::io::{Seek, SeekFrom, Write};
+    if let Err(e) = file.set_len(0) {
         return format!("ERROR: cannot write {file_path}: {e}");
     }
+    if let Err(e) = file.seek(SeekFrom::Start(0)) {
+        return format!("ERROR: cannot write {file_path}: {e}");
+    }
+    if let Err(e) = file.write_all(new_content.as_bytes()) {
+        return format!("ERROR: cannot write {file_path}: {e}");
+    }
+    let _ = file.flush();
+    let _ = file.sync_all();
 
     cache.invalidate(file_path);
 
-    let old_lines = content.lines().count();
+    let old_lines = args.content.lines().count();
     let new_lines = new_content.lines().count();
     let line_delta = new_lines as i64 - old_lines as i64;
     let delta_str = if line_delta > 0 {
@@ -141,11 +206,11 @@ fn do_replace(
         format!("{line_delta}")
     };
 
-    let old_tokens = count_tokens(&params.old_string);
-    let new_tokens = count_tokens(&params.new_string);
+    let old_tokens = args.old_tokens;
+    let new_tokens = args.new_tokens;
 
-    let replaced_str = if params.replace_all && occurrences > 1 {
-        format!("{occurrences} replacements")
+    let replaced_str = if args.replace_all && args.occurrences > 1 {
+        format!("{} replacements", args.occurrences)
     } else {
         "1 replacement".into()
     };

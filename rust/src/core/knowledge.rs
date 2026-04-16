@@ -406,10 +406,12 @@ impl ProjectKnowledge {
                 facts_in_cat.truncate(crate::core::budgets::KNOWLEDGE_SUMMARY_FACTS_PER_ROOM_LIMIT);
 
                 for f in facts_in_cat {
+                    let key = crate::core::sanitize::neutralize_metadata(&f.key);
+                    let val = crate::core::sanitize::neutralize_metadata(&f.value);
                     out.push_str(&format!(
                         "    {}: {} (confidence: {:.0}%)\n",
-                        f.key,
-                        f.value,
+                        key,
+                        val,
                         f.confidence * 100.0
                     ));
                 }
@@ -441,7 +443,9 @@ impl ProjectKnowledge {
             let total = patterns.len();
             patterns.truncate(crate::core::budgets::KNOWLEDGE_PATTERNS_LIMIT);
             for p in &patterns {
-                out.push_str(&format!("  [{}] {}\n", p.pattern_type, p.description));
+                let ty = crate::core::sanitize::neutralize_metadata(&p.pattern_type);
+                let desc = crate::core::sanitize::neutralize_metadata(&p.description);
+                out.push_str(&format!("  [{ty}] {desc}\n"));
             }
             if total > crate::core::budgets::KNOWLEDGE_PATTERNS_LIMIT {
                 out.push_str(&format!(
@@ -451,7 +455,11 @@ impl ProjectKnowledge {
             }
         }
 
-        out
+        if out.is_empty() {
+            out
+        } else {
+            crate::core::sanitize::fence_content("project_knowledge", out.trim_end())
+        }
     }
 
     pub fn format_aaak(&self) -> String {
@@ -481,10 +489,16 @@ impl ProjectKnowledge {
                 .iter()
                 .map(|f| {
                     let stars = confidence_stars(f.confidence);
-                    format!("{}={}{}", f.key, f.value, stars)
+                    let key = crate::core::sanitize::neutralize_metadata(&f.key);
+                    let val = crate::core::sanitize::neutralize_metadata(&f.value);
+                    format!("{key}={val}{stars}")
                 })
                 .collect();
-            out.push_str(&format!("{}:{}\n", cat.to_uppercase(), items.join("|")));
+            out.push_str(&format!(
+                "{}:{}\n",
+                crate::core::sanitize::neutralize_metadata(&cat.to_uppercase()),
+                items.join("|")
+            ));
         }
 
         if !self.patterns.is_empty() {
@@ -498,12 +512,20 @@ impl ProjectKnowledge {
             patterns.truncate(crate::core::budgets::KNOWLEDGE_PATTERNS_LIMIT);
             let pat_items: Vec<String> = patterns
                 .iter()
-                .map(|p| format!("{}.{}", p.pattern_type, p.description))
+                .map(|p| {
+                    let ty = crate::core::sanitize::neutralize_metadata(&p.pattern_type);
+                    let desc = crate::core::sanitize::neutralize_metadata(&p.description);
+                    format!("{ty}.{desc}")
+                })
                 .collect();
             out.push_str(&format!("PAT:{}\n", pat_items.join("|")));
         }
 
-        out
+        if out.is_empty() {
+            out
+        } else {
+            crate::core::sanitize::fence_content("project_memory_aaak", out.trim_end())
+        }
     }
 
     pub fn format_wakeup(&self) -> String {
@@ -523,10 +545,18 @@ impl ProjectKnowledge {
 
         let items: Vec<String> = top_facts
             .iter()
-            .map(|f| format!("{}/{}={}", f.category, f.key, f.value))
+            .map(|f| {
+                let cat = crate::core::sanitize::neutralize_metadata(&f.category);
+                let key = crate::core::sanitize::neutralize_metadata(&f.key);
+                let val = crate::core::sanitize::neutralize_metadata(&f.value);
+                format!("{cat}/{key}={val}")
+            })
             .collect();
 
-        format!("FACTS:{}", items.join("|"))
+        crate::core::sanitize::fence_content(
+            "project_facts_wakeup",
+            &format!("FACTS:{}", items.join("|")),
+        )
     }
 
     pub fn save(&self) -> Result<(), String> {

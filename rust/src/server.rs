@@ -228,7 +228,10 @@ impl ServerHandler for LeanCtxServer {
         let result_text = match name {
             "ctx_read" => {
                 let path = match get_str(args, "path") {
-                    Some(p) => self.resolve_path(&p).await,
+                    Some(p) => self
+                        .resolve_path(&p)
+                        .await
+                        .map_err(|e| ErrorData::invalid_params(e, None))?,
                     None => return Err(ErrorData::invalid_params("path is required", None)),
                 };
                 let current_task = {
@@ -366,7 +369,11 @@ impl ServerHandler for LeanCtxServer {
                     .ok_or_else(|| ErrorData::invalid_params("paths array is required", None))?;
                 let mut paths = Vec::with_capacity(raw_paths.len());
                 for p in raw_paths {
-                    paths.push(self.resolve_path(&p).await);
+                    paths.push(
+                        self.resolve_path(&p)
+                            .await
+                            .map_err(|e| ErrorData::invalid_params(e, None))?,
+                    );
                 }
                 let mode = get_str(args, "mode").unwrap_or_else(|| "full".to_string());
                 let current_task = {
@@ -400,7 +407,8 @@ impl ServerHandler for LeanCtxServer {
             "ctx_tree" => {
                 let path = self
                     .resolve_path(&get_str(args, "path").unwrap_or_else(|| ".".to_string()))
-                    .await;
+                    .await
+                    .map_err(|e| ErrorData::invalid_params(e, None))?;
                 let depth = get_int(args, "depth").unwrap_or(3) as usize;
                 let show_hidden = get_bool(args, "show_hidden").unwrap_or(false);
                 let (result, original) = crate::tools::ctx_tree::handle(&path, depth, show_hidden);
@@ -571,7 +579,8 @@ impl ServerHandler for LeanCtxServer {
                     .ok_or_else(|| ErrorData::invalid_params("pattern is required", None))?;
                 let path = self
                     .resolve_path(&get_str(args, "path").unwrap_or_else(|| ".".to_string()))
-                    .await;
+                    .await
+                    .map_err(|e| ErrorData::invalid_params(e, None))?;
                 let ext = get_str(args, "ext");
                 let max = get_int(args, "max_results").unwrap_or(20) as usize;
                 let no_gitignore = get_bool(args, "ignore_gitignore").unwrap_or(false);
@@ -629,7 +638,10 @@ impl ServerHandler for LeanCtxServer {
             }
             "ctx_benchmark" => {
                 let path = match get_str(args, "path") {
-                    Some(p) => self.resolve_path(&p).await,
+                    Some(p) => self
+                        .resolve_path(&p)
+                        .await
+                        .map_err(|e| ErrorData::invalid_params(e, None))?,
                     None => return Err(ErrorData::invalid_params("path is required", None)),
                 };
                 let action = get_str(args, "action").unwrap_or_default();
@@ -658,7 +670,10 @@ impl ServerHandler for LeanCtxServer {
             }
             "ctx_analyze" => {
                 let path = match get_str(args, "path") {
-                    Some(p) => self.resolve_path(&p).await,
+                    Some(p) => self
+                        .resolve_path(&p)
+                        .await
+                        .map_err(|e| ErrorData::invalid_params(e, None))?,
                     None => return Err(ErrorData::invalid_params("path is required", None)),
                 };
                 let result = crate::tools::ctx_analyze::handle(&path, self.crp_mode);
@@ -674,7 +689,10 @@ impl ServerHandler for LeanCtxServer {
             }
             "ctx_smart_read" => {
                 let path = match get_str(args, "path") {
-                    Some(p) => self.resolve_path(&p).await,
+                    Some(p) => self
+                        .resolve_path(&p)
+                        .await
+                        .map_err(|e| ErrorData::invalid_params(e, None))?,
                     None => return Err(ErrorData::invalid_params("path is required", None)),
                 };
                 let mut cache = self.cache.write().await;
@@ -693,7 +711,10 @@ impl ServerHandler for LeanCtxServer {
             }
             "ctx_delta" => {
                 let path = match get_str(args, "path") {
-                    Some(p) => self.resolve_path(&p).await,
+                    Some(p) => self
+                        .resolve_path(&p)
+                        .await
+                        .map_err(|e| ErrorData::invalid_params(e, None))?,
                     None => return Err(ErrorData::invalid_params("path is required", None)),
                 };
                 let mut cache = self.cache.write().await;
@@ -716,7 +737,10 @@ impl ServerHandler for LeanCtxServer {
             }
             "ctx_edit" => {
                 let path = match get_str(args, "path") {
-                    Some(p) => self.resolve_path(&p).await,
+                    Some(p) => self
+                        .resolve_path(&p)
+                        .await
+                        .map_err(|e| ErrorData::invalid_params(e, None))?,
                     None => return Err(ErrorData::invalid_params("path is required", None)),
                 };
                 let old_string = get_str(args, "old_string").unwrap_or_default();
@@ -774,7 +798,11 @@ impl ServerHandler for LeanCtxServer {
                     .ok_or_else(|| ErrorData::invalid_params("paths array is required", None))?;
                 let mut paths = Vec::with_capacity(raw_paths.len());
                 for p in raw_paths {
-                    paths.push(self.resolve_path(&p).await);
+                    paths.push(
+                        self.resolve_path(&p)
+                            .await
+                            .map_err(|e| ErrorData::invalid_params(e, None))?,
+                    );
                 }
                 let budget = get_int(args, "budget")
                     .ok_or_else(|| ErrorData::invalid_params("budget is required", None))?
@@ -828,12 +856,17 @@ impl ServerHandler for LeanCtxServer {
                 let action = get_str(args, "action")
                     .ok_or_else(|| ErrorData::invalid_params("action is required", None))?;
                 let path = match get_str(args, "path") {
-                    Some(p) => Some(self.resolve_path(&p).await),
+                    Some(p) => Some(
+                        self.resolve_path(&p)
+                            .await
+                            .map_err(|e| ErrorData::invalid_params(e, None))?,
+                    ),
                     None => None,
                 };
                 let root = self
                     .resolve_path(&get_str(args, "project_root").unwrap_or_else(|| ".".to_string()))
-                    .await;
+                    .await
+                    .map_err(|e| ErrorData::invalid_params(e, None))?;
                 let mut cache = self.cache.write().await;
                 let result = crate::tools::ctx_graph::handle(
                     &action,
@@ -880,7 +913,10 @@ impl ServerHandler for LeanCtxServer {
                     }
                     "invalidate" => {
                         let path = match get_str(args, "path") {
-                            Some(p) => self.resolve_path(&p).await,
+                            Some(p) => self
+                                .resolve_path(&p)
+                                .await
+                                .map_err(|e| ErrorData::invalid_params(e, None))?,
                             None => {
                                 return Err(ErrorData::invalid_params(
                                     "path is required for invalidate",
@@ -1064,7 +1100,11 @@ impl ServerHandler for LeanCtxServer {
             "ctx_overview" => {
                 let task = get_str(args, "task");
                 let resolved_path = match get_str(args, "path") {
-                    Some(p) => Some(self.resolve_path(&p).await),
+                    Some(p) => Some(
+                        self.resolve_path(&p)
+                            .await
+                            .map_err(|e| ErrorData::invalid_params(e, None))?,
+                    ),
                     None => {
                         let session = self.session.read().await;
                         session.project_root.clone()
@@ -1085,7 +1125,11 @@ impl ServerHandler for LeanCtxServer {
             "ctx_preload" => {
                 let task = get_str(args, "task").unwrap_or_default();
                 let resolved_path = match get_str(args, "path") {
-                    Some(p) => Some(self.resolve_path(&p).await),
+                    Some(p) => Some(
+                        self.resolve_path(&p)
+                            .await
+                            .map_err(|e| ErrorData::invalid_params(e, None))?,
+                    ),
                     None => {
                         let session = self.session.read().await;
                         session.project_root.clone()
@@ -1105,7 +1149,10 @@ impl ServerHandler for LeanCtxServer {
             }
             "ctx_prefetch" => {
                 let root = match get_str(args, "root") {
-                    Some(r) => r,
+                    Some(r) => self
+                        .resolve_path(&r)
+                        .await
+                        .map_err(|e| ErrorData::invalid_params(e, None))?,
                     None => {
                         let session = self.session.read().await;
                         session
@@ -1125,7 +1172,11 @@ impl ServerHandler for LeanCtxServer {
                 if let Some(files) = changed_files {
                     let mut v = Vec::with_capacity(files.len());
                     for p in files {
-                        v.push(self.resolve_path(&p).await);
+                        v.push(
+                            self.resolve_path(&p)
+                                .await
+                                .map_err(|e| ErrorData::invalid_params(e, None))?,
+                        );
                     }
                     resolved_changed = Some(v);
                 }
@@ -1156,7 +1207,8 @@ impl ServerHandler for LeanCtxServer {
                     .ok_or_else(|| ErrorData::invalid_params("query is required", None))?;
                 let path = self
                     .resolve_path(&get_str(args, "path").unwrap_or_else(|| ".".to_string()))
-                    .await;
+                    .await
+                    .map_err(|e| ErrorData::invalid_params(e, None))?;
                 let top_k = get_int(args, "top_k").unwrap_or(10) as usize;
                 let action = get_str(args, "action").unwrap_or_default();
                 let mode = get_str(args, "mode");
@@ -1282,7 +1334,8 @@ impl ServerHandler for LeanCtxServer {
                         &get_str(args, "path")
                             .ok_or_else(|| ErrorData::invalid_params("path is required", None))?,
                     )
-                    .await;
+                    .await
+                    .map_err(|e| ErrorData::invalid_params(e, None))?;
                 let result = crate::tools::ctx_compress_memory::handle(&path);
                 self.record_call("ctx_compress_memory", 0, 0, None).await;
                 result
@@ -1323,7 +1376,8 @@ impl ServerHandler for LeanCtxServer {
                         &get_str(args, "path")
                             .ok_or_else(|| ErrorData::invalid_params("path is required", None))?,
                     )
-                    .await;
+                    .await
+                    .map_err(|e| ErrorData::invalid_params(e, None))?;
                 let kind = get_str(args, "kind");
                 let (result, original) = crate::tools::ctx_outline::handle(&path, kind.as_deref());
                 let sent = crate::core::tokens::count_tokens(&result);
@@ -1337,6 +1391,20 @@ impl ServerHandler for LeanCtxServer {
                 let limit = get_int(args, "limit").map(|n| n as usize);
                 let result = crate::tools::ctx_cost::handle(&action, agent_id.as_deref(), limit);
                 self.record_call("ctx_cost", 0, 0, Some(action)).await;
+                result
+            }
+            "ctx_gain" => {
+                let action = get_str(args, "action").unwrap_or_else(|| "status".to_string());
+                let period = get_str(args, "period");
+                let model = get_str(args, "model");
+                let limit = get_int(args, "limit").map(|n| n as usize);
+                let result = crate::tools::ctx_gain::handle(
+                    &action,
+                    period.as_deref(),
+                    model.as_deref(),
+                    limit,
+                );
+                self.record_call("ctx_gain", 0, 0, Some(action)).await;
                 result
             }
             "ctx_feedback" => {
@@ -1448,7 +1516,10 @@ impl ServerHandler for LeanCtxServer {
                         let path = get_str(args, "path").ok_or_else(|| {
                             ErrorData::invalid_params("path is required for action=show", None)
                         })?;
-                        let path = self.resolve_path(&path).await;
+                        let path = self
+                            .resolve_path(&path)
+                            .await
+                            .map_err(|e| ErrorData::invalid_params(e, None))?;
                         let ledger =
                             crate::core::handoff_ledger::load_ledger(std::path::Path::new(&path))
                                 .map_err(|e| {
@@ -1467,7 +1538,10 @@ impl ServerHandler for LeanCtxServer {
                         if !curated_paths.is_empty() {
                             let mut cache = self.cache.write().await;
                             for p in curated_paths.into_iter().take(20) {
-                                let abs = self.resolve_path(&p).await;
+                                let abs = self
+                                    .resolve_path(&p)
+                                    .await
+                                    .map_err(|e| ErrorData::invalid_params(e, None))?;
                                 let text = crate::tools::ctx_read::handle_with_task(
                                     &mut cache,
                                     &abs,
@@ -1509,7 +1583,10 @@ impl ServerHandler for LeanCtxServer {
                         let path = get_str(args, "path").ok_or_else(|| {
                             ErrorData::invalid_params("path is required for action=pull", None)
                         })?;
-                        let path = self.resolve_path(&path).await;
+                        let path = self
+                            .resolve_path(&path)
+                            .await
+                            .map_err(|e| ErrorData::invalid_params(e, None))?;
                         let ledger =
                             crate::core::handoff_ledger::load_ledger(std::path::Path::new(&path))
                                 .map_err(|e| {
@@ -1695,7 +1772,7 @@ impl ServerHandler for LeanCtxServer {
 
         if name == "ctx_read" {
             let read_path = self
-                .resolve_path(&get_str(args, "path").unwrap_or_default())
+                .resolve_path_or_passthrough(&get_str(args, "path").unwrap_or_default())
                 .await;
             let project_root = {
                 let session = self.session.read().await;
@@ -1830,6 +1907,7 @@ impl ServerHandler for LeanCtxServer {
                 | "ctx_overview"
                 | "ctx_preload"
                 | "ctx_cost"
+                | "ctx_gain"
                 | "ctx_heatmap"
                 | "ctx_task"
                 | "ctx_impact"
@@ -1972,24 +2050,83 @@ fn execute_command_in(command: &str, cwd: &str) -> (String, i32) {
     if dir.is_dir() {
         cmd.current_dir(dir);
     }
-    let output = cmd.output();
+    let cap = crate::core::limits::max_shell_bytes();
 
-    match output {
-        Ok(out) => {
-            let code = out.status.code().unwrap_or(1);
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            let text = if stdout.is_empty() {
-                stderr.to_string()
-            } else if stderr.is_empty() {
-                stdout.to_string()
-            } else {
-                format!("{stdout}\n{stderr}")
-            };
-            (text, code)
+    fn read_bounded<R: std::io::Read>(mut r: R, cap: usize) -> (Vec<u8>, bool, usize) {
+        let mut kept: Vec<u8> = Vec::with_capacity(cap.min(8192));
+        let mut buf = [0u8; 8192];
+        let mut total = 0usize;
+        let mut truncated = false;
+        loop {
+            match r.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    total = total.saturating_add(n);
+                    if kept.len() < cap {
+                        let remaining = cap - kept.len();
+                        let take = remaining.min(n);
+                        kept.extend_from_slice(&buf[..take]);
+                        if take < n {
+                            truncated = true;
+                        }
+                    } else {
+                        truncated = true;
+                    }
+                }
+                Err(_) => break,
+            }
         }
-        Err(e) => (format!("ERROR: {e}"), 1),
+        (kept, truncated, total)
     }
+
+    let mut child = match cmd
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => return (format!("ERROR: {e}"), 1),
+    };
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+
+    let out_handle = std::thread::spawn(move || {
+        stdout
+            .map(|s| read_bounded(s, cap))
+            .unwrap_or_else(|| (Vec::new(), false, 0))
+    });
+    let err_handle = std::thread::spawn(move || {
+        stderr
+            .map(|s| read_bounded(s, cap))
+            .unwrap_or_else(|| (Vec::new(), false, 0))
+    });
+
+    let status = child.wait();
+    let code = status.ok().and_then(|s| s.code()).unwrap_or(1);
+
+    let (out_bytes, out_trunc, _out_total) = out_handle.join().unwrap_or_default();
+    let (err_bytes, err_trunc, _err_total) = err_handle.join().unwrap_or_default();
+
+    let stdout = String::from_utf8_lossy(&out_bytes);
+    let stderr = String::from_utf8_lossy(&err_bytes);
+    let mut text = if stdout.is_empty() {
+        stderr.to_string()
+    } else if stderr.is_empty() {
+        stdout.to_string()
+    } else {
+        format!("{stdout}\n{stderr}")
+    };
+
+    if out_trunc || err_trunc {
+        text.push_str(&format!(
+            "\n[truncated: cap={}B stdout={}B stderr={}B]",
+            cap,
+            out_bytes.len(),
+            err_bytes.len()
+        ));
+    }
+
+    (text, code)
 }
 
 pub fn tool_descriptions_for_test() -> Vec<(&'static str, &'static str)> {

@@ -59,14 +59,105 @@ fn main() {
                     core::stats::gain_live();
                     return;
                 }
+                let model = rest.iter().enumerate().find_map(|(i, a)| {
+                    if let Some(v) = a.strip_prefix("--model=") {
+                        return Some(v.to_string());
+                    }
+                    if a == "--model" {
+                        return rest.get(i + 1).cloned();
+                    }
+                    None
+                });
+                let period = rest
+                    .iter()
+                    .enumerate()
+                    .find_map(|(i, a)| {
+                        if let Some(v) = a.strip_prefix("--period=") {
+                            return Some(v.to_string());
+                        }
+                        if a == "--period" {
+                            return rest.get(i + 1).cloned();
+                        }
+                        None
+                    })
+                    .unwrap_or_else(|| "all".to_string());
+                let limit = rest
+                    .iter()
+                    .enumerate()
+                    .find_map(|(i, a)| {
+                        if let Some(v) = a.strip_prefix("--limit=") {
+                            return v.parse::<usize>().ok();
+                        }
+                        if a == "--limit" {
+                            return rest.get(i + 1).and_then(|v| v.parse::<usize>().ok());
+                        }
+                        None
+                    })
+                    .unwrap_or(10);
+
                 if rest.iter().any(|a| a == "--graph") {
                     println!("{}", core::stats::format_gain_graph());
                 } else if rest.iter().any(|a| a == "--daily") {
                     println!("{}", core::stats::format_gain_daily());
                 } else if rest.iter().any(|a| a == "--json") {
-                    println!("{}", core::stats::format_gain_json());
+                    println!(
+                        "{}",
+                        tools::ctx_gain::handle(
+                            "json",
+                            Some(&period),
+                            model.as_deref(),
+                            Some(limit)
+                        )
+                    );
+                } else if rest.iter().any(|a| a == "--score") {
+                    println!(
+                        "{}",
+                        tools::ctx_gain::handle("score", None, model.as_deref(), Some(limit))
+                    );
+                } else if rest.iter().any(|a| a == "--cost") {
+                    println!(
+                        "{}",
+                        tools::ctx_gain::handle("cost", None, model.as_deref(), Some(limit))
+                    );
+                } else if rest.iter().any(|a| a == "--tasks") {
+                    println!(
+                        "{}",
+                        tools::ctx_gain::handle("tasks", None, None, Some(limit))
+                    );
+                } else if rest.iter().any(|a| a == "--agents") {
+                    println!(
+                        "{}",
+                        tools::ctx_gain::handle("agents", None, None, Some(limit))
+                    );
+                } else if rest.iter().any(|a| a == "--heatmap") {
+                    println!(
+                        "{}",
+                        tools::ctx_gain::handle("heatmap", None, None, Some(limit))
+                    );
+                } else if rest.iter().any(|a| a == "--wrapped") {
+                    println!(
+                        "{}",
+                        tools::ctx_gain::handle(
+                            "wrapped",
+                            Some(&period),
+                            model.as_deref(),
+                            Some(limit)
+                        )
+                    );
+                } else if rest.iter().any(|a| a == "--deep") {
+                    println!(
+                        "{}\n{}\n{}\n{}\n{}",
+                        tools::ctx_gain::handle("report", None, model.as_deref(), Some(limit)),
+                        tools::ctx_gain::handle("tasks", None, None, Some(limit)),
+                        tools::ctx_gain::handle("cost", None, model.as_deref(), Some(limit)),
+                        tools::ctx_gain::handle("agents", None, None, Some(limit)),
+                        tools::ctx_gain::handle("heatmap", None, None, Some(limit))
+                    );
                 } else {
-                    print_gain_with_logo();
+                    println!(
+                        "{}",
+                        tools::ctx_gain::handle("report", None, model.as_deref(), Some(limit))
+                    );
                 }
                 return;
             }
@@ -78,7 +169,7 @@ fn main() {
                 return;
             }
             "cep" => {
-                println!("{}", core::stats::format_cep_report());
+                println!("{}", tools::ctx_gain::handle("score", None, None, Some(10)));
                 return;
             }
             "dashboard" => {
@@ -1293,6 +1384,7 @@ fn cmd_cloud(args: &[String]) {
     }
 }
 
+#[allow(dead_code)]
 fn print_gain_with_logo() {
     let t = core::theme::load_theme(&core::config::Config::load().theme);
     terminal_ui::print_logo_animated_themed(&t);
@@ -1317,6 +1409,7 @@ fn print_gain_with_logo() {
     core::version_check::check_background();
 }
 
+#[allow(dead_code)]
 fn animate_kpi_countup(t: &core::theme::Theme) {
     use std::io::{IsTerminal, Write};
 

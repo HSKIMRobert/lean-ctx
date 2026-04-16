@@ -1,6 +1,6 @@
 {
   "counts": {
-    "granular": 45,
+    "granular": 46,
     "unified": 5
   },
   "read_modes": {
@@ -497,6 +497,44 @@
         },
         "name": "ctx_fill",
         "schema_md5": "cbf54bb11746bf5edb4345a40c259590"
+      },
+      {
+        "description": "Gain report.",
+        "input_schema": {
+          "properties": {
+            "action": {
+              "enum": [
+                "status",
+                "report",
+                "score",
+                "cost",
+                "tasks",
+                "heatmap",
+                "wrapped",
+                "agents",
+                "json"
+              ],
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer"
+            },
+            "model": {
+              "type": "string"
+            },
+            "period": {
+              "enum": [
+                "week",
+                "month",
+                "all"
+              ],
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "name": "ctx_gain",
+        "schema_md5": "689b1f4c29249850e4bd369168bcb698"
       },
       {
         "description": "Code dependency graph. Actions: build (index project), related (find files connected to path), symbol (lookup definition/usages as file::name), impact (blast radius of changes to path), status (index stats).",

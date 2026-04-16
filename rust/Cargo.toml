@@ -123,6 +123,7 @@ glob = "0.3.3"
 ratatui = "0.30"
 crossterm = "0.28"
 rpassword = "7.4.0"
+getrandom = "0.3"
 
 [profile.release]
 opt-level = "z"
