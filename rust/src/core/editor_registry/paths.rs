@@ -39,6 +39,7 @@ pub fn vscode_mcp_path() -> PathBuf {
     }
 }
 
+#[allow(unreachable_code)]
 pub fn cline_mcp_path() -> PathBuf {
     #[cfg(target_os = "windows")]
     {
@@ -61,10 +62,10 @@ pub fn cline_mcp_path() -> PathBuf {
     {
         return home.join(".config/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json");
     }
-    #[allow(unreachable_code)]
     PathBuf::from("/nonexistent")
 }
 
+#[allow(unreachable_code)]
 pub fn roo_mcp_path() -> PathBuf {
     #[cfg(target_os = "windows")]
     {
@@ -86,7 +87,6 @@ pub fn roo_mcp_path() -> PathBuf {
     {
         return home.join(".config/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json");
     }
-    #[allow(unreachable_code)]
     PathBuf::from("/nonexistent")
 }
 

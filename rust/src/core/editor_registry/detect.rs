@@ -257,27 +257,41 @@ pub fn detect_jetbrains_path(home: &Path) -> PathBuf {
     PathBuf::from("/nonexistent")
 }
 
+#[allow(unreachable_code)]
 pub fn detect_cline_path() -> PathBuf {
-    if let Some(home) = dirs::home_dir() {
-        #[cfg(target_os = "macos")]
-        {
-            let p = home
-                .join("Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev");
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let p = PathBuf::from(appdata).join("Code/User/globalStorage/saoudrizwan.claude-dev");
             if p.exists() {
                 return p;
             }
         }
-        #[cfg(target_os = "linux")]
-        {
-            let p = home.join(".config/Code/User/globalStorage/saoudrizwan.claude-dev");
-            if p.exists() {
-                return p;
-            }
+        return PathBuf::from("/nonexistent");
+    }
+
+    let Some(home) = dirs::home_dir() else {
+        return PathBuf::from("/nonexistent");
+    };
+    #[cfg(target_os = "macos")]
+    {
+        let p =
+            home.join("Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev");
+        if p.exists() {
+            return p;
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let p = home.join(".config/Code/User/globalStorage/saoudrizwan.claude-dev");
+        if p.exists() {
+            return p;
         }
     }
     PathBuf::from("/nonexistent")
 }
 
+#[allow(unreachable_code)]
 pub fn detect_roo_path() -> PathBuf {
     #[cfg(target_os = "windows")]
     {

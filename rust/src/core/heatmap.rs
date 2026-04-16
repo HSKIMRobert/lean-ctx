@@ -147,7 +147,7 @@ pub fn record_file_access(file_path: &str, original_tokens: usize, saved_tokens:
             .values()
             .map(|e| (e.path.clone(), e.access_count))
             .collect();
-        items.sort_by(|a, b| a.1.cmp(&b.1));
+        items.sort_by_key(|x| x.1);
         let drop_n = hm.entries.len().saturating_sub(HEATMAP_MAX_ENTRIES);
         for (path, _) in items.into_iter().take(drop_n) {
             hm.entries.remove(&path);
