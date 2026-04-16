@@ -113,6 +113,14 @@ fn write_mcp_json(
     let data_dir = default_data_dir()?;
     let desired = lean_ctx_server_entry(binary, &data_dir);
 
+    // Claude Code manages ~/.claude.json and may overwrite it on first start.
+    // Prefer the official CLI integration when available.
+    if target.agent_key == "claude" || target.name == "Claude Code" {
+        if let Ok(result) = try_claude_mcp_add(&desired) {
+            return Ok(result);
+        }
+    }
+
     if target.config_path.exists() {
         let content = std::fs::read_to_string(&target.config_path).map_err(|e| e.to_string())?;
         let mut json = match serde_json::from_str::<Value>(&content) {
@@ -158,6 +166,37 @@ fn write_mcp_json(
     }
 
     write_mcp_json_fresh(&target.config_path, desired, None)
+}
+
+fn try_claude_mcp_add(desired: &Value) -> Result<WriteResult, String> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    let server_json = serde_json::to_string(desired).map_err(|e| e.to_string())?;
+
+    let mut child = Command::new("claude")
+        .args(["mcp", "add-json", "--scope", "user", "lean-ctx"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+
+    if let Some(stdin) = child.stdin.as_mut() {
+        stdin
+            .write_all(server_json.as_bytes())
+            .map_err(|e| e.to_string())?;
+    }
+    let status = child.wait().map_err(|e| e.to_string())?;
+
+    if status.success() {
+        Ok(WriteResult {
+            action: WriteAction::Updated,
+            note: Some("via claude mcp add-json".to_string()),
+        })
+    } else {
+        Err("claude mcp add-json failed".to_string())
+    }
 }
 
 fn write_mcp_json_fresh(

@@ -288,7 +288,15 @@ fn mcp_config_locations(home: &std::path::Path) -> Vec<McpLocation> {
             path: home.join(".cursor").join("mcp.json"),
         },
         McpLocation {
-            name: "Claude Code",
+            name: "Claude Code (config dir)",
+            display: "$CLAUDE_CONFIG_DIR/.claude.json",
+            path: std::env::var("CLAUDE_CONFIG_DIR")
+                .ok()
+                .map(|d| PathBuf::from(d).join(".claude.json"))
+                .unwrap_or_else(|| PathBuf::from("/nonexistent")),
+        },
+        McpLocation {
+            name: "Claude Code (home)",
             display: "~/.claude.json",
             path: home.join(".claude.json"),
         },
@@ -442,14 +450,9 @@ fn docker_bash_env_outcome() -> Option<Outcome> {
             ),
         })
     } else {
-        let env_sh = dirs::home_dir()
-            .map(|h| {
-                h.join(".lean-ctx")
-                    .join("env.sh")
-                    .to_string_lossy()
-                    .to_string()
-            })
-            .unwrap_or_else(|| "/root/.lean-ctx/env.sh".to_string());
+        let env_sh = crate::core::data_dir::lean_ctx_data_dir()
+            .map(|d| d.join("env.sh").to_string_lossy().to_string())
+            .unwrap_or_else(|_| "/root/.lean-ctx/env.sh".to_string());
         Some(Outcome {
             ok: false,
             line: format!(
@@ -486,6 +489,11 @@ fn mcp_config_outcome() -> Outcome {
         }
     }
 
+    found.sort();
+    found.dedup();
+    exists_no_ref.sort();
+    exists_no_ref.dedup();
+
     if !found.is_empty() {
         Outcome {
             ok: true,
@@ -495,11 +503,17 @@ fn mcp_config_outcome() -> Outcome {
             ),
         }
     } else if !exists_no_ref.is_empty() {
+        let has_claude = exists_no_ref.iter().any(|n| n.starts_with("Claude Code"));
+        let hint = if has_claude {
+            format!("{DIM}(run: lean-ctx doctor --fix OR lean-ctx init --agent claude){RST}")
+        } else {
+            format!("{DIM}(run: lean-ctx doctor --fix OR lean-ctx setup){RST}")
+        };
         Outcome {
             ok: false,
             line: format!(
-                "{BOLD}MCP config{RST}  {YELLOW}config exists for {} but does not reference lean-ctx{RST}  {DIM}(run: lean-ctx setup){RST}",
-                exists_no_ref.join(", ")
+                "{BOLD}MCP config{RST}  {YELLOW}config exists for {} but does not reference lean-ctx{RST}  {hint}",
+                exists_no_ref.join(", "),
             ),
         }
     } else {

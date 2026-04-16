@@ -34,7 +34,7 @@ pub fn build_targets(home: &Path) -> Vec<EditorTarget> {
         EditorTarget {
             name: "Claude Code",
             agent_key: "claude".to_string(),
-            config_path: home.join(".claude.json"),
+            config_path: claude_mcp_json_path(home),
             detect_path: detect_claude_path(),
             config_type: ConfigType::McpJson,
         },
@@ -167,8 +167,17 @@ pub fn detect_claude_path() -> PathBuf {
             return PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
         }
     }
+    if let Ok(dir) = std::env::var("CLAUDE_CONFIG_DIR") {
+        let dir = dir.trim();
+        if !dir.is_empty() {
+            let p = PathBuf::from(dir);
+            if p.exists() {
+                return p;
+            }
+        }
+    }
     if let Some(home) = dirs::home_dir() {
-        let claude_json = home.join(".claude.json");
+        let claude_json = claude_mcp_json_path(&home);
         if claude_json.exists() {
             return claude_json;
         }

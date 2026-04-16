@@ -1331,14 +1331,26 @@ fi
 /// Writes lean-ctx hook to ~/.lean-ctx/env.sh (no interactive guard).
 /// Used for BASH_ENV in Docker/CI where ~/.bashrc has `[ -z "$PS1" ] && return`.
 fn write_env_sh_for_containers(aliases: &str) {
-    let env_sh = match dirs::home_dir() {
-        Some(h) => h.join(".lean-ctx").join("env.sh"),
-        None => return,
+    let env_sh = match crate::core::data_dir::lean_ctx_data_dir() {
+        Ok(d) => d.join("env.sh"),
+        Err(_) => return,
     };
     if let Some(parent) = env_sh.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    match std::fs::write(&env_sh, aliases) {
+    let mut content = aliases.to_string();
+    content.push_str(
+        r#"
+
+# lean-ctx docker self-heal: re-inject Claude MCP config if Claude overwrote ~/.claude.json
+if command -v claude >/dev/null 2>&1 && command -v lean-ctx >/dev/null 2>&1; then
+  if ! claude mcp list 2>/dev/null | grep -q "lean-ctx"; then
+    LEAN_CTX_QUIET=1 lean-ctx init --agent claude >/dev/null 2>&1
+  fi
+fi
+"#,
+    );
+    match std::fs::write(&env_sh, content) {
         Ok(()) => qprintln!("  env.sh: {}", env_sh.display()),
         Err(e) => eprintln!("  Warning: could not write {}: {e}", env_sh.display()),
     }
@@ -1351,14 +1363,9 @@ fn print_docker_bash_env_hint(is_zsh: bool) {
     if std::env::var("BASH_ENV").is_ok() {
         return;
     }
-    let env_sh = dirs::home_dir()
-        .map(|h| {
-            h.join(".lean-ctx")
-                .join("env.sh")
-                .to_string_lossy()
-                .to_string()
-        })
-        .unwrap_or_else(|| "/root/.lean-ctx/env.sh".to_string());
+    let env_sh = crate::core::data_dir::lean_ctx_data_dir()
+        .map(|d| d.join("env.sh").to_string_lossy().to_string())
+        .unwrap_or_else(|_| "/root/.lean-ctx/env.sh".to_string());
     eprintln!();
     eprintln!("  \x1b[33m⚠  Docker detected — BASH_ENV is not set\x1b[0m");
     eprintln!("  AI agents run commands via bash -c (non-interactive),");
@@ -1645,6 +1652,7 @@ pub fn cmd_theme(args: &[String]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile;
 
     #[test]
     fn test_remove_lean_ctx_block_posix() {
@@ -1787,5 +1795,23 @@ export EDITOR=vim
             result.contains("export EDITOR"),
             "trailing content preserved"
         );
+    }
+
+    #[test]
+    fn env_sh_for_containers_includes_self_heal() {
+        let _g = crate::core::data_dir::test_env_lock();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let data_dir = tmp.path().join("data");
+        std::fs::create_dir_all(&data_dir).expect("mkdir data");
+        std::env::set_var("LEAN_CTX_DATA_DIR", &data_dir);
+
+        write_env_sh_for_containers("alias git='lean-ctx -c git'\n");
+        let env_sh = data_dir.join("env.sh");
+        let content = std::fs::read_to_string(&env_sh).expect("env.sh exists");
+        assert!(content.contains("lean-ctx docker self-heal"));
+        assert!(content.contains("claude mcp list"));
+        assert!(content.contains("lean-ctx init --agent claude"));
+
+        std::env::remove_var("LEAN_CTX_DATA_DIR");
     }
 }

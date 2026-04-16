@@ -540,6 +540,28 @@ lean-ctx benchmark report      # Markdown report
 </details>
 
 <details>
+<summary><strong>Docker / CI (non-interactive bash)</strong></summary>
+
+In Docker/CI, AI agents often run commands via `bash -c` (non-interactive). Many distros skip `~/.bashrc` entirely in that mode, so the reliable hook point is `BASH_ENV`.
+
+Recommended Dockerfile order:
+
+```dockerfile
+# After installing lean-ctx
+RUN lean-ctx bootstrap
+ENV BASH_ENV="/root/.lean-ctx/env.sh"
+```
+
+If you install Claude Code in the container, lean-ctx’s `env.sh` includes a **self-heal** block that re-injects the `lean-ctx` MCP server if Claude overwrote `~/.claude.json` on first start.
+
+Troubleshooting:
+
+- `lean-ctx doctor`
+- `lean-ctx doctor --fix`
+
+</details>
+
+<details>
 <summary><strong>Multi-Agent Launcher</strong></summary>
 
 ```bash
@@ -591,7 +613,12 @@ lctx --scan-only                  # Build project graph only
 <summary><strong>Claude Code</strong></summary>
 
 ```bash
-claude mcp add lean-ctx lean-ctx
+lean-ctx init --agent claude
+
+# If you need manual wiring:
+claude mcp add-json --scope user lean-ctx <<'JSON'
+{"command":"lean-ctx"}
+JSON
 ```
 
 </details>

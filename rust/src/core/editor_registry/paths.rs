@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub fn zed_settings_path(home: &std::path::Path) -> PathBuf {
     if cfg!(target_os = "macos") {
@@ -77,4 +77,14 @@ pub fn roo_mcp_path() -> PathBuf {
         }
     }
     PathBuf::from("/nonexistent")
+}
+
+pub fn claude_mcp_json_path(home: &Path) -> PathBuf {
+    if let Ok(dir) = std::env::var("CLAUDE_CONFIG_DIR") {
+        let dir = dir.trim();
+        if !dir.is_empty() {
+            return PathBuf::from(dir).join(".claude.json");
+        }
+    }
+    home.join(".claude.json")
 }

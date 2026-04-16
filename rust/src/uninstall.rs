@@ -79,9 +79,14 @@ fn remove_shell_hook(home: &Path) -> bool {
 }
 
 fn remove_mcp_configs(home: &Path) -> bool {
+    let claude_cfg_dir_json = std::env::var("CLAUDE_CONFIG_DIR")
+        .ok()
+        .map(|d| PathBuf::from(d).join(".claude.json"))
+        .unwrap_or_else(|| PathBuf::from("/nonexistent"));
     let configs: Vec<(&str, PathBuf)> = vec![
         ("Cursor", home.join(".cursor/mcp.json")),
-        ("Claude Code", home.join(".claude.json")),
+        ("Claude Code (config dir)", claude_cfg_dir_json),
+        ("Claude Code (home)", home.join(".claude.json")),
         ("Windsurf", home.join(".codeium/windsurf/mcp_config.json")),
         ("Gemini CLI", home.join(".gemini/settings/mcp.json")),
         (

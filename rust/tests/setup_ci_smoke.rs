@@ -16,6 +16,17 @@ fn run_json(bin: &str, args: &[&str], envs: &[(&str, &str)]) -> (i32, String) {
     (code, stdout)
 }
 
+fn write_exe(path: &std::path::Path, content: &str) {
+    std::fs::write(path, content).expect("write");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(path).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(path, perms).unwrap();
+    }
+}
+
 #[test]
 fn setup_bootstrap_doctor_status_json_smoke() {
     let bin = env!("CARGO_BIN_EXE_lean-ctx");
@@ -25,9 +36,30 @@ fn setup_bootstrap_doctor_status_json_smoke() {
     std::fs::create_dir_all(&home).unwrap();
     let data_dir = tmp.path().join("data");
     std::fs::create_dir_all(&data_dir).unwrap();
+    let bin_dir = tmp.path().join("bin");
+    std::fs::create_dir_all(&bin_dir).unwrap();
 
     let home_str = home.to_string_lossy().to_string();
     let data_str = data_dir.to_string_lossy().to_string();
+
+    // Fake claude binary so we can verify `claude mcp add-json` integration.
+    // It writes stdin JSON to $HOME/claude-mcp.json and exits 0.
+    let claude_path = bin_dir.join(if cfg!(windows) {
+        "claude.cmd"
+    } else {
+        "claude"
+    });
+    if cfg!(windows) {
+        write_exe(
+            &claude_path,
+            "@echo off\r\nset OUT=%HOME%\\claude-mcp.json\r\nmore > \"%OUT%\"\r\nexit /b 0\r\n",
+        );
+    } else {
+        write_exe(
+            &claude_path,
+            "#!/bin/sh\nset -eu\nOUT=\"$HOME/claude-mcp.json\"\ncat > \"$OUT\"\nexit 0\n",
+        );
+    }
 
     let mut envs = vec![
         ("HOME", home_str.as_str()),
@@ -44,11 +76,38 @@ fn setup_bootstrap_doctor_status_json_smoke() {
         envs.push(("USERPROFILE", home_str.as_str()));
     }
 
+    // Prefer our fake claude first in PATH.
+    let old_path = std::env::var("PATH").unwrap_or_default();
+    let new_path = format!("{}:{}", bin_dir.to_string_lossy(), old_path);
+    envs.push(("PATH", new_path.as_str()));
+
     // bootstrap --json returns clean JSON (SetupReport)
     let (code, out) = run_json(bin, &["bootstrap", "--json"], &envs);
     assert_eq!(code, 0, "bootstrap exit code");
     let setup: SetupReport = serde_json::from_str(&out).expect("bootstrap JSON parse");
     assert_eq!(setup.schema_version, 1);
+
+    // bootstrap should create env.sh in LEAN_CTX_DATA_DIR for Docker/CI shells.
+    let env_sh = data_dir.join("env.sh");
+    let env_sh_content = std::fs::read_to_string(&env_sh).expect("env.sh exists");
+    assert!(
+        env_sh_content.contains("lean-ctx docker self-heal"),
+        "env.sh missing docker self-heal snippet"
+    );
+
+    // init --agent claude should prefer `claude mcp add-json` when available.
+    let out = Command::new(bin)
+        .args(["init", "--agent", "claude"])
+        .envs(envs.iter().copied())
+        .output()
+        .expect("init --agent claude");
+    assert!(out.status.success(), "init --agent claude exit");
+    let saved = std::fs::read_to_string(home.join("claude-mcp.json")).expect("claude-mcp.json");
+    let v: serde_json::Value = serde_json::from_str(&saved).expect("claude json parse");
+    assert!(
+        v.get("command").is_some(),
+        "claude input should be server entry json"
+    );
 
     // doctor --fix --json returns clean JSON (SetupReport shape)
     let (code, out) = run_json(bin, &["doctor", "--fix", "--json"], &envs);
@@ -67,4 +126,84 @@ fn setup_bootstrap_doctor_status_json_smoke() {
     assert_eq!(code, 0, "token-report exit code");
     let report: TokenReport = serde_json::from_str(&out).expect("token-report JSON parse");
     assert_eq!(report.schema_version, 1);
+}
+
+#[test]
+fn claude_config_dir_fallback_writes_dot_claude_json() {
+    let bin = env!("CARGO_BIN_EXE_lean-ctx");
+
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let data_dir = tmp.path().join("data");
+    std::fs::create_dir_all(&data_dir).unwrap();
+    let bin_dir = tmp.path().join("bin");
+    std::fs::create_dir_all(&bin_dir).unwrap();
+
+    let claude_cfg = tmp.path().join("claude-cfg");
+    std::fs::create_dir_all(&claude_cfg).unwrap();
+
+    let home_str = home.to_string_lossy().to_string();
+    let data_str = data_dir.to_string_lossy().to_string();
+    let claude_cfg_str = claude_cfg.to_string_lossy().to_string();
+
+    // Fake claude that fails (forces lean-ctx to fallback to file merge/write).
+    let claude_path = bin_dir.join(if cfg!(windows) {
+        "claude.cmd"
+    } else {
+        "claude"
+    });
+    if cfg!(windows) {
+        write_exe(&claude_path, "@echo off\r\nexit /b 1\r\n");
+    } else {
+        write_exe(&claude_path, "#!/bin/sh\nexit 1\n");
+    }
+
+    let mut envs = vec![
+        ("HOME", home_str.as_str()),
+        ("LEAN_CTX_DATA_DIR", data_str.as_str()),
+        ("LEAN_CTX_ACTIVE", "1"),
+        ("CLAUDE_CONFIG_DIR", claude_cfg_str.as_str()),
+    ];
+
+    #[cfg(not(windows))]
+    {
+        envs.push(("SHELL", "/bin/bash"));
+    }
+    #[cfg(windows)]
+    {
+        envs.push(("USERPROFILE", home_str.as_str()));
+    }
+
+    let old_path = std::env::var("PATH").unwrap_or_default();
+    let new_path = format!("{}:{}", bin_dir.to_string_lossy(), old_path);
+    envs.push(("PATH", new_path.as_str()));
+
+    let out = Command::new(bin)
+        .args(["init", "--agent", "claude"])
+        .envs(envs.iter().copied())
+        .output()
+        .expect("init --agent claude");
+    assert!(out.status.success(), "init --agent claude exit");
+
+    let cfg_path = claude_cfg.join(".claude.json");
+    let content = std::fs::read_to_string(&cfg_path).expect(".claude.json exists");
+    assert!(
+        content.contains("\"mcpServers\""),
+        "must contain mcpServers"
+    );
+    assert!(content.contains("lean-ctx"), "must contain lean-ctx entry");
+
+    // Doctor should detect MCP config in CLAUDE_CONFIG_DIR.
+    let out = Command::new(bin)
+        .args(["doctor"])
+        .envs(envs.iter().copied())
+        .output()
+        .expect("doctor");
+    assert!(out.status.success(), "doctor exit");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("MCP config") && stdout.contains("lean-ctx found"),
+        "doctor should report lean-ctx found in MCP config; got:\n{stdout}"
+    );
 }

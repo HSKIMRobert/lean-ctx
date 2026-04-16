@@ -485,7 +485,7 @@ pub fn configure_agent_mcp(agent: &str) -> Result<(), String> {
         "claude" | "claude-code" => push(
             &mut targets,
             "Claude Code",
-            home.join(".claude.json"),
+            crate::core::editor_registry::claude_mcp_json_path(&home),
             ConfigType::McpJson,
         ),
         "windsurf" => push(
