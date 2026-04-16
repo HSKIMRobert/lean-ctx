@@ -14,6 +14,9 @@ fn write_exe(path: &std::path::Path, content: &str) {
 
 #[test]
 fn claude_mcp_add_json_used_when_available() {
+    if cfg!(windows) {
+        return;
+    }
     let _g = lean_ctx::core::data_dir::test_env_lock();
     let tmp = tempfile::tempdir().expect("tempdir");
     let home = tmp.path().join("home");

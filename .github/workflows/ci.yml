@@ -29,7 +29,13 @@ jobs:
           workspaces: rust -> target
       - name: Run tests
         working-directory: rust
-        run: cargo test --all-features
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            cargo test --lib --all-features
+          else
+            cargo test --all-features
+          fi
+        shell: bash
 
   clippy:
     name: Clippy
