@@ -59,10 +59,9 @@ pub async fn start(port: Option<u16>, host: Option<String>) {
         }
     };
 
-    let stats_path = dirs::home_dir()
-        .map(|h| h.join(".lean-ctx/stats.json"))
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|| "~/.lean-ctx/stats.json".to_string());
+    let stats_path = crate::core::data_dir::lean_ctx_data_dir()
+        .map(|d| d.join("stats.json").display().to_string())
+        .unwrap_or_else(|_| "~/.lean-ctx/stats.json".to_string());
 
     if host == "0.0.0.0" {
         println!("\n  lean-ctx dashboard → http://0.0.0.0:{port} (all interfaces)");
@@ -75,6 +74,12 @@ pub async fn start(port: Option<u16>, host: Option<String>) {
 
     if is_local {
         open_browser(&format!("http://localhost:{port}"));
+    }
+    if crate::shell::is_container() && is_local {
+        println!("  Tip (Docker): bind 0.0.0.0 + publish port:");
+        println!("    lean-ctx dashboard --host=0.0.0.0 --port={port}");
+        println!("    docker run ... -p {port}:{port} ...");
+        println!();
     }
 
     loop {
@@ -95,7 +100,7 @@ fn generate_token() -> String {
 }
 
 fn save_token(token: &str) {
-    if let Some(dir) = dirs::home_dir().map(|h| h.join(".lean-ctx")) {
+    if let Ok(dir) = crate::core::data_dir::lean_ctx_data_dir() {
         let _ = std::fs::create_dir_all(&dir);
         let _ = std::fs::write(dir.join("dashboard.token"), token);
     }
@@ -209,7 +214,45 @@ async fn handle_request(mut stream: tokio::net::TcpStream, token: Option<Arc<Str
 
     let path = path.as_str();
 
-    let (status, content_type, body) = match path {
+    let compute =
+        std::panic::catch_unwind(|| route_response(path, query_str, &query_token, &token));
+    let (status, content_type, body) = match compute {
+        Ok(v) => v,
+        Err(_) => (
+            "500 Internal Server Error",
+            "application/json",
+            r#"{"error":"dashboard route panicked"}"#.to_string(),
+        ),
+    };
+
+    let cache_header = if content_type.starts_with("application/json") {
+        "Cache-Control: no-cache, no-store, must-revalidate\r\nPragma: no-cache\r\n"
+    } else {
+        ""
+    };
+
+    let response = format!(
+        "HTTP/1.1 {status}\r\n\
+         Content-Type: {content_type}\r\n\
+         Content-Length: {}\r\n\
+         {cache_header}\
+         Access-Control-Allow-Origin: *\r\n\
+         Connection: close\r\n\
+         \r\n\
+         {body}",
+        body.len()
+    );
+
+    let _ = stream.write_all(response.as_bytes()).await;
+}
+
+fn route_response(
+    path: &str,
+    query_str: &str,
+    query_token: &Option<String>,
+    token: &Option<Arc<String>>,
+) -> (&'static str, &'static str, String) {
+    match path {
         "/api/stats" => {
             let store = crate::core::stats::load();
             let json = serde_json::to_string(&store).unwrap_or_else(|_| "{}".to_string());
@@ -229,8 +272,8 @@ async fn handle_request(mut stream: tokio::net::TcpStream, token: Option<Arc<Str
             ("200 OK", "application/json", json)
         }
         "/api/mcp" => {
-            let mcp_path = dirs::home_dir()
-                .map(|h| h.join(".lean-ctx").join("mcp-live.json"))
+            let mcp_path = crate::core::data_dir::lean_ctx_data_dir()
+                .map(|d| d.join("mcp-live.json"))
                 .unwrap_or_default();
             let json = std::fs::read_to_string(&mcp_path).unwrap_or_else(|_| "{}".to_string());
             ("200 OK", "application/json", json)
@@ -376,27 +419,7 @@ async fn handle_request(mut stream: tokio::net::TcpStream, token: Option<Arc<Str
         }
         "/favicon.ico" => ("204 No Content", "text/plain", String::new()),
         _ => ("404 Not Found", "text/plain", "Not Found".to_string()),
-    };
-
-    let cache_header = if content_type.starts_with("application/json") {
-        "Cache-Control: no-cache, no-store, must-revalidate\r\nPragma: no-cache\r\n"
-    } else {
-        ""
-    };
-
-    let response = format!(
-        "HTTP/1.1 {status}\r\n\
-         Content-Type: {content_type}\r\n\
-         Content-Length: {}\r\n\
-         {cache_header}\
-         Access-Control-Allow-Origin: *\r\n\
-         Connection: close\r\n\
-         \r\n\
-         {body}",
-        body.len()
-    );
-
-    let _ = stream.write_all(response.as_bytes()).await;
+    }
 }
 
 fn check_auth(request: &str, expected_token: &str) -> bool {

@@ -143,6 +143,7 @@ pub fn flush() {
 
 pub fn record(command: &str, input_tokens: usize, output_tokens: usize) {
     with_buffer(|store, last_flush| {
+        let is_first_command = store.total_commands == 0;
         let now = chrono::Local::now();
         let today = now.format("%Y-%m-%d").to_string();
         let timestamp = now.to_rfc3339();
@@ -188,7 +189,14 @@ pub fn record(command: &str, input_tokens: usize, output_tokens: usize) {
             store.daily.drain(..store.daily.len() - 90);
         }
 
-        maybe_flush(store, last_flush);
+        // First observable interaction should appear on disk immediately.
+        // This avoids confusing "No commands recorded yet" right after the first MCP call.
+        if is_first_command {
+            save_to_disk(store);
+            *last_flush = Instant::now();
+        } else {
+            maybe_flush(store, last_flush);
+        }
     });
 }
 
