@@ -81,7 +81,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 .main{
   flex:1;margin-left:var(--sidebar-w);padding:24px 32px 80px;
   transition:margin-left .25s cubic-bezier(.22,1,.36,1);
-  max-width:1400px;
+  width: calc(100% - var(--sidebar-w));max-width:1400px;
 }
 
 .view{display:none;opacity:0;transition:opacity .2s ease}
@@ -115,8 +115,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 }
 .tf-btn:hover{border-color:var(--border-light);color:var(--text)}
 .tf-btn.active{border-color:var(--green-glow);background:var(--green-dim);color:var(--green)}
-.hero{display:grid;grid-template-columns:1.8fr 1fr 1fr 1fr;gap:10px;margin-bottom:14px}
-.hero-main{
+ /* Improve responsiveness: allow hero cards to flow on smaller screens */
+ .hero{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;margin-bottom:14px}
+ .hero-main{ 
   position:relative;border-radius:var(--r);padding:32px 28px;overflow:hidden;
   background:linear-gradient(145deg,rgba(52,211,153,0.06),rgba(129,140,248,0.03));
   border:1px solid var(--green-glow);
@@ -125,9 +126,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   content:'';position:absolute;top:-60%;right:-30%;width:300px;height:300px;
   background:radial-gradient(circle,rgba(52,211,153,0.08),transparent 60%);pointer-events:none;
 }
-.hero-main .hv{
-  font-size:48px;font-weight:700;letter-spacing:-0.04em;line-height:1;
-  color:var(--green);margin-bottom:8px;text-shadow:0 0 40px rgba(52,211,153,0.2);
+ .hero-main .hv{
+   font-size: clamp(28px,5vw,64px);font-weight:700;letter-spacing:-0.04em;line-height:1;
+   color:var(--green);margin-bottom:8px;text-shadow:0 0 40px rgba(52,211,153,0.2);
 }
 .hero-main .hl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.15em;font-weight:600}
 .hero-main .hs{font-size:11px;color:var(--muted);margin-top:14px;line-height:1.7}
