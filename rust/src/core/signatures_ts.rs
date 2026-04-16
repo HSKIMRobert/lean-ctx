@@ -262,7 +262,7 @@ fn node_to_signature(node: &Node, name: &str, ext: &str, source: &[u8]) -> Optio
     let kind_str = node.kind();
     let start_col = node.start_position().column;
 
-    match kind_str {
+    let mut sig = match kind_str {
         "function_item" => rust_function(node, name, source),
         "struct_item" => rust_struct_like(node, name, "struct"),
         "enum_item" => rust_struct_like(node, name, "enum"),
@@ -308,6 +308,7 @@ fn node_to_signature(node: &Node, name: &str, ext: &str, source: &[u8]) -> Optio
             is_async: false,
             is_exported: !name.starts_with('_'),
             indent: 0,
+            ..Signature::no_span()
         }),
         "class" | "module" => Some(Signature {
             kind: "class",
@@ -317,6 +318,7 @@ fn node_to_signature(node: &Node, name: &str, ext: &str, source: &[u8]) -> Optio
             is_async: false,
             is_exported: true,
             indent: 0,
+            ..Signature::no_span()
         }),
 
         "struct_specifier" => simple_def(name, "struct"),
@@ -329,6 +331,7 @@ fn node_to_signature(node: &Node, name: &str, ext: &str, source: &[u8]) -> Optio
             is_async: false,
             is_exported: is_in_export(node),
             indent: 0,
+            ..Signature::no_span()
         }),
         "type_definition" => simple_def(name, "type"),
         "namespace_definition" => simple_def(name, "class"),
@@ -347,6 +350,7 @@ fn node_to_signature(node: &Node, name: &str, ext: &str, source: &[u8]) -> Optio
                 is_async: false,
                 is_exported: exported,
                 indent: 0,
+                ..Signature::no_span()
             })
         }
 
@@ -367,7 +371,14 @@ fn node_to_signature(node: &Node, name: &str, ext: &str, source: &[u8]) -> Optio
         "call" if ext == "ex" || ext == "exs" => elixir_call(node, name, source),
 
         _ => None,
+    }?;
+
+    if matches!(ext, "kt" | "kts") {
+        sig.start_line = Some(node.start_position().row + 1);
+        sig.end_line = Some(node.end_position().row + 1);
     }
+
+    Some(sig)
 }
 
 // ---------------------------------------------------------------------------
@@ -390,6 +401,7 @@ fn rust_function(node: &Node, name: &str, source: &[u8]) -> Option<Signature> {
         is_async,
         is_exported: exported,
         indent: if is_method { 2 } else { 0 },
+        ..Signature::no_span()
     })
 }
 
@@ -402,6 +414,7 @@ fn rust_struct_like(node: &Node, name: &str, kind: &'static str) -> Option<Signa
         is_async: false,
         is_exported: has_named_child(node, "visibility_modifier"),
         indent: 0,
+        ..Signature::no_span()
     })
 }
 
@@ -422,6 +435,7 @@ fn rust_impl(node: &Node, name: &str, source: &[u8]) -> Option<Signature> {
         is_async: false,
         is_exported: false,
         indent: 0,
+        ..Signature::no_span()
     })
 }
 
@@ -435,6 +449,7 @@ fn rust_const(node: &Node, name: &str, source: &[u8]) -> Option<Signature> {
         is_async: false,
         is_exported: has_named_child(node, "visibility_modifier"),
         indent: 0,
+        ..Signature::no_span()
     })
 }
 
@@ -465,6 +480,7 @@ fn ts_or_go_function(node: &Node, name: &str, ext: &str, source: &[u8]) -> Optio
         is_async,
         is_exported: exported,
         indent: 0,
+        ..Signature::no_span()
     })
 }
 
@@ -480,6 +496,7 @@ fn ts_method(node: &Node, name: &str, source: &[u8]) -> Option<Signature> {
         is_async: has_keyword_child(node, "async"),
         is_exported: false,
         indent: 2,
+        ..Signature::no_span()
     })
 }
 
@@ -501,6 +518,7 @@ fn ts_arrow_function(node: &Node, name: &str, source: &[u8]) -> Option<Signature
         is_async: has_keyword_child(&arrow, "async"),
         is_exported: exported,
         indent: 0,
+        ..Signature::no_span()
     })
 }
 
@@ -528,6 +546,7 @@ fn py_or_c_function(
                 is_async: has_keyword_child(node, "async"),
                 is_exported: !name.starts_with('_'),
                 indent: if is_method { 2 } else { 0 },
+                ..Signature::no_span()
             })
         }
         _ => {
@@ -546,6 +565,7 @@ fn py_or_c_function(
                 is_async: false,
                 is_exported: true,
                 indent: 0,
+                ..Signature::no_span()
             })
         }
     }
@@ -568,6 +588,7 @@ fn go_or_java_method(node: &Node, name: &str, ext: &str, source: &[u8]) -> Optio
                 is_async: false,
                 is_exported: name.starts_with(|c: char| c.is_uppercase()),
                 indent: 2,
+                ..Signature::no_span()
             })
         }
         "java" => {
@@ -582,6 +603,7 @@ fn go_or_java_method(node: &Node, name: &str, ext: &str, source: &[u8]) -> Optio
                 is_async: false,
                 is_exported: has_modifier(node, "public", source),
                 indent: if is_method { 2 } else { 0 },
+                ..Signature::no_span()
             })
         }
         "cs" => {
@@ -596,6 +618,7 @@ fn go_or_java_method(node: &Node, name: &str, ext: &str, source: &[u8]) -> Optio
                 is_async: false,
                 is_exported: csharp_has_modifier_text(node, "public", source),
                 indent: if is_method { 2 } else { 0 },
+                ..Signature::no_span()
             })
         }
         "php" => {
@@ -610,6 +633,7 @@ fn go_or_java_method(node: &Node, name: &str, ext: &str, source: &[u8]) -> Optio
                 is_async: false,
                 is_exported: true,
                 indent: if is_method { 2 } else { 0 },
+                ..Signature::no_span()
             })
         }
         _ => None,
@@ -634,6 +658,7 @@ fn go_type_spec(node: &Node, name: &str, _source: &[u8]) -> Option<Signature> {
         is_async: false,
         is_exported: name.starts_with(|c: char| c.is_uppercase()),
         indent: 0,
+        ..Signature::no_span()
     })
 }
 
@@ -647,6 +672,7 @@ fn java_constructor(node: &Node, name: &str, source: &[u8]) -> Option<Signature>
         is_async: false,
         is_exported: has_modifier(node, "public", source),
         indent: 2,
+        ..Signature::no_span()
     })
 }
 
@@ -664,6 +690,7 @@ fn ruby_method(node: &Node, name: &str, source: &[u8]) -> Option<Signature> {
         is_async: false,
         is_exported: true,
         indent: 2,
+        ..Signature::no_span()
     })
 }
 
@@ -698,6 +725,7 @@ fn kotlin_function(node: &Node, name: &str, source: &[u8]) -> Option<Signature> 
         is_async: false,
         is_exported: exported,
         indent: if is_method { 2 } else { 0 },
+        ..Signature::no_span()
     })
 }
 
@@ -730,6 +758,7 @@ fn swift_function(node: &Node, name: &str, source: &[u8]) -> Option<Signature> {
         is_async,
         is_exported: true,
         indent: if is_method { 2 } else { 0 },
+        ..Signature::no_span()
     })
 }
 
@@ -743,6 +772,7 @@ fn swift_protocol_function(node: &Node, name: &str, source: &[u8]) -> Option<Sig
         is_async: has_named_child(node, "async"),
         is_exported: true,
         indent: 2,
+        ..Signature::no_span()
     })
 }
 
@@ -764,6 +794,7 @@ fn swift_class_declaration(node: &Node, name: &str, source: &[u8]) -> Option<Sig
         is_async: false,
         is_exported: true,
         indent: 0,
+        ..Signature::no_span()
     })
 }
 
@@ -827,6 +858,7 @@ fn scala_function(node: &Node, name: &str, source: &[u8]) -> Option<Signature> {
         is_async: false,
         is_exported: !name.starts_with('_'),
         indent: if is_method { 2 } else { 0 },
+        ..Signature::no_span()
     })
 }
 
@@ -848,6 +880,7 @@ fn elixir_call(node: &Node, name: &str, source: &[u8]) -> Option<Signature> {
             is_async: false,
             is_exported: true,
             indent: 0,
+            ..Signature::no_span()
         }),
         "def" | "defmacro" | "defdelegate" | "defguard" => Some(Signature {
             kind: "fn",
@@ -857,6 +890,7 @@ fn elixir_call(node: &Node, name: &str, source: &[u8]) -> Option<Signature> {
             is_async: false,
             is_exported: true,
             indent: 2,
+            ..Signature::no_span()
         }),
         "defp" | "defmacrop" | "defguardp" => Some(Signature {
             kind: "fn",
@@ -866,6 +900,7 @@ fn elixir_call(node: &Node, name: &str, source: &[u8]) -> Option<Signature> {
             is_async: false,
             is_exported: false,
             indent: 2,
+            ..Signature::no_span()
         }),
         _ => None,
     }
@@ -887,6 +922,7 @@ fn zig_function(node: &Node, name: &str, source: &[u8]) -> Option<Signature> {
         is_async: false,
         is_exported: exported,
         indent: 0,
+        ..Signature::no_span()
     })
 }
 
@@ -940,6 +976,7 @@ fn class_like(
         is_async: false,
         is_exported: exported,
         indent: 0,
+        ..Signature::no_span()
     })
 }
 
@@ -952,6 +989,7 @@ fn simple_def(name: &str, kind: &'static str) -> Option<Signature> {
         is_async: false,
         is_exported: true,
         indent: 0,
+        ..Signature::no_span()
     })
 }
 
@@ -1336,6 +1374,29 @@ interface Handler {
         assert!(names.contains(&"greet"));
         assert!(names.contains(&"build"));
         assert!(names.contains(&"handle"));
+    }
+
+    #[test]
+    fn test_kotlin_signature_spans() {
+        let src = r#"
+class Service {
+    suspend fun release(id: String): Boolean =
+        repository.release(id)
+
+    fun block_body(name: String): String {
+        return "ok $name"
+    }
+}
+"#;
+        let sigs = extract_signatures_ts(src, "kt").unwrap();
+
+        let release = sigs.iter().find(|s| s.name == "release").unwrap();
+        assert_eq!(release.start_line, Some(3));
+        assert_eq!(release.end_line, Some(4));
+
+        let block_body = sigs.iter().find(|s| s.name == "block_body").unwrap();
+        assert_eq!(block_body.start_line, Some(6));
+        assert_eq!(block_body.end_line, Some(8));
     }
 
     #[test]

@@ -10,9 +10,25 @@ pub struct Signature {
     pub is_async: bool,
     pub is_exported: bool,
     pub indent: usize,
+    pub start_line: Option<usize>,
+    pub end_line: Option<usize>,
 }
 
 impl Signature {
+    pub fn no_span() -> Self {
+        Self {
+            kind: "",
+            name: String::new(),
+            params: String::new(),
+            return_type: String::new(),
+            is_async: false,
+            is_exported: false,
+            indent: 0,
+            start_line: None,
+            end_line: None,
+        }
+    }
+
     pub fn to_compact(&self) -> String {
         let export = if self.is_exported { "⊛ " } else { "" };
         let async_prefix = if self.is_async { "async " } else { "" };
@@ -201,6 +217,7 @@ fn extract_ts_signatures(content: &str) -> Vec<Signature> {
                 is_async: caps.get(3).is_some(),
                 is_exported: caps.get(2).is_some(),
                 indent: if indent > 0 { 2 } else { 0 },
+                ..Signature::no_span()
             });
         } else if let Some(caps) = class_re().captures(line) {
             sigs.push(Signature {
@@ -211,6 +228,7 @@ fn extract_ts_signatures(content: &str) -> Vec<Signature> {
                 is_async: false,
                 is_exported: caps.get(2).is_some(),
                 indent: 0,
+                ..Signature::no_span()
             });
         } else if let Some(caps) = iface_re().captures(line) {
             sigs.push(Signature {
@@ -221,6 +239,7 @@ fn extract_ts_signatures(content: &str) -> Vec<Signature> {
                 is_async: false,
                 is_exported: caps.get(2).is_some(),
                 indent: 0,
+                ..Signature::no_span()
             });
         } else if let Some(caps) = type_re().captures(line) {
             sigs.push(Signature {
@@ -231,6 +250,7 @@ fn extract_ts_signatures(content: &str) -> Vec<Signature> {
                 is_async: false,
                 is_exported: caps.get(2).is_some(),
                 indent: 0,
+                ..Signature::no_span()
             });
         } else if let Some(caps) = const_re().captures(line) {
             if caps.get(2).is_some() {
@@ -244,6 +264,7 @@ fn extract_ts_signatures(content: &str) -> Vec<Signature> {
                     is_async: false,
                     is_exported: true,
                     indent: 0,
+                    ..Signature::no_span()
                 });
             }
         }
@@ -273,6 +294,7 @@ fn extract_rust_signatures(content: &str) -> Vec<Signature> {
                 is_async: caps.get(3).is_some(),
                 is_exported: caps.get(2).is_some(),
                 indent: if indent > 0 { 2 } else { 0 },
+                ..Signature::no_span()
             });
         } else if let Some(caps) = rust_struct_re().captures(line) {
             sigs.push(Signature {
@@ -283,6 +305,7 @@ fn extract_rust_signatures(content: &str) -> Vec<Signature> {
                 is_async: false,
                 is_exported: caps.get(2).is_some(),
                 indent: 0,
+                ..Signature::no_span()
             });
         } else if let Some(caps) = rust_enum_re().captures(line) {
             sigs.push(Signature {
@@ -293,6 +316,7 @@ fn extract_rust_signatures(content: &str) -> Vec<Signature> {
                 is_async: false,
                 is_exported: caps.get(2).is_some(),
                 indent: 0,
+                ..Signature::no_span()
             });
         } else if let Some(caps) = rust_trait_re().captures(line) {
             sigs.push(Signature {
@@ -303,6 +327,7 @@ fn extract_rust_signatures(content: &str) -> Vec<Signature> {
                 is_async: false,
                 is_exported: caps.get(2).is_some(),
                 indent: 0,
+                ..Signature::no_span()
             });
         } else if let Some(caps) = rust_impl_re().captures(line) {
             let trait_name = caps.get(2).map(|m| m.as_str());
@@ -320,6 +345,7 @@ fn extract_rust_signatures(content: &str) -> Vec<Signature> {
                 is_async: false,
                 is_exported: false,
                 indent: 0,
+                ..Signature::no_span()
             });
         }
     }
@@ -351,6 +377,7 @@ fn extract_python_signatures(content: &str) -> Vec<Signature> {
                 is_async: caps.get(2).is_some(),
                 is_exported: !caps[3].starts_with('_'),
                 indent: if indent > 0 { 2 } else { 0 },
+                ..Signature::no_span()
             });
         } else if let Some(caps) = py_class.captures(line) {
             sigs.push(Signature {
@@ -361,6 +388,7 @@ fn extract_python_signatures(content: &str) -> Vec<Signature> {
                 is_async: false,
                 is_exported: !caps[2].starts_with('_'),
                 indent: 0,
+                ..Signature::no_span()
             });
         }
     }
@@ -392,6 +420,7 @@ fn extract_go_signatures(content: &str) -> Vec<Signature> {
                 is_async: false,
                 is_exported: caps[3].starts_with(char::is_uppercase),
                 indent: if is_method { 2 } else { 0 },
+                ..Signature::no_span()
             });
         } else if let Some(caps) = go_type.captures(line) {
             sigs.push(Signature {
@@ -406,6 +435,7 @@ fn extract_go_signatures(content: &str) -> Vec<Signature> {
                 is_async: false,
                 is_exported: caps[1].starts_with(char::is_uppercase),
                 indent: 0,
+                ..Signature::no_span()
             });
         }
     }
@@ -527,6 +557,7 @@ fn extract_generic_signatures(content: &str) -> Vec<Signature> {
                 is_async: false,
                 is_exported: true,
                 indent: 0,
+                ..Signature::no_span()
             });
         } else if let Some(caps) = re_func.captures(trimmed) {
             sigs.push(Signature {
@@ -537,6 +568,7 @@ fn extract_generic_signatures(content: &str) -> Vec<Signature> {
                 is_async: trimmed.contains("async"),
                 is_exported: true,
                 indent: 0,
+                ..Signature::no_span()
             });
         }
     }

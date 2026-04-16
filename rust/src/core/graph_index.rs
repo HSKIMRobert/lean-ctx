@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::core::deps;
 use crate::core::signatures;
 
-const INDEX_VERSION: u32 = 1;
+const INDEX_VERSION: u32 = 2;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProjectIndex {
@@ -67,7 +67,11 @@ impl ProjectIndex {
         let dir = Self::index_dir(project_root)?;
         let path = dir.join("index.json");
         let content = std::fs::read_to_string(path).ok()?;
-        serde_json::from_str(&content).ok()
+        let index: Self = serde_json::from_str(&content).ok()?;
+        if index.version != INDEX_VERSION {
+            return None;
+        }
+        Some(index)
     }
 
     pub fn save(&self) -> Result<(), String> {
@@ -292,7 +296,10 @@ pub fn scan(project_root: &str) -> ProjectIndex {
         );
 
         for sig in &sigs {
-            let (start, end) = find_symbol_range(&content, sig);
+            let (start, end) = sig
+                .start_line
+                .zip(sig.end_line)
+                .unwrap_or_else(|| find_symbol_range(&content, sig));
             let key = format!("{}::{}", rel_path, sig.name);
             index.symbols.insert(
                 key,
@@ -601,10 +608,42 @@ class UserService {
             is_async: false,
             is_exported: true,
             indent: 2,
+            ..signatures::Signature::no_span()
         };
         let (start, end) = find_symbol_range(content, &sig);
         assert_eq!(start, 5);
         assert!(end >= start);
+    }
+
+    #[test]
+    fn test_signature_spans_override_fallback_range() {
+        let sig = signatures::Signature {
+            kind: "method",
+            name: "release".to_string(),
+            params: "id:String".to_string(),
+            return_type: "Boolean".to_string(),
+            is_async: true,
+            is_exported: true,
+            indent: 2,
+            start_line: Some(42),
+            end_line: Some(43),
+        };
+
+        let (start, end) = sig
+            .start_line
+            .zip(sig.end_line)
+            .unwrap_or_else(|| find_symbol_range("ignored", &sig));
+        assert_eq!((start, end), (42, 43));
+    }
+
+    #[test]
+    fn test_parse_stale_index_version() {
+        let json = format!(
+            r#"{{"version":{},"project_root":"/test","last_scan":"now","files":{{}},"edges":[],"symbols":{{}}}}"#,
+            INDEX_VERSION - 1
+        );
+        let parsed: ProjectIndex = serde_json::from_str(&json).unwrap();
+        assert_ne!(parsed.version, INDEX_VERSION);
     }
 
     #[test]
