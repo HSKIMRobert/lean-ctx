@@ -292,14 +292,15 @@ mod tests {
 
     #[test]
     fn cache_result_integration() {
-        let unique = format!(
-            "lean_ctx_cli_cache_test_{}.txt",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        );
-        let tmp = std::env::temp_dir().join(&unique);
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let test_data_dir = std::env::temp_dir().join(format!("lean_ctx_cache_iso_{nanos}"));
+        std::fs::create_dir_all(&test_data_dir).unwrap();
+        std::env::set_var("LEAN_CTX_DATA_DIR", &test_data_dir);
+
+        let tmp = test_data_dir.join("test_file.txt");
         std::fs::write(&tmp, "fn main() {}\n").unwrap();
         let path_str = tmp.to_str().unwrap();
 
@@ -319,7 +320,7 @@ mod tests {
         let result3 = check_and_read(path_str);
         assert!(matches!(result3, CacheResult::Miss { .. }));
 
-        invalidate(path_str);
-        let _ = std::fs::remove_file(&tmp);
+        std::env::remove_var("LEAN_CTX_DATA_DIR");
+        let _ = std::fs::remove_dir_all(&test_data_dir);
     }
 }
