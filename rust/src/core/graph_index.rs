@@ -371,7 +371,21 @@ fn find_symbol_range(content: &str, sig: &signatures::Signature) -> (usize, usiz
                 || trimmed.starts_with("type ")
                 || trimmed.starts_with("export type ")
                 || trimmed.starts_with("const ")
-                || trimmed.starts_with("export const ");
+                || trimmed.starts_with("export const ")
+                || trimmed.starts_with("fun ")
+                || trimmed.starts_with("private fun ")
+                || trimmed.starts_with("public fun ")
+                || trimmed.starts_with("internal fun ")
+                || trimmed.starts_with("class ")
+                || trimmed.starts_with("data class ")
+                || trimmed.starts_with("sealed class ")
+                || trimmed.starts_with("sealed interface ")
+                || trimmed.starts_with("enum class ")
+                || trimmed.starts_with("object ")
+                || trimmed.starts_with("private object ")
+                || trimmed.starts_with("interface ")
+                || trimmed.starts_with("typealias ")
+                || trimmed.starts_with("private typealias ");
             if is_def {
                 start = i + 1;
                 break;
@@ -497,6 +511,14 @@ fn is_indexable_ext(ext: &str) -> bool {
 }
 
 #[cfg(test)]
+fn kotlin_package_name(content: &str) -> Option<String> {
+    content.lines().map(str::trim).find_map(|line| {
+        line.strip_prefix("package ")
+            .map(|rest| rest.trim().trim_end_matches(';').to_string())
+    })
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -558,5 +580,39 @@ mod tests {
         assert_eq!(deps.len(), 2);
         assert!(deps.contains(&"a.rs".to_string()));
         assert!(deps.contains(&"c.rs".to_string()));
+    }
+
+    #[test]
+    fn test_find_symbol_range_kotlin_function() {
+        let content = r#"
+package com.example
+
+class UserService {
+    fun greet(name: String): String {
+        return "hi $name"
+    }
+}
+"#;
+        let sig = signatures::Signature {
+            kind: "method",
+            name: "greet".to_string(),
+            params: "name:String".to_string(),
+            return_type: "String".to_string(),
+            is_async: false,
+            is_exported: true,
+            indent: 2,
+        };
+        let (start, end) = find_symbol_range(content, &sig);
+        assert_eq!(start, 5);
+        assert!(end >= start);
+    }
+
+    #[test]
+    fn test_kotlin_package_name() {
+        let content = "package com.example.feature\n\nclass UserService";
+        assert_eq!(
+            kotlin_package_name(content).as_deref(),
+            Some("com.example.feature")
+        );
     }
 }

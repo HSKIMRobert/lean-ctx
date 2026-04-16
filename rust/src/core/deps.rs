@@ -2,6 +2,9 @@ use regex::Regex;
 use std::collections::HashSet;
 use std::sync::OnceLock;
 
+#[cfg(feature = "tree-sitter")]
+use super::deep_queries::{self, ImportKind};
+
 static IMPORT_RE: OnceLock<Regex> = OnceLock::new();
 static REQUIRE_RE: OnceLock<Regex> = OnceLock::new();
 static RUST_USE_RE: OnceLock<Regex> = OnceLock::new();
@@ -38,6 +41,7 @@ pub fn extract_deps(content: &str, ext: &str) -> DepInfo {
         "rs" => extract_rust_deps(content),
         "py" => extract_python_deps(content),
         "go" => extract_go_deps(content),
+        "kt" | "kts" => extract_kotlin_deps(content),
         _ => DepInfo {
             imports: Vec::new(),
             exports: Vec::new(),
@@ -198,6 +202,32 @@ fn extract_go_deps(content: &str) -> DepInfo {
     }
 }
 
+#[cfg(feature = "tree-sitter")]
+fn extract_kotlin_deps(content: &str) -> DepInfo {
+    let analysis = deep_queries::analyze(content, "kt");
+    let imports = analysis
+        .imports
+        .into_iter()
+        .map(|import| match import.kind {
+            ImportKind::Star => format!("{}.*", import.source),
+            _ => import.source,
+        })
+        .collect();
+
+    DepInfo {
+        imports,
+        exports: analysis.exports,
+    }
+}
+
+#[cfg(not(feature = "tree-sitter"))]
+fn extract_kotlin_deps(_content: &str) -> DepInfo {
+    DepInfo {
+        imports: Vec::new(),
+        exports: Vec::new(),
+    }
+}
+
 fn clean_import_path(path: &str) -> String {
     path.trim_start_matches("./")
         .trim_end_matches(".js")
@@ -234,4 +264,29 @@ fn extract_export_name(line: &str) -> Option<String> {
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn kotlin_deps_are_extracted_from_ast() {
+        let content = r#"
+package com.example.app
+
+import com.example.services.UserService
+import com.example.shared.*
+
+class Feature
+fun build(): Feature = Feature()
+"#;
+        let deps = extract_deps(content, "kt");
+        assert!(deps
+            .imports
+            .contains(&"com.example.services.UserService".to_string()));
+        assert!(deps.imports.contains(&"com.example.shared.*".to_string()));
+        assert!(deps.exports.contains(&"Feature".to_string()));
+        assert!(deps.exports.contains(&"build".to_string()));
+    }
 }

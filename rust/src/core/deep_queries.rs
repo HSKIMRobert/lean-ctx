@@ -119,6 +119,7 @@ fn get_language(ext: &str) -> Option<Language> {
         "py" => Some(tree_sitter_python::LANGUAGE.into()),
         "go" => Some(tree_sitter_go::LANGUAGE.into()),
         "java" => Some(tree_sitter_java::LANGUAGE.into()),
+        "kt" | "kts" => Some(tree_sitter_kotlin_ng::LANGUAGE.into()),
         _ => None,
     }
 }
@@ -135,6 +136,7 @@ fn extract_imports(root: Node, src: &str, ext: &str) -> Vec<ImportInfo> {
         "py" => extract_imports_python(root, src),
         "go" => extract_imports_go(root, src),
         "java" => extract_imports_java(root, src),
+        "kt" | "kts" => extract_imports_kotlin(root, src),
         _ => Vec::new(),
     }
 }
@@ -543,6 +545,54 @@ fn extract_imports_java(root: Node, src: &str) -> Vec<ImportInfo> {
     imports
 }
 
+#[cfg(feature = "tree-sitter")]
+fn extract_imports_kotlin(root: Node, src: &str) -> Vec<ImportInfo> {
+    let mut imports = Vec::new();
+    let mut cursor = root.walk();
+
+    for node in root.children(&mut cursor) {
+        if node.kind() != "import" {
+            continue;
+        }
+
+        let Some(path_node) = find_child_by_kind(node, "qualified_identifier") else {
+            continue;
+        };
+        let source = node_text(path_node, src).to_string();
+        let text = node_text(node, src);
+        let alias = node
+            .children(&mut node.walk())
+            .filter(|child| {
+                child.kind() == "identifier" && child.start_byte() > path_node.end_byte()
+            })
+            .next()
+            .map(|child| node_text(child, src).to_string());
+        let is_star = text.contains(".*");
+
+        let names = if is_star {
+            vec!["*".to_string()]
+        } else if let Some(alias) = alias {
+            vec![alias]
+        } else {
+            vec![source.rsplit('.').next().unwrap_or(&source).to_string()]
+        };
+
+        imports.push(ImportInfo {
+            source,
+            names,
+            kind: if is_star {
+                ImportKind::Star
+            } else {
+                ImportKind::Named
+            },
+            line: node.start_position().row + 1,
+            is_type_only: false,
+        });
+    }
+
+    imports
+}
+
 // ---------------------------------------------------------------------------
 // Call Sites
 // ---------------------------------------------------------------------------
@@ -576,6 +626,7 @@ fn parse_call(node: Node, src: &str, ext: &str) -> Option<CallSite> {
         "py" => parse_call_python(node, src),
         "go" => parse_call_go(node, src),
         "java" => parse_call_java(node, src),
+        "kt" | "kts" => parse_call_kotlin(node, src),
         _ => None,
     }
 }
@@ -726,6 +777,60 @@ fn parse_call_java(node: Node, src: &str) -> Option<CallSite> {
     })
 }
 
+#[cfg(feature = "tree-sitter")]
+fn parse_call_kotlin(node: Node, src: &str) -> Option<CallSite> {
+    let callee = node.child(0)?;
+
+    match callee.kind() {
+        "identifier" => Some(CallSite {
+            callee: node_text(callee, src).to_string(),
+            line: node.start_position().row + 1,
+            col: node.start_position().column,
+            receiver: None,
+            is_method: false,
+        }),
+        "navigation_expression" => {
+            let mut cursor = callee.walk();
+            let children: Vec<Node> = callee.children(&mut cursor).collect();
+            let callee_name = children
+                .iter()
+                .rev()
+                .find(|child| child.kind() == "identifier")
+                .map(|child| node_text(*child, src).to_string())?;
+            let receiver = children
+                .iter()
+                .find(|child| {
+                    matches!(
+                        child.kind(),
+                        "expression"
+                            | "primary_expression"
+                            | "identifier"
+                            | "navigation_expression"
+                            | "this_expression"
+                            | "super_expression"
+                    )
+                })
+                .map(|child| node_text(*child, src).to_string())
+                .filter(|text| text != &callee_name);
+
+            Some(CallSite {
+                callee: callee_name,
+                line: node.start_position().row + 1,
+                col: node.start_position().column,
+                receiver,
+                is_method: true,
+            })
+        }
+        _ => find_descendant_by_kind(callee, "identifier").map(|name| CallSite {
+            callee: node_text(name, src).to_string(),
+            line: node.start_position().row + 1,
+            col: node.start_position().column,
+            receiver: None,
+            is_method: false,
+        }),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Type Definitions
 // ---------------------------------------------------------------------------
@@ -759,6 +864,7 @@ fn match_type_def(node: Node, src: &str, ext: &str, parent_exported: bool) -> Op
         "py" => match_type_def_python(node, src)?,
         "go" => match_type_def_go(node, src)?,
         "java" => match_type_def_java(node, src)?,
+        "kt" | "kts" => match_type_def_kotlin(node, src)?,
         _ => return None,
     };
 
@@ -892,6 +998,39 @@ fn match_type_def_java(node: Node, src: &str) -> Option<(String, TypeDefKind)> {
     }
 }
 
+#[cfg(feature = "tree-sitter")]
+fn match_type_def_kotlin(node: Node, src: &str) -> Option<(String, TypeDefKind)> {
+    match node.kind() {
+        "class_declaration" => {
+            let name = node
+                .child_by_field_name("name")
+                .or_else(|| find_child_by_kind(node, "identifier"))?;
+            let text = node_text(node, src);
+            let kind = if text.contains("interface") {
+                TypeDefKind::Interface
+            } else if text.contains("enum class") {
+                TypeDefKind::Enum
+            } else {
+                TypeDefKind::Class
+            };
+            Some((node_text(name, src).to_string(), kind))
+        }
+        "object_declaration" => {
+            let name = node
+                .child_by_field_name("name")
+                .or_else(|| find_child_by_kind(node, "identifier"))?;
+            Some((node_text(name, src).to_string(), TypeDefKind::Class))
+        }
+        "type_alias" => {
+            let name = node
+                .child_by_field_name("type")
+                .or_else(|| find_child_by_kind(node, "identifier"))?;
+            Some((node_text(name, src).to_string(), TypeDefKind::TypeAlias))
+        }
+        _ => None,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
@@ -934,6 +1073,7 @@ fn is_exported_node(node: Node, src: &str, ext: &str) -> bool {
             }
         }
         "java" => node_text(node, src).trim_start().starts_with("public "),
+        "kt" | "kts" => kotlin_declaration_exported(node, src),
         "py" => {
             if let Some(name) = get_declaration_name(node, src) {
                 !name.starts_with('_')
@@ -958,6 +1098,15 @@ fn get_declaration_name(node: Node, src: &str) -> Option<String> {
         }
     }
     None
+}
+
+#[cfg(feature = "tree-sitter")]
+fn kotlin_declaration_exported(node: Node, src: &str) -> bool {
+    if let Some(modifiers) = find_child_by_kind(node, "modifiers") {
+        !node_text(modifiers, src).contains("private")
+    } else {
+        !node_text(node, src).contains("private")
+    }
 }
 
 #[cfg(feature = "tree-sitter")]
@@ -1280,6 +1429,65 @@ public record Point(int x, int y) {}
         assert!(kinds.contains(&&TypeDefKind::Class));
         assert!(kinds.contains(&&TypeDefKind::Interface));
         assert!(kinds.contains(&&TypeDefKind::Enum));
+    }
+
+    #[test]
+    fn kotlin_imports_and_aliases() {
+        let src = r#"
+package com.example.app
+
+import com.example.services.UserService
+import com.example.factories.WidgetFactory as Factory
+import com.example.shared.*
+"#;
+        let analysis = analyze(src, "kt");
+        assert_eq!(analysis.imports.len(), 3);
+        assert_eq!(
+            analysis.imports[0].source,
+            "com.example.services.UserService"
+        );
+        assert_eq!(analysis.imports[1].names, vec!["Factory"]);
+        assert_eq!(analysis.imports[2].kind, ImportKind::Star);
+    }
+
+    #[test]
+    fn kotlin_call_sites() {
+        let src = r#"
+class UserService {
+    fun run() {
+        prepare()
+        repository.save(user)
+        Factory.create()
+    }
+}
+"#;
+        let analysis = analyze(src, "kt");
+        let callees: Vec<&str> = analysis.calls.iter().map(|c| c.callee.as_str()).collect();
+        assert!(callees.contains(&"prepare"));
+        assert!(callees.contains(&"save"));
+        assert!(callees.contains(&"create"));
+    }
+
+    #[test]
+    fn kotlin_types_and_visibility() {
+        let src = r#"
+sealed interface Handler
+data class User(val id: String)
+enum class Status { ACTIVE, INACTIVE }
+object Registry
+private typealias UserId = String
+"#;
+        let analysis = analyze(src, "kt");
+        let names: Vec<&str> = analysis.types.iter().map(|t| t.name.as_str()).collect();
+        assert!(names.contains(&"Handler"));
+        assert!(names.contains(&"User"));
+        assert!(names.contains(&"Status"));
+        assert!(names.contains(&"Registry"));
+        assert!(names.contains(&"UserId"));
+        let handler = analysis.types.iter().find(|t| t.name == "Handler").unwrap();
+        assert_eq!(handler.kind, TypeDefKind::Interface);
+        let alias = analysis.types.iter().find(|t| t.name == "UserId").unwrap();
+        assert!(!alias.is_exported);
     }
 
     #[test]
