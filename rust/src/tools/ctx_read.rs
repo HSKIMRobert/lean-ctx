@@ -196,6 +196,29 @@ fn resolve_auto_mode(file_path: &str, original_tokens: usize, task: Option<&str>
     if predicted == "auto" {
         predicted = "full".to_string();
     }
+
+    if let Some(project_root) =
+        crate::core::session::SessionState::load_latest().and_then(|s| s.project_root)
+    {
+        let ext = std::path::Path::new(file_path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
+        let bucket = match original_tokens {
+            0..=2000 => "sm",
+            2001..=10000 => "md",
+            10001..=50000 => "lg",
+            _ => "xl",
+        };
+        let bandit_key = format!("{ext}_{bucket}");
+        let mut store = crate::core::bandit::BanditStore::load(&project_root);
+        let bandit = store.get_or_create(&bandit_key);
+        let arm = bandit.select_arm();
+        if arm.budget_ratio < 0.25 && predicted == "full" && original_tokens > 2000 {
+            predicted = "aggressive".to_string();
+        }
+    }
+
     let policy = crate::core::adaptive_mode_policy::AdaptiveModePolicyStore::load();
     policy.choose_auto_mode(task, &predicted)
 }
@@ -471,7 +494,13 @@ fn process_mode(
             append_compressed_hint(&format!("{output}\n{savings}"), file_path)
         }
         "aggressive" => {
-            let raw = compressor::aggressive_compress(content, Some(ext));
+            #[cfg(feature = "tree-sitter")]
+            let ast_pruned = crate::core::signatures_ts::ast_prune(content, ext);
+            #[cfg(not(feature = "tree-sitter"))]
+            let ast_pruned: Option<String> = None;
+
+            let base = ast_pruned.as_deref().unwrap_or(content);
+            let raw = compressor::aggressive_compress(base, Some(ext));
             let compressed = compressor::safeguard_ratio(content, &raw);
             let header = build_header(file_ref, short, ext, content, line_count, true);
 
@@ -515,6 +544,12 @@ fn process_mode(
             let output = format!("{header} H̄={avg_h:.1} [{techs}]\n{}", result.output);
             let sent = count_tokens(&output);
             let savings = protocol::format_savings(original_tokens, sent);
+            let compression_ratio = if original_tokens > 0 {
+                1.0 - (sent as f64 / original_tokens as f64)
+            } else {
+                0.0
+            };
+            crate::core::adaptive_thresholds::report_bandit_outcome(compression_ratio > 0.15);
             append_compressed_hint(&format!("{output}\n{savings}"), file_path)
         }
         "task" => {

@@ -158,6 +158,18 @@ pub fn clear() -> usize {
     count
 }
 
+pub fn clear_project(project_root: &str) -> usize {
+    let mut store = load_store();
+    let prefix = normalize_key(project_root);
+    let before = store.entries.len();
+    store
+        .entries
+        .retain(|key, entry| !key.starts_with(&prefix) && !entry.path.starts_with(&prefix));
+    let removed = before - store.entries.len();
+    save_store(&store);
+    removed
+}
+
 pub fn stats() -> (u64, u64, usize) {
     let store = load_store();
     (store.total_hits, store.total_reads, store.entries.len())

@@ -72,7 +72,7 @@ LeanCTX is a **Lossless Minifier for Human Thought**.
 ## Where We're Going
 
 LeanCTX v3.1 delivers Dimension 1 (Compression) and Dimension 3 (Context Management) with:
-- 90+ CLI patterns, 18 tree-sitter languages, 42 MCP tools (10 read modes)
+- 90+ CLI patterns, 18 tree-sitter languages, 46 MCP tools (10 read modes)
 - Session cache with TTL, subagent isolation, delta reads
 - **Context Continuity Protocol (CCP)** — cross-session memory that persists across chat sessions and context compactions (~400 tokens vs ~50K cold start)
 - **LITM-Aware Positioning** — places critical information at attention-optimal positions (begin α=0.9, end γ=0.85) based on Liu et al., 2023

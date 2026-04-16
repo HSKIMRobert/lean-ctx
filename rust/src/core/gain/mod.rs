@@ -17,6 +17,8 @@ pub struct GainEngine {
     pub costs: CostStore,
     pub heatmap: HeatMap,
     pub pricing: ModelPricing,
+    pub events: Vec<crate::core::events::LeanCtxEvent>,
+    pub session: Option<crate::core::session::SessionState>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,6 +59,8 @@ impl GainEngine {
             costs: crate::core::a2a::cost_attribution::CostStore::load(),
             heatmap: crate::core::heatmap::HeatMap::load(),
             pricing: ModelPricing::load(),
+            events: crate::core::events::load_events_from_file(500),
+            session: crate::core::session::SessionState::load_latest(),
         }
     }
 

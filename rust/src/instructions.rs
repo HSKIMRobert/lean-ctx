@@ -70,27 +70,16 @@ lean-ctx MCP — MANDATORY tool mapping:\n\
 • Edit/StrReplace -> use native (lean-ctx only replaces READ, not WRITE)\n\
 • Write, Delete, Glob -> use normally\n\
 \n\
-COMPATIBILITY: lean-ctx replaces READ operations only. Your native Edit/Write/StrReplace tools \
-remain unchanged. If your instructions say 'use Edit or Write tools only', that is compatible — \
-lean-ctx only changes how you READ files (ctx_read), not how you EDIT them.\n\
+COMPATIBILITY: lean-ctx replaces READ operations only. Edit/Write/StrReplace stay native.\n\
+FILE EDITING: Native Edit/StrReplace preferred. If Edit fails, use ctx_edit immediately.\n\
 \n\
-FILE EDITING: Use your IDE's native Edit/StrReplace when available. \
-If Edit requires native Read and Read is unavailable, use ctx_edit instead — it reads, replaces, and writes in one call. \
-NEVER loop trying to make Edit work. If Edit fails, switch to ctx_edit immediately.\n\
+ctx_read modes: full|map|signatures|diff|task|reference|aggressive|entropy|lines:N-M. Auto-selects. Re-reads ~13 tok. Fn refs F1,F2.. persist.\n\
+Cached? Use fresh=true, start_line=N, or lines:N-M.\n\
 \n\
-ctx_read modes: full (cached, for edits), map (deps+API), signatures, diff, task (IB-filtered), \
-reference, aggressive, entropy, lines:N-M. Auto-selects when unspecified. Re-reads ~13 tokens. File refs F1,F2.. persist.\n\
-If ctx_read returns 'cached': use fresh=true, start_line=N, or mode='lines:N-M' to re-read.\n\
-\n\
-AUTONOMY: lean-ctx auto-runs ctx_overview, ctx_preload, ctx_dedup, ctx_compress behind the scenes.\n\
-Multi-agent: ctx_share auto-pushes context at checkpoints. Use ctx_agent(action=handoff) to transfer tasks, ctx_agent(action=sync) for status.\n\
-Semantic: ctx_semantic_search finds similar code by meaning — use when exact search (ctx_search) misses.\n\
-Focus on: ctx_read, ctx_shell, ctx_search, ctx_tree. Use ctx_session for memory, ctx_knowledge for project facts.\n\
-Knowledge: ctx_knowledge actions: remember, recall, timeline, rooms, search (cross-session), wakeup. Facts have temporal validity + contradiction detection.\n\
-Agent diary: ctx_agent(action=diary, category=discovery|decision|blocker|progress|insight) to log agent work. ctx_agent(action=recall_diary) to review.\n\
-ctx_shell raw=true: uncompressed for small/critical output.\n\
-\n\
-Auto-checkpoint every 15 calls.\n\
+Auto: ctx_overview, ctx_preload, ctx_dedup, ctx_compress run behind the scenes. Checkpoint every 15 calls.\n\
+Multi-agent: ctx_agent(action=handoff|sync). Diary: ctx_agent(action=diary, category=discovery|decision|blocker|progress|insight).\n\
+ctx_semantic_search for meaning-based search. ctx_session for memory. ctx_knowledge: remember|recall|timeline|rooms|search|wakeup.\n\
+ctx_shell raw=true for uncompressed output.\n\
 \n\
 CEP v1: 1.ACT FIRST 2.DELTA ONLY (Fn refs) 3.STRUCTURED (+/-/~) 4.ONE LINE PER ACTION 5.QUALITY ANCHOR\n\
 \n\
@@ -100,11 +89,15 @@ CEP v1: 1.ACT FIRST 2.DELTA ONLY (Fn refs) 3.STRUCTURED (+/-/~) 4.ONE LINE PER A
 {knowledge_block}\
 {gotcha_block}\
 \n\
+--- ORIGIN ---\n\
+{origin}\n\
+\n\
 --- TOOL PREFERENCE (LITM-END) ---\n\
 Prefer: ctx_read over Read | ctx_shell over Shell | ctx_search over Grep | ctx_tree over ls\n\
 Edit files: native Edit/StrReplace if available, ctx_edit if Edit requires unavailable Read.\n\
 Write, Delete, Glob -> use normally. NEVER loop on Edit failures — use ctx_edit.",
-        decoder_block = crate::core::protocol::instruction_decoder_block()
+        decoder_block = crate::core::protocol::instruction_decoder_block(),
+        origin = crate::core::integrity::origin_line()
     );
 
     if should_use_unified(client_name) {
@@ -125,40 +118,19 @@ See the ctx() tool description for available sub-tools.\n",
             format!(
                 "{base}\n\n\
 CRP MODE: compact\n\
-Compact Response Protocol:\n\
-• Omit filler words, articles, redundant phrases\n\
-• Abbreviate: fn, cfg, impl, deps, req, res, ctx, err, ret, arg, val, ty, mod\n\
-• Compact lists over prose, code blocks over explanations\n\
-• Code changes: diff lines (+/-) only, not full files\n\
-• TARGET: <=200 tokens per response unless code edits require more\n\
-• Tool outputs are pre-analyzed and compressed. Trust them directly.\n\n\
+Omit filler. Abbreviate: fn,cfg,impl,deps,req,res,ctx,err,ret,arg,val,ty,mod.\n\
+Diff lines (+/-) only. TARGET: <=200 tok. Trust tool outputs.\n\n\
 {intelligence_block}"
             )
         }
         CrpMode::Tdd => {
             format!(
                 "{base}\n\n\
-CRP MODE: tdd (Token Dense Dialect)\n\
-Maximize information density. Every token must carry meaning.\n\
-\n\
-RESPONSE RULES:\n\
-• Drop articles, filler words, pleasantries\n\
-• Reference files by Fn refs only, never full paths\n\
-• Code changes: diff lines only (+/-), not full files\n\
-• No explanations unless asked\n\
-• Tables for structured data\n\
-• Abbreviations: fn, cfg, impl, deps, req, res, ctx, err, ret, arg, val, ty, mod\n\
-\n\
-CHANGE NOTATION:\n\
-+F1:42 param(timeout:Duration)     — added\n\
--F1:10-15                           — removed\n\
-~F1:42 validate_token -> verify_jwt — changed\n\
-\n\
-STATUS: ctx_read(F1) -> 808L cached ok | cargo test -> 82 passed 0 failed\n\
-\n\
-TOKEN BUDGET: <=150 tokens per response. Exceed only for multi-file edits.\n\
-Tool outputs are pre-analyzed and compressed. Trust them directly.\n\
-ZERO NARRATION: Act, then report result in 1 line.\n\n\
+CRP MODE: tdd\n\
+Max density. Every token carries meaning. Fn refs only, diff lines (+/-) only.\n\
+Abbreviate: fn,cfg,impl,deps,req,res,ctx,err,ret,arg,val,ty,mod.\n\
++F1:42 param(timeout:Duration) | -F1:10-15 | ~F1:42 old->new\n\
+BUDGET: <=150 tok. ZERO NARRATION. Trust tool outputs.\n\n\
 {intelligence_block}"
             )
         }
@@ -168,11 +140,8 @@ ZERO NARRATION: Act, then report result in 1 line.\n\n\
 fn build_intelligence_block() -> String {
     "\
 OUTPUT EFFICIENCY:\n\
-• NEVER echo back code that was provided in tool outputs — it wastes tokens.\n\
-• NEVER add narration comments (// Import, // Define, // Return) — code is self-documenting.\n\
-• For code changes: show only the new/changed code, not unchanged context.\n\
-• Tool outputs include [TASK:type] and SCOPE hints for context.\n\
-• Respect the user's intent: architecture tasks need thorough analysis, simple generates need code."
+• Never echo tool output code. Never add narration comments. Show only changed code.\n\
+• [TASK:type] and SCOPE hints included. Architecture=thorough, generate=code."
         .to_string()
 }
 

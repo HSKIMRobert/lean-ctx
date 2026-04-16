@@ -65,7 +65,7 @@
 | Strategy | How | Impact |
 |:---|:---|:---|
 | **Shell Hook** | Transparently compresses CLI output (90+ patterns) before it reaches the LLM | **60-95%** savings |
-| **Context Server** | 42 MCP tools for cached reads, 10 read modes, deltas, dedup, memory, multi-agent sharing, adaptive compression | **74-99%** savings |
+| **Context Server** | 46 MCP tools for cached reads, 10 read modes, deltas, dedup, memory, multi-agent sharing, adaptive compression | **74-99%** savings |
 | **AI Tool Hooks** | One-command integration via `lean-ctx init --agent <tool>` | Works everywhere |
 
 <br>
@@ -787,7 +787,7 @@ Based on real usage data: active developers save **$30-100+ per month** on API c
 <details>
 <summary><strong>Does lean-ctx work with Claude Code / Cursor / Copilot?</strong></summary>
 
-Yes — lean-ctx supports **24 AI coding tools** out of the box with 42 MCP tools. Run `lean-ctx setup` and it auto-detects and configures all installed editors. No manual configuration needed.
+Yes — lean-ctx supports **24 AI coding tools** out of the box with 46 MCP tools. Run `lean-ctx setup` and it auto-detects and configures all installed editors. No manual configuration needed.
 
 </details>
 

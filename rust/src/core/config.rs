@@ -407,36 +407,99 @@ impl Config {
             .map(|d| d.join("config.toml"))
     }
 
+    pub fn local_path(project_root: &str) -> PathBuf {
+        PathBuf::from(project_root).join(".lean-ctx.toml")
+    }
+
+    fn find_project_root() -> Option<String> {
+        crate::core::session::SessionState::load_latest().and_then(|s| s.project_root)
+    }
+
     pub fn load() -> Self {
-        static CACHE: Mutex<Option<(Config, SystemTime)>> = Mutex::new(None);
+        static CACHE: Mutex<Option<(Config, SystemTime, Option<SystemTime>)>> = Mutex::new(None);
 
         let path = match Self::path() {
             Some(p) => p,
             None => return Self::default(),
         };
 
+        let local_path = Self::find_project_root().map(|r| Self::local_path(&r));
+
         let mtime = std::fs::metadata(&path)
             .and_then(|m| m.modified())
             .unwrap_or(SystemTime::UNIX_EPOCH);
 
+        let local_mtime = local_path
+            .as_ref()
+            .and_then(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok());
+
         if let Ok(guard) = CACHE.lock() {
-            if let Some((ref cfg, ref cached_mtime)) = *guard {
-                if *cached_mtime == mtime {
+            if let Some((ref cfg, ref cached_mtime, ref cached_local_mtime)) = *guard {
+                if *cached_mtime == mtime && *cached_local_mtime == local_mtime {
                     return cfg.clone();
                 }
             }
         }
 
-        let cfg = match std::fs::read_to_string(&path) {
+        let mut cfg: Config = match std::fs::read_to_string(&path) {
             Ok(content) => toml::from_str(&content).unwrap_or_default(),
             Err(_) => Self::default(),
         };
 
+        if let Some(ref lp) = local_path {
+            if let Ok(local_content) = std::fs::read_to_string(lp) {
+                cfg.merge_local(&local_content);
+            }
+        }
+
         if let Ok(mut guard) = CACHE.lock() {
-            *guard = Some((cfg.clone(), mtime));
+            *guard = Some((cfg.clone(), mtime, local_mtime));
         }
 
         cfg
+    }
+
+    fn merge_local(&mut self, local_toml: &str) {
+        let local: Config = match toml::from_str(local_toml) {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+        if local.ultra_compact {
+            self.ultra_compact = true;
+        }
+        if local.tee_mode != TeeMode::default() {
+            self.tee_mode = local.tee_mode;
+        }
+        if local.output_density != OutputDensity::default() {
+            self.output_density = local.output_density;
+        }
+        if local.checkpoint_interval != 15 {
+            self.checkpoint_interval = local.checkpoint_interval;
+        }
+        if !local.excluded_commands.is_empty() {
+            self.excluded_commands.extend(local.excluded_commands);
+        }
+        if !local.passthrough_urls.is_empty() {
+            self.passthrough_urls.extend(local.passthrough_urls);
+        }
+        if !local.custom_aliases.is_empty() {
+            self.custom_aliases.extend(local.custom_aliases);
+        }
+        if local.slow_command_threshold_ms != 5000 {
+            self.slow_command_threshold_ms = local.slow_command_threshold_ms;
+        }
+        if local.theme != "default" {
+            self.theme = local.theme;
+        }
+        if !local.buddy_enabled {
+            self.buddy_enabled = false;
+        }
+        if !local.redirect_exclude.is_empty() {
+            self.redirect_exclude.extend(local.redirect_exclude);
+        }
+        if !local.disabled_tools.is_empty() {
+            self.disabled_tools.extend(local.disabled_tools);
+        }
     }
 
     pub fn save(&self) -> std::result::Result<(), super::error::LeanCtxError> {
@@ -453,10 +516,23 @@ impl Config {
     }
 
     pub fn show(&self) -> String {
-        let path = Self::path()
+        let global_path = Self::path()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|| "~/.lean-ctx/config.toml".to_string());
         let content = toml::to_string_pretty(self).unwrap_or_default();
-        format!("Config: {path}\n\n{content}")
+        let mut out = format!("Global config: {global_path}\n\n{content}");
+
+        if let Some(root) = Self::find_project_root() {
+            let local = Self::local_path(&root);
+            if local.exists() {
+                out.push_str(&format!("\n\nLocal config (merged): {}\n", local.display()));
+            } else {
+                out.push_str(&format!(
+                    "\n\nLocal config: not found (create {} to override per-project)\n",
+                    local.display()
+                ));
+            }
+        }
+        out
     }
 }

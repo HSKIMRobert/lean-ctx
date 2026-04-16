@@ -58,6 +58,10 @@ pub fn jail_path(candidate: &Path, jail_root: &Path) -> Result<PathBuf, String> 
     })?;
 
     let allowed = is_under_prefix(&base, &root) || allow.iter().any(|p| is_under_prefix(&base, p));
+
+    #[cfg(windows)]
+    let allowed = allowed || is_under_prefix_windows(&base, &root);
+
     if !allowed {
         return Err(format!(
             "path escapes project root: {} (root: {})",
@@ -66,11 +70,34 @@ pub fn jail_path(candidate: &Path, jail_root: &Path) -> Result<PathBuf, String> 
         ));
     }
 
+    #[cfg(windows)]
+    reject_symlink_on_windows(candidate)?;
+
     let mut out = base;
     for part in remainder.iter().rev() {
         out.push(part);
     }
     Ok(out)
+}
+
+#[cfg(windows)]
+fn is_under_prefix_windows(path: &Path, prefix: &Path) -> bool {
+    let path_str = path.to_string_lossy().to_lowercase().replace('/', "\\");
+    let prefix_str = prefix.to_string_lossy().to_lowercase().replace('/', "\\");
+    path_str.starts_with(&prefix_str)
+}
+
+#[cfg(windows)]
+fn reject_symlink_on_windows(path: &Path) -> Result<(), String> {
+    if let Ok(meta) = std::fs::symlink_metadata(path) {
+        if meta.is_symlink() {
+            return Err(format!(
+                "symlink not allowed in jailed path: {}",
+                path.display()
+            ));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

@@ -49,7 +49,9 @@ impl ServerHandler for LeanCtxServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        let all_tools = if std::env::var("LEAN_CTX_UNIFIED").is_ok()
+        let all_tools = if crate::tool_defs::is_lazy_mode() {
+            crate::tool_defs::lazy_tool_defs()
+        } else if std::env::var("LEAN_CTX_UNIFIED").is_ok()
             && std::env::var("LEAN_CTX_FULL_TOOLS").is_err()
         {
             crate::tool_defs::unified_tool_defs()
@@ -1223,8 +1225,11 @@ impl ServerHandler for LeanCtxServer {
                         .collect();
                     crate::tools::ctx_execute::handle_batch(&batch)
                 } else if action == "file" {
-                    let path = get_str(args, "path").ok_or_else(|| {
+                    let raw_path = get_str(args, "path").ok_or_else(|| {
                         ErrorData::invalid_params("path is required for action=file", None)
+                    })?;
+                    let path = self.resolve_path(&raw_path).await.map_err(|e| {
+                        ErrorData::invalid_params(format!("path rejected: {e}"), None)
                     })?;
                     let intent = get_str(args, "intent");
                     crate::tools::ctx_execute::handle_file(&path, intent.as_deref())
@@ -1362,6 +1367,12 @@ impl ServerHandler for LeanCtxServer {
                 let limit = get_int(args, "limit").map(|n| n as usize);
                 let result = crate::tools::ctx_cost::handle(&action, agent_id.as_deref(), limit);
                 self.record_call("ctx_cost", 0, 0, Some(action)).await;
+                result
+            }
+            "ctx_discover_tools" => {
+                let query = get_str(args, "query").unwrap_or_default();
+                let result = crate::tool_defs::discover_tools(&query);
+                self.record_call("ctx_discover_tools", 0, 0, None).await;
                 result
             }
             "ctx_gain" => {

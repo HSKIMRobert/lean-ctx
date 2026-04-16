@@ -165,73 +165,72 @@ pub struct InstructionTemplate {
 const TEMPLATES: &[InstructionTemplate] = &[
     InstructionTemplate {
         code: "ACT1",
-        full: "Act immediately, report result in one line",
+        full: "Act immediately, 1-line result",
     },
     InstructionTemplate {
         code: "BRIEF",
-        full: "Summarize approach in 1-2 lines, then act",
+        full: "1-2 line approach, then act",
     },
     InstructionTemplate {
         code: "FULL",
-        full: "Outline approach, consider edge cases, then act",
+        full: "Outline+edge cases, then act",
     },
     InstructionTemplate {
         code: "DELTA",
-        full: "Only show changed lines, not full files",
+        full: "Changed lines only",
     },
     InstructionTemplate {
         code: "NOREPEAT",
-        full: "Never repeat known context. Reference cached files by Fn ID",
+        full: "No repeat, use Fn refs",
     },
     InstructionTemplate {
         code: "STRUCT",
-        full: "Use notation, not sentences. Changes: +line/-line/~line",
+        full: "+/-/~ notation",
     },
     InstructionTemplate {
         code: "1LINE",
-        full: "One line per action. Summarize, don't explain",
+        full: "1 line per action",
     },
     InstructionTemplate {
         code: "NODOC",
-        full: "Don't add comments that narrate what code does",
+        full: "No narration comments",
     },
     InstructionTemplate {
         code: "ACTFIRST",
-        full: "Execute tool calls immediately. Never narrate before acting",
+        full: "Tool calls first, no narration",
     },
     InstructionTemplate {
         code: "QUALITY",
-        full: "Never skip edge case analysis or error handling to save tokens",
+        full: "Never skip edge cases",
     },
     InstructionTemplate {
         code: "NOMOCK",
-        full: "Never use mock data, fake values, or placeholder code",
+        full: "No mock/placeholder data",
     },
     InstructionTemplate {
         code: "FREF",
-        full: "Reference files by Fn refs only, never full paths",
+        full: "Fn refs only, no full paths",
     },
     InstructionTemplate {
         code: "DIFF",
-        full: "For code changes: show only diff lines, not full files",
+        full: "Diff lines only",
     },
     InstructionTemplate {
         code: "ABBREV",
-        full: "Use abbreviations: fn, cfg, impl, deps, req, res, ctx, err",
+        full: "fn,cfg,impl,deps,req,res,ctx,err",
     },
     InstructionTemplate {
         code: "SYMBOLS",
-        full: "Use TDD notation: +=add -=remove ~=modify ->=returns ok/fail for status",
+        full: "+=add -=rm ~=mod ->=ret",
     },
 ];
 
-/// Build the decoder block that explains all instruction codes (sent once per session).
 pub fn instruction_decoder_block() -> String {
-    let mut lines = vec!["INSTRUCTION CODES:".to_string()];
-    for t in TEMPLATES {
-        lines.push(format!("  {} = {}", t.code, t.full));
-    }
-    lines.join("\n")
+    let pairs: Vec<String> = TEMPLATES
+        .iter()
+        .map(|t| format!("{}={}", t.code, t.full))
+        .collect();
+    format!("INSTRUCTION CODES:\n  {}", pairs.join(" | "))
 }
 
 /// Encode an instruction suffix using short codes with budget hints.

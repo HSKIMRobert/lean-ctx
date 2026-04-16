@@ -79,8 +79,8 @@ impl ThresholdBandit {
         self.total_pulls += 1;
 
         let epsilon = (0.1 / (1.0 + self.total_pulls as f64 / 100.0)).max(0.02);
-        if fastrand::f64() < epsilon {
-            let idx = fastrand::usize(..self.arms.len());
+        if rng_f64() < epsilon {
+            let idx = rng_usize(self.arms.len());
             return &self.arms[idx];
         }
 
@@ -119,9 +119,7 @@ pub struct BanditStore {
 
 impl BanditStore {
     pub fn get_or_create(&mut self, key: &str) -> &mut ThresholdBandit {
-        self.bandits
-            .entry(key.to_string())
-            .or_insert_with(ThresholdBandit::default)
+        self.bandits.entry(key.to_string()).or_default()
     }
 
     pub fn load(project_root: &str) -> Self {
@@ -184,6 +182,23 @@ fn bandit_path(project_root: &str) -> std::path::PathBuf {
         .join("bandits.json")
 }
 
+fn rng_f64() -> f64 {
+    let mut bytes = [0u8; 8];
+    getrandom::fill(&mut bytes).unwrap_or(());
+    let val = u64::from_le_bytes(bytes);
+    (val >> 11) as f64 / ((1u64 << 53) as f64)
+}
+
+fn rng_usize(bound: usize) -> usize {
+    if bound == 0 {
+        return 0;
+    }
+    let mut bytes = [0u8; 8];
+    getrandom::fill(&mut bytes).unwrap_or(());
+    let val = u64::from_le_bytes(bytes);
+    (val as usize) % bound
+}
+
 fn beta_sample(alpha: f64, beta: f64) -> f64 {
     let x = gamma_sample(alpha);
     let y = gamma_sample(beta);
@@ -195,21 +210,19 @@ fn beta_sample(alpha: f64, beta: f64) -> f64 {
 
 fn gamma_sample(shape: f64) -> f64 {
     if shape < 1.0 {
-        let u = fastrand::f64().max(1e-10);
+        let u = rng_f64().max(1e-10);
         gamma_sample(shape + 1.0) * u.powf(1.0 / shape)
     } else {
         let d = shape - 1.0 / 3.0;
-        let c = 1.0 / (9.0 * d).sqrt();
+        let c = 1.0 / (9.0_f64 * d).sqrt();
         loop {
             let x = standard_normal();
             let v = (1.0 + c * x).powi(3);
             if v <= 0.0 {
                 continue;
             }
-            let u = fastrand::f64().max(1e-10);
-            if u < 1.0 - 0.0331 * x.powi(4)
-                || u.ln() < 0.5 * x * x + d * (1.0 - v + v.ln())
-            {
+            let u = rng_f64().max(1e-10);
+            if u < 1.0 - 0.0331 * x.powi(4) || u.ln() < 0.5 * x * x + d * (1.0 - v + v.ln()) {
                 return d * v;
             }
         }
@@ -217,9 +230,9 @@ fn gamma_sample(shape: f64) -> f64 {
 }
 
 fn standard_normal() -> f64 {
-    let u1 = fastrand::f64().max(1e-10);
-    let u2 = fastrand::f64();
-    (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
+    let u1: f64 = rng_f64().max(1e-10);
+    let u2: f64 = rng_f64();
+    (-2.0_f64 * u1.ln()).sqrt() * (2.0_f64 * std::f64::consts::PI * u2).cos()
 }
 
 #[cfg(test)]

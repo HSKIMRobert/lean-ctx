@@ -13,8 +13,6 @@ const DIM: &str = "\x1b[2m";
 const WHITE: &str = "\x1b[97m";
 const YELLOW: &str = "\x1b[33m";
 
-const VERSION: &str = env!("CARGO_PKG_VERSION");
-
 struct Outcome {
     ok: bool,
     line: String,
@@ -473,14 +471,12 @@ fn mcp_config_outcome() -> Outcome {
     let mut exists_no_ref: Vec<String> = Vec::new();
 
     for loc in &locations {
-        match std::fs::read_to_string(&loc.path) {
-            Ok(content) if content.contains("lean-ctx") => {
+        if let Ok(content) = std::fs::read_to_string(&loc.path) {
+            if has_lean_ctx_mcp_entry(&content) {
                 found.push(format!("{} {DIM}({}){RST}", loc.name, loc.display));
-            }
-            Ok(_) => {
+            } else {
                 exists_no_ref.push(loc.name.to_string());
             }
-            Err(_) => {}
         }
     }
 
@@ -499,6 +495,11 @@ fn mcp_config_outcome() -> Outcome {
         }
     } else if !exists_no_ref.is_empty() {
         let has_claude = exists_no_ref.iter().any(|n| n.starts_with("Claude Code"));
+        let cause = if has_claude {
+            format!("{DIM}(Claude Code may overwrite ~/.claude.json on startup — lean-ctx entry missing from mcpServers){RST}")
+        } else {
+            String::new()
+        };
         let hint = if has_claude {
             format!("{DIM}(run: lean-ctx doctor --fix OR lean-ctx init --agent claude){RST}")
         } else {
@@ -507,7 +508,7 @@ fn mcp_config_outcome() -> Outcome {
         Outcome {
             ok: false,
             line: format!(
-                "{BOLD}MCP config{RST}  {YELLOW}config exists for {} but does not reference lean-ctx{RST}  {hint}",
+                "{BOLD}MCP config{RST}  {YELLOW}config exists for {} but mcpServers does not contain lean-ctx{RST}  {cause} {hint}",
                 exists_no_ref.join(", "),
             ),
         }
@@ -519,6 +520,22 @@ fn mcp_config_outcome() -> Outcome {
             ),
         }
     }
+}
+
+fn has_lean_ctx_mcp_entry(content: &str) -> bool {
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(content) {
+        if let Some(servers) = json.get("mcpServers").and_then(|v| v.as_object()) {
+            return servers.contains_key("lean-ctx");
+        }
+        if let Some(servers) = json
+            .get("mcp")
+            .and_then(|v| v.get("servers"))
+            .and_then(|v| v.as_object())
+        {
+            return servers.contains_key("lean-ctx");
+        }
+    }
+    content.contains("lean-ctx")
 }
 
 fn port_3333_outcome() -> Outcome {
@@ -868,14 +885,36 @@ pub fn run() {
         print_check(pi_check);
     }
 
-    let mut effective_total = total + 1; // session_state always shown
+    // 12) Build integrity (canary / origin check)
+    let integrity = crate::core::integrity::check();
+    let integrity_ok = integrity.seed_ok && integrity.origin_ok;
+    if integrity_ok {
+        passed += 1;
+    }
+    let integrity_line = if integrity_ok {
+        format!(
+            "{BOLD}Build origin{RST}  {GREEN}official{RST}  {DIM}{}{RST}",
+            integrity.repo
+        )
+    } else {
+        format!(
+            "{BOLD}Build origin{RST}  {RED}MODIFIED REDISTRIBUTION{RST}  {YELLOW}pkg={}, repo={}{RST}",
+            integrity.pkg_name, integrity.repo
+        )
+    };
+    print_check(&Outcome {
+        ok: integrity_ok,
+        line: integrity_line,
+    });
+
+    let mut effective_total = total + 2; // session_state + integrity always shown
     effective_total += docker_outcomes.len() as u32;
     if pi.is_some() {
         effective_total += 1;
     }
     println!();
     println!("  {BOLD}{WHITE}Summary:{RST}  {GREEN}{passed}{RST}{DIM}/{effective_total}{RST} checks passed");
-    println!("  {DIM}This binary: lean-ctx {VERSION} (Cargo package version){RST}");
+    println!("  {DIM}{}{RST}", crate::core::integrity::origin_line());
 }
 
 pub fn run_compact() {

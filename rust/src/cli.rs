@@ -529,6 +529,26 @@ pub fn cmd_cache(args: &[String]) {
             let count = cli_cache::clear();
             println!("Cleared {count} cached entries.");
         }
+        Some("reset") => {
+            let project_flag = args.get(1).map(|s| s.as_str()) == Some("--project");
+            if project_flag {
+                let root =
+                    crate::core::session::SessionState::load_latest().and_then(|s| s.project_root);
+                match root {
+                    Some(root) => {
+                        let count = cli_cache::clear_project(&root);
+                        println!("Reset {count} cache entries for project: {root}");
+                    }
+                    None => {
+                        eprintln!("No active project root found. Start a session first.");
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                let count = cli_cache::clear();
+                println!("Reset all {count} cache entries.");
+            }
+        }
         Some("stats") => {
             let (hits, reads, entries) = cli_cache::stats();
             let rate = if reads > 0 {
@@ -562,6 +582,7 @@ pub fn cmd_cache(args: &[String]) {
             println!("Subcommands:");
             println!("  cache stats       Show detailed stats");
             println!("  cache clear       Clear all cached entries");
+            println!("  cache reset       Reset all cache (or --project for current project only)");
             println!("  cache invalidate  Remove specific file from cache");
         }
     }
@@ -1336,7 +1357,8 @@ fn write_env_sh_for_containers(aliases: &str) {
     if let Some(parent) = env_sh.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let mut content = aliases.to_string();
+    let sanitized_aliases = crate::core::sanitize::neutralize_shell_content(aliases);
+    let mut content = sanitized_aliases;
     content.push_str(
         r#"
 

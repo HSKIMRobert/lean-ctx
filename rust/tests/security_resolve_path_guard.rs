@@ -40,6 +40,7 @@ fn server_fs_tools_use_resolve_path_chokepoint() {
         "ctx_graph",
         "ctx_compress_memory",
         "ctx_handoff",
+        "ctx_execute",
     ];
     for t in tools {
         let body = extract_arm_body(src, t).unwrap_or_else(|| panic!("missing tool arm: {t}"));

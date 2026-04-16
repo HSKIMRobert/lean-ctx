@@ -969,6 +969,70 @@ task (A2A tasks), workflow (state machine).",
     ]
 }
 
+const CORE_TOOL_NAMES: &[&str] = &[
+    "ctx_read",
+    "ctx_multi_read",
+    "ctx_shell",
+    "ctx_search",
+    "ctx_tree",
+    "ctx_edit",
+    "ctx_session",
+    "ctx_knowledge",
+];
+
+pub fn lazy_tool_defs() -> Vec<Tool> {
+    let all = granular_tool_defs();
+    let mut core: Vec<Tool> = all
+        .into_iter()
+        .filter(|t| CORE_TOOL_NAMES.contains(&t.name.as_ref()))
+        .collect();
+
+    core.push(tool_def(
+        "ctx_discover_tools",
+        "Search available lean-ctx tools by keyword. Returns matching tool names + descriptions for on-demand loading.",
+        json!({
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search keyword (e.g. 'graph', 'cost', 'workflow', 'dedup')"
+                }
+            },
+            "required": ["query"]
+        }),
+    ));
+
+    core
+}
+
+pub fn discover_tools(query: &str) -> String {
+    let all = list_all_tool_defs();
+    let query_lower = query.to_lowercase();
+    let matches: Vec<(&str, &str)> = all
+        .iter()
+        .filter(|(name, desc, _)| {
+            name.to_lowercase().contains(&query_lower) || desc.to_lowercase().contains(&query_lower)
+        })
+        .map(|(name, desc, _)| (*name, *desc))
+        .collect();
+
+    if matches.is_empty() {
+        return format!("No tools found matching '{query}'. Try broader terms like: graph, cost, session, search, compress, agent, workflow, gain.");
+    }
+
+    let mut out = format!("{} tools matching '{query}':\n", matches.len());
+    for (name, desc) in &matches {
+        let short = if desc.len() > 80 { &desc[..80] } else { desc };
+        out.push_str(&format!("  {name} — {short}\n"));
+    }
+    out.push_str("\nCall the tool directly by name to use it.");
+    out
+}
+
+pub fn is_lazy_mode() -> bool {
+    std::env::var("LEAN_CTX_LAZY_TOOLS").is_ok()
+}
+
 pub fn list_all_tool_defs() -> Vec<(&'static str, &'static str, Value)> {
     vec![
         ("ctx_read", "Read file (cached, compressed). Re-reads ~13 tok. Auto-selects optimal mode. \

@@ -224,6 +224,24 @@ fn draw_header(f: &mut ratatui::Frame, area: Rect, state: &AppState) {
         state.total_saved as f64 * quote.cost.input_per_m / 1_000_000.0
     );
     let gain_score = state.gain_score.as_ref().map(|s| s.total).unwrap_or(0);
+    let trend_icon = state
+        .gain_score
+        .as_ref()
+        .map(|s| match s.trend {
+            crate::core::gain::gain_score::Trend::Rising => "▲",
+            crate::core::gain::gain_score::Trend::Stable => "─",
+            crate::core::gain::gain_score::Trend::Declining => "▼",
+        })
+        .unwrap_or("─");
+    let trend_color = state
+        .gain_score
+        .as_ref()
+        .map(|s| match s.trend {
+            crate::core::gain::gain_score::Trend::Rising => GREEN,
+            crate::core::gain::gain_score::Trend::Stable => MUTED,
+            crate::core::gain::gain_score::Trend::Declining => YELLOW,
+        })
+        .unwrap_or(MUTED);
 
     let spans = vec![
         Span::styled(
@@ -239,6 +257,7 @@ fn draw_header(f: &mut ratatui::Frame, area: Rect, state: &AppState) {
         Span::styled(format!("{cost} avoided"), Style::default().fg(BLUE)),
         Span::raw("  "),
         Span::styled(format!("{gain_score}/100 gain"), Style::default().fg(GREEN)),
+        Span::styled(format!(" {trend_icon}"), Style::default().fg(trend_color)),
         Span::raw("  "),
         Span::styled(
             format!("{} events", state.events.len()),

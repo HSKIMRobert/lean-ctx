@@ -148,7 +148,7 @@ pub fn handle(command: &str, output: &str, crp_mode: CrpMode) -> String {
         );
     }
 
-    let compressed = match patterns::compress_output(command, output) {
+    let raw_compressed = match patterns::compress_output(command, output) {
         Some(c) => c,
         None if is_search_command(command) => {
             let stripped = crate::core::compressor::strip_ansi(output);
@@ -156,6 +156,7 @@ pub fn handle(command: &str, output: &str, crp_mode: CrpMode) -> String {
         }
         None => generic_compress(output),
     };
+    let compressed = crate::core::compressor::verbatim_compact(&raw_compressed);
 
     if crp_mode.is_tdd() && looks_like_code(&compressed) {
         let ext = detect_ext_from_command(command);

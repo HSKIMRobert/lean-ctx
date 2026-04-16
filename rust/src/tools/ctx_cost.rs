@@ -1,14 +1,15 @@
 use crate::core::a2a::cost_attribution::{format_cost_report, CostStore};
+use crate::core::gain::GainEngine;
 
 pub fn handle(action: &str, agent_id: Option<&str>, limit: Option<usize>) -> String {
-    let store = CostStore::load();
+    let engine = GainEngine::load();
     let lim = limit.unwrap_or(10);
 
     match action {
-        "report" | "status" => format_cost_report(&store, lim),
-        "agent" => handle_agent_detail(&store, agent_id),
-        "tools" => handle_tool_breakdown(&store, lim),
-        "json" => serde_json::to_string_pretty(&store).unwrap_or_else(|_| "{}".to_string()),
+        "report" | "status" => format_cost_report(&engine.costs, lim),
+        "agent" => handle_agent_detail(&engine.costs, agent_id),
+        "tools" => handle_tool_breakdown(&engine.costs, lim),
+        "json" => serde_json::to_string_pretty(&engine.costs).unwrap_or_else(|_| "{}".to_string()),
         "reset" => handle_reset(),
         _ => format!("Unknown action '{action}'. Available: report, agent, tools, json, reset"),
     }

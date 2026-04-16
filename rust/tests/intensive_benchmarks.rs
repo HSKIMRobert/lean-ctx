@@ -584,15 +584,17 @@ fn bench_thinking_reduction_cues_present() {
         "Compact mode must contain output efficiency cue"
     );
     assert!(
-        compact.contains("<=200 tokens") || compact.contains("≤200 tokens"),
+        compact.contains("<=200 tok")
+            || compact.contains("<=200 tokens")
+            || compact.contains("≤200"),
         "Compact mode must contain token budget"
     );
     assert!(
-        tdd.contains("OUTPUT EFFICIENCY") || tdd.contains("Trust them directly"),
+        tdd.contains("OUTPUT EFFICIENCY") || tdd.contains("Trust tool outputs"),
         "TDD mode must contain output efficiency cue"
     );
     assert!(
-        tdd.contains("<=150 tokens") || tdd.contains("≤150 tokens"),
+        tdd.contains("<=150 tok") || tdd.contains("<=150 tokens") || tdd.contains("≤150"),
         "TDD mode must contain strict token budget"
     );
     assert!(
@@ -608,10 +610,12 @@ fn bench_crp_mode_token_budgets() {
     let compact = lean_ctx::server::build_instructions_for_test(CrpMode::Compact);
     let tdd = lean_ctx::server::build_instructions_for_test(CrpMode::Tdd);
 
-    let compact_budget_present =
-        compact.contains("TARGET: <=200 tokens") || compact.contains("TARGET: ≤200 tokens");
-    let tdd_budget_present =
-        tdd.contains("TOKEN BUDGET: <=150 tokens") || tdd.contains("TOKEN BUDGET: ≤150 tokens");
+    let compact_budget_present = compact.contains("<=200 tok")
+        || compact.contains("TARGET: <=200 tokens")
+        || compact.contains("≤200");
+    let tdd_budget_present = tdd.contains("<=150 tok")
+        || tdd.contains("TOKEN BUDGET: <=150 tokens")
+        || tdd.contains("BUDGET: <=150");
 
     eprintln!("\n  [token budgets]");
     eprintln!(

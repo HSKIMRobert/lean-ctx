@@ -279,16 +279,16 @@ const STOP_WORDS: &[&str] = &[
     "mit",
 ];
 
-/// Information Bottleneck filter v2 — L-Curve aware, score-sorted output.
+/// Information Bottleneck filter v3 — Mutual Information scoring, QUITO-X inspired.
 ///
 /// IB principle: maximize I(T;Y) (task relevance) while minimizing I(T;X) (input redundancy).
-/// Each line is scored by: relevance_to_task * information_density * attention_weight.
+/// v3: MI(line, task) approximated via token overlap + IDF weighting + structural importance.
 ///
-/// v2 changes (based on Lab Experiments A-C):
-///   - Uses empirical L-curve attention from attention_learned.rs instead of heuristic U-curve
-///   - Output is sorted by score DESC (most important first), not by line number
-///   - Error-handling lines get a priority boost (fragile under compression)
-///   - Emits a one-line task summary as the first line when keywords are present
+/// Key changes from v2:
+///   - Mutual Information scoring: MI(line, task) = H(line) - H(line|task)
+///   - Adaptive budget allocation based on task type via TaskClassifier
+///   - Token-level IDF computed over full document for better term weighting
+///   - Maintains L-curve attention, MMR dedup, error-handling priority from v2
 pub fn information_bottleneck_filter(
     content: &str,
     task_keywords: &[String],
@@ -310,6 +310,19 @@ pub fn information_bottleneck_filter(
         }
     }
     let total_unique = global_token_freq.len().max(1) as f64;
+    let total_lines = n.max(1) as f64;
+
+    let task_token_set: HashSet<String> = kw_lower
+        .iter()
+        .flat_map(|kw| kw.split(|c: char| !c.is_alphanumeric()).map(String::from))
+        .filter(|t| t.len() >= 2)
+        .collect();
+
+    let effective_ratio = if !task_token_set.is_empty() {
+        adaptive_ib_budget(content, budget_ratio)
+    } else {
+        budget_ratio
+    };
 
     let mut scored_lines: Vec<(usize, &str, f64)> = lines
         .iter()
@@ -321,6 +334,25 @@ pub fn information_bottleneck_filter(
             }
 
             let line_lower = trimmed.to_lowercase();
+            let line_tokens: Vec<&str> = trimmed.split_whitespace().collect();
+            let line_token_count = line_tokens.len().max(1) as f64;
+
+            let mi_score = if task_token_set.is_empty() {
+                0.0
+            } else {
+                let line_token_set: HashSet<String> =
+                    line_tokens.iter().map(|t| t.to_lowercase()).collect();
+                let overlap: f64 = line_token_set
+                    .iter()
+                    .filter(|t| task_token_set.iter().any(|kw| t.contains(kw.as_str())))
+                    .map(|t| {
+                        let freq = *global_token_freq.get(t.as_str()).unwrap_or(&1) as f64;
+                        (total_lines / freq).ln().max(0.1)
+                    })
+                    .sum();
+                overlap / line_token_count
+            };
+
             let keyword_hits: f64 = kw_lower
                 .iter()
                 .filter(|kw| line_lower.contains(kw.as_str()))
@@ -337,11 +369,9 @@ pub fn information_bottleneck_filter(
             } else {
                 0.3
             };
-            let relevance = keyword_hits * 0.5 + structural;
+            let relevance = mi_score * 0.4 + keyword_hits * 0.3 + structural;
 
-            let line_tokens: Vec<&str> = trimmed.split_whitespace().collect();
             let unique_in_line = line_tokens.iter().collect::<HashSet<_>>().len() as f64;
-            let line_token_count = line_tokens.len().max(1) as f64;
             let token_diversity = unique_in_line / line_token_count;
 
             let avg_idf: f64 = if line_tokens.is_empty() {
@@ -369,18 +399,16 @@ pub fn information_bottleneck_filter(
         })
         .collect();
 
-    let budget = ((n as f64) * budget_ratio).ceil() as usize;
+    let budget = ((n as f64) * effective_ratio).ceil() as usize;
 
     scored_lines.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
 
-    // MMR deduplication: penalize lines that are redundant with already-selected ones.
-    // score_mmr(i) = relevance(i) - lambda * max_j∈S(similarity(i, j))
     let selected = mmr_select(&scored_lines, budget, 0.3);
 
     let mut output_lines: Vec<&str> = Vec::with_capacity(budget + 1);
 
     if !kw_lower.is_empty() {
-        output_lines.push(""); // placeholder for summary
+        output_lines.push("");
     }
 
     for (_, line, _) in &selected {

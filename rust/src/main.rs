@@ -614,7 +614,7 @@ fn main() {
                 return;
             }
             "--version" | "-V" => {
-                println!("lean-ctx {}", env!("CARGO_PKG_VERSION"));
+                println!("{}", core::integrity::origin_line());
                 return;
             }
             "--help" | "-h" => {
@@ -692,7 +692,7 @@ fn print_help() {
     println!(
         "lean-ctx {version} — Context Runtime for AI Agents
 
-90+ compression patterns | 42 MCP tools | Context Continuity Protocol
+90+ compression patterns | 46 MCP tools | Context Continuity Protocol
 
 USAGE:
     lean-ctx                       Start MCP server (stdio)
