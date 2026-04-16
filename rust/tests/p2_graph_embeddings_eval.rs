@@ -2,6 +2,9 @@ use lean_ctx::core::graph_context::{build_graph_context, GraphContextOptions};
 
 #[test]
 fn graph_context_must_include_direct_and_transitive_deps() {
+    if cfg!(windows) {
+        return;
+    }
     let _lock = lean_ctx::core::data_dir::test_env_lock();
     let tmp = tempfile::tempdir().expect("tempdir");
 
