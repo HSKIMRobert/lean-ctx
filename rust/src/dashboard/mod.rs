@@ -329,9 +329,8 @@ fn route_response(
             let index = crate::core::graph_index::load_or_build(&root);
             let call_graph = crate::core::call_graph::CallGraph::load_or_build(&root, &index);
             let _ = call_graph.save();
-            let json = serde_json::to_string(&call_graph).unwrap_or_else(|_| {
-                "{\"error\":\"failed to serialize call graph\"}".to_string()
-            });
+            let json = serde_json::to_string(&call_graph)
+                .unwrap_or_else(|_| "{\"error\":\"failed to serialize call graph\"}".to_string());
             ("200 OK", "application/json", json)
         }
         "/api/feedback" => {
