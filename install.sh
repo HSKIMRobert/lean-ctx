@@ -210,5 +210,13 @@ case "${1:-}" in
     echo "Environment:"
     echo "  LEAN_CTX_INSTALL_DIR  Custom install directory (default: ~/.local/bin)"
     ;;
-  *)             install_from_source ;;
+  *)
+    if command -v cargo &>/dev/null; then
+      install_from_source
+    else
+      echo "Rust/cargo not found — downloading pre-built binary instead."
+      echo ""
+      install_download
+    fi
+    ;;
 esac

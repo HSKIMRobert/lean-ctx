@@ -730,8 +730,10 @@ COMMANDS:
     gain --json                    Raw JSON export of all stats
          token-report [--json]          Token + memory report (project + session + CEP)
     cep                            CEP impact report (score trends, cache, modes)
+    watch                          Live TUI dashboard (real-time event stream)
     dashboard [--port=N] [--host=H] Open web dashboard (default: http://localhost:3333)
     serve [--host H] [--port N]    MCP over HTTP (Streamable HTTP, local-first)
+    cache [list|clear|stats]       Show/manage file read cache
     wrapped [--week|--month|--all] Savings report card (shareable)
     sessions [list|show|cleanup]   Manage CCP sessions (~/.lean-ctx/sessions/)
     benchmark run [path] [--json]  Run real benchmark on project files

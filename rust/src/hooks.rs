@@ -226,6 +226,21 @@ pub fn install_project_rules() {
         println!("Created/updated .cursorrules in project root.");
     }
 
+    let claude_rules_dir = cwd.join(".claude").join("rules");
+    let claude_rules_file = claude_rules_dir.join("lean-ctx.md");
+    if !claude_rules_file.exists()
+        || !std::fs::read_to_string(&claude_rules_file)
+            .unwrap_or_default()
+            .contains(crate::rules_inject::RULES_VERSION_STR)
+    {
+        let _ = std::fs::create_dir_all(&claude_rules_dir);
+        write_file(
+            &claude_rules_file,
+            crate::rules_inject::rules_dedicated_markdown(),
+        );
+        println!("Created .claude/rules/lean-ctx.md (Claude Code project rules).");
+    }
+
     let kiro_dir = cwd.join(".kiro");
     if kiro_dir.exists() {
         let steering_dir = kiro_dir.join("steering");
