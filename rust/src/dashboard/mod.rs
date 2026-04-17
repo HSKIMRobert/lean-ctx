@@ -347,6 +347,14 @@ fn route_response(
             });
             ("200 OK", "application/json", json)
         }
+        "/api/symbols" => {
+            let root = detect_project_root_for_dashboard();
+            let index = crate::core::graph_index::load_or_build(&root);
+            let q = extract_query_param(query_str, "q");
+            let kind = extract_query_param(query_str, "kind");
+            let json = build_symbols_json(&index, q.as_deref(), kind.as_deref());
+            ("200 OK", "application/json", json)
+        }
         "/api/compression-demo" => {
             let body = match extract_query_param(query_str, "path") {
                 None => r#"{"error":"missing path query parameter"}"#.to_string(),
@@ -567,6 +575,61 @@ fn bm25_index_summary_json(index: &crate::core::vector_index::BM25Index) -> serd
         "top_chunks_by_token_count": top,
         "language_distribution": lang,
     })
+}
+
+fn build_symbols_json(
+    index: &crate::core::graph_index::ProjectIndex,
+    query: Option<&str>,
+    kind: Option<&str>,
+) -> String {
+    let query = query
+        .map(|q| q.trim().to_lowercase())
+        .filter(|q| !q.is_empty());
+    let kind = kind
+        .map(|k| k.trim().to_lowercase())
+        .filter(|k| !k.is_empty());
+
+    let mut symbols: Vec<&crate::core::graph_index::SymbolEntry> = index
+        .symbols
+        .values()
+        .filter(|sym| {
+            let kind_match = kind
+                .as_ref()
+                .map(|k| sym.kind.eq_ignore_ascii_case(k))
+                .unwrap_or(true);
+            let query_match = query.as_ref().map_or(true, |q| {
+                sym.name.to_lowercase().contains(q)
+                    || sym.file.to_lowercase().contains(q)
+                    || sym.kind.to_lowercase().contains(q)
+            });
+            kind_match && query_match
+        })
+        .collect();
+
+    symbols.sort_by(|a, b| {
+        a.file
+            .cmp(&b.file)
+            .then_with(|| a.start_line.cmp(&b.start_line))
+            .then_with(|| a.name.cmp(&b.name))
+    });
+    symbols.truncate(500);
+
+    serde_json::to_string(
+        &symbols
+            .into_iter()
+            .map(|sym| {
+                serde_json::json!({
+                    "name": sym.name,
+                    "kind": sym.kind,
+                    "file": sym.file,
+                    "start_line": sym.start_line,
+                    "end_line": sym.end_line,
+                    "is_exported": sym.is_exported,
+                })
+            })
+            .collect::<Vec<_>>(),
+    )
+    .unwrap_or_else(|_| "[]".to_string())
 }
 
 fn build_heatmap_json(index: &crate::core::graph_index::ProjectIndex) -> String {
