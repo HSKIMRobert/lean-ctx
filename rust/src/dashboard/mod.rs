@@ -354,6 +354,7 @@ fn route_response(
                     let task = extract_query_param(query_str, "task");
                     let root = detect_project_root_for_dashboard();
                     let root_pb = std::path::Path::new(&root);
+                    let rel = normalize_dashboard_demo_path(&rel);
                     let candidate = std::path::Path::new(&rel);
                     let full = if candidate.is_absolute() {
                         candidate.to_path_buf()
@@ -479,6 +480,22 @@ fn percent_decode_query_component(s: &str) -> String {
         }
     }
     String::from_utf8_lossy(&out).into_owned()
+}
+
+fn normalize_dashboard_demo_path(path: &str) -> String {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    let candidate = Path::new(trimmed);
+    if candidate.is_absolute() {
+        return trimmed.to_string();
+    }
+
+    trimmed
+        .trim_start_matches(['\\', '/'])
+        .replace('\\', std::path::MAIN_SEPARATOR_STR)
 }
 
 fn compression_mode_json(output: &str, original_tokens: usize) -> serde_json::Value {
@@ -749,5 +766,20 @@ mod tests {
         assert!(!"/".starts_with("/api/"));
         assert!(!"/index.html".starts_with("/api/"));
         assert!(!"/favicon.ico".starts_with("/api/"));
+    }
+
+    #[test]
+    fn normalize_dashboard_demo_path_strips_rooted_relative_windows_path() {
+        let normalized = normalize_dashboard_demo_path(r"\backend\list_tables.js");
+        assert_eq!(
+            normalized,
+            format!("backend{}list_tables.js", std::path::MAIN_SEPARATOR)
+        );
+    }
+
+    #[test]
+    fn normalize_dashboard_demo_path_preserves_absolute_windows_path() {
+        let input = r"C:\repo\backend\list_tables.js";
+        assert_eq!(normalize_dashboard_demo_path(input), input);
     }
 }
