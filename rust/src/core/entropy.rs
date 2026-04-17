@@ -380,16 +380,11 @@ fn extract_blocks(lines: &[&str]) -> Vec<Block> {
 }
 
 fn find_pattern_groups(blocks: &[Block], threshold: f64) -> Vec<Vec<usize>> {
-    const MINHASH_K: usize = 64;
-
-    if blocks.len() <= 16 {
-        return find_pattern_groups_exact(blocks, threshold);
-    }
-
-    let sigs: Vec<Vec<u64>> = blocks
-        .iter()
-        .map(|b| minhash_signature(&b.content, 2, MINHASH_K))
-        .collect();
+    // Exact n-gram Jaccard, but with precomputed n-gram sets per block to avoid
+    // rebuilding allocations per pair. Includes a size-ratio impossibility check
+    // (max possible Jaccard is |A|/|B| for |A|<=|B|).
+    let sets: Vec<HashSet<Vec<String>>> = blocks.iter().map(|b| ngram_set(&b.content, 2)).collect();
+    let sizes: Vec<usize> = sets.iter().map(|s| s.len()).collect();
 
     let mut groups: Vec<Vec<usize>> = Vec::new();
     let mut assigned: HashSet<usize> = HashSet::new();
@@ -403,34 +398,16 @@ fn find_pattern_groups(blocks: &[Block], threshold: f64) -> Vec<Vec<usize>> {
             if assigned.contains(&j) {
                 continue;
             }
-            if minhash_similarity(&sigs[i], &sigs[j]) >= threshold {
-                group.push(j);
-                assigned.insert(j);
-            }
-        }
-        if group.len() > 1 {
-            assigned.insert(i);
-        }
-        groups.push(group);
-    }
-
-    groups
-}
-
-fn find_pattern_groups_exact(blocks: &[Block], threshold: f64) -> Vec<Vec<usize>> {
-    let mut groups: Vec<Vec<usize>> = Vec::new();
-    let mut assigned: HashSet<usize> = HashSet::new();
-
-    for (i, block_a) in blocks.iter().enumerate() {
-        if assigned.contains(&i) {
-            continue;
-        }
-        let mut group = vec![i];
-        for (j, block_b) in blocks.iter().enumerate().skip(i + 1) {
-            if assigned.contains(&j) {
+            let size_i = sizes[i];
+            let size_j = sizes[j];
+            let min_sz = size_i.min(size_j);
+            let max_sz = size_i.max(size_j);
+            if max_sz > 0 && (min_sz as f64) < (threshold * max_sz as f64) {
                 continue;
             }
-            if ngram_jaccard(&block_a.content, &block_b.content, 2) >= threshold {
+            let inter = sets[i].intersection(&sets[j]).count();
+            let union = size_i + size_j - inter;
+            if union > 0 && (inter as f64 / union as f64) >= threshold {
                 group.push(j);
                 assigned.insert(j);
             }
