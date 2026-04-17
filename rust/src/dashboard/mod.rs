@@ -593,15 +593,19 @@ fn build_symbols_json(
         .symbols
         .values()
         .filter(|sym| {
-            let kind_match = kind
-                .as_ref()
-                .map(|k| sym.kind.eq_ignore_ascii_case(k))
-                .unwrap_or(true);
-            let query_match = query.as_ref().map_or(true, |q| {
-                sym.name.to_lowercase().contains(q)
-                    || sym.file.to_lowercase().contains(q)
-                    || sym.kind.to_lowercase().contains(q)
-            });
+            let kind_match = match kind.as_ref() {
+                Some(k) => sym.kind.eq_ignore_ascii_case(k),
+                None => true,
+            };
+            let query_match = match query.as_ref() {
+                Some(q) => {
+                    let name = sym.name.to_lowercase();
+                    let file = sym.file.to_lowercase();
+                    let symbol_kind = sym.kind.to_lowercase();
+                    name.contains(q) || file.contains(q) || symbol_kind.contains(q)
+                }
+                None => true,
+            };
             kind_match && query_match
         })
         .collect();
