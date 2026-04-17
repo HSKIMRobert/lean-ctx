@@ -148,7 +148,7 @@ mod tests {
     fn pop_excludes_unmentioned_module() {
         let root = "/repo";
         let task = "fix rust bug in ctx_read";
-        let candidates = vec![
+        let candidates = [
             RelevanceScore {
                 path: "/repo/rust/src/tools/ctx_read.rs".to_string(),
                 score: 0.9,
@@ -177,7 +177,7 @@ mod tests {
     fn pop_keeps_website_when_task_mentions_docs() {
         let root = "/repo";
         let task = "update website docs";
-        let candidates = vec![
+        let candidates = [
             RelevanceScore {
                 path: "/repo/website/src/index.astro".to_string(),
                 score: 0.2,

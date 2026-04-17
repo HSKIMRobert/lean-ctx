@@ -10,6 +10,7 @@ fn extract_path(s: &str) -> String {
 }
 
 #[tokio::test]
+#[allow(clippy::await_holding_lock)]
 async fn ctx_handoff_create_show_list_pull_clear() {
     let _g = lean_ctx::core::data_dir::test_env_lock();
     let dir = tempfile::tempdir().expect("tempdir");

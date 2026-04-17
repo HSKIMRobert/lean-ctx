@@ -276,7 +276,7 @@ mod tests {
     fn beta_sample_in_range() {
         for _ in 0..100 {
             let s = beta_sample(2.0, 2.0);
-            assert!(s >= 0.0 && s <= 1.0, "got {s}");
+            assert!((0.0..=1.0).contains(&s), "got {s}");
         }
     }
 

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use lean_ctx::{
     cli, cloud_client, core, dashboard, doctor, heatmap, hook_handlers, mcp_stdio, report, setup,
-    shell, status, terminal_ui, tools, tui, uninstall,
+    shell, status, tools, tui, uninstall,
 };
 
 fn main() {
@@ -1382,74 +1382,6 @@ fn cmd_cloud(args: &[String]) {
             println!("  status      — Show cloud connection status");
         }
     }
-}
-
-#[allow(dead_code)]
-fn print_gain_with_logo() {
-    let t = core::theme::load_theme(&core::config::Config::load().theme);
-    terminal_ui::print_logo_animated_themed(&t);
-
-    if let Some(banner) = core::version_check::get_update_banner() {
-        println!("{banner}");
-        println!();
-    }
-
-    animate_kpi_countup(&t);
-
-    let output = core::stats::format_gain();
-    print!("{output}");
-    let d = core::theme::dim();
-    let r = core::theme::rst();
-    println!(
-        "  {d}lean-ctx v{}  |  leanctx.com  |  lean-ctx dashboard{r}",
-        env!("CARGO_PKG_VERSION")
-    );
-    println!();
-
-    core::version_check::check_background();
-}
-
-#[allow(dead_code)]
-fn animate_kpi_countup(t: &core::theme::Theme) {
-    use std::io::{IsTerminal, Write};
-
-    if !std::io::stdout().is_terminal() || core::theme::no_color() {
-        return;
-    }
-
-    let store = core::stats::load();
-    if store.total_commands == 0 {
-        return;
-    }
-
-    let input_saved = store
-        .total_input_tokens
-        .saturating_sub(store.total_output_tokens);
-    let cost_model = core::stats::CostModel::default();
-    let cost = cost_model.calculate(&store);
-    let total_saved = input_saved + cost.output_tokens_saved;
-
-    let frames = core::theme::animate_countup(total_saved, 10);
-    let r = core::theme::rst();
-    let b = core::theme::bold();
-    let mut stdout = std::io::stdout();
-
-    for (i, frame) in frames.iter().enumerate() {
-        if i > 0 {
-            print!("\x1b[1A\x1b[K");
-        }
-        let _ = writeln!(
-            stdout,
-            "  {c}{b}{frame}{r} tokens saved",
-            c = t.success.fg(),
-        );
-        let _ = stdout.flush();
-        if i < frames.len() - 1 {
-            std::thread::sleep(std::time::Duration::from_millis(45));
-        }
-    }
-    print!("\x1b[1A\x1b[K");
-    let _ = stdout.flush();
 }
 
 fn cmd_gotchas(args: &[String]) {

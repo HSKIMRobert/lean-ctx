@@ -11,7 +11,6 @@ pub struct PreservationScore {
     pub imports_preserved: usize,
 }
 
-#[allow(dead_code)]
 impl PreservationScore {
     pub fn function_rate(&self) -> f64 {
         if self.functions_total == 0 {

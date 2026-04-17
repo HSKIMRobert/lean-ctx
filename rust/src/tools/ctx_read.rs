@@ -119,7 +119,7 @@ fn handle_with_options_resolved(
     if let Some(existing) = cache.get(path) {
         if mode == "full" {
             return (
-                handle_full_with_auto_delta(cache, path, &file_ref, &short, ext, crp_mode),
+                handle_full_with_auto_delta(cache, path, &file_ref, &short, ext),
                 "full".to_string(),
             );
         }
@@ -151,13 +151,19 @@ fn handle_with_options_resolved(
 
     let similar_hint = find_semantic_similar(path, &content);
 
-    let (entry, _is_hit) = cache.store(path, content.clone());
+    let store_result = cache.store(path, content.clone());
 
     update_semantic_index(path, &content);
 
     if mode == "full" {
-        let mut output =
-            format_full_output(cache, &file_ref, &short, ext, &content, &entry, crp_mode);
+        let mut output = format_full_output(
+            &file_ref,
+            &short,
+            ext,
+            &content,
+            store_result.original_tokens,
+            store_result.line_count,
+        );
         if let Some(hint) = similar_hint {
             output.push_str(&format!("\n{hint}"));
         }
@@ -165,7 +171,7 @@ fn handle_with_options_resolved(
     }
 
     let resolved_mode = if mode == "auto" {
-        resolve_auto_mode(path, entry.original_tokens, task)
+        resolve_auto_mode(path, store_result.original_tokens, task)
     } else {
         mode.to_string()
     };
@@ -176,7 +182,7 @@ fn handle_with_options_resolved(
         &file_ref,
         &short,
         ext,
-        entry.original_tokens,
+        store_result.original_tokens,
         crp_mode,
         path,
         task,
@@ -271,7 +277,6 @@ fn handle_full_with_auto_delta(
     file_ref: &str,
     short: &str,
     ext: &str,
-    crp_mode: CrpMode,
 ) -> String {
     let disk_content = match read_file_lossy(path) {
         Ok(c) => c,
@@ -286,18 +291,18 @@ fn handle_full_with_auto_delta(
     };
 
     let old_content = cache.get(path).unwrap().content.clone();
-    let (entry, is_hit) = cache.store(path, disk_content.clone());
+    let store_result = cache.store(path, disk_content.clone());
 
-    if is_hit {
+    if store_result.was_hit {
         return format!(
             "{file_ref}={short} cached {}t {}L\nFile already in context from previous read. Use fresh=true to re-read if content needed again.",
-            entry.read_count, entry.line_count
+            store_result.read_count, store_result.line_count
         );
     }
 
     let diff = compressor::diff_content(&old_content, &disk_content);
     let diff_tokens = count_tokens(&diff);
-    let full_tokens = entry.original_tokens;
+    let full_tokens = store_result.original_tokens;
 
     if full_tokens > 0 && (diff_tokens as f64) < (full_tokens as f64 * AUTO_DELTA_THRESHOLD) {
         let savings = protocol::format_savings(full_tokens, diff_tokens);
@@ -307,20 +312,26 @@ fn handle_full_with_auto_delta(
         );
     }
 
-    format_full_output(cache, file_ref, short, ext, &disk_content, &entry, crp_mode)
+    format_full_output(
+        file_ref,
+        short,
+        ext,
+        &disk_content,
+        store_result.original_tokens,
+        store_result.line_count,
+    )
 }
 
 fn format_full_output(
-    _cache: &mut SessionCache,
     file_ref: &str,
     short: &str,
     ext: &str,
     content: &str,
-    entry: &crate::core::cache::CacheEntry,
-    _crp_mode: CrpMode,
+    original_tokens: usize,
+    line_count: usize,
 ) -> String {
-    let tokens = entry.original_tokens;
-    let metadata = build_header(file_ref, short, ext, content, entry.line_count, true);
+    let tokens = original_tokens;
+    let metadata = build_header(file_ref, short, ext, content, line_count, true);
 
     let mut sym = SymbolMap::new();
     let idents = symbol_map::extract_identifiers(content, ext);

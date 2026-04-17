@@ -6,7 +6,6 @@ const MIN_IDENT_LENGTH: usize = 6;
 const SHORT_ID_PREFIX: char = 'α';
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct SymbolMap {
     forward: HashMap<String, String>,
     next_id: usize,
@@ -76,12 +75,10 @@ impl SymbolMap {
         table
     }
 
-    #[allow(dead_code)]
     pub fn len(&self) -> usize {
         self.forward.len()
     }
 
-    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.forward.is_empty()
     }

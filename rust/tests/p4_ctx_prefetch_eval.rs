@@ -1,6 +1,7 @@
 use serde_json::json;
 
 #[tokio::test]
+#[allow(clippy::await_holding_lock)]
 async fn ctx_prefetch_warms_cache_for_full_read() {
     let _g = lean_ctx::core::data_dir::test_env_lock();
     let dir = tempfile::tempdir().expect("tempdir");

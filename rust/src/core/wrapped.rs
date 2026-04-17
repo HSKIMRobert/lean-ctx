@@ -1,7 +1,6 @@
 use crate::core::session::SessionState;
 use crate::core::stats;
 
-#[allow(dead_code)]
 pub struct WrappedReport {
     pub period: String,
     pub tokens_saved: u64,

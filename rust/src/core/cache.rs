@@ -26,6 +26,14 @@ pub struct CacheEntry {
     pub last_access: Instant,
 }
 
+#[derive(Debug, Clone)]
+pub struct StoreResult {
+    pub line_count: usize,
+    pub original_tokens: usize,
+    pub read_count: u32,
+    pub was_hit: bool,
+}
+
 impl CacheEntry {
     pub fn eviction_score_legacy(&self, now: Instant) -> f64 {
         let elapsed = now
@@ -219,7 +227,7 @@ impl SessionCache {
         }
     }
 
-    pub fn store(&mut self, path: &str, content: String) -> (CacheEntry, bool) {
+    pub fn store(&mut self, path: &str, content: String) -> StoreResult {
         let key = normalize_key(path);
         let hash = compute_md5(&content);
         let line_count = content.lines().count();
@@ -240,17 +248,26 @@ impl SessionCache {
                     existing.read_count,
                     existing.line_count,
                 );
-                let sent = count_tokens(&hit_msg) as u64;
-                self.stats.total_sent_tokens += sent;
-                return (existing.clone(), true);
+                self.stats.total_sent_tokens += count_tokens(&hit_msg) as u64;
+                return StoreResult {
+                    line_count: existing.line_count,
+                    original_tokens: existing.original_tokens,
+                    read_count: existing.read_count,
+                    was_hit: true,
+                };
             }
             existing.content = content;
-            existing.hash = hash.clone();
+            existing.hash = hash;
             existing.line_count = line_count;
             existing.original_tokens = original_tokens;
             existing.read_count += 1;
             self.stats.total_sent_tokens += original_tokens as u64;
-            return (existing.clone(), false);
+            return StoreResult {
+                line_count,
+                original_tokens,
+                read_count: existing.read_count,
+                was_hit: false,
+            };
         }
 
         self.evict_if_needed(original_tokens);
@@ -266,10 +283,15 @@ impl SessionCache {
             last_access: now,
         };
 
-        self.entries.insert(key, entry.clone());
+        self.entries.insert(key, entry);
         self.stats.files_tracked += 1;
         self.stats.total_sent_tokens += original_tokens as u64;
-        (entry, false)
+        StoreResult {
+            line_count,
+            original_tokens,
+            read_count: 1,
+            was_hit: false,
+        }
     }
 
     pub fn total_cached_tokens(&self) -> usize {
@@ -314,18 +336,15 @@ impl SessionCache {
         &self.file_refs
     }
 
-    #[allow(dead_code)]
     pub fn set_shared_blocks(&mut self, blocks: Vec<SharedBlock>) {
         self.shared_blocks = blocks;
     }
 
-    #[allow(dead_code)]
     pub fn get_shared_blocks(&self) -> &[SharedBlock] {
         &self.shared_blocks
     }
 
     /// Replace shared blocks in content with cross-file references.
-    #[allow(dead_code)]
     pub fn apply_dedup(&self, path: &str, content: &str) -> Option<String> {
         if self.shared_blocks.is_empty() {
             return None;
@@ -386,9 +405,9 @@ mod tests {
     #[test]
     fn cache_stores_and_retrieves() {
         let mut cache = SessionCache::new();
-        let (entry, was_hit) = cache.store("/test/file.rs", "fn main() {}".to_string());
-        assert!(!was_hit);
-        assert_eq!(entry.line_count, 1);
+        let result = cache.store("/test/file.rs", "fn main() {}".to_string());
+        assert!(!result.was_hit);
+        assert_eq!(result.line_count, 1);
         assert!(cache.get("/test/file.rs").is_some());
     }
 
@@ -396,16 +415,16 @@ mod tests {
     fn cache_hit_on_same_content() {
         let mut cache = SessionCache::new();
         cache.store("/test/file.rs", "content".to_string());
-        let (_, was_hit) = cache.store("/test/file.rs", "content".to_string());
-        assert!(was_hit, "same content should be a cache hit");
+        let result = cache.store("/test/file.rs", "content".to_string());
+        assert!(result.was_hit, "same content should be a cache hit");
     }
 
     #[test]
     fn cache_miss_on_changed_content() {
         let mut cache = SessionCache::new();
         cache.store("/test/file.rs", "old content".to_string());
-        let (_, was_hit) = cache.store("/test/file.rs", "new content".to_string());
-        assert!(!was_hit, "changed content should not be a cache hit");
+        let result = cache.store("/test/file.rs", "new content".to_string());
+        assert!(!result.was_hit, "changed content should not be a cache hit");
     }
 
     #[test]

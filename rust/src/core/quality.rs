@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use crate::core::preservation;
 use crate::core::tokens::count_tokens;
 

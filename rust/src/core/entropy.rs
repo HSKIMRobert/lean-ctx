@@ -8,8 +8,6 @@ use flate2::Compression;
 use super::tokens::{count_tokens, encode_tokens};
 
 const BPE_ENTROPY_THRESHOLD: f64 = 1.0;
-#[allow(dead_code)]
-const MINHASH_NUM_HASHES: usize = 128;
 
 #[derive(Debug)]
 pub struct EntropyResult {
@@ -29,7 +27,6 @@ impl EntropyResult {
     }
 }
 
-#[allow(dead_code)]
 pub fn shannon_entropy(text: &str) -> f64 {
     if text.is_empty() {
         return 0.0;
@@ -90,7 +87,6 @@ pub fn normalized_token_entropy(text: &str) -> f64 {
     h / h_max
 }
 
-#[allow(dead_code)]
 pub fn jaccard_similarity(a: &str, b: &str) -> f64 {
     let set_a: HashSet<&str> = a.split_whitespace().collect();
     let set_b: HashSet<&str> = b.split_whitespace().collect();
@@ -135,7 +131,6 @@ fn ngram_set(text: &str, n: usize) -> HashSet<Vec<String>> {
 
 /// Minhash signature for approximate Jaccard via LSH.
 /// Uses k independent hash functions (polynomial hashing with different seeds).
-#[allow(dead_code)]
 pub fn minhash_signature(text: &str, n: usize, k: usize) -> Vec<u64> {
     let ngrams = ngram_set(text, n);
     if ngrams.is_empty() {
@@ -154,7 +149,6 @@ pub fn minhash_signature(text: &str, n: usize, k: usize) -> Vec<u64> {
 }
 
 /// Approximate Jaccard from two minhash signatures.
-#[allow(dead_code)]
 pub fn minhash_similarity(sig_a: &[u64], sig_b: &[u64]) -> f64 {
     if sig_a.len() != sig_b.len() || sig_a.is_empty() {
         return 0.0;
@@ -167,7 +161,6 @@ pub fn minhash_similarity(sig_a: &[u64], sig_b: &[u64]) -> f64 {
     matches as f64 / sig_a.len() as f64
 }
 
-#[allow(dead_code)]
 fn hash_with_seed<T: Hash>(value: &T, seed: u64) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     seed.hash(&mut hasher);
@@ -358,45 +351,73 @@ pub fn analyze_entropy(content: &str) -> EntropyAnalysis {
     }
 }
 
-#[allow(dead_code)]
 struct Block {
-    start: usize,
     content: String,
 }
 
 fn extract_blocks(lines: &[&str]) -> Vec<Block> {
     let mut blocks = Vec::new();
     let mut current = String::new();
-    let mut start = 0;
 
-    for (i, line) in lines.iter().enumerate() {
+    for line in lines.iter() {
         let trimmed = line.trim();
         if trimmed.is_empty() && !current.is_empty() {
             blocks.push(Block {
-                start,
                 content: current.clone(),
             });
             current.clear();
         } else if !trimmed.is_empty() {
-            if current.is_empty() {
-                start = i;
-            }
             current.push_str(trimmed);
             current.push('\n');
         }
     }
 
     if !current.is_empty() {
-        blocks.push(Block {
-            start,
-            content: current,
-        });
+        blocks.push(Block { content: current });
     }
 
     blocks
 }
 
 fn find_pattern_groups(blocks: &[Block], threshold: f64) -> Vec<Vec<usize>> {
+    const MINHASH_K: usize = 64;
+
+    if blocks.len() <= 16 {
+        return find_pattern_groups_exact(blocks, threshold);
+    }
+
+    let sigs: Vec<Vec<u64>> = blocks
+        .iter()
+        .map(|b| minhash_signature(&b.content, 2, MINHASH_K))
+        .collect();
+
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    let mut assigned: HashSet<usize> = HashSet::new();
+
+    for i in 0..blocks.len() {
+        if assigned.contains(&i) {
+            continue;
+        }
+        let mut group = vec![i];
+        for j in (i + 1)..blocks.len() {
+            if assigned.contains(&j) {
+                continue;
+            }
+            if minhash_similarity(&sigs[i], &sigs[j]) >= threshold {
+                group.push(j);
+                assigned.insert(j);
+            }
+        }
+        if group.len() > 1 {
+            assigned.insert(i);
+        }
+        groups.push(group);
+    }
+
+    groups
+}
+
+fn find_pattern_groups_exact(blocks: &[Block], threshold: f64) -> Vec<Vec<usize>> {
     let mut groups: Vec<Vec<usize>> = Vec::new();
     let mut assigned: HashSet<usize> = HashSet::new();
 
@@ -553,8 +574,8 @@ mod tests {
         let a = "fn main() { let x = 1; let y = 2; let z = x + y; println!(z); }";
         let b = "fn main() { let x = 1; let y = 2; let z = x + y; return z; }";
         let exact = ngram_jaccard(a, b, 2);
-        let sig_a = minhash_signature(a, 2, MINHASH_NUM_HASHES);
-        let sig_b = minhash_signature(b, 2, MINHASH_NUM_HASHES);
+        let sig_a = minhash_signature(a, 2, 128);
+        let sig_b = minhash_signature(b, 2, 128);
         let approx = minhash_similarity(&sig_a, &sig_b);
         assert!(
             (exact - approx).abs() < 0.2,

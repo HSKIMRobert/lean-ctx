@@ -8,10 +8,6 @@ const MAX_FINDINGS: usize = 20;
 const MAX_DECISIONS: usize = 10;
 const MAX_FILES: usize = 50;
 const MAX_EVIDENCE: usize = 500;
-#[allow(dead_code)]
-const MAX_PROGRESS: usize = 30;
-#[allow(dead_code)]
-const MAX_NEXT_STEPS: usize = 10;
 const BATCH_SAVE_INTERVAL: u32 = 5;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -225,31 +221,6 @@ impl SessionState {
     pub fn mark_modified(&mut self, path: &str) {
         if let Some(existing) = self.files_touched.iter_mut().find(|f| f.path == path) {
             existing.modified = true;
-        }
-        self.increment();
-    }
-
-    #[allow(dead_code)]
-    pub fn set_test_results(&mut self, command: &str, passed: u32, failed: u32, total: u32) {
-        self.test_results = Some(TestSnapshot {
-            command: command.to_string(),
-            passed,
-            failed,
-            total,
-            timestamp: Utc::now(),
-        });
-        self.increment();
-    }
-
-    #[allow(dead_code)]
-    pub fn add_progress(&mut self, action: &str, detail: Option<&str>) {
-        self.progress.push(ProgressEntry {
-            action: action.to_string(),
-            detail: detail.map(|s| s.to_string()),
-            timestamp: Utc::now(),
-        });
-        while self.progress.len() > MAX_PROGRESS {
-            self.progress.remove(0);
         }
         self.increment();
     }
