@@ -1,3 +1,5 @@
+use crate::compound_lexer;
+use crate::rewrite_registry;
 use std::io::Read;
 
 pub fn handle_rewrite() {
@@ -21,18 +23,44 @@ pub fn handle_rewrite() {
         return;
     }
 
-    let should_rewrite = REWRITABLE_PREFIXES
-        .iter()
-        .any(|prefix| cmd.starts_with(prefix) || cmd == prefix.trim_end_matches(' '));
-
-    if should_rewrite {
-        let shell_escaped = cmd.replace('\\', "\\\\").replace('"', "\\\"");
-        let shell_cmd = format!("{binary} -c \"{shell_escaped}\"");
-        let json_escaped = shell_cmd.replace('\\', "\\\\").replace('"', "\\\"");
-        print!(
-            "{{\"hookSpecificOutput\":{{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"allow\",\"updatedInput\":{{\"command\":\"{json_escaped}\"}}}}}}"
-        );
+    if let Some(rewritten) = build_rewrite_compound(&cmd, &binary) {
+        emit_rewrite(&rewritten);
+        return;
     }
+
+    if is_rewritable(&cmd) {
+        let rewritten = wrap_single_command(&cmd, &binary);
+        emit_rewrite(&rewritten);
+    }
+}
+
+fn is_rewritable(cmd: &str) -> bool {
+    rewrite_registry::is_rewritable_command(cmd)
+}
+
+fn wrap_single_command(cmd: &str, binary: &str) -> String {
+    let shell_escaped = cmd.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("{binary} -c \"{shell_escaped}\"")
+}
+
+fn build_rewrite_compound(cmd: &str, binary: &str) -> Option<String> {
+    compound_lexer::rewrite_compound(cmd, |segment| {
+        if segment.starts_with("lean-ctx ") || segment.starts_with(&format!("{binary} ")) {
+            return None;
+        }
+        if is_rewritable(segment) {
+            Some(wrap_single_command(segment, binary))
+        } else {
+            None
+        }
+    })
+}
+
+fn emit_rewrite(rewritten: &str) {
+    let json_escaped = rewritten.replace('\\', "\\\\").replace('"', "\\\"");
+    print!(
+        "{{\"hookSpecificOutput\":{{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"allow\",\"updatedInput\":{{\"command\":\"{json_escaped}\"}}}}}}"
+    );
 }
 
 pub fn handle_redirect() {
@@ -42,11 +70,80 @@ pub fn handle_redirect() {
     // to prefer ctx_read/ctx_search/ctx_tree.
 }
 
-const REWRITABLE_PREFIXES: &[&str] = &[
-    "git ", "gh ", "cargo ", "npm ", "pnpm ", "yarn ", "docker ", "kubectl ", "pip ", "pip3 ",
-    "ruff ", "go ", "curl ", "grep ", "rg ", "find ", "cat ", "head ", "tail ", "ls ", "ls",
-    "aws ", "helm ", "eslint", "prettier", "tsc", "pytest", "mypy",
-];
+/// Copilot-specific PreToolUse handler.
+/// VS Code Copilot Chat uses the same hook format as Claude Code.
+/// Tool names differ: "runInTerminal" / "editFile" instead of "Bash" / "Read".
+pub fn handle_copilot() {
+    let binary = resolve_binary();
+    let mut input = String::new();
+    if std::io::stdin().read_to_string(&mut input).is_err() {
+        return;
+    }
+
+    let tool = extract_json_field(&input, "tool_name");
+    let tool_name = match tool.as_deref() {
+        Some(name) => name,
+        None => return,
+    };
+
+    let is_shell_tool = matches!(
+        tool_name,
+        "Bash" | "bash" | "runInTerminal" | "run_in_terminal" | "terminal" | "shell"
+    );
+    if !is_shell_tool {
+        return;
+    }
+
+    let cmd = match extract_json_field(&input, "command") {
+        Some(c) => c,
+        None => return,
+    };
+
+    if cmd.starts_with("lean-ctx ") || cmd.starts_with(&format!("{binary} ")) {
+        return;
+    }
+
+    if let Some(rewritten) = build_rewrite_compound(&cmd, &binary) {
+        emit_rewrite(&rewritten);
+        return;
+    }
+
+    if is_rewritable(&cmd) {
+        let rewritten = wrap_single_command(&cmd, &binary);
+        emit_rewrite(&rewritten);
+    }
+}
+
+/// Inline rewrite: takes a command as CLI args, prints the rewritten command to stdout.
+/// Used by the OpenCode TS plugin where the command is passed as an argument,
+/// not via stdin JSON.
+pub fn handle_rewrite_inline() {
+    let binary = resolve_binary();
+    let args: Vec<String> = std::env::args().collect();
+    // args: [binary, "hook", "rewrite-inline", ...command parts]
+    if args.len() < 4 {
+        return;
+    }
+    let cmd = args[3..].join(" ");
+
+    if cmd.starts_with("lean-ctx ") || cmd.starts_with(&format!("{binary} ")) {
+        print!("{cmd}");
+        return;
+    }
+
+    if let Some(rewritten) = build_rewrite_compound(&cmd, &binary) {
+        print!("{rewritten}");
+        return;
+    }
+
+    if is_rewritable(&cmd) {
+        let rewritten = wrap_single_command(&cmd, &binary);
+        print!("{rewritten}");
+        return;
+    }
+
+    print!("{cmd}");
+}
 
 fn resolve_binary() -> String {
     std::env::current_exe()
@@ -81,35 +178,94 @@ fn extract_json_field(input: &str, field: &str) -> Option<String> {
 mod tests {
     use super::*;
 
-    fn build_rewrite(cmd: &str) -> String {
-        let shell_escaped = cmd.replace('\\', "\\\\").replace('"', "\\\"");
-        let shell_cmd = format!("lean-ctx -c \"{shell_escaped}\"");
-        shell_cmd.replace('\\', "\\\\").replace('"', "\\\"")
+    #[test]
+    fn is_rewritable_basic() {
+        assert!(is_rewritable("git status"));
+        assert!(is_rewritable("cargo test --lib"));
+        assert!(is_rewritable("npm run build"));
+        assert!(!is_rewritable("echo hello"));
+        assert!(!is_rewritable("cd src"));
     }
 
     #[test]
-    fn rewrite_simple_command() {
-        let json = build_rewrite("git status");
-        assert_eq!(json, "lean-ctx -c \\\"git status\\\"");
+    fn wrap_single() {
+        let r = wrap_single_command("git status", "lean-ctx");
+        assert_eq!(r, r#"lean-ctx -c "git status""#);
     }
 
     #[test]
-    fn rewrite_pipe_command() {
-        let json = build_rewrite("git log --oneline | grep fix");
-        assert_eq!(json, "lean-ctx -c \\\"git log --oneline | grep fix\\\"");
+    fn wrap_with_quotes() {
+        let r = wrap_single_command(r#"curl -H "Auth" https://api.com"#, "lean-ctx");
+        assert_eq!(r, r#"lean-ctx -c "curl -H \"Auth\" https://api.com""#);
     }
 
     #[test]
-    fn rewrite_embedded_quotes() {
-        let json = build_rewrite("curl -H \"Auth\" https://api.com");
+    fn compound_rewrite_and_chain() {
+        let result = build_rewrite_compound("cd src && git status && echo done", "lean-ctx");
         assert_eq!(
-            json,
-            "lean-ctx -c \\\"curl -H \\\\\\\"Auth\\\\\\\" https://api.com\\\""
+            result,
+            Some(r#"cd src && lean-ctx -c "git status" && echo done"#.into())
         );
-        assert!(
-            json.contains("\\\\\\\"Auth\\\\\\\""),
-            "embedded quotes must be double-escaped: {json}"
+    }
+
+    #[test]
+    fn compound_rewrite_pipe() {
+        let result = build_rewrite_compound("git log --oneline | head -5", "lean-ctx");
+        assert_eq!(
+            result,
+            Some(r#"lean-ctx -c "git log --oneline" | head -5"#.into())
         );
+    }
+
+    #[test]
+    fn compound_rewrite_no_match() {
+        let result = build_rewrite_compound("cd src && echo done", "lean-ctx");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn compound_rewrite_multiple_rewritable() {
+        let result = build_rewrite_compound("git add . && cargo test && npm run lint", "lean-ctx");
+        assert_eq!(
+            result,
+            Some(
+                r#"lean-ctx -c "git add ." && lean-ctx -c "cargo test" && lean-ctx -c "npm run lint""#
+                    .into()
+            )
+        );
+    }
+
+    #[test]
+    fn compound_rewrite_semicolons() {
+        let result = build_rewrite_compound("git add .; git commit -m 'fix'", "lean-ctx");
+        assert_eq!(
+            result,
+            Some(r#"lean-ctx -c "git add ." ; lean-ctx -c "git commit -m 'fix'""#.into())
+        );
+    }
+
+    #[test]
+    fn compound_rewrite_or_chain() {
+        let result = build_rewrite_compound("git pull || echo failed", "lean-ctx");
+        assert_eq!(
+            result,
+            Some(r#"lean-ctx -c "git pull" || echo failed"#.into())
+        );
+    }
+
+    #[test]
+    fn compound_skips_already_rewritten() {
+        let result = build_rewrite_compound("lean-ctx -c git status && git diff", "lean-ctx");
+        assert_eq!(
+            result,
+            Some(r#"lean-ctx -c git status && lean-ctx -c "git diff""#.into())
+        );
+    }
+
+    #[test]
+    fn single_command_not_compound() {
+        let result = build_rewrite_compound("git status", "lean-ctx");
+        assert_eq!(result, None);
     }
 
     #[test]
@@ -149,15 +305,6 @@ mod tests {
         assert_eq!(
             extract_json_field(input, "command"),
             Some(r#"curl -H "Authorization: Bearer token" https://api.com"#.to_string())
-        );
-    }
-
-    #[test]
-    fn rewrite_grep_with_quoted_pattern() {
-        let json = build_rewrite("grep -r \"TODO\" src/");
-        assert!(
-            json.contains("\\\\\\\"TODO\\\\\\\""),
-            "grep pattern quotes must be double-escaped: {json}"
         );
     }
 }

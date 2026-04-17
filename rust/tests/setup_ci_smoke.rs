@@ -222,6 +222,9 @@ fn init_agent_preserves_agents_md_and_is_idempotent() {
     let project = tmp.path().join("project");
     std::fs::create_dir_all(&project).unwrap();
 
+    // Create a git repo so project files are generated.
+    std::fs::create_dir_all(project.join(".git")).unwrap();
+
     // Existing user AGENTS.md should be preserved.
     let agents_path = project.join("AGENTS.md");
     std::fs::write(&agents_path, "# My Agents\n\nDo not overwrite.\n").unwrap();
@@ -330,10 +333,21 @@ fn init_claude_installs_dedicated_rules_file_without_claude_md() {
         .expect("init --agent claude --global");
     assert!(out.status.success(), "init --agent claude --global exit");
 
+    let claude_md_path = home.join(".claude/CLAUDE.md");
     assert!(
-        !home.join(".claude/CLAUDE.md").exists(),
-        "must not create ~/.claude/CLAUDE.md"
+        claude_md_path.exists(),
+        "must create ~/.claude/CLAUDE.md with lean-ctx block"
     );
+    let claude_md = std::fs::read_to_string(&claude_md_path).expect("CLAUDE.md readable");
+    assert!(
+        claude_md.contains("<!-- lean-ctx -->"),
+        "CLAUDE.md must contain lean-ctx marker block"
+    );
+    assert!(
+        claude_md.contains("@rules/lean-ctx.md"),
+        "CLAUDE.md must import rules file"
+    );
+
     assert!(
         !project.join("CLAUDE.md").exists(),
         "must not create project CLAUDE.md"

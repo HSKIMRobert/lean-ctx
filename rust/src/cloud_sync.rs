@@ -39,17 +39,8 @@ pub fn cloud_background_tasks() {
     if crate::cloud_client::is_logged_in() {
         if !already_synced {
             let store = crate::core::stats::load();
-            let cep = &store.cep;
-            let entry = serde_json::json!({
-                "date": &today,
-                "tokens_original": cep.total_tokens_original,
-                "tokens_compressed": cep.total_tokens_compressed,
-                "tokens_saved": cep.total_tokens_original.saturating_sub(cep.total_tokens_compressed),
-                "tool_calls": store.total_commands,
-                "cache_hits": cep.total_cache_hits,
-                "cache_misses": cep.total_cache_reads.saturating_sub(cep.total_cache_hits),
-            });
-            if crate::cloud_client::sync_stats(&[entry]).is_ok() {
+            let entries = build_sync_entries(&store);
+            if !entries.is_empty() && crate::cloud_client::sync_stats(&entries).is_ok() {
                 config.cloud.last_sync = Some(today.clone());
             }
         }
@@ -88,6 +79,55 @@ pub fn cloud_background_tasks() {
     }
 
     let _ = config.save();
+}
+
+pub fn build_sync_entries(store: &crate::core::stats::StatsStore) -> Vec<serde_json::Value> {
+    let mut entries = Vec::new();
+    let cep = &store.cep;
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+
+    let mut cep_cache_by_day: std::collections::HashMap<String, (u64, u64)> =
+        std::collections::HashMap::new();
+    for s in &cep.scores {
+        if let Some(date) = s.timestamp.get(..10) {
+            let entry = cep_cache_by_day.entry(date.to_string()).or_default();
+            let calls = s.tool_calls.max(1);
+            let hits = (calls as f64 * s.cache_hit_rate as f64 / 100.0).round() as u64;
+            entry.0 += calls;
+            entry.1 += hits;
+        }
+    }
+
+    for day in &store.daily {
+        let tokens_original = day.input_tokens;
+        let tokens_compressed = day.output_tokens;
+        let tokens_saved = tokens_original.saturating_sub(tokens_compressed);
+        let (day_calls, day_hits) = cep_cache_by_day.get(&day.date).copied().unwrap_or((0, 0));
+        entries.push(serde_json::json!({
+            "date": day.date,
+            "tokens_original": tokens_original,
+            "tokens_compressed": tokens_compressed,
+            "tokens_saved": tokens_saved,
+            "tool_calls": day.commands,
+            "cache_hits": day_hits,
+            "cache_misses": day_calls.saturating_sub(day_hits),
+        }));
+    }
+
+    let has_today = entries.iter().any(|e| e["date"].as_str() == Some(&today));
+    if !has_today && (cep.total_tokens_original > 0 || store.total_commands > 0) {
+        entries.push(serde_json::json!({
+            "date": today,
+            "tokens_original": cep.total_tokens_original,
+            "tokens_compressed": cep.total_tokens_compressed,
+            "tokens_saved": cep.total_tokens_original.saturating_sub(cep.total_tokens_compressed),
+            "tool_calls": store.total_commands,
+            "cache_hits": cep.total_cache_hits,
+            "cache_misses": cep.total_cache_reads.saturating_sub(cep.total_cache_hits),
+        }));
+    }
+
+    entries
 }
 
 pub fn collect_contribute_entries() -> Vec<serde_json::Value> {

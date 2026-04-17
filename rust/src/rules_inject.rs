@@ -375,6 +375,7 @@ fn is_tool_detected(target: &RulesTarget, home: &std::path::Path) -> bool {
         "Pi Coding Agent" => home.join(".pi").exists() || command_exists("pi"),
         "AWS Kiro" => home.join(".kiro").exists(),
         "Crush" => home.join(".config/crush").exists() || command_exists("crush"),
+        "Verdent" => home.join(".verdent").exists(),
         _ => false,
     }
 }
@@ -571,7 +572,7 @@ fn build_rules_targets(home: &std::path::Path) -> Vec<RulesTarget> {
         },
         RulesTarget {
             name: "AWS Kiro",
-            path: home.join(".kiro/rules/lean-ctx.md"),
+            path: home.join(".kiro/steering/lean-ctx.md"),
             format: RulesFormat::DedicatedMarkdown,
         },
         RulesTarget {

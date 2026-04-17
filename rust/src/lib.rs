@@ -3,6 +3,7 @@ pub mod cloud_client;
 #[cfg(feature = "cloud-server")]
 pub mod cloud_server;
 pub mod cloud_sync;
+pub mod compound_lexer;
 pub mod config_io;
 pub mod core;
 pub mod dashboard;
@@ -16,6 +17,7 @@ pub mod http_server;
 pub mod instructions;
 pub mod mcp_stdio;
 pub mod report;
+pub mod rewrite_registry;
 pub mod rules_inject;
 pub mod server;
 pub mod setup;

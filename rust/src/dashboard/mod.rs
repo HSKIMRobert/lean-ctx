@@ -340,6 +340,22 @@ fn route_response(
             });
             ("200 OK", "application/json", json)
         }
+        "/api/symbols" => {
+            let root = detect_project_root_for_dashboard();
+            let index = crate::core::graph_index::load_or_build(&root);
+            let q = extract_query_param(query_str, "q");
+            let kind = extract_query_param(query_str, "kind");
+            let json = build_symbols_json(&index, q.as_deref(), kind.as_deref());
+            ("200 OK", "application/json", json)
+        }
+        "/api/routes" => {
+            let root = detect_project_root_for_dashboard();
+            let index = crate::core::graph_index::load_or_build(&root);
+            let routes =
+                crate::core::route_extractor::extract_routes_from_project(&root, &index.files);
+            let json = serde_json::to_string(&routes).unwrap_or_else(|_| "[]".to_string());
+            ("200 OK", "application/json", json)
+        }
         "/api/session" => {
             let session = crate::core::session::SessionState::load_latest().unwrap_or_default();
             let json = serde_json::to_string(&session)
@@ -356,13 +372,39 @@ fn route_response(
             });
             ("200 OK", "application/json", json)
         }
-        "/api/symbols" => {
-            let root = detect_project_root_for_dashboard();
-            let index = crate::core::graph_index::load_or_build(&root);
-            let q = extract_query_param(query_str, "q");
-            let kind = extract_query_param(query_str, "kind");
-            let json = build_symbols_json(&index, q.as_deref(), kind.as_deref());
-            ("200 OK", "application/json", json)
+        "/api/search" => {
+            let q = extract_query_param(query_str, "q").unwrap_or_default();
+            let limit: usize = extract_query_param(query_str, "limit")
+                .and_then(|l| l.parse().ok())
+                .unwrap_or(20);
+            if q.trim().is_empty() {
+                (
+                    "200 OK",
+                    "application/json",
+                    r#"{"results":[]}"#.to_string(),
+                )
+            } else {
+                let root_s = detect_project_root_for_dashboard();
+                let root = std::path::Path::new(&root_s);
+                let index = crate::core::vector_index::BM25Index::load_or_build(root);
+                let hits = index.search(&q, limit);
+                let results: Vec<serde_json::Value> = hits
+                    .iter()
+                    .map(|r| {
+                        serde_json::json!({
+                            "score": (r.score * 100.0).round() / 100.0,
+                            "file_path": r.file_path,
+                            "symbol_name": r.symbol_name,
+                            "kind": r.kind,
+                            "start_line": r.start_line,
+                            "end_line": r.end_line,
+                            "snippet": r.snippet,
+                        })
+                    })
+                    .collect();
+                let json = serde_json::json!({ "results": results }).to_string();
+                ("200 OK", "application/json", json)
+            }
         }
         "/api/compression-demo" => {
             let body = match extract_query_param(query_str, "path") {

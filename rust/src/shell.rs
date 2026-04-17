@@ -363,7 +363,14 @@ fn compress_and_measure(command: &str, stdout: &str, stderr: &str) -> (String, u
         result.push_str(&compressed_stderr);
     }
 
-    let output_tokens = count_tokens(&result);
+    // Count tokens on content BEFORE the [lean-ctx: ...] footer to avoid
+    // counting the annotation overhead against savings.
+    let content_for_counting = if let Some(pos) = result.rfind("\n[lean-ctx: ") {
+        &result[..pos]
+    } else {
+        &result
+    };
+    let output_tokens = count_tokens(content_for_counting);
     (result, output_tokens)
 }
 
@@ -390,9 +397,12 @@ fn compress_if_beneficial(command: &str, output: &str) -> String {
             if compressed_tokens >= min_output_tokens && compressed_tokens < original_tokens {
                 let saved = original_tokens - compressed_tokens;
                 let pct = (saved as f64 / original_tokens as f64 * 100.0).round() as usize;
-                return format!(
-                    "{compressed}\n[lean-ctx: {original_tokens}→{compressed_tokens} tok, -{pct}%]"
-                );
+                if pct >= 5 {
+                    return format!(
+                        "{compressed}\n[lean-ctx: {original_tokens}→{compressed_tokens} tok, -{pct}%]"
+                    );
+                }
+                return compressed;
             }
             if compressed_tokens < min_output_tokens {
                 return output.to_string();
@@ -419,15 +429,23 @@ fn compress_if_beneficial(command: &str, output: &str) -> String {
             if ct < original_tokens {
                 let saved = original_tokens - ct;
                 let pct = (saved as f64 / original_tokens as f64 * 100.0).round() as usize;
-                return format!("{compressed}\n[lean-ctx: {original_tokens}→{ct} tok, -{pct}%]");
+                if pct >= 5 {
+                    return format!(
+                        "{compressed}\n[lean-ctx: {original_tokens}→{ct} tok, -{pct}%]"
+                    );
+                }
+                return compressed;
             }
         }
         if cleaned_tokens < original_tokens {
             let saved = original_tokens - cleaned_tokens;
             let pct = (saved as f64 / original_tokens as f64 * 100.0).round() as usize;
-            return format!(
-                "{cleaned}\n[lean-ctx: {original_tokens}→{cleaned_tokens} tok, -{pct}%]"
-            );
+            if pct >= 5 {
+                return format!(
+                    "{cleaned}\n[lean-ctx: {original_tokens}→{cleaned_tokens} tok, -{pct}%]"
+                );
+            }
+            return cleaned;
         }
     }
 
@@ -445,9 +463,12 @@ fn compress_if_beneficial(command: &str, output: &str) -> String {
         if compressed_tokens < original_tokens {
             let saved = original_tokens - compressed_tokens;
             let pct = (saved as f64 / original_tokens as f64 * 100.0).round() as usize;
-            return format!(
-                "{compressed}\n[lean-ctx: {original_tokens}→{compressed_tokens} tok, -{pct}%]"
-            );
+            if pct >= 5 {
+                return format!(
+                    "{compressed}\n[lean-ctx: {original_tokens}→{compressed_tokens} tok, -{pct}%]"
+                );
+            }
+            return compressed;
         }
     }
 

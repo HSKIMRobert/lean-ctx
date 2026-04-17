@@ -114,6 +114,7 @@ pub fn normalize_tool_path(path: &str) -> String {
 }
 
 pub fn generate_rewrite_script(binary: &str) -> String {
+    let case_pattern = crate::rewrite_registry::bash_case_pattern();
     format!(
         r#"#!/usr/bin/env bash
 # lean-ctx PreToolUse hook — rewrites bash commands to lean-ctx equivalents
@@ -135,7 +136,7 @@ if [ -z "$CMD" ] || echo "$CMD" | grep -qE "^(lean-ctx |$LEAN_CTX_BIN )"; then
 fi
 
 case "$CMD" in
-  git\ *|gh\ *|cargo\ *|npm\ *|pnpm\ *|yarn\ *|docker\ *|kubectl\ *|pip\ *|pip3\ *|ruff\ *|go\ *|curl\ *|grep\ *|rg\ *|find\ *|cat\ *|head\ *|tail\ *|ls\ *|ls|eslint*|prettier*|tsc*|pytest*|mypy*|aws\ *|helm\ *)
+  {case_pattern})
     # Shell-escape then JSON-escape (two passes)
     SHELL_ESC=$(printf '%s' "$CMD" | sed 's/\\/\\\\/g;s/"/\\"/g')
     REWRITE="$LEAN_CTX_BIN -c \"$SHELL_ESC\""
@@ -149,6 +150,7 @@ esac
 }
 
 pub fn generate_compact_rewrite_script(binary: &str) -> String {
+    let case_pattern = crate::rewrite_registry::bash_case_pattern();
     format!(
         r#"#!/usr/bin/env bash
 # lean-ctx hook — rewrites shell commands
@@ -158,7 +160,7 @@ INPUT=$(cat)
 CMD=$(echo "$INPUT" | grep -oE '"command":"([^"\\]|\\.)*"' | head -1 | sed 's/^"command":"//;s/"$//' | sed 's/\\"/"/g;s/\\\\/\\/g' 2>/dev/null || echo "")
 if [ -z "$CMD" ] || echo "$CMD" | grep -qE "^(lean-ctx |$LEAN_CTX_BIN )"; then exit 0; fi
 case "$CMD" in
-  git\ *|gh\ *|cargo\ *|npm\ *|pnpm\ *|docker\ *|kubectl\ *|pip\ *|ruff\ *|go\ *|curl\ *|grep\ *|rg\ *|find\ *|ls\ *|ls|cat\ *|aws\ *|helm\ *)
+  {case_pattern})
     SHELL_ESC=$(printf '%s' "$CMD" | sed 's/\\/\\\\/g;s/"/\\"/g')
     REWRITE="$LEAN_CTX_BIN -c \"$SHELL_ESC\""
     JSON_CMD=$(printf '%s' "$REWRITE" | sed 's/\\/\\\\/g;s/"/\\"/g')
@@ -183,6 +185,23 @@ exit 0
 
 pub fn install_project_rules() {
     let cwd = std::env::current_dir().unwrap_or_default();
+
+    if !is_inside_git_repo(&cwd) {
+        eprintln!(
+            "  Skipping project files: not inside a git repository.\n  \
+             Run this command from your project root to create CLAUDE.md / AGENTS.md."
+        );
+        return;
+    }
+
+    let home = dirs::home_dir().unwrap_or_default();
+    if cwd == home {
+        eprintln!(
+            "  Skipping project files: current directory is your home folder.\n  \
+             Run this command from a project directory instead."
+        );
+        return;
+    }
 
     ensure_project_agents_integration(&cwd);
 
@@ -393,11 +412,7 @@ pub fn install_agent_hook(agent: &str, global: bool) {
                 .unwrap_or_default()
                 .join(".aws/amazonq/mcp.json"),
         ),
-        "jetbrains" => install_mcp_json_agent(
-            "JetBrains IDEs",
-            "~/.jb-mcp.json",
-            &dirs::home_dir().unwrap_or_default().join(".jb-mcp.json"),
-        ),
+        "jetbrains" => install_jetbrains_hook(),
         "kiro" => install_kiro_hook(),
         "verdent" => install_mcp_json_agent(
             "Verdent",
@@ -406,23 +421,13 @@ pub fn install_agent_hook(agent: &str, global: bool) {
                 .unwrap_or_default()
                 .join(".verdent/mcp.json"),
         ),
-        "opencode" => install_mcp_json_agent(
-            "OpenCode",
-            "~/.opencode/mcp.json",
-            &dirs::home_dir()
-                .unwrap_or_default()
-                .join(".opencode/mcp.json"),
-        ),
+        "opencode" => install_opencode_hook(),
         "aider" => install_mcp_json_agent(
             "Aider",
             "~/.aider/mcp.json",
             &dirs::home_dir().unwrap_or_default().join(".aider/mcp.json"),
         ),
-        "amp" => install_mcp_json_agent(
-            "Amp",
-            "~/.amp/mcp.json",
-            &dirs::home_dir().unwrap_or_default().join(".amp/mcp.json"),
-        ),
+        "amp" => install_amp_hook(),
         "crush" => install_crush_hook(),
         _ => {
             eprintln!("Unknown agent: {agent}");
@@ -444,9 +449,75 @@ fn install_claude_hook(global: bool) {
     install_claude_hook_scripts(&home);
     install_claude_hook_config(&home);
     install_claude_rules_file(&home);
+    install_claude_global_claude_md(&home);
     install_claude_skill(&home);
 
     let _ = global;
+}
+
+const CLAUDE_MD_BLOCK_START: &str = "<!-- lean-ctx -->";
+const CLAUDE_MD_BLOCK_END: &str = "<!-- /lean-ctx -->";
+const CLAUDE_MD_BLOCK_CONTENT: &str = "\
+<!-- lean-ctx -->
+## lean-ctx — Context Runtime
+
+Always prefer lean-ctx MCP tools over native equivalents:
+- `ctx_read` instead of `Read` / `cat` (cached, 10 modes, re-reads ~13 tokens)
+- `ctx_shell` instead of `bash` / `Shell` (90+ compression patterns)
+- `ctx_search` instead of `Grep` / `rg` (compact results)
+- `ctx_tree` instead of `ls` / `find` (compact directory maps)
+- Native Edit/Write/StrReplace stay unchanged.
+
+Full rules: @rules/lean-ctx.md
+
+Verify setup: run `/mcp` to check lean-ctx is connected, `/memory` to confirm this file loaded.
+<!-- /lean-ctx -->";
+
+fn install_claude_global_claude_md(home: &std::path::Path) {
+    let claude_dir = crate::core::editor_registry::claude_state_dir(home);
+    let _ = std::fs::create_dir_all(&claude_dir);
+    let claude_md_path = claude_dir.join("CLAUDE.md");
+
+    let existing = std::fs::read_to_string(&claude_md_path).unwrap_or_default();
+
+    if existing.contains(CLAUDE_MD_BLOCK_START) {
+        if existing.contains(crate::rules_inject::RULES_VERSION_STR)
+            || existing.contains("@rules/lean-ctx.md")
+        {
+            return;
+        }
+        let cleaned = remove_block(&existing, CLAUDE_MD_BLOCK_START, CLAUDE_MD_BLOCK_END);
+        let updated = format!("{}\n\n{}\n", cleaned.trim(), CLAUDE_MD_BLOCK_CONTENT);
+        write_file(&claude_md_path, &updated);
+        return;
+    }
+
+    if existing.trim().is_empty() {
+        write_file(&claude_md_path, CLAUDE_MD_BLOCK_CONTENT);
+    } else {
+        let updated = format!("{}\n\n{}\n", existing.trim(), CLAUDE_MD_BLOCK_CONTENT);
+        write_file(&claude_md_path, &updated);
+    }
+}
+
+fn remove_block(content: &str, start: &str, end: &str) -> String {
+    let s = content.find(start);
+    let e = content.find(end);
+    match (s, e) {
+        (Some(si), Some(ei)) if ei >= si => {
+            let after_end = ei + end.len();
+            let before = content[..si].trim_end_matches('\n');
+            let after = &content[after_end..];
+            let mut out = before.to_string();
+            out.push('\n');
+            if !after.trim().is_empty() {
+                out.push('\n');
+                out.push_str(after.trim_start_matches('\n'));
+            }
+            out
+        }
+        _ => content.to_string(),
+    }
 }
 
 fn install_claude_skill(home: &std::path::Path) {
@@ -886,6 +957,12 @@ fn install_windsurf_rules(global: bool) {
         return;
     }
 
+    let cwd = std::env::current_dir().unwrap_or_default();
+    if !is_inside_git_repo(&cwd) || cwd == dirs::home_dir().unwrap_or_default() {
+        eprintln!("  Skipping .windsurfrules: not inside a git repository or in home directory.");
+        return;
+    }
+
     let rules_path = PathBuf::from(".windsurfrules");
     if rules_path.exists() {
         let content = std::fs::read_to_string(&rules_path).unwrap_or_default();
@@ -905,6 +982,12 @@ fn install_cline_rules(global: bool) {
         println!(
             "Global mode: skipping project-local .clinerules (use without --global in a project)."
         );
+        return;
+    }
+
+    let cwd = std::env::current_dir().unwrap_or_default();
+    if !is_inside_git_repo(&cwd) || cwd == dirs::home_dir().unwrap_or_default() {
+        eprintln!("  Skipping .clinerules: not inside a git repository or in home directory.");
         return;
     }
 
@@ -1047,11 +1130,12 @@ fn write_pi_mcp_config() {
 
 fn pi_mcp_server_entry() -> serde_json::Value {
     let binary = resolve_binary_path();
-    serde_json::json!({
-        "command": binary,
-        "lifecycle": "lazy",
-        "directTools": true
-    })
+    let mut entry = full_server_entry(&binary);
+    if let Some(obj) = entry.as_object_mut() {
+        obj.insert("lifecycle".to_string(), serde_json::json!("lazy"));
+        obj.insert("directTools".to_string(), serde_json::json!(true));
+    }
+    entry
 }
 
 fn install_copilot_hook(global: bool) {
@@ -1064,11 +1148,68 @@ fn install_copilot_hook(global: bool) {
             return;
         }
         write_vscode_mcp_file(&mcp_path, &binary, "global VS Code User MCP");
+        install_copilot_pretooluse_hook(true);
     } else {
         let vscode_dir = PathBuf::from(".vscode");
         let _ = std::fs::create_dir_all(&vscode_dir);
         let mcp_path = vscode_dir.join("mcp.json");
         write_vscode_mcp_file(&mcp_path, &binary, ".vscode/mcp.json");
+        install_copilot_pretooluse_hook(false);
+    }
+}
+
+fn install_copilot_pretooluse_hook(global: bool) {
+    let binary = resolve_binary_path();
+    let rewrite_cmd = format!("{binary} hook rewrite");
+    let redirect_cmd = format!("{binary} hook redirect");
+
+    let hook_config = serde_json::json!({
+        "hooks": {
+            "PreToolUse": [
+                {
+                    "type": "command",
+                    "command": rewrite_cmd,
+                    "timeout": 15
+                },
+                {
+                    "type": "command",
+                    "command": redirect_cmd,
+                    "timeout": 5
+                }
+            ]
+        }
+    });
+
+    if global {
+        if let Some(home) = dirs::home_dir() {
+            let copilot_hooks_dir = home.join(".copilot").join("hooks");
+            let _ = std::fs::create_dir_all(&copilot_hooks_dir);
+            let hook_path = copilot_hooks_dir.join("lean-ctx.json");
+            write_file(
+                &hook_path,
+                &serde_json::to_string_pretty(&hook_config).unwrap(),
+            );
+            if !mcp_server_quiet_mode() {
+                println!(
+                    "Installed Copilot PreToolUse hooks at {}",
+                    hook_path.display()
+                );
+            }
+        }
+    } else {
+        let hooks_dir = PathBuf::from(".github").join("hooks");
+        let _ = std::fs::create_dir_all(&hooks_dir);
+        let hook_path = hooks_dir.join("lean-ctx.json");
+        write_file(
+            &hook_path,
+            &serde_json::to_string_pretty(&hook_config).unwrap(),
+        );
+        if !mcp_server_quiet_mode() {
+            println!(
+                "Installed Copilot PreToolUse hooks at {}",
+                hook_path.display()
+            );
+        }
     }
 }
 
@@ -1096,7 +1237,10 @@ fn copilot_global_mcp_path() -> PathBuf {
 }
 
 fn write_vscode_mcp_file(mcp_path: &PathBuf, binary: &str, label: &str) {
-    let desired = serde_json::json!({ "command": binary, "args": [] });
+    let data_dir = crate::core::data_dir::lean_ctx_data_dir()
+        .map(|d| d.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let desired = serde_json::json!({ "type": "stdio", "command": binary, "args": [], "env": { "LEAN_CTX_DATA_DIR": data_dir } });
     if mcp_path.exists() {
         let content = std::fs::read_to_string(mcp_path).unwrap_or_default();
         match serde_json::from_str::<serde_json::Value>(&content) {
@@ -1135,11 +1279,16 @@ fn write_vscode_mcp_file(mcp_path: &PathBuf, binary: &str, label: &str) {
         let _ = std::fs::create_dir_all(parent);
     }
 
+    let data_dir = crate::core::data_dir::lean_ctx_data_dir()
+        .map(|d| d.to_string_lossy().to_string())
+        .unwrap_or_default();
     let config = serde_json::json!({
         "servers": {
             "lean-ctx": {
+                "type": "stdio",
                 "command": binary,
-                "args": []
+                "args": [],
+                "env": { "LEAN_CTX_DATA_DIR": data_dir }
             }
         }
     });
@@ -1157,6 +1306,19 @@ fn write_file(path: &std::path::Path, content: &str) {
     }
 }
 
+fn is_inside_git_repo(path: &std::path::Path) -> bool {
+    let mut p = path;
+    loop {
+        if p.join(".git").exists() {
+            return true;
+        }
+        match p.parent() {
+            Some(parent) => p = parent,
+            None => return false,
+        }
+    }
+}
+
 #[cfg(unix)]
 fn make_executable(path: &PathBuf) {
     use std::os::unix::fs::PermissionsExt;
@@ -1165,6 +1327,178 @@ fn make_executable(path: &PathBuf) {
 
 #[cfg(not(unix))]
 fn make_executable(_path: &PathBuf) {}
+
+fn install_amp_hook() {
+    let binary = resolve_binary_path();
+    let home = dirs::home_dir().unwrap_or_default();
+    let config_path = home.join(".config/amp/settings.json");
+    let display_path = "~/.config/amp/settings.json";
+
+    if let Some(parent) = config_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    let data_dir = crate::core::data_dir::lean_ctx_data_dir()
+        .map(|d| d.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let entry = serde_json::json!({
+        "command": binary,
+        "env": { "LEAN_CTX_DATA_DIR": data_dir }
+    });
+
+    if config_path.exists() {
+        let content = std::fs::read_to_string(&config_path).unwrap_or_default();
+        if content.contains("lean-ctx") {
+            println!("Amp MCP already configured at {display_path}");
+            return;
+        }
+
+        if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(obj) = json.as_object_mut() {
+                let servers = obj
+                    .entry("amp.mcpServers")
+                    .or_insert_with(|| serde_json::json!({}));
+                if let Some(servers_obj) = servers.as_object_mut() {
+                    servers_obj.insert("lean-ctx".to_string(), entry.clone());
+                }
+                if let Ok(formatted) = serde_json::to_string_pretty(&json) {
+                    let _ = std::fs::write(&config_path, formatted);
+                    println!("  \x1b[32m✓\x1b[0m Amp MCP configured at {display_path}");
+                    return;
+                }
+            }
+        }
+    }
+
+    let config = serde_json::json!({ "amp.mcpServers": { "lean-ctx": entry } });
+    if let Ok(json_str) = serde_json::to_string_pretty(&config) {
+        let _ = std::fs::write(&config_path, json_str);
+        println!("  \x1b[32m✓\x1b[0m Amp MCP configured at {display_path}");
+    } else {
+        eprintln!("  \x1b[31m✗\x1b[0m Failed to configure Amp");
+    }
+}
+
+fn install_jetbrains_hook() {
+    let binary = resolve_binary_path();
+    let home = dirs::home_dir().unwrap_or_default();
+    let config_path = home.join(".jb-mcp.json");
+    let display_path = "~/.jb-mcp.json";
+
+    let entry = serde_json::json!({
+        "name": "lean-ctx",
+        "command": binary,
+        "args": [],
+        "env": {
+            "LEAN_CTX_DATA_DIR": crate::core::data_dir::lean_ctx_data_dir()
+                .map(|d| d.to_string_lossy().to_string())
+                .unwrap_or_default()
+        }
+    });
+
+    if config_path.exists() {
+        let content = std::fs::read_to_string(&config_path).unwrap_or_default();
+        if content.contains("lean-ctx") {
+            println!("JetBrains MCP already configured at {display_path}");
+            return;
+        }
+
+        if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(obj) = json.as_object_mut() {
+                let servers = obj
+                    .entry("servers")
+                    .or_insert_with(|| serde_json::json!([]));
+                if let Some(arr) = servers.as_array_mut() {
+                    arr.push(entry.clone());
+                }
+                if let Ok(formatted) = serde_json::to_string_pretty(&json) {
+                    let _ = std::fs::write(&config_path, formatted);
+                    println!("  \x1b[32m✓\x1b[0m JetBrains MCP configured at {display_path}");
+                    return;
+                }
+            }
+        }
+    }
+
+    let config = serde_json::json!({ "servers": [entry] });
+    if let Ok(json_str) = serde_json::to_string_pretty(&config) {
+        let _ = std::fs::write(&config_path, json_str);
+        println!("  \x1b[32m✓\x1b[0m JetBrains MCP configured at {display_path}");
+    } else {
+        eprintln!("  \x1b[31m✗\x1b[0m Failed to configure JetBrains");
+    }
+}
+
+fn install_opencode_hook() {
+    let binary = resolve_binary_path();
+    let home = dirs::home_dir().unwrap_or_default();
+    let config_path = home.join(".config/opencode/opencode.json");
+    let display_path = "~/.config/opencode/opencode.json";
+
+    if let Some(parent) = config_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    let data_dir = crate::core::data_dir::lean_ctx_data_dir()
+        .map(|d| d.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let desired = serde_json::json!({
+        "type": "local",
+        "command": [&binary],
+        "enabled": true,
+        "environment": { "LEAN_CTX_DATA_DIR": data_dir }
+    });
+
+    if config_path.exists() {
+        let content = std::fs::read_to_string(&config_path).unwrap_or_default();
+        if content.contains("lean-ctx") {
+            println!("OpenCode MCP already configured at {display_path}");
+        } else if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(obj) = json.as_object_mut() {
+                let mcp = obj.entry("mcp").or_insert_with(|| serde_json::json!({}));
+                if let Some(mcp_obj) = mcp.as_object_mut() {
+                    mcp_obj.insert("lean-ctx".to_string(), desired.clone());
+                }
+                if let Ok(formatted) = serde_json::to_string_pretty(&json) {
+                    let _ = std::fs::write(&config_path, formatted);
+                    println!("  \x1b[32m✓\x1b[0m OpenCode MCP configured at {display_path}");
+                }
+            }
+        }
+    } else {
+        let content = serde_json::to_string_pretty(&serde_json::json!({
+            "$schema": "https://opencode.ai/config.json",
+            "mcp": {
+                "lean-ctx": desired
+            }
+        }));
+
+        if let Ok(json_str) = content {
+            let _ = std::fs::write(&config_path, json_str);
+            println!("  \x1b[32m✓\x1b[0m OpenCode MCP configured at {display_path}");
+        } else {
+            eprintln!("  \x1b[31m✗\x1b[0m Failed to configure OpenCode");
+        }
+    }
+
+    install_opencode_plugin(&home);
+}
+
+fn install_opencode_plugin(home: &std::path::Path) {
+    let plugin_dir = home.join(".config/opencode/plugins");
+    let _ = std::fs::create_dir_all(&plugin_dir);
+    let plugin_path = plugin_dir.join("lean-ctx.ts");
+
+    let plugin_content = include_str!("templates/opencode-plugin.ts");
+    let _ = std::fs::write(&plugin_path, plugin_content);
+
+    if !mcp_server_quiet_mode() {
+        println!(
+            "  \x1b[32m✓\x1b[0m OpenCode plugin installed at {}",
+            plugin_path.display()
+        );
+    }
+}
 
 fn install_crush_hook() {
     let binary = resolve_binary_path();
@@ -1244,8 +1578,21 @@ fn install_kiro_hook() {
     }
 }
 
+fn full_server_entry(binary: &str) -> serde_json::Value {
+    let data_dir = crate::core::data_dir::lean_ctx_data_dir()
+        .map(|d| d.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let auto_approve = crate::core::editor_registry::auto_approve_tools();
+    serde_json::json!({
+        "command": binary,
+        "env": { "LEAN_CTX_DATA_DIR": data_dir },
+        "autoApprove": auto_approve
+    })
+}
+
 fn install_mcp_json_agent(name: &str, display_path: &str, config_path: &std::path::Path) {
     let binary = resolve_binary_path();
+    let entry = full_server_entry(&binary);
 
     if let Some(parent) = config_path.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -1264,10 +1611,7 @@ fn install_mcp_json_agent(name: &str, display_path: &str, config_path: &std::pat
                     .entry("mcpServers")
                     .or_insert_with(|| serde_json::json!({}));
                 if let Some(servers_obj) = servers.as_object_mut() {
-                    servers_obj.insert(
-                        "lean-ctx".to_string(),
-                        serde_json::json!({ "command": binary }),
-                    );
+                    servers_obj.insert("lean-ctx".to_string(), entry.clone());
                 }
                 if let Ok(formatted) = serde_json::to_string_pretty(&json) {
                     let _ = std::fs::write(config_path, formatted);
@@ -1280,9 +1624,7 @@ fn install_mcp_json_agent(name: &str, display_path: &str, config_path: &std::pat
 
     let content = serde_json::to_string_pretty(&serde_json::json!({
         "mcpServers": {
-            "lean-ctx": {
-                "command": binary
-            }
+            "lean-ctx": entry
         }
     }));
 
@@ -1514,5 +1856,60 @@ mod tests {
             && old_format.contains("hook redirect")
             && old_format.contains("\"type\"");
         assert!(!has_new, "Missing 'type' field should trigger migration");
+    }
+
+    #[test]
+    fn rewrite_script_uses_registry_pattern() {
+        let script = generate_rewrite_script("/usr/bin/lean-ctx");
+        assert!(script.contains(r"git\ *"), "script missing git pattern");
+        assert!(script.contains(r"cargo\ *"), "script missing cargo pattern");
+        assert!(script.contains(r"npm\ *"), "script missing npm pattern");
+        assert!(
+            !script.contains(r"rg\ *"),
+            "script should not contain rg pattern"
+        );
+        assert!(
+            script.contains("LEAN_CTX_BIN=\"/usr/bin/lean-ctx\""),
+            "script missing binary path"
+        );
+    }
+
+    #[test]
+    fn compact_rewrite_script_uses_registry_pattern() {
+        let script = generate_compact_rewrite_script("/usr/bin/lean-ctx");
+        assert!(script.contains(r"git\ *"), "compact script missing git");
+        assert!(script.contains(r"cargo\ *"), "compact script missing cargo");
+        assert!(
+            !script.contains(r"rg\ *"),
+            "compact script should not contain rg"
+        );
+    }
+
+    #[test]
+    fn rewrite_scripts_contain_all_registry_commands() {
+        let script = generate_rewrite_script("lean-ctx");
+        let compact = generate_compact_rewrite_script("lean-ctx");
+        for entry in crate::rewrite_registry::REWRITE_COMMANDS {
+            if entry.category == crate::rewrite_registry::Category::Search {
+                continue;
+            }
+            let pattern = if entry.command.contains('-') {
+                format!("{}*", entry.command.replace('-', r"\-"))
+            } else {
+                format!(r"{}\ *", entry.command)
+            };
+            assert!(
+                script.contains(&pattern),
+                "rewrite_script missing '{}' (pattern: {})",
+                entry.command,
+                pattern
+            );
+            assert!(
+                compact.contains(&pattern),
+                "compact_rewrite_script missing '{}' (pattern: {})",
+                entry.command,
+                pattern
+            );
+        }
     }
 }

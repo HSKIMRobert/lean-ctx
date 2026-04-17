@@ -903,8 +903,8 @@ pub fn format_gain_themed_at(t: &Theme, tick: Option<u64>) -> String {
 
     let cost_title = t.section_title("Cost Breakdown");
     o.push(format!(
-        "  {cost_title}  {d}@ ${}/M input · ${}/M output{r}",
-        DEFAULT_INPUT_PRICE_PER_M, DEFAULT_OUTPUT_PRICE_PER_M,
+        "  {cost_title}  {d}@ ${:.2}/M input · ${:.2}/M output{r}",
+        cost_model.input_price_per_m, cost_model.output_price_per_m,
     ));
     o.push(format!("  {ln}", ln = t.border_line(w)));
     o.push(String::new());

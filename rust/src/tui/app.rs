@@ -44,12 +44,15 @@ struct FileHeat {
 
 impl AppState {
     fn new() -> Self {
+        let store = crate::core::stats::load();
         Self {
             events: Vec::new(),
-            total_saved: 0,
-            total_original: 0,
-            cache_hits: 0,
-            total_calls: 0,
+            total_saved: store
+                .total_input_tokens
+                .saturating_sub(store.total_output_tokens) as u64,
+            total_original: store.total_input_tokens as u64,
+            cache_hits: store.cep.total_cache_hits,
+            total_calls: store.total_commands as u64,
             files: std::collections::HashMap::new(),
             gain_score: None,
             last_gain_refresh: Instant::now(),

@@ -3,6 +3,31 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.2.2] — 2026-04-17
+
+### Added
+- **Smart Shell Mode**: New `-t` / `--track` subcommand for human shell usage — full output preserved, only stats recorded. Shell aliases (`_lc`) now default to track mode instead of compress mode, eliminating unwanted output compression for interactive users.
+- **`lean-ctx-mode` shell function**: Switch between `track` (default), `compress`, and `off` modes without editing config files. Available in both POSIX (bash/zsh) and Fish shells.
+- **`_lc_compress` shell function**: Explicit compression wrapper for power users who want compressed output in their terminal.
+- **Unified Rewrite Registry** (`rewrite_registry.rs`): Single source of truth for all 24+ rewritable commands, used consistently across shell aliases, hook rewrite, and compound command lexer.
+- **Compound Command Lexer** (`compound_lexer.rs`): Intelligent splitting of `&&`, `;`, `||` compound commands for selective rewriting — only rewritable segments get wrapped with `-c`.
+- **Extended hook support**: Copilot hooks now recognize `runInTerminal`, `run_in_terminal`, `shell`, and `terminal` tool names in addition to `Bash`/`bash`.
+- **Dashboard API routes**: New `/api/symbols`, `/api/call-graph`, `/api/routes`, `/api/search` endpoints for the web dashboard.
+- **22 IDE/agent targets**: Rules injection now supports Crush, Verdent, Pi Coding Agent, AWS Kiro, Antigravity, Qwen Code, Trae, Amazon Q Developer, and JetBrains IDEs (22 total).
+
+### Fixed
+- **Shell commands compressed for humans** (#101): `ls`, `git status`, and other aliased commands were always compressed because `_lc` used `-c`. Now defaults to `-t` (track) which preserves full output.
+- **"Authorization required" on Ubuntu** (#101): `exec_buffered` pipe redirection triggered X11/Wayland auth errors on headless Linux. Track mode uses `exec_inherit_tracked` (direct stdio), avoiding this entirely.
+- **Token counting accuracy**: `stats::record` now uses `count_tokens()` (tiktoken) instead of byte length for output measurement.
+- **Dashboard Windows path normalization**: Compression Lab demo paths now correctly handle Windows absolute paths (merged PR #102).
+- **Dashboard "d streak" label**: Fixed to display "days streak" (merged PR #106).
+
+### Community
+- Merged PR #102 — fix compression lab path resolution (@frpboy)
+- Merged PR #103 — add symbols API route (@frpboy)
+- Merged PR #104 — add call graph API route (@frpboy)
+- Merged PR #106 — fix dashboard streak label (@frpboy)
+
 ## [3.2.1] — 2026-04-17
 
 ### Fixed

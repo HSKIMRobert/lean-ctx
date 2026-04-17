@@ -73,6 +73,26 @@ fn remove_project_agent_files() -> bool {
         }
     }
 
+    let project_files = [
+        ".windsurfrules",
+        ".clinerules",
+        ".cursorrules",
+        ".kiro/steering/lean-ctx.md",
+        ".cursor/rules/lean-ctx.mdc",
+    ];
+    for rel in &project_files {
+        let path = cwd.join(rel);
+        if path.exists() {
+            if let Ok(content) = fs::read_to_string(&path) {
+                if content.contains("lean-ctx") {
+                    let _ = fs::remove_file(&path);
+                    println!("  ✓ Project: removed {rel}");
+                    removed = true;
+                }
+            }
+        }
+    }
+
     removed
 }
 
@@ -166,10 +186,12 @@ fn remove_mcp_configs(home: &Path) -> bool {
         ("JetBrains IDEs", home.join(".jb-mcp.json")),
         ("AWS Kiro", home.join(".kiro/settings/mcp.json")),
         ("Verdent", home.join(".verdent/mcp.json")),
-        ("OpenCode", home.join(".opencode/mcp.json")),
         ("Aider", home.join(".aider/mcp.json")),
-        ("Amp", home.join(".amp/mcp.json")),
+        ("Amp", home.join(".config/amp/settings.json")),
         ("Crush", home.join(".config/crush/crush.json")),
+        ("Pi Coding Agent", home.join(".pi/agent/mcp.json")),
+        ("Cline", crate::core::editor_registry::cline_mcp_path()),
+        ("Roo Code", crate::core::editor_registry::roo_mcp_path()),
     ];
 
     let mut removed = false;
@@ -268,7 +290,7 @@ fn remove_rules_files(home: &Path) -> bool {
             home.join(".gemini/antigravity/rules/lean-ctx.md"),
         ),
         ("Pi Coding Agent", home.join(".pi/rules/lean-ctx.md")),
-        ("AWS Kiro", home.join(".kiro/rules/lean-ctx.md")),
+        ("AWS Kiro", home.join(".kiro/steering/lean-ctx.md")),
         ("Verdent", home.join(".verdent/rules/lean-ctx.md")),
         ("Crush", home.join(".config/crush/rules/lean-ctx.md")),
     ];
@@ -449,6 +471,23 @@ fn remove_lean_ctx_from_json(content: &str) -> Option<String> {
 
     if let Some(servers) = parsed.get_mut("servers").and_then(|s| s.as_object_mut()) {
         modified |= servers.remove("lean-ctx").is_some();
+    }
+
+    if let Some(servers) = parsed.get_mut("servers").and_then(|s| s.as_array_mut()) {
+        let before = servers.len();
+        servers.retain(|entry| entry.get("name").and_then(|n| n.as_str()) != Some("lean-ctx"));
+        modified |= servers.len() < before;
+    }
+
+    if let Some(mcp) = parsed.get_mut("mcp").and_then(|s| s.as_object_mut()) {
+        modified |= mcp.remove("lean-ctx").is_some();
+    }
+
+    if let Some(amp) = parsed
+        .get_mut("amp.mcpServers")
+        .and_then(|s| s.as_object_mut())
+    {
+        modified |= amp.remove("lean-ctx").is_some();
     }
 
     if modified {

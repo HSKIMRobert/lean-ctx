@@ -49,6 +49,22 @@ fn main() {
                 core::stats::flush();
                 std::process::exit(code);
             }
+            "-t" | "--track" => {
+                let cmd_args = &args[2..];
+                let command = if cmd_args.len() == 1 {
+                    cmd_args[0].clone()
+                } else {
+                    shell::join_command(cmd_args)
+                };
+                if std::env::var("LEAN_CTX_ACTIVE").is_ok()
+                    || std::env::var("LEAN_CTX_DISABLED").is_ok()
+                {
+                    passthrough(&command);
+                }
+                let code = shell::exec(&command);
+                core::stats::flush();
+                std::process::exit(code);
+            }
             "shell" | "--shell" => {
                 shell::interactive();
                 return;
@@ -158,10 +174,7 @@ fn main() {
                         tools::ctx_gain::handle("heatmap", None, None, Some(limit))
                     );
                 } else {
-                    println!(
-                        "{}",
-                        tools::ctx_gain::handle("report", None, model.as_deref(), Some(limit))
-                    );
+                    println!("{}", core::stats::format_gain());
                 }
                 return;
             }
@@ -577,9 +590,11 @@ fn main() {
                 match action {
                     "rewrite" => hook_handlers::handle_rewrite(),
                     "redirect" => hook_handlers::handle_redirect(),
+                    "copilot" => hook_handlers::handle_copilot(),
+                    "rewrite-inline" => hook_handlers::handle_rewrite_inline(),
                     _ => {
-                        eprintln!("Usage: lean-ctx hook <rewrite|redirect>");
-                        eprintln!("  Internal commands used by agent hooks (Claude, Cursor, etc.)");
+                        eprintln!("Usage: lean-ctx hook <rewrite|redirect|copilot|rewrite-inline>");
+                        eprintln!("  Internal commands used by agent hooks (Claude, Cursor, Copilot, etc.)");
                         std::process::exit(1);
                     }
                 }
@@ -701,7 +716,8 @@ fn print_help() {
 USAGE:
     lean-ctx                       Start MCP server (stdio)
     lean-ctx serve                 Start MCP server (Streamable HTTP)
-    lean-ctx -c \"command\"          Execute with compressed output
+    lean-ctx -t \"command\"          Track command (full output + stats, no compression)
+    lean-ctx -c \"command\"          Execute with compressed output (used by AI hooks)
     lean-ctx -c --raw \"command\"    Execute without compression (full output)
     lean-ctx exec \"command\"        Same as -c
     lean-ctx shell                 Interactive shell with compression
@@ -804,9 +820,12 @@ EXAMPLES:
     lean-ctx setup                 One-command setup (shell + editors + verify)
     lean-ctx bootstrap             Non-interactive setup + fix (zero-config)
     lean-ctx bootstrap --json      Machine-readable bootstrap report
-    lean-ctx init --global         Install shell aliases (includes lean-ctx-on/off/status)
-    lean-ctx-on                    Enable all compression aliases (after init)
-    lean-ctx-off                   Disable all compression aliases (human-readable mode)
+    lean-ctx init --global         Install shell aliases (includes lean-ctx-on/off/mode/status)
+    lean-ctx-on                    Enable shell aliases in track mode (full output + stats)
+    lean-ctx-off                   Disable all shell aliases
+    lean-ctx-mode track            Track mode: full output, stats recorded (default)
+    lean-ctx-mode compress         Compress mode: all output compressed (power users)
+    lean-ctx-mode off              Same as lean-ctx-off
     lean-ctx-status                Show whether compression is active
     lean-ctx init --agent pi       Install Pi Coding Agent extension
     lean-ctx doctor                Check PATH, config, MCP, and dashboard port
@@ -1013,54 +1032,7 @@ fn cmd_sync() {
 }
 
 fn build_sync_entries(store: &core::stats::StatsStore) -> Vec<serde_json::Value> {
-    let mut entries = Vec::new();
-    let cep = &store.cep;
-    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-
-    let mut cep_cache_by_day: std::collections::HashMap<String, (u64, u64)> =
-        std::collections::HashMap::new();
-    for s in &cep.scores {
-        if let Some(date) = s.timestamp.get(..10) {
-            let entry = cep_cache_by_day.entry(date.to_string()).or_default();
-            let calls = s.tool_calls.max(1);
-            let hits = (calls as f64 * s.cache_hit_rate as f64 / 100.0).round() as u64;
-            entry.0 += calls;
-            entry.1 += hits;
-        }
-    }
-
-    for day in &store.daily {
-        let tokens_original = day.input_tokens;
-        let tokens_compressed = day.output_tokens;
-        let tokens_saved = tokens_original.saturating_sub(tokens_compressed);
-        let (day_calls, day_hits) = cep_cache_by_day.get(&day.date).copied().unwrap_or((0, 0));
-        let cache_hits = day_hits;
-        let cache_misses = day_calls.saturating_sub(day_hits);
-        entries.push(serde_json::json!({
-            "date": day.date,
-            "tokens_original": tokens_original,
-            "tokens_compressed": tokens_compressed,
-            "tokens_saved": tokens_saved,
-            "tool_calls": day.commands,
-            "cache_hits": cache_hits,
-            "cache_misses": cache_misses,
-        }));
-    }
-
-    let has_today = entries.iter().any(|e| e["date"].as_str() == Some(&today));
-    if !has_today && (cep.total_tokens_original > 0 || store.total_commands > 0) {
-        entries.push(serde_json::json!({
-            "date": today,
-            "tokens_original": cep.total_tokens_original,
-            "tokens_compressed": cep.total_tokens_compressed,
-            "tokens_saved": cep.total_tokens_original.saturating_sub(cep.total_tokens_compressed),
-            "tool_calls": store.total_commands,
-            "cache_hits": cep.total_cache_hits,
-            "cache_misses": cep.total_cache_reads.saturating_sub(cep.total_cache_hits),
-        }));
-    }
-
-    entries
+    lean_ctx::cloud_sync::build_sync_entries(store)
 }
 
 fn collect_knowledge_entries() -> Vec<serde_json::Value> {

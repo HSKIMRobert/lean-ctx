@@ -570,12 +570,42 @@ pub fn configure_agent_mcp(agent: &str) -> Result<(), String> {
             home.join(".verdent/mcp.json"),
             ConfigType::McpJson,
         ),
-        "jetbrains" => push(
+        "jetbrains" => {
+            // JetBrains uses servers[] array format, handled by install_jetbrains_hook
+        }
+        "qwen" => push(
             &mut targets,
-            "JetBrains IDEs",
-            home.join(".jb-mcp.json"),
+            "Qwen Code",
+            home.join(".qwen/mcp.json"),
             ConfigType::McpJson,
         ),
+        "trae" => push(
+            &mut targets,
+            "Trae",
+            home.join(".trae/mcp.json"),
+            ConfigType::McpJson,
+        ),
+        "amazonq" => push(
+            &mut targets,
+            "Amazon Q Developer",
+            home.join(".aws/amazonq/mcp.json"),
+            ConfigType::McpJson,
+        ),
+        "opencode" => push(
+            &mut targets,
+            "OpenCode",
+            home.join(".config/opencode/opencode.json"),
+            ConfigType::OpenCode,
+        ),
+        "aider" => push(
+            &mut targets,
+            "Aider",
+            home.join(".aider/mcp.json"),
+            ConfigType::McpJson,
+        ),
+        "amp" => {
+            // Amp uses amp.mcpServers in ~/.config/amp/settings.json, handled by install_amp_hook
+        }
         _ => {
             return Err(format!("Unknown agent '{agent}'"));
         }

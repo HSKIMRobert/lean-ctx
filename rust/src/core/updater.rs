@@ -265,6 +265,15 @@ fn replace_binary(
 
     #[cfg(not(windows))]
     {
+        // On macOS, rename-over-running-binary causes SIGKILL because the kernel
+        // re-validates code pages against the (now different) on-disk file.
+        // Unlinking first is safe: the kernel keeps the old memory-mapped pages
+        // from the deleted inode, while the new file gets a fresh inode at the path.
+        #[cfg(target_os = "macos")]
+        {
+            let _ = std::fs::remove_file(current_exe);
+        }
+
         std::fs::rename(&tmp_path, current_exe).map_err(|e| {
             let _ = std::fs::remove_file(&tmp_path);
             format!("Cannot replace binary (permission denied?): {e}")
