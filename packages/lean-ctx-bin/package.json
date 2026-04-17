@@ -9,7 +9,7 @@
     "url": "https://github.com/yvgude/lean-ctx.git",
     "directory": "packages/lean-ctx-bin"
   },
-  "license": "MIT",
+  "license": "Apache-2.0",
   "bin": {
     "lean-ctx": "./bin/lean-ctx.js"
   },

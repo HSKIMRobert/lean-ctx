@@ -22,7 +22,7 @@
   <a href="https://www.npmjs.com/package/lean-ctx-bin"><img src="https://img.shields.io/npm/v/lean-ctx-bin?label=npm&color=%23cb3837" alt="npm"></a>
   <a href="https://www.npmjs.com/package/pi-lean-ctx"><img src="https://img.shields.io/npm/v/pi-lean-ctx?label=pi-lean-ctx&color=%23cb3837" alt="pi-lean-ctx"></a>
   <a href="https://aur.archlinux.org/packages/lean-ctx"><img src="https://img.shields.io/aur/version/lean-ctx?color=%231793d1" alt="AUR"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License"></a>
   <a href="https://discord.gg/pTHkG9Hew9"><img src="https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
   <a href="https://x.com/leanctx"><img src="https://img.shields.io/badge/𝕏-Follow-000000?logo=x&logoColor=white" alt="X/Twitter"></a>
   <img src="https://img.shields.io/badge/Telemetry-Zero-brightgreen?logo=shield&logoColor=white" alt="Zero Telemetry">
@@ -757,7 +757,7 @@ lean-ctx is **privacy-first by design**:
 - **Zero telemetry** — no data collection, no analytics, no phone-home, ever
 - **Zero network requests** — everything runs locally on your machine
 - **No PII exposure** — no hostnames, usernames, or project paths leave your system
-- **Fully auditable** — MIT-licensed, single Rust binary, no hidden dependencies
+- **Fully auditable** — Apache 2.0 licensed, single Rust binary, no hidden dependencies
 
 See [SECURITY.md](SECURITY.md).
 
@@ -801,7 +801,7 @@ No. lean-ctx adds <1ms overhead per operation. The MCP server runs as a persiste
 <details>
 <summary><strong>Is it safe? Does it send data anywhere?</strong></summary>
 
-lean-ctx has **zero telemetry** — no data collection, no analytics, no network requests, ever. Everything runs 100% locally. The code is MIT-licensed and fully auditable. See [SECURITY.md](SECURITY.md).
+lean-ctx has **zero telemetry** — no data collection, no analytics, no network requests, ever. Everything runs 100% locally. The code is Apache 2.0 licensed and fully auditable. See [SECURITY.md](SECURITY.md).
 
 </details>
 
@@ -840,7 +840,9 @@ Contributions welcome! Open an issue or PR on [GitHub](https://github.com/yvgude
 
 ## 📄 License
 
-MIT — see [LICENSE](LICENSE).
+Apache License 2.0 — see [LICENSE](LICENSE).
+
+Portions of this software were originally released under the MIT License. See [LICENSE-MIT](LICENSE-MIT) for the original text and [NOTICE](NOTICE) for attribution details.
 
 <br>
 
