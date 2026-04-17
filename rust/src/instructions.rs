@@ -1,10 +1,63 @@
 use crate::tools::CrpMode;
 
+/// Claude Code truncates MCP server instructions at 2048 characters.
+/// Full instructions are installed as `~/.claude/rules/lean-ctx.md` instead.
+const CLAUDE_CODE_INSTRUCTION_CAP: usize = 2048;
+
 pub fn build_instructions(crp_mode: CrpMode) -> String {
     build_instructions_with_client(crp_mode, "")
 }
 
 pub fn build_instructions_with_client(crp_mode: CrpMode, client_name: &str) -> String {
+    if is_claude_code_client(client_name) {
+        return build_claude_code_instructions();
+    }
+    build_full_instructions(crp_mode, client_name)
+}
+
+fn is_claude_code_client(client_name: &str) -> bool {
+    let lower = client_name.to_lowercase();
+    lower.contains("claude") && !lower.contains("cursor")
+}
+
+fn build_claude_code_instructions() -> String {
+    let instr = "\
+ALWAYS use lean-ctx MCP tools instead of native equivalents.
+
+Tool mapping (MANDATORY):
+• Read/cat/head/tail -> ctx_read(path, mode)
+• Shell/bash -> ctx_shell(command)
+• Grep/rg -> ctx_search(pattern, path)
+• ls/find -> ctx_tree(path, depth)
+• Edit/StrReplace -> native (lean-ctx=READ only)
+• Write, Delete, Glob -> normal
+
+ctx_read modes: full|map|signatures|diff|task|reference|aggressive|entropy|lines:N-M
+Auto-selects mode. Re-reads ~13 tok. File refs F1,F2.. persist.
+Cached? fresh=true or lines:N-M.
+
+Auto: ctx_overview, ctx_preload, ctx_dedup, ctx_compress behind the scenes.
+Multi-agent: ctx_agent(action=handoff|sync|diary).
+ctx_semantic_search for meaning search. ctx_session for memory.
+ctx_knowledge: remember|recall|timeline|rooms|search|wakeup.
+ctx_shell raw=true for uncompressed.
+
+CEP: 1.ACT FIRST 2.DELTA ONLY 3.STRUCTURED(+/-/~) 4.ONE LINE 5.QUALITY
+
+Prefer: ctx_read>Read | ctx_shell>Shell | ctx_search>Grep | ctx_tree>ls
+Edit: native Edit/StrReplace preferred, ctx_edit if Edit unavailable.
+Never echo tool output. Never narrate. Show only changed code.
+Full instructions at ~/.claude/rules/lean-ctx.md";
+
+    debug_assert!(
+        instr.len() <= CLAUDE_CODE_INSTRUCTION_CAP,
+        "Claude Code instructions exceed {CLAUDE_CODE_INSTRUCTION_CAP} chars: {} chars",
+        instr.len()
+    );
+    instr.to_string()
+}
+
+fn build_full_instructions(crp_mode: CrpMode, client_name: &str) -> String {
     let profile = crate::core::litm::LitmProfile::from_client_name(client_name);
     let session_block = match crate::core::session::SessionState::load_latest() {
         Some(ref session) => {
@@ -135,6 +188,14 @@ BUDGET: <=150 tok. ZERO NARRATION. Trust tool outputs.\n\n\
             )
         }
     }
+}
+
+pub fn claude_code_instructions() -> String {
+    build_claude_code_instructions()
+}
+
+pub fn full_instructions_for_rules_file(crp_mode: CrpMode) -> String {
+    build_full_instructions(crp_mode, "")
 }
 
 fn build_intelligence_block() -> String {

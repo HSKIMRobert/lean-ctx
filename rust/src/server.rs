@@ -1932,6 +1932,10 @@ pub fn build_instructions_for_test(crp_mode: CrpMode) -> String {
     crate::instructions::build_instructions(crp_mode)
 }
 
+pub fn build_claude_code_instructions_for_test() -> String {
+    crate::instructions::claude_code_instructions()
+}
+
 fn get_str_array(args: &Option<serde_json::Map<String, Value>>, key: &str) -> Option<Vec<String>> {
     let arr = args.as_ref()?.get(key)?.as_array()?;
     let mut out = Vec::with_capacity(arr.len());

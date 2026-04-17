@@ -86,6 +86,18 @@ fn bench_system_instructions_token_count() {
         tok_tdd < 2550,
         "TDD instructions should be <2550 tokens, got {tok_tdd}"
     );
+
+    let claude_code_instr = lean_ctx::server::build_claude_code_instructions_for_test();
+    let claude_chars = claude_code_instr.len();
+    let claude_tokens = count_tokens(&claude_code_instr);
+    eprintln!(
+        "  Claude Code: {:>6} tokens ({:>5} chars)",
+        claude_tokens, claude_chars
+    );
+    assert!(
+        claude_chars <= 2048,
+        "Claude Code instructions MUST be <=2048 chars, got {claude_chars}"
+    );
     assert!(
         tok_compact - tok_off < 300,
         "Compact mode overhead should be <300 tokens"
@@ -480,6 +492,103 @@ fn bench_all_modes_comparison() {
         eprintln!("  {:<20} {:>8} {:>6.1}%", name, tokens, pct);
     }
     eprintln!("{}", "=".repeat(70));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SECTION 3.5: RRF EVICTION SCORING
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn bench_rrf_eviction_vs_legacy() {
+    use std::time::{Duration, Instant};
+
+    let now = Instant::now();
+    let keys: Vec<String> = (0..10).map(|i| format!("file_{i}.rs")).collect();
+    let entries: Vec<lean_ctx::core::cache::CacheEntry> = (0..10)
+        .map(|i| lean_ctx::core::cache::CacheEntry {
+            content: format!("content_{i}"),
+            hash: format!("hash_{i}"),
+            line_count: i + 1,
+            original_tokens: (i + 1) * 100,
+            read_count: (10 - i) as u32,
+            path: format!("/file_{i}.rs"),
+            last_access: now - Duration::from_secs(i as u64 * 60),
+        })
+        .collect();
+
+    let entry_refs: Vec<(&String, &lean_ctx::core::cache::CacheEntry)> =
+        keys.iter().zip(entries.iter()).collect();
+
+    let rrf_scores = lean_ctx::core::cache::eviction_scores_rrf(&entry_refs, now);
+    assert_eq!(rrf_scores.len(), 10);
+
+    let mut legacy_scores: Vec<(String, f64)> = entries
+        .iter()
+        .map(|e| (e.path.clone(), e.eviction_score_legacy(now)))
+        .collect();
+    let mut rrf_sorted: Vec<(String, f64)> = rrf_scores;
+    rrf_sorted.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+    legacy_scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+
+    eprintln!("\n{}", "=".repeat(70));
+    eprintln!("  RRF vs LEGACY EVICTION SCORING (10 entries)");
+    eprintln!("{}", "=".repeat(70));
+    eprintln!(
+        "  {:>15} {:>12} {:>12}",
+        "File", "RRF Score", "Legacy Score"
+    );
+    for i in 0..rrf_sorted.len().min(5) {
+        let rrf_path = &rrf_sorted[i].0;
+        let legacy_path = &legacy_scores[i].0;
+        eprintln!(
+            "  RRF#{}: {:>8} {:.6}  | Legacy#{}: {:>8} {:.6}",
+            i + 1,
+            rrf_path,
+            rrf_sorted[i].1,
+            i + 1,
+            legacy_path,
+            legacy_scores[i].1
+        );
+    }
+    eprintln!("{}", "=".repeat(70));
+
+    assert!(
+        rrf_sorted[0].1 > rrf_sorted[9].1,
+        "RRF: highest-scoring entry must rank above lowest"
+    );
+}
+
+#[test]
+fn bench_rrf_eviction_handles_single_entry() {
+    use std::time::Instant;
+
+    let now = Instant::now();
+    let key = "solo.rs".to_string();
+    let entry = lean_ctx::core::cache::CacheEntry {
+        content: "single".to_string(),
+        hash: "h".to_string(),
+        line_count: 1,
+        original_tokens: 50,
+        read_count: 1,
+        path: "/solo.rs".to_string(),
+        last_access: now,
+    };
+
+    let refs: Vec<(&String, &lean_ctx::core::cache::CacheEntry)> = vec![(&key, &entry)];
+    let scores = lean_ctx::core::cache::eviction_scores_rrf(&refs, now);
+    assert_eq!(scores.len(), 1);
+    assert!(
+        scores[0].1 > 0.0,
+        "single entry must have positive RRF score"
+    );
+}
+
+#[test]
+fn bench_rrf_eviction_empty() {
+    use std::time::Instant;
+    let now = Instant::now();
+    let scores = lean_ctx::core::cache::eviction_scores_rrf(&[], now);
+    assert!(scores.is_empty());
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -27,15 +27,72 @@ pub struct CacheEntry {
 }
 
 impl CacheEntry {
-    /// Boltzmann-inspired eviction score. Higher = more valuable = keep longer.
-    /// E = α·recency + β·frequency + γ·size_value
-    pub fn eviction_score(&self, now: Instant) -> f64 {
+    pub fn eviction_score_legacy(&self, now: Instant) -> f64 {
         let elapsed = now.duration_since(self.last_access).as_secs_f64();
         let recency = 1.0 / (1.0 + elapsed.sqrt());
         let frequency = (self.read_count as f64 + 1.0).ln();
         let size_value = (self.original_tokens as f64 + 1.0).ln();
         recency * 0.4 + frequency * 0.3 + size_value * 0.3
     }
+}
+
+const RRF_K: f64 = 60.0;
+
+/// Compute Reciprocal Rank Fusion eviction scores for a batch of cache entries.
+/// Each signal (recency, frequency, size) produces an independent ranking.
+/// The final score is the sum of `1/(k + rank)` across all signals.
+/// Higher score = more valuable = keep longer.
+pub fn eviction_scores_rrf(entries: &[(&String, &CacheEntry)], now: Instant) -> Vec<(String, f64)> {
+    if entries.is_empty() {
+        return Vec::new();
+    }
+
+    let n = entries.len();
+
+    let mut recency_order: Vec<usize> = (0..n).collect();
+    recency_order.sort_by(|&a, &b| {
+        let elapsed_a = now.duration_since(entries[a].1.last_access).as_secs_f64();
+        let elapsed_b = now.duration_since(entries[b].1.last_access).as_secs_f64();
+        elapsed_a
+            .partial_cmp(&elapsed_b)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let mut frequency_order: Vec<usize> = (0..n).collect();
+    frequency_order.sort_by(|&a, &b| entries[b].1.read_count.cmp(&entries[a].1.read_count));
+
+    let mut size_order: Vec<usize> = (0..n).collect();
+    size_order.sort_by(|&a, &b| {
+        entries[b]
+            .1
+            .original_tokens
+            .cmp(&entries[a].1.original_tokens)
+    });
+
+    let mut recency_ranks = vec![0usize; n];
+    let mut frequency_ranks = vec![0usize; n];
+    let mut size_ranks = vec![0usize; n];
+
+    for (rank, &idx) in recency_order.iter().enumerate() {
+        recency_ranks[idx] = rank;
+    }
+    for (rank, &idx) in frequency_order.iter().enumerate() {
+        frequency_ranks[idx] = rank;
+    }
+    for (rank, &idx) in size_order.iter().enumerate() {
+        size_ranks[idx] = rank;
+    }
+
+    entries
+        .iter()
+        .enumerate()
+        .map(|(i, (path, _))| {
+            let score = 1.0 / (RRF_K + recency_ranks[i] as f64)
+                + 1.0 / (RRF_K + frequency_ranks[i] as f64)
+                + 1.0 / (RRF_K + size_ranks[i] as f64);
+            ((*path).clone(), score)
+        })
+        .collect()
 }
 
 #[derive(Debug)]
@@ -210,7 +267,7 @@ impl SessionCache {
         self.entries.values().map(|e| e.original_tokens).sum()
     }
 
-    /// Evict lowest-scoring entries until cache fits within token budget.
+    /// Evict lowest-scoring entries (by RRF) until cache fits within token budget.
     pub fn evict_if_needed(&mut self, incoming_tokens: usize) {
         let max_tokens = max_cache_tokens();
         let current = self.total_cached_tokens();
@@ -219,11 +276,8 @@ impl SessionCache {
         }
 
         let now = Instant::now();
-        let mut scored: Vec<(String, f64)> = self
-            .entries
-            .iter()
-            .map(|(path, entry)| (path.clone(), entry.eviction_score(now)))
-            .collect();
+        let all_entries: Vec<(&String, &CacheEntry)> = self.entries.iter().collect();
+        let mut scored = eviction_scores_rrf(&all_entries, now);
         scored.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
         let mut freed = 0usize;
@@ -392,8 +446,10 @@ mod tests {
     }
 
     #[test]
-    fn eviction_score_prefers_recent() {
+    fn rrf_eviction_prefers_recent() {
         let now = Instant::now();
+        let key_a = "a.rs".to_string();
+        let key_b = "b.rs".to_string();
         let recent = CacheEntry {
             content: "a".to_string(),
             hash: "h1".to_string(),
@@ -412,15 +468,21 @@ mod tests {
             path: "/b.rs".to_string(),
             last_access: now - std::time::Duration::from_secs(300),
         };
+        let entries: Vec<(&String, &CacheEntry)> = vec![(&key_a, &recent), (&key_b, &old)];
+        let scores = eviction_scores_rrf(&entries, now);
+        let score_a = scores.iter().find(|(p, _)| p == "a.rs").unwrap().1;
+        let score_b = scores.iter().find(|(p, _)| p == "b.rs").unwrap().1;
         assert!(
-            recent.eviction_score(now) > old.eviction_score(now),
-            "recently accessed entries should score higher"
+            score_a > score_b,
+            "recently accessed entries should score higher via RRF"
         );
     }
 
     #[test]
-    fn eviction_score_prefers_frequent() {
+    fn rrf_eviction_prefers_frequent() {
         let now = Instant::now();
+        let key_a = "a.rs".to_string();
+        let key_b = "b.rs".to_string();
         let frequent = CacheEntry {
             content: "a".to_string(),
             hash: "h1".to_string(),
@@ -439,9 +501,13 @@ mod tests {
             path: "/b.rs".to_string(),
             last_access: now,
         };
+        let entries: Vec<(&String, &CacheEntry)> = vec![(&key_a, &frequent), (&key_b, &rare)];
+        let scores = eviction_scores_rrf(&entries, now);
+        let score_a = scores.iter().find(|(p, _)| p == "a.rs").unwrap().1;
+        let score_b = scores.iter().find(|(p, _)| p == "b.rs").unwrap().1;
         assert!(
-            frequent.eviction_score(now) > rare.eviction_score(now),
-            "frequently accessed entries should score higher"
+            score_a > score_b,
+            "frequently accessed entries should score higher via RRF"
         );
     }
 

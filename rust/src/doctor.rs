@@ -907,14 +907,85 @@ pub fn run() {
         line: integrity_line,
     });
 
+    // 13) Claude Code instruction truncation guard
+    let claude_truncation = claude_truncation_outcome();
+    if let Some(ref ct) = claude_truncation {
+        if ct.ok {
+            passed += 1;
+        }
+        print_check(ct);
+    }
+
     let mut effective_total = total + 2; // session_state + integrity always shown
     effective_total += docker_outcomes.len() as u32;
     if pi.is_some() {
         effective_total += 1;
     }
+    if claude_truncation.is_some() {
+        effective_total += 1;
+    }
     println!();
     println!("  {BOLD}{WHITE}Summary:{RST}  {GREEN}{passed}{RST}{DIM}/{effective_total}{RST} checks passed");
     println!("  {DIM}{}{RST}", crate::core::integrity::origin_line());
+}
+
+fn claude_binary_exists() -> bool {
+    #[cfg(unix)]
+    {
+        std::process::Command::new("which")
+            .arg("claude")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+    #[cfg(windows)]
+    {
+        std::process::Command::new("where")
+            .arg("claude")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+}
+
+fn claude_truncation_outcome() -> Option<Outcome> {
+    let home = dirs::home_dir()?;
+    let claude_detected = crate::core::editor_registry::claude_mcp_json_path(&home).exists()
+        || crate::core::editor_registry::claude_state_dir(&home).exists()
+        || claude_binary_exists();
+
+    if !claude_detected {
+        return None;
+    }
+
+    let rules_path = crate::core::editor_registry::claude_rules_dir(&home).join("lean-ctx.md");
+    let skill_path = home.join(".claude/skills/lean-ctx/SKILL.md");
+
+    let has_rules = rules_path.exists();
+    let has_skill = skill_path.exists();
+
+    if has_rules && has_skill {
+        Some(Outcome {
+            ok: true,
+            line: format!(
+                "{BOLD}Claude Code instructions{RST}  {GREEN}rules + skill installed{RST}  {DIM}(MCP instructions capped at 2048 chars — full content via rules file){RST}"
+            ),
+        })
+    } else if has_rules {
+        Some(Outcome {
+            ok: true,
+            line: format!(
+                "{BOLD}Claude Code instructions{RST}  {GREEN}rules file installed{RST}  {DIM}(MCP instructions capped at 2048 chars — full content via rules file){RST}"
+            ),
+        })
+    } else {
+        Some(Outcome {
+            ok: false,
+            line: format!(
+                "{BOLD}Claude Code instructions{RST}  {YELLOW}MCP instructions truncated at 2048 chars, no rules file found{RST}  {DIM}(run: lean-ctx init --agent claude){RST}"
+            ),
+        })
+    }
 }
 
 pub fn run_compact() {

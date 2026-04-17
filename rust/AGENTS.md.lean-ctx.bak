@@ -12,10 +12,3 @@ PREFER lean-ctx MCP tools over native equivalents for token savings:
 
 Edit files: use native Edit/StrReplace if available. If Edit requires Read and Read is unavailable, use ctx_edit.
 Write, Delete, Glob — use normally. NEVER loop on Edit failures — switch to ctx_edit immediately.
-
-<!-- lean-ctx -->
-## lean-ctx
-
-Prefer lean-ctx MCP tools over native equivalents for token savings.
-Full rules: @LEAN-CTX.md
-<!-- /lean-ctx -->

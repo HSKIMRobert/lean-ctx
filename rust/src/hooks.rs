@@ -443,10 +443,33 @@ fn install_claude_hook(global: bool) {
 
     install_claude_hook_scripts(&home);
     install_claude_hook_config(&home);
-
     install_claude_rules_file(&home);
+    install_claude_skill(&home);
 
     let _ = global;
+}
+
+fn install_claude_skill(home: &std::path::Path) {
+    let skill_dir = home.join(".claude/skills/lean-ctx");
+    let _ = std::fs::create_dir_all(skill_dir.join("scripts"));
+
+    let skill_md = include_str!("../../skills/lean-ctx/SKILL.md");
+    let install_sh = include_str!("../../skills/lean-ctx/scripts/install.sh");
+
+    let skill_path = skill_dir.join("SKILL.md");
+    let script_path = skill_dir.join("scripts/install.sh");
+
+    write_file(&skill_path, skill_md);
+    write_file(&script_path, install_sh);
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(mut perms) = std::fs::metadata(&script_path).map(|m| m.permissions()) {
+            perms.set_mode(0o755);
+            let _ = std::fs::set_permissions(&script_path, perms);
+        }
+    }
 }
 
 fn install_claude_rules_file(home: &std::path::Path) {
