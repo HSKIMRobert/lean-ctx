@@ -453,8 +453,8 @@ fn install_claude_skill(home: &std::path::Path) {
     let skill_dir = home.join(".claude/skills/lean-ctx");
     let _ = std::fs::create_dir_all(skill_dir.join("scripts"));
 
-    let skill_md = include_str!("../../skills/lean-ctx/SKILL.md");
-    let install_sh = include_str!("../../skills/lean-ctx/scripts/install.sh");
+    let skill_md = include_str!("../skills/lean-ctx/SKILL.md");
+    let install_sh = include_str!("../skills/lean-ctx/scripts/install.sh");
 
     let skill_path = skill_dir.join("SKILL.md");
     let script_path = skill_dir.join("scripts/install.sh");
