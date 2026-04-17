@@ -40,6 +40,10 @@ fn main() {
                 }
                 if raw {
                     std::env::set_var("LEAN_CTX_RAW", "1");
+                } else {
+                    // `lean-ctx -c` is explicitly documented as "Execute with compressed output".
+                    // Force buffered compression even when stdout is a TTY (fixes #100).
+                    std::env::set_var("LEAN_CTX_COMPRESS", "1");
                 }
                 let code = shell::exec(&command);
                 core::stats::flush();
