@@ -1,3 +1,4 @@
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 use std::path::PathBuf;
 
 #[cfg(target_os = "macos")]
@@ -22,19 +23,18 @@ pub fn install(port: u16, quiet: bool) {
 
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
-        if !quiet {
-            println!("  Autostart not supported on this platform");
-            println!("  Run manually: lean-ctx proxy start --port={port}");
-        }
+        let _ = (&binary, quiet);
+        println!("  Autostart not supported on this platform");
+        println!("  Run manually: lean-ctx proxy start --port={port}");
     }
 }
 
-pub fn uninstall(quiet: bool) {
+pub fn uninstall(_quiet: bool) {
     #[cfg(target_os = "macos")]
-    uninstall_launchagent(quiet);
+    uninstall_launchagent(_quiet);
 
     #[cfg(target_os = "linux")]
-    uninstall_systemd(quiet);
+    uninstall_systemd(_quiet);
 }
 
 pub fn status() {
