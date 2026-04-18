@@ -230,6 +230,13 @@ pub fn scan(project_root: &str) -> ProjectIndex {
         .max_depth(Some(10))
         .build();
 
+    let cfg = crate::core::config::Config::load();
+    let extra_ignores: Vec<glob::Pattern> = cfg
+        .extra_ignore_patterns
+        .iter()
+        .filter_map(|p| glob::Pattern::new(p).ok())
+        .collect();
+
     let mut scanned = 0usize;
     let mut reused = 0usize;
     let max_files = 2000;
@@ -245,6 +252,11 @@ pub fn scan(project_root: &str) -> ProjectIndex {
             .unwrap_or("");
 
         if !is_indexable_ext(ext) {
+            continue;
+        }
+
+        let rel = make_relative(&file_path, &project_root);
+        if extra_ignores.iter().any(|p| p.matches(&rel)) {
             continue;
         }
 
@@ -537,7 +549,7 @@ fn short_hash(input: &str) -> String {
 }
 
 fn normalize_absolute_path(path: &str) -> String {
-    if let Ok(canon) = std::fs::canonicalize(path) {
+    if let Ok(canon) = crate::core::pathutil::safe_canonicalize(std::path::Path::new(path)) {
         return canon.to_string_lossy().to_string();
     }
 
@@ -562,17 +574,9 @@ pub fn normalize_project_root(path: &str) -> String {
 }
 
 pub fn graph_match_key(path: &str) -> String {
-    let mut out = path.replace('\\', "/");
-    if let Some(rest) = out.strip_prefix("//?/UNC/") {
-        out = format!("//{rest}");
-    } else if let Some(rest) = out.strip_prefix("\\\\?\\UNC\\") {
-        out = format!("//{}", rest.replace('\\', "/"));
-    } else if let Some(rest) = out.strip_prefix("//?/") {
-        out = rest.to_string();
-    } else if let Some(rest) = out.strip_prefix("\\\\?\\") {
-        out = rest.replace('\\', "/");
-    }
-    out.trim_start_matches('/').to_string()
+    let stripped =
+        crate::core::pathutil::strip_verbatim_str(path).unwrap_or_else(|| path.replace('\\', "/"));
+    stripped.trim_start_matches('/').to_string()
 }
 
 pub fn graph_relative_key(path: &str, root: &str) -> String {

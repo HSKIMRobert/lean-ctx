@@ -171,6 +171,13 @@ pub fn build_targets(home: &Path) -> Vec<EditorTarget> {
             detect_path: home.join(".config/amp"),
             config_type: ConfigType::Amp,
         },
+        EditorTarget {
+            name: "Hermes Agent",
+            agent_key: "hermes".to_string(),
+            config_path: home.join(".hermes/config.yaml"),
+            detect_path: home.join(".hermes"),
+            config_type: ConfigType::HermesYaml,
+        },
     ]
 }
 
@@ -263,6 +270,21 @@ pub fn detect_jetbrains_path(home: &Path) -> PathBuf {
         let cfg = home.join(".config/JetBrains");
         if cfg.exists() {
             return cfg;
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let jb = std::path::PathBuf::from(appdata).join("JetBrains");
+            if jb.exists() {
+                return jb;
+            }
+        }
+        if let Ok(local) = std::env::var("LOCALAPPDATA") {
+            let jb = std::path::PathBuf::from(local).join("JetBrains");
+            if jb.exists() {
+                return jb;
+            }
         }
     }
     if home.join(".jb-mcp.json").exists() {

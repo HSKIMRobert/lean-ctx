@@ -19,4 +19,5 @@ pub enum ConfigType {
     Crush,
     JetBrains,
     Amp,
+    HermesYaml,
 }

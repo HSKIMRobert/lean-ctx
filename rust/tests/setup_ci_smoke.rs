@@ -65,6 +65,7 @@ fn setup_bootstrap_doctor_status_json_smoke() {
         ("HOME", home_str.as_str()),
         ("LEAN_CTX_DATA_DIR", data_str.as_str()),
         ("LEAN_CTX_ACTIVE", "1"),
+        ("LEAN_CTX_DISABLED", "1"),
     ];
 
     #[cfg(not(windows))]
@@ -163,6 +164,7 @@ fn claude_config_dir_fallback_writes_dot_claude_json() {
         ("HOME", home_str.as_str()),
         ("LEAN_CTX_DATA_DIR", data_str.as_str()),
         ("LEAN_CTX_ACTIVE", "1"),
+        ("LEAN_CTX_DISABLED", "1"),
         ("CLAUDE_CONFIG_DIR", claude_cfg_str.as_str()),
     ];
 
@@ -194,7 +196,6 @@ fn claude_config_dir_fallback_writes_dot_claude_json() {
     );
     assert!(content.contains("lean-ctx"), "must contain lean-ctx entry");
 
-    // Doctor should detect MCP config in CLAUDE_CONFIG_DIR.
     let out = Command::new(bin)
         .args(["doctor"])
         .envs(envs.iter().copied())
@@ -248,6 +249,7 @@ fn init_agent_preserves_agents_md_and_is_idempotent() {
         ("HOME", home_str.as_str()),
         ("LEAN_CTX_DATA_DIR", data_str.as_str()),
         ("LEAN_CTX_ACTIVE", "1"),
+        ("LEAN_CTX_DISABLED", "1"),
     ];
     #[cfg(not(windows))]
     {
@@ -315,6 +317,7 @@ fn init_claude_installs_dedicated_rules_file_without_claude_md() {
         ("HOME", home_str.as_str()),
         ("LEAN_CTX_DATA_DIR", data_str.as_str()),
         ("LEAN_CTX_ACTIVE", "1"),
+        ("LEAN_CTX_DISABLED", "1"),
     ];
     #[cfg(not(windows))]
     {

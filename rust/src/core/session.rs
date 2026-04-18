@@ -353,8 +353,7 @@ impl SessionState {
             let path = std::path::Path::new(&new_cwd);
             if path.exists() && path.is_dir() {
                 self.shell_cwd = Some(
-                    path.canonicalize()
-                        .unwrap_or_else(|_| path.to_path_buf())
+                    crate::core::pathutil::safe_canonicalize_or_self(path)
                         .to_string_lossy()
                         .to_string(),
                 );

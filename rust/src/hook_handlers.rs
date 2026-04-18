@@ -146,9 +146,10 @@ pub fn handle_rewrite_inline() {
 }
 
 fn resolve_binary() -> String {
-    std::env::current_exe()
+    let path = std::env::current_exe()
         .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|_| "lean-ctx".to_string())
+        .unwrap_or_else(|_| "lean-ctx".to_string());
+    crate::hooks::to_bash_compatible_path(&path)
 }
 
 fn extract_json_field(input: &str, field: &str) -> Option<String> {
@@ -305,6 +306,44 @@ mod tests {
         assert_eq!(
             extract_json_field(input, "command"),
             Some(r#"curl -H "Authorization: Bearer token" https://api.com"#.to_string())
+        );
+    }
+
+    #[test]
+    fn to_bash_compatible_path_windows_drive() {
+        let p = crate::hooks::to_bash_compatible_path(r"E:\packages\lean-ctx.exe");
+        assert_eq!(p, "/e/packages/lean-ctx.exe");
+    }
+
+    #[test]
+    fn to_bash_compatible_path_backslashes() {
+        let p = crate::hooks::to_bash_compatible_path(r"C:\Users\test\bin\lean-ctx.exe");
+        assert_eq!(p, "/c/Users/test/bin/lean-ctx.exe");
+    }
+
+    #[test]
+    fn to_bash_compatible_path_unix_unchanged() {
+        let p = crate::hooks::to_bash_compatible_path("/usr/local/bin/lean-ctx");
+        assert_eq!(p, "/usr/local/bin/lean-ctx");
+    }
+
+    #[test]
+    fn to_bash_compatible_path_msys2_unchanged() {
+        let p = crate::hooks::to_bash_compatible_path("/e/packages/lean-ctx.exe");
+        assert_eq!(p, "/e/packages/lean-ctx.exe");
+    }
+
+    #[test]
+    fn wrap_command_with_bash_path() {
+        let binary = crate::hooks::to_bash_compatible_path(r"E:\packages\lean-ctx.exe");
+        let result = wrap_single_command("git status", &binary);
+        assert!(
+            !result.contains('\\'),
+            "wrapped command must not contain backslashes, got: {result}"
+        );
+        assert!(
+            result.starts_with("/e/packages/lean-ctx.exe"),
+            "must use bash-compatible path, got: {result}"
         );
     }
 }

@@ -29,8 +29,8 @@ Tool mapping (MANDATORY):
 • Shell/bash -> ctx_shell(command)
 • Grep/rg -> ctx_search(pattern, path)
 • ls/find -> ctx_tree(path, depth)
-• Edit/StrReplace -> native (lean-ctx=READ only)
-• Write, Delete, Glob -> normal
+• Edit/StrReplace -> native (lean-ctx=READ only). If Edit needs Read and Read is unavailable, use ctx_edit.
+• Write, Delete, Glob -> normal. NEVER loop on Edit failures — use ctx_edit.
 
 ctx_read modes: full|map|signatures|diff|task|reference|aggressive|entropy|lines:N-M
 Auto-selects mode. Re-reads ~13 tok. File refs F1,F2.. persist.

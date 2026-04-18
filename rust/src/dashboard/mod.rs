@@ -305,6 +305,25 @@ fn route_response(
             let json = crate::core::version_check::version_info_json();
             ("200 OK", "application/json", json)
         }
+        "/api/pulse" => {
+            let stats_path = crate::core::data_dir::lean_ctx_data_dir()
+                .map(|d| d.join("stats.json"))
+                .unwrap_or_default();
+            let meta = std::fs::metadata(&stats_path).ok();
+            let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+            let mtime = meta
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            use md5::Digest;
+            let hash = format!(
+                "{:x}",
+                md5::Md5::digest(format!("{size}-{mtime}").as_bytes())
+            );
+            let json = format!(r#"{{"hash":"{hash}","ts":{mtime}}}"#);
+            ("200 OK", "application/json", json)
+        }
         "/api/heatmap" => {
             let project_root = detect_project_root_for_dashboard();
             let index = crate::core::graph_index::load_or_build(&project_root);
@@ -329,7 +348,15 @@ fn route_response(
             let index = crate::core::graph_index::load_or_build(&root);
             let call_graph = crate::core::call_graph::CallGraph::load_or_build(&root, &index);
             let _ = call_graph.save();
-            let json = serde_json::to_string(&call_graph)
+            let payload = serde_json::json!({
+                "project_root": call_graph.project_root,
+                "edges": call_graph.edges,
+                "file_hashes": call_graph.file_hashes,
+                "indexed_file_count": index.files.len(),
+                "indexed_symbol_count": index.symbols.len(),
+                "analyzed_file_count": call_graph.file_hashes.len(),
+            });
+            let json = serde_json::to_string(&payload)
                 .unwrap_or_else(|_| "{\"error\":\"failed to serialize call graph\"}".to_string());
             ("200 OK", "application/json", json)
         }
@@ -353,7 +380,26 @@ fn route_response(
             let index = crate::core::graph_index::load_or_build(&root);
             let routes =
                 crate::core::route_extractor::extract_routes_from_project(&root, &index.files);
-            let json = serde_json::to_string(&routes).unwrap_or_else(|_| "[]".to_string());
+            let route_candidate_count = index
+                .files
+                .keys()
+                .filter(|p| {
+                    std::path::Path::new(p.as_str())
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .map(|e| {
+                            matches!(e, "js" | "ts" | "py" | "rs" | "java" | "rb" | "go" | "kt")
+                        })
+                        .unwrap_or(false)
+                })
+                .count();
+            let payload = serde_json::json!({
+                "routes": routes,
+                "indexed_file_count": index.files.len(),
+                "route_candidate_count": route_candidate_count,
+            });
+            let json =
+                serde_json::to_string(&payload).unwrap_or_else(|_| "{\"routes\":[]}".to_string());
             ("200 OK", "application/json", json)
         }
         "/api/session" => {
@@ -806,12 +852,23 @@ fn build_agents_json() -> String {
 }
 
 fn detect_project_root_for_dashboard() -> String {
-    // Prefer last known project context from the persisted session. This makes the dashboard
-    // show the same project data even if it is launched from an arbitrary working directory.
+    if let Ok(explicit) = std::env::var("LEAN_CTX_DASHBOARD_PROJECT") {
+        if !explicit.trim().is_empty() {
+            return promote_to_git_root(&explicit);
+        }
+    }
+
     if let Some(session) = crate::core::session::SessionState::load_latest() {
+        // Try project_root first, but only if it resolves to a real project (has .git or markers).
+        // MCP sessions often set project_root to a temp sandbox directory that contains no code.
         if let Some(root) = session.project_root.as_deref() {
             if !root.trim().is_empty() {
-                return promote_to_git_root(root);
+                if let Some(git_root) = git_root_for(root) {
+                    return git_root;
+                }
+                if is_real_project(root) {
+                    return root.to_string();
+                }
             }
         }
         if let Some(cwd) = session.shell_cwd.as_deref() {
@@ -836,6 +893,26 @@ fn detect_project_root_for_dashboard() -> String {
         .unwrap_or_else(|_| ".".to_string());
     let r = crate::core::protocol::detect_project_root_or_cwd(&cwd);
     promote_to_git_root(&r)
+}
+
+fn is_real_project(path: &str) -> bool {
+    let p = Path::new(path);
+    if !p.is_dir() {
+        return false;
+    }
+    const MARKERS: &[&str] = &[
+        ".git",
+        "Cargo.toml",
+        "package.json",
+        "go.mod",
+        "pyproject.toml",
+        "requirements.txt",
+        "pom.xml",
+        "build.gradle",
+        "CMakeLists.txt",
+        ".lean-ctx.toml",
+    ];
+    MARKERS.iter().any(|m| p.join(m).exists())
 }
 
 fn promote_to_git_root(path: &str) -> String {

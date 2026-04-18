@@ -198,6 +198,13 @@ fn main() {
                     .iter()
                     .find_map(|p| p.strip_prefix("--host=").or_else(|| p.strip_prefix("-H=")))
                     .map(String::from);
+                let project = rest
+                    .iter()
+                    .find_map(|p| p.strip_prefix("--project="))
+                    .map(String::from);
+                if let Some(ref p) = project {
+                    std::env::set_var("LEAN_CTX_DASHBOARD_PROJECT", p);
+                }
                 run_async(dashboard::start(port, host));
                 return;
             }
@@ -381,6 +388,89 @@ fn main() {
                     std::process::exit(1);
                 }
                 return;
+            }
+            "proxy" => {
+                #[cfg(feature = "http-server")]
+                {
+                    let sub = rest.first().map(|s| s.as_str()).unwrap_or("help");
+                    match sub {
+                        "start" => {
+                            let port: u16 = rest
+                                .iter()
+                                .find_map(|p| {
+                                    p.strip_prefix("--port=").or_else(|| p.strip_prefix("-p="))
+                                })
+                                .and_then(|p| p.parse().ok())
+                                .unwrap_or(4444);
+                            let autostart = rest.iter().any(|a| a == "--autostart");
+                            if autostart {
+                                lean_ctx::proxy_autostart::install(port, false);
+                                return;
+                            }
+                            if let Err(e) = run_async(lean_ctx::proxy::start_proxy(port)) {
+                                eprintln!("Proxy error: {e}");
+                                std::process::exit(1);
+                            }
+                        }
+                        "stop" => {
+                            match ureq::get(&format!(
+                                "http://127.0.0.1:{}/health",
+                                rest.iter()
+                                    .find_map(|p| p.strip_prefix("--port="))
+                                    .and_then(|p| p.parse::<u16>().ok())
+                                    .unwrap_or(4444)
+                            ))
+                            .call()
+                            {
+                                Ok(_) => {
+                                    println!("Proxy is running. Use Ctrl+C or kill the process.");
+                                }
+                                Err(_) => {
+                                    println!("No proxy running on that port.");
+                                }
+                            }
+                        }
+                        "status" => {
+                            let port: u16 = rest
+                                .iter()
+                                .find_map(|p| p.strip_prefix("--port="))
+                                .and_then(|p| p.parse().ok())
+                                .unwrap_or(4444);
+                            match ureq::get(&format!("http://127.0.0.1:{port}/status")).call() {
+                                Ok(resp) => {
+                                    let body =
+                                        resp.into_body().read_to_string().unwrap_or_default();
+                                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&body)
+                                    {
+                                        println!("lean-ctx proxy status:");
+                                        println!("  Requests:    {}", v["requests_total"]);
+                                        println!("  Compressed:  {}", v["requests_compressed"]);
+                                        println!("  Tokens saved: {}", v["tokens_saved"]);
+                                        println!(
+                                            "  Compression: {}%",
+                                            v["compression_ratio_pct"].as_str().unwrap_or("0.0")
+                                        );
+                                    } else {
+                                        println!("{body}");
+                                    }
+                                }
+                                Err(_) => {
+                                    println!("No proxy running on port {port}.");
+                                    println!("Start with: lean-ctx proxy start");
+                                }
+                            }
+                        }
+                        _ => {
+                            println!("Usage: lean-ctx proxy <start|stop|status> [--port=4444]");
+                        }
+                    }
+                    return;
+                }
+                #[cfg(not(feature = "http-server"))]
+                {
+                    eprintln!("lean-ctx proxy is not available in this build");
+                    std::process::exit(1);
+                }
             }
             "init" => {
                 cli::cmd_init(&rest);
@@ -733,6 +823,8 @@ COMMANDS:
     watch                          Live TUI dashboard (real-time event stream)
     dashboard [--port=N] [--host=H] Open web dashboard (default: http://localhost:3333)
     serve [--host H] [--port N]    MCP over HTTP (Streamable HTTP, local-first)
+    proxy start [--port=4444]      API proxy: compress tool_results before LLM API
+    proxy status                   Show proxy statistics
     cache [list|clear|stats]       Show/manage file read cache
     wrapped [--week|--month|--all] Savings report card (shareable)
     sessions [list|show|cleanup]   Manage CCP sessions (~/.lean-ctx/sessions/)

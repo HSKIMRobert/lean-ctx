@@ -73,6 +73,12 @@ pub fn compress(command: &str, output: &str) -> Option<String> {
         return Some(compress_merge(output));
     }
     if command.contains("stash") {
+        if command.contains("stash show") || command.contains("show stash") {
+            return Some(compress_show(output));
+        }
+        if command.contains("diff") {
+            return None;
+        }
         return Some(compress_stash(output));
     }
     if command.contains("tag") {
@@ -628,11 +634,9 @@ fn compress_stash(output: &str) -> String {
         return "ok".to_string();
     }
 
-    if trimmed.starts_with("Saved working directory") {
-        return "stashed".to_string();
-    }
-    if trimmed.starts_with("Dropped") {
-        return "dropped".to_string();
+    let line_count = trimmed.lines().count();
+    if line_count <= 5 {
+        return trimmed.to_string();
     }
 
     let stashes: Vec<String> = trimmed
@@ -645,7 +649,7 @@ fn compress_stash(output: &str) -> String {
         .collect();
 
     if stashes.is_empty() {
-        return compact_lines(trimmed, 3);
+        return compact_lines(trimmed, 30);
     }
     stashes.join("\n")
 }
@@ -1141,6 +1145,84 @@ mod tests {
             "should compress verbose hook output ({} vs {})",
             result.len(),
             output.len()
+        );
+    }
+
+    #[test]
+    fn stash_push_preserves_short_message() {
+        let output = "Saved working directory and index state WIP on main: abc1234 fix stuff\n";
+        let result = compress("git stash", output).unwrap();
+        assert!(
+            result.contains("Saved working directory"),
+            "short stash messages must be preserved, got: {result}"
+        );
+    }
+
+    #[test]
+    fn stash_drop_preserves_short_message() {
+        let output = "Dropped refs/stash@{0} (abc123def456)\n";
+        let result = compress("git stash drop", output).unwrap();
+        assert!(
+            result.contains("Dropped"),
+            "short drop messages must be preserved, got: {result}"
+        );
+    }
+
+    #[test]
+    fn stash_list_short_preserved() {
+        let output = "stash@{0}: WIP on main: abc1234 fix\nstash@{1}: On feature: def5678 add\n";
+        let result = compress("git stash list", output).unwrap();
+        assert!(
+            result.contains("stash@{0}"),
+            "short stash list must be preserved, got: {result}"
+        );
+    }
+
+    #[test]
+    fn stash_list_long_reformats() {
+        let lines: Vec<String> = (0..10)
+            .map(|i| format!("stash@{{{i}}}: WIP on main: abc{i:04} commit {i}"))
+            .collect();
+        let output = lines.join("\n");
+        let result = compress("git stash list", &output).unwrap();
+        assert!(result.contains("@0:"), "should reformat @0, got: {result}");
+        assert!(result.contains("@9:"), "should reformat @9, got: {result}");
+    }
+
+    #[test]
+    fn stash_show_routes_to_show_compressor() {
+        let output = " src/main.rs | 10 +++++-----\n src/lib.rs  |  3 ++-\n 2 files changed, 7 insertions(+), 6 deletions(-)\n";
+        let result = compress("git stash show", output).unwrap();
+        assert!(
+            result.contains("main.rs"),
+            "stash show should preserve file names, got: {result}"
+        );
+    }
+
+    #[test]
+    fn stash_show_patch_not_over_compressed() {
+        let lines: Vec<String> = (0..40)
+            .map(|i| format!("+line {i}: some content here"))
+            .collect();
+        let output = format!(
+            "diff --git a/file.rs b/file.rs\n--- a/file.rs\n+++ b/file.rs\n{}",
+            lines.join("\n")
+        );
+        let result = compress("git stash show -p", &output).unwrap();
+        let result_lines = result.lines().count();
+        assert!(
+            result_lines >= 10,
+            "stash show -p must not over-compress to 3 lines, got {result_lines} lines"
+        );
+    }
+
+    #[test]
+    fn show_stash_ref_routes_correctly() {
+        let output = "commit abc1234\nAuthor: User <u@e.com>\nDate: Mon Jan 1\n\n    WIP on main\n\ndiff --git a/f.rs b/f.rs\n";
+        let result = compress("git show stash@{0}", output).unwrap();
+        assert!(
+            result.len() > 10,
+            "git show stash@{{0}} must not be over-compressed, got: {result}"
         );
     }
 }

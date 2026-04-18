@@ -98,16 +98,32 @@ pub fn build_sync_entries(store: &crate::core::stats::StatsStore) -> Vec<serde_j
         }
     }
 
+    let mut mcp_saved_total = 0u64;
+    for (cmd, s) in &store.commands {
+        if cmd.starts_with("ctx_") {
+            mcp_saved_total += s.input_tokens.saturating_sub(s.output_tokens);
+        }
+    }
+    let global_saved = store
+        .total_input_tokens
+        .saturating_sub(store.total_output_tokens)
+        .max(1);
+    let mcp_ratio = mcp_saved_total as f64 / global_saved as f64;
+
     for day in &store.daily {
         let tokens_original = day.input_tokens;
         let tokens_compressed = day.output_tokens;
         let tokens_saved = tokens_original.saturating_sub(tokens_compressed);
         let (day_calls, day_hits) = cep_cache_by_day.get(&day.date).copied().unwrap_or((0, 0));
+        let day_mcp_saved = (tokens_saved as f64 * mcp_ratio).round() as u64;
+        let day_hook_saved = tokens_saved.saturating_sub(day_mcp_saved);
         entries.push(serde_json::json!({
             "date": day.date,
             "tokens_original": tokens_original,
             "tokens_compressed": tokens_compressed,
             "tokens_saved": tokens_saved,
+            "mcp_tokens_saved": day_mcp_saved,
+            "hook_tokens_saved": day_hook_saved,
             "tool_calls": day.commands,
             "cache_hits": day_hits,
             "cache_misses": day_calls.saturating_sub(day_hits),
@@ -116,11 +132,17 @@ pub fn build_sync_entries(store: &crate::core::stats::StatsStore) -> Vec<serde_j
 
     let has_today = entries.iter().any(|e| e["date"].as_str() == Some(&today));
     if !has_today && (cep.total_tokens_original > 0 || store.total_commands > 0) {
+        let today_saved = cep
+            .total_tokens_original
+            .saturating_sub(cep.total_tokens_compressed);
+        let today_mcp = (today_saved as f64 * mcp_ratio).round() as u64;
         entries.push(serde_json::json!({
             "date": today,
             "tokens_original": cep.total_tokens_original,
             "tokens_compressed": cep.total_tokens_compressed,
-            "tokens_saved": cep.total_tokens_original.saturating_sub(cep.total_tokens_compressed),
+            "tokens_saved": today_saved,
+            "mcp_tokens_saved": today_mcp,
+            "hook_tokens_saved": today_saved.saturating_sub(today_mcp),
             "tool_calls": store.total_commands,
             "cache_hits": cep.total_cache_hits,
             "cache_misses": cep.total_cache_reads.saturating_sub(cep.total_cache_hits),

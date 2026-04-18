@@ -75,6 +75,10 @@ pub struct Config {
     pub disabled_tools: Vec<String>,
     #[serde(default)]
     pub loop_detection: LoopDetectionConfig,
+    /// Extra glob patterns to ignore in graph/overview/preload (repo-local).
+    /// Example: ["externals/**", "target/**", "temp/**"]
+    #[serde(default)]
+    pub extra_ignore_patterns: Vec<String>,
 }
 
 fn default_buddy_enabled() -> bool {
@@ -260,6 +264,7 @@ impl Default for Config {
             redirect_exclude: Vec::new(),
             disabled_tools: Vec::new(),
             loop_detection: LoopDetectionConfig::default(),
+            extra_ignore_patterns: Vec::new(),
         }
     }
 }
@@ -412,7 +417,34 @@ impl Config {
     }
 
     fn find_project_root() -> Option<String> {
-        crate::core::session::SessionState::load_latest().and_then(|s| s.project_root)
+        if let Some(root) =
+            crate::core::session::SessionState::load_latest().and_then(|s| s.project_root)
+        {
+            return Some(root);
+        }
+        if let Ok(cwd) = std::env::current_dir() {
+            let git_root = std::process::Command::new("git")
+                .args(["rev-parse", "--show-toplevel"])
+                .current_dir(&cwd)
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null())
+                .output()
+                .ok()
+                .and_then(|o| {
+                    if o.status.success() {
+                        String::from_utf8(o.stdout)
+                            .ok()
+                            .map(|s| s.trim().to_string())
+                    } else {
+                        None
+                    }
+                });
+            if let Some(root) = git_root {
+                return Some(root);
+            }
+            return Some(cwd.to_string_lossy().to_string());
+        }
+        None
     }
 
     pub fn load() -> Self {
@@ -499,6 +531,44 @@ impl Config {
         }
         if !local.disabled_tools.is_empty() {
             self.disabled_tools.extend(local.disabled_tools);
+        }
+        if !local.extra_ignore_patterns.is_empty() {
+            self.extra_ignore_patterns
+                .extend(local.extra_ignore_patterns);
+        }
+        if !local.autonomy.enabled {
+            self.autonomy.enabled = false;
+        }
+        if !local.autonomy.auto_preload {
+            self.autonomy.auto_preload = false;
+        }
+        if !local.autonomy.auto_dedup {
+            self.autonomy.auto_dedup = false;
+        }
+        if !local.autonomy.auto_related {
+            self.autonomy.auto_related = false;
+        }
+        if !local.autonomy.auto_consolidate {
+            self.autonomy.auto_consolidate = false;
+        }
+        if local.autonomy.silent_preload {
+            self.autonomy.silent_preload = true;
+        }
+        if !local.autonomy.silent_preload && self.autonomy.silent_preload {
+            self.autonomy.silent_preload = false;
+        }
+        if local.autonomy.dedup_threshold != AutonomyConfig::default().dedup_threshold {
+            self.autonomy.dedup_threshold = local.autonomy.dedup_threshold;
+        }
+        if local.autonomy.consolidate_every_calls
+            != AutonomyConfig::default().consolidate_every_calls
+        {
+            self.autonomy.consolidate_every_calls = local.autonomy.consolidate_every_calls;
+        }
+        if local.autonomy.consolidate_cooldown_secs
+            != AutonomyConfig::default().consolidate_cooldown_secs
+        {
+            self.autonomy.consolidate_cooldown_secs = local.autonomy.consolidate_cooldown_secs;
         }
     }
 

@@ -106,6 +106,9 @@ fn exec_buffered(command: &str, shell: &str, shell_flag: &str, cfg: &config::Con
         .arg(shell_flag)
         .arg(command)
         .env("LEAN_CTX_ACTIVE", "1")
+        .env_remove("DISPLAY")
+        .env_remove("XAUTHORITY")
+        .env_remove("WAYLAND_DISPLAY")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn();
@@ -291,7 +294,24 @@ const BUILTIN_PASSTHROUGH: &[&str] = &[
 fn is_excluded_command(command: &str, excluded: &[String]) -> bool {
     let cmd = command.trim().to_lowercase();
     for pattern in BUILTIN_PASSTHROUGH {
-        if cmd == *pattern || cmd.starts_with(&format!("{pattern} ")) || cmd.contains(pattern) {
+        if pattern.starts_with("--") {
+            if cmd.contains(pattern) {
+                return true;
+            }
+        } else if pattern.ends_with(' ') || pattern.ends_with('\t') {
+            if cmd == pattern.trim() || cmd.starts_with(pattern) {
+                return true;
+            }
+        } else if cmd == *pattern
+            || cmd.starts_with(&format!("{pattern} "))
+            || cmd.starts_with(&format!("{pattern}\t"))
+            || cmd.contains(&format!(" {pattern} "))
+            || cmd.contains(&format!(" {pattern}\t"))
+            || cmd.contains(&format!("|{pattern} "))
+            || cmd.contains(&format!("|{pattern}\t"))
+            || cmd.ends_with(&format!(" {pattern}"))
+            || cmd.ends_with(&format!("|{pattern}"))
+        {
             return true;
         }
     }

@@ -15,6 +15,7 @@ pub fn run() {
     let mut removed_any = false;
 
     removed_any |= remove_shell_hook(&home);
+    crate::proxy_setup::uninstall_proxy_env(&home, false);
     removed_any |= remove_mcp_configs(&home);
     removed_any |= remove_rules_files(&home);
     removed_any |= remove_hook_files(&home);
@@ -121,6 +122,8 @@ fn remove_shell_hook(home: &Path) -> bool {
     let shell = std::env::var("SHELL").unwrap_or_default();
     let mut removed = false;
 
+    crate::shell_hook::uninstall_all(false);
+
     let rc_files: Vec<PathBuf> = vec![
         home.join(".zshrc"),
         home.join(".bashrc"),
@@ -192,6 +195,7 @@ fn remove_mcp_configs(home: &Path) -> bool {
         ("Pi Coding Agent", home.join(".pi/agent/mcp.json")),
         ("Cline", crate::core::editor_registry::cline_mcp_path()),
         ("Roo Code", crate::core::editor_registry::roo_mcp_path()),
+        ("Hermes Agent", home.join(".hermes/config.yaml")),
     ];
 
     let mut removed = false;
@@ -208,7 +212,19 @@ fn remove_mcp_configs(home: &Path) -> bool {
             continue;
         }
 
-        if let Some(cleaned) = remove_lean_ctx_from_json(&content) {
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let is_yaml = ext == "yaml" || ext == "yml";
+        let is_toml = ext == "toml";
+
+        let cleaned = if is_yaml {
+            Some(remove_lean_ctx_from_yaml(&content))
+        } else if is_toml {
+            Some(remove_lean_ctx_from_toml(&content))
+        } else {
+            remove_lean_ctx_from_json(&content)
+        };
+
+        if let Some(cleaned) = cleaned {
             if let Err(e) = fs::write(path, &cleaned) {
                 eprintln!("  ✗ Failed to update {} config: {}", name, e);
             } else {
@@ -312,10 +328,74 @@ fn remove_rules_files(home: &Path) -> bool {
         }
     }
 
+    let hermes_md = home.join(".hermes/HERMES.md");
+    if hermes_md.exists() {
+        if let Ok(content) = fs::read_to_string(&hermes_md) {
+            if content.contains("lean-ctx") {
+                let cleaned = remove_lean_ctx_block_from_md(&content);
+                if cleaned.trim().is_empty() {
+                    let _ = fs::remove_file(&hermes_md);
+                } else {
+                    let _ = fs::write(&hermes_md, &cleaned);
+                }
+                println!("  ✓ Rules removed from Hermes Agent");
+                removed = true;
+            }
+        }
+    }
+
+    if let Ok(cwd) = std::env::current_dir() {
+        let project_hermes = cwd.join(".hermes.md");
+        if project_hermes.exists() {
+            if let Ok(content) = fs::read_to_string(&project_hermes) {
+                if content.contains("lean-ctx") {
+                    let cleaned = remove_lean_ctx_block_from_md(&content);
+                    if cleaned.trim().is_empty() {
+                        let _ = fs::remove_file(&project_hermes);
+                    } else {
+                        let _ = fs::write(&project_hermes, &cleaned);
+                    }
+                    println!("  ✓ Rules removed from .hermes.md");
+                    removed = true;
+                }
+            }
+        }
+    }
+
     if !removed {
         println!("  · No rules files found");
     }
     removed
+}
+
+fn remove_lean_ctx_block_from_md(content: &str) -> String {
+    let mut out = String::with_capacity(content.len());
+    let mut in_block = false;
+
+    for line in content.lines() {
+        if !in_block && line.contains("lean-ctx") && line.starts_with('#') {
+            in_block = true;
+            continue;
+        }
+        if in_block {
+            if line.starts_with('#') && !line.contains("lean-ctx") {
+                in_block = false;
+                out.push_str(line);
+                out.push('\n');
+            }
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+
+    while out.starts_with('\n') {
+        out.remove(0);
+    }
+    while out.ends_with("\n\n") {
+        out.pop();
+    }
+    out
 }
 
 fn remove_hook_files(home: &Path) -> bool {
@@ -350,15 +430,19 @@ fn remove_hook_files(home: &Path) -> bool {
         println!("  ✓ Hook scripts removed");
     }
 
-    let hooks_json = home.join(".cursor/hooks.json");
-    if hooks_json.exists() {
-        if let Ok(content) = fs::read_to_string(&hooks_json) {
-            if content.contains("lean-ctx") {
-                if let Err(e) = fs::remove_file(&hooks_json) {
-                    eprintln!("  ✗ Failed to remove Cursor hooks.json: {e}");
-                } else {
-                    println!("  ✓ Cursor hooks.json removed");
-                    removed = true;
+    for (label, hj_path) in [
+        ("Cursor", home.join(".cursor/hooks.json")),
+        ("Codex", home.join(".codex/hooks.json")),
+    ] {
+        if hj_path.exists() {
+            if let Ok(content) = fs::read_to_string(&hj_path) {
+                if content.contains("lean-ctx") {
+                    if let Err(e) = fs::remove_file(&hj_path) {
+                        eprintln!("  ✗ Failed to remove {label} hooks.json: {e}");
+                    } else {
+                        println!("  ✓ {label} hooks.json removed");
+                        removed = true;
+                    }
                 }
             }
         }
@@ -497,6 +581,66 @@ fn remove_lean_ctx_from_json(content: &str) -> Option<String> {
     }
 }
 
+fn remove_lean_ctx_from_yaml(content: &str) -> String {
+    let mut out = String::with_capacity(content.len());
+    let mut skip_depth: Option<usize> = None;
+
+    for line in content.lines() {
+        if let Some(depth) = skip_depth {
+            let indent = line.len() - line.trim_start().len();
+            if indent > depth || line.trim().is_empty() {
+                continue;
+            }
+            skip_depth = None;
+        }
+
+        let trimmed = line.trim();
+        if trimmed == "lean-ctx:" || trimmed.starts_with("lean-ctx:") {
+            let indent = line.len() - line.trim_start().len();
+            skip_depth = Some(indent);
+            continue;
+        }
+
+        out.push_str(line);
+        out.push('\n');
+    }
+
+    out
+}
+
+fn remove_lean_ctx_from_toml(content: &str) -> String {
+    let mut out = String::with_capacity(content.len());
+    let mut skip = false;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+
+        if trimmed == "[mcp_servers.lean-ctx]" || trimmed == "[mcp_servers.\"lean-ctx\"]" {
+            skip = true;
+            continue;
+        }
+
+        if skip {
+            if trimmed.starts_with('[') {
+                skip = false;
+            } else {
+                continue;
+            }
+        }
+
+        if trimmed.contains("codex_hooks") && trimmed.contains("true") {
+            out.push_str(&line.replace("true", "false"));
+            out.push('\n');
+            continue;
+        }
+
+        out.push_str(line);
+        out.push('\n');
+    }
+
+    out
+}
+
 fn shorten(path: &Path, home: &Path) -> String {
     match path.strip_prefix(home) {
         Ok(rel) => format!("~/{}", rel.display()),
@@ -505,3 +649,62 @@ fn shorten(path: &Path, home: &Path) -> String {
 }
 
 // moved to core/editor_registry/paths.rs
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn remove_toml_mcp_server_section() {
+        let input = "\
+[features]
+codex_hooks = true
+
+[mcp_servers.lean-ctx]
+command = \"/usr/local/bin/lean-ctx\"
+args = []
+
+[mcp_servers.other-tool]
+command = \"/usr/bin/other\"
+";
+        let result = remove_lean_ctx_from_toml(input);
+        assert!(
+            !result.contains("lean-ctx"),
+            "lean-ctx section should be removed"
+        );
+        assert!(
+            result.contains("[mcp_servers.other-tool]"),
+            "other sections should be preserved"
+        );
+        assert!(
+            result.contains("codex_hooks = false"),
+            "codex_hooks should be set to false"
+        );
+    }
+
+    #[test]
+    fn remove_toml_only_lean_ctx() {
+        let input = "\
+[mcp_servers.lean-ctx]
+command = \"lean-ctx\"
+";
+        let result = remove_lean_ctx_from_toml(input);
+        assert!(
+            result.trim().is_empty(),
+            "should produce empty output: {result}"
+        );
+    }
+
+    #[test]
+    fn remove_toml_no_lean_ctx() {
+        let input = "\
+[mcp_servers.other]
+command = \"other\"
+";
+        let result = remove_lean_ctx_from_toml(input);
+        assert!(
+            result.contains("[mcp_servers.other]"),
+            "other content should be preserved"
+        );
+    }
+}

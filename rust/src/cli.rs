@@ -668,10 +668,14 @@ pub fn cmd_config(args: &[String]) {
 }
 
 pub fn cmd_cheatsheet() {
-    println!(
+    let ver = env!("CARGO_PKG_VERSION");
+    let ver_pad = format!("v{ver}");
+    let header = format!(
         "\x1b[1;36m╔══════════════════════════════════════════════════════════════╗\x1b[0m
-\x1b[1;36m║\x1b[0m  \x1b[1;37mlean-ctx Workflow Cheat Sheet\x1b[0m                     \x1b[2mv2.9.7\x1b[0m  \x1b[1;36m║\x1b[0m
-\x1b[1;36m╚══════════════════════════════════════════════════════════════╝\x1b[0m
+\x1b[1;36m║\x1b[0m  \x1b[1;37mlean-ctx Workflow Cheat Sheet\x1b[0m                     \x1b[2m{ver_pad:>6}\x1b[0m  \x1b[1;36m║\x1b[0m
+\x1b[1;36m╚══════════════════════════════════════════════════════════════╝\x1b[0m");
+    println!(
+        "{header}
 
 \x1b[1;33m━━━ BEFORE YOU START ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m
   ctx_session load               \x1b[2m# restore previous session\x1b[0m
@@ -1009,7 +1013,9 @@ pub fn cmd_init(args: &[String]) {
     }
     qprintln!();
     qprintln!("For AI tool integration: lean-ctx init --agent <tool>");
-    qprintln!("  Supported: claude, cursor, gemini, codex, windsurf, cline, copilot, crush, pi");
+    qprintln!("  Supported: aider, amazonq, amp, antigravity, claude, cline, codex, copilot,");
+    qprintln!("    crush, cursor, emacs, gemini, hermes, jetbrains, kiro, neovim, opencode,");
+    qprintln!("    pi, qwen, roo, sublime, trae, verdent, windsurf");
 }
 
 pub fn cmd_init_quiet(args: &[String]) {
@@ -1873,8 +1879,7 @@ _lc_compress() {{
     #[test]
     fn test_posix_shell_has_lean_ctx_mode() {
         let alias_list = crate::rewrite_registry::shell_alias_list();
-        let aliases = format!(
-            r#"
+        let aliases = r#"
 lean-ctx-mode() {{
     case "${{1:-}}" in
         compress) echo compress ;;
@@ -1883,7 +1888,7 @@ lean-ctx-mode() {{
     esac
 }}
 "#
-        );
+        .to_string();
         assert!(
             aliases.contains("lean-ctx-mode()"),
             "lean-ctx-mode function must exist"

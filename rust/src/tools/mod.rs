@@ -515,10 +515,13 @@ impl LeanCtxServer {
         let complexity = crate::core::adaptive::classify_from_context(&cache);
 
         let cs = Self::compute_cep_stats(&calls, stats, &complexity);
+        let started_at = calls
+            .first()
+            .map(|c| c.timestamp.clone())
+            .unwrap_or_default();
 
         drop(cache);
         drop(calls);
-
         let live = serde_json::json!({
             "cep_score": cs.cep_score,
             "cache_utilization": cs.cache_util,
@@ -531,6 +534,7 @@ impl LeanCtxServer {
             "tokens_saved": cs.total_saved,
             "tokens_original": cs.total_original,
             "tool_calls": cs.tool_call_count,
+            "started_at": started_at,
             "updated_at": chrono::Local::now().to_rfc3339(),
         });
 

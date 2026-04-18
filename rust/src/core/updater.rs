@@ -117,6 +117,31 @@ fn post_update_refresh() {
         println!("    \x1b[32m✓\x1b[0m Hook scripts refreshed");
 
         refresh_shell_aliases(&home);
+        refresh_mcp_configs(&home);
+    }
+}
+
+fn refresh_mcp_configs(home: &std::path::Path) {
+    let binary = std::env::current_exe()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "lean-ctx".to_string());
+    let targets = crate::core::editor_registry::build_targets(home);
+    let opts = crate::core::editor_registry::writers::WriteOptions {
+        overwrite_invalid: false,
+    };
+    let mut refreshed = 0u32;
+    for target in &targets {
+        if !target.detect_path.exists() {
+            continue;
+        }
+        if crate::core::editor_registry::writers::write_config_with_options(target, &binary, opts)
+            .is_ok()
+        {
+            refreshed += 1;
+        }
+    }
+    if refreshed > 0 {
+        println!("    \x1b[32m✓\x1b[0m MCP configs verified ({refreshed} editors)");
     }
 }
 

@@ -3,6 +3,31 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.2.4] — 2026-04-18
+
+### Fixed
+- **Git stash compression too aggressive** (#114): `git stash list` with ≤5 entries is now preserved verbatim. `git stash show -p` correctly routes to the diff compressor instead of the stash compressor. Added `safeguard_ratio` to `ctx_shell` to prevent over-compression (minimum 15% of original output preserved).
+- **Windows Bash hook path stripping** (#113): On Windows with Git Bash / MSYS2, the lean-ctx binary path had slashes stripped (`E:packageslean-ctx.exe` instead of `/e/packages/lean-ctx.exe`). `resolve_binary()` now applies `to_bash_compatible_path` on all platforms.
+- **Windows UNC path breakage** (`\\?\` prefix): `std::fs::canonicalize()` on Windows adds extended-length path prefixes that break tools and string comparisons. New `core::pathutil` module provides `safe_canonicalize()` and `strip_verbatim()` used consistently across graph indexing, session state, path jailing, architecture tool, and hook handlers.
+- **Dashboard showing empty graphs**: `detect_project_root_for_dashboard()` was using the MCP session's temp sandbox directory instead of the actual project. Now validates project roots against `.git` and project markers before using them; falls through to `shell_cwd` when project_root is invalid. Added `--project=` CLI flag and `LEAN_CTX_DASHBOARD_PROJECT` env var for explicit override.
+- **Dashboard Call Graph/Route Map empty states**: Enriched `/api/call-graph` and `/api/routes` responses with metadata (indexed file count, symbol count, route candidates) so the UI shows actionable guidance instead of generic "nothing found" messages.
+- **Codex uninstall incomplete** (#116): `lean-ctx uninstall` now correctly removes the `[mcp_servers.lean-ctx]` section from Codex's TOML config, removes `~/.codex/hooks.json`, and resets the `codex_hooks` feature flag.
+- **Repo-local config missing fields** (#98): `merge_local()` now supports `auto_consolidate`, `dedup_threshold`, `consolidate_every_calls`, `consolidate_cooldown_secs`, and bidirectional `silent_preload` override from `.lean-ctx.toml`.
+
+### Added
+- **Hermes Agent support** (#112): Full integration for Hermes Agent (Nous Research). `lean-ctx init --agent hermes --global` configures MCP via YAML (`~/.hermes/config.yaml`), creates `HERMES.md` rules. Setup auto-detects `~/.hermes/`, doctor checks Hermes config, uninstall cleans up YAML + rules.
+- **Kotlin graph analysis** (#96): `ctx_graph`, `ctx_callers`, and `ctx_callees` now produce meaningful results for Kotlin projects. Tree-sitter-backed import extraction, call-site analysis, type-definition extraction, and Java interop with stdlib filtering.
+- **Repo-local configuration** (#98): `.lean-ctx.toml` in project root for per-project overrides. Supports `extra_ignore_patterns` (graph/overview exclusions), autonomy settings, and all config fields. `lean-ctx cache reset --project` clears only current project's cache.
+- **Post-update MCP refresh**: `lean-ctx update` now verifies and refreshes MCP configurations for all detected editors after binary replacement.
+- **Dashboard "Savings by Source"**: Live Observatory and `lean-ctx gain` now show a breakdown of MCP Tools vs. Shell Hooks with individual compression rates and proportional bars.
+- **Pi MCP bridge resilience**: Host-cancelled tool calls are handled cleanly with abort signal forwarding and error normalization. Hung MCP calls timeout after 120s with automatic reconnect and retry for read-safe tools. Bridge status includes diagnostics (last error, hung tool, retry state).
+
+### Community
+- Merged PR #111 — fix Windows graph path compatibility (@Chokitus)
+- Merged PR #115 — handle host-cancelled MCP tool calls in Pi bridge (@frpboy)
+- Merged PR #118 — improve dashboard empty-state UX for Route Map and Call Graph (@frpboy)
+- Merged PR #122 — timeout and retry hung MCP tool calls in Pi bridge (@frpboy)
+
 ## [3.2.3] — 2026-04-17
 
 ### Fixed

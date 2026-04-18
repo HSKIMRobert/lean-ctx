@@ -14,11 +14,7 @@ fn allow_paths_from_env() -> Vec<PathBuf> {
         return out;
     }
     for p in std::env::split_paths(&v) {
-        if let Ok(canon) = std::fs::canonicalize(&p) {
-            out.push(canon);
-        } else {
-            out.push(p);
-        }
+        out.push(crate::core::pathutil::safe_canonicalize_or_self(&p));
     }
     out
 }
@@ -28,7 +24,7 @@ fn is_under_prefix(path: &Path, prefix: &Path) -> bool {
 }
 
 fn canonicalize_or_self(path: &Path) -> PathBuf {
-    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+    crate::core::pathutil::safe_canonicalize_or_self(path)
 }
 
 fn canonicalize_existing_ancestor(path: &Path) -> Option<(PathBuf, Vec<std::ffi::OsString>)> {
