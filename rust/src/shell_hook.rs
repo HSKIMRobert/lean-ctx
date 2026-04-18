@@ -74,8 +74,9 @@ fn install_zshenv(home: &std::path::Path, quiet: bool) {
 
     let hook = format!(
         r#"{MARKER_START}
-if [[ -n "$ZSH_EXECUTION_STRING" ]] && command -v lean-ctx &>/dev/null; then
+if [[ -z "$LEAN_CTX_ACTIVE" && -n "$ZSH_EXECUTION_STRING" ]] && command -v lean-ctx &>/dev/null; then
   if {env_check}; then
+    export LEAN_CTX_ACTIVE=1
     exec lean-ctx -c "$ZSH_EXECUTION_STRING"
   fi
 fi
@@ -98,8 +99,9 @@ fn install_bashenv(home: &std::path::Path, quiet: bool) {
 
     let hook = format!(
         r#"{MARKER_START}
-if [[ -n "$BASH_EXECUTION_STRING" ]] && command -v lean-ctx &>/dev/null; then
+if [[ -z "$LEAN_CTX_ACTIVE" && -n "$BASH_EXECUTION_STRING" ]] && command -v lean-ctx &>/dev/null; then
   if {env_check}; then
+    export LEAN_CTX_ACTIVE=1
     exec lean-ctx -c "$BASH_EXECUTION_STRING"
   fi
 fi

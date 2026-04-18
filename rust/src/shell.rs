@@ -42,7 +42,9 @@ pub fn exec(command: &str) -> i32 {
     let command = crate::tools::ctx_shell::normalize_command_for_shell(command);
     let command = command.as_str();
 
-    if std::env::var("LEAN_CTX_DISABLED").is_ok() {
+    if std::env::var("LEAN_CTX_DISABLED").is_ok()
+        || std::env::var("LEAN_CTX_ACTIVE").is_ok()
+    {
         return exec_inherit(command, &shell, &shell_flag);
     }
 
