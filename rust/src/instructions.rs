@@ -29,8 +29,8 @@ Tool mapping (MANDATORY):
 • Shell/bash -> ctx_shell(command)
 • Grep/rg -> ctx_search(pattern, path)
 • ls/find -> ctx_tree(path, depth)
-• Edit/StrReplace -> native (lean-ctx=READ only). If Edit needs Read and Read is unavailable, use ctx_edit.
-• Write, Delete, Glob -> normal. NEVER loop on Edit failures — use ctx_edit.
+• Edit/StrReplace -> native (lean-ctx=READ only)
+• Write, Delete, Glob -> normal
 
 ctx_read modes: full|map|signatures|diff|task|reference|aggressive|entropy|lines:N-M
 Auto-selects mode. Re-reads ~13 tok. File refs F1,F2.. persist.
@@ -47,7 +47,7 @@ CEP: 1.ACT FIRST 2.DELTA ONLY 3.STRUCTURED(+/-/~) 4.ONE LINE 5.QUALITY
 Prefer: ctx_read>Read | ctx_shell>Shell | ctx_search>Grep | ctx_tree>ls
 Edit: native Edit/StrReplace preferred, ctx_edit if Edit unavailable.
 Never echo tool output. Never narrate. Show only changed code.
-Full instructions at ~/.claude/CLAUDE.md (imports rules/lean-ctx.md)";
+Full instructions at ~/.claude/rules/lean-ctx.md";
 
     debug_assert!(
         instr.len() <= CLAUDE_CODE_INSTRUCTION_CAP,
@@ -59,15 +59,25 @@ Full instructions at ~/.claude/CLAUDE.md (imports rules/lean-ctx.md)";
 
 fn build_full_instructions(crp_mode: CrpMode, client_name: &str) -> String {
     let profile = crate::core::litm::LitmProfile::from_client_name(client_name);
-    let session_block = match crate::core::session::SessionState::load_latest() {
+    let (session_block, session_end_block) = match crate::core::session::SessionState::load_latest()
+    {
         Some(ref session) => {
             let positioned = crate::core::litm::position_optimize(session);
-            format!(
+            let begin = format!(
                 "\n\n--- ACTIVE SESSION (LITM P1: begin position, profile: {}) ---\n{}\n---\n",
                 profile.name, positioned.begin_block
-            )
+            );
+            let end = if positioned.end_block.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "\n--- SESSION CONTEXT (LITM P2: end position) ---\n{}\n---\n",
+                    positioned.end_block
+                )
+            };
+            (begin, end)
         }
-        None => String::new(),
+        None => (String::new(), String::new()),
     };
 
     let project_root_for_blocks = crate::core::session::SessionState::load_latest()
@@ -143,9 +153,10 @@ CEP v1: 1.ACT FIRST 2.DELTA ONLY (Fn refs) 3.STRUCTURED (+/-/~) 4.ONE LINE PER A
 {gotcha_block}\
 \n\
 --- ORIGIN ---\n\
-{origin}\n\
-\n\
---- TOOL PREFERENCE (LITM-END) ---\n\
+ {origin}\n\
+ {session_end_block}\
+ \n\
+ --- TOOL PREFERENCE (LITM-END) ---\n\
 Prefer: ctx_read over Read | ctx_shell over Shell | ctx_search over Grep | ctx_tree over ls\n\
 Edit files: native Edit/StrReplace if available, ctx_edit if Edit requires unavailable Read.\n\
 Write, Delete, Glob -> use normally. NEVER loop on Edit failures — use ctx_edit.",

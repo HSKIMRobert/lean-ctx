@@ -144,6 +144,113 @@ pub fn compute_relevance(
     result
 }
 
+pub fn compute_relevance_from_intent(
+    index: &ProjectIndex,
+    intent: &super::intent_engine::StructuredIntent,
+) -> Vec<RelevanceScore> {
+    use super::intent_engine::IntentScope;
+
+    let mut file_seeds: Vec<String> = Vec::new();
+    let mut extra_keywords: Vec<String> = intent.keywords.clone();
+
+    for target in &intent.targets {
+        if target.contains('.') || target.contains('/') {
+            let matched = resolve_target_to_files(index, target);
+            if matched.is_empty() {
+                extra_keywords.push(target.clone());
+            } else {
+                file_seeds.extend(matched);
+            }
+        } else {
+            let from_symbol = resolve_symbol_to_files(index, target);
+            if from_symbol.is_empty() {
+                extra_keywords.push(target.clone());
+            } else {
+                file_seeds.extend(from_symbol);
+            }
+        }
+    }
+
+    if let Some(lang) = &intent.language_hint {
+        let lang_ext = match lang.as_str() {
+            "rust" => Some("rs"),
+            "typescript" => Some("ts"),
+            "javascript" => Some("js"),
+            "python" => Some("py"),
+            "go" => Some("go"),
+            "ruby" => Some("rb"),
+            "java" => Some("java"),
+            _ => None,
+        };
+        if let Some(ext) = lang_ext {
+            if file_seeds.is_empty() {
+                for path in index.files.keys() {
+                    if path.ends_with(&format!(".{ext}")) {
+                        extra_keywords.push(
+                            std::path::Path::new(path)
+                                .file_stem()
+                                .and_then(|s| s.to_str())
+                                .unwrap_or("")
+                                .to_string(),
+                        );
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    let mut result = compute_relevance(index, &file_seeds, &extra_keywords);
+
+    match intent.scope {
+        IntentScope::SingleFile => {
+            result.truncate(5);
+        }
+        IntentScope::MultiFile => {
+            result.truncate(15);
+        }
+        IntentScope::CrossModule | IntentScope::ProjectWide => {}
+    }
+
+    result
+}
+
+fn resolve_target_to_files(index: &ProjectIndex, target: &str) -> Vec<String> {
+    let mut matches = Vec::new();
+    for path in index.files.keys() {
+        if path.ends_with(target) || path.contains(target) {
+            matches.push(path.clone());
+        }
+    }
+    matches
+}
+
+fn resolve_symbol_to_files(index: &ProjectIndex, symbol: &str) -> Vec<String> {
+    let sym_lower = symbol.to_lowercase();
+    let mut matches = Vec::new();
+    for entry in index.symbols.values() {
+        let name_lower = entry.name.to_lowercase();
+        if (name_lower == sym_lower || name_lower.contains(&sym_lower))
+            && !matches.contains(&entry.file)
+        {
+            matches.push(entry.file.clone());
+        }
+    }
+    if matches.is_empty() {
+        for (path, file_entry) in &index.files {
+            if file_entry
+                .exports
+                .iter()
+                .any(|e| e.to_lowercase().contains(&sym_lower))
+                && !matches.contains(path)
+            {
+                matches.push(path.clone());
+            }
+        }
+    }
+    matches
+}
+
 fn recommend_mode(score: f64) -> &'static str {
     if score >= 0.8 {
         "full"
@@ -279,6 +386,74 @@ const STOP_WORDS: &[&str] = &[
     "mit",
 ];
 
+struct StructuralWeights {
+    error_handling: f64,
+    definition: f64,
+    control_flow: f64,
+    closing_brace: f64,
+    other: f64,
+}
+
+impl StructuralWeights {
+    const DEFAULT: Self = Self {
+        error_handling: 1.5,
+        definition: 1.0,
+        control_flow: 0.5,
+        closing_brace: 0.15,
+        other: 0.3,
+    };
+
+    fn for_task_type(task_type: Option<super::intent_engine::TaskType>) -> Self {
+        use super::intent_engine::TaskType;
+        match task_type {
+            Some(TaskType::FixBug) => Self {
+                error_handling: 2.0,
+                definition: 0.8,
+                control_flow: 0.8,
+                closing_brace: 0.1,
+                other: 0.2,
+            },
+            Some(TaskType::Debug) => Self {
+                error_handling: 2.0,
+                definition: 0.6,
+                control_flow: 1.0,
+                closing_brace: 0.1,
+                other: 0.2,
+            },
+            Some(TaskType::Generate) => Self {
+                error_handling: 0.8,
+                definition: 1.5,
+                control_flow: 0.3,
+                closing_brace: 0.15,
+                other: 0.4,
+            },
+            Some(TaskType::Refactor) => Self {
+                error_handling: 1.0,
+                definition: 1.5,
+                control_flow: 0.6,
+                closing_brace: 0.2,
+                other: 0.3,
+            },
+            Some(TaskType::Test) => Self {
+                error_handling: 1.2,
+                definition: 1.3,
+                control_flow: 0.4,
+                closing_brace: 0.15,
+                other: 0.3,
+            },
+            Some(TaskType::Review) => Self {
+                error_handling: 1.3,
+                definition: 1.2,
+                control_flow: 0.6,
+                closing_brace: 0.15,
+                other: 0.3,
+            },
+            Some(TaskType::Explore) | None => Self::DEFAULT,
+            Some(_) => Self::DEFAULT,
+        }
+    }
+}
+
 /// Information Bottleneck filter v3 — Mutual Information scoring, QUITO-X inspired.
 ///
 /// IB principle: maximize I(T;Y) (task relevance) while minimizing I(T;X) (input redundancy).
@@ -293,6 +468,16 @@ pub fn information_bottleneck_filter(
     content: &str,
     task_keywords: &[String],
     budget_ratio: f64,
+) -> String {
+    information_bottleneck_filter_typed(content, task_keywords, budget_ratio, None)
+}
+
+/// Task-type-aware IB filter. Uses `TaskType` to adjust structural weights.
+pub fn information_bottleneck_filter_typed(
+    content: &str,
+    task_keywords: &[String],
+    budget_ratio: f64,
+    task_type: Option<super::intent_engine::TaskType>,
 ) -> String {
     let lines: Vec<&str> = content.lines().collect();
     if lines.is_empty() {
@@ -323,6 +508,8 @@ pub fn information_bottleneck_filter(
     } else {
         budget_ratio
     };
+
+    let weights = StructuralWeights::for_task_type(task_type);
 
     let mut scored_lines: Vec<(usize, &str, f64)> = lines
         .iter()
@@ -359,15 +546,15 @@ pub fn information_bottleneck_filter(
                 .count() as f64;
 
             let structural = if is_error_handling(trimmed) {
-                1.5
+                weights.error_handling
             } else if is_definition_line(trimmed) {
-                1.0
+                weights.definition
             } else if is_control_flow(trimmed) {
-                0.5
+                weights.control_flow
             } else if is_closing_brace(trimmed) {
-                0.15
+                weights.closing_brace
             } else {
-                0.3
+                weights.other
             };
             let relevance = mi_score * 0.4 + keyword_hits * 0.3 + structural;
 
@@ -658,5 +845,149 @@ mod tests {
             budget_rep < budget_div,
             "repetitive content should get lower budget"
         );
+    }
+
+    #[test]
+    fn ib_fixbug_type_boosts_error_handling() {
+        use crate::core::intent_engine::TaskType;
+
+        let content = "\
+fn process() {
+    let data = fetch_data();
+    let parsed = parse(data);
+    return Err(\"invalid input\");
+    let x = 1;
+    let y = 2;
+    let z = 3;
+}";
+        let kw = vec!["process".to_string()];
+        let default_result = information_bottleneck_filter(content, &kw, 0.4);
+        let fixbug_result =
+            information_bottleneck_filter_typed(content, &kw, 0.4, Some(TaskType::FixBug));
+        assert!(
+            fixbug_result.contains("return Err"),
+            "FixBug should preserve error handling"
+        );
+        let _ = default_result;
+    }
+
+    #[test]
+    fn ib_generate_type_boosts_definitions() {
+        use crate::core::intent_engine::TaskType;
+
+        let content = "\
+fn main() {
+    let x = 1;
+}
+pub struct Config {
+    pub name: String,
+}
+fn helper() {
+    let y = 2;
+}";
+        let kw = vec!["config".to_string()];
+        let gen_result =
+            information_bottleneck_filter_typed(content, &kw, 0.4, Some(TaskType::Generate));
+        assert!(
+            gen_result.contains("pub struct Config"),
+            "Generate should prioritize definitions"
+        );
+    }
+
+    #[test]
+    fn structural_weights_default_matches_none() {
+        let w = StructuralWeights::for_task_type(None);
+        assert!((w.error_handling - 1.5).abs() < f64::EPSILON);
+        assert!((w.definition - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn resolve_target_to_files_matches_suffix() {
+        let mut index = ProjectIndex::new("/tmp/test");
+        index.files.insert(
+            "src/core/session.rs".to_string(),
+            crate::core::graph_index::FileEntry {
+                path: "src/core/session.rs".to_string(),
+                hash: String::new(),
+                language: "rust".to_string(),
+                line_count: 100,
+                token_count: 500,
+                exports: vec!["SessionState".to_string()],
+                summary: String::new(),
+            },
+        );
+        let result = resolve_target_to_files(&index, "session.rs");
+        assert_eq!(result, vec!["src/core/session.rs"]);
+    }
+
+    #[test]
+    fn resolve_symbol_finds_exported_name() {
+        let mut index = ProjectIndex::new("/tmp/test");
+        index.files.insert(
+            "src/config.rs".to_string(),
+            crate::core::graph_index::FileEntry {
+                path: "src/config.rs".to_string(),
+                hash: String::new(),
+                language: "rust".to_string(),
+                line_count: 50,
+                token_count: 200,
+                exports: vec!["Config".to_string(), "load_config".to_string()],
+                summary: String::new(),
+            },
+        );
+        let result = resolve_symbol_to_files(&index, "Config");
+        assert!(result.contains(&"src/config.rs".to_string()));
+    }
+
+    #[test]
+    fn intent_to_relevance_uses_targets_as_seeds() {
+        use crate::core::intent_engine::StructuredIntent;
+
+        let mut index = ProjectIndex::new("/tmp/test");
+        index.files.insert(
+            "src/auth.rs".to_string(),
+            crate::core::graph_index::FileEntry {
+                path: "src/auth.rs".to_string(),
+                hash: String::new(),
+                language: "rust".to_string(),
+                line_count: 100,
+                token_count: 500,
+                exports: vec!["authenticate".to_string()],
+                summary: String::new(),
+            },
+        );
+        index.files.insert(
+            "src/db.rs".to_string(),
+            crate::core::graph_index::FileEntry {
+                path: "src/db.rs".to_string(),
+                hash: String::new(),
+                language: "rust".to_string(),
+                line_count: 100,
+                token_count: 500,
+                exports: vec!["query".to_string()],
+                summary: String::new(),
+            },
+        );
+        index.edges.push(crate::core::graph_index::IndexEdge {
+            from: "src/auth.rs".to_string(),
+            to: "src/db.rs".to_string(),
+            kind: "imports".to_string(),
+        });
+
+        let intent = StructuredIntent::from_query("fix the auth bug in auth.rs");
+        let scores = compute_relevance_from_intent(&index, &intent);
+
+        assert!(!scores.is_empty());
+        let auth_score = scores.iter().find(|s| s.path == "src/auth.rs");
+        let db_score = scores.iter().find(|s| s.path == "src/db.rs");
+        assert!(auth_score.is_some(), "auth.rs should be in results");
+        if let (Some(a), Some(d)) = (auth_score, db_score) {
+            assert!(
+                a.score >= d.score,
+                "auth.rs ({}) should score >= db.rs ({})",
+                a.score,
+                d.score
+            );
+        }
     }
 }
