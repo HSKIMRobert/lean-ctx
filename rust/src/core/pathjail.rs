@@ -1,28 +1,36 @@
 use std::path::{Path, PathBuf};
 
-fn agent_allowlist_dirs() -> Vec<PathBuf> {
+const IDE_CONFIG_DIRS: &[&str] = &[
+    ".lean-ctx",
+    ".cursor",
+    ".claude",
+    ".codex",
+    ".codeium",
+    ".gemini",
+    ".qwen",
+    ".trae",
+    ".kiro",
+    ".verdent",
+    ".pi",
+    ".amp",
+    ".aider",
+    ".continue",
+];
+
+fn ide_allowlist_dirs() -> Vec<PathBuf> {
     let home = match dirs::home_dir() {
         Some(h) => h,
         None => return Vec::new(),
     };
 
-    let mut dirs = Vec::new();
-
-    if std::env::var("CODEX_CLI_SESSION").is_ok() || std::env::var("CODEX_SANDBOX_DIR").is_ok() {
-        let codex_dir = home.join(".codex");
-        if codex_dir.exists() {
-            dirs.push(canonicalize_or_self(&codex_dir));
+    let mut out = Vec::new();
+    for dir in IDE_CONFIG_DIRS {
+        let p = home.join(dir);
+        if p.exists() {
+            out.push(canonicalize_or_self(&p));
         }
     }
-
-    if std::env::var("CLAUDE_CODE_SESSION").is_ok() || std::env::var("CLAUDE_CODE").is_ok() {
-        let claude_dir = home.join(".claude");
-        if claude_dir.exists() {
-            dirs.push(canonicalize_or_self(&claude_dir));
-        }
-    }
-
-    dirs
+    out
 }
 
 fn allow_paths_from_env() -> Vec<PathBuf> {
@@ -32,7 +40,7 @@ fn allow_paths_from_env() -> Vec<PathBuf> {
         out.push(canonicalize_or_self(&data_dir));
     }
 
-    out.extend(agent_allowlist_dirs());
+    out.extend(ide_allowlist_dirs());
 
     let v = std::env::var("LCTX_ALLOW_PATH")
         .or_else(|_| std::env::var("LEAN_CTX_ALLOW_PATH"))
@@ -157,12 +165,11 @@ mod tests {
     }
 
     #[test]
-    fn agent_allowlist_empty_without_env() {
-        std::env::remove_var("CODEX_CLI_SESSION");
-        std::env::remove_var("CODEX_SANDBOX_DIR");
-        std::env::remove_var("CLAUDE_CODE_SESSION");
-        std::env::remove_var("CLAUDE_CODE");
-        let dirs = agent_allowlist_dirs();
-        assert!(dirs.is_empty());
+    fn ide_config_dirs_list_is_not_empty() {
+        assert!(!IDE_CONFIG_DIRS.is_empty());
+        assert!(IDE_CONFIG_DIRS.contains(&".codex"));
+        assert!(IDE_CONFIG_DIRS.contains(&".cursor"));
+        assert!(IDE_CONFIG_DIRS.contains(&".claude"));
+        assert!(IDE_CONFIG_DIRS.contains(&".lean-ctx"));
     }
 }

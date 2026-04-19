@@ -21,7 +21,7 @@ fn extract_arm_body<'a>(src: &'a str, tool: &str) -> Option<&'a str> {
 
 #[test]
 fn server_fs_tools_use_resolve_path_chokepoint() {
-    let src = include_str!("../src/server.rs");
+    let src = include_str!("../src/server/dispatch.rs");
     let tools = [
         "ctx_read",
         "ctx_multi_read",
