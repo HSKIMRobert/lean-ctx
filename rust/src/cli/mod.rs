@@ -1,6 +1,6 @@
+pub mod cloud;
 pub mod dispatch;
 mod shell_init;
-pub mod cloud;
 
 pub use dispatch::run;
 pub use shell_init::*;

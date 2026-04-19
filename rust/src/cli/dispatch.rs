@@ -1,8 +1,8 @@
-use anyhow::Result;
 use crate::{
-    core, dashboard, doctor, heatmap, hook_handlers, mcp_stdio, report, setup,
-    shell, status, token_report, tools, tui, uninstall,
+    core, dashboard, doctor, heatmap, hook_handlers, mcp_stdio, report, setup, shell, status,
+    token_report, tools, tui, uninstall,
 };
+use anyhow::Result;
 
 pub fn run() {
     let args: Vec<String> = std::env::args().collect();

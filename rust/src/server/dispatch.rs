@@ -106,6 +106,10 @@ impl LeanCtxServer {
                     .await;
                 crate::core::heatmap::record_file_access(&path, original, saved);
                 {
+                    let mut ledger = self.ledger.write().await;
+                    ledger.record(&path, &resolved_mode, original, output_tokens);
+                }
+                {
                     let sig =
                         crate::core::mode_predictor::FileSignature::from_path(&path, original);
                     let density = if output_tokens > 0 {
@@ -827,6 +831,21 @@ impl LeanCtxServer {
                             *self.agent_id.write().await = Some(id);
                         }
                     }
+
+                    let agent_role = crate::core::agents::AgentRole::from_str_loose(
+                        role.as_deref().unwrap_or("coder"),
+                    );
+                    let depth = crate::core::agents::ContextDepthConfig::for_role(agent_role);
+                    let depth_hint = format!(
+                        "\n[context] role={:?} preferred_mode={} max_full={} max_sig={} budget_ratio={:.0}%",
+                        agent_role,
+                        depth.preferred_mode,
+                        depth.max_files_full,
+                        depth.max_files_signatures,
+                        depth.context_budget_ratio * 100.0,
+                    );
+                    self.record_call("ctx_agent", 0, 0, Some(action)).await;
+                    return Ok(format!("{result}{depth_hint}"));
                 }
 
                 self.record_call("ctx_agent", 0, 0, Some(action)).await;
@@ -894,13 +913,38 @@ impl LeanCtxServer {
                     }
                 };
                 let mut cache = self.cache.write().await;
-                let result = crate::tools::ctx_preload::handle(
+                let mut result = crate::tools::ctx_preload::handle(
                     &mut cache,
                     &task,
                     resolved_path.as_deref(),
                     self.crp_mode,
                 );
                 drop(cache);
+
+                let session = self.session.read().await;
+                if let Some(ref intent) = session.active_structured_intent {
+                    let ledger = self.ledger.read().await;
+                    if !ledger.entries.is_empty() {
+                        let known: Vec<String> = session
+                            .files_touched
+                            .iter()
+                            .map(|f| f.path.clone())
+                            .collect();
+                        let deficit =
+                            crate::core::context_deficit::detect_deficit(&ledger, intent, &known);
+                        if !deficit.suggested_files.is_empty() {
+                            result.push_str("\n\n--- SUGGESTED FILES ---");
+                            for s in &deficit.suggested_files {
+                                result.push_str(&format!(
+                                    "\n  {} ({:?}, ~{} tok, mode: {})",
+                                    s.path, s.reason, s.estimated_tokens, s.recommended_mode
+                                ));
+                            }
+                        }
+                    }
+                }
+                drop(session);
+
                 self.record_call("ctx_preload", 0, 0, Some("preload".to_string()))
                     .await;
                 result
@@ -1321,6 +1365,7 @@ impl LeanCtxServer {
                         }
 
                         let session = { self.session.read().await.clone() };
+                        let active_intent = session.active_structured_intent.clone();
                         let tool_calls = { self.tool_calls.read().await.clone() };
                         let workflow = { self.workflow.read().await.clone() };
                         let agent_id = { self.agent_id.read().await.clone() };
@@ -1342,9 +1387,27 @@ impl LeanCtxServer {
                             ErrorData::internal_error(format!("create ledger: {e}"), None)
                         })?;
 
-                        let result = crate::tools::ctx_handoff::format_created(&path, &ledger);
+                        let ctx_ledger = self.ledger.read().await;
+                        let package = crate::core::handoff_ledger::HandoffPackage::build(
+                            ledger.clone(),
+                            active_intent.as_ref(),
+                            if ctx_ledger.entries.is_empty() {
+                                None
+                            } else {
+                                Some(&*ctx_ledger)
+                            },
+                        );
+                        drop(ctx_ledger);
+
+                        let mut output = crate::tools::ctx_handoff::format_created(&path, &ledger);
+                        let compact = package.format_compact();
+                        if !compact.is_empty() {
+                            output.push_str("\n\n");
+                            output.push_str(&compact);
+                        }
+
                         self.record_call("ctx_handoff", 0, 0, Some(action)).await;
-                        result
+                        output
                     }
                     "pull" => {
                         let path = get_str(args, "path").ok_or_else(|| {

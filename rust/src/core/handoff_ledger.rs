@@ -279,6 +279,140 @@ fn md5_hex(bytes: &[u8]) -> String {
     format!("{:x}", hasher.finalize())
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HandoffPackage {
+    pub ledger: HandoffLedgerV1,
+    pub intent: Option<IntentSnapshot>,
+    pub context_snapshot: Option<ContextSnapshot>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IntentSnapshot {
+    pub task_type: String,
+    pub scope: String,
+    pub targets: Vec<String>,
+    pub keywords: Vec<String>,
+    pub language_hint: Option<String>,
+    pub urgency: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContextSnapshot {
+    pub window_size: usize,
+    pub tokens_used: usize,
+    pub tokens_saved: usize,
+    pub files_loaded: Vec<LoadedFileInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoadedFileInfo {
+    pub path: String,
+    pub mode: String,
+    pub tokens: usize,
+}
+
+impl HandoffPackage {
+    pub fn build(
+        ledger: HandoffLedgerV1,
+        intent: Option<&super::intent_engine::StructuredIntent>,
+        context: Option<&crate::core::context_ledger::ContextLedger>,
+    ) -> Self {
+        let intent_snap = intent.map(|i| IntentSnapshot {
+            task_type: i.task_type.as_str().to_string(),
+            scope: match i.scope {
+                super::intent_engine::IntentScope::SingleFile => "single_file",
+                super::intent_engine::IntentScope::MultiFile => "multi_file",
+                super::intent_engine::IntentScope::CrossModule => "cross_module",
+                super::intent_engine::IntentScope::ProjectWide => "project_wide",
+            }
+            .to_string(),
+            targets: i.targets.clone(),
+            keywords: i.keywords.clone(),
+            language_hint: i.language_hint.clone(),
+            urgency: i.urgency,
+        });
+
+        let ctx_snap = context.map(|c| ContextSnapshot {
+            window_size: c.window_size,
+            tokens_used: c.total_tokens_sent,
+            tokens_saved: c.total_tokens_saved,
+            files_loaded: c
+                .entries
+                .iter()
+                .map(|e| LoadedFileInfo {
+                    path: e.path.clone(),
+                    mode: e.mode.clone(),
+                    tokens: e.sent_tokens,
+                })
+                .collect(),
+        });
+
+        HandoffPackage {
+            ledger,
+            intent: intent_snap,
+            context_snapshot: ctx_snap,
+        }
+    }
+
+    pub fn format_compact(&self) -> String {
+        let mut out = String::new();
+
+        out.push_str("--- HANDOFF ---\n");
+        if let Some(ref intent) = self.intent {
+            out.push_str(&format!(
+                "TASK: {} (scope: {}, conf: {})\n",
+                intent.task_type,
+                intent.scope,
+                if intent.urgency > 0.5 {
+                    "URGENT"
+                } else {
+                    "normal"
+                }
+            ));
+            if !intent.targets.is_empty() {
+                out.push_str(&format!("TARGETS: {}\n", intent.targets.join(", ")));
+            }
+            if let Some(ref lang) = intent.language_hint {
+                out.push_str(&format!("LANG: {lang}\n"));
+            }
+        }
+
+        if let Some(ref ctx) = self.context_snapshot {
+            out.push_str(&format!(
+                "CTX: {}/{} tokens, {} files, saved {}\n",
+                ctx.tokens_used,
+                ctx.window_size,
+                ctx.files_loaded.len(),
+                ctx.tokens_saved,
+            ));
+        }
+
+        if !self.ledger.session.decisions.is_empty() {
+            out.push_str("DECISIONS:\n");
+            for d in &self.ledger.session.decisions {
+                out.push_str(&format!("  - {d}\n"));
+            }
+        }
+
+        if !self.ledger.session.findings.is_empty() {
+            out.push_str("FINDINGS:\n");
+            for f in self.ledger.session.findings.iter().take(5) {
+                out.push_str(&format!("  - {f}\n"));
+            }
+        }
+
+        if !self.ledger.session.next_steps.is_empty() {
+            out.push_str("NEXT:\n");
+            for s in &self.ledger.session.next_steps {
+                out.push_str(&format!("  - {s}\n"));
+            }
+        }
+
+        out.push_str("---\n");
+        out
+    }
+}
+
 fn canonicalize_json(v: &Value) -> Value {
     match v {
         Value::Object(map) => {

@@ -1,6 +1,9 @@
 use serde_json::Value;
 
-pub fn get_str_array(args: &Option<serde_json::Map<String, Value>>, key: &str) -> Option<Vec<String>> {
+pub fn get_str_array(
+    args: &Option<serde_json::Map<String, Value>>,
+    key: &str,
+) -> Option<Vec<String>> {
     let arr = args.as_ref()?.get(key)?.as_array()?;
     let mut out = Vec::with_capacity(arr.len());
     for v in arr {
