@@ -42,6 +42,7 @@ pub mod psql;
 pub mod ruby;
 pub mod ruff;
 pub mod swift;
+pub mod sysinfo;
 pub mod systemd;
 pub mod terraform;
 pub mod test;
