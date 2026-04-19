@@ -55,9 +55,9 @@ pub fn build_targets(home: &Path) -> Vec<EditorTarget> {
         EditorTarget {
             name: "Gemini CLI",
             agent_key: "gemini".to_string(),
-            config_path: home.join(".gemini/settings/mcp.json"),
+            config_path: home.join(".gemini/settings.json"),
             detect_path: home.join(".gemini"),
-            config_type: ConfigType::McpJson,
+            config_type: ConfigType::GeminiSettings,
         },
         EditorTarget {
             name: "Antigravity",

@@ -3,6 +3,24 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.2.8] — 2026-04-20
+
+### Fixed
+- **Codex `config.toml` parse error** (empty `[]` section header): Uninstall left orphaned `[mcp_servers.lean-ctx.tools.*]` sub-sections when removing the main `[mcp_servers.lean-ctx]` section, producing an invalid empty `[]` header on re-setup. Uninstall now removes all `mcp_servers.lean-ctx.*` sub-sections, and the writer defensively skips `[]` lines.
+- **Gemini CLI MCP server not loading** (wrong config path): Setup wrote to `~/.gemini/settings/mcp.json` but Gemini CLI reads MCP servers from `~/.gemini/settings.json` under the `mcpServers` key. The MCP config was never loaded by Gemini CLI. Fixed with a new `GeminiSettings` writer that merges `mcpServers` into the existing `settings.json` without overwriting other keys (e.g. `hooks`).
+- **Gemini CLI `autoApprove` not recognized**: Gemini CLI uses `"trust": true` for auto-approval, not `autoApprove`. Fixed to use the correct field.
+- **Codex `codex_hooks=false` after reinstall**: Uninstall set `codex_hooks = false` but setup didn't reset it to `true`, leaving hooks disabled.
+
+### Added
+- **Autonomous intent inference**: `ctx_read` automatically infers a `StructuredIntent` from file access patterns (after 2+ files touched) without requiring explicit agent calls. `ctx_preload` auto-sets intent from task description when none is active or confidence is low.
+- **Auto agent registration**: MCP `initialize` handler automatically registers the connecting agent in the `AgentRegistry` based on client name (Cursor/Claude → coder, Antigravity/Gemini → explorer, etc.). Override via `LEAN_CTX_AGENT_ROLE` env var.
+- **Context Layer dashboard tab**: New "Context Layer" tab in the localhost dashboard with Pipeline Stats, Context Window pressure, Mode Distribution, and Context Ledger table. Backed by new API endpoints `/api/pipeline-stats`, `/api/context-ledger`, `/api/intent`.
+- **Pipeline & Ledger persistence**: `PipelineStats` and `ContextLedger` now persist to disk (`pipeline_stats.json`, `context_ledger.json`) so dashboard data survives server restarts.
+- **Codex/Cursor hooks in setup**: `lean-ctx setup` now explicitly installs Codex hook scripts and Cursor hooks as a dedicated step, ensuring hooks are present even on first setup.
+
+### Changed
+- **IDE config audit**: All 13 supported IDE configurations verified against official vendor documentation (Cursor, Claude Code, Codex, Windsurf, VS Code/Copilot, Gemini CLI, Antigravity, Amazon Q, Hermes, Cline, Roo Code, Amp, Kiro).
+
 ## [3.2.6] — 2026-04-19
 
 ### Fixed

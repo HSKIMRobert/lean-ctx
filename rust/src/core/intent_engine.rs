@@ -507,6 +507,68 @@ impl StructuredIntent {
         }
     }
 
+    pub fn from_file_patterns(touched_files: &[String]) -> Self {
+        if touched_files.is_empty() {
+            return Self {
+                task_type: TaskType::Explore,
+                confidence: 0.3,
+                targets: Vec::new(),
+                keywords: Vec::new(),
+                scope: IntentScope::SingleFile,
+                language_hint: None,
+                urgency: 0.0,
+                action_verb: None,
+            };
+        }
+
+        let has_tests = touched_files
+            .iter()
+            .any(|f| f.contains("test") || f.contains("spec"));
+        let has_config = touched_files.iter().any(|f| {
+            let lower = f.to_lowercase();
+            lower.ends_with(".toml")
+                || lower.ends_with(".yaml")
+                || lower.ends_with(".yml")
+                || lower.ends_with(".json")
+                || lower.contains("config")
+                || lower.contains(".env")
+        });
+
+        let dirs: std::collections::HashSet<&str> = touched_files
+            .iter()
+            .filter_map(|f| std::path::Path::new(f).parent()?.to_str())
+            .collect();
+
+        let task_type = if has_tests && touched_files.len() <= 3 {
+            TaskType::Test
+        } else if has_config && touched_files.len() <= 2 {
+            TaskType::Config
+        } else if dirs.len() > 3 {
+            TaskType::Refactor
+        } else {
+            TaskType::Explore
+        };
+
+        let scope = match touched_files.len() {
+            1 => IntentScope::SingleFile,
+            2..=4 => IntentScope::MultiFile,
+            _ => IntentScope::CrossModule,
+        };
+
+        let language_hint = detect_language_from_files(touched_files);
+
+        Self {
+            task_type,
+            confidence: 0.5,
+            targets: touched_files.to_vec(),
+            keywords: Vec::new(),
+            scope,
+            language_hint,
+            urgency: 0.0,
+            action_verb: None,
+        }
+    }
+
     pub fn from_query_with_session(query: &str, touched_files: &[String]) -> Self {
         let mut intent = Self::from_query(query);
 

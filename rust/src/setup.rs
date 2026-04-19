@@ -434,6 +434,47 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
     }
     steps.push(rules_step);
 
+    // Step: Agent-specific hooks (Codex, Cursor)
+    let mut hooks_step = SetupStepReport {
+        name: "agent_hooks".to_string(),
+        ok: true,
+        items: Vec::new(),
+        warnings: Vec::new(),
+        errors: Vec::new(),
+    };
+    for target in &targets {
+        if !target.detect_path.exists() {
+            continue;
+        }
+        match target.agent_key.as_str() {
+            "codex" => {
+                crate::hooks::agents::install_codex_hook();
+                hooks_step.items.push(SetupItem {
+                    name: "Codex hooks".to_string(),
+                    status: "installed".to_string(),
+                    path: Some("~/.codex/hooks/".to_string()),
+                    note: None,
+                });
+            }
+            "cursor" => {
+                let hooks_path = home.join(".cursor/hooks.json");
+                if !hooks_path.exists() {
+                    crate::hooks::agents::install_cursor_hook(true);
+                    hooks_step.items.push(SetupItem {
+                        name: "Cursor hooks".to_string(),
+                        status: "installed".to_string(),
+                        path: Some("~/.cursor/hooks.json".to_string()),
+                        note: None,
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+    if !hooks_step.items.is_empty() {
+        steps.push(hooks_step);
+    }
+
     // Step: Proxy env vars
     let mut proxy_step = SetupStepReport {
         name: "proxy_env".to_string(),
@@ -546,8 +587,8 @@ pub fn configure_agent_mcp(agent: &str) -> Result<(), String> {
             push(
                 &mut targets,
                 "Gemini CLI",
-                home.join(".gemini/settings/mcp.json"),
-                ConfigType::McpJson,
+                home.join(".gemini/settings.json"),
+                ConfigType::GeminiSettings,
             );
             push(
                 &mut targets,

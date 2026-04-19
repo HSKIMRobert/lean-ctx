@@ -43,6 +43,7 @@ pub fn write_config_with_options(
         ConfigType::JetBrains => write_jetbrains_config(target, binary, opts),
         ConfigType::Amp => write_amp_config(target, binary, opts),
         ConfigType::HermesYaml => write_hermes_yaml(target, binary, opts),
+        ConfigType::GeminiSettings => write_gemini_settings(target, binary, opts),
     }
 }
 
@@ -728,6 +729,9 @@ fn upsert_codex_toml(existing: &str, binary: &str) -> String {
 
     for line in existing.lines() {
         let trimmed = line.trim();
+        if trimmed == "[]" {
+            continue;
+        }
         if trimmed.starts_with('[') && trimmed.ends_with(']') {
             if in_section && !wrote_command {
                 out.push_str(&format!("command = \"{}\"\n", binary));
@@ -780,6 +784,74 @@ fn upsert_codex_toml(existing: &str, binary: &str) -> String {
     out.push_str(&format!("command = \"{}\"\n", binary));
     out.push_str("args = []\n");
     out
+}
+
+fn write_gemini_settings(
+    target: &EditorTarget,
+    binary: &str,
+    opts: WriteOptions,
+) -> Result<WriteResult, String> {
+    let data_dir = crate::core::data_dir::lean_ctx_data_dir()
+        .map(|d| d.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let entry = serde_json::json!({
+        "command": binary,
+        "env": { "LEAN_CTX_DATA_DIR": data_dir },
+        "trust": true,
+    });
+
+    if target.config_path.exists() {
+        let content = std::fs::read_to_string(&target.config_path).map_err(|e| e.to_string())?;
+        let mut json = match serde_json::from_str::<Value>(&content) {
+            Ok(v) => v,
+            Err(e) => {
+                if !opts.overwrite_invalid {
+                    return Err(e.to_string());
+                }
+                backup_invalid_file(&target.config_path)?;
+                let fresh = serde_json::json!({ "mcpServers": { "lean-ctx": entry } });
+                let formatted = serde_json::to_string_pretty(&fresh).map_err(|e| e.to_string())?;
+                crate::config_io::write_atomic_with_backup(&target.config_path, &formatted)?;
+                return Ok(WriteResult {
+                    action: WriteAction::Updated,
+                    note: Some("overwrote invalid JSON".to_string()),
+                });
+            }
+        };
+        let obj = json
+            .as_object_mut()
+            .ok_or_else(|| "root JSON must be an object".to_string())?;
+        let servers = obj
+            .entry("mcpServers")
+            .or_insert_with(|| serde_json::json!({}));
+        let servers_obj = servers
+            .as_object_mut()
+            .ok_or_else(|| "\"mcpServers\" must be an object".to_string())?;
+
+        let existing = servers_obj.get("lean-ctx").cloned();
+        if existing.as_ref() == Some(&entry) {
+            return Ok(WriteResult {
+                action: WriteAction::Already,
+                note: None,
+            });
+        }
+        servers_obj.insert("lean-ctx".to_string(), entry);
+
+        let formatted = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
+        crate::config_io::write_atomic_with_backup(&target.config_path, &formatted)?;
+        return Ok(WriteResult {
+            action: WriteAction::Updated,
+            note: None,
+        });
+    }
+
+    let config = serde_json::json!({ "mcpServers": { "lean-ctx": entry } });
+    let formatted = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
+    crate::config_io::write_atomic_with_backup(&target.config_path, &formatted)?;
+    Ok(WriteResult {
+        action: WriteAction::Created,
+        note: None,
+    })
 }
 
 fn write_hermes_yaml(

@@ -176,7 +176,11 @@ fn remove_mcp_configs(home: &Path) -> bool {
         ("Claude Code (config dir)", claude_cfg_dir_json),
         ("Claude Code (home)", home.join(".claude.json")),
         ("Windsurf", home.join(".codeium/windsurf/mcp_config.json")),
-        ("Gemini CLI", home.join(".gemini/settings/mcp.json")),
+        ("Gemini CLI", home.join(".gemini/settings.json")),
+        (
+            "Gemini CLI (legacy)",
+            home.join(".gemini/settings/mcp.json"),
+        ),
         (
             "Antigravity",
             home.join(".gemini/antigravity/mcp_config.json"),
@@ -615,17 +619,21 @@ fn remove_lean_ctx_from_toml(content: &str) -> String {
     for line in content.lines() {
         let trimmed = line.trim();
 
-        if trimmed == "[mcp_servers.lean-ctx]" || trimmed == "[mcp_servers.\"lean-ctx\"]" {
-            skip = true;
-            continue;
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            let section = trimmed.trim_start_matches('[').trim_end_matches(']').trim();
+            if section == "mcp_servers.lean-ctx"
+                || section == "mcp_servers.\"lean-ctx\""
+                || section.starts_with("mcp_servers.lean-ctx.")
+                || section.starts_with("mcp_servers.\"lean-ctx\".")
+            {
+                skip = true;
+                continue;
+            }
+            skip = false;
         }
 
         if skip {
-            if trimmed.starts_with('[') {
-                skip = false;
-            } else {
-                continue;
-            }
+            continue;
         }
 
         if trimmed.contains("codex_hooks") && trimmed.contains("true") {
@@ -638,7 +646,16 @@ fn remove_lean_ctx_from_toml(content: &str) -> String {
         out.push('\n');
     }
 
-    out
+    let cleaned: String = out
+        .lines()
+        .filter(|l| l.trim() != "[]")
+        .collect::<Vec<_>>()
+        .join("\n");
+    if cleaned.is_empty() {
+        cleaned
+    } else {
+        cleaned + "\n"
+    }
 }
 
 fn shorten(path: &Path, home: &Path) -> String {

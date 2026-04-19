@@ -650,6 +650,7 @@ tr:hover td{background:var(--surface-2)}
     <section id="view-symbols" class="view"></section>
     <section id="view-callgraph" class="view"></section>
     <section id="view-routes" class="view"></section>
+    <section id="view-contextlayer" class="view"></section>
       </div>
   </main>
 </div>
@@ -715,6 +716,7 @@ const VIEWS = [
   { id:'symbols',     label:'Symbol Explorer', icon:'<path d="M20 7h-7L10 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z"/>' },
   { id:'callgraph',   label:'Call Graph',      icon:'<circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><circle cx="18" cy="6" r="3"/><line x1="8.5" y1="7.5" x2="15.5" y2="16.5"/><line x1="8.5" y1="6" x2="15.5" y2="6"/>' },
   { id:'routes',      label:'Route Map',       icon:'<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>' },
+  { id:'contextlayer', label:'Context Layer',  icon:'<path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>' },
 ];
 
 let currentView = 'overview';
@@ -790,6 +792,7 @@ function loadCurrentView() {
     symbols: loadSymbols,
     callgraph: loadCallGraph,
     routes: loadRoutes,
+    contextlayer: loadContextLayer,
   };
   if (loaders[currentView]) {
     const result = loaders[currentView]();
@@ -2630,6 +2633,136 @@ async function loadRoutes() {
       + `</tbody></table></div></div>`;
   } catch (e) { showError(container, 'Could not load routes.'); }
 }
+
+async function loadContextLayer() {
+  const container = $('view-contextlayer');
+  if (!container) return;
+  container.innerHTML = '<div style="color:var(--muted);padding:16px">Loading Context Layer…</div>';
+  try {
+    const [pipeline, ledger, intent] = await Promise.all([
+      apiFetch('/api/pipeline-stats', { timeoutMs: 5000 }).catch(() => ({})),
+      apiFetch('/api/context-ledger', { timeoutMs: 5000 }).catch(() => ({})),
+      apiFetch('/api/intent', { timeoutMs: 5000 }).catch(() => ({active:false})),
+    ]);
+
+    const pRuns = pipeline.runs || 0;
+    const pSaved = Object.values(pipeline.per_layer || {}).reduce((s,a) => s + (a.total_input_tokens||0) - (a.total_output_tokens||0), 0);
+    const lEntries = ledger.entries_count || 0;
+    const lSent = ledger.total_tokens_sent || 0;
+    const lSaved = ledger.total_tokens_saved || 0;
+    const lRatio = ledger.compression_ratio || 0;
+    const pressure = ledger.pressure || {};
+    const pUtil = ((pressure.utilization || 0) * 100).toFixed(0);
+    const pRec = pressure.recommendation || 'NoAction';
+    const modeDist = ledger.mode_distribution || {};
+    const entries = ledger.entries || [];
+    const intentActive = intent.active || false;
+    const intentData = intent.intent || {};
+
+    const pressureColor = pUtil > 80 ? 'var(--red)' : pUtil > 60 ? 'var(--yellow)' : 'var(--green)';
+    const pressureLabel = pRec === 'NoAction' ? 'Healthy' : pRec === 'SuggestCompression' ? 'Elevated' : pRec === 'ForceCompression' ? 'High' : 'Critical';
+
+    container.innerHTML = `
+      <div class="row r4" style="margin-bottom:16px">
+        <div class="hc"><div class="hv" style="color:var(--green);font-size:24px">${fmt(pSaved)}</div><div class="hl">Pipeline Tokens Saved</div></div>
+        <div class="hc"><div class="hv" style="color:var(--blue);font-size:24px">${pRuns}</div><div class="hl">Pipeline Runs</div></div>
+        <div class="hc"><div class="hv" style="color:var(--purple);font-size:24px">${lEntries}</div><div class="hl">Ledger Entries</div></div>
+        <div class="hc"><div class="hv" style="color:${pressureColor};font-size:24px">${pUtil}%</div><div class="hl">Context Pressure</div></div>
+      </div>
+
+      <div class="row" style="gap:16px;margin-bottom:16px">
+        <div class="card" style="flex:1">
+          <h3>Active Intent</h3>
+          ${intentActive
+            ? `<div style="margin-top:8px">
+                <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+                  <span style="background:var(--green-dim);color:var(--green);padding:3px 10px;border-radius:4px;font-size:11px;font-weight:700;border:1px solid var(--green)33">ACTIVE</span>
+                  <span style="color:var(--text-bright);font-weight:600">${esc(intentData.task_type || 'unknown')}</span>
+                  <span style="color:var(--muted);font-size:12px">conf: ${((intentData.confidence||0)*100).toFixed(0)}%</span>
+                </div>
+                <div style="font-size:12px;color:var(--muted)">Scope: ${esc(intentData.scope || '—')}</div>
+                ${(intentData.targets||[]).length ? `<div style="font-size:12px;color:var(--muted);margin-top:4px">Targets: ${intentData.targets.map(t => `<code style="background:var(--surface-2);padding:1px 6px;border-radius:3px;font-size:11px">${esc(t)}</code>`).join(' ')}</div>` : ''}
+                ${intentData.language_hint ? `<div style="font-size:12px;color:var(--muted);margin-top:4px">Language: ${esc(intentData.language_hint)}</div>` : ''}
+              </div>`
+            : '<div style="color:var(--muted);margin-top:8px;font-size:13px">No active intent detected yet. Intent is auto-inferred from file access patterns and preload queries.</div>'
+          }
+        </div>
+        <div class="card" style="flex:1">
+          <h3>Context Window</h3>
+          <div style="margin-top:8px">
+            <div style="background:var(--surface-2);border-radius:8px;height:20px;overflow:hidden;margin-bottom:8px;border:1px solid var(--border)">
+              <div style="height:100%;width:${Math.min(100,pUtil)}%;background:linear-gradient(90deg,var(--green),${pressureColor});border-radius:8px;transition:width 0.5s"></div>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted)">
+              <span>${fmt(lSent)} tokens sent</span>
+              <span>${fmt(pressure.remaining_tokens || 0)} remaining</span>
+            </div>
+            <div style="margin-top:8px;font-size:12px;color:${pressureColor};font-weight:600">${pressureLabel}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row" style="gap:16px;margin-bottom:16px">
+        <div class="card" style="flex:1">
+          <h3>Pipeline Layers</h3>
+          <div style="margin-top:8px">
+            ${Object.entries(pipeline.per_layer || {}).map(([layer, agg]) => {
+              const ratio = agg.total_input_tokens ? ((1 - agg.total_output_tokens / agg.total_input_tokens) * 100).toFixed(1) : '0.0';
+              const avgMs = agg.count ? (agg.total_duration_us / agg.count / 1000).toFixed(1) : '0.0';
+              return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                <span style="width:100px;font-size:12px;color:var(--text-bright);font-weight:600">${esc(layer)}</span>
+                <div style="flex:1;background:var(--surface-2);border-radius:4px;height:12px;overflow:hidden">
+                  <div style="height:100%;width:${Math.min(100,ratio)}%;background:var(--green);border-radius:4px"></div>
+                </div>
+                <span style="font-size:11px;color:var(--green);width:50px;text-align:right">${ratio}%</span>
+                <span style="font-size:11px;color:var(--muted);width:60px;text-align:right">${avgMs}ms</span>
+                <span style="font-size:11px;color:var(--muted);width:40px;text-align:right">${agg.count}x</span>
+              </div>`;
+            }).join('') || '<div style="color:var(--muted);font-size:13px">No pipeline data yet. Data appears after MCP tool calls.</div>'}
+          </div>
+        </div>
+        <div class="card" style="flex:1">
+          <h3>Mode Distribution</h3>
+          <div style="margin-top:8px">
+            ${Object.entries(modeDist).map(([mode, count]) => {
+              const total = Object.values(modeDist).reduce((s,c) => s+c, 0);
+              const pct = total ? (count / total * 100).toFixed(0) : 0;
+              const colors = {full:'var(--blue)',map:'var(--green)',signatures:'var(--purple)',aggressive:'var(--yellow)',entropy:'var(--pink)',diff:'var(--red)'};
+              return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                <span style="width:90px;font-size:12px;color:var(--text-bright)">${esc(mode)}</span>
+                <div style="flex:1;background:var(--surface-2);border-radius:4px;height:12px;overflow:hidden">
+                  <div style="height:100%;width:${pct}%;background:${colors[mode]||'var(--muted)'};border-radius:4px"></div>
+                </div>
+                <span style="font-size:11px;color:var(--muted);width:50px;text-align:right">${count}x (${pct}%)</span>
+              </div>`;
+            }).join('') || '<div style="color:var(--muted);font-size:13px">No mode data yet.</div>'}
+          </div>
+        </div>
+      </div>
+
+      ${entries.length ? `
+      <div class="card">
+        <h3>Context Ledger (last ${entries.length} entries)</h3>
+        <div style="overflow-x:auto;margin-top:8px">
+          <table><thead><tr><th>File</th><th>Mode</th><th class="r">Original</th><th class="r">Sent</th><th class="r">Saved</th></tr></thead><tbody>
+          ${entries.map(e => {
+            const saved = e.original_tokens - e.sent_tokens;
+            const pctSaved = e.original_tokens ? ((saved / e.original_tokens) * 100).toFixed(0) : 0;
+            return `<tr>
+              <td style="font-family:var(--mono);font-size:11px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-bright)">${esc(e.path)}</td>
+              <td><span style="background:var(--surface-2);padding:2px 8px;border-radius:3px;font-size:10px;font-weight:600">${esc(e.mode)}</span></td>
+              <td class="r" style="font-size:12px">${fmt(e.original_tokens)}</td>
+              <td class="r" style="font-size:12px;color:var(--green)">${fmt(e.sent_tokens)}</td>
+              <td class="r" style="font-size:12px;color:var(--green);font-weight:600">${pctSaved}%</td>
+            </tr>`;
+          }).join('')}
+          </tbody></table>
+        </div>
+      </div>` : ''}
+    `;
+  } catch (e) { showError(container, 'Could not load Context Layer data.'); }
+}
+
 buildSidebar();
 loadCurrentView();
 checkPulse();

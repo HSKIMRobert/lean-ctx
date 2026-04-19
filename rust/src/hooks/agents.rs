@@ -299,7 +299,7 @@ pub(super) fn install_claude_project_hooks(cwd: &std::path::Path) {
     println!("Created .claude/settings.local.json (project-local PreToolUse hooks).");
 }
 
-pub(super) fn install_cursor_hook(global: bool) {
+pub fn install_cursor_hook(global: bool) {
     let home = match dirs::home_dir() {
         Some(h) => h,
         None => {
@@ -525,7 +525,7 @@ pub(super) fn install_gemini_hook_config(home: &std::path::Path) {
     }
 }
 
-pub(super) fn install_codex_hook() {
+pub fn install_codex_hook() {
     let home = match dirs::home_dir() {
         Some(h) => h,
         None => {

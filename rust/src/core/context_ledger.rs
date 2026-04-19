@@ -149,6 +149,24 @@ impl ContextLedger {
         }
     }
 
+    pub fn save(&self) {
+        if let Ok(dir) = crate::core::data_dir::lean_ctx_data_dir() {
+            let path = dir.join("context_ledger.json");
+            if let Ok(json) = serde_json::to_string(self) {
+                let _ = std::fs::write(path, json);
+            }
+        }
+    }
+
+    pub fn load() -> Self {
+        crate::core::data_dir::lean_ctx_data_dir()
+            .ok()
+            .map(|d| d.join("context_ledger.json"))
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
+    }
+
     pub fn format_summary(&self) -> String {
         let pressure = self.pressure();
         format!(

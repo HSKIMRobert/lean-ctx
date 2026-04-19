@@ -61,12 +61,36 @@ impl ServerHandler for LeanCtxServer {
             let _ = session.save();
         }
 
-        tokio::task::spawn_blocking(|| {
+        let agent_name = name.clone();
+        let agent_root = derived_root.clone().unwrap_or_default();
+        let agent_id_handle = self.agent_id.clone();
+        tokio::task::spawn_blocking(move || {
             if let Some(home) = dirs::home_dir() {
                 let _ = crate::rules_inject::inject_all_rules(&home);
             }
             crate::hooks::refresh_installed_hooks();
             crate::core::version_check::check_background();
+
+            if !agent_root.is_empty() {
+                let role = match agent_name.to_lowercase().as_str() {
+                    n if n.contains("cursor") => Some("coder"),
+                    n if n.contains("claude") => Some("coder"),
+                    n if n.contains("codex") => Some("coder"),
+                    n if n.contains("antigravity") || n.contains("gemini") => Some("explorer"),
+                    n if n.contains("review") => Some("reviewer"),
+                    n if n.contains("test") => Some("tester"),
+                    _ => None,
+                };
+                let env_role = std::env::var("LEAN_CTX_AGENT_ROLE").ok();
+                let effective_role = env_role.as_deref().or(role);
+                let mut registry = crate::core::agents::AgentRegistry::load_or_create();
+                registry.cleanup_stale(24);
+                let id = registry.register("mcp", effective_role, &agent_root);
+                let _ = registry.save();
+                if let Ok(mut guard) = agent_id_handle.try_write() {
+                    *guard = Some(id);
+                }
+            }
         });
 
         let instructions =

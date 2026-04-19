@@ -523,6 +523,70 @@ fn route_response(
             }
             ("200 OK", "text/html; charset=utf-8", html)
         }
+        "/api/pipeline-stats" => {
+            let stats = crate::core::pipeline::PipelineStats::load();
+            let json = serde_json::to_string(&stats).unwrap_or_else(|_| "{}".to_string());
+            ("200 OK", "application/json", json)
+        }
+        "/api/context-ledger" => {
+            let ledger = crate::core::context_ledger::ContextLedger::load();
+            let pressure = ledger.pressure();
+            let payload = serde_json::json!({
+                "window_size": ledger.window_size,
+                "entries_count": ledger.entries.len(),
+                "total_tokens_sent": ledger.total_tokens_sent,
+                "total_tokens_saved": ledger.total_tokens_saved,
+                "compression_ratio": ledger.compression_ratio(),
+                "pressure": {
+                    "utilization": pressure.utilization,
+                    "remaining_tokens": pressure.remaining_tokens,
+                    "recommendation": format!("{:?}", pressure.recommendation),
+                },
+                "mode_distribution": ledger.mode_distribution(),
+                "entries": ledger.entries.iter().take(50).collect::<Vec<_>>(),
+            });
+            let json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+            ("200 OK", "application/json", json)
+        }
+        "/api/intent" => {
+            let session_path = crate::core::data_dir::lean_ctx_data_dir()
+                .ok()
+                .map(|d| d.join("sessions"));
+            let mut intent_data = serde_json::json!({"active": false});
+            if let Some(dir) = session_path {
+                if let Ok(entries) = std::fs::read_dir(&dir) {
+                    let mut newest: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
+                    for e in entries.flatten() {
+                        if e.path().extension().is_some_and(|ext| ext == "json") {
+                            if let Ok(meta) = e.metadata() {
+                                let mtime = meta.modified().unwrap_or(std::time::UNIX_EPOCH);
+                                if newest.as_ref().is_none_or(|(t, _)| mtime > *t) {
+                                    newest = Some((mtime, e.path()));
+                                }
+                            }
+                        }
+                    }
+                    if let Some((_, path)) = newest {
+                        if let Ok(content) = std::fs::read_to_string(&path) {
+                            if let Ok(session) = serde_json::from_str::<serde_json::Value>(&content)
+                            {
+                                if let Some(intent) = session.get("active_structured_intent") {
+                                    if !intent.is_null() {
+                                        intent_data = serde_json::json!({
+                                            "active": true,
+                                            "intent": intent,
+                                            "session_file": path.file_name().unwrap_or_default().to_string_lossy(),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            let json = serde_json::to_string(&intent_data).unwrap_or_else(|_| "{}".to_string());
+            ("200 OK", "application/json", json)
+        }
         "/favicon.ico" => ("204 No Content", "text/plain", String::new()),
         _ => ("404 Not Found", "text/plain", "Not Found".to_string()),
     }

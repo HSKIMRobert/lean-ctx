@@ -20,4 +20,5 @@ pub enum ConfigType {
     JetBrains,
     Amp,
     HermesYaml,
+    GeminiSettings,
 }

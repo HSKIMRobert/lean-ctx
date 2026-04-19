@@ -78,6 +78,22 @@ impl LeanCtxServer {
                     if is_cache_hit {
                         session.record_cache_hit();
                     }
+                    if session.active_structured_intent.is_none()
+                        && session.files_touched.len() >= 2
+                    {
+                        let touched: Vec<String> = session
+                            .files_touched
+                            .iter()
+                            .map(|f| f.path.clone())
+                            .collect();
+                        let inferred =
+                            crate::core::intent_engine::StructuredIntent::from_file_patterns(
+                                &touched,
+                            );
+                        if inferred.confidence >= 0.4 {
+                            session.active_structured_intent = Some(inferred);
+                        }
+                    }
                     let root_missing = session
                         .project_root
                         .as_deref()
@@ -109,6 +125,7 @@ impl LeanCtxServer {
                 {
                     let mut ledger = self.ledger.write().await;
                     ledger.record(&path, &resolved_mode, original, output_tokens);
+                    ledger.save();
                 }
                 {
                     let mut stats = self.pipeline_stats.write().await;
@@ -118,6 +135,7 @@ impl LeanCtxServer {
                         output_tokens,
                         read_start.elapsed(),
                     );
+                    stats.save();
                 }
                 {
                     let sig =
@@ -936,6 +954,18 @@ impl LeanCtxServer {
                     self.crp_mode,
                 );
                 drop(cache);
+
+                {
+                    let mut session = self.session.write().await;
+                    if session.active_structured_intent.is_none()
+                        || session
+                            .active_structured_intent
+                            .as_ref()
+                            .is_none_or(|i| i.confidence < 0.6)
+                    {
+                        session.set_task(&task, Some("preload"));
+                    }
+                }
 
                 let session = self.session.read().await;
                 if let Some(ref intent) = session.active_structured_intent {
