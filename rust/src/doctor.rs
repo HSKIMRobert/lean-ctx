@@ -100,6 +100,16 @@ fn rc_has_pipe_guard(path: &PathBuf) -> bool {
     }
 }
 
+fn is_active_shell(rc_name: &str) -> bool {
+    let shell = std::env::var("SHELL").unwrap_or_default();
+    match rc_name {
+        "~/.zshrc" => shell.contains("zsh"),
+        "~/.bashrc" => shell.contains("bash") || shell.is_empty(),
+        "~/.config/fish/config.fish" => shell.contains("fish"),
+        _ => true,
+    }
+}
+
 fn shell_aliases_outcome() -> Outcome {
     let home = match dirs::home_dir() {
         Some(h) => h,
@@ -119,14 +129,14 @@ fn shell_aliases_outcome() -> Outcome {
     let zsh = home.join(".zshrc");
     if rc_contains_lean_ctx(&zsh) {
         parts.push(format!("{DIM}~/.zshrc{RST}"));
-        if !rc_has_pipe_guard(&zsh) {
+        if !rc_has_pipe_guard(&zsh) && is_active_shell("~/.zshrc") {
             needs_update.push("~/.zshrc");
         }
     }
     let bash = home.join(".bashrc");
     if rc_contains_lean_ctx(&bash) {
         parts.push(format!("{DIM}~/.bashrc{RST}"));
-        if !rc_has_pipe_guard(&bash) {
+        if !rc_has_pipe_guard(&bash) && is_active_shell("~/.bashrc") {
             needs_update.push("~/.bashrc");
         }
     }
@@ -134,7 +144,7 @@ fn shell_aliases_outcome() -> Outcome {
     let fish = home.join(".config").join("fish").join("config.fish");
     if rc_contains_lean_ctx(&fish) {
         parts.push(format!("{DIM}~/.config/fish/config.fish{RST}"));
-        if !rc_has_pipe_guard(&fish) {
+        if !rc_has_pipe_guard(&fish) && is_active_shell("~/.config/fish/config.fish") {
             needs_update.push("~/.config/fish/config.fish");
         }
     }
@@ -383,37 +393,6 @@ fn mcp_config_locations(home: &std::path::Path) -> Vec<McpLocation> {
     }
 
     locations
-}
-
-fn docker_bash_env_outcome() -> Option<Outcome> {
-    if !crate::shell::is_container() {
-        return None;
-    }
-    let shell_name = std::env::var("SHELL").unwrap_or_default();
-    let is_bash = shell_name.contains("bash") || shell_name.is_empty();
-    if !is_bash {
-        return None;
-    }
-    let has_bash_env = std::env::var("BASH_ENV").is_ok();
-    if has_bash_env {
-        Some(Outcome {
-            ok: true,
-            line: format!(
-                "{BOLD}BASH_ENV{RST}  {GREEN}set{RST}  {DIM}({}){RST}",
-                std::env::var("BASH_ENV").unwrap_or_default()
-            ),
-        })
-    } else {
-        let env_sh = crate::core::data_dir::lean_ctx_data_dir()
-            .map(|d| d.join("env.sh").to_string_lossy().to_string())
-            .unwrap_or_else(|_| "/root/.lean-ctx/env.sh".to_string());
-        Some(Outcome {
-            ok: false,
-            line: format!(
-                "{BOLD}BASH_ENV{RST}  {RED}not set{RST}  {YELLOW}(Docker detected — add to Dockerfile: ENV BASH_ENV=\"{env_sh}\"){RST}"
-            ),
-        })
-    }
 }
 
 fn mcp_config_outcome() -> Outcome {
@@ -798,16 +777,7 @@ pub fn run() {
     }
     print_check(&aliases);
 
-    // 7) Docker BASH_ENV (only shown when in a container)
-    let docker_outcome = docker_bash_env_outcome();
-    if let Some(ref docker_check) = docker_outcome {
-        if docker_check.ok {
-            passed += 1;
-        }
-        print_check(docker_check);
-    }
-
-    // 8) MCP
+    // 7) MCP
     let mcp = mcp_config_outcome();
     if mcp.ok {
         passed += 1;

@@ -163,8 +163,12 @@ fn print_human(report: &StatusReport, path: &std::path::Path) {
             setup.finished_at.to_rfc3339(),
             setup.success
         );
+    } else if report.doctor_compact_passed == report.doctor_compact_total {
+        println!("  last setup: (manual install — all checks pass)");
     } else {
-        println!("  last setup: (none)");
+        println!(
+            "  last setup: (none) — run \x1b[1mlean-ctx setup\x1b[0m to configure"
+        );
     }
 
     let detected = report.mcp_targets.len();

@@ -176,7 +176,7 @@ pub fn init_fish(binary: &str) {
         \tend\n\
         \talias k '_lc kubectl'\n\
         \tset -gx LEAN_CTX_ENABLED 1\n\
-        \techo 'lean-ctx: ON (track mode — full output, stats recorded)'\n\
+        \tisatty stdout; and echo 'lean-ctx: ON (track mode — full output, stats recorded)'\n\
         end\n\
         \n\
         function lean-ctx-off\n\
@@ -185,7 +185,7 @@ pub fn init_fish(binary: &str) {
         \tend\n\
         \tfunctions --erase k 2>/dev/null; true\n\
         \tset -e LEAN_CTX_ENABLED\n\
-        \techo 'lean-ctx: OFF'\n\
+        \tisatty stdout; and echo 'lean-ctx: OFF'\n\
         end\n\
         \n\
         function lean-ctx-mode\n\
@@ -196,7 +196,7 @@ pub fn init_fish(binary: &str) {
         \t\t\t\tend\n\
         \t\t\talias k '_lc_compress kubectl'\n\
         \t\t\tset -gx LEAN_CTX_ENABLED 1\n\
-        \t\t\techo 'lean-ctx: COMPRESS mode (all output compressed)'\n\
+        \t\t\tisatty stdout; and echo 'lean-ctx: COMPRESS mode (all output compressed)'\n\
         \t\tcase track\n\
         \t\t\tlean-ctx-on\n\
         \t\tcase off\n\
@@ -216,11 +216,11 @@ pub fn init_fish(binary: &str) {
         \n\
         function lean-ctx-status\n\
         \tif set -q LEAN_CTX_DISABLED\n\
-        \t\techo 'lean-ctx: DISABLED (LEAN_CTX_DISABLED is set)'\n\
+        \t\tisatty stdout; and echo 'lean-ctx: DISABLED (LEAN_CTX_DISABLED is set)'\n\
         \telse if set -q LEAN_CTX_ENABLED\n\
-        \t\techo 'lean-ctx: ON'\n\
+        \t\tisatty stdout; and echo 'lean-ctx: ON'\n\
         \telse\n\
-        \t\techo 'lean-ctx: OFF'\n\
+        \t\tisatty stdout; and echo 'lean-ctx: OFF'\n\
         \tend\n\
         end\n\
         \n\
@@ -318,7 +318,7 @@ lean-ctx-on() {{
     done
     alias k='_lc kubectl'
     export LEAN_CTX_ENABLED=1
-    echo "lean-ctx: ON (track mode — full output, stats recorded)"
+    [ -t 1 ] && echo "lean-ctx: ON (track mode — full output, stats recorded)"
 }}
 
 lean-ctx-off() {{
@@ -327,7 +327,7 @@ lean-ctx-off() {{
     done
     unalias k 2>/dev/null || true
     unset LEAN_CTX_ENABLED
-    echo "lean-ctx: OFF"
+    [ -t 1 ] && echo "lean-ctx: OFF"
 }}
 
 lean-ctx-mode() {{
@@ -339,7 +339,7 @@ lean-ctx-mode() {{
             done
             alias k='_lc_compress kubectl'
             export LEAN_CTX_ENABLED=1
-            echo "lean-ctx: COMPRESS mode (all output compressed)"
+            [ -t 1 ] && echo "lean-ctx: COMPRESS mode (all output compressed)"
             ;;
         track)
             lean-ctx-on
@@ -362,11 +362,11 @@ lean-ctx-raw() {{
 
 lean-ctx-status() {{
     if [ -n "${{LEAN_CTX_DISABLED:-}}" ]; then
-        echo "lean-ctx: DISABLED (LEAN_CTX_DISABLED is set)"
+        [ -t 1 ] && echo "lean-ctx: DISABLED (LEAN_CTX_DISABLED is set)"
     elif [ -n "${{LEAN_CTX_ENABLED:-}}" ]; then
-        echo "lean-ctx: ON"
+        [ -t 1 ] && echo "lean-ctx: ON"
     else
-        echo "lean-ctx: OFF"
+        [ -t 1 ] && echo "lean-ctx: OFF"
     fi
 }}
 
@@ -696,12 +696,12 @@ lean-ctx-on() {
         alias "$_lc_cmd"='lean-ctx -c '"$_lc_cmd"
     done
     export LEAN_CTX_ENABLED=1
-    echo "lean-ctx: ON"
+    [ -t 1 ] && echo "lean-ctx: ON"
 }
 
 lean-ctx-off() {
     unset LEAN_CTX_ENABLED
-    echo "lean-ctx: OFF"
+    [ -t 1 ] && echo "lean-ctx: OFF"
 }
 
 if [ -z "${LEAN_CTX_ACTIVE:-}" ] && [ "${LEAN_CTX_ENABLED:-1}" != "0" ]; then

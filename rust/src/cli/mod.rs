@@ -1426,12 +1426,12 @@ lean-ctx-on() {
         alias "$_lc_cmd"='lean-ctx -c '"$_lc_cmd"
     done
     export LEAN_CTX_ENABLED=1
-    echo "lean-ctx: ON"
+    [ -t 1 ] && echo "lean-ctx: ON"
 }
 
 lean-ctx-off() {
     unset LEAN_CTX_ENABLED
-    echo "lean-ctx: OFF"
+    [ -t 1 ] && echo "lean-ctx: OFF"
 }
 
 if [ -z "${LEAN_CTX_ACTIVE:-}" ] && [ "${LEAN_CTX_ENABLED:-1}" != "0" ]; then
