@@ -284,6 +284,53 @@ pub fn handle(
             out
         }
 
-        _ => format!("Unknown action: {action}. Use: register, list, post, read, status, info, handoff, sync, diary, recall_diary, diaries"),
+        "share_knowledge" => {
+            let cat = category.unwrap_or("general");
+            let msg_text = match message {
+                Some(m) => m,
+                None => return "Error: message required (format: key1=value1;key2=value2)".to_string(),
+            };
+            let facts: Vec<(String, String)> = msg_text
+                .split(';')
+                .filter_map(|kv| {
+                    let (k, v) = kv.split_once('=')?;
+                    Some((k.trim().to_string(), v.trim().to_string()))
+                })
+                .collect();
+            if facts.is_empty() {
+                return "Error: no valid key=value pairs found".to_string();
+            }
+            let from = current_agent_id.unwrap_or("anonymous");
+            let mut registry = AgentRegistry::load_or_create();
+            registry.share_knowledge(from, cat, &facts);
+            match registry.save() {
+                Ok(()) => format!("Shared {} facts in category '{}'", facts.len(), cat),
+                Err(e) => format!("Share failed: {e}"),
+            }
+        }
+
+        "receive_knowledge" => {
+            let agent_id = match current_agent_id {
+                Some(id) => id,
+                None => return "Error: agent must be registered first".to_string(),
+            };
+            let mut registry = AgentRegistry::load_or_create();
+            let facts = registry.receive_shared_knowledge(agent_id);
+            let _ = registry.save();
+            if facts.is_empty() {
+                return "No new shared knowledge.".to_string();
+            }
+            let mut out = format!("Received {} facts:\n", facts.len());
+            for f in &facts {
+                let age = (chrono::Utc::now() - f.timestamp).num_minutes();
+                out.push_str(&format!(
+                    "  [{}] {}={} (from {}, {}m ago)\n",
+                    f.category, f.key, f.value, f.from_agent, age
+                ));
+            }
+            out
+        }
+
+        _ => format!("Unknown action: {action}. Use: register, list, post, read, status, info, handoff, sync, diary, recall_diary, diaries, share_knowledge, receive_knowledge"),
     }
 }

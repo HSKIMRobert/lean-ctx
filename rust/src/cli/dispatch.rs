@@ -148,6 +148,24 @@ pub fn run() {
                             Some(limit)
                         )
                     );
+                } else if rest.iter().any(|a| a == "--pipeline") {
+                    let stats_path = dirs::home_dir()
+                        .unwrap_or_default()
+                        .join(".lean-ctx")
+                        .join("pipeline_stats.json");
+                    if let Ok(data) = std::fs::read_to_string(&stats_path) {
+                        if let Ok(stats) =
+                            serde_json::from_str::<core::pipeline::PipelineStats>(&data)
+                        {
+                            println!("{}", stats.format_summary());
+                        } else {
+                            println!("No pipeline stats available yet (corrupt data).");
+                        }
+                    } else {
+                        println!(
+                            "No pipeline stats available yet. Use MCP tools to generate data."
+                        );
+                    }
                 } else if rest.iter().any(|a| a == "--deep") {
                     println!(
                         "{}\n{}\n{}\n{}\n{}",

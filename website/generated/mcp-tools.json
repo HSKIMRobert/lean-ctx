@@ -26,7 +26,7 @@
         "input_schema": {
           "properties": {
             "action": {
-              "description": "Agent operation. diary: persistent log (category=discovery|decision|blocker|progress|insight). recall_diary: read diary. diaries: list all.",
+              "description": "Agent operation. diary: persistent log. share_knowledge: broadcast key=value facts (message: 'k1=v1;k2=v2'). receive_knowledge: poll shared facts from other agents.",
               "enum": [
                 "register",
                 "list",
@@ -38,7 +38,9 @@
                 "sync",
                 "diary",
                 "recall_diary",
-                "diaries"
+                "diaries",
+                "share_knowledge",
+                "receive_knowledge"
               ],
               "type": "string"
             },
@@ -78,7 +80,7 @@
           "type": "object"
         },
         "name": "ctx_agent",
-        "schema_md5": "e3eed852993f6fa1e4da78fec9dbc764"
+        "schema_md5": "8e5656acf265ba8edbb16467198fea7f"
       },
       {
         "description": "Entropy analysis — recommends optimal compression mode for a file.",

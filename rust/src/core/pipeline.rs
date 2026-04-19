@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum LayerKind {
     Input,
     Intent,
@@ -170,13 +170,13 @@ impl Pipeline {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct PipelineStats {
     pub runs: usize,
     pub per_layer: HashMap<LayerKind, AggregatedMetrics>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct AggregatedMetrics {
     pub total_input_tokens: usize,
     pub total_output_tokens: usize,
@@ -201,6 +201,13 @@ impl AggregatedMetrics {
 }
 
 impl PipelineStats {
+    pub fn new() -> Self {
+        Self {
+            runs: 0,
+            per_layer: HashMap::new(),
+        }
+    }
+
     pub fn record(&mut self, metrics: &[LayerMetrics]) {
         self.runs += 1;
         for m in metrics {
@@ -210,6 +217,21 @@ impl PipelineStats {
             agg.total_duration_us += m.duration_us;
             agg.count += 1;
         }
+    }
+
+    pub fn record_single(
+        &mut self,
+        layer: LayerKind,
+        input_tokens: usize,
+        output_tokens: usize,
+        duration: std::time::Duration,
+    ) {
+        self.runs += 1;
+        let agg = self.per_layer.entry(layer).or_default();
+        agg.total_input_tokens += input_tokens;
+        agg.total_output_tokens += output_tokens;
+        agg.total_duration_us += duration.as_micros() as u64;
+        agg.count += 1;
     }
 
     pub fn total_tokens_saved(&self) -> usize {

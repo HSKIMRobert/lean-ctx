@@ -40,6 +40,7 @@ impl LeanCtxServer {
                 }
                 let stale = self.is_prompt_cache_stale().await;
                 let effective_mode = LeanCtxServer::upgrade_mode_if_stale(&mode, stale).to_string();
+                let read_start = std::time::Instant::now();
                 let mut cache = self.cache.write().await;
                 let (output, resolved_mode) = if fresh {
                     crate::tools::ctx_read::handle_fresh_with_task_resolved(
@@ -108,6 +109,15 @@ impl LeanCtxServer {
                 {
                     let mut ledger = self.ledger.write().await;
                     ledger.record(&path, &resolved_mode, original, output_tokens);
+                }
+                {
+                    let mut stats = self.pipeline_stats.write().await;
+                    stats.record_single(
+                        crate::core::pipeline::LayerKind::Compression,
+                        original,
+                        output_tokens,
+                        read_start.elapsed(),
+                    );
                 }
                 {
                     let sig =
@@ -419,9 +429,15 @@ impl LeanCtxServer {
             "ctx_metrics" => {
                 let cache = self.cache.read().await;
                 let calls = self.tool_calls.read().await;
-                let result = crate::tools::ctx_metrics::handle(&cache, &calls, self.crp_mode);
+                let mut result = crate::tools::ctx_metrics::handle(&cache, &calls, self.crp_mode);
                 drop(cache);
                 drop(calls);
+                let stats = self.pipeline_stats.read().await;
+                if stats.runs > 0 {
+                    result.push_str("\n\n--- PIPELINE METRICS ---\n");
+                    result.push_str(&stats.format_summary());
+                }
+                drop(stats);
                 self.record_call("ctx_metrics", 0, 0, None).await;
                 result
             }
@@ -938,6 +954,28 @@ impl LeanCtxServer {
                                 result.push_str(&format!(
                                     "\n  {} ({:?}, ~{} tok, mode: {})",
                                     s.path, s.reason, s.estimated_tokens, s.recommended_mode
+                                ));
+                            }
+                        }
+
+                        let pressure = ledger.pressure();
+                        if pressure.utilization > 0.7 {
+                            let plan = ledger.reinjection_plan(intent, 0.6);
+                            if !plan.actions.is_empty() {
+                                result.push_str("\n\n--- REINJECTION PLAN ---");
+                                result.push_str(&format!(
+                                    "\n  Context pressure: {:.0}% -> target: 60%",
+                                    pressure.utilization * 100.0
+                                ));
+                                for a in &plan.actions {
+                                    result.push_str(&format!(
+                                        "\n  {} : {} -> {} (frees ~{} tokens)",
+                                        a.path, a.current_mode, a.new_mode, a.tokens_freed
+                                    ));
+                                }
+                                result.push_str(&format!(
+                                    "\n  Total freeable: {} tokens",
+                                    plan.total_tokens_freed
                                 ));
                             }
                         }
