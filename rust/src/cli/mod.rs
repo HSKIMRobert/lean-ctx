@@ -1,3 +1,10 @@
+pub mod dispatch;
+mod shell_init;
+pub mod cloud;
+
+pub use dispatch::run;
+pub use shell_init::*;
+
 use std::path::Path;
 
 use crate::core::compressor;
@@ -11,25 +18,6 @@ use crate::core::stats;
 use crate::core::theme;
 use crate::core::tokens::count_tokens;
 use crate::hooks::to_bash_compatible_path;
-
-pub(crate) fn quiet_enabled() -> bool {
-    matches!(std::env::var("LEAN_CTX_QUIET"), Ok(v) if v.trim() == "1")
-}
-
-macro_rules! qprintln {
-    ($($t:tt)*) => {
-        if !$crate::cli::quiet_enabled() {
-            println!($($t)*);
-        }
-    };
-}
-
-pub mod dispatch;
-mod shell_init;
-pub mod cloud;
-
-pub use dispatch::run;
-pub use shell_init::*;
 
 pub fn cmd_read(args: &[String]) {
     if args.is_empty() {
@@ -928,6 +916,18 @@ pub fn cmd_filter(args: &[String]) {
     }
 }
 
+fn quiet_enabled() -> bool {
+    matches!(std::env::var("LEAN_CTX_QUIET"), Ok(v) if v.trim() == "1")
+}
+
+macro_rules! qprintln {
+    ($($t:tt)*) => {
+        if !quiet_enabled() {
+            println!($($t)*);
+        }
+    };
+}
+
 pub fn cmd_init(args: &[String]) {
     let global = args.iter().any(|a| a == "--global" || a == "-g");
     let dry_run = args.iter().any(|a| a == "--dry-run");
@@ -1038,6 +1038,58 @@ pub fn cmd_init_quiet(args: &[String]) {
     std::env::set_var("LEAN_CTX_QUIET", "1");
     cmd_init(args);
     std::env::remove_var("LEAN_CTX_QUIET");
+}
+
+pub fn load_shell_history_pub() -> Vec<String> {
+    load_shell_history()
+}
+
+fn load_shell_history() -> Vec<String> {
+    let shell = std::env::var("SHELL").unwrap_or_default();
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => return Vec::new(),
+    };
+
+    let history_file = if shell.contains("zsh") {
+        home.join(".zsh_history")
+    } else if shell.contains("fish") {
+        home.join(".local/share/fish/fish_history")
+    } else if cfg!(windows) && shell.is_empty() {
+        home.join("AppData")
+            .join("Roaming")
+            .join("Microsoft")
+            .join("Windows")
+            .join("PowerShell")
+            .join("PSReadLine")
+            .join("ConsoleHost_history.txt")
+    } else {
+        home.join(".bash_history")
+    };
+
+    match std::fs::read_to_string(&history_file) {
+        Ok(content) => content
+            .lines()
+            .filter_map(|l| {
+                let trimmed = l.trim();
+                if trimmed.starts_with(':') {
+                    trimmed.split(';').nth(1).map(|s| s.to_string())
+                } else {
+                    Some(trimmed.to_string())
+                }
+            })
+            .filter(|l| !l.is_empty())
+            .collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+fn print_savings(original: usize, sent: usize) {
+    let saved = original.saturating_sub(sent);
+    if original > 0 && saved > 0 {
+        let pct = (saved as f64 / original as f64 * 100.0).round() as usize;
+        println!("[{saved} tok saved ({pct}%)]");
+    }
 }
 
 pub fn cmd_theme(args: &[String]) {
@@ -1204,54 +1256,217 @@ pub fn cmd_theme(args: &[String]) {
     }
 }
 
-pub fn load_shell_history_pub() -> Vec<String> {
-    load_shell_history()
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile;
 
-fn load_shell_history() -> Vec<String> {
-    let shell = std::env::var("SHELL").unwrap_or_default();
-    let home = match dirs::home_dir() {
-        Some(h) => h,
-        None => return Vec::new(),
-    };
+    #[test]
+    fn test_remove_lean_ctx_block_posix() {
+        let input = r#"# existing config
+export PATH="$HOME/bin:$PATH"
 
-    let history_file = if shell.contains("zsh") {
-        home.join(".zsh_history")
-    } else if shell.contains("fish") {
-        home.join(".local/share/fish/fish_history")
-    } else if cfg!(windows) && shell.is_empty() {
-        home.join("AppData")
-            .join("Roaming")
-            .join("Microsoft")
-            .join("Windows")
-            .join("PowerShell")
-            .join("PSReadLine")
-            .join("ConsoleHost_history.txt")
-    } else {
-        home.join(".bash_history")
-    };
+# lean-ctx shell hook — transparent CLI compression (90+ patterns)
+if [ -z "$LEAN_CTX_ACTIVE" ]; then
+alias git='lean-ctx -c git'
+alias npm='lean-ctx -c npm'
+fi
 
-    match std::fs::read_to_string(&history_file) {
-        Ok(content) => content
-            .lines()
-            .filter_map(|l| {
-                let trimmed = l.trim();
-                if trimmed.starts_with(':') {
-                    trimmed.split(';').nth(1).map(|s| s.to_string())
-                } else {
-                    Some(trimmed.to_string())
-                }
-            })
-            .filter(|l| !l.is_empty())
-            .collect(),
-        Err(_) => Vec::new(),
+# other stuff
+export EDITOR=vim
+"#;
+        let result = remove_lean_ctx_block(input);
+        assert!(!result.contains("lean-ctx"), "block should be removed");
+        assert!(result.contains("export PATH"), "other content preserved");
+        assert!(
+            result.contains("export EDITOR"),
+            "trailing content preserved"
+        );
     }
+
+    #[test]
+    fn test_remove_lean_ctx_block_fish() {
+        let input = "# other fish config\nset -x FOO bar\n\n# lean-ctx shell hook — transparent CLI compression (90+ patterns)\nif not set -q LEAN_CTX_ACTIVE\n\talias git 'lean-ctx -c git'\n\talias npm 'lean-ctx -c npm'\nend\n\n# more config\nset -x BAZ qux\n";
+        let result = remove_lean_ctx_block(input);
+        assert!(!result.contains("lean-ctx"), "block should be removed");
+        assert!(result.contains("set -x FOO"), "other content preserved");
+        assert!(result.contains("set -x BAZ"), "trailing content preserved");
+    }
+
+    #[test]
+    fn test_remove_lean_ctx_block_ps() {
+        let input = "# PowerShell profile\n$env:FOO = 'bar'\n\n# lean-ctx shell hook — transparent CLI compression (90+ patterns)\nif (-not $env:LEAN_CTX_ACTIVE) {\n  $LeanCtxBin = \"C:\\\\bin\\\\lean-ctx.exe\"\n  function git { & $LeanCtxBin -c \"git $($args -join ' ')\" }\n}\n\n# other stuff\n$env:EDITOR = 'vim'\n";
+        let result = remove_lean_ctx_block_ps(input);
+        assert!(
+            !result.contains("lean-ctx shell hook"),
+            "block should be removed"
+        );
+        assert!(result.contains("$env:FOO"), "other content preserved");
+        assert!(result.contains("$env:EDITOR"), "trailing content preserved");
+    }
+
+    #[test]
+    fn test_remove_lean_ctx_block_ps_nested() {
+        let input = "# PowerShell profile\n$env:FOO = 'bar'\n\n# lean-ctx shell hook — transparent CLI compression (90+ patterns)\nif (-not $env:LEAN_CTX_ACTIVE) {\n  $LeanCtxBin = \"lean-ctx\"\n  function _lc {\n    & $LeanCtxBin -c \"$($args -join ' ')\"\n  }\n  if (Get-Command lean-ctx -ErrorAction SilentlyContinue) {\n    function git { _lc git @args }\n    foreach ($c in @('npm','pnpm')) {\n      if ($a) {\n        Set-Variable -Name \"_lc_$c\" -Value $a.Source -Scope Script\n      }\n    }\n  }\n}\n\n# other stuff\n$env:EDITOR = 'vim'\n";
+        let result = remove_lean_ctx_block_ps(input);
+        assert!(
+            !result.contains("lean-ctx shell hook"),
+            "block should be removed"
+        );
+        assert!(!result.contains("_lc"), "function should be removed");
+        assert!(result.contains("$env:FOO"), "other content preserved");
+        assert!(result.contains("$env:EDITOR"), "trailing content preserved");
+    }
+
+    #[test]
+    fn test_remove_block_no_lean_ctx() {
+        let input = "# normal bashrc\nexport PATH=\"$HOME/bin:$PATH\"\n";
+        let result = remove_lean_ctx_block(input);
+        assert!(result.contains("export PATH"), "content unchanged");
+    }
+
+    #[test]
+    fn test_bash_hook_contains_pipe_guard() {
+        let binary = "/usr/local/bin/lean-ctx";
+        let hook = format!(
+            r#"_lc() {{
+    if [ -n "${{LEAN_CTX_DISABLED:-}}" ] || [ ! -t 1 ]; then
+        command "$@"
+        return
+    fi
+    '{binary}' -t "$@"
+}}"#
+        );
+        assert!(
+            hook.contains("! -t 1"),
+            "bash/zsh hook must contain pipe guard [ ! -t 1 ]"
+        );
+        assert!(
+            hook.contains("LEAN_CTX_DISABLED") && hook.contains("! -t 1"),
+            "pipe guard must be in the same conditional as LEAN_CTX_DISABLED"
+        );
+    }
+
+    #[test]
+    fn test_lc_uses_track_mode_by_default() {
+        let binary = "/usr/local/bin/lean-ctx";
+        let alias_list = crate::rewrite_registry::shell_alias_list();
+        let aliases = format!(
+            r#"_lc() {{
+    '{binary}' -t "$@"
+}}
+_lc_compress() {{
+    '{binary}' -c "$@"
+}}"#
+        );
+        assert!(
+            aliases.contains("-t \"$@\""),
+            "_lc must use -t (track mode) by default"
+        );
+        assert!(
+            aliases.contains("-c \"$@\""),
+            "_lc_compress must use -c (compress mode)"
+        );
+        let _ = alias_list;
+    }
+
+    #[test]
+    fn test_posix_shell_has_lean_ctx_mode() {
+        let alias_list = crate::rewrite_registry::shell_alias_list();
+        let aliases = r#"
+lean-ctx-mode() {{
+    case "${{1:-}}" in
+        compress) echo compress ;;
+        track) echo track ;;
+        off) echo off ;;
+    esac
+}}
+"#
+        .to_string();
+        assert!(
+            aliases.contains("lean-ctx-mode()"),
+            "lean-ctx-mode function must exist"
+        );
+        assert!(
+            aliases.contains("compress"),
+            "compress mode must be available"
+        );
+        assert!(aliases.contains("track"), "track mode must be available");
+        let _ = alias_list;
+    }
+
+    #[test]
+    fn test_fish_hook_contains_pipe_guard() {
+        let hook = "function _lc\n\tif set -q LEAN_CTX_DISABLED; or not isatty stdout\n\t\tcommand $argv\n\t\treturn\n\tend\nend";
+        assert!(
+            hook.contains("isatty stdout"),
+            "fish hook must contain pipe guard (isatty stdout)"
+        );
+    }
+
+    #[test]
+    fn test_powershell_hook_contains_pipe_guard() {
+        let hook = "function _lc { if ($env:LEAN_CTX_DISABLED -or [Console]::IsOutputRedirected) { & @args; return } }";
+        assert!(
+            hook.contains("IsOutputRedirected"),
+            "PowerShell hook must contain pipe guard ([Console]::IsOutputRedirected)"
+        );
+    }
+
+    #[test]
+    fn test_remove_lean_ctx_block_new_format_with_end_marker() {
+        let input = r#"# existing config
+export PATH="$HOME/bin:$PATH"
+
+# lean-ctx shell hook — transparent CLI compression (90+ patterns)
+_lean_ctx_cmds=(git npm pnpm)
+
+lean-ctx-on() {
+    for _lc_cmd in "${_lean_ctx_cmds[@]}"; do
+        alias "$_lc_cmd"='lean-ctx -c '"$_lc_cmd"
+    done
+    export LEAN_CTX_ENABLED=1
+    echo "lean-ctx: ON"
 }
 
-fn print_savings(original: usize, sent: usize) {
-    let saved = original.saturating_sub(sent);
-    if original > 0 && saved > 0 {
-        let pct = (saved as f64 / original as f64 * 100.0).round() as usize;
-        println!("[{saved} tok saved ({pct}%)]");
+lean-ctx-off() {
+    unset LEAN_CTX_ENABLED
+    echo "lean-ctx: OFF"
+}
+
+if [ -z "${LEAN_CTX_ACTIVE:-}" ] && [ "${LEAN_CTX_ENABLED:-1}" != "0" ]; then
+    lean-ctx-on
+fi
+# lean-ctx shell hook — end
+
+# other stuff
+export EDITOR=vim
+"#;
+        let result = remove_lean_ctx_block(input);
+        assert!(!result.contains("lean-ctx-on"), "block should be removed");
+        assert!(!result.contains("lean-ctx shell hook"), "marker removed");
+        assert!(result.contains("export PATH"), "other content preserved");
+        assert!(
+            result.contains("export EDITOR"),
+            "trailing content preserved"
+        );
+    }
+
+    #[test]
+    fn env_sh_for_containers_includes_self_heal() {
+        let _g = crate::core::data_dir::test_env_lock();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let data_dir = tmp.path().join("data");
+        std::fs::create_dir_all(&data_dir).expect("mkdir data");
+        std::env::set_var("LEAN_CTX_DATA_DIR", &data_dir);
+
+        write_env_sh_for_containers("alias git='lean-ctx -c git'\n");
+        let env_sh = data_dir.join("env.sh");
+        let content = std::fs::read_to_string(&env_sh).expect("env.sh exists");
+        assert!(content.contains("lean-ctx docker self-heal"));
+        assert!(content.contains("claude mcp list"));
+        assert!(content.contains("lean-ctx init --agent claude"));
+
+        std::env::remove_var("LEAN_CTX_DATA_DIR");
     }
 }
