@@ -225,56 +225,8 @@ fn resolve_auto_mode(file_path: &str, original_tokens: usize, task: Option<&str>
         }
     }
 
-    if let Some(session) = crate::core::session::SessionState::load_latest() {
-        if let Some(task_type) = session.active_task_type() {
-            predicted = refine_mode_by_task_type(&predicted, task_type, original_tokens);
-        }
-    }
-
     let policy = crate::core::adaptive_mode_policy::AdaptiveModePolicyStore::load();
     policy.choose_auto_mode(task, &predicted)
-}
-
-fn refine_mode_by_task_type(
-    current: &str,
-    task_type: crate::core::intent_engine::TaskType,
-    token_count: usize,
-) -> String {
-    use crate::core::intent_engine::TaskType;
-
-    match task_type {
-        TaskType::FixBug | TaskType::Debug => {
-            if token_count > 5000 && current == "full" {
-                return "task".to_string();
-            }
-            current.to_string()
-        }
-        TaskType::Refactor | TaskType::Review => {
-            if token_count > 3000 && current == "full" {
-                return "signatures".to_string();
-            }
-            current.to_string()
-        }
-        TaskType::Generate => {
-            if token_count > 8000 && current == "full" {
-                return "signatures".to_string();
-            }
-            current.to_string()
-        }
-        TaskType::Explore => {
-            if token_count > 5000 && current == "full" {
-                return "map".to_string();
-            }
-            current.to_string()
-        }
-        TaskType::Test => {
-            if token_count > 10000 && current == "full" {
-                return "aggressive".to_string();
-            }
-            current.to_string()
-        }
-        TaskType::Config | TaskType::Deploy => current.to_string(),
-    }
 }
 
 fn find_semantic_similar(path: &str, content: &str) -> Option<String> {
@@ -559,14 +511,7 @@ fn process_mode(
             let ast_pruned: Option<String> = None;
 
             let base = ast_pruned.as_deref().unwrap_or(content);
-
-            let session_intent = crate::core::session::SessionState::load_latest()
-                .and_then(|s| s.active_structured_intent);
-            let raw = if let Some(ref intent) = session_intent {
-                compressor::task_aware_compress(base, Some(ext), intent)
-            } else {
-                compressor::aggressive_compress(base, Some(ext))
-            };
+            let raw = compressor::aggressive_compress(base, Some(ext));
             let compressed = compressor::safeguard_ratio(content, &raw);
             let header = build_header(file_ref, short, ext, content, line_count, true);
 
@@ -631,13 +576,8 @@ fn process_mode(
                     "{header}\n{content}\n[task mode: no keywords extracted — returned full]"
                 );
             }
-            let classified_type = crate::core::intent_engine::classify(task_str).task_type;
-            let filtered = crate::core::task_relevance::information_bottleneck_filter_typed(
-                content,
-                &keywords,
-                0.3,
-                Some(classified_type),
-            );
+            let filtered =
+                crate::core::task_relevance::information_bottleneck_filter(content, &keywords, 0.3);
             let filtered_lines = filtered.lines().count();
             let header = format!(
                 "{file_ref}={short} {line_count}L [task-filtered: {line_count}→{filtered_lines}]"

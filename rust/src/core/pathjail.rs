@@ -17,22 +17,6 @@ const IDE_CONFIG_DIRS: &[&str] = &[
     ".continue",
 ];
 
-fn ide_allowlist_dirs() -> Vec<PathBuf> {
-    let home = match dirs::home_dir() {
-        Some(h) => h,
-        None => return Vec::new(),
-    };
-
-    let mut out = Vec::new();
-    for dir in IDE_CONFIG_DIRS {
-        let p = home.join(dir);
-        if p.exists() {
-            out.push(canonicalize_or_self(&p));
-        }
-    }
-    out
-}
-
 fn allow_paths_from_env() -> Vec<PathBuf> {
     let mut out = Vec::new();
 
@@ -40,7 +24,14 @@ fn allow_paths_from_env() -> Vec<PathBuf> {
         out.push(canonicalize_or_self(&data_dir));
     }
 
-    out.extend(ide_allowlist_dirs());
+    if let Some(home) = dirs::home_dir() {
+        for dir in IDE_CONFIG_DIRS {
+            let p = home.join(dir);
+            if p.exists() {
+                out.push(canonicalize_or_self(&p));
+            }
+        }
+    }
 
     let v = std::env::var("LCTX_ALLOW_PATH")
         .or_else(|_| std::env::var("LEAN_CTX_ALLOW_PATH"))
@@ -49,7 +40,11 @@ fn allow_paths_from_env() -> Vec<PathBuf> {
         return out;
     }
     for p in std::env::split_paths(&v) {
-        out.push(crate::core::pathutil::safe_canonicalize_or_self(&p));
+        if let Ok(canon) = std::fs::canonicalize(&p) {
+            out.push(canon);
+        } else {
+            out.push(p);
+        }
     }
     out
 }
@@ -59,7 +54,7 @@ fn is_under_prefix(path: &Path, prefix: &Path) -> bool {
 }
 
 fn canonicalize_or_self(path: &Path) -> PathBuf {
-    crate::core::pathutil::safe_canonicalize_or_self(path)
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 fn canonicalize_existing_ancestor(path: &Path) -> Option<(PathBuf, Vec<std::ffi::OsString>)> {
@@ -166,10 +161,10 @@ mod tests {
 
     #[test]
     fn ide_config_dirs_list_is_not_empty() {
-        assert!(!IDE_CONFIG_DIRS.is_empty());
+        assert!(IDE_CONFIG_DIRS.len() >= 10);
         assert!(IDE_CONFIG_DIRS.contains(&".codex"));
         assert!(IDE_CONFIG_DIRS.contains(&".cursor"));
         assert!(IDE_CONFIG_DIRS.contains(&".claude"));
-        assert!(IDE_CONFIG_DIRS.contains(&".lean-ctx"));
+        assert!(IDE_CONFIG_DIRS.contains(&".gemini"));
     }
 }
