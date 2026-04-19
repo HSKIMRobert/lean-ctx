@@ -3,6 +3,21 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.2.6] — 2026-04-19
+
+### Fixed
+- **Project root stuck at agent sandbox path** (#124): The MCP session could retain a stale project root from a temporary directory (e.g. `~/.claude`, `/tmp/`). Fixed with multi-layer healing: `initialize` now validates roots against project markers, `session::load_by_id` detects and corrects agent/temp roots, and `resolve_path` can auto-update a suspicious root when given an absolute project path. Agents like Codex that start in sandbox directories now correctly resolve the actual project.
+- **`lean-ctx gain` showing 0% for Shell Hooks** (#126): Small savings percentages were rounded to 0% in the "Savings by Source" and "Live Observatory" sections. Introduced `format_pct_1dp` for one-decimal-place display, `<0.1%` for very small values, and `n/a` when no input data exists.
+- **`install.sh` fails on WSL2/Ubuntu** (`set: Illegal option -o pipefail`): `curl -fsSL leanctx.com/install.sh | sh` failed because `install.sh` used Bashisms but was executed by POSIX `sh` (dash). Added a POSIX-compliant preamble that auto-detects and re-executes under `bash`, with a clear error message if `bash` is unavailable. Both `| sh` and `| bash` now work.
+- **Dashboard "Live Observatory" showing 0 tokens saved**: The Live Observatory pulled data exclusively from the active MCP session, ignoring shell hook savings. Now falls back to today's aggregate daily stats when no MCP session is active.
+
+### Added
+- **`rules_scope` configuration**: Control where agent rule files are installed — `"global"` (home directory only), `"project"` (repo-local only), or `"both"` (default). Avoids duplicate rule files that waste context tokens. Configurable via `config.toml`, `LEAN_CTX_RULES_SCOPE` env var, `lean-ctx config set rules_scope`, or per-project `.lean-ctx.toml` override.
+- **Codex/Claude path jail auto-allowlist**: When running inside Codex CLI (`CODEX_CLI_SESSION` set), `~/.codex` is automatically added to allowed paths. Similarly, `~/.claude` is auto-allowed for Claude Code sessions. No manual `LCTX_ALLOW_PATH` needed.
+- **`bunx` and `vp`/`vite-plus` CLI compression** (#125): Shell hook now routes `bunx` commands through the bun compressor and `vp`/`vite-plus` through the Next.js build compressor.
+- **`lean-ctx update` auto-refreshes setup**: Running `lean-ctx update` now automatically re-runs the full setup (shell hooks, MCP configs, rules) after updating, even when already on the latest version. Ensures all wiring stays current.
+- **Website docs**: `rules_scope` documented on configuration page in all 11 languages.
+
 ## [3.2.5] — 2026-04-18
 
 ### Fixed

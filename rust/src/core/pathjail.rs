@@ -1,11 +1,38 @@
 use std::path::{Path, PathBuf};
 
+fn agent_allowlist_dirs() -> Vec<PathBuf> {
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => return Vec::new(),
+    };
+
+    let mut dirs = Vec::new();
+
+    if std::env::var("CODEX_CLI_SESSION").is_ok() || std::env::var("CODEX_SANDBOX_DIR").is_ok() {
+        let codex_dir = home.join(".codex");
+        if codex_dir.exists() {
+            dirs.push(canonicalize_or_self(&codex_dir));
+        }
+    }
+
+    if std::env::var("CLAUDE_CODE_SESSION").is_ok() || std::env::var("CLAUDE_CODE").is_ok() {
+        let claude_dir = home.join(".claude");
+        if claude_dir.exists() {
+            dirs.push(canonicalize_or_self(&claude_dir));
+        }
+    }
+
+    dirs
+}
+
 fn allow_paths_from_env() -> Vec<PathBuf> {
     let mut out = Vec::new();
 
     if let Ok(data_dir) = crate::core::data_dir::lean_ctx_data_dir() {
         out.push(canonicalize_or_self(&data_dir));
     }
+
+    out.extend(agent_allowlist_dirs());
 
     let v = std::env::var("LCTX_ALLOW_PATH")
         .or_else(|_| std::env::var("LEAN_CTX_ALLOW_PATH"))
@@ -127,5 +154,15 @@ mod tests {
         let p = root.join("new").join("file.txt");
         let ok = jail_path(&p, &root).unwrap();
         assert!(ok.to_string_lossy().contains("file.txt"));
+    }
+
+    #[test]
+    fn agent_allowlist_empty_without_env() {
+        std::env::remove_var("CODEX_CLI_SESSION");
+        std::env::remove_var("CODEX_SANDBOX_DIR");
+        std::env::remove_var("CLAUDE_CODE_SESSION");
+        std::env::remove_var("CLAUDE_CODE");
+        let dirs = agent_allowlist_dirs();
+        assert!(dirs.is_empty());
     }
 }

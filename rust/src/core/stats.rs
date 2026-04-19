@@ -660,6 +660,27 @@ fn usd_estimate(tokens: u64) -> String {
     format_usd(cost)
 }
 
+fn format_pct_1dp(val: f64) -> String {
+    if val == 0.0 {
+        "0.0%".to_string()
+    } else if val > 0.0 && val < 0.1 {
+        "<0.1%".to_string()
+    } else {
+        format!("{val:.1}%")
+    }
+}
+
+fn format_savings_pct(saved: u64, input: u64) -> String {
+    if input == 0 {
+        if saved > 0 {
+            return "n/a".to_string();
+        }
+        return "0.0%".to_string();
+    }
+    let rate = saved as f64 / input as f64 * 100.0;
+    format_pct_1dp(rate)
+}
+
 fn format_big(n: u64) -> String {
     if n >= 1_000_000 {
         format!("{:.1}M", n as f64 / 1_000_000.0)
@@ -883,14 +904,16 @@ pub fn format_cep_report() -> String {
     };
     let m = t.muted.fg();
     let shell_bar = theme::pad_right(&t.gradient_bar(shell_ratio, bar_w), bar_w);
+    let shell_pct_val = (1.0 - cep_share) * 100.0;
+    let shell_pct_display = format_pct_1dp(shell_pct_val);
     o.push(format!(
-        "  {m}Shell Hook{r}   {shell_bar} {b}{:>6}{r} {d}({:.0}%){r}",
+        "  {m}Shell Hook{r}   {shell_bar} {b}{:>6}{r} {d}({shell_pct_display}){r}",
         format_big(shell_saved),
-        (1.0 - cep_share) * 100.0 / 100.0 * 100.0,
     ));
     let cep_bar = theme::pad_right(&t.gradient_bar(cep_ratio, bar_w), bar_w);
+    let cep_pct_display = format_pct_1dp(cep_share * 100.0);
     o.push(format!(
-        "  {m}MCP/CEP{r}      {cep_bar} {b}{:>6}{r} {d}({cep_share:.0}%){r}",
+        "  {m}MCP/CEP{r}      {cep_bar} {b}{:>6}{r} {d}({cep_pct_display}){r}",
         format_big(total_saved),
     ));
     o.push(String::new());
@@ -1152,16 +1175,10 @@ pub fn format_gain_themed_at(t: &Theme, tick: Option<u64>) -> String {
             let total = (mcp_saved + hook_saved).max(1) as f64;
             let mcp_pct = mcp_saved as f64 / total * 100.0;
             let hook_pct = hook_saved as f64 / total * 100.0;
-            let mcp_rate = if mcp_input > 0 {
-                mcp_saved as f64 / mcp_input as f64 * 100.0
-            } else {
-                0.0
-            };
-            let hook_rate = if hook_input > 0 {
-                hook_saved as f64 / hook_input as f64 * 100.0
-            } else {
-                0.0
-            };
+            let mcp_rate_str = format_savings_pct(mcp_saved, mcp_input);
+            let hook_rate_str = format_savings_pct(hook_saved, hook_input);
+            let mcp_pct_str = format_pct_1dp(mcp_pct);
+            let hook_pct_str = format_pct_1dp(hook_pct);
 
             let mcp_bar = t.gradient_bar(mcp_saved as f64 / total, 18);
             let hook_bar = t.gradient_bar(hook_saved as f64 / total, 18);
@@ -1169,12 +1186,12 @@ pub fn format_gain_themed_at(t: &Theme, tick: Option<u64>) -> String {
             let mc = t.success.fg();
             let hc = t.secondary.fg();
             o.push(format!(
-                "    {mc}{b}MCP Tools{r}      {:>5}x  {mcp_bar}  {b}{:>6}{r}  {d}{mcp_rate:>4.0}% rate · {mcp_pct:>4.0}% of total{r}",
+                "    {mc}{b}MCP Tools{r}      {:>5}x  {mcp_bar}  {b}{:>6}{r}  {d}{mcp_rate_str:>6} rate · {mcp_pct_str:>6} of total{r}",
                 mcp_calls,
                 format_big(mcp_saved),
             ));
             o.push(format!(
-                "    {hc}{b}Shell Hooks{r}     {:>5}x  {hook_bar}  {b}{:>6}{r}  {d}{hook_rate:>4.0}% rate · {hook_pct:>4.0}% of total{r}",
+                "    {hc}{b}Shell Hooks{r}     {:>5}x  {hook_bar}  {b}{:>6}{r}  {d}{hook_rate_str:>6} rate · {hook_pct_str:>6} of total{r}",
                 hook_calls,
                 format_big(hook_saved),
             ));
@@ -1742,5 +1759,33 @@ mod tests {
         assert_eq!(merged_daily.len(), 1);
         assert_eq!(merged_daily[0].commands, 25);
         assert_eq!(merged_daily[0].input_tokens, 1500);
+    }
+
+    #[test]
+    fn format_pct_1dp_normal() {
+        assert_eq!(format_pct_1dp(50.0), "50.0%");
+        assert_eq!(format_pct_1dp(100.0), "100.0%");
+        assert_eq!(format_pct_1dp(33.333), "33.3%");
+    }
+
+    #[test]
+    fn format_pct_1dp_small_values() {
+        assert_eq!(format_pct_1dp(0.0), "0.0%");
+        assert_eq!(format_pct_1dp(0.05), "<0.1%");
+        assert_eq!(format_pct_1dp(0.09), "<0.1%");
+        assert_eq!(format_pct_1dp(0.1), "0.1%");
+        assert_eq!(format_pct_1dp(0.5), "0.5%");
+    }
+
+    #[test]
+    fn format_savings_pct_zero_input() {
+        assert_eq!(format_savings_pct(0, 0), "0.0%");
+        assert_eq!(format_savings_pct(100, 0), "n/a");
+    }
+
+    #[test]
+    fn format_savings_pct_normal() {
+        assert_eq!(format_savings_pct(50, 100), "50.0%");
+        assert_eq!(format_savings_pct(1, 10000), "<0.1%");
     }
 }

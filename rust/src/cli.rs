@@ -650,6 +650,15 @@ pub fn cmd_config(args: &[String]) {
                 "passthrough_urls" => {
                     cfg.passthrough_urls = val.split(',').map(|s| s.trim().to_string()).collect();
                 }
+                "rules_scope" => match val.as_str() {
+                    "global" | "project" | "both" => {
+                        cfg.rules_scope = Some(val.to_string());
+                    }
+                    _ => {
+                        eprintln!("Valid rules_scope values: global, project, both");
+                        std::process::exit(1);
+                    }
+                },
                 _ => {
                     eprintln!("Unknown config key: {key}");
                     std::process::exit(1);

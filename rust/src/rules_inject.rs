@@ -158,6 +158,17 @@ pub struct RulesTargetStatus {
 }
 
 pub fn inject_all_rules(home: &std::path::Path) -> InjectResult {
+    if crate::core::config::Config::load().rules_scope_effective()
+        == crate::core::config::RulesScope::Project
+    {
+        return InjectResult {
+            injected: Vec::new(),
+            updated: Vec::new(),
+            already: Vec::new(),
+            errors: Vec::new(),
+        };
+    }
+
     let targets = build_rules_targets(home);
 
     let mut result = InjectResult {

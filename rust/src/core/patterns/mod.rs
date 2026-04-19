@@ -117,7 +117,7 @@ fn try_specific_pattern(cmd: &str, output: &str) -> Option<String> {
     if c.starts_with("pnpm ") {
         return pnpm::compress(c, output);
     }
-    if c.starts_with("bun ") {
+    if c.starts_with("bun ") || c.starts_with("bunx ") {
         return bun::compress(c, output);
     }
     if c.starts_with("deno ") {
@@ -171,6 +171,8 @@ fn try_specific_pattern(cmd: &str, output: &str) -> Option<String> {
         || c.starts_with("npx next")
         || c.starts_with("vite ")
         || c.starts_with("npx vite")
+        || c.starts_with("vp ")
+        || c.starts_with("vite-plus ")
     {
         return next_build::compress(c, output);
     }
@@ -318,5 +320,25 @@ mod tests {
         let output = "On branch main\nnothing to commit";
         assert!(compress_output("Git Status", output).is_some());
         assert!(compress_output("GIT STATUS", output).is_some());
+    }
+
+    #[test]
+    fn routes_vp_and_vite_plus() {
+        let output = "  VITE v5.0.0  ready in 200 ms\n\n  -> Local:   http://localhost:5173/\n  -> Network: http://192.168.1.2:5173/";
+        assert!(compress_output("vp build", output).is_some());
+        assert!(compress_output("vite-plus build", output).is_some());
+    }
+
+    #[test]
+    fn routes_bunx_commands() {
+        let output = "1 pass tests\nDone 12ms";
+        let compressed = compress_output("bunx test", output).unwrap();
+        assert!(compressed.contains("bun test: 1 passed"));
+    }
+
+    #[test]
+    fn routes_deno_task() {
+        let output = "Task dev deno run --allow-net server.ts\nListening on http://localhost:8000";
+        assert!(try_specific_pattern("deno task dev", output).is_some());
     }
 }

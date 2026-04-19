@@ -652,6 +652,43 @@ impl SessionState {
         if matches!(session.shell_cwd.as_deref(), Some(c) if c.trim().is_empty()) {
             session.shell_cwd = None;
         }
+
+        // Heal stale project_root caused by agent/temp working directories.
+        // If project_root doesn't look like a real project root but shell_cwd does, prefer shell_cwd.
+        if let (Some(ref root), Some(ref cwd)) = (&session.project_root, &session.shell_cwd) {
+            fn has_marker(dir: &std::path::Path) -> bool {
+                const MARKERS: &[&str] = &[
+                    ".git",
+                    ".lean-ctx.toml",
+                    "Cargo.toml",
+                    "package.json",
+                    "go.mod",
+                    "pyproject.toml",
+                    ".planning",
+                ];
+                MARKERS.iter().any(|m| dir.join(m).exists())
+            }
+            fn is_agent_or_temp_dir(dir: &std::path::Path) -> bool {
+                let s = dir.to_string_lossy();
+                s.contains("/.claude")
+                    || s.contains("/.codex")
+                    || s.contains("/var/folders/")
+                    || s.contains("/tmp/")
+                    || s.contains("\\.claude")
+                    || s.contains("\\.codex")
+                    || s.contains("\\AppData\\Local\\Temp")
+                    || s.contains("\\Temp\\")
+            }
+
+            let root_p = std::path::Path::new(root);
+            let cwd_p = std::path::Path::new(cwd);
+            let root_looks_real = has_marker(root_p);
+            let cwd_looks_real = has_marker(cwd_p);
+
+            if !root_looks_real && cwd_looks_real && is_agent_or_temp_dir(root_p) {
+                session.project_root = Some(cwd.clone());
+            }
+        }
         Some(session)
     }
 

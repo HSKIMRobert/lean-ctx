@@ -75,6 +75,11 @@ pub struct Config {
     pub disabled_tools: Vec<String>,
     #[serde(default)]
     pub loop_detection: LoopDetectionConfig,
+    /// Controls where lean-ctx installs agent rule files.
+    /// Values: "both" (default), "global" (home-dir only), "project" (repo-local only).
+    /// Override via LEAN_CTX_RULES_SCOPE env var.
+    #[serde(default)]
+    pub rules_scope: Option<String>,
     /// Extra glob patterns to ignore in graph/overview/preload (repo-local).
     /// Example: ["externals/**", "target/**", "temp/**"]
     #[serde(default)]
@@ -264,12 +269,32 @@ impl Default for Config {
             redirect_exclude: Vec::new(),
             disabled_tools: Vec::new(),
             loop_detection: LoopDetectionConfig::default(),
+            rules_scope: None,
             extra_ignore_patterns: Vec::new(),
         }
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RulesScope {
+    Both,
+    Global,
+    Project,
+}
+
 impl Config {
+    pub fn rules_scope_effective(&self) -> RulesScope {
+        let raw = std::env::var("LEAN_CTX_RULES_SCOPE")
+            .ok()
+            .or_else(|| self.rules_scope.clone())
+            .unwrap_or_default();
+        match raw.trim().to_lowercase().as_str() {
+            "global" => RulesScope::Global,
+            "project" => RulesScope::Project,
+            _ => RulesScope::Both,
+        }
+    }
+
     fn parse_disabled_tools_env(val: &str) -> Vec<String> {
         val.split(',')
             .map(|s| s.trim().to_string())
@@ -350,6 +375,58 @@ mod disabled_tools_tests {
 }
 
 #[cfg(test)]
+mod rules_scope_tests {
+    use super::*;
+
+    #[test]
+    fn default_is_both() {
+        let cfg = Config::default();
+        assert_eq!(cfg.rules_scope_effective(), RulesScope::Both);
+    }
+
+    #[test]
+    fn config_global() {
+        let cfg = Config {
+            rules_scope: Some("global".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(cfg.rules_scope_effective(), RulesScope::Global);
+    }
+
+    #[test]
+    fn config_project() {
+        let cfg = Config {
+            rules_scope: Some("project".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(cfg.rules_scope_effective(), RulesScope::Project);
+    }
+
+    #[test]
+    fn unknown_value_falls_back_to_both() {
+        let cfg = Config {
+            rules_scope: Some("nonsense".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(cfg.rules_scope_effective(), RulesScope::Both);
+    }
+
+    #[test]
+    fn deserialization_none_by_default() {
+        let cfg: Config = toml::from_str("").unwrap();
+        assert!(cfg.rules_scope.is_none());
+        assert_eq!(cfg.rules_scope_effective(), RulesScope::Both);
+    }
+
+    #[test]
+    fn deserialization_from_toml() {
+        let cfg: Config = toml::from_str(r#"rules_scope = "project""#).unwrap();
+        assert_eq!(cfg.rules_scope.as_deref(), Some("project"));
+        assert_eq!(cfg.rules_scope_effective(), RulesScope::Project);
+    }
+}
+
+#[cfg(test)]
 mod loop_detection_config_tests {
     use super::*;
 
@@ -417,15 +494,32 @@ impl Config {
     }
 
     fn find_project_root() -> Option<String> {
+        let cwd = std::env::current_dir().ok();
+
         if let Some(root) =
             crate::core::session::SessionState::load_latest().and_then(|s| s.project_root)
         {
-            return Some(root);
+            let root_path = std::path::Path::new(&root);
+            let cwd_is_under_root = cwd
+                .as_ref()
+                .map(|c| c.starts_with(root_path))
+                .unwrap_or(false);
+            let has_marker = root_path.join(".git").exists()
+                || root_path.join("Cargo.toml").exists()
+                || root_path.join("package.json").exists()
+                || root_path.join("go.mod").exists()
+                || root_path.join("pyproject.toml").exists()
+                || root_path.join(".lean-ctx.toml").exists();
+
+            if cwd_is_under_root || has_marker {
+                return Some(root);
+            }
         }
-        if let Ok(cwd) = std::env::current_dir() {
+
+        if let Some(ref cwd) = cwd {
             let git_root = std::process::Command::new("git")
                 .args(["rev-parse", "--show-toplevel"])
-                .current_dir(&cwd)
+                .current_dir(cwd)
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::null())
                 .output()
@@ -535,6 +629,9 @@ impl Config {
         if !local.extra_ignore_patterns.is_empty() {
             self.extra_ignore_patterns
                 .extend(local.extra_ignore_patterns);
+        }
+        if local.rules_scope.is_some() {
+            self.rules_scope = local.rules_scope;
         }
         if !local.autonomy.enabled {
             self.autonomy.enabled = false;

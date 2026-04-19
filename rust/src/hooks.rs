@@ -190,6 +190,12 @@ exit 0
 "#;
 
 pub fn install_project_rules() {
+    if crate::core::config::Config::load().rules_scope_effective()
+        == crate::core::config::RulesScope::Global
+    {
+        return;
+    }
+
     let cwd = std::env::current_dir().unwrap_or_default();
 
     if !is_inside_git_repo(&cwd) {
@@ -472,9 +478,13 @@ fn install_claude_hook(global: bool) {
 
     install_claude_hook_scripts(&home);
     install_claude_hook_config(&home);
-    install_claude_rules_file(&home);
-    install_claude_global_claude_md(&home);
-    install_claude_skill(&home);
+
+    let scope = crate::core::config::Config::load().rules_scope_effective();
+    if scope != crate::core::config::RulesScope::Project {
+        install_claude_rules_file(&home);
+        install_claude_global_claude_md(&home);
+        install_claude_skill(&home);
+    }
 
     let _ = global;
 }
@@ -761,7 +771,10 @@ fn install_cursor_hook(global: bool) {
     install_cursor_hook_scripts(&home);
     install_cursor_hook_config(&home);
 
-    if !global {
+    let scope = crate::core::config::Config::load().rules_scope_effective();
+    let skip_project = global || scope == crate::core::config::RulesScope::Global;
+
+    if !skip_project {
         let rules_dir = PathBuf::from(".cursor").join("rules");
         let _ = std::fs::create_dir_all(&rules_dir);
         let rule_path = rules_dir.join("lean-ctx.mdc");
@@ -1120,7 +1133,8 @@ fn install_codex_hook_scripts(home: &std::path::Path) {
 }
 
 fn install_windsurf_rules(global: bool) {
-    if global {
+    let scope = crate::core::config::Config::load().rules_scope_effective();
+    if global || scope == crate::core::config::RulesScope::Global {
         println!("Global mode: skipping project-local .windsurfrules (use without --global in a project).");
         return;
     }
@@ -1146,7 +1160,8 @@ fn install_windsurf_rules(global: bool) {
 }
 
 fn install_cline_rules(global: bool) {
-    if global {
+    let scope = crate::core::config::Config::load().rules_scope_effective();
+    if global || scope == crate::core::config::RulesScope::Global {
         println!(
             "Global mode: skipping project-local .clinerules (use without --global in a project)."
         );
@@ -1218,7 +1233,10 @@ fn install_pi_hook(global: bool) {
 
     write_pi_mcp_config();
 
-    if !global {
+    let scope = crate::core::config::Config::load().rules_scope_effective();
+    let skip_project = global || scope == crate::core::config::RulesScope::Global;
+
+    if !skip_project {
         let agents_md = PathBuf::from("AGENTS.md");
         if !agents_md.exists()
             || !std::fs::read_to_string(&agents_md)
@@ -1818,11 +1836,27 @@ fn install_hermes_hook(global: bool) {
         }
     }
 
-    if global {
-        install_hermes_rules(&home);
-    } else {
-        install_project_hermes_rules();
-        install_project_rules();
+    let scope = crate::core::config::Config::load().rules_scope_effective();
+
+    match scope {
+        crate::core::config::RulesScope::Global => {
+            install_hermes_rules(&home);
+        }
+        crate::core::config::RulesScope::Project => {
+            if !global {
+                install_project_hermes_rules();
+                install_project_rules();
+            }
+        }
+        crate::core::config::RulesScope::Both => {
+            if global {
+                install_hermes_rules(&home);
+            } else {
+                install_hermes_rules(&home);
+                install_project_hermes_rules();
+                install_project_rules();
+            }
+        }
     }
 }
 

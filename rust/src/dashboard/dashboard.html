@@ -1659,6 +1659,16 @@ function renderLiveEvents(events, mcp, stats) {
   const allTimeSaved = stats ? Math.max(0, (stats.total_input_tokens || 0) - (stats.total_output_tokens || 0)) : 0;
   if (allTimeSaved > 0 && sessionSaved > allTimeSaved) sessionSaved = allTimeSaved;
 
+  if (sessionSaved === 0 && stats && stats.daily && stats.daily.length > 0) {
+    const today = new Date().toISOString().slice(0, 10);
+    const todayStats = stats.daily.find(d => d.date === today);
+    if (todayStats) {
+      sessionSaved = Math.max(0, (todayStats.input_tokens || 0) - (todayStats.output_tokens || 0));
+      sessionOriginal = todayStats.input_tokens || 0;
+      sessionCalls = todayStats.commands || 0;
+    }
+  }
+
   const counter = $('liveCounter');
   if (counter) counter.textContent = ff(sessionSaved);
   liveTotalTokens = sessionSaved;

@@ -183,6 +183,7 @@ lean-ctx/
 ```bash
 # Recommended (auto-downloads binary)
 curl -fsSL https://raw.githubusercontent.com/yvgude/lean-ctx/main/install.sh | sh
+# or: curl -fsSL https://raw.githubusercontent.com/yvgude/lean-ctx/main/install.sh | bash
 
 # Via Cargo
 cargo install lean-ctx
