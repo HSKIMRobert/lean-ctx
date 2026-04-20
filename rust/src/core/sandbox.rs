@@ -201,8 +201,8 @@ fn execute_with_stdin(
 
     let output = wait_with_timeout(child, timeout)?;
     Ok((
-        String::from_utf8_lossy(&output.stdout).to_string(),
-        String::from_utf8_lossy(&output.stderr).to_string(),
+        crate::shell::decode_output(&output.stdout),
+        crate::shell::decode_output(&output.stderr),
         output.status.code().unwrap_or(1),
     ))
 }
@@ -247,8 +247,8 @@ fn execute_with_file(
             .map_err(|e| format!("Failed to spawn {}: {e}", runtime.command))?;
         let output = wait_with_timeout(child, timeout)?;
         Ok((
-            String::from_utf8_lossy(&output.stdout).to_string(),
-            String::from_utf8_lossy(&output.stderr).to_string(),
+            crate::shell::decode_output(&output.stdout),
+            crate::shell::decode_output(&output.stderr),
             output.status.code().unwrap_or(1),
         ))
     };
@@ -271,7 +271,7 @@ fn execute_rust(
         .map_err(|e| format!("rustc not found: {e}"))?;
 
     if !compile.status.success() {
-        let stderr = String::from_utf8_lossy(&compile.stderr).to_string();
+        let stderr = crate::shell::decode_output(&compile.stderr);
         let _ = std::fs::remove_file(&binary_path);
         return Ok((String::new(), stderr, compile.status.code().unwrap_or(1)));
     }
@@ -287,8 +287,8 @@ fn execute_rust(
     let _ = std::fs::remove_file(&binary_path);
 
     Ok((
-        String::from_utf8_lossy(&output.stdout).to_string(),
-        String::from_utf8_lossy(&output.stderr).to_string(),
+        crate::shell::decode_output(&output.stdout),
+        crate::shell::decode_output(&output.stderr),
         output.status.code().unwrap_or(1),
     ))
 }

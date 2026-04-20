@@ -7,6 +7,78 @@ use crate::core::slow_log;
 use crate::core::stats;
 use crate::core::tokens::count_tokens;
 
+pub fn decode_output(bytes: &[u8]) -> String {
+    match String::from_utf8(bytes.to_vec()) {
+        Ok(s) => s,
+        Err(_) => {
+            #[cfg(windows)]
+            {
+                decode_windows_output(bytes)
+            }
+            #[cfg(not(windows))]
+            {
+                String::from_utf8_lossy(bytes).into_owned()
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
+fn decode_windows_output(bytes: &[u8]) -> String {
+    use std::os::windows::ffi::OsStringExt;
+
+    extern "system" {
+        fn GetACP() -> u32;
+        fn MultiByteToWideChar(
+            cp: u32,
+            flags: u32,
+            src: *const u8,
+            srclen: i32,
+            dst: *mut u16,
+            dstlen: i32,
+        ) -> i32;
+    }
+
+    let codepage = unsafe { GetACP() };
+    let wide_len = unsafe {
+        MultiByteToWideChar(
+            codepage,
+            0,
+            bytes.as_ptr(),
+            bytes.len() as i32,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if wide_len <= 0 {
+        return String::from_utf8_lossy(bytes).into_owned();
+    }
+    let mut wide: Vec<u16> = vec![0u16; wide_len as usize];
+    unsafe {
+        MultiByteToWideChar(
+            codepage,
+            0,
+            bytes.as_ptr(),
+            bytes.len() as i32,
+            wide.as_mut_ptr(),
+            wide_len,
+        );
+    }
+    std::ffi::OsString::from_wide(&wide)
+        .to_string_lossy()
+        .into_owned()
+}
+
+#[cfg(windows)]
+fn set_console_utf8() {
+    extern "system" {
+        fn SetConsoleOutputCP(id: u32) -> i32;
+    }
+    unsafe {
+        SetConsoleOutputCP(65001);
+    }
+}
+
 /// Detects if the current process runs inside a Docker/container environment.
 pub fn is_container() -> bool {
     #[cfg(unix)]
@@ -100,11 +172,30 @@ fn combine_output(stdout: &str, stderr: &str) -> String {
 }
 
 fn exec_buffered(command: &str, shell: &str, shell_flag: &str, cfg: &config::Config) -> i32 {
+    #[cfg(windows)]
+    set_console_utf8();
+
     let start = std::time::Instant::now();
 
-    let child = Command::new(shell)
-        .arg(shell_flag)
-        .arg(command)
+    let mut cmd = Command::new(shell);
+    cmd.arg(shell_flag);
+
+    #[cfg(windows)]
+    {
+        let is_powershell =
+            shell.to_lowercase().contains("powershell") || shell.to_lowercase().contains("pwsh");
+        if is_powershell {
+            cmd.arg(format!(
+                "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; {command}"
+            ));
+        } else {
+            cmd.arg(command);
+        }
+    }
+    #[cfg(not(windows))]
+    cmd.arg(command);
+
+    let child = cmd
         .env("LEAN_CTX_ACTIVE", "1")
         .env_remove("DISPLAY")
         .env_remove("XAUTHORITY")
@@ -131,8 +222,8 @@ fn exec_buffered(command: &str, shell: &str, shell_flag: &str, cfg: &config::Con
 
     let duration_ms = start.elapsed().as_millis();
     let exit_code = output.status.code().unwrap_or(1);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = decode_output(&output.stdout);
+    let stderr = decode_output(&output.stderr);
 
     let full_output = combine_output(&stdout, &stderr);
     let input_tokens = count_tokens(&full_output);

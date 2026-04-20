@@ -3,6 +3,16 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.2.9] — 2026-04-20
+
+### Fixed
+- **UTF-8 text corrupted on Windows PowerShell** (#131): `lean-ctx -c` with non-ASCII output (Russian, Japanese, Chinese, Arabic, etc.) produced mojibake because `String::from_utf8_lossy` misinterpreted Windows system codepage bytes as UTF-8. Introduced `decode_output()` that tries UTF-8 first, then falls back to Win32 `MultiByteToWideChar` for proper codepage-to-Unicode conversion. On PowerShell, additionally injects `[Console]::OutputEncoding = UTF8` and sets `SetConsoleOutputCP(65001)`. Fixed across shell hook, MCP server execute, and sandbox runners.
+- **MCP `ctx_shell` commands hang on stdin** (#132, credit: @xsploit): Child processes spawned by the MCP server inherited the JSON-RPC stdin pipe, causing commands like `git` to block instead of receiving EOF. Fixed by setting `stdin(Stdio::null())` on all MCP child processes. Added `GIT_TERMINAL_PROMPT=0` and `GIT_PAGER=cat` to prevent interactive prompts.
+
+### Added
+- **MCP command timeout**: Shell commands executed via `ctx_shell` now have a configurable timeout (default 120s). Override with `LEAN_CTX_SHELL_TIMEOUT_MS` env var. Timed-out commands return exit code 124 with a clear error message.
+- **Regression tests**: Added `execute_command_closes_stdin` and `git_version_returns_when_git_is_available` tests to prevent future stdin inheritance regressions.
+
 ## [3.2.8] — 2026-04-20
 
 ### Fixed
