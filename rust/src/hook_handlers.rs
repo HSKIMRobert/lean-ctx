@@ -19,17 +19,7 @@ pub fn handle_rewrite() {
         None => return,
     };
 
-    if cmd.starts_with("lean-ctx ") || cmd.starts_with(&format!("{binary} ")) {
-        return;
-    }
-
-    if let Some(rewritten) = build_rewrite_compound(&cmd, &binary) {
-        emit_rewrite(&rewritten);
-        return;
-    }
-
-    if is_rewritable(&cmd) {
-        let rewritten = wrap_single_command(&cmd, &binary);
+    if let Some(rewritten) = rewrite_candidate(&cmd, &binary) {
         emit_rewrite(&rewritten);
     }
 }
@@ -41,6 +31,22 @@ fn is_rewritable(cmd: &str) -> bool {
 fn wrap_single_command(cmd: &str, binary: &str) -> String {
     let shell_escaped = cmd.replace('\\', "\\\\").replace('"', "\\\"");
     format!("{binary} -c \"{shell_escaped}\"")
+}
+
+fn rewrite_candidate(cmd: &str, binary: &str) -> Option<String> {
+    if cmd.starts_with("lean-ctx ") || cmd.starts_with(&format!("{binary} ")) {
+        return None;
+    }
+
+    if let Some(rewritten) = build_rewrite_compound(cmd, binary) {
+        return Some(rewritten);
+    }
+
+    if is_rewritable(cmd) {
+        return Some(wrap_single_command(cmd, binary));
+    }
+
+    None
 }
 
 fn build_rewrite_compound(cmd: &str, binary: &str) -> Option<String> {
@@ -68,6 +74,41 @@ pub fn handle_redirect() {
     // Blocking them breaks Edit (which requires native Read) and causes
     // unnecessary friction. The MCP instructions already guide the AI
     // to prefer ctx_read/ctx_search/ctx_tree.
+}
+
+fn codex_reroute_message(rewritten: &str) -> String {
+    format!(
+        "Command should run via lean-ctx for compact output. Do not retry the original command. Re-run with: {rewritten}"
+    )
+}
+
+pub fn handle_codex_pretooluse() {
+    let binary = resolve_binary();
+    let mut input = String::new();
+    if std::io::stdin().read_to_string(&mut input).is_err() {
+        return;
+    }
+
+    let tool = extract_json_field(&input, "tool_name");
+    if !matches!(tool.as_deref(), Some("Bash" | "bash")) {
+        return;
+    }
+
+    let cmd = match extract_json_field(&input, "command") {
+        Some(c) => c,
+        None => return,
+    };
+
+    if let Some(rewritten) = rewrite_candidate(&cmd, &binary) {
+        eprintln!("{}", codex_reroute_message(&rewritten));
+        std::process::exit(2);
+    }
+}
+
+pub fn handle_codex_session_start() {
+    println!(
+        "For shell commands matched by lean-ctx compression rules, prefer `lean-ctx -c \"<command>\"`. If a Bash call is blocked, rerun it with the exact command suggested by the hook."
+    );
 }
 
 /// Copilot-specific PreToolUse handler.
@@ -99,17 +140,7 @@ pub fn handle_copilot() {
         None => return,
     };
 
-    if cmd.starts_with("lean-ctx ") || cmd.starts_with(&format!("{binary} ")) {
-        return;
-    }
-
-    if let Some(rewritten) = build_rewrite_compound(&cmd, &binary) {
-        emit_rewrite(&rewritten);
-        return;
-    }
-
-    if is_rewritable(&cmd) {
-        let rewritten = wrap_single_command(&cmd, &binary);
+    if let Some(rewritten) = rewrite_candidate(&cmd, &binary) {
         emit_rewrite(&rewritten);
     }
 }
@@ -126,19 +157,13 @@ pub fn handle_rewrite_inline() {
     }
     let cmd = args[3..].join(" ");
 
+    if let Some(rewritten) = rewrite_candidate(&cmd, &binary) {
+        print!("{rewritten}");
+        return;
+    }
+
     if cmd.starts_with("lean-ctx ") || cmd.starts_with(&format!("{binary} ")) {
         print!("{cmd}");
-        return;
-    }
-
-    if let Some(rewritten) = build_rewrite_compound(&cmd, &binary) {
-        print!("{rewritten}");
-        return;
-    }
-
-    if is_rewritable(&cmd) {
-        let rewritten = wrap_single_command(&cmd, &binary);
-        print!("{rewritten}");
         return;
     }
 
@@ -196,6 +221,31 @@ mod tests {
     fn wrap_with_quotes() {
         let r = wrap_single_command(r#"curl -H "Auth" https://api.com"#, "lean-ctx");
         assert_eq!(r, r#"lean-ctx -c "curl -H \"Auth\" https://api.com""#);
+    }
+
+    #[test]
+    fn rewrite_candidate_returns_none_for_existing_lean_ctx_command() {
+        assert_eq!(
+            rewrite_candidate("lean-ctx -c git status", "lean-ctx"),
+            None
+        );
+    }
+
+    #[test]
+    fn rewrite_candidate_wraps_single_command() {
+        assert_eq!(
+            rewrite_candidate("git status", "lean-ctx"),
+            Some(r#"lean-ctx -c "git status""#.to_string())
+        );
+    }
+
+    #[test]
+    fn codex_reroute_message_includes_exact_rewritten_command() {
+        let message = codex_reroute_message(r#"lean-ctx -c "git status""#);
+        assert_eq!(
+            message,
+            r#"Command should run via lean-ctx for compact output. Do not retry the original command. Re-run with: lean-ctx -c "git status""#
+        );
     }
 
     #[test]

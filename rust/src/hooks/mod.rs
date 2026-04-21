@@ -1,10 +1,16 @@
 use std::path::PathBuf;
 
 pub mod agents;
+mod support;
 use agents::*;
+use support::{
+    ensure_codex_hooks_enabled, install_codex_instruction_docs, install_named_json_server,
+    upsert_lean_ctx_codex_hook_entries,
+};
 
 fn mcp_server_quiet_mode() -> bool {
     std::env::var_os("LEAN_CTX_MCP_SERVER").is_some()
+        || matches!(std::env::var("LEAN_CTX_QUIET"), Ok(value) if value.trim() == "1")
 }
 
 /// Silently refresh all hook scripts for agents that are already configured.
@@ -45,8 +51,14 @@ pub fn refresh_installed_hooks() {
         install_gemini_hook_config(&home);
     }
 
-    if home.join(".codex/hooks/lean-ctx-rewrite-codex.sh").exists() {
-        install_codex_hook_scripts(&home);
+    let codex_hooks = home.join(".codex/hooks/lean-ctx-rewrite-codex.sh").exists()
+        || home.join(".codex/hooks.json").exists()
+            && std::fs::read_to_string(home.join(".codex/hooks.json"))
+                .unwrap_or_default()
+                .contains("lean-ctx");
+
+    if codex_hooks {
+        install_codex_hook();
     }
 }
 
@@ -511,47 +523,7 @@ fn full_server_entry(binary: &str) -> serde_json::Value {
 fn install_mcp_json_agent(name: &str, display_path: &str, config_path: &std::path::Path) {
     let binary = resolve_binary_path();
     let entry = full_server_entry(&binary);
-
-    if let Some(parent) = config_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-
-    if config_path.exists() {
-        let content = std::fs::read_to_string(config_path).unwrap_or_default();
-        if content.contains("lean-ctx") {
-            println!("{name} MCP already configured at {display_path}");
-            return;
-        }
-
-        if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
-            if let Some(obj) = json.as_object_mut() {
-                let servers = obj
-                    .entry("mcpServers")
-                    .or_insert_with(|| serde_json::json!({}));
-                if let Some(servers_obj) = servers.as_object_mut() {
-                    servers_obj.insert("lean-ctx".to_string(), entry.clone());
-                }
-                if let Ok(formatted) = serde_json::to_string_pretty(&json) {
-                    let _ = std::fs::write(config_path, formatted);
-                    println!("  \x1b[32m✓\x1b[0m {name} MCP configured at {display_path}");
-                    return;
-                }
-            }
-        }
-    }
-
-    let content = serde_json::to_string_pretty(&serde_json::json!({
-        "mcpServers": {
-            "lean-ctx": entry
-        }
-    }));
-
-    if let Ok(json_str) = content {
-        let _ = std::fs::write(config_path, json_str);
-        println!("  \x1b[32m✓\x1b[0m {name} MCP configured at {display_path}");
-    } else {
-        eprintln!("  \x1b[31m✗\x1b[0m Failed to configure {name}");
-    }
+    install_named_json_server(name, display_path, config_path, "mcpServers", entry);
 }
 
 #[cfg(test)]

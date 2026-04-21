@@ -182,7 +182,7 @@ lean-ctx init --global         # Install 23 shell aliases (.zshrc/.bashrc/.confi
 lean-ctx init --agent claude   # Install Claude Code PreToolUse hook
 lean-ctx init --agent cursor   # Install Cursor hooks.json
 lean-ctx init --agent gemini   # Install Gemini CLI BeforeTool hook
-lean-ctx init --agent codex    # Install Codex AGENTS.md
+lean-ctx init --agent codex    # Install Codex AGENTS.md + compatible hooks
 lean-ctx init --agent windsurf # Install .windsurfrules
 lean-ctx init --agent cline    # Install .clinerules
 lean-ctx init --agent crush    # Install Crush MCP config
@@ -514,6 +514,18 @@ args = []
 ```
 
 Or via CLI: `codex mcp add lean-ctx`
+
+Then run:
+
+```bash
+lean-ctx init --agent codex
+```
+
+This installs:
+
+- `~/.codex/AGENTS.md` + `~/.codex/LEAN-CTX.md`
+- a `SessionStart` hook that reminds Codex to prefer `lean-ctx -c "<command>"` for rewritable shell commands
+- a `PreToolUse` hook that blocks rewritable raw Bash commands and tells Codex exactly how to rerun them through `lean-ctx`
 
 ### Google Antigravity
 

@@ -980,6 +980,9 @@ fn run_fix(opts: DoctorFixOptions) -> Result<i32, String> {
         doctor_report_path, PlatformInfo, SetupItem, SetupReport, SetupStepReport,
     };
 
+    let _quiet_guard = opts
+        .json
+        .then(|| crate::setup::EnvVarGuard::set("LEAN_CTX_QUIET", "1"));
     let started_at = Utc::now();
     let home = dirs::home_dir().ok_or_else(|| "Cannot determine home directory".to_string())?;
 

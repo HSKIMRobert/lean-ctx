@@ -47,6 +47,18 @@ fn run_with_env(
     (stdout, stderr, code)
 }
 
+fn assert_hook_command_suffix(actual: Option<&str>, expected_suffix: &str) {
+    let actual = actual.expect("hook command should exist");
+    assert!(
+        actual.contains("lean-ctx"),
+        "expected hook command to reference lean-ctx, got {actual:?}"
+    );
+    assert!(
+        actual.ends_with(expected_suffix),
+        "expected hook command to end with {expected_suffix:?}, got {actual:?}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // LEAN_CTX_SHELL override tests (via `lean-ctx -c`)
 // ---------------------------------------------------------------------------
@@ -215,6 +227,170 @@ fn agent_init_unknown_agent_fails() {
     assert!(
         stderr.contains("Unknown agent"),
         "should say unknown: {stderr}"
+    );
+}
+
+#[test]
+fn codex_pretooluse_blocks_rewritable_bash_with_reroute_message() {
+    let input =
+        r#"{"tool_name":"Bash","tool_input":{"command":"git status"},"command":"git status"}"#;
+    let (stdout, stderr, code) = run_with_env(&["hook", "codex-pretooluse"], &[], Some(input));
+    assert_eq!(code, 2, "hook should block and reroute: {stderr}");
+    assert!(
+        stdout.trim().is_empty(),
+        "stdout should stay empty: {stdout}"
+    );
+    assert!(
+        stderr.contains("Re-run with:")
+            && stderr.contains("lean-ctx -c")
+            && stderr.contains(r#""git status""#),
+        "stderr should contain reroute command: {stderr}"
+    );
+}
+
+#[test]
+fn agent_init_codex_installs_compatible_hooks_and_instructions() {
+    let tmpdir = tempfile::tempdir().expect("create tempdir");
+    let home = tmpdir.path();
+    let codex_dir = home.join(".codex");
+    std::fs::create_dir_all(&codex_dir).unwrap();
+
+    let home_str = home.to_string_lossy().to_string();
+    #[cfg(not(windows))]
+    let envs = vec![("HOME", home_str.as_str())];
+    #[cfg(windows)]
+    let envs = vec![
+        ("HOME", home_str.as_str()),
+        ("USERPROFILE", home_str.as_str()),
+    ];
+
+    let (_stdout, stderr, code) =
+        run_with_env(&["init", "--agent", "codex", "--global"], &envs, None);
+    assert_eq!(code, 0, "codex init should succeed: {stderr}");
+
+    assert!(
+        codex_dir.join("AGENTS.md").exists(),
+        "AGENTS.md should exist"
+    );
+    assert!(
+        codex_dir.join("LEAN-CTX.md").exists(),
+        "LEAN-CTX.md should exist"
+    );
+
+    let hooks: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(codex_dir.join("hooks.json")).unwrap())
+            .expect("hooks.json should be valid");
+    assert_hook_command_suffix(
+        hooks["hooks"]["PreToolUse"][0]["hooks"][0]["command"].as_str(),
+        "hook codex-pretooluse",
+    );
+    assert_hook_command_suffix(
+        hooks["hooks"]["SessionStart"][0]["hooks"][0]["command"].as_str(),
+        "hook codex-session-start",
+    );
+
+    let config = std::fs::read_to_string(codex_dir.join("config.toml")).unwrap_or_default();
+    assert!(
+        config.contains("codex_hooks = true"),
+        "init should enable Codex hook support"
+    );
+}
+
+#[test]
+fn agent_init_codex_migrates_legacy_lean_ctx_hook_but_keeps_other_hooks() {
+    let tmpdir = tempfile::tempdir().expect("create tempdir");
+    let home = tmpdir.path();
+    let codex_dir = home.join(".codex");
+    let hooks_dir = codex_dir.join("hooks");
+    std::fs::create_dir_all(&hooks_dir).unwrap();
+
+    std::fs::write(
+        hooks_dir.join("lean-ctx-rewrite-codex.sh"),
+        "#!/bin/sh\nexit 0\n",
+    )
+    .unwrap();
+    std::fs::write(
+        codex_dir.join("hooks.json"),
+        serde_json::json!({
+            "hooks": {
+                "PreToolUse": [
+                    {
+                        "matcher": "Bash",
+                        "hooks": [{
+                            "type": "command",
+                            "command": "lean-ctx hook rewrite",
+                            "timeout": 15
+                        }]
+                    },
+                    {
+                        "matcher": "Bash",
+                        "hooks": [{
+                            "type": "command",
+                            "command": "echo keep-me",
+                            "timeout": 5
+                        }]
+                    }
+                ],
+                "PostToolUse": [
+                    {
+                        "matcher": "Bash",
+                        "hooks": [{
+                            "type": "command",
+                            "command": "echo keep-post",
+                            "timeout": 5
+                        }]
+                    }
+                ]
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let home_str = home.to_string_lossy().to_string();
+    #[cfg(not(windows))]
+    let envs = vec![("HOME", home_str.as_str())];
+    #[cfg(windows)]
+    let envs = vec![
+        ("HOME", home_str.as_str()),
+        ("USERPROFILE", home_str.as_str()),
+    ];
+
+    let (_stdout, stderr, code) =
+        run_with_env(&["init", "--agent", "codex", "--global"], &envs, None);
+    assert_eq!(code, 0, "codex init should succeed: {stderr}");
+
+    assert!(
+        !hooks_dir.join("lean-ctx-rewrite-codex.sh").exists(),
+        "legacy Codex hook script should be removed"
+    );
+
+    let hooks: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(codex_dir.join("hooks.json")).unwrap())
+            .expect("hooks.json should stay valid");
+    let pre_tool_use = hooks["hooks"]["PreToolUse"]
+        .as_array()
+        .expect("PreToolUse should remain");
+    assert_eq!(
+        pre_tool_use.len(),
+        2,
+        "legacy hook should be replaced and custom hook preserved"
+    );
+    assert_eq!(
+        pre_tool_use[0]["hooks"][0]["command"].as_str(),
+        Some("echo keep-me")
+    );
+    assert_hook_command_suffix(
+        pre_tool_use[1]["hooks"][0]["command"].as_str(),
+        "hook codex-pretooluse",
+    );
+    assert_hook_command_suffix(
+        hooks["hooks"]["SessionStart"][0]["hooks"][0]["command"].as_str(),
+        "hook codex-session-start",
+    );
+    assert_eq!(
+        hooks["hooks"]["PostToolUse"][0]["hooks"][0]["command"].as_str(),
+        Some("echo keep-post")
     );
 }
 

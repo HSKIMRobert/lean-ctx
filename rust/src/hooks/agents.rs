@@ -1,10 +1,12 @@
 use std::path::PathBuf;
 
 use super::{
-    full_server_entry, generate_compact_rewrite_script, generate_rewrite_script,
-    install_mcp_json_agent, install_project_rules, is_inside_git_repo, make_executable,
-    mcp_server_quiet_mode, resolve_binary_path, resolve_binary_path_for_bash, write_file,
-    KIRO_STEERING_TEMPLATE, REDIRECT_SCRIPT_CLAUDE, REDIRECT_SCRIPT_GENERIC,
+    ensure_codex_hooks_enabled as shared_ensure_codex_hooks_enabled, full_server_entry,
+    generate_compact_rewrite_script, generate_rewrite_script, install_codex_instruction_docs,
+    install_mcp_json_agent, install_named_json_server, install_project_rules, is_inside_git_repo,
+    make_executable, mcp_server_quiet_mode, resolve_binary_path, resolve_binary_path_for_bash,
+    upsert_lean_ctx_codex_hook_entries, write_file, KIRO_STEERING_TEMPLATE, REDIRECT_SCRIPT_CLAUDE,
+    REDIRECT_SCRIPT_GENERIC,
 };
 
 pub(super) fn install_claude_hook(global: bool) {
@@ -334,18 +336,7 @@ pub fn install_cursor_hook(global: bool) {
 
 pub(super) fn install_cursor_hook_scripts(home: &std::path::Path) {
     let hooks_dir = home.join(".cursor").join("hooks");
-    let _ = std::fs::create_dir_all(&hooks_dir);
-
-    let binary = resolve_binary_path_for_bash();
-
-    let rewrite_path = hooks_dir.join("lean-ctx-rewrite.sh");
-    let rewrite_script = generate_compact_rewrite_script(&binary);
-    write_file(&rewrite_path, &rewrite_script);
-    make_executable(&rewrite_path);
-
-    let redirect_path = hooks_dir.join("lean-ctx-redirect.sh");
-    write_file(&redirect_path, REDIRECT_SCRIPT_GENERIC);
-    make_executable(&redirect_path);
+    install_standard_hook_scripts(&hooks_dir, "lean-ctx-rewrite.sh", "lean-ctx-redirect.sh");
 
     let native_binary = resolve_binary_path();
     let rewrite_native = hooks_dir.join("lean-ctx-rewrite-native");
@@ -442,20 +433,31 @@ pub(super) fn install_gemini_hook() {
     install_gemini_hook_config(&home);
 }
 
-pub(super) fn install_gemini_hook_scripts(home: &std::path::Path) {
-    let hooks_dir = home.join(".gemini").join("hooks");
-    let _ = std::fs::create_dir_all(&hooks_dir);
+fn install_standard_hook_scripts(
+    hooks_dir: &std::path::Path,
+    rewrite_name: &str,
+    redirect_name: &str,
+) {
+    let _ = std::fs::create_dir_all(hooks_dir);
 
     let binary = resolve_binary_path_for_bash();
-
-    let rewrite_path = hooks_dir.join("lean-ctx-rewrite-gemini.sh");
+    let rewrite_path = hooks_dir.join(rewrite_name);
     let rewrite_script = generate_compact_rewrite_script(&binary);
     write_file(&rewrite_path, &rewrite_script);
     make_executable(&rewrite_path);
 
-    let redirect_path = hooks_dir.join("lean-ctx-redirect-gemini.sh");
+    let redirect_path = hooks_dir.join(redirect_name);
     write_file(&redirect_path, REDIRECT_SCRIPT_GENERIC);
     make_executable(&redirect_path);
+}
+
+pub(super) fn install_gemini_hook_scripts(home: &std::path::Path) {
+    let hooks_dir = home.join(".gemini").join("hooks");
+    install_standard_hook_scripts(
+        &hooks_dir,
+        "lean-ctx-rewrite-gemini.sh",
+        "lean-ctx-redirect-gemini.sh",
+    );
 }
 
 pub(super) fn install_gemini_hook_config(home: &std::path::Path) {
@@ -537,162 +539,87 @@ pub fn install_codex_hook() {
     let codex_dir = home.join(".codex");
     let _ = std::fs::create_dir_all(&codex_dir);
 
-    install_codex_hook_scripts(&home);
-    install_codex_hook_config(&home);
+    let hook_config_changed = install_codex_hook_config(&home);
+    let installed_docs = install_codex_instruction_docs(&codex_dir);
 
-    let agents_path = codex_dir.join("AGENTS.md");
-    let agents_content = "# Global Agent Instructions\n\n@LEAN-CTX.md\n";
-
-    let lean_ctx_md = codex_dir.join("LEAN-CTX.md");
-    let binary = resolve_binary_path();
-    let lean_ctx_content = format!(
-        r#"# lean-ctx — Token Optimization
-
-Prefix all shell commands with `{binary} -c` for compressed output:
-
-```bash
-{binary} -c git status    # instead of: git status
-{binary} -c cargo test    # instead of: cargo test
-{binary} -c ls src/       # instead of: ls src/
-```
-
-This saves 60-90% tokens per command. Works with: git, cargo, npm, pnpm, docker, kubectl, pip, ruff, go, curl, grep, find, ls, aws, helm, and 90+ more commands.
-Use `{binary} -c --raw <cmd>` to skip compression and get full output.
-"#
-    );
-
-    if agents_path.exists() {
-        let content = std::fs::read_to_string(&agents_path).unwrap_or_default();
-        if content.contains("lean-ctx") || content.contains("LEAN-CTX") {
-            println!("Codex AGENTS.md already configured.");
-            return;
-        }
-    }
-
-    write_file(&agents_path, agents_content);
-    write_file(&lean_ctx_md, &lean_ctx_content);
-    println!("Installed Codex instructions at {}", codex_dir.display());
-}
-
-fn install_codex_hook_config(home: &std::path::Path) {
-    let binary = resolve_binary_path();
-    let rewrite_cmd = format!("{binary} hook rewrite");
-
-    let codex_dir = home.join(".codex");
-
-    let hooks_json_path = codex_dir.join("hooks.json");
-    let hook_config = serde_json::json!({
-        "hooks": {
-            "PreToolUse": [
-                {
-                    "matcher": "Bash",
-                    "hooks": [{
-                        "type": "command",
-                        "command": rewrite_cmd,
-                        "timeout": 15
-                    }]
-                }
-            ]
-        }
-    });
-
-    let needs_write = if hooks_json_path.exists() {
-        let content = std::fs::read_to_string(&hooks_json_path).unwrap_or_default();
-        !content.contains("hook rewrite")
-    } else {
-        true
-    };
-
-    if needs_write {
-        if hooks_json_path.exists() {
-            if let Ok(mut existing) = serde_json::from_str::<serde_json::Value>(
-                &std::fs::read_to_string(&hooks_json_path).unwrap_or_default(),
-            ) {
-                if let Some(obj) = existing.as_object_mut() {
-                    obj.insert("hooks".to_string(), hook_config["hooks"].clone());
-                    write_file(
-                        &hooks_json_path,
-                        &serde_json::to_string_pretty(&existing).unwrap(),
-                    );
-                    if !mcp_server_quiet_mode() {
-                        println!("Updated Codex hooks.json at {}", hooks_json_path.display());
-                    }
-                    return;
-                }
-            }
-        }
-        write_file(
-            &hooks_json_path,
-            &serde_json::to_string_pretty(&hook_config).unwrap(),
-        );
-        if !mcp_server_quiet_mode() {
-            println!(
-                "Installed Codex hooks.json at {}",
-                hooks_json_path.display()
+    if !mcp_server_quiet_mode() {
+        if hook_config_changed {
+            eprintln!(
+                "Installed Codex-compatible SessionStart/PreToolUse hooks at {}",
+                codex_dir.display()
             );
         }
+        if installed_docs {
+            eprintln!("Installed Codex instructions at {}", codex_dir.display());
+        } else {
+            eprintln!("Codex AGENTS.md already configured.");
+        }
+    }
+}
+
+fn install_codex_hook_config(home: &std::path::Path) -> bool {
+    let binary = resolve_binary_path();
+    let session_start_cmd = format!("{binary} hook codex-session-start");
+    let pre_tool_use_cmd = format!("{binary} hook codex-pretooluse");
+    let codex_dir = home.join(".codex");
+    let hooks_json_path = codex_dir.join("hooks.json");
+
+    let mut changed = false;
+    let mut root = if hooks_json_path.exists() {
+        match std::fs::read_to_string(&hooks_json_path)
+            .ok()
+            .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok())
+        {
+            Some(parsed) => parsed,
+            None => {
+                changed = true;
+                serde_json::json!({ "hooks": {} })
+            }
+        }
+    } else {
+        changed = true;
+        serde_json::json!({ "hooks": {} })
+    };
+
+    if upsert_lean_ctx_codex_hook_entries(&mut root, &session_start_cmd, &pre_tool_use_cmd) {
+        changed = true;
+    }
+    if changed {
+        write_file(
+            &hooks_json_path,
+            &serde_json::to_string_pretty(&root).unwrap(),
+        );
+    }
+
+    let rewrite_path = codex_dir.join("hooks").join("lean-ctx-rewrite-codex.sh");
+    if rewrite_path.exists() && std::fs::remove_file(&rewrite_path).is_ok() {
+        changed = true;
     }
 
     let config_toml_path = codex_dir.join("config.toml");
     let config_content = std::fs::read_to_string(&config_toml_path).unwrap_or_default();
-    if !config_content.contains("codex_hooks") {
-        let mut out = config_content;
-        if !out.is_empty() && !out.ends_with('\n') {
-            out.push('\n');
-        }
-        if !out.contains("[features]") {
-            out.push_str("\n[features]\ncodex_hooks = true\n");
-        } else {
-            out.push_str("codex_hooks = true\n");
-        }
-        write_file(&config_toml_path, &out);
+    if let Some(updated) = ensure_codex_hooks_enabled(&config_content) {
+        write_file(&config_toml_path, &updated);
+        changed = true;
         if !mcp_server_quiet_mode() {
-            println!(
+            eprintln!(
                 "Enabled codex_hooks feature in {}",
                 config_toml_path.display()
             );
         }
     }
+
+    changed
 }
 
-pub(super) fn install_codex_hook_scripts(home: &std::path::Path) {
-    let hooks_dir = home.join(".codex").join("hooks");
-    let _ = std::fs::create_dir_all(&hooks_dir);
-
-    let binary = resolve_binary_path_for_bash();
-    let rewrite_path = hooks_dir.join("lean-ctx-rewrite-codex.sh");
-    let rewrite_script = generate_compact_rewrite_script(&binary);
-    write_file(&rewrite_path, &rewrite_script);
-    make_executable(&rewrite_path);
-    if !mcp_server_quiet_mode() {
-        println!(
-            "  \x1b[32m✓\x1b[0m Installed Codex hook scripts at {}",
-            hooks_dir.display()
-        );
-    }
+fn ensure_codex_hooks_enabled(config_content: &str) -> Option<String> {
+    shared_ensure_codex_hooks_enabled(config_content)
 }
 
 pub(super) fn install_windsurf_rules(global: bool) {
-    let scope = crate::core::config::Config::load().rules_scope_effective();
-    if global || scope == crate::core::config::RulesScope::Global {
-        println!("Global mode: skipping project-local .windsurfrules (use without --global in a project).");
+    let Some(rules_path) = prepare_project_rules_path(global, ".windsurfrules") else {
         return;
-    }
-
-    let cwd = std::env::current_dir().unwrap_or_default();
-    if !is_inside_git_repo(&cwd) || cwd == dirs::home_dir().unwrap_or_default() {
-        eprintln!("  Skipping .windsurfrules: not inside a git repository or in home directory.");
-        return;
-    }
-
-    let rules_path = PathBuf::from(".windsurfrules");
-    if rules_path.exists() {
-        let content = std::fs::read_to_string(&rules_path).unwrap_or_default();
-        if content.contains("lean-ctx") {
-            println!(".windsurfrules already configured.");
-            return;
-        }
-    }
+    };
 
     let rules = include_str!("../templates/windsurfrules.txt");
     write_file(&rules_path, rules);
@@ -700,28 +627,9 @@ pub(super) fn install_windsurf_rules(global: bool) {
 }
 
 pub(super) fn install_cline_rules(global: bool) {
-    let scope = crate::core::config::Config::load().rules_scope_effective();
-    if global || scope == crate::core::config::RulesScope::Global {
-        println!(
-            "Global mode: skipping project-local .clinerules (use without --global in a project)."
-        );
+    let Some(rules_path) = prepare_project_rules_path(global, ".clinerules") else {
         return;
-    }
-
-    let cwd = std::env::current_dir().unwrap_or_default();
-    if !is_inside_git_repo(&cwd) || cwd == dirs::home_dir().unwrap_or_default() {
-        eprintln!("  Skipping .clinerules: not inside a git repository or in home directory.");
-        return;
-    }
-
-    let rules_path = PathBuf::from(".clinerules");
-    if rules_path.exists() {
-        let content = std::fs::read_to_string(&rules_path).unwrap_or_default();
-        if content.contains("lean-ctx") {
-            println!(".clinerules already configured.");
-            return;
-        }
-    }
+    };
 
     let binary = resolve_binary_path();
     let rules = format!(
@@ -739,6 +647,33 @@ Supported commands: git, cargo, npm, pnpm, docker, kubectl, pip, ruff, go, curl,
 
     write_file(&rules_path, &rules);
     println!("Installed .clinerules in current project.");
+}
+
+fn prepare_project_rules_path(global: bool, file_name: &str) -> Option<PathBuf> {
+    let scope = crate::core::config::Config::load().rules_scope_effective();
+    if global || scope == crate::core::config::RulesScope::Global {
+        println!(
+            "Global mode: skipping project-local {file_name} (use without --global in a project)."
+        );
+        return None;
+    }
+
+    let cwd = std::env::current_dir().unwrap_or_default();
+    if !is_inside_git_repo(&cwd) || cwd == dirs::home_dir().unwrap_or_default() {
+        eprintln!("  Skipping {file_name}: not inside a git repository or in home directory.");
+        return None;
+    }
+
+    let rules_path = PathBuf::from(file_name);
+    if rules_path.exists() {
+        let content = std::fs::read_to_string(&rules_path).unwrap_or_default();
+        if content.contains("lean-ctx") {
+            println!("{file_name} already configured.");
+            return None;
+        }
+    }
+
+    Some(rules_path)
 }
 
 pub(super) fn install_pi_hook(global: bool) {
@@ -868,7 +803,7 @@ pub(super) fn install_copilot_hook(global: bool) {
     let binary = resolve_binary_path();
 
     if global {
-        let mcp_path = copilot_global_mcp_path();
+        let mcp_path = crate::core::editor_registry::vscode_mcp_path();
         if mcp_path.as_os_str() == "/nonexistent" {
             println!("  \x1b[2mVS Code not found — skipping global Copilot config\x1b[0m");
             return;
@@ -957,29 +892,6 @@ fn install_copilot_pretooluse_hook(global: bool) {
     }
 }
 
-fn copilot_global_mcp_path() -> PathBuf {
-    if let Some(home) = dirs::home_dir() {
-        #[cfg(target_os = "macos")]
-        {
-            return home.join("Library/Application Support/Code/User/mcp.json");
-        }
-        #[cfg(target_os = "linux")]
-        {
-            return home.join(".config/Code/User/mcp.json");
-        }
-        #[cfg(target_os = "windows")]
-        {
-            if let Ok(appdata) = std::env::var("APPDATA") {
-                return PathBuf::from(appdata).join("Code/User/mcp.json");
-            }
-        }
-        #[allow(unreachable_code)]
-        home.join(".config/Code/User/mcp.json")
-    } else {
-        PathBuf::from("/nonexistent")
-    }
-}
-
 fn write_vscode_mcp_file(mcp_path: &PathBuf, binary: &str, label: &str) {
     let data_dir = crate::core::data_dir::lean_ctx_data_dir()
         .map(|d| d.to_string_lossy().to_string())
@@ -1061,38 +973,7 @@ pub(super) fn install_amp_hook() {
         "command": binary,
         "env": { "LEAN_CTX_DATA_DIR": data_dir }
     });
-
-    if config_path.exists() {
-        let content = std::fs::read_to_string(&config_path).unwrap_or_default();
-        if content.contains("lean-ctx") {
-            println!("Amp MCP already configured at {display_path}");
-            return;
-        }
-
-        if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
-            if let Some(obj) = json.as_object_mut() {
-                let servers = obj
-                    .entry("amp.mcpServers")
-                    .or_insert_with(|| serde_json::json!({}));
-                if let Some(servers_obj) = servers.as_object_mut() {
-                    servers_obj.insert("lean-ctx".to_string(), entry.clone());
-                }
-                if let Ok(formatted) = serde_json::to_string_pretty(&json) {
-                    let _ = std::fs::write(&config_path, formatted);
-                    println!("  \x1b[32m✓\x1b[0m Amp MCP configured at {display_path}");
-                    return;
-                }
-            }
-        }
-    }
-
-    let config = serde_json::json!({ "amp.mcpServers": { "lean-ctx": entry } });
-    if let Ok(json_str) = serde_json::to_string_pretty(&config) {
-        let _ = std::fs::write(&config_path, json_str);
-        println!("  \x1b[32m✓\x1b[0m Amp MCP configured at {display_path}");
-    } else {
-        eprintln!("  \x1b[31m✗\x1b[0m Failed to configure Amp");
-    }
+    install_named_json_server("Amp", display_path, &config_path, "amp.mcpServers", entry);
 }
 
 pub(super) fn install_jetbrains_hook() {
@@ -1432,3 +1313,167 @@ Re-reads cost ~13 tokens (cached).
 Available tools: ctx_overview, ctx_preload, ctx_dedup, ctx_compress, ctx_session, ctx_knowledge, ctx_semantic_search.
 Multi-agent: ctx_agent(action=handoff|sync). Diary: ctx_agent(action=diary, category=discovery|decision|blocker|progress|insight).
 ";
+
+#[cfg(test)]
+mod tests {
+    use super::{ensure_codex_hooks_enabled, upsert_lean_ctx_codex_hook_entries};
+    use serde_json::json;
+
+    #[test]
+    fn upsert_replaces_legacy_codex_rewrite_but_keeps_custom_hooks() {
+        let mut input = json!({
+            "hooks": {
+                "PreToolUse": [
+                    {
+                        "matcher": "Bash",
+                        "hooks": [{
+                            "type": "command",
+                            "command": "/opt/homebrew/bin/lean-ctx hook rewrite",
+                            "timeout": 15
+                        }]
+                    },
+                    {
+                        "matcher": "Bash",
+                        "hooks": [{
+                            "type": "command",
+                            "command": "echo keep-me",
+                            "timeout": 5
+                        }]
+                    }
+                ],
+                "SessionStart": [
+                    {
+                        "matcher": "startup|resume|clear",
+                        "hooks": [{
+                            "type": "command",
+                            "command": "lean-ctx hook codex-session-start",
+                            "timeout": 15
+                        }]
+                    }
+                ],
+                "PostToolUse": [
+                    {
+                        "matcher": "Bash",
+                        "hooks": [{
+                            "type": "command",
+                            "command": "echo keep-post",
+                            "timeout": 5
+                        }]
+                    }
+                ]
+            }
+        });
+
+        let changed = upsert_lean_ctx_codex_hook_entries(
+            &mut input,
+            "lean-ctx hook codex-session-start",
+            "lean-ctx hook codex-pretooluse",
+        );
+        assert!(changed, "legacy hooks should be migrated");
+
+        let pre_tool_use = input["hooks"]["PreToolUse"]
+            .as_array()
+            .expect("PreToolUse array should remain");
+        assert_eq!(pre_tool_use.len(), 2, "custom hook should be preserved");
+        assert_eq!(
+            pre_tool_use[0]["hooks"][0]["command"].as_str(),
+            Some("echo keep-me")
+        );
+        assert_eq!(
+            pre_tool_use[1]["hooks"][0]["command"].as_str(),
+            Some("lean-ctx hook codex-pretooluse")
+        );
+        assert_eq!(
+            input["hooks"]["SessionStart"][0]["hooks"][0]["command"].as_str(),
+            Some("lean-ctx hook codex-session-start")
+        );
+        assert_eq!(
+            input["hooks"]["PostToolUse"][0]["hooks"][0]["command"].as_str(),
+            Some("echo keep-post")
+        );
+    }
+
+    #[test]
+    fn ignores_non_lean_ctx_codex_entries() {
+        let custom = json!({
+            "matcher": "Bash",
+            "hooks": [{
+                "type": "command",
+                "command": "echo keep-me",
+                "timeout": 5
+            }]
+        });
+        assert!(
+            !super::super::support::is_lean_ctx_codex_managed_entry("PreToolUse", &custom),
+            "custom Codex hooks must be preserved"
+        );
+    }
+
+    #[test]
+    fn detects_managed_codex_session_start_entry() {
+        let managed = json!({
+            "matcher": "startup|resume|clear",
+            "hooks": [{
+                "type": "command",
+                "command": "/opt/homebrew/bin/lean-ctx hook codex-session-start",
+                "timeout": 15
+            }]
+        });
+        assert!(super::super::support::is_lean_ctx_codex_managed_entry(
+            "SessionStart",
+            &managed
+        ));
+    }
+
+    #[test]
+    fn ensure_codex_hooks_enabled_updates_existing_features_flag() {
+        let input = "\
+[features]
+other = true
+codex_hooks = false
+
+[mcp_servers.other]
+command = \"other\"
+";
+
+        let output =
+            ensure_codex_hooks_enabled(input).expect("codex_hooks=false should be migrated");
+
+        assert!(output.contains("[features]\nother = true\ncodex_hooks = true\n"));
+        assert!(!output.contains("codex_hooks = false"));
+    }
+
+    #[test]
+    fn ensure_codex_hooks_enabled_moves_stray_assignment_into_features_section() {
+        let input = "\
+[features]
+other = true
+
+[mcp_servers.lean-ctx]
+command = \"lean-ctx\"
+codex_hooks = true
+";
+
+        let output = ensure_codex_hooks_enabled(input)
+            .expect("stray codex_hooks assignment should be normalized");
+
+        assert!(output.contains("[features]\nother = true\ncodex_hooks = true\n"));
+        assert_eq!(output.matches("codex_hooks = true").count(), 1);
+        assert!(
+            !output.contains("[mcp_servers.lean-ctx]\ncommand = \"lean-ctx\"\ncodex_hooks = true")
+        );
+    }
+
+    #[test]
+    fn ensure_codex_hooks_enabled_adds_features_section_when_missing() {
+        let input = "\
+[mcp_servers.lean-ctx]
+command = \"lean-ctx\"
+";
+
+        let output =
+            ensure_codex_hooks_enabled(input).expect("missing features section should be added");
+
+        assert!(output.ends_with("\n[features]\ncodex_hooks = true\n"));
+    }
+}
