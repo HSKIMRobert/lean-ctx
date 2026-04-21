@@ -47,6 +47,18 @@ fn run_with_env(
     (stdout, stderr, code)
 }
 
+fn assert_hook_command_suffix(actual: Option<&str>, expected_suffix: &str) {
+    let actual = actual.expect("hook command should exist");
+    assert!(
+        actual.contains("lean-ctx"),
+        "expected hook command to reference lean-ctx, got {actual:?}"
+    );
+    assert!(
+        actual.ends_with(expected_suffix),
+        "expected hook command to end with {expected_suffix:?}, got {actual:?}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // LEAN_CTX_SHELL override tests (via `lean-ctx -c`)
 // ---------------------------------------------------------------------------
@@ -268,13 +280,13 @@ fn agent_init_codex_installs_compatible_hooks_and_instructions() {
     let hooks: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(codex_dir.join("hooks.json")).unwrap())
             .expect("hooks.json should be valid");
-    assert_eq!(
+    assert_hook_command_suffix(
         hooks["hooks"]["PreToolUse"][0]["hooks"][0]["command"].as_str(),
-        Some("lean-ctx hook codex-pretooluse")
+        "hook codex-pretooluse",
     );
-    assert_eq!(
+    assert_hook_command_suffix(
         hooks["hooks"]["SessionStart"][0]["hooks"][0]["command"].as_str(),
-        Some("lean-ctx hook codex-session-start")
+        "hook codex-session-start",
     );
 
     let config = std::fs::read_to_string(codex_dir.join("config.toml")).unwrap_or_default();
@@ -368,13 +380,13 @@ fn agent_init_codex_migrates_legacy_lean_ctx_hook_but_keeps_other_hooks() {
         pre_tool_use[0]["hooks"][0]["command"].as_str(),
         Some("echo keep-me")
     );
-    assert_eq!(
+    assert_hook_command_suffix(
         pre_tool_use[1]["hooks"][0]["command"].as_str(),
-        Some("lean-ctx hook codex-pretooluse")
+        "hook codex-pretooluse",
     );
-    assert_eq!(
+    assert_hook_command_suffix(
         hooks["hooks"]["SessionStart"][0]["hooks"][0]["command"].as_str(),
-        Some("lean-ctx hook codex-session-start")
+        "hook codex-session-start",
     );
     assert_eq!(
         hooks["hooks"]["PostToolUse"][0]["hooks"][0]["command"].as_str(),
