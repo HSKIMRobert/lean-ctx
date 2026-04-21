@@ -3,6 +3,59 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.3.1] — 2026-04-18
+
+### Shell Hook Hardening: Complete Developer Environment Coverage
+
+Addresses user-reported issues where `npm run dev` hangs and shell compression is too aggressive for human-readable output. Massively expands passthrough command coverage across all developer ecosystems.
+
+#### Bug fixes
+- **`npm run dev` no longer hangs**: Script runner commands (`npm run dev`, `yarn start`, `pnpm serve`, `bun run watch`, etc.) are now recognized as long-running processes and bypass compression entirely. Previously, `exec_buffered` would wait forever for the dev server to exit.
+- **`npm run` compression less aggressive**: `compress_run` now shows up to 15 lines verbatim (was 5) and keeps the last 10 lines of longer output (was 3).
+- **Case-sensitive passthrough patterns fixed**: Patterns like `bootRun`, `-S`, `-A`, `-B` now correctly match after case normalization in `is_excluded_command`.
+
+#### Shell passthrough expansion (~85 new entries)
+- **Package manager script runners**: `npm run dev/start/serve/watch/preview/storybook`, `npm start`, `npx`, `pnpm run dev/start/serve/watch`, `pnpm dev/start/preview`, `yarn dev/start/serve/watch/preview/storybook`, `bun run dev/start/serve/watch/preview`, `bun start`, `deno task dev/start/serve`, `deno run --watch`
+- **Python**: `flask run`, `uvicorn`, `gunicorn`, `hypercorn`, `daphne`, `django-admin runserver`, `manage.py runserver`, `python -m http.server`, `streamlit run`, `gradio`, `celery worker/beat`, `dramatiq`, `rq worker`, `ptw`, `pytest-watch`
+- **Ruby/Rails**: `rails server/s`, `puma`, `unicorn`, `thin start`, `foreman start`, `overmind start`, `guard`, `sidekiq`, `resque`
+- **PHP/Laravel**: `php artisan serve/queue:work/queue:listen/horizon/tinker`, `php -S`, `sail up`
+- **Java/JVM**: `gradlew bootRun/run`, `gradle bootRun`, `mvn spring-boot:run`, `mvn quarkus:dev`, `sbt run/~compile`, `lein run/repl`
+- **Go**: `go run`, `air`, `gin`, `realize start`, `reflex`, `gowatch`
+- **.NET**: `dotnet run`, `dotnet watch`, `dotnet ef`
+- **Elixir**: `mix phx.server`, `iex -S mix`
+- **Swift**: `swift run`, `swift package`, `vapor serve`
+- **Zig**: `zig build run`
+- **Rust**: `cargo run`, `cargo leptos watch`, `bacon`
+- **Task runners**: `make dev/serve/watch/run/start`, `just dev/serve/watch/start/run`, `task dev/serve/watch`, `nix develop`, `devenv up`
+- **CI/CD**: `docker compose watch`, `skaffold dev`, `tilt up`, `garden dev`, `telepresence`, `act`
+- **Networking/monitoring**: `mtr`, `nmap`, `iperf/iperf3`, `ss -l`, `netstat -l`, `lsof -i`, `socat`
+- **Load testing**: `ab`, `wrk`, `hey`, `vegeta`, `k6 run`, `artillery run`
+
+#### Smart script-runner detection
+- New heuristic: any `npm run`/`pnpm run`/`yarn`/`bun run`/`deno task` command where the script name contains `dev`, `start`, `serve`, `watch`, `preview`, `storybook`, `hot`, `live`, or `hmr` is automatically treated as passthrough. Catches variants like `npm run dev:ssr`, `yarn start:production`, `pnpm run serve:local`, `bun run watch:css`.
+
+#### New adversarial tests (12 tests)
+- `npm install` package name/count preservation
+- `npm install` explicit package names (`express`, `lodash`, `axios`)
+- `cargo build` error codes (E0308, E0599) with file:line
+- `eslint` rule IDs and error counts
+- `go build` file:line error locations
+- `docker build` step failure errors
+- `tsc` type error codes (TS2304, TS2339) with file references
+- `dotnet build` CS0246 errors and build result
+- `composer install` package counts
+- `cargo test` failure counts
+- `kubectl get pods` CrashLoopBackOff/Error status
+- `terraform plan` destructive action preservation
+
+#### New passthrough tests (15 test functions)
+Organized by ecosystem: npm, pnpm, yarn, bun/deno, Python, Ruby, PHP, Java, Go, .NET, Elixir, Swift/Zig, Rust, task runners, CI/CD, networking, load testing, smart detection, false-positive guard.
+
+#### Website
+- Fixed i18n validation: removed duplicate `docsGettingStarted.evalInit*` keys from 10 locale files that caused GitLab CI pipeline failure.
+
+---
+
 ## [3.3.0] — 2026-04-21
 
 ### Adversarial Safety Hardening

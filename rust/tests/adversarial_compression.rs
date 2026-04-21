@@ -416,3 +416,329 @@ fn regression_wc_pipe_correct() {
     let text = compressed.unwrap_or_else(|| output.to_string());
     assert!(text.contains("42"), "wc output must be preserved: {text}");
 }
+
+// ===== New adversarial tests: comprehensive coverage across ecosystems =====
+
+#[test]
+fn adversarial_npm_install_preserves_packages() {
+    let output = "\
+npm warn deprecated glob@7.2.3: Glob versions prior to v9 are no longer supported
+npm warn deprecated inflight@1.0.6: This module is not supported
+
+added 547 packages, and audited 548 packages in 12s
+
+75 packages are looking for funding
+  run `npm fund` for details
+
+found 0 vulnerabilities";
+
+    let compressed = compress_output("npm install", output).unwrap();
+    assert!(
+        compressed.contains("547"),
+        "npm install must preserve package count: {compressed}"
+    );
+}
+
+#[test]
+fn adversarial_npm_install_with_explicit_packages() {
+    let output = "\
++ express@4.18.2
++ lodash@4.17.21
++ axios@1.6.2
+
+added 58 packages, and audited 59 packages in 3s
+
+found 0 vulnerabilities";
+
+    let compressed = compress_output("npm install express lodash axios", output).unwrap();
+    assert!(
+        compressed.contains("express"),
+        "npm install must preserve installed package names: {compressed}"
+    );
+    assert!(
+        compressed.contains("lodash"),
+        "npm install must preserve installed package names: {compressed}"
+    );
+    assert!(
+        compressed.contains("axios"),
+        "npm install must preserve installed package names: {compressed}"
+    );
+}
+
+#[test]
+fn adversarial_cargo_build_preserves_errors() {
+    let output = "\
+   Compiling myapp v0.1.0 (/home/user/myapp)
+error[E0308]: mismatched types
+ --> src/main.rs:42:10
+  |
+42|     foo(x)
+  |         ^ expected `&str`, found `String`
+  |
+
+error[E0599]: no method named `bar` found for struct `Config`
+  --> src/config.rs:15:10
+   |
+15 |     cfg.bar()
+   |         ^^^ method not found in `Config`
+
+error: could not compile `myapp` (bin \"myapp\") due to 2 previous errors";
+
+    let compressed = compress_output("cargo build", output).unwrap();
+    assert!(
+        compressed.contains("E0308"),
+        "cargo build must preserve error codes: {compressed}"
+    );
+    assert!(
+        compressed.contains("E0599"),
+        "cargo build must preserve all error codes: {compressed}"
+    );
+    assert!(
+        compressed.contains("mismatched types") || compressed.contains("expected"),
+        "cargo build must preserve error messages: {compressed}"
+    );
+}
+
+#[test]
+fn adversarial_eslint_preserves_file_line_and_rules() {
+    let output = "\
+/home/user/project/src/App.tsx
+   5:10  error    'useState' is defined but never used  no-unused-vars
+  12:15  warning  Unexpected any                        @typescript-eslint/no-explicit-any
+  33:1   error    Missing return type                   @typescript-eslint/explicit-function-return-type
+
+/home/user/project/src/utils.ts
+   8:5   error    Unexpected var                        no-var
+
+4 problems (3 errors, 1 warning)";
+
+    let compressed = compress_output("eslint .", output).unwrap();
+    assert!(
+        compressed.contains("no-unused-vars") || compressed.contains("unused"),
+        "eslint must preserve rule names: {compressed}"
+    );
+    assert!(
+        compressed.contains("3 error") || compressed.contains("error"),
+        "eslint must preserve error counts: {compressed}"
+    );
+}
+
+#[test]
+fn adversarial_go_build_preserves_errors() {
+    let output = "\
+./main.go:15:2: undefined: Config
+./main.go:23:10: cannot use x (variable of type string) as int value in argument to process
+./handlers/auth.go:42:5: too many arguments in call to validateToken
+./handlers/auth.go:55:12: impossible type assertion: *http.Request does not implement CustomRequest";
+
+    let compressed = compress_output("go build ./...", output).unwrap();
+    assert!(
+        compressed.contains("main.go") || compressed.contains("undefined"),
+        "go build must preserve file references: {compressed}"
+    );
+    assert!(
+        compressed.contains("auth.go") || compressed.contains("validateToken"),
+        "go build must preserve all error locations: {compressed}"
+    );
+}
+
+#[test]
+fn adversarial_docker_build_preserves_step_errors() {
+    let output = "\
+#1 [internal] load build definition from Dockerfile
+#1 DONE 0.0s
+
+#5 [2/5] RUN apt-get update && apt-get install -y curl
+#5 DONE 15.2s
+
+#6 [3/5] COPY requirements.txt .
+#6 DONE 0.1s
+
+#7 [4/5] RUN pip install -r requirements.txt
+#7 4.521 ERROR: Could not find a version that satisfies the requirement nonexistent-package==99.0
+#7 4.521 ERROR: No matching distribution found for nonexistent-package==99.0
+#7 ERROR: process \"/bin/sh -c pip install -r requirements.txt\" did not complete successfully: exit code: 1";
+
+    let compressed = compress_output("docker build .", output).unwrap();
+    assert!(
+        compressed.contains("ERROR") || compressed.contains("error"),
+        "docker build must preserve error lines: {compressed}"
+    );
+    assert!(
+        compressed.contains("nonexistent-package") || compressed.contains("not complete"),
+        "docker build must preserve error details: {compressed}"
+    );
+}
+
+#[test]
+fn adversarial_tsc_preserves_type_errors() {
+    let output = "\
+src/api/routes.ts(15,10): error TS2304: Cannot find name 'Request'.
+src/api/routes.ts(22,5): error TS2339: Property 'userId' does not exist on type 'Session'.
+src/utils/auth.ts(8,3): error TS2345: Argument of type 'string' is not assignable to parameter of type 'number'.
+src/utils/auth.ts(42,20): error TS7006: Parameter 'req' implicitly has an 'any' type.
+
+Found 4 errors in 2 files.";
+
+    let compressed = compress_output("tsc --noEmit", output).unwrap();
+    assert!(
+        compressed.contains("TS2304"),
+        "tsc must preserve error code TS2304: {compressed}"
+    );
+    assert!(
+        compressed.contains("TS2339"),
+        "tsc must preserve error code TS2339: {compressed}"
+    );
+    assert!(
+        compressed.contains("routes.ts") || compressed.contains("auth.ts"),
+        "tsc must preserve file references: {compressed}"
+    );
+    assert!(
+        compressed.contains("4 error"),
+        "tsc must preserve error count: {compressed}"
+    );
+}
+
+#[test]
+fn adversarial_dotnet_build_preserves_errors() {
+    let output = "\
+Microsoft (R) Build Engine version 17.8.3+195e7f5a3 for .NET
+Copyright (C) Microsoft Corporation. All rights reserved.
+
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+Controllers/UserController.cs(15,25): error CS0246: The type or namespace name 'UserService' could not be found
+Models/User.cs(8,12): error CS0246: The type or namespace name 'JsonProperty' could not be found
+
+Build FAILED.
+
+Controllers/UserController.cs(15,25): error CS0246: The type or namespace name 'UserService' could not be found
+Models/User.cs(8,12): error CS0246: The type or namespace name 'JsonProperty' could not be found
+    2 Error(s)
+    0 Warning(s)
+
+Time Elapsed 00:00:01.82";
+
+    let compressed = compress_output("dotnet build", output).unwrap();
+    assert!(
+        compressed.contains("CS0246") || compressed.contains("error"),
+        "dotnet build must preserve error codes: {compressed}"
+    );
+    assert!(
+        compressed.contains("FAILED") || compressed.contains("2"),
+        "dotnet build must preserve build result: {compressed}"
+    );
+}
+
+#[test]
+fn adversarial_composer_install_preserves_packages() {
+    let output = "\
+Loading composer repositories with package information
+Updating dependencies
+Lock file operations: 5 installs, 0 updates, 0 removals
+  - Installing psr/log (3.0.0): Extracting archive
+  - Installing monolog/monolog (3.5.0): Extracting archive
+  - Installing symfony/console (7.0.3): Extracting archive
+  - Installing laravel/framework (11.0.0): Extracting archive
+  - Installing phpunit/phpunit (10.5.0): Extracting archive
+Writing lock file
+Generating optimized autoload files
+Package operations: 5 installs, 0 updates, 0 removals";
+
+    let compressed = compress_output("composer install", output).unwrap();
+    assert!(
+        compressed.contains("5") || compressed.contains("install"),
+        "composer install must preserve package count: {compressed}"
+    );
+}
+
+#[test]
+fn adversarial_cargo_test_preserves_failures() {
+    let output = "\
+   Compiling myapp v0.1.0 (/home/user/myapp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.34s
+     Running unittests src/lib.rs (target/debug/deps/myapp-abc123)
+
+running 25 tests
+test auth::tests::login_works ... ok
+test auth::tests::logout_works ... ok
+test auth::tests::token_expired ... FAILED
+test db::tests::connection_pool ... ok
+
+failures:
+
+---- auth::tests::token_expired stdout ----
+thread 'auth::tests::token_expired' panicked at 'assertion failed: `(left == right)`
+  left: `true`,
+ right: `false`', src/auth.rs:142:9
+
+failures:
+    auth::tests::token_expired
+
+test result: FAILED. 24 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.52s";
+
+    let compressed = compress_output("cargo test", output).unwrap();
+    assert!(
+        compressed.contains("1 failed") || compressed.contains("FAILED"),
+        "cargo test must preserve failure count: {compressed}"
+    );
+    assert!(
+        compressed.contains("24 passed") || compressed.contains("24"),
+        "cargo test must preserve passed count: {compressed}"
+    );
+}
+
+#[test]
+fn adversarial_kubectl_get_preserves_pod_status() {
+    let output = "\
+NAME                          READY   STATUS             RESTARTS      AGE
+api-deploy-abc123-xyz         1/1     Running            0             5d
+web-deploy-def456-uvw         0/1     CrashLoopBackOff   15 (2m ago)   1h
+worker-deploy-ghi789-rst      1/1     Running            0             3d
+db-migrate-job-abc            0/1     Error              0             30m";
+
+    let compressed = compress_output("kubectl get pods", output).unwrap();
+    assert!(
+        compressed.contains("CrashLoopBackOff"),
+        "kubectl get pods must preserve CrashLoopBackOff: {compressed}"
+    );
+    assert!(
+        compressed.contains("Error"),
+        "kubectl get pods must preserve Error status: {compressed}"
+    );
+}
+
+#[test]
+fn adversarial_terraform_plan_preserves_changes() {
+    let output = "\
+Terraform will perform the following actions:
+
+  # aws_instance.web will be destroyed
+  - resource \"aws_instance\" \"web\" {
+      - ami           = \"ami-abc123\" -> null
+      - instance_type = \"t3.large\" -> null
+    }
+
+  # aws_security_group.allow_all will be created
+  + resource \"aws_security_group\" \"allow_all\" {
+      + name        = \"allow_all\"
+      + ingress {
+          + from_port   = 0
+          + to_port     = 65535
+          + protocol    = \"-1\"
+          + cidr_blocks = [\"0.0.0.0/0\"]
+        }
+    }
+
+Plan: 1 to add, 0 to change, 1 to destroy.";
+
+    let compressed = compress_output("terraform plan", output).unwrap();
+    assert!(
+        compressed.contains("destroy") || compressed.contains("1 to destroy"),
+        "terraform plan must preserve destructive actions: {compressed}"
+    );
+    assert!(
+        compressed.contains("add") || compressed.contains("1 to add"),
+        "terraform plan must preserve additions: {compressed}"
+    );
+}

@@ -107,11 +107,11 @@ fn compress_run(output: &str) -> String {
         })
         .collect();
 
-    if lines.len() <= 5 {
+    if lines.len() <= 15 {
         return lines.join("\n");
     }
 
-    let last = lines.len().saturating_sub(3);
+    let last = lines.len().saturating_sub(10);
     format!("...({} lines)\n{}", lines.len(), lines[last..].join("\n"))
 }
 

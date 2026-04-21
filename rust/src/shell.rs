@@ -285,6 +285,41 @@ const BUILTIN_PASSTHROUGH: &[&str] = &[
     "jekyll serve",
     "bun dev",
     "ember serve",
+    // Package manager script runners (wrap dev servers via package.json)
+    "npm run dev",
+    "npm run start",
+    "npm run serve",
+    "npm run watch",
+    "npm run preview",
+    "npm run storybook",
+    "npm run test:watch",
+    "npm start",
+    "npx ",
+    "pnpm run dev",
+    "pnpm run start",
+    "pnpm run serve",
+    "pnpm run watch",
+    "pnpm run preview",
+    "pnpm run storybook",
+    "pnpm dev",
+    "pnpm start",
+    "pnpm preview",
+    "yarn dev",
+    "yarn start",
+    "yarn serve",
+    "yarn watch",
+    "yarn preview",
+    "yarn storybook",
+    "bun run dev",
+    "bun run start",
+    "bun run serve",
+    "bun run watch",
+    "bun run preview",
+    "bun start",
+    "deno task dev",
+    "deno task start",
+    "deno task serve",
+    "deno run --watch",
     // Docker
     "docker compose up",
     "docker-compose up",
@@ -294,6 +329,8 @@ const BUILTIN_PASSTHROUGH: &[&str] = &[
     "docker-compose exec",
     "docker compose run",
     "docker-compose run",
+    "docker compose watch",
+    "docker-compose watch",
     "docker logs",
     "docker attach",
     "docker exec -it",
@@ -315,7 +352,7 @@ const BUILTIN_PASSTHROUGH: &[&str] = &[
     "btop",
     "watch ",
     "tail -f",
-    "tail -F",
+    "tail -f ",
     "journalctl -f",
     "journalctl --follow",
     "dmesg -w",
@@ -325,6 +362,14 @@ const BUILTIN_PASSTHROUGH: &[&str] = &[
     "ping ",
     "ping6 ",
     "traceroute",
+    "mtr ",
+    "nmap ",
+    "iperf ",
+    "iperf3 ",
+    "ss -l",
+    "netstat -l",
+    "lsof -i",
+    "socat ",
     // Editors & pagers
     "less",
     "more",
@@ -356,9 +401,115 @@ const BUILTIN_PASSTHROUGH: &[&str] = &[
     "rails console",
     "rails c ",
     "iex",
-    // Rust watchers
+    // Python servers, workers, watchers
+    "flask run",
+    "uvicorn ",
+    "gunicorn ",
+    "hypercorn ",
+    "daphne ",
+    "django-admin runserver",
+    "manage.py runserver",
+    "python manage.py runserver",
+    "python -m http.server",
+    "python3 -m http.server",
+    "streamlit run",
+    "gradio ",
+    "celery worker",
+    "celery -a",
+    "celery -b",
+    "dramatiq ",
+    "rq worker",
+    "watchmedo ",
+    "ptw ",
+    "pytest-watch",
+    // Ruby / Rails
+    "rails server",
+    "rails s",
+    "puma ",
+    "unicorn ",
+    "thin start",
+    "foreman start",
+    "overmind start",
+    "guard ",
+    "sidekiq",
+    "resque ",
+    // PHP / Laravel
+    "php artisan serve",
+    "php -s ",
+    "php artisan queue:work",
+    "php artisan queue:listen",
+    "php artisan horizon",
+    "php artisan tinker",
+    "sail up",
+    // Java / JVM
+    "./gradlew bootrun",
+    "gradlew bootrun",
+    "gradle bootrun",
+    "./gradlew run",
+    "mvn spring-boot:run",
+    "./mvnw spring-boot:run",
+    "mvnw spring-boot:run",
+    "mvn quarkus:dev",
+    "./mvnw quarkus:dev",
+    "sbt run",
+    "sbt ~compile",
+    "lein run",
+    "lein repl",
+    // Go
+    "go run ",
+    "air ",
+    "gin ",
+    "realize start",
+    "reflex ",
+    "gowatch ",
+    // .NET / C#
+    "dotnet run",
+    "dotnet watch",
+    "dotnet ef",
+    // Elixir / Erlang
+    "mix phx.server",
+    "iex -s mix",
+    // Swift
+    "swift run",
+    "swift package ",
+    "vapor serve",
+    // Zig
+    "zig build run",
+    // Rust
     "cargo watch",
-    // Authentication flows (device code, OAuth, SSO — output contains codes users must see)
+    "cargo run",
+    "cargo leptos watch",
+    "bacon ",
+    // General watchers & task runners
+    "make dev",
+    "make serve",
+    "make watch",
+    "make run",
+    "make start",
+    "just dev",
+    "just serve",
+    "just watch",
+    "just start",
+    "just run",
+    "task dev",
+    "task serve",
+    "task watch",
+    "nix develop",
+    "devenv up",
+    // CI/CD & infrastructure (long-running)
+    "act ",
+    "skaffold dev",
+    "tilt up",
+    "garden dev",
+    "telepresence ",
+    // Load testing & benchmarking
+    "ab ",
+    "wrk ",
+    "hey ",
+    "vegeta ",
+    "k6 run",
+    "artillery run",
+    // Authentication flows (device code, OAuth, SSO)
     "az login",
     "az account",
     "gh auth",
@@ -381,6 +532,46 @@ const BUILTIN_PASSTHROUGH: &[&str] = &[
     "kubelogin",
     "--use-device-code",
 ];
+
+const SCRIPT_RUNNER_PREFIXES: &[&str] = &[
+    "npm run ",
+    "npm start",
+    "npx ",
+    "pnpm run ",
+    "pnpm dev",
+    "pnpm start",
+    "pnpm preview",
+    "yarn ",
+    "bun run ",
+    "bun start",
+    "deno task ",
+];
+
+const DEV_SCRIPT_KEYWORDS: &[&str] = &[
+    "dev",
+    "start",
+    "serve",
+    "watch",
+    "preview",
+    "storybook",
+    "hot",
+    "live",
+    "hmr",
+];
+
+fn is_dev_script_runner(cmd: &str) -> bool {
+    for prefix in SCRIPT_RUNNER_PREFIXES {
+        if let Some(rest) = cmd.strip_prefix(prefix) {
+            let script_name = rest.split_whitespace().next().unwrap_or("");
+            for kw in DEV_SCRIPT_KEYWORDS {
+                if script_name.contains(kw) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
 
 fn is_excluded_command(command: &str, excluded: &[String]) -> bool {
     let cmd = command.trim().to_lowercase();
@@ -406,6 +597,11 @@ fn is_excluded_command(command: &str, excluded: &[String]) -> bool {
             return true;
         }
     }
+
+    if is_dev_script_runner(&cmd) {
+        return true;
+    }
+
     if excluded.is_empty() {
         return false;
     }
@@ -1095,6 +1291,240 @@ mod passthrough_tests {
         assert!(!is_excluded_command("aws s3 ls", &[]));
         assert!(!is_excluded_command("gcloud compute instances list", &[]));
         assert!(!is_excluded_command("az vm list", &[]));
+    }
+
+    #[test]
+    fn npm_script_runners_are_passthrough() {
+        assert!(is_excluded_command("npm run dev", &[]));
+        assert!(is_excluded_command("npm run start", &[]));
+        assert!(is_excluded_command("npm run serve", &[]));
+        assert!(is_excluded_command("npm run watch", &[]));
+        assert!(is_excluded_command("npm run preview", &[]));
+        assert!(is_excluded_command("npm run storybook", &[]));
+        assert!(is_excluded_command("npm run test:watch", &[]));
+        assert!(is_excluded_command("npm start", &[]));
+        assert!(is_excluded_command("npx vite", &[]));
+        assert!(is_excluded_command("npx next dev", &[]));
+    }
+
+    #[test]
+    fn pnpm_script_runners_are_passthrough() {
+        assert!(is_excluded_command("pnpm run dev", &[]));
+        assert!(is_excluded_command("pnpm run start", &[]));
+        assert!(is_excluded_command("pnpm run serve", &[]));
+        assert!(is_excluded_command("pnpm run watch", &[]));
+        assert!(is_excluded_command("pnpm run preview", &[]));
+        assert!(is_excluded_command("pnpm dev", &[]));
+        assert!(is_excluded_command("pnpm start", &[]));
+        assert!(is_excluded_command("pnpm preview", &[]));
+    }
+
+    #[test]
+    fn yarn_script_runners_are_passthrough() {
+        assert!(is_excluded_command("yarn dev", &[]));
+        assert!(is_excluded_command("yarn start", &[]));
+        assert!(is_excluded_command("yarn serve", &[]));
+        assert!(is_excluded_command("yarn watch", &[]));
+        assert!(is_excluded_command("yarn preview", &[]));
+        assert!(is_excluded_command("yarn storybook", &[]));
+    }
+
+    #[test]
+    fn bun_deno_script_runners_are_passthrough() {
+        assert!(is_excluded_command("bun run dev", &[]));
+        assert!(is_excluded_command("bun run start", &[]));
+        assert!(is_excluded_command("bun run serve", &[]));
+        assert!(is_excluded_command("bun run watch", &[]));
+        assert!(is_excluded_command("bun run preview", &[]));
+        assert!(is_excluded_command("bun start", &[]));
+        assert!(is_excluded_command("deno task dev", &[]));
+        assert!(is_excluded_command("deno task start", &[]));
+        assert!(is_excluded_command("deno task serve", &[]));
+        assert!(is_excluded_command("deno run --watch main.ts", &[]));
+    }
+
+    #[test]
+    fn python_servers_are_passthrough() {
+        assert!(is_excluded_command("flask run --port 5000", &[]));
+        assert!(is_excluded_command("uvicorn app:app --reload", &[]));
+        assert!(is_excluded_command("gunicorn app:app -w 4", &[]));
+        assert!(is_excluded_command("hypercorn app:app", &[]));
+        assert!(is_excluded_command("daphne app.asgi:application", &[]));
+        assert!(is_excluded_command(
+            "django-admin runserver 0.0.0.0:8000",
+            &[]
+        ));
+        assert!(is_excluded_command("python manage.py runserver", &[]));
+        assert!(is_excluded_command("python -m http.server 8080", &[]));
+        assert!(is_excluded_command("python3 -m http.server", &[]));
+        assert!(is_excluded_command("streamlit run app.py", &[]));
+        assert!(is_excluded_command("gradio app.py", &[]));
+        assert!(is_excluded_command("celery worker -A app", &[]));
+        assert!(is_excluded_command("celery -A app worker", &[]));
+        assert!(is_excluded_command("celery -B", &[]));
+        assert!(is_excluded_command("dramatiq tasks", &[]));
+        assert!(is_excluded_command("rq worker", &[]));
+        assert!(is_excluded_command("ptw tests/", &[]));
+        assert!(is_excluded_command("pytest-watch", &[]));
+    }
+
+    #[test]
+    fn ruby_servers_are_passthrough() {
+        assert!(is_excluded_command("rails server -p 3000", &[]));
+        assert!(is_excluded_command("rails s", &[]));
+        assert!(is_excluded_command("puma -C config.rb", &[]));
+        assert!(is_excluded_command("unicorn -c config.rb", &[]));
+        assert!(is_excluded_command("thin start", &[]));
+        assert!(is_excluded_command("foreman start", &[]));
+        assert!(is_excluded_command("overmind start", &[]));
+        assert!(is_excluded_command("guard -G Guardfile", &[]));
+        assert!(is_excluded_command("sidekiq", &[]));
+        assert!(is_excluded_command("resque work", &[]));
+    }
+
+    #[test]
+    fn php_servers_are_passthrough() {
+        assert!(is_excluded_command("php artisan serve", &[]));
+        assert!(is_excluded_command("php -S localhost:8000", &[]));
+        assert!(is_excluded_command("php artisan queue:work", &[]));
+        assert!(is_excluded_command("php artisan queue:listen", &[]));
+        assert!(is_excluded_command("php artisan horizon", &[]));
+        assert!(is_excluded_command("php artisan tinker", &[]));
+        assert!(is_excluded_command("sail up", &[]));
+    }
+
+    #[test]
+    fn java_servers_are_passthrough() {
+        assert!(is_excluded_command("./gradlew bootRun", &[]));
+        assert!(is_excluded_command("gradlew bootRun", &[]));
+        assert!(is_excluded_command("gradle bootRun", &[]));
+        assert!(is_excluded_command("mvn spring-boot:run", &[]));
+        assert!(is_excluded_command("./mvnw spring-boot:run", &[]));
+        assert!(is_excluded_command("mvn quarkus:dev", &[]));
+        assert!(is_excluded_command("./mvnw quarkus:dev", &[]));
+        assert!(is_excluded_command("sbt run", &[]));
+        assert!(is_excluded_command("sbt ~compile", &[]));
+        assert!(is_excluded_command("lein run", &[]));
+        assert!(is_excluded_command("lein repl", &[]));
+        assert!(is_excluded_command("./gradlew run", &[]));
+    }
+
+    #[test]
+    fn go_servers_are_passthrough() {
+        assert!(is_excluded_command("go run main.go", &[]));
+        assert!(is_excluded_command("go run ./cmd/server", &[]));
+        assert!(is_excluded_command("air -c .air.toml", &[]));
+        assert!(is_excluded_command("gin --port 3000", &[]));
+        assert!(is_excluded_command("realize start", &[]));
+        assert!(is_excluded_command("reflex -r '.go$' go run .", &[]));
+        assert!(is_excluded_command("gowatch run", &[]));
+    }
+
+    #[test]
+    fn dotnet_servers_are_passthrough() {
+        assert!(is_excluded_command("dotnet run", &[]));
+        assert!(is_excluded_command("dotnet run --project src/Api", &[]));
+        assert!(is_excluded_command("dotnet watch run", &[]));
+        assert!(is_excluded_command("dotnet ef database update", &[]));
+    }
+
+    #[test]
+    fn elixir_servers_are_passthrough() {
+        assert!(is_excluded_command("mix phx.server", &[]));
+        assert!(is_excluded_command("iex -s mix phx.server", &[]));
+        assert!(is_excluded_command("iex -S mix phx.server", &[]));
+    }
+
+    #[test]
+    fn swift_zig_servers_are_passthrough() {
+        assert!(is_excluded_command("swift run MyApp", &[]));
+        assert!(is_excluded_command("swift package resolve", &[]));
+        assert!(is_excluded_command("vapor serve --port 8080", &[]));
+        assert!(is_excluded_command("zig build run", &[]));
+    }
+
+    #[test]
+    fn rust_watchers_are_passthrough() {
+        assert!(is_excluded_command("cargo watch -x test", &[]));
+        assert!(is_excluded_command("cargo run --bin server", &[]));
+        assert!(is_excluded_command("cargo leptos watch", &[]));
+        assert!(is_excluded_command("bacon test", &[]));
+    }
+
+    #[test]
+    fn general_task_runners_are_passthrough() {
+        assert!(is_excluded_command("make dev", &[]));
+        assert!(is_excluded_command("make serve", &[]));
+        assert!(is_excluded_command("make watch", &[]));
+        assert!(is_excluded_command("make run", &[]));
+        assert!(is_excluded_command("make start", &[]));
+        assert!(is_excluded_command("just dev", &[]));
+        assert!(is_excluded_command("just serve", &[]));
+        assert!(is_excluded_command("just watch", &[]));
+        assert!(is_excluded_command("just start", &[]));
+        assert!(is_excluded_command("just run", &[]));
+        assert!(is_excluded_command("task dev", &[]));
+        assert!(is_excluded_command("task serve", &[]));
+        assert!(is_excluded_command("task watch", &[]));
+        assert!(is_excluded_command("nix develop", &[]));
+        assert!(is_excluded_command("devenv up", &[]));
+    }
+
+    #[test]
+    fn cicd_infra_are_passthrough() {
+        assert!(is_excluded_command("act push", &[]));
+        assert!(is_excluded_command("docker compose watch", &[]));
+        assert!(is_excluded_command("docker-compose watch", &[]));
+        assert!(is_excluded_command("skaffold dev", &[]));
+        assert!(is_excluded_command("tilt up", &[]));
+        assert!(is_excluded_command("garden dev", &[]));
+        assert!(is_excluded_command("telepresence connect", &[]));
+    }
+
+    #[test]
+    fn networking_monitoring_are_passthrough() {
+        assert!(is_excluded_command("mtr 8.8.8.8", &[]));
+        assert!(is_excluded_command("nmap -sV host", &[]));
+        assert!(is_excluded_command("iperf -s", &[]));
+        assert!(is_excluded_command("iperf3 -c host", &[]));
+        assert!(is_excluded_command("socat TCP-LISTEN:8080,fork -", &[]));
+    }
+
+    #[test]
+    fn load_testing_is_passthrough() {
+        assert!(is_excluded_command("ab -n 1000 http://localhost/", &[]));
+        assert!(is_excluded_command("wrk -t12 -c400 http://localhost/", &[]));
+        assert!(is_excluded_command("hey -n 10000 http://localhost/", &[]));
+        assert!(is_excluded_command("vegeta attack", &[]));
+        assert!(is_excluded_command("k6 run script.js", &[]));
+        assert!(is_excluded_command("artillery run test.yml", &[]));
+    }
+
+    #[test]
+    fn smart_script_detection_works() {
+        assert!(is_excluded_command("npm run dev:ssr", &[]));
+        assert!(is_excluded_command("npm run dev:local", &[]));
+        assert!(is_excluded_command("yarn start:production", &[]));
+        assert!(is_excluded_command("pnpm run serve:local", &[]));
+        assert!(is_excluded_command("bun run watch:css", &[]));
+        assert!(is_excluded_command("deno task dev:api", &[]));
+        assert!(is_excluded_command("npm run storybook:ci", &[]));
+        assert!(is_excluded_command("yarn preview:staging", &[]));
+        assert!(is_excluded_command("pnpm run hot-reload", &[]));
+        assert!(is_excluded_command("npm run hmr-server", &[]));
+        assert!(is_excluded_command("bun run live-server", &[]));
+    }
+
+    #[test]
+    fn smart_detection_does_not_false_positive() {
+        assert!(!is_excluded_command("npm run build", &[]));
+        assert!(!is_excluded_command("npm run lint", &[]));
+        assert!(!is_excluded_command("npm run test", &[]));
+        assert!(!is_excluded_command("npm run format", &[]));
+        assert!(!is_excluded_command("yarn build", &[]));
+        assert!(!is_excluded_command("yarn test", &[]));
+        assert!(!is_excluded_command("pnpm run lint", &[]));
+        assert!(!is_excluded_command("bun run build", &[]));
     }
 }
 
