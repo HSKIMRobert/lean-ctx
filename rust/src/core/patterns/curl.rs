@@ -52,7 +52,9 @@ fn extract_schema(val: &serde_json::Value, depth: usize) -> String {
                     serde_json::Value::Bool(_) => "bool".to_string(),
                     serde_json::Value::Number(_) => "number".to_string(),
                     serde_json::Value::String(s) => {
-                        if s.len() > 50 {
+                        if is_sensitive_key(key) {
+                            format!("string({}, REDACTED)", s.len())
+                        } else if s.len() > 50 {
                             format!("string({})", s.len())
                         } else {
                             format!("\"{}\"", s)
@@ -109,6 +111,22 @@ fn value_type(val: &serde_json::Value) -> String {
         serde_json::Value::Array(_) => "array".to_string(),
         serde_json::Value::Object(m) => format!("object({}K)", m.len()),
     }
+}
+
+fn is_sensitive_key(key: &str) -> bool {
+    let lower = key.to_ascii_lowercase();
+    lower.contains("token")
+        || lower.contains("key")
+        || lower.contains("secret")
+        || lower.contains("password")
+        || lower.contains("passwd")
+        || lower.contains("auth")
+        || lower.contains("credential")
+        || lower.contains("api_key")
+        || lower.contains("apikey")
+        || lower.contains("access_token")
+        || lower.contains("refresh_token")
+        || lower.contains("private")
 }
 
 fn compress_html(output: &str) -> Option<String> {

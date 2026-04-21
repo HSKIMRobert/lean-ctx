@@ -207,6 +207,7 @@ fn compress_test(output: &str) -> String {
 fn compress_audit(output: &str) -> String {
     let mut severities = std::collections::HashMap::new();
     let mut total_vulns = 0u32;
+    let mut detail_lines: Vec<String> = Vec::new();
 
     for line in output.lines() {
         if let Some(caps) = vuln_re().captures(line) {
@@ -214,6 +215,20 @@ fn compress_audit(output: &str) -> String {
             let severity = caps[2].to_string();
             *severities.entry(severity).or_insert(0u32) += count;
             total_vulns += count;
+        }
+
+        let lower = line.to_ascii_lowercase();
+        let is_detail = lower.contains("cve-")
+            || lower.contains("severity")
+            || lower.contains("fix available")
+            || lower.contains("package")
+            || lower.contains("depends on vulnerable")
+            || lower.contains("vulnerability")
+            || lower.contains("moderate")
+            || lower.contains("high")
+            || lower.contains("critical");
+        if is_detail && detail_lines.len() < 30 {
+            detail_lines.push(line.to_string());
         }
     }
 
@@ -230,7 +245,13 @@ fn compress_audit(output: &str) -> String {
             parts.push(format!("{count} {sev}"));
         }
     }
-    format!("{total_vulns} vulnerabilities: {}", parts.join(", "))
+
+    let summary = format!("{total_vulns} vulnerabilities: {}", parts.join(", "));
+    if detail_lines.is_empty() {
+        return summary;
+    }
+
+    format!("{summary}\n{}", detail_lines.join("\n"))
 }
 
 fn compress_outdated(output: &str) -> String {

@@ -40,7 +40,7 @@ pub fn compress(command: &str, output: &str) -> Option<String> {
         return Some(compress_status(output));
     }
     if command.contains("log") {
-        return Some(compress_log(output));
+        return Some(compress_log(command, output));
     }
     if command.contains("diff") && !command.contains("difftool") {
         return Some(compress_diff(output));
@@ -232,13 +232,22 @@ fn is_diff_or_stat_line(line: &str) -> bool {
         || (t.contains(" | ") && t.chars().any(|c| c == '+' || c == '-'))
 }
 
-fn compress_log(output: &str) -> String {
+fn compress_log(command: &str, output: &str) -> String {
     let lines: Vec<&str> = output.lines().collect();
     if lines.is_empty() {
         return String::new();
     }
 
-    let max_entries = 20;
+    let user_limited = command.contains("-n ")
+        || command.contains("-n=")
+        || command.contains("--max-count")
+        || command.contains("-1")
+        || command.contains("-2")
+        || command.contains("-3")
+        || command.contains("-5")
+        || command.contains("-10");
+
+    let max_entries: usize = if user_limited { usize::MAX } else { 50 };
 
     let is_oneline = !lines[0].starts_with("commit ");
     if is_oneline {
@@ -247,7 +256,7 @@ fn compress_log(output: &str) -> String {
         }
         let shown = &lines[..max_entries];
         return format!(
-            "{}\n... ({} more commits)",
+            "{}\n... ({} more commits, use git log --max-count=N to see all)",
             shown.join("\n"),
             lines.len() - max_entries
         );
@@ -315,7 +324,7 @@ fn compress_log(output: &str) -> String {
     let mut result = if entries.len() > max_entries {
         let shown = &entries[..max_entries];
         format!(
-            "{}\n... ({} more commits)",
+            "{}\n... ({} more commits, use git log --max-count=N to see all)",
             shown.join("\n"),
             entries.len() - max_entries
         )
@@ -334,30 +343,79 @@ fn compress_log(output: &str) -> String {
 }
 
 fn compress_diff(output: &str) -> String {
-    let mut files = Vec::new();
-    let mut current_file = String::new();
-    let mut additions = 0;
-    let mut deletions = 0;
+    let lines: Vec<&str> = output.lines().collect();
+    if lines.len() <= 500 {
+        return compress_diff_keep_hunks(output);
+    }
 
-    for line in output.lines() {
+    let mut file_ranges: Vec<(usize, usize, String)> = Vec::new();
+
+    for (i, line) in lines.iter().enumerate() {
         if line.starts_with("diff --git") {
-            if !current_file.is_empty() {
-                files.push(format!("{current_file} +{additions}/-{deletions}"));
+            if let Some(last) = file_ranges.last_mut() {
+                last.1 = i;
             }
-            current_file = line.split(" b/").nth(1).unwrap_or("?").to_string();
-            additions = 0;
-            deletions = 0;
-        } else if line.starts_with('+') && !line.starts_with("+++") {
-            additions += 1;
-        } else if line.starts_with('-') && !line.starts_with("---") {
-            deletions += 1;
+            let name = line.split(" b/").nth(1).unwrap_or("?").to_string();
+            file_ranges.push((i, lines.len(), name));
         }
     }
-    if !current_file.is_empty() {
-        files.push(format!("{current_file} +{additions}/-{deletions}"));
+
+    let mut result = Vec::new();
+    for (start, end, _name) in &file_ranges {
+        let file_lines = &lines[*start..*end];
+        if file_lines.len() <= 250 {
+            for l in file_lines {
+                result.push(l.to_string());
+            }
+        } else {
+            for l in &file_lines[..200] {
+                result.push(l.to_string());
+            }
+            result.push(
+                "... [truncated, showing first 200 + last 50 lines of this file's diff]"
+                    .to_string(),
+            );
+            for l in &file_lines[file_lines.len() - 50..] {
+                result.push(l.to_string());
+            }
+        }
     }
 
-    files.join("\n")
+    if result.is_empty() {
+        return compress_diff_keep_hunks(output);
+    }
+    result.join("\n")
+}
+
+/// Trims `index` header lines and limits unchanged context lines to max 3 per hunk
+/// while keeping all `+`/`-` lines (actual diff content) intact.
+fn compress_diff_keep_hunks(output: &str) -> String {
+    let mut result = Vec::new();
+    let mut context_run = 0u32;
+
+    for line in output.lines() {
+        if line.starts_with("diff --git") || line.starts_with("@@") {
+            context_run = 0;
+            result.push(line.to_string());
+        } else if line.starts_with("index ") {
+            continue;
+        } else if line.starts_with("--- ") || line.starts_with("+++ ") {
+            result.push(line.to_string());
+        } else if line.starts_with('+') || line.starts_with('-') {
+            context_run = 0;
+            result.push(line.to_string());
+        } else {
+            context_run += 1;
+            if context_run <= 3 {
+                result.push(line.to_string());
+            }
+        }
+    }
+
+    if result.is_empty() {
+        return output.to_string();
+    }
+    result.join("\n")
 }
 
 fn compress_add(output: &str) -> String {
@@ -719,7 +777,7 @@ fn compress_remote(output: &str) -> String {
 
 fn compress_blame(output: &str) -> String {
     let lines: Vec<&str> = output.lines().collect();
-    if lines.len() <= 20 {
+    if lines.len() <= 100 {
         return output.to_string();
     }
 
@@ -728,7 +786,40 @@ fn compress_blame(output: &str) -> String {
         .filter_map(|l| l.split('(').nth(1)?.split_whitespace().next())
         .collect();
 
-    format!("{} lines, {} authors", lines.len(), unique_authors.len())
+    let mut result = format!("{} lines, {} authors:\n", lines.len(), unique_authors.len());
+    let mut current_author = String::new();
+    let mut range_start = 0usize;
+    let mut range_end = 0usize;
+
+    for (i, line) in lines.iter().enumerate() {
+        let author = line
+            .split('(')
+            .nth(1)
+            .and_then(|s| s.split_whitespace().next())
+            .unwrap_or("?");
+        if author == current_author {
+            range_end = i + 1;
+        } else {
+            if !current_author.is_empty() {
+                result.push_str(&format!(
+                    "  L{}-{}: {current_author}\n",
+                    range_start + 1,
+                    range_end
+                ));
+            }
+            current_author = author.to_string();
+            range_start = i;
+            range_end = i + 1;
+        }
+    }
+    if !current_author.is_empty() {
+        result.push_str(&format!(
+            "  L{}-{}: {current_author}\n",
+            range_start + 1,
+            range_end
+        ));
+    }
+    result.trim_end().to_string()
 }
 
 fn compress_cherry_pick(output: &str) -> String {
@@ -980,18 +1071,18 @@ mod tests {
 
     #[test]
     fn git_log_oneline_truncates_long() {
-        let lines: Vec<String> = (0..50)
+        let lines: Vec<String> = (0..80)
             .map(|i| format!("abc{i:04} feat: commit number {i}"))
             .collect();
         let output = lines.join("\n");
         let result = compress("git log --oneline", &output).unwrap();
         assert!(
-            result.contains("... (30 more commits)"),
-            "should truncate to 20 entries"
+            result.contains("... (30 more commits"),
+            "should truncate to 50 entries"
         );
         assert!(
-            result.lines().count() <= 22,
-            "should have at most 21 lines (20 + summary)"
+            result.lines().count() <= 52,
+            "should have at most 51 lines (50 + summary)"
         );
     }
 
@@ -1005,15 +1096,15 @@ mod tests {
     #[test]
     fn git_log_standard_truncates_long() {
         let mut output = String::new();
-        for i in 0..30 {
+        for i in 0..70 {
             output.push_str(&format!(
                 "commit {i:07}abc1234\nAuthor: U <u@e.com>\nDate:   Mon\n\n    msg {i}\n\n"
             ));
         }
         let result = compress("git log", &output).unwrap();
         assert!(
-            result.contains("... (10 more commits)"),
-            "should truncate standard log"
+            result.contains("... (20 more commits"),
+            "should truncate standard log at 50"
         );
     }
 

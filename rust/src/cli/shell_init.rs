@@ -6,6 +6,24 @@ macro_rules! qprintln {
     };
 }
 
+pub fn print_hook_stdout(shell: &str) {
+    let binary = crate::core::portable_binary::resolve_portable_binary();
+    let binary = crate::hooks::to_bash_compatible_path(&binary);
+
+    let code = match shell {
+        "bash" => generate_hook_posix(&binary),
+        "zsh" => generate_hook_posix(&binary),
+        "fish" => generate_hook_fish(&binary),
+        "powershell" | "pwsh" => generate_hook_powershell(&binary),
+        _ => {
+            eprintln!("lean-ctx: unsupported shell '{shell}'");
+            eprintln!("Supported: bash, zsh, fish, powershell");
+            std::process::exit(1);
+        }
+    };
+    print!("{code}");
+}
+
 fn backup_shell_config(path: &std::path::Path) {
     if !path.exists() {
         return;
@@ -21,23 +39,91 @@ fn backup_shell_config(path: &std::path::Path) {
     }
 }
 
-pub fn init_powershell(binary: &str) {
-    let profile_dir = dirs::home_dir().map(|h| h.join("Documents").join("PowerShell"));
-    let profile_path = match profile_dir {
-        Some(dir) => {
-            let _ = std::fs::create_dir_all(&dir);
-            dir.join("Microsoft.PowerShell_profile.ps1")
+fn lean_ctx_dir() -> Option<std::path::PathBuf> {
+    dirs::home_dir().map(|h| h.join(".lean-ctx"))
+}
+
+fn write_hook_file(filename: &str, content: &str) -> Option<std::path::PathBuf> {
+    let dir = lean_ctx_dir()?;
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join(filename);
+    match std::fs::write(&path, content) {
+        Ok(()) => Some(path),
+        Err(e) => {
+            eprintln!("Error writing {}: {e}", path.display());
+            None
         }
-        None => {
-            eprintln!("Could not resolve PowerShell profile directory");
+    }
+}
+
+fn source_line_posix(shell_ext: &str) -> String {
+    format!(
+        r#"# lean-ctx shell hook
+[ -f "$HOME/.lean-ctx/shell-hook.{shell_ext}" ] && . "$HOME/.lean-ctx/shell-hook.{shell_ext}"
+"#
+    )
+}
+
+fn source_line_fish() -> String {
+    r#"# lean-ctx shell hook
+if test -f "$HOME/.lean-ctx/shell-hook.fish"
+    source "$HOME/.lean-ctx/shell-hook.fish"
+end
+"#
+    .to_string()
+}
+
+fn source_line_powershell() -> String {
+    r#"# lean-ctx shell hook
+$leanCtxHook = Join-Path $HOME ".lean-ctx" "shell-hook.ps1"
+if (Test-Path $leanCtxHook) { . $leanCtxHook }
+"#
+    .to_string()
+}
+
+fn upsert_source_line(rc_path: &std::path::Path, source_line: &str) {
+    backup_shell_config(rc_path);
+
+    if let Ok(existing) = std::fs::read_to_string(rc_path) {
+        if existing.contains(".lean-ctx/shell-hook.") {
             return;
         }
-    };
 
+        let cleaned = if existing.contains("lean-ctx shell hook") {
+            remove_lean_ctx_block(&existing)
+        } else {
+            existing
+        };
+
+        match std::fs::write(rc_path, format!("{cleaned}{source_line}")) {
+            Ok(()) => {
+                qprintln!("Updated lean-ctx hook in {}", rc_path.display());
+            }
+            Err(e) => {
+                eprintln!("Error updating {}: {e}", rc_path.display());
+            }
+        }
+        return;
+    }
+
+    match std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(rc_path)
+    {
+        Ok(mut f) => {
+            use std::io::Write;
+            let _ = f.write_all(source_line.as_bytes());
+            qprintln!("Added lean-ctx hook to {}", rc_path.display());
+        }
+        Err(e) => eprintln!("Error writing {}: {e}", rc_path.display()),
+    }
+}
+
+pub fn generate_hook_powershell(binary: &str) -> String {
     let binary_escaped = binary.replace('\\', "\\\\");
-    let functions = format!(
-        r#"
-# lean-ctx shell hook — transparent CLI compression (90+ patterns)
+    format!(
+        r#"# lean-ctx shell hook — transparent CLI compression (90+ patterns)
 if (-not $env:LEAN_CTX_ACTIVE -and -not $env:LEAN_CTX_DISABLED) {{
   $LeanCtxBin = "{binary_escaped}"
   function _lc {{
@@ -68,39 +154,27 @@ if (-not $env:LEAN_CTX_ACTIVE -and -not $env:LEAN_CTX_DISABLED) {{
   }}
 }}
 "#
-    );
+    )
+}
 
-    backup_shell_config(&profile_path);
-
-    if let Ok(existing) = std::fs::read_to_string(&profile_path) {
-        if existing.contains("lean-ctx shell hook") {
-            let cleaned = remove_lean_ctx_block_ps(&existing);
-            match std::fs::write(&profile_path, format!("{cleaned}{functions}")) {
-                Ok(()) => {
-                    qprintln!("Updated lean-ctx functions in {}", profile_path.display());
-                    qprintln!("  Binary: {binary}");
-                    return;
-                }
-                Err(e) => {
-                    eprintln!("Error updating {}: {e}", profile_path.display());
-                    return;
-                }
-            }
+pub fn init_powershell(binary: &str) {
+    let profile_dir = dirs::home_dir().map(|h| h.join("Documents").join("PowerShell"));
+    let profile_path = match profile_dir {
+        Some(dir) => {
+            let _ = std::fs::create_dir_all(&dir);
+            dir.join("Microsoft.PowerShell_profile.ps1")
         }
-    }
-
-    match std::fs::OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open(&profile_path)
-    {
-        Ok(mut f) => {
-            use std::io::Write;
-            let _ = f.write_all(functions.as_bytes());
-            qprintln!("Added lean-ctx functions to {}", profile_path.display());
-            qprintln!("  Binary: {binary}");
+        None => {
+            eprintln!("Could not resolve PowerShell profile directory");
+            return;
         }
-        Err(e) => eprintln!("Error writing {}: {e}", profile_path.display()),
+    };
+
+    let hook_content = generate_hook_powershell(binary);
+
+    if write_hook_file("shell-hook.ps1", &hook_content).is_some() {
+        upsert_source_line(&profile_path, &source_line_powershell());
+        qprintln!("  Binary: {binary}");
     }
 }
 
@@ -132,14 +206,10 @@ pub fn remove_lean_ctx_block_ps(content: &str) -> String {
     result
 }
 
-pub fn init_fish(binary: &str) {
-    let config = dirs::home_dir()
-        .map(|h| h.join(".config/fish/config.fish"))
-        .unwrap_or_default();
-
+pub fn generate_hook_fish(binary: &str) -> String {
     let alias_list = crate::rewrite_registry::shell_alias_list();
-    let aliases = format!(
-        "\n# lean-ctx shell hook — smart shell mode (track-by-default)\n\
+    format!(
+        "# lean-ctx shell hook — smart shell mode (track-by-default)\n\
         set -g _lean_ctx_cmds {alias_list}\n\
         \n\
         function _lc\n\
@@ -228,59 +298,27 @@ pub fn init_fish(binary: &str) {
         \tif command -q lean-ctx\n\
         \t\tlean-ctx-on\n\
         \tend\n\
-        end\n\
-        # lean-ctx shell hook — end\n"
-    );
+        end\n"
+    )
+}
 
-    backup_shell_config(&config);
+pub fn init_fish(binary: &str) {
+    let config = dirs::home_dir()
+        .map(|h| h.join(".config/fish/config.fish"))
+        .unwrap_or_default();
 
-    if let Ok(existing) = std::fs::read_to_string(&config) {
-        if existing.contains("lean-ctx shell hook") {
-            let cleaned = remove_lean_ctx_block(&existing);
-            match std::fs::write(&config, format!("{cleaned}{aliases}")) {
-                Ok(()) => {
-                    qprintln!("Updated lean-ctx aliases in {}", config.display());
-                    qprintln!("  Binary: {binary}");
-                    return;
-                }
-                Err(e) => {
-                    eprintln!("Error updating {}: {e}", config.display());
-                    return;
-                }
-            }
-        }
-    }
+    let hook_content = generate_hook_fish(binary);
 
-    match std::fs::OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open(&config)
-    {
-        Ok(mut f) => {
-            use std::io::Write;
-            let _ = f.write_all(aliases.as_bytes());
-            qprintln!("Added lean-ctx aliases to {}", config.display());
-            qprintln!("  Binary: {binary}");
-        }
-        Err(e) => eprintln!("Error writing {}: {e}", config.display()),
+    if write_hook_file("shell-hook.fish", &hook_content).is_some() {
+        upsert_source_line(&config, &source_line_fish());
+        qprintln!("  Binary: {binary}");
     }
 }
 
-pub fn init_posix(is_zsh: bool, binary: &str) {
-    let rc_file = if is_zsh {
-        dirs::home_dir()
-            .map(|h| h.join(".zshrc"))
-            .unwrap_or_default()
-    } else {
-        dirs::home_dir()
-            .map(|h| h.join(".bashrc"))
-            .unwrap_or_default()
-    };
-
+pub fn generate_hook_posix(binary: &str) -> String {
     let alias_list = crate::rewrite_registry::shell_alias_list();
-    let aliases = format!(
-        r#"
-# lean-ctx shell hook — smart shell mode (track-by-default)
+    format!(
+        r#"# lean-ctx shell hook — smart shell mode (track-by-default)
 _lean_ctx_cmds=({alias_list})
 
 _lc() {{
@@ -373,45 +411,33 @@ lean-ctx-status() {{
 if [ -z "${{LEAN_CTX_ACTIVE:-}}" ] && [ -z "${{LEAN_CTX_DISABLED:-}}" ] && [ "${{LEAN_CTX_ENABLED:-1}}" != "0" ]; then
     command -v lean-ctx >/dev/null 2>&1 && lean-ctx-on
 fi
-# lean-ctx shell hook — end
 "#
-    );
+    )
+}
 
-    backup_shell_config(&rc_file);
+pub fn init_posix(is_zsh: bool, binary: &str) {
+    let rc_file = if is_zsh {
+        dirs::home_dir()
+            .map(|h| h.join(".zshrc"))
+            .unwrap_or_default()
+    } else {
+        dirs::home_dir()
+            .map(|h| h.join(".bashrc"))
+            .unwrap_or_default()
+    };
 
-    if let Ok(existing) = std::fs::read_to_string(&rc_file) {
-        if existing.contains("lean-ctx shell hook") {
-            let cleaned = remove_lean_ctx_block(&existing);
-            match std::fs::write(&rc_file, format!("{cleaned}{aliases}")) {
-                Ok(()) => {
-                    qprintln!("Updated lean-ctx aliases in {}", rc_file.display());
-                    qprintln!("  Binary: {binary}");
-                    return;
-                }
-                Err(e) => {
-                    eprintln!("Error updating {}: {e}", rc_file.display());
-                    return;
-                }
-            }
-        }
+    let shell_ext = if is_zsh { "zsh" } else { "bash" };
+    let hook_content = generate_hook_posix(binary);
+
+    if let Some(hook_path) = write_hook_file(&format!("shell-hook.{shell_ext}"), &hook_content) {
+        upsert_source_line(&rc_file, &source_line_posix(shell_ext));
+        qprintln!("  Binary: {binary}");
+
+        write_env_sh_for_containers(&hook_content);
+        print_docker_env_hints(is_zsh);
+
+        let _ = hook_path;
     }
-
-    match std::fs::OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open(&rc_file)
-    {
-        Ok(mut f) => {
-            use std::io::Write;
-            let _ = f.write_all(aliases.as_bytes());
-            qprintln!("Added lean-ctx aliases to {}", rc_file.display());
-            qprintln!("  Binary: {binary}");
-        }
-        Err(e) => eprintln!("Error writing {}: {e}", rc_file.display()),
-    }
-
-    write_env_sh_for_containers(&aliases);
-    print_docker_env_hints(is_zsh);
 }
 
 pub fn write_env_sh_for_containers(aliases: &str) {
@@ -738,5 +764,26 @@ export EDITOR=vim
         assert!(content.contains("lean-ctx init --agent claude"));
 
         std::env::remove_var("LEAN_CTX_DATA_DIR");
+    }
+
+    #[test]
+    fn test_source_line_posix() {
+        let line = source_line_posix("zsh");
+        assert!(line.contains("shell-hook.zsh"));
+        assert!(line.contains("[ -f"));
+    }
+
+    #[test]
+    fn test_source_line_fish() {
+        let line = source_line_fish();
+        assert!(line.contains("shell-hook.fish"));
+        assert!(line.contains("source"));
+    }
+
+    #[test]
+    fn test_source_line_powershell() {
+        let line = source_line_powershell();
+        assert!(line.contains("shell-hook.ps1"));
+        assert!(line.contains("Test-Path"));
     }
 }

@@ -698,6 +698,25 @@ fn main() {
                 uninstall::run();
                 return;
             }
+            "bypass" => {
+                if rest.is_empty() {
+                    eprintln!("Usage: lean-ctx bypass \"command\"");
+                    eprintln!("Runs the command with zero compression (raw passthrough).");
+                    std::process::exit(1);
+                }
+                let command = if rest.len() == 1 {
+                    rest[0].clone()
+                } else {
+                    shell::join_command(&args[2..])
+                };
+                std::env::set_var("LEAN_CTX_RAW", "1");
+                let code = shell::exec(&command);
+                std::process::exit(code);
+            }
+            "safety-levels" | "safety" => {
+                println!("{}", core::compression_safety::format_safety_table());
+                return;
+            }
             "cheat" | "cheatsheet" | "cheat-sheet" => {
                 cli::cmd_cheatsheet();
                 return;
@@ -810,6 +829,7 @@ USAGE:
     lean-ctx -c \"command\"          Execute with compressed output (used by AI hooks)
     lean-ctx -c --raw \"command\"    Execute without compression (full output)
     lean-ctx exec \"command\"        Same as -c
+    lean-ctx bypass \"command\"      Run command with zero compression (raw passthrough)
     lean-ctx shell                 Interactive shell with compression
 
 COMMANDS:
@@ -834,7 +854,9 @@ COMMANDS:
     setup                          One-command setup: shell + editor + verify
     bootstrap                      Non-interactive setup + fix (zero-config)
     status [--json]                Show setup + MCP + rules status
-    init [--global]                Install shell aliases (zsh/bash/fish/PowerShell)
+    init <shell>                   Print shell hook to stdout (eval pattern, like starship)
+                                   Supported: bash, zsh, fish, powershell
+    init --global                  Install shell aliases to rc file (file-based)
     init --agent <name>            Configure MCP for specific editor/agent
     read <file> [-m mode]          Read file with compression
     diff <file1> <file2>           Compressed file diff
@@ -853,6 +875,8 @@ COMMANDS:
     gotchas [list|clear|export|stats] Bug Memory: view/manage auto-detected error patterns
     buddy [show|stats|ascii|json]  Token Guardian: your data-driven coding companion
     doctor [--fix] [--json]        Run diagnostics (and optionally repair)
+    safety-levels                  Show compression safety levels per command
+    bypass \"command\"               Run command with zero compression (raw passthrough)
     uninstall                      Remove shell hook, MCP configs, and data directory
 
 SHELL HOOK PATTERNS (90+):
@@ -914,7 +938,17 @@ EXAMPLES:
     lean-ctx setup                 One-command setup (shell + editors + verify)
     lean-ctx bootstrap             Non-interactive setup + fix (zero-config)
     lean-ctx bootstrap --json      Machine-readable bootstrap report
-    lean-ctx init --global         Install shell aliases (includes lean-ctx-on/off/mode/status)
+    lean-ctx init --global         Install shell aliases (file-based, includes lean-ctx-on/off)
+
+EVAL INIT (starship/zoxide style — always in sync with binary version):
+    # bash: add to ~/.bashrc
+    eval \"$(lean-ctx init bash)\"
+    # zsh: add to ~/.zshrc
+    eval \"$(lean-ctx init zsh)\"
+    # fish: add to ~/.config/fish/config.fish
+    lean-ctx init fish | source
+    # powershell: add to $PROFILE
+    lean-ctx init powershell | Invoke-Expression
     lean-ctx-on                    Enable shell aliases in track mode (full output + stats)
     lean-ctx-off                   Disable all shell aliases
     lean-ctx-mode track            Track mode: full output, stats recorded (default)

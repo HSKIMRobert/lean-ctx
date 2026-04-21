@@ -8,11 +8,16 @@ pub fn resolve_portable_binary() -> String {
         if output.status.success() {
             let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if !path.is_empty() {
-                return path;
+                return sanitize_exe_path(path);
             }
         }
     }
-    std::env::current_exe()
+    let path = std::env::current_exe()
         .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|_| "lean-ctx".to_string())
+        .unwrap_or_else(|_| "lean-ctx".to_string());
+    sanitize_exe_path(path)
+}
+
+fn sanitize_exe_path(path: String) -> String {
+    path.trim_end_matches(" (deleted)").to_string()
 }

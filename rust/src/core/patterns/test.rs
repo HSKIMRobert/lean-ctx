@@ -28,12 +28,20 @@ fn try_pytest(output: &str) -> Option<String> {
     let mut passed = 0u32;
     let mut failed = 0u32;
     let mut skipped = 0u32;
+    let mut xfailed = 0u32;
+    let mut xpassed = 0u32;
+    let mut warnings = 0u32;
     let mut time = String::new();
     let mut failures = Vec::new();
 
     for line in output.lines() {
         let trimmed = line.trim();
-        if (trimmed.contains("passed") || trimmed.contains("failed") || trimmed.contains("error"))
+        if (trimmed.contains("passed")
+            || trimmed.contains("failed")
+            || trimmed.contains("error")
+            || trimmed.contains("xfailed")
+            || trimmed.contains("xpassed")
+            || trimmed.contains("warning"))
             && (trimmed.starts_with('=') || trimmed.starts_with('-'))
         {
             for word in trimmed.split_whitespace() {
@@ -49,30 +57,12 @@ fn try_pytest(output: &str) -> Option<String> {
                     }
                 }
             }
-            if let Some(pos) = trimmed.find(" passed") {
-                let before = &trimmed[..pos];
-                if let Some(num_str) = before.split_whitespace().last() {
-                    if let Ok(v) = num_str.parse::<u32>() {
-                        passed = v;
-                    }
-                }
-            }
-            if let Some(pos) = trimmed.find(" failed") {
-                let before = &trimmed[..pos];
-                if let Some(num_str) = before.split_whitespace().last() {
-                    if let Ok(v) = num_str.parse::<u32>() {
-                        failed = v;
-                    }
-                }
-            }
-            if let Some(pos) = trimmed.find(" skipped") {
-                let before = &trimmed[..pos];
-                if let Some(num_str) = before.split_whitespace().last() {
-                    if let Ok(v) = num_str.parse::<u32>() {
-                        skipped = v;
-                    }
-                }
-            }
+            passed = extract_pytest_counter(trimmed, " passed").unwrap_or(passed);
+            failed = extract_pytest_counter(trimmed, " failed").unwrap_or(failed);
+            skipped = extract_pytest_counter(trimmed, " skipped").unwrap_or(skipped);
+            xfailed = extract_pytest_counter(trimmed, " xfailed").unwrap_or(xfailed);
+            xpassed = extract_pytest_counter(trimmed, " xpassed").unwrap_or(xpassed);
+            warnings = extract_pytest_counter(trimmed, " warning").unwrap_or(warnings);
             if let Some(pos) = trimmed.find(" in ") {
                 time = trimmed[pos + 4..].trim_end_matches('=').trim().to_string();
             }
@@ -98,6 +88,15 @@ fn try_pytest(output: &str) -> Option<String> {
     if skipped > 0 {
         result.push_str(&format!(", {skipped} skipped"));
     }
+    if xfailed > 0 {
+        result.push_str(&format!(", {xfailed} xfailed"));
+    }
+    if xpassed > 0 {
+        result.push_str(&format!(", {xpassed} xpassed"));
+    }
+    if warnings > 0 {
+        result.push_str(&format!(", {warnings} warnings"));
+    }
     if !time.is_empty() {
         result.push_str(&format!(" ({time})"));
     }
@@ -107,6 +106,13 @@ fn try_pytest(output: &str) -> Option<String> {
     }
 
     Some(result)
+}
+
+fn extract_pytest_counter(line: &str, keyword: &str) -> Option<u32> {
+    let pos = line.find(keyword)?;
+    let before = &line[..pos];
+    let num_str = before.split_whitespace().last()?;
+    num_str.parse::<u32>().ok()
 }
 
 fn try_jest(output: &str) -> Option<String> {

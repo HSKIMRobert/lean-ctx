@@ -91,10 +91,31 @@ fn rc_contains_lean_ctx(path: &PathBuf) -> bool {
     }
 }
 
+fn has_pipe_guard_in_content(content: &str) -> bool {
+    content.contains("! -t 1")
+        || content.contains("isatty stdout")
+        || content.contains("IsOutputRedirected")
+}
+
 fn rc_has_pipe_guard(path: &PathBuf) -> bool {
     match std::fs::read_to_string(path) {
         Ok(s) => {
-            s.contains("! -t 1") || s.contains("isatty stdout") || s.contains("IsOutputRedirected")
+            if has_pipe_guard_in_content(&s) {
+                return true;
+            }
+            if s.contains(".lean-ctx/shell-hook.") {
+                if let Some(home) = dirs::home_dir() {
+                    for ext in &["zsh", "bash", "fish", "ps1"] {
+                        let hook = home.join(format!(".lean-ctx/shell-hook.{ext}"));
+                        if let Ok(h) = std::fs::read_to_string(&hook) {
+                            if has_pipe_guard_in_content(&h) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+            false
         }
         Err(_) => false,
     }

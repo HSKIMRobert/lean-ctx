@@ -146,9 +146,7 @@ pub fn handle_rewrite_inline() {
 }
 
 fn resolve_binary() -> String {
-    let path = std::env::current_exe()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|_| "lean-ctx".to_string());
+    let path = crate::core::portable_binary::resolve_portable_binary();
     crate::hooks::to_bash_compatible_path(&path)
 }
 

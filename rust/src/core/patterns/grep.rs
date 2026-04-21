@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 pub fn compress(output: &str) -> Option<String> {
     let lines: Vec<&str> = output.lines().collect();
-    if lines.len() < 3 {
-        return None;
+    if lines.len() < 3 || lines.len() <= 100 {
+        return Some(output.to_string());
     }
 
     let mut by_file: HashMap<&str, Vec<(usize, &str)>> = HashMap::new();

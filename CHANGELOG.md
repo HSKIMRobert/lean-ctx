@@ -3,6 +3,88 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.3.0] — 2026-04-21
+
+### Adversarial Safety Hardening
+
+This release addresses all 7 confirmed DANGEROUS compression findings from the [TheDecipherist/rtk-test](https://github.com/TheDecipherist/rtk-test) adversarial test suite (April 2026). LeanCTX now passes **16/16** comparative safety tests (up from 9/16 in v3.2.5).
+
+#### CRITICAL fixes
+- **`git diff` code content preserved**: Compression no longer reduces diffs to `file +N/-M`. All `+`/`-` lines (actual code changes) are preserved. Only `index` headers and excess context lines (>3 per hunk) are trimmed. Large diffs (>500 lines) show first 200 + last 50 lines per file. Security-relevant changes (CSRF bypasses, credential removals) are always visible.
+- **`docker ps` health status preserved**: Refactored to header-based column parsing. `(unhealthy)`, `Exited (1)`, and multi-word statuses are always preserved verbatim. Container names and images included in output.
+- **`df` verbatim passthrough**: Disk usage output is no longer compressed at all. Root filesystem info (`/dev/sda1 ... /`) can never be hidden by "last N lines" heuristics. Output is typically small (<30 lines), making compression unnecessary.
+- **`npm audit` CVE IDs preserved**: Vulnerability details including CVE IDs, severity levels, package names, and fix recommendations are retained (up to 30 detail lines) alongside the summary counts.
+
+#### HIGH fixes
+- **`git log` truncation increased to 50**: Default truncation raised from 20 to 50 entries. User-specified `--max-count` / `-n` arguments are now respected (no truncation applied). Truncation message updated to suggest `--max-count=N`.
+- **`pytest` xfail/xpass/warnings**: Summary now includes `xfailed`, `xpassed`, and `warnings` counters. Example: `pytest: 15 passed, 1 failed, 2 xfailed, 1 xpassed, 2 warnings (3.5s)`.
+- **`grep`/`rg` verbatim up to 100 lines**: Outputs with ≤100 lines pass through unchanged. File grouping and context stripping only applies to larger outputs.
+- **`pip uninstall` package names listed**: Shows all successfully uninstalled package names (up to 30) instead of just a count.
+- **`docker logs` safety-needle scan**: Middle-section truncation now scans for critical keywords (FATAL, ERROR, CRITICAL, panic, OOMKilled, etc.) and preserves up to 20 safety-relevant lines.
+
+#### Additional hardening
+- **`git blame` verbatim up to 100 lines**: Small blame outputs pass through unchanged. Larger outputs summarize by author with line ranges.
+- **`curl` JSON sensitive key redaction**: Keys matching `token`, `password`, `secret`, `auth`, `credential`, `api_key`, etc. have their values replaced with `REDACTED` in schema output.
+- **`ruff check` file:line:col preserved**: Outputs with ≤30 issues pass through verbatim, preserving all `file:line:col` references. Larger outputs show first 20 references plus rule summary.
+- **`log_dedup` regex fix**: Fixed a greedy regex (`[^\]]*` → `[^\]\s]*`) in timestamp stripping that consumed entire log messages, preventing proper deduplication. Added `CRITICAL` to severity detection.
+- **`lightweight_cleanup` brace collapse**: Now only activates for outputs >200 lines with runs of >5 consecutive brace-only lines. Inserts `[N brace-only lines collapsed]` marker.
+- **Safeguard ratio**: If pattern compression removes >95% of content (on outputs >100 tokens), the original output is returned with a warning to prevent over-compression.
+
+### New: Safety Needles Module
+
+New `safety_needles.rs` module provides centralized safety-critical keyword detection used across all compression paths. Keywords include: `CRITICAL`, `FATAL`, `panic`, `FAILED`, `unhealthy`, `Exited`, `OOMKilled`, `CVE-`, `denied`, `unauthorized`, `error`, `WARNING`, `segfault`, `SIGSEGV`, `SIGKILL`, `out of memory`, `stack overflow`, `permission denied`, `certificate`, `expired`, `corrupt`.
+
+The `truncate_with_safety_scan` function in `shell.rs` ensures these keywords are preserved even during generic middle-section truncation (up to 20 safety-relevant lines kept).
+
+### New: `lean-ctx safety-levels`
+
+New command that displays a transparency table showing exactly how each command type is compressed:
+
+- **VERBATIM** (7 commands): `df`, `git status`, `git stash`, `ls`, `find`, `wc`, `env` — zero compression
+- **MINIMAL** (11 commands): `git diff`, `git log`, `docker ps`, `grep`, `ruff`, `npm audit`, `pytest`, etc. — light formatting, all safety-critical data preserved
+- **STANDARD** (8 commands): `cargo build`, `npm install`, `eslint`, `tsc`, etc. — structured compression
+- **AGGRESSIVE** (4 commands): `kubectl describe`, `aws`, `terraform`, `docker images` — heavy compression for verbose output
+
+Also lists global safety features (needle scan, safeguard ratio, auth detection, min token threshold).
+
+### New: `lean-ctx bypass "command"`
+
+Runs any command with **zero compression** — guaranteed raw passthrough. Sets `LEAN_CTX_RAW=1` internally. Use when you need absolute certainty that output is unmodified:
+
+```bash
+lean-ctx bypass "git diff HEAD~1"   # guaranteed unmodified
+lean-ctx -c "git diff HEAD~1"      # compressed (hunk-preserving)
+```
+
+### New: `lean-ctx init <shell>` (eval pattern)
+
+Shell hook initialization now supports the industry-standard `eval` pattern used by starship, zoxide, atuin, fnm, and fzf. The shell code is always generated by the currently-installed binary, ensuring it's never stale after upgrades:
+
+```bash
+# bash: add to ~/.bashrc
+eval "$(lean-ctx init bash)"
+
+# zsh: add to ~/.zshrc
+eval "$(lean-ctx init zsh)"
+
+# fish: add to ~/.config/fish/config.fish
+lean-ctx init fish | source
+
+# powershell: add to $PROFILE
+lean-ctx init powershell | Invoke-Expression
+```
+
+The existing file-based method (`lean-ctx init --global`) continues to work unchanged.
+
+### New: Adversarial Test Suite in CI
+
+21 dedicated adversarial + regression tests now run on every push/PR via a new `adversarial` job in GitHub Actions CI. Tests cover all 16 comparative scenarios from the external audit plus additional safety regression checks. This ensures compression safety is continuously verified.
+
+### Changed
+- `compression_safety.rs`: New module with structured `CommandSafety` table and `SafetyLevel` enum
+- `shell_init.rs`: Refactored hook generation into `generate_hook_posix()`, `generate_hook_fish()`, `generate_hook_powershell()` for reuse by both file-based and eval-based init
+- `ci.yml`: New `adversarial` job running `cargo test --test adversarial_compression`
+
 ## [3.2.9] — 2026-04-20
 
 ### Fixed

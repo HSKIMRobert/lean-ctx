@@ -26,6 +26,7 @@ fn compress_check(output: &str) -> String {
 
     let mut by_rule: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
     let mut files: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut issue_lines: Vec<&str> = Vec::new();
 
     for line in trimmed.lines() {
         if let Some(caps) = ruff_line_re().captures(line) {
@@ -33,6 +34,7 @@ fn compress_check(output: &str) -> String {
             let rule = caps[4].to_string();
             files.insert(file);
             *by_rule.entry(rule).or_insert(0) += 1;
+            issue_lines.push(line);
         }
     }
 
@@ -44,11 +46,24 @@ fn compress_check(output: &str) -> String {
     }
 
     let total: u32 = by_rule.values().sum();
+
+    if total <= 30 {
+        return trimmed.to_string();
+    }
+
     let mut rules: Vec<(String, u32)> = by_rule.into_iter().collect();
     rules.sort_by_key(|x| std::cmp::Reverse(x.1));
 
     let mut parts = Vec::new();
     parts.push(format!("{total} issues in {} files", files.len()));
+    for line in issue_lines.iter().take(20) {
+        parts.push(format!("  {line}"));
+    }
+    if issue_lines.len() > 20 {
+        parts.push(format!("  ... +{} more issues", issue_lines.len() - 20));
+    }
+    parts.push(String::new());
+    parts.push("by rule:".to_string());
     for (rule, count) in rules.iter().take(8) {
         parts.push(format!("  {rule}: {count}"));
     }

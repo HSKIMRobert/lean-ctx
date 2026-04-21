@@ -12,6 +12,9 @@ fn pip_outdated_re() -> &'static Regex {
 }
 
 pub fn compress(command: &str, output: &str) -> Option<String> {
+    if command.contains("uninstall") {
+        return Some(compress_uninstall(output));
+    }
     if command.contains("install") {
         return Some(compress_install(output));
     }
@@ -20,9 +23,6 @@ pub fn compress(command: &str, output: &str) -> Option<String> {
             return Some(compress_outdated(output));
         }
         return Some(compress_list(output));
-    }
-    if command.contains("uninstall") {
-        return Some(compress_uninstall(output));
     }
     if command.contains("show") {
         return Some(compress_show(output));
@@ -122,7 +122,23 @@ fn compress_uninstall(output: &str) -> String {
     if removed.is_empty() {
         return compact_output(trimmed, 3);
     }
-    format!("ok (removed {} packages)", removed.len())
+
+    let names: Vec<String> = removed
+        .iter()
+        .take(30)
+        .map(|l| {
+            l.trim()
+                .strip_prefix("Successfully uninstalled ")
+                .unwrap_or(l.trim())
+                .to_string()
+        })
+        .collect();
+
+    let total = removed.len();
+    if names.is_empty() {
+        return format!("ok (removed {total} packages)");
+    }
+    format!("ok (removed {total} packages): {}", names.join(", "))
 }
 
 fn compress_show(output: &str) -> String {

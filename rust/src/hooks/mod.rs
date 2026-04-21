@@ -54,9 +54,7 @@ fn resolve_binary_path() -> String {
     if is_lean_ctx_in_path() {
         return "lean-ctx".to_string();
     }
-    std::env::current_exe()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|_| "lean-ctx".to_string())
+    crate::core::portable_binary::resolve_portable_binary()
 }
 
 fn is_lean_ctx_in_path() -> bool {

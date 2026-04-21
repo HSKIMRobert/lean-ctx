@@ -103,15 +103,31 @@ pub fn aggressive_compress(content: &str, ext: Option<&str>) -> String {
 /// Lightweight post-processing cleanup: collapses consecutive closing braces,
 /// removes whitespace-only lines, and limits consecutive blank lines to 1.
 pub fn lightweight_cleanup(content: &str) -> String {
+    let lines: Vec<&str> = content.lines().collect();
+    let total = lines.len();
+
     let mut result: Vec<String> = Vec::new();
     let mut blank_count = 0u32;
-    let mut close_brace_count = 0u32;
+    let mut brace_run: Vec<&str> = Vec::new();
 
-    for line in content.lines() {
+    let flush_brace_run = |run: &mut Vec<&str>, out: &mut Vec<String>| {
+        if total <= 200 || run.len() <= 5 {
+            for l in run.iter() {
+                out.push(l.to_string());
+            }
+        } else {
+            out.push(run[0].to_string());
+            out.push(run[1].to_string());
+            out.push(format!("[{} brace-only lines collapsed]", run.len() - 2));
+        }
+        run.clear();
+    };
+
+    for line in &lines {
         let trimmed = line.trim();
 
         if trimmed.is_empty() {
-            close_brace_count = 0;
+            flush_brace_run(&mut brace_run, &mut result);
             blank_count += 1;
             if blank_count <= 1 {
                 result.push(String::new());
@@ -121,16 +137,14 @@ pub fn lightweight_cleanup(content: &str) -> String {
         blank_count = 0;
 
         if matches!(trimmed, "}" | "};" | ");" | "});" | ")") {
-            close_brace_count += 1;
-            if close_brace_count <= 2 {
-                result.push(trimmed.to_string());
-            }
+            brace_run.push(trimmed);
             continue;
         }
-        close_brace_count = 0;
 
+        flush_brace_run(&mut brace_run, &mut result);
         result.push(line.to_string());
     }
+    flush_brace_run(&mut brace_run, &mut result);
 
     result.join("\n")
 }
@@ -394,11 +408,18 @@ mod tests {
 
     #[test]
     fn test_lightweight_cleanup_collapses_braces() {
-        let input = "fn main() {\n    inner()\n}\n}\n}\n}\n}\nfn next() {}";
-        let result = lightweight_cleanup(input);
+        let mut lines: Vec<String> = (0..210).map(|i| format!("line {i}")).collect();
+        lines.extend(
+            vec!["}", "}", "}", "}", "}", "}", "}", "}"]
+                .iter()
+                .map(|s| s.to_string()),
+        );
+        lines.push("fn next() {}".to_string());
+        let input = lines.join("\n");
+        let result = lightweight_cleanup(&input);
         assert!(
-            result.matches('}').count() <= 3,
-            "should collapse consecutive closing braces"
+            result.contains("[6 brace-only lines collapsed]"),
+            "should collapse long brace runs in large files"
         );
         assert!(result.contains("fn next()"));
     }

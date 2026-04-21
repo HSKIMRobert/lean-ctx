@@ -203,7 +203,7 @@ fn bench_git_all_commands() {
         ("git log --stat -20", generate_git_log_stat(20), 50.0),
         ("git log -30", generate_git_log_standard(30), 60.0),
         ("git status", generate_git_status(), 30.0),
-        ("git diff", generate_git_diff(15), 40.0),
+        ("git diff", generate_git_diff(15), 5.0),
         (
             "git commit -m 'feat'",
             generate_git_commit_with_hooks(30),

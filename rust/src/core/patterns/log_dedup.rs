@@ -5,7 +5,7 @@ static TIMESTAMP_RE: OnceLock<Regex> = OnceLock::new();
 
 fn timestamp_re() -> &'static Regex {
     TIMESTAMP_RE.get_or_init(|| {
-        Regex::new(r"^\[?\d{4}[-/]\d{2}[-/]\d{2}[T ]\d{2}:\d{2}:\d{2}[^\]]*\]?\s*").unwrap()
+        Regex::new(r"^\[?\d{4}[-/]\d{2}[-/]\d{2}[T ]\d{2}:\d{2}:\d{2}[^\]\s]*\]?\s*").unwrap()
     })
 }
 
@@ -26,6 +26,7 @@ pub fn compress(output: &str) -> Option<String> {
 
         let lower = stripped.to_lowercase();
         if lower.contains("error")
+            || lower.contains("critical")
             || lower.contains("fatal")
             || lower.contains("panic")
             || lower.contains("exception")

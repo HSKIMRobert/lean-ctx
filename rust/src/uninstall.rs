@@ -144,7 +144,8 @@ fn remove_shell_hook(home: &Path) -> bool {
             continue;
         }
 
-        let cleaned = remove_lean_ctx_block(&content);
+        let mut cleaned = remove_lean_ctx_block(&content);
+        cleaned = remove_source_lines(&cleaned);
         if cleaned.trim() != content.trim() {
             let bak = rc.with_extension("lean-ctx.bak");
             let _ = fs::copy(rc, &bak);
@@ -159,11 +160,36 @@ fn remove_shell_hook(home: &Path) -> bool {
         }
     }
 
+    let hook_files = [
+        "shell-hook.zsh",
+        "shell-hook.bash",
+        "shell-hook.fish",
+        "shell-hook.ps1",
+    ];
+    let lc_dir = home.join(".lean-ctx");
+    for f in &hook_files {
+        let path = lc_dir.join(f);
+        if path.exists() {
+            let _ = fs::remove_file(&path);
+            println!("  ✓ Removed ~/.lean-ctx/{f}");
+            removed = true;
+        }
+    }
+
     if !removed && !shell.is_empty() {
         println!("  · No shell hook found");
     }
 
     removed
+}
+
+fn remove_source_lines(content: &str) -> String {
+    content
+        .lines()
+        .filter(|line| !line.contains(".lean-ctx/shell-hook."))
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n"
 }
 
 fn remove_mcp_configs(home: &Path) -> bool {

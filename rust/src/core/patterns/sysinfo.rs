@@ -53,48 +53,10 @@ pub fn compress_ps(output: &str) -> Option<String> {
     Some(out.trim_end().to_string())
 }
 
+/// df output is safety-critical (disk usage, root filesystem) and typically
+/// small (<30 lines). Verbatim passthrough prevents hiding critical info.
 pub fn compress_df(output: &str) -> Option<String> {
-    let lines: Vec<&str> = output.lines().collect();
-    if lines.len() < 2 {
-        return None;
-    }
-
-    let header = lines[0];
-    let entries: Vec<&str> = lines[1..]
-        .iter()
-        .filter(|l| !l.trim().is_empty())
-        .copied()
-        .collect();
-
-    if entries.len() <= 5 {
-        return None;
-    }
-
-    let mut relevant: Vec<&str> = Vec::new();
-    for &line in &entries {
-        let cols: Vec<&str> = line.split_whitespace().collect();
-        if let Some(pct_str) = cols.iter().find(|s| s.ends_with('%')) {
-            let pct: u32 = pct_str.trim_end_matches('%').parse().unwrap_or(0);
-            if pct >= 50 {
-                relevant.push(line);
-            }
-        }
-    }
-
-    if relevant.is_empty() {
-        relevant = entries.iter().take(5).copied().collect();
-    }
-
-    let mut out = format!(
-        "df: {} filesystems ({} shown)\n{header}\n",
-        entries.len(),
-        relevant.len()
-    );
-    for l in &relevant {
-        out.push_str(l);
-        out.push('\n');
-    }
-    Some(out.trim_end().to_string())
+    Some(output.to_string())
 }
 
 pub fn compress_du(output: &str) -> Option<String> {
@@ -230,7 +192,7 @@ mod tests {
     }
 
     #[test]
-    fn df_compresses_many_filesystems() {
+    fn df_returns_verbatim() {
         let mut lines =
             vec!["Filesystem     1K-blocks    Used Available Use% Mounted on".to_string()];
         for i in 0..20 {
@@ -240,9 +202,8 @@ mod tests {
             ));
         }
         let output = lines.join("\n");
-        let result = compress_df(&output).expect("should compress");
-        assert!(result.contains("20 filesystems"));
-        assert!(result.contains("90%"));
+        let result = compress_df(&output).expect("should return Some");
+        assert_eq!(result, output, "df must pass through verbatim");
     }
 
     #[test]

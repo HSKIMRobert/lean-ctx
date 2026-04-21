@@ -64,4 +64,17 @@ jobs:
         working-directory: rust
         run: cargo fmt --check
 
+  adversarial:
+    name: Adversarial Safety
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust -> target
+      - name: Run adversarial compression tests
+        working-directory: rust
+        run: cargo test --test adversarial_compression -- --nocapture
+
   # Security audit runs in security-check.yml workflow

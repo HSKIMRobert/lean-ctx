@@ -506,6 +506,13 @@ fn compress_if_beneficial(command: &str, output: &str) -> String {
         if !compressed.trim().is_empty() {
             let compressed_tokens = count_tokens(&compressed);
             if compressed_tokens >= min_output_tokens && compressed_tokens < original_tokens {
+                let ratio = compressed_tokens as f64 / original_tokens as f64;
+                if ratio < 0.05 && original_tokens > 100 {
+                    eprintln!(
+                        "[lean-ctx] WARNING: compression removed >95% of content, returning original"
+                    );
+                    return output.to_string();
+                }
                 let saved = original_tokens - compressed_tokens;
                 let pct = (saved as f64 / original_tokens as f64 * 100.0).round() as usize;
                 if pct >= 5 {
@@ -521,31 +528,14 @@ fn compress_if_beneficial(command: &str, output: &str) -> String {
         }
     }
 
-    // Apply lightweight cleanup to remove whitespace-only lines and collapse braces
     let cleaned = crate::core::compressor::lightweight_cleanup(output);
     let cleaned_tokens = count_tokens(&cleaned);
     if cleaned_tokens < original_tokens {
         let lines: Vec<&str> = cleaned.lines().collect();
         if lines.len() > 30 {
-            let first = &lines[..5];
-            let last = &lines[lines.len() - 5..];
-            let omitted = lines.len() - 10;
-            let total = lines.len();
-            let compressed = format!(
-                "{}\n[truncated: showing 10/{total} lines, {omitted} omitted]\n{}",
-                first.join("\n"),
-                last.join("\n")
-            );
-            let ct = count_tokens(&compressed);
-            if ct < original_tokens {
-                let saved = original_tokens - ct;
-                let pct = (saved as f64 / original_tokens as f64 * 100.0).round() as usize;
-                if pct >= 5 {
-                    return format!(
-                        "{compressed}\n[lean-ctx: {original_tokens}→{ct} tok, -{pct}%]"
-                    );
-                }
-                return compressed;
+            let compressed = truncate_with_safety_scan(&lines, original_tokens);
+            if let Some(c) = compressed {
+                return c;
             }
         }
         if cleaned_tokens < original_tokens {
@@ -562,28 +552,51 @@ fn compress_if_beneficial(command: &str, output: &str) -> String {
 
     let lines: Vec<&str> = output.lines().collect();
     if lines.len() > 30 {
-        let first = &lines[..5];
-        let last = &lines[lines.len() - 5..];
-        let omitted = lines.len() - 10;
-        let compressed = format!(
-            "{}\n... ({omitted} lines omitted) ...\n{}",
-            first.join("\n"),
-            last.join("\n")
-        );
-        let compressed_tokens = count_tokens(&compressed);
-        if compressed_tokens < original_tokens {
-            let saved = original_tokens - compressed_tokens;
-            let pct = (saved as f64 / original_tokens as f64 * 100.0).round() as usize;
-            if pct >= 5 {
-                return format!(
-                    "{compressed}\n[lean-ctx: {original_tokens}→{compressed_tokens} tok, -{pct}%]"
-                );
-            }
-            return compressed;
+        if let Some(c) = truncate_with_safety_scan(&lines, original_tokens) {
+            return c;
         }
     }
 
     output.to_string()
+}
+
+fn truncate_with_safety_scan(lines: &[&str], original_tokens: usize) -> Option<String> {
+    use crate::core::safety_needles;
+
+    let first = &lines[..5];
+    let last = &lines[lines.len() - 5..];
+    let middle = &lines[5..lines.len() - 5];
+
+    let safety_lines = safety_needles::extract_safety_lines(middle, 20);
+    let safety_count = safety_lines.len();
+    let omitted = middle.len() - safety_count;
+
+    let mut parts = Vec::new();
+    parts.push(first.join("\n"));
+    if safety_count > 0 {
+        parts.push(format!(
+            "[{omitted} lines omitted, {safety_count} safety-relevant lines preserved]"
+        ));
+        parts.push(safety_lines.join("\n"));
+    } else {
+        parts.push(format!("[{omitted} lines omitted]"));
+    }
+    parts.push(last.join("\n"));
+
+    let compressed = parts.join("\n");
+    let ct = count_tokens(&compressed);
+    if ct >= original_tokens {
+        return None;
+    }
+    let saved = original_tokens - ct;
+    let pct = (saved as f64 / original_tokens as f64 * 100.0).round() as usize;
+    if pct >= 5 {
+        Some(format!(
+            "{compressed}\n[lean-ctx: {original_tokens}→{ct} tok, -{pct}%]"
+        ))
+    } else {
+        Some(compressed)
+    }
 }
 
 /// Windows only: argument that passes one command string to the shell binary.
@@ -1083,4 +1096,9 @@ mod passthrough_tests {
         assert!(!is_excluded_command("gcloud compute instances list", &[]));
         assert!(!is_excluded_command("az vm list", &[]));
     }
+}
+
+/// Public wrapper for integration tests to exercise the compression pipeline.
+pub fn compress_if_beneficial_pub(command: &str, output: &str) -> String {
+    compress_if_beneficial(command, output)
 }

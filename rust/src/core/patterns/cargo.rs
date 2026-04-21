@@ -47,6 +47,9 @@ pub fn compress(command: &str, output: &str) -> Option<String> {
     if command.contains("update") {
         return Some(compress_update(output));
     }
+    if command.contains("metadata") {
+        return Some(compress_metadata(output));
+    }
     None
 }
 
@@ -295,6 +298,96 @@ fn compress_update(output: &str) -> String {
     parts.join("\n")
 }
 
+fn compress_metadata(output: &str) -> String {
+    let parsed: Result<serde_json::Value, _> = serde_json::from_str(output);
+    let json = match parsed {
+        Ok(v) => v,
+        Err(_) => {
+            let lines: Vec<&str> = output.lines().collect();
+            if lines.len() <= 20 {
+                return output.to_string();
+            }
+            return format!(
+                "{}\n... ({} more lines, non-JSON metadata)",
+                lines[..10].join("\n"),
+                lines.len() - 10
+            );
+        }
+    };
+
+    let mut parts = Vec::new();
+
+    if let Some(workspace_members) = json.get("workspace_members").and_then(|v| v.as_array()) {
+        parts.push(format!("workspace_members: {}", workspace_members.len()));
+        for m in workspace_members.iter().take(20) {
+            if let Some(s) = m.as_str() {
+                let short = s.split(' ').take(2).collect::<Vec<_>>().join(" ");
+                parts.push(format!("  {short}"));
+            }
+        }
+        if workspace_members.len() > 20 {
+            parts.push(format!("  ... +{} more", workspace_members.len() - 20));
+        }
+    }
+
+    if let Some(target_dir) = json.get("target_directory").and_then(|v| v.as_str()) {
+        parts.push(format!("target_directory: {target_dir}"));
+    }
+
+    if let Some(workspace_root) = json.get("workspace_root").and_then(|v| v.as_str()) {
+        parts.push(format!("workspace_root: {workspace_root}"));
+    }
+
+    if let Some(packages) = json.get("packages").and_then(|v| v.as_array()) {
+        parts.push(format!("packages: {}", packages.len()));
+        for pkg in packages.iter().take(30) {
+            let name = pkg.get("name").and_then(|v| v.as_str()).unwrap_or("?");
+            let version = pkg.get("version").and_then(|v| v.as_str()).unwrap_or("?");
+            let features: Vec<&str> = pkg
+                .get("features")
+                .and_then(|v| v.as_object())
+                .map(|f| f.keys().map(|k| k.as_str()).collect())
+                .unwrap_or_default();
+            if features.is_empty() {
+                parts.push(format!("  {name} v{version}"));
+            } else {
+                parts.push(format!(
+                    "  {name} v{version} [features: {}]",
+                    features.join(", ")
+                ));
+            }
+        }
+        if packages.len() > 30 {
+            parts.push(format!("  ... +{} more", packages.len() - 30));
+        }
+    }
+
+    if let Some(resolve) = json.get("resolve") {
+        if let Some(nodes) = resolve.get("nodes").and_then(|v| v.as_array()) {
+            let total_deps: usize = nodes
+                .iter()
+                .map(|n| {
+                    n.get("deps")
+                        .and_then(|v| v.as_array())
+                        .map(|a| a.len())
+                        .unwrap_or(0)
+                })
+                .sum();
+            parts.push(format!(
+                "resolve: {} nodes, {} dep edges",
+                nodes.len(),
+                total_deps
+            ));
+        }
+    }
+
+    if parts.is_empty() {
+        "cargo metadata: ok (empty)".to_string()
+    } else {
+        parts.join("\n")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -342,6 +435,49 @@ mod tests {
         assert!(
             result.is_some(),
             "cargo check should route to build compressor"
+        );
+    }
+
+    #[test]
+    fn cargo_metadata_json() {
+        let json = r#"{
+            "packages": [
+                {"name": "lean-ctx", "version": "3.2.9", "features": {"tree-sitter": ["dep:tree-sitter"]}},
+                {"name": "serde", "version": "1.0.200", "features": {"derive": ["serde_derive"]}}
+            ],
+            "workspace_members": ["lean-ctx 3.2.9 (path+file:///foo)"],
+            "workspace_root": "/foo",
+            "target_directory": "/foo/target",
+            "resolve": {
+                "nodes": [
+                    {"id": "lean-ctx", "deps": [{"name": "serde"}]},
+                    {"id": "serde", "deps": []}
+                ]
+            }
+        }"#;
+        let result = compress("cargo metadata", json).unwrap();
+        assert!(
+            result.contains("workspace_members: 1"),
+            "should list workspace members"
+        );
+        assert!(result.contains("packages: 2"), "should list packages");
+        assert!(
+            result.contains("resolve: 2 nodes"),
+            "should summarize resolve graph"
+        );
+        assert!(
+            result.len() < json.len(),
+            "compressed output should be shorter"
+        );
+    }
+
+    #[test]
+    fn cargo_metadata_non_json() {
+        let output = "error: `cargo metadata` exited with an error\nsome detailed error";
+        let result = compress("cargo metadata", output).unwrap();
+        assert!(
+            result.contains("error"),
+            "should pass through non-JSON output"
         );
     }
 }

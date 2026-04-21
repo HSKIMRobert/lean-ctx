@@ -952,14 +952,22 @@ pub fn cmd_init(args: &[String]) {
         return;
     }
 
+    let eval_shell = args
+        .iter()
+        .find(|a| matches!(a.as_str(), "bash" | "zsh" | "fish" | "powershell" | "pwsh"));
+    if let Some(shell) = eval_shell {
+        if !global {
+            shell_init::print_hook_stdout(shell);
+            return;
+        }
+    }
+
     let shell_name = std::env::var("SHELL").unwrap_or_default();
     let is_zsh = shell_name.contains("zsh");
     let is_fish = shell_name.contains("fish");
     let is_powershell = cfg!(windows) && shell_name.is_empty();
 
-    let binary = std::env::current_exe()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|_| "lean-ctx".to_string());
+    let binary = crate::core::portable_binary::resolve_portable_binary();
 
     if dry_run {
         let rc = if is_powershell {
