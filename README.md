@@ -485,6 +485,8 @@ cargo install lean-ctx --no-default-features
 lean-ctx -c "git status"       # Execute + compress output
 lean-ctx exec "cargo build"    # Same as -c
 lean-ctx shell                 # Interactive REPL with compression
+lean-ctx bypass "git diff"     # Guaranteed zero compression
+lean-ctx safety-levels         # Show compression transparency table
 ```
 
 </details>
@@ -513,7 +515,8 @@ lean-ctx deps .                               # Project dependencies summary
 
 ```bash
 lean-ctx setup                 # One-command setup: shell + editors + verify
-lean-ctx init --global         # Install 23 shell aliases
+lean-ctx init --global         # Install shell aliases (file-based)
+eval "$(lean-ctx init zsh)"   # Eval-based init (like starship/zoxide)
 lean-ctx init --agent claude   # Claude Code hook
 lean-ctx init --agent cursor   # Cursor hooks.json
 lean-ctx init --agent gemini   # Gemini CLI hook
@@ -828,7 +831,7 @@ When running inside Codex CLI (`CODEX_CLI_SESSION` set), `~/.codex` is automatic
 | Project knowledge store | ✗ | ✓ |
 | Web dashboard | ✗ | ✓ |
 | Savings reports | ✗ | ✓ (`wrapped`) |
-| Raw mode / bypass | ✓ | ✓ (`raw=true`, `--raw`, `lean-ctx-raw`) |
+| Raw mode / bypass | ✓ | ✓ (`raw=true`, `--raw`, `lean-ctx-raw`, `lean-ctx bypass`) |
 | User-defined filters | TOML rules | **TOML rules** (priority over builtins) |
 | Full output recovery | `tee` | ✓ (`tee_mode: always/failures/never`) |
 | Truncation warnings | ✗ | ✓ (transparent markers) |
