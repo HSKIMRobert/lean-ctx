@@ -4,6 +4,7 @@ use crate::core::editor_registry::{ConfigType, EditorTarget, WriteAction, WriteO
 use crate::core::portable_binary::resolve_portable_binary;
 use crate::core::setup_report::{PlatformInfo, SetupItem, SetupReport, SetupStepReport};
 use chrono::Utc;
+use std::ffi::OsString;
 
 pub fn claude_config_json_path(home: &std::path::Path) -> PathBuf {
     crate::core::editor_registry::claude_mcp_json_path(home)
@@ -11,6 +12,29 @@ pub fn claude_config_json_path(home: &std::path::Path) -> PathBuf {
 
 pub fn claude_config_dir(home: &std::path::Path) -> PathBuf {
     crate::core::editor_registry::claude_state_dir(home)
+}
+
+pub(crate) struct EnvVarGuard {
+    key: &'static str,
+    previous: Option<OsString>,
+}
+
+impl EnvVarGuard {
+    pub(crate) fn set(key: &'static str, value: &str) -> Self {
+        let previous = std::env::var_os(key);
+        std::env::set_var(key, value);
+        Self { key, previous }
+    }
+}
+
+impl Drop for EnvVarGuard {
+    fn drop(&mut self) {
+        if let Some(previous) = &self.previous {
+            std::env::set_var(self.key, previous);
+        } else {
+            std::env::remove_var(self.key);
+        }
+    }
 }
 
 pub fn run_setup() {
@@ -292,6 +316,7 @@ pub struct SetupOptions {
 }
 
 pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String> {
+    let _quiet_guard = opts.json.then(|| EnvVarGuard::set("LEAN_CTX_QUIET", "1"));
     let started_at = Utc::now();
     let home = dirs::home_dir().ok_or_else(|| "Cannot determine home directory".to_string())?;
     let binary = resolve_portable_binary();
@@ -450,10 +475,13 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
             "codex" => {
                 crate::hooks::agents::install_codex_hook();
                 hooks_step.items.push(SetupItem {
-                    name: "Codex hooks".to_string(),
+                    name: "Codex integration".to_string(),
                     status: "installed".to_string(),
-                    path: Some("~/.codex/hooks/".to_string()),
-                    note: None,
+                    path: Some("~/.codex/".to_string()),
+                    note: Some(
+                        "Installs AGENTS/MCP guidance and Codex-compatible SessionStart/PreToolUse hooks."
+                            .to_string(),
+                    ),
                 });
             }
             "cursor" => {

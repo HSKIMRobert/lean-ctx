@@ -681,9 +681,11 @@ fn main() {
                     "rewrite" => hook_handlers::handle_rewrite(),
                     "redirect" => hook_handlers::handle_redirect(),
                     "copilot" => hook_handlers::handle_copilot(),
+                    "codex-pretooluse" => hook_handlers::handle_codex_pretooluse(),
+                    "codex-session-start" => hook_handlers::handle_codex_session_start(),
                     "rewrite-inline" => hook_handlers::handle_rewrite_inline(),
                     _ => {
-                        eprintln!("Usage: lean-ctx hook <rewrite|redirect|copilot|rewrite-inline>");
+                        eprintln!("Usage: lean-ctx hook <rewrite|redirect|copilot|codex-pretooluse|codex-session-start|rewrite-inline>");
                         eprintln!("  Internal commands used by agent hooks (Claude, Cursor, Copilot, etc.)");
                         std::process::exit(1);
                     }
