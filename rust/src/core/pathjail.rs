@@ -17,7 +17,7 @@ const IDE_CONFIG_DIRS: &[&str] = &[
     ".continue",
 ];
 
-fn allow_paths_from_env() -> Vec<PathBuf> {
+fn allow_paths_from_env_and_config() -> Vec<PathBuf> {
     let mut out = Vec::new();
 
     if let Ok(data_dir) = crate::core::data_dir::lean_ctx_data_dir() {
@@ -31,6 +31,12 @@ fn allow_paths_from_env() -> Vec<PathBuf> {
                 out.push(canonicalize_or_self(&p));
             }
         }
+    }
+
+    let cfg = crate::core::config::Config::load();
+    for p in &cfg.allow_paths {
+        let pb = PathBuf::from(p);
+        out.push(canonicalize_or_self(&pb));
     }
 
     let v = std::env::var("LCTX_ALLOW_PATH")
@@ -70,7 +76,7 @@ fn canonicalize_existing_ancestor(path: &Path) -> Option<(PathBuf, Vec<std::ffi:
 
 pub fn jail_path(candidate: &Path, jail_root: &Path) -> Result<PathBuf, String> {
     let root = canonicalize_or_self(jail_root);
-    let allow = allow_paths_from_env();
+    let allow = allow_paths_from_env_and_config();
 
     let (base, remainder) = canonicalize_existing_ancestor(candidate).ok_or_else(|| {
         format!(
@@ -86,9 +92,11 @@ pub fn jail_path(candidate: &Path, jail_root: &Path) -> Result<PathBuf, String> 
 
     if !allowed {
         return Err(format!(
-            "path escapes project root: {} (root: {})",
+            "path escapes project root: {} (root: {}). \
+             Hint: set LEAN_CTX_ALLOW_PATH={} or add it to allow_paths in ~/.lean-ctx/config.toml",
             candidate.display(),
-            root.display()
+            root.display(),
+            candidate.parent().unwrap_or(candidate).display()
         ));
     }
 
@@ -193,5 +201,45 @@ mod tests {
 
         let result = jail_path(&root.join("file.rs"), &root);
         assert!(result.is_ok(), "same dir should be accepted: {result:?}");
+    }
+
+    #[test]
+    fn error_message_contains_allow_path_hint() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("root");
+        let other = tmp.path().join("other");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::write(other.join("b.txt"), "no").unwrap();
+
+        let err = jail_path(&other.join("b.txt"), &root).unwrap_err();
+        assert!(
+            err.contains("LEAN_CTX_ALLOW_PATH"),
+            "error should hint at LEAN_CTX_ALLOW_PATH: {err}"
+        );
+        assert!(
+            err.contains("allow_paths"),
+            "error should hint at config allow_paths: {err}"
+        );
+    }
+
+    #[test]
+    fn allow_path_env_permits_outside_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("root");
+        let other = tmp.path().join("other");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::write(other.join("b.txt"), "allowed").unwrap();
+
+        let canon = canonicalize_or_self(&other);
+        std::env::set_var("LEAN_CTX_ALLOW_PATH", canon.to_string_lossy().as_ref());
+        let result = jail_path(&other.join("b.txt"), &root);
+        std::env::remove_var("LEAN_CTX_ALLOW_PATH");
+
+        assert!(
+            result.is_ok(),
+            "LEAN_CTX_ALLOW_PATH should permit access: {result:?}"
+        );
     }
 }

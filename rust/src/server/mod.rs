@@ -585,6 +585,45 @@ pub fn derive_project_root_from_cwd() -> Option<String> {
         return Some(git_root);
     }
 
+    if let Some(root) = detect_multi_root_workspace(&canonical) {
+        return Some(root);
+    }
+
+    None
+}
+
+/// Detect a multi-root workspace: a directory that has no project markers
+/// itself, but contains child directories that do. In this case, use the
+/// parent as jail root and auto-allow all child projects via LEAN_CTX_ALLOW_PATH.
+fn detect_multi_root_workspace(dir: &std::path::Path) -> Option<String> {
+    let entries = std::fs::read_dir(dir).ok()?;
+    let mut child_projects: Vec<String> = Vec::new();
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() && has_project_marker(&path) {
+            let canonical = crate::core::pathutil::safe_canonicalize_or_self(&path);
+            child_projects.push(canonical.to_string_lossy().to_string());
+        }
+    }
+
+    if child_projects.len() >= 2 {
+        let existing = std::env::var("LEAN_CTX_ALLOW_PATH").unwrap_or_default();
+        let sep = if cfg!(windows) { ";" } else { ":" };
+        let merged = if existing.is_empty() {
+            child_projects.join(sep)
+        } else {
+            format!("{existing}{sep}{}", child_projects.join(sep))
+        };
+        std::env::set_var("LEAN_CTX_ALLOW_PATH", &merged);
+        tracing::info!(
+            "Multi-root workspace detected at {}: auto-allowing {} child projects",
+            dir.display(),
+            child_projects.len()
+        );
+        return Some(dir.to_string_lossy().to_string());
+    }
+
     None
 }
 
@@ -683,5 +722,42 @@ mod tests {
             .filter(|t| !disabled.iter().any(|d| t.name.as_ref() == d.as_str()))
             .collect();
         assert_eq!(filtered.len(), total);
+    }
+
+    #[test]
+    fn detect_multi_root_workspace_with_child_projects() {
+        let tmp = tempfile::tempdir().unwrap();
+        let workspace = tmp.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+
+        let proj_a = workspace.join("project-a");
+        let proj_b = workspace.join("project-b");
+        std::fs::create_dir_all(proj_a.join(".git")).unwrap();
+        std::fs::create_dir_all(&proj_b).unwrap();
+        std::fs::write(proj_b.join("package.json"), "{}").unwrap();
+
+        let result = detect_multi_root_workspace(&workspace);
+        assert!(
+            result.is_some(),
+            "should detect workspace with 2 child projects"
+        );
+
+        std::env::remove_var("LEAN_CTX_ALLOW_PATH");
+    }
+
+    #[test]
+    fn detect_multi_root_workspace_returns_none_for_single_project() {
+        let tmp = tempfile::tempdir().unwrap();
+        let workspace = tmp.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+
+        let proj_a = workspace.join("project-a");
+        std::fs::create_dir_all(proj_a.join(".git")).unwrap();
+
+        let result = detect_multi_root_workspace(&workspace);
+        assert!(
+            result.is_none(),
+            "should not detect workspace with only 1 child project"
+        );
     }
 }

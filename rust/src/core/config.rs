@@ -134,6 +134,11 @@ pub struct Config {
     /// Archive configuration for zero-loss compression.
     #[serde(default)]
     pub archive: ArchiveConfig,
+    /// Additional paths allowed by PathJail (absolute).
+    /// Useful for multi-project workspaces where the jail root is a parent directory.
+    /// Override via LEAN_CTX_ALLOW_PATH env var (path-list separator).
+    #[serde(default)]
+    pub allow_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -343,6 +348,7 @@ impl Default for Config {
             extra_ignore_patterns: Vec::new(),
             terse_agent: TerseAgent::default(),
             archive: ArchiveConfig::default(),
+            allow_paths: Vec::new(),
         }
     }
 }
@@ -753,6 +759,9 @@ impl Config {
         }
         if local.archive.max_disk_mb != ArchiveConfig::default().max_disk_mb {
             self.archive.max_disk_mb = local.archive.max_disk_mb;
+        }
+        if !local.allow_paths.is_empty() {
+            self.allow_paths.extend(local.allow_paths);
         }
     }
 
