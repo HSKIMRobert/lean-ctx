@@ -1,5 +1,14 @@
 use crate::{cloud_client, core};
 
+fn mask_email(email: &str) -> String {
+    match email.split_once('@') {
+        Some((local, domain)) if local.len() > 2 => {
+            format!("{}...@{domain}", &local[..2])
+        }
+        _ => "***".to_string(),
+    }
+}
+
 fn parse_auth_args(args: &[String]) -> (String, Option<String>) {
     let mut email = String::new();
     let mut password: Option<String> = None;
@@ -78,7 +87,7 @@ pub fn cmd_login(args: &[String]) {
     match cloud_client::login(&email, &pw) {
         Ok(r) => {
             save_and_report(&r, &email);
-            println!("Logged in as {email}");
+            println!("Logged in as {}", mask_email(&email));
         }
         Err(e) if e.contains("403") => {
             eprintln!("Please verify your email first. Check your inbox.");
@@ -109,8 +118,8 @@ pub fn cmd_forgot_password(args: &[String]) {
     println!("Sending password reset email...");
 
     match cloud_client::forgot_password(&email) {
-        Ok(msg) => {
-            println!("{msg}");
+        Ok(_msg) => {
+            println!("Password reset email sent to {}.", mask_email(&email));
             println!("Check your inbox and follow the reset link.");
         }
         Err(e) => {
@@ -129,7 +138,7 @@ pub fn cmd_register(args: &[String]) {
     match cloud_client::register(&email, Some(&pw)) {
         Ok(r) => {
             save_and_report(&r, &email);
-            println!("Account created for {email}");
+            println!("Account created for {}", mask_email(&email));
         }
         Err(e) if e.contains("409") || e.contains("already exists") => {
             eprintln!("An account with this email already exists.");
