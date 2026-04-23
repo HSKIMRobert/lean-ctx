@@ -406,8 +406,15 @@ pub fn supported_languages() -> &'static [&'static str] {
 mod tests {
     use super::*;
 
+    fn python_available() -> bool {
+        find_binary(&["python3", "python"]).is_some()
+    }
+
     #[test]
     fn execute_python_hello() {
+        if !python_available() {
+            return;
+        }
         let result = execute("python", "print('hello sandbox')", None);
         assert_eq!(result.exit_code, 0);
         assert!(result.stdout.contains("hello sandbox"));
@@ -430,6 +437,9 @@ mod tests {
 
     #[test]
     fn execute_python_error() {
+        if !python_available() {
+            return;
+        }
         let result = execute("python", "raise ValueError('test error')", None);
         assert_ne!(result.exit_code, 0);
         assert!(result.stderr.contains("ValueError"));
@@ -437,6 +447,9 @@ mod tests {
 
     #[test]
     fn execute_with_timeout() {
+        if !python_available() {
+            return;
+        }
         let result = execute("python", "import time; time.sleep(60)", Some(1));
         assert_ne!(result.exit_code, 0);
     }
@@ -464,6 +477,9 @@ mod tests {
 
     #[test]
     fn sandbox_env_is_set() {
+        if !python_available() {
+            return;
+        }
         let result = execute(
             "python",
             "import os; print(os.environ.get('LEAN_CTX_SANDBOX', 'missing'))",

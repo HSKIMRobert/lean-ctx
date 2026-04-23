@@ -855,35 +855,35 @@ mod resolve_path_tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
     async fn startup_prefers_workspace_scoped_session_over_global_latest() {
+        let _lock = crate::core::data_dir::test_env_lock();
         let _data = tempfile::tempdir().unwrap();
         let _tmp = tempfile::tempdir().unwrap();
 
-        let (server, root_b) = {
-            let _lock = crate::core::data_dir::test_env_lock();
-            std::env::set_var("LEAN_CTX_DATA_DIR", _data.path());
+        std::env::set_var("LEAN_CTX_DATA_DIR", _data.path());
 
-            let repo_a = _tmp.path().join("repo-a");
-            let repo_b = _tmp.path().join("repo-b");
-            let root_a = create_git_root(&repo_a);
-            let root_b = create_git_root(&repo_b);
+        let repo_a = _tmp.path().join("repo-a");
+        let repo_b = _tmp.path().join("repo-b");
+        let root_a = create_git_root(&repo_a);
+        let root_b = create_git_root(&repo_b);
 
-            let mut session_b = SessionState::new();
-            session_b.project_root = Some(root_b.clone());
-            session_b.shell_cwd = Some(root_b.clone());
-            session_b.set_task("repo-b task", None);
-            session_b.save().unwrap();
+        let mut session_b = SessionState::new();
+        session_b.project_root = Some(root_b.clone());
+        session_b.shell_cwd = Some(root_b.clone());
+        session_b.set_task("repo-b task", None);
+        session_b.save().unwrap();
 
-            let mut session_a = SessionState::new();
-            session_a.project_root = Some(root_a.clone());
-            session_a.shell_cwd = Some(root_a.clone());
-            session_a.set_task("repo-a latest task", None);
-            session_a.save().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(50));
 
-            let server = LeanCtxServer::new_with_startup(None, Some(repo_b.clone()));
-            std::env::remove_var("LEAN_CTX_DATA_DIR");
-            (server, root_b)
-        };
+        let mut session_a = SessionState::new();
+        session_a.project_root = Some(root_a.clone());
+        session_a.shell_cwd = Some(root_a.clone());
+        session_a.set_task("repo-a latest task", None);
+        session_a.save().unwrap();
+
+        let server = LeanCtxServer::new_with_startup(None, Some(repo_b.clone()));
+        std::env::remove_var("LEAN_CTX_DATA_DIR");
 
         let session = server.session.read().await;
         assert_eq!(session.project_root.as_deref(), Some(root_b.as_str()));
@@ -895,33 +895,31 @@ mod resolve_path_tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
     async fn startup_creates_fresh_session_for_new_workspace_and_preserves_subdir_cwd() {
+        let _lock = crate::core::data_dir::test_env_lock();
         let _data = tempfile::tempdir().unwrap();
         let _tmp = tempfile::tempdir().unwrap();
 
-        let (server, root_b, repo_b_src_value, old_id) = {
-            let _lock = crate::core::data_dir::test_env_lock();
-            std::env::set_var("LEAN_CTX_DATA_DIR", _data.path());
+        std::env::set_var("LEAN_CTX_DATA_DIR", _data.path());
 
-            let repo_a = _tmp.path().join("repo-a");
-            let repo_b = _tmp.path().join("repo-b");
-            let repo_b_src = repo_b.join("src");
-            let root_a = create_git_root(&repo_a);
-            let root_b = create_git_root(&repo_b);
-            std::fs::create_dir_all(&repo_b_src).unwrap();
-            let repo_b_src_value = canonicalize_path(&repo_b_src);
+        let repo_a = _tmp.path().join("repo-a");
+        let repo_b = _tmp.path().join("repo-b");
+        let repo_b_src = repo_b.join("src");
+        let root_a = create_git_root(&repo_a);
+        let root_b = create_git_root(&repo_b);
+        std::fs::create_dir_all(&repo_b_src).unwrap();
+        let repo_b_src_value = canonicalize_path(&repo_b_src);
 
-            let mut session_a = SessionState::new();
-            session_a.project_root = Some(root_a.clone());
-            session_a.shell_cwd = Some(root_a.clone());
-            session_a.set_task("repo-a latest task", None);
-            let old_id = session_a.id.clone();
-            session_a.save().unwrap();
+        let mut session_a = SessionState::new();
+        session_a.project_root = Some(root_a.clone());
+        session_a.shell_cwd = Some(root_a.clone());
+        session_a.set_task("repo-a latest task", None);
+        let old_id = session_a.id.clone();
+        session_a.save().unwrap();
 
-            let server = LeanCtxServer::new_with_startup(None, Some(repo_b_src.clone()));
-            std::env::remove_var("LEAN_CTX_DATA_DIR");
-            (server, root_b, repo_b_src_value, old_id)
-        };
+        let server = LeanCtxServer::new_with_startup(None, Some(repo_b_src.clone()));
+        std::env::remove_var("LEAN_CTX_DATA_DIR");
 
         let session = server.session.read().await;
         assert_eq!(session.project_root.as_deref(), Some(root_b.as_str()));

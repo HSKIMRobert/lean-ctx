@@ -3,7 +3,7 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [3.3.5] — 2026-04-23
 
 ### Multi-Project Workspace Support (GitHub Issue #141)
 - **`allow_paths` in config.toml**: New config field to explicitly allow additional paths in PathJail. Useful for mono-repos and multi-project workspaces where projects live outside the detected root.
@@ -13,6 +13,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ### Windows PowerShell Fixes (GitHub Issue #142)
 - **Pipe-guard in profile snippet**: The `[Console]::IsOutputRedirected` check is now embedded directly in the PowerShell profile source line, preventing errors when IDEs redirect stdout.
 - **Binary path resolution**: `resolve_portable_binary()` now takes only the first line of `where` output on Windows, and prefers `.cmd`/`.exe` variants to avoid corrupted path detection.
+
+### CLI Improvements
+- **`excluded_commands` via CLI** (PR #143 by @glemsom): `lean-ctx config set excluded_commands "make,go build"` now works.
+
+### CI Stability
+- **Fixed flaky test**: `startup_prefers_workspace_scoped_session` race condition resolved with timestamp separation.
+- **Windows CI**: Python-dependent sandbox tests now skip gracefully when Python is unavailable on the runner.
 
 ## [3.3.4] — 2026-04-23
 

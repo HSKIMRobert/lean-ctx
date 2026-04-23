@@ -72,9 +72,9 @@ jobs:
         shell: bash
         run: |
           if [[ "${{ runner.os }}" == "Windows" || "${{ matrix.musl }}" == "true" ]]; then
-            cargo test --lib --all-features
+            cargo test --lib --all-features -- --test-threads=1
           else
-            cargo test --all-features
+            cargo test --all-features -- --test-threads=1
           fi
 
       - name: Setup Zig
