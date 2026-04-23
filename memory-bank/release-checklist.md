@@ -2,19 +2,25 @@
 
 ## Pre-Release
 
-### 1. Bump Version (1 location — rest is automatic)
-Only `rust/Cargo.toml` needs a manual version bump. All other locations use `env!("CARGO_PKG_VERSION")` at compile time:
+### 1. Bump Version (3 locations — rest is automatic)
 
 | File | Method |
 |------|--------|
 | `rust/Cargo.toml` | **Manual**: `version = "X.Y.Z"` |
+| `packages/lean-ctx-bin/package.json` | **Manual**: `"version": "X.Y.Z"` |
+| `packages/pi-lean-ctx/package.json` | **Manual**: `"version": "X.Y.Z"` |
 | `rust/src/main.rs` | Auto: `env!("CARGO_PKG_VERSION")` |
 | `rust/src/server/mod.rs` | Auto: `env!("CARGO_PKG_VERSION")` |
 | `rust/src/shell.rs` | Auto: `env!("CARGO_PKG_VERSION")` |
 
+> **Important:** The npm packages MUST be bumped before tagging. The release pipeline
+> publishes whatever version is in `package.json` at the tagged commit. If forgotten,
+> you can fix it with `npm publish` manually in each package directory rather than
+> force-pushing the tag (which rebuilds everything).
+
 **Verify no old version remains:**
 ```bash
-rg 'OLD_VERSION' rust/src/
+rg 'OLD_VERSION' rust/src/ packages/*/package.json
 ```
 
 ### 2. Build & Test
@@ -172,6 +178,31 @@ gh issue close <number> --repo yvgude/lean-ctx --comment "Fixed in vX.Y.Z. <desc
 | AUR lean-ctx | Manual | Update PKGBUILD + .SRCINFO, push |
 | AUR lean-ctx-bin | Manual | Update PKGBUILD + .SRCINFO, push |
 | Website | GitLab CI on `deploy` push | Update version.txt + BaseLayout.astro |
+
+## Hotfix: npm Version vergessen?
+
+Falls die npm-Pakete vor dem Tag nicht gebumpt wurden:
+
+```bash
+# 1. Version in package.json korrigieren
+# packages/lean-ctx-bin/package.json → "version": "X.Y.Z"
+# packages/pi-lean-ctx/package.json  → "version": "X.Y.Z"
+
+# 2. Manuell publizieren (KEIN Tag force-push noetig!)
+cd packages/lean-ctx-bin && npm publish --access public
+cd ../pi-lean-ctx && npm publish --access public
+
+# 3. Commit & push
+cd ../..
+git add packages/*/package.json
+git commit -m "chore: bump npm packages to X.Y.Z"
+git push origin main && git push github main
+```
+
+> **Nie den Tag force-pushen** nur fuer npm — das loest einen kompletten Rebuild
+> aller Binaries, crates.io, Homebrew usw. aus.
+
+---
 
 ## SHA256 Sources
 
