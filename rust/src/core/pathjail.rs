@@ -40,11 +40,7 @@ fn allow_paths_from_env() -> Vec<PathBuf> {
         return out;
     }
     for p in std::env::split_paths(&v) {
-        if let Ok(canon) = std::fs::canonicalize(&p) {
-            out.push(canon);
-        } else {
-            out.push(p);
-        }
+        out.push(canonicalize_or_self(&p));
     }
     out
 }
@@ -54,7 +50,7 @@ fn is_under_prefix(path: &Path, prefix: &Path) -> bool {
 }
 
 fn canonicalize_or_self(path: &Path) -> PathBuf {
-    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+    super::pathutil::safe_canonicalize_or_self(path)
 }
 
 fn canonicalize_existing_ancestor(path: &Path) -> Option<(PathBuf, Vec<std::ffi::OsString>)> {
@@ -108,9 +104,15 @@ pub fn jail_path(candidate: &Path, jail_root: &Path) -> Result<PathBuf, String> 
 
 #[cfg(windows)]
 fn is_under_prefix_windows(path: &Path, prefix: &Path) -> bool {
-    let path_str = path.to_string_lossy().to_lowercase().replace('/', "\\");
-    let prefix_str = prefix.to_string_lossy().to_lowercase().replace('/', "\\");
+    let path_str = normalize_windows_path(&path.to_string_lossy());
+    let prefix_str = normalize_windows_path(&prefix.to_string_lossy());
     path_str.starts_with(&prefix_str)
+}
+
+#[cfg(windows)]
+fn normalize_windows_path(s: &str) -> String {
+    let stripped = super::pathutil::strip_verbatim_str(s).unwrap_or_else(|| s.to_string());
+    stripped.to_lowercase().replace('/', "\\")
 }
 
 #[cfg(windows)]
@@ -166,5 +168,30 @@ mod tests {
         assert!(IDE_CONFIG_DIRS.contains(&".cursor"));
         assert!(IDE_CONFIG_DIRS.contains(&".claude"));
         assert!(IDE_CONFIG_DIRS.contains(&".gemini"));
+    }
+
+    #[test]
+    fn canonicalize_or_self_strips_verbatim() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("project");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let result = canonicalize_or_self(&dir);
+        let s = result.to_string_lossy();
+        assert!(
+            !s.starts_with(r"\\?\"),
+            "canonicalize_or_self should strip verbatim prefix, got: {s}"
+        );
+    }
+
+    #[test]
+    fn jail_path_accepts_same_dir_different_format() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("project");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("file.rs"), "ok").unwrap();
+
+        let result = jail_path(&root.join("file.rs"), &root);
+        assert!(result.is_ok(), "same dir should be accepted: {result:?}");
     }
 }

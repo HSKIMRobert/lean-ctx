@@ -623,6 +623,73 @@ impl SessionState {
             .and_then(|(_, path)| std::fs::read_to_string(path).ok())
     }
 
+    /// Build a compact resume block for post-compaction injection.
+    /// Max ~500 tokens. Includes task, decisions, files, and archive references.
+    pub fn build_resume_block(&self) -> String {
+        let mut parts: Vec<String> = Vec::new();
+
+        if let Some(ref root) = self.project_root {
+            let short = root.rsplit('/').next().unwrap_or(root);
+            parts.push(format!("Project: {short}"));
+        }
+
+        if let Some(ref task) = self.task {
+            let pct = task
+                .progress_pct
+                .map_or(String::new(), |p| format!(" [{p}%]"));
+            parts.push(format!("Task: {}{pct}", task.description));
+        }
+
+        if !self.decisions.is_empty() {
+            let items: Vec<&str> = self
+                .decisions
+                .iter()
+                .rev()
+                .take(5)
+                .map(|d| d.summary.as_str())
+                .collect();
+            parts.push(format!("Decisions: {}", items.join("; ")));
+        }
+
+        if !self.files_touched.is_empty() {
+            let modified: Vec<&str> = self
+                .files_touched
+                .iter()
+                .filter(|f| f.modified)
+                .take(10)
+                .map(|f| f.path.as_str())
+                .collect();
+            if !modified.is_empty() {
+                parts.push(format!("Modified: {}", modified.join(", ")));
+            }
+        }
+
+        if !self.next_steps.is_empty() {
+            let steps: Vec<&str> = self.next_steps.iter().take(3).map(|s| s.as_str()).collect();
+            parts.push(format!("Next: {}", steps.join("; ")));
+        }
+
+        let archives = super::archive::list_entries(Some(&self.id));
+        if !archives.is_empty() {
+            let hints: Vec<String> = archives
+                .iter()
+                .take(5)
+                .map(|a| format!("{}({})", a.id, a.tool))
+                .collect();
+            parts.push(format!("Archives: {}", hints.join(", ")));
+        }
+
+        parts.push(format!(
+            "Stats: {} calls, {} tok saved",
+            self.stats.total_tool_calls, self.stats.total_tokens_saved
+        ));
+
+        format!(
+            "--- SESSION RESUME (post-compaction) ---\n{}\n---",
+            parts.join("\n")
+        )
+    }
+
     pub fn save(&mut self) -> Result<(), String> {
         let dir = sessions_dir().ok_or("cannot determine home directory")?;
         if !dir.exists() {

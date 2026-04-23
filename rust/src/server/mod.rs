@@ -65,6 +65,9 @@ impl ServerHandler for LeanCtxServer {
         let agent_root = derived_root.clone().unwrap_or_default();
         let agent_id_handle = self.agent_id.clone();
         tokio::task::spawn_blocking(move || {
+            if std::env::var("LEAN_CTX_HEADLESS").is_ok() {
+                return;
+            }
             if let Some(home) = dirs::home_dir() {
                 let _ = crate::rules_inject::inject_all_rules(&home);
             }
@@ -289,10 +292,40 @@ impl ServerHandler for LeanCtxServer {
 
         let mut result_text = result_text;
 
+        // Archive large tool outputs before density compression (zero-loss recovery)
+        let archive_hint = {
+            use crate::core::archive;
+            let archivable = matches!(
+                name,
+                "ctx_shell"
+                    | "ctx_read"
+                    | "ctx_multi_read"
+                    | "ctx_smart_read"
+                    | "ctx_execute"
+                    | "ctx_search"
+                    | "ctx_tree"
+            );
+            if archivable && archive::should_archive(&result_text) {
+                let cmd = helpers::get_str(args, "command")
+                    .or_else(|| helpers::get_str(args, "path"))
+                    .unwrap_or_default();
+                let session_id = self.session.read().await.id.clone();
+                let tokens = crate::core::tokens::count_tokens(&result_text);
+                archive::store(name, &cmd, &result_text, Some(&session_id))
+                    .map(|id| archive::format_hint(&id, result_text.len(), tokens))
+            } else {
+                None
+            }
+        };
+
         {
             let config = crate::core::config::Config::load();
             let density = crate::core::config::OutputDensity::effective(&config.output_density);
             result_text = crate::core::protocol::compress_output(&result_text, &density);
+        }
+
+        if let Some(hint) = archive_hint {
+            result_text = format!("{result_text}\n{hint}");
         }
 
         if let Some(ctx) = auto_context {
