@@ -39,14 +39,12 @@ impl TerseAgent {
 
     pub fn effective(config_val: &TerseAgent) -> Self {
         match std::env::var("LEAN_CTX_TERSE_AGENT") {
-            Ok(val) if !val.is_empty() => {
-                match val.to_lowercase().as_str() {
-                    "lite" => Self::Lite,
-                    "full" => Self::Full,
-                    "ultra" => Self::Ultra,
-                    _ => Self::Off,
-                }
-            }
+            Ok(val) if !val.is_empty() => match val.to_lowercase().as_str() {
+                "lite" => Self::Lite,
+                "full" => Self::Full,
+                "ultra" => Self::Ultra,
+                _ => Self::Off,
+            },
             _ => config_val.clone(),
         }
     }
