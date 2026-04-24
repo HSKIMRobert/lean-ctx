@@ -36,6 +36,8 @@ docker-compose.yml
 DEVELOPMENT.md
 Makefile.deploy
 PROJECT.md
+memory-bank/
+deploy_checklist.md
 
 # ── Local artifacts ──
 lean-ctx-chrome-extension.zip
