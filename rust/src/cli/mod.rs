@@ -276,7 +276,7 @@ pub fn cmd_ls(args: &[String]) {
     let command = if cfg!(windows) {
         format!("dir {}", path.replace('/', "\\"))
     } else {
-        format!("ls -la {path}")
+        format!("ls {path}")
     };
     let code = crate::shell::exec(&command);
     std::process::exit(code);
