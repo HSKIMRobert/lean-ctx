@@ -102,9 +102,28 @@ fn compress_ps(output: &str) -> String {
 
         let name = extract_column(line, &col_positions, "NAMES")
             .unwrap_or_else(|| extract_last_word(line));
-        let status =
+        let mut status =
             extract_column(line, &col_positions, "STATUS").unwrap_or_else(|| "?".to_string());
         let image = extract_column(line, &col_positions, "IMAGE");
+
+        // Fallback: if health/exit annotations are in the raw line but missing
+        // from the column-extracted status (column slicing can truncate them),
+        // recover them from the raw line.
+        for annotation in &["(unhealthy)", "(healthy)", "(health: starting)"] {
+            if line.contains(annotation) && !status.contains(annotation) {
+                status = format!("{status} {annotation}");
+            }
+        }
+        if line.contains("Exited") && !status.contains("Exited") {
+            if let Some(pos) = line.find("Exited") {
+                let end = line[pos..]
+                    .find(')')
+                    .map(|p| pos + p + 1)
+                    .unwrap_or(pos + 6);
+                let exited_str = &line[pos..end.min(line.len())];
+                status = exited_str.to_string();
+            }
+        }
 
         let mut entry = name.clone();
         if let Some(img) = image {

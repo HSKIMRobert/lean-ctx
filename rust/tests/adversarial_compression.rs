@@ -137,9 +137,8 @@ fn adversarial_git_log_preserves_full_history() {
 
     let compressed_default = compress_output("git log --oneline", &output).unwrap();
     assert!(
-        compressed_default.contains("commit message number 49")
-            || compressed_default.contains("50"),
-        "git log default should show at least 50 entries: {compressed_default}"
+        compressed_default.contains("commit message number 59"),
+        "git log default should show all 60 entries (under 100 cap): {compressed_default}"
     );
 }
 
@@ -740,5 +739,184 @@ Plan: 1 to add, 0 to change, 1 to destroy.";
     assert!(
         compressed.contains("add") || compressed.contains("1 to add"),
         "terraform plan must preserve additions: {compressed}"
+    );
+}
+
+// ===== Issue #149: TheDecipherist security review — additional adversarial tests =====
+
+#[test]
+fn adversarial_git_show_preserves_diff_content() {
+    let output = "\
+commit abc1234def5678901234567890abcdef12345678
+Author: Dev <dev@example.com>
+Date:   Mon Jan 1 10:00:00 2024 +0000
+
+    fix: remove fee from charge calculation
+
+diff --git a/src/billing.rs b/src/billing.rs
+--- a/src/billing.rs
++++ b/src/billing.rs
+@@ -10,3 +10,3 @@
+-    return charge(amount + fee);
++    return charge(amount);  // BUG: fee not applied
+     log_transaction(amount);";
+
+    let compressed = compress_output("git show abc1234", output).unwrap();
+    assert!(
+        compressed.contains("charge(amount)") || compressed.contains("fee not applied"),
+        "git show must preserve diff code content: {compressed}"
+    );
+    assert!(
+        compressed.contains('+') || compressed.contains('-'),
+        "git show must preserve diff +/- markers: {compressed}"
+    );
+}
+
+#[test]
+fn adversarial_git_show_preserves_security_change() {
+    let output = "\
+commit deadbeef12345678901234567890abcdef12345678
+Author: Dev <dev@example.com>
+Date:   Mon Jan 1 10:00:00 2024 +0000
+
+    chore: disable auth temporarily
+
+diff --git a/src/auth.rs b/src/auth.rs
+--- a/src/auth.rs
++++ b/src/auth.rs
+@@ -5,3 +5,5 @@
+-    verify_csrf_token(&request);
++    // HACK: skip CSRF for now
++    // verify_csrf_token(&request);
+     process_request(&request);";
+
+    let compressed = compress_output("git show deadbeef", output).unwrap();
+    assert!(
+        compressed.contains("CSRF") || compressed.contains("csrf"),
+        "git show must preserve security-relevant changes: {compressed}"
+    );
+    assert!(
+        compressed.contains("verify_csrf_token"),
+        "git show must preserve removed function calls: {compressed}"
+    );
+}
+
+#[test]
+fn adversarial_docker_ps_unhealthy_narrow_columns() {
+    // Simulate narrow STATUS column where (unhealthy) bleeds into PORTS area
+    let output = "\
+CONTAINER ID   IMAGE          COMMAND    CREATED      STATUS                    PORTS     NAMES
+abc123def456   nginx:latest   \"nginx\"    2 hours ago  Up 2 hours (unhealthy)    80/tcp    web
+789ghi012jkl   redis:7        \"redis\"    3 hours ago  Up 3 hours                6379/tcp  cache";
+
+    let compressed = compress_output("docker ps", output).unwrap();
+    assert!(
+        compressed.contains("unhealthy"),
+        "docker ps must preserve (unhealthy) even with tight column layout: {compressed}"
+    );
+    assert!(
+        compressed.contains("web"),
+        "docker ps must preserve container names: {compressed}"
+    );
+}
+
+#[test]
+fn adversarial_docker_ps_exited_containers() {
+    let output = "\
+CONTAINER ID   IMAGE          COMMAND    CREATED      STATUS                        PORTS     NAMES
+abc123def456   nginx:latest   \"nginx\"    2 hours ago  Exited (1) 30 minutes ago               web-crashed
+789ghi012jkl   redis:7        \"redis\"    3 hours ago  Up 3 hours (healthy)          6379/tcp  cache";
+
+    let compressed = compress_output("docker ps -a", output).unwrap();
+    assert!(
+        compressed.contains("Exited"),
+        "docker ps -a must preserve Exited status: {compressed}"
+    );
+    assert!(
+        compressed.contains("healthy"),
+        "docker ps -a must preserve (healthy) annotation: {compressed}"
+    );
+    assert!(
+        compressed.contains("web-crashed"),
+        "docker ps -a must show crashed containers: {compressed}"
+    );
+}
+
+#[test]
+fn adversarial_git_log_100_plus_commits() {
+    let mut log_lines: Vec<String> = Vec::new();
+    for i in 0..120 {
+        log_lines.push(format!("abc{i:04x} fix: commit message number {i}"));
+    }
+    let output = log_lines.join("\n");
+
+    let compressed = compress_output("git log --oneline", &output).unwrap();
+    assert!(
+        compressed.contains("commit message number 99"),
+        "git log default should show at least 100 entries: {compressed}"
+    );
+    assert!(
+        compressed.contains("20 more commits"),
+        "git log should indicate truncated count: {compressed}"
+    );
+}
+
+#[test]
+fn adversarial_git_log_explicit_limit_unlimited() {
+    let mut log_lines: Vec<String> = Vec::new();
+    for i in 0..120 {
+        log_lines.push(format!("abc{i:04x} fix: commit message number {i}"));
+    }
+    let output = log_lines.join("\n");
+
+    let compressed = compress_output("git log -n 120 --oneline", &output).unwrap();
+    assert!(
+        compressed.contains("commit message number 119"),
+        "git log with explicit -n must preserve all entries: {compressed}"
+    );
+    assert!(
+        !compressed.contains("more commits"),
+        "git log with explicit -n must not truncate: {compressed}"
+    );
+}
+
+#[test]
+fn adversarial_safeguard_ratio_prevents_over_compression() {
+    use lean_ctx::core::compressor::safeguard_ratio;
+
+    let original = "a]b ".repeat(200);
+    let over_compressed = "x";
+    let result = safeguard_ratio(&original, over_compressed);
+    assert_eq!(
+        result, original,
+        "safeguard_ratio must return original when compression ratio < 0.15"
+    );
+
+    let mild_compressed = "a]b ".repeat(80);
+    let result2 = safeguard_ratio(&original, &mild_compressed);
+    assert_eq!(
+        result2, mild_compressed,
+        "safeguard_ratio must allow mild compression"
+    );
+}
+
+#[test]
+fn adversarial_shell_hook_preserves_errors_in_truncation() {
+    let mut lines: Vec<String> = Vec::new();
+    for i in 0..100 {
+        lines.push(format!("normal output line {i}"));
+    }
+    lines[50] = "CRITICAL: database corruption detected in row 4821".to_string();
+    lines[75] = "ERROR: payment processing service unreachable".to_string();
+    let output = lines.join("\n");
+
+    let compressed = lean_ctx::shell::compress_if_beneficial_pub("cat /var/log/app.log", &output);
+    assert!(
+        compressed.contains("CRITICAL") || compressed.contains("database corruption"),
+        "shell hook must preserve CRITICAL lines during truncation: {compressed}"
+    );
+    assert!(
+        compressed.contains("ERROR") || compressed.contains("payment processing"),
+        "shell hook must preserve ERROR lines during truncation: {compressed}"
     );
 }

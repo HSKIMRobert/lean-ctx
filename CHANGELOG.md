@@ -3,6 +3,43 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.3.9] — 2026-04-24
+
+### Security & Safety Hardening (GitHub Issue #149)
+
+Comprehensive response to the [TheDecipherist adversarial security review](https://github.com/TheDecipherist/rtk-test/blob/main/docs/rtk-findings.md) comparing lean-ctx vs RTK across 16 safety-critical scenarios. The review was conducted against v3.2.5 — many findings were already fixed in 3.3.x, and v3.3.9 addresses the remaining gaps.
+
+#### Already Fixed (confirmed with adversarial tests since v3.3.x)
+- **`git diff` code content**: `compress_diff_keep_hunks()` preserves all `+`/`-` changed lines, only trims context to max 3 lines per hunk
+- **`df` root filesystem**: Verbatim passthrough — no compression applied to `df` output
+- **`pytest` xfail/xpass**: Summary explicitly includes `xfailed`, `xpassed`, `skipped`, and `warnings` counters
+- **`git status` DETACHED HEAD**: Passes through verbatim including "HEAD detached at" warning
+- **`ls` shows `.env`**: No file filtering — all files including `.env` are shown
+- **`pip list` all packages**: Full package list preserved — no truncation
+- **`git stash` verbatim**: Passes git stash output through unchanged
+- **`ruff` file:line:col**: Preserves all location references in linter output
+- **`find` full paths**: Preserves complete absolute paths
+- **`wc` via pipe**: Correctly reads stdin (piped input)
+- **Log `CRITICAL`/`FATAL` severity**: `log_dedup` and `safety_needles` explicitly recognize and preserve CRITICAL, FATAL, ALERT, EMERGENCY severity levels
+
+#### Fixed in v3.3.9
+- **`git show` diff content** (CRITICAL): `compress_show()` now preserves full diff content using `compress_diff_keep_hunks()` instead of reducing to `hash message +N/-M`. Code review via `git show` is now safe.
+- **`docker ps` health status** (CRITICAL): Added fallback detection for `(unhealthy)`, `(healthy)`, `(health: starting)`, and `Exited(N)` annotations that survive even when column-based parsing misaligns.
+- **`git log` default cap** (HIGH): Increased from 50 to 100 entries (was ~20 in v3.2.5). With explicit `-n`/`--max-count`, no limit is applied. Truncation message clearly indicates omitted count.
+
+#### New Adversarial Tests
+- `adversarial_git_show_preserves_diff_content` — verifies code changes survive `git show`
+- `adversarial_git_show_preserves_security_change` — verifies security-relevant removals (e.g. CSRF) are visible
+- `adversarial_docker_ps_unhealthy_narrow_columns` — verifies health status survives tight column layouts
+- `adversarial_docker_ps_exited_containers` — verifies crashed containers are shown
+- `adversarial_git_log_100_plus_commits` — verifies 100-entry cap and truncation message
+- `adversarial_git_log_explicit_limit_unlimited` — verifies `-n` bypasses default cap
+- `adversarial_safeguard_ratio_prevents_over_compression` — verifies safety net prevents >85% compression
+- `adversarial_shell_hook_preserves_errors_in_truncation` — verifies CRITICAL/ERROR lines survive shell hook truncation
+
+### Dependency Security
+- **rustls-webpki**: Confirmed already on patched version 0.103.13 (GHSA-82j2-j2ch-gfr8, DoS via panic on malformed CRL BIT STRING)
+
 ## [3.3.8] — 2026-04-24
 
 ### Bug Fixes

@@ -247,7 +247,7 @@ fn compress_log(command: &str, output: &str) -> String {
         || command.contains("-5")
         || command.contains("-10");
 
-    let max_entries: usize = if user_limited { usize::MAX } else { 50 };
+    let max_entries: usize = if user_limited { usize::MAX } else { 100 };
 
     let is_oneline = !lines[0].starts_with("commit ");
     if is_oneline {
@@ -845,17 +845,14 @@ fn compress_show(output: &str) -> String {
 
     let mut hash = String::new();
     let mut message = String::new();
-    let mut additions = 0u32;
-    let mut deletions = 0u32;
+    let mut diff_start: Option<usize> = None;
 
-    for line in &lines {
+    for (i, line) in lines.iter().enumerate() {
         let trimmed = line.trim();
         if trimmed.starts_with("commit ") && hash.is_empty() {
             hash = trimmed[7..14.min(trimmed.len())].to_string();
-        } else if trimmed.starts_with('+') && !trimmed.starts_with("+++") {
-            additions += 1;
-        } else if trimmed.starts_with('-') && !trimmed.starts_with("---") {
-            deletions += 1;
+        } else if trimmed.starts_with("diff --git") && diff_start.is_none() {
+            diff_start = Some(i);
         } else if !trimmed.is_empty()
             && !trimmed.starts_with("Author:")
             && !trimmed.starts_with("Date:")
@@ -863,25 +860,31 @@ fn compress_show(output: &str) -> String {
             && !is_diff_or_stat_line(trimmed)
             && message.is_empty()
             && !hash.is_empty()
+            && diff_start.is_none()
         {
             message = trimmed.to_string();
         }
     }
 
-    let stats = extract_change_stats(output);
-    let diff_summary = if additions > 0 || deletions > 0 {
-        format!(" +{additions}/-{deletions}")
-    } else if !stats.is_empty() {
-        format!(" [{stats}]")
-    } else {
-        String::new()
-    };
-
     if hash.is_empty() {
         return compact_lines(output.trim(), 10);
     }
 
-    format!("{hash} {message}{diff_summary}")
+    let mut result = format!("{hash} {message}");
+
+    if let Some(start) = diff_start {
+        let diff_portion: String = lines[start..].join("\n");
+        let compressed_diff = compress_diff_keep_hunks(&diff_portion);
+        result.push('\n');
+        result.push_str(&compressed_diff);
+    } else {
+        let stats = extract_change_stats(output);
+        if !stats.is_empty() {
+            result.push_str(&format!(" [{stats}]"));
+        }
+    }
+
+    result
 }
 
 fn compress_rebase(output: &str) -> String {
@@ -1071,18 +1074,18 @@ mod tests {
 
     #[test]
     fn git_log_oneline_truncates_long() {
-        let lines: Vec<String> = (0..80)
+        let lines: Vec<String> = (0..150)
             .map(|i| format!("abc{i:04} feat: commit number {i}"))
             .collect();
         let output = lines.join("\n");
         let result = compress("git log --oneline", &output).unwrap();
         assert!(
-            result.contains("... (30 more commits"),
-            "should truncate to 50 entries"
+            result.contains("... (50 more commits"),
+            "should truncate to 100 entries"
         );
         assert!(
-            result.lines().count() <= 52,
-            "should have at most 51 lines (50 + summary)"
+            result.lines().count() <= 102,
+            "should have at most 101 lines (100 + summary)"
         );
     }
 
@@ -1096,15 +1099,15 @@ mod tests {
     #[test]
     fn git_log_standard_truncates_long() {
         let mut output = String::new();
-        for i in 0..70 {
+        for i in 0..130 {
             output.push_str(&format!(
                 "commit {i:07}abc1234\nAuthor: U <u@e.com>\nDate:   Mon\n\n    msg {i}\n\n"
             ));
         }
         let result = compress("git log", &output).unwrap();
         assert!(
-            result.contains("... (20 more commits"),
-            "should truncate standard log at 50"
+            result.contains("... (30 more commits"),
+            "should truncate standard log at 100"
         );
     }
 
