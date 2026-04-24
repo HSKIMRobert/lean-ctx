@@ -139,6 +139,10 @@ pub struct Config {
     /// Override via LEAN_CTX_ALLOW_PATH env var (path-list separator).
     #[serde(default)]
     pub allow_paths: Vec<String>,
+    /// Enable content-defined chunking (Rabin-Karp) for cache-optimal output ordering.
+    /// Stable chunks are emitted first to maximize prompt cache hits.
+    #[serde(default)]
+    pub content_defined_chunking: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -349,6 +353,7 @@ impl Default for Config {
             terse_agent: TerseAgent::default(),
             archive: ArchiveConfig::default(),
             allow_paths: Vec::new(),
+            content_defined_chunking: false,
         }
     }
 }
