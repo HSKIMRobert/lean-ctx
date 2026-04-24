@@ -1237,6 +1237,26 @@ impl LeanCtxServer {
                 self.record_call("ctx_callers", 0, 0, None).await;
                 result
             }
+            "ctx_review" => {
+                let action = get_str(args, "action")
+                    .ok_or_else(|| ErrorData::invalid_params("action is required", None))?;
+                let path = get_str(args, "path");
+                let depth = get_int(args, "depth").map(|d| d as usize);
+                let session = self.session.read().await;
+                let project_root = session
+                    .project_root
+                    .clone()
+                    .unwrap_or_else(|| ".".to_string());
+                drop(session);
+                let result = crate::tools::ctx_review::handle(
+                    &action,
+                    path.as_deref(),
+                    &project_root,
+                    depth,
+                );
+                self.record_call("ctx_review", 0, 0, Some(action)).await;
+                result
+            }
             "ctx_callees" => {
                 let symbol = get_str(args, "symbol")
                     .ok_or_else(|| ErrorData::invalid_params("symbol is required", None))?;

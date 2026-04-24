@@ -575,6 +575,10 @@ fn main() {
                 cli::cmd_discover(&rest);
                 return;
             }
+            "ghost" => {
+                cli::cmd_ghost(&rest);
+                return;
+            }
             "filter" => {
                 cli::cmd_filter(&rest);
                 return;
@@ -892,6 +896,7 @@ COMMANDS:
     ls [path]                      Directory listing with compression
     deps [path]                    Show project dependencies
     discover                       Find uncompressed commands in shell history
+    ghost [--json]                 Ghost Token report: find hidden token waste
     filter [list|validate|init]    Manage custom compression filters (~/.lean-ctx/filters/)
     session                        Show adoption statistics
     config                         Show/edit configuration (~/.lean-ctx/config.toml)

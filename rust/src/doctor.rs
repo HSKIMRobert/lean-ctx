@@ -854,7 +854,14 @@ pub fn run() {
         line: integrity_line,
     });
 
-    // 13) Claude Code instruction truncation guard
+    // 13) Cache safety
+    let cache_safety = cache_safety_outcome();
+    if cache_safety.ok {
+        passed += 1;
+    }
+    print_check(&cache_safety);
+
+    // 14) Claude Code instruction truncation guard
     let claude_truncation = claude_truncation_outcome();
     if let Some(ref ct) = claude_truncation {
         if ct.ok {
@@ -863,7 +870,7 @@ pub fn run() {
         print_check(ct);
     }
 
-    let mut effective_total = total + 2; // session_state + integrity always shown
+    let mut effective_total = total + 3; // session_state + integrity + cache_safety always shown
     effective_total += docker_outcomes.len() as u32;
     if pi.is_some() {
         effective_total += 1;
@@ -874,6 +881,49 @@ pub fn run() {
     println!();
     println!("  {BOLD}{WHITE}Summary:{RST}  {GREEN}{passed}{RST}{DIM}/{effective_total}{RST} checks passed");
     println!("  {DIM}{}{RST}", crate::core::integrity::origin_line());
+}
+
+fn cache_safety_outcome() -> Outcome {
+    use crate::core::neural::cache_alignment::CacheAlignedOutput;
+    use crate::core::provider_cache::ProviderCacheState;
+
+    let mut issues = Vec::new();
+
+    let mut aligned = CacheAlignedOutput::new();
+    aligned.add_stable_block("test", "stable content".into(), 1);
+    aligned.add_variable_block("test_var", "variable content".into(), 1);
+    let rendered = aligned.render();
+    if rendered.find("stable content").unwrap_or(usize::MAX)
+        > rendered.find("variable content").unwrap_or(0)
+    {
+        issues.push("cache_alignment: stable blocks not ordered first");
+    }
+
+    let mut state = ProviderCacheState::new();
+    let section = crate::core::provider_cache::CacheableSection::new(
+        "doctor_test",
+        "test content".into(),
+        crate::core::provider_cache::SectionPriority::System,
+        true,
+    );
+    state.mark_sent(&section);
+    if state.needs_update(&section) {
+        issues.push("provider_cache: hash tracking broken");
+    }
+
+    if issues.is_empty() {
+        Outcome {
+            ok: true,
+            line: format!(
+                "{BOLD}Cache safety{RST}  {GREEN}cache_alignment + provider_cache operational{RST}"
+            ),
+        }
+    } else {
+        Outcome {
+            ok: false,
+            line: format!("{BOLD}Cache safety{RST}  {RED}{}{RST}", issues.join("; ")),
+        }
+    }
 }
 
 fn claude_binary_exists() -> bool {

@@ -3,6 +3,18 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.3.7] — 2026-04-23
+
+### New Features
+- **`lean-ctx ghost` CLI**: New command that reveals hidden token waste — shows unoptimized shell commands, redundant reads, and oversized contexts with monthly USD savings estimate. Supports `--json` for CI integration.
+- **`ctx_review` MCP tool**: Automated code review combining impact analysis (`ctx_impact`), caller tracking (`ctx_callers`), and test file discovery. Three actions: `review` (full analysis), `diff-review` (review changed files from git diff), `checklist` (structured review questions).
+- **Content-Defined Chunking** (Rabin-Karp): Opt-in rolling-hash chunking for `ctx_read` that creates stable chunk boundaries, improving LLM prompt cache hit rates across edits. Enable via `content_defined_chunking = true` in `config.toml`.
+- **Claude Code Plugin Manifest**: `.claude-plugin/manifest.json` added for future Claude Code plugin marketplace integration.
+
+### Improvements
+- **Cache-Safety Doctor Check**: `lean-ctx doctor` now verifies that `cache_alignment` and `provider_cache` modules are operational (12 checks total).
+- **`provider_cache` module activated**: Previously dormant cache provider module is now wired into the diagnostic pipeline.
+
 ## [3.3.6] — 2026-04-23
 
 ### Security Hardening
