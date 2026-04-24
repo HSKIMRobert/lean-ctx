@@ -819,7 +819,20 @@ fn run_mcp_server() -> Result<()> {
         let server = tools::create_server();
         let transport =
             mcp_stdio::HybridStdioTransport::new_server(tokio::io::stdin(), tokio::io::stdout());
-        let service = server.serve(transport).await?;
+        let service = match server.serve(transport).await {
+            Ok(s) => s,
+            Err(e) => {
+                let msg = e.to_string();
+                if msg.contains("expect initialized")
+                    || msg.contains("context canceled")
+                    || msg.contains("broken pipe")
+                {
+                    tracing::debug!("Client disconnected before init: {msg}");
+                    return Ok(());
+                }
+                return Err(e.into());
+            }
+        };
         service.waiting().await?;
 
         core::stats::flush();
