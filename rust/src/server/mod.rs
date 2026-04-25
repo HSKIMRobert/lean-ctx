@@ -285,13 +285,15 @@ impl ServerHandler for LeanCtxServer {
                 None
             };
 
+        let config = crate::core::config::Config::load();
+        let minimal = config.minimal_overhead_effective();
+
         let tool_start = std::time::Instant::now();
-        let result_text = self.dispatch_tool(name, args).await?;
+        let result_text = self.dispatch_tool(name, args, minimal).await?;
 
         let mut result_text = result_text;
 
-        // Archive large tool outputs before density compression (zero-loss recovery)
-        let archive_hint = {
+        let archive_hint = if !minimal {
             use crate::core::archive;
             let archivable = matches!(
                 name,
@@ -314,11 +316,12 @@ impl ServerHandler for LeanCtxServer {
             } else {
                 None
             }
+        } else {
+            None
         };
 
-        {
-            let config = crate::core::config::Config::load();
-            let density = crate::core::config::OutputDensity::effective(&config.output_density);
+        let density = crate::core::config::OutputDensity::effective(&config.output_density);
+        if density != crate::core::config::OutputDensity::Normal {
             result_text = crate::core::protocol::compress_output(&result_text, &density);
         }
 
@@ -335,30 +338,37 @@ impl ServerHandler for LeanCtxServer {
         }
 
         if name == "ctx_read" {
-            let read_path = self
-                .resolve_path_or_passthrough(&helpers::get_str(args, "path").unwrap_or_default())
-                .await;
-            let project_root = {
-                let session = self.session.read().await;
-                session.project_root.clone()
-            };
-            let mut cache = self.cache.write().await;
-            let enrich = crate::tools::autonomy::enrich_after_read(
-                &self.autonomy,
-                &mut cache,
-                &read_path,
-                project_root.as_deref(),
-            );
-            if let Some(hint) = enrich.related_hint {
-                result_text = format!("{result_text}\n{hint}");
+            if !minimal {
+                let read_path = self
+                    .resolve_path_or_passthrough(
+                        &helpers::get_str(args, "path").unwrap_or_default(),
+                    )
+                    .await;
+                let project_root = {
+                    let session = self.session.read().await;
+                    session.project_root.clone()
+                };
+                let mut cache = self.cache.write().await;
+                let enrich = crate::tools::autonomy::enrich_after_read(
+                    &self.autonomy,
+                    &mut cache,
+                    &read_path,
+                    project_root.as_deref(),
+                );
+                if let Some(hint) = enrich.related_hint {
+                    result_text = format!("{result_text}\n{hint}");
+                }
+                crate::tools::autonomy::maybe_auto_dedup(&self.autonomy, &mut cache);
+            } else {
+                let mut cache = self.cache.write().await;
+                crate::tools::autonomy::maybe_auto_dedup(&self.autonomy, &mut cache);
             }
-
-            crate::tools::autonomy::maybe_auto_dedup(&self.autonomy, &mut cache);
         }
 
-        if name == "ctx_shell" {
+        let output_token_count = crate::core::tokens::count_tokens(&result_text);
+
+        if !minimal && name == "ctx_shell" {
             let cmd = helpers::get_str(args, "command").unwrap_or_default();
-            let output_tokens = crate::core::tokens::count_tokens(&result_text);
             let calls = self.tool_calls.read().await;
             let last_original = calls.last().map(|c| c.original_tokens).unwrap_or(0);
             drop(calls);
@@ -366,7 +376,7 @@ impl ServerHandler for LeanCtxServer {
                 &self.autonomy,
                 &cmd,
                 last_original,
-                output_tokens,
+                output_token_count,
             ) {
                 result_text = format!("{result_text}\n{hint}");
             }
@@ -374,8 +384,8 @@ impl ServerHandler for LeanCtxServer {
 
         {
             let input = helpers::canonical_args_string(args);
-            let input_md5 = helpers::md5_hex(&input);
-            let output_md5 = helpers::md5_hex(&result_text);
+            let input_md5 = helpers::md5_hex_fast(&input);
+            let output_md5 = helpers::md5_hex_fast(&result_text);
             let action = helpers::get_str(args, "action");
             let agent_id = self.agent_id.read().await.clone();
             let client_name = self.client_name.read().await.clone();
@@ -385,7 +395,7 @@ impl ServerHandler for LeanCtxServer {
                 String,
             )> = None;
 
-            {
+            let pending_session_save = {
                 let empty_args = serde_json::Map::new();
                 let args_map = args.as_ref().unwrap_or(&empty_args);
                 let mut session = self.session.write().await;
@@ -414,8 +424,16 @@ impl ServerHandler for LeanCtxServer {
                     }
                 }
                 if session.should_save() {
-                    let _ = session.save();
+                    session.prepare_save().ok()
+                } else {
+                    None
                 }
+            };
+
+            if let Some(prepared) = pending_session_save {
+                tokio::task::spawn_blocking(move || {
+                    let _ = prepared.write_to_disk();
+                });
             }
 
             if let Some((intent, root, session_id)) = explicit_intent {
@@ -426,7 +444,6 @@ impl ServerHandler for LeanCtxServer {
                 );
             }
 
-            // Autopilot: consolidation loop (silent, deterministic, budgeted).
             if self.autonomy.is_enabled() {
                 let (calls, project_root) = {
                     let session = self.session.read().await;
@@ -447,37 +464,47 @@ impl ServerHandler for LeanCtxServer {
             }
 
             let agent_key = agent_id.unwrap_or_else(|| "unknown".to_string());
-            let input_tokens = crate::core::tokens::count_tokens(&input) as u64;
-            let output_tokens = crate::core::tokens::count_tokens(&result_text) as u64;
-            let mut store = crate::core::a2a::cost_attribution::CostStore::load();
-            store.record_tool_call(&agent_key, &client_name, name, input_tokens, output_tokens);
-            let _ = store.save();
+            let input_token_count = crate::core::tokens::count_tokens(&input) as u64;
+            let output_token_count_u64 = output_token_count as u64;
+            let name_owned = name.to_string();
+            tokio::task::spawn_blocking(move || {
+                let mut store = crate::core::a2a::cost_attribution::CostStore::load();
+                store.record_tool_call(
+                    &agent_key,
+                    &client_name,
+                    &name_owned,
+                    input_token_count,
+                    output_token_count_u64,
+                );
+                let _ = store.save();
+            });
         }
 
-        let skip_checkpoint = matches!(
-            name,
-            "ctx_compress"
-                | "ctx_metrics"
-                | "ctx_benchmark"
-                | "ctx_analyze"
-                | "ctx_cache"
-                | "ctx_discover"
-                | "ctx_dedup"
-                | "ctx_session"
-                | "ctx_knowledge"
-                | "ctx_agent"
-                | "ctx_share"
-                | "ctx_wrapped"
-                | "ctx_overview"
-                | "ctx_preload"
-                | "ctx_cost"
-                | "ctx_gain"
-                | "ctx_heatmap"
-                | "ctx_task"
-                | "ctx_impact"
-                | "ctx_architecture"
-                | "ctx_workflow"
-        );
+        let skip_checkpoint = minimal
+            || matches!(
+                name,
+                "ctx_compress"
+                    | "ctx_metrics"
+                    | "ctx_benchmark"
+                    | "ctx_analyze"
+                    | "ctx_cache"
+                    | "ctx_discover"
+                    | "ctx_dedup"
+                    | "ctx_session"
+                    | "ctx_knowledge"
+                    | "ctx_agent"
+                    | "ctx_share"
+                    | "ctx_wrapped"
+                    | "ctx_overview"
+                    | "ctx_preload"
+                    | "ctx_cost"
+                    | "ctx_gain"
+                    | "ctx_heatmap"
+                    | "ctx_task"
+                    | "ctx_impact"
+                    | "ctx_architecture"
+                    | "ctx_workflow"
+            );
 
         if !skip_checkpoint && self.increment_and_check() {
             if let Some(checkpoint) = self.auto_checkpoint().await {

@@ -224,7 +224,8 @@ pub fn shell_efficiency_hint(
         return None;
     }
 
-    let savings_pct = ((input_tokens - output_tokens) as f64 / input_tokens as f64) * 100.0;
+    let savings_pct =
+        (input_tokens.saturating_sub(output_tokens) as f64 / input_tokens as f64) * 100.0;
     if savings_pct >= 20.0 {
         return None;
     }

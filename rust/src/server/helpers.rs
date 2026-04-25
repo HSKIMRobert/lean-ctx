@@ -32,6 +32,23 @@ pub fn md5_hex(s: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
+/// Fast MD5 fingerprint for dedup purposes.
+/// Hashes prefix + suffix + length for strings larger than 16 KB to avoid
+/// O(n) hashing on multi-megabyte tool outputs.
+pub fn md5_hex_fast(s: &str) -> String {
+    use md5::{Digest, Md5};
+    const THRESHOLD: usize = 16 * 1024;
+    let mut hasher = Md5::new();
+    if s.len() <= THRESHOLD {
+        hasher.update(s.as_bytes());
+    } else {
+        hasher.update(&s.as_bytes()[..8192]);
+        hasher.update(&s.as_bytes()[s.len() - 8192..]);
+        hasher.update(s.len().to_le_bytes());
+    }
+    format!("{:x}", hasher.finalize())
+}
+
 pub fn canonicalize_json(v: &Value) -> Value {
     match v {
         Value::Object(map) => {

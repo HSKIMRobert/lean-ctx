@@ -122,6 +122,34 @@ struct LatestPointer {
     id: String,
 }
 
+/// Pre-serialized session data ready for background disk I/O.
+/// Created by `SessionState::prepare_save()` while holding the write lock,
+/// then written via `write_to_disk()` after the lock is released.
+pub struct PreparedSave {
+    dir: PathBuf,
+    id: String,
+    json: String,
+    pointer_json: String,
+}
+
+impl PreparedSave {
+    pub fn write_to_disk(self) -> Result<(), String> {
+        if !self.dir.exists() {
+            std::fs::create_dir_all(&self.dir).map_err(|e| e.to_string())?;
+        }
+        let path = self.dir.join(format!("{}.json", self.id));
+        let tmp = self.dir.join(format!(".{}.json.tmp", self.id));
+        std::fs::write(&tmp, &self.json).map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+
+        let latest_path = self.dir.join("latest.json");
+        let latest_tmp = self.dir.join(".latest.json.tmp");
+        std::fs::write(&latest_tmp, &self.pointer_json).map_err(|e| e.to_string())?;
+        std::fs::rename(&latest_tmp, &latest_path).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+}
+
 impl Default for SessionState {
     fn default() -> Self {
         Self::new()
@@ -691,29 +719,33 @@ impl SessionState {
     }
 
     pub fn save(&mut self) -> Result<(), String> {
-        let dir = sessions_dir().ok_or("cannot determine home directory")?;
-        if !dir.exists() {
-            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let prepared = self.prepare_save()?;
+        match prepared.write_to_disk() {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                self.stats.unsaved_changes = BATCH_SAVE_INTERVAL;
+                Err(e)
+            }
         }
+    }
 
-        let path = dir.join(format!("{}.json", self.id));
+    /// Serialize session state while holding the lock (CPU-only), reset the
+    /// unsaved counter, and return a `PreparedSave` whose I/O can be deferred
+    /// to a background thread via `write_to_disk()`.
+    pub fn prepare_save(&mut self) -> Result<PreparedSave, String> {
+        let dir = sessions_dir().ok_or("cannot determine home directory")?;
         let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
-
-        let tmp = dir.join(format!(".{}.json.tmp", self.id));
-        std::fs::write(&tmp, &json).map_err(|e| e.to_string())?;
-        std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
-
-        let pointer = LatestPointer {
+        let pointer_json = serde_json::to_string(&LatestPointer {
             id: self.id.clone(),
-        };
-        let pointer_json = serde_json::to_string(&pointer).map_err(|e| e.to_string())?;
-        let latest_path = dir.join("latest.json");
-        let latest_tmp = dir.join(".latest.json.tmp");
-        std::fs::write(&latest_tmp, &pointer_json).map_err(|e| e.to_string())?;
-        std::fs::rename(&latest_tmp, &latest_path).map_err(|e| e.to_string())?;
-
+        })
+        .map_err(|e| e.to_string())?;
         self.stats.unsaved_changes = 0;
-        Ok(())
+        Ok(PreparedSave {
+            dir,
+            id: self.id.clone(),
+            json,
+            pointer_json,
+        })
     }
 
     pub fn load_latest() -> Option<Self> {

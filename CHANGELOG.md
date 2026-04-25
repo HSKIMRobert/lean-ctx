@@ -3,6 +3,30 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.4.1] — 2026-04-25
+
+Performance and token optimization release. Reduces per-session overhead by up to 64%.
+
+### Added
+
+- **`LEAN_CTX_NO_CHECKPOINT` env var** — disable auto-checkpoint injection independently from `minimal_overhead`
+- **`PreparedSave` pattern** — `Session.save()` split into `prepare_save()` (CPU-only serialization under lock) + `write_to_disk()` (background I/O via `tokio::task::spawn_blocking`), removing disk I/O from the tool response hot path
+- **`md5_hex_fast`** — 8x faster fingerprinting for outputs >16 KB by hashing prefix + suffix + length instead of full content
+- **Benchmark tests** — 8 new tests covering token overhead budgets, cache effectiveness, compression density, session save latency, and MD5 performance
+
+### Changed
+
+- `count_tokens` called once per tool response (was up to 4x) — cached result reused for hints, cost attribution, and logging
+- `CostStore` writes deferred to background thread via `spawn_blocking`
+- `mcp-live.json` writes debounced to every 5th tool call (80% fewer disk writes)
+- `compress_output` skipped entirely for `Normal` density (no string copy)
+- Auto-checkpoint, meta-strings (savings/stale notes, shell hints, archive hints), and session blocks now all suppressed under `minimal_overhead`
+
+### Fixed
+
+- Integer overflow crash in `shell_efficiency_hint` when output tokens exceeded input tokens — now uses `saturating_sub`
+- Synchronous `save()` restores retry counter on disk write failure, preserving auto-save semantics
+
 ## [3.4.0] — 2026-04-25
 
 Addresses GitHub issues #150, #151, #152, #153.

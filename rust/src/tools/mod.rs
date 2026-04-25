@@ -370,11 +370,19 @@ impl LeanCtxServer {
         if tool == "ctx_shell" {
             session.record_command();
         }
-        if session.should_save() {
-            let _ = session.save();
-        }
+        let pending_save = if session.should_save() {
+            session.prepare_save().ok()
+        } else {
+            None
+        };
         drop(calls);
         drop(session);
+
+        if let Some(prepared) = pending_save {
+            tokio::task::spawn_blocking(move || {
+                let _ = prepared.write_to_disk();
+            });
+        }
 
         self.write_mcp_live_stats().await;
     }
@@ -584,6 +592,11 @@ impl LeanCtxServer {
     }
 
     async fn write_mcp_live_stats(&self) {
+        let count = self.call_count.load(Ordering::Relaxed);
+        if count > 1 && !count.is_multiple_of(5) {
+            return;
+        }
+
         let cache = self.cache.read().await;
         let calls = self.tool_calls.read().await;
         let stats = cache.get_stats();

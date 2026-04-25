@@ -214,12 +214,26 @@ fn bench_lazy_default_vs_full_overhead() {
     eprintln!("\n{}", "=".repeat(70));
     eprintln!("  LAZY (DEFAULT) vs FULL TOOL OVERHEAD");
     eprintln!("{}", "=".repeat(70));
-    eprintln!("  Lazy tools:   {:>3} tools, {:>5} tokens (desc+schema)", lazy_tools.len(), lazy_total);
-    eprintln!("  Full tools:   {:>3} tools, {:>5} tokens (desc+schema)", full_tools.len(), full_total);
+    eprintln!(
+        "  Lazy tools:   {:>3} tools, {:>5} tokens (desc+schema)",
+        lazy_tools.len(),
+        lazy_total
+    );
+    eprintln!(
+        "  Full tools:   {:>3} tools, {:>5} tokens (desc+schema)",
+        full_tools.len(),
+        full_total
+    );
     eprintln!("  Instructions:          {:>5} tokens", instr_tokens);
     eprintln!("  {}", "-".repeat(50));
-    eprintln!("  User overhead (LAZY DEFAULT):  {:>5} tokens", lazy_user_overhead);
-    eprintln!("  User overhead (FULL opt-in):   {:>5} tokens", full_user_overhead);
+    eprintln!(
+        "  User overhead (LAZY DEFAULT):  {:>5} tokens",
+        lazy_user_overhead
+    );
+    eprintln!(
+        "  User overhead (FULL opt-in):   {:>5} tokens",
+        full_user_overhead
+    );
     eprintln!("  Tool token reduction:          {:>5.1}%", reduction_pct);
     eprintln!("{}", "=".repeat(70));
 
@@ -1470,4 +1484,324 @@ fn generate_git_log_stat(n: usize) -> String {
         ));
     }
     output
+}
+
+// ---------------------------------------------------------------------------
+// v3.4.1 Optimization benchmarks: Token overhead + Latency
+// ---------------------------------------------------------------------------
+
+#[test]
+fn bench_minimal_overhead_suppresses_all_meta_strings() {
+    std::env::set_var("LEAN_CTX_MINIMAL", "1");
+
+    let instructions = lean_ctx::server::build_instructions_for_test(CrpMode::Tdd);
+    let instr_tokens = count_tokens(&instructions);
+
+    eprintln!("\n{}", "=".repeat(70));
+    eprintln!("  MINIMAL OVERHEAD: Instructions Token Count");
+    eprintln!("{}", "=".repeat(70));
+    eprintln!("  Instructions (minimal):  {:>5} tokens", instr_tokens);
+
+    assert!(
+        !instructions.contains("--- ACTIVE SESSION"),
+        "minimal_overhead should suppress session block"
+    );
+
+    std::env::remove_var("LEAN_CTX_MINIMAL");
+
+    let full_instructions = lean_ctx::server::build_instructions_for_test(CrpMode::Tdd);
+    let full_tokens = count_tokens(&full_instructions);
+
+    eprintln!("  Instructions (full):     {:>5} tokens", full_tokens);
+    let saved = full_tokens.saturating_sub(instr_tokens);
+    eprintln!("  Tokens saved by minimal: {:>5}", saved);
+    eprintln!("{}", "=".repeat(70));
+
+    assert!(
+        instr_tokens <= full_tokens,
+        "minimal instructions ({instr_tokens}) should be <= full ({full_tokens})"
+    );
+}
+
+#[test]
+fn bench_md5_fast_vs_full_correctness() {
+    use lean_ctx::server::helpers::{md5_hex, md5_hex_fast};
+
+    let small = "a".repeat(1000);
+    assert_eq!(
+        md5_hex(&small),
+        md5_hex_fast(&small),
+        "md5_hex_fast must match md5_hex for small strings"
+    );
+
+    let exactly_16k = "x".repeat(16 * 1024);
+    assert_eq!(
+        md5_hex(&exactly_16k),
+        md5_hex_fast(&exactly_16k),
+        "md5_hex_fast must match md5_hex at the 16KB boundary"
+    );
+
+    let large = "b".repeat(100_000);
+    let fast_hash = md5_hex_fast(&large);
+    assert_eq!(fast_hash.len(), 32, "md5_hex_fast should produce valid hex");
+    assert_ne!(
+        fast_hash,
+        md5_hex_fast(&"c".repeat(100_000)),
+        "different large strings should produce different hashes"
+    );
+
+    eprintln!("\n{}", "=".repeat(70));
+    eprintln!("  MD5 FAST FINGERPRINT");
+    eprintln!("{}", "=".repeat(70));
+    let start_full = std::time::Instant::now();
+    for _ in 0..100 {
+        let _ = md5_hex(&large);
+    }
+    let full_us = start_full.elapsed().as_micros();
+
+    let start_fast = std::time::Instant::now();
+    for _ in 0..100 {
+        let _ = md5_hex_fast(&large);
+    }
+    let fast_us = start_fast.elapsed().as_micros();
+
+    let speedup = full_us as f64 / fast_us.max(1) as f64;
+    eprintln!("  100x md5_hex(100KB):      {:>6} us", full_us);
+    eprintln!("  100x md5_hex_fast(100KB):  {:>6} us", fast_us);
+    eprintln!("  Speedup:                  {:>6.1}x", speedup);
+    eprintln!("{}", "=".repeat(70));
+
+    assert!(
+        speedup > 2.0,
+        "md5_hex_fast should be at least 2x faster for 100KB, got {speedup:.1}x"
+    );
+}
+
+#[test]
+fn bench_compress_output_normal_is_noop() {
+    use lean_ctx::core::config::OutputDensity;
+    use lean_ctx::core::protocol::compress_output;
+
+    let input = "fn main() {\n    println!(\"hello\");\n}\n".repeat(500);
+
+    let start_terse = std::time::Instant::now();
+    for _ in 0..100 {
+        let _ = compress_output(&input, &OutputDensity::Terse);
+    }
+    let terse_us = start_terse.elapsed().as_micros();
+
+    let start_normal = std::time::Instant::now();
+    for _ in 0..100 {
+        let result = compress_output(&input, &OutputDensity::Normal);
+        assert_eq!(result.len(), input.len());
+    }
+    let normal_us = start_normal.elapsed().as_micros();
+
+    eprintln!("\n{}", "=".repeat(70));
+    eprintln!("  COMPRESS_OUTPUT DENSITY BENCHMARK (100 iters, ~20KB input)");
+    eprintln!("{}", "=".repeat(70));
+    eprintln!("  Normal (to_string copy): {:>6} us", normal_us);
+    eprintln!("  Terse (filter+join):     {:>6} us", terse_us);
+    eprintln!("  Note: In production, Normal is skipped entirely (no copy).");
+    eprintln!("{}", "=".repeat(70));
+}
+
+#[test]
+fn bench_count_tokens_cache_effectiveness() {
+    let text = "The quick brown fox jumps over the lazy dog. ".repeat(200);
+
+    let start_cold = std::time::Instant::now();
+    let t1 = count_tokens(&text);
+    let cold_us = start_cold.elapsed().as_micros();
+
+    let start_cached = std::time::Instant::now();
+    let t2 = count_tokens(&text);
+    let cached_us = start_cached.elapsed().as_micros();
+
+    assert_eq!(t1, t2, "cached result must match");
+
+    let slightly_different = format!("{text}X");
+    let start_miss = std::time::Instant::now();
+    let t3 = count_tokens(&slightly_different);
+    let miss_us = start_miss.elapsed().as_micros();
+
+    eprintln!("\n{}", "=".repeat(70));
+    eprintln!("  COUNT_TOKENS CACHE BENCHMARK (~9KB input)");
+    eprintln!("{}", "=".repeat(70));
+    eprintln!("  Cold (first call):  {:>6} us  -> {} tokens", cold_us, t1);
+    eprintln!(
+        "  Cached (same text): {:>6} us  -> {} tokens",
+        cached_us, t2
+    );
+    eprintln!("  Miss (diff text):   {:>6} us  -> {} tokens", miss_us, t3);
+    if cold_us > 0 {
+        let speedup = cold_us as f64 / cached_us.max(1) as f64;
+        eprintln!("  Cache speedup:      {:>6.0}x", speedup);
+    }
+    eprintln!("{}", "=".repeat(70));
+
+    assert!(
+        cached_us <= cold_us + 5,
+        "cached call should be faster than cold call"
+    );
+}
+
+#[test]
+fn bench_session_prepare_save_is_cpu_only() {
+    use lean_ctx::core::session::SessionState;
+
+    let mut session = SessionState::new();
+    session.set_task("benchmark task for save split", None);
+    for _ in 0..20 {
+        session.record_tool_call(100, 200);
+        session.stats.unsaved_changes = 0;
+    }
+
+    let start = std::time::Instant::now();
+    for _ in 0..100 {
+        session.stats.unsaved_changes = 5;
+        if let Ok(prepared) = session.prepare_save() {
+            std::mem::drop(prepared);
+        }
+    }
+    let prepare_us = start.elapsed().as_micros();
+
+    eprintln!("\n{}", "=".repeat(70));
+    eprintln!("  SESSION PREPARE_SAVE BENCHMARK (100 iters)");
+    eprintln!("{}", "=".repeat(70));
+    eprintln!("  100x prepare_save (serialize only): {:>6} us", prepare_us);
+    eprintln!(
+        "  Per call:                           {:>6} us",
+        prepare_us / 100
+    );
+    eprintln!("  Note: write_to_disk() I/O runs in background thread.");
+    eprintln!("{}", "=".repeat(70));
+
+    assert!(
+        prepare_us / 100 < 5000,
+        "prepare_save should take <5ms per call, got {} us",
+        prepare_us / 100
+    );
+
+    assert_eq!(
+        session.stats.unsaved_changes, 0,
+        "prepare_save must reset unsaved_changes"
+    );
+}
+
+#[test]
+fn bench_session_save_semantics() {
+    use lean_ctx::core::session::SessionState;
+
+    let mut session = SessionState::new();
+    for _ in 0..6 {
+        session.increment();
+    }
+    assert!(session.should_save(), "should_save after 6 mutations");
+
+    let prepared = session.prepare_save().expect("prepare_save");
+    assert_eq!(
+        session.stats.unsaved_changes, 0,
+        "prepare_save must reset counter immediately (for async path)"
+    );
+    assert!(
+        !session.should_save(),
+        "should_save must be false after prepare_save"
+    );
+
+    let write_result = prepared.write_to_disk();
+    assert!(
+        write_result.is_ok(),
+        "write_to_disk to valid dir should succeed"
+    );
+
+    for _ in 0..6 {
+        session.increment();
+    }
+    assert!(session.should_save());
+
+    let result = session.save();
+    assert!(result.is_ok(), "synchronous save should succeed");
+    assert_eq!(
+        session.stats.unsaved_changes, 0,
+        "save must reset counter on success"
+    );
+    assert!(
+        !session.should_save(),
+        "should_save must be false after save"
+    );
+}
+
+#[test]
+fn bench_full_per_call_overhead_budget() {
+    let lazy_tools = lean_ctx::tool_defs::lazy_tool_defs();
+    let full_tools = lean_ctx::tool_defs::granular_tool_defs();
+
+    let instructions_minimal = {
+        std::env::set_var("LEAN_CTX_MINIMAL", "1");
+        let i = lean_ctx::server::build_instructions_for_test(CrpMode::Tdd);
+        std::env::remove_var("LEAN_CTX_MINIMAL");
+        i
+    };
+    let instructions_full = lean_ctx::server::build_instructions_for_test(CrpMode::Tdd);
+
+    let lazy_tool_tokens: usize = lazy_tools
+        .iter()
+        .map(|t| {
+            let desc = t
+                .description
+                .as_ref()
+                .map(|d| d.as_ref().len())
+                .unwrap_or(0);
+            let schema = serde_json::to_string(&t.input_schema)
+                .unwrap_or_default()
+                .len();
+            (desc + schema) / 4
+        })
+        .sum();
+
+    let full_tool_tokens: usize = full_tools
+        .iter()
+        .map(|t| {
+            let desc = t
+                .description
+                .as_ref()
+                .map(|d| d.as_ref().len())
+                .unwrap_or(0);
+            let schema = serde_json::to_string(&t.input_schema)
+                .unwrap_or_default()
+                .len();
+            (desc + schema) / 4
+        })
+        .sum();
+
+    let minimal_instr_tokens = count_tokens(&instructions_minimal);
+    let full_instr_tokens = count_tokens(&instructions_full);
+
+    let best_case = minimal_instr_tokens + lazy_tool_tokens;
+    let worst_case = full_instr_tokens + full_tool_tokens;
+
+    eprintln!("\n{}", "=".repeat(70));
+    eprintln!("  TOTAL PER-SESSION OVERHEAD BUDGET");
+    eprintln!("{}", "=".repeat(70));
+    eprintln!(
+        "  Best case  (lazy+minimal):  {:>5} tok  ({} instr + {} tools)",
+        best_case, minimal_instr_tokens, lazy_tool_tokens
+    );
+    eprintln!(
+        "  Worst case (full+verbose):  {:>5} tok  ({} instr + {} tools)",
+        worst_case, full_instr_tokens, full_tool_tokens
+    );
+    let reduction = (worst_case - best_case) as f64 / worst_case as f64 * 100.0;
+    eprintln!("  Total reduction potential:   {:>5.1}%", reduction);
+    eprintln!("{}", "=".repeat(70));
+
+    assert!(
+        best_case < 3000,
+        "Best-case overhead should be <3000 tokens, got {best_case}"
+    );
+    assert!(
+        reduction > 50.0,
+        "Reduction potential should be >50%, got {reduction:.1}%"
+    );
 }

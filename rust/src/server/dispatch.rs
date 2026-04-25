@@ -10,6 +10,7 @@ impl LeanCtxServer {
         &self,
         name: &str,
         args: &Option<serde_json::Map<String, Value>>,
+        minimal: bool,
     ) -> Result<String, ErrorData> {
         Ok(match name {
             "ctx_read" => {
@@ -59,7 +60,7 @@ impl LeanCtxServer {
                         task_ref,
                     )
                 };
-                let stale_note = if effective_mode != mode {
+                let stale_note = if !minimal && effective_mode != mode {
                     format!("[cache stale, {mode}→{effective_mode}]\n")
                 } else {
                     String::new()
@@ -233,7 +234,7 @@ impl LeanCtxServer {
                 let sent = crate::core::tokens::count_tokens(&result);
                 let saved = original.saturating_sub(sent);
                 self.record_call("ctx_tree", original, saved, None).await;
-                let savings_note = if saved > 0 {
+                let savings_note = if !minimal && saved > 0 {
                     format!("\n[saved {saved} tokens vs native ls]")
                 } else {
                     String::new()
@@ -351,7 +352,7 @@ impl LeanCtxServer {
 
                 self.record_call("ctx_shell", original, saved, None).await;
 
-                let savings_note = if !raw && saved > 0 {
+                let savings_note = if !minimal && !raw && saved > 0 {
                     format!("\n[saved {saved} tokens vs native Shell]")
                 } else {
                     String::new()
@@ -405,7 +406,7 @@ impl LeanCtxServer {
                 let sent = crate::core::tokens::count_tokens(&result);
                 let saved = original.saturating_sub(sent);
                 self.record_call("ctx_search", original, saved, None).await;
-                let savings_note = if saved > 0 {
+                let savings_note = if !minimal && saved > 0 {
                     format!("\n[saved {saved} tokens vs native Grep]")
                 } else {
                     String::new()
