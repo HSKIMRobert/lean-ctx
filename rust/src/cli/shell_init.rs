@@ -40,7 +40,7 @@ fn backup_shell_config(path: &std::path::Path) {
 }
 
 fn lean_ctx_dir() -> Option<std::path::PathBuf> {
-    dirs::home_dir().map(|h| h.join(".lean-ctx"))
+    crate::core::data_dir::lean_ctx_data_dir().ok()
 }
 
 fn write_hook_file(filename: &str, content: &str) -> Option<std::path::PathBuf> {
@@ -56,36 +56,45 @@ fn write_hook_file(filename: &str, content: &str) -> Option<std::path::PathBuf> 
     }
 }
 
+fn resolved_hook_dir_display() -> String {
+    lean_ctx_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| "$HOME/.lean-ctx".to_string())
+}
+
 fn source_line_posix(shell_ext: &str) -> String {
+    let dir = resolved_hook_dir_display();
     format!(
-        r#"# lean-ctx shell hook
-[ -f "$HOME/.lean-ctx/shell-hook.{shell_ext}" ] && . "$HOME/.lean-ctx/shell-hook.{shell_ext}"
-"#
+        "# lean-ctx shell hook\n\
+         [ -f \"{dir}/shell-hook.{shell_ext}\" ] && . \"{dir}/shell-hook.{shell_ext}\"\n"
     )
 }
 
 fn source_line_fish() -> String {
-    r#"# lean-ctx shell hook
-if test -f "$HOME/.lean-ctx/shell-hook.fish"
-    source "$HOME/.lean-ctx/shell-hook.fish"
-end
-"#
-    .to_string()
+    let dir = resolved_hook_dir_display();
+    format!(
+        "# lean-ctx shell hook\n\
+         if test -f \"{dir}/shell-hook.fish\"\n    \
+         source \"{dir}/shell-hook.fish\"\n\
+         end\n"
+    )
 }
 
 fn source_line_powershell() -> String {
-    r#"# lean-ctx shell hook
-$leanCtxHook = Join-Path $HOME ".lean-ctx" "shell-hook.ps1"
-if ((Test-Path $leanCtxHook) -and -not [Console]::IsOutputRedirected) { . $leanCtxHook }
-"#
-    .to_string()
+    let dir = resolved_hook_dir_display();
+    let dir_ps = dir.replace('/', "\\");
+    format!(
+        "# lean-ctx shell hook\n\
+         $leanCtxHook = \"{dir_ps}\\shell-hook.ps1\"\n\
+         if ((Test-Path $leanCtxHook) -and -not [Console]::IsOutputRedirected) {{ . $leanCtxHook }}\n"
+    )
 }
 
 fn upsert_source_line(rc_path: &std::path::Path, source_line: &str) {
     backup_shell_config(rc_path);
 
     if let Ok(existing) = std::fs::read_to_string(rc_path) {
-        if existing.contains(".lean-ctx/shell-hook.") {
+        if existing.contains("lean-ctx/shell-hook.") || existing.contains("lean-ctx\\shell-hook.") {
             return;
         }
 
@@ -124,10 +133,10 @@ pub fn generate_hook_powershell(binary: &str) -> String {
     let binary_escaped = binary.replace('\\', "\\\\");
     format!(
         r#"# lean-ctx shell hook — transparent CLI compression (90+ patterns)
-if (-not $env:LEAN_CTX_ACTIVE -and -not $env:LEAN_CTX_DISABLED) {{
+if (-not $env:LEAN_CTX_ACTIVE -and -not $env:LEAN_CTX_DISABLED -and -not $env:LEAN_CTX_NO_HOOK) {{
   $LeanCtxBin = "{binary_escaped}"
   function _lc {{
-    if ($env:LEAN_CTX_DISABLED -or [Console]::IsOutputRedirected) {{ & @args; return }}
+    if ($env:LEAN_CTX_DISABLED -or $env:LEAN_CTX_NO_HOOK -or [Console]::IsOutputRedirected) {{ & @args; return }}
     & $LeanCtxBin -c @args
     if ($LASTEXITCODE -eq 127 -or $LASTEXITCODE -eq 126) {{
       & @args
@@ -213,7 +222,7 @@ pub fn generate_hook_fish(binary: &str) -> String {
         set -g _lean_ctx_cmds {alias_list}\n\
         \n\
         function _lc\n\
-        \tif set -q LEAN_CTX_DISABLED; or not isatty stdout\n\
+        \tif set -q LEAN_CTX_DISABLED; or set -q LEAN_CTX_NO_HOOK; or not isatty stdout\n\
         \t\tcommand $argv\n\
         \t\treturn\n\
         \tend\n\
@@ -227,7 +236,7 @@ pub fn generate_hook_fish(binary: &str) -> String {
         end\n\
         \n\
         function _lc_compress\n\
-        \tif set -q LEAN_CTX_DISABLED; or not isatty stdout\n\
+        \tif set -q LEAN_CTX_DISABLED; or set -q LEAN_CTX_NO_HOOK; or not isatty stdout\n\
         \t\tcommand $argv\n\
         \t\treturn\n\
         \tend\n\
@@ -322,7 +331,7 @@ pub fn generate_hook_posix(binary: &str) -> String {
 _lean_ctx_cmds=({alias_list})
 
 _lc() {{
-    if [ -n "${{LEAN_CTX_DISABLED:-}}" ] || [ ! -t 1 ]; then
+    if [ -n "${{LEAN_CTX_DISABLED:-}}" ] || [ -n "${{LEAN_CTX_NO_HOOK:-}}" ] || [ ! -t 1 ]; then
         command "$@"
         return
     fi
@@ -336,7 +345,7 @@ _lc() {{
 }}
 
 _lc_compress() {{
-    if [ -n "${{LEAN_CTX_DISABLED:-}}" ] || [ ! -t 1 ]; then
+    if [ -n "${{LEAN_CTX_DISABLED:-}}" ] || [ -n "${{LEAN_CTX_NO_HOOK:-}}" ] || [ ! -t 1 ]; then
         command "$@"
         return
     fi

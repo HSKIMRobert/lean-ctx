@@ -3,6 +3,26 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## v3.4.0 — Token Overhead Reduction, JSONC Support, XDG Compliance, Shell Hook Control
+
+Addresses GitHub issues #150, #151, #152, #153.
+
+### Changed (BREAKING)
+
+- **Lazy tools now the default** — Only 9 core tools are exposed by default instead of 46. This reduces per-turn input token overhead by ~80%. Use `LEAN_CTX_FULL_TOOLS=1` to opt back in to all tools. The `ctx_discover_tools` tool lets agents discover and load additional tools on demand. (#153)
+
+### Added
+
+- **JSONC comment support** — `lean-ctx setup` and all editor config writers now parse JSON with `//` and `/* */` comments using a built-in JSONC stripper. Config files with comments (e.g. `opencode.json`) are no longer treated as invalid and overwritten. (#151)
+- **XDG Base Directory compliance** — New installs use `$XDG_CONFIG_HOME/lean-ctx` (default `~/.config/lean-ctx/`) instead of `~/.lean-ctx`. Existing `~/.lean-ctx` directories are detected and used automatically — no migration required. (#152)
+- **`minimal_overhead` config option** — Set `minimal_overhead = true` in config or `LEAN_CTX_MINIMAL=1` env var to skip session/knowledge/gotcha blocks in MCP instructions, minimizing token overhead for cost-sensitive workflows. (#153)
+- **Shell hook disable** — New `--no-shell-hook` flag for `lean-ctx init`, `shell_hook_disabled = true` config option, and `LEAN_CTX_NO_HOOK=1` env var to disable the `_lc()` shell wrapper across all shells (bash, zsh, fish, PowerShell). MCP tools remain fully active. (#150)
+
+### Fixed
+
+- Shell hook source lines now use the resolved data directory path instead of hardcoded `~/.lean-ctx`, matching XDG-compliant installations.
+- `upsert_source_line` detection works for both legacy and XDG hook paths (including Windows backslash paths).
+
 ## [3.3.9] — 2026-04-24
 
 ### Security & Safety Hardening (GitHub Issue #149)

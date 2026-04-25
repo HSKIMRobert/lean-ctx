@@ -110,14 +110,12 @@ impl ServerHandler for LeanCtxServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        let all_tools = if crate::tool_defs::is_lazy_mode() {
-            crate::tool_defs::lazy_tool_defs()
-        } else if std::env::var("LEAN_CTX_UNIFIED").is_ok()
-            && std::env::var("LEAN_CTX_FULL_TOOLS").is_err()
-        {
+        let all_tools = if crate::tool_defs::is_full_mode() {
+            crate::tool_defs::granular_tool_defs()
+        } else if std::env::var("LEAN_CTX_UNIFIED").is_ok() {
             crate::tool_defs::unified_tool_defs()
         } else {
-            crate::tool_defs::granular_tool_defs()
+            crate::tool_defs::lazy_tool_defs()
         };
 
         let disabled = crate::core::config::Config::load().disabled_tools_effective();

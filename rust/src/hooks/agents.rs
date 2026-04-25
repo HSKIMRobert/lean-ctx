@@ -236,7 +236,7 @@ pub(super) fn install_claude_hook_config(home: &std::path::Path) {
             &settings_path,
             &serde_json::to_string_pretty(&hook_entry).unwrap(),
         );
-    } else if let Ok(mut existing) = serde_json::from_str::<serde_json::Value>(&settings_content) {
+    } else if let Ok(mut existing) = crate::core::jsonc::parse_jsonc(&settings_content) {
         if let Some(obj) = existing.as_object_mut() {
             obj.insert("hooks".to_string(), hook_entry["hooks"].clone());
             write_file(
@@ -289,7 +289,7 @@ pub(super) fn install_claude_project_hooks(cwd: &std::path::Path) {
             &settings_path,
             &serde_json::to_string_pretty(&hook_entry).unwrap(),
         );
-    } else if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&existing) {
+    } else if let Ok(mut json) = crate::core::jsonc::parse_jsonc(&existing) {
         if let Some(obj) = json.as_object_mut() {
             obj.insert("hooks".to_string(), hook_entry["hooks"].clone());
             write_file(
@@ -399,7 +399,7 @@ pub(super) fn install_cursor_hook_config(home: &std::path::Path) {
             &hooks_json,
             &serde_json::to_string_pretty(&hook_config).unwrap(),
         );
-    } else if let Ok(mut existing) = serde_json::from_str::<serde_json::Value>(&content) {
+    } else if let Ok(mut existing) = crate::core::jsonc::parse_jsonc(&content) {
         if let Some(obj) = existing.as_object_mut() {
             obj.insert("version".to_string(), serde_json::json!(1));
             obj.insert("hooks".to_string(), hook_config["hooks"].clone());
@@ -510,7 +510,7 @@ pub(super) fn install_gemini_hook_config(home: &std::path::Path) {
             &settings_path,
             &serde_json::to_string_pretty(&hook_config).unwrap(),
         );
-    } else if let Ok(mut existing) = serde_json::from_str::<serde_json::Value>(&settings_content) {
+    } else if let Ok(mut existing) = crate::core::jsonc::parse_jsonc(&settings_content) {
         if let Some(obj) = existing.as_object_mut() {
             obj.insert("hooks".to_string(), hook_config["hooks"].clone());
             write_file(
@@ -568,7 +568,7 @@ fn install_codex_hook_config(home: &std::path::Path) -> bool {
     let mut root = if hooks_json_path.exists() {
         match std::fs::read_to_string(&hooks_json_path)
             .ok()
-            .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok())
+            .and_then(|content| crate::core::jsonc::parse_jsonc(&content).ok())
         {
             Some(parsed) => parsed,
             None => {
@@ -759,7 +759,7 @@ fn write_pi_mcp_config() {
             return;
         }
 
-        if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
+        if let Ok(mut json) = crate::core::jsonc::parse_jsonc(&content) {
             if let Some(obj) = json.as_object_mut() {
                 let servers = obj
                     .entry("mcpServers")
@@ -865,7 +865,7 @@ fn install_copilot_pretooluse_hook(global: bool) {
     }
 
     if hook_path.exists() {
-        if let Ok(mut existing) = serde_json::from_str::<serde_json::Value>(
+        if let Ok(mut existing) = crate::core::jsonc::parse_jsonc(
             &std::fs::read_to_string(&hook_path).unwrap_or_default(),
         ) {
             if let Some(obj) = existing.as_object_mut() {
@@ -899,7 +899,7 @@ fn write_vscode_mcp_file(mcp_path: &PathBuf, binary: &str, label: &str) {
     let desired = serde_json::json!({ "type": "stdio", "command": binary, "args": [], "env": { "LEAN_CTX_DATA_DIR": data_dir } });
     if mcp_path.exists() {
         let content = std::fs::read_to_string(mcp_path).unwrap_or_default();
-        match serde_json::from_str::<serde_json::Value>(&content) {
+        match crate::core::jsonc::parse_jsonc(&content) {
             Ok(mut json) => {
                 if let Some(obj) = json.as_object_mut() {
                     let servers = obj
@@ -1000,7 +1000,7 @@ pub(super) fn install_jetbrains_hook() {
             return;
         }
 
-        if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
+        if let Ok(mut json) = crate::core::jsonc::parse_jsonc(&content) {
             if let Some(obj) = json.as_object_mut() {
                 let servers = obj
                     .entry("servers")
@@ -1050,7 +1050,7 @@ pub(super) fn install_opencode_hook() {
         let content = std::fs::read_to_string(&config_path).unwrap_or_default();
         if content.contains("lean-ctx") {
             println!("OpenCode MCP already configured at {display_path}");
-        } else if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
+        } else if let Ok(mut json) = crate::core::jsonc::parse_jsonc(&content) {
             if let Some(obj) = json.as_object_mut() {
                 let mcp = obj.entry("mcp").or_insert_with(|| serde_json::json!({}));
                 if let Some(mcp_obj) = mcp.as_object_mut() {
@@ -1114,7 +1114,7 @@ pub(super) fn install_crush_hook() {
             return;
         }
 
-        if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
+        if let Ok(mut json) = crate::core::jsonc::parse_jsonc(&content) {
             if let Some(obj) = json.as_object_mut() {
                 let servers = obj.entry("mcp").or_insert_with(|| serde_json::json!({}));
                 if let Some(servers_obj) = servers.as_object_mut() {

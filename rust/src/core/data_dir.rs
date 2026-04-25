@@ -1,5 +1,11 @@
 use std::path::PathBuf;
 
+/// Resolve the lean-ctx data directory.
+///
+/// Priority order (backward-compatible XDG migration):
+/// 1. `LEAN_CTX_DATA_DIR` env var (explicit override)
+/// 2. `~/.lean-ctx` if it already exists (don't break existing installs)
+/// 3. `$XDG_CONFIG_HOME/lean-ctx` (XDG compliant, default `~/.config/lean-ctx`)
 pub fn lean_ctx_data_dir() -> Result<PathBuf, String> {
     if let Ok(dir) = std::env::var("LEAN_CTX_DATA_DIR") {
         let trimmed = dir.trim();
@@ -8,9 +14,20 @@ pub fn lean_ctx_data_dir() -> Result<PathBuf, String> {
         }
     }
 
-    Ok(dirs::home_dir()
-        .ok_or_else(|| "Cannot determine home directory".to_string())?
-        .join(".lean-ctx"))
+    let home = dirs::home_dir().ok_or_else(|| "Cannot determine home directory".to_string())?;
+
+    let legacy = home.join(".lean-ctx");
+    if legacy.exists() {
+        return Ok(legacy);
+    }
+
+    let xdg_config = std::env::var("XDG_CONFIG_HOME")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".config"));
+
+    Ok(xdg_config.join("lean-ctx"))
 }
 
 pub fn test_env_lock() -> std::sync::MutexGuard<'static, ()> {

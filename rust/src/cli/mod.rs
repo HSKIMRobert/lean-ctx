@@ -1113,6 +1113,8 @@ macro_rules! qprintln {
 pub fn cmd_init(args: &[String]) {
     let global = args.iter().any(|a| a == "--global" || a == "-g");
     let dry_run = args.iter().any(|a| a == "--dry-run");
+    let no_hook = args.iter().any(|a| a == "--no-shell-hook")
+        || crate::core::config::Config::load().shell_hook_disabled_effective();
 
     let agents: Vec<&str> = args
         .windows(2)
@@ -1167,14 +1169,20 @@ pub fn cmd_init(args: &[String]) {
         qprintln!("  Would alias:   git npm pnpm yarn cargo docker docker-compose kubectl");
         qprintln!("                 gh pip pip3 ruff go golangci-lint eslint prettier tsc");
         qprintln!("                 curl wget php composer (24 commands + k)");
-        qprintln!("  Would create:  ~/.lean-ctx/");
+        let data_dir = crate::core::data_dir::lean_ctx_data_dir()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| "~/.config/lean-ctx/".to_string());
+        qprintln!("  Would create:  {data_dir}");
         qprintln!("  Binary:        {binary}");
         qprintln!("\n  Safety: aliases auto-fallback to original command if lean-ctx is removed.");
         qprintln!("\n  Run without --dry-run to apply.");
         return;
     }
 
-    if is_powershell {
+    if no_hook {
+        qprintln!("Shell hook disabled (--no-shell-hook or shell_hook_disabled config).");
+        qprintln!("MCP tools remain active. Set LEAN_CTX_NO_HOOK=1 to disable at runtime.");
+    } else if is_powershell {
         init_powershell(&binary);
     } else {
         let bash_binary = to_bash_compatible_path(&binary);
@@ -1185,11 +1193,10 @@ pub fn cmd_init(args: &[String]) {
         }
     }
 
-    let lean_dir = dirs::home_dir().map(|h| h.join(".lean-ctx"));
-    if let Some(dir) = lean_dir {
-        if !dir.exists() {
-            let _ = std::fs::create_dir_all(&dir);
-            qprintln!("Created {}", dir.display());
+    if let Ok(lean_dir) = crate::core::data_dir::lean_ctx_data_dir() {
+        if !lean_dir.exists() {
+            let _ = std::fs::create_dir_all(&lean_dir);
+            qprintln!("Created {}", lean_dir.display());
         }
     }
 

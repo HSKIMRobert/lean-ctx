@@ -36,7 +36,7 @@ fn update_named_json_server(
     root_key: &str,
     entry: &serde_json::Value,
 ) -> bool {
-    let Ok(mut json) = serde_json::from_str::<serde_json::Value>(content) else {
+    let Ok(mut json) = crate::core::jsonc::parse_jsonc(content) else {
         return false;
     };
     let Some(obj) = json.as_object_mut() else {

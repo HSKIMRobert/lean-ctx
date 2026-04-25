@@ -43,6 +43,7 @@ pub mod index_orchestrator;
 pub mod integrity;
 pub mod intent_engine;
 pub mod intent_protocol;
+pub mod jsonc;
 pub mod knowledge;
 pub mod knowledge_embedding;
 pub mod language_capabilities;

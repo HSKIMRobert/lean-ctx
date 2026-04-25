@@ -143,6 +143,14 @@ pub struct Config {
     /// Stable chunks are emitted first to maximize prompt cache hits.
     #[serde(default)]
     pub content_defined_chunking: bool,
+    /// Skip session/knowledge/gotcha blocks in MCP instructions to minimize token overhead.
+    /// Override via LEAN_CTX_MINIMAL env var.
+    #[serde(default)]
+    pub minimal_overhead: bool,
+    /// Disable shell hook injection (the _lc() function that wraps CLI commands).
+    /// Override via LEAN_CTX_NO_HOOK env var.
+    #[serde(default)]
+    pub shell_hook_disabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -354,6 +362,8 @@ impl Default for Config {
             archive: ArchiveConfig::default(),
             allow_paths: Vec::new(),
             content_defined_chunking: false,
+            minimal_overhead: false,
+            shell_hook_disabled: false,
         }
     }
 }
@@ -391,6 +401,14 @@ impl Config {
         } else {
             self.disabled_tools.clone()
         }
+    }
+
+    pub fn minimal_overhead_effective(&self) -> bool {
+        std::env::var("LEAN_CTX_MINIMAL").is_ok() || self.minimal_overhead
+    }
+
+    pub fn shell_hook_disabled_effective(&self) -> bool {
+        std::env::var("LEAN_CTX_NO_HOOK").is_ok() || self.shell_hook_disabled
     }
 }
 
@@ -767,6 +785,12 @@ impl Config {
         }
         if !local.allow_paths.is_empty() {
             self.allow_paths.extend(local.allow_paths);
+        }
+        if local.minimal_overhead {
+            self.minimal_overhead = true;
+        }
+        if local.shell_hook_disabled {
+            self.shell_hook_disabled = true;
         }
     }
 

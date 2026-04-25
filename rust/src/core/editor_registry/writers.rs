@@ -141,7 +141,7 @@ fn write_mcp_json(
 
     if target.config_path.exists() {
         let content = std::fs::read_to_string(&target.config_path).map_err(|e| e.to_string())?;
-        let mut json = match serde_json::from_str::<Value>(&content) {
+        let mut json = match crate::core::jsonc::parse_jsonc(&content) {
             Ok(v) => v,
             Err(e) => {
                 if !opts.overwrite_invalid {
@@ -266,7 +266,7 @@ fn write_zed_config(
 
     if target.config_path.exists() {
         let content = std::fs::read_to_string(&target.config_path).map_err(|e| e.to_string())?;
-        let mut json = match serde_json::from_str::<Value>(&content) {
+        let mut json = match crate::core::jsonc::parse_jsonc(&content) {
             Ok(v) => v,
             Err(e) => {
                 if !opts.overwrite_invalid {
@@ -371,7 +371,7 @@ fn write_vscode_mcp(
 
     if target.config_path.exists() {
         let content = std::fs::read_to_string(&target.config_path).map_err(|e| e.to_string())?;
-        let mut json = match serde_json::from_str::<Value>(&content) {
+        let mut json = match crate::core::jsonc::parse_jsonc(&content) {
             Ok(v) => v,
             Err(e) => {
                 if !opts.overwrite_invalid {
@@ -456,7 +456,7 @@ fn write_opencode_config(
 
     if target.config_path.exists() {
         let content = std::fs::read_to_string(&target.config_path).map_err(|e| e.to_string())?;
-        let mut json = match serde_json::from_str::<Value>(&content) {
+        let mut json = match crate::core::jsonc::parse_jsonc(&content) {
             Ok(v) => v,
             Err(e) => {
                 if !opts.overwrite_invalid {
@@ -539,7 +539,7 @@ fn write_jetbrains_config(
 
     if target.config_path.exists() {
         let content = std::fs::read_to_string(&target.config_path).map_err(|e| e.to_string())?;
-        let mut json = match serde_json::from_str::<Value>(&content) {
+        let mut json = match crate::core::jsonc::parse_jsonc(&content) {
             Ok(v) => v,
             Err(e) => {
                 if !opts.overwrite_invalid {
@@ -605,7 +605,7 @@ fn write_amp_config(
 
     if target.config_path.exists() {
         let content = std::fs::read_to_string(&target.config_path).map_err(|e| e.to_string())?;
-        let mut json = match serde_json::from_str::<Value>(&content) {
+        let mut json = match crate::core::jsonc::parse_jsonc(&content) {
             Ok(v) => v,
             Err(e) => {
                 if !opts.overwrite_invalid {
@@ -666,7 +666,7 @@ fn write_crush_config(
 
     if target.config_path.exists() {
         let content = std::fs::read_to_string(&target.config_path).map_err(|e| e.to_string())?;
-        let mut json = match serde_json::from_str::<Value>(&content) {
+        let mut json = match crate::core::jsonc::parse_jsonc(&content) {
             Ok(v) => v,
             Err(e) => {
                 if !opts.overwrite_invalid {
@@ -810,7 +810,7 @@ fn write_gemini_settings(
 
     if target.config_path.exists() {
         let content = std::fs::read_to_string(&target.config_path).map_err(|e| e.to_string())?;
-        let mut json = match serde_json::from_str::<Value>(&content) {
+        let mut json = match crate::core::jsonc::parse_jsonc(&content) {
             Ok(v) => v,
             Err(e) => {
                 if !opts.overwrite_invalid {

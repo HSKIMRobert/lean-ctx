@@ -58,8 +58,15 @@ Full instructions at ~/.claude/CLAUDE.md (imports rules/lean-ctx.md)";
 }
 
 fn build_full_instructions(crp_mode: CrpMode, client_name: &str) -> String {
+    let cfg = crate::core::config::Config::load();
+    let minimal = cfg.minimal_overhead_effective();
+
     let profile = crate::core::litm::LitmProfile::from_client_name(client_name);
-    let loaded_session = crate::core::session::SessionState::load_latest();
+    let loaded_session = if minimal {
+        None
+    } else {
+        crate::core::session::SessionState::load_latest()
+    };
 
     let session_block = match loaded_session {
         Some(ref session) => {
@@ -77,15 +84,18 @@ fn build_full_instructions(crp_mode: CrpMode, client_name: &str) -> String {
         None => String::new(),
     };
 
-    // Reuse loaded session instead of loading again (prevents race + saves I/O)
-    let project_root_for_blocks = loaded_session
-        .as_ref()
-        .and_then(|s| s.project_root.clone())
-        .or_else(|| {
-            std::env::current_dir()
-                .ok()
-                .map(|p| p.to_string_lossy().to_string())
-        });
+    let project_root_for_blocks = if minimal {
+        None
+    } else {
+        loaded_session
+            .as_ref()
+            .and_then(|s| s.project_root.clone())
+            .or_else(|| {
+                std::env::current_dir()
+                    .ok()
+                    .map(|p| p.to_string_lossy().to_string())
+            })
+    };
 
     let knowledge_block = match &project_root_for_blocks {
         Some(root) => {
