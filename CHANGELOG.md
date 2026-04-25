@@ -3,7 +3,7 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## v3.4.0 — Token Overhead Reduction, JSONC Support, XDG Compliance, Shell Hook Control
+## [3.4.0] — 2026-04-25
 
 Addresses GitHub issues #150, #151, #152, #153.
 
