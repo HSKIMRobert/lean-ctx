@@ -176,6 +176,69 @@ fn bench_total_input_overhead() {
 }
 
 #[test]
+fn bench_lazy_default_vs_full_overhead() {
+    let lazy_tools = lean_ctx::tool_defs::lazy_tool_defs();
+    let full_tools = lean_ctx::tool_defs::granular_tool_defs();
+
+    let tool_tokens = |tools: &[rmcp::model::Tool]| -> (usize, usize) {
+        let desc: usize = tools
+            .iter()
+            .map(|t| {
+                t.description
+                    .as_ref()
+                    .map(|d| count_tokens(d.as_ref()))
+                    .unwrap_or(0)
+            })
+            .sum();
+        let schema: usize = tools
+            .iter()
+            .map(|t| count_tokens(&serde_json::to_string(&t.input_schema).unwrap_or_default()))
+            .sum();
+        (desc, schema)
+    };
+
+    let (lazy_desc_tokens, lazy_schema_tokens) = tool_tokens(&lazy_tools);
+    let lazy_total = lazy_desc_tokens + lazy_schema_tokens;
+
+    let (full_desc_tokens, full_schema_tokens) = tool_tokens(&full_tools);
+    let full_total = full_desc_tokens + full_schema_tokens;
+    let _ = (full_desc_tokens, full_schema_tokens);
+
+    let instructions = lean_ctx::server::build_instructions_for_test(CrpMode::Off);
+    let instr_tokens = count_tokens(&instructions);
+
+    let lazy_user_overhead = instr_tokens + lazy_total;
+    let full_user_overhead = instr_tokens + full_total;
+    let reduction_pct = (full_total - lazy_total) as f64 / full_total as f64 * 100.0;
+
+    eprintln!("\n{}", "=".repeat(70));
+    eprintln!("  LAZY (DEFAULT) vs FULL TOOL OVERHEAD");
+    eprintln!("{}", "=".repeat(70));
+    eprintln!("  Lazy tools:   {:>3} tools, {:>5} tokens (desc+schema)", lazy_tools.len(), lazy_total);
+    eprintln!("  Full tools:   {:>3} tools, {:>5} tokens (desc+schema)", full_tools.len(), full_total);
+    eprintln!("  Instructions:          {:>5} tokens", instr_tokens);
+    eprintln!("  {}", "-".repeat(50));
+    eprintln!("  User overhead (LAZY DEFAULT):  {:>5} tokens", lazy_user_overhead);
+    eprintln!("  User overhead (FULL opt-in):   {:>5} tokens", full_user_overhead);
+    eprintln!("  Tool token reduction:          {:>5.1}%", reduction_pct);
+    eprintln!("{}", "=".repeat(70));
+
+    assert!(
+        lazy_tools.len() <= 10,
+        "Lazy mode should expose <=10 tools, got {}",
+        lazy_tools.len()
+    );
+    assert!(
+        lazy_user_overhead < 2500,
+        "Lazy default overhead should be <2500 tokens, got {lazy_user_overhead}"
+    );
+    assert!(
+        reduction_pct > 60.0,
+        "Tool token reduction should be >60%, got {reduction_pct:.1}%"
+    );
+}
+
+#[test]
 fn bench_decoder_block_token_count() {
     let block = instruction_decoder_block();
     let tokens = count_tokens(&block);
