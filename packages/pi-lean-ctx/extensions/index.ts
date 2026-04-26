@@ -274,11 +274,11 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     ...baseBashTool,
     description:
-      "Execute a bash command through lean-ctx compression for 60-90% smaller output.",
-    promptSnippet: "Run shell commands through lean-ctx compression.",
+      "Execute a bash command through lean-ctx compression.",
+    promptSnippet: "Run shell commands (compressed output)",
     promptGuidelines: [
-      "Use bash normally — commands are automatically routed through lean-ctx.",
-      "lean-ctx compresses verbose CLI output (git, cargo, npm, docker, kubectl, etc.) automatically.",
+      "Use for any shell command—output (auto-compressed)",
+      "Avoid for interactive prompts; lean-ctx buffers output.",
     ],
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       try {
@@ -307,10 +307,10 @@ export default function (pi: ExtensionAPI) {
     label: "Read",
     description:
       "Read file contents through lean-ctx with automatic mode selection (full/map/signatures) based on file type and size.",
-    promptSnippet: "Read files through lean-ctx compression with smart mode selection.",
+    promptSnippet: "Smart file read",
     promptGuidelines: [
-      "Use read normally — lean-ctx automatically selects the optimal compression mode.",
-      "Small files get full reads, large code files get map/signatures mode.",
+      "Auto-selects mode: full (<8KB), map (8-96KB), signatures (>96KB) for code.",
+      "Text/configs always full-read; images passthrough.",
     ],
     parameters: readSchema,
     renderCall(args, theme, context) {
@@ -411,8 +411,11 @@ export default function (pi: ExtensionAPI) {
     name: "ls",
     label: "ls",
     description: "List directory contents through lean-ctx compression.",
-    promptSnippet: "List directory contents with token-optimized output.",
-    promptGuidelines: ["Use ls normally — output is automatically compressed by lean-ctx."],
+    promptSnippet: "Directory listing (Compressed)",
+    promptGuidelines: [
+      "ls → compressed output (respects .gitignore).",
+      "Use limit param to truncate long lists.",
+    ],
     parameters: lsSchema,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const requestedPath = normalizePathArg(params.path || ".");
@@ -430,8 +433,11 @@ export default function (pi: ExtensionAPI) {
     name: "find",
     label: "find",
     description: "Find files by glob pattern through lean-ctx compression.",
-    promptSnippet: "Find files with compressed output.",
-    promptGuidelines: ["Use find normally — output respects .gitignore and is compressed by lean-ctx."],
+    promptSnippet: "File search (Compressed)",
+    promptGuidelines: [
+      "find [pattern] → lean-ctx compressed results.",
+      "Combines with .gitignore; use limit to cap results.",
+    ],
     parameters: findSchema,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const requestedPath = normalizePathArg(params.path || ".");
@@ -449,8 +455,11 @@ export default function (pi: ExtensionAPI) {
     name: "grep",
     label: "grep",
     description: "Search file contents through ripgrep + lean-ctx compression.",
-    promptSnippet: "Search code with compressed, grouped results.",
-    promptGuidelines: ["Use grep normally — results are compressed and grouped by lean-ctx."],
+    promptSnippet: "Compressed code search (grouped results)",
+    promptGuidelines: [
+      "rg → lean-ctx compressed output (line numbers, no color).",
+      "Supports standard rg flags: -i, -F, -C, -m, --glob.",
+    ],
     parameters: grepSchema,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const requestedPath = normalizePathArg(params.path || ".");
