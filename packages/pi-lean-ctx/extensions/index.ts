@@ -274,7 +274,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     ...baseBashTool,
     description:
-      "Execute a bash command through lean-ctx compression for 60-90% smaller output.",
+      "Execute a bash command through lean-ctx compression.",
     promptSnippet: "Run shell commands (compressed output)",
     promptGuidelines: [
       "Use for any shell command—output auto-compressed (60-90% savings).",
@@ -411,7 +411,7 @@ export default function (pi: ExtensionAPI) {
     name: "ls",
     label: "ls",
     description: "List directory contents through lean-ctx compression.",
-    promptSnippet: "Compressed dir listing",
+    promptSnippet: "Directory listing (Compressed)",
     promptGuidelines: [
       "ls → compressed output (respects .gitignore).",
       "Use limit param to truncate long lists.",
@@ -433,7 +433,7 @@ export default function (pi: ExtensionAPI) {
     name: "find",
     label: "find",
     description: "Find files by glob pattern through lean-ctx compression.",
-    promptSnippet: "Compressed file search",
+    promptSnippet: "File search (Compressed)",
     promptGuidelines: [
       "find [pattern] → lean-ctx compressed results.",
       "Combines with .gitignore; use limit to cap results.",
