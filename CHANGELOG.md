@@ -3,6 +3,34 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.4.3] — 2026-04-27
+
+### Fixed
+
+- **Pi Agent compression loop** — agents using `pi-lean-ctx` could get stuck in a compression loop where `bash` output was too aggressively compressed, preventing the agent from extracting needed information. The `bash` tool now supports a `raw=true` parameter that bypasses compression entirely when exact output is critical. Fixes #159.
+- **Hook handlers ignore `LEAN_CTX_DISABLED`** — `handle_rewrite`, `handle_codex_pretooluse`, `handle_copilot`, and `handle_rewrite_inline` now check `LEAN_CTX_DISABLED` env var and exit immediately when set. This prevents Claude Code subagents and rewind operations from being blocked by hooks. Fixes #162.
+- **Telemetry claims in README/SECURITY.md** — replaced inaccurate "Zero telemetry / Zero network requests" claims with honest documentation of what network activity exists (daily version check, opt-in anonymous stats). Fixes #160.
+
+### Added
+
+- **Version check opt-out** — new `update_check_disabled = true` config option and `LEAN_CTX_NO_UPDATE_CHECK=1` env var to completely disable the daily version check against `leanctx.com/version.txt`.
+- **Pi Agent `raw` parameter** — `bash` tool in `pi-lean-ctx` now accepts `raw=true` to skip compression, matching `ctx_shell raw=true` behavior in the MCP server.
+- **`is_disabled()` guard** — centralized helper in `hook_handlers.rs` for consistent `LEAN_CTX_DISABLED` checks across all hook entry points.
+- **New integration tests** — `hook_rewrite_disabled_produces_no_output` and `codex_pretooluse_disabled_exits_cleanly` verify the disabled guard behavior. `run_hook_test` helper explicitly removes inherited env vars to prevent test pollution.
+
+### Changed
+
+- **Data sharing default flipped** — `lean-ctx setup` now asks `[y/N]` (opt-in) instead of `[Y/n]` (opt-out). Users must explicitly choose to enable anonymous stats sharing.
+- **Pi Agent tool prompts overhauled** — `description` fields for all 5 Pi tools (`bash`, `read`, `ls`, `find`, `grep`) rewritten to provide clear guidance on which tool to use for which task, aligning with Pi Agent's architecture where `description` is the primary LLM guidance field. Redundant `promptGuidelines` removed from `ls`/`find`/`grep`.
+- **Pi Agent explicit entry point** — `pi-lean-ctx` now uses `./extensions/index.ts` as explicit entry point instead of relying on default resolution. PR #158 by @riicodespretty.
+
+### Credits
+
+- @glemsom — Pi Agent prompt improvements (PR #157) and architectural insights on `promptGuidelines` behavior (PR #161)
+- @johnwhoyou — `LEAN_CTX_DISABLED` hook handler fix (PR #163)
+- @riicodespretty — explicit extension entry point (PR #158)
+- @pavelxdd — telemetry transparency request (Issue #160)
+
 ## [3.4.2] — 2026-04-26
 
 ### Fixed
