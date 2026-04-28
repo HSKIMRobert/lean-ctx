@@ -373,14 +373,20 @@ pub fn load_role(name: &str) -> Option<Role> {
 }
 
 pub fn active_role_name() -> String {
-    if let Ok(val) = env::var("LEAN_CTX_ROLE") {
-        if !val.is_empty() {
-            return val;
-        }
+    let lock = ACTIVE_ROLE_NAME.get_or_init(|| std::sync::Mutex::new(String::new()));
+    let mut guard = lock
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+    if guard.is_empty() {
+        let from_env = env::var("LEAN_CTX_ROLE")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        *guard = from_env.unwrap_or_else(|| "coder".to_string());
     }
-    let lock = ACTIVE_ROLE_NAME.get_or_init(|| std::sync::Mutex::new("coder".to_string()));
-    lock.lock()
-        .map_or_else(|_| "coder".to_string(), |g| g.clone())
+
+    guard.clone()
 }
 
 pub fn active_role() -> Role {
