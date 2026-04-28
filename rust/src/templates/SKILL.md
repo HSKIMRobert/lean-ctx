@@ -128,6 +128,8 @@ MCP tools for CCP:
 - `ctx_session finding "file:line — summary"` — record key finding
 - `ctx_session decision "summary"` — record architectural decision
 - `ctx_session save` — force persist session to disk
+- `ctx_session role` — list/switch agent roles (governance)
+- `ctx_session budget` — show budget status vs role limits
 - `ctx_wrapped` — generate savings report card in chat
 
 ## Analytics

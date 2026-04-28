@@ -56,6 +56,8 @@ NEVER loop trying to make Edit work. If it fails, switch to ctx_edit immediately
 - `ctx_heatmap` — file-level savings heatmap
 - `ctx_benchmark` — find optimal mode for a file
 - `ctx_session load` — on new chat, restore previous session
+- `ctx_session role` — list/switch agent roles (governance)
+- `ctx_session budget` — show budget status vs role limits
 - `ctx_workflow` — state machine + evidence + tool gating
 
 ## Proactive Tools
