@@ -3,6 +3,29 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.4.5] — 2026-04-28
+
+### Added
+
+- **Agent Harness: Roles & Permissions** — 5 built-in roles (`coder`, `reviewer`, `debugger`, `ops`, `admin`) with configurable tool policies and shell access. Custom roles via `.lean-ctx/roles/*.toml` with inheritance. Server-side middleware blocks unauthorized tools with clear feedback. `ctx_session action=role` to list/switch roles at runtime.
+- **Agent Harness: Budget Tracking** — per-session budget enforcement against role limits (context tokens, shell invocations, cost USD). Warning at 80%, blocking at 100%. `ctx_session action=budget` to check status. Budgets reset on role switch or session reset.
+- **Agent Harness: Events** — new `EventKind` variants: `RoleChanged`, `PolicyViolation`, `BudgetWarning`, `BudgetExhausted`. All rendered in TUI Observatory with appropriate icons and colors.
+- **Agent Harness: Cost Attribution** — real-time per-tool-call cost estimation using `ModelPricing`, recorded into the budget tracker for accurate USD tracking.
+- **Agent Harness documentation** — new docs page with full i18n (53 keys × 11 languages), accessible at `/docs/agent-harness`.
+- **`LEAN_CTX_DATA_DIR` for cloud config** — cloud client now respects the `LEAN_CTX_DATA_DIR` environment variable for its config directory. PR #168 by @glemsom.
+
+### Fixed
+
+- **MCP server crash recovery** — tool handler panics no longer kill the server (`panic = "unwind"` + `catch_unwind`). Server returns error message and stays alive for the next call. PR #167 by @DustinReynoldsPE.
+- **`lean-ctx setup` ignoring config changes** — running setup a second time no longer silently ignores the user's new choices for `terse_agent` and `output_density`. Values are now upserted instead of skipped when keys already exist in `config.toml`.
+- **Dashboard cost mismatch with `lean-ctx gain`** — dashboard computed cost savings with hardcoded pricing ($2.50/M input) while `gain` used dynamic model-specific rates. Dashboard now syncs pricing from the gain API for consistent numbers.
+- **`ctx_session` tool description missing actions** — `role` and `budget` actions were implemented but not listed in the MCP tool descriptor, so LLMs couldn't discover them. Now documented in granular tool defs and templates.
+
+### Credits
+
+- @DustinReynoldsPE — MCP panic recovery (PR #167)
+- @glemsom — `LEAN_CTX_DATA_DIR` cloud support (PR #168)
+
 ## [3.4.4] — 2026-04-28
 
 ### Fixed
