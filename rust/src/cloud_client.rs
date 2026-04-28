@@ -1,6 +1,9 @@
 use std::path::PathBuf;
 
 fn config_dir() -> PathBuf {
+    if let Ok(dir) = std::env::var("LEAN_CTX_DATA_DIR") {
+        return PathBuf::from(dir).join("cloud");
+    }
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
     home.join(".lean-ctx").join("cloud")
 }
