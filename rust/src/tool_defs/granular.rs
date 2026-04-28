@@ -295,18 +295,18 @@ symbol (lookup definition/usages as file::name), impact (blast radius of changes
             "ctx_session",
             "Cross-session memory (CCP). Actions: load (restore previous session ~400 tok), \
 save, status, task (set current task), finding (record discovery), decision (record choice), \
-reset, list (show sessions), cleanup.",
+reset, list (show sessions), cleanup, profile (show/switch context profile).",
             json!({
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["status", "load", "save", "task", "finding", "decision", "reset", "list", "cleanup"],
+                        "enum": ["status", "load", "save", "task", "finding", "decision", "reset", "list", "cleanup", "profile"],
                         "description": "Session operation to perform"
                     },
                     "value": {
                         "type": "string",
-                        "description": "Value for task/finding/decision actions"
+                        "description": "Value for task/finding/decision/profile actions"
                     },
                     "session_id": {
                         "type": "string",
@@ -1027,7 +1027,7 @@ symbol (lookup definition/usages as file::name), impact (blast radius of changes
         ("ctx_session", "Cross-session memory (CCP). Actions: load (restore previous session ~400 tok), \
 save, status, task (set current task), finding (record discovery), decision (record choice), \
 reset, list (show sessions), cleanup, snapshot (build compaction snapshot ~2KB), \
-restore (rebuild state from snapshot after context compaction).", json!({"type": "object", "properties": {"action": {"type": "string"}, "value": {"type": "string"}, "session_id": {"type": "string"}}, "required": ["action"]})),
+restore (rebuild state from snapshot after context compaction), profile (show/switch context profile).", json!({"type": "object", "properties": {"action": {"type": "string"}, "value": {"type": "string"}, "session_id": {"type": "string"}}, "required": ["action"]})),
         ("ctx_knowledge", "Persistent project knowledge with temporal facts + contradiction detection. Actions: remember (auto-tracks validity + detects contradictions), recall, pattern, consolidate, \
 gotcha (record a bug to never repeat — trigger+resolution), timeline (fact version history), rooms (list knowledge categories), \
 search (cross-session/cross-project), wakeup (compact AAAK briefing), status, remove, export, embeddings_status|embeddings_reset|embeddings_reindex.", json!({"type": "object", "properties": {"action": {"type": "string"}, "category": {"type": "string"}, "key": {"type": "string"}, "value": {"type": "string"}, "query": {"type": "string"}, "trigger": {"type": "string"}, "resolution": {"type": "string"}, "severity": {"type": "string"}}, "required": ["action"]})),

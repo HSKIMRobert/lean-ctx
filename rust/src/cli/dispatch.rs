@@ -635,6 +635,10 @@ pub fn run() {
                 super::cmd_benchmark(&rest);
                 return;
             }
+            "profile" => {
+                super::cmd_profile(&rest);
+                return;
+            }
             "config" => {
                 super::cmd_config(&rest);
                 return;
@@ -894,6 +898,7 @@ COMMANDS:
     filter [list|validate|init]    Manage custom compression filters (~/.lean-ctx/filters/)
     session                        Show adoption statistics
     config                         Show/edit configuration (~/.lean-ctx/config.toml)
+    profile [list|show|diff|create|set]  Manage context profiles
     theme [list|set|export|import] Customize terminal colors and themes
     tee [list|clear|show <file>|last] Manage output tee files (~/.lean-ctx/tee/)
     terse [off|lite|full|ultra]    Set agent output verbosity (saves 25-65% output tokens)

@@ -108,7 +108,53 @@ pub fn handle(
 
         "resume" => session.build_resume_block(),
 
-        _ => format!("Unknown action: {action}. Use: status, load, save, task, finding, decision, reset, list, cleanup, snapshot, restore, resume"),
+        "profile" => {
+            use crate::core::profiles;
+            if let Some(name) = value {
+                if profiles::load_profile(name).is_some() {
+                    std::env::set_var("LEAN_CTX_PROFILE", name);
+                    let p = profiles::active_profile();
+                    format!(
+                        "Profile switched to '{name}'.\n\
+                         Read mode: {}, Budget: {} tokens, CRP: {}, Density: {}",
+                        p.read.default_mode,
+                        p.budget.max_context_tokens,
+                        p.compression.crp_mode,
+                        p.compression.output_density,
+                    )
+                } else {
+                    let available: Vec<String> =
+                        profiles::list_profiles().iter().map(|p| p.name.clone()).collect();
+                    format!(
+                        "Profile '{name}' not found. Available: {}",
+                        available.join(", ")
+                    )
+                }
+            } else {
+                let name = profiles::active_profile_name();
+                let p = profiles::active_profile();
+                let list = profiles::list_profiles();
+                let mut out = format!(
+                    "Active profile: {name}\n\
+                     Read: {}, Budget: {} tok, CRP: {}\n\n\
+                     Available profiles:",
+                    p.read.default_mode,
+                    p.budget.max_context_tokens,
+                    p.compression.crp_mode,
+                );
+                for info in &list {
+                    let marker = if info.name == name { " *" } else { "  " };
+                    out.push_str(&format!(
+                        "\n{marker} {:<14} ({}) {}",
+                        info.name, info.source, info.description
+                    ));
+                }
+                out.push_str("\n\nSwitch: ctx_session action=profile value=<name>");
+                out
+            }
+        }
+
+        _ => format!("Unknown action: {action}. Use: status, load, save, task, finding, decision, reset, list, cleanup, snapshot, restore, resume, profile"),
     }
 }
 
