@@ -25,11 +25,16 @@ impl LeanCtxServer {
                     session.task.as_ref().map(|t| t.description.clone())
                 };
                 let task_ref = current_task.as_deref();
+                let profile = crate::core::profiles::active_profile();
                 let mut mode = if let Some(m) = get_str(args, "mode") {
                     m
-                } else {
+                } else if profile.read.default_mode.trim().is_empty()
+                    || profile.read.default_mode.trim() == "auto"
+                {
                     let cache = self.cache.read().await;
                     crate::tools::ctx_smart_read::select_mode_with_task(&cache, &path, task_ref)
+                } else {
+                    profile.read.default_mode.clone()
                 };
                 let mut fresh = get_bool(args, "fresh").unwrap_or(false);
                 let start_line = get_int(args, "start_line");
@@ -53,7 +58,7 @@ impl LeanCtxServer {
                         &mut cache,
                         &path,
                         &effective_mode,
-                        self.crp_mode,
+                        crate::tools::CrpMode::effective(),
                         task_ref,
                     )
                 } else {
@@ -61,7 +66,7 @@ impl LeanCtxServer {
                         &mut cache,
                         &path,
                         &effective_mode,
-                        self.crp_mode,
+                        crate::tools::CrpMode::effective(),
                         task_ref,
                     )
                 };
@@ -204,7 +209,15 @@ impl LeanCtxServer {
                             .map_err(|e| ErrorData::invalid_params(e, None))?,
                     );
                 }
-                let mode = get_str(args, "mode").unwrap_or_else(|| "full".to_string());
+                let mode = get_str(args, "mode").unwrap_or_else(|| {
+                    let p = crate::core::profiles::active_profile();
+                    if p.read.default_mode.trim() == "auto" || p.read.default_mode.trim().is_empty()
+                    {
+                        "full".to_string()
+                    } else {
+                        p.read.default_mode
+                    }
+                });
                 let current_task = {
                     let session = self.session.read().await;
                     session.task.as_ref().map(|t| t.description.clone())
@@ -214,7 +227,7 @@ impl LeanCtxServer {
                     &mut cache,
                     &paths,
                     &mode,
-                    self.crp_mode,
+                    crate::tools::CrpMode::effective(),
                     current_task.as_deref(),
                 );
                 let mut total_original: usize = 0;
@@ -242,7 +255,11 @@ impl LeanCtxServer {
                     None => return Err(ErrorData::invalid_params("path is required", None)),
                 };
                 let mut cache = self.cache.write().await;
-                let output = crate::tools::ctx_smart_read::handle(&mut cache, &path, self.crp_mode);
+                let output = crate::tools::ctx_smart_read::handle(
+                    &mut cache,
+                    &path,
+                    crate::tools::CrpMode::effective(),
+                );
                 let original = cache.get(&path).map_or(0, |e| e.original_tokens);
                 let tokens = crate::core::tokens::count_tokens(&output);
                 drop(cache);
@@ -346,7 +363,7 @@ impl LeanCtxServer {
                     &mut cache,
                     &paths,
                     budget,
-                    self.crp_mode,
+                    crate::tools::CrpMode::effective(),
                     task.as_deref(),
                 );
                 drop(cache);

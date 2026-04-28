@@ -34,8 +34,11 @@ impl LeanCtxServer {
             "ctx_compress" => {
                 let include_sigs = get_bool(args, "include_signatures").unwrap_or(true);
                 let cache = self.cache.read().await;
-                let result =
-                    crate::tools::ctx_compress::handle(&cache, include_sigs, self.crp_mode);
+                let result = crate::tools::ctx_compress::handle(
+                    &cache,
+                    include_sigs,
+                    crate::tools::CrpMode::effective(),
+                );
                 drop(cache);
                 self.record_call("ctx_compress", 0, 0, None).await;
                 result
@@ -58,7 +61,7 @@ impl LeanCtxServer {
                         _ => crate::core::benchmark::format_terminal(&bench),
                     }
                 } else {
-                    crate::tools::ctx_benchmark::handle(&path, self.crp_mode)
+                    crate::tools::ctx_benchmark::handle(&path, crate::tools::CrpMode::effective())
                 };
                 self.record_call("ctx_benchmark", 0, 0, None).await;
                 result
@@ -66,7 +69,11 @@ impl LeanCtxServer {
             "ctx_metrics" => {
                 let cache = self.cache.read().await;
                 let calls = self.tool_calls.read().await;
-                let mut result = crate::tools::ctx_metrics::handle(&cache, &calls, self.crp_mode);
+                let mut result = crate::tools::ctx_metrics::handle(
+                    &cache,
+                    &calls,
+                    crate::tools::CrpMode::effective(),
+                );
                 drop(cache);
                 drop(calls);
                 let stats = self.pipeline_stats.read().await;
@@ -86,7 +93,8 @@ impl LeanCtxServer {
                         .map_err(|e| ErrorData::invalid_params(e, None))?,
                     None => return Err(ErrorData::invalid_params("path is required", None)),
                 };
-                let result = crate::tools::ctx_analyze::handle(&path, self.crp_mode);
+                let result =
+                    crate::tools::ctx_analyze::handle(&path, crate::tools::CrpMode::effective());
                 self.record_call_with_path("ctx_analyze", 0, 0, None, Some(&path))
                     .await;
                 result
@@ -119,8 +127,12 @@ impl LeanCtxServer {
                     .ok_or_else(|| ErrorData::invalid_params("query is required", None))?;
                 let root = get_str(args, "project_root").unwrap_or_else(|| ".".to_string());
                 let mut cache = self.cache.write().await;
-                let output =
-                    crate::tools::ctx_intent::handle(&mut cache, &query, &root, self.crp_mode);
+                let output = crate::tools::ctx_intent::handle(
+                    &mut cache,
+                    &query,
+                    &root,
+                    crate::tools::CrpMode::effective(),
+                );
                 drop(cache);
                 {
                     let mut session = self.session.write().await;
@@ -133,14 +145,19 @@ impl LeanCtxServer {
             "ctx_response" => {
                 let text = get_str(args, "text")
                     .ok_or_else(|| ErrorData::invalid_params("text is required", None))?;
-                let output = crate::tools::ctx_response::handle(&text, self.crp_mode);
+                let output =
+                    crate::tools::ctx_response::handle(&text, crate::tools::CrpMode::effective());
                 self.record_call("ctx_response", 0, 0, None).await;
                 output
             }
             "ctx_context" => {
                 let cache = self.cache.read().await;
                 let turn = self.call_count.load(std::sync::atomic::Ordering::Relaxed);
-                let result = crate::tools::ctx_context::handle_status(&cache, turn, self.crp_mode);
+                let result = crate::tools::ctx_context::handle_status(
+                    &cache,
+                    turn,
+                    crate::tools::CrpMode::effective(),
+                );
                 drop(cache);
                 self.record_call("ctx_context", 0, 0, None).await;
                 result
@@ -160,7 +177,7 @@ impl LeanCtxServer {
                     .resolve_path(&get_str(args, "project_root").unwrap_or_else(|| ".".to_string()))
                     .await
                     .map_err(|e| ErrorData::invalid_params(e, None))?;
-                let crp_mode = self.crp_mode;
+                let crp_mode = crate::tools::CrpMode::effective();
                 let action_for_record = action.clone();
                 let mut cache = self.cache.write().await;
                 let result = crate::tools::ctx_graph::handle(
@@ -250,7 +267,7 @@ impl LeanCtxServer {
                     session.project_root.clone()
                 };
                 let cache = self.cache.read().await;
-                let crp_mode = self.crp_mode;
+                let crp_mode = crate::tools::CrpMode::effective();
                 let result = crate::tools::ctx_overview::handle(
                     &cache,
                     task.as_deref(),
@@ -279,7 +296,7 @@ impl LeanCtxServer {
                     &mut cache,
                     &task,
                     resolved_path.as_deref(),
-                    self.crp_mode,
+                    crate::tools::CrpMode::effective(),
                 );
                 drop(cache);
 
@@ -384,7 +401,7 @@ impl LeanCtxServer {
                     resolved_changed.as_deref(),
                     budget_tokens,
                     max_files,
-                    self.crp_mode,
+                    crate::tools::CrpMode::effective(),
                 );
                 drop(cache);
                 self.record_call("ctx_prefetch", 0, 0, Some("prefetch".to_string()))
@@ -416,7 +433,7 @@ impl LeanCtxServer {
                         &query,
                         &path,
                         top_k,
-                        self.crp_mode,
+                        crate::tools::CrpMode::effective(),
                         languages.as_deref(),
                         path_glob.as_deref(),
                         mode.as_deref(),

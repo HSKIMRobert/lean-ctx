@@ -66,7 +66,7 @@ impl LeanCtxServer {
                     || std::env::var("LEAN_CTX_DISABLED").is_ok();
                 let cmd_clone = command.clone();
                 let cwd_clone = effective_cwd.clone();
-                let crp_mode = self.crp_mode;
+                let crp_mode = crate::tools::CrpMode::effective();
 
                 let (result_out, original, saved, tee_hint) =
                     tokio::task::spawn_blocking(move || {
@@ -141,7 +141,7 @@ impl LeanCtxServer {
                 let ext = get_str(args, "ext");
                 let max = get_int(args, "max_results").unwrap_or(20) as usize;
                 let no_gitignore = get_bool(args, "ignore_gitignore").unwrap_or(false);
-                let crp = self.crp_mode;
+                let crp = crate::tools::CrpMode::effective();
                 let respect = !no_gitignore;
                 let search_result = tokio::time::timeout(
                     std::time::Duration::from_secs(30),
