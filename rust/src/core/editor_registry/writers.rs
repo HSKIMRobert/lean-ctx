@@ -193,8 +193,21 @@ fn try_claude_mcp_add(desired: &Value) -> Result<WriteResult, String> {
 
     let server_json = serde_json::to_string(desired).map_err(|e| e.to_string())?;
 
-    let mut child = Command::new("claude")
-        .args(["mcp", "add-json", "--scope", "user", "lean-ctx"])
+    // On Windows, `claude` may be a `.cmd` shim and cannot be executed directly
+    // via CreateProcess; route through `cmd /C` for reliable invocation.
+    let mut cmd = if cfg!(windows) {
+        let mut c = Command::new("cmd");
+        c.args([
+            "/C", "claude", "mcp", "add-json", "--scope", "user", "lean-ctx",
+        ]);
+        c
+    } else {
+        let mut c = Command::new("claude");
+        c.args(["mcp", "add-json", "--scope", "user", "lean-ctx"]);
+        c
+    };
+
+    let mut child = cmd
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
