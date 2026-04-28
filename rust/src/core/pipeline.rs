@@ -139,6 +139,17 @@ pub trait Layer {
     fn process(&self, input: LayerInput) -> LayerOutput;
 }
 
+/// Returns whether a given layer is enabled according to a profile's pipeline config.
+pub fn is_layer_enabled(kind: LayerKind, cfg: &crate::core::profiles::PipelineConfig) -> bool {
+    match kind {
+        LayerKind::Input | LayerKind::Delivery => true,
+        LayerKind::Intent => cfg.intent,
+        LayerKind::Relevance => cfg.relevance,
+        LayerKind::Compression => cfg.compression,
+        LayerKind::Translation => cfg.translation,
+    }
+}
+
 /// A chain of processing layers that content flows through sequentially.
 pub struct Pipeline {
     layers: Vec<Box<dyn Layer>>,
@@ -154,6 +165,19 @@ impl Pipeline {
     pub fn add_layer(mut self, layer: Box<dyn Layer>) -> Self {
         self.layers.push(layer);
         self
+    }
+
+    /// Appends a layer only if the profile's pipeline config allows it.
+    pub fn add_layer_if_enabled(
+        self,
+        layer: Box<dyn Layer>,
+        cfg: &crate::core::profiles::PipelineConfig,
+    ) -> Self {
+        if is_layer_enabled(layer.kind(), cfg) {
+            self.add_layer(layer)
+        } else {
+            self
+        }
     }
 
     /// Runs all layers in sequence, collecting per-layer metrics.
@@ -610,5 +634,70 @@ mod tests {
         let formatted = Pipeline::format_metrics(&metrics);
         assert!(formatted.contains("TOTAL"));
         assert!(formatted.contains("500"));
+    }
+
+    #[test]
+    fn is_layer_enabled_respects_config() {
+        let cfg = crate::core::profiles::PipelineConfig {
+            intent: false,
+            relevance: false,
+            compression: true,
+            translation: true,
+        };
+
+        assert!(is_layer_enabled(LayerKind::Input, &cfg));
+        assert!(!is_layer_enabled(LayerKind::Intent, &cfg));
+        assert!(!is_layer_enabled(LayerKind::Relevance, &cfg));
+        assert!(is_layer_enabled(LayerKind::Compression, &cfg));
+        assert!(is_layer_enabled(LayerKind::Translation, &cfg));
+        assert!(is_layer_enabled(LayerKind::Delivery, &cfg));
+    }
+
+    #[test]
+    fn add_layer_if_enabled_skips_disabled() {
+        let cfg = crate::core::profiles::PipelineConfig {
+            intent: false,
+            relevance: true,
+            compression: true,
+            translation: true,
+        };
+
+        let pipeline = Pipeline::new()
+            .add_layer_if_enabled(
+                Box::new(PassthroughLayer {
+                    kind: LayerKind::Input,
+                }),
+                &cfg,
+            )
+            .add_layer_if_enabled(
+                Box::new(PassthroughLayer {
+                    kind: LayerKind::Intent,
+                }),
+                &cfg,
+            )
+            .add_layer_if_enabled(Box::new(CompressionLayer { ratio: 0.5 }), &cfg)
+            .add_layer_if_enabled(
+                Box::new(PassthroughLayer {
+                    kind: LayerKind::Delivery,
+                }),
+                &cfg,
+            );
+
+        let input = LayerInput {
+            content: "x ".repeat(100),
+            tokens: 100,
+            metadata: HashMap::new(),
+        };
+        let (output, metrics) = pipeline.execute(input);
+
+        assert_eq!(
+            metrics.len(),
+            3,
+            "Intent layer should be skipped, leaving Input + Compression + Delivery"
+        );
+        assert_eq!(metrics[0].layer, LayerKind::Input);
+        assert_eq!(metrics[1].layer, LayerKind::Compression);
+        assert_eq!(metrics[2].layer, LayerKind::Delivery);
+        assert_eq!(output.tokens, 50);
     }
 }
