@@ -776,6 +776,21 @@ fn shorten_path(path: &str, home: &str) -> String {
     }
 }
 
+fn upsert_toml_key(content: &mut String, key: &str, value: &str) {
+    let pattern = format!("{key} = ");
+    if let Some(start) = content.find(&pattern) {
+        let line_end = content[start..]
+            .find('\n')
+            .map_or(content.len(), |p| start + p);
+        content.replace_range(start..line_end, &format!("{key} = \"{value}\""));
+    } else {
+        if !content.is_empty() && !content.ends_with('\n') {
+            content.push('\n');
+        }
+        content.push_str(&format!("{key} = \"{value}\"\n"));
+    }
+}
+
 fn configure_premium_features(home: &std::path::Path) {
     use crate::terminal_ui;
     use std::io::Write;
@@ -811,13 +826,13 @@ fn configure_premium_features(home: &std::path::Path) {
         "off"
     };
 
-    if terse_level != "off" && !config_content.contains("terse_agent") {
-        if !config_content.is_empty() && !config_content.ends_with('\n') {
-            config_content.push('\n');
-        }
-        config_content.push_str(&format!("terse_agent = \"{terse_level}\"\n"));
+    if terse_level != "off" {
+        upsert_toml_key(&mut config_content, "terse_agent", terse_level);
         terminal_ui::print_status_ok(&format!("Terse agent: {terse_level}"));
-    } else if terse_level == "off" {
+    } else if config_content.contains("terse_agent") {
+        upsert_toml_key(&mut config_content, "terse_agent", "off");
+        terminal_ui::print_status_ok("Terse agent: off");
+    } else {
         terminal_ui::print_status_skip(
             "Terse agent: off (change later with: lean-ctx terse <level>)",
         );
@@ -866,13 +881,13 @@ fn configure_premium_features(home: &std::path::Path) {
         "normal"
     };
 
-    if density != "normal" && !config_content.contains("output_density") {
-        if !config_content.is_empty() && !config_content.ends_with('\n') {
-            config_content.push('\n');
-        }
-        config_content.push_str(&format!("output_density = \"{density}\"\n"));
+    if density != "normal" {
+        upsert_toml_key(&mut config_content, "output_density", density);
         terminal_ui::print_status_ok(&format!("Output density: {density}"));
-    } else if density == "normal" {
+    } else if config_content.contains("output_density") {
+        upsert_toml_key(&mut config_content, "output_density", "normal");
+        terminal_ui::print_status_ok("Output density: normal");
+    } else {
         terminal_ui::print_status_skip("Output density: normal (change later in config.toml)");
     }
 

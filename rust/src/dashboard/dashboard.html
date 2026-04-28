@@ -677,7 +677,7 @@ const fmt = n => { if (n >= 1e6) return (n/1e6).toFixed(1)+'M'; if (n >= 1e3) re
 const ff = n => n.toLocaleString('en-US');
 const pc = (a,b) => b > 0 ? Math.round(a/b*100) : 0;
 const fu = a => '$' + a.toFixed(2);
-const CM = { i: 2.50, o: 10.0, v: 450, c: 120 };
+let CM = { i: 2.50, o: 10.0, v: 450, c: 120 };
 const isM = n => n.startsWith('ctx_');
 const sb = n => isM(n) ? '<span class="tag tp">MCP</span>' : '<span class="tag tb">Hook</span>';
 
@@ -1365,7 +1365,13 @@ function updateOverview(d, gain) {
     const ring = $('gGainRing');
     if (ring) ring.style.strokeDashoffset = String(Math.max(0, 100 - Number(s.score.total||0)));
     if (s.model && s.model.cost) {
-      lv('vCostBadge', `$${(s.model.cost.input_per_m||0).toFixed(2)}/M in \u00B7 $${(s.model.cost.output_per_m||0).toFixed(2)}/M out`);
+      CM.i = s.model.cost.input_per_m || CM.i;
+      CM.o = s.model.cost.output_per_m || CM.o;
+      lv('vCostBadge', `$${CM.i.toFixed(2)}/M in \u00B7 $${CM.o.toFixed(2)}/M out`);
+    }
+    if (typeof s.avoided_usd === 'number') {
+      lv('vCost', fu(s.avoided_usd));
+      lv('vCostSub', 'model: '+(s.model&&s.model.name||'default'));
     }
   } else {
     lv('vGain', '—');
@@ -1374,8 +1380,9 @@ function updateOverview(d, gain) {
     const ring = $('gGainRing');
     if (ring) ring.style.strokeDashoffset = '100';
   }
-  lv('vCW', fu(co.tW)); lv('vCC', fu(co.tC));
-  lv('vIS', fu(co.iW-co.iC)); lv('vOS', fu(co.oW-co.oC)); lv('vOT', fmt(co.os));
+  const co2 = gc(tfInp, tfOut, tfCmds);
+  lv('vCW', fu(co2.tW)); lv('vCC', fu(co2.tC));
+  lv('vIS', fu(co2.iW-co2.iC)); lv('vOS', fu(co2.oW-co2.oC)); lv('vOT', fmt(co2.os));
   lv('vMC', ff(sp.m.c)); lv('vMS', fmt(sp.m.s)); lv('vMR', pc(sp.m.s,sp.m.i)+'%');
   lv('vHC', ff(sp.h.c)); lv('vHS', fmt(sp.h.s)); lv('vHR', pc(sp.h.s,sp.h.i)+'%');
 
