@@ -1,6 +1,7 @@
 mod dispatch;
 mod execute;
 pub mod helpers;
+pub mod role_guard;
 
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
@@ -78,20 +79,25 @@ impl ServerHandler for LeanCtxServer {
             crate::core::version_check::check_background();
 
             if !agent_root.is_empty() {
-                let role = match agent_name.to_lowercase().as_str() {
+                let heuristic_role = match agent_name.to_lowercase().as_str() {
                     n if n.contains("cursor") => Some("coder"),
                     n if n.contains("claude") => Some("coder"),
                     n if n.contains("codex") => Some("coder"),
-                    n if n.contains("antigravity") || n.contains("gemini") => Some("explorer"),
+                    n if n.contains("antigravity") || n.contains("gemini") => Some("coder"),
                     n if n.contains("review") => Some("reviewer"),
-                    n if n.contains("test") => Some("tester"),
+                    n if n.contains("test") => Some("debugger"),
                     _ => None,
                 };
-                let env_role = std::env::var("LEAN_CTX_AGENT_ROLE").ok();
-                let effective_role = env_role.as_deref().or(role);
+                let env_role = std::env::var("LEAN_CTX_ROLE")
+                    .or_else(|_| std::env::var("LEAN_CTX_AGENT_ROLE"))
+                    .ok();
+                let effective_role = env_role.as_deref().or(heuristic_role).unwrap_or("coder");
+
+                let _ = crate::core::roles::set_active_role(effective_role);
+
                 let mut registry = crate::core::agents::AgentRegistry::load_or_create();
                 registry.cleanup_stale(24);
-                let id = registry.register("mcp", effective_role, &agent_root);
+                let id = registry.register("mcp", Some(effective_role), &agent_root);
                 let _ = registry.save();
                 if let Ok(mut guard) = agent_id_handle.try_write() {
                     *guard = Some(id);
@@ -191,6 +197,16 @@ impl ServerHandler for LeanCtxServer {
         let name = resolved_name.as_str();
         let args = resolved_args.as_ref();
 
+        let role_check = role_guard::check_tool_access(name);
+        if let Some(denied) = role_guard::into_call_tool_result(&role_check) {
+            tracing::warn!(
+                tool = name,
+                role = %role_check.role_name,
+                "Tool blocked by role policy"
+            );
+            return Ok(denied);
+        }
+
         if name != "ctx_workflow" {
             let active = self.workflow.read().await.clone();
             if let Some(run) = active {
@@ -289,10 +305,101 @@ impl ServerHandler for LeanCtxServer {
         let config = crate::core::config::Config::load();
         let minimal = config.minimal_overhead_effective();
 
+        {
+            use crate::core::budget_tracker::{BudgetLevel, BudgetTracker};
+            let snap = BudgetTracker::global().check();
+            if *snap.worst_level() == BudgetLevel::Exhausted
+                && name != "ctx_session"
+                && name != "ctx_cost"
+                && name != "ctx_metrics"
+            {
+                for (dim, lvl, used, limit) in [
+                    (
+                        "tokens",
+                        &snap.tokens.level,
+                        format!("{}", snap.tokens.used),
+                        format!("{}", snap.tokens.limit),
+                    ),
+                    (
+                        "shell",
+                        &snap.shell.level,
+                        format!("{}", snap.shell.used),
+                        format!("{}", snap.shell.limit),
+                    ),
+                    (
+                        "cost",
+                        &snap.cost.level,
+                        format!("${:.2}", snap.cost.used_usd),
+                        format!("${:.2}", snap.cost.limit_usd),
+                    ),
+                ] {
+                    if *lvl == BudgetLevel::Exhausted {
+                        crate::core::events::emit_budget_exhausted(&snap.role, dim, &used, &limit);
+                    }
+                }
+                let msg = format!(
+                    "[BUDGET EXHAUSTED] {}\n\
+                     Use `ctx_session action=role` to check/switch roles, \
+                     or `ctx_session action=reset` to start fresh.",
+                    snap.format_compact()
+                );
+                tracing::warn!(tool = name, "{msg}");
+                return Ok(CallToolResult::success(vec![Content::text(msg)]));
+            }
+        }
+
+        if is_shell_tool_name(name) {
+            crate::core::budget_tracker::BudgetTracker::global().record_shell();
+        }
+
         let tool_start = std::time::Instant::now();
         let result_text = self.dispatch_tool(name, args, minimal).await?;
 
         let mut result_text = result_text;
+
+        {
+            let tokens = crate::core::tokens::count_tokens(&result_text) as u64;
+            crate::core::budget_tracker::BudgetTracker::global().record_tokens(tokens);
+        }
+
+        let budget_warning = {
+            use crate::core::budget_tracker::{BudgetLevel, BudgetTracker};
+            let snap = BudgetTracker::global().check();
+            if *snap.worst_level() == BudgetLevel::Warning {
+                for (dim, lvl, used, limit, pct) in [
+                    (
+                        "tokens",
+                        &snap.tokens.level,
+                        format!("{}", snap.tokens.used),
+                        format!("{}", snap.tokens.limit),
+                        snap.tokens.percent,
+                    ),
+                    (
+                        "shell",
+                        &snap.shell.level,
+                        format!("{}", snap.shell.used),
+                        format!("{}", snap.shell.limit),
+                        snap.shell.percent,
+                    ),
+                    (
+                        "cost",
+                        &snap.cost.level,
+                        format!("${:.2}", snap.cost.used_usd),
+                        format!("${:.2}", snap.cost.limit_usd),
+                        snap.cost.percent,
+                    ),
+                ] {
+                    if *lvl == BudgetLevel::Warning {
+                        crate::core::events::emit_budget_warning(
+                            &snap.role, dim, &used, &limit, pct,
+                        );
+                    }
+                }
+                Some(format!("[BUDGET WARNING] {}", snap.format_compact()))
+            } else {
+                None
+            }
+        };
 
         let archive_hint = if minimal {
             None
@@ -336,6 +443,10 @@ impl ServerHandler for LeanCtxServer {
 
         if let Some(warning) = throttle_warning {
             result_text = format!("{result_text}\n\n{warning}");
+        }
+
+        if let Some(bw) = budget_warning {
+            result_text = format!("{result_text}\n\n{bw}");
         }
 
         if name == "ctx_read" {
@@ -666,6 +777,10 @@ pub fn tool_schemas_json_for_test() -> String {
         .map(|(name, _, schema)| format!("{name}: {schema}"))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn is_shell_tool_name(name: &str) -> bool {
+    matches!(name, "ctx_shell" | "ctx_execute")
 }
 
 #[cfg(test)]

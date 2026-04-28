@@ -20,6 +20,7 @@ const GREEN: Color = Color::Rgb(52, 211, 153);
 const PURPLE: Color = Color::Rgb(129, 140, 248);
 const BLUE: Color = Color::Rgb(56, 189, 248);
 const YELLOW: Color = Color::Rgb(251, 191, 36);
+const RED: Color = Color::Rgb(248, 113, 113);
 const MUTED: Color = Color::Rgb(107, 107, 136);
 const SURFACE: Color = Color::Rgb(10, 10, 18);
 const BG: Color = Color::Rgb(6, 6, 10);
@@ -434,6 +435,29 @@ fn draw_live_feed(f: &mut ratatui::Frame, area: Rect, state: &AppState) {
                     format!("{language} e={new_entropy:.2} j={new_jaccard:.2}"),
                     MUTED,
                 ),
+                EventKind::BudgetWarning {
+                    role,
+                    dimension,
+                    percent,
+                    ..
+                } => (
+                    "$$",
+                    "budget",
+                    format!("{role} {dimension} {percent}% WARNING"),
+                    YELLOW,
+                ),
+                EventKind::BudgetExhausted {
+                    role, dimension, ..
+                } => ("!!", "budget", format!("{role} {dimension} EXHAUSTED"), RED),
+                EventKind::PolicyViolation { role, tool, reason } => (
+                    "XX",
+                    "policy",
+                    format!("{role} blocked {tool}: {reason}"),
+                    RED,
+                ),
+                EventKind::RoleChanged { from, to } => {
+                    ("->", "role", format!("{from} -> {to}"), BLUE)
+                }
             };
             let ts = &ev.timestamp[11..19.min(ev.timestamp.len())];
             ListItem::new(Line::from(vec![
