@@ -79,7 +79,8 @@ fn setup_bootstrap_doctor_status_json_smoke() {
 
     // Prefer our fake claude first in PATH.
     let old_path = std::env::var("PATH").unwrap_or_default();
-    let new_path = format!("{}:{}", bin_dir.to_string_lossy(), old_path);
+    let sep = if cfg!(windows) { ";" } else { ":" };
+    let new_path = format!("{}{sep}{}", bin_dir.to_string_lossy(), old_path);
     envs.push(("PATH", new_path.as_str()));
 
     // bootstrap --json returns clean JSON (SetupReport)
@@ -89,12 +90,16 @@ fn setup_bootstrap_doctor_status_json_smoke() {
     assert_eq!(setup.schema_version, 1);
 
     // bootstrap should create env.sh in LEAN_CTX_DATA_DIR for Docker/CI shells.
-    let env_sh = data_dir.join("env.sh");
-    let env_sh_content = std::fs::read_to_string(&env_sh).expect("env.sh exists");
-    assert!(
-        env_sh_content.contains("lean-ctx docker self-heal"),
-        "env.sh missing docker self-heal snippet"
-    );
+    // env.sh is Unix-only (shell script); skip assertion on Windows.
+    #[cfg(not(windows))]
+    {
+        let env_sh = data_dir.join("env.sh");
+        let env_sh_content = std::fs::read_to_string(&env_sh).expect("env.sh exists");
+        assert!(
+            env_sh_content.contains("lean-ctx docker self-heal"),
+            "env.sh missing docker self-heal snippet"
+        );
+    }
 
     // init --agent claude should prefer `claude mcp add-json` when available.
     let out = Command::new(bin)
@@ -178,7 +183,8 @@ fn claude_config_dir_fallback_writes_dot_claude_json() {
     }
 
     let old_path = std::env::var("PATH").unwrap_or_default();
-    let new_path = format!("{}:{}", bin_dir.to_string_lossy(), old_path);
+    let sep = if cfg!(windows) { ";" } else { ":" };
+    let new_path = format!("{}{sep}{}", bin_dir.to_string_lossy(), old_path);
     envs.push(("PATH", new_path.as_str()));
 
     let out = Command::new(bin)
@@ -261,7 +267,8 @@ fn init_agent_preserves_agents_md_and_is_idempotent() {
     }
 
     let old_path = std::env::var("PATH").unwrap_or_default();
-    let new_path = format!("{}:{}", bin_dir.to_string_lossy(), old_path);
+    let sep = if cfg!(windows) { ";" } else { ":" };
+    let new_path = format!("{}{sep}{}", bin_dir.to_string_lossy(), old_path);
     envs.push(("PATH", new_path.as_str()));
 
     for _ in 0..2 {
@@ -298,7 +305,11 @@ fn init_agent_preserves_agents_md_and_is_idempotent() {
     );
 }
 
+/// On Windows, `dirs::home_dir()` uses the Win32 API (`SHGetKnownFolderPath`)
+/// rather than `USERPROFILE`, so env-var overrides in the subprocess don't
+/// control where files land. We can only verify file creation on Unix.
 #[test]
+#[cfg_attr(windows, ignore)]
 fn init_claude_installs_dedicated_rules_file_without_claude_md() {
     let bin = env!("CARGO_BIN_EXE_lean-ctx");
 
