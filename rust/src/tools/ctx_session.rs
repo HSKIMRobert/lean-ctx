@@ -56,6 +56,7 @@ pub fn handle(
             let _ = session.save();
             let old_id = session.id.clone();
             *session = SessionState::new();
+            crate::core::budget_tracker::BudgetTracker::global().reset();
             format!("Session reset. Previous: {old_id}. New: {}", session.id)
         }
 
@@ -163,25 +164,28 @@ pub fn handle(
             use crate::core::roles;
             if let Some(name) = value {
                 match roles::set_active_role(name) {
-                    Ok(r) => format!(
-                        "Role switched to '{name}'.\n\
-                         Shell: {}, Budget: {} tokens / {} shell / ${:.2}\n\
-                         Tools: {}",
-                        r.role.shell_policy,
-                        r.limits.max_context_tokens,
-                        r.limits.max_shell_invocations,
-                        r.limits.max_cost_usd,
-                        if r.tools.allowed.iter().any(|a| a == "*") {
-                            let denied = if r.tools.denied.is_empty() {
-                                "none".to_string()
+                    Ok(r) => {
+                        crate::core::budget_tracker::BudgetTracker::global().reset();
+                        format!(
+                            "Role switched to '{name}'.\n\
+                             Shell: {}, Budget: {} tokens / {} shell / ${:.2}\n\
+                             Tools: {}",
+                            r.role.shell_policy,
+                            r.limits.max_context_tokens,
+                            r.limits.max_shell_invocations,
+                            r.limits.max_cost_usd,
+                            if r.tools.allowed.iter().any(|a| a == "*") {
+                                let denied = if r.tools.denied.is_empty() {
+                                    "none".to_string()
+                                } else {
+                                    format!("denied: {}", r.tools.denied.join(", "))
+                                };
+                                format!("* (all), {denied}")
                             } else {
-                                format!("denied: {}", r.tools.denied.join(", "))
-                            };
-                            format!("* (all), {denied}")
-                        } else {
-                            r.tools.allowed.join(", ")
-                        }
-                    ),
+                                r.tools.allowed.join(", ")
+                            }
+                        )
+                    }
                     Err(e) => {
                         let available: Vec<String> =
                             roles::list_roles().iter().map(|r| r.name.clone()).collect();
