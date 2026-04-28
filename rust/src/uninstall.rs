@@ -5,7 +5,10 @@ use std::path::{Path, PathBuf};
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn backup_before_modify(path: &Path) {
+fn backup_before_modify(path: &Path, dry_run: bool) {
+    if dry_run {
+        return;
+    }
     if path.exists() {
         let bak = bak_path_for(path);
         let _ = fs::copy(path, &bak);
@@ -17,7 +20,6 @@ fn bak_path_for(path: &Path) -> PathBuf {
     path.with_file_name(format!("{filename}.lean-ctx.bak"))
 }
 
-#[allow(dead_code)]
 fn cleanup_bak(path: &Path) {
     let bak = bak_path_for(path);
     if bak.exists() {
@@ -56,7 +58,10 @@ fn safe_write(path: &Path, content: &str, dry_run: bool) -> Result<(), std::io::
     if dry_run {
         return Ok(());
     }
-    fs::write(path, content)
+    fs::write(path, content)?;
+    // If we successfully wrote the cleaned file, the backup is no longer needed.
+    cleanup_bak(path);
+    Ok(())
 }
 
 /// Remove `path` only if not in dry-run mode.
@@ -64,7 +69,10 @@ fn safe_remove(path: &Path, dry_run: bool) -> Result<(), std::io::Error> {
     if dry_run {
         return Ok(());
     }
-    fs::remove_file(path)
+    fs::remove_file(path)?;
+    // If we successfully removed the file, also remove its backup.
+    cleanup_bak(path);
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -142,7 +150,7 @@ fn remove_project_agent_files(dry_run: bool) -> bool {
             if content.contains(START) {
                 let cleaned = remove_marked_block(&content, START, END);
                 if cleaned != content {
-                    backup_before_modify(&agents);
+                    backup_before_modify(&agents, dry_run);
                     if let Err(e) = safe_write(&agents, &cleaned, dry_run) {
                         tracing::warn!("Failed to update project AGENTS.md: {e}");
                     } else {
@@ -206,12 +214,12 @@ fn remove_project_agent_files(dry_run: bool) -> bool {
 
         let cleaned = remove_lean_ctx_section_from_rules(&content);
         if cleaned.trim().is_empty() {
-            backup_before_modify(&path);
+            backup_before_modify(&path, dry_run);
             let _ = safe_remove(&path, dry_run);
             let verb = if dry_run { "Would remove" } else { "✓" };
             println!("  {verb} Project: removed {rel}");
         } else {
-            backup_before_modify(&path);
+            backup_before_modify(&path, dry_run);
             let _ = safe_write(&path, &cleaned, dry_run);
             let verb = if dry_run { "Would clean" } else { "✓" };
             println!("  {verb} Project: removed lean-ctx content from {rel}");
@@ -224,7 +232,7 @@ fn remove_project_agent_files(dry_run: bool) -> bool {
     if claude_settings.exists() {
         if let Ok(content) = fs::read_to_string(&claude_settings) {
             if content.contains("lean-ctx") {
-                backup_before_modify(&claude_settings);
+                backup_before_modify(&claude_settings, dry_run);
                 match remove_lean_ctx_from_hooks_json(&content) {
                     Some(cleaned) if !cleaned.trim().is_empty() => {
                         let _ = safe_write(&claude_settings, &cleaned, dry_run);
@@ -468,7 +476,7 @@ fn remove_mcp_configs(home: &Path, dry_run: bool) -> bool {
         };
 
         if let Some(cleaned) = cleaned {
-            backup_before_modify(path);
+            backup_before_modify(path, dry_run);
             if let Err(e) = safe_write(path, &cleaned, dry_run) {
                 tracing::warn!("Failed to update {} config: {}", name, e);
             } else {
@@ -496,7 +504,7 @@ fn remove_mcp_configs(home: &Path, dry_run: bool) -> bool {
         if let Ok(content) = fs::read_to_string(&vscode_path) {
             if content.contains("lean-ctx") {
                 if let Some(cleaned) = remove_lean_ctx_from_json(&content) {
-                    backup_before_modify(&vscode_path);
+                    backup_before_modify(&vscode_path, dry_run);
                     if let Err(e) = safe_write(&vscode_path, &cleaned, dry_run) {
                         tracing::warn!("Failed to update VS Code config: {e}");
                     } else {
@@ -609,12 +617,12 @@ fn remove_rules_files(home: &Path, dry_run: bool) -> bool {
         };
 
         if cleaned.trim().is_empty() {
-            backup_before_modify(path);
+            backup_before_modify(path, dry_run);
             let _ = safe_remove(path, dry_run);
             let verb = if dry_run { "Would remove" } else { "✓" };
             println!("  {verb} Rules removed from {name} (file was lean-ctx only)");
         } else if cleaned.trim() != content.trim() {
-            backup_before_modify(path);
+            backup_before_modify(path, dry_run);
             let _ = safe_write(path, &cleaned, dry_run);
             let verb = if dry_run { "Would clean" } else { "✓" };
             println!("  {verb} Rules removed from {name} (user content preserved)");
@@ -628,7 +636,7 @@ fn remove_rules_files(home: &Path, dry_run: bool) -> bool {
         if let Ok(content) = fs::read_to_string(&hermes_md) {
             if content.contains("lean-ctx") {
                 let cleaned = remove_lean_ctx_block_from_md(&content);
-                backup_before_modify(&hermes_md);
+                backup_before_modify(&hermes_md, dry_run);
                 if cleaned.trim().is_empty() {
                     let _ = safe_remove(&hermes_md, dry_run);
                 } else {
@@ -647,7 +655,7 @@ fn remove_rules_files(home: &Path, dry_run: bool) -> bool {
             if let Ok(content) = fs::read_to_string(&project_hermes) {
                 if content.contains("lean-ctx") {
                     let cleaned = remove_lean_ctx_block_from_md(&content);
-                    backup_before_modify(&project_hermes);
+                    backup_before_modify(&project_hermes, dry_run);
                     if cleaned.trim().is_empty() {
                         let _ = safe_remove(&project_hermes, dry_run);
                     } else {
@@ -749,7 +757,7 @@ fn remove_hook_files(home: &Path, dry_run: bool) -> bool {
             continue;
         }
 
-        backup_before_modify(&hj_path);
+        backup_before_modify(&hj_path, dry_run);
 
         match remove_lean_ctx_from_hooks_json(&content) {
             Some(cleaned) if !cleaned.trim().is_empty() => {
@@ -892,9 +900,28 @@ fn cleanup_bak_files(home: &Path) {
             for entry in entries.flatten() {
                 let name = entry.file_name();
                 let name_str = name.to_string_lossy();
-                if name_str.ends_with(".lean-ctx.bak") || name_str.ends_with(".lean-ctx.tmp") {
+                if name_str.ends_with(".lean-ctx.tmp") {
                     let _ = fs::remove_file(entry.path());
                     cleaned += 1;
+                    continue;
+                }
+                if name_str.ends_with(".lean-ctx.bak") {
+                    let original_name = name_str.trim_end_matches(".lean-ctx.bak");
+                    let original = entry.path().with_file_name(original_name);
+                    if original.exists() {
+                        // Only remove backups if the original is already clean.
+                        match fs::read_to_string(&original) {
+                            Ok(c) if !c.contains("lean-ctx") => {
+                                let _ = fs::remove_file(entry.path());
+                                cleaned += 1;
+                            }
+                            _ => {}
+                        }
+                    } else {
+                        // If the original is gone, the backup is no longer needed.
+                        let _ = fs::remove_file(entry.path());
+                        cleaned += 1;
+                    }
                 }
             }
         }
@@ -909,8 +936,24 @@ fn cleanup_bak_files(home: &Path) {
     ];
     for bak in &rc_baks {
         if bak.exists() {
-            let _ = fs::remove_file(bak);
-            cleaned += 1;
+            let original_name = bak
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .trim_end_matches(".lean-ctx.bak")
+                .to_string();
+            let original = bak.with_file_name(original_name);
+            if original.exists() {
+                if let Ok(c) = fs::read_to_string(&original) {
+                    if !c.contains("lean-ctx") {
+                        let _ = fs::remove_file(bak);
+                        cleaned += 1;
+                    }
+                }
+            } else {
+                let _ = fs::remove_file(bak);
+                cleaned += 1;
+            }
         }
     }
 
@@ -1793,5 +1836,24 @@ command = \"other\"
         let content = "no hook here\n";
         let cleaned = remove_marked_block(content, "<!-- lean-ctx -->", "<!-- /lean-ctx -->");
         assert_eq!(cleaned, content);
+    }
+
+    #[test]
+    fn backup_before_modify_respects_dry_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("file.txt");
+        std::fs::write(&path, "hello").unwrap();
+
+        backup_before_modify(&path, true);
+        assert!(
+            !bak_path_for(&path).exists(),
+            "dry-run must not create backups"
+        );
+
+        backup_before_modify(&path, false);
+        assert!(
+            bak_path_for(&path).exists(),
+            "non-dry-run should create backups"
+        );
     }
 }
