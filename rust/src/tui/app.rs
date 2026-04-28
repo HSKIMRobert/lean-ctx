@@ -45,6 +45,20 @@ struct FileHeat {
 impl AppState {
     fn new() -> Self {
         let store = crate::core::stats::load();
+        let heatmap = crate::core::heatmap::HeatMap::load();
+        let files = heatmap
+            .entries
+            .values()
+            .map(|e| {
+                (
+                    e.path.clone(),
+                    FileHeat {
+                        access_count: e.access_count,
+                        tokens_saved: e.total_tokens_saved,
+                    },
+                )
+            })
+            .collect();
         Self {
             events: Vec::new(),
             total_saved: store
@@ -53,7 +67,7 @@ impl AppState {
             total_original: store.total_input_tokens,
             cache_hits: store.cep.total_cache_hits,
             total_calls: store.total_commands,
-            files: std::collections::HashMap::new(),
+            files,
             gain_score: None,
             last_gain_refresh: Instant::now(),
             quit: false,

@@ -3,6 +3,25 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.4.4] — 2026-04-28
+
+### Fixed
+
+- **Observatory File Heatmap blank** — the File Heatmap panel in `lean-ctx watch` stayed empty because historical per-file access data was never loaded on TUI startup. Now pre-populates from the persistent `heatmap.json` so file activity is visible immediately. Also fixed `EventTail` offset tracking to prevent event loss during concurrent writes. Fixes #166.
+- **Windows agent hook installs** — `dirs::home_dir()` does not respect `HOME`/`USERPROFILE` overrides on Windows, causing hooks to install into incorrect directories during CI and in some user setups. Introduced a centralized `core::home::resolve_home_dir()` that checks `HOME`, `USERPROFILE`, and `HOMEDRIVE+HOMEPATH` before falling back to `dirs::home_dir()`. All 13 agent installers and the hook manager now use this resolver.
+- **Windows `claude mcp add-json` invocation** — `.cmd` shims cannot be executed directly via `CreateProcess`; now routes through `cmd /C` for reliable invocation.
+- **Clippy 1.95 compliance** — resolved all new lints introduced by Rust 1.95: `needless_raw_string_hashes`, `map_unwrap_or`, `unnecessary_trailing_comma`, `duration_suboptimal_units`, `while_let_loop` across 30+ source files.
+- **`cargo-deny` 0.19 migration** — updated `deny.toml` to new schema, removed deprecated advisory fields, added missing dependency licenses (`0BSD`, `CDLA-Permissive-2.0`).
+- **Windows benchmark stability** — `bench_rrf_eviction_vs_legacy` no longer panics from `Instant` underflow on short-lived processes.
+- **Coverage timeout** — `benchmark_task_conditioned_compression` now skipped under tarpaulin instrumentation and uses smaller input to prevent CI timeouts.
+- **Uninstall dry-run** — `lean-ctx uninstall --dry-run` no longer accidentally removes components.
+
+### Changed
+
+- **License updated to Apache-2.0** — all references across the repository and website (11 languages) updated from MIT to Apache-2.0.
+- **Clippy pedantic across entire codebase** — comprehensive refactoring to satisfy `clippy::pedantic` with zero warnings: `Copy` derives, `map_or`/`is_ok_and` patterns, `Duration::from_hours/from_mins`, `while let` loops, and raw string simplification.
+- **`cfg(tarpaulin)` declared in Cargo.toml** — prevents `unexpected_cfgs` lint failures when coverage attributes are used.
+
 ## [3.4.3] — 2026-04-27
 
 ### Fixed

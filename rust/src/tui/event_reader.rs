@@ -31,9 +31,11 @@ impl EventTail {
         let _ = file.seek(SeekFrom::Start(self.offset));
         let reader = BufReader::new(&file);
         let mut events = Vec::new();
+        let mut bytes_read: u64 = 0;
 
         for line in reader.lines() {
             let Ok(line) = line else { break };
+            bytes_read += line.len() as u64 + 1; // +1 for newline
             if line.trim().is_empty() {
                 continue;
             }
@@ -42,7 +44,7 @@ impl EventTail {
             }
         }
 
-        self.offset = meta_len;
+        self.offset += bytes_read;
         events
     }
 }
