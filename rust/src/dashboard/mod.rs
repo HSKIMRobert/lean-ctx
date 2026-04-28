@@ -363,6 +363,50 @@ fn route_response(
             });
             ("200 OK", "application/json", json)
         }
+        "/api/graph/enrich" => {
+            let root = detect_project_root_for_dashboard();
+            let project_path = std::path::Path::new(&root);
+            let result = match crate::core::property_graph::CodeGraph::open(project_path) {
+                Ok(graph) => {
+                    match crate::core::graph_enricher::enrich_graph(&graph, project_path, 500) {
+                        Ok(stats) => {
+                            let nc = graph.node_count().unwrap_or(0);
+                            let ec = graph.edge_count().unwrap_or(0);
+                            serde_json::json!({
+                                "commits_indexed": stats.commits_indexed,
+                                "tests_indexed": stats.tests_indexed,
+                                "knowledge_indexed": stats.knowledge_indexed,
+                                "edges_created": stats.edges_created,
+                                "total_nodes": nc,
+                                "total_edges": ec,
+                            })
+                        }
+                        Err(e) => serde_json::json!({"error": e.to_string()}),
+                    }
+                }
+                Err(e) => serde_json::json!({"error": e.to_string()}),
+            };
+            let json = serde_json::to_string(&result).unwrap_or_else(|_| "{}".to_string());
+            ("200 OK", "application/json", json)
+        }
+        "/api/graph/stats" => {
+            let root = detect_project_root_for_dashboard();
+            let project_path = std::path::Path::new(&root);
+            let result = match crate::core::property_graph::CodeGraph::open(project_path) {
+                Ok(graph) => {
+                    let nc = graph.node_count().unwrap_or(0);
+                    let ec = graph.edge_count().unwrap_or(0);
+                    serde_json::json!({
+                        "node_count": nc,
+                        "edge_count": ec,
+                        "db_path": graph.db_path().display().to_string(),
+                    })
+                }
+                Err(e) => serde_json::json!({"error": e.to_string()}),
+            };
+            let json = serde_json::to_string(&result).unwrap_or_else(|_| "{}".to_string());
+            ("200 OK", "application/json", json)
+        }
         "/api/call-graph" => {
             let root = detect_project_root_for_dashboard();
             let index = crate::core::graph_index::load_or_build(&root);

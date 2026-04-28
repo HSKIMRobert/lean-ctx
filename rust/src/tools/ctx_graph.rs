@@ -17,7 +17,10 @@ pub fn handle(
         "symbol" => handle_symbol(path, root, cache, crp_mode),
         "impact" => handle_impact(path, root),
         "status" => handle_status(root),
-        _ => "Unknown action. Use: build, related, symbol, impact, status".to_string(),
+        "enrich" => handle_enrich(root),
+        "context" => handle_context_query(path, root),
+        _ => "Unknown action. Use: build, related, symbol, impact, status, enrich, context"
+            .to_string(),
     }
 }
 
@@ -377,6 +380,155 @@ fn handle_status(root: &str) -> String {
             .map(|d| d.to_string_lossy().to_string())
             .unwrap_or_default()
     )
+}
+
+fn resolve_node_name(graph: &crate::core::property_graph::CodeGraph, node_id: i64) -> String {
+    let conn = graph.connection();
+    conn.query_row(
+        "SELECT name FROM nodes WHERE id = ?1",
+        rusqlite::params![node_id],
+        |row| row.get::<_, String>(0),
+    )
+    .unwrap_or_else(|_| format!("node#{node_id}"))
+}
+
+fn handle_enrich(root: &str) -> String {
+    let project_root = Path::new(root);
+    let graph = match crate::core::property_graph::CodeGraph::open(project_root) {
+        Ok(g) => g,
+        Err(e) => return format!("Failed to open graph: {e}"),
+    };
+
+    match crate::core::graph_enricher::enrich_graph(&graph, project_root, 500) {
+        Ok(stats) => {
+            let node_count = graph.node_count().unwrap_or(0);
+            let edge_count = graph.edge_count().unwrap_or(0);
+            format!(
+                "Graph enriched.\n{}\nTotal: {node_count} nodes, {edge_count} edges",
+                stats.format_summary()
+            )
+        }
+        Err(e) => format!("Enrichment failed: {e}"),
+    }
+}
+
+fn handle_context_query(query: Option<&str>, root: &str) -> String {
+    let Some(query) = query else {
+        return "Usage: ctx_graph action=context path=\"<query or file path>\"".to_string();
+    };
+
+    let project_root = Path::new(root);
+    let graph = match crate::core::property_graph::CodeGraph::open(project_root) {
+        Ok(g) => g,
+        Err(e) => return format!("Failed to open graph: {e}"),
+    };
+
+    let index = graph_index::load_or_build(root);
+    let mut result = Vec::new();
+
+    if let Ok(Some(node)) = graph.get_node_by_path(query) {
+        result.push(format!("## Context for `{query}`\n"));
+
+        if let Some(node_id) = node.id {
+            let edges_out = graph.edges_from(node_id).unwrap_or_default();
+            let edges_in = graph.edges_to(node_id).unwrap_or_default();
+
+            let mut tests: Vec<String> = Vec::new();
+            let mut commits: Vec<String> = Vec::new();
+            let mut knowledge: Vec<String> = Vec::new();
+            let mut imports: Vec<String> = Vec::new();
+            let mut dependents: Vec<String> = Vec::new();
+
+            for edge in &edges_out {
+                let target = resolve_node_name(&graph, edge.target_id);
+                match edge.kind {
+                    crate::core::property_graph::EdgeKind::TestedBy => tests.push(target),
+                    crate::core::property_graph::EdgeKind::ChangedIn => commits.push(target),
+                    crate::core::property_graph::EdgeKind::MentionedIn => {
+                        knowledge.push(target);
+                    }
+                    crate::core::property_graph::EdgeKind::Imports => imports.push(target),
+                    _ => {}
+                }
+            }
+
+            for edge in &edges_in {
+                let source = resolve_node_name(&graph, edge.source_id);
+                if edge.kind == crate::core::property_graph::EdgeKind::Imports {
+                    dependents.push(source);
+                }
+            }
+
+            if !tests.is_empty() {
+                result.push(format!("**Tests ({}):** {}", tests.len(), tests.join(", ")));
+            }
+            if !commits.is_empty() {
+                result.push(format!(
+                    "**Recent commits ({}):** {}",
+                    commits.len(),
+                    commits
+                        .iter()
+                        .take(5)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
+            if !knowledge.is_empty() {
+                result.push(format!(
+                    "**Knowledge ({}):** {}",
+                    knowledge.len(),
+                    knowledge.join(", ")
+                ));
+            }
+            if !imports.is_empty() {
+                result.push(format!(
+                    "**Imports ({}):** {}",
+                    imports.len(),
+                    imports
+                        .iter()
+                        .take(10)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
+            if !dependents.is_empty() {
+                result.push(format!(
+                    "**Depended on by ({}):** {}",
+                    dependents.len(),
+                    dependents
+                        .iter()
+                        .take(10)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
+
+            if let Ok(impact) = graph.impact_analysis(query, 3) {
+                if !impact.affected_files.is_empty() {
+                    result.push(format!(
+                        "**Impact radius:** {} files within 3 hops",
+                        impact.affected_files.len()
+                    ));
+                }
+            }
+        }
+    } else {
+        result.push(format!("## Search: `{query}`\n"));
+        let related = index.get_related(query, 2);
+        if related.is_empty() {
+            result.push("No matching nodes found in graph.".to_string());
+        } else {
+            result.push(format!("**Related files ({}):**", related.len()));
+            for f in related.iter().take(15) {
+                result.push(format!("  - {f}"));
+            }
+        }
+    }
+
+    result.join("\n")
 }
 
 #[cfg(test)]

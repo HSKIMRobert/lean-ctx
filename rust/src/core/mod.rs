@@ -35,6 +35,7 @@ pub mod filters;
 pub mod gain;
 pub mod gotcha_tracker;
 pub mod graph_context;
+pub mod graph_enricher;
 pub mod graph_index;
 pub mod graph_provider;
 pub mod handoff_ledger;

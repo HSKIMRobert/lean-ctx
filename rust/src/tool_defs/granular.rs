@@ -269,8 +269,8 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
         ),
         tool_def(
             "ctx_graph",
-            "Code dependency graph. Actions: build (index project), related (find files connected to path), \
-symbol (lookup definition/usages as file::name), impact (blast radius of changes to path), status (index stats).",
+            "Unified code graph. Actions: build (index), related (connected files), symbol (def/usages), \
+impact (blast radius), status (stats), enrich (add commits+tests+knowledge), context (task-based query).",
             json!({
                 "type": "object",
                 "properties": {
@@ -1022,8 +1022,7 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
         ("ctx_intent", "Structured intent input (optional) — submit compact JSON or short text; server also infers intents automatically from tool calls.", json!({"type": "object", "properties": {"query": {"type": "string"}, "project_root": {"type": "string"}}, "required": ["query"]})),
         ("ctx_response", "Compress LLM response text (remove filler, apply TDD).", json!({"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]})),
         ("ctx_context", "Session context overview — cached files, seen files, session state.", json!({"type": "object", "properties": {}})),
-        ("ctx_graph", "Code dependency graph. Actions: build (index project), related (find files connected to path), \
-symbol (lookup definition/usages as file::name), impact (blast radius of changes to path), status (index stats).", json!({"type": "object", "properties": {"action": {"type": "string"}, "path": {"type": "string"}, "project_root": {"type": "string"}}, "required": ["action"]})),
+        ("ctx_graph", "Unified code graph. Actions: build, related, symbol, impact, status, enrich (commits+tests+knowledge), context (task-based query).", json!({"type": "object", "properties": {"action": {"type": "string"}, "path": {"type": "string"}, "project_root": {"type": "string"}}, "required": ["action"]})),
         ("ctx_session", "Cross-session memory (CCP). Actions: load (restore ~400 tok), save, status, \
 task, finding, decision, reset, list, cleanup, snapshot (~2KB), restore, resume, \
 profile (context profiles), role (governance), budget (limits), slo (observability), \
