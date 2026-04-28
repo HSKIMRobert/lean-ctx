@@ -52,7 +52,7 @@ fn setup_bootstrap_doctor_status_json_smoke() {
     if cfg!(windows) {
         write_exe(
             &claude_path,
-            "@echo off\r\nset OUT=%HOME%\\claude-mcp.json\r\nmore > \"%OUT%\"\r\nexit /b 0\r\n",
+            "@echo off\r\nsetlocal\r\nset \"OUT=%USERPROFILE%\\claude-mcp.json\"\r\nmore > \"%OUT%\"\r\nexit /b %errorlevel%\r\n",
         );
     } else {
         write_exe(

@@ -370,7 +370,7 @@ fn remove_shell_hook(home: &Path, dry_run: bool) -> bool {
                     println!("    Backup: {}", shorten(&bak, home));
                 }
                 if is_legacy {
-                    println!("    ⚠ Legacy hook (no end marker) — please review {short} manually",);
+                    println!("    ⚠ Legacy hook (no end marker) — please review {short} manually");
                 }
                 removed = true;
             }
