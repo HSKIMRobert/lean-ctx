@@ -290,9 +290,29 @@ impl ServerHandler for LeanCtxServer {
         let minimal = config.minimal_overhead_effective();
 
         let tool_start = std::time::Instant::now();
-        let result_text = self.dispatch_tool(name, args, minimal).await?;
-
-        let mut result_text = result_text;
+        let mut result_text = {
+            use std::panic::AssertUnwindSafe;
+            use futures::FutureExt;
+            match AssertUnwindSafe(self.dispatch_tool(name, args, minimal))
+                .catch_unwind()
+                .await
+            {
+                Ok(Ok(text)) => text,
+                Ok(Err(e)) => return Err(e),
+                Err(panic_payload) => {
+                    let detail = if let Some(s) = panic_payload.downcast_ref::<&str>() {
+                        (*s).to_string()
+                    } else if let Some(s) = panic_payload.downcast_ref::<String>() {
+                        s.clone()
+                    } else {
+                        "unknown".to_string()
+                    };
+                    tracing::error!("Tool '{name}' panicked: {detail}");
+                    format!("ERROR: lean-ctx internal error in tool '{name}': {detail}\n\
+                             The MCP server is still running. Please retry or use a different approach.")
+                }
+            }
+        };
 
         let archive_hint = if minimal {
             None
