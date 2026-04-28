@@ -123,6 +123,15 @@ fn handle_with_options_resolved(
         return (handle_diff(cache, path, &file_ref), "diff".to_string());
     }
 
+    if mode != "full" {
+        if let Some(existing) = cache.get(path) {
+            let stale = crate::core::cache::is_cache_entry_stale(path, existing.stored_mtime);
+            if stale {
+                cache.invalidate(path);
+            }
+        }
+    }
+
     if let Some(existing) = cache.get(path) {
         if mode == "full" {
             return (
@@ -695,6 +704,7 @@ fn handle_diff(cache: &mut SessionCache, path: &str, file_ref: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
     fn test_header_toon_format_no_brackets() {
@@ -825,6 +835,33 @@ mod tests {
         );
         assert!(result.contains("lines"), "should contain line count");
         assert!(result.contains("tok"), "should contain token count");
+    }
+
+    #[test]
+    fn cached_lines_mode_invalidates_on_mtime_change() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("file.txt");
+        let p = path.to_string_lossy().to_string();
+
+        std::fs::write(&path, "one\nsecond\n").unwrap();
+        let mut cache = SessionCache::new();
+
+        let (out1, _mode1) =
+            handle_with_task_resolved(&mut cache, &p, "lines:1-1", CrpMode::Off, None);
+        let l1: Vec<&str> = out1.lines().collect();
+        let got1 = l1.get(1).copied().unwrap_or_default().trim();
+        let got1 = got1.split_once('|').map_or(got1, |(_, s)| s.trim());
+        assert_eq!(got1, "one");
+
+        std::thread::sleep(Duration::from_secs(1));
+        std::fs::write(&path, "two\nsecond\n").unwrap();
+
+        let (out2, _mode2) =
+            handle_with_task_resolved(&mut cache, &p, "lines:1-1", CrpMode::Off, None);
+        let l2: Vec<&str> = out2.lines().collect();
+        let got2 = l2.get(1).copied().unwrap_or_default().trim();
+        let got2 = got2.split_once('|').map_or(got2, |(_, s)| s.trim());
+        assert_eq!(got2, "two");
     }
 
     #[test]

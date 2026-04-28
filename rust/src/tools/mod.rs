@@ -339,6 +339,19 @@ impl LeanCtxServer {
             .await;
     }
 
+    /// Records a tool call like `record_call`, but includes an optional file path for observability.
+    pub async fn record_call_with_path(
+        &self,
+        tool: &str,
+        original: usize,
+        saved: usize,
+        mode: Option<String>,
+        path: Option<&str>,
+    ) {
+        self.record_call_with_timing_inner(tool, original, saved, mode, 0, path)
+            .await;
+    }
+
     /// Records a tool call's token savings, duration, and emits events and stats.
     pub async fn record_call_with_timing(
         &self,
@@ -347,6 +360,19 @@ impl LeanCtxServer {
         saved: usize,
         mode: Option<String>,
         duration_ms: u64,
+    ) {
+        self.record_call_with_timing_inner(tool, original, saved, mode, duration_ms, None)
+            .await;
+    }
+
+    async fn record_call_with_timing_inner(
+        &self,
+        tool: &str,
+        original: usize,
+        saved: usize,
+        mode: Option<String>,
+        duration_ms: u64,
+        path: Option<&str>,
     ) {
         let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
         let mut calls = self.tool_calls.write().await;
@@ -369,7 +395,7 @@ impl LeanCtxServer {
             saved as u64,
             mode.clone(),
             duration_ms,
-            None,
+            path.map(ToString::to_string),
         );
 
         let output_tokens = original.saturating_sub(saved);
