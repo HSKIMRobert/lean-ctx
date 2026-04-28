@@ -111,9 +111,7 @@ pub fn handle(
         "profile" => {
             use crate::core::profiles;
             if let Some(name) = value {
-                if profiles::load_profile(name).is_some() {
-                    std::env::set_var("LEAN_CTX_PROFILE", name);
-                    let p = profiles::active_profile();
+                if let Ok(p) = profiles::set_active_profile(name) {
                     format!(
                         "Profile switched to '{name}'.\n\
                          Read mode: {}, Budget: {} tokens, CRP: {}, Density: {}",
@@ -136,11 +134,12 @@ pub fn handle(
                 let list = profiles::list_profiles();
                 let mut out = format!(
                     "Active profile: {name}\n\
-                     Read: {}, Budget: {} tok, CRP: {}\n\n\
+                     Read: {}, Budget: {} tok, CRP: {}, Density: {}\n\n\
                      Available profiles:",
                     p.read.default_mode,
                     p.budget.max_context_tokens,
                     p.compression.crp_mode,
+                    p.compression.output_density,
                 );
                 for info in &list {
                     let marker = if info.name == name { " *" } else { "  " };

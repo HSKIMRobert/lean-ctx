@@ -88,6 +88,18 @@ impl OutputDensity {
         if env_val != Self::Normal {
             return env_val;
         }
+        let profile_val = crate::core::profiles::active_profile()
+            .compression
+            .output_density
+            .to_lowercase();
+        let profile_density = match profile_val.as_str() {
+            "terse" => Self::Terse,
+            "ultra" => Self::Ultra,
+            _ => Self::Normal,
+        };
+        if profile_density != Self::Normal {
+            return profile_density;
+        }
         config_val.clone()
     }
 }

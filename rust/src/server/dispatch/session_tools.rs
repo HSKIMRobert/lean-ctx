@@ -255,7 +255,7 @@ impl LeanCtxServer {
                                     &mut cache,
                                     &abs,
                                     "signatures",
-                                    self.crp_mode,
+                                    crate::tools::CrpMode::effective(),
                                     None,
                                 );
                                 curated_refs.push((abs, text));

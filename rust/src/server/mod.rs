@@ -16,7 +16,7 @@ impl ServerHandler for LeanCtxServer {
     fn get_info(&self) -> ServerInfo {
         let capabilities = ServerCapabilities::builder().enable_tools().build();
 
-        let instructions = crate::instructions::build_instructions(self.crp_mode);
+        let instructions = crate::instructions::build_instructions(CrpMode::effective());
 
         InitializeResult::new(capabilities)
             .with_server_info(Implementation::new("lean-ctx", env!("CARGO_PKG_VERSION")))
@@ -100,7 +100,7 @@ impl ServerHandler for LeanCtxServer {
         });
 
         let instructions =
-            crate::instructions::build_instructions_with_client(self.crp_mode, &name);
+            crate::instructions::build_instructions_with_client(CrpMode::effective(), &name);
         let capabilities = ServerCapabilities::builder().enable_tools().build();
 
         Ok(InitializeResult::new(capabilities)
@@ -230,7 +230,7 @@ impl ServerHandler for LeanCtxServer {
                 &mut cache,
                 task.as_deref(),
                 project_root.as_deref(),
-                self.crp_mode,
+                CrpMode::effective(),
             )
         };
 
@@ -509,9 +509,9 @@ impl ServerHandler for LeanCtxServer {
 
         if !skip_checkpoint && self.increment_and_check() {
             if let Some(checkpoint) = self.auto_checkpoint().await {
+                let interval = LeanCtxServer::checkpoint_interval_effective();
                 let combined = format!(
-                    "{result_text}\n\n--- AUTO CHECKPOINT (every {} calls) ---\n{checkpoint}",
-                    self.checkpoint_interval
+                    "{result_text}\n\n--- AUTO CHECKPOINT (every {interval} calls) ---\n{checkpoint}"
                 );
                 return Ok(CallToolResult::success(vec![Content::text(combined)]));
             }

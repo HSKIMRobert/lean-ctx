@@ -348,13 +348,17 @@ fn profiles_dir_global() -> Option<PathBuf> {
 }
 
 fn profiles_dir_project() -> Option<PathBuf> {
-    let cwd = std::env::current_dir().ok()?;
-    let dir = cwd.join(".lean-ctx").join("profiles");
-    if dir.is_dir() {
-        Some(dir)
-    } else {
-        None
+    let mut current = std::env::current_dir().ok()?;
+    for _ in 0..12 {
+        let candidate = current.join(".lean-ctx").join("profiles");
+        if candidate.is_dir() {
+            return Some(candidate);
+        }
+        if !current.pop() {
+            break;
+        }
     }
+    None
 }
 
 /// Loads a profile by name with full resolution:
@@ -442,6 +446,19 @@ pub fn active_profile_name() -> String {
 pub fn active_profile() -> Profile {
     let name = active_profile_name();
     load_profile(&name).unwrap_or_else(builtin_exploration)
+}
+
+/// Sets the active profile for the current process by updating `LEAN_CTX_PROFILE`.
+///
+/// Returns the resolved profile after applying inheritance.
+pub fn set_active_profile(name: &str) -> Result<Profile, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("profile name is empty".to_string());
+    }
+    let profile = load_profile(name).ok_or_else(|| format!("profile '{name}' not found"))?;
+    std::env::set_var("LEAN_CTX_PROFILE", name);
+    Ok(profile)
 }
 
 /// Lists all available profile names (built-in + on-disk).

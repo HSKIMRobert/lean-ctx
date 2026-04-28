@@ -95,6 +95,26 @@ impl CrpMode {
         }
     }
 
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_lowercase().as_str() {
+            "off" => Some(Self::Off),
+            "compact" => Some(Self::Compact),
+            "tdd" => Some(Self::Tdd),
+            _ => None,
+        }
+    }
+
+    /// Effective CRP mode: explicit env var wins; otherwise use active profile.
+    pub fn effective() -> Self {
+        if let Ok(v) = std::env::var("LEAN_CTX_CRP_MODE") {
+            if !v.trim().is_empty() {
+                return Self::parse(&v).unwrap_or(Self::Tdd);
+            }
+        }
+        let p = crate::core::profiles::active_profile();
+        Self::parse(&p.compression.crp_mode).unwrap_or(Self::Tdd)
+    }
+
     /// Returns true if the mode is TDD (maximum compression).
     pub fn is_tdd(&self) -> bool {
         *self == Self::Tdd
@@ -111,10 +131,8 @@ pub struct LeanCtxServer {
     pub session: Arc<RwLock<SessionState>>,
     pub tool_calls: Arc<RwLock<Vec<ToolCallRecord>>>,
     pub call_count: Arc<AtomicUsize>,
-    pub checkpoint_interval: usize,
     pub cache_ttl_secs: u64,
     pub last_call: Arc<RwLock<Instant>>,
-    pub crp_mode: CrpMode,
     pub agent_id: Arc<RwLock<Option<String>>>,
     pub client_name: Arc<RwLock<String>>,
     pub autonomy: Arc<autonomy::AutonomyState>,
@@ -155,19 +173,10 @@ impl LeanCtxServer {
     }
 
     fn new_with_startup(project_root: Option<&str>, startup_cwd: Option<&Path>) -> Self {
-        let config = crate::core::config::Config::load();
-
-        let interval = std::env::var("LEAN_CTX_CHECKPOINT_INTERVAL")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(config.checkpoint_interval as usize);
-
         let ttl = std::env::var("LEAN_CTX_CACHE_TTL")
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(DEFAULT_CACHE_TTL_SECS);
-
-        let crp_mode = CrpMode::from_env();
 
         let startup = detect_startup_context(project_root, startup_cwd);
         let mut session = if let Some(ref root) = startup.project_root {
@@ -188,10 +197,8 @@ impl LeanCtxServer {
             session: Arc::new(RwLock::new(session)),
             tool_calls: Arc::new(RwLock::new(Vec::new())),
             call_count: Arc::new(AtomicUsize::new(0)),
-            checkpoint_interval: interval,
             cache_ttl_secs: ttl,
             last_call: Arc::new(RwLock::new(Instant::now())),
-            crp_mode,
             agent_id: Arc::new(RwLock::new(None)),
             client_name: Arc::new(RwLock::new(String::new())),
             autonomy: Arc::new(autonomy::AutonomyState::new()),
@@ -210,6 +217,21 @@ impl LeanCtxServer {
             startup_project_root: startup.project_root,
             startup_shell_cwd: startup.shell_cwd,
         }
+    }
+
+    pub fn checkpoint_interval_effective() -> usize {
+        if let Ok(v) = std::env::var("LEAN_CTX_CHECKPOINT_INTERVAL") {
+            if let Ok(parsed) = v.trim().parse::<usize>() {
+                return parsed;
+            }
+        }
+        let profile_interval = crate::core::profiles::active_profile()
+            .autonomy
+            .checkpoint_interval;
+        if profile_interval > 0 {
+            return profile_interval as usize;
+        }
+        crate::core::config::Config::load().checkpoint_interval as usize
     }
 
     /// Resolves a (possibly relative) tool path against the session's project_root.
@@ -444,7 +466,8 @@ impl LeanCtxServer {
     /// Increments the call counter and returns true if a checkpoint is due.
     pub fn increment_and_check(&self) -> bool {
         let count = self.call_count.fetch_add(1, Ordering::Relaxed) + 1;
-        self.checkpoint_interval > 0 && count.is_multiple_of(self.checkpoint_interval)
+        let interval = Self::checkpoint_interval_effective();
+        interval > 0 && count.is_multiple_of(interval)
     }
 
     /// Generates a compressed context checkpoint with session state and multi-agent sync.
@@ -454,7 +477,7 @@ impl LeanCtxServer {
             return None;
         }
         let complexity = crate::core::adaptive::classify_from_context(&cache);
-        let checkpoint = ctx_compress::handle(&cache, true, self.crp_mode);
+        let checkpoint = ctx_compress::handle(&cache, true, CrpMode::effective());
         drop(cache);
 
         let mut session = self.session.write().await;
