@@ -79,8 +79,7 @@ fn access_token_ttl_secs() -> i64 {
     std::env::var("LEANCTX_CLOUD_OAUTH_TOKEN_TTL_SECS")
         .ok()
         .and_then(|v| v.parse::<i64>().ok())
-        .map(|n| n.clamp(60, 86_400))
-        .unwrap_or(3600)
+        .map_or(3600, |n| n.clamp(60, 86_400))
 }
 
 pub async fn token(
