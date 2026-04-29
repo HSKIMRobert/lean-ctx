@@ -99,7 +99,7 @@ impl ProceduralStore {
             .iter_mut()
             .find(|p| p.name == procedure.name)
         {
-            existing.confidence = (existing.confidence + procedure.confidence) / 2.0;
+            existing.confidence = existing.confidence.midpoint(procedure.confidence);
             existing.steps = procedure.steps;
             existing.activation_keywords = procedure.activation_keywords;
         } else {
@@ -260,7 +260,7 @@ fn generate_procedure_name(steps: &[ProcedureStep]) -> String {
 fn md5_short(input: &str) -> String {
     use md5::{Digest, Md5};
     let result = Md5::digest(input.as_bytes());
-    format!("{:x}", result)[..8].to_string()
+    format!("{result:x}")[..8].to_string()
 }
 
 fn usage_recency(proc: &Procedure) -> f32 {

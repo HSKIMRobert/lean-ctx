@@ -284,6 +284,10 @@ fn tokenize(text: &str) -> Vec<String> {
     split_camel_case_tokens(&tokens)
 }
 
+pub(crate) fn tokenize_for_index(text: &str) -> Vec<String> {
+    tokenize(text)
+}
+
 fn split_camel_case_tokens(tokens: &[String]) -> Vec<String> {
     let mut result = Vec::new();
     for token in tokens {
@@ -310,6 +314,17 @@ fn split_camel_case_tokens(tokens: &[String]) -> Vec<String> {
 }
 
 fn extract_chunks(file_path: &str, content: &str) -> Vec<CodeChunk> {
+    #[cfg(feature = "tree-sitter")]
+    {
+        let ext = std::path::Path::new(file_path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
+        if let Some(chunks) = crate::core::chunks_ts::extract_chunks_ts(file_path, content, ext) {
+            return chunks;
+        }
+    }
+
     let lines: Vec<&str> = content.lines().collect();
     if lines.is_empty() {
         return Vec::new();
@@ -346,24 +361,52 @@ fn extract_chunks(file_path: &str, content: &str) -> Vec<CodeChunk> {
     }
 
     if chunks.is_empty() && !content.is_empty() {
-        let tokens = tokenize(content);
-        let token_count = tokens.len();
-        let snippet = lines
-            .iter()
-            .take(50)
-            .copied()
-            .collect::<Vec<_>>()
-            .join("\n");
-        chunks.push(CodeChunk {
-            file_path: file_path.to_string(),
-            symbol_name: file_path.to_string(),
-            kind: ChunkKind::Module,
-            start_line: 1,
-            end_line: lines.len(),
-            content: snippet,
-            tokens,
-            token_count,
-        });
+        // Fallback: when no symbols are detected, chunk the file into stable, content-defined
+        // segments (rolling-hash) to enable meaningful semantic search over non-code assets.
+        //
+        // Safety note: rabin_karp uses byte offsets; we must slice bytes and decode safely.
+        let bytes = content.as_bytes();
+        let rk_chunks = crate::core::rabin_karp::chunk(content);
+        if !rk_chunks.is_empty() && rk_chunks.len() <= 200 {
+            for (idx, c) in rk_chunks.into_iter().take(50).enumerate() {
+                let end = (c.offset + c.length).min(bytes.len());
+                let slice = &bytes[c.offset..end];
+                let chunk_text = String::from_utf8_lossy(slice).into_owned();
+                let tokens = tokenize(&chunk_text);
+                let token_count = tokens.len();
+                let start_line = 1 + bytecount::count(&bytes[..c.offset], b'\n');
+                let end_line = start_line + bytecount::count(slice, b'\n');
+                chunks.push(CodeChunk {
+                    file_path: file_path.to_string(),
+                    symbol_name: format!("{file_path}#chunk-{idx}"),
+                    kind: ChunkKind::Module,
+                    start_line,
+                    end_line: end_line.max(start_line),
+                    content: chunk_text,
+                    tokens,
+                    token_count,
+                });
+            }
+        } else {
+            let tokens = tokenize(content);
+            let token_count = tokens.len();
+            let snippet = lines
+                .iter()
+                .take(50)
+                .copied()
+                .collect::<Vec<_>>()
+                .join("\n");
+            chunks.push(CodeChunk {
+                file_path: file_path.to_string(),
+                symbol_name: file_path.to_string(),
+                kind: ChunkKind::Module,
+                start_line: 1,
+                end_line: lines.len(),
+                content: snippet,
+                tokens,
+                token_count,
+            });
+        }
     }
 
     chunks

@@ -411,7 +411,7 @@ mod tests {
 
         let recent = store.recent(3);
         assert_eq!(recent.len(), 3);
-        assert!(recent[0].task_description.contains("4"));
+        assert!(recent[0].task_description.contains('4'));
     }
 
     #[test]

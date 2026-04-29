@@ -75,6 +75,10 @@ pub enum EventKind {
         from: String,
         to: String,
     },
+    ProfileChanged {
+        from: String,
+        to: String,
+    },
     SloViolation {
         slo_name: String,
         metric: String,
@@ -87,6 +91,17 @@ pub enum EventKind {
         expected: f64,
         actual: f64,
         deviation_factor: f64,
+    },
+    VerificationWarning {
+        warning_kind: String,
+        detail: String,
+        severity: String,
+    },
+    ThresholdAdapted {
+        language: String,
+        arm: String,
+        old_threshold: f64,
+        new_threshold: f64,
     },
 }
 
@@ -283,6 +298,13 @@ pub fn emit_role_changed(from: &str, to: &str) {
     });
 }
 
+pub fn emit_profile_changed(from: &str, to: &str) {
+    emit(EventKind::ProfileChanged {
+        from: from.to_string(),
+        to: to.to_string(),
+    });
+}
+
 pub fn emit_slo_violation(slo_name: &str, metric: &str, threshold: f64, actual: f64, action: &str) {
     emit(EventKind::SloViolation {
         slo_name: slo_name.to_string(),
@@ -299,6 +321,23 @@ pub fn emit_anomaly(metric: &str, expected: f64, actual: f64, deviation_factor: 
         expected,
         actual,
         deviation_factor,
+    });
+}
+
+pub fn emit_verification_warning(warning_kind: &str, detail: &str, severity: &str) {
+    emit(EventKind::VerificationWarning {
+        warning_kind: warning_kind.to_string(),
+        detail: detail.to_string(),
+        severity: severity.to_string(),
+    });
+}
+
+pub fn emit_threshold_adapted(language: &str, arm: &str, old_threshold: f64, new_threshold: f64) {
+    emit(EventKind::ThresholdAdapted {
+        language: language.to_string(),
+        arm: arm.to_string(),
+        old_threshold,
+        new_threshold,
     });
 }
 

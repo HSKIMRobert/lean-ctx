@@ -167,7 +167,15 @@ impl LeanCtxServer {
                         tokens_out: output_tokens,
                         density: density.min(1.0),
                     };
+                    let project_root = {
+                        let session = self.session.read().await;
+                        session
+                            .project_root
+                            .clone()
+                            .unwrap_or_else(|| ".".to_string())
+                    };
                     let mut predictor = crate::core::mode_predictor::ModePredictor::new();
+                    predictor.set_project_root(&project_root);
                     predictor.record(sig, outcome);
                     predictor.save();
 
@@ -194,6 +202,7 @@ impl LeanCtxServer {
                     };
                     drop(cache);
                     let mut store = crate::core::feedback::FeedbackStore::load();
+                    store.project_root = Some(project_root.clone());
                     store.record_outcome(feedback_outcome);
                 }
                 output

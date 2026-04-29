@@ -14,7 +14,7 @@ flowchart TD
 
     subgraph processing [Processing Layer]
         PatternEngine["Pattern Engine (90+ patterns)"]
-        ContextServer["Context Server (48 tools)"]
+        ContextServer["Context Server (49 tools)"]
         CliRouter["CLI Router"]
     end
 

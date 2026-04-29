@@ -412,6 +412,45 @@ impl Metrics {
             .count();
         lines.push(format!("lean_ctx_anomalies_total {anomaly_count}"));
 
+        let verify_snap = crate::core::output_verification::stats_snapshot();
+        lines.push("# HELP lean_ctx_verification_pass_total Total verification passes".into());
+        lines.push("# TYPE lean_ctx_verification_pass_total counter".into());
+        lines.push(format!(
+            "lean_ctx_verification_pass_total {}",
+            verify_snap.pass
+        ));
+
+        lines.push("# HELP lean_ctx_verification_warn_total Total verification warnings".into());
+        lines.push("# TYPE lean_ctx_verification_warn_total counter".into());
+        lines.push(format!(
+            "lean_ctx_verification_warn_total {}",
+            verify_snap.warn_items
+        ));
+
+        lines.push(
+            "# HELP lean_ctx_verification_warn_runs_total Total runs with verification warnings"
+                .into(),
+        );
+        lines.push("# TYPE lean_ctx_verification_warn_runs_total counter".into());
+        lines.push(format!(
+            "lean_ctx_verification_warn_runs_total {}",
+            verify_snap.warn_runs
+        ));
+
+        lines.push("# HELP lean_ctx_verification_pass_rate Verification pass rate".into());
+        lines.push("# TYPE lean_ctx_verification_pass_rate gauge".into());
+        lines.push(format!(
+            "lean_ctx_verification_pass_rate {:.4}",
+            verify_snap.pass_rate
+        ));
+
+        lines.push("# HELP lean_ctx_info_loss_score Average info loss score (0..1)".into());
+        lines.push("# TYPE lean_ctx_info_loss_score gauge".into());
+        lines.push(format!(
+            "lean_ctx_info_loss_score {:.6}",
+            verify_snap.avg_info_loss_score
+        ));
+
         lines.push("# HELP lean_ctx_session_uptime_seconds Session uptime in seconds".into());
         lines.push("# TYPE lean_ctx_session_uptime_seconds gauge".into());
         lines.push(format!(

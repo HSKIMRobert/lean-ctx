@@ -3,6 +3,32 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.4.6] — 2026-04-29
+
+### Added
+
+- **Unified call graph tool** — new `ctx_callgraph` supports `direction=callers|callees` behind one stable entry point.
+- **Graph diagram in unified graph API** — `ctx_graph` now supports `action=diagram` (with `kind=deps|calls` and optional `depth`).
+- **Release-gate hardening tests** — added golden/edge coverage for `tokens.rs`, `preservation.rs`, `handoff_ledger.rs`, and workflow store roundtrips.
+- **README entry paths** — new 3-tier onboarding/runtime paths (`Quick`, `Power`, `Enterprise`) with concrete commands and expected outcomes.
+
+### Changed
+
+- **Deprecation aliases (no breaking change)**:
+  - `ctx_callers`/`ctx_callees` now route to `ctx_callgraph` with deprecation hints.
+  - `ctx_graph_diagram` now routes to `ctx_graph action=diagram` with deprecation hint.
+  - `ctx_wrapped` now routes to `ctx_gain action=wrapped` with deprecation hint.
+- **Tool metadata alignment** — descriptors, editor auto-approve lists, and docs updated for the unified entry points and 49-tool manifest.
+- **Documentation/version hygiene** — README and VISION now consistently reference 49 MCP tools and current runtime state.
+- **Legacy cleanup** — removed unlinked `core/watcher.rs` orphan module (no runtime references).
+
+### Fixed
+
+- **Panic hardening in verification/stats paths** — replaced remaining production `unwrap()` usage in critical library paths:
+  - `core/output_verification.rs` fallback regex paths
+  - `core/stats/mod.rs` optional buffer extraction
+- **CLI guidance consistency** — `lean-ctx wrapped` now clearly points users to the canonical `lean-ctx gain --wrapped` path.
+
 ## [3.4.5] — 2026-04-28
 
 ### Added

@@ -59,8 +59,9 @@ pub fn record(command: &str, input_tokens: usize, output_tokens: usize) {
         let disk = io::load_from_disk();
         *guard = Some((disk.clone(), disk, Instant::now()));
     }
-    // SAFETY: guard is always Some after initialization above
-    let (store, baseline, last_flush) = guard.as_mut().unwrap();
+    let Some((store, baseline, last_flush)) = guard.as_mut() else {
+        return;
+    };
 
     let is_first_command = store.total_commands == baseline.total_commands;
     let now = chrono::Local::now();
@@ -166,8 +167,9 @@ pub fn record_cep_session(
         let disk = io::load_from_disk();
         *guard = Some((disk.clone(), disk, Instant::now()));
     }
-    // SAFETY: guard is always Some after initialization above
-    let (store, baseline, last_flush) = guard.as_mut().unwrap();
+    let Some((store, baseline, last_flush)) = guard.as_mut() else {
+        return;
+    };
 
     let cep = &mut store.cep;
 

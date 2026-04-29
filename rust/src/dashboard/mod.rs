@@ -284,6 +284,31 @@ fn route_response(
             let json = build_agents_json();
             ("200 OK", "application/json", json)
         }
+        "/api/profile" => {
+            let active_name = crate::core::profiles::active_profile_name();
+            let profile = crate::core::profiles::active_profile();
+            let all = crate::core::profiles::list_profiles();
+            let active_info = all.iter().find(|p| p.name == active_name);
+            let available: Vec<serde_json::Value> = all
+                .iter()
+                .map(|p| {
+                    serde_json::json!({
+                        "name": p.name,
+                        "description": p.description,
+                        "source": p.source.to_string(),
+                    })
+                })
+                .collect();
+            let payload = serde_json::json!({
+                "active_name": active_name,
+                "active_source": active_info.map(|i| i.source.to_string()),
+                "active_description": active_info.map(|i| i.description.clone()),
+                "profile": profile,
+                "available": available,
+            });
+            let json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+            ("200 OK", "application/json", json)
+        }
         "/api/knowledge" => {
             let project_root = detect_project_root_for_dashboard();
             let _ =
@@ -338,6 +363,73 @@ fn route_response(
         "/api/anomaly" => {
             let s = crate::core::anomaly::summary();
             let json = serde_json::to_string(&s).unwrap_or_else(|_| "[]".to_string());
+            ("200 OK", "application/json", json)
+        }
+        "/api/episodes" => {
+            let root = detect_project_root_for_dashboard();
+            let hash = crate::core::project_hash::hash_project_root(&root);
+            let store = crate::core::episodic_memory::EpisodicStore::load_or_create(&hash);
+            let stats = store.stats();
+            let recent: Vec<_> = store.recent(20).into_iter().cloned().collect();
+            let payload = serde_json::json!({
+                "project_root": root,
+                "project_hash": hash,
+                "stats": {
+                    "total_episodes": stats.total_episodes,
+                    "successes": stats.successes,
+                    "failures": stats.failures,
+                    "success_rate": stats.success_rate,
+                    "total_tokens": stats.total_tokens,
+                },
+                "recent": recent,
+            });
+            let json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+            ("200 OK", "application/json", json)
+        }
+        "/api/procedures" => {
+            let root = detect_project_root_for_dashboard();
+            let hash = crate::core::project_hash::hash_project_root(&root);
+            let store = crate::core::procedural_memory::ProceduralStore::load_or_create(&hash);
+            let task = extract_query_param(query_str, "task").or_else(|| {
+                crate::core::session::SessionState::load_latest_for_project_root(&root)
+                    .and_then(|s| s.task.map(|t| t.description))
+            });
+            let suggestions: Vec<serde_json::Value> = task.as_deref().map_or(Vec::new(), |t| {
+                store
+                    .suggest(t)
+                    .into_iter()
+                    .take(10)
+                    .map(|p| {
+                        serde_json::json!({
+                            "id": p.id,
+                            "name": p.name,
+                            "description": p.description,
+                            "confidence": p.confidence,
+                            "times_used": p.times_used,
+                            "times_succeeded": p.times_succeeded,
+                            "success_rate": p.success_rate(),
+                            "steps": p.steps,
+                            "activation_keywords": p.activation_keywords,
+                            "last_used": p.last_used,
+                            "created_at": p.created_at,
+                        })
+                    })
+                    .collect()
+            });
+            let payload = serde_json::json!({
+                "project_root": root,
+                "project_hash": hash,
+                "total_procedures": store.procedures.len(),
+                "task": task,
+                "suggestions": suggestions,
+                "procedures": store.procedures,
+            });
+            let json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+            ("200 OK", "application/json", json)
+        }
+        "/api/verification" => {
+            let snap = crate::core::output_verification::stats_snapshot();
+            let json = serde_json::to_string(&snap).unwrap_or_else(|_| "{}".to_string());
             ("200 OK", "application/json", json)
         }
         "/api/slos" => {
@@ -1118,5 +1210,37 @@ mod tests {
     fn normalize_dashboard_demo_path_preserves_unc_path() {
         let input = r"\\server\share\backend\list_tables.js";
         assert_eq!(normalize_dashboard_demo_path(input), input);
+    }
+
+    #[test]
+    fn api_profile_returns_json() {
+        let (_status, _ct, body) = route_response("/api/profile", "", None, None);
+        let v: serde_json::Value = serde_json::from_str(&body).expect("valid JSON");
+        assert!(v.get("active_name").is_some(), "missing active_name");
+        assert!(
+            v.pointer("/profile/profile/name")
+                .and_then(|n| n.as_str())
+                .is_some(),
+            "missing profile.profile.name"
+        );
+        assert!(v.get("available").and_then(|a| a.as_array()).is_some());
+    }
+
+    #[test]
+    fn api_episodes_returns_json() {
+        let (_status, _ct, body) = route_response("/api/episodes", "", None, None);
+        let v: serde_json::Value = serde_json::from_str(&body).expect("valid JSON");
+        assert!(v.get("project_hash").is_some());
+        assert!(v.get("stats").is_some());
+        assert!(v.get("recent").and_then(|a| a.as_array()).is_some());
+    }
+
+    #[test]
+    fn api_procedures_returns_json() {
+        let (_status, _ct, body) = route_response("/api/procedures", "", None, None);
+        let v: serde_json::Value = serde_json::from_str(&body).expect("valid JSON");
+        assert!(v.get("project_hash").is_some());
+        assert!(v.get("procedures").and_then(|a| a.as_array()).is_some());
+        assert!(v.get("suggestions").and_then(|a| a.as_array()).is_some());
     }
 }

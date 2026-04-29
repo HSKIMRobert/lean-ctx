@@ -384,6 +384,8 @@ impl ServerHandler for LeanCtxServer {
         };
 
         crate::core::anomaly::record_metric("tokens_per_call", output_tokens as f64);
+        // Persist anomaly detector so dashboard state survives restarts.
+        crate::core::anomaly::save();
 
         let budget_warning = {
             use crate::core::budget_tracker::{BudgetLevel, BudgetTracker};
@@ -451,9 +453,23 @@ impl ServerHandler for LeanCtxServer {
             }
         };
 
+        let pre_compression = result_text.clone();
         let density = crate::core::config::OutputDensity::effective(&config.output_density);
         if density != crate::core::config::OutputDensity::Normal {
             result_text = crate::core::protocol::compress_output(&result_text, &density);
+        }
+
+        {
+            let verify_cfg = crate::core::profiles::active_profile().verification;
+            let vr = crate::core::output_verification::verify_output(
+                &pre_compression,
+                &result_text,
+                &verify_cfg,
+            );
+            if !vr.warnings.is_empty() {
+                let msg = format!("[VERIFY] {}", vr.format_compact());
+                result_text = format!("{result_text}\n\n{msg}");
+            }
         }
 
         if let Some(hint) = archive_hint {

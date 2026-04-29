@@ -1,11 +1,11 @@
 ---
 name: lean-ctx
-description: Context Runtime for AI Agents — 48 MCP tools, 10 read modes, 90+ shell patterns, tree-sitter AST for 18 languages. Compresses LLM context by up to 99%. Use when reading files, running shell commands, searching code, or exploring directories. Auto-installs if not present.
+description: Context Runtime for AI Agents — 49 MCP tools, 10 read modes, 90+ shell patterns, tree-sitter AST for 18 languages. Compresses LLM context by up to 99%. Use when reading files, running shell commands, searching code, or exploring directories. Auto-installs if not present.
 ---
 
 # LeanCTX — Context Runtime for AI Agents
 
-LeanCTX optimizes LLM context through 48 MCP tools, 90+ shell compression patterns, and tree-sitter AST parsing for 18 languages. It provides adaptive file reading, cross-session memory (CCP), task-conditioned relevance scoring, and a feedback loop for learning optimal compression.
+LeanCTX optimizes LLM context through 49 MCP tools, 90+ shell compression patterns, and tree-sitter AST parsing for 18 languages. It provides adaptive file reading, cross-session memory (CCP), task-conditioned relevance scoring, and a feedback loop for learning optimal compression.
 
 ## Setup (run first)
 
@@ -132,6 +132,16 @@ MCP tools for CCP:
 - `ctx_session budget` — show budget status vs role limits
 - `ctx_session slo` — show SLO status/violations (value=reload|history|clear)
 - `ctx_session diff` — compare two sessions (value="<id_a> <id_b> [json]")
+- `ctx_session verify` — show output verification statistics
+- `ctx_session episodes` — episodic memory (value=record | "search <q>" | "file <path>" | "outcome <label>")
+- `ctx_session procedures` — procedural memory (value=detect | "suggest <task>")
+- `ctx_intent` — intent classification + model routing (returns dimension/tier/reasoning)
+- `ctx_graph build` — index code into unified graph
+- `ctx_graph related` — find connected files via graph
+- `ctx_graph symbol` — lookup symbol definitions/usages
+- `ctx_graph impact` — blast radius analysis
+- `ctx_graph enrich` — add commits, tests, knowledge to graph
+- `ctx_graph context` — task-based graph query for relevant context
 - `ctx_wrapped` — generate savings report card in chat
 
 ## Analytics

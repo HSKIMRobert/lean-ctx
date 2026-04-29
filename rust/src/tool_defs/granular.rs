@@ -270,18 +270,26 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
         tool_def(
             "ctx_graph",
             "Unified code graph. Actions: build (index), related (connected files), symbol (def/usages), \
-impact (blast radius), status (stats), enrich (add commits+tests+knowledge), context (task-based query).",
+impact (blast radius), status (stats), enrich (add commits+tests+knowledge), context (task-based query), diagram (Mermaid deps/calls).",
             json!({
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["build", "related", "symbol", "impact", "status"],
-                        "description": "Graph operation: build, related, symbol, impact, status"
+                        "enum": ["build", "related", "symbol", "impact", "status", "enrich", "context", "diagram"],
+                        "description": "Graph operation: build, related, symbol, impact, status, enrich, context, diagram"
                     },
                     "path": {
                         "type": "string",
                         "description": "File path (related/impact) or file::symbol_name (symbol)"
+                    },
+                    "depth": {
+                        "type": "integer",
+                        "description": "Optional depth for action=diagram (default: 2)"
+                    },
+                    "kind": {
+                        "type": "string",
+                        "description": "Optional kind for action=diagram: deps|calls"
                     },
                     "project_root": {
                         "type": "string",
@@ -293,15 +301,16 @@ impact (blast radius), status (stats), enrich (add commits+tests+knowledge), con
         ),
         tool_def(
             "ctx_session",
-            "Cross-session memory (CCP). Actions: load (restore previous session ~400 tok), \
-save, status, task (set current task), finding (record discovery), decision (record choice), \
-reset, list (show sessions), cleanup, snapshot, restore, resume, profile (show/switch context profile).",
+            "Cross-session memory (CCP). Actions: load (restore ~400 tok), save, status, task, \
+finding, decision, reset, list, cleanup, snapshot, restore, resume, profile (context profiles), \
+role (governance), budget (limits), slo (observability), diff (compare sessions), verify (output verification stats), \
+episodes (episodic memory), procedures (procedural memory).",
             json!({
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["status", "load", "save", "task", "finding", "decision", "reset", "list", "cleanup", "snapshot", "restore", "resume", "profile"],
+                        "enum": ["status", "load", "save", "task", "finding", "decision", "reset", "list", "cleanup", "snapshot", "restore", "resume", "profile", "role", "budget", "slo", "diff", "verify", "episodes", "procedures"],
                         "description": "Session operation to perform"
                     },
                     "value": {
@@ -502,7 +511,7 @@ pull (receive files shared by other agents), list (show all shared contexts), cl
         ),
         tool_def(
             "ctx_wrapped",
-            "Savings report card. Periods: week|month|all.",
+            "Savings report card. Deprecated alias for ctx_gain action=wrapped.",
             json!({
                 "type": "object",
                 "properties": {
@@ -538,7 +547,7 @@ pull (receive files shared by other agents), list (show all shared contexts), cl
         ),
         tool_def(
             "ctx_gain",
-            "Gain report.",
+            "Gain report (includes Wrapped via action=wrapped).",
             json!({
                 "type": "object",
                 "properties": {
@@ -772,7 +781,7 @@ code block instead of the entire file. 90-97% fewer tokens than full file read."
         ),
         tool_def(
             "ctx_graph_diagram",
-            "Generate a Mermaid diagram of the dependency or call graph. Useful for understanding architecture.",
+            "Generate a Mermaid diagram of the dependency or call graph. Deprecated alias for ctx_graph action=diagram.",
             json!({
                 "type": "object",
                 "properties": {
@@ -807,7 +816,7 @@ Preserves code blocks, URLs, paths, headings, tables. Creates .original.md backu
         ),
         tool_def(
             "ctx_callers",
-            "Find all symbols that call a given function/method. Returns caller file, symbol, and line.",
+            "Find all symbols that call a given function/method. Deprecated alias for ctx_callgraph direction=callers.",
             json!({
                 "type": "object",
                 "properties": {
@@ -819,11 +828,24 @@ Preserves code blocks, URLs, paths, headings, tables. Creates .original.md backu
         ),
         tool_def(
             "ctx_callees",
-            "Find all functions/methods called by a given symbol. Returns callee name, file, and line.",
+            "Find all functions/methods called by a given symbol. Deprecated alias for ctx_callgraph direction=callees.",
             json!({
                 "type": "object",
                 "properties": {
                     "symbol": { "type": "string", "description": "Symbol name to find callees of" },
+                    "file": { "type": "string", "description": "Optional: scope to a specific file" }
+                },
+                "required": ["symbol"]
+            }),
+        ),
+        tool_def(
+            "ctx_callgraph",
+            "Unified call graph query. direction=callers|callees for a symbol. Returns file/symbol/line edges.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "symbol": { "type": "string", "description": "Symbol name to inspect" },
+                    "direction": { "type": "string", "description": "callers|callees (default: callers)" },
                     "file": { "type": "string", "description": "Optional: scope to a specific file" }
                 },
                 "required": ["symbol"]
@@ -1019,14 +1041,14 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
         ("ctx_edit", "Edit a file via search-and-replace. Works without native Read/Edit tools. Use when Edit requires Read but Read is unavailable.", json!({"type": "object", "properties": {"path": {"type": "string"}, "old_string": {"type": "string"}, "new_string": {"type": "string"}, "replace_all": {"type": "boolean"}, "create": {"type": "boolean"}}, "required": ["path", "new_string"]})),
         ("ctx_dedup", "Cross-file dedup: analyze or apply shared block references.", json!({"type": "object", "properties": {"action": {"type": "string"}}})),
         ("ctx_fill", "Budget-aware context fill — auto-selects compression per file within token limit.", json!({"type": "object", "properties": {"paths": {"type": "array", "items": {"type": "string"}}, "budget": {"type": "integer"}, "task": {"type": "string"}}, "required": ["paths", "budget"]})),
-        ("ctx_intent", "Structured intent input (optional) — submit compact JSON or short text; server also infers intents automatically from tool calls.", json!({"type": "object", "properties": {"query": {"type": "string"}, "project_root": {"type": "string"}}, "required": ["query"]})),
+        ("ctx_intent", "Structured intent input with model routing. Returns intent classification + recommended model tier (fast/standard/premium) based on What/How/Do dimension.", json!({"type": "object", "properties": {"query": {"type": "string"}, "project_root": {"type": "string"}}, "required": ["query"]})),
         ("ctx_response", "Compress LLM response text (remove filler, apply TDD).", json!({"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]})),
         ("ctx_context", "Session context overview — cached files, seen files, session state.", json!({"type": "object", "properties": {}})),
-        ("ctx_graph", "Unified code graph. Actions: build, related, symbol, impact, status, enrich (commits+tests+knowledge), context (task-based query).", json!({"type": "object", "properties": {"action": {"type": "string"}, "path": {"type": "string"}, "project_root": {"type": "string"}}, "required": ["action"]})),
+        ("ctx_graph", "Unified code graph. Actions: build, related, symbol, impact, status, enrich, context, diagram.", json!({"type": "object", "properties": {"action": {"type": "string"}, "path": {"type": "string"}, "depth": {"type": "integer"}, "kind": {"type": "string"}, "project_root": {"type": "string"}}, "required": ["action"]})),
         ("ctx_session", "Cross-session memory (CCP). Actions: load (restore ~400 tok), save, status, \
 task, finding, decision, reset, list, cleanup, snapshot (~2KB), restore, resume, \
 profile (context profiles), role (governance), budget (limits), slo (observability), \
-diff (compare sessions: value=\"id_a id_b [json]\").", json!({"type": "object", "properties": {"action": {"type": "string"}, "value": {"type": "string"}, "session_id": {"type": "string"}}, "required": ["action"]})),
+diff (compare sessions: value=\"id_a id_b [json]\"), verify (output verification stats).", json!({"type": "object", "properties": {"action": {"type": "string"}, "value": {"type": "string"}, "session_id": {"type": "string"}}, "required": ["action"]})),
         ("ctx_knowledge", "Persistent project knowledge with temporal facts + contradiction detection. Actions: remember (auto-tracks validity + detects contradictions), recall, pattern, consolidate, \
 gotcha (record a bug to never repeat — trigger+resolution), timeline (fact version history), rooms (list knowledge categories), \
 search (cross-session/cross-project), wakeup (compact AAAK briefing), status, remove, export, embeddings_status|embeddings_reset|embeddings_reindex.", json!({"type": "object", "properties": {"action": {"type": "string"}, "category": {"type": "string"}, "key": {"type": "string"}, "value": {"type": "string"}, "query": {"type": "string"}, "trigger": {"type": "string"}, "resolution": {"type": "string"}, "severity": {"type": "string"}}, "required": ["action"]})),
@@ -1038,9 +1060,9 @@ pull (receive shared files), list (show all shared contexts), clear (remove your
         ("ctx_overview", "Task-relevant project map — use at session start.", json!({"type": "object", "properties": {"task": {"type": "string"}, "path": {"type": "string"}}})),
         ("ctx_preload", "Proactive context loader — reads and caches task-relevant files, returns compact L-curve-optimized summary with critical lines, imports, and signatures. Costs ~50-100 tokens instead of ~5000 for individual reads.", json!({"type": "object", "properties": {"task": {"type": "string", "description": "Task description (e.g. 'fix auth bug in validate_token')"}, "path": {"type": "string", "description": "Project root (default: .)"}}, "required": ["task"]})),
         ("ctx_prefetch", "Predictive prefetch — prewarm cache for blast radius files (graph + task signals) within budgets.", json!({"type": "object", "properties": {"root": {"type": "string"}, "task": {"type": "string"}, "changed_files": {"type": "array", "items": {"type": "string"}}, "budget_tokens": {"type": "integer"}, "max_files": {"type": "integer"}}})),
-        ("ctx_wrapped", "Savings report card. Periods: week|month|all.", json!({"type": "object", "properties": {"period": {"type": "string"}}})),
+        ("ctx_wrapped", "Deprecated alias for ctx_gain action=wrapped.", json!({"type": "object", "properties": {"period": {"type": "string"}}})),
         ("ctx_cost", "Cost attribution (local-first). Actions: report|agent|tools|json|reset.", json!({"type": "object", "properties": {"action": {"type": "string"}, "agent_id": {"type": "string"}, "limit": {"type": "integer"}}})),
-        ("ctx_gain", "Gain report.", json!({"type": "object", "properties": {"action": {"type": "string"}, "period": {"type": "string"}, "model": {"type": "string"}, "limit": {"type": "integer"}}})),
+        ("ctx_gain", "Gain report (includes Wrapped via action=wrapped).", json!({"type": "object", "properties": {"action": {"type": "string"}, "period": {"type": "string"}, "model": {"type": "string"}, "limit": {"type": "integer"}}})),
         ("ctx_feedback", "Harness feedback for LLM output tokens/latency (local-first). Actions: record|report|json|reset|status.", json!({"type": "object", "properties": {"action": {"type": "string"}, "agent_id": {"type": "string"}, "intent": {"type": "string"}, "model": {"type": "string"}, "llm_input_tokens": {"type": "integer"}, "llm_output_tokens": {"type": "integer"}, "latency_ms": {"type": "integer"}, "note": {"type": "string"}, "limit": {"type": "integer"}}})),
         ("ctx_handoff", "Context Ledger Protocol (hashed, deterministic, local-first). Actions: create|show|list|pull|clear.", json!({"type": "object", "properties": {"action": {"type": "string"}, "path": {"type": "string"}, "paths": {"type": "array", "items": {"type": "string"}}, "apply_workflow": {"type": "boolean"}, "apply_session": {"type": "boolean"}, "apply_knowledge": {"type": "boolean"}}})),
         ("ctx_heatmap", "File access heatmap (local-first). Actions: status|directory|cold|json.", json!({"type": "object", "properties": {"action": {"type": "string"}, "path": {"type": "string"}}})),
@@ -1053,10 +1075,11 @@ pull (receive shared files), list (show all shared contexts), clear (remove your
         ("ctx_symbol", "Read a specific symbol (function, struct, class) by name. Returns only the symbol code block instead of the entire file. 90-97% fewer tokens than full file read.", json!({"type": "object", "properties": {"name": {"type": "string"}, "file": {"type": "string"}, "kind": {"type": "string"}}, "required": ["name"]})),
         ("ctx_outline", "List all symbols in a file with signatures. Much fewer tokens than reading the full file.", json!({"type": "object", "properties": {"path": {"type": "string"}, "kind": {"type": "string"}}, "required": ["path"]})),
         ("ctx_compress_memory", "Compress a memory/config file (CLAUDE.md, .cursorrules) preserving code, URLs, paths. Creates .original.md backup.", json!({"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]})),
-        ("ctx_callers", "Find all symbols that call a given function/method.", json!({"type": "object", "properties": {"symbol": {"type": "string"}, "file": {"type": "string"}}, "required": ["symbol"]})),
-        ("ctx_callees", "Find all functions/methods called by a given symbol.", json!({"type": "object", "properties": {"symbol": {"type": "string"}, "file": {"type": "string"}}, "required": ["symbol"]})),
+        ("ctx_callers", "Deprecated alias for ctx_callgraph direction=callers.", json!({"type": "object", "properties": {"symbol": {"type": "string"}, "file": {"type": "string"}}, "required": ["symbol"]})),
+        ("ctx_callees", "Deprecated alias for ctx_callgraph direction=callees.", json!({"type": "object", "properties": {"symbol": {"type": "string"}, "file": {"type": "string"}}, "required": ["symbol"]})),
+        ("ctx_callgraph", "Unified call graph query with direction=callers|callees.", json!({"type": "object", "properties": {"symbol": {"type": "string"}, "direction": {"type": "string"}, "file": {"type": "string"}}, "required": ["symbol"]})),
         ("ctx_routes", "List HTTP routes/endpoints extracted from the project. Supports Express, Flask, FastAPI, Actix, Spring, Rails, Next.js.", json!({"type": "object", "properties": {"method": {"type": "string"}, "path": {"type": "string"}}})),
-        ("ctx_graph_diagram", "Generate a Mermaid diagram of the dependency or call graph.", json!({"type": "object", "properties": {"file": {"type": "string"}, "depth": {"type": "integer"}, "kind": {"type": "string"}}})),
+        ("ctx_graph_diagram", "Deprecated alias for ctx_graph action=diagram.", json!({"type": "object", "properties": {"file": {"type": "string"}, "depth": {"type": "integer"}, "kind": {"type": "string"}}})),
         ("ctx_expand", "Retrieve archived tool output (zero-loss). Large outputs are auto-archived; use this to retrieve full details. Actions: retrieve (default), list.", json!({"type": "object", "properties": {"id": {"type": "string", "description": "Archive ID from the [Archived: ...] hint"}, "action": {"type": "string", "description": "retrieve (default) or list"}, "start_line": {"type": "integer", "description": "Start line for range retrieval"}, "end_line": {"type": "integer", "description": "End line for range retrieval"}, "search": {"type": "string", "description": "Search pattern to filter archived output"}, "session_id": {"type": "string", "description": "Filter list by session ID"}}})),
         ("ctx_review", "Automated code review: combines impact analysis, caller tracking, and test discovery. Actions: review (single file), diff-review (from git diff), checklist (structured review questions).", json!({"type": "object", "properties": {"action": {"type": "string", "enum": ["review", "diff-review", "checklist"], "description": "Review action"}, "path": {"type": "string", "description": "File path to review (or git diff text for diff-review)"}, "depth": {"type": "integer", "description": "Impact analysis depth (default: 3)"}}, "required": ["action"]})),
     ]

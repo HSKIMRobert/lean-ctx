@@ -89,6 +89,7 @@ pub fn auto_approve_tools() -> Vec<&'static str> {
         "ctx_outline",
         "ctx_callers",
         "ctx_callees",
+        "ctx_callgraph",
         "ctx_routes",
         "ctx_graph_diagram",
         "ctx_cost",

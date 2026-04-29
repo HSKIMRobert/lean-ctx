@@ -77,8 +77,11 @@ pub fn cmd_wrapped(args: &[String]) {
         "week"
     };
 
-    let report = crate::core::wrapped::WrappedReport::generate(period);
-    println!("{}", report.format_ascii());
+    eprintln!("[DEPRECATED] Use `lean-ctx gain --wrapped`.");
+    println!(
+        "{}",
+        crate::tools::ctx_gain::handle("wrapped", Some(period), None, None)
+    );
 }
 
 pub fn cmd_sessions(args: &[String]) {

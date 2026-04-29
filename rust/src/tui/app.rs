@@ -458,6 +458,9 @@ fn draw_live_feed(f: &mut ratatui::Frame, area: Rect, state: &AppState) {
                 EventKind::RoleChanged { from, to } => {
                     ("->", "role", format!("{from} -> {to}"), BLUE)
                 }
+                EventKind::ProfileChanged { from, to } => {
+                    ("->", "profile", format!("{from} -> {to}"), BLUE)
+                }
                 EventKind::SloViolation {
                     slo_name, action, ..
                 } => ("!!", "slo", format!("{slo_name} violated → {action}"), RED),
@@ -470,6 +473,25 @@ fn draw_live_feed(f: &mut ratatui::Frame, area: Rect, state: &AppState) {
                     "anomaly",
                     format!("{metric} {deviation_factor:.1}x StdDev"),
                     YELLOW,
+                ),
+                EventKind::VerificationWarning {
+                    warning_kind,
+                    detail,
+                    ..
+                } => (
+                    "!?",
+                    "verify",
+                    format!(
+                        "{warning_kind}: {}",
+                        detail.chars().take(40).collect::<String>()
+                    ),
+                    YELLOW,
+                ),
+                EventKind::ThresholdAdapted { language, arm, .. } => (
+                    "~>",
+                    "adapt",
+                    format!("{language}/{arm} threshold adapted"),
+                    BLUE,
                 ),
             };
             let ts = &ev.timestamp[11..19.min(ev.timestamp.len())];

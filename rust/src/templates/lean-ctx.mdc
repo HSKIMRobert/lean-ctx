@@ -60,6 +60,13 @@ NEVER loop trying to make Edit work. If it fails, switch to ctx_edit immediately
 - `ctx_session budget` — show budget status vs role limits
 - `ctx_session slo` — show SLO status/violations (value=reload|history|clear)
 - `ctx_session diff` — compare two sessions (value="<id_a> <id_b> [json]")
+- `ctx_session verify` — show output verification statistics
+- `ctx_session episodes` — episodic memory (value=record | "search <q>" | "file <path>" | "outcome <label>")
+- `ctx_session procedures` — procedural memory (value=detect | "suggest <task>")
+- `ctx_intent` — intent classification + model routing (dimension/tier/reasoning)
+- `ctx_graph build|related|symbol|impact|status` — unified code graph
+- `ctx_graph enrich` — add commits, tests, knowledge to graph
+- `ctx_graph context` — task-based graph query for relevant context
 - `ctx_workflow` — state machine + evidence + tool gating
 
 ## Proactive Tools

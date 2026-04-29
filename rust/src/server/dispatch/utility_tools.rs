@@ -166,6 +166,7 @@ impl LeanCtxServer {
                 let action = get_str(args, "action")
                     .ok_or_else(|| ErrorData::invalid_params("action is required", None))?;
                 let path = match get_str(args, "path") {
+                    Some(p) if action == "diagram" => Some(p),
                     Some(p) => Some(
                         self.resolve_path(&p)
                             .await
@@ -177,6 +178,8 @@ impl LeanCtxServer {
                     .resolve_path(&get_str(args, "project_root").unwrap_or_else(|| ".".to_string()))
                     .await
                     .map_err(|e| ErrorData::invalid_params(e, None))?;
+                let depth = get_int(args, "depth").map(|d| d as usize);
+                let kind = get_str(args, "kind");
                 let crp_mode = crate::tools::CrpMode::effective();
                 let action_for_record = action.clone();
                 let mut cache = self.cache.write().await;
@@ -186,6 +189,8 @@ impl LeanCtxServer {
                     &root,
                     &mut cache,
                     crp_mode,
+                    depth,
+                    kind.as_deref(),
                 );
                 drop(cache);
                 self.record_call("ctx_graph", 0, 0, Some(action_for_record))
@@ -476,11 +481,19 @@ impl LeanCtxServer {
                     .clone()
                     .unwrap_or_else(|| ".".to_string());
                 drop(session);
-                let result = crate::tools::ctx_graph_diagram::handle(
+                let mut cache = self.cache.write().await;
+                let graph_output = crate::tools::ctx_graph::handle(
+                    "diagram",
                     file.as_deref(),
+                    &project_root,
+                    &mut cache,
+                    crate::tools::CrpMode::effective(),
                     depth,
                     kind.as_deref(),
-                    &project_root,
+                );
+                drop(cache);
+                let result = format!(
+                    "[DEPRECATED] Use ctx_graph with action='diagram' (supports same args).\n{graph_output}"
                 );
                 self.record_call("ctx_graph_diagram", 0, 0, kind).await;
                 result
@@ -535,6 +548,27 @@ impl LeanCtxServer {
                 let result =
                     crate::tools::ctx_callers::handle(&symbol, file.as_deref(), &project_root);
                 self.record_call("ctx_callers", 0, 0, None).await;
+                result
+            }
+            "ctx_callgraph" => {
+                let symbol = get_str(args, "symbol")
+                    .ok_or_else(|| ErrorData::invalid_params("symbol is required", None))?;
+                let direction = get_str(args, "direction").unwrap_or_else(|| "callers".to_string());
+                let file = get_str(args, "file");
+                let session = self.session.read().await;
+                let project_root = session
+                    .project_root
+                    .clone()
+                    .unwrap_or_else(|| ".".to_string());
+                drop(session);
+                let result = crate::tools::ctx_callgraph::handle(
+                    &symbol,
+                    file.as_deref(),
+                    &project_root,
+                    &direction,
+                );
+                self.record_call("ctx_callgraph", 0, 0, Some(direction))
+                    .await;
                 result
             }
             "ctx_review" => {

@@ -118,7 +118,7 @@ fn render_call_graph(file: Option<&str>, _depth: usize, project_root: &str) -> S
     let _ = call_graph.save();
 
     if call_graph.edges.is_empty() {
-        return "No call edges found. Run ctx_callers first to build the call graph.".to_string();
+        return "No call edges found. Run ctx_callgraph first to build the call graph.".to_string();
     }
 
     let edges: Vec<_> = if let Some(focus) = file {

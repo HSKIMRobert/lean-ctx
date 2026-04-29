@@ -430,3 +430,169 @@ fn canonicalize_json(v: &Value) -> Value {
         other => other.clone(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::data_dir::test_env_lock;
+    use tempfile::tempdir;
+
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let previous = std::env::var(key).ok();
+            std::env::set_var(key, value);
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            if let Some(ref previous) = self.previous {
+                std::env::set_var(self.key, previous);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
+
+    fn sample_session() -> SessionState {
+        let mut session = SessionState::new();
+        session.set_task("stabilize handoff ledger tests", None);
+        session.add_decision("Keep ledger deterministic", None);
+        session.add_finding(
+            Some("rust/src/core/handoff_ledger.rs"),
+            Some(42),
+            "Edge case coverage extended",
+        );
+        session.record_manual_evidence("tool:ctx_read", Some("handoff_ledger.rs"));
+        session
+    }
+
+    fn sample_tool_calls() -> Vec<ToolCallRecord> {
+        vec![
+            ToolCallRecord {
+                tool: "ctx_read".to_string(),
+                original_tokens: 900,
+                saved_tokens: 700,
+                mode: Some("map".to_string()),
+                duration_ms: 12,
+                timestamp: chrono::Utc::now().to_rfc3339(),
+            },
+            ToolCallRecord {
+                tool: "ctx_shell".to_string(),
+                original_tokens: 120,
+                saved_tokens: 60,
+                mode: None,
+                duration_ms: 8,
+                timestamp: chrono::Utc::now().to_rfc3339(),
+            },
+        ]
+    }
+
+    fn make_minimal_ledger() -> HandoffLedgerV1 {
+        HandoffLedgerV1 {
+            schema_version: SCHEMA_VERSION,
+            created_at: "20260429T000000".to_string(),
+            content_md5: String::new(),
+            manifest_md5: "manifest".to_string(),
+            project_root: None,
+            agent_id: Some("agent-test".to_string()),
+            client_name: Some("cursor".to_string()),
+            workflow: None,
+            session_snapshot: "snapshot".to_string(),
+            session: SessionExcerpt::default(),
+            tool_calls: ToolCallsSummary::default(),
+            evidence_keys: Vec::new(),
+            knowledge: KnowledgeExcerpt::default(),
+            curated_refs: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn create_load_list_clear_ledger_roundtrip() {
+        let _env_lock = test_env_lock();
+        let tmp = tempdir().expect("tempdir");
+        let data_dir = tmp.path().join("leanctx-data");
+        let _env = EnvVarGuard::set(
+            "LEAN_CTX_DATA_DIR",
+            data_dir.to_str().expect("data dir utf8"),
+        );
+
+        let input = CreateLedgerInput {
+            agent_id: Some("agent-1".to_string()),
+            client_name: Some("cursor".to_string()),
+            project_root: Some(tmp.path().to_string_lossy().to_string()),
+            session: sample_session(),
+            tool_calls: sample_tool_calls(),
+            workflow: None,
+            curated_refs: vec![("src/lib.rs".to_string(), "fn alpha() {}".to_string())],
+        };
+
+        let (ledger, path) = create_ledger(input).expect("create ledger");
+        assert!(path.exists(), "ledger file should be created");
+        assert_eq!(ledger.tool_calls.total, 2);
+        assert_eq!(ledger.tool_calls.by_tool.get("ctx_read"), Some(&1));
+        assert_eq!(ledger.tool_calls.by_ctx_read_mode.get("map"), Some(&1));
+        assert_eq!(ledger.curated_refs.len(), 1);
+        assert!(!ledger.content_md5.is_empty());
+
+        let listed = list_ledgers();
+        assert!(listed.iter().any(|p| p == &path));
+
+        let loaded = load_ledger(&path).expect("load ledger");
+        assert_eq!(loaded.content_md5, ledger.content_md5);
+        assert_eq!(loaded.session.decisions.len(), 1);
+        assert!(loaded.evidence_keys.iter().any(|k| k == "tool:ctx_read"));
+
+        let removed = clear_ledgers().expect("clear ledgers");
+        assert!(removed >= 1);
+        assert!(list_ledgers().is_empty());
+    }
+
+    #[test]
+    fn create_ledger_truncates_curated_refs_to_max() {
+        let _env_lock = test_env_lock();
+        let tmp = tempdir().expect("tempdir");
+        let data_dir = tmp.path().join("leanctx-data");
+        let _env = EnvVarGuard::set(
+            "LEAN_CTX_DATA_DIR",
+            data_dir.to_str().expect("data dir utf8"),
+        );
+
+        let curated_refs: Vec<(String, String)> = (0..(MAX_CURATED_REFS + 5))
+            .map(|idx| (format!("src/file_{idx}.rs"), format!("fn f_{idx}() {{}}")))
+            .collect();
+
+        let input = CreateLedgerInput {
+            agent_id: Some("agent-1".to_string()),
+            client_name: Some("cursor".to_string()),
+            project_root: Some(tmp.path().to_string_lossy().to_string()),
+            session: sample_session(),
+            tool_calls: sample_tool_calls(),
+            workflow: None,
+            curated_refs,
+        };
+
+        let (ledger, _) = create_ledger(input).expect("create ledger");
+        assert_eq!(ledger.curated_refs.len(), MAX_CURATED_REFS);
+    }
+
+    #[test]
+    fn canonicalization_and_content_md5_are_deterministic() {
+        let value = serde_json::json!({"b": 1, "a": {"d": 2, "c": 3}});
+        let canonical = canonicalize_json(&value);
+        assert_eq!(canonical.to_string(), r#"{"a":{"c":3,"d":2},"b":1}"#);
+
+        let mut ledger = make_minimal_ledger();
+        ledger.content_md5 = "old-value".to_string();
+        let md5_a = ledger_content_md5(&ledger);
+        ledger.content_md5 = "new-value".to_string();
+        let md5_b = ledger_content_md5(&ledger);
+        assert_eq!(md5_a, md5_b);
+    }
+}

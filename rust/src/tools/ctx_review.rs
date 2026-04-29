@@ -32,7 +32,7 @@ fn handle_review(path: Option<&str>, root: &str, depth: usize) -> String {
         .unwrap_or("");
 
     if !file_stem.is_empty() {
-        let callers = super::ctx_callers::handle(file_stem, None, root);
+        let callers = super::ctx_callgraph::handle(file_stem, None, root, "callers");
         if !callers.contains("No callers") {
             sections.push("### Callers".to_string());
             sections.push(callers);

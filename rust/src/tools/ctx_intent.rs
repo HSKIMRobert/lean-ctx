@@ -1,4 +1,5 @@
 use crate::core::cache::SessionCache;
+use crate::core::intent_engine::{classify, route_intent};
 use crate::core::intent_protocol::{IntentRecord, IntentSubject};
 use crate::tools::CrpMode;
 
@@ -13,17 +14,22 @@ pub fn handle(
     }
 
     let intent = crate::core::intent_protocol::intent_from_query(query, Some(project_root));
-    format_ack(&intent)
+    let classification = classify(query);
+    let route = route_intent(query, &classification);
+    format_ack(&intent, &route)
 }
 
-fn format_ack(intent: &IntentRecord) -> String {
+fn format_ack(intent: &IntentRecord, route: &crate::core::intent_engine::IntentRoute) -> String {
     format!(
-        "INTENT_OK id={} type={} source={} conf={:.0}% subj={}",
+        "INTENT_OK id={} type={} source={} conf={:.0}% subj={} | route: dimension={} model_tier={} reason={}",
         intent.id,
         intent.intent_type.as_str(),
         intent.source.as_str(),
         (intent.confidence.clamp(0.0, 1.0) * 100.0).round(),
         subject_short(&intent.subject),
+        route.dimension.as_str(),
+        route.model_tier.as_str(),
+        route.reasoning,
     )
 }
 

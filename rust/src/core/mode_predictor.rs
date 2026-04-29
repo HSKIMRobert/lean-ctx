@@ -56,6 +56,7 @@ impl FileSignature {
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ModePredictor {
     history: HashMap<FileSignature, Vec<ModeOutcome>>,
+    project_root: Option<String>,
 }
 
 impl ModePredictor {
@@ -67,9 +68,23 @@ impl ModePredictor {
         if let Some((ref predictor, _)) = *guard {
             return predictor.clone();
         }
-        let loaded = Self::load_from_disk().unwrap_or_default();
+        let mut loaded = Self::load_from_disk().unwrap_or_default();
+        if loaded.project_root.is_none() {
+            loaded.project_root = std::env::current_dir()
+                .ok()
+                .map(|p| p.to_string_lossy().to_string());
+        }
         *guard = Some((loaded.clone(), Instant::now()));
         loaded
+    }
+
+    pub fn with_project_root(mut self, root: &str) -> Self {
+        self.project_root = Some(root.to_string());
+        self
+    }
+
+    pub fn set_project_root(&mut self, root: &str) {
+        self.project_root = Some(root.to_string());
     }
 
     /// Records a mode outcome for a file signature (capped at 100 entries).
@@ -87,10 +102,35 @@ impl ModePredictor {
         if let Some(local) = self.predict_from_local(sig) {
             return Some(local);
         }
+        if let Some(bandit) = self.predict_from_bandit(sig) {
+            return Some(bandit);
+        }
         if let Some(cloud) = self.predict_from_cloud(sig) {
             return Some(cloud);
         }
         Self::predict_from_defaults(sig)
+    }
+
+    fn predict_from_bandit(&self, sig: &FileSignature) -> Option<String> {
+        let key = format!("{}_feedback", sig.ext);
+        let store =
+            crate::core::bandit::BanditStore::load(self.project_root.as_deref().unwrap_or("."));
+        let bandit = store.bandits.get(&key)?;
+        if bandit.total_pulls < 5 {
+            return None;
+        }
+        let best_arm = bandit.arms.iter().max_by(|a, b| {
+            a.mean()
+                .partial_cmp(&b.mean())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })?;
+        let mode = match best_arm.name.as_str() {
+            "conservative" => "full",
+            "balanced" => "signatures",
+            "aggressive" => "aggressive",
+            _ => return None,
+        };
+        Some(mode.to_string())
     }
 
     fn predict_from_local(&self, sig: &FileSignature) -> Option<String> {

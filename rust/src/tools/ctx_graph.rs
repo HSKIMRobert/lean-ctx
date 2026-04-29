@@ -10,6 +10,8 @@ pub fn handle(
     root: &str,
     cache: &mut crate::core::cache::SessionCache,
     crp_mode: crate::tools::CrpMode,
+    depth: Option<usize>,
+    kind: Option<&str>,
 ) -> String {
     match action {
         "build" => handle_build(root),
@@ -19,8 +21,11 @@ pub fn handle(
         "status" => handle_status(root),
         "enrich" => handle_enrich(root),
         "context" => handle_context_query(path, root),
-        _ => "Unknown action. Use: build, related, symbol, impact, status, enrich, context"
-            .to_string(),
+        "diagram" => crate::tools::ctx_graph_diagram::handle(path, depth, kind, root),
+        _ => {
+            "Unknown action. Use: build, related, symbol, impact, status, enrich, context, diagram"
+                .to_string()
+        }
     }
 }
 

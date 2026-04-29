@@ -47,7 +47,7 @@ pub fn cmd_cheatsheet() {
   lean-ctx gain          \x1b[2m# visual savings dashboard\x1b[0m
   lean-ctx gain --live   \x1b[2m# live auto-updating (Ctrl+C)\x1b[0m
   lean-ctx dashboard     \x1b[2m# web dashboard with charts\x1b[0m
-  lean-ctx wrapped       \x1b[2m# weekly savings report\x1b[0m
+  lean-ctx gain --wrapped \x1b[2m# wrapped savings report\x1b[0m
   lean-ctx discover      \x1b[2m# find uncompressed commands\x1b[0m
   lean-ctx doctor        \x1b[2m# diagnose installation\x1b[0m
   lean-ctx update        \x1b[2m# self-update to latest\x1b[0m

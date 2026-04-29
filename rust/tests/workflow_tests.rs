@@ -40,6 +40,29 @@ fn minimal_spec() -> WorkflowSpec {
     }
 }
 
+struct EnvVarGuard {
+    key: &'static str,
+    previous: Option<String>,
+}
+
+impl EnvVarGuard {
+    fn set(key: &'static str, value: &str) -> Self {
+        let previous = std::env::var(key).ok();
+        std::env::set_var(key, value);
+        Self { key, previous }
+    }
+}
+
+impl Drop for EnvVarGuard {
+    fn drop(&mut self) {
+        if let Some(ref previous) = self.previous {
+            std::env::set_var(self.key, previous);
+        } else {
+            std::env::remove_var(self.key);
+        }
+    }
+}
+
 #[test]
 fn validate_spec_accepts_valid_spec() {
     let spec = minimal_spec();
@@ -229,4 +252,45 @@ fn store_roundtrip() {
     assert_eq!(loaded.current, "a");
     assert_eq!(loaded.evidence.len(), 1);
     assert_eq!(loaded.evidence[0].key, "test-key");
+}
+
+#[test]
+fn store_load_active_returns_none_when_file_is_missing() {
+    let _env_lock = lean_ctx::core::data_dir::test_env_lock();
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let data_dir = tmp.path().join("leanctx-data");
+    let _env = EnvVarGuard::set(
+        "LEAN_CTX_DATA_DIR",
+        data_dir.to_str().expect("data dir utf8"),
+    );
+
+    clear_active().expect("clear missing active should succeed");
+    let loaded = load_active().expect("load_active");
+    assert!(loaded.is_none());
+}
+
+#[test]
+fn store_save_load_clear_active_roundtrip() {
+    let _env_lock = lean_ctx::core::data_dir::test_env_lock();
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let data_dir = tmp.path().join("leanctx-data");
+    let _env = EnvVarGuard::set(
+        "LEAN_CTX_DATA_DIR",
+        data_dir.to_str().expect("data dir utf8"),
+    );
+
+    let mut run = WorkflowRun::new(minimal_spec());
+    run.add_manual_evidence("tool:ctx_read", Some("src/lib.rs"));
+
+    save_active(&run).expect("save_active");
+    let loaded = load_active()
+        .expect("load_active")
+        .expect("active workflow");
+    assert_eq!(loaded.current, "a");
+    assert_eq!(loaded.evidence.len(), 1);
+    assert_eq!(loaded.evidence[0].key, "tool:ctx_read");
+
+    clear_active().expect("clear_active");
+    let after_clear = load_active().expect("load after clear");
+    assert!(after_clear.is_none());
 }

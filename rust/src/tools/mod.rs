@@ -14,6 +14,7 @@ pub mod ctx_architecture;
 pub mod ctx_benchmark;
 pub mod ctx_callees;
 pub mod ctx_callers;
+pub mod ctx_callgraph;
 pub mod ctx_compress;
 pub mod ctx_compress_memory;
 pub mod ctx_context;

@@ -17,9 +17,15 @@ impl LeanCtxServer {
                     .ok_or_else(|| ErrorData::invalid_params("action is required", None))?;
                 let value = get_str(args, "value");
                 let sid = get_str(args, "session_id");
+                let tool_calls = self.tool_calls.read().await.clone();
+                let call_durations: Vec<(String, u64)> = tool_calls
+                    .iter()
+                    .map(|c| (c.tool.clone(), c.duration_ms))
+                    .collect();
                 let mut session = self.session.write().await;
                 let result = crate::tools::ctx_session::handle(
                     &mut session,
+                    &call_durations,
                     &action,
                     value.as_deref(),
                     sid.as_deref(),

@@ -805,16 +805,12 @@ fn run_async<F: std::future::Future>(future: F) -> F::Output {
 
 fn run_mcp_server() -> Result<()> {
     use rmcp::ServiceExt;
-    use tracing_subscriber::EnvFilter;
 
     std::env::set_var("LEAN_CTX_MCP_SERVER", "1");
 
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async {
-        tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::from_default_env())
-            .with_writer(std::io::stderr)
-            .init();
+        core::logging::init_mcp_logging();
 
         tracing::info!(
             "lean-ctx v{} MCP server starting",
@@ -867,7 +863,7 @@ fn print_help() {
     println!(
         "lean-ctx {version} — Context Runtime for AI Agents
 
-90+ compression patterns | 48 MCP tools | Context Continuity Protocol
+90+ compression patterns | 49 MCP tools | Context Continuity Protocol
 
 USAGE:
     lean-ctx                       Start MCP server (stdio)
@@ -892,7 +888,7 @@ COMMANDS:
     proxy start [--port=4444]      API proxy: compress tool_results before LLM API
     proxy status                   Show proxy statistics
     cache [list|clear|stats]       Show/manage file read cache
-    wrapped [--week|--month|--all] Savings report card (shareable)
+    wrapped [--week|--month|--all] Deprecated alias for gain --wrapped
     sessions [list|show|cleanup]   Manage CCP sessions (~/.lean-ctx/sessions/)
     benchmark run [path] [--json]  Run real benchmark on project files
     benchmark report [path]        Generate shareable Markdown report
@@ -975,8 +971,8 @@ EXAMPLES:
          lean-ctx token-report --json   Machine-readable token + memory report
     lean-ctx dashboard             Open web dashboard at localhost:3333
     lean-ctx dashboard --host=0.0.0.0  Bind to all interfaces (remote access)
-    lean-ctx wrapped               Weekly savings report card
-    lean-ctx wrapped --month       Monthly savings report card
+    lean-ctx gain --wrapped        Wrapped report card (recommended)
+    lean-ctx gain --wrapped --period=month  Monthly Wrapped report card
     lean-ctx sessions list         List all CCP sessions
     lean-ctx sessions show         Show latest session state
     lean-ctx discover              Find missed savings in shell history

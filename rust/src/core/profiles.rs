@@ -31,6 +31,8 @@ pub struct Profile {
     #[serde(default)]
     pub compression: CompressionConfig,
     #[serde(default)]
+    pub verification: crate::core::output_verification::VerificationConfig,
+    #[serde(default)]
     pub budget: BudgetConfig,
     #[serde(default)]
     pub pipeline: PipelineConfig,
@@ -203,6 +205,7 @@ fn builtin_exploration() -> Profile {
             prefer_cache: true,
         },
         compression: CompressionConfig::default(),
+        verification: crate::core::output_verification::VerificationConfig::default(),
         budget: BudgetConfig {
             max_context_tokens: 200_000,
             ..BudgetConfig::default()
@@ -229,6 +232,7 @@ fn builtin_bugfix() -> Profile {
             output_density: "terse".to_string(),
             ..CompressionConfig::default()
         },
+        verification: crate::core::output_verification::VerificationConfig::default(),
         budget: BudgetConfig {
             max_context_tokens: 100_000,
             max_shell_invocations: 50,
@@ -259,6 +263,7 @@ fn builtin_hotfix() -> Profile {
             output_density: "ultra".to_string(),
             ..CompressionConfig::default()
         },
+        verification: crate::core::output_verification::VerificationConfig::default(),
         budget: BudgetConfig {
             max_context_tokens: 30_000,
             max_shell_invocations: 20,
@@ -288,6 +293,7 @@ fn builtin_ci_debug() -> Profile {
             output_density: "terse".to_string(),
             ..CompressionConfig::default()
         },
+        verification: crate::core::output_verification::VerificationConfig::default(),
         budget: BudgetConfig {
             max_context_tokens: 150_000,
             max_shell_invocations: 200,
@@ -314,6 +320,7 @@ fn builtin_review() -> Profile {
             crp_mode: "compact".to_string(),
             ..CompressionConfig::default()
         },
+        verification: crate::core::output_verification::VerificationConfig::default(),
         budget: BudgetConfig {
             max_context_tokens: 150_000,
             max_shell_invocations: 30,
@@ -428,6 +435,7 @@ fn merge_profiles(parent: Profile, child: Profile) -> Profile {
         },
         read: child.read,
         compression: child.compression,
+        verification: child.verification,
         budget: child.budget,
         pipeline: child.pipeline,
         autonomy: child.autonomy,
@@ -456,8 +464,12 @@ pub fn set_active_profile(name: &str) -> Result<Profile, String> {
     if name.is_empty() {
         return Err("profile name is empty".to_string());
     }
+    let prev = active_profile_name();
     let profile = load_profile(name).ok_or_else(|| format!("profile '{name}' not found"))?;
     std::env::set_var("LEAN_CTX_PROFILE", name);
+    if prev != name {
+        crate::core::events::emit_profile_changed(&prev, name);
+    }
     Ok(profile)
 }
 
@@ -599,6 +611,7 @@ mod tests {
                 ..ReadConfig::default()
             },
             compression: CompressionConfig::default(),
+            verification: crate::core::output_verification::VerificationConfig::default(),
             budget: BudgetConfig {
                 max_context_tokens: 10_000,
                 ..BudgetConfig::default()
@@ -666,6 +679,7 @@ mod tests {
             profile: ProfileMeta::default(),
             read: ReadConfig::default(),
             compression: CompressionConfig::default(),
+            verification: crate::core::output_verification::VerificationConfig::default(),
             budget: BudgetConfig::default(),
             pipeline: PipelineConfig::default(),
             autonomy: ProfileAutonomy::default(),

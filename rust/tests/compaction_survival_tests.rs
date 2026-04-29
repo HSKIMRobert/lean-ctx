@@ -139,7 +139,7 @@ fn resume_block_with_files() {
 #[test]
 fn session_resume_action() {
     let mut session = make_session_with_data();
-    let result = lean_ctx::tools::ctx_session::handle(&mut session, "resume", None, None);
+    let result = lean_ctx::tools::ctx_session::handle(&mut session, &[], "resume", None, None);
     assert!(
         result.contains("SESSION RESUME"),
         "ctx_session resume should return resume block"

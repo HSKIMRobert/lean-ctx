@@ -20,15 +20,20 @@ pub fn handle(
         "heatmap" => format_heatmap(&engine, lim),
         "agents" => format_agents(&engine, lim),
         "cost" => crate::core::a2a::cost_attribution::format_cost_report(&engine.costs, lim),
-        "wrapped" => {
-            let p = period.unwrap_or("all");
-            let r = crate::core::wrapped::WrappedReport::generate(p);
-            r.format_ascii()
-        }
+        "wrapped" => render_wrapped(period.unwrap_or("all"), false),
         "json" => format_json(&engine, model, lim),
         _ => format!(
             "Unknown action '{action}'. Available: status, report, score, cost, tasks, heatmap, wrapped, agents, json"
         ),
+    }
+}
+
+pub(crate) fn render_wrapped(period: &str, compact: bool) -> String {
+    let report = crate::core::wrapped::WrappedReport::generate(period);
+    if compact {
+        report.format_compact()
+    } else {
+        report.format_ascii()
     }
 }
 

@@ -2,6 +2,7 @@ use crate::core::session::SessionState;
 
 pub fn handle(
     session: &mut SessionState,
+    tool_calls: &[(String, u64)],
     action: &str,
     value: Option<&str>,
     session_id: Option<&str>,
@@ -279,7 +280,196 @@ pub fn handle(
             }
         }
 
-        _ => format!("Unknown action: {action}. Use: status, load, save, task, finding, decision, reset, list, cleanup, snapshot, restore, resume, profile, role, budget, slo, diff"),
+        "verify" => {
+            let snap = crate::core::output_verification::stats_snapshot();
+            snap.format_compact()
+        }
+
+        "episodes" => {
+            let project_root = session.project_root.clone().unwrap_or_else(|| {
+                std::env::current_dir().map_or_else(
+                    |_| "unknown".to_string(),
+                    |p| p.to_string_lossy().to_string(),
+                )
+            });
+            let hash = crate::core::project_hash::hash_project_root(&project_root);
+            let mut store = crate::core::episodic_memory::EpisodicStore::load_or_create(&hash);
+
+            match value {
+                Some("record") => {
+                    let ep = crate::core::episodic_memory::create_episode_from_session(
+                        session,
+                        tool_calls,
+                    );
+                    let id = ep.id.clone();
+                    store.record_episode(ep);
+                    if let Err(e) = store.save() {
+                        return format!("Episode record failed: {e}");
+                    }
+                    crate::core::events::emit(crate::core::events::EventKind::KnowledgeUpdate {
+                        category: "episodic".to_string(),
+                        key: id.clone(),
+                        action: "record".to_string(),
+                    });
+                    format!("Episode recorded: {id}")
+                }
+                Some(v) if v.starts_with("search ") => {
+                    let q = v.trim_start_matches("search ").trim();
+                    let hits = store.search(q);
+                    if hits.is_empty() {
+                        return "No episodes matched.".to_string();
+                    }
+                    let mut out = format!("Episodes matched ({}):", hits.len());
+                    for ep in hits.into_iter().take(10) {
+                        let task: String = ep.task_description.chars().take(50).collect();
+                        out.push_str(&format!(
+                            "\n  {} | {} | {} | {}",
+                            ep.id,
+                            ep.timestamp,
+                            ep.outcome.label(),
+                            task
+                        ));
+                    }
+                    out
+                }
+                Some(v) if v.starts_with("file ") => {
+                    let f = v.trim_start_matches("file ").trim();
+                    let hits = store.by_file(f);
+                    let mut out = format!("Episodes for file match '{f}' ({}):", hits.len());
+                    for ep in hits.into_iter().take(10) {
+                        let task: String = ep.task_description.chars().take(50).collect();
+                        out.push_str(&format!(
+                            "\n  {} | {} | {} | {}",
+                            ep.id,
+                            ep.timestamp,
+                            ep.outcome.label(),
+                            task
+                        ));
+                    }
+                    out
+                }
+                Some(v) if v.starts_with("outcome ") => {
+                    let label = v.trim_start_matches("outcome ").trim();
+                    let hits = store.by_outcome(label);
+                    let mut out = format!("Episodes outcome '{label}' ({}):", hits.len());
+                    for ep in hits.into_iter().take(10) {
+                        let task: String = ep.task_description.chars().take(50).collect();
+                        out.push_str(&format!("\n  {} | {} | {}", ep.id, ep.timestamp, task));
+                    }
+                    out
+                }
+                _ => {
+                    let stats = store.stats();
+                    let recent = store.recent(10);
+                    let mut out = format!(
+                        "Episodic memory: {} episodes, success_rate={:.0}%, tokens_total={}\n\nRecent:",
+                        stats.total_episodes,
+                        stats.success_rate * 100.0,
+                        stats.total_tokens
+                    );
+                    for ep in recent {
+                        let task: String = ep.task_description.chars().take(60).collect();
+                        out.push_str(&format!(
+                            "\n  {} | {} | {} | {}",
+                            ep.id,
+                            ep.timestamp,
+                            ep.outcome.label(),
+                            task
+                        ));
+                    }
+                    out.push_str("\n\nActions: ctx_session action=episodes value=record|\"search <q>\"|\"file <path>\"|\"outcome success|failure|partial|unknown\"");
+                    out
+                }
+            }
+        }
+
+        "procedures" => {
+            let project_root = session.project_root.clone().unwrap_or_else(|| {
+                std::env::current_dir().map_or_else(
+                    |_| "unknown".to_string(),
+                    |p| p.to_string_lossy().to_string(),
+                )
+            });
+            let hash = crate::core::project_hash::hash_project_root(&project_root);
+            let episodes = crate::core::episodic_memory::EpisodicStore::load_or_create(&hash);
+            let mut procs = crate::core::procedural_memory::ProceduralStore::load_or_create(&hash);
+
+            match value {
+                Some("detect") => {
+                    procs.detect_patterns(&episodes.episodes);
+                    if let Err(e) = procs.save() {
+                        return format!("Procedure detect failed: {e}");
+                    }
+                    crate::core::events::emit(crate::core::events::EventKind::KnowledgeUpdate {
+                        category: "procedural".to_string(),
+                        key: hash.clone(),
+                        action: "detect".to_string(),
+                    });
+                    format!(
+                        "Procedures updated. Total procedures: {} (episodes: {}).",
+                        procs.procedures.len(),
+                        episodes.episodes.len()
+                    )
+                }
+                Some(v) if v.starts_with("suggest ") => {
+                    let task = v.trim_start_matches("suggest ").trim();
+                    let hits = procs.suggest(task);
+                    if hits.is_empty() {
+                        return "No procedures matched.".to_string();
+                    }
+                    let mut out = format!("Procedures suggested ({}):", hits.len());
+                    for p in hits.into_iter().take(10) {
+                        out.push_str(&format!(
+                            "\n  {} | conf={:.0}% | success={:.0}% | steps={}",
+                            p.name,
+                            p.confidence * 100.0,
+                            p.success_rate() * 100.0,
+                            p.steps.len()
+                        ));
+                    }
+                    out
+                }
+                _ => {
+                    let task = session
+                        .task
+                        .as_ref()
+                        .map(|t| t.description.clone())
+                        .unwrap_or_default();
+                    let suggestions = if task.is_empty() {
+                        Vec::new()
+                    } else {
+                        procs.suggest(&task)
+                    };
+
+                    let mut out = format!(
+                        "Procedural memory: {} procedures (episodes: {})",
+                        procs.procedures.len(),
+                        episodes.episodes.len()
+                    );
+
+                    if !task.is_empty() {
+                        out.push_str(&format!("\nTask: {}", task.chars().take(80).collect::<String>()));
+                        if !suggestions.is_empty() {
+                            out.push_str("\n\nSuggested:");
+                            for p in suggestions.into_iter().take(5) {
+                                out.push_str(&format!(
+                                    "\n  {} | conf={:.0}% | success={:.0}% | steps={}",
+                                    p.name,
+                                    p.confidence * 100.0,
+                                    p.success_rate() * 100.0,
+                                    p.steps.len()
+                                ));
+                            }
+                        }
+                    }
+
+                    out.push_str("\n\nActions: ctx_session action=procedures value=detect|\"suggest <task>\"");
+                    out
+                }
+            }
+        }
+
+        _ => format!("Unknown action: {action}. Use: status, load, save, task, finding, decision, reset, list, cleanup, snapshot, restore, resume, profile, role, budget, slo, diff, verify, episodes, procedures"),
     }
 }
 
