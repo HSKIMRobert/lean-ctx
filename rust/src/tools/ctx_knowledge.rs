@@ -4,6 +4,7 @@ use chrono::Utc;
 use crate::core::embeddings::EmbeddingEngine;
 
 use crate::core::knowledge::ProjectKnowledge;
+use crate::core::memory_policy::MemoryPolicy;
 use crate::core::session::SessionState;
 
 /// Dispatches knowledge base actions (remember, recall, pattern, timeline, etc.).
@@ -19,11 +20,42 @@ pub fn handle(
     pattern_type: Option<&str>,
     examples: Option<Vec<String>>,
     confidence: Option<f32>,
+    mode: Option<&str>,
 ) -> String {
     match action {
         "remember" => handle_remember(project_root, category, key, value, session_id, confidence),
-        "recall" => handle_recall(project_root, category, query, session_id),
+        "recall" => handle_recall(project_root, category, query, session_id, mode),
         "pattern" => handle_pattern(project_root, pattern_type, value, examples, session_id),
+        "feedback" => handle_feedback(project_root, category, key, value, session_id),
+        "relate" => crate::tools::ctx_knowledge_relations::handle_relate(
+            project_root,
+            category,
+            key,
+            value,
+            query,
+            session_id,
+        ),
+        "unrelate" => crate::tools::ctx_knowledge_relations::handle_unrelate(
+            project_root,
+            category,
+            key,
+            value,
+            query,
+        ),
+        "relations" => crate::tools::ctx_knowledge_relations::handle_relations(
+            project_root,
+            category,
+            key,
+            value,
+            query,
+        ),
+        "relations_diagram" => crate::tools::ctx_knowledge_relations::handle_relations_diagram(
+            project_root,
+            category,
+            key,
+            value,
+            query,
+        ),
         "status" => handle_status(project_root),
         "remove" => handle_remove(project_root, category, key),
         "export" => handle_export(project_root),
@@ -36,7 +68,69 @@ pub fn handle(
         "embeddings_reset" => handle_embeddings_reset(project_root),
         "embeddings_reindex" => handle_embeddings_reindex(project_root),
         _ => format!(
-            "Unknown action: {action}. Use: remember, recall, pattern, status, remove, export, consolidate, timeline, rooms, search, wakeup, embeddings_status, embeddings_reset, embeddings_reindex"
+            "Unknown action: {action}. Use: remember, recall, pattern, feedback, relate, unrelate, relations, relations_diagram, status, remove, export, consolidate, timeline, rooms, search, wakeup, embeddings_status, embeddings_reset, embeddings_reindex"
+        ),
+    }
+}
+
+fn handle_feedback(
+    project_root: &str,
+    category: Option<&str>,
+    key: Option<&str>,
+    value: Option<&str>,
+    session_id: &str,
+) -> String {
+    let Some(cat) = category else {
+        return "Error: category is required for feedback".to_string();
+    };
+    let Some(k) = key else {
+        return "Error: key is required for feedback".to_string();
+    };
+    let dir = value.unwrap_or("up").trim().to_lowercase();
+    let is_up = matches!(dir.as_str(), "up" | "+1" | "+" | "true" | "1");
+    let is_down = matches!(dir.as_str(), "down" | "-1" | "-" | "false" | "0");
+    if !is_up && !is_down {
+        return "Error: feedback value must be up|down (+1|-1)".to_string();
+    }
+
+    let mut knowledge = ProjectKnowledge::load_or_create(project_root);
+    let Some(f) = knowledge
+        .facts
+        .iter_mut()
+        .find(|f| f.is_current() && f.category == cat && f.key == k)
+    else {
+        return format!("No current fact found: [{cat}] {k}");
+    };
+
+    if is_up {
+        f.feedback_up = f.feedback_up.saturating_add(1);
+    } else {
+        f.feedback_down = f.feedback_down.saturating_add(1);
+    }
+    f.last_feedback = Some(Utc::now());
+
+    crate::core::events::emit(crate::core::events::EventKind::KnowledgeUpdate {
+        category: cat.to_string(),
+        key: k.to_string(),
+        action: if is_up {
+            "feedback_up"
+        } else {
+            "feedback_down"
+        }
+        .to_string(),
+    });
+
+    let quality = f.quality_score();
+    let up = f.feedback_up;
+    let down = f.feedback_down;
+    let conf = f.confidence;
+
+    match knowledge.save() {
+        Ok(()) => format!(
+            "Feedback recorded ({dir}) for [{cat}] {k} (up={up}, down={down}, quality={quality:.2}, confidence={conf:.2}, session={session_id})"
+        ),
+        Err(e) => format!(
+            "Feedback recorded ({dir}) but save failed: {e} (up={up}, down={down}, quality={quality:.2})"
         ),
     }
 }
@@ -129,6 +223,16 @@ fn handle_embeddings_reindex(project_root: &str) -> String {
         let Some(knowledge) = ProjectKnowledge::load(project_root) else {
             return "No knowledge stored for this project yet.".to_string();
         };
+        let policy = match crate::core::config::Config::load().memory_policy_effective() {
+            Ok(p) => p,
+            Err(e) => {
+                let path = crate::core::config::Config::path().map_or_else(
+                    || "~/.lean-ctx/config.toml".to_string(),
+                    |p| p.display().to_string(),
+                );
+                return format!("Error: invalid memory policy: {e}\nFix: edit {path}");
+            }
+        };
 
         let Some(engine) = embedding_engine() else {
             return "Embeddings model not available. Set LEAN_CTX_EMBEDDINGS_AUTO_DOWNLOAD=1 to allow auto-download, then re-run."
@@ -149,7 +253,7 @@ fn handle_embeddings_reindex(project_root: &str) -> String {
                 .then_with(|| a.key.cmp(&b.key))
         });
 
-        let max = crate::core::budgets::KNOWLEDGE_EMBEDDINGS_MAX_FACTS;
+        let max = policy.embeddings.max_facts;
         let mut embedded = 0usize;
         for f in facts.into_iter().take(max) {
             if crate::core::knowledge_embedding::embed_and_store(
@@ -165,7 +269,7 @@ fn handle_embeddings_reindex(project_root: &str) -> String {
             }
         }
 
-        crate::core::knowledge_embedding::compact_against_knowledge(&mut idx, &knowledge);
+        crate::core::knowledge_embedding::compact_against_knowledge(&mut idx, &knowledge, &policy);
         match idx.save() {
             Ok(()) => format!("Embeddings reindex ok (embedded {embedded} facts)."),
             Err(e) => format!("Embeddings reindex failed: {e}"),
@@ -196,9 +300,19 @@ fn handle_remember(
         return "Error: value is required for remember".to_string();
     };
     let conf = confidence.unwrap_or(0.8);
+    let policy = match crate::core::config::Config::load().memory_policy_effective() {
+        Ok(p) => p,
+        Err(e) => {
+            let path = crate::core::config::Config::path().map_or_else(
+                || "~/.lean-ctx/config.toml".to_string(),
+                |p| p.display().to_string(),
+            );
+            return format!("Error: invalid memory policy: {e}\nFix: edit {path}");
+        }
+    };
     let mut knowledge = ProjectKnowledge::load_or_create(project_root);
-    let contradiction = knowledge.remember(cat, k, v, session_id, conf);
-    let _ = knowledge.run_memory_lifecycle();
+    let contradiction = knowledge.remember(cat, k, v, session_id, conf, &policy);
+    let _ = knowledge.run_memory_lifecycle(&policy);
 
     let mut result = format!(
         "Remembered [{cat}] {k}: {v} (confidence: {:.0}%)",
@@ -224,7 +338,7 @@ fn handle_remember(
             match crate::core::knowledge_embedding::embed_and_store(&mut idx, engine, cat, k, v) {
                 Ok(()) => {
                     crate::core::knowledge_embedding::compact_against_knowledge(
-                        &mut idx, &knowledge,
+                        &mut idx, &knowledge, &policy,
                     );
                     if let Err(e) = idx.save() {
                         result.push_str(&format!("\n(warn: embeddings save failed: {e})"));
@@ -248,9 +362,20 @@ fn handle_recall(
     category: Option<&str>,
     query: Option<&str>,
     session_id: &str,
+    mode: Option<&str>,
 ) -> String {
     let Some(mut knowledge) = ProjectKnowledge::load(project_root) else {
         return "No knowledge stored for this project yet.".to_string();
+    };
+    let policy = match crate::core::config::Config::load().memory_policy_effective() {
+        Ok(p) => p,
+        Err(e) => {
+            let path = crate::core::config::Config::path().map_or_else(
+                || "~/.lean-ctx/config.toml".to_string(),
+                |p| p.display().to_string(),
+            );
+            return format!("Error: invalid memory policy: {e}\nFix: edit {path}");
+        }
     };
 
     if let Some(cat) = category {
@@ -258,7 +383,8 @@ fn handle_recall(
         let (facts, total) = knowledge.recall_by_category_for_output(cat, limit);
         if facts.is_empty() || total == 0 {
             // System 2: archive rehydrate (category-only)
-            let rehydrated = rehydrate_from_archives(&mut knowledge, Some(cat), None, session_id);
+            let rehydrated =
+                rehydrate_from_archives(&mut knowledge, Some(cat), None, session_id, &policy);
             if rehydrated {
                 let (facts2, total2) = knowledge.recall_by_category_for_output(cat, limit);
                 if !facts2.is_empty() && total2 > 0 {
@@ -283,6 +409,7 @@ fn handle_recall(
     }
 
     if let Some(q) = query {
+        let mode = mode.unwrap_or("auto").trim().to_lowercase();
         #[cfg(feature = "embeddings")]
         {
             if let Some(engine) = embedding_engine() {
@@ -290,10 +417,14 @@ fn handle_recall(
                     &knowledge.project_hash,
                 ) {
                     let limit = crate::core::budgets::KNOWLEDGE_RECALL_FACTS_LIMIT;
-                    let scored = crate::core::knowledge_embedding::semantic_recall(
-                        &knowledge, &idx, engine, q, limit,
-                    );
-                    if !scored.is_empty() {
+                    if mode == "semantic" {
+                        let scored =
+                            crate::core::knowledge_embedding::semantic_recall_semantic_only(
+                                &knowledge, &idx, engine, q, limit,
+                            );
+                        if scored.is_empty() {
+                            return format!("No semantic facts matching '{q}'.");
+                        }
                         let hits: Vec<SemanticHit> = scored
                             .iter()
                             .map(|s| SemanticHit {
@@ -306,7 +437,7 @@ fn handle_recall(
                             })
                             .collect();
                         apply_retrieval_signals_from_hits(&mut knowledge, &hits);
-                        let mut out = format_semantic_facts(q, &hits);
+                        let mut out = format_semantic_facts(&format!("{q} (mode=semantic)"), &hits);
                         if let Err(e) = knowledge.save() {
                             out.push_str(&format!(
                                 "\n(warn: failed to persist retrieval signals: {e})"
@@ -314,15 +445,48 @@ fn handle_recall(
                         }
                         return out;
                     }
+
+                    if mode == "hybrid" || mode == "auto" {
+                        let scored = crate::core::knowledge_embedding::semantic_recall(
+                            &knowledge, &idx, engine, q, limit,
+                        );
+                        if !scored.is_empty() {
+                            let hits: Vec<SemanticHit> = scored
+                                .iter()
+                                .map(|s| SemanticHit {
+                                    category: s.fact.category.clone(),
+                                    key: s.fact.key.clone(),
+                                    value: s.fact.value.clone(),
+                                    score: s.score,
+                                    semantic_score: s.semantic_score,
+                                    confidence_score: s.confidence_score,
+                                })
+                                .collect();
+                            apply_retrieval_signals_from_hits(&mut knowledge, &hits);
+                            let mut out =
+                                format_semantic_facts(&format!("{q} (mode=hybrid)"), &hits);
+                            if let Err(e) = knowledge.save() {
+                                out.push_str(&format!(
+                                    "\n(warn: failed to persist retrieval signals: {e})"
+                                ));
+                            }
+                            return out;
+                        }
+                    }
                 }
             }
+        }
+
+        if mode == "semantic" {
+            return "Semantic recall requires embeddings. Run ctx_knowledge(action=\"embeddings_reindex\") and ensure embeddings are enabled.".to_string();
         }
 
         let limit = crate::core::budgets::KNOWLEDGE_RECALL_FACTS_LIMIT;
         let (facts, total) = knowledge.recall_for_output(q, limit);
         if facts.is_empty() || total == 0 {
             // System 2: archive rehydrate (query)
-            let rehydrated = rehydrate_from_archives(&mut knowledge, None, Some(q), session_id);
+            let rehydrated =
+                rehydrate_from_archives(&mut knowledge, None, Some(q), session_id, &policy);
             if rehydrated {
                 let (facts2, total2) = knowledge.recall_for_output(q, limit);
                 if !facts2.is_empty() && total2 > 0 {
@@ -354,6 +518,7 @@ fn rehydrate_from_archives(
     category: Option<&str>,
     query: Option<&str>,
     session_id: &str,
+    policy: &MemoryPolicy,
 ) -> bool {
     let mut archives = crate::core::memory_lifecycle::list_archives();
     if archives.is_empty() {
@@ -455,11 +620,12 @@ fn rehydrate_from_archives(
             &c.value,
             session_id,
             c.confidence.max(0.6),
+            policy,
         );
         any = true;
     }
     if any {
-        let _ = knowledge.run_memory_lifecycle();
+        let _ = knowledge.run_memory_lifecycle(policy);
     }
     any
 }
@@ -478,8 +644,18 @@ fn handle_pattern(
         return "Error: value (description) is required for pattern".to_string();
     };
     let exs = examples.unwrap_or_default();
+    let policy = match crate::core::config::Config::load().memory_policy_effective() {
+        Ok(p) => p,
+        Err(e) => {
+            let path = crate::core::config::Config::path().map_or_else(
+                || "~/.lean-ctx/config.toml".to_string(),
+                |p| p.display().to_string(),
+            );
+            return format!("Error: invalid memory policy: {e}\nFix: edit {path}");
+        }
+    };
     let mut knowledge = ProjectKnowledge::load_or_create(project_root);
-    knowledge.add_pattern(pt, desc, exs, session_id);
+    knowledge.add_pattern(pt, desc, exs, session_id, &policy);
     match knowledge.save() {
         Ok(()) => format!("Pattern [{pt}] added: {desc}"),
         Err(e) => format!("Pattern added but save failed: {e}"),
@@ -525,9 +701,19 @@ fn handle_remove(project_root: &str, category: Option<&str>, key: Option<&str>) 
     let Some(k) = key else {
         return "Error: key is required for remove".to_string();
     };
+    let policy = match crate::core::config::Config::load().memory_policy_effective() {
+        Ok(p) => p,
+        Err(e) => {
+            let path = crate::core::config::Config::path().map_or_else(
+                || "~/.lean-ctx/config.toml".to_string(),
+                |p| p.display().to_string(),
+            );
+            return format!("Error: invalid memory policy: {e}\nFix: edit {path}");
+        }
+    };
     let mut knowledge = ProjectKnowledge::load_or_create(project_root);
     if knowledge.remove_fact(cat, k) {
-        let _ = knowledge.run_memory_lifecycle();
+        let _ = knowledge.run_memory_lifecycle(&policy);
 
         #[cfg(feature = "embeddings")]
         {
@@ -535,7 +721,9 @@ fn handle_remove(project_root: &str, category: Option<&str>, key: Option<&str>) 
                 &knowledge.project_hash,
             ) {
                 idx.remove(cat, k);
-                crate::core::knowledge_embedding::compact_against_knowledge(&mut idx, &knowledge);
+                crate::core::knowledge_embedding::compact_against_knowledge(
+                    &mut idx, &knowledge, &policy,
+                );
                 let _ = idx.save();
             }
         }
@@ -588,6 +776,16 @@ fn handle_consolidate(project_root: &str) -> String {
     let Some(session) = SessionState::load_latest() else {
         return "No active session to consolidate.".to_string();
     };
+    let policy = match crate::core::config::Config::load().memory_policy_effective() {
+        Ok(p) => p,
+        Err(e) => {
+            let path = crate::core::config::Config::path().map_or_else(
+                || "~/.lean-ctx/config.toml".to_string(),
+                |p| p.display().to_string(),
+            );
+            return format!("Error: invalid memory policy: {e}\nFix: edit {path}");
+        }
+    };
 
     let mut knowledge = ProjectKnowledge::load_or_create(project_root);
     let mut consolidated = 0u32;
@@ -603,7 +801,14 @@ fn handle_consolidate(project_root: &str) -> String {
             format!("finding-{consolidated}")
         };
 
-        knowledge.remember("finding", &key_text, &finding.summary, &session.id, 0.7);
+        knowledge.remember(
+            "finding",
+            &key_text,
+            &finding.summary,
+            &session.id,
+            0.7,
+            &policy,
+        );
         consolidated += 1;
     }
 
@@ -616,7 +821,14 @@ fn handle_consolidate(project_root: &str) -> String {
             .replace(' ', "-")
             .to_lowercase();
 
-        knowledge.remember("decision", &key_text, &decision.summary, &session.id, 0.85);
+        knowledge.remember(
+            "decision",
+            &key_text,
+            &decision.summary,
+            &session.id,
+            0.85,
+            &policy,
+        );
         consolidated += 1;
     }
 
@@ -632,8 +844,8 @@ fn handle_consolidate(project_root: &str) -> String {
         session.findings.len(),
         session.decisions.len()
     );
-    knowledge.consolidate(&summary, vec![session.id.clone()]);
-    let _ = knowledge.run_memory_lifecycle();
+    knowledge.consolidate(&summary, vec![session.id.clone()], &policy);
+    let _ = knowledge.run_memory_lifecycle(&policy);
 
     match knowledge.save() {
         Ok(()) => format!(
@@ -951,10 +1163,11 @@ fn format_facts(
     for f in facts {
         let temporal = if f.is_current() { "" } else { " [archived]" };
         out.push_str(&format!(
-            "  [{}/{}]: {} (confidence: {:.0}%, confirmed: {} x{}){temporal}\n",
+            "  [{}/{}]: {} (quality: {:.0}%, confidence: {:.0}%, confirmed: {} x{}){temporal}\n",
             f.category,
             f.key,
             f.value,
+            f.quality_score() * 100.0,
             f.confidence * 100.0,
             f.last_confirmed.format("%Y-%m-%d"),
             f.confirmation_count
@@ -986,6 +1199,11 @@ fn sort_fact_for_output(
     salience_score(b)
         .cmp(&salience_score(a))
         .then_with(|| {
+            b.quality_score()
+                .partial_cmp(&a.quality_score())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .then_with(|| {
             b.confidence
                 .partial_cmp(&a.confidence)
                 .unwrap_or(std::cmp::Ordering::Equal)
@@ -1012,9 +1230,7 @@ fn salience_score(f: &crate::core::knowledge::KnowledgeFact) -> u32 {
         _ => 30,
     };
 
-    let confidence_bonus = (f.confidence.clamp(0.0, 1.0) * 30.0) as u32;
-    let confirmation_bonus = f.confirmation_count.min(15);
-    let retrieval_bonus = ((f.retrieval_count as f32).ln_1p() * 8.0).min(20.0) as u32;
+    let quality_bonus = (f.quality_score() * 60.0) as u32;
     let recency_bonus = f.last_retrieved.map_or(0u32, |t| {
         let days = chrono::Utc::now().signed_duration_since(t).num_days();
         if days <= 7 {
@@ -1026,5 +1242,5 @@ fn salience_score(f: &crate::core::knowledge::KnowledgeFact) -> u32 {
         }
     });
 
-    base + confidence_bonus + confirmation_bonus + retrieval_bonus + recency_bonus
+    base + quality_bonus + recency_bonus
 }

@@ -174,6 +174,17 @@ fn bench_total_input_overhead() {
 
 #[test]
 fn bench_lazy_default_vs_full_overhead() {
+    // This benchmark must be hermetic: instructions can inject session/memory blocks
+    // unless minimal overhead is enforced and the data dir is isolated.
+    let _lock = lean_ctx::core::data_dir::test_env_lock();
+    let tmp = tempfile::tempdir().expect("tempdir");
+
+    let prev_data_dir = std::env::var("LEAN_CTX_DATA_DIR").ok();
+    let prev_minimal = std::env::var("LEAN_CTX_MINIMAL").ok();
+
+    std::env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
+    std::env::set_var("LEAN_CTX_MINIMAL", "1");
+
     let lazy_tools = lean_ctx::tool_defs::lazy_tool_defs();
     let full_tools = lean_ctx::tool_defs::granular_tool_defs();
 
@@ -240,6 +251,15 @@ fn bench_lazy_default_vs_full_overhead() {
         reduction_pct > 60.0,
         "Tool token reduction should be >60%, got {reduction_pct:.1}%"
     );
+
+    match prev_data_dir {
+        Some(v) => std::env::set_var("LEAN_CTX_DATA_DIR", v),
+        None => std::env::remove_var("LEAN_CTX_DATA_DIR"),
+    }
+    match prev_minimal {
+        Some(v) => std::env::set_var("LEAN_CTX_MINIMAL", v),
+        None => std::env::remove_var("LEAN_CTX_MINIMAL"),
+    }
 }
 
 #[test]

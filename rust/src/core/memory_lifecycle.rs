@@ -295,6 +295,9 @@ mod tests {
             valid_until: None,
             supersedes: None,
             confirmation_count: 1,
+            feedback_up: 0,
+            feedback_down: 0,
+            last_feedback: None,
         }
     }
 
@@ -320,6 +323,9 @@ mod tests {
             valid_until: None,
             supersedes: None,
             confirmation_count: 1,
+            feedback_up: 0,
+            feedback_down: 0,
+            last_feedback: None,
         }
     }
 

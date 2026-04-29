@@ -35,6 +35,7 @@ pub mod ctx_heatmap;
 pub mod ctx_impact;
 pub mod ctx_intent;
 pub mod ctx_knowledge;
+pub mod ctx_knowledge_relations;
 pub mod ctx_metrics;
 pub mod ctx_multi_read;
 pub mod ctx_outline;
@@ -820,6 +821,9 @@ fn auto_consolidate_knowledge(project_root: &str) {
         return;
     }
 
+    let Ok(policy) = crate::core::config::Config::load().memory_policy_effective() else {
+        return;
+    };
     let mut knowledge = ProjectKnowledge::load_or_create(project_root);
 
     for finding in &session.findings {
@@ -832,7 +836,7 @@ fn auto_consolidate_knowledge(project_root: &str) {
         } else {
             "finding-auto".to_string()
         };
-        knowledge.remember("finding", &key, &finding.summary, &session.id, 0.7);
+        knowledge.remember("finding", &key, &finding.summary, &session.id, 0.7, &policy);
     }
 
     for decision in &session.decisions {
@@ -843,7 +847,14 @@ fn auto_consolidate_knowledge(project_root: &str) {
             .collect::<String>()
             .replace(' ', "-")
             .to_lowercase();
-        knowledge.remember("decision", &key, &decision.summary, &session.id, 0.85);
+        knowledge.remember(
+            "decision",
+            &key,
+            &decision.summary,
+            &session.id,
+            0.85,
+            &policy,
+        );
     }
 
     let task_desc = session
@@ -859,7 +870,7 @@ fn auto_consolidate_knowledge(project_root: &str) {
         session.findings.len(),
         session.decisions.len()
     );
-    knowledge.consolidate(&summary, vec![session.id.clone()]);
+    knowledge.consolidate(&summary, vec![session.id.clone()], &policy);
     let _ = knowledge.save();
 }
 

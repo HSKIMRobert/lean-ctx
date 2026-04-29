@@ -274,9 +274,13 @@ pub fn intent_from_query(query: &str, project_root: Option<&str>) -> IntentRecor
     }
 }
 
-pub fn apply_side_effects(intent: &IntentRecord, project_root: Option<&str>, session_id: &str) {
+pub fn apply_side_effects(
+    intent: &IntentRecord,
+    project_root: Option<&str>,
+    session_id: &str,
+) -> Result<(), String> {
     let Some(root) = project_root else {
-        return;
+        return Ok(());
     };
 
     let IntentSubject::KnowledgeFact {
@@ -285,9 +289,12 @@ pub fn apply_side_effects(intent: &IntentRecord, project_root: Option<&str>, ses
         value,
     } = &intent.subject
     else {
-        return;
+        return Ok(());
     };
 
+    let policy = crate::core::config::Config::load()
+        .memory_policy_effective()
+        .map_err(|e| format!("invalid memory policy: {e}"))?;
     let mut knowledge = crate::core::knowledge::ProjectKnowledge::load(root)
         .unwrap_or_else(|| crate::core::knowledge::ProjectKnowledge::new(root));
     let _ = knowledge.remember(
@@ -296,9 +303,11 @@ pub fn apply_side_effects(intent: &IntentRecord, project_root: Option<&str>, ses
         value,
         session_id,
         intent.confidence.clamp(0.0, 1.0),
+        &policy,
     );
-    let _ = knowledge.run_memory_lifecycle();
+    let _ = knowledge.run_memory_lifecycle(&policy);
     let _ = knowledge.save();
+    Ok(())
 }
 
 fn intent_from_json(

@@ -3,6 +3,7 @@ use lean_ctx::core::gotcha_tracker::{
     Gotcha, GotchaCategory, GotchaSeverity, GotchaSource, GotchaStats, GotchaStore,
 };
 use lean_ctx::core::knowledge::ProjectKnowledge;
+use lean_ctx::core::memory_policy::MemoryPolicy;
 
 fn main() {
     let project_root =
@@ -417,8 +418,9 @@ fn seed_knowledge(project_root: &str) {
         ),
     ];
 
+    let policy = MemoryPolicy::default();
     for (cat, key, val, conf) in &facts {
-        knowledge.remember(cat, key, val, session, *conf);
+        knowledge.remember(cat, key, val, session, *conf, &policy);
     }
     let _ = knowledge.save();
     println!("  {} knowledge facts seeded", facts.len());

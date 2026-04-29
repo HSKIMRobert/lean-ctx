@@ -32,6 +32,9 @@ pub fn consolidate_latest(
     budgets: ConsolidationBudgets,
 ) -> Result<ConsolidationOutcome, String> {
     let session = SessionState::load_latest().ok_or_else(|| "no active session".to_string())?;
+    let policy = crate::core::config::Config::load()
+        .memory_policy_effective()
+        .map_err(|e| format!("invalid memory policy: {e}"))?;
 
     let mut knowledge = ProjectKnowledge::load_or_create(project_root);
 
@@ -43,7 +46,7 @@ pub fn consolidate_latest(
     decisions.truncate(budgets.max_decisions);
     for d in &decisions {
         let key = slug_key(&d.summary, 50);
-        knowledge.remember("decision", &key, &d.summary, &session.id, 0.9);
+        knowledge.remember("decision", &key, &d.summary, &session.id, 0.9, &policy);
         promoted_decisions += 1;
     }
 
@@ -70,7 +73,7 @@ pub fn consolidate_latest(
         } else {
             format!("finding-{}", slug_key(&f.summary, 36))
         };
-        knowledge.remember("finding", &key, &f.summary, &session.id, 0.75);
+        knowledge.remember("finding", &key, &f.summary, &session.id, 0.75, &policy);
         promoted_findings += 1;
     }
 
@@ -87,9 +90,9 @@ pub fn consolidate_latest(
         promoted_decisions,
         promoted_findings
     );
-    knowledge.consolidate(&summary, vec![session.id.clone()]);
+    knowledge.consolidate(&summary, vec![session.id.clone()], &policy);
 
-    let lifecycle = knowledge.run_memory_lifecycle();
+    let lifecycle = knowledge.run_memory_lifecycle(&policy);
     knowledge.save()?;
 
     crate::core::events::emit(crate::core::events::EventKind::KnowledgeUpdate {

@@ -41,6 +41,7 @@ impl LeanCtxServer {
                 let key = get_str(args, "key");
                 let value = get_str(args, "value");
                 let query = get_str(args, "query");
+                let mode = get_str(args, "mode");
                 let pattern_type = get_str(args, "pattern_type");
                 let examples = get_str_array(args, "examples");
                 let confidence: Option<f32> = args
@@ -106,6 +107,7 @@ impl LeanCtxServer {
                     pattern_type.as_deref(),
                     examples,
                     confidence,
+                    mode.as_deref(),
                 );
                 self.record_call("ctx_knowledge", 0, 0, Some(action)).await;
                 result
@@ -367,6 +369,20 @@ impl LeanCtxServer {
                                 let s = self.session.read().await;
                                 s.id.clone()
                             };
+                            let policy = match crate::core::config::Config::load()
+                                .memory_policy_effective()
+                            {
+                                Ok(p) => p,
+                                Err(e) => {
+                                    let path = crate::core::config::Config::path().map_or_else(
+                                        || "~/.lean-ctx/config.toml".to_string(),
+                                        |p| p.display().to_string(),
+                                    );
+                                    return Ok(format!(
+                                        "Error: invalid memory policy: {e}\nFix: edit {path}"
+                                    ));
+                                }
+                            };
                             let mut knowledge =
                                 crate::core::knowledge::ProjectKnowledge::load_or_create(&root);
                             for fact in &ledger.knowledge.facts {
@@ -376,13 +392,14 @@ impl LeanCtxServer {
                                     &fact.value,
                                     &session_id,
                                     fact.confidence,
+                                    &policy,
                                 );
                                 if c.is_some() {
                                     contradictions += 1;
                                 }
                                 knowledge_imported += 1;
                             }
-                            let _ = knowledge.run_memory_lifecycle();
+                            let _ = knowledge.run_memory_lifecycle(&policy);
                             let _ = knowledge.save();
                         }
 

@@ -292,6 +292,16 @@ pub fn handle(
                     |p| p.to_string_lossy().to_string(),
                 )
             });
+            let policy = match crate::core::config::Config::load().memory_policy_effective() {
+                Ok(p) => p,
+                Err(e) => {
+                    let path = crate::core::config::Config::path().map_or_else(
+                        || "~/.lean-ctx/config.toml".to_string(),
+                        |p| p.display().to_string(),
+                    );
+                    return format!("Error: invalid memory policy: {e}\nFix: edit {path}");
+                }
+            };
             let hash = crate::core::project_hash::hash_project_root(&project_root);
             let mut store = crate::core::episodic_memory::EpisodicStore::load_or_create(&hash);
 
@@ -302,7 +312,7 @@ pub fn handle(
                         tool_calls,
                     );
                     let id = ep.id.clone();
-                    store.record_episode(ep);
+                    store.record_episode(ep, &policy.episodic);
                     if let Err(e) = store.save() {
                         return format!("Episode record failed: {e}");
                     }
@@ -390,13 +400,23 @@ pub fn handle(
                     |p| p.to_string_lossy().to_string(),
                 )
             });
+            let policy = match crate::core::config::Config::load().memory_policy_effective() {
+                Ok(p) => p,
+                Err(e) => {
+                    let path = crate::core::config::Config::path().map_or_else(
+                        || "~/.lean-ctx/config.toml".to_string(),
+                        |p| p.display().to_string(),
+                    );
+                    return format!("Error: invalid memory policy: {e}\nFix: edit {path}");
+                }
+            };
             let hash = crate::core::project_hash::hash_project_root(&project_root);
             let episodes = crate::core::episodic_memory::EpisodicStore::load_or_create(&hash);
             let mut procs = crate::core::procedural_memory::ProceduralStore::load_or_create(&hash);
 
             match value {
                 Some("detect") => {
-                    procs.detect_patterns(&episodes.episodes);
+                    procs.detect_patterns(&episodes.episodes, &policy.procedural);
                     if let Err(e) = procs.save() {
                         return format!("Procedure detect failed: {e}");
                     }

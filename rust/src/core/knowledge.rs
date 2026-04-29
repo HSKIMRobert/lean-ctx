@@ -2,10 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-const MAX_FACTS: usize = 200;
-const MAX_PATTERNS: usize = 50;
-const MAX_HISTORY: usize = 100;
-const CONTRADICTION_THRESHOLD: f32 = 0.5;
+use crate::core::memory_policy::MemoryPolicy;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectKnowledge {
@@ -38,6 +35,12 @@ pub struct KnowledgeFact {
     pub supersedes: Option<String>,
     #[serde(default)]
     pub confirmation_count: u32,
+    #[serde(default)]
+    pub feedback_up: u32,
+    #[serde(default)]
+    pub feedback_down: u32,
+    #[serde(default)]
+    pub last_feedback: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,10 +77,16 @@ pub struct ConsolidatedInsight {
 }
 
 impl ProjectKnowledge {
-    pub fn run_memory_lifecycle(&mut self) -> crate::core::memory_lifecycle::LifecycleReport {
+    pub fn run_memory_lifecycle(
+        &mut self,
+        policy: &MemoryPolicy,
+    ) -> crate::core::memory_lifecycle::LifecycleReport {
         let cfg = crate::core::memory_lifecycle::LifecycleConfig {
-            max_facts: MAX_FACTS,
-            ..Default::default()
+            max_facts: policy.knowledge.max_facts,
+            decay_rate_per_day: policy.lifecycle.decay_rate,
+            low_confidence_threshold: policy.lifecycle.low_confidence_threshold,
+            stale_days: policy.lifecycle.stale_days,
+            consolidation_similarity: policy.lifecycle.similarity_threshold,
         };
         crate::core::memory_lifecycle::run_lifecycle(&mut self.facts, &cfg)
     }
@@ -98,6 +107,7 @@ impl ProjectKnowledge {
         category: &str,
         key: &str,
         new_value: &str,
+        policy: &MemoryPolicy,
     ) -> Option<Contradiction> {
         let existing = self
             .facts
@@ -115,7 +125,7 @@ impl ProjectKnowledge {
 
         let severity = if existing.confidence >= 0.9 && existing.confirmation_count >= 2 {
             ContradictionSeverity::High
-        } else if existing.confidence >= CONTRADICTION_THRESHOLD {
+        } else if existing.confidence >= policy.knowledge.contradiction_threshold {
             ContradictionSeverity::Medium
         } else {
             ContradictionSeverity::Low
@@ -153,8 +163,9 @@ impl ProjectKnowledge {
         value: &str,
         session_id: &str,
         confidence: f32,
+        policy: &MemoryPolicy,
     ) -> Option<Contradiction> {
-        let contradiction = self.check_contradiction(category, key, value);
+        let contradiction = self.check_contradiction(category, key, value, policy);
 
         if let Some(existing) = self
             .facts
@@ -184,6 +195,9 @@ impl ProjectKnowledge {
                     valid_until: None,
                     supersedes: Some(superseded_id),
                     confirmation_count: 1,
+                    feedback_up: 0,
+                    feedback_down: 0,
+                    last_feedback: None,
                 });
             } else {
                 existing.value = value.to_string();
@@ -209,12 +223,15 @@ impl ProjectKnowledge {
                 valid_until: None,
                 supersedes: None,
                 confirmation_count: 1,
+                feedback_up: 0,
+                feedback_down: 0,
+                last_feedback: None,
             });
         }
 
         // No hard-prune: archive-only lifecycle will compact if needed.
-        if self.facts.len() > MAX_FACTS * 2 {
-            let _ = self.run_memory_lifecycle();
+        if self.facts.len() > policy.knowledge.max_facts.saturating_mul(2) {
+            let _ = self.run_memory_lifecycle(policy);
         }
 
         self.updated_at = Utc::now();
@@ -251,7 +268,7 @@ impl ProjectKnowledge {
                 );
                 let match_count = terms.iter().filter(|t| searchable.contains(**t)).count();
                 if match_count > 0 {
-                    let relevance = (match_count as f32 / terms.len() as f32) * f.confidence;
+                    let relevance = (match_count as f32 / terms.len() as f32) * f.quality_score();
                     Some((f, relevance))
                 } else {
                     None
@@ -325,6 +342,7 @@ impl ProjectKnowledge {
         description: &str,
         examples: Vec<String>,
         session_id: &str,
+        policy: &MemoryPolicy,
     ) {
         if let Some(existing) = self
             .patterns
@@ -347,21 +365,22 @@ impl ProjectKnowledge {
             created_at: Utc::now(),
         });
 
-        if self.patterns.len() > MAX_PATTERNS {
-            self.patterns.truncate(MAX_PATTERNS);
+        if self.patterns.len() > policy.knowledge.max_patterns {
+            self.patterns.truncate(policy.knowledge.max_patterns);
         }
         self.updated_at = Utc::now();
     }
 
-    pub fn consolidate(&mut self, summary: &str, session_ids: Vec<String>) {
+    pub fn consolidate(&mut self, summary: &str, session_ids: Vec<String>, policy: &MemoryPolicy) {
         self.history.push(ConsolidatedInsight {
             summary: summary.to_string(),
             from_sessions: session_ids,
             timestamp: Utc::now(),
         });
 
-        if self.history.len() > MAX_HISTORY {
-            self.history.drain(0..self.history.len() - MAX_HISTORY);
+        if self.history.len() > policy.knowledge.max_history {
+            self.history
+                .drain(0..self.history.len() - policy.knowledge.max_history);
         }
         self.updated_at = Utc::now();
     }
@@ -598,7 +617,10 @@ impl ProjectKnowledge {
 
     /// Migrates legacy knowledge that was accidentally stored under an empty project_root ("")
     /// into the given `target_root`. Keeps a timestamped backup of the legacy file.
-    pub fn migrate_legacy_empty_root(target_root: &str) -> Result<bool, String> {
+    pub fn migrate_legacy_empty_root(
+        target_root: &str,
+        policy: &MemoryPolicy,
+    ) -> Result<bool, String> {
         if target_root.trim().is_empty() {
             return Ok(false);
         }
@@ -667,20 +689,20 @@ impl ProjectKnowledge {
                 .cmp(&a.created_at)
                 .then_with(|| b.confidence.total_cmp(&a.confidence))
         });
-        if target.facts.len() > MAX_FACTS {
-            target.facts.truncate(MAX_FACTS);
+        if target.facts.len() > policy.knowledge.max_facts {
+            target.facts.truncate(policy.knowledge.max_facts);
         }
         target
             .patterns
             .sort_by_key(|x| std::cmp::Reverse(x.created_at));
-        if target.patterns.len() > MAX_PATTERNS {
-            target.patterns.truncate(MAX_PATTERNS);
+        if target.patterns.len() > policy.knowledge.max_patterns {
+            target.patterns.truncate(policy.knowledge.max_patterns);
         }
         target
             .history
             .sort_by_key(|x| std::cmp::Reverse(x.timestamp));
-        if target.history.len() > MAX_HISTORY {
-            target.history.truncate(MAX_HISTORY);
+        if target.history.len() > policy.knowledge.max_history {
+            target.history.truncate(policy.knowledge.max_history);
         }
 
         target.updated_at = Utc::now();
@@ -793,6 +815,18 @@ impl KnowledgeFact {
         self.valid_until.is_none()
     }
 
+    pub fn quality_score(&self) -> f32 {
+        let confidence = self.confidence.clamp(0.0, 1.0);
+        let confirmations_norm = (self.confirmation_count.min(5) as f32) / 5.0;
+        let balance = self.feedback_up as i32 - self.feedback_down as i32;
+        let feedback_effect = (balance as f32 / 4.0).tanh() * 0.1;
+
+        // IMPORTANT: quality_score must be stable across repeated recall calls.
+        // Retrieval signals (retrieval_count/last_retrieved) are persisted, but should not change
+        // the displayed "quality" score, otherwise recall output becomes non-deterministic.
+        (0.8 * confidence + 0.2 * confirmations_norm + feedback_effect).clamp(0.0, 1.0)
+    }
+
     pub fn was_valid_at(&self, at: DateTime<Utc>) -> bool {
         let after_start = self.valid_from.is_none_or(|from| at >= from);
         let before_end = self.valid_until.is_none_or(|until| at <= until);
@@ -844,6 +878,11 @@ fn sort_fact_for_output(a: &KnowledgeFact, b: &KnowledgeFact) -> std::cmp::Order
     salience_score(b)
         .cmp(&salience_score(a))
         .then_with(|| {
+            b.quality_score()
+                .partial_cmp(&a.quality_score())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .then_with(|| {
             b.confidence
                 .partial_cmp(&a.confidence)
                 .unwrap_or(std::cmp::Ordering::Equal)
@@ -870,9 +909,7 @@ fn salience_score(f: &KnowledgeFact) -> u32 {
         _ => 30,
     };
 
-    let confidence_bonus = (f.confidence.clamp(0.0, 1.0) * 30.0) as u32;
-    let confirmation_bonus = f.confirmation_count.min(15);
-    let retrieval_bonus = ((f.retrieval_count as f32).ln_1p() * 8.0).min(20.0) as u32;
+    let quality_bonus = (f.quality_score() * 60.0) as u32;
 
     let recency_bonus = f.last_retrieved.map_or(0u32, |t| {
         let days = Utc::now().signed_duration_since(t).num_days();
@@ -885,7 +922,7 @@ fn salience_score(f: &KnowledgeFact) -> u32 {
         }
     });
 
-    base + confidence_bonus + confirmation_bonus + retrieval_bonus + recency_bonus
+    base + quality_bonus + recency_bonus
 }
 
 fn hash_project_root(root: &str) -> String {
@@ -896,11 +933,23 @@ fn hash_project_root(root: &str) -> String {
 mod tests {
     use super::*;
 
+    fn default_policy() -> MemoryPolicy {
+        MemoryPolicy::default()
+    }
+
     #[test]
     fn remember_and_recall() {
+        let policy = default_policy();
         let mut k = ProjectKnowledge::new("/tmp/test-project");
-        k.remember("architecture", "auth", "JWT RS256", "session-1", 0.9);
-        k.remember("api", "rate-limit", "100/min", "session-1", 0.8);
+        k.remember(
+            "architecture",
+            "auth",
+            "JWT RS256",
+            "session-1",
+            0.9,
+            &policy,
+        );
+        k.remember("api", "rate-limit", "100/min", "session-1", 0.8, &policy);
 
         let results = k.recall("auth");
         assert_eq!(results.len(), 1);
@@ -913,9 +962,17 @@ mod tests {
 
     #[test]
     fn upsert_existing_fact() {
+        let policy = default_policy();
         let mut k = ProjectKnowledge::new("/tmp/test");
-        k.remember("arch", "db", "PostgreSQL", "s1", 0.7);
-        k.remember("arch", "db", "PostgreSQL 16 with pgvector", "s2", 0.95);
+        k.remember("arch", "db", "PostgreSQL", "s1", 0.7, &policy);
+        k.remember(
+            "arch",
+            "db",
+            "PostgreSQL 16 with pgvector",
+            "s2",
+            0.95,
+            &policy,
+        );
 
         let current: Vec<_> = k.facts.iter().filter(|f| f.is_current()).collect();
         assert_eq!(current.len(), 1);
@@ -924,11 +981,12 @@ mod tests {
 
     #[test]
     fn contradiction_detection() {
+        let policy = default_policy();
         let mut k = ProjectKnowledge::new("/tmp/test");
-        k.remember("arch", "db", "PostgreSQL", "s1", 0.95);
+        k.remember("arch", "db", "PostgreSQL", "s1", 0.95, &policy);
         k.facts[0].confirmation_count = 3;
 
-        let contradiction = k.check_contradiction("arch", "db", "MySQL");
+        let contradiction = k.check_contradiction("arch", "db", "MySQL", &policy);
         assert!(contradiction.is_some());
         let c = contradiction.unwrap();
         assert_eq!(c.severity, ContradictionSeverity::High);
@@ -936,11 +994,12 @@ mod tests {
 
     #[test]
     fn temporal_validity() {
+        let policy = default_policy();
         let mut k = ProjectKnowledge::new("/tmp/test");
-        k.remember("arch", "db", "PostgreSQL", "s1", 0.95);
+        k.remember("arch", "db", "PostgreSQL", "s1", 0.95, &policy);
         k.facts[0].confirmation_count = 3;
 
-        k.remember("arch", "db", "MySQL", "s2", 0.9);
+        k.remember("arch", "db", "MySQL", "s2", 0.9, &policy);
 
         let current: Vec<_> = k.facts.iter().filter(|f| f.is_current()).collect();
         assert_eq!(current.len(), 1);
@@ -952,18 +1011,20 @@ mod tests {
 
     #[test]
     fn confirmation_count() {
+        let policy = default_policy();
         let mut k = ProjectKnowledge::new("/tmp/test");
-        k.remember("arch", "db", "PostgreSQL", "s1", 0.9);
+        k.remember("arch", "db", "PostgreSQL", "s1", 0.9, &policy);
         assert_eq!(k.facts[0].confirmation_count, 1);
 
-        k.remember("arch", "db", "PostgreSQL", "s2", 0.9);
+        k.remember("arch", "db", "PostgreSQL", "s2", 0.9, &policy);
         assert_eq!(k.facts[0].confirmation_count, 2);
     }
 
     #[test]
     fn remove_fact() {
+        let policy = default_policy();
         let mut k = ProjectKnowledge::new("/tmp/test");
-        k.remember("arch", "db", "PostgreSQL", "s1", 0.9);
+        k.remember("arch", "db", "PostgreSQL", "s1", 0.9, &policy);
         assert!(k.remove_fact("arch", "db"));
         assert!(k.facts.is_empty());
         assert!(!k.remove_fact("arch", "db"));
@@ -971,10 +1032,11 @@ mod tests {
 
     #[test]
     fn list_rooms() {
+        let policy = default_policy();
         let mut k = ProjectKnowledge::new("/tmp/test");
-        k.remember("architecture", "auth", "JWT", "s1", 0.9);
-        k.remember("architecture", "db", "PG", "s1", 0.9);
-        k.remember("deploy", "host", "AWS", "s1", 0.8);
+        k.remember("architecture", "auth", "JWT", "s1", 0.9, &policy);
+        k.remember("architecture", "db", "PG", "s1", 0.9, &policy);
+        k.remember("deploy", "host", "AWS", "s1", 0.8, &policy);
 
         let rooms = k.list_rooms();
         assert_eq!(rooms.len(), 2);
@@ -982,9 +1044,10 @@ mod tests {
 
     #[test]
     fn aaak_format() {
+        let policy = default_policy();
         let mut k = ProjectKnowledge::new("/tmp/test");
-        k.remember("architecture", "auth", "JWT RS256", "s1", 0.95);
-        k.remember("architecture", "db", "PostgreSQL", "s1", 0.7);
+        k.remember("architecture", "auth", "JWT RS256", "s1", 0.95, &policy);
+        k.remember("architecture", "db", "PostgreSQL", "s1", 0.7, &policy);
 
         let aaak = k.format_aaak();
         assert!(aaak.contains("ARCHITECTURE:"));
@@ -993,10 +1056,12 @@ mod tests {
 
     #[test]
     fn consolidate_history() {
+        let policy = default_policy();
         let mut k = ProjectKnowledge::new("/tmp/test");
         k.consolidate(
             "Migrated from REST to GraphQL",
             vec!["s1".into(), "s2".into()],
+            &policy,
         );
         assert_eq!(k.history.len(), 1);
         assert_eq!(k.history[0].from_sessions.len(), 2);
@@ -1004,13 +1069,15 @@ mod tests {
 
     #[test]
     fn format_summary_output() {
+        let policy = default_policy();
         let mut k = ProjectKnowledge::new("/tmp/test");
-        k.remember("architecture", "auth", "JWT RS256", "s1", 0.9);
+        k.remember("architecture", "auth", "JWT RS256", "s1", 0.9, &policy);
         k.add_pattern(
             "naming",
             "snake_case for functions",
             vec!["get_user()".into()],
             "s1",
+            &policy,
         );
         let summary = k.format_summary();
         assert!(summary.contains("PROJECT KNOWLEDGE:"));
@@ -1020,14 +1087,15 @@ mod tests {
 
     #[test]
     fn temporal_recall_at_time() {
+        let policy = default_policy();
         let mut k = ProjectKnowledge::new("/tmp/test");
-        k.remember("arch", "db", "PostgreSQL", "s1", 0.95);
+        k.remember("arch", "db", "PostgreSQL", "s1", 0.95, &policy);
         k.facts[0].confirmation_count = 3;
 
         let before_change = Utc::now();
         std::thread::sleep(std::time::Duration::from_millis(10));
 
-        k.remember("arch", "db", "MySQL", "s2", 0.9);
+        k.remember("arch", "db", "MySQL", "s2", 0.9, &policy);
 
         let results = k.recall_at_time("db", before_change);
         assert_eq!(results.len(), 1);
@@ -1040,10 +1108,11 @@ mod tests {
 
     #[test]
     fn timeline_shows_history() {
+        let policy = default_policy();
         let mut k = ProjectKnowledge::new("/tmp/test");
-        k.remember("arch", "db", "PostgreSQL", "s1", 0.95);
+        k.remember("arch", "db", "PostgreSQL", "s1", 0.95, &policy);
         k.facts[0].confirmation_count = 3;
-        k.remember("arch", "db", "MySQL", "s2", 0.9);
+        k.remember("arch", "db", "MySQL", "s2", 0.9, &policy);
 
         let timeline = k.timeline("arch");
         assert_eq!(timeline.len(), 2);
@@ -1053,9 +1122,10 @@ mod tests {
 
     #[test]
     fn wakeup_format() {
+        let policy = default_policy();
         let mut k = ProjectKnowledge::new("/tmp/test");
-        k.remember("arch", "auth", "JWT", "s1", 0.95);
-        k.remember("arch", "db", "PG", "s1", 0.8);
+        k.remember("arch", "auth", "JWT", "s1", 0.95, &policy);
+        k.remember("arch", "db", "PG", "s1", 0.8, &policy);
 
         let wakeup = k.format_wakeup();
         assert!(wakeup.contains("FACTS:"));
@@ -1065,9 +1135,10 @@ mod tests {
 
     #[test]
     fn salience_prioritizes_decisions_over_findings_at_similar_confidence() {
+        let policy = default_policy();
         let mut k = ProjectKnowledge::new("/tmp/test");
-        k.remember("finding", "f1", "some thing", "s1", 0.9);
-        k.remember("decision", "d1", "important", "s1", 0.85);
+        k.remember("finding", "f1", "some thing", "s1", 0.9, &policy);
+        k.remember("decision", "d1", "important", "s1", 0.85, &policy);
 
         let wakeup = k.format_wakeup();
         let items = wakeup
@@ -1085,25 +1156,28 @@ mod tests {
 
     #[test]
     fn low_confidence_contradiction() {
+        let policy = default_policy();
         let mut k = ProjectKnowledge::new("/tmp/test");
-        k.remember("arch", "db", "PostgreSQL", "s1", 0.4);
+        k.remember("arch", "db", "PostgreSQL", "s1", 0.4, &policy);
 
-        let c = k.check_contradiction("arch", "db", "MySQL");
+        let c = k.check_contradiction("arch", "db", "MySQL", &policy);
         assert!(c.is_some());
         assert_eq!(c.unwrap().severity, ContradictionSeverity::Low);
     }
 
     #[test]
     fn no_contradiction_for_same_value() {
+        let policy = default_policy();
         let mut k = ProjectKnowledge::new("/tmp/test");
-        k.remember("arch", "db", "PostgreSQL", "s1", 0.95);
+        k.remember("arch", "db", "PostgreSQL", "s1", 0.95, &policy);
 
-        let c = k.check_contradiction("arch", "db", "PostgreSQL");
+        let c = k.check_contradiction("arch", "db", "PostgreSQL", &policy);
         assert!(c.is_none());
     }
 
     #[test]
     fn no_contradiction_for_similar_values() {
+        let policy = default_policy();
         let mut k = ProjectKnowledge::new("/tmp/test");
         k.remember(
             "arch",
@@ -1111,12 +1185,14 @@ mod tests {
             "PostgreSQL 16 production database server",
             "s1",
             0.95,
+            &policy,
         );
 
         let c = k.check_contradiction(
             "arch",
             "db",
             "PostgreSQL 16 production database server config",
+            &policy,
         );
         assert!(c.is_none());
     }

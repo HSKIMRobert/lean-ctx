@@ -1,4 +1,5 @@
 use lean_ctx::core::knowledge::ProjectKnowledge;
+use lean_ctx::core::memory_policy::MemoryPolicy;
 
 #[test]
 fn recall_rehydrates_from_archive_when_active_set_empty() {
@@ -13,9 +14,10 @@ fn recall_rehydrates_from_archive_when_active_set_empty() {
     let project_root_str = project_root.to_string_lossy().to_string();
 
     // Create a fact that will be archived by lifecycle (low confidence).
+    let policy = MemoryPolicy::default();
     let mut k = ProjectKnowledge::load_or_create(&project_root_str);
-    k.remember("architecture", "db", "PostgreSQL", "s1", 0.1);
-    let _ = k.run_memory_lifecycle();
+    k.remember("architecture", "db", "PostgreSQL", "s1", 0.1, &policy);
+    let _ = k.run_memory_lifecycle(&policy);
     k.save().expect("save");
 
     // Now the active set should be empty (fact archived), so recall should rehydrate it.
@@ -27,6 +29,7 @@ fn recall_rehydrates_from_archive_when_active_set_empty() {
         None,
         Some("db postgres"),
         "s1",
+        None,
         None,
         None,
         None,

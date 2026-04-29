@@ -596,7 +596,7 @@ impl ServerHandler for LeanCtxServer {
             }
 
             if let Some((intent, root, session_id)) = explicit_intent {
-                crate::core::intent_protocol::apply_side_effects(
+                let _ = crate::core::intent_protocol::apply_side_effects(
                     &intent,
                     root.as_deref(),
                     &session_id,

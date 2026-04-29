@@ -311,8 +311,12 @@ fn route_response(
         }
         "/api/knowledge" => {
             let project_root = detect_project_root_for_dashboard();
-            let _ =
-                crate::core::knowledge::ProjectKnowledge::migrate_legacy_empty_root(&project_root);
+            if let Ok(policy) = crate::core::config::Config::load().memory_policy_effective() {
+                let _ = crate::core::knowledge::ProjectKnowledge::migrate_legacy_empty_root(
+                    &project_root,
+                    &policy,
+                );
+            }
             let knowledge = crate::core::knowledge::ProjectKnowledge::load_or_create(&project_root);
             let json = serde_json::to_string(&knowledge).unwrap_or_else(|_| "{}".to_string());
             ("200 OK", "application/json", json)

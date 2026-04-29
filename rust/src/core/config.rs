@@ -3,6 +3,8 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::SystemTime;
 
+use super::memory_policy::MemoryPolicy;
+
 /// Controls when shell output is tee'd to disk for later retrieval.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -154,6 +156,9 @@ pub struct Config {
     /// Archive configuration for zero-loss compression.
     #[serde(default)]
     pub archive: ArchiveConfig,
+    /// Memory policy (knowledge/episodic/procedural/lifecycle budgets & thresholds).
+    #[serde(default)]
+    pub memory: MemoryPolicy,
     /// Additional paths allowed by PathJail (absolute).
     /// Useful for multi-project workspaces where the jail root is a parent directory.
     /// Override via LEAN_CTX_ALLOW_PATH env var (path-list separator).
@@ -393,6 +398,7 @@ impl Default for Config {
             extra_ignore_patterns: Vec::new(),
             terse_agent: TerseAgent::default(),
             archive: ArchiveConfig::default(),
+            memory: MemoryPolicy::default(),
             allow_paths: Vec::new(),
             content_defined_chunking: false,
             minimal_overhead: false,
@@ -453,6 +459,13 @@ impl Config {
     /// Returns `true` if the daily update check is disabled via env var or config.
     pub fn update_check_disabled_effective(&self) -> bool {
         std::env::var("LEAN_CTX_NO_UPDATE_CHECK").is_ok() || self.update_check_disabled
+    }
+
+    pub fn memory_policy_effective(&self) -> Result<MemoryPolicy, String> {
+        let mut policy = self.memory.clone();
+        policy.apply_env_overrides();
+        policy.validate()?;
+        Ok(policy)
     }
 }
 
@@ -827,6 +840,68 @@ impl Config {
         }
         if local.archive.max_disk_mb != ArchiveConfig::default().max_disk_mb {
             self.archive.max_disk_mb = local.archive.max_disk_mb;
+        }
+        let mem_def = MemoryPolicy::default();
+        if local.memory.knowledge.max_facts != mem_def.knowledge.max_facts {
+            self.memory.knowledge.max_facts = local.memory.knowledge.max_facts;
+        }
+        if local.memory.knowledge.max_patterns != mem_def.knowledge.max_patterns {
+            self.memory.knowledge.max_patterns = local.memory.knowledge.max_patterns;
+        }
+        if local.memory.knowledge.max_history != mem_def.knowledge.max_history {
+            self.memory.knowledge.max_history = local.memory.knowledge.max_history;
+        }
+        if local.memory.knowledge.contradiction_threshold
+            != mem_def.knowledge.contradiction_threshold
+        {
+            self.memory.knowledge.contradiction_threshold =
+                local.memory.knowledge.contradiction_threshold;
+        }
+
+        if local.memory.episodic.max_episodes != mem_def.episodic.max_episodes {
+            self.memory.episodic.max_episodes = local.memory.episodic.max_episodes;
+        }
+        if local.memory.episodic.max_actions_per_episode != mem_def.episodic.max_actions_per_episode
+        {
+            self.memory.episodic.max_actions_per_episode =
+                local.memory.episodic.max_actions_per_episode;
+        }
+        if local.memory.episodic.summary_max_chars != mem_def.episodic.summary_max_chars {
+            self.memory.episodic.summary_max_chars = local.memory.episodic.summary_max_chars;
+        }
+
+        if local.memory.procedural.min_repetitions != mem_def.procedural.min_repetitions {
+            self.memory.procedural.min_repetitions = local.memory.procedural.min_repetitions;
+        }
+        if local.memory.procedural.min_sequence_len != mem_def.procedural.min_sequence_len {
+            self.memory.procedural.min_sequence_len = local.memory.procedural.min_sequence_len;
+        }
+        if local.memory.procedural.max_procedures != mem_def.procedural.max_procedures {
+            self.memory.procedural.max_procedures = local.memory.procedural.max_procedures;
+        }
+        if local.memory.procedural.max_window_size != mem_def.procedural.max_window_size {
+            self.memory.procedural.max_window_size = local.memory.procedural.max_window_size;
+        }
+
+        if local.memory.lifecycle.decay_rate != mem_def.lifecycle.decay_rate {
+            self.memory.lifecycle.decay_rate = local.memory.lifecycle.decay_rate;
+        }
+        if local.memory.lifecycle.low_confidence_threshold
+            != mem_def.lifecycle.low_confidence_threshold
+        {
+            self.memory.lifecycle.low_confidence_threshold =
+                local.memory.lifecycle.low_confidence_threshold;
+        }
+        if local.memory.lifecycle.stale_days != mem_def.lifecycle.stale_days {
+            self.memory.lifecycle.stale_days = local.memory.lifecycle.stale_days;
+        }
+        if local.memory.lifecycle.similarity_threshold != mem_def.lifecycle.similarity_threshold {
+            self.memory.lifecycle.similarity_threshold =
+                local.memory.lifecycle.similarity_threshold;
+        }
+
+        if local.memory.embeddings.max_facts != mem_def.embeddings.max_facts {
+            self.memory.embeddings.max_facts = local.memory.embeddings.max_facts;
         }
         if !local.allow_paths.is_empty() {
             self.allow_paths.extend(local.allow_paths);

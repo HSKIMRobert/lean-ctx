@@ -14,7 +14,8 @@ fn ctx_intent_knowledge_fact_routes_to_project_knowledge() {
 
     let query = r#"{"intent_type":"knowledge_fact","category":"decision","key":"k1","value":"v1","confidence":0.9}"#;
     let intent = intent_protocol::intent_from_query(query, Some(&project_root_str));
-    intent_protocol::apply_side_effects(&intent, Some(&project_root_str), "s1");
+    intent_protocol::apply_side_effects(&intent, Some(&project_root_str), "s1")
+        .expect("apply_side_effects");
 
     let knowledge = lean_ctx::core::knowledge::ProjectKnowledge::load(&project_root_str)
         .expect("knowledge should exist");

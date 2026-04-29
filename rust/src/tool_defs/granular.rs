@@ -327,19 +327,14 @@ episodes (episodic memory), procedures (procedural memory).",
         ),
         tool_def(
             "ctx_knowledge",
-            "Persistent project knowledge (survives sessions). Actions: remember (store fact with temporal tracking + contradiction detection), \
-recall (search), pattern (record convention), consolidate (extract session findings), \
-gotcha (record a bug/mistake to never repeat — trigger+resolution required), \
-timeline (view fact history for a category), rooms (list knowledge categories), \
-search (cross-session search across ALL projects), wakeup (compact AAAK briefing), \
-status (list all), remove, export, embeddings_status|embeddings_reset|embeddings_reindex (local semantic index management for recall).",
+            "Persistent project knowledge across sessions (facts, patterns, history). Supports recall modes, embeddings, feedback, and typed relations.",
             json!({
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["remember", "recall", "pattern", "consolidate", "gotcha", "status", "remove", "export", "timeline", "rooms", "search", "wakeup", "embeddings_status", "embeddings_reset", "embeddings_reindex"],
-                        "description": "Knowledge operation. remember: auto-detects contradictions + tracks temporal validity. timeline: view version history. rooms: list categories. search: cross-project search. wakeup: compact AAAK briefing. embeddings_*: manage local semantic index for recall."
+                        "enum": ["remember", "recall", "pattern", "feedback", "relate", "unrelate", "relations", "relations_diagram", "consolidate", "gotcha", "status", "remove", "export", "timeline", "rooms", "search", "wakeup", "embeddings_status", "embeddings_reset", "embeddings_reindex"],
+                        "description": "Knowledge operation to perform."
                     },
                     "trigger": {
                         "type": "string",
@@ -364,11 +359,16 @@ status (list all), remove, export, embeddings_status|embeddings_reset|embeddings
                     },
                     "value": {
                         "type": "string",
-                        "description": "Fact value or pattern description"
+                        "description": "Value for action (fact value, pattern text, feedback up/down, relation kind)."
                     },
                     "query": {
                         "type": "string",
-                        "description": "Search query for recall action (matches against category, key, and value)"
+                        "description": "Query/target (recall query, relate target 'category/key', relations direction in|out|all)."
+                    },
+                    "mode": {
+                        "type": "string",
+                        "enum": ["auto", "exact", "semantic", "hybrid"],
+                        "description": "Recall mode (default: auto). exact: lexical only. semantic: embeddings-only. hybrid: semantic + exact matches. auto: hybrid if embeddings available, else exact."
                     },
                     "pattern_type": {
                         "type": "string",

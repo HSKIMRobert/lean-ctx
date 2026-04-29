@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use super::knowledge::{KnowledgeFact, ProjectKnowledge};
+use crate::core::memory_policy::MemoryPolicy;
 
 #[cfg(feature = "embeddings")]
 use super::embeddings::{cosine_similarity, EmbeddingEngine};
@@ -150,7 +151,7 @@ pub fn semantic_recall<'a>(
             .iter()
             .find(|f| f.category == entry.category && f.key == entry.key && f.is_current())
         {
-            let confidence_score = fact.confidence;
+            let confidence_score = fact.quality_score();
             let recency_score = recency_decay(fact);
             let score = ALPHA_SEMANTIC * sim
                 + BETA_CONFIDENCE * confidence_score
@@ -176,8 +177,67 @@ pub fn semantic_recall<'a>(
                 fact,
                 score: 1.0,
                 semantic_score: 1.0,
-                confidence_score: fact.confidence,
+                confidence_score: fact.quality_score(),
                 recency_score: recency_decay(fact),
+            });
+        }
+    }
+
+    results.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| {
+                b.confidence_score
+                    .partial_cmp(&a.confidence_score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .then_with(|| {
+                b.recency_score
+                    .partial_cmp(&a.recency_score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .then_with(|| a.fact.category.cmp(&b.fact.category))
+            .then_with(|| a.fact.key.cmp(&b.fact.key))
+            .then_with(|| a.fact.value.cmp(&b.fact.value))
+    });
+    results.truncate(top_k);
+    results
+}
+
+#[cfg(feature = "embeddings")]
+pub fn semantic_recall_semantic_only<'a>(
+    knowledge: &'a ProjectKnowledge,
+    index: &KnowledgeEmbeddingIndex,
+    engine: &EmbeddingEngine,
+    query: &str,
+    top_k: usize,
+) -> Vec<ScoredFact<'a>> {
+    let Ok(query_embedding) = engine.embed(query) else {
+        return Vec::new();
+    };
+
+    let semantic_hits = index.semantic_search(&query_embedding, top_k * 2);
+    let mut results: Vec<ScoredFact<'a>> = Vec::new();
+
+    for (entry, sim) in &semantic_hits {
+        if let Some(fact) = knowledge
+            .facts
+            .iter()
+            .find(|f| f.category == entry.category && f.key == entry.key && f.is_current())
+        {
+            let confidence_score = fact.quality_score();
+            let recency_score = recency_decay(fact);
+            let score = ALPHA_SEMANTIC * sim
+                + BETA_CONFIDENCE * confidence_score
+                + GAMMA_RECENCY * recency_score;
+
+            results.push(ScoredFact {
+                fact,
+                score,
+                semantic_score: *sim,
+                confidence_score,
+                recency_score,
             });
         }
     }
@@ -207,6 +267,7 @@ pub fn semantic_recall<'a>(
 pub fn compact_against_knowledge(
     index: &mut KnowledgeEmbeddingIndex,
     knowledge: &ProjectKnowledge,
+    policy: &MemoryPolicy,
 ) {
     use std::collections::HashMap;
 
@@ -237,7 +298,7 @@ pub fn compact_against_knowledge(
             .then_with(|| ea.key.cmp(&eb.key))
     });
 
-    let max = crate::core::budgets::KNOWLEDGE_EMBEDDINGS_MAX_FACTS;
+    let max = policy.embeddings.max_facts;
     if kept.len() > max {
         kept.truncate(max);
     }
@@ -366,6 +427,9 @@ mod tests {
             valid_until: None,
             supersedes: None,
             confirmation_count: 1,
+            feedback_up: 0,
+            feedback_down: 0,
+            last_feedback: None,
         });
         knowledge.facts.push(KnowledgeFact {
             category: "arch".to_string(),
@@ -381,6 +445,9 @@ mod tests {
             valid_until: Some(now),
             supersedes: None,
             confirmation_count: 1,
+            feedback_up: 0,
+            feedback_down: 0,
+            last_feedback: None,
         });
 
         let mut idx = KnowledgeEmbeddingIndex::new(&knowledge.project_hash);
@@ -388,7 +455,7 @@ mod tests {
         idx.upsert("arch", "old", vec![0.0, 1.0, 0.0]);
         idx.upsert("ops", "deploy", vec![0.0, 0.0, 1.0]);
 
-        compact_against_knowledge(&mut idx, &knowledge);
+        compact_against_knowledge(&mut idx, &knowledge, &MemoryPolicy::default());
         assert_eq!(idx.entries.len(), 1);
         assert_eq!(idx.entries[0].category, "arch");
         assert_eq!(idx.entries[0].key, "db");
@@ -428,6 +495,9 @@ mod tests {
             valid_until: None,
             supersedes: None,
             confirmation_count: 1,
+            feedback_up: 0,
+            feedback_down: 0,
+            last_feedback: None,
         };
         let decay = recency_decay(&fact);
         assert!(
@@ -453,6 +523,9 @@ mod tests {
             valid_until: None,
             supersedes: None,
             confirmation_count: 1,
+            feedback_up: 0,
+            feedback_down: 0,
+            last_feedback: None,
         };
         let decay = recency_decay(&fact);
         assert_eq!(decay, 0.0, "100-day-old fact should have 0 recency");
@@ -493,6 +566,9 @@ mod tests {
             valid_until: None,
             supersedes: None,
             confirmation_count: 3,
+            feedback_up: 0,
+            feedback_down: 0,
+            last_feedback: None,
         };
         let scored = vec![ScoredFact {
             fact: &fact,
