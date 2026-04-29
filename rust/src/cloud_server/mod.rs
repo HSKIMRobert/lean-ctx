@@ -12,6 +12,7 @@ mod gotchas;
 mod helpers;
 mod knowledge;
 mod models;
+mod oauth;
 mod stats;
 
 use axum::routing::{get, post};
@@ -57,6 +58,8 @@ pub async fn run() -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/health", get(auth::health))
+        .route("/oauth/register", post(oauth::register_client))
+        .route("/oauth/token", post(oauth::token))
         .route("/api/auth/register", post(auth::register))
         .route("/api/auth/login", post(auth::login))
         .route("/api/auth/forgot-password", post(auth::forgot_password))

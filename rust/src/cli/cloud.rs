@@ -70,7 +70,13 @@ fn save_and_report(r: &cloud_client::RegisterResult, email: &str) {
     if let Ok(plan) = cloud_client::fetch_plan() {
         let _ = cloud_client::save_plan(&plan);
     }
-    println!("API key saved to ~/.lean-ctx/cloud/credentials.json");
+    // Upgrade remote auth to OAuth2 client_credentials when supported by the API.
+    match cloud_client::oauth_register_client(Some("lean-ctx-cli")) {
+        Ok(msg) => tracing::info!("{msg}"),
+        Err(e) => tracing::warn!("OAuth upgrade skipped: {e}"),
+    }
+
+    println!("Cloud credentials saved (see ~/.lean-ctx/cloud/credentials.json)");
     if r.verification_sent {
         println!("Verification email sent — please check your inbox.");
     }

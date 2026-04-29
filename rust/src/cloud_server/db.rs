@@ -34,6 +34,25 @@ CREATE TABLE IF NOT EXISTS api_keys (
   last_used_at TIMESTAMPTZ
 );
 
+CREATE TABLE IF NOT EXISTS oauth_clients (
+  client_id UUID PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  client_name TEXT,
+  client_secret_sha256 TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  revoked_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS oauth_access_tokens (
+  token_sha256 TEXT PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  client_id UUID NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
+  issued_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMPTZ NOT NULL,
+  last_used_at TIMESTAMPTZ,
+  revoked_at TIMESTAMPTZ
+);
+
 CREATE TABLE IF NOT EXISTS stats_daily (
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   date DATE NOT NULL,

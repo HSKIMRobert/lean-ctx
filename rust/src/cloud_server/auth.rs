@@ -501,7 +501,13 @@ pub async fn auth_user(
                 {
                     return Ok((user_id, email));
                 }
-                return Err((StatusCode::UNAUTHORIZED, "Invalid API key".into()));
+                if let Some((user_id, email)) = super::oauth::lookup_access_token(&state.pool, &sha)
+                    .await
+                    .map_err(internal_error)?
+                {
+                    return Ok((user_id, email));
+                }
+                return Err((StatusCode::UNAUTHORIZED, "Invalid token".into()));
             }
         }
     }
@@ -711,7 +717,7 @@ fn verify_password(password: &str, stored: &str) -> bool {
     constant_time_eq(expected_digest.as_bytes(), actual_digest.as_bytes())
 }
 
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
     }
@@ -729,12 +735,12 @@ fn generate_api_key() -> String {
     hex::encode(bytes)
 }
 
-fn generate_token() -> String {
+pub(crate) fn generate_token() -> String {
     let bytes: [u8; 32] = rand::random();
     hex::encode(bytes)
 }
 
-fn sha256_hex(input: &str) -> String {
+pub(crate) fn sha256_hex(input: &str) -> String {
     let mut h = Sha256::new();
     h.update(input.as_bytes());
     hex::encode(h.finalize())
