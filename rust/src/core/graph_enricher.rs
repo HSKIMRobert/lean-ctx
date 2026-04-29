@@ -198,13 +198,13 @@ fn infer_tested_file(test_path: &str) -> Option<String> {
 
             let candidate = parent.join(format!("{base}{ext}"));
             if let Some(s) = candidate.to_str() {
-                return Some(s.to_string());
+                return Some(s.replace('\\', "/"));
             }
 
             if let Some(pp) = parent.parent() {
                 let src_candidate = pp.join("src").join(format!("{base}{ext}"));
                 if let Some(s) = src_candidate.to_str() {
-                    return Some(s.to_string());
+                    return Some(s.replace('\\', "/"));
                 }
             }
         }
@@ -213,7 +213,7 @@ fn infer_tested_file(test_path: &str) -> Option<String> {
     if let Some(base) = name.strip_prefix("test_") {
         let parent = Path::new(test_path).parent()?;
         let candidate = parent.join(base);
-        return candidate.to_str().map(ToString::to_string);
+        return candidate.to_str().map(|s| s.replace('\\', "/"));
     }
 
     None
