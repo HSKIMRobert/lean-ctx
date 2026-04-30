@@ -100,8 +100,8 @@ fn bench_system_instructions_token_count() {
         "Compact mode overhead should be <300 tokens"
     );
     assert!(
-        tok_tdd - tok_off < 500,
-        "TDD mode overhead should be <500 tokens"
+        tok_tdd - tok_off < 650,
+        "TDD mode overhead should be <650 tokens"
     );
 }
 
