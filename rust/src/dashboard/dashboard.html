@@ -2116,8 +2116,52 @@ async function selectCompressionFile(path) {
     const t = (compressionTask || '').trim();
     if (t) url += '&task=' + encodeURIComponent(t);
     const data = await apiFetch(url);
-    if (data.error) { result.innerHTML = `<div class="empty-state"><p>${esc(data.error)}</p></div>`; return; }
+    if (data.error) {
+      const candidates = Array.isArray(data.candidates) ? data.candidates : [];
+      const tried = Array.isArray(data.tried_paths) ? data.tried_paths : [];
+      const hasCandidates = candidates.length > 0;
+      result.innerHTML = `
+        <div class="empty-state" style="padding:34px">
+          <h2>${hasCandidates ? 'File moved or renamed' : 'File not found'}</h2>
+          <p>${esc(data.error)}</p>
+          ${data.project_root ? `<div style="margin-top:10px;font-size:11px;color:var(--muted)">Project: <code>${esc(data.project_root)}</code></div>` : ''}
+          ${data.requested_path ? `<div style="margin-top:6px;font-size:11px;color:var(--muted)">Requested: <code>${esc(data.requested_path)}</code></div>` : ''}
+          ${hasCandidates ? `
+            <div style="margin-top:14px;text-align:left;max-width:680px">
+              <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Select the updated path:</div>
+              <div class="file-list" id="compressionCandidates" style="max-height:260px;overflow:auto;border:1px solid var(--border);border-radius:10px;background:var(--surface-2)"></div>
+            </div>
+          ` : `
+            <div style="margin-top:14px;font-size:11px;color:var(--muted);max-width:680px">
+              Hint: this usually means the dashboard is showing stale index paths after a refactor. Refresh in a few seconds, or use LeanCTX on the project root so indexing can rebuild.
+            </div>
+          `}
+          ${tried.length ? `
+            <details style="margin-top:14px;max-width:680px;text-align:left">
+              <summary style="cursor:pointer;font-size:11px;color:var(--muted)">Debug details</summary>
+              <div style="margin-top:10px;font-size:11px;color:var(--muted)">
+                ${tried.slice(0, 8).map(p => `<div><code>${esc(p)}</code></div>`).join('')}
+              </div>
+            </details>
+          ` : ''}
+        </div>`;
+      if (hasCandidates) {
+        const list = $('compressionCandidates');
+        if (list) {
+          list.innerHTML = candidates.map(c => `<div class="file-item" data-path="${esc(c)}">${esc(c)}</div>`).join('');
+          list.querySelectorAll('.file-item').forEach(item => {
+            item.onclick = () => selectCompressionFile(item.dataset.path);
+          });
+        }
+      }
+      return;
+    }
     renderCompressionResult(data);
+    if (data.resolved_from && typeof data.resolved_from === 'string' && data.resolved_from !== compressionSelected) {
+      compressionSelected = data.resolved_from;
+      if (!compressionFiles.includes(compressionSelected)) compressionFiles = [compressionSelected, ...compressionFiles];
+      renderCompressionFileList(compressionFiles);
+    }
   } catch (e) { result.innerHTML = '<div class="empty-state"><p>Failed to load compression demo.</p></div>'; }
 }
 

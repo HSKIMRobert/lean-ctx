@@ -210,16 +210,46 @@ impl BM25Index {
     }
 
     pub fn load_or_build(root: &Path) -> Self {
-        Self::load(root).unwrap_or_else(|| {
-            let built = Self::build_from_directory(root);
-            let _ = built.save(root);
-            built
-        })
+        if let Some(idx) = Self::load(root) {
+            if !vector_index_looks_stale(&idx, root) {
+                return idx;
+            }
+            tracing::warn!(
+                "[vector_index: stale index detected for {}; rebuilding]",
+                root.display()
+            );
+        }
+
+        let built = Self::build_from_directory(root);
+        let _ = built.save(root);
+        built
     }
 
     pub fn index_file_path(root: &Path) -> PathBuf {
         index_dir(root).join("bm25_index.json")
     }
+}
+
+fn vector_index_looks_stale(index: &BM25Index, root: &Path) -> bool {
+    if index.chunks.is_empty() {
+        return false;
+    }
+
+    let mut seen = std::collections::HashSet::<&str>::new();
+    for chunk in &index.chunks {
+        let rel = chunk.file_path.trim_start_matches(['/', '\\']);
+        if rel.is_empty() {
+            continue;
+        }
+        if !seen.insert(rel) {
+            continue;
+        }
+        if !root.join(rel).exists() {
+            return true;
+        }
+    }
+
+    false
 }
 
 fn index_dir(root: &Path) -> PathBuf {
@@ -534,6 +564,7 @@ pub fn format_search_results(results: &[SearchResult], compact: bool) -> String 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
 
     #[test]
     fn tokenize_splits_code() {
@@ -587,5 +618,18 @@ mod tests {
         let results = index.search("jwt token validation", 5);
         assert!(!results.is_empty());
         assert_eq!(results[0].symbol_name, "validate_token");
+    }
+
+    #[test]
+    fn vector_index_is_stale_when_any_indexed_file_is_missing() {
+        let td = tempdir().expect("tempdir");
+        let root = td.path();
+        std::fs::write(root.join("a.rs"), "pub fn a() {}\n").expect("write a.rs");
+
+        let idx = BM25Index::build_from_directory(root);
+        assert!(!vector_index_looks_stale(&idx, root));
+
+        std::fs::remove_file(root.join("a.rs")).expect("remove a.rs");
+        assert!(vector_index_looks_stale(&idx, root));
     }
 }

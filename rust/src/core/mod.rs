@@ -52,6 +52,7 @@ pub mod intent_engine;
 pub mod intent_protocol;
 pub mod jsonc;
 pub mod knowledge;
+pub mod knowledge_bootstrap;
 pub mod knowledge_embedding;
 pub mod knowledge_relations;
 pub mod language_capabilities;

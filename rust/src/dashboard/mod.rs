@@ -311,13 +311,28 @@ fn route_response(
         }
         "/api/knowledge" => {
             let project_root = detect_project_root_for_dashboard();
-            if let Ok(policy) = crate::core::config::Config::load().memory_policy_effective() {
-                let _ = crate::core::knowledge::ProjectKnowledge::migrate_legacy_empty_root(
+            let policy = crate::core::config::Config::load()
+                .memory_policy_effective()
+                .unwrap_or_default();
+            let _ = crate::core::knowledge::ProjectKnowledge::migrate_legacy_empty_root(
+                &project_root,
+                &policy,
+            );
+
+            let mut knowledge =
+                crate::core::knowledge::ProjectKnowledge::load_or_create(&project_root);
+            if knowledge.facts.is_empty() {
+                // Keep /api/knowledge fast: avoid forcing a full index build here.
+                let idx = crate::core::graph_index::ProjectIndex::load(&project_root);
+                if crate::core::knowledge_bootstrap::bootstrap_if_empty(
+                    &mut knowledge,
                     &project_root,
+                    idx.as_ref(),
                     &policy,
-                );
+                ) {
+                    let _ = knowledge.save();
+                }
             }
-            let knowledge = crate::core::knowledge::ProjectKnowledge::load_or_create(&project_root);
             let json = serde_json::to_string(&knowledge).unwrap_or_else(|_| "{}".to_string());
             ("200 OK", "application/json", json)
         }
@@ -620,23 +635,103 @@ fn route_response(
                     let root_pb = std::path::Path::new(&root);
                     let rel = normalize_dashboard_demo_path(&rel);
                     let candidate = std::path::Path::new(&rel);
-                    let full = if candidate.is_absolute() {
-                        candidate.to_path_buf()
+
+                    let mut tried_paths: Vec<String> = Vec::new();
+                    let mut full: Option<std::path::PathBuf> = None;
+                    let mut content: Option<String> = None;
+
+                    let mut attempts: Vec<std::path::PathBuf> = Vec::new();
+                    if candidate.is_absolute() {
+                        attempts.push(candidate.to_path_buf());
                     } else {
-                        let direct = root_pb.join(&rel);
-                        if direct.exists() {
-                            direct
+                        attempts.push(root_pb.join(&rel));
+                        attempts.push(root_pb.join("rust").join(&rel));
+                    }
+
+                    for p in attempts {
+                        tried_paths.push(p.to_string_lossy().to_string());
+                        let p = if candidate.is_absolute() {
+                            p
                         } else {
-                            let in_rust = root_pb.join("rust").join(&rel);
-                            if in_rust.exists() {
-                                in_rust
-                            } else {
-                                direct
+                            match crate::core::pathjail::jail_path(&p, root_pb) {
+                                Ok(j) => j,
+                                Err(_) => continue,
+                            }
+                        };
+
+                        if let Ok(c) = std::fs::read_to_string(&p) {
+                            full = Some(p);
+                            content = Some(c);
+                            break;
+                        }
+                    }
+
+                    let mut resolved_from: Option<String> = None;
+                    let mut candidates: Vec<String> = Vec::new();
+
+                    if content.is_none() && !candidate.is_absolute() && !rel.trim().is_empty() {
+                        // Premium path healing: try to map stale paths to current indexed files.
+                        let index = crate::core::graph_index::load_or_build(&root);
+                        let requested_key = crate::core::graph_index::graph_match_key(&rel);
+                        let requested_name = requested_key.rsplit('/').next().unwrap_or("");
+
+                        let mut exact: Vec<String> = Vec::new();
+                        let mut suffix: Vec<String> = Vec::new();
+                        let mut filename: Vec<String> = Vec::new();
+                        let mut seen = std::collections::HashSet::<&str>::new();
+
+                        for p in index.files.keys() {
+                            let p_str = p.as_str();
+                            if !seen.insert(p_str) {
+                                continue;
+                            }
+                            let p_key = crate::core::graph_index::graph_match_key(p_str);
+                            if p_key == requested_key {
+                                exact.push(p_str.to_string());
+                            } else if !requested_key.is_empty() && p_key.ends_with(&requested_key) {
+                                suffix.push(p_str.to_string());
+                            } else if !requested_name.is_empty()
+                                && p_key
+                                    .rsplit('/')
+                                    .next()
+                                    .is_some_and(|n| n == requested_name)
+                            {
+                                filename.push(p_str.to_string());
                             }
                         }
-                    };
-                    match std::fs::read_to_string(&full) {
-                        Ok(content) => {
+
+                        let mut best = if !exact.is_empty() {
+                            exact
+                        } else if !suffix.is_empty() {
+                            suffix
+                        } else {
+                            filename
+                        };
+                        best.sort_by_key(String::len);
+
+                        if best.len() == 1 {
+                            let rel2 = best[0].clone();
+                            let p2 = root_pb.join(rel2.trim_start_matches(['/', '\\']));
+                            tried_paths.push(p2.to_string_lossy().to_string());
+                            if let Ok(p2) = crate::core::pathjail::jail_path(&p2, root_pb) {
+                                if let Ok(c2) = std::fs::read_to_string(&p2) {
+                                    full = Some(p2);
+                                    content = Some(c2);
+                                    resolved_from = Some(rel2);
+                                } else {
+                                    candidates = best;
+                                }
+                            } else {
+                                candidates = best;
+                            }
+                        } else if best.len() > 1 {
+                            best.truncate(10);
+                            candidates = best;
+                        }
+                    }
+
+                    match (full, content) {
+                        (Some(full), Some(content)) => {
                             let ext = full.extension().and_then(|e| e.to_str()).unwrap_or("rs");
                             let path_str = full.to_string_lossy().to_string();
                             let original_lines = content.lines().count();
@@ -656,10 +751,18 @@ fn route_response(
                                 "original_tokens": original_tokens,
                                 "original": original_preview,
                                 "modes": modes,
+                                "resolved_from": resolved_from,
                             })
                             .to_string()
                         }
-                        Err(_) => r#"{"error":"failed to read file"}"#.to_string(),
+                        _ => serde_json::json!({
+                            "error": "failed to read file",
+                            "project_root": root,
+                            "requested_path": rel,
+                            "candidates": candidates,
+                            "tried_paths": tried_paths,
+                        })
+                        .to_string(),
                     }
                 }
             };
@@ -820,8 +923,12 @@ fn normalize_dashboard_demo_path(path: &str) -> String {
         return trimmed.to_string();
     }
 
-    trimmed
-        .trim_start_matches(['\\', '/'])
+    let mut p = trimmed;
+    while p.starts_with("./") || p.starts_with(".\\") {
+        p = &p[2..];
+    }
+
+    p.trim_start_matches(['\\', '/'])
         .replace('\\', std::path::MAIN_SEPARATOR_STR)
 }
 
@@ -1152,6 +1259,9 @@ fn git_root_for(path: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
+
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[test]
     fn check_auth_with_valid_bearer() {
@@ -1217,6 +1327,18 @@ mod tests {
     }
 
     #[test]
+    fn normalize_dashboard_demo_path_strips_dot_slash_prefix() {
+        assert_eq!(
+            normalize_dashboard_demo_path("./src/main.rs"),
+            "src/main.rs"
+        );
+        assert_eq!(
+            normalize_dashboard_demo_path(r".\src\main.rs"),
+            format!("src{}main.rs", std::path::MAIN_SEPARATOR)
+        );
+    }
+
+    #[test]
     fn api_profile_returns_json() {
         let (_status, _ct, body) = route_response("/api/profile", "", None, None);
         let v: serde_json::Value = serde_json::from_str(&body).expect("valid JSON");
@@ -1246,5 +1368,35 @@ mod tests {
         assert!(v.get("project_hash").is_some());
         assert!(v.get("procedures").and_then(|a| a.as_array()).is_some());
         assert!(v.get("suggestions").and_then(|a| a.as_array()).is_some());
+    }
+
+    #[test]
+    fn api_compression_demo_heals_moved_file_paths() {
+        let _g = ENV_LOCK.lock().expect("env lock");
+        let td = tempdir().expect("tempdir");
+        let root = td.path();
+        std::fs::create_dir_all(root.join("src").join("moved")).expect("mkdir");
+        std::fs::write(
+            root.join("src").join("moved").join("foo.rs"),
+            "pub fn foo() { println!(\"hi\"); }\n",
+        )
+        .expect("write foo.rs");
+
+        let root_s = root.to_string_lossy().to_string();
+        std::env::set_var("LEAN_CTX_DASHBOARD_PROJECT", &root_s);
+
+        let (_status, _ct, body) =
+            route_response("/api/compression-demo", "path=src/foo.rs", None, None);
+        let v: serde_json::Value = serde_json::from_str(&body).expect("valid JSON");
+        assert!(v.get("error").is_none(), "unexpected error: {body}");
+        assert_eq!(
+            v.get("resolved_from").and_then(|x| x.as_str()),
+            Some("src/moved/foo.rs")
+        );
+
+        std::env::remove_var("LEAN_CTX_DASHBOARD_PROJECT");
+        if let Some(dir) = crate::core::graph_index::ProjectIndex::index_dir(&root_s) {
+            let _ = std::fs::remove_dir_all(dir);
+        }
     }
 }

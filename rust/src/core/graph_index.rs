@@ -168,6 +168,10 @@ pub fn load_or_build(project_root: &str) -> ProjectIndex {
     // Try the absolute/root-normalized path first.
     if let Some(idx) = ProjectIndex::load(&root_abs) {
         if !idx.files.is_empty() {
+            if index_looks_stale(&idx, &root_abs) {
+                tracing::warn!("[graph_index: stale index detected for {root_abs}; rebuilding]");
+                return scan(&root_abs);
+            }
             return idx;
         }
     }
@@ -179,6 +183,12 @@ pub fn load_or_build(project_root: &str) -> ProjectIndex {
             let mut migrated = idx;
             migrated.project_root.clone_from(&root_abs);
             let _ = migrated.save();
+            if index_looks_stale(&migrated, &root_abs) {
+                tracing::warn!(
+                    "[graph_index: stale legacy index detected for {root_abs}; rebuilding]"
+                );
+                return scan(&root_abs);
+            }
             return migrated;
         }
     }
@@ -189,6 +199,12 @@ pub fn load_or_build(project_root: &str) -> ProjectIndex {
         if cwd_str != root_abs {
             if let Some(idx) = ProjectIndex::load(&cwd_str) {
                 if !idx.files.is_empty() {
+                    if index_looks_stale(&idx, &cwd_str) {
+                        tracing::warn!(
+                            "[graph_index: stale index detected for {cwd_str}; rebuilding]"
+                        );
+                        return scan(&cwd_str);
+                    }
                     return idx;
                 }
             }
@@ -197,6 +213,26 @@ pub fn load_or_build(project_root: &str) -> ProjectIndex {
 
     // No existing index found anywhere — auto-build
     scan(&root_abs)
+}
+
+fn index_looks_stale(index: &ProjectIndex, root_abs: &str) -> bool {
+    if index.files.is_empty() {
+        return true;
+    }
+
+    let root_path = Path::new(root_abs);
+    for rel in index.files.keys() {
+        let rel = rel.trim_start_matches(['/', '\\']);
+        if rel.is_empty() {
+            continue;
+        }
+        let abs = root_path.join(rel);
+        if !abs.exists() {
+            return true;
+        }
+    }
+
+    false
 }
 
 pub fn scan(project_root: &str) -> ProjectIndex {
@@ -610,6 +646,7 @@ fn kotlin_package_name(content: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
 
     #[test]
     fn test_short_hash_deterministic() {
@@ -680,6 +717,50 @@ mod tests {
         assert_eq!(idx.version, INDEX_VERSION);
         assert_eq!(idx.project_root, "/test");
         assert!(idx.files.is_empty());
+    }
+
+    fn fe(path: &str, content: &str, language: &str) -> FileEntry {
+        FileEntry {
+            path: path.to_string(),
+            hash: compute_hash(content),
+            language: language.to_string(),
+            line_count: content.lines().count(),
+            token_count: crate::core::tokens::count_tokens(content),
+            exports: Vec::new(),
+            summary: extract_summary(content),
+        }
+    }
+
+    #[test]
+    fn test_index_looks_stale_when_any_file_missing() {
+        let td = tempdir().expect("tempdir");
+        let root = td.path();
+        std::fs::write(root.join("a.rs"), "pub fn a() {}\n").expect("write a.rs");
+
+        let root_s = normalize_project_root(&root.to_string_lossy());
+        let mut idx = ProjectIndex::new(&root_s);
+        idx.files
+            .insert("a.rs".to_string(), fe("a.rs", "pub fn a() {}\n", "rs"));
+        idx.files.insert(
+            "missing.rs".to_string(),
+            fe("missing.rs", "pub fn m() {}\n", "rs"),
+        );
+
+        assert!(index_looks_stale(&idx, &root_s));
+    }
+
+    #[test]
+    fn test_index_looks_fresh_when_all_files_exist() {
+        let td = tempdir().expect("tempdir");
+        let root = td.path();
+        std::fs::write(root.join("a.rs"), "pub fn a() {}\n").expect("write a.rs");
+
+        let root_s = normalize_project_root(&root.to_string_lossy());
+        let mut idx = ProjectIndex::new(&root_s);
+        idx.files
+            .insert("a.rs".to_string(), fe("a.rs", "pub fn a() {}\n", "rs"));
+
+        assert!(!index_looks_stale(&idx, &root_s));
     }
 
     #[test]
