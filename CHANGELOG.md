@@ -3,7 +3,7 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [3.4.6] — 2026-04-29
+## [3.4.6] — 2026-04-30
 
 ### Added
 
@@ -11,6 +11,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - **Graph diagram in unified graph API** — `ctx_graph` now supports `action=diagram` (with `kind=deps|calls` and optional `depth`).
 - **Release-gate hardening tests** — added golden/edge coverage for `tokens.rs`, `preservation.rs`, `handoff_ledger.rs`, and workflow store roundtrips.
 - **README entry paths** — new 3-tier onboarding/runtime paths (`Quick`, `Power`, `Enterprise`) with concrete commands and expected outcomes.
+- **Knowledge graph auto-bootstrap** — when the dashboard's knowledge graph is empty, lean-ctx now automatically generates initial facts (project root, languages, index stats) so users see data immediately.
+- **Startup guard (cross-process lock)** — new `core::startup_guard` module provides file-based locking with stale eviction, used to serialize concurrent startup and background maintenance.
+- **Cookbook TypeScript SDK** — real integration examples with typed SDK.
 
 ### Changed
 
@@ -21,13 +24,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - **Tool metadata alignment** — descriptors, editor auto-approve lists, and docs updated for the unified entry points and 49-tool manifest.
 - **Documentation/version hygiene** — README and VISION now consistently reference 49 MCP tools and current runtime state.
 - **Legacy cleanup** — removed unlinked `core/watcher.rs` orphan module (no runtime references).
+- **Cloud: OAuth2 client credentials** — cloud sync now supports OAuth2 token-based authentication.
+- **Memory: configurable policies + knowledge relations** — knowledge facts support temporal relations and configurable retention policies.
 
 ### Fixed
 
+- **SIGABRT under concurrent MCP startup** — multiple agent sessions starting simultaneously could crash the process. Fixed with `catch_unwind` at the process entry point, a cross-process startup lock, and capped Tokio worker/blocking threads. Fixes #171.
+- **Dashboard stale index auto-rebuild** — `graph_index` and `vector_index` now detect when indexed files are missing and automatically rebuild, preventing empty Knowledge Graph and broken Compression Lab views.
+- **Dashboard Compression Lab path healing** — when a file path from the index no longer exists (e.g. after refactoring), the API now tries suffix/filename matching against indexed files and returns actionable candidates. The UI shows clickable suggestions instead of a bare error.
+- **Background maintenance stampede** — rules injection, hook refresh, and version checks are now guarded by a cross-process lock, preventing multiple instances from running expensive maintenance simultaneously during agent session initialization.
 - **Panic hardening in verification/stats paths** — replaced remaining production `unwrap()` usage in critical library paths:
   - `core/output_verification.rs` fallback regex paths
   - `core/stats/mod.rs` optional buffer extraction
 - **CLI guidance consistency** — `lean-ctx wrapped` now clearly points users to the canonical `lean-ctx gain --wrapped` path.
+- **Cookbook npm audit vulnerabilities** — resolved all reported npm audit issues in the cookbook package.
 
 ## [3.4.5] — 2026-04-28
 
