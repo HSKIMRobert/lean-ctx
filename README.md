@@ -44,9 +44,35 @@
 
 > **lean-ctx** is a local-first context runtime that compresses file reads + shell output before they reach the LLM. Cached re-reads drop to **~13 tokens**.
 
-<p align="center">
-  <img src="assets/leanctx-demo.gif" width="900" alt="lean-ctx demo: compressed file read (map mode) with token savings">
-</p>
+<p align="center"><strong>See it in action:</strong></p>
+
+<table>
+  <tr>
+    <td align="center" width="33%">
+      <img src="assets/leanctx-demo.gif" width="320" alt="Map-mode file read + compressed git output demo">
+      <br/>
+      <strong>Read + Shell</strong>
+      <br/>
+      Map-mode reads + compressed CLI output
+    </td>
+    <td align="center" width="33%">
+      <img src="assets/leanctx-gain.gif" width="320" alt="lean-ctx gain live dashboard demo">
+      <br/>
+      <strong>Gain (live)</strong>
+      <br/>
+      Tokens + USD savings in real time
+    </td>
+    <td align="center" width="33%">
+      <img src="assets/leanctx-benchmark.gif" width="320" alt="lean-ctx benchmark report demo">
+      <br/>
+      <strong>Benchmark proof</strong>
+      <br/>
+      Measure compression by language + mode
+    </td>
+  </tr>
+</table>
+
+<p align="center"><sub>All GIFs are generated from reproducible VHS tapes in <code>demo/</code>.</sub></p>
 
 ## What it does
 
@@ -90,10 +116,18 @@ Try these in any repo:
 ```bash
 lean-ctx read rust/src/server/mod.rs -m map
 lean-ctx -c "git log -n 5 --oneline"
+lean-ctx gain --live
+lean-ctx benchmark report .
 ```
 
-- The repo ships the exact tape used to render the GIF: `demo/leanctx.tape`
-- Regenerate locally: `vhs demo/leanctx.tape`
+- The repo ships the exact tapes used to render the GIFs in `demo/`
+- Regenerate locally:
+
+```bash
+vhs demo/leanctx.tape
+vhs demo/gain.tape
+vhs demo/benchmark.tape
+```
 
 <a id="benchmarks"></a>
 

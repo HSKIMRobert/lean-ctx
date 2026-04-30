@@ -1,7 +1,6 @@
-Output "assets/leanctx-demo.gif"
+Output "assets/leanctx-benchmark.gif"
 
 Require lean-ctx
-Require git
 
 Set Theme "GitHub Dark"
 Set FontSize 24
@@ -20,14 +19,5 @@ Set Shell "bash"
 Type "export PS1='leanctx$ '" Enter
 Sleep 200ms
 
-Type "lean-ctx --version"
-Enter
-Sleep 800ms
-
-Type "lean-ctx read rust/src/server/mod.rs -m map"
-Enter
-Sleep 2s
-
-Type "lean-ctx -c 'git -c color.ui=false log -n 5 --oneline'"
-Enter
-Sleep 2s
+Type "lean-ctx benchmark report ." Enter
+Sleep 4s

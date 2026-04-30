@@ -1,7 +1,6 @@
-Output "assets/leanctx-demo.gif"
+Output "assets/leanctx-gain.gif"
 
 Require lean-ctx
-Require git
 
 Set Theme "GitHub Dark"
 Set FontSize 24
@@ -20,14 +19,10 @@ Set Shell "bash"
 Type "export PS1='leanctx$ '" Enter
 Sleep 200ms
 
-Type "lean-ctx --version"
-Enter
-Sleep 800ms
+Type "lean-ctx gain --live" Enter
+Sleep 3s
+Ctrl+C
+Sleep 500ms
 
-Type "lean-ctx read rust/src/server/mod.rs -m map"
-Enter
-Sleep 2s
-
-Type "lean-ctx -c 'git -c color.ui=false log -n 5 --oneline'"
-Enter
+Type "lean-ctx gain --daily" Enter
 Sleep 2s
