@@ -808,7 +808,30 @@ fn run_mcp_server() -> Result<()> {
 
     std::env::set_var("LEAN_CTX_MCP_SERVER", "1");
 
-    let rt = tokio::runtime::Runtime::new()?;
+    // Concurrency hardening:
+    // - Smooths "thundering herd" MCP startups (multiple agent sessions).
+    // - Limits Tokio worker/blocking threads to avoid host degradation.
+    let startup_lock = crate::core::startup_guard::try_acquire_lock(
+        "mcp-startup",
+        std::time::Duration::from_secs(3),
+        std::time::Duration::from_secs(30),
+    );
+
+    let parallelism = std::thread::available_parallelism()
+        .map(std::num::NonZeroUsize::get)
+        .unwrap_or(2);
+    let worker_threads = parallelism.clamp(1, 4);
+    let max_blocking_threads = (worker_threads * 4).clamp(8, 32);
+
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(worker_threads)
+        .max_blocking_threads(max_blocking_threads)
+        .enable_all()
+        .build()?;
+
+    let server = tools::create_server();
+    drop(startup_lock);
+
     rt.block_on(async {
         core::logging::init_mcp_logging();
 
@@ -817,7 +840,6 @@ fn run_mcp_server() -> Result<()> {
             env!("CARGO_PKG_VERSION")
         );
 
-        let server = tools::create_server();
         let transport =
             mcp_stdio::HybridStdioTransport::new_server(tokio::io::stdin(), tokio::io::stdout());
         let service = match server.serve(transport).await {

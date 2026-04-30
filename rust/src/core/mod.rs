@@ -98,6 +98,7 @@ pub mod signatures;
 pub mod signatures_ts;
 pub mod slo;
 pub mod slow_log;
+pub mod startup_guard;
 pub mod stats;
 pub mod surprise;
 pub mod symbol_map;

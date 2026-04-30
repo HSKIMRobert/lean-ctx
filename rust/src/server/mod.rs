@@ -72,11 +72,23 @@ impl ServerHandler for LeanCtxServer {
             if std::env::var("LEAN_CTX_HEADLESS").is_ok() {
                 return;
             }
-            if let Some(home) = dirs::home_dir() {
-                let _ = crate::rules_inject::inject_all_rules(&home);
+
+            // Avoid startup stampedes when multiple agent sessions initialize at once.
+            // These are best-effort maintenance tasks; it's fine to skip if another
+            // lean-ctx instance is already doing them.
+            let maintenance = crate::core::startup_guard::try_acquire_lock(
+                "startup-maintenance",
+                std::time::Duration::from_secs(2),
+                std::time::Duration::from_secs(120),
+            );
+            if maintenance.is_some() {
+                if let Some(home) = dirs::home_dir() {
+                    let _ = crate::rules_inject::inject_all_rules(&home);
+                }
+                crate::hooks::refresh_installed_hooks();
+                crate::core::version_check::check_background();
             }
-            crate::hooks::refresh_installed_hooks();
-            crate::core::version_check::check_background();
+            drop(maintenance);
 
             if !agent_root.is_empty() {
                 let heuristic_role = match agent_name.to_lowercase().as_str() {
