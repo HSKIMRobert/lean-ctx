@@ -100,17 +100,21 @@ mod tests {
 
     static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+    fn write_linked_config(root: &Path, linked: &Path) {
+        let cfg = serde_json::json!({
+            "linkedProjects": [linked.to_string_lossy()]
+        })
+        .to_string();
+        std::fs::write(root.join(".leanctx.json"), cfg).expect("write cfg");
+    }
+
     #[test]
     fn linked_projects_outside_root_are_rejected_without_allow_path() {
         let _guard = ENV_LOCK.lock().expect("lock");
         let root = tempfile::tempdir().expect("root");
         let other = tempfile::tempdir().expect("other");
 
-        let cfg = format!(
-            "{{\"linkedProjects\":[\"{}\"]}}",
-            other.path().to_string_lossy()
-        );
-        std::fs::write(root.path().join(".leanctx.json"), cfg).expect("write cfg");
+        write_linked_config(root.path(), other.path());
 
         std::env::remove_var("LEAN_CTX_ALLOW_PATH");
         let res = load_linked_projects(root.path());
@@ -130,11 +134,7 @@ mod tests {
         let root = tempfile::tempdir().expect("root");
         let other = tempfile::tempdir().expect("other");
 
-        let cfg = format!(
-            "{{\"linkedProjects\":[\"{}\"]}}",
-            other.path().to_string_lossy()
-        );
-        std::fs::write(root.path().join(".leanctx.json"), cfg).expect("write cfg");
+        write_linked_config(root.path(), other.path());
 
         std::env::set_var(
             "LEAN_CTX_ALLOW_PATH",
