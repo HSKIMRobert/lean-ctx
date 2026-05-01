@@ -336,6 +336,95 @@ fn route_response(
             let json = serde_json::to_string(&knowledge).unwrap_or_else(|_| "{}".to_string());
             ("200 OK", "application/json", json)
         }
+        "/api/knowledge-relations" => {
+            let project_root = detect_project_root_for_dashboard();
+            let policy = crate::core::config::Config::load()
+                .memory_policy_effective()
+                .unwrap_or_default();
+
+            let knowledge = crate::core::knowledge::ProjectKnowledge::load_or_create(&project_root);
+            let graph = crate::core::knowledge_relations::KnowledgeRelationGraph::load_or_create(
+                &knowledge.project_hash,
+            );
+
+            let current_ids: std::collections::HashSet<String> = knowledge
+                .facts
+                .iter()
+                .filter(|f| f.is_current())
+                .map(|f| format!("{}/{}", f.category, f.key))
+                .collect();
+
+            let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let mut edges: Vec<serde_json::Value> = Vec::new();
+
+            let mut push_edge = |from: String, to: String, kind: String, derived: bool| {
+                if from.trim().is_empty() || to.trim().is_empty() || from == to {
+                    return;
+                }
+                if !current_ids.contains(&from) || !current_ids.contains(&to) {
+                    return;
+                }
+                let key = format!("{from}|{kind}|{to}");
+                if !seen.insert(key) {
+                    return;
+                }
+                edges.push(serde_json::json!({
+                    "from": from,
+                    "to": to,
+                    "kind": kind,
+                    "derived": derived,
+                }));
+            };
+
+            // Explicit user-managed relations.
+            for e in &graph.edges {
+                push_edge(e.from.id(), e.to.id(), e.kind.as_str().to_string(), false);
+            }
+
+            // Derived: `supersedes` links (stored on facts).
+            for f in knowledge.facts.iter().filter(|f| f.is_current()) {
+                let Some(to) = f
+                    .supersedes
+                    .as_deref()
+                    .and_then(crate::core::knowledge_relations::parse_node_ref)
+                else {
+                    continue;
+                };
+                let from = format!("{}/{}", f.category, f.key);
+                push_edge(from, to.id(), "supersedes".to_string(), true);
+            }
+
+            // Derived: soft references in values like `category/key` or `category:key`.
+            for f in knowledge.facts.iter().filter(|f| f.is_current()) {
+                let from = format!("{}/{}", f.category, f.key);
+                for raw in f.value.split_whitespace() {
+                    let tok = raw.trim_matches(|c: char| {
+                        !c.is_ascii_alphanumeric() && c != '/' && c != ':' && c != '_' && c != '-'
+                    });
+                    let Some(to) = crate::core::knowledge_relations::parse_node_ref(tok) else {
+                        continue;
+                    };
+                    if to.id() == from {
+                        continue;
+                    }
+                    push_edge(from.clone(), to.id(), "related_to".to_string(), true);
+                }
+            }
+
+            let max_edges = policy.knowledge.max_facts.saturating_mul(8);
+            if max_edges > 0 && edges.len() > max_edges {
+                edges.truncate(max_edges);
+            }
+
+            let payload = serde_json::json!({
+                "project_root": project_root,
+                "project_hash": knowledge.project_hash,
+                "edges": edges,
+                "explicit_edges_total": graph.edges.len(),
+            });
+            let json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+            ("200 OK", "application/json", json)
+        }
         "/api/gotchas" => {
             let project_root = detect_project_root_for_dashboard();
             let store = crate::core::gotcha_tracker::GotchaStore::load(&project_root);

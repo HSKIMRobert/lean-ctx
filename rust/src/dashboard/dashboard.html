@@ -1755,6 +1755,11 @@ async function loadKnowledge() {
     inFlight.set('knowledge', true);
     const data = await apiFetch('/api/knowledge', { timeoutMs: 4000 });
     const facts = data.facts || [];
+    let relEdges = [];
+    try {
+      const rel = await apiFetch('/api/knowledge-relations', { timeoutMs: 4000 });
+      relEdges = rel.edges || [];
+    } catch (_) { /* ignore */ }
     if (!facts.length) {
       const root = data.root || data.project_root;
       showEmpty(container, 'No knowledge facts stored yet for this project' + (root ? ` (${root})` : '') + '. LeanCTX builds project knowledge automatically as you work.');
@@ -1774,7 +1779,7 @@ async function loadKnowledge() {
       <div class="d3-container" id="knowledgeGraph"></div>
       ${howItWorks('Knowledge Graph', 'LeanCTX maintains a project knowledge base where facts are stored with <strong>confidence scores</strong> that decay over time (unused facts lose confidence). Facts are organized by <strong>category</strong> (Architecture, Testing, etc.) and <strong>room</strong>. Each fact has <strong>temporal validity</strong> &mdash; it knows when it was learned and when it was last confirmed. <strong>Contradiction detection</strong> automatically resolves conflicting facts by preferring the most recent with highest confidence.')}`;
     container.dataset.built = 'true';
-    renderKnowledgeGraph(facts);
+    renderKnowledgeGraph(facts, relEdges);
   } catch (e) {
     showError(container, (e && e.message === 'timeout')
       ? 'Knowledge is still loading. If this persists, restart the dashboard and run a few tool calls to populate facts.'
@@ -1783,7 +1788,7 @@ async function loadKnowledge() {
   } finally { inFlight.delete('knowledge'); }
 }
 
-function renderKnowledgeGraph(facts) {
+function renderKnowledgeGraph(facts, relEdges) {
   const graphEl = $('knowledgeGraph');
   if (!graphEl) return;
   graphEl.innerHTML = '';
@@ -1795,19 +1800,58 @@ function renderKnowledgeGraph(facts) {
     'E2E': '#34d399', 'SECURITY': '#f87171', 'API': '#60a5fa', 'DATABASE': '#c084fc',
   };
 
-  const nodes = facts.map((f, i) => {
-    const cat = (f.category || '').split(':')[0].toUpperCase();
-    return { id: i, label: f.key || f.category || 'fact-'+i, category: cat, confidence: f.confidence || 0.5, fact: f, color: categoryColors[cat] || '#6b6b88' };
+  const factNodes = facts.map((f, i) => {
+    const rawCat = (f.category || '').trim() || 'uncategorized';
+    const rawKey = (f.key || ('fact-' + i)).trim() || ('fact-' + i);
+    const cat = rawCat.split(':')[0].toUpperCase();
+    const id = rawCat + '/' + rawKey;
+    return {
+      id,
+      type: 'fact',
+      label: rawKey,
+      category: cat,
+      confidence: (typeof f.confidence === 'number' ? f.confidence : 0.5),
+      fact: f,
+      color: categoryColors[cat] || '#6b6b88',
+    };
   });
 
-  const links = [];
-  const roomMap = {};
-  nodes.forEach(n => { const room = n.category; if (!roomMap[room]) roomMap[room] = []; roomMap[room].push(n); });
-  Object.values(roomMap).forEach(group => { for (let i = 1; i < group.length; i++) links.push({ source: group[0].id, target: group[i].id }); });
+  const usedCats = [...new Set(factNodes.map(n => n.category))];
+  const nodes = [];
+  const nodeMap = {};
 
-  const usedCats = [...new Set(nodes.map(n => n.category))];
+  usedCats.forEach(c => {
+    const n = {
+      id: 'cat/' + c,
+      type: 'category',
+      label: c.toLowerCase(),
+      category: c,
+      confidence: 1.0,
+      fact: null,
+      color: categoryColors[c] || '#6b6b88',
+    };
+    nodes.push(n);
+    nodeMap[n.id] = n;
+  });
+  factNodes.forEach(n => { nodes.push(n); nodeMap[n.id] = n; });
+
+  const links = [];
+  factNodes.forEach(n => {
+    links.push({ source: 'cat/' + n.category, target: n.id, kind: 'category' });
+  });
+
+  (relEdges || []).forEach(e => {
+    const src = e.from || e.source;
+    const tgt = e.to || e.target;
+    const kind = e.kind || 'related_to';
+    if (!src || !tgt || src === tgt) return;
+    if (!nodeMap[src] || !nodeMap[tgt]) return;
+    links.push({ source: src, target: tgt, kind });
+  });
+
   const legendHtml = usedCats.map(c => `<div class="graph-legend-item"><div class="graph-legend-dot" style="background:${categoryColors[c]||'#6b6b88'}"></div>${c.toLowerCase()}</div>`).join('');
-  graphEl.innerHTML = `<div class="graph-stats"><span>${nodes.length}</span> facts &middot; <span>${links.length}</span> links &middot; <span>${usedCats.length}</span> categories</div><div class="graph-toolbar"><button id="kgValBtn" class="${knowledgeShowValues ? 'active' : ''}" onclick="toggleKnowledgeValues()" title="Toggle values">123</button><div class="tb-sep"></div><button onclick="zoomGraph(knowledgeSimulation,'knowledgeGraph',1.3)" title="Zoom In">+</button><button onclick="zoomGraph(knowledgeSimulation,'knowledgeGraph',0.7)" title="Zoom Out">−</button><button onclick="resetGraph(knowledgeSimulation,'knowledgeGraph')" title="Reset">⟲</button><div class="tb-sep"></div><button class="fs-toggle-btn" onclick="toggleGraphFullscreen('knowledgeGraph')" title="Fullscreen (F)">⛶</button></div><div class="graph-legend">${legendHtml}</div><div class="graph-breadcrumb">Knowledge Graph · <span style="color:var(--green)">Press Esc to exit</span></div><div class="graph-minimap"><canvas></canvas></div>`;
+  const relationCount = links.filter(l => l.kind && l.kind !== 'category').length;
+  graphEl.innerHTML = `<div class="graph-stats"><span>${factNodes.length}</span> facts &middot; <span>${relationCount}</span> relations &middot; <span>${usedCats.length}</span> categories</div><div class="graph-toolbar"><button id="kgValBtn" class="${knowledgeShowValues ? 'active' : ''}" onclick="toggleKnowledgeValues()" title="Toggle values">123</button><div class="tb-sep"></div><button onclick="zoomGraph(knowledgeSimulation,'knowledgeGraph',1.3)" title="Zoom In">+</button><button onclick="zoomGraph(knowledgeSimulation,'knowledgeGraph',0.7)" title="Zoom Out">−</button><button onclick="resetGraph(knowledgeSimulation,'knowledgeGraph')" title="Reset">⟲</button><div class="tb-sep"></div><button class="fs-toggle-btn" onclick="toggleGraphFullscreen('knowledgeGraph')" title="Fullscreen (F)">⛶</button></div><div class="graph-legend">${legendHtml}</div><div class="graph-breadcrumb">Knowledge Graph · <span style="color:var(--green)">Press Esc to exit</span></div><div class="graph-minimap"><canvas></canvas></div>`;
 
   const svg = d3.select(graphEl).append('svg').attr('class', 'd3-graph').attr('width', width).attr('height', height);
   const defs = svg.append('defs');
@@ -1822,13 +1866,23 @@ function renderKnowledgeGraph(facts) {
   graphEl._zoom = zoom; graphEl._svg = svg;
 
   const simulation = d3.forceSimulation(nodes)
-    .force('link', d3.forceLink(links).id(d => d.id).distance(90))
-    .force('charge', d3.forceManyBody().strength(-150))
+    .force('link', d3.forceLink(links).id(d => d.id).distance(d => d.kind === 'category' ? 70 : 110))
+    .force('charge', d3.forceManyBody().strength(d => d.type === 'category' ? -220 : -150))
     .force('center', d3.forceCenter(width/2, height/2))
-    .force('collision', d3.forceCollide().radius(d => 10 + d.confidence * 22));
+    .force('collision', d3.forceCollide().radius(d => (d.type === 'category' ? 18 : (10 + d.confidence * 22))));
 
+  const edgeColors = {
+    'category': 'rgba(255,255,255,0.04)',
+    'depends_on': 'rgba(56,189,248,0.55)',
+    'related_to': 'rgba(255,255,255,0.08)',
+    'supports': 'rgba(52,211,153,0.55)',
+    'contradicts': 'rgba(248,113,113,0.6)',
+    'supersedes': 'rgba(192,132,252,0.6)',
+  };
   const link = g.append('g').selectAll('line').data(links).join('line')
-    .attr('stroke', 'rgba(255,255,255,0.04)').attr('stroke-width', 1);
+    .attr('stroke', d => edgeColors[d.kind] || edgeColors['related_to'])
+    .attr('stroke-width', d => d.kind === 'category' ? 1 : 1.5)
+    .attr('stroke-dasharray', d => d.kind === 'supersedes' ? '3,3' : null);
 
   const glow = g.append('g').selectAll('circle').data(nodes).join('circle')
     .attr('r', d => (6 + d.confidence * 16) * 2.5)
@@ -1836,7 +1890,7 @@ function renderKnowledgeGraph(facts) {
     .style('pointer-events', 'none');
 
   const node = g.append('g').selectAll('circle').data(nodes).join('circle')
-    .attr('r', d => 5 + d.confidence * 14)
+    .attr('r', d => d.type === 'category' ? 11 : (5 + d.confidence * 14))
     .attr('fill', d => d.color).attr('fill-opacity', 0.85)
     .attr('stroke', d => d.color).attr('stroke-width', 1.5).attr('stroke-opacity', 0.4)
     .style('cursor', 'pointer').style('transition', 'r .2s, stroke-opacity .2s')
@@ -1845,12 +1899,17 @@ function renderKnowledgeGraph(facts) {
       .on('end', (e,d) => { if (!e.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; }))
     .on('click', (e, d) => showKnowledgeDetail(d))
     .on('mouseover', function(e, d) {
-      d3.select(this).attr('stroke-opacity', 1).attr('r', (5 + d.confidence * 14) * 1.3);
-      showTooltip(e, `<div class="nt-title">${esc(d.label)}</div><div class="nt-row"><span class="nt-label">Category</span><span class="nt-value">${d.category}</span></div><div class="nt-row"><span class="nt-label">Confidence</span><span class="nt-value">${Math.round(d.confidence*100)}%</span></div>`);
+      const baseR = d.type === 'category' ? 11 : (5 + d.confidence * 14);
+      d3.select(this).attr('stroke-opacity', 1).attr('r', baseR * 1.3);
+      if (d.type === 'category') {
+        showTooltip(e, `<div class="nt-title">${esc(d.label)}</div><div class="nt-row"><span class="nt-label">Category</span><span class="nt-value">${d.category}</span></div>`);
+      } else {
+        showTooltip(e, `<div class="nt-title">${esc(d.label)}</div><div class="nt-row"><span class="nt-label">Category</span><span class="nt-value">${d.category}</span></div><div class="nt-row"><span class="nt-label">Confidence</span><span class="nt-value">${Math.round(d.confidence*100)}%</span></div>`);
+      }
     })
     .on('mousemove', (e) => moveTooltip(e))
     .on('mouseout', function(e, d) {
-      d3.select(this).attr('stroke-opacity', 0.4).attr('r', 5 + d.confidence * 14);
+      d3.select(this).attr('stroke-opacity', 0.4).attr('r', d.type === 'category' ? 11 : (5 + d.confidence * 14));
       hideTooltip();
     });
 
@@ -1882,6 +1941,14 @@ function renderKnowledgeGraph(facts) {
 
 function showKnowledgeDetail(d) {
   const f = d.fact;
+  if (!f) {
+    $('detailContent').innerHTML = `
+      <h3>${esc(d.label)}</h3>
+      <div class="detail-row"><span class="dl">Type</span><span class="dv">category</span></div>
+      <div class="detail-row"><span class="dl">Category</span><span class="dv">${esc(d.category)}</span></div>`;
+    $('detailPanel').classList.add('open');
+    return;
+  }
   $('detailContent').innerHTML = `
     <h3>${esc(d.label)}</h3>
     <div class="detail-row"><span class="dl">Category</span><span class="dv">${esc(d.category)}</span></div>

@@ -40,6 +40,7 @@ pub mod ctx_metrics;
 pub mod ctx_multi_read;
 pub mod ctx_outline;
 pub mod ctx_overview;
+pub mod ctx_pack;
 pub mod ctx_prefetch;
 pub mod ctx_preload;
 pub mod ctx_read;

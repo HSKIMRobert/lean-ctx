@@ -62,7 +62,7 @@ fn handle_pr(
     let root = project_root.to_string();
     let base = base.map_or_else(
         || detect_default_base(&root).unwrap_or_else(|| "HEAD~1".to_string()),
-        |s| s.to_string(),
+        ToString::to_string,
     );
     let impact_depth = depth.unwrap_or(DEFAULT_IMPACT_DEPTH).max(1);
 

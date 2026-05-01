@@ -431,8 +431,40 @@ impl LeanCtxServer {
                 let mode = get_str(args, "mode");
                 let languages = get_str_array(args, "languages");
                 let path_glob = get_str(args, "path_glob");
+                let workspace = get_bool(args, "workspace").unwrap_or(false);
+                let artifacts = get_bool(args, "artifacts").unwrap_or(false);
+
+                #[cfg(feature = "qdrant")]
+                {
+                    let mode_effective = mode
+                        .as_deref()
+                        .unwrap_or("hybrid")
+                        .trim()
+                        .to_ascii_lowercase();
+                    if action != "reindex"
+                        && !artifacts
+                        && matches!(mode_effective.as_str(), "dense" | "hybrid")
+                        && matches!(
+                            crate::core::dense_backend::DenseBackendKind::try_from_env(),
+                            Ok(crate::core::dense_backend::DenseBackendKind::Qdrant)
+                        )
+                    {
+                        let value = format!(
+                            "tool=ctx_semantic_search mode={mode_effective} workspace={workspace}"
+                        );
+                        let mut session = self.session.write().await;
+                        session.record_manual_evidence("remote:qdrant_query", Some(&value));
+                    }
+                }
+
                 let result = if action == "reindex" {
-                    crate::tools::ctx_semantic_search::handle_reindex(&path)
+                    if artifacts {
+                        crate::tools::ctx_semantic_search::handle_reindex_artifacts(
+                            &path, workspace,
+                        )
+                    } else {
+                        crate::tools::ctx_semantic_search::handle_reindex(&path)
+                    }
                 } else {
                     crate::tools::ctx_semantic_search::handle(
                         &query,
@@ -442,6 +474,8 @@ impl LeanCtxServer {
                         languages.as_deref(),
                         path_glob.as_deref(),
                         mode.as_deref(),
+                        Some(workspace),
+                        Some(artifacts),
                     )
                 };
                 self.record_call("ctx_semantic_search", 0, 0, Some("semantic".to_string()))
@@ -589,6 +623,39 @@ impl LeanCtxServer {
                     depth,
                 );
                 self.record_call("ctx_review", 0, 0, Some(action)).await;
+                result
+            }
+            "ctx_pack" => {
+                let action = get_str(args, "action")
+                    .ok_or_else(|| ErrorData::invalid_params("action is required", None))?;
+                let base = get_str(args, "base");
+                let format = get_str(args, "format");
+                let depth = get_int(args, "depth").map(|d| d as usize);
+                let diff = get_str(args, "diff");
+
+                let project_root = if let Some(p) = get_str(args, "project_root") {
+                    self.resolve_path(&p)
+                        .await
+                        .map_err(|e| ErrorData::invalid_params(e, None))?
+                } else {
+                    let session = self.session.read().await;
+                    let project_root = session
+                        .project_root
+                        .clone()
+                        .unwrap_or_else(|| ".".to_string());
+                    drop(session);
+                    project_root
+                };
+
+                let result = crate::tools::ctx_pack::handle(
+                    &action,
+                    &project_root,
+                    base.as_deref(),
+                    format.as_deref(),
+                    depth,
+                    diff.as_deref(),
+                );
+                self.record_call("ctx_pack", 0, 0, Some(action)).await;
                 result
             }
             "ctx_callees" => {

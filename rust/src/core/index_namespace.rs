@@ -16,6 +16,7 @@ pub(crate) fn vectors_dir(project_root: &Path) -> PathBuf {
     PathBuf::from(".").join("vectors").join(hash)
 }
 
+#[allow(dead_code)]
 pub(crate) fn graphs_dir(project_root: &str) -> Option<PathBuf> {
     let root_path = Path::new(project_root);
     let hash = namespace_hash(root_path);
@@ -84,6 +85,7 @@ fn legacy_vectors_hash(project_root: &Path) -> String {
     format!("{:x}", hasher.finalize())
 }
 
+#[allow(dead_code)]
 fn legacy_graphs_hash(project_root: &str) -> String {
     let input = crate::core::graph_index::normalize_project_root(project_root);
     use std::collections::hash_map::DefaultHasher;

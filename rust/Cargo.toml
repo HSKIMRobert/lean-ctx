@@ -29,6 +29,8 @@ default = ["tree-sitter", "embeddings", "http-server"]
 neural = ["dep:rten", "dep:rten-tensor"]
 embeddings = ["dep:rten", "dep:rten-tensor"]
 http-server = ["dep:axum", "dep:tower-http", "dep:reqwest"]
+qdrant = ["embeddings"]
+team-server = ["http-server", "dep:sha2"]
 cloud-server = [
   "http-server",
   "dep:deadpool-postgres",

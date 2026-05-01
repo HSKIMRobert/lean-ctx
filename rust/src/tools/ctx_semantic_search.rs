@@ -10,6 +10,7 @@ use crate::core::vector_index::{format_search_results, BM25Index};
 use crate::tools::CrpMode;
 
 /// Performs semantic code search using BM25, dense embeddings, or hybrid ranking.
+#[allow(clippy::too_many_arguments)]
 pub fn handle(
     query: &str,
     path: &str,
