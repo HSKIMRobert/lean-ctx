@@ -62,7 +62,7 @@ Full instructions at ~/.claude/CLAUDE.md (imports rules/lean-ctx.md)");
 
 fn build_full_instructions(crp_mode: CrpMode, client_name: &str) -> String {
     let cfg = crate::core::config::Config::load();
-    let minimal = cfg.minimal_overhead_effective();
+    let minimal = cfg.minimal_overhead_effective_for_client(client_name);
 
     let profile = crate::core::litm::LitmProfile::from_client_name(client_name);
     let loaded_session = if minimal {

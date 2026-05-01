@@ -451,6 +451,57 @@ impl Config {
         std::env::var("LEAN_CTX_MINIMAL").is_ok() || self.minimal_overhead
     }
 
+    /// Returns `true` if minimal overhead should be enabled for this MCP client.
+    ///
+    /// This is a superset of `minimal_overhead_effective()`:
+    /// - `LEAN_CTX_OVERHEAD_MODE=minimal` forces minimal overhead
+    /// - `LEAN_CTX_OVERHEAD_MODE=full` disables client/model heuristics (still honors LEAN_CTX_MINIMAL / config)
+    /// - In auto mode (default), certain low-context clients/models are treated as minimal to prevent
+    ///   large metadata blocks from destabilizing smaller context windows (e.g. Hermes + MiniMax).
+    pub fn minimal_overhead_effective_for_client(&self, client_name: &str) -> bool {
+        if let Ok(raw) = std::env::var("LEAN_CTX_OVERHEAD_MODE") {
+            match raw.trim().to_lowercase().as_str() {
+                "minimal" => return true,
+                "full" => return self.minimal_overhead_effective(),
+                _ => {}
+            }
+        }
+
+        if self.minimal_overhead_effective() {
+            return true;
+        }
+
+        let client_lower = client_name.trim().to_lowercase();
+        if !client_lower.is_empty() {
+            if let Ok(list) = std::env::var("LEAN_CTX_MINIMAL_CLIENTS") {
+                for needle in list.split(',').map(|s| s.trim().to_lowercase()) {
+                    if !needle.is_empty() && client_lower.contains(&needle) {
+                        return true;
+                    }
+                }
+            } else if client_lower.contains("hermes") || client_lower.contains("minimax") {
+                return true;
+            }
+        }
+
+        let model = std::env::var("LEAN_CTX_MODEL")
+            .or_else(|_| std::env::var("LCTX_MODEL"))
+            .unwrap_or_default();
+        let model = model.trim().to_lowercase();
+        if !model.is_empty() {
+            let m = model.replace(['_', ' '], "-");
+            if m.contains("minimax")
+                || m.contains("mini-max")
+                || m.contains("m2.7")
+                || m.contains("m2-7")
+            {
+                return true;
+            }
+        }
+
+        false
+    }
+
     /// Returns `true` if shell hook injection is disabled via env var or config.
     pub fn shell_hook_disabled_effective(&self) -> bool {
         std::env::var("LEAN_CTX_NO_HOOK").is_ok() || self.shell_hook_disabled

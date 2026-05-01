@@ -314,8 +314,9 @@ impl ServerHandler for LeanCtxServer {
                 None
             };
 
+        let client_name_for_overhead = self.client_name.read().await.clone();
         let config = crate::core::config::Config::load();
-        let minimal = config.minimal_overhead_effective();
+        let minimal = config.minimal_overhead_effective_for_client(&client_name_for_overhead);
 
         {
             use crate::core::budget_tracker::{BudgetLevel, BudgetTracker};
@@ -438,9 +439,7 @@ impl ServerHandler for LeanCtxServer {
             }
         };
 
-        let archive_hint = if minimal {
-            None
-        } else {
+        let archive_hint = {
             use crate::core::archive;
             let archivable = matches!(
                 name,
@@ -686,12 +685,39 @@ impl ServerHandler for LeanCtxServer {
             );
 
         if !skip_checkpoint && self.increment_and_check() {
-            if let Some(checkpoint) = self.auto_checkpoint().await {
-                let interval = LeanCtxServer::checkpoint_interval_effective();
-                let combined = format!(
-                    "{result_text}\n\n--- AUTO CHECKPOINT (every {interval} calls) ---\n{checkpoint}"
-                );
-                return Ok(CallToolResult::success(vec![Content::text(combined)]));
+            let checkpoint_max_tokens = std::env::var("LEAN_CTX_AUTO_CHECKPOINT_MAX_TOKENS")
+                .ok()
+                .and_then(|v| v.trim().parse::<usize>().ok())
+                .unwrap_or(3000);
+
+            if checkpoint_max_tokens > 0 {
+                if let Some(checkpoint) = self.auto_checkpoint().await {
+                    let interval = LeanCtxServer::checkpoint_interval_effective();
+                    let checkpoint_tokens = crate::core::tokens::count_tokens(&checkpoint);
+
+                    if checkpoint_tokens > checkpoint_max_tokens {
+                        use crate::core::archive;
+                        let session_id = self.session.read().await.id.clone();
+                        let cmd = format!("auto-checkpoint interval={interval} tool={name}");
+                        let hint =
+                            archive::store("auto_checkpoint", &cmd, &checkpoint, Some(&session_id))
+                                .map(|id| {
+                                    archive::format_hint(&id, checkpoint.len(), checkpoint_tokens)
+                                });
+
+                        if let Some(hint) = hint {
+                            let combined = format!(
+                                "{result_text}\n\n--- AUTO CHECKPOINT (every {interval} calls) ---\n{hint}"
+                            );
+                            return Ok(CallToolResult::success(vec![Content::text(combined)]));
+                        }
+                    } else {
+                        let combined = format!(
+                            "{result_text}\n\n--- AUTO CHECKPOINT (every {interval} calls) ---\n{checkpoint}"
+                        );
+                        return Ok(CallToolResult::success(vec![Content::text(combined)]));
+                    }
+                }
             }
         }
 
