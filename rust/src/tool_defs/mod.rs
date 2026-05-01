@@ -17,6 +17,7 @@ pub fn tool_def(name: &'static str, description: &'static str, schema_value: Val
 const CORE_TOOL_NAMES: &[&str] = &[
     "ctx_read",
     "ctx_multi_read",
+    "ctx_call",
     "ctx_shell",
     "ctx_search",
     "ctx_tree",
@@ -70,7 +71,11 @@ pub fn discover_tools(query: &str) -> String {
         let short = if desc.len() > 80 { &desc[..80] } else { desc };
         out.push_str(&format!("  {name} — {short}\n"));
     }
-    out.push_str("\nCall the tool directly by name to use it.");
+    out.push_str(
+        "\nIf your MCP client registers tools only once at startup (static tools/list), \
+use ctx_call (available in lazy mode) to invoke discovered tools:\n\
+  ctx_call {\"name\":\"ctx_graph\",\"arguments\":{\"action\":\"status\"}}\n",
+    );
     out
 }
 

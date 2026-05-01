@@ -67,7 +67,14 @@ pub fn load_linked_projects(project_root: &Path) -> LinkedProjects {
             ));
             continue;
         }
-        out.roots.push(abs);
+
+        match crate::core::pathjail::jail_path(&abs, project_root) {
+            Ok(_) => out.roots.push(abs),
+            Err(e) => out.warnings.push(format!(
+                "linked project rejected by pathjail: {} ({e})",
+                abs.display()
+            )),
+        }
     }
 
     out.roots.sort();
@@ -85,4 +92,58 @@ fn read_config_file(project_root: &Path) -> Option<(PathBuf, String)> {
         return Some((socrati, s));
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn linked_projects_outside_root_are_rejected_without_allow_path() {
+        let _guard = ENV_LOCK.lock().expect("lock");
+        let root = tempfile::tempdir().expect("root");
+        let other = tempfile::tempdir().expect("other");
+
+        let cfg = format!(
+            "{{\"linkedProjects\":[\"{}\"]}}",
+            other.path().to_string_lossy()
+        );
+        std::fs::write(root.path().join(".leanctx.json"), cfg).expect("write cfg");
+
+        std::env::remove_var("LEAN_CTX_ALLOW_PATH");
+        let res = load_linked_projects(root.path());
+        assert!(res.roots.is_empty());
+        assert!(
+            res.warnings
+                .iter()
+                .any(|w| w.contains("rejected by pathjail")),
+            "expected pathjail warning, got: {:?}",
+            res.warnings
+        );
+    }
+
+    #[test]
+    fn linked_projects_outside_root_are_allowed_with_allow_path() {
+        let _guard = ENV_LOCK.lock().expect("lock");
+        let root = tempfile::tempdir().expect("root");
+        let other = tempfile::tempdir().expect("other");
+
+        let cfg = format!(
+            "{{\"linkedProjects\":[\"{}\"]}}",
+            other.path().to_string_lossy()
+        );
+        std::fs::write(root.path().join(".leanctx.json"), cfg).expect("write cfg");
+
+        std::env::set_var(
+            "LEAN_CTX_ALLOW_PATH",
+            other.path().to_string_lossy().to_string(),
+        );
+        let res = load_linked_projects(root.path());
+        assert_eq!(res.roots.len(), 1);
+        assert_eq!(res.roots[0], other.path().canonicalize().expect("canon"));
+
+        std::env::remove_var("LEAN_CTX_ALLOW_PATH");
+    }
 }

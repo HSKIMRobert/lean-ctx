@@ -714,7 +714,7 @@ impl ServerHandler for LeanCtxServer {
 }
 
 pub fn build_instructions_for_test(crp_mode: CrpMode) -> String {
-    crate::instructions::build_instructions(crp_mode)
+    crate::instructions::build_instructions_for_test(crp_mode)
 }
 
 pub fn build_claude_code_instructions_for_test() -> String {

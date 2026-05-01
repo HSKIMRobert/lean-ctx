@@ -4,13 +4,30 @@ pub fn get_str_array(
     args: Option<&serde_json::Map<String, Value>>,
     key: &str,
 ) -> Option<Vec<String>> {
-    let arr = args?.get(key)?.as_array()?;
-    let mut out = Vec::with_capacity(arr.len());
-    for v in arr {
-        let s = v.as_str()?.to_string();
-        out.push(s);
+    let val = args?.get(key)?;
+
+    // Normal path: native JSON array.
+    if let Some(arr) = val.as_array() {
+        let mut out = Vec::with_capacity(arr.len());
+        for v in arr {
+            out.push(v.as_str()?.to_string());
+        }
+        return Some(out);
     }
-    Some(out)
+
+    // Fallback: some MCP bridges serialize arrays as JSON-encoded strings.
+    // Example: { "paths": "[\"src/main.rs\",\"src/lib.rs\"]" }
+    if let Some(s) = val.as_str() {
+        if let Ok(Value::Array(arr)) = serde_json::from_str::<Value>(s) {
+            let mut out = Vec::with_capacity(arr.len());
+            for v in &arr {
+                out.push(v.as_str()?.to_string());
+            }
+            return Some(out);
+        }
+    }
+
+    None
 }
 
 pub fn get_str(args: Option<&serde_json::Map<String, Value>>, key: &str) -> Option<String> {

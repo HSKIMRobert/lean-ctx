@@ -15,6 +15,12 @@ pub fn build_instructions_with_client(crp_mode: CrpMode, client_name: &str) -> S
     build_full_instructions(crp_mode, client_name)
 }
 
+pub fn build_instructions_for_test(crp_mode: CrpMode) -> String {
+    // Avoid loading dynamic on-disk session/knowledge/gotcha blocks in tests, which can
+    // vary across machines and between concurrent test runs.
+    build_full_instructions_for_test(crp_mode, "")
+}
+
 fn is_claude_code_client(client_name: &str) -> bool {
     let lower = client_name.to_lowercase();
     lower.contains("claude") && !lower.contains("cursor")
@@ -192,6 +198,92 @@ See the ctx() tool description for available sub-tools.\n",
     let terse_block = build_terse_agent_block(&crp_mode);
 
     let base = base;
+    match crp_mode {
+        CrpMode::Off => format!("{base}\n\n{terse_block}{intelligence_block}"),
+        CrpMode::Compact => {
+            format!(
+                "{base}\n\n\
+CRP MODE: compact\n\
+Omit filler. Abbreviate: fn,cfg,impl,deps,req,res,ctx,err,ret,arg,val,ty,mod.\n\
+Diff lines (+/-) only. TARGET: <=200 tok. Trust tool outputs.\n\n\
+{terse_block}{intelligence_block}"
+            )
+        }
+        CrpMode::Tdd => {
+            format!(
+                "{base}\n\n\
+CRP MODE: tdd\n\
+Max density. Every token carries meaning. Fn refs only, diff lines (+/-) only.\n\
+Abbreviate: fn,cfg,impl,deps,req,res,ctx,err,ret,arg,val,ty,mod.\n\
++F1:42 param(timeout:Duration) | -F1:10-15 | ~F1:42 old->new\n\
+BUDGET: <=150 tok. ZERO NARRATION. Trust tool outputs.\n\n\
+{terse_block}{intelligence_block}"
+            )
+        }
+    }
+}
+
+fn build_full_instructions_for_test(crp_mode: CrpMode, client_name: &str) -> String {
+    let shell_hint = build_shell_hint();
+    let session_block = String::new();
+    let knowledge_block = String::new();
+    let gotcha_block = String::new();
+
+    let mut base = format!(
+        "\
+CRITICAL: ALWAYS use lean-ctx MCP tools instead of native equivalents for token savings.\n\
+\n\
+lean-ctx MCP — MANDATORY tool mapping:\n\
+• Read/cat/head/tail -> ctx_read(path, mode)  [NEVER use native Read]\n\
+• Shell/bash -> ctx_shell(command)  [NEVER use native Shell]\n\
+• Grep/rg -> ctx_search(pattern, path)  [NEVER use native Grep]\n\
+• ls/find -> ctx_tree(path, depth)\n\
+• Edit/StrReplace -> use native (lean-ctx only replaces READ, not WRITE)\n\
+• Write, Delete, Glob -> use normally\n\
+\n\
+COMPATIBILITY: lean-ctx replaces READ operations only. Edit/Write/StrReplace stay native.\n\
+FILE EDITING: Native Edit/StrReplace preferred. If Edit fails, use ctx_edit immediately.\n\
+{shell_hint}\
+\n\
+ctx_read modes: full|map|signatures|diff|task|reference|aggressive|entropy|lines:N-M. Auto-selects. Cached re-reads can be ~13 tok when unchanged. Fn refs F1,F2.. persist.\n\
+Cache auto-validates via file mtime. Use fresh=true (or start_line / lines:N-M) to force a disk re-read.\n\
+\n\
+Auto: ctx_overview, ctx_preload, ctx_dedup, ctx_compress run behind the scenes. Checkpoint every 15 calls.\n\
+Multi-agent: ctx_agent(action=handoff|sync). Diary: ctx_agent(action=diary, category=discovery|decision|blocker|progress|insight).\n\
+ctx_semantic_search for meaning-based search. ctx_session for memory. ctx_knowledge: remember|recall|timeline|rooms|search|wakeup.\n\
+ctx_shell raw=true for uncompressed output.\n\
+\n\
+CEP v1: 1.ACT FIRST 2.DELTA ONLY (Fn refs) 3.STRUCTURED (+/-/~) 4.ONE LINE PER ACTION 5.QUALITY ANCHOR\n\
+\n\
+{decoder_block}\n\
+\n\
+{session_block}\
+{knowledge_block}\
+{gotcha_block}\
+\n\
+--- ORIGIN ---\n\
+{origin}\n\
+\n\
+--- TOOL PREFERENCE (LITM-END) ---\n\
+Prefer: ctx_read over Read | ctx_shell over Shell | ctx_search over Grep | ctx_tree over ls\n\
+Edit files: native Edit/StrReplace if available, ctx_edit if Edit requires unavailable Read.\n\
+Write, Delete, Glob -> use normally. NEVER loop on Edit failures — use ctx_edit.",
+        decoder_block = crate::core::protocol::instruction_decoder_block(),
+        origin = crate::core::integrity::origin_line(),
+    );
+
+    if should_use_unified(client_name) {
+        base.push_str(
+            "\n\n\
+UNIFIED TOOL MODE (active):\n\
+Additional tools are accessed via ctx() meta-tool: ctx(tool=\"<name>\", ...params).\n\
+See the ctx() tool description for available sub-tools.\n",
+        );
+    }
+
+    let intelligence_block = build_intelligence_block();
+    let terse_block = build_terse_agent_block(&crp_mode);
+
     match crp_mode {
         CrpMode::Off => format!("{base}\n\n{terse_block}{intelligence_block}"),
         CrpMode::Compact => {

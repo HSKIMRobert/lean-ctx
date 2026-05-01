@@ -112,7 +112,7 @@ impl QdrantStore {
             .map_err(|e| format!("qdrant create collection failed: {e}"))?;
         let status = resp.status().as_u16();
 
-        if status >= 200 && status < 300 {
+        if (200..300).contains(&status) {
             return Ok(true);
         }
         if status == 409 {
@@ -146,7 +146,7 @@ impl QdrantStore {
             return Ok(());
         }
 
-        let mut unique: Vec<String> = changed_files.iter().cloned().collect();
+        let mut unique: Vec<String> = changed_files.to_vec();
         unique.sort();
         unique.dedup();
 

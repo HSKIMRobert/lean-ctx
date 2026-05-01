@@ -21,6 +21,9 @@ use tokio::time::{Duration, Instant};
 use crate::engine::ContextEngine;
 use crate::tools::LeanCtxServer;
 
+#[cfg(feature = "team-server")]
+pub mod team;
+
 #[derive(Clone, Debug)]
 pub struct HttpServerConfig {
     pub host: String,

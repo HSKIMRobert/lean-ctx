@@ -49,6 +49,18 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
             }),
         ),
         tool_def(
+            "ctx_call",
+            "Compatibility meta-tool: call any ctx_* tool by name using a stable schema. Useful for MCP clients that freeze tool registries at startup (static tools/list).",
+            json!({
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "Tool name to call (e.g. 'ctx_graph', 'ctx_gain', 'ctx_multi_read')" },
+                    "arguments": { "type": "object", "description": "Arguments object for the tool. Passed through as-is.", "additionalProperties": true }
+                },
+                "required": ["name"]
+            }),
+        ),
+        tool_def(
             "ctx_tree",
             "Directory listing with file counts.",
             json!({
