@@ -194,9 +194,14 @@ fn resolve_binary() -> String {
 }
 
 fn extract_json_field(input: &str, field: &str) -> Option<String> {
-    let pattern = format!("\"{field}\":\"");
-    let start = input.find(&pattern)? + pattern.len();
-    let rest = &input[start..];
+    let key = format!("\"{field}\":");
+    let key_pos = input.find(&key)?;
+    let after_colon = &input[key_pos + key.len()..];
+    let trimmed = after_colon.trim_start();
+    if !trimmed.starts_with('"') {
+        return None;
+    }
+    let rest = &trimmed[1..];
     let bytes = rest.as_bytes();
     let mut end = 0;
     while end < bytes.len() {
@@ -364,6 +369,32 @@ mod tests {
         assert_eq!(
             extract_json_field(input, "command"),
             Some("git status".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_field_with_spaces_after_colon() {
+        let input = r#"{"tool_name": "Bash", "tool_input": {"command": "git status"}}"#;
+        assert_eq!(
+            extract_json_field(input, "tool_name"),
+            Some("Bash".to_string())
+        );
+        assert_eq!(
+            extract_json_field(input, "command"),
+            Some("git status".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_field_pretty_printed() {
+        let input = "{\n  \"tool_name\": \"Bash\",\n  \"tool_input\": {\n    \"command\": \"npm test\"\n  }\n}";
+        assert_eq!(
+            extract_json_field(input, "tool_name"),
+            Some("Bash".to_string())
+        );
+        assert_eq!(
+            extract_json_field(input, "command"),
+            Some("npm test".to_string())
         );
     }
 
