@@ -404,7 +404,9 @@ fn remove_shell_hook(home: &Path, dry_run: bool) -> bool {
 fn remove_source_lines(content: &str) -> String {
     content
         .lines()
-        .filter(|line| !line.contains(".lean-ctx/shell-hook."))
+        .filter(|line| {
+            !line.contains("lean-ctx/shell-hook.") && !line.contains("lean-ctx\\shell-hook.")
+        })
         .collect::<Vec<_>>()
         .join("\n")
         + "\n"

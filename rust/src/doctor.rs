@@ -96,16 +96,21 @@ fn has_pipe_guard_in_content(content: &str) -> bool {
         || content.contains("IsOutputRedirected")
 }
 
+fn rc_references_shell_hook(content: &str) -> bool {
+    content.contains("lean-ctx/shell-hook.") || content.contains("lean-ctx\\shell-hook.")
+}
+
 fn rc_has_pipe_guard(path: &PathBuf) -> bool {
     match std::fs::read_to_string(path) {
         Ok(s) => {
             if has_pipe_guard_in_content(&s) {
                 return true;
             }
-            if s.contains(".lean-ctx/shell-hook.") {
-                if let Some(home) = dirs::home_dir() {
+            if rc_references_shell_hook(&s) {
+                let dirs_to_check = hook_dirs();
+                for dir in &dirs_to_check {
                     for ext in &["zsh", "bash", "fish", "ps1"] {
-                        let hook = home.join(format!(".lean-ctx/shell-hook.{ext}"));
+                        let hook = dir.join(format!("shell-hook.{ext}"));
                         if let Ok(h) = std::fs::read_to_string(&hook) {
                             if has_pipe_guard_in_content(&h) {
                                 return true;
@@ -118,6 +123,24 @@ fn rc_has_pipe_guard(path: &PathBuf) -> bool {
         }
         Err(_) => false,
     }
+}
+
+fn hook_dirs() -> Vec<std::path::PathBuf> {
+    let mut dirs = Vec::new();
+    if let Ok(d) = crate::core::data_dir::lean_ctx_data_dir() {
+        dirs.push(d);
+    }
+    if let Some(home) = dirs::home_dir() {
+        let legacy = home.join(".lean-ctx");
+        if !dirs.iter().any(|d| d == &legacy) {
+            dirs.push(legacy);
+        }
+        let xdg = home.join(".config").join("lean-ctx");
+        if !dirs.iter().any(|d| d == &xdg) {
+            dirs.push(xdg);
+        }
+    }
+    dirs
 }
 
 fn is_active_shell(rc_name: &str) -> bool {
