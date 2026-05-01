@@ -6,6 +6,45 @@ fn is_disabled() -> bool {
     std::env::var("LEAN_CTX_DISABLED").is_ok()
 }
 
+fn build_dual_allow_output() -> String {
+    serde_json::json!({
+        "permission": "allow",
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow"
+        }
+    })
+    .to_string()
+}
+
+fn build_dual_rewrite_output(tool_input: Option<&serde_json::Value>, rewritten: &str) -> String {
+    let updated_input = if let Some(obj) = tool_input.and_then(|v| v.as_object()) {
+        let mut m = obj.clone();
+        m.insert(
+            "command".to_string(),
+            serde_json::Value::String(rewritten.to_string()),
+        );
+        serde_json::Value::Object(m)
+    } else {
+        serde_json::json!({ "command": rewritten })
+    };
+
+    serde_json::json!({
+        // Cursor hook output format
+        "permission": "allow",
+        "updated_input": updated_input,
+        // Claude Code hook output format (extra fields are ignored by other hosts)
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+            "updatedInput": {
+                "command": rewritten
+            }
+        }
+    })
+    .to_string()
+}
+
 pub fn handle_rewrite() {
     if is_disabled() {
         return;
@@ -16,17 +55,39 @@ pub fn handle_rewrite() {
         return;
     }
 
-    let tool = extract_json_field(&input, "tool_name");
-    if !matches!(tool.as_deref(), Some("Bash" | "bash")) {
-        return;
-    }
+    let v: serde_json::Value = match serde_json::from_str(&input) {
+        Ok(v) => v,
+        Err(_) => return,
+    };
 
-    let Some(cmd) = extract_json_field(&input, "command") else {
+    let tool = v.get("tool_name").and_then(|t| t.as_str());
+    let Some(tool_name) = tool else {
         return;
     };
 
-    if let Some(rewritten) = rewrite_candidate(&cmd, &binary) {
-        emit_rewrite(&rewritten);
+    // Claude Code uses Bash; Cursor uses Shell; Copilot uses runInTerminal.
+    let is_shell_tool = matches!(
+        tool_name,
+        "Bash" | "bash" | "Shell" | "shell" | "runInTerminal" | "run_in_terminal" | "terminal"
+    );
+    if !is_shell_tool {
+        return;
+    }
+
+    let tool_input = v.get("tool_input");
+    let Some(cmd) = tool_input
+        .and_then(|ti| ti.get("command"))
+        .and_then(|c| c.as_str())
+        .or_else(|| v.get("command").and_then(|c| c.as_str()))
+    else {
+        return;
+    };
+
+    if let Some(rewritten) = rewrite_candidate(cmd, &binary) {
+        print!("{}", build_dual_rewrite_output(tool_input, &rewritten));
+    } else {
+        // Always return a valid allow JSON for hosts that require JSON on exit 0.
+        print!("{}", build_dual_allow_output());
     }
 }
 
@@ -83,9 +144,10 @@ fn emit_rewrite(rewritten: &str) {
 
 pub fn handle_redirect() {
     // Allow all native tools (Read, Grep, ListFiles) to pass through.
-    // Blocking them breaks Edit (which requires native Read) and causes
-    // unnecessary friction. The MCP instructions already guide the AI
-    // to prefer ctx_read/ctx_search/ctx_tree.
+    // Some hosts (Cursor hooks) expect a JSON response on exit 0.
+    let mut _input = String::new();
+    let _ = std::io::stdin().read_to_string(&mut _input);
+    print!("{}", build_dual_allow_output());
 }
 
 fn codex_reroute_message(rewritten: &str) -> String {
