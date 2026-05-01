@@ -3,6 +3,28 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.4.7] — 2026-05-01
+
+### Added
+
+- **`ctx_call` meta-tool** — compatibility tool for MCP clients with static tool registries (e.g. Pi Coding Agent). Invoke any `ctx_*` tool by name via a stable schema without requiring dynamic `tools/list` refresh. Fixes #174.
+- **Interactive Graph Explorer** — `ctx_graph action=export-html` generates a self-contained, interactive HTML visualization with pan/zoom, node selection, transitive highlighting, and PNG export.
+- **Self-Hosted Team Server** — `lean-ctx team serve` enables shared context across workspaces with token-based auth, scoped permissions, rate limiting, and audit logging.
+
+### Changed
+
+- **Dual-format hook output** — `lean-ctx hook rewrite/redirect` now emits a combined JSON response compatible with both Cursor (`permission`/`updated_input`) and Claude Code (`hookSpecificOutput`). All IDEs that support PreToolUse hooks now work with the same command.
+- **JetBrains config format** — `~/.jb-mcp.json` now uses the official `mcpServers` snippet format matching JetBrains AI Assistant documentation (was: nonstandard `servers` array).
+- **Shell hook block markers** — `lean-ctx init --global` now writes stable `# lean-ctx shell hook — begin/end` markers, making updates idempotent and safe across reinstalls.
+
+### Fixed
+
+- **Claude Code hooks not intercepting subagent calls** — `extract_json_field` in hook handlers was too rigid for pretty-printed or spaced JSON from Claude Code. Now robustly handles all formatting styles. Fixes Discord report.
+- **Claude Code hooks overwriting other plugins** — `install_claude_hook_config` now *merges* PreToolUse hooks instead of replacing the entire matcher group, preserving hooks from other plugins (e.g. obra/superpowers).
+- **`lean-ctx doctor` false positive "pipe guard missing"** — on Windows Git Bash with XDG config paths, doctor now correctly detects shell hooks in both `~/.lean-ctx/` and `~/.config/lean-ctx/` directories, with both forward and backslash path separators. Fixes Discord report.
+- **Pi Coding Agent array parameters** — `get_str_array` now accepts JSON-encoded strings (e.g. `"[\"a\",\"b\"]"`) in addition to native JSON arrays, fixing `ctx_multi_read` for the Pi MCP bridge. Fixes #173.
+- **Windows CI test failure** — `workspace_config` tests now use `serde_json::json!` for path serialization, preventing invalid JSON escapes on Windows.
+
 ## [3.4.6] — 2026-04-30
 
 ### Added
