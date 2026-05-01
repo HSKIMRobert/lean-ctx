@@ -6,8 +6,9 @@ pub(crate) fn install_jetbrains_hook() {
     let config_path = home.join(".jb-mcp.json");
     let display_path = "~/.jb-mcp.json";
 
+    // JetBrains AI Assistant expects a JSON snippet with "mcpServers".
+    // We write it to a file for easy copy/paste into JetBrains settings.
     let entry = serde_json::json!({
-        "name": "lean-ctx",
         "command": binary,
         "args": [],
         "env": {
@@ -27,10 +28,10 @@ pub(crate) fn install_jetbrains_hook() {
         if let Ok(mut json) = crate::core::jsonc::parse_jsonc(&content) {
             if let Some(obj) = json.as_object_mut() {
                 let servers = obj
-                    .entry("servers")
-                    .or_insert_with(|| serde_json::json!([]));
-                if let Some(arr) = servers.as_array_mut() {
-                    arr.push(entry.clone());
+                    .entry("mcpServers")
+                    .or_insert_with(|| serde_json::json!({}));
+                if let Some(servers_obj) = servers.as_object_mut() {
+                    servers_obj.insert("lean-ctx".to_string(), entry.clone());
                 }
                 if let Ok(formatted) = serde_json::to_string_pretty(&json) {
                     let _ = std::fs::write(&config_path, formatted);
@@ -41,7 +42,7 @@ pub(crate) fn install_jetbrains_hook() {
         }
     }
 
-    let config = serde_json::json!({ "servers": [entry] });
+    let config = serde_json::json!({ "mcpServers": { "lean-ctx": entry } });
     if let Ok(json_str) = serde_json::to_string_pretty(&config) {
         let _ = std::fs::write(&config_path, json_str);
         println!("  \x1b[32m✓\x1b[0m JetBrains MCP configured at {display_path}");

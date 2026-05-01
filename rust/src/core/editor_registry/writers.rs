@@ -544,8 +544,10 @@ fn write_jetbrains_config(
     let data_dir = crate::core::data_dir::lean_ctx_data_dir()
         .map(|d| d.to_string_lossy().to_string())
         .unwrap_or_default();
-    let entry = serde_json::json!({
-        "name": "lean-ctx",
+    // JetBrains AI Assistant expects an "mcpServers" mapping in the JSON snippet
+    // you paste into Settings | Tools | AI Assistant | Model Context Protocol (MCP).
+    // We write that snippet to a file for easy copy/paste.
+    let desired = serde_json::json!({
         "command": binary,
         "args": [],
         "env": { "LEAN_CTX_DATA_DIR": data_dir }
@@ -560,47 +562,52 @@ fn write_jetbrains_config(
                     return Err(e.to_string());
                 }
                 backup_invalid_file(&target.config_path)?;
-                let fresh = serde_json::json!({ "servers": [entry] });
+                let fresh = serde_json::json!({ "mcpServers": { "lean-ctx": desired } });
                 let formatted = serde_json::to_string_pretty(&fresh).map_err(|e| e.to_string())?;
                 crate::config_io::write_atomic_with_backup(&target.config_path, &formatted)?;
                 return Ok(WriteResult {
                     action: WriteAction::Updated,
-                    note: Some("overwrote invalid JSON".to_string()),
+                    note: Some(
+                        "overwrote invalid JSON (paste this snippet into JetBrains MCP settings)"
+                            .to_string(),
+                    ),
                 });
             }
         };
         let obj = json
             .as_object_mut()
             .ok_or_else(|| "root JSON must be an object".to_string())?;
+
         let servers = obj
-            .entry("servers")
-            .or_insert_with(|| serde_json::json!([]));
-        if let Some(arr) = servers.as_array_mut() {
-            let already = arr
-                .iter()
-                .any(|s| s.get("name").and_then(|n| n.as_str()) == Some("lean-ctx"));
-            if already {
-                return Ok(WriteResult {
-                    action: WriteAction::Already,
-                    note: None,
-                });
-            }
-            arr.push(entry);
+            .entry("mcpServers")
+            .or_insert_with(|| serde_json::json!({}));
+        let servers_obj = servers
+            .as_object_mut()
+            .ok_or_else(|| "\"mcpServers\" must be an object".to_string())?;
+
+        let existing = servers_obj.get("lean-ctx").cloned();
+        if existing.as_ref() == Some(&desired) {
+            return Ok(WriteResult {
+                action: WriteAction::Already,
+                note: Some("paste this snippet into JetBrains MCP settings".to_string()),
+            });
         }
+        servers_obj.insert("lean-ctx".to_string(), desired);
+
         let formatted = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
         crate::config_io::write_atomic_with_backup(&target.config_path, &formatted)?;
         return Ok(WriteResult {
             action: WriteAction::Updated,
-            note: None,
+            note: Some("paste this snippet into JetBrains MCP settings".to_string()),
         });
     }
 
-    let config = serde_json::json!({ "servers": [entry] });
+    let config = serde_json::json!({ "mcpServers": { "lean-ctx": desired } });
     let formatted = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
     crate::config_io::write_atomic_with_backup(&target.config_path, &formatted)?;
     Ok(WriteResult {
         action: WriteAction::Created,
-        note: None,
+        note: Some("paste this snippet into JetBrains MCP settings".to_string()),
     })
 }
 
