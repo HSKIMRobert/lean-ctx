@@ -86,9 +86,10 @@ impl VerificationResult {
     }
 
     pub fn format_compact(&self) -> String {
-        if self.pass {
+        if self.warnings.is_empty() {
             return "PASS".to_string();
         }
+        let status = if self.pass { "WARN" } else { "FAIL" };
         let counts: Vec<String> = self
             .warnings
             .iter()
@@ -100,7 +101,7 @@ impl VerificationResult {
             .map(|(k, v)| format!("{k}={v}"))
             .collect();
         format!(
-            "WARN({}) loss={:.1}%",
+            "{status}({}) loss={:.1}%",
             counts.join(", "),
             self.info_loss_score * 100.0
         )
@@ -113,6 +114,11 @@ pub fn verify_output(
     config: &VerificationConfig,
 ) -> VerificationResult {
     if !config.enabled || source.is_empty() || compressed.is_empty() {
+        return VerificationResult::ok();
+    }
+
+    // No-op compression should never produce warnings.
+    if source == compressed {
         return VerificationResult::ok();
     }
 
@@ -137,7 +143,7 @@ pub fn verify_output(
     }
 
     if config.check_structure {
-        warnings.extend(check_structure(compressed));
+        warnings.extend(check_structure(source, compressed));
     }
 
     let total_checks = (paths_checked + identifiers_checked).max(1);
@@ -243,14 +249,19 @@ fn check_line_numbers(source: &str, compressed: &str) -> Vec<VerificationWarning
     warnings
 }
 
-fn check_structure(compressed: &str) -> Vec<VerificationWarning> {
+fn check_structure(source: &str, compressed: &str) -> Vec<VerificationWarning> {
     let mut warnings = Vec::new();
+
+    let src_opens: usize = source.chars().filter(|&c| c == '{').count();
+    let src_closes: usize = source.chars().filter(|&c| c == '}').count();
+    let src_diff = (src_opens as i64 - src_closes as i64).unsigned_abs();
 
     let opens: usize = compressed.chars().filter(|&c| c == '{').count();
     let closes: usize = compressed.chars().filter(|&c| c == '}').count();
     if opens > 0 || closes > 0 {
         let diff = (opens as i64 - closes as i64).unsigned_abs();
-        if diff > 2 {
+        // Only warn if compression materially worsened structural balance.
+        if diff > (src_diff + 2) && diff > 2 {
             warnings.push(VerificationWarning {
                 kind: WarningKind::TruncatedBlock,
                 detail: format!("Brace mismatch: {{ {opens} vs }} {closes}"),
@@ -259,11 +270,15 @@ fn check_structure(compressed: &str) -> Vec<VerificationWarning> {
         }
     }
 
+    let src_parens_open: usize = source.chars().filter(|&c| c == '(').count();
+    let src_parens_close: usize = source.chars().filter(|&c| c == ')').count();
+    let src_parens_diff = (src_parens_open as i64 - src_parens_close as i64).unsigned_abs();
+
     let parens_open: usize = compressed.chars().filter(|&c| c == '(').count();
     let parens_close: usize = compressed.chars().filter(|&c| c == ')').count();
     if parens_open > 0 || parens_close > 0 {
         let diff = (parens_open as i64 - parens_close as i64).unsigned_abs();
-        if diff > 3 {
+        if diff > (src_parens_diff + 3) && diff > 3 {
             warnings.push(VerificationWarning {
                 kind: WarningKind::TruncatedBlock,
                 detail: format!("Paren mismatch: ( {parens_open} vs ) {parens_close}"),

@@ -101,7 +101,8 @@ fn post_update_rewire() {
     let opts = crate::setup::SetupOptions {
         non_interactive: true,
         yes: true,
-        fix: false,
+        // After a binary update, rewire existing configs to the current binary.
+        fix: true,
         json: false,
     };
     if let Err(e) = crate::setup::run_setup_with_options(opts) {

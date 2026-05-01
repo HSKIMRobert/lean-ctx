@@ -6,13 +6,12 @@ use std::time::SystemTime;
 use crate::core::embedding_index::EmbeddingIndex;
 #[cfg(feature = "embeddings")]
 use crate::core::embeddings::EmbeddingEngine;
-use crate::core::hybrid_search::{format_hybrid_results, HybridConfig};
+use crate::core::hybrid_search::{
+    format_hybrid_results, DenseSearchResult, HybridConfig, HybridResult,
+};
 use crate::core::vector_index::{format_search_results, BM25Index};
 #[cfg(feature = "embeddings")]
-use crate::core::{
-    embeddings::cosine_similarity,
-    hybrid_search::{hybrid_search, DenseSearchResult, HybridResult},
-};
+use crate::core::{embeddings::cosine_similarity, hybrid_search::hybrid_search};
 use crate::tools::CrpMode;
 
 /// Performs semantic code search using BM25, dense embeddings, or hybrid ranking.

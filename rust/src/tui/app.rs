@@ -30,6 +30,7 @@ struct AppState {
     total_saved: u64,
     total_original: u64,
     cache_hits: u64,
+    cache_reads: u64,
     total_calls: u64,
     files: std::collections::HashMap<String, FileHeat>,
     gain_score: Option<GainScore>,
@@ -67,6 +68,7 @@ impl AppState {
                 .saturating_sub(store.total_output_tokens),
             total_original: store.total_input_tokens,
             cache_hits: store.cep.total_cache_hits,
+            cache_reads: store.cep.total_cache_reads,
             total_calls: store.total_commands,
             files,
             gain_score: None,
@@ -133,10 +135,10 @@ impl AppState {
     }
 
     fn cache_rate(&self) -> f64 {
-        if self.total_calls == 0 {
+        if self.cache_reads == 0 {
             return 0.0;
         }
-        self.cache_hits as f64 / self.total_calls as f64 * 100.0
+        self.cache_hits as f64 / self.cache_reads as f64 * 100.0
     }
 
     fn refresh_gain_score(&mut self) {
@@ -632,6 +634,10 @@ fn draw_savings(f: &mut ratatui::Frame, area: Rect, state: &AppState) {
         Paragraph::new(Line::from(vec![
             Span::styled(" Cache Hit Rate ", Style::default().fg(PURPLE)),
             Span::styled(format!("{cache_pct:.0}%"), Style::default().fg(MUTED)),
+            Span::styled(
+                format!(" ({}/{})", state.cache_hits, state.cache_reads),
+                Style::default().fg(MUTED),
+            ),
         ])),
         chunks[3],
     );
@@ -726,6 +732,7 @@ mod tests {
             total_saved: 0,
             total_original: 0,
             cache_hits: 0,
+            cache_reads: 0,
             total_calls: 0,
             files: std::collections::HashMap::new(),
             gain_score: None,

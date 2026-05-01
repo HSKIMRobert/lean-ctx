@@ -4,8 +4,10 @@
 //! against live session counters after each tool call.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use crate::core::budget_tracker::BudgetTracker;
 use crate::core::events;
@@ -97,6 +99,15 @@ pub struct ViolationEntry {
 
 static SLO_CONFIG: OnceLock<Mutex<Vec<SloDefinition>>> = OnceLock::new();
 static VIOLATION_LOG: OnceLock<Mutex<ViolationHistory>> = OnceLock::new();
+static EMIT_STATE: OnceLock<Mutex<HashMap<String, EmitState>>> = OnceLock::new();
+
+const VIOLATION_DEBOUNCE: Duration = Duration::from_secs(30);
+
+#[derive(Debug, Default, Clone)]
+struct EmitState {
+    last_violated: bool,
+    last_emit: Option<Instant>,
+}
 
 fn config_store() -> &'static Mutex<Vec<SloDefinition>> {
     SLO_CONFIG.get_or_init(|| Mutex::new(load_slos_from_disk()))
@@ -104,6 +115,10 @@ fn config_store() -> &'static Mutex<Vec<SloDefinition>> {
 
 fn violation_store() -> &'static Mutex<ViolationHistory> {
     VIOLATION_LOG.get_or_init(|| Mutex::new(ViolationHistory::default()))
+}
+
+fn emit_state_store() -> &'static Mutex<HashMap<String, EmitState>> {
+    EMIT_STATE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 // ---------------------------------------------------------------------------
@@ -161,8 +176,10 @@ fn default_slos() -> Vec<SloDefinition> {
         SloDefinition {
             name: "compression_efficiency".into(),
             metric: SloMetric::CompressionRatio,
-            threshold: 0.3,
-            direction: SloDirection::Min,
+            // CompressionRatio = sent/original. Lower is better.
+            // Warn only when compression is poor (e.g. >75% of original tokens still sent).
+            threshold: 0.75,
+            direction: SloDirection::Max,
             action: SloAction::Warn,
         },
     ]
@@ -191,7 +208,11 @@ fn read_metric(metric: SloMetric) -> f64 {
         SloMetric::ShellInvocations => tracker.shell_used() as f64,
         SloMetric::CompressionRatio => {
             let ledger = crate::core::context_ledger::ContextLedger::load();
-            ledger.compression_ratio()
+            if ledger.entries.is_empty() {
+                0.0
+            } else {
+                ledger.compression_ratio()
+            }
         }
         SloMetric::ToolCallsTotal => (tracker.tokens_used().max(1) / 1000) as f64,
     }
@@ -208,6 +229,10 @@ pub fn evaluate() -> SloSnapshot {
     let defs = active_slos();
     let mut slos = Vec::with_capacity(defs.len());
     let mut violations = Vec::new();
+    let now = Instant::now();
+    let mut emit_state = emit_state_store()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
 
     for def in &defs {
         let actual = read_metric(def.metric);
@@ -224,9 +249,20 @@ pub fn evaluate() -> SloSnapshot {
         };
 
         if violated {
-            record_violation(&status);
-            emit_slo_event(&status);
+            let st = emit_state.entry(def.name.clone()).or_default();
+            let is_first = !st.last_violated;
+            let is_due = st
+                .last_emit
+                .is_none_or(|t| t.elapsed() >= VIOLATION_DEBOUNCE);
+            if is_first || is_due {
+                st.last_emit = Some(now);
+                record_violation(&status);
+                emit_slo_event(&status);
+            }
+            st.last_violated = true;
             violations.push(status.clone());
+        } else if let Some(st) = emit_state.get_mut(&def.name) {
+            st.last_violated = false;
         }
 
         slos.push(status);
@@ -397,7 +433,7 @@ mod tests {
         assert_eq!(defs.len(), 3);
         assert_eq!(defs[0].name, "context_budget");
         assert_eq!(defs[1].action, SloAction::Throttle);
-        assert_eq!(defs[2].direction, SloDirection::Min);
+        assert_eq!(defs[2].direction, SloDirection::Max);
     }
 
     #[test]
