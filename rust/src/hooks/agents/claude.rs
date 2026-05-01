@@ -192,44 +192,94 @@ pub(crate) fn install_claude_hook_config(home: &std::path::Path) {
         String::new()
     };
 
-    let needs_update =
-        !settings_content.contains("hook rewrite") || !settings_content.contains("hook redirect");
     let has_old_hooks = settings_content.contains("lean-ctx-rewrite.sh")
         || settings_content.contains("lean-ctx-redirect.sh");
 
-    if !needs_update && !has_old_hooks {
-        return;
+    let desired_pretooluse = serde_json::json!([
+        {
+            "matcher": "Bash|bash",
+            "hooks": [{
+                "type": "command",
+                "command": rewrite_cmd
+            }]
+        },
+        {
+            "matcher": "Read|read|ReadFile|read_file|View|view|Grep|grep|Search|search|ListFiles|list_files|ListDirectory|list_directory",
+            "hooks": [{
+                "type": "command",
+                "command": redirect_cmd
+            }]
+        }
+    ]);
+
+    fn contains_lean_ctx_commands(v: &serde_json::Value) -> bool {
+        let Some(arr) = v.as_array() else {
+            return false;
+        };
+        arr.iter().any(|group| {
+            group
+                .get("hooks")
+                .and_then(|h| h.as_array())
+                .is_some_and(|hooks| {
+                    hooks.iter().any(|hook| {
+                        hook.get("command")
+                            .and_then(|c| c.as_str())
+                            .is_some_and(|c| {
+                                c.contains(" hook rewrite") || c.contains(" hook redirect")
+                            })
+                    })
+                })
+        })
     }
 
-    let hook_entry = serde_json::json!({
-        "hooks": {
-            "PreToolUse": [
-                {
-                    "matcher": "Bash|bash",
-                    "hooks": [{
-                        "type": "command",
-                        "command": rewrite_cmd
-                    }]
-                },
-                {
-                    "matcher": "Read|read|ReadFile|read_file|View|view|Grep|grep|Search|search|ListFiles|list_files|ListDirectory|list_directory",
-                    "hooks": [{
-                        "type": "command",
-                        "command": redirect_cmd
-                    }]
+    if !has_old_hooks {
+        if let Ok(existing_json) = crate::core::jsonc::parse_jsonc(&settings_content) {
+            if let Some(pre) = existing_json.get("hooks").and_then(|h| h.get("PreToolUse")) {
+                if contains_lean_ctx_commands(pre) {
+                    return;
                 }
-            ]
+            }
         }
-    });
+    }
 
     if settings_content.is_empty() {
+        let hook_entry = serde_json::json!({ "hooks": { "PreToolUse": desired_pretooluse } });
         write_file(
             &settings_path,
             &serde_json::to_string_pretty(&hook_entry).unwrap_or_default(),
         );
     } else if let Ok(mut existing) = crate::core::jsonc::parse_jsonc(&settings_content) {
-        if let Some(obj) = existing.as_object_mut() {
-            obj.insert("hooks".to_string(), hook_entry["hooks"].clone());
+        if let Some(root) = existing.as_object_mut() {
+            let hooks = root
+                .entry("hooks".to_string())
+                .or_insert_with(|| serde_json::json!({}));
+            if let Some(hooks_obj) = hooks.as_object_mut() {
+                let pre = hooks_obj
+                    .entry("PreToolUse".to_string())
+                    .or_insert_with(|| serde_json::json!([]));
+                if let Some(pre_arr) = pre.as_array_mut() {
+                    // Upsert our matcher groups, preserve others.
+                    if let Some(desired_arr) = desired_pretooluse.as_array() {
+                        for desired in desired_arr {
+                            let desired_matcher = desired
+                                .get("matcher")
+                                .and_then(|m| m.as_str())
+                                .unwrap_or_default();
+                            if let Some(existing_group) = pre_arr.iter_mut().find(|g| {
+                                g.get("matcher")
+                                    .and_then(|m| m.as_str())
+                                    .is_some_and(|m| m == desired_matcher)
+                            }) {
+                                if let Some(obj) = existing_group.as_object_mut() {
+                                    obj.insert("hooks".to_string(), desired["hooks"].clone());
+                                }
+                            } else {
+                                pre_arr.push(desired.clone());
+                            }
+                        }
+                    }
+                }
+            }
             write_file(
                 &settings_path,
                 &serde_json::to_string_pretty(&existing).unwrap_or_default(),
@@ -250,39 +300,60 @@ pub(crate) fn install_claude_project_hooks(cwd: &std::path::Path) {
     let _ = std::fs::create_dir_all(cwd.join(".claude"));
 
     let existing = std::fs::read_to_string(&settings_path).unwrap_or_default();
-    if existing.contains("hook rewrite") && existing.contains("hook redirect") {
-        return;
-    }
-
-    let hook_entry = serde_json::json!({
-        "hooks": {
-            "PreToolUse": [
-                {
-                    "matcher": "Bash|bash",
-                    "hooks": [{
-                        "type": "command",
-                        "command": rewrite_cmd
-                    }]
-                },
-                {
-                    "matcher": "Read|read|ReadFile|read_file|View|view|Grep|grep|Search|search|ListFiles|list_files|ListDirectory|list_directory",
-                    "hooks": [{
-                        "type": "command",
-                        "command": redirect_cmd
-                    }]
-                }
-            ]
+    let desired_pretooluse = serde_json::json!([
+        {
+            "matcher": "Bash|bash",
+            "hooks": [{
+                "type": "command",
+                "command": rewrite_cmd
+            }]
+        },
+        {
+            "matcher": "Read|read|ReadFile|read_file|View|view|Grep|grep|Search|search|ListFiles|list_files|ListDirectory|list_directory",
+            "hooks": [{
+                "type": "command",
+                "command": redirect_cmd
+            }]
         }
-    });
+    ]);
 
     if existing.is_empty() {
+        let hook_entry = serde_json::json!({ "hooks": { "PreToolUse": desired_pretooluse } });
         write_file(
             &settings_path,
             &serde_json::to_string_pretty(&hook_entry).unwrap_or_default(),
         );
     } else if let Ok(mut json) = crate::core::jsonc::parse_jsonc(&existing) {
-        if let Some(obj) = json.as_object_mut() {
-            obj.insert("hooks".to_string(), hook_entry["hooks"].clone());
+        if let Some(root) = json.as_object_mut() {
+            let hooks = root
+                .entry("hooks".to_string())
+                .or_insert_with(|| serde_json::json!({}));
+            if let Some(hooks_obj) = hooks.as_object_mut() {
+                let pre = hooks_obj
+                    .entry("PreToolUse".to_string())
+                    .or_insert_with(|| serde_json::json!([]));
+                if let Some(pre_arr) = pre.as_array_mut() {
+                    if let Some(desired_arr) = desired_pretooluse.as_array() {
+                        for desired in desired_arr {
+                            let desired_matcher = desired
+                                .get("matcher")
+                                .and_then(|m| m.as_str())
+                                .unwrap_or_default();
+                            if let Some(existing_group) = pre_arr.iter_mut().find(|g| {
+                                g.get("matcher")
+                                    .and_then(|m| m.as_str())
+                                    .is_some_and(|m| m == desired_matcher)
+                            }) {
+                                if let Some(obj) = existing_group.as_object_mut() {
+                                    obj.insert("hooks".to_string(), desired["hooks"].clone());
+                                }
+                            } else {
+                                pre_arr.push(desired.clone());
+                            }
+                        }
+                    }
+                }
+            }
             write_file(
                 &settings_path,
                 &serde_json::to_string_pretty(&json).unwrap_or_default(),

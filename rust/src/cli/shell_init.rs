@@ -64,20 +64,32 @@ fn resolved_hook_dir_display() -> String {
 }
 
 fn source_line_posix(shell_ext: &str) -> String {
-    let dir = resolved_hook_dir_display();
+    let mut dir = resolved_hook_dir_display();
+    // Git Bash / MSYS expects /c/... style paths in bashrc/zshrc.
+    if cfg!(windows) {
+        dir = crate::hooks::to_bash_compatible_path(&dir);
+    }
     format!(
-        "# lean-ctx shell hook\n\
-         [ -f \"{dir}/shell-hook.{shell_ext}\" ] && . \"{dir}/shell-hook.{shell_ext}\"\n"
+        "# lean-ctx shell hook — begin\n\
+         if [ -f \"{dir}/shell-hook.{shell_ext}\" ]; then\n\
+           . \"{dir}/shell-hook.{shell_ext}\"\n\
+         fi\n\
+         # lean-ctx shell hook — end\n"
     )
 }
 
 fn source_line_fish() -> String {
-    let dir = resolved_hook_dir_display();
+    let mut dir = resolved_hook_dir_display();
+    // Fish on Windows (MSYS) also expects /c/... style paths.
+    if cfg!(windows) {
+        dir = crate::hooks::to_bash_compatible_path(&dir);
+    }
     format!(
-        "# lean-ctx shell hook\n\
-         if test -f \"{dir}/shell-hook.fish\"\n    \
-         source \"{dir}/shell-hook.fish\"\n\
-         end\n"
+        "# lean-ctx shell hook — begin\n\
+         if test -f \"{dir}/shell-hook.fish\"\n\
+           source \"{dir}/shell-hook.fish\"\n\
+         end\n\
+         # lean-ctx shell hook — end\n"
     )
 }
 
@@ -85,7 +97,7 @@ fn source_line_powershell() -> String {
     let dir = resolved_hook_dir_display();
     let dir_ps = dir.replace('/', "\\");
     format!(
-        "# lean-ctx shell hook\n\
+        "# lean-ctx shell hook — begin\n\
          $leanCtxHook = \"{dir_ps}\\shell-hook.ps1\"\n\
          if ((Test-Path $leanCtxHook) -and -not [Console]::IsOutputRedirected) {{ . $leanCtxHook }}\n"
     )
@@ -95,14 +107,25 @@ fn upsert_source_line(rc_path: &std::path::Path, source_line: &str) {
     backup_shell_config(rc_path);
 
     if let Ok(existing) = std::fs::read_to_string(rc_path) {
-        if existing.contains("lean-ctx/shell-hook.") || existing.contains("lean-ctx\\shell-hook.") {
+        if existing.contains(source_line.trim()) {
             return;
         }
 
-        let cleaned = if existing.contains("lean-ctx shell hook") {
-            remove_lean_ctx_block(&existing)
+        // Remove any legacy blocks and one-liner source lines, then append our canonical block.
+        let cleaned = remove_lean_ctx_block(&existing);
+        let cleaned = cleaned
+            .lines()
+            .filter(|line| {
+                !line.contains("lean-ctx/shell-hook.")
+                    && !line.contains("lean-ctx\\shell-hook.")
+                    && line.trim() != "lean-ctx shell hook"
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let cleaned = if cleaned.ends_with('\n') {
+            cleaned
         } else {
-            existing
+            format!("{cleaned}\n")
         };
 
         match std::fs::write(rc_path, format!("{cleaned}{source_line}")) {
