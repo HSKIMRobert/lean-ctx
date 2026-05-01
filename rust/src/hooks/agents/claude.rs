@@ -178,6 +178,37 @@ pub(crate) fn install_claude_hook_scripts(home: &std::path::Path) {
     let _ = wrapper; // suppress unused warning on unix
 }
 
+fn ensure_command_hook(pre_arr: &mut Vec<serde_json::Value>, matcher: &str, command: &str) {
+    let desired = serde_json::json!({ "type": "command", "command": command });
+
+    if let Some(group) = pre_arr.iter_mut().find(|g| {
+        g.get("matcher")
+            .and_then(|m| m.as_str())
+            .is_some_and(|m| m == matcher)
+    }) {
+        if let Some(obj) = group.as_object_mut() {
+            let hooks_val = obj
+                .entry("hooks".to_string())
+                .or_insert_with(|| serde_json::json!([]));
+
+            if let Some(hooks) = hooks_val.as_array_mut() {
+                let already = hooks.iter().any(|h| {
+                    h.get("type").and_then(|t| t.as_str()) == Some("command")
+                        && h.get("command").and_then(|c| c.as_str()) == Some(command)
+                });
+                if !already {
+                    hooks.push(desired);
+                }
+            } else {
+                obj.insert("hooks".to_string(), serde_json::json!([desired]));
+            }
+        }
+        return;
+    }
+
+    pre_arr.push(serde_json::json!({ "matcher": matcher, "hooks": [desired] }));
+}
+
 pub(crate) fn install_claude_hook_config(home: &std::path::Path) {
     let hooks_dir = crate::core::editor_registry::claude_state_dir(home).join("hooks");
     let binary = resolve_binary_path();
@@ -258,26 +289,13 @@ pub(crate) fn install_claude_hook_config(home: &std::path::Path) {
                     .entry("PreToolUse".to_string())
                     .or_insert_with(|| serde_json::json!([]));
                 if let Some(pre_arr) = pre.as_array_mut() {
-                    // Upsert our matcher groups, preserve others.
-                    if let Some(desired_arr) = desired_pretooluse.as_array() {
-                        for desired in desired_arr {
-                            let desired_matcher = desired
-                                .get("matcher")
-                                .and_then(|m| m.as_str())
-                                .unwrap_or_default();
-                            if let Some(existing_group) = pre_arr.iter_mut().find(|g| {
-                                g.get("matcher")
-                                    .and_then(|m| m.as_str())
-                                    .is_some_and(|m| m == desired_matcher)
-                            }) {
-                                if let Some(obj) = existing_group.as_object_mut() {
-                                    obj.insert("hooks".to_string(), desired["hooks"].clone());
-                                }
-                            } else {
-                                pre_arr.push(desired.clone());
-                            }
-                        }
-                    }
+                    // Merge: preserve other hooks/plugins. Only ensure our command hooks exist.
+                    ensure_command_hook(pre_arr, "Bash|bash", &rewrite_cmd);
+                    ensure_command_hook(
+                        pre_arr,
+                        "Read|read|ReadFile|read_file|View|view|Grep|grep|Search|search|ListFiles|list_files|ListDirectory|list_directory",
+                        &redirect_cmd,
+                    );
                 }
             }
             write_file(
@@ -333,25 +351,13 @@ pub(crate) fn install_claude_project_hooks(cwd: &std::path::Path) {
                     .entry("PreToolUse".to_string())
                     .or_insert_with(|| serde_json::json!([]));
                 if let Some(pre_arr) = pre.as_array_mut() {
-                    if let Some(desired_arr) = desired_pretooluse.as_array() {
-                        for desired in desired_arr {
-                            let desired_matcher = desired
-                                .get("matcher")
-                                .and_then(|m| m.as_str())
-                                .unwrap_or_default();
-                            if let Some(existing_group) = pre_arr.iter_mut().find(|g| {
-                                g.get("matcher")
-                                    .and_then(|m| m.as_str())
-                                    .is_some_and(|m| m == desired_matcher)
-                            }) {
-                                if let Some(obj) = existing_group.as_object_mut() {
-                                    obj.insert("hooks".to_string(), desired["hooks"].clone());
-                                }
-                            } else {
-                                pre_arr.push(desired.clone());
-                            }
-                        }
-                    }
+                    // Merge: preserve other hooks/plugins. Only ensure our command hooks exist.
+                    ensure_command_hook(pre_arr, "Bash|bash", &rewrite_cmd);
+                    ensure_command_hook(
+                        pre_arr,
+                        "Read|read|ReadFile|read_file|View|view|Grep|grep|Search|search|ListFiles|list_files|ListDirectory|list_directory",
+                        &redirect_cmd,
+                    );
                 }
             }
             write_file(
