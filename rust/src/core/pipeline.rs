@@ -28,6 +28,7 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum LayerKind {
     Input,
+    Autonomy,
     Intent,
     Relevance,
     Compression,
@@ -40,6 +41,7 @@ impl LayerKind {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Input => "input",
+            Self::Autonomy => "autonomy",
             Self::Intent => "intent",
             Self::Relevance => "relevance",
             Self::Compression => "compression",
@@ -52,6 +54,7 @@ impl LayerKind {
     pub fn all() -> &'static [LayerKind] {
         &[
             Self::Input,
+            Self::Autonomy,
             Self::Intent,
             Self::Relevance,
             Self::Compression,
@@ -73,13 +76,14 @@ impl std::str::FromStr for LayerKind {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_ascii_lowercase().as_str() {
             "input" => Ok(Self::Input),
+            "autonomy" => Ok(Self::Autonomy),
             "intent" => Ok(Self::Intent),
             "relevance" => Ok(Self::Relevance),
             "compression" => Ok(Self::Compression),
             "translation" => Ok(Self::Translation),
             "delivery" => Ok(Self::Delivery),
             _ => Err(format!(
-                "unknown pipeline layer '{s}'; expected one of: input, intent, relevance, compression, translation, delivery"
+                "unknown pipeline layer '{s}'; expected one of: input, autonomy, intent, relevance, compression, translation, delivery"
             )),
         }
     }
@@ -142,11 +146,11 @@ pub trait Layer {
 /// Returns whether a given layer is enabled according to a profile's pipeline config.
 pub fn is_layer_enabled(kind: LayerKind, cfg: &crate::core::profiles::PipelineConfig) -> bool {
     match kind {
-        LayerKind::Input | LayerKind::Delivery => true,
-        LayerKind::Intent => cfg.intent,
-        LayerKind::Relevance => cfg.relevance,
-        LayerKind::Compression => cfg.compression,
-        LayerKind::Translation => cfg.translation,
+        LayerKind::Input | LayerKind::Autonomy | LayerKind::Delivery => true,
+        LayerKind::Intent => cfg.intent_effective(),
+        LayerKind::Relevance => cfg.relevance_effective(),
+        LayerKind::Compression => cfg.compression_effective(),
+        LayerKind::Translation => cfg.translation_effective(),
     }
 }
 
@@ -421,9 +425,10 @@ mod tests {
     #[test]
     fn layer_kind_all_ordered() {
         let all = LayerKind::all();
-        assert_eq!(all.len(), 6);
+        assert_eq!(all.len(), 7);
         assert_eq!(all[0], LayerKind::Input);
-        assert_eq!(all[5], LayerKind::Delivery);
+        assert_eq!(all[1], LayerKind::Autonomy);
+        assert_eq!(all[6], LayerKind::Delivery);
     }
 
     #[test]
@@ -564,7 +569,7 @@ mod tests {
     fn layer_kind_from_str_invalid() {
         let err = "unknown".parse::<LayerKind>().unwrap_err();
         assert!(err.contains("unknown pipeline layer"));
-        assert!(err.contains("input, intent, relevance"));
+        assert!(err.contains("input, autonomy, intent"));
     }
 
     #[test]
@@ -599,6 +604,9 @@ mod tests {
                 kind: LayerKind::Input,
             }))
             .add_layer(Box::new(PassthroughLayer {
+                kind: LayerKind::Autonomy,
+            }))
+            .add_layer(Box::new(PassthroughLayer {
                 kind: LayerKind::Intent,
             }))
             .add_layer(Box::new(PassthroughLayer {
@@ -619,7 +627,7 @@ mod tests {
         };
         let (output, metrics) = pipeline.execute(input);
 
-        assert_eq!(metrics.len(), 6, "all 6 layers should produce metrics");
+        assert_eq!(metrics.len(), 7, "all layers should produce metrics");
         assert_eq!(output.tokens, 150, "compression at 0.3 ratio");
 
         for (i, kind) in LayerKind::all().iter().enumerate() {
@@ -639,10 +647,10 @@ mod tests {
     #[test]
     fn is_layer_enabled_respects_config() {
         let cfg = crate::core::profiles::PipelineConfig {
-            intent: false,
-            relevance: false,
-            compression: true,
-            translation: true,
+            intent: Some(false),
+            relevance: Some(false),
+            compression: Some(true),
+            translation: Some(true),
         };
 
         assert!(is_layer_enabled(LayerKind::Input, &cfg));
@@ -656,10 +664,10 @@ mod tests {
     #[test]
     fn add_layer_if_enabled_skips_disabled() {
         let cfg = crate::core::profiles::PipelineConfig {
-            intent: false,
-            relevance: true,
-            compression: true,
-            translation: true,
+            intent: Some(false),
+            relevance: Some(true),
+            compression: Some(true),
+            translation: Some(true),
         };
 
         let pipeline = Pipeline::new()

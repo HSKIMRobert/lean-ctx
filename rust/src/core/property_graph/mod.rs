@@ -6,13 +6,17 @@
 //! and graph-driven context loading.
 
 mod edge;
+mod meta;
 mod node;
 mod queries;
 mod schema;
 
 pub use edge::{Edge, EdgeKind};
+pub use meta::{load_meta, meta_path, write_meta, PropertyGraphMetaV1};
 pub use node::{Node, NodeKind};
-pub use queries::{DependencyChain, GraphQuery, ImpactResult};
+pub use queries::{
+    edge_weight, file_connectivity, related_files, DependencyChain, GraphQuery, ImpactResult,
+};
 
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
@@ -99,6 +103,21 @@ impl CodeGraph {
         to: &str,
     ) -> anyhow::Result<Option<DependencyChain>> {
         queries::dependency_chain(&self.conn, from, to)
+    }
+
+    pub fn related_files(
+        &self,
+        file_path: &str,
+        limit: usize,
+    ) -> anyhow::Result<Vec<(String, f64)>> {
+        queries::related_files(&self.conn, file_path, limit)
+    }
+
+    pub fn file_connectivity(
+        &self,
+        file_path: &str,
+    ) -> anyhow::Result<std::collections::HashMap<String, (usize, usize)>> {
+        queries::file_connectivity(&self.conn, file_path)
     }
 
     pub fn node_count(&self) -> anyhow::Result<usize> {
@@ -271,5 +290,60 @@ mod tests {
 
         assert_eq!(g.node_count().unwrap(), 2);
         assert_eq!(g.edge_count().unwrap(), 1);
+    }
+
+    #[test]
+    fn multi_edge_dependents() {
+        let g = test_graph();
+
+        let a = g.upsert_node(&Node::file("src/a.rs")).unwrap();
+        let b = g.upsert_node(&Node::file("src/b.rs")).unwrap();
+        let c = g.upsert_node(&Node::file("src/c.rs")).unwrap();
+
+        g.upsert_edge(&Edge::new(b, a, EdgeKind::Imports)).unwrap();
+        g.upsert_edge(&Edge::new(c, a, EdgeKind::Calls)).unwrap();
+
+        let deps = g.dependents("src/a.rs").unwrap();
+        assert_eq!(deps.len(), 2);
+        assert!(deps.contains(&"src/b.rs".to_string()));
+        assert!(deps.contains(&"src/c.rs".to_string()));
+    }
+
+    #[test]
+    fn multi_edge_impact_analysis() {
+        let g = test_graph();
+
+        let a = g.upsert_node(&Node::file("a.rs")).unwrap();
+        let b = g.upsert_node(&Node::file("b.rs")).unwrap();
+        let c = g.upsert_node(&Node::file("c.rs")).unwrap();
+
+        g.upsert_edge(&Edge::new(b, a, EdgeKind::Imports)).unwrap();
+        g.upsert_edge(&Edge::new(c, b, EdgeKind::Calls)).unwrap();
+
+        let impact = g.impact_analysis("a.rs", 10).unwrap();
+        assert!(impact.affected_files.contains(&"b.rs".to_string()));
+        assert!(impact.affected_files.contains(&"c.rs".to_string()));
+    }
+
+    #[test]
+    fn related_files_scored() {
+        let g = test_graph();
+
+        let a = g.upsert_node(&Node::file("a.rs")).unwrap();
+        let b = g.upsert_node(&Node::file("b.rs")).unwrap();
+        let c = g.upsert_node(&Node::file("c.rs")).unwrap();
+
+        g.upsert_edge(&Edge::new(a, b, EdgeKind::Imports)).unwrap();
+        g.upsert_edge(&Edge::new(a, b, EdgeKind::Calls)).unwrap();
+        g.upsert_edge(&Edge::new(a, c, EdgeKind::TypeRef)).unwrap();
+
+        let related = g.related_files("a.rs", 10).unwrap();
+        assert_eq!(related.len(), 2);
+        let b_score = related.iter().find(|(p, _)| p == "b.rs").unwrap().1;
+        let c_score = related.iter().find(|(p, _)| p == "c.rs").unwrap().1;
+        assert!(
+            b_score > c_score,
+            "b.rs has imports+calls, should rank higher than c.rs with type_ref"
+        );
     }
 }

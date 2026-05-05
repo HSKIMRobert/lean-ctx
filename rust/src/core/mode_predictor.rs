@@ -99,16 +99,40 @@ impl ModePredictor {
     /// Returns the best mode based on historical efficiency.
     /// Chain: local history -> cloud adaptive models -> built-in defaults.
     pub fn predict_best_mode(&self, sig: &FileSignature) -> Option<String> {
+        let default_mode = Self::predict_from_defaults(sig);
+
+        let allow_override = |candidate: &str| -> bool {
+            let Some(def) = default_mode.as_deref() else {
+                return true;
+            };
+            if candidate == "full" {
+                return false;
+            }
+            // For code-structured defaults, never override to lossy modes.
+            if (def == "map" || def == "signatures")
+                && (candidate == "aggressive" || candidate == "entropy")
+            {
+                return false;
+            }
+            true
+        };
+
         if let Some(local) = self.predict_from_local(sig) {
-            return Some(local);
+            if allow_override(&local) {
+                return Some(local);
+            }
         }
         if let Some(bandit) = self.predict_from_bandit(sig) {
-            return Some(bandit);
+            if allow_override(&bandit) {
+                return Some(bandit);
+            }
         }
         if let Some(cloud) = self.predict_from_cloud(sig) {
-            return Some(cloud);
+            if allow_override(&cloud) {
+                return Some(cloud);
+            }
         }
-        Self::predict_from_defaults(sig)
+        default_mode
     }
 
     fn predict_from_bandit(&self, sig: &FileSignature) -> Option<String> {

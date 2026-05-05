@@ -35,20 +35,20 @@ export const b = () => c();
         let root_s = root.to_string_lossy().to_string();
 
         // Build graph (deterministic file ordering + edge insertion).
-        let build = lean_ctx::tools::ctx_impact::handle("build", None, &root_s, None);
+        let build = lean_ctx::tools::ctx_impact::handle("build", None, &root_s, None, Some("json"));
         let build_v = parse_json(&build);
         assert_eq!(build_v["tool"], "ctx_impact");
         assert_eq!(build_v["action"], "build");
 
-        // Status should be fresh (or at least not empty) after build.
-        let status = lean_ctx::tools::ctx_impact::handle("status", None, &root_s, None);
+        let status =
+            lean_ctx::tools::ctx_impact::handle("status", None, &root_s, None, Some("json"));
         let status_v = parse_json(&status);
         assert_eq!(status_v["tool"], "ctx_impact");
         assert_eq!(status_v["action"], "status");
         assert_ne!(status_v["freshness"], "empty");
 
-        // Architecture overview JSON should have stable ordering and correct counts.
-        let arch = lean_ctx::tools::ctx_architecture::handle("overview", None, &root_s);
+        let arch =
+            lean_ctx::tools::ctx_architecture::handle("overview", None, &root_s, Some("json"));
         let arch_v = parse_json(&arch);
         assert_eq!(arch_v["tool"], "ctx_architecture");
         assert_eq!(arch_v["action"], "overview");
@@ -71,8 +71,13 @@ export const b = () => c();
         assert_eq!(arch_v["entrypoints"][0]["file"], "src/a.ts");
 
         // Dependency chain should be deterministic.
-        let chain =
-            lean_ctx::tools::ctx_impact::handle("chain", Some("src/a.ts->src/c.ts"), &root_s, None);
+        let chain = lean_ctx::tools::ctx_impact::handle(
+            "chain",
+            Some("src/a.ts->src/c.ts"),
+            &root_s,
+            None,
+            Some("json"),
+        );
         let chain_v = parse_json(&chain);
         assert_eq!(chain_v["found"], true);
         assert_eq!(
@@ -81,8 +86,13 @@ export const b = () => c();
         );
 
         // Impact should be stable-sorted.
-        let impact =
-            lean_ctx::tools::ctx_impact::handle("analyze", Some("src/c.ts"), &root_s, Some(10));
+        let impact = lean_ctx::tools::ctx_impact::handle(
+            "analyze",
+            Some("src/c.ts"),
+            &root_s,
+            Some(10),
+            Some("json"),
+        );
         let impact_v = parse_json(&impact);
         assert_eq!(impact_v["affected_files_total"], 2);
         assert_eq!(

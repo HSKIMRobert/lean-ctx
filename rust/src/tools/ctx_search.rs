@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::path::Path;
+use std::path::PathBuf;
 
 use ignore::WalkBuilder;
 use regex::Regex;
@@ -20,7 +21,9 @@ pub fn handle(
     max_results: usize,
     _crp_mode: CrpMode,
     respect_gitignore: bool,
+    allow_secret_paths: bool,
 ) -> (String, usize) {
+    let redact = crate::core::redaction::redaction_enabled_for_active_role();
     let re = match Regex::new(pattern) {
         Ok(r) => r,
         Err(e) => return (format!("ERROR: invalid regex: {e}"), 0),
@@ -39,11 +42,13 @@ pub fn handle(
         .git_exclude(respect_gitignore)
         .build();
 
+    let mut files: Vec<PathBuf> = Vec::new();
     let mut matches = Vec::new();
     let mut raw_result_lines = Vec::new();
     let mut files_searched = 0u32;
     let mut files_skipped_size = 0u32;
     let mut files_skipped_encoding = 0u32;
+    let mut files_skipped_boundary = 0u32;
 
     for entry in walker.filter_map(std::result::Result::ok) {
         if entry.file_type().is_none_or(|ft| ft.is_dir()) {
@@ -57,6 +62,11 @@ pub fn handle(
         let path = entry.path();
 
         if is_binary_ext(path) || is_generated_file(path) {
+            continue;
+        }
+
+        if !allow_secret_paths && crate::core::io_boundary::is_secret_like(path).is_some() {
+            files_skipped_boundary += 1;
             continue;
         }
 
@@ -74,7 +84,14 @@ pub fn handle(
             }
         }
 
-        let Ok(content) = std::fs::read_to_string(path) else {
+        files.push(path.to_path_buf());
+    }
+
+    // Deterministic search: stable file ordering makes max_results truncation reproducible.
+    files.sort_by(|a, b| a.to_string_lossy().cmp(&b.to_string_lossy()));
+
+    for path in files {
+        let Ok(content) = std::fs::read_to_string(&path) else {
             files_skipped_encoding += 1;
             continue;
         };
@@ -86,7 +103,12 @@ pub fn handle(
                 let short_path = protocol::shorten_path(&path.to_string_lossy());
                 let full_path = path.to_string_lossy();
                 raw_result_lines.push(format!("{full_path}:{}: {}", i + 1, line.trim()));
-                matches.push(format!("{short_path}:{} {}", i + 1, line.trim()));
+                let shown = if redact {
+                    crate::core::redaction::redact_text(line.trim())
+                } else {
+                    line.trim().to_string()
+                };
+                matches.push(format!("{short_path}:{} {}", i + 1, shown));
                 if matches.len() >= max_results {
                     break;
                 }
@@ -108,15 +130,38 @@ pub fn handle(
                 " ({files_skipped_encoding} files skipped: binary/encoding)"
             ));
         }
+        if files_skipped_boundary > 0 {
+            msg.push_str(&format!(
+                " ({files_skipped_boundary} secret-like files skipped by boundary policy)"
+            ));
+        }
         return (msg, 0);
     }
 
-    let mut result = format!(
-        "{} matches in {} files:\n{}",
-        matches.len(),
-        files_searched,
-        matches.join("\n")
-    );
+    // Prefix-cache-friendly: structural file list before per-query match content
+    let matched_files: Vec<&str> = {
+        let mut seen = HashSet::new();
+        matches
+            .iter()
+            .filter_map(|m| {
+                let file = m.split(':').next()?;
+                if seen.insert(file) {
+                    Some(file)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    };
+
+    let mut result = format!("{} matches in {} files", matches.len(), files_searched);
+    if matched_files.len() > 1 {
+        result.push_str(" [");
+        result.push_str(&matched_files.join(", "));
+        result.push(']');
+    }
+    result.push_str(":\n");
+    result.push_str(&matches.join("\n"));
 
     if files_skipped_size > 0 {
         result.push_str(&format!("\n({files_skipped_size} files >512KB skipped)"));
@@ -124,6 +169,11 @@ pub fn handle(
     if files_skipped_encoding > 0 {
         result.push_str(&format!(
             "\n({files_skipped_encoding} files skipped: binary/encoding)"
+        ));
+    }
+    if files_skipped_boundary > 0 {
+        result.push_str(&format!(
+            "\n({files_skipped_boundary} secret-like files skipped by boundary policy)"
         ));
     }
 
@@ -252,5 +302,77 @@ fn monorepo_scope_hint(matches: &[String], search_dir: &str) -> Option<String> {
         ))
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tools::CrpMode;
+
+    #[test]
+    fn search_results_are_deterministically_ordered_by_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a.txt");
+        let b = dir.path().join("b.txt");
+        std::fs::write(&b, "match\n").unwrap();
+        std::fs::write(&a, "match\n").unwrap();
+
+        let (out, _orig) = handle(
+            "match",
+            dir.path().to_string_lossy().as_ref(),
+            Some("txt"),
+            10,
+            CrpMode::Off,
+            true,
+            true,
+        );
+
+        let mut match_lines: Vec<&str> = out
+            .lines()
+            .filter(|l| l.contains(".txt:") && l.contains("match"))
+            .collect();
+        // Expect exactly the 2 match lines, ordered a.txt then b.txt.
+        match_lines.truncate(2);
+        assert_eq!(match_lines.len(), 2);
+        assert!(
+            match_lines[0].contains("a.txt:"),
+            "first match should come from a.txt, got: {}",
+            match_lines[0]
+        );
+        assert!(
+            match_lines[1].contains("b.txt:"),
+            "second match should come from b.txt, got: {}",
+            match_lines[1]
+        );
+    }
+
+    #[test]
+    fn secret_like_files_are_skipped_by_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let secret = dir.path().join("key.pem");
+        let ok = dir.path().join("ok.txt");
+        std::fs::write(&secret, "match\n").unwrap();
+        std::fs::write(&ok, "match\n").unwrap();
+
+        let (out, _orig) = handle(
+            "match",
+            dir.path().to_string_lossy().as_ref(),
+            None,
+            10,
+            CrpMode::Off,
+            true,
+            false,
+        );
+
+        assert!(out.contains("ok.txt:"), "expected ok.txt match, got: {out}");
+        assert!(
+            !out.contains("key.pem:"),
+            "secret-like file should be skipped, got: {out}"
+        );
+        assert!(
+            out.contains("secret-like files skipped"),
+            "expected boundary skip note, got: {out}"
+        );
     }
 }

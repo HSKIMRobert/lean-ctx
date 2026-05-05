@@ -1,9 +1,15 @@
+/// Pattern engine version. Bump when output format changes to maintain
+/// shell-output determinism guarantees. Consumers (proofs, benchmarks)
+/// can embed this version to detect pattern-breaking updates.
+pub const PATTERN_ENGINE_VERSION: u32 = 1;
+
 pub mod ansible;
 pub mod artisan;
 pub mod aws;
 pub mod bazel;
 pub mod bun;
 pub mod cargo;
+pub mod clang;
 pub mod cmake;
 pub mod composer;
 pub mod curl;
@@ -13,14 +19,17 @@ pub mod docker;
 pub mod dotnet;
 pub mod env_filter;
 pub mod eslint;
+pub mod fd;
 pub mod find;
 pub mod flutter;
 pub mod gh;
 pub mod git;
+pub mod glab;
 pub mod golang;
 pub mod grep;
 pub mod helm;
 pub mod json_schema;
+pub mod just;
 pub mod kubectl;
 pub mod log_dedup;
 pub mod ls;
@@ -30,6 +39,7 @@ pub mod mix;
 pub mod mypy;
 pub mod mysql;
 pub mod next_build;
+pub mod ninja;
 pub mod npm;
 pub mod php;
 pub mod pip;
@@ -81,7 +91,52 @@ pub fn compress_output(command: &str, output: &str) -> Option<String> {
         return Some(r);
     }
 
+    if output.len() > 8000 {
+        return Some(truncate_large_output(command, output));
+    }
+
     None
+}
+
+fn truncate_large_output(command: &str, output: &str) -> String {
+    let lines: Vec<&str> = output.lines().collect();
+    let total = lines.len();
+    let size = output.len();
+    let head = 30.min(total);
+    let tail = 15.min(total.saturating_sub(head));
+
+    let mut result = String::with_capacity(4096);
+    let cmd_short = if command.len() > 60 {
+        &command[..60]
+    } else {
+        command
+    };
+    result.push_str(&format!("{cmd_short} ({size} bytes, {total} lines):\n"));
+    for line in lines.iter().take(head) {
+        if line.len() > 300 {
+            result.push_str(&line[..300]);
+            result.push_str("…\n");
+        } else {
+            result.push_str(line);
+            result.push('\n');
+        }
+    }
+    if total > head + tail {
+        result.push_str(&format!(
+            "\n[… {} lines omitted …]\n\n",
+            total - head - tail
+        ));
+        for line in lines.iter().skip(total - tail) {
+            if line.len() > 300 {
+                result.push_str(&line[..300]);
+                result.push_str("…\n");
+            } else {
+                result.push_str(line);
+                result.push('\n');
+            }
+        }
+    }
+    result
 }
 
 fn try_specific_pattern(cmd: &str, output: &str) -> Option<String> {
@@ -94,11 +149,17 @@ fn try_specific_pattern(cmd: &str, output: &str) -> Option<String> {
     if c.starts_with("gh ") {
         return gh::compress(c, output);
     }
+    if c.starts_with("glab ") {
+        return glab::try_glab_pattern(c, output);
+    }
     if c == "terraform" || c.starts_with("terraform ") {
         return terraform::compress(c, output);
     }
     if c == "make" || c.starts_with("make ") {
         return make::compress(c, output);
+    }
+    if c == "just" || c.starts_with("just ") {
+        return just::compress(c, output);
     }
     if c.starts_with("mvn ")
         || c.starts_with("./mvnw ")
@@ -194,6 +255,9 @@ fn try_specific_pattern(cmd: &str, output: &str) -> Option<String> {
     if c.starts_with("find ") {
         return find::compress(output);
     }
+    if c.starts_with("fd ") || c.starts_with("fdfind ") {
+        return fd::compress(output);
+    }
     if c.starts_with("ls ") || c == "ls" {
         return ls::compress(output);
     }
@@ -243,6 +307,9 @@ fn try_specific_pattern(cmd: &str, output: &str) -> Option<String> {
     }
     if c.starts_with("cmake ") || c.starts_with("ctest") {
         return cmake::compress(c, output);
+    }
+    if c.starts_with("ninja") {
+        return ninja::compress(c, output);
     }
     if c.starts_with("ansible") || c.starts_with("ansible-playbook") {
         return ansible::compress(c, output);
@@ -309,6 +376,9 @@ fn try_specific_pattern(cmd: &str, output: &str) -> Option<String> {
     }
     if c.starts_with("nx ") || c.starts_with("npx nx") {
         return npm::compress(c, output);
+    }
+    if c.starts_with("clang++ ") || c.starts_with("clang ") {
+        return clang::compress(c, output);
     }
     if c.starts_with("gcc ")
         || c.starts_with("g++ ")
@@ -444,6 +514,47 @@ mod tests {
         assert!(try_specific_pattern("oxlint src/", lint_output).is_some());
         assert!(try_specific_pattern("pyright src/", lint_output).is_some());
         assert!(try_specific_pattern("basedpyright src/", lint_output).is_some());
+    }
+
+    #[test]
+    fn routes_fd_commands() {
+        let output = "src/main.rs\nsrc/lib.rs\nsrc/util/helpers.rs\nsrc/util/math.rs\ntests/integration.rs\n";
+        assert!(try_specific_pattern("fd --extension rs", output).is_some());
+        assert!(try_specific_pattern("fdfind .rs", output).is_some());
+    }
+
+    #[test]
+    fn routes_just_commands() {
+        let output = "Available recipes:\n    build\n    test\n    lint\n";
+        assert!(try_specific_pattern("just --list", output).is_some());
+        assert!(try_specific_pattern("just build", output).is_some());
+    }
+
+    #[test]
+    fn routes_ninja_commands() {
+        let output = "[1/10] Compiling foo.c\n[10/10] Linking app\n";
+        assert!(try_specific_pattern("ninja", output).is_some());
+        assert!(try_specific_pattern("ninja -j4", output).is_some());
+    }
+
+    #[test]
+    fn routes_clang_commands() {
+        let output =
+            "src/main.c:10:5: error: use of undeclared identifier 'foo'\n1 error generated.\n";
+        assert!(try_specific_pattern("clang src/main.c", output).is_some());
+        assert!(try_specific_pattern("clang++ -std=c++17 main.cpp", output).is_some());
+    }
+
+    #[test]
+    fn routes_cargo_run() {
+        let output = "   Compiling foo v0.1.0\n    Finished `dev` profile\nHello, world!";
+        assert!(try_specific_pattern("cargo run", output).is_some());
+    }
+
+    #[test]
+    fn routes_cargo_bench() {
+        let output = "   Compiling foo v0.1.0\ntest bench_parse ... bench: 1234 ns/iter";
+        assert!(try_specific_pattern("cargo bench", output).is_some());
     }
 
     #[test]

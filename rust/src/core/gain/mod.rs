@@ -33,6 +33,8 @@ pub struct GainSummary {
     pub tool_spend_usd: f64,
     pub roi: Option<f64>,
     pub score: GainScore,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub daemon_hint: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -83,6 +85,14 @@ impl GainEngine {
             None
         };
         let score = GainScore::compute(&self.stats, &self.costs, &self.pricing, model);
+        let daemon_hint = if crate::daemon::is_daemon_running() {
+            None
+        } else {
+            Some(
+                "daemon not running — stats tracked locally (lean-ctx serve -d for full tracking)"
+                    .to_string(),
+            )
+        };
         GainSummary {
             model: quote,
             total_commands: self.stats.total_commands,
@@ -94,6 +104,7 @@ impl GainEngine {
             tool_spend_usd,
             roi,
             score,
+            daemon_hint,
         }
     }
 

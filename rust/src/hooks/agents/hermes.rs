@@ -1,4 +1,4 @@
-use super::super::{install_project_rules, resolve_binary_path};
+use super::super::{install_project_rules, resolve_binary_path, HookMode, CLI_REDIRECT_RULES};
 
 pub(super) const HERMES_RULES_TEMPLATE: &str = "\
 # lean-ctx — Context Engineering Layer
@@ -22,7 +22,7 @@ Available tools: ctx_overview, ctx_preload, ctx_dedup, ctx_compress, ctx_session
 Multi-agent: ctx_agent(action=handoff|sync). Diary: ctx_agent(action=diary, category=discovery|decision|blocker|progress|insight).
 ";
 
-pub(crate) fn install_hermes_hook(global: bool) {
+pub(crate) fn install_hermes_hook_with_mode(global: bool, mode: HookMode) {
     let Some(home) = crate::core::home::resolve_home_dir() else {
         tracing::error!("Cannot resolve home directory");
         return;
@@ -38,26 +38,42 @@ pub(crate) fn install_hermes_hook(global: bool) {
         config_type: crate::core::editor_registry::ConfigType::HermesYaml,
     };
 
-    match crate::core::editor_registry::write_config_with_options(
-        &target,
-        &binary,
-        crate::core::editor_registry::WriteOptions {
-            overwrite_invalid: true,
-        },
-    ) {
-        Ok(res) => match res.action {
-            crate::core::editor_registry::WriteAction::Created => {
-                println!("  \x1b[32m✓\x1b[0m Hermes Agent MCP configured at ~/.hermes/config.yaml");
+    match mode {
+        HookMode::CliRedirect => {
+            let _ = crate::core::editor_registry::remove_lean_ctx_server(
+                &target,
+                crate::core::editor_registry::WriteOptions {
+                    overwrite_invalid: true,
+                },
+            );
+        }
+        HookMode::Mcp | HookMode::Hybrid => {
+            match crate::core::editor_registry::write_config_with_options(
+                &target,
+                &binary,
+                crate::core::editor_registry::WriteOptions {
+                    overwrite_invalid: true,
+                },
+            ) {
+                Ok(res) => match res.action {
+                    crate::core::editor_registry::WriteAction::Created => {
+                        eprintln!(
+                            "  \x1b[32m✓\x1b[0m Hermes Agent MCP configured at ~/.hermes/config.yaml"
+                        );
+                    }
+                    crate::core::editor_registry::WriteAction::Updated => {
+                        eprintln!(
+                            "  \x1b[32m✓\x1b[0m Hermes Agent MCP updated at ~/.hermes/config.yaml"
+                        );
+                    }
+                    crate::core::editor_registry::WriteAction::Already => {
+                        eprintln!("  Hermes Agent MCP already configured at ~/.hermes/config.yaml");
+                    }
+                },
+                Err(e) => {
+                    tracing::error!("Failed to configure Hermes Agent MCP: {e}");
+                }
             }
-            crate::core::editor_registry::WriteAction::Updated => {
-                println!("  \x1b[32m✓\x1b[0m Hermes Agent MCP updated at ~/.hermes/config.yaml");
-            }
-            crate::core::editor_registry::WriteAction::Already => {
-                println!("  Hermes Agent MCP already configured at ~/.hermes/config.yaml");
-            }
-        },
-        Err(e) => {
-            tracing::error!("Failed to configure Hermes Agent MCP: {e}");
         }
     }
 
@@ -65,34 +81,37 @@ pub(crate) fn install_hermes_hook(global: bool) {
 
     match scope {
         crate::core::config::RulesScope::Global => {
-            install_hermes_rules(&home);
+            install_hermes_rules(&home, mode);
         }
         crate::core::config::RulesScope::Project => {
             if !global {
-                install_project_hermes_rules();
+                install_project_hermes_rules(mode);
                 install_project_rules();
             }
         }
         crate::core::config::RulesScope::Both => {
             if global {
-                install_hermes_rules(&home);
+                install_hermes_rules(&home, mode);
             } else {
-                install_hermes_rules(&home);
-                install_project_hermes_rules();
+                install_hermes_rules(&home, mode);
+                install_project_hermes_rules(mode);
                 install_project_rules();
             }
         }
     }
 }
 
-fn install_hermes_rules(home: &std::path::Path) {
+fn install_hermes_rules(home: &std::path::Path, mode: HookMode) {
     let rules_path = home.join(".hermes/HERMES.md");
-    let content = HERMES_RULES_TEMPLATE;
+    let content = match mode {
+        HookMode::CliRedirect => CLI_REDIRECT_RULES,
+        HookMode::Hybrid | HookMode::Mcp => HERMES_RULES_TEMPLATE,
+    };
 
     if rules_path.exists() {
         let existing = std::fs::read_to_string(&rules_path).unwrap_or_default();
         if existing.contains("lean-ctx") {
-            println!("  Hermes rules already present in ~/.hermes/HERMES.md");
+            eprintln!("  Hermes rules already present in ~/.hermes/HERMES.md");
             return;
         }
         let mut updated = existing;
@@ -102,17 +121,17 @@ fn install_hermes_rules(home: &std::path::Path) {
         updated.push('\n');
         updated.push_str(content);
         let _ = std::fs::write(&rules_path, updated);
-        println!("  \x1b[32m✓\x1b[0m Appended lean-ctx rules to ~/.hermes/HERMES.md");
+        eprintln!("  \x1b[32m✓\x1b[0m Appended lean-ctx rules to ~/.hermes/HERMES.md");
     } else {
         if let Some(parent) = rules_path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
         let _ = std::fs::write(&rules_path, content);
-        println!("  \x1b[32m✓\x1b[0m Created ~/.hermes/HERMES.md with lean-ctx rules");
+        eprintln!("  \x1b[32m✓\x1b[0m Created ~/.hermes/HERMES.md with lean-ctx rules");
     }
 }
 
-fn install_project_hermes_rules() {
+fn install_project_hermes_rules(mode: HookMode) {
     let Ok(cwd) = std::env::current_dir() else {
         return;
     };
@@ -120,7 +139,7 @@ fn install_project_hermes_rules() {
     if rules_path.exists() {
         let existing = std::fs::read_to_string(&rules_path).unwrap_or_default();
         if existing.contains("lean-ctx") {
-            println!("  .hermes.md already contains lean-ctx rules");
+            eprintln!("  .hermes.md already contains lean-ctx rules");
             return;
         }
         let mut updated = existing;
@@ -128,11 +147,20 @@ fn install_project_hermes_rules() {
             updated.push('\n');
         }
         updated.push('\n');
-        updated.push_str(HERMES_RULES_TEMPLATE);
+        updated.push_str(match mode {
+            HookMode::CliRedirect => CLI_REDIRECT_RULES,
+            HookMode::Hybrid | HookMode::Mcp => HERMES_RULES_TEMPLATE,
+        });
         let _ = std::fs::write(&rules_path, updated);
-        println!("  \x1b[32m✓\x1b[0m Appended lean-ctx rules to .hermes.md");
+        eprintln!("  \x1b[32m✓\x1b[0m Appended lean-ctx rules to .hermes.md");
     } else {
-        let _ = std::fs::write(&rules_path, HERMES_RULES_TEMPLATE);
-        println!("  \x1b[32m✓\x1b[0m Created .hermes.md with lean-ctx rules");
+        let _ = std::fs::write(
+            &rules_path,
+            match mode {
+                HookMode::CliRedirect => CLI_REDIRECT_RULES,
+                HookMode::Hybrid | HookMode::Mcp => HERMES_RULES_TEMPLATE,
+            },
+        );
+        eprintln!("  \x1b[32m✓\x1b[0m Created .hermes.md with lean-ctx rules");
     }
 }

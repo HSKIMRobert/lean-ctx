@@ -2,7 +2,12 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+const DEFAULT_GLOBAL_PER_MIN: u32 = 3_600;
+const DEFAULT_AGENT_PER_MIN: u32 = 1_800;
+const DEFAULT_TOOL_PER_MIN: u32 = 1_800;
+
 struct RateBucket {
+    disabled: bool,
     tokens: f64,
     max_tokens: f64,
     refill_rate: f64,
@@ -11,8 +16,18 @@ struct RateBucket {
 
 impl RateBucket {
     fn new(max_per_minute: u32) -> Self {
+        if max_per_minute == 0 {
+            return Self {
+                disabled: true,
+                tokens: 0.0,
+                max_tokens: 0.0,
+                refill_rate: 0.0,
+                last_refill: Instant::now(),
+            };
+        }
         let max = max_per_minute as f64;
         Self {
+            disabled: false,
             tokens: max,
             max_tokens: max,
             refill_rate: max / 60.0,
@@ -21,6 +36,9 @@ impl RateBucket {
     }
 
     fn try_consume(&mut self) -> RateLimitResult {
+        if self.disabled {
+            return RateLimitResult::Allowed;
+        }
         self.refill();
 
         if self.tokens >= 1.0 {
@@ -35,6 +53,9 @@ impl RateBucket {
     }
 
     fn refill(&mut self) {
+        if self.disabled {
+            return;
+        }
         let elapsed = self.last_refill.elapsed().as_secs_f64();
         self.tokens = (self.tokens + elapsed * self.refill_rate).min(self.max_tokens);
         self.last_refill = Instant::now();
@@ -105,6 +126,17 @@ pub fn global_rate_limiter() -> std::sync::MutexGuard<'static, Option<RateLimite
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+fn env_u32(keys: &[&str]) -> Option<u32> {
+    for k in keys {
+        if let Ok(v) = std::env::var(k) {
+            if let Ok(n) = v.trim().parse::<u32>() {
+                return Some(n);
+            }
+        }
+    }
+    None
+}
+
 pub fn init_rate_limiter(global_per_min: u32, agent_per_min: u32, tool_per_min: u32) {
     let mut guard = global_rate_limiter();
     *guard = Some(RateLimiter::new(
@@ -116,8 +148,29 @@ pub fn init_rate_limiter(global_per_min: u32, agent_per_min: u32, tool_per_min: 
 
 pub fn check_rate_limit(agent_id: &str, tool_name: &str) -> RateLimitResult {
     let mut guard = global_rate_limiter();
+    if guard.is_none() {
+        let global = env_u32(&[
+            "LEAN_CTX_RATE_LIMIT_GLOBAL_PER_MIN",
+            "LCTX_RATE_LIMIT_GLOBAL_PER_MIN",
+        ])
+        .unwrap_or(DEFAULT_GLOBAL_PER_MIN);
+        let agent = env_u32(&[
+            "LEAN_CTX_RATE_LIMIT_AGENT_PER_MIN",
+            "LCTX_RATE_LIMIT_AGENT_PER_MIN",
+        ])
+        .unwrap_or(DEFAULT_AGENT_PER_MIN);
+        let tool = env_u32(&[
+            "LEAN_CTX_RATE_LIMIT_TOOL_PER_MIN",
+            "LCTX_RATE_LIMIT_TOOL_PER_MIN",
+        ])
+        .unwrap_or(DEFAULT_TOOL_PER_MIN);
+        *guard = Some(RateLimiter::new(global, agent, tool));
+    }
     match guard.as_mut() {
-        Some(limiter) => limiter.check(agent_id, tool_name),
+        Some(limiter) => {
+            limiter.cleanup_stale(Duration::from_secs(15 * 60));
+            limiter.check(agent_id, tool_name)
+        }
         None => RateLimitResult::Allowed,
     }
 }
@@ -179,5 +232,16 @@ mod tests {
 
         limiter.cleanup_stale(Duration::from_secs(0));
         assert!(limiter.agent_buckets.is_empty());
+    }
+
+    #[test]
+    fn zero_limits_disable_buckets() {
+        let mut limiter = RateLimiter::new(0, 0, 0);
+        for _ in 0..100 {
+            assert_eq!(
+                limiter.check("agent-1", "ctx_read"),
+                RateLimitResult::Allowed
+            );
+        }
     }
 }

@@ -6,7 +6,7 @@
 
 - **Auto-compress pastes** — Code pasted into AI chat inputs is automatically compressed
 - **Token counter badge** — Shows savings in real-time after each compression
-- **Native messaging** — Connects to local lean-ctx binary for full compression (90+ patterns)
+- **Native messaging** — Connects to local lean-ctx binary for full compression (95+ patterns)
 - **Fallback compression** — Basic comment/whitespace removal when native host unavailable
 - **Popup dashboard** — Token savings stats + toggle controls
 

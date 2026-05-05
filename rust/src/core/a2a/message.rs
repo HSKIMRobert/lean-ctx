@@ -165,7 +165,7 @@ impl A2AMessage {
             return false;
         }
         let is_sender = self.from_agent == agent_id;
-        let is_recipient = self.to_agent.as_ref().is_none_or(|t| t == agent_id);
+        let is_recipient = self.to_agent.as_deref().is_some_and(|t| t == agent_id);
         self.privacy.allows_access(is_sender, is_recipient)
     }
 

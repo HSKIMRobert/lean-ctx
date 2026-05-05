@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+use crate::core::memory_boundary::FactPrivacy;
 use crate::core::memory_policy::MemoryPolicy;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,6 +42,8 @@ pub struct KnowledgeFact {
     pub feedback_down: u32,
     #[serde(default)]
     pub last_feedback: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub privacy: FactPrivacy,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -172,15 +175,26 @@ impl ProjectKnowledge {
             .iter_mut()
             .find(|f| f.category == category && f.key == key && f.is_current())
         {
-            if existing.value == value {
-                existing.last_confirmed = Utc::now();
+            let now = Utc::now();
+            let same_value_ci = existing.value.to_lowercase() == value.to_lowercase();
+            let similarity = string_similarity(&existing.value, value);
+
+            if existing.value == value || same_value_ci || similarity > 0.8 {
+                existing.last_confirmed = now;
                 existing.source_session = session_id.to_string();
                 existing.confidence = f32::midpoint(existing.confidence, confidence);
                 existing.confirmation_count += 1;
-            } else if existing.confidence >= 0.9 && existing.confirmation_count >= 2 {
-                existing.valid_until = Some(Utc::now());
-                let superseded_id = format!("{}/{}", existing.category, existing.key);
-                let now = Utc::now();
+
+                if existing.value != value && similarity > 0.8 && value.len() > existing.value.len()
+                {
+                    // Prefer the more informative value when semantically equivalent.
+                    existing.value = value.to_string();
+                }
+            } else {
+                let superseded = fact_version_id_v1(existing);
+                existing.valid_until = Some(now);
+                existing.valid_from = existing.valid_from.or(Some(existing.created_at));
+
                 self.facts.push(KnowledgeFact {
                     category: category.to_string(),
                     key: key.to_string(),
@@ -193,19 +207,13 @@ impl ProjectKnowledge {
                     last_retrieved: None,
                     valid_from: Some(now),
                     valid_until: None,
-                    supersedes: Some(superseded_id),
+                    supersedes: Some(superseded),
                     confirmation_count: 1,
                     feedback_up: 0,
                     feedback_down: 0,
                     last_feedback: None,
+                    privacy: FactPrivacy::default(),
                 });
-            } else {
-                existing.value = value.to_string();
-                existing.confidence = confidence;
-                existing.last_confirmed = Utc::now();
-                existing.source_session = session_id.to_string();
-                existing.valid_from = existing.valid_from.or(Some(existing.created_at));
-                existing.confirmation_count = 1;
             }
         } else {
             let now = Utc::now();
@@ -226,6 +234,7 @@ impl ProjectKnowledge {
                 feedback_up: 0,
                 feedback_down: 0,
                 last_feedback: None,
+                privacy: FactPrivacy::default(),
             });
         }
 
@@ -815,6 +824,12 @@ impl KnowledgeFact {
         self.valid_until.is_none()
     }
 
+    /// Stable, intrinsic quality metric (0.0..1.0).
+    ///
+    /// Based only on confidence, confirmation count, and feedback balance.
+    /// Deliberately excludes volatile signals (retrieval count, recency) to
+    /// keep recall output deterministic. For display ordering use
+    /// `salience_score()` which adds recency and category weighting.
     pub fn quality_score(&self) -> f32 {
         let confidence = self.confidence.clamp(0.0, 1.0);
         let confirmations_norm = (self.confirmation_count.min(5) as f32) / 5.0;
@@ -896,6 +911,13 @@ fn sort_fact_for_output(a: &KnowledgeFact, b: &KnowledgeFact) -> std::cmp::Order
         .then_with(|| a.value.cmp(&b.value))
 }
 
+/// Salience-based ranking for fact output ordering.
+///
+/// Unlike `quality_score()` (which is a stable, intrinsic measure of fact
+/// reliability based on confidence, confirmations, and feedback), salience
+/// combines category priority, quality, recency, and retrieval frequency
+/// into a single sort key for _display_ ordering. Salience is volatile and
+/// changes on every access; quality_score is deterministic and stable.
 fn salience_score(f: &KnowledgeFact) -> u32 {
     let cat = f.category.to_lowercase();
     let base: u32 = match cat.as_str() {
@@ -927,6 +949,21 @@ fn salience_score(f: &KnowledgeFact) -> u32 {
 
 fn hash_project_root(root: &str) -> String {
     crate::core::project_hash::hash_project_root(root)
+}
+
+fn fact_version_id_v1(f: &KnowledgeFact) -> String {
+    use md5::{Digest, Md5};
+    let mut hasher = Md5::new();
+    hasher.update(f.category.as_bytes());
+    hasher.update(b"\n");
+    hasher.update(f.key.as_bytes());
+    hasher.update(b"\n");
+    hasher.update(f.value.as_bytes());
+    hasher.update(b"\n");
+    hasher.update(f.source_session.as_bytes());
+    hasher.update(b"\n");
+    hasher.update(f.created_at.to_rfc3339().as_bytes());
+    format!("{:x}", hasher.finalize())
 }
 
 #[cfg(test)]

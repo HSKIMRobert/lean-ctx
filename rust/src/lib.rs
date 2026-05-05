@@ -6,6 +6,10 @@ pub mod cloud_sync;
 pub mod compound_lexer;
 pub mod config_io;
 pub mod core;
+#[cfg(unix)]
+pub mod daemon;
+#[cfg(unix)]
+pub mod daemon_client;
 pub mod dashboard;
 pub mod doctor;
 pub mod engine;

@@ -7,7 +7,7 @@ pub fn select_mode(cache: &SessionCache, path: &str) -> String {
     select_mode_with_task(cache, path, None)
 }
 
-pub fn select_mode_with_task(cache: &SessionCache, path: &str, _task: Option<&str>) -> String {
+pub fn select_mode_with_task(cache: &SessionCache, path: &str, task: Option<&str>) -> String {
     let Ok(content) = std::fs::read_to_string(path) else {
         return "full".to_string();
     };
@@ -36,6 +36,10 @@ pub fn select_mode_with_task(cache: &SessionCache, path: &str, _task: Option<&st
     // task mode (IB-filter) is never auto-selected — it reorders lines and breaks edits.
     // Users can still explicitly request mode: "task".
 
+    if let Some(recommended) = intent_recommended_mode(task) {
+        return recommended;
+    }
+
     let sig = FileSignature::from_path(path, token_count);
     let predictor = ModePredictor::new();
     if let Some(predicted) = predictor.predict_best_mode(&sig) {
@@ -43,6 +47,24 @@ pub fn select_mode_with_task(cache: &SessionCache, path: &str, _task: Option<&st
     }
 
     heuristic_mode(ext, token_count)
+}
+
+/// Queries the intent engine + router for a task-aware read mode recommendation.
+/// Returns `None` when there is no task, confidence is too low, or the router
+/// recommends "auto" (which would recurse).
+fn intent_recommended_mode(task: Option<&str>) -> Option<String> {
+    let task_desc = task?;
+    let classification = crate::core::intent_engine::classify(task_desc);
+    if classification.confidence < 0.4 {
+        return None;
+    }
+    let route = crate::core::intent_engine::route_intent(task_desc, &classification);
+    let mode =
+        crate::core::intent_router::read_mode_for_tier(route.model_tier, classification.task_type);
+    if mode == "auto" {
+        return None;
+    }
+    Some(mode)
 }
 
 fn heuristic_mode(ext: &str, token_count: usize) -> String {
@@ -153,5 +175,28 @@ mod tests {
         assert!(is_code("py"));
         assert!(is_code("tsx"));
         assert!(!is_code("json"));
+    }
+
+    #[test]
+    fn intent_mode_for_explore_task() {
+        let mode = intent_recommended_mode(Some("how does the session cache work?"));
+        assert_eq!(mode, Some("map".to_string()));
+    }
+
+    #[test]
+    fn intent_mode_for_fix_task() {
+        let mode = intent_recommended_mode(Some("fix the bug in auth.rs"));
+        assert_eq!(mode, Some("full".to_string()));
+    }
+
+    #[test]
+    fn intent_mode_none_without_task() {
+        assert_eq!(intent_recommended_mode(None), None);
+    }
+
+    #[test]
+    fn intent_mode_none_for_low_confidence() {
+        let mode = intent_recommended_mode(Some("xyz qqq"));
+        assert_eq!(mode, None);
     }
 }

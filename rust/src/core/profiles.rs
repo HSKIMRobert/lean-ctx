@@ -31,11 +31,21 @@ pub struct Profile {
     #[serde(default)]
     pub compression: CompressionConfig,
     #[serde(default)]
+    pub translation: TranslationConfig,
+    #[serde(default)]
+    pub layout: LayoutConfig,
+    #[serde(default)]
+    pub memory: crate::core::memory_policy::MemoryPolicyOverrides,
+    #[serde(default)]
     pub verification: crate::core::output_verification::VerificationConfig,
     #[serde(default)]
     pub budget: BudgetConfig,
     #[serde(default)]
     pub pipeline: PipelineConfig,
+    #[serde(default)]
+    pub routing: RoutingConfig,
+    #[serde(default)]
+    pub degradation: DegradationConfig,
     #[serde(default)]
     pub autonomy: ProfileAutonomy,
 }
@@ -51,146 +61,282 @@ pub struct ProfileMeta {
 }
 
 /// Read behavior configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// Fields are `Option<T>` for field-level profile inheritance.
+/// Use `_effective()` methods to get the resolved value with defaults.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct ReadConfig {
-    #[serde(default = "default_read_mode")]
-    pub default_mode: String,
-    #[serde(default = "default_max_tokens")]
-    pub max_tokens_per_file: usize,
-    #[serde(default)]
-    pub prefer_cache: bool,
+    pub default_mode: Option<String>,
+    pub max_tokens_per_file: Option<usize>,
+    pub prefer_cache: Option<bool>,
 }
 
-fn default_read_mode() -> String {
-    "auto".to_string()
-}
-fn default_max_tokens() -> usize {
-    50_000
-}
-
-impl Default for ReadConfig {
-    fn default() -> Self {
-        Self {
-            default_mode: default_read_mode(),
-            max_tokens_per_file: default_max_tokens(),
-            prefer_cache: false,
-        }
+impl ReadConfig {
+    pub fn default_mode_effective(&self) -> &str {
+        self.default_mode.as_deref().unwrap_or("auto")
+    }
+    pub fn max_tokens_per_file_effective(&self) -> usize {
+        self.max_tokens_per_file.unwrap_or(50_000)
+    }
+    pub fn prefer_cache_effective(&self) -> bool {
+        self.prefer_cache.unwrap_or(false)
     }
 }
 
 /// Compression strategy configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct CompressionConfig {
-    #[serde(default = "default_crp_mode")]
-    pub crp_mode: String,
-    #[serde(default = "default_output_density")]
-    pub output_density: String,
-    #[serde(default = "default_entropy_threshold")]
-    pub entropy_threshold: f64,
+    pub crp_mode: Option<String>,
+    pub output_density: Option<String>,
+    pub entropy_threshold: Option<f64>,
+    pub terse_mode: Option<bool>,
 }
 
-fn default_crp_mode() -> String {
-    "tdd".to_string()
-}
-fn default_output_density() -> String {
-    "normal".to_string()
-}
-fn default_entropy_threshold() -> f64 {
-    0.3
+impl CompressionConfig {
+    pub fn crp_mode_effective(&self) -> &str {
+        self.crp_mode.as_deref().unwrap_or("tdd")
+    }
+    pub fn output_density_effective(&self) -> &str {
+        self.output_density.as_deref().unwrap_or("normal")
+    }
+    pub fn entropy_threshold_effective(&self) -> f64 {
+        self.entropy_threshold.unwrap_or(0.3)
+    }
+    pub fn terse_mode_effective(&self) -> bool {
+        self.terse_mode.unwrap_or(false)
+    }
 }
 
-impl Default for CompressionConfig {
-    fn default() -> Self {
-        Self {
-            crp_mode: default_crp_mode(),
-            output_density: default_output_density(),
-            entropy_threshold: default_entropy_threshold(),
-        }
+/// Translation (tokenizer-aware) configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct TranslationConfig {
+    /// If false, preserve legacy CRP/TDD formats without post-translation.
+    pub enabled: Option<bool>,
+    /// legacy|ascii|auto
+    pub ruleset: Option<String>,
+}
+
+impl TranslationConfig {
+    pub fn enabled_effective(&self) -> bool {
+        self.enabled.unwrap_or(false)
+    }
+    pub fn ruleset_effective(&self) -> &str {
+        self.ruleset.as_deref().unwrap_or("legacy")
+    }
+}
+
+/// Layout (attention-aware reorder) configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct LayoutConfig {
+    /// If false, preserve original order.
+    pub enabled: Option<bool>,
+    /// Minimum line count for enabling reorder.
+    pub min_lines: Option<usize>,
+}
+
+impl LayoutConfig {
+    pub fn enabled_effective(&self) -> bool {
+        self.enabled.unwrap_or(false)
+    }
+    pub fn min_lines_effective(&self) -> usize {
+        self.min_lines.unwrap_or(15)
+    }
+}
+
+/// Routing policy overrides (intent → model tier → read mode/budgets).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RoutingConfig {
+    /// Hard cap for recommended model tier: fast|standard|premium.
+    #[serde(default)]
+    pub max_model_tier: Option<String>,
+    /// If true, apply deterministic routing degradation under budget/pressure.
+    #[serde(default)]
+    pub degrade_under_pressure: Option<bool>,
+}
+
+impl RoutingConfig {
+    pub fn max_model_tier_effective(&self) -> &str {
+        self.max_model_tier.as_deref().unwrap_or("premium")
+    }
+
+    pub fn degrade_under_pressure_effective(&self) -> bool {
+        self.degrade_under_pressure.unwrap_or(true)
+    }
+}
+
+/// Budget/SLO degradation policy configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DegradationConfig {
+    /// If true, enforce throttling/blocking decisions. Default is warn-only.
+    #[serde(default)]
+    pub enforce: Option<bool>,
+    /// Throttle duration (ms) when policy verdict is Throttle. Default: 250ms.
+    #[serde(default)]
+    pub throttle_ms: Option<u64>,
+}
+
+impl DegradationConfig {
+    pub fn enforce_effective(&self) -> bool {
+        self.enforce.unwrap_or(false)
+    }
+
+    pub fn throttle_ms_effective(&self) -> u64 {
+        self.throttle_ms.unwrap_or(250)
     }
 }
 
 /// Token and cost budget limits.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct BudgetConfig {
-    #[serde(default = "default_context_tokens")]
-    pub max_context_tokens: usize,
-    #[serde(default = "default_shell_invocations")]
-    pub max_shell_invocations: usize,
-    #[serde(default = "default_cost_usd")]
-    pub max_cost_usd: f64,
+    pub max_context_tokens: Option<usize>,
+    pub max_shell_invocations: Option<usize>,
+    pub max_cost_usd: Option<f64>,
 }
 
-fn default_context_tokens() -> usize {
-    200_000
-}
-fn default_shell_invocations() -> usize {
-    100
-}
-fn default_cost_usd() -> f64 {
-    5.0
-}
-
-impl Default for BudgetConfig {
-    fn default() -> Self {
-        Self {
-            max_context_tokens: default_context_tokens(),
-            max_shell_invocations: default_shell_invocations(),
-            max_cost_usd: default_cost_usd(),
-        }
+impl BudgetConfig {
+    pub fn max_context_tokens_effective(&self) -> usize {
+        self.max_context_tokens.unwrap_or(200_000)
+    }
+    pub fn max_shell_invocations_effective(&self) -> usize {
+        self.max_shell_invocations.unwrap_or(100)
+    }
+    pub fn max_cost_usd_effective(&self) -> f64 {
+        self.max_cost_usd.unwrap_or(5.0)
     }
 }
 
 /// Pipeline layer activation per profile.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct PipelineConfig {
-    #[serde(default = "default_true")]
-    pub intent: bool,
-    #[serde(default = "default_true")]
-    pub relevance: bool,
-    #[serde(default = "default_true")]
-    pub compression: bool,
-    #[serde(default = "default_true")]
-    pub translation: bool,
+    pub intent: Option<bool>,
+    pub relevance: Option<bool>,
+    pub compression: Option<bool>,
+    pub translation: Option<bool>,
 }
 
-fn default_true() -> bool {
-    true
-}
-
-impl Default for PipelineConfig {
-    fn default() -> Self {
-        Self {
-            intent: true,
-            relevance: true,
-            compression: true,
-            translation: true,
-        }
+impl PipelineConfig {
+    pub fn intent_effective(&self) -> bool {
+        self.intent.unwrap_or(true)
+    }
+    pub fn relevance_effective(&self) -> bool {
+        self.relevance.unwrap_or(true)
+    }
+    pub fn compression_effective(&self) -> bool {
+        self.compression.unwrap_or(true)
+    }
+    pub fn translation_effective(&self) -> bool {
+        self.translation.unwrap_or(true)
     }
 }
 
 /// Autonomy overrides per profile.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct ProfileAutonomy {
-    #[serde(default = "default_true")]
-    pub auto_dedup: bool,
-    #[serde(default = "default_checkpoint")]
-    pub checkpoint_interval: u32,
+    pub enabled: Option<bool>,
+    pub auto_preload: Option<bool>,
+    pub auto_dedup: Option<bool>,
+    pub auto_related: Option<bool>,
+    pub silent_preload: Option<bool>,
+    /// Enable bounded prefetch after reads (opt-in by default).
+    pub auto_prefetch: Option<bool>,
+    /// Enable response shaping for large outputs (opt-in by default).
+    pub auto_response: Option<bool>,
+    pub dedup_threshold: Option<usize>,
+    pub prefetch_max_files: Option<usize>,
+    pub prefetch_budget_tokens: Option<usize>,
+    pub response_min_tokens: Option<usize>,
+    pub checkpoint_interval: Option<u32>,
 }
 
-fn default_checkpoint() -> u32 {
-    15
-}
-
-impl Default for ProfileAutonomy {
-    fn default() -> Self {
-        Self {
-            auto_dedup: true,
-            checkpoint_interval: default_checkpoint(),
-        }
+impl ProfileAutonomy {
+    pub fn enabled_effective(&self) -> bool {
+        self.enabled.unwrap_or(true)
+    }
+    pub fn auto_preload_effective(&self) -> bool {
+        self.auto_preload.unwrap_or(true)
+    }
+    pub fn auto_dedup_effective(&self) -> bool {
+        self.auto_dedup.unwrap_or(true)
+    }
+    pub fn auto_related_effective(&self) -> bool {
+        self.auto_related.unwrap_or(true)
+    }
+    pub fn silent_preload_effective(&self) -> bool {
+        self.silent_preload.unwrap_or(true)
+    }
+    pub fn auto_prefetch_effective(&self) -> bool {
+        self.auto_prefetch.unwrap_or(false)
+    }
+    pub fn auto_response_effective(&self) -> bool {
+        self.auto_response.unwrap_or(false)
+    }
+    pub fn dedup_threshold_effective(&self) -> usize {
+        self.dedup_threshold.unwrap_or(8)
+    }
+    pub fn prefetch_max_files_effective(&self) -> usize {
+        self.prefetch_max_files.unwrap_or(3)
+    }
+    pub fn prefetch_budget_tokens_effective(&self) -> usize {
+        self.prefetch_budget_tokens.unwrap_or(4000)
+    }
+    pub fn response_min_tokens_effective(&self) -> usize {
+        self.response_min_tokens.unwrap_or(600)
+    }
+    pub fn checkpoint_interval_effective(&self) -> u32 {
+        self.checkpoint_interval.unwrap_or(15)
     }
 }
 
 // ── Built-in Profiles ──────────────────────────────────────
+
+fn builtin_coder() -> Profile {
+    Profile {
+        profile: ProfileMeta {
+            name: "coder".to_string(),
+            inherits: None,
+            description: "Default coding workflow with guarded autonomy drivers".to_string(),
+        },
+        read: ReadConfig {
+            default_mode: Some("auto".to_string()),
+            max_tokens_per_file: Some(50_000),
+            prefer_cache: Some(true),
+        },
+        compression: CompressionConfig {
+            crp_mode: Some("tdd".to_string()),
+            output_density: Some("terse".to_string()),
+            terse_mode: Some(true),
+            ..CompressionConfig::default()
+        },
+        translation: TranslationConfig {
+            enabled: Some(true),
+            ruleset: Some("auto".to_string()),
+        },
+        layout: LayoutConfig::default(),
+        memory: crate::core::memory_policy::MemoryPolicyOverrides::default(),
+        verification: crate::core::output_verification::VerificationConfig::default(),
+        budget: BudgetConfig {
+            max_context_tokens: Some(150_000),
+            max_shell_invocations: Some(100),
+            ..BudgetConfig::default()
+        },
+        pipeline: PipelineConfig::default(),
+        routing: RoutingConfig::default(),
+        degradation: DegradationConfig::default(),
+        autonomy: ProfileAutonomy {
+            auto_prefetch: Some(true),
+            auto_response: Some(true),
+            checkpoint_interval: Some(10),
+            ..ProfileAutonomy::default()
+        },
+    }
+}
 
 fn builtin_exploration() -> Profile {
     Profile {
@@ -200,17 +346,25 @@ fn builtin_exploration() -> Profile {
             description: "Broad context for understanding codebases".to_string(),
         },
         read: ReadConfig {
-            default_mode: "map".to_string(),
-            max_tokens_per_file: 80_000,
-            prefer_cache: true,
+            default_mode: Some("map".to_string()),
+            max_tokens_per_file: Some(80_000),
+            prefer_cache: Some(true),
         },
-        compression: CompressionConfig::default(),
+        compression: CompressionConfig {
+            terse_mode: Some(true),
+            ..CompressionConfig::default()
+        },
+        translation: TranslationConfig::default(),
+        layout: LayoutConfig::default(),
+        memory: crate::core::memory_policy::MemoryPolicyOverrides::default(),
         verification: crate::core::output_verification::VerificationConfig::default(),
         budget: BudgetConfig {
-            max_context_tokens: 200_000,
+            max_context_tokens: Some(200_000),
             ..BudgetConfig::default()
         },
         pipeline: PipelineConfig::default(),
+        routing: RoutingConfig::default(),
+        degradation: DegradationConfig::default(),
         autonomy: ProfileAutonomy::default(),
     }
 }
@@ -223,24 +377,32 @@ fn builtin_bugfix() -> Profile {
             description: "Focused context for debugging specific issues".to_string(),
         },
         read: ReadConfig {
-            default_mode: "auto".to_string(),
-            max_tokens_per_file: 30_000,
-            prefer_cache: false,
+            default_mode: Some("auto".to_string()),
+            max_tokens_per_file: Some(30_000),
+            prefer_cache: Some(false),
         },
         compression: CompressionConfig {
-            crp_mode: "tdd".to_string(),
-            output_density: "terse".to_string(),
+            crp_mode: Some("tdd".to_string()),
+            output_density: Some("terse".to_string()),
             ..CompressionConfig::default()
         },
+        translation: TranslationConfig::default(),
+        layout: LayoutConfig::default(),
+        memory: crate::core::memory_policy::MemoryPolicyOverrides::default(),
         verification: crate::core::output_verification::VerificationConfig::default(),
         budget: BudgetConfig {
-            max_context_tokens: 100_000,
-            max_shell_invocations: 50,
+            max_context_tokens: Some(100_000),
+            max_shell_invocations: Some(50),
             ..BudgetConfig::default()
         },
         pipeline: PipelineConfig::default(),
+        routing: RoutingConfig {
+            max_model_tier: Some("standard".to_string()),
+            ..RoutingConfig::default()
+        },
+        degradation: DegradationConfig::default(),
         autonomy: ProfileAutonomy {
-            checkpoint_interval: 10,
+            checkpoint_interval: Some(10),
             ..ProfileAutonomy::default()
         },
     }
@@ -254,24 +416,32 @@ fn builtin_hotfix() -> Profile {
             description: "Minimal context, fast iteration for urgent fixes".to_string(),
         },
         read: ReadConfig {
-            default_mode: "signatures".to_string(),
-            max_tokens_per_file: 2_000,
-            prefer_cache: true,
+            default_mode: Some("signatures".to_string()),
+            max_tokens_per_file: Some(2_000),
+            prefer_cache: Some(true),
         },
         compression: CompressionConfig {
-            crp_mode: "tdd".to_string(),
-            output_density: "ultra".to_string(),
+            crp_mode: Some("tdd".to_string()),
+            output_density: Some("ultra".to_string()),
             ..CompressionConfig::default()
         },
+        translation: TranslationConfig::default(),
+        layout: LayoutConfig::default(),
+        memory: crate::core::memory_policy::MemoryPolicyOverrides::default(),
         verification: crate::core::output_verification::VerificationConfig::default(),
         budget: BudgetConfig {
-            max_context_tokens: 30_000,
-            max_shell_invocations: 20,
-            max_cost_usd: 1.0,
+            max_context_tokens: Some(30_000),
+            max_shell_invocations: Some(20),
+            max_cost_usd: Some(1.0),
         },
         pipeline: PipelineConfig::default(),
+        routing: RoutingConfig {
+            max_model_tier: Some("fast".to_string()),
+            ..RoutingConfig::default()
+        },
+        degradation: DegradationConfig::default(),
         autonomy: ProfileAutonomy {
-            checkpoint_interval: 5,
+            checkpoint_interval: Some(5),
             ..ProfileAutonomy::default()
         },
     }
@@ -285,21 +455,29 @@ fn builtin_ci_debug() -> Profile {
             description: "CI/CD debugging with shell-heavy workflows".to_string(),
         },
         read: ReadConfig {
-            default_mode: "auto".to_string(),
-            max_tokens_per_file: 50_000,
-            prefer_cache: false,
+            default_mode: Some("auto".to_string()),
+            max_tokens_per_file: Some(50_000),
+            prefer_cache: Some(false),
         },
         compression: CompressionConfig {
-            output_density: "terse".to_string(),
+            output_density: Some("terse".to_string()),
             ..CompressionConfig::default()
         },
+        translation: TranslationConfig::default(),
+        layout: LayoutConfig::default(),
+        memory: crate::core::memory_policy::MemoryPolicyOverrides::default(),
         verification: crate::core::output_verification::VerificationConfig::default(),
         budget: BudgetConfig {
-            max_context_tokens: 150_000,
-            max_shell_invocations: 200,
+            max_context_tokens: Some(150_000),
+            max_shell_invocations: Some(200),
             ..BudgetConfig::default()
         },
         pipeline: PipelineConfig::default(),
+        routing: RoutingConfig {
+            max_model_tier: Some("standard".to_string()),
+            ..RoutingConfig::default()
+        },
+        degradation: DegradationConfig::default(),
         autonomy: ProfileAutonomy::default(),
     }
 }
@@ -312,21 +490,32 @@ fn builtin_review() -> Profile {
             description: "Code review with broad read-only context".to_string(),
         },
         read: ReadConfig {
-            default_mode: "map".to_string(),
-            max_tokens_per_file: 60_000,
-            prefer_cache: true,
+            default_mode: Some("map".to_string()),
+            max_tokens_per_file: Some(60_000),
+            prefer_cache: Some(true),
         },
         compression: CompressionConfig {
-            crp_mode: "compact".to_string(),
+            crp_mode: Some("compact".to_string()),
             ..CompressionConfig::default()
         },
+        translation: TranslationConfig::default(),
+        layout: LayoutConfig {
+            enabled: Some(true),
+            ..LayoutConfig::default()
+        },
+        memory: crate::core::memory_policy::MemoryPolicyOverrides::default(),
         verification: crate::core::output_verification::VerificationConfig::default(),
         budget: BudgetConfig {
-            max_context_tokens: 150_000,
-            max_shell_invocations: 30,
+            max_context_tokens: Some(150_000),
+            max_shell_invocations: Some(30),
             ..BudgetConfig::default()
         },
         pipeline: PipelineConfig::default(),
+        routing: RoutingConfig {
+            max_model_tier: Some("standard".to_string()),
+            ..RoutingConfig::default()
+        },
+        degradation: DegradationConfig::default(),
         autonomy: ProfileAutonomy::default(),
     }
 }
@@ -335,6 +524,7 @@ fn builtin_review() -> Profile {
 pub fn builtin_profiles() -> HashMap<String, Profile> {
     let mut map = HashMap::new();
     for p in [
+        builtin_coder(),
         builtin_exploration(),
         builtin_bugfix(),
         builtin_hotfix(),
@@ -422,7 +612,203 @@ fn try_load_toml(path: &Path) -> Option<Profile> {
 
 /// Merges parent into child: child values take precedence,
 /// parent provides defaults for unspecified fields.
+///
+/// ALL sections are merged field-by-field using `Option::or()`.
+/// A child profile only needs to set the fields it wants to override.
 fn merge_profiles(parent: Profile, child: Profile) -> Profile {
+    let read = ReadConfig {
+        default_mode: child.read.default_mode.or(parent.read.default_mode),
+        max_tokens_per_file: child
+            .read
+            .max_tokens_per_file
+            .or(parent.read.max_tokens_per_file),
+        prefer_cache: child.read.prefer_cache.or(parent.read.prefer_cache),
+    };
+    let compression = CompressionConfig {
+        crp_mode: child.compression.crp_mode.or(parent.compression.crp_mode),
+        output_density: child
+            .compression
+            .output_density
+            .or(parent.compression.output_density),
+        entropy_threshold: child
+            .compression
+            .entropy_threshold
+            .or(parent.compression.entropy_threshold),
+        terse_mode: child
+            .compression
+            .terse_mode
+            .or(parent.compression.terse_mode),
+    };
+    let translation = TranslationConfig {
+        enabled: child.translation.enabled.or(parent.translation.enabled),
+        ruleset: child.translation.ruleset.or(parent.translation.ruleset),
+    };
+    let layout = LayoutConfig {
+        enabled: child.layout.enabled.or(parent.layout.enabled),
+        min_lines: child.layout.min_lines.or(parent.layout.min_lines),
+    };
+    let memory = crate::core::memory_policy::MemoryPolicyOverrides {
+        knowledge: crate::core::memory_policy::KnowledgePolicyOverrides {
+            max_facts: child
+                .memory
+                .knowledge
+                .max_facts
+                .or(parent.memory.knowledge.max_facts),
+            max_patterns: child
+                .memory
+                .knowledge
+                .max_patterns
+                .or(parent.memory.knowledge.max_patterns),
+            max_history: child
+                .memory
+                .knowledge
+                .max_history
+                .or(parent.memory.knowledge.max_history),
+            contradiction_threshold: child
+                .memory
+                .knowledge
+                .contradiction_threshold
+                .or(parent.memory.knowledge.contradiction_threshold),
+            recall_facts_limit: child
+                .memory
+                .knowledge
+                .recall_facts_limit
+                .or(parent.memory.knowledge.recall_facts_limit),
+            rooms_limit: child
+                .memory
+                .knowledge
+                .rooms_limit
+                .or(parent.memory.knowledge.rooms_limit),
+            timeline_limit: child
+                .memory
+                .knowledge
+                .timeline_limit
+                .or(parent.memory.knowledge.timeline_limit),
+            relations_limit: child
+                .memory
+                .knowledge
+                .relations_limit
+                .or(parent.memory.knowledge.relations_limit),
+        },
+        lifecycle: crate::core::memory_policy::LifecyclePolicyOverrides {
+            decay_rate: child
+                .memory
+                .lifecycle
+                .decay_rate
+                .or(parent.memory.lifecycle.decay_rate),
+            low_confidence_threshold: child
+                .memory
+                .lifecycle
+                .low_confidence_threshold
+                .or(parent.memory.lifecycle.low_confidence_threshold),
+            stale_days: child
+                .memory
+                .lifecycle
+                .stale_days
+                .or(parent.memory.lifecycle.stale_days),
+            similarity_threshold: child
+                .memory
+                .lifecycle
+                .similarity_threshold
+                .or(parent.memory.lifecycle.similarity_threshold),
+        },
+    };
+    let verification = crate::core::output_verification::VerificationConfig {
+        enabled: child.verification.enabled.or(parent.verification.enabled),
+        mode: child.verification.mode.or(parent.verification.mode),
+        strict_mode: child
+            .verification
+            .strict_mode
+            .or(parent.verification.strict_mode),
+        check_paths: child
+            .verification
+            .check_paths
+            .or(parent.verification.check_paths),
+        check_identifiers: child
+            .verification
+            .check_identifiers
+            .or(parent.verification.check_identifiers),
+        check_line_numbers: child
+            .verification
+            .check_line_numbers
+            .or(parent.verification.check_line_numbers),
+        check_structure: child
+            .verification
+            .check_structure
+            .or(parent.verification.check_structure),
+    };
+    let budget = BudgetConfig {
+        max_context_tokens: child
+            .budget
+            .max_context_tokens
+            .or(parent.budget.max_context_tokens),
+        max_shell_invocations: child
+            .budget
+            .max_shell_invocations
+            .or(parent.budget.max_shell_invocations),
+        max_cost_usd: child.budget.max_cost_usd.or(parent.budget.max_cost_usd),
+    };
+    let pipeline = PipelineConfig {
+        intent: child.pipeline.intent.or(parent.pipeline.intent),
+        relevance: child.pipeline.relevance.or(parent.pipeline.relevance),
+        compression: child.pipeline.compression.or(parent.pipeline.compression),
+        translation: child.pipeline.translation.or(parent.pipeline.translation),
+    };
+    let routing = RoutingConfig {
+        max_model_tier: child
+            .routing
+            .max_model_tier
+            .or(parent.routing.max_model_tier),
+        degrade_under_pressure: child
+            .routing
+            .degrade_under_pressure
+            .or(parent.routing.degrade_under_pressure),
+    };
+    let degradation = DegradationConfig {
+        enforce: child.degradation.enforce.or(parent.degradation.enforce),
+        throttle_ms: child
+            .degradation
+            .throttle_ms
+            .or(parent.degradation.throttle_ms),
+    };
+    let autonomy = ProfileAutonomy {
+        enabled: child.autonomy.enabled.or(parent.autonomy.enabled),
+        auto_preload: child.autonomy.auto_preload.or(parent.autonomy.auto_preload),
+        auto_dedup: child.autonomy.auto_dedup.or(parent.autonomy.auto_dedup),
+        auto_related: child.autonomy.auto_related.or(parent.autonomy.auto_related),
+        silent_preload: child
+            .autonomy
+            .silent_preload
+            .or(parent.autonomy.silent_preload),
+        auto_prefetch: child
+            .autonomy
+            .auto_prefetch
+            .or(parent.autonomy.auto_prefetch),
+        auto_response: child
+            .autonomy
+            .auto_response
+            .or(parent.autonomy.auto_response),
+        dedup_threshold: child
+            .autonomy
+            .dedup_threshold
+            .or(parent.autonomy.dedup_threshold),
+        prefetch_max_files: child
+            .autonomy
+            .prefetch_max_files
+            .or(parent.autonomy.prefetch_max_files),
+        prefetch_budget_tokens: child
+            .autonomy
+            .prefetch_budget_tokens
+            .or(parent.autonomy.prefetch_budget_tokens),
+        response_min_tokens: child
+            .autonomy
+            .response_min_tokens
+            .or(parent.autonomy.response_min_tokens),
+        checkpoint_interval: child
+            .autonomy
+            .checkpoint_interval
+            .or(parent.autonomy.checkpoint_interval),
+    };
     Profile {
         profile: ProfileMeta {
             name: child.profile.name,
@@ -433,12 +819,17 @@ fn merge_profiles(parent: Profile, child: Profile) -> Profile {
                 child.profile.description
             },
         },
-        read: child.read,
-        compression: child.compression,
-        verification: child.verification,
-        budget: child.budget,
-        pipeline: child.pipeline,
-        autonomy: child.autonomy,
+        read,
+        compression,
+        translation,
+        layout,
+        memory,
+        verification,
+        budget,
+        pipeline,
+        routing,
+        degradation,
+        autonomy,
     }
 }
 
@@ -562,7 +953,8 @@ mod tests {
     #[test]
     fn builtin_profiles_has_five() {
         let builtins = builtin_profiles();
-        assert_eq!(builtins.len(), 5);
+        assert_eq!(builtins.len(), 6);
+        assert!(builtins.contains_key("coder"));
         assert!(builtins.contains_key("exploration"));
         assert!(builtins.contains_key("bugfix"));
         assert!(builtins.contains_key("hotfix"));
@@ -573,18 +965,18 @@ mod tests {
     #[test]
     fn hotfix_has_minimal_budget() {
         let p = builtin_profiles().remove("hotfix").unwrap();
-        assert_eq!(p.budget.max_context_tokens, 30_000);
-        assert_eq!(p.budget.max_shell_invocations, 20);
-        assert_eq!(p.read.default_mode, "signatures");
-        assert_eq!(p.compression.output_density, "ultra");
+        assert_eq!(p.budget.max_context_tokens_effective(), 30_000);
+        assert_eq!(p.budget.max_shell_invocations_effective(), 20);
+        assert_eq!(p.read.default_mode_effective(), "signatures");
+        assert_eq!(p.compression.output_density_effective(), "ultra");
     }
 
     #[test]
     fn exploration_has_broad_context() {
         let p = builtin_profiles().remove("exploration").unwrap();
-        assert_eq!(p.budget.max_context_tokens, 200_000);
-        assert_eq!(p.read.default_mode, "map");
-        assert!(p.read.prefer_cache);
+        assert_eq!(p.budget.max_context_tokens_effective(), 200_000);
+        assert_eq!(p.read.default_mode_effective(), "map");
+        assert!(p.read.prefer_cache_effective());
     }
 
     #[test]
@@ -593,8 +985,8 @@ mod tests {
         let toml_str = format_as_toml(&original);
         let parsed: Profile = toml::from_str(&toml_str).unwrap();
         assert_eq!(parsed.profile.name, "exploration");
-        assert_eq!(parsed.read.default_mode, "map");
-        assert_eq!(parsed.budget.max_context_tokens, 200_000);
+        assert_eq!(parsed.read.default_mode_effective(), "map");
+        assert_eq!(parsed.budget.max_context_tokens_effective(), 200_000);
     }
 
     #[test]
@@ -607,22 +999,27 @@ mod tests {
                 description: String::new(),
             },
             read: ReadConfig {
-                default_mode: "signatures".to_string(),
+                default_mode: Some("signatures".to_string()),
                 ..ReadConfig::default()
             },
             compression: CompressionConfig::default(),
+            translation: TranslationConfig::default(),
+            layout: LayoutConfig::default(),
+            memory: crate::core::memory_policy::MemoryPolicyOverrides::default(),
             verification: crate::core::output_verification::VerificationConfig::default(),
             budget: BudgetConfig {
-                max_context_tokens: 10_000,
+                max_context_tokens: Some(10_000),
                 ..BudgetConfig::default()
             },
             pipeline: PipelineConfig::default(),
+            routing: RoutingConfig::default(),
+            degradation: DegradationConfig::default(),
             autonomy: ProfileAutonomy::default(),
         };
 
         let merged = merge_profiles(parent, child);
-        assert_eq!(merged.read.default_mode, "signatures");
-        assert_eq!(merged.budget.max_context_tokens, 10_000);
+        assert_eq!(merged.read.default_mode_effective(), "signatures");
+        assert_eq!(merged.budget.max_context_tokens_effective(), 10_000);
         assert_eq!(
             merged.profile.description,
             "Broad context for understanding codebases"
@@ -630,10 +1027,53 @@ mod tests {
     }
 
     #[test]
+    fn merge_partial_child_inherits_parent_fields() {
+        let parent = builtin_exploration();
+        let child = Profile {
+            profile: ProfileMeta {
+                name: "partial".to_string(),
+                inherits: Some("exploration".to_string()),
+                description: String::new(),
+            },
+            read: ReadConfig {
+                default_mode: Some("map".to_string()),
+                ..ReadConfig::default()
+            },
+            compression: CompressionConfig::default(),
+            translation: TranslationConfig::default(),
+            layout: LayoutConfig::default(),
+            memory: crate::core::memory_policy::MemoryPolicyOverrides::default(),
+            verification: crate::core::output_verification::VerificationConfig::default(),
+            budget: BudgetConfig::default(),
+            pipeline: PipelineConfig::default(),
+            routing: RoutingConfig::default(),
+            degradation: DegradationConfig::default(),
+            autonomy: ProfileAutonomy::default(),
+        };
+
+        let merged = merge_profiles(parent, child);
+        assert_eq!(merged.read.default_mode_effective(), "map");
+        assert_eq!(
+            merged.read.max_tokens_per_file_effective(),
+            80_000,
+            "should inherit max_tokens_per_file from parent"
+        );
+        assert!(
+            merged.read.prefer_cache_effective(),
+            "should inherit prefer_cache from parent"
+        );
+        assert_eq!(
+            merged.budget.max_context_tokens_effective(),
+            200_000,
+            "should inherit budget from parent"
+        );
+    }
+
+    #[test]
     fn load_builtin_by_name() {
         let p = load_profile("hotfix").unwrap();
         assert_eq!(p.profile.name, "hotfix");
-        assert_eq!(p.read.default_mode, "signatures");
+        assert_eq!(p.read.default_mode_effective(), "signatures");
     }
 
     #[test]
@@ -679,16 +1119,21 @@ mod tests {
             profile: ProfileMeta::default(),
             read: ReadConfig::default(),
             compression: CompressionConfig::default(),
+            translation: TranslationConfig::default(),
+            layout: LayoutConfig::default(),
+            memory: crate::core::memory_policy::MemoryPolicyOverrides::default(),
             verification: crate::core::output_verification::VerificationConfig::default(),
             budget: BudgetConfig::default(),
             pipeline: PipelineConfig::default(),
+            routing: RoutingConfig::default(),
+            degradation: DegradationConfig::default(),
             autonomy: ProfileAutonomy::default(),
         };
-        assert_eq!(p.read.default_mode, "auto");
-        assert_eq!(p.compression.crp_mode, "tdd");
-        assert_eq!(p.budget.max_context_tokens, 200_000);
-        assert!(p.pipeline.compression);
-        assert!(p.pipeline.intent);
+        assert_eq!(p.read.default_mode_effective(), "auto");
+        assert_eq!(p.compression.crp_mode_effective(), "tdd");
+        assert_eq!(p.budget.max_context_tokens_effective(), 200_000);
+        assert!(p.pipeline.compression_effective());
+        assert!(p.pipeline.intent_effective());
     }
 
     #[test]
@@ -702,10 +1147,10 @@ intent = false
 relevance = false
 "#;
         let p: Profile = toml::from_str(toml_str).unwrap();
-        assert!(!p.pipeline.intent);
-        assert!(!p.pipeline.relevance);
-        assert!(p.pipeline.compression);
-        assert!(p.pipeline.translation);
+        assert!(!p.pipeline.intent_effective());
+        assert!(!p.pipeline.relevance_effective());
+        assert!(p.pipeline.compression_effective());
+        assert!(p.pipeline.translation_effective());
     }
 
     #[test]
@@ -718,9 +1163,26 @@ name = "minimal"
 default_mode = "entropy"
 "#;
         let p: Profile = toml::from_str(toml_str).unwrap();
-        assert_eq!(p.read.default_mode, "entropy");
-        assert_eq!(p.read.max_tokens_per_file, 50_000);
-        assert_eq!(p.budget.max_context_tokens, 200_000);
-        assert_eq!(p.compression.crp_mode, "tdd");
+        assert_eq!(p.read.default_mode_effective(), "entropy");
+        assert_eq!(p.read.max_tokens_per_file_effective(), 50_000);
+        assert_eq!(p.budget.max_context_tokens_effective(), 200_000);
+        assert_eq!(p.compression.crp_mode_effective(), "tdd");
+    }
+
+    #[test]
+    fn partial_toml_leaves_unset_as_none() {
+        let toml_str = r#"
+[profile]
+name = "sparse"
+
+[read]
+default_mode = "map"
+"#;
+        let p: Profile = toml::from_str(toml_str).unwrap();
+        assert_eq!(p.read.default_mode, Some("map".to_string()));
+        assert_eq!(p.read.max_tokens_per_file, None);
+        assert_eq!(p.read.prefer_cache, None);
+        assert_eq!(p.budget.max_context_tokens, None);
+        assert_eq!(p.compression.crp_mode, None);
     }
 }

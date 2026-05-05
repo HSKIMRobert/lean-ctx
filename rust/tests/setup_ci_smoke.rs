@@ -101,13 +101,13 @@ fn setup_bootstrap_doctor_status_json_smoke() {
         );
     }
 
-    // init --agent claude should prefer `claude mcp add-json` when available.
+    // init --agent claude --mode mcp should prefer `claude mcp add-json` when available.
     let out = Command::new(bin)
-        .args(["init", "--agent", "claude", "--global"])
+        .args(["init", "--agent", "claude", "--global", "--mode", "mcp"])
         .envs(envs.iter().copied())
         .output()
-        .expect("init --agent claude");
-    assert!(out.status.success(), "init --agent claude exit");
+        .expect("init --agent claude --mode mcp");
+    assert!(out.status.success(), "init --agent claude --mode mcp exit");
     let saved = std::fs::read_to_string(home.join("claude-mcp.json")).expect("claude-mcp.json");
     let v: serde_json::Value = serde_json::from_str(&saved).expect("claude json parse");
     assert!(
@@ -188,11 +188,11 @@ fn claude_config_dir_fallback_writes_dot_claude_json() {
     envs.push(("PATH", new_path.as_str()));
 
     let out = Command::new(bin)
-        .args(["init", "--agent", "claude", "--global"])
+        .args(["init", "--agent", "claude", "--global", "--mode", "mcp"])
         .envs(envs.iter().copied())
         .output()
-        .expect("init --agent claude");
-    assert!(out.status.success(), "init --agent claude exit");
+        .expect("init --agent claude --mode mcp");
+    assert!(out.status.success(), "init --agent claude --mode mcp exit");
 
     let cfg_path = claude_cfg.join(".claude.json");
     let content = std::fs::read_to_string(&cfg_path).expect(".claude.json exists");
@@ -340,12 +340,15 @@ fn init_claude_installs_dedicated_rules_file_without_claude_md() {
     }
 
     let out = Command::new(bin)
-        .args(["init", "--agent", "claude", "--global"])
+        .args(["init", "--agent", "claude", "--global", "--mode", "mcp"])
         .current_dir(&project)
         .envs(envs.iter().copied())
         .output()
-        .expect("init --agent claude --global");
-    assert!(out.status.success(), "init --agent claude --global exit");
+        .expect("init --agent claude --global --mode mcp");
+    assert!(
+        out.status.success(),
+        "init --agent claude --global --mode mcp exit"
+    );
 
     let claude_md_path = home.join(".claude/CLAUDE.md");
     assert!(

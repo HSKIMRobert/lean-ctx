@@ -22,7 +22,7 @@ pub(super) fn load_from_disk() -> StatsStore {
     }
 }
 
-pub(super) fn write_to_disk(store: &StatsStore) {
+fn write_to_disk(store: &StatsStore) {
     let Some(dir) = stats_dir() else { return };
 
     if !dir.exists() {
@@ -38,6 +38,16 @@ pub(super) fn write_to_disk(store: &StatsStore) {
     }
 }
 
+pub(super) fn locked_write(store: &StatsStore) {
+    let Some(dir) = stats_dir() else { return };
+    let lock_path = dir.join(".stats.lock");
+    let _lock = acquire_file_lock(&lock_path);
+    if _lock.is_none() {
+        return;
+    }
+    write_to_disk(store);
+}
+
 pub(super) fn merge_and_save(current: &StatsStore, baseline: &StatsStore) -> StatsStore {
     let Some(dir) = stats_dir() else {
         let disk = load_from_disk();
@@ -49,7 +59,11 @@ pub(super) fn merge_and_save(current: &StatsStore, baseline: &StatsStore) -> Sta
 
     let disk = load_from_disk();
     let merged = apply_deltas(&disk, current, baseline);
-    write_to_disk(&merged);
+
+    if _lock.is_some() {
+        write_to_disk(&merged);
+    }
+
     merged
 }
 
@@ -101,9 +115,9 @@ pub(super) fn apply_deltas(
         .total_output_tokens
         .saturating_sub(baseline.total_output_tokens);
 
-    merged.total_commands += delta_commands;
-    merged.total_input_tokens += delta_input;
-    merged.total_output_tokens += delta_output;
+    merged.total_commands = merged.total_commands.saturating_add(delta_commands);
+    merged.total_input_tokens = merged.total_input_tokens.saturating_add(delta_input);
+    merged.total_output_tokens = merged.total_output_tokens.saturating_add(delta_output);
 
     for (cmd, stats) in &current.commands {
         let base = baseline.commands.get(cmd);

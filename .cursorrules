@@ -1,14 +1,15 @@
-# lean-ctx — Context Engineering Layer
+#
+# This repository is developed with CLI-first defaults to eliminate MCP tool-schema overhead.
+# If you are working in an IDE where MCP is required (e.g. JetBrains), prefer MCP tools there.
 
-PREFER lean-ctx MCP tools over native equivalents for token savings:
+PREFER lean-ctx CLI commands over MCP tools for token savings (no MCP schema overhead):
 
-| PREFER | OVER | Why |
-|--------|------|-----|
-| `ctx_read(path)` | `Read` | Cached, 10 compression modes |
-| `ctx_shell(command)` | `Shell` | Pattern compression |
-| `ctx_search(pattern, path)` | `Grep` | Compact results |
-| `ctx_tree(path, depth)` | `ls` / `find` | Directory maps |
-| `ctx_edit(path, old_string, new_string)` | `Edit` (when Read unavailable) | Search-and-replace without native Read |
+| USE (via Shell/Bash) | INSTEAD OF (MCP) | Why |
+|---------------------|-------------------|-----|
+| `lean-ctx read <path>` | `ctx_read` | No MCP schema overhead, same caching |
+| `lean-ctx read <path> -m map` | `ctx_read(mode="map")` | Mode-optimized compressed read |
+| `lean-ctx -c "<cmd>"` | `ctx_shell` | Pattern compression (95+ patterns) |
+| `lean-ctx grep <pattern> [path]` | `ctx_search` | Compact search results |
+| `lean-ctx ls [path]` | `ctx_tree` | Directory maps |
 
-Edit files: use native Edit/StrReplace if available. If Edit requires Read and Read is unavailable, use ctx_edit.
-Write, Delete, Glob — use normally. NEVER loop on Edit failures — switch to ctx_edit immediately.
+File editing: use native Edit/StrReplace. Write, Delete, Glob → use normally.

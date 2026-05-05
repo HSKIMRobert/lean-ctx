@@ -9,7 +9,7 @@ use crate::core::session::SessionState;
 use crate::core::workflow::WorkflowRun;
 use crate::tools::ToolCallRecord;
 
-const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = crate::core::contracts::HANDOFF_LEDGER_V1_SCHEMA_VERSION;
 const MAX_KNOWLEDGE_FACTS: usize = 50;
 const MAX_CURATED_REFS: usize = 20;
 
@@ -193,6 +193,10 @@ pub fn list_ledgers() -> Vec<PathBuf> {
 pub fn load_ledger(path: &Path) -> Result<HandoffLedgerV1, String> {
     let s = std::fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
     serde_json::from_str(&s).map_err(|e| format!("parse {}: {e}", path.display()))
+}
+
+pub fn compute_content_md5_for_ledger(ledger: &HandoffLedgerV1) -> String {
+    ledger_content_md5(ledger)
 }
 
 pub fn clear_ledgers() -> Result<u32, String> {

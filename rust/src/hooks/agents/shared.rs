@@ -26,7 +26,7 @@ pub(super) fn install_standard_hook_scripts(
 pub(super) fn prepare_project_rules_path(global: bool, file_name: &str) -> Option<PathBuf> {
     let scope = crate::core::config::Config::load().rules_scope_effective();
     if global || scope == crate::core::config::RulesScope::Global {
-        println!(
+        eprintln!(
             "Global mode: skipping project-local {file_name} (use without --global in a project)."
         );
         return None;
@@ -43,7 +43,7 @@ pub(super) fn prepare_project_rules_path(global: bool, file_name: &str) -> Optio
     if rules_path.exists() {
         let content = std::fs::read_to_string(&rules_path).unwrap_or_default();
         if content.contains("lean-ctx") {
-            println!("{file_name} already configured.");
+            eprintln!("{file_name} already configured.");
             return None;
         }
     }

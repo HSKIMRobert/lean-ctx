@@ -1,7 +1,7 @@
 stages:
   - test
 
-rust_test:
+.rust_base:
   stage: test
   image: rust:latest
   variables:
@@ -13,13 +13,67 @@ rust_test:
       - rust/target/
       - /root/.cargo/registry/
       - /root/.cargo/git/
+
+rust_test:
+  extends: .rust_base
   script:
     - cd rust
     - cargo test --all-features -- --test-threads=1
+    - cargo build --all-features -q
+  artifacts:
+    paths:
+      - rust/target/debug/lean-ctx
+    expire_in: 1 week
+
+rust_fmt:
+  extends: .rust_base
+  script:
+    - rustup component add rustfmt
+    - cd rust
+    - cargo fmt -- --check
+
+rust_clippy:
+  extends: .rust_base
+  script:
+    - rustup component add clippy
+    - cd rust
+    - cargo clippy --all-features -- -D warnings
+
+manifest_drift_gate:
+  extends: .rust_base
+  script:
+    - cd rust
+    - cargo run -q --bin gen_mcp_manifest
+    - git diff --exit-code -- ../website/generated/mcp-tools.json
+    - cargo test -q --test mcp_manifest_up_to_date
+
+verification_gates:
+  extends: .rust_base
+  script:
+    - cd rust
+    - cargo test -q output_verification
+    - cargo test -q context_proof
+    - cargo test -q --test secret_scan_artifacts
+
+bench_regression_gate:
+  extends: .rust_base
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      allow_failure: false
+    - if: '$CI_COMMIT_TAG'
+      allow_failure: false
+    - when: on_success
+      allow_failure: true
+  script:
+    - cd rust
+    - cargo test -q --test savings_verification
 
 cookbook:
   stage: test
   image: node:20
+  needs:
+    - job: rust_test
+      artifacts: true
   variables:
     NPM_CONFIG_CACHE: "$CI_PROJECT_DIR/cookbook/.npm"
   cache:
@@ -27,6 +81,7 @@ cookbook:
     paths:
       - cookbook/.npm/
   script:
+    - chmod +x rust/target/debug/lean-ctx
     - cd cookbook
     - npm ci
     - npm run lint

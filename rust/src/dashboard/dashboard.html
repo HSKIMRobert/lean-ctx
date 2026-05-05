@@ -174,6 +174,10 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 .r11{grid-template-columns:repeat(auto-fit, minmax(400px, 1fr))}
 .r1{grid-template-columns:1fr}
 .r4{grid-template-columns:repeat(auto-fit, minmax(280px, 1fr))}
+.ctx-metric{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.04)}
+.ctx-metric:last-child{border-bottom:none}
+.ctx-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px}
+.ctx-val{font-size:12px;font-weight:600;font-family:var(--mono);color:var(--text)}
 
 .card{
   background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
@@ -1201,12 +1205,16 @@ Chart.register(valueLabelPlugin);
 async function loadOverview() {
   const container = $('view-overview');
   try {
-    const [stats, gain, buddy, gotchas, version] = await Promise.all([
+    const [stats, gain, buddy, gotchas, version, session, slos, verification, graphStats] = await Promise.all([
       apiFetch('/api/stats').catch(() => null),
       apiFetch('/api/gain').catch(() => null),
       apiFetch('/api/buddy').catch(() => null),
       apiFetch('/api/gotchas').catch(() => null),
       apiFetch('/api/version').catch(() => null),
+      apiFetch('/api/session').catch(() => null),
+      apiFetch('/api/slos').catch(() => null),
+      apiFetch('/api/verification').catch(() => null),
+      apiFetch('/api/graph/stats', { timeoutMs: 5000 }).catch(() => null),
     ]);
 
     if (version && version.current) {
@@ -1229,6 +1237,7 @@ async function loadOverview() {
 
     if (!overviewBuilt) buildOverview(container);
     updateOverview(stats, gain);
+    updateContextHealth(session, slos, verification, graphStats);
     renderBuddy(buddy);
   } catch (e) {
     showError(container, 'Dashboard API not responding. Make sure lean-ctx dashboard is running.');
@@ -1306,6 +1315,33 @@ function buildOverview(container) {
           <div class="cd-item"><div class="v" data-live id="vOS" style="color:var(--pink)"></div><div class="l">Output Saved</div></div>
         </div>
         <div style="text-align:center;margin-top:8px;font-size:8px;color:var(--muted)">~<span data-live id="vOT"></span> output tokens reduced via Gain compression</div>
+      </div>
+    </div>
+    <div class="row r4" id="ctxHealthRow">
+      <div class="card">
+        <h3>Session</h3>
+        <div class="ctx-metric"><span class="ctx-label">Task</span><span class="ctx-val" id="vSessTask">—</span></div>
+        <div class="ctx-metric"><span class="ctx-label">Files</span><span class="ctx-val" id="vSessFiles">0</span></div>
+        <div class="ctx-metric"><span class="ctx-label">Findings</span><span class="ctx-val" id="vSessFindings">0</span></div>
+        <div class="ctx-metric"><span class="ctx-label">Terse</span><span class="ctx-val" id="vSessTerse">off</span></div>
+      </div>
+      <div class="card">
+        <h3>SLO Compliance</h3>
+        <div class="ctx-metric"><span class="ctx-label">Passed</span><span class="ctx-val" style="color:var(--green)" id="vSloPassed">—</span></div>
+        <div class="ctx-metric"><span class="ctx-label">Failed</span><span class="ctx-val" style="color:var(--red)" id="vSloFailed">—</span></div>
+        <div class="ctx-metric"><span class="ctx-label">Violations</span><span class="ctx-val" id="vSloHistory">0</span></div>
+      </div>
+      <div class="card">
+        <h3>Verification</h3>
+        <div class="ctx-metric"><span class="ctx-label">Checks</span><span class="ctx-val" id="vVerifChecks">0</span></div>
+        <div class="ctx-metric"><span class="ctx-label">Passed</span><span class="ctx-val" style="color:var(--green)" id="vVerifPassed">0</span></div>
+        <div class="ctx-metric"><span class="ctx-label">Failed</span><span class="ctx-val" style="color:var(--red)" id="vVerifFailed">0</span></div>
+      </div>
+      <div class="card">
+        <h3>Property Graph</h3>
+        <div class="ctx-metric"><span class="ctx-label">Nodes</span><span class="ctx-val" style="color:var(--blue)" id="vGraphNodes">—</span></div>
+        <div class="ctx-metric"><span class="ctx-label">Edges</span><span class="ctx-val" style="color:var(--purple)" id="vGraphEdges">—</span></div>
+        <div class="ctx-metric"><span class="ctx-label">Status</span><span class="ctx-val" id="vGraphStatus">—</span></div>
       </div>
     </div>
     <div class="row r4">
@@ -1450,6 +1486,45 @@ function renderCmds(cmds) {
   }).join('');
   const hid = cmds.length - f.length; const b = $('cTog');
   if (b) { if (hid === 0 && !overviewShowAll) b.style.display = 'none'; else { b.style.display = ''; b.textContent = overviewShowAll ? 'Show active only' : 'Show all ('+hid+' hidden)'; } }
+}
+
+function updateContextHealth(session, slos, verification, graphStats) {
+  if (session) {
+    const task = session.task ? (session.task.description || '—') : '—';
+    lv('vSessTask', task.length > 40 ? task.slice(0, 37) + '…' : task);
+    lv('vSessFiles', String(session.files_touched ? session.files_touched.length : 0));
+    lv('vSessFindings', String(session.findings ? session.findings.length : 0));
+    lv('vSessTerse', session.terse_mode ? 'on' : 'off');
+  }
+  if (slos && slos.snapshot) {
+    const snap = slos.snapshot;
+    let passed = 0, failed = 0;
+    if (snap.results) {
+      snap.results.forEach(r => r.passed ? passed++ : failed++);
+    } else if (typeof snap.passed === 'number') {
+      passed = snap.passed; failed = snap.total - snap.passed;
+    }
+    lv('vSloPassed', String(passed));
+    lv('vSloFailed', String(failed));
+    lv('vSloHistory', String(slos.history ? slos.history.length : 0));
+  }
+  if (verification) {
+    const total = (verification.total_checks || 0);
+    const passed = (verification.passed_checks || verification.checks_passed || 0);
+    const failed = total - passed;
+    lv('vVerifChecks', String(total));
+    lv('vVerifPassed', String(passed));
+    lv('vVerifFailed', String(failed));
+  }
+  if (graphStats) {
+    if (graphStats.error) {
+      lv('vGraphNodes', '—'); lv('vGraphEdges', '—'); lv('vGraphStatus', 'not built');
+    } else {
+      lv('vGraphNodes', fmt(graphStats.node_count || 0));
+      lv('vGraphEdges', fmt(graphStats.edge_count || 0));
+      lv('vGraphStatus', (graphStats.node_count || 0) > 0 ? 'active' : 'empty');
+    }
+  }
 }
 
 function renderBuddy(b) {
@@ -1626,6 +1701,24 @@ function flattenEvent(ev) {
     tool = 'threshold';
     detail = '<span class="tag tb">' + esc(k.language || '') + '</span> entropy ' + (k.old_entropy||0).toFixed(2) + '→' + (k.new_entropy||0).toFixed(2) + ' jaccard ' + (k.old_jaccard||0).toFixed(2) + '→' + (k.new_jaccard||0).toFixed(2);
     color = 'var(--muted)';
+  } else if (type === 'VerificationWarning') {
+    tool = 'verification';
+    const sev = k.severity || '';
+    const sevTag = sev === 'High' ? 'td' : 'ty';
+    detail = '<span class="tag ' + sevTag + '">' + esc(sev) + '</span> <span class="tag tb">' + esc(k.warning_kind || '') + '</span> ' + esc(k.detail || '');
+    color = sev === 'High' ? 'var(--red)' : 'var(--yellow)';
+  } else if (type === 'PolicyViolation') {
+    tool = 'policy';
+    detail = '<span class="tag td">denied</span> <span class="tag tb">' + esc(k.tool || '') + '</span> <span style="color:var(--muted);font-size:9px">' + esc((k.reason || '').slice(0, 80)) + '</span>';
+    color = 'var(--red)';
+  } else if (type === 'SloViolation' || type === 'SLOViolation') {
+    tool = 'slo';
+    detail = '<span class="tag td">violated</span> ' + esc(k.metric || k.name || '');
+    color = 'var(--red)';
+  } else {
+    tool = type.replace(/([A-Z])/g, ' $1').trim().toLowerCase();
+    detail = '';
+    color = 'var(--muted)';
   }
   return { tool, saved, detail, color, filterCat, ts: ev.timestamp || '', type };
 }
@@ -1725,6 +1818,7 @@ function renderLiveEvents(events, mcp, stats) {
   });
 
   const filtered = flat.filter(e => {
+    if (!e.tool && !e.detail) return false;
     if (liveFilter === 'all') return true;
     return e.filterCat === liveFilter;
   });
@@ -2455,7 +2549,11 @@ async function runSearch() {
 async function loadLearning() {
   const container = $('view-learning');
   try {
-    const data = await apiFetch('/api/feedback');
+    const [data, episodes, procedures] = await Promise.all([
+      apiFetch('/api/feedback').catch(() => ({})),
+      apiFetch('/api/episodes', { timeoutMs: 5000 }).catch(() => null),
+      apiFetch('/api/procedures', { timeoutMs: 5000 }).catch(() => null),
+    ]);
     const thresholds = data.learned_thresholds || {};
     const outcomes = data.outcomes || [];
     const hasThresholds = Object.keys(thresholds).length > 0;
@@ -2473,6 +2571,26 @@ async function loadLearning() {
           <div id="learningOutcomesContainer">
             ${outcomes.length ? '<canvas id="learningOutcomesChart"></canvas>' : '<div class="empty-state" style="padding:30px"><p>No compression outcome data yet.</p></div>'}
           </div>
+        </div>
+      </div>
+      <div class="row r4" style="margin-top:16px">
+        <div class="card">
+          <h3>Episodic Memory</h3>
+          ${episodes && episodes.stats ? `
+            <div class="ctx-metric"><span class="ctx-label">Episodes</span><span class="ctx-val">${episodes.stats.total_episodes||0}</span></div>
+            <div class="ctx-metric"><span class="ctx-label">Successes</span><span class="ctx-val" style="color:var(--green)">${episodes.stats.successes||0}</span></div>
+            <div class="ctx-metric"><span class="ctx-label">Failures</span><span class="ctx-val" style="color:var(--red)">${episodes.stats.failures||0}</span></div>
+            <div class="ctx-metric"><span class="ctx-label">Success Rate</span><span class="ctx-val">${((episodes.stats.success_rate||0)*100).toFixed(0)}%</span></div>
+            <div class="ctx-metric"><span class="ctx-label">Total Tokens</span><span class="ctx-val">${fmt(episodes.stats.total_tokens||0)}</span></div>
+          ` : '<div style="color:var(--muted);font-size:12px;margin-top:8px">No episodic memory yet</div>'}
+        </div>
+        <div class="card">
+          <h3>Procedural Memory</h3>
+          ${procedures ? `
+            <div class="ctx-metric"><span class="ctx-label">Procedures</span><span class="ctx-val">${procedures.total_procedures||0}</span></div>
+            <div class="ctx-metric"><span class="ctx-label">Task</span><span class="ctx-val">${esc((procedures.task||'—').slice(0,30))}</span></div>
+            <div class="ctx-metric"><span class="ctx-label">Suggestions</span><span class="ctx-val">${(procedures.suggestions||[]).length}</span></div>
+          ` : '<div style="color:var(--muted);font-size:12px;margin-top:8px">No procedures learned yet</div>'}
         </div>
       </div>
       ${howItWorks('Adaptive Learning', 'LeanCTX uses an <strong>exponential moving average (EMA)</strong> to adapt compression thresholds per language. After each tool call, the system records whether the compression was successful (agent completed the task) and the compression ratio achieved. Over time, the <strong>entropy threshold</strong> and <strong>Jaccard similarity threshold</strong> are tuned to maximize compression while maintaining task success. Languages with different information densities (e.g., Rust vs. JSON) naturally converge to different optimal thresholds.')}`;
@@ -2757,10 +2875,14 @@ async function loadContextLayer() {
   if (!container) return;
   container.innerHTML = '<div style="color:var(--muted);padding:16px">Loading Context Layer…</div>';
   try {
-    const [pipeline, ledger, intent] = await Promise.all([
+    const [pipeline, ledger, intent, slos, verif, sess, graphSt] = await Promise.all([
       apiFetch('/api/pipeline-stats', { timeoutMs: 5000 }).catch(() => ({})),
       apiFetch('/api/context-ledger', { timeoutMs: 5000 }).catch(() => ({})),
       apiFetch('/api/intent', { timeoutMs: 5000 }).catch(() => ({active:false})),
+      apiFetch('/api/slos', { timeoutMs: 5000 }).catch(() => ({})),
+      apiFetch('/api/verification', { timeoutMs: 5000 }).catch(() => ({})),
+      apiFetch('/api/session', { timeoutMs: 3000 }).catch(() => null),
+      apiFetch('/api/graph/stats', { timeoutMs: 5000 }).catch(() => null),
     ]);
 
     const pRuns = pipeline.runs || 0;
@@ -2855,6 +2977,43 @@ async function loadContextLayer() {
               </div>`;
             }).join('') || '<div style="color:var(--muted);font-size:13px">No mode data yet.</div>'}
           </div>
+        </div>
+      </div>
+
+      <div class="row r4" style="margin-bottom:16px">
+        <div class="card">
+          <h3>Session</h3>
+          ${sess ? `
+            <div class="ctx-metric"><span class="ctx-label">Task</span><span class="ctx-val">${esc((sess.task && sess.task.description) || '—')}</span></div>
+            <div class="ctx-metric"><span class="ctx-label">Files</span><span class="ctx-val">${(sess.files_touched||[]).length}</span></div>
+            <div class="ctx-metric"><span class="ctx-label">Findings</span><span class="ctx-val">${(sess.findings||[]).length}</span></div>
+            <div class="ctx-metric"><span class="ctx-label">Terse</span><span class="ctx-val">${sess.terse_mode ? 'on' : 'off'}</span></div>
+          ` : '<div style="color:var(--muted);font-size:12px;margin-top:8px">No active session</div>'}
+        </div>
+        <div class="card">
+          <h3>SLO Compliance</h3>
+          ${(slos.snapshot && slos.snapshot.slos) ? `
+            ${slos.snapshot.slos.map(s => {
+              const color = s.violated ? 'var(--red)' : 'var(--green)';
+              return `<div class="ctx-metric"><span class="ctx-label">${esc(s.name)}</span><span class="ctx-val" style="color:${color}">${s.violated ? 'VIOLATED' : 'OK'}</span></div>`;
+            }).join('')}
+            <div class="ctx-metric"><span class="ctx-label">History</span><span class="ctx-val">${(slos.history||[]).length} violations</span></div>
+          ` : '<div style="color:var(--muted);font-size:12px;margin-top:8px">No SLO data</div>'}
+        </div>
+        <div class="card">
+          <h3>Output Verification</h3>
+          <div class="ctx-metric"><span class="ctx-label">Total Checks</span><span class="ctx-val">${verif.total || 0}</span></div>
+          <div class="ctx-metric"><span class="ctx-label">Passed</span><span class="ctx-val" style="color:var(--green)">${verif.pass || 0}</span></div>
+          <div class="ctx-metric"><span class="ctx-label">Pass Rate</span><span class="ctx-val" style="color:var(--green)">${((verif.pass_rate||1)*100).toFixed(0)}%</span></div>
+          <div class="ctx-metric"><span class="ctx-label">Warnings</span><span class="ctx-val">${verif.warn_items || 0}</span></div>
+        </div>
+        <div class="card">
+          <h3>Property Graph</h3>
+          ${graphSt && !graphSt.error ? `
+            <div class="ctx-metric"><span class="ctx-label">Nodes</span><span class="ctx-val" style="color:var(--blue)">${fmt(graphSt.node_count||0)}</span></div>
+            <div class="ctx-metric"><span class="ctx-label">Edges</span><span class="ctx-val" style="color:var(--purple)">${fmt(graphSt.edge_count||0)}</span></div>
+            <div class="ctx-metric"><span class="ctx-label">Status</span><span class="ctx-val" style="color:${(graphSt.node_count||0)>0?'var(--green)':'var(--muted)'}">${(graphSt.node_count||0)>0?'Active':'Empty'}</span></div>
+          ` : '<div style="color:var(--muted);font-size:12px;margin-top:8px">Graph not built. Run: lean-ctx impact build</div>'}
         </div>
       </div>
 

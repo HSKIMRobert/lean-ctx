@@ -31,6 +31,7 @@ pub fn run() {
                 }
                 let code = shell::exec(&command);
                 core::stats::flush();
+                core::heatmap::flush();
                 std::process::exit(code);
             }
             "-t" | "--track" => {
@@ -47,6 +48,7 @@ pub fn run() {
                     shell::exec(&command)
                 };
                 core::stats::flush();
+                core::heatmap::flush();
                 std::process::exit(code);
             }
             "shell" | "--shell" => {
@@ -187,11 +189,39 @@ pub fn run() {
                 }
                 return;
             }
+            "pack" => {
+                crate::cli::cmd_pack(&rest);
+                return;
+            }
+            "proof" => {
+                crate::cli::cmd_proof(&rest);
+                return;
+            }
+            "verify" => {
+                crate::cli::cmd_verify(&rest);
+                return;
+            }
+            "instructions" => {
+                crate::cli::cmd_instructions(&rest);
+                return;
+            }
+            "index" => {
+                crate::cli::cmd_index(&rest);
+                return;
+            }
             "cep" => {
                 println!("{}", tools::ctx_gain::handle("score", None, None, Some(10)));
                 return;
             }
             "dashboard" => {
+                if rest.iter().any(|a| a == "--help" || a == "-h") {
+                    println!("Usage: lean-ctx dashboard [--port=N] [--host=H] [--project=PATH]");
+                    println!("Examples:");
+                    println!("  lean-ctx dashboard");
+                    println!("  lean-ctx dashboard --port=3333");
+                    println!("  lean-ctx dashboard --host=0.0.0.0");
+                    return;
+                }
                 let port = rest
                     .iter()
                     .find_map(|p| p.strip_prefix("--port=").or_else(|| p.strip_prefix("-p=")))
@@ -490,9 +520,17 @@ pub fn run() {
                 #[cfg(feature = "http-server")]
                 {
                     let mut cfg = crate::http_server::HttpServerConfig::default();
+                    let mut daemon_mode = false;
+                    let mut stop_mode = false;
+                    let mut status_mode = false;
+                    let mut foreground_daemon = false;
                     let mut i = 0;
                     while i < rest.len() {
                         match rest[i].as_str() {
+                            "--daemon" | "-d" => daemon_mode = true,
+                            "--stop" => stop_mode = true,
+                            "--status" => status_mode = true,
+                            "--_foreground-daemon" => foreground_daemon = true,
                             "--host" | "-H" => {
                                 i += 1;
                                 if i < rest.len() {
@@ -616,9 +654,12 @@ pub fn run() {
                             }
                             "--help" | "-h" => {
                                 eprintln!(
-                                    "Usage: lean-ctx serve [--host H] [--port N] [--project-root DIR]\\n\\
+                                    "Usage: lean-ctx serve [--host H] [--port N] [--project-root DIR] [--daemon] [--stop] [--status]\\n\\
                                      \\n\\
                                      Options:\\n\\
+                                       --daemon, -d          Start as background daemon (UDS)\\n\\
+                                       --stop                Stop running daemon\\n\\
+                                       --status              Show daemon status\\n\\
                                        --host, -H            Bind host (default: 127.0.0.1)\\n\\
                                        --port, -p            Bind port (default: 8080)\\n\\
                                        --project-root        Resolve relative paths against this root (default: cwd)\\n\\
@@ -638,6 +679,55 @@ pub fn run() {
                             _ => {}
                         }
                         i += 1;
+                    }
+
+                    #[cfg(unix)]
+                    {
+                        if stop_mode {
+                            if let Err(e) = crate::daemon::stop_daemon() {
+                                eprintln!("Error: {e}");
+                                std::process::exit(1);
+                            }
+                            return;
+                        }
+
+                        if status_mode {
+                            println!("{}", crate::daemon::daemon_status());
+                            return;
+                        }
+
+                        if daemon_mode {
+                            if let Err(e) = crate::daemon::start_daemon(&rest) {
+                                eprintln!("Error: {e}");
+                                std::process::exit(1);
+                            }
+                            return;
+                        }
+
+                        if foreground_daemon {
+                            if let Err(e) = crate::daemon::init_foreground_daemon() {
+                                eprintln!("Error writing PID file: {e}");
+                                std::process::exit(1);
+                            }
+                            let socket_path = crate::daemon::daemon_socket_path();
+                            if let Err(e) =
+                                run_async(crate::http_server::serve_uds(cfg.clone(), socket_path))
+                            {
+                                tracing::error!("Daemon server error: {e}");
+                                crate::daemon::cleanup_daemon_files();
+                                std::process::exit(1);
+                            }
+                            crate::daemon::cleanup_daemon_files();
+                            return;
+                        }
+                    }
+
+                    #[cfg(not(unix))]
+                    {
+                        if stop_mode || status_mode || daemon_mode || foreground_daemon {
+                            eprintln!("Daemon mode is only supported on Unix systems.");
+                            std::process::exit(1);
+                        }
                     }
 
                     if cfg.auth_token.is_none() {
@@ -661,6 +751,11 @@ pub fn run() {
                 }
             }
             "watch" => {
+                if rest.iter().any(|a| a == "--help" || a == "-h") {
+                    println!("Usage: lean-ctx watch");
+                    println!("  Live TUI dashboard (real-time event stream).");
+                    return;
+                }
                 if let Err(e) = tui::run() {
                     tracing::error!("TUI error: {e}");
                     std::process::exit(1);
@@ -784,6 +879,39 @@ pub fn run() {
                     }
                 } else {
                     setup::run_setup();
+                }
+                return;
+            }
+            "install" => {
+                let repair = rest.iter().any(|a| a == "--repair" || a == "--fix");
+                let json = rest.iter().any(|a| a == "--json");
+                if !repair {
+                    eprintln!("Usage: lean-ctx install --repair [--json]");
+                    std::process::exit(1);
+                }
+                let opts = setup::SetupOptions {
+                    non_interactive: true,
+                    yes: true,
+                    fix: true,
+                    json,
+                };
+                match setup::run_setup_with_options(opts) {
+                    Ok(report) => {
+                        if json {
+                            println!(
+                                "{}",
+                                serde_json::to_string_pretty(&report)
+                                    .unwrap_or_else(|_| "{}".to_string())
+                            );
+                        }
+                        if !report.success {
+                            std::process::exit(1);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("{e}");
+                        std::process::exit(1);
+                    }
                 }
                 return;
             }
@@ -945,7 +1073,19 @@ pub fn run() {
                 return;
             }
             "session" => {
-                super::cmd_session();
+                super::cmd_session_action(&rest);
+                return;
+            }
+            "knowledge" => {
+                super::cmd_knowledge(&rest);
+                return;
+            }
+            "overview" => {
+                super::cmd_overview(&rest);
+                return;
+            }
+            "compress" => {
+                super::cmd_compress(&rest);
                 return;
             }
             "wrapped" => {
@@ -1012,6 +1152,7 @@ pub fn run() {
                 return;
             }
             "hook" => {
+                hook_handlers::arm_watchdog(std::time::Duration::from_secs(5));
                 let action = rest.first().map_or("help", std::string::String::as_str);
                 match action {
                     "rewrite" => hook_handlers::handle_rewrite(),
@@ -1197,6 +1338,7 @@ fn run_mcp_server() -> Result<()> {
         }
 
         core::stats::flush();
+        core::heatmap::flush();
         core::mode_predictor::ModePredictor::flush();
         core::feedback::FeedbackStore::flush();
 
@@ -1208,11 +1350,14 @@ fn print_help() {
     println!(
         "lean-ctx {version} — Context Runtime for AI Agents
 
-90+ compression patterns | 49 MCP tools | Context Continuity Protocol
+95+ compression patterns | 56 MCP tools | Context Continuity Protocol
 
 USAGE:
     lean-ctx                       Start MCP server (stdio)
     lean-ctx serve                 Start MCP server (Streamable HTTP)
+    lean-ctx serve --daemon        Start as background daemon (Unix Domain Socket)
+    lean-ctx serve --stop          Stop running daemon
+    lean-ctx serve --status        Show daemon status
     lean-ctx -t \"command\"          Track command (full output + stats, no compression)
     lean-ctx -c \"command\"          Execute with compressed output (used by AI hooks)
     lean-ctx -c --raw \"command\"    Execute without compression (full output)
@@ -1226,6 +1371,8 @@ COMMANDS:
     gain --daily                   Bordered day-by-day table with USD
     gain --json                    Raw JSON export of all stats
          token-report [--json]          Token + memory report (project + session + CEP)
+    pack --pr                      PR Context Pack (changed files, impact, tests, artifacts)
+    index <status|build|build-full|watch>  Codebase index utilities
     cep                            CEP impact report (score trends, cache, modes)
     watch                          Live TUI dashboard (real-time event stream)
     dashboard [--port=N] [--host=H] Open web dashboard (default: http://localhost:3333)
@@ -1239,6 +1386,7 @@ COMMANDS:
     benchmark report [path]        Generate shareable Markdown report
     cheatsheet                     Command cheat sheet & workflow quick reference
     setup                          One-command setup: shell + editor + verify
+    install --repair [--json]      Premium repair: merge-based setup refresh (no deletes)
     bootstrap                      Non-interactive setup + fix (zero-config)
     status [--json]                Show setup + MCP + rules status
     init [--global]                Install shell aliases (zsh/bash/fish/PowerShell)
@@ -1253,6 +1401,16 @@ COMMANDS:
     ghost [--json]                 Ghost Token report: find hidden token waste
     filter [list|validate|init]    Manage custom compression filters (~/.lean-ctx/filters/)
     session                        Show adoption statistics
+    session task <desc>            Set current task
+    session finding <summary>      Record a finding
+    session save                   Save current session
+    session load [id]              Load session (latest if no ID)
+    knowledge remember <value> --category <c> --key <k>   Store a fact
+    knowledge recall [query] [--category <c>]             Retrieve facts
+    knowledge search <query>       Cross-project knowledge search
+    knowledge status               Knowledge base summary
+    overview [task]                Project overview (task-contextualized if given)
+    compress [--signatures]        Context compression checkpoint
     config                         Show/edit configuration (~/.lean-ctx/config.toml)
     profile [list|show|diff|create|set]  Manage context profiles
     theme [list|set|export|import] Customize terminal colors and themes
@@ -1262,10 +1420,11 @@ COMMANDS:
     update [--check]               Self-update lean-ctx binary from GitHub Releases
     gotchas [list|clear|export|stats] Bug Memory: view/manage auto-detected error patterns
     buddy [show|stats|ascii|json]  Token Guardian: your data-driven coding companion
+    doctor integrations [--json]   Integration health checks (Cursor/Claude Code)
     doctor [--fix] [--json]        Run diagnostics (and optionally repair)
     uninstall                      Remove shell hook, MCP configs, and data directory
 
-SHELL HOOK PATTERNS (90+):
+SHELL HOOK PATTERNS (95+):
     git       status, log, diff, add, commit, push, pull, fetch, clone,
               branch, checkout, switch, merge, stash, tag, reset, remote
     docker    build, ps, images, logs, compose, exec, network
@@ -1322,6 +1481,7 @@ EXAMPLES:
     lean-ctx sessions show         Show latest session state
     lean-ctx discover              Find missed savings in shell history
     lean-ctx setup                 One-command setup (shell + editors + verify)
+    lean-ctx install --repair      Premium repair path (non-interactive, merge-based)
     lean-ctx bootstrap             Non-interactive setup + fix (zero-config)
     lean-ctx bootstrap --json      Machine-readable bootstrap report
     lean-ctx init --global         Install shell aliases (includes lean-ctx-on/off/mode/status)
@@ -1333,8 +1493,16 @@ EXAMPLES:
     lean-ctx-status                Show whether compression is active
     lean-ctx init --agent pi       Install Pi Coding Agent extension
     lean-ctx doctor                Check PATH, config, MCP, and dashboard port
+    lean-ctx doctor integrations   Premium integration checks (Cursor/Claude Code)
     lean-ctx doctor --fix --json   Repair + machine-readable report
     lean-ctx status --json         Machine-readable current status
+    lean-ctx session task \"implement auth\"
+    lean-ctx session finding \"auth.rs:42 — missing validation\"
+    lean-ctx knowledge remember \"Uses JWT\" --category auth --key token-type
+    lean-ctx knowledge recall \"authentication\"
+    lean-ctx knowledge search \"database migration\"
+    lean-ctx overview \"refactor auth module\"
+    lean-ctx compress --signatures
     lean-ctx read src/main.rs -m map
     lean-ctx grep \"pub fn\" src/
     lean-ctx deps .

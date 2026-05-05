@@ -39,3 +39,35 @@ pub fn format_show(path: &Path, ledger: &HandoffLedgerV1) -> String {
 pub fn format_clear(removed: u32) -> String {
     format!("ctx_handoff clear\n removed: {removed}")
 }
+
+pub fn format_exported(
+    path: Option<&Path>,
+    schema_version: u32,
+    bytes: usize,
+    privacy: &str,
+) -> String {
+    let mut out = format!(
+        "ctx_handoff export\n schema_version: {schema_version}\n privacy: {privacy}\n bytes: {bytes}",
+    );
+    if let Some(p) = path {
+        out.push_str(&format!("\n path: {}", p.display()));
+    }
+    out
+}
+
+pub fn format_imported(
+    path: &Path,
+    schema_version: u32,
+    imported_knowledge: u32,
+    contradictions: u32,
+    warning: Option<&str>,
+) -> String {
+    let mut out = format!(
+        "ctx_handoff import\n path: {path}\n schema_version: {schema_version}\n imported_knowledge: {imported_knowledge}\n contradictions: {contradictions}",
+        path = path.display(),
+    );
+    if let Some(w) = warning {
+        out.push_str(&format!("\n {w}"));
+    }
+    out
+}

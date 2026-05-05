@@ -17,7 +17,7 @@ pub fn compress(output: &str) -> Option<String> {
         return compress_json(trimmed);
     }
 
-    if trimmed.starts_with("<!") || trimmed.starts_with("<html") {
+    if trimmed.starts_with("<!") || trimmed.starts_with("<html") || trimmed.starts_with("<HTML") {
         return Some(compress_html(trimmed));
     }
 
@@ -25,7 +25,56 @@ pub fn compress(output: &str) -> Option<String> {
         return compress_headers(trimmed);
     }
 
+    if trimmed.starts_with("<?xml") || trimmed.starts_with("<rss") || trimmed.starts_with("<feed") {
+        let lines = trimmed.lines().count();
+        let size = trimmed.len();
+        return Some(format!("XML ({size} bytes, {lines} lines)"));
+    }
+
+    if trimmed.len() > 2000 {
+        return Some(compress_large_text(trimmed));
+    }
+
     None
+}
+
+fn compress_large_text(output: &str) -> String {
+    let lines: Vec<&str> = output.lines().collect();
+    let total_lines = lines.len();
+    let size = output.len();
+
+    let head_count = 20.min(total_lines);
+    let tail_count = 10.min(total_lines.saturating_sub(head_count));
+
+    let mut result = String::with_capacity(2048);
+    result.push_str(&format!(
+        "curl output ({size} bytes, {total_lines} lines):\n"
+    ));
+    for line in lines.iter().take(head_count) {
+        if line.len() > 200 {
+            result.push_str(&line[..200]);
+            result.push_str("…\n");
+        } else {
+            result.push_str(line);
+            result.push('\n');
+        }
+    }
+    if total_lines > head_count + tail_count {
+        result.push_str(&format!(
+            "\n[… {} lines omitted …]\n\n",
+            total_lines - head_count - tail_count
+        ));
+        for line in lines.iter().skip(total_lines - tail_count) {
+            if line.len() > 200 {
+                result.push_str(&line[..200]);
+                result.push_str("…\n");
+            } else {
+                result.push_str(line);
+                result.push('\n');
+            }
+        }
+    }
+    result
 }
 
 fn compress_json(output: &str) -> Option<String> {

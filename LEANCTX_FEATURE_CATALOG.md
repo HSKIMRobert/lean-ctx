@@ -1,7 +1,7 @@
 # LeanCTX Feature Catalog (SSOT Snapshot)
 
-**Version:** `3.4.5`  
-**Updated:** `2026-04-29`  
+**Version:** `3.4.7`  
+**Updated:** `2026-05-03`  
 **Primary Sources:** `website/generated/mcp-tools.json`, `rust/src/tool_defs/granular.rs`, `README.md`
 
 ---
@@ -13,14 +13,18 @@ This catalog is the single feature inventory for LeanCTX at release/runtime leve
 - Which MCP tools exist now
 - Which entry points are canonical vs deprecated aliases
 - Which read modes are supported
+- Which shell pattern modules exist
+- Which CLI commands are available
 - Which capabilities are part of the shipped product surface
 
 ---
 
 ## Runtime Surface (Current)
 
-- Granular MCP tools: **49**
+- Granular MCP tools: **56**
 - Unified MCP tools: **5**
+- Shell pattern modules: **56** (fd, just, ninja, clang, extended cargo run/bench added in 3.4.x)
+- CLI commands: **75+** (knowledge, overview, compress, serve --daemon/--stop/--status, session subcommands added in 3.4.x)
 - Read modes: **10** (`auto`, `full`, `map`, `signatures`, `diff`, `aggressive`, `entropy`, `task`, `reference`, `lines:N-M`)
 - Positioning: Context Runtime for AI agents (shell hook + context server + setup integrations)
 
@@ -36,7 +40,7 @@ This catalog is the single feature inventory for LeanCTX at release/runtime leve
 
 ---
 
-## Granular MCP Tools (49)
+## Granular MCP Tools (56)
 
 ### A) Read / Search / IO Surface
 
@@ -66,6 +70,9 @@ This catalog is the single feature inventory for LeanCTX at release/runtime leve
 - `ctx_architecture`
 - `ctx_impact`
 - `ctx_review`
+- `ctx_pack`
+- `ctx_index`
+- `ctx_artifacts`
 - `ctx_intent`
 - `ctx_task`
 - `ctx_overview`
@@ -89,6 +96,7 @@ This catalog is the single feature inventory for LeanCTX at release/runtime leve
 - `ctx_cache`
 - `ctx_compress`
 - `ctx_expand`
+- `ctx_call`
 - `ctx_compress_memory`
 - `ctx_metrics`
 - `ctx_cost`
@@ -110,9 +118,113 @@ This catalog is the single feature inventory for LeanCTX at release/runtime leve
 
 ---
 
+## Capabilities (3.4.x Additions)
+
+### Daemon Mode
+- Unix Domain Socket server via `lean-ctx serve --daemon`
+- Control via `--stop`, `--status` flags
+- Persistent background process for lower-latency MCP serving
+
+### Multi-Tokenizer Support
+- `o200k_base` (GPT-4o, default)
+- `cl100k_base` (GPT-4 / GPT-3.5)
+- Gemini tokenizer
+- Llama tokenizer
+
+### CLI-Redirect Hook Mode
+- `HookMode::Mcp` — full MCP server mode
+- `HookMode::CliRedirect` — shell hook only, no MCP
+- `HookMode::Hybrid` — both modes active
+
+### Smart Mode Selection in Setup
+- `lean-ctx setup` auto-detects editor and agent, selects optimal hook mode
+
+### SKILL.md Auto-Installation
+- `lean-ctx init` writes `SKILL.md` to agent-specific skill directories
+- Auto-detects Cursor, Claude Code, Codex, Gemini CLI, Kiro skill paths
+
+### Compressed Output Cache
+- `map` and `signatures` read modes cache compressed output
+- Re-reads of compressed representations cost ~13 tokens
+
+### Intent-Aware Read Mode Selection
+- `ctx_read mode=auto` uses task intent to select optimal compression
+- Factors: file type, file size, task signal, access history
+
+### Prefix-Cache-Friendly Output Ordering
+- Imports and type definitions emitted before function bodies
+- Stable ordering maximizes LLM provider KV-cache hits
+
+### Field-Wise Profile Merge
+- Context profiles merged field-by-field (not replaced wholesale)
+- Allows layered profile composition (base + project + role)
+
+### Token Counting Deduplication
+- Cross-file shared block detection via `ctx_dedup`
+- Deduplicated blocks counted once in budget calculations
+
+### Graph-Powered Context OS (3.4.7)
+
+#### Multi-Edge Graph Queries
+- Property Graph queries traverse `imports`, `calls`, `exports`, `type_ref`, `tested_by`
+- Weighted BFS: imports=1.0, calls=0.8, exports=0.7, type_ref=0.5, tested_by=0.4
+- New query: `related_files(path, limit)` — scored file neighbors
+- New query: `file_connectivity(path)` — edge-type breakdown per file
+
+#### Graph-Aware File Reads
+- Every `ctx_read` includes a `[related: ...]` hint from the Property Graph
+- Scored related files shown with relationship strength (e.g., `config.rs (80%)`)
+- Agent understands file context immediately without extra tool calls
+
+#### Calls + Exports Edge Materialization
+- Graph build writes `EdgeKind::Calls` edges (symbol-to-symbol and file-to-file)
+- Graph build writes `EdgeKind::Exports` for exported symbols (symbol-to-file)
+- Impact analysis now tracks function-level blast radius, not just file-level
+
+#### Incremental Graph Update
+- `ctx_impact action="update"` uses `git diff --name-only` to detect changed files
+- Only changed files are re-indexed (remove_file_nodes + re-parse)
+- Deleted files have their nodes removed automatically
+- Full build hints when incremental update is available
+
+#### Session Survival Engine
+- `build_compaction_snapshot()` generates structured recovery XML:
+  - `<recovery_queries>`: executable `ctx_read`/`ctx_search` commands
+  - `<knowledge_context>`: `ctx_knowledge recall` queries from task keywords
+  - `<graph_context>`: dependency cluster references for touched files
+- Budget-aware with automatic section shrinking
+
+#### Knowledge-Enriched Overview
+- `ctx_overview` includes top relevant Knowledge facts for the current task
+- Graph architectural hotspots: files ranked by edge count (imports + calls)
+
+#### Hybrid Search Fusion (RRF)
+- `ctx_semantic_search` combines 3 signals via Reciprocal Rank Fusion:
+  - BM25 (lexical), Dense Embeddings (semantic), Graph Proximity (structural)
+- `score = sum(1 / (60 + rank_i))` over all signals
+- Graph neighbors of recently touched files get score boost
+
+#### Progressive Search Throttling
+- Per-session tracker for repeated pattern+path combinations
+- Calls 1-3: normal, 4-6: hint to use `ctx_knowledge remember`, 7+: throttle hint
+- Auto-reset after 5 minutes idle
+
+#### Sandbox-First Routing
+- `ctx_shell` output >5KB: hint to use `ctx_execute` for compression
+- `ctx_read` full mode >10K tokens: hint to use `map`/`aggressive`
+- Once-per-session deduplication
+
+#### Terse Mode
+- `ctx_session action="configure" terse=true` enables concise response mode
+- Injects instruction into resume block: focus on code/actions, avoid filler
+- Survives context compaction via snapshot
+
+---
+
 ## Notes For Releases
 
 - Tool counts and tool names must match `website/generated/mcp-tools.json`.
+- Shell pattern module count must match `rust/src/core/patterns/mod.rs` module list.
 - Any new tool or alias change requires synchronized updates in:
   - `README.md` and relevant package READMEs
   - `rust/src/templates/*` where applicable

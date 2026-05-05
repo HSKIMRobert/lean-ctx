@@ -150,14 +150,29 @@ fn rust_impl_re() -> &'static Regex {
     static_regex!(r"^(\s*)impl\s+(?:(\w+)\s+for\s+)?(\w+)")
 }
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static TREE_SITTER_HITS: AtomicU64 = AtomicU64::new(0);
+static REGEX_FALLBACK_HITS: AtomicU64 = AtomicU64::new(0);
+
+/// Returns (tree_sitter_hits, regex_fallback_hits) since process start.
+pub fn signature_backend_stats() -> (u64, u64) {
+    (
+        TREE_SITTER_HITS.load(Ordering::Relaxed),
+        REGEX_FALLBACK_HITS.load(Ordering::Relaxed),
+    )
+}
+
 pub fn extract_signatures(content: &str, file_ext: &str) -> Vec<Signature> {
     #[cfg(feature = "tree-sitter")]
     {
         if let Some(sigs) = super::signatures_ts::extract_signatures_ts(content, file_ext) {
+            TREE_SITTER_HITS.fetch_add(1, Ordering::Relaxed);
             return sigs;
         }
     }
 
+    REGEX_FALLBACK_HITS.fetch_add(1, Ordering::Relaxed);
     match file_ext {
         "rs" => extract_rust_signatures(content),
         "ts" | "tsx" | "js" | "jsx" | "svelte" | "vue" => extract_ts_signatures(content),

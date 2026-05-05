@@ -21,6 +21,7 @@ pub fn handle(
     }
 
     let project_root = path.map_or_else(|| ".".to_string(), std::string::ToString::to_string);
+    let jail_root = std::path::Path::new(&project_root);
 
     let index = crate::core::graph_index::load_or_build(&project_root);
 
@@ -66,7 +67,17 @@ pub fn handle(
     let file_context: Vec<(String, usize)> = candidates
         .iter()
         .filter_map(|c| {
-            std::fs::read_to_string(&c.path)
+            let Ok((jailed, warning)) = crate::core::io_boundary::jail_and_check_path(
+                "ctx_preload",
+                std::path::Path::new(&c.path),
+                jail_root,
+            ) else {
+                return None;
+            };
+            if warning.is_some() {
+                return None;
+            }
+            std::fs::read_to_string(&jailed)
                 .ok()
                 .map(|content| (c.path.clone(), content.lines().count()))
         })
@@ -126,16 +137,28 @@ pub fn handle(
             break;
         }
 
-        let Ok(content) = std::fs::read_to_string(&rel.path) else {
+        let Ok((jailed, warning)) = crate::core::io_boundary::jail_and_check_path(
+            "ctx_preload",
+            std::path::Path::new(&rel.path),
+            jail_root,
+        ) else {
+            continue;
+        };
+        if warning.is_some() {
+            continue;
+        }
+
+        let jailed_s = jailed.to_string_lossy().to_string();
+        let Ok(content) = std::fs::read_to_string(&jailed) else {
             continue;
         };
 
-        let file_ref = cache.get_file_ref(&rel.path);
-        let short = protocol::shorten_path(&rel.path);
+        let file_ref = cache.get_file_ref(&jailed_s);
+        let short = protocol::shorten_path(&jailed_s);
         let line_count = content.lines().count();
         let file_tokens = count_tokens(&content);
 
-        let _ = cache.store(&rel.path, content.clone());
+        let _ = cache.store(&jailed_s, content.clone());
 
         let mode = budget_to_mode(*token_budget, file_tokens);
 

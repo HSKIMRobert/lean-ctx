@@ -52,8 +52,359 @@ pub fn write_config_with_options(
         ConfigType::Amp => write_amp_config(target, binary, opts),
         ConfigType::HermesYaml => write_hermes_yaml(target, binary, opts),
         ConfigType::GeminiSettings => write_gemini_settings(target, binary, opts),
-        ConfigType::QoderMcp => write_qoder_mcp_config(target, binary, opts),
+        ConfigType::QoderSettings => write_qoder_settings(target, binary, opts),
     }
+}
+
+pub fn remove_lean_ctx_mcp_server(
+    path: &std::path::Path,
+    opts: WriteOptions,
+) -> Result<WriteResult, String> {
+    if !path.exists() {
+        return Ok(WriteResult {
+            action: WriteAction::Already,
+            note: Some("mcp.json not found".to_string()),
+        });
+    }
+
+    let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let mut json = match crate::core::jsonc::parse_jsonc(&content) {
+        Ok(v) => v,
+        Err(e) => {
+            if !opts.overwrite_invalid {
+                return Err(e.to_string());
+            }
+            backup_invalid_file(path)?;
+            return Ok(WriteResult {
+                action: WriteAction::Updated,
+                note: Some("backed up invalid JSON; did not modify".to_string()),
+            });
+        }
+    };
+
+    let obj = json
+        .as_object_mut()
+        .ok_or_else(|| "root JSON must be an object".to_string())?;
+
+    let Some(servers) = obj.get_mut("mcpServers") else {
+        return Ok(WriteResult {
+            action: WriteAction::Already,
+            note: Some("no mcpServers key".to_string()),
+        });
+    };
+    let servers_obj = servers
+        .as_object_mut()
+        .ok_or_else(|| "\"mcpServers\" must be an object".to_string())?;
+
+    if servers_obj.remove("lean-ctx").is_none() {
+        return Ok(WriteResult {
+            action: WriteAction::Already,
+            note: Some("lean-ctx not configured".to_string()),
+        });
+    }
+
+    let formatted = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
+    crate::config_io::write_atomic_with_backup(path, &formatted)?;
+    Ok(WriteResult {
+        action: WriteAction::Updated,
+        note: Some("removed lean-ctx from mcpServers".to_string()),
+    })
+}
+
+pub fn remove_lean_ctx_server(
+    target: &EditorTarget,
+    opts: WriteOptions,
+) -> Result<WriteResult, String> {
+    match target.config_type {
+        ConfigType::McpJson
+        | ConfigType::JetBrains
+        | ConfigType::GeminiSettings
+        | ConfigType::QoderSettings => remove_lean_ctx_mcp_server(&target.config_path, opts),
+        ConfigType::VsCodeMcp => remove_lean_ctx_vscode_server(&target.config_path, opts),
+        ConfigType::Codex => remove_lean_ctx_codex_server(&target.config_path),
+        ConfigType::OpenCode | ConfigType::Crush => {
+            remove_lean_ctx_named_json_server(&target.config_path, "mcp", opts)
+        }
+        ConfigType::Zed => {
+            remove_lean_ctx_named_json_server(&target.config_path, "context_servers", opts)
+        }
+        ConfigType::Amp => remove_lean_ctx_amp_server(&target.config_path, opts),
+        ConfigType::HermesYaml => remove_lean_ctx_hermes_yaml_server(&target.config_path),
+    }
+}
+
+fn remove_lean_ctx_vscode_server(
+    path: &std::path::Path,
+    opts: WriteOptions,
+) -> Result<WriteResult, String> {
+    if !path.exists() {
+        return Ok(WriteResult {
+            action: WriteAction::Already,
+            note: Some("vscode mcp.json not found".to_string()),
+        });
+    }
+
+    let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let mut json = match crate::core::jsonc::parse_jsonc(&content) {
+        Ok(v) => v,
+        Err(e) => {
+            if !opts.overwrite_invalid {
+                return Err(e.to_string());
+            }
+            backup_invalid_file(path)?;
+            return Ok(WriteResult {
+                action: WriteAction::Updated,
+                note: Some("backed up invalid JSON; did not modify".to_string()),
+            });
+        }
+    };
+
+    let obj = json
+        .as_object_mut()
+        .ok_or_else(|| "root JSON must be an object".to_string())?;
+
+    let Some(servers) = obj.get_mut("servers") else {
+        return Ok(WriteResult {
+            action: WriteAction::Already,
+            note: Some("no servers key".to_string()),
+        });
+    };
+    let servers_obj = servers
+        .as_object_mut()
+        .ok_or_else(|| "\"servers\" must be an object".to_string())?;
+
+    if servers_obj.remove("lean-ctx").is_none() {
+        return Ok(WriteResult {
+            action: WriteAction::Already,
+            note: Some("lean-ctx not configured".to_string()),
+        });
+    }
+
+    let formatted = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
+    crate::config_io::write_atomic_with_backup(path, &formatted)?;
+    Ok(WriteResult {
+        action: WriteAction::Updated,
+        note: Some("removed lean-ctx from servers".to_string()),
+    })
+}
+
+fn remove_lean_ctx_amp_server(
+    path: &std::path::Path,
+    opts: WriteOptions,
+) -> Result<WriteResult, String> {
+    if !path.exists() {
+        return Ok(WriteResult {
+            action: WriteAction::Already,
+            note: Some("amp settings not found".to_string()),
+        });
+    }
+
+    let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let mut json = match crate::core::jsonc::parse_jsonc(&content) {
+        Ok(v) => v,
+        Err(e) => {
+            if !opts.overwrite_invalid {
+                return Err(e.to_string());
+            }
+            backup_invalid_file(path)?;
+            return Ok(WriteResult {
+                action: WriteAction::Updated,
+                note: Some("backed up invalid JSON; did not modify".to_string()),
+            });
+        }
+    };
+
+    let obj = json
+        .as_object_mut()
+        .ok_or_else(|| "root JSON must be an object".to_string())?;
+    let Some(servers) = obj.get_mut("amp.mcpServers") else {
+        return Ok(WriteResult {
+            action: WriteAction::Already,
+            note: Some("no amp.mcpServers key".to_string()),
+        });
+    };
+    let servers_obj = servers
+        .as_object_mut()
+        .ok_or_else(|| "\"amp.mcpServers\" must be an object".to_string())?;
+
+    if servers_obj.remove("lean-ctx").is_none() {
+        return Ok(WriteResult {
+            action: WriteAction::Already,
+            note: Some("lean-ctx not configured".to_string()),
+        });
+    }
+
+    let formatted = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
+    crate::config_io::write_atomic_with_backup(path, &formatted)?;
+    Ok(WriteResult {
+        action: WriteAction::Updated,
+        note: Some("removed lean-ctx from amp.mcpServers".to_string()),
+    })
+}
+
+fn remove_lean_ctx_named_json_server(
+    path: &std::path::Path,
+    container_key: &str,
+    opts: WriteOptions,
+) -> Result<WriteResult, String> {
+    if !path.exists() {
+        return Ok(WriteResult {
+            action: WriteAction::Already,
+            note: Some("config not found".to_string()),
+        });
+    }
+
+    let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let mut json = match crate::core::jsonc::parse_jsonc(&content) {
+        Ok(v) => v,
+        Err(e) => {
+            if !opts.overwrite_invalid {
+                return Err(e.to_string());
+            }
+            backup_invalid_file(path)?;
+            return Ok(WriteResult {
+                action: WriteAction::Updated,
+                note: Some("backed up invalid JSON; did not modify".to_string()),
+            });
+        }
+    };
+
+    let obj = json
+        .as_object_mut()
+        .ok_or_else(|| "root JSON must be an object".to_string())?;
+    let Some(container) = obj.get_mut(container_key) else {
+        return Ok(WriteResult {
+            action: WriteAction::Already,
+            note: Some(format!("no {container_key} key")),
+        });
+    };
+    let container_obj = container
+        .as_object_mut()
+        .ok_or_else(|| format!("\"{container_key}\" must be an object"))?;
+
+    if container_obj.remove("lean-ctx").is_none() {
+        return Ok(WriteResult {
+            action: WriteAction::Already,
+            note: Some("lean-ctx not configured".to_string()),
+        });
+    }
+
+    let formatted = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
+    crate::config_io::write_atomic_with_backup(path, &formatted)?;
+    Ok(WriteResult {
+        action: WriteAction::Updated,
+        note: Some(format!("removed lean-ctx from {container_key}")),
+    })
+}
+
+fn remove_lean_ctx_codex_server(path: &std::path::Path) -> Result<WriteResult, String> {
+    if !path.exists() {
+        return Ok(WriteResult {
+            action: WriteAction::Already,
+            note: Some("codex config not found".to_string()),
+        });
+    }
+    let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let updated = remove_codex_toml_section(&content, "[mcp_servers.lean-ctx]");
+    if updated == content {
+        return Ok(WriteResult {
+            action: WriteAction::Already,
+            note: Some("lean-ctx not configured".to_string()),
+        });
+    }
+    crate::config_io::write_atomic_with_backup(path, &updated)?;
+    Ok(WriteResult {
+        action: WriteAction::Updated,
+        note: Some("removed [mcp_servers.lean-ctx]".to_string()),
+    })
+}
+
+fn remove_codex_toml_section(existing: &str, header: &str) -> String {
+    let mut out = String::with_capacity(existing.len());
+    let mut skipping = false;
+    for line in existing.lines() {
+        let trimmed = line.trim();
+        if !skipping && trimmed == header {
+            skipping = true;
+            continue;
+        }
+        if skipping {
+            if trimmed.starts_with('[') && trimmed.ends_with(']') {
+                skipping = false;
+                out.push_str(line);
+                out.push('\n');
+            }
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
+}
+
+fn remove_lean_ctx_hermes_yaml_server(path: &std::path::Path) -> Result<WriteResult, String> {
+    if !path.exists() {
+        return Ok(WriteResult {
+            action: WriteAction::Already,
+            note: Some("hermes config not found".to_string()),
+        });
+    }
+    let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let updated = remove_hermes_yaml_mcp_server_block(&content, "lean-ctx");
+    if updated == content {
+        return Ok(WriteResult {
+            action: WriteAction::Already,
+            note: Some("lean-ctx not configured".to_string()),
+        });
+    }
+    crate::config_io::write_atomic_with_backup(path, &updated)?;
+    Ok(WriteResult {
+        action: WriteAction::Updated,
+        note: Some("removed lean-ctx from mcp_servers".to_string()),
+    })
+}
+
+fn remove_hermes_yaml_mcp_server_block(existing: &str, name: &str) -> String {
+    let mut out = String::with_capacity(existing.len());
+    let mut in_mcp = false;
+    let mut skipping = false;
+    for line in existing.lines() {
+        let trimmed = line.trim_end();
+        if trimmed == "mcp_servers:" {
+            in_mcp = true;
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+
+        if in_mcp {
+            let is_child = line.starts_with("  ") && !line.starts_with("    ");
+            let is_toplevel = !line.starts_with(' ') && !line.trim().is_empty();
+
+            if is_toplevel {
+                in_mcp = false;
+                skipping = false;
+            }
+
+            if skipping {
+                if is_child || is_toplevel {
+                    skipping = false;
+                    out.push_str(line);
+                    out.push('\n');
+                }
+                continue;
+            }
+
+            if is_child && line.trim() == format!("{name}:") {
+                skipping = true;
+                continue;
+            }
+        }
+
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
 }
 
 pub fn auto_approve_tools() -> Vec<&'static str> {
@@ -116,7 +467,10 @@ fn lean_ctx_server_entry(binary: &str, data_dir: &str, include_auto_approve: boo
     entry
 }
 
-const NO_AUTO_APPROVE_EDITORS: &[&str] = &["Antigravity"];
+fn supports_auto_approve(target: &EditorTarget) -> bool {
+    crate::core::client_constraints::by_editor_name(target.name)
+        .is_some_and(|c| c.supports_auto_approve)
+}
 
 fn default_data_dir() -> Result<String, String> {
     Ok(crate::core::data_dir::lean_ctx_data_dir()?
@@ -130,7 +484,7 @@ fn write_mcp_json(
     opts: WriteOptions,
 ) -> Result<WriteResult, String> {
     let data_dir = default_data_dir()?;
-    let include_aa = !NO_AUTO_APPROVE_EDITORS.contains(&target.name);
+    let include_aa = supports_auto_approve(target);
     let desired = lean_ctx_server_entry(binary, &data_dir, include_aa);
 
     // Claude Code manages ~/.claude.json and may overwrite it on first start.
@@ -454,87 +808,6 @@ fn write_vscode_mcp_fresh(
     })
 }
 
-fn write_qoder_mcp_config(
-    target: &EditorTarget,
-    binary: &str,
-    opts: WriteOptions,
-) -> Result<WriteResult, String> {
-    let data_dir = default_data_dir()?;
-    let desired = serde_json::json!({
-        "command": binary,
-        "args": [],
-        "env": {
-            "LEAN_CTX_DATA_DIR": data_dir,
-            "LEAN_CTX_FULL_TOOLS": "1"
-        }
-    });
-
-    if target.config_path.exists() {
-        let content = std::fs::read_to_string(&target.config_path).map_err(|e| e.to_string())?;
-        let mut json = match crate::core::jsonc::parse_jsonc(&content) {
-            Ok(v) => v,
-            Err(e) => {
-                if !opts.overwrite_invalid {
-                    return Err(e.to_string());
-                }
-                backup_invalid_file(&target.config_path)?;
-                return write_qoder_mcp_fresh(
-                    &target.config_path,
-                    &desired,
-                    Some("overwrote invalid JSON".to_string()),
-                );
-            }
-        };
-        let obj = json
-            .as_object_mut()
-            .ok_or_else(|| "root JSON must be an object".to_string())?;
-        let servers = obj
-            .entry("mcpServers")
-            .or_insert_with(|| serde_json::json!({}));
-        let servers_obj = servers
-            .as_object_mut()
-            .ok_or_else(|| "\"mcpServers\" must be an object".to_string())?;
-
-        let existing = servers_obj.get("lean-ctx").cloned();
-        if existing.as_ref() == Some(&desired) {
-            return Ok(WriteResult {
-                action: WriteAction::Already,
-                note: None,
-            });
-        }
-        servers_obj.insert("lean-ctx".to_string(), desired);
-
-        let formatted = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
-        crate::config_io::write_atomic_with_backup(&target.config_path, &formatted)?;
-        return Ok(WriteResult {
-            action: WriteAction::Updated,
-            note: None,
-        });
-    }
-
-    write_qoder_mcp_fresh(&target.config_path, &desired, None)
-}
-
-fn write_qoder_mcp_fresh(
-    path: &std::path::Path,
-    desired: &Value,
-    note: Option<String>,
-) -> Result<WriteResult, String> {
-    let content = serde_json::to_string_pretty(&serde_json::json!({
-        "mcpServers": { "lean-ctx": desired }
-    }))
-    .map_err(|e| e.to_string())?;
-    crate::config_io::write_atomic_with_backup(path, &content)?;
-    Ok(WriteResult {
-        action: if note.is_some() {
-            WriteAction::Updated
-        } else {
-            WriteAction::Created
-        },
-        note,
-    })
-}
-
 fn write_opencode_config(
     target: &EditorTarget,
     binary: &str,
@@ -765,7 +1038,14 @@ fn write_crush_config(
     binary: &str,
     opts: WriteOptions,
 ) -> Result<WriteResult, String> {
-    let desired = serde_json::json!({ "type": "stdio", "command": binary });
+    let data_dir = crate::core::data_dir::lean_ctx_data_dir()
+        .map(|d| d.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let desired = serde_json::json!({
+        "type": "stdio",
+        "command": binary,
+        "env": { "LEAN_CTX_DATA_DIR": data_dir }
+    });
 
     if target.config_path.exists() {
         let content = std::fs::read_to_string(&target.config_path).map_err(|e| e.to_string())?;
@@ -1058,6 +1338,67 @@ fn upsert_hermes_yaml_mcp(existing: &str, lean_ctx_block: &str) -> String {
     out
 }
 
+fn write_qoder_settings(
+    target: &EditorTarget,
+    binary: &str,
+    opts: WriteOptions,
+) -> Result<WriteResult, String> {
+    let data_dir = default_data_dir()?;
+    let desired = serde_json::json!({
+        "command": binary,
+        "args": [],
+        "env": {
+            "LEAN_CTX_DATA_DIR": data_dir,
+            "LEAN_CTX_FULL_TOOLS": "1"
+        }
+    });
+
+    if target.config_path.exists() {
+        let content = std::fs::read_to_string(&target.config_path).map_err(|e| e.to_string())?;
+        let mut json = match crate::core::jsonc::parse_jsonc(&content) {
+            Ok(v) => v,
+            Err(e) => {
+                if !opts.overwrite_invalid {
+                    return Err(e.to_string());
+                }
+                backup_invalid_file(&target.config_path)?;
+                return write_mcp_json_fresh(
+                    &target.config_path,
+                    &desired,
+                    Some("overwrote invalid JSON".to_string()),
+                );
+            }
+        };
+        let obj = json
+            .as_object_mut()
+            .ok_or_else(|| "root JSON must be an object".to_string())?;
+        let servers = obj
+            .entry("mcpServers")
+            .or_insert_with(|| serde_json::json!({}));
+        let servers_obj = servers
+            .as_object_mut()
+            .ok_or_else(|| "\"mcpServers\" must be an object".to_string())?;
+
+        let existing = servers_obj.get("lean-ctx").cloned();
+        if existing.as_ref() == Some(&desired) {
+            return Ok(WriteResult {
+                action: WriteAction::Already,
+                note: None,
+            });
+        }
+        servers_obj.insert("lean-ctx".to_string(), desired);
+
+        let formatted = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
+        crate::config_io::write_atomic_with_backup(&target.config_path, &formatted)?;
+        return Ok(WriteResult {
+            action: WriteAction::Updated,
+            note: None,
+        });
+    }
+
+    write_mcp_json_fresh(&target.config_path, &desired, None)
+}
+
 fn backup_invalid_file(path: &std::path::Path) -> Result<(), String> {
     if !path.exists() {
         return Ok(());
@@ -1083,9 +1424,9 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    fn target(path: PathBuf, ty: ConfigType) -> EditorTarget {
+    fn target(name: &'static str, path: PathBuf, ty: ConfigType) -> EditorTarget {
         EditorTarget {
-            name: "test",
+            name,
             agent_key: "test".to_string(),
             config_path: path,
             detect_path: PathBuf::from("/nonexistent"),
@@ -1094,7 +1435,7 @@ mod tests {
     }
 
     #[test]
-    fn mcp_json_upserts_and_preserves_other_servers() {
+    fn mcp_json_upserts_and_preserves_other_servers_without_auto_approve() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("mcp.json");
         std::fs::write(
@@ -1103,7 +1444,30 @@ mod tests {
         )
         .unwrap();
 
-        let t = target(path.clone(), ConfigType::McpJson);
+        let t = target("test", path.clone(), ConfigType::McpJson);
+        let res = write_mcp_json(&t, "/new/path/lean-ctx", WriteOptions::default()).unwrap();
+        assert_eq!(res.action, WriteAction::Updated);
+
+        let json: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(json["mcpServers"]["other"]["command"], "other-bin");
+        assert_eq!(
+            json["mcpServers"]["lean-ctx"]["command"],
+            "/new/path/lean-ctx"
+        );
+        assert!(json["mcpServers"]["lean-ctx"].get("autoApprove").is_none());
+    }
+
+    #[test]
+    fn mcp_json_upserts_and_preserves_other_servers_with_auto_approve_for_cursor() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mcp.json");
+        std::fs::write(
+            &path,
+            r#"{ "mcpServers": { "other": { "command": "other-bin" }, "lean-ctx": { "command": "/old/path/lean-ctx", "autoApprove": [] } } }"#,
+        )
+        .unwrap();
+
+        let t = target("Cursor", path.clone(), ConfigType::McpJson);
         let res = write_mcp_json(&t, "/new/path/lean-ctx", WriteOptions::default()).unwrap();
         assert_eq!(res.action, WriteAction::Updated);
 
@@ -1133,7 +1497,7 @@ mod tests {
         )
         .unwrap();
 
-        let t = target(path.clone(), ConfigType::Crush);
+        let t = target("test", path.clone(), ConfigType::Crush);
         let res = write_crush_config(&t, "new", WriteOptions::default()).unwrap();
         assert_eq!(res.action, WriteAction::Updated);
 
@@ -1155,7 +1519,7 @@ args = ["x"]
         )
         .unwrap();
 
-        let t = target(path.clone(), ConfigType::Codex);
+        let t = target("test", path.clone(), ConfigType::Codex);
         let res = write_codex_config(&t, "new").unwrap();
         assert_eq!(res.action, WriteAction::Updated);
 
@@ -1212,8 +1576,8 @@ args = ["x"]
         )
         .unwrap();
 
-        let t = target(path.clone(), ConfigType::QoderMcp);
-        let res = write_qoder_mcp_config(&t, "lean-ctx", WriteOptions::default()).unwrap();
+        let t = target("Qoder", path.clone(), ConfigType::QoderSettings);
+        let res = write_qoder_settings(&t, "lean-ctx", WriteOptions::default()).unwrap();
         assert_eq!(res.action, WriteAction::Updated);
 
         let json: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
@@ -1235,10 +1599,10 @@ args = ["x"]
     fn qoder_mcp_config_is_idempotent() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("mcp.json");
-        let t = target(path.clone(), ConfigType::QoderMcp);
+        let t = target("Qoder", path.clone(), ConfigType::QoderSettings);
 
-        let first = write_qoder_mcp_config(&t, "lean-ctx", WriteOptions::default()).unwrap();
-        let second = write_qoder_mcp_config(&t, "lean-ctx", WriteOptions::default()).unwrap();
+        let first = write_qoder_settings(&t, "lean-ctx", WriteOptions::default()).unwrap();
+        let second = write_qoder_settings(&t, "lean-ctx", WriteOptions::default()).unwrap();
 
         assert_eq!(first.action, WriteAction::Created);
         assert_eq!(second.action, WriteAction::Already);
@@ -1250,7 +1614,7 @@ args = ["x"]
         let path = dir
             .path()
             .join("Library/Application Support/Qoder/SharedClientCache/mcp.json");
-        let t = target(path.clone(), ConfigType::QoderMcp);
+        let t = target("Qoder", path.clone(), ConfigType::QoderSettings);
 
         let res = write_config_with_options(&t, "lean-ctx", WriteOptions::default()).unwrap();
 
@@ -1312,7 +1676,7 @@ args = ["x"]
             "mcp_servers:\n  lean-ctx:\n    command: \"lean-ctx\"\n",
         )
         .unwrap();
-        let t = target(path.clone(), ConfigType::HermesYaml);
+        let t = target("test", path.clone(), ConfigType::HermesYaml);
         let res = write_hermes_yaml(&t, "lean-ctx", WriteOptions::default()).unwrap();
         assert_eq!(res.action, WriteAction::Already);
     }

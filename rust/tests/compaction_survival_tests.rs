@@ -114,6 +114,7 @@ fn resume_block_with_files() {
             modified: true,
             last_mode: "full".to_string(),
             tokens: 100,
+            stale: false,
         });
     session
         .files_touched
@@ -124,6 +125,7 @@ fn resume_block_with_files() {
             modified: false,
             last_mode: "full".to_string(),
             tokens: 50,
+            stale: false,
         });
     let block = session.build_resume_block();
     assert!(
@@ -139,7 +141,20 @@ fn resume_block_with_files() {
 #[test]
 fn session_resume_action() {
     let mut session = make_session_with_data();
-    let result = lean_ctx::tools::ctx_session::handle(&mut session, &[], "resume", None, None);
+    let result = lean_ctx::tools::ctx_session::handle(
+        &mut session,
+        &[],
+        "resume",
+        None,
+        None,
+        lean_ctx::tools::ctx_session::SessionToolOptions {
+            format: None,
+            path: None,
+            write: false,
+            privacy: None,
+            terse: None,
+        },
+    );
     assert!(
         result.contains("SESSION RESUME"),
         "ctx_session resume should return resume block"

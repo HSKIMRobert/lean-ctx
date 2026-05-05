@@ -52,6 +52,14 @@ pub(crate) fn load_shell_history() -> Vec<String> {
     }
 }
 
+pub(crate) fn daemon_fallback_hint() {
+    use std::sync::Once;
+    static HINT: Once = Once::new();
+    HINT.call_once(|| {
+        eprintln!("\x1b[2;33mhint: daemon not running — stats tracked locally (lean-ctx serve -d for full tracking)\x1b[0m");
+    });
+}
+
 pub(crate) fn format_tokens_cli(tokens: u64) -> String {
     if tokens >= 1_000_000 {
         format!("{:.1}M", tokens as f64 / 1_000_000.0)
@@ -60,4 +68,47 @@ pub(crate) fn format_tokens_cli(tokens: u64) -> String {
     } else {
         format!("{tokens}")
     }
+}
+
+pub(crate) fn cli_track_read(path: &str, mode: &str, original_tokens: usize, output_tokens: usize) {
+    crate::core::stats::record(&format!("cli_{mode}"), original_tokens, output_tokens);
+    crate::core::heatmap::record_file_access(
+        path,
+        original_tokens,
+        original_tokens.saturating_sub(output_tokens),
+    );
+}
+
+pub(crate) fn cli_track_search(original_tokens: usize, output_tokens: usize) {
+    crate::core::stats::record("cli_grep", original_tokens, output_tokens);
+}
+
+pub(crate) fn cli_track_tree(original_tokens: usize, output_tokens: usize) {
+    crate::core::stats::record("cli_ls", original_tokens, output_tokens);
+}
+
+pub(crate) fn detect_project_root(args: &[String]) -> String {
+    let mut it = args.iter().peekable();
+    while let Some(a) = it.next() {
+        if let Some(v) = a.strip_prefix("--root=") {
+            if !v.trim().is_empty() {
+                return v.to_string();
+            }
+        }
+        if let Some(v) = a.strip_prefix("--project-root=") {
+            if !v.trim().is_empty() {
+                return v.to_string();
+            }
+        }
+        if a == "--root" || a == "--project-root" {
+            if let Some(v) = it.peek() {
+                if !v.starts_with("--") && !v.trim().is_empty() {
+                    return (*v).clone();
+                }
+            }
+        }
+    }
+    std::env::current_dir()
+        .ok()
+        .map_or_else(|| ".".to_string(), |p| p.to_string_lossy().to_string())
 }

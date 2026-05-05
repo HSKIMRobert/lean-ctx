@@ -77,6 +77,7 @@ mod shared_sessions {
                         modified: i % 3 == 0,
                         last_mode: if i % 2 == 0 { "full" } else { "map" }.to_string(),
                         tokens: 100 + i,
+                        stale: false,
                     });
 
                     if i % 5 == 0 {
@@ -158,6 +159,7 @@ mod shared_sessions {
                 modified: false,
                 last_mode: "full".to_string(),
                 tokens: 200,
+                stale: false,
             });
         }
 
@@ -574,6 +576,7 @@ mod external_app_docking {
                 modified: true,
                 last_mode: "full".to_string(),
                 tokens: 1500,
+                stale: false,
             });
         }
 
@@ -728,6 +731,7 @@ mod session_features {
                 modified: i % 2 == 0,
                 last_mode: "full".to_string(),
                 tokens: 500,
+                stale: false,
             });
         }
 
@@ -1174,6 +1178,7 @@ mod e2e_multi_agent_scenario {
                 modified: false,
                 last_mode: "full".to_string(),
                 tokens: 2000,
+                stale: false,
             });
         }
         bus.append(
@@ -1214,6 +1219,7 @@ mod e2e_multi_agent_scenario {
                 modified: true,
                 last_mode: "full".to_string(),
                 tokens: 800,
+                stale: false,
             });
         }
         bus.append(

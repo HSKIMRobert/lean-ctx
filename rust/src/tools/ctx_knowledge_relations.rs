@@ -5,15 +5,23 @@ use crate::core::knowledge_relations::{
 };
 
 fn load_policy_or_error() -> Result<crate::core::memory_policy::MemoryPolicy, String> {
-    crate::core::config::Config::load()
+    let cfg = crate::core::config::Config::load();
+    let path = crate::core::config::Config::path().map_or_else(
+        || "~/.lean-ctx/config.toml".to_string(),
+        |p| p.display().to_string(),
+    );
+
+    let mut policy = cfg
         .memory_policy_effective()
-        .map_err(|e| {
-            let path = crate::core::config::Config::path().map_or_else(
-                || "~/.lean-ctx/config.toml".to_string(),
-                |p| p.display().to_string(),
-            );
-            format!("Error: invalid memory policy: {e}\nFix: edit {path}")
-        })
+        .map_err(|e| format!("Error: invalid memory policy: {e}\nFix: edit {path}"))?;
+
+    let profile = crate::core::profiles::active_profile();
+    policy.apply_overrides(&profile.memory);
+    policy
+        .validate()
+        .map_err(|e| format!("Error: invalid memory policy: {e}\nFix: edit {path}"))?;
+
+    Ok(policy)
 }
 
 fn ensure_current_fact_exists(knowledge: &ProjectKnowledge, node: &KnowledgeNodeRef) -> bool {
@@ -57,6 +65,9 @@ fn derived_supersedes_edges(
         if f.category == focus.category && f.key == focus.key {
             if let Some(s) = &f.supersedes {
                 if let Some(to) = parse_node_ref(s) {
+                    if to == *focus {
+                        continue;
+                    }
                     out.push(KnowledgeEdge {
                         from: focus.clone(),
                         to,
@@ -230,6 +241,12 @@ pub fn handle_relations(
         None => None,
     };
 
+    let policy = match load_policy_or_error() {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    let limit = policy.knowledge.relations_limit;
+
     let knowledge = ProjectKnowledge::load_or_create(project_root);
     let graph = KnowledgeRelationGraph::load_or_create(&knowledge.project_hash);
 
@@ -291,8 +308,11 @@ pub fn handle_relations(
     }
 
     let mut out = Vec::new();
-    out.push(format!("Relations for {} (dir={dir}):", focus.id()));
-    for e in edges {
+    let total = edges.len() + derived_filtered.len();
+    let mut shown = 0usize;
+    let mut remaining = limit;
+
+    for e in edges.iter().take(remaining) {
         let arrow = if e.from == focus { "->" } else { "<-" };
         let other = if e.from == focus { &e.to } else { &e.from };
         out.push(format!(
@@ -303,8 +323,11 @@ pub fn handle_relations(
             e.last_seen
                 .map_or_else(|| "n/a".to_string(), |t| t.format("%Y-%m-%d").to_string(),)
         ));
+        shown += 1;
+        remaining = remaining.saturating_sub(1);
     }
-    for e in derived_filtered {
+
+    for e in derived_filtered.into_iter().take(remaining) {
         let arrow = if e.from == focus { "->" } else { "<-" };
         let other = if e.from == focus { &e.to } else { &e.from };
         out.push(format!(
@@ -312,6 +335,19 @@ pub fn handle_relations(
             e.kind.as_str(),
             other.id()
         ));
+        shown += 1;
+        remaining = remaining.saturating_sub(1);
+    }
+
+    out.insert(
+        0,
+        format!(
+            "Relations for {} (dir={dir}, showing {shown}/{total}):",
+            focus.id()
+        ),
+    );
+    if total > shown {
+        out.push(format!("  … +{} more", total - shown));
     }
     out.join("\n")
 }
@@ -341,6 +377,12 @@ pub fn handle_relations_diagram(
         },
         None => None,
     };
+
+    let policy = match load_policy_or_error() {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    let limit = policy.knowledge.relations_limit;
 
     let knowledge = ProjectKnowledge::load_or_create(project_root);
     let graph = KnowledgeRelationGraph::load_or_create(&knowledge.project_hash);
@@ -386,5 +428,14 @@ pub fn handle_relations_diagram(
             .then_with(|| a.to.key.cmp(&b.to.key))
     });
 
-    format_mermaid(&edges)
+    let truncated = edges.len() > limit;
+    if truncated {
+        edges.truncate(limit);
+    }
+
+    let mut out = format_mermaid(&edges);
+    if truncated {
+        out = format!("%% truncated to {limit} edges\n{out}");
+    }
+    out
 }

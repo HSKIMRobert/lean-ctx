@@ -138,10 +138,18 @@ fn save_to_disk(hm: &HeatMap) -> std::io::Result<()> {
         std::fs::create_dir_all(parent)?;
     }
     let json = serde_json::to_string_pretty(hm)?;
-    std::fs::write(&path, json)
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, &json)?;
+    std::fs::rename(&tmp, &path)
 }
 
 pub fn record_file_access(file_path: &str, original_tokens: usize, saved_tokens: usize) {
+    let file_path = std::fs::canonicalize(file_path).map_or_else(
+        |_| file_path.to_string(),
+        |p| p.to_string_lossy().into_owned(),
+    );
+    let file_path = file_path.as_str();
+
     let mut guard = HEATMAP_BUFFER
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -166,6 +174,25 @@ pub fn record_file_access(file_path: &str, original_tokens: usize, saved_tokens:
     if n.is_multiple_of(HEATMAP_FLUSH_EVERY) && save_to_disk(hm).is_ok() {
         hm.dirty = false;
     }
+}
+
+pub fn flush() {
+    let guard = HEATMAP_BUFFER
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(ref hm) = *guard {
+        if hm.dirty {
+            let _ = save_to_disk(hm);
+        }
+    }
+}
+
+pub fn reset() {
+    let mut guard = HEATMAP_BUFFER
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    *guard = Some(HeatMap::default());
+    let _ = save_to_disk(guard.as_ref().unwrap());
 }
 
 pub fn format_heatmap_status(heatmap: &HeatMap, limit: usize) -> String {

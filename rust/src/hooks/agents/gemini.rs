@@ -80,7 +80,7 @@ pub(crate) fn install_gemini_hook_config(home: &std::path::Path) {
         }
     }
     if !mcp_server_quiet_mode() {
-        println!(
+        eprintln!(
             "Installed Gemini CLI hooks at {}",
             settings_path.parent().unwrap_or(&settings_path).display()
         );

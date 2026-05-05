@@ -41,6 +41,7 @@ pub enum SloMetric {
     CompressionRatio,
     ShellInvocations,
     ToolCallsTotal,
+    ToolCallCount,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -214,7 +215,7 @@ fn read_metric(metric: SloMetric) -> f64 {
                 ledger.compression_ratio()
             }
         }
-        SloMetric::ToolCallsTotal => (tracker.tokens_used().max(1) / 1000) as f64,
+        SloMetric::ToolCallsTotal | SloMetric::ToolCallCount => tracker.tool_calls_count() as f64,
     }
 }
 
@@ -282,6 +283,8 @@ pub fn evaluate() -> SloSnapshot {
 }
 
 pub fn evaluate_quiet() -> SloSnapshot {
+    // Record that SLO evaluation happened (count-only observability).
+    crate::core::verification_observability::record_slo_eval();
     let defs = active_slos();
     let mut slos = Vec::with_capacity(defs.len());
     let mut violations = Vec::new();
@@ -405,6 +408,7 @@ impl std::fmt::Display for SloMetric {
             Self::CompressionRatio => write!(f, "compression_ratio"),
             Self::ShellInvocations => write!(f, "shell_invocations"),
             Self::ToolCallsTotal => write!(f, "tool_calls_total"),
+            Self::ToolCallCount => write!(f, "tool_call_count"),
         }
     }
 }

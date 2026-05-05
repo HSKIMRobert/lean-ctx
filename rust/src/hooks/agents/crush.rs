@@ -1,4 +1,4 @@
-use super::super::resolve_binary_path;
+use super::super::{resolve_binary_path, write_file, HookMode, CLI_REDIRECT_RULES, HYBRID_RULES};
 
 pub(crate) fn install_crush_hook() {
     let binary = resolve_binary_path();
@@ -10,25 +10,30 @@ pub(crate) fn install_crush_hook() {
         let _ = std::fs::create_dir_all(parent);
     }
 
+    let data_dir = crate::core::data_dir::lean_ctx_data_dir()
+        .map(|d| d.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let desired = serde_json::json!({
+        "type": "stdio",
+        "command": binary,
+        "env": { "LEAN_CTX_DATA_DIR": data_dir }
+    });
+
     if config_path.exists() {
         let content = std::fs::read_to_string(&config_path).unwrap_or_default();
-        if content.contains("lean-ctx") {
-            println!("Crush MCP already configured at {display_path}");
-            return;
-        }
-
         if let Ok(mut json) = crate::core::jsonc::parse_jsonc(&content) {
             if let Some(obj) = json.as_object_mut() {
                 let servers = obj.entry("mcp").or_insert_with(|| serde_json::json!({}));
                 if let Some(servers_obj) = servers.as_object_mut() {
-                    servers_obj.insert(
-                        "lean-ctx".to_string(),
-                        serde_json::json!({ "type": "stdio", "command": binary }),
-                    );
+                    if servers_obj.get("lean-ctx") == Some(&desired) {
+                        eprintln!("Crush MCP already configured at {display_path}");
+                        return;
+                    }
+                    servers_obj.insert("lean-ctx".to_string(), desired.clone());
                 }
                 if let Ok(formatted) = serde_json::to_string_pretty(&json) {
                     let _ = std::fs::write(&config_path, formatted);
-                    println!("  \x1b[32m✓\x1b[0m Crush MCP configured at {display_path}");
+                    eprintln!("  \x1b[32m✓\x1b[0m Crush MCP configured at {display_path}");
                     return;
                 }
             }
@@ -37,17 +42,69 @@ pub(crate) fn install_crush_hook() {
 
     let content = serde_json::to_string_pretty(&serde_json::json!({
         "mcp": {
-            "lean-ctx": {
-                "type": "stdio",
-                "command": binary
-            }
+            "lean-ctx": desired
         }
     }));
 
     if let Ok(json_str) = content {
         let _ = std::fs::write(&config_path, json_str);
-        println!("  \x1b[32m✓\x1b[0m Crush MCP configured at {display_path}");
+        eprintln!("  \x1b[32m✓\x1b[0m Crush MCP configured at {display_path}");
     } else {
         tracing::error!("Failed to configure Crush");
     }
+}
+
+pub(crate) fn install_crush_hook_with_mode(mode: HookMode) {
+    match mode {
+        HookMode::CliRedirect => {
+            // CLI-first: avoid MCP schema overhead by removing MCP config if present.
+            let home = crate::core::home::resolve_home_dir().unwrap_or_default();
+            let target = crate::core::editor_registry::EditorTarget {
+                name: "Crush",
+                agent_key: "crush".to_string(),
+                config_path: home.join(".config/crush/crush.json"),
+                detect_path: home.join(".config/crush"),
+                config_type: crate::core::editor_registry::ConfigType::Crush,
+            };
+            let _ = crate::core::editor_registry::remove_lean_ctx_server(
+                &target,
+                crate::core::editor_registry::WriteOptions {
+                    overwrite_invalid: true,
+                },
+            );
+            install_crush_cli_redirect_rules(mode);
+        }
+        HookMode::Hybrid => {
+            install_crush_hook();
+            install_crush_cli_redirect_rules(mode);
+        }
+        HookMode::Mcp => {
+            install_crush_hook();
+        }
+    }
+}
+
+fn install_crush_cli_redirect_rules(mode: HookMode) {
+    let home = crate::core::home::resolve_home_dir().unwrap_or_default();
+    let rules_dir = home.join(".config/crush/rules");
+    let _ = std::fs::create_dir_all(&rules_dir);
+    let rules_path = rules_dir.join("lean-ctx.md");
+
+    let content = match mode {
+        HookMode::CliRedirect => CLI_REDIRECT_RULES,
+        HookMode::Hybrid => HYBRID_RULES,
+        HookMode::Mcp => return,
+    };
+
+    write_file(&rules_path, content);
+
+    let mode_name = match mode {
+        HookMode::CliRedirect => "cli-redirect",
+        HookMode::Hybrid => "hybrid",
+        HookMode::Mcp => "mcp",
+    };
+    eprintln!(
+        "  \x1b[32m✓\x1b[0m Crush rules installed in {mode_name} mode at {}",
+        rules_path.display()
+    );
 }

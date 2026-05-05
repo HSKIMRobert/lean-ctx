@@ -17,6 +17,11 @@ impl LeanCtxServer {
                     .ok_or_else(|| ErrorData::invalid_params("action is required", None))?;
                 let value = get_str(args, "value");
                 let sid = get_str(args, "session_id");
+                let format = get_str(args, "format");
+                let path = get_str(args, "path");
+                let write = get_bool(args, "write").unwrap_or(false);
+                let privacy = get_str(args, "privacy");
+                let terse = get_bool(args, "terse");
                 let tool_calls = self.tool_calls.read().await.clone();
                 let call_durations: Vec<(String, u64)> = tool_calls
                     .iter()
@@ -29,6 +34,13 @@ impl LeanCtxServer {
                     &action,
                     value.as_deref(),
                     sid.as_deref(),
+                    crate::tools::ctx_session::SessionToolOptions {
+                        format: format.as_deref(),
+                        path: path.as_deref(),
+                        write,
+                        privacy: privacy.as_deref(),
+                        terse,
+                    },
                 );
                 drop(session);
                 self.record_call("ctx_session", 0, 0, Some(action)).await;
@@ -121,6 +133,15 @@ impl LeanCtxServer {
                 let category = get_str(args, "category");
                 let to_agent = get_str(args, "to_agent");
                 let status = get_str(args, "status");
+                let privacy = get_str(args, "privacy");
+                let priority = get_str(args, "priority");
+                let ttl_hours: Option<u64> = args
+                    .as_ref()
+                    .and_then(|a| a.get("ttl_hours"))
+                    .and_then(serde_json::Value::as_u64);
+                let format = get_str(args, "format");
+                let write = get_bool(args, "write").unwrap_or(false);
+                let filename = get_str(args, "filename");
 
                 let session = self.session.read().await;
                 let project_root = session.project_root.clone().unwrap_or_else(|| {
@@ -142,6 +163,12 @@ impl LeanCtxServer {
                     category.as_deref(),
                     to_agent.as_deref(),
                     status.as_deref(),
+                    privacy.as_deref(),
+                    priority.as_deref(),
+                    ttl_hours,
+                    format.as_deref(),
+                    write,
+                    filename.as_deref(),
                 );
 
                 if action == "register" {
@@ -315,6 +342,168 @@ impl LeanCtxServer {
                         self.record_call("ctx_handoff", 0, 0, Some(action)).await;
                         output
                     }
+                    "export" => {
+                        let curated_paths = get_str_array(args, "paths").unwrap_or_default();
+                        let mut curated_refs: Vec<(String, String)> = Vec::new();
+                        if !curated_paths.is_empty() {
+                            let mut cache = self.cache.write().await;
+                            for p in curated_paths.into_iter().take(20) {
+                                let abs = self
+                                    .resolve_path(&p)
+                                    .await
+                                    .map_err(|e| ErrorData::invalid_params(e, None))?;
+                                let text = crate::tools::ctx_read::handle_with_task(
+                                    &mut cache,
+                                    &abs,
+                                    "signatures",
+                                    crate::tools::CrpMode::effective(),
+                                    None,
+                                );
+                                curated_refs.push((abs, text));
+                            }
+                        }
+
+                        let session = { self.session.read().await.clone() };
+                        let tool_calls = { self.tool_calls.read().await.clone() };
+                        let workflow = { self.workflow.read().await.clone() };
+                        let agent_id = { self.agent_id.read().await.clone() };
+                        let client_name = { self.client_name.read().await.clone() };
+                        let project_root = session.project_root.clone();
+
+                        let (ledger, _ledger_path) = crate::core::handoff_ledger::create_ledger(
+                            crate::core::handoff_ledger::CreateLedgerInput {
+                                agent_id,
+                                client_name: Some(client_name),
+                                project_root: project_root.clone(),
+                                session,
+                                tool_calls,
+                                workflow,
+                                curated_refs,
+                            },
+                        )
+                        .map_err(|e| {
+                            ErrorData::internal_error(format!("create ledger: {e}"), None)
+                        })?;
+
+                        let privacy = crate::core::handoff_transfer_bundle::BundlePrivacyV1::parse(
+                            get_str(args, "privacy").as_deref(),
+                        );
+                        if privacy == crate::core::handoff_transfer_bundle::BundlePrivacyV1::Full
+                            && crate::core::roles::active_role_name() != "admin"
+                        {
+                            let result = "ERROR: privacy=full requires role 'admin'.".to_string();
+                            self.record_call("ctx_handoff", 0, 0, Some(action)).await;
+                            return Ok(result);
+                        }
+
+                        let bundle = crate::core::handoff_transfer_bundle::build_bundle_v1(
+                            ledger,
+                            project_root.as_deref(),
+                            privacy,
+                        );
+                        let json =
+                            match crate::core::handoff_transfer_bundle::serialize_bundle_v1_pretty(
+                                &bundle,
+                            ) {
+                                Ok(s) => s,
+                                Err(e) => {
+                                    self.record_call("ctx_handoff", 0, 0, Some(action)).await;
+                                    return Ok(e);
+                                }
+                            };
+
+                        let write = get_bool(args, "write").unwrap_or(false);
+                        let format = get_str(args, "format").unwrap_or_else(|| {
+                            if write
+                                || get_str(args, "path").is_some()
+                                || get_str(args, "filename").is_some()
+                            {
+                                "summary".to_string()
+                            } else {
+                                "json".to_string()
+                            }
+                        });
+
+                        let root = project_root.clone().unwrap_or_else(|| {
+                            std::env::current_dir().map_or_else(
+                                |_| ".".to_string(),
+                                |p| p.to_string_lossy().to_string(),
+                            )
+                        });
+                        let root_path = std::path::PathBuf::from(&root);
+
+                        let mut written: Option<std::path::PathBuf> = None;
+                        if write
+                            || get_str(args, "path").is_some()
+                            || get_str(args, "filename").is_some()
+                        {
+                            let ts = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
+                            let candidate = if let Some(p) = get_str(args, "path") {
+                                let p = std::path::PathBuf::from(p);
+                                if p.is_absolute() {
+                                    p
+                                } else {
+                                    root_path.join(p)
+                                }
+                            } else if let Some(name) = get_str(args, "filename") {
+                                root_path.join(".lean-ctx").join("proofs").join(name)
+                            } else {
+                                let session_id = bundle.ledger.session.id.clone();
+                                root_path.join(".lean-ctx").join("proofs").join(format!(
+                                    "handoff-transfer-bundle-v1_{session_id}_{ts}.json",
+                                ))
+                            };
+
+                            let jailed = match crate::core::io_boundary::jail_and_check_path(
+                                "ctx_handoff.export",
+                                candidate.as_path(),
+                                root_path.as_path(),
+                            ) {
+                                Ok((p, _warning)) => p,
+                                Err(e) => {
+                                    self.record_call("ctx_handoff", 0, 0, Some(action)).await;
+                                    return Ok(e);
+                                }
+                            };
+
+                            if let Err(e) = crate::core::handoff_transfer_bundle::write_bundle_v1(
+                                &jailed, &json,
+                            ) {
+                                self.record_call("ctx_handoff", 0, 0, Some(action)).await;
+                                return Ok(format!("Export write failed: {e}"));
+                            }
+
+                            // Best-effort: record proof artifact evidence.
+                            let mut ev = crate::core::evidence_ledger::EvidenceLedgerV1::load();
+                            let _ = ev.record_artifact_file(
+                                "proof:handoff-transfer-bundle-v1",
+                                &jailed,
+                                chrono::Utc::now(),
+                            );
+                            let _ = ev.save();
+
+                            written = Some(jailed);
+                        }
+
+                        let out = match format.as_str() {
+                            "summary" => crate::tools::ctx_handoff::format_exported(
+                                written.as_deref(),
+                                bundle.schema_version,
+                                json.len(),
+                                &bundle.privacy,
+                            ),
+                            _ => {
+                                if let Some(p) = written.as_deref() {
+                                    format!("{json}\n\npath: {}", p.display())
+                                } else {
+                                    json
+                                }
+                            }
+                        };
+
+                        self.record_call("ctx_handoff", 0, 0, Some(action)).await;
+                        out
+                    }
                     "pull" => {
                         let path = get_str(args, "path").ok_or_else(|| {
                             ErrorData::invalid_params("path is required for action=pull", None)
@@ -416,9 +605,172 @@ impl LeanCtxServer {
                         self.record_call("ctx_handoff", 0, 0, Some(action)).await;
                         result
                     }
+                    "import" => {
+                        let path = get_str(args, "path").ok_or_else(|| {
+                            ErrorData::invalid_params("path is required for action=import", None)
+                        })?;
+
+                        let project_root = {
+                            let session = self.session.read().await;
+                            session
+                                .project_root
+                                .clone()
+                                .unwrap_or_else(|| ".".to_string())
+                        };
+                        let root_path = std::path::PathBuf::from(&project_root);
+
+                        let candidate = {
+                            let p = std::path::PathBuf::from(&path);
+                            if p.is_absolute() {
+                                p
+                            } else {
+                                root_path.join(p)
+                            }
+                        };
+                        let jailed = match crate::core::io_boundary::jail_and_check_path(
+                            "ctx_handoff.import",
+                            candidate.as_path(),
+                            root_path.as_path(),
+                        ) {
+                            Ok((p, _warning)) => p,
+                            Err(e) => {
+                                self.record_call("ctx_handoff", 0, 0, Some(action)).await;
+                                return Ok(e);
+                            }
+                        };
+
+                        let bundle =
+                            match crate::core::handoff_transfer_bundle::read_bundle_v1(&jailed) {
+                                Ok(b) => b,
+                                Err(e) => {
+                                    self.record_call("ctx_handoff", 0, 0, Some(action)).await;
+                                    return Ok(format!("Import failed: {e}"));
+                                }
+                            };
+
+                        let warning =
+                            crate::core::handoff_transfer_bundle::project_identity_warning(
+                                &bundle,
+                                &project_root,
+                            );
+
+                        if let Some(ref w) = warning {
+                            let source_hash = bundle
+                                .project
+                                .project_root_hash
+                                .as_deref()
+                                .unwrap_or("unknown");
+                            let target_hash =
+                                crate::core::project_hash::hash_project_root(&project_root);
+                            let role = crate::core::roles::active_role();
+                            if !role.io.allow_cross_project_search {
+                                let event = crate::core::memory_boundary::CrossProjectAuditEvent {
+                                    timestamp: chrono::Utc::now()
+                                        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                                    event_type:
+                                        crate::core::memory_boundary::CrossProjectEventType::Import,
+                                    source_project_hash: source_hash.to_string(),
+                                    target_project_hash: target_hash,
+                                    tool: "ctx_handoff".to_string(),
+                                    action: "import".to_string(),
+                                    facts_accessed: 0,
+                                    allowed: false,
+                                    policy_reason: format!("identity mismatch: {w}"),
+                                };
+                                crate::core::memory_boundary::record_audit_event(&event);
+                                self.record_call("ctx_handoff", 0, 0, Some(action)).await;
+                                return Ok(format!(
+                                    "IMPORT BLOCKED: project identity mismatch. {w}\n\
+                                     Set `io.allow_cross_project_search = true` in your role to allow cross-project imports."
+                                ));
+                            }
+                        }
+
+                        let schema_version = bundle.schema_version;
+                        let ledger = bundle.ledger;
+
+                        let apply_workflow = get_bool(args, "apply_workflow").unwrap_or(true);
+                        let apply_session = get_bool(args, "apply_session").unwrap_or(true);
+                        let apply_knowledge = get_bool(args, "apply_knowledge").unwrap_or(true);
+
+                        if apply_workflow {
+                            let mut wf = self.workflow.write().await;
+                            wf.clone_from(&ledger.workflow);
+                        }
+
+                        if apply_session {
+                            let mut session = self.session.write().await;
+                            if let Some(t) = ledger.session.task.as_deref() {
+                                session.set_task(t, None);
+                            }
+                            for d in &ledger.session.decisions {
+                                session.add_decision(d, None);
+                            }
+                            for f in &ledger.session.findings {
+                                session.add_finding(None, None, f);
+                            }
+                            session.next_steps.clone_from(&ledger.session.next_steps);
+                            let _ = session.save();
+                        }
+
+                        let mut knowledge_imported = 0u32;
+                        let mut contradictions = 0u32;
+                        if apply_knowledge {
+                            let session_id = {
+                                let s = self.session.read().await;
+                                s.id.clone()
+                            };
+                            let policy = match crate::core::config::Config::load()
+                                .memory_policy_effective()
+                            {
+                                Ok(p) => p,
+                                Err(e) => {
+                                    let path = crate::core::config::Config::path().map_or_else(
+                                        || "~/.lean-ctx/config.toml".to_string(),
+                                        |p| p.display().to_string(),
+                                    );
+                                    self.record_call("ctx_handoff", 0, 0, Some(action)).await;
+                                    return Ok(format!(
+                                        "Error: invalid memory policy: {e}\nFix: edit {path}"
+                                    ));
+                                }
+                            };
+                            let mut knowledge =
+                                crate::core::knowledge::ProjectKnowledge::load_or_create(
+                                    &project_root,
+                                );
+                            for fact in &ledger.knowledge.facts {
+                                let c = knowledge.remember(
+                                    &fact.category,
+                                    &fact.key,
+                                    &fact.value,
+                                    &session_id,
+                                    fact.confidence,
+                                    &policy,
+                                );
+                                if c.is_some() {
+                                    contradictions += 1;
+                                }
+                                knowledge_imported += 1;
+                            }
+                            let _ = knowledge.run_memory_lifecycle(&policy);
+                            let _ = knowledge.save();
+                        }
+
+                        let result = crate::tools::ctx_handoff::format_imported(
+                            jailed.as_path(),
+                            schema_version,
+                            knowledge_imported,
+                            contradictions,
+                            warning.as_deref(),
+                        );
+                        self.record_call("ctx_handoff", 0, 0, Some(action)).await;
+                        result
+                    }
                     _ => {
                         let result =
-                            "Unknown action. Use: create, show, list, pull, clear".to_string();
+                            "Unknown action. Use: create, show, list, pull, clear, export, import"
+                                .to_string();
                         self.record_call("ctx_handoff", 0, 0, Some(action)).await;
                         result
                     }

@@ -173,7 +173,29 @@ fn jsonl_path() -> Option<std::path::PathBuf> {
         .map(|d| d.join("events.jsonl"))
 }
 
+fn is_test_environment() -> bool {
+    use std::sync::OnceLock;
+    static CACHED: OnceLock<bool> = OnceLock::new();
+    *CACHED.get_or_init(|| {
+        if cfg!(test) {
+            return true;
+        }
+        if std::env::var_os("__LEAN_CTX_SKIP_EVENTS").is_some() {
+            return true;
+        }
+        std::env::current_exe()
+            .map(|p| {
+                let s = p.to_string_lossy();
+                s.contains("/deps/") || s.contains("\\deps\\")
+            })
+            .unwrap_or(false)
+    })
+}
+
 fn append_jsonl(event: &LeanCtxEvent) {
+    if is_test_environment() {
+        return;
+    }
     let Some(path) = jsonl_path() else { return };
 
     if let Some(parent) = path.parent() {

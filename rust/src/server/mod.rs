@@ -1,7 +1,10 @@
 mod dispatch;
 mod execute;
 pub mod helpers;
+pub mod pipeline_stages;
+pub mod registry;
 pub mod role_guard;
+pub mod tool_trait;
 
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
@@ -521,7 +524,7 @@ impl ServerHandler for LeanCtxServer {
         if name == "ctx_read" {
             if minimal {
                 let mut cache = self.cache.write().await;
-                crate::tools::autonomy::maybe_auto_dedup(&self.autonomy, &mut cache);
+                crate::tools::autonomy::maybe_auto_dedup(&self.autonomy, &mut cache, name);
             } else {
                 let read_path = self
                     .resolve_path_or_passthrough(
@@ -538,11 +541,14 @@ impl ServerHandler for LeanCtxServer {
                     &mut cache,
                     &read_path,
                     project_root.as_deref(),
+                    None,
+                    crate::tools::CrpMode::effective(),
+                    false,
                 );
                 if let Some(hint) = enrich.related_hint {
                     result_text = format!("{result_text}\n{hint}");
                 }
-                crate::tools::autonomy::maybe_auto_dedup(&self.autonomy, &mut cache);
+                crate::tools::autonomy::maybe_auto_dedup(&self.autonomy, &mut cache, name);
             }
         }
 
@@ -664,6 +670,7 @@ impl ServerHandler for LeanCtxServer {
                     &name_owned,
                     input_token_count,
                     output_token_count_u64,
+                    0,
                 );
                 let _ = store.save();
             });

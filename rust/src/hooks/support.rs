@@ -14,7 +14,9 @@ pub(super) fn install_named_json_server(
     if config_path.exists() {
         let content = std::fs::read_to_string(config_path).unwrap_or_default();
         if content.contains("lean-ctx") {
-            println!("{name} MCP already configured at {display_path}");
+            if !super::mcp_server_quiet_mode() {
+                eprintln!("{name} MCP already configured at {display_path}");
+            }
             return;
         }
         if update_named_json_server(config_path, &content, root_key, &entry) {
@@ -74,7 +76,9 @@ fn write_json_config(config_path: &std::path::Path, value: &serde_json::Value) -
 }
 
 fn print_named_json_server_success(name: &str, display_path: &str) {
-    println!("  \x1b[32m✓\x1b[0m {name} MCP configured at {display_path}");
+    if !super::mcp_server_quiet_mode() {
+        eprintln!("  \x1b[32m✓\x1b[0m {name} MCP configured at {display_path}");
+    }
 }
 
 pub(super) fn install_codex_instruction_docs(codex_dir: &Path) -> bool {
@@ -113,7 +117,7 @@ Prefix all shell commands with `{binary} -c` for compressed output:
 {binary} -c ls src/       # instead of: ls src/
 ```
 
-This saves 60-90% tokens per command. Works with: git, cargo, npm, pnpm, docker, kubectl, pip, ruff, go, curl, grep, find, ls, aws, helm, and 90+ more commands.
+This saves 60-90% tokens per command. Works with: git, cargo, npm, pnpm, docker, kubectl, pip, ruff, go, curl, grep, find, ls, aws, helm, and 95+ more commands.
 Use `{binary} -c --raw <cmd>` to skip compression and get full output.
 "
     )

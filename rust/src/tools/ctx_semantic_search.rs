@@ -475,6 +475,10 @@ fn rrf_merge_hybrid(lists: Vec<(String, Vec<HybridResult>)>, top_k: usize) -> Ve
         b.rrf_score
             .partial_cmp(&a.rrf_score)
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.file_path.cmp(&b.file_path))
+            .then_with(|| a.symbol_name.cmp(&b.symbol_name))
+            .then_with(|| a.start_line.cmp(&b.start_line))
+            .then_with(|| a.end_line.cmp(&b.end_line))
     });
     out.truncate(top_k);
     out
@@ -511,6 +515,10 @@ fn rrf_merge_bm25(
         b.score
             .partial_cmp(&a.score)
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.file_path.cmp(&b.file_path))
+            .then_with(|| a.symbol_name.cmp(&b.symbol_name))
+            .then_with(|| a.start_line.cmp(&b.start_line))
+            .then_with(|| a.end_line.cmp(&b.end_line))
     });
     out.truncate(top_k);
     out
@@ -570,6 +578,8 @@ fn hybrid_results_for_root(
         .is_active()
         .then_some(&filter_fn as &dyn Fn(&str) -> bool);
     let candidate_k = filtered_candidate_k(top_k, filter.is_active());
+    let graph_ranks = graph_rrf_ranks_for_search_root(root);
+    let graph_ranks_ref = graph_ranks.as_ref();
     let mut results = crate::core::dense_backend::hybrid_results(
         backend,
         root,
@@ -581,6 +591,7 @@ fn hybrid_results_for_root(
         candidate_k,
         &cfg,
         filter_pred,
+        graph_ranks_ref,
     )?;
     results.truncate(top_k);
     Ok((results, coverage))
@@ -592,6 +603,45 @@ fn label_for_root(root: &Path) -> String {
         .map(str::to_string)
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| root.to_string_lossy().to_string())
+}
+
+#[cfg(feature = "embeddings")]
+fn graph_rrf_ranks_for_search_root(
+    root: &Path,
+) -> Option<std::collections::HashMap<String, usize>> {
+    let root_s = root.to_string_lossy().to_string();
+    let session = crate::core::session::SessionState::load_latest_for_project_root(&root_s)?;
+
+    if session.files_touched.is_empty() {
+        return None;
+    }
+
+    let recent: Vec<String> = session
+        .files_touched
+        .iter()
+        .rev()
+        .filter(|f| path_under_search_root(&f.path, root))
+        .take(12)
+        .map(|f| f.path.clone())
+        .collect();
+
+    if recent.is_empty() {
+        return None;
+    }
+
+    crate::core::graph_context::graph_neighbor_ranks_for_recent_files(&root_s, &recent, 40, 120)
+}
+
+#[cfg(feature = "embeddings")]
+fn path_under_search_root(path: &str, root: &Path) -> bool {
+    let p = std::path::Path::new(path);
+    if p.is_absolute() {
+        let root_norm = crate::core::pathutil::safe_canonicalize_or_self(root);
+        let path_norm = crate::core::pathutil::safe_canonicalize_or_self(p);
+        path_norm.starts_with(&root_norm)
+    } else {
+        true
+    }
 }
 
 fn hybrid_search_mode(
@@ -625,6 +675,8 @@ fn hybrid_search_mode(
         let filter_pred: Option<&dyn Fn(&str) -> bool> = filter
             .is_active()
             .then_some(&filter_fn as &dyn Fn(&str) -> bool);
+        let graph_ranks = graph_rrf_ranks_for_search_root(root);
+        let graph_ranks_ref = graph_ranks.as_ref();
         let mut results = match crate::core::dense_backend::hybrid_results(
             backend,
             root,
@@ -636,6 +688,7 @@ fn hybrid_search_mode(
             top_k,
             &cfg,
             filter_pred,
+            graph_ranks_ref,
         ) {
             Ok(v) => v,
             Err(e) => return format!("ERR: {e}"),
@@ -968,5 +1021,53 @@ mod filter_tests {
         let f = SearchFilter::new(None, Some("rust/src/**")).unwrap();
         assert!(f.matches("rust/src/core/mod.rs"));
         assert!(!f.matches("website/src/pages/index.astro"));
+    }
+}
+
+#[cfg(test)]
+mod determinism_tests {
+    use super::*;
+
+    #[test]
+    fn rrf_merge_hybrid_is_deterministic_on_ties() {
+        let a = HybridResult {
+            file_path: "a.rs".to_string(),
+            symbol_name: "foo".to_string(),
+            kind: crate::core::vector_index::ChunkKind::Function,
+            start_line: 1,
+            end_line: 1,
+            snippet: "a".to_string(),
+            rrf_score: 0.0,
+            bm25_score: None,
+            dense_score: None,
+            bm25_rank: None,
+            dense_rank: None,
+        };
+        let b = HybridResult {
+            file_path: "b.rs".to_string(),
+            symbol_name: "foo".to_string(),
+            kind: crate::core::vector_index::ChunkKind::Function,
+            start_line: 1,
+            end_line: 1,
+            snippet: "b".to_string(),
+            rrf_score: 0.0,
+            bm25_score: None,
+            dense_score: None,
+            bm25_rank: None,
+            dense_rank: None,
+        };
+
+        // Two lists with swapped ranks yield identical RRF sums for a and b.
+        let fused = rrf_merge_hybrid(
+            vec![
+                ("root".to_string(), vec![a.clone(), b.clone()]),
+                ("root".to_string(), vec![b.clone(), a.clone()]),
+            ],
+            10,
+        );
+
+        assert_eq!(fused.len(), 2);
+        assert_eq!(fused[0].file_path, "a.rs");
+        assert_eq!(fused[1].file_path, "b.rs");
     }
 }

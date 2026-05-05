@@ -18,6 +18,8 @@ pub struct Role {
     #[serde(default)]
     pub tools: ToolPolicy,
     #[serde(default)]
+    pub io: IoPolicy,
+    #[serde(default)]
     pub limits: RoleLimits,
 }
 
@@ -101,6 +103,54 @@ fn default_block_pct() -> u8 {
     255
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IoPolicy {
+    /// Boundary enforcement mode for sensitive I/O (warn|enforce).
+    #[serde(default = "default_boundary_mode")]
+    pub boundary_mode: String,
+    /// Allow search to ignore .gitignore and scan everything.
+    #[serde(default)]
+    pub allow_ignore_gitignore: bool,
+    /// Allow reading/indexing secret-like paths (e.g. .env, *.pem).
+    #[serde(default)]
+    pub allow_secret_paths: bool,
+    /// Enable output redaction for tool outputs (admin can disable; non-admin always on).
+    #[serde(default = "default_redact_outputs")]
+    pub redact_outputs: bool,
+    /// Allow cross-project knowledge search (default: false for non-admin roles).
+    #[serde(default)]
+    pub allow_cross_project_search: bool,
+}
+
+fn default_boundary_mode() -> String {
+    "warn".to_string()
+}
+
+fn default_redact_outputs() -> bool {
+    true
+}
+
+impl Default for IoPolicy {
+    fn default() -> Self {
+        Self {
+            boundary_mode: default_boundary_mode(),
+            allow_ignore_gitignore: false,
+            allow_secret_paths: false,
+            redact_outputs: default_redact_outputs(),
+            allow_cross_project_search: false,
+        }
+    }
+}
+
+impl IoPolicy {
+    fn is_default(&self) -> bool {
+        self.boundary_mode == default_boundary_mode()
+            && !self.allow_ignore_gitignore
+            && !self.allow_secret_paths
+            && self.redact_outputs == default_redact_outputs()
+    }
+}
+
 impl Role {
     pub fn is_tool_allowed(&self, tool_name: &str) -> bool {
         if !self.tools.denied.is_empty()
@@ -140,6 +190,7 @@ fn builtin_coder() -> Role {
             allowed: vec!["*".into()],
             denied: vec![],
         },
+        io: IoPolicy::default(),
         limits: RoleLimits {
             max_context_tokens: 200_000,
             max_shell_invocations: 100,
@@ -184,6 +235,10 @@ fn builtin_reviewer() -> Role {
             ],
             denied: vec!["ctx_edit".into(), "ctx_shell".into(), "ctx_execute".into()],
         },
+        io: IoPolicy {
+            boundary_mode: "enforce".into(),
+            ..Default::default()
+        },
         limits: RoleLimits {
             max_context_tokens: 150_000,
             max_shell_invocations: 0,
@@ -205,6 +260,7 @@ fn builtin_debugger() -> Role {
             allowed: vec!["*".into()],
             denied: vec![],
         },
+        io: IoPolicy::default(),
         limits: RoleLimits {
             max_context_tokens: 150_000,
             max_shell_invocations: 200,
@@ -236,6 +292,7 @@ fn builtin_ops() -> Role {
             ],
             denied: vec!["ctx_edit".into()],
         },
+        io: IoPolicy::default(),
         limits: RoleLimits {
             max_context_tokens: 100_000,
             max_shell_invocations: 300,
@@ -256,6 +313,13 @@ fn builtin_admin() -> Role {
         tools: ToolPolicy {
             allowed: vec!["*".into()],
             denied: vec![],
+        },
+        io: IoPolicy {
+            boundary_mode: "enforce".into(),
+            allow_ignore_gitignore: true,
+            allow_secret_paths: true,
+            redact_outputs: true,
+            allow_cross_project_search: true,
         },
         limits: RoleLimits {
             max_context_tokens: 500_000,
@@ -345,6 +409,11 @@ fn merge_roles(parent: &Role, child: &Role) -> Role {
             parent.tools.clone()
         } else {
             child.tools.clone()
+        },
+        io: if child.io.is_default() && !parent.io.is_default() {
+            parent.io.clone()
+        } else {
+            child.io.clone()
         },
         limits: RoleLimits {
             max_context_tokens: child.limits.max_context_tokens,
@@ -549,6 +618,7 @@ mod tests {
                 allowed: vec!["*".into()],
                 denied: vec!["ctx_edit".into()],
             },
+            io: IoPolicy::default(),
             limits: RoleLimits::default(),
         };
         assert!(r.is_tool_allowed("ctx_read"));
@@ -564,6 +634,7 @@ mod tests {
                 ..Default::default()
             },
             tools: ToolPolicy::default(),
+            io: IoPolicy::default(),
             limits: RoleLimits::default(),
         };
         assert!(!r.is_shell_allowed());
@@ -590,6 +661,7 @@ mod tests {
                 ..Default::default()
             },
             tools: ToolPolicy::default(),
+            io: IoPolicy::default(),
             limits: RoleLimits {
                 max_context_tokens: 50_000,
                 ..Default::default()

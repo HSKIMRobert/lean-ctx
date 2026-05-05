@@ -108,6 +108,7 @@ pub fn hybrid_results(
     top_k: usize,
     config: &HybridConfig,
     filter: Option<&dyn Fn(&str) -> bool>,
+    graph_file_ranks: Option<&std::collections::HashMap<String, usize>>,
 ) -> Result<Vec<HybridResult>, String> {
     match backend {
         DenseBackendKind::Local => {
@@ -119,6 +120,7 @@ pub fn hybrid_results(
                 Some(aligned_embeddings),
                 top_k,
                 config,
+                graph_file_ranks,
             );
             if let Some(pred) = filter {
                 results.retain(|r| pred(&r.file_path));
@@ -148,8 +150,13 @@ pub fn hybrid_results(
                 filter,
             )?;
 
-            let mut fused =
-                crate::core::hybrid_search::reciprocal_rank_fusion(&bm25, &dense, config, top_k);
+            let mut fused = crate::core::hybrid_search::reciprocal_rank_fusion(
+                &bm25,
+                &dense,
+                config,
+                top_k,
+                graph_file_ranks,
+            );
             if let Some(pred) = filter {
                 fused.retain(|r| pred(&r.file_path));
             }

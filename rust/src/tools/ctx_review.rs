@@ -20,7 +20,7 @@ fn handle_review(path: Option<&str>, root: &str, depth: usize) -> String {
 
     sections.push(format!("## Review: {target}\n"));
 
-    let impact = super::ctx_impact::handle("analyze", Some(target), root, Some(depth));
+    let impact = super::ctx_impact::handle("analyze", Some(target), root, Some(depth), None);
     if !impact.contains("No") && !impact.contains("empty") {
         sections.push("### Impact Analysis".to_string());
         sections.push(impact);
@@ -93,7 +93,7 @@ fn handle_checklist(path: Option<&str>, root: &str, depth: usize) -> String {
         "- [ ] Are all public API changes in `{target}` backward-compatible?"
     ));
 
-    let impact = super::ctx_impact::handle("analyze", Some(target), root, Some(depth));
+    let impact = super::ctx_impact::handle("analyze", Some(target), root, Some(depth), None);
     let affected_count = impact.lines().filter(|l| l.contains("→")).count();
 
     if affected_count > 0 {

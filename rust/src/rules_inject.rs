@@ -82,50 +82,9 @@ Write, Delete, Glob → use normally. NEVER loop on Edit failures — switch to 
 
 // ---------------------------------------------------------------------------
 // Rules for Cursor MDC format (dedicated file with frontmatter).
-// alwaysApply: true ensures this is loaded into EVERY conversation.
-// LITM-optimized: critical warning at top and bottom.
 // ---------------------------------------------------------------------------
-const RULES_CURSOR_MDC: &str = r#"---
-description: "lean-ctx: prefer ctx_read/ctx_shell/ctx_search/ctx_tree over Read/Shell/Grep/ls for token savings"
-alwaysApply: true
----
-
-# lean-ctx — Context Engineering Layer
-<!-- lean-ctx-rules-v9 -->
-
-PREFER lean-ctx MCP tools over native equivalents for token savings:
-
-## Tool Mapping
-
-| PREFER | OVER | Why |
-|--------|------|-----|
-| `ctx_read` | `Read` | Session caching, 10 read modes, re-reads cost ~13 tokens |
-| `ctx_shell` | `Shell` | Pattern-based compression for git, npm, cargo, docker, tsc |
-| `ctx_search` | `Grep` | Compact context, token-efficient results |
-| `ctx_tree` | `ls`, `find` | Compact directory maps with file counts |
-| `ctx_edit` | `Edit` (when Read unavailable) | Search-and-replace without native Read dependency |
-
-## ctx_read Modes
-
-- `auto` — auto-select optimal mode (recommended default)
-- `full` — cached read (use for files you will edit)
-- `map` — dependency graph + exports + key signatures (use for context-only files)
-- `signatures` — API surface only
-- `diff` — changed lines only (use after edits)
-- `aggressive` — maximum compression (context only)
-- `entropy` — highlight high-entropy fragments
-- `task` — IB-filtered (task relevant)
-- `reference` — quote-friendly minimal excerpts
-- `lines:N-M` — specific range
-
-## File editing
-
-- Use native Edit/StrReplace when available.
-- If Edit requires native Read and Read is unavailable: use `ctx_edit(path, old_string, new_string)` instead.
-- NEVER loop trying to make Edit work. If it fails, switch to ctx_edit immediately.
-- Write, Delete, Glob → use normally.
-- Fallback only if a lean-ctx tool is unavailable: use native equivalents.
-<!-- /lean-ctx -->"#;
+const RULES_CURSOR_MDC: &str = include_str!("templates/lean-ctx.mdc");
+const RULES_CURSOR_MDC_CLI_REDIRECT: &str = include_str!("templates/lean-ctx-cli-redirect.mdc");
 
 // ---------------------------------------------------------------------------
 
@@ -139,6 +98,8 @@ enum RulesFormat {
     SharedMarkdown,
     DedicatedMarkdown,
     CursorMdc,
+    DedicatedCliRedirect,
+    CursorMdcCliRedirect,
 }
 
 pub struct InjectResult {
@@ -250,6 +211,8 @@ fn rules_content(format: &RulesFormat) -> &'static str {
         RulesFormat::SharedMarkdown => RULES_SHARED,
         RulesFormat::DedicatedMarkdown => RULES_DEDICATED,
         RulesFormat::CursorMdc => RULES_CURSOR_MDC,
+        RulesFormat::DedicatedCliRedirect => crate::hooks::CLI_REDIRECT_RULES,
+        RulesFormat::CursorMdcCliRedirect => RULES_CURSOR_MDC_CLI_REDIRECT,
     }
 }
 
@@ -263,7 +226,10 @@ fn inject_rules(target: &RulesTarget) -> Result<RulesResult, String> {
             ensure_parent(&target.path)?;
             return match target.format {
                 RulesFormat::SharedMarkdown => replace_markdown_section(&target.path, &content),
-                RulesFormat::DedicatedMarkdown | RulesFormat::CursorMdc => {
+                RulesFormat::DedicatedMarkdown
+                | RulesFormat::DedicatedCliRedirect
+                | RulesFormat::CursorMdc
+                | RulesFormat::CursorMdcCliRedirect => {
                     write_dedicated(&target.path, rules_content(&target.format))
                 }
             };
@@ -274,7 +240,10 @@ fn inject_rules(target: &RulesTarget) -> Result<RulesResult, String> {
 
     match target.format {
         RulesFormat::SharedMarkdown => append_to_shared(&target.path),
-        RulesFormat::DedicatedMarkdown | RulesFormat::CursorMdc => {
+        RulesFormat::DedicatedMarkdown
+        | RulesFormat::DedicatedCliRedirect
+        | RulesFormat::CursorMdc
+        | RulesFormat::CursorMdcCliRedirect => {
             write_dedicated(&target.path, rules_content(&target.format))
         }
     }
@@ -376,7 +345,6 @@ fn is_tool_detected(target: &RulesTarget, home: &std::path::Path) -> bool {
         "Roo Code" => detect_extension_installed(home, "rooveterinaryinc.roo-cline"),
         "OpenCode" => home.join(".config/opencode").exists(),
         "Continue" => detect_extension_installed(home, "continue.continue"),
-        "Aider" => command_exists("aider") || home.join(".aider.conf.yml").exists(),
         "Amp" => command_exists("amp") || home.join(".ampcoder").exists(),
         "Qwen Code" => home.join(".qwen").exists(),
         "Trae" => home.join(".trae").exists(),
@@ -481,17 +449,21 @@ fn detect_extension_installed(_home: &std::path::Path, extension_id: &str) -> bo
 // ---------------------------------------------------------------------------
 
 fn build_rules_targets(home: &std::path::Path) -> Vec<RulesTarget> {
+    let cursor_mode = crate::hooks::recommend_hook_mode("cursor");
+    let opencode_mode = crate::hooks::recommend_hook_mode("opencode");
+    let crush_mode = crate::hooks::recommend_hook_mode("crush");
+    let claude_mode = crate::hooks::recommend_hook_mode("claude");
+
     vec![
         // --- Shared config files (append-only) ---
         RulesTarget {
             name: "Claude Code",
             path: crate::core::editor_registry::claude_rules_dir(home).join("lean-ctx.md"),
-            format: RulesFormat::DedicatedMarkdown,
-        },
-        RulesTarget {
-            name: "Codex CLI",
-            path: home.join(".codex/instructions.md"),
-            format: RulesFormat::SharedMarkdown,
+            format: if matches!(claude_mode, crate::hooks::HookMode::CliRedirect) {
+                RulesFormat::DedicatedCliRedirect
+            } else {
+                RulesFormat::DedicatedMarkdown
+            },
         },
         RulesTarget {
             name: "Gemini CLI",
@@ -507,7 +479,11 @@ fn build_rules_targets(home: &std::path::Path) -> Vec<RulesTarget> {
         RulesTarget {
             name: "Cursor",
             path: home.join(".cursor/rules/lean-ctx.mdc"),
-            format: RulesFormat::CursorMdc,
+            format: if matches!(cursor_mode, crate::hooks::HookMode::CliRedirect) {
+                RulesFormat::CursorMdcCliRedirect
+            } else {
+                RulesFormat::CursorMdc
+            },
         },
         RulesTarget {
             name: "Windsurf",
@@ -532,16 +508,15 @@ fn build_rules_targets(home: &std::path::Path) -> Vec<RulesTarget> {
         RulesTarget {
             name: "OpenCode",
             path: home.join(".config/opencode/rules/lean-ctx.md"),
-            format: RulesFormat::DedicatedMarkdown,
+            format: if matches!(opencode_mode, crate::hooks::HookMode::CliRedirect) {
+                RulesFormat::DedicatedCliRedirect
+            } else {
+                RulesFormat::DedicatedMarkdown
+            },
         },
         RulesTarget {
             name: "Continue",
             path: home.join(".continue/rules/lean-ctx.md"),
-            format: RulesFormat::DedicatedMarkdown,
-        },
-        RulesTarget {
-            name: "Aider",
-            path: home.join(".aider/rules/lean-ctx.md"),
             format: RulesFormat::DedicatedMarkdown,
         },
         RulesTarget {
@@ -592,7 +567,11 @@ fn build_rules_targets(home: &std::path::Path) -> Vec<RulesTarget> {
         RulesTarget {
             name: "Crush",
             path: home.join(".config/crush/rules/lean-ctx.md"),
-            format: RulesFormat::DedicatedMarkdown,
+            format: if matches!(crush_mode, crate::hooks::HookMode::CliRedirect) {
+                RulesFormat::DedicatedCliRedirect
+            } else {
+                RulesFormat::DedicatedMarkdown
+            },
         },
     ]
 }
@@ -614,6 +593,114 @@ fn copilot_instructions_path(home: &std::path::Path) -> PathBuf {
     }
     #[allow(unreachable_code)]
     home.join(".config/Code/User/github-copilot-instructions.md")
+}
+
+// ---------------------------------------------------------------------------
+// SKILL.md installation
+// ---------------------------------------------------------------------------
+
+const SKILL_TEMPLATE: &str = include_str!("templates/SKILL.md");
+
+struct SkillTarget {
+    agent_key: &'static str,
+    display_name: &'static str,
+    skill_dir: PathBuf,
+}
+
+fn build_skill_targets(home: &std::path::Path) -> Vec<SkillTarget> {
+    vec![
+        SkillTarget {
+            agent_key: "claude",
+            display_name: "Claude Code",
+            skill_dir: home.join(".claude/skills/lean-ctx"),
+        },
+        SkillTarget {
+            agent_key: "cursor",
+            display_name: "Cursor",
+            skill_dir: home.join(".cursor/skills/lean-ctx"),
+        },
+        SkillTarget {
+            agent_key: "codex",
+            display_name: "Codex CLI",
+            skill_dir: home.join(".codex/skills/lean-ctx"),
+        },
+    ]
+}
+
+fn is_skill_agent_detected(agent_key: &str, home: &std::path::Path) -> bool {
+    match agent_key {
+        "claude" => {
+            command_exists("claude")
+                || crate::core::editor_registry::claude_mcp_json_path(home).exists()
+                || crate::core::editor_registry::claude_state_dir(home).exists()
+        }
+        "cursor" => home.join(".cursor").exists(),
+        "codex" => home.join(".codex").exists() || command_exists("codex"),
+        _ => false,
+    }
+}
+
+/// Install SKILL.md for a specific agent. Returns the installed path.
+pub fn install_skill_for_agent(home: &std::path::Path, agent_key: &str) -> Result<PathBuf, String> {
+    let targets = build_skill_targets(home);
+    let target = targets
+        .into_iter()
+        .find(|t| t.agent_key == agent_key)
+        .ok_or_else(|| format!("No skill target for agent '{agent_key}'"))?;
+
+    let skill_path = target.skill_dir.join("SKILL.md");
+    std::fs::create_dir_all(&target.skill_dir).map_err(|e| e.to_string())?;
+
+    if skill_path.exists() {
+        let existing = std::fs::read_to_string(&skill_path).unwrap_or_default();
+        if existing == SKILL_TEMPLATE {
+            return Ok(skill_path);
+        }
+    }
+
+    std::fs::write(&skill_path, SKILL_TEMPLATE).map_err(|e| e.to_string())?;
+    Ok(skill_path)
+}
+
+/// Install SKILL.md for all detected agents.
+/// Returns `Vec<(display_name, was_new_or_updated)>`.
+pub fn install_all_skills(home: &std::path::Path) -> Vec<(String, bool)> {
+    let targets = build_skill_targets(home);
+    let mut results = Vec::new();
+
+    for target in &targets {
+        if !is_skill_agent_detected(target.agent_key, home) {
+            continue;
+        }
+
+        let skill_path = target.skill_dir.join("SKILL.md");
+        let already_current = skill_path.exists()
+            && std::fs::read_to_string(&skill_path)
+                .map(|c| c == SKILL_TEMPLATE)
+                .unwrap_or(false);
+
+        if already_current {
+            results.push((target.display_name.to_string(), false));
+            continue;
+        }
+
+        if let Err(e) = std::fs::create_dir_all(&target.skill_dir) {
+            tracing::warn!(
+                "Failed to create skill dir for {}: {e}",
+                target.display_name
+            );
+            continue;
+        }
+
+        match std::fs::write(&skill_path, SKILL_TEMPLATE) {
+            Ok(()) => results.push((target.display_name.to_string(), true)),
+            Err(e) => {
+                tracing::warn!("Failed to write SKILL.md for {}: {e}", target.display_name);
+            }
+        }
+    }
+
+    results
 }
 
 // ---------------------------------------------------------------------------
@@ -808,6 +895,62 @@ mod tests {
     fn target_count() {
         let home = std::path::PathBuf::from("/tmp/fake_home");
         let targets = build_rules_targets(&home);
-        assert_eq!(targets.len(), 22);
+        assert_eq!(targets.len(), 20);
+    }
+
+    #[test]
+    fn skill_template_not_empty() {
+        assert!(!SKILL_TEMPLATE.is_empty());
+        assert!(SKILL_TEMPLATE.contains("lean-ctx"));
+    }
+
+    #[test]
+    fn skill_targets_count() {
+        let home = std::path::PathBuf::from("/tmp/fake_home");
+        let targets = build_skill_targets(&home);
+        assert_eq!(targets.len(), 3);
+    }
+
+    #[test]
+    fn install_skill_creates_file() {
+        ensure_temp_dir();
+        let home = std::env::temp_dir().join("test_skill_install");
+        let _ = std::fs::create_dir_all(&home);
+
+        let fake_cursor = home.join(".cursor");
+        let _ = std::fs::create_dir_all(&fake_cursor);
+
+        let result = install_skill_for_agent(&home, "cursor");
+        assert!(result.is_ok());
+
+        let path = result.unwrap();
+        assert!(path.exists());
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(content, SKILL_TEMPLATE);
+
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn install_skill_idempotent() {
+        ensure_temp_dir();
+        let home = std::env::temp_dir().join("test_skill_idempotent");
+        let _ = std::fs::create_dir_all(&home);
+
+        let fake_cursor = home.join(".cursor");
+        let _ = std::fs::create_dir_all(&fake_cursor);
+
+        let p1 = install_skill_for_agent(&home, "cursor").unwrap();
+        let p2 = install_skill_for_agent(&home, "cursor").unwrap();
+        assert_eq!(p1, p2);
+
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn install_skill_unknown_agent() {
+        let home = std::path::PathBuf::from("/tmp/fake_home");
+        let result = install_skill_for_agent(&home, "unknown_agent");
+        assert!(result.is_err());
     }
 }

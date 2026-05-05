@@ -1,8 +1,168 @@
+use crate::core::session::SessionState;
 use crate::core::stats;
+use crate::tools::ctx_session::{self, SessionToolOptions};
 
 use super::common::{format_tokens_cli, load_shell_history};
 
-pub fn cmd_session() {
+pub fn cmd_session_action(args: &[String]) {
+    let action = args.first().map(String::as_str);
+
+    match action {
+        Some("task") => {
+            let desc = args.get(1).map_or("(no description)", String::as_str);
+            if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
+                "ctx_session",
+                Some(serde_json::json!({ "action": "task", "value": desc })),
+            ) {
+                println!("{out}");
+                return;
+            }
+            let mut session = load_or_create_session();
+            let out =
+                ctx_session::handle(&mut session, &[], "task", Some(desc), None, default_opts());
+            let _ = session.save();
+            println!("{out}");
+        }
+        Some("finding") => {
+            let summary = args.get(1).map_or("(no summary)", String::as_str);
+            if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
+                "ctx_session",
+                Some(serde_json::json!({ "action": "finding", "value": summary })),
+            ) {
+                println!("{out}");
+                return;
+            }
+            let mut session = load_or_create_session();
+            let out = ctx_session::handle(
+                &mut session,
+                &[],
+                "finding",
+                Some(summary),
+                None,
+                default_opts(),
+            );
+            let _ = session.save();
+            println!("{out}");
+        }
+        Some("save") => {
+            if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
+                "ctx_session",
+                Some(serde_json::json!({ "action": "save" })),
+            ) {
+                println!("{out}");
+                return;
+            }
+            let mut session = load_or_create_session();
+            let out = ctx_session::handle(&mut session, &[], "save", None, None, default_opts());
+            println!("{out}");
+        }
+        Some("load") => {
+            let id = args.get(1).map(String::as_str);
+            if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
+                "ctx_session",
+                Some(serde_json::json!({ "action": "load", "session_id": id })),
+            ) {
+                println!("{out}");
+                return;
+            }
+            let mut session = SessionState::new();
+            let out = ctx_session::handle(&mut session, &[], "load", None, id, default_opts());
+            println!("{out}");
+        }
+        Some("status") => {
+            if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
+                "ctx_session",
+                Some(serde_json::json!({ "action": "status" })),
+            ) {
+                println!("{out}");
+                return;
+            }
+            let mut session = load_or_create_session();
+            let out = ctx_session::handle(&mut session, &[], "status", None, None, default_opts());
+            println!("{out}");
+        }
+        Some("decision") => {
+            let desc = args.get(1).map_or("(no description)", String::as_str);
+            if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
+                "ctx_session",
+                Some(serde_json::json!({ "action": "decision", "value": desc })),
+            ) {
+                println!("{out}");
+                return;
+            }
+            let mut session = load_or_create_session();
+            let out = ctx_session::handle(
+                &mut session,
+                &[],
+                "decision",
+                Some(desc),
+                None,
+                default_opts(),
+            );
+            let _ = session.save();
+            println!("{out}");
+        }
+        Some("reset") => {
+            if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
+                "ctx_session",
+                Some(serde_json::json!({ "action": "reset" })),
+            ) {
+                println!("{out}");
+                return;
+            }
+            let mut session = load_or_create_session();
+            let out = ctx_session::handle(&mut session, &[], "reset", None, None, default_opts());
+            println!("{out}");
+        }
+        None => {
+            cmd_session_legacy();
+        }
+        Some(other) => {
+            eprintln!("Unknown session action: {other}");
+            print_session_help();
+            std::process::exit(1);
+        }
+    }
+}
+
+fn load_or_create_session() -> SessionState {
+    SessionState::load_latest().unwrap_or_default()
+}
+
+fn default_opts() -> SessionToolOptions<'static> {
+    SessionToolOptions {
+        format: None,
+        path: None,
+        write: false,
+        privacy: None,
+        terse: None,
+    }
+}
+
+fn print_session_help() {
+    eprintln!(
+        "\
+lean-ctx session — Session management
+
+Usage:
+  lean-ctx session                      Show adoption statistics
+  lean-ctx session task <description>   Set current task
+  lean-ctx session finding <summary>    Record a finding
+  lean-ctx session decision <summary>   Record a decision
+  lean-ctx session save                 Save current session
+  lean-ctx session load [session-id]    Load a session (latest if no ID)
+  lean-ctx session status               Show session status
+  lean-ctx session reset                Reset session
+
+Examples:
+  lean-ctx session task \"implement JWT authentication\"
+  lean-ctx session finding \"auth.rs:42 — missing token validation\"
+  lean-ctx session save
+  lean-ctx session load"
+    );
+}
+
+fn cmd_session_legacy() {
     let history = load_shell_history();
     let gain = stats::load_stats();
 

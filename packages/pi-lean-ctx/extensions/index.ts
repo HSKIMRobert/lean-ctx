@@ -63,10 +63,26 @@ const grepSchema = Type.Object({
   limit: Type.Optional(Type.Number({ description: "Maximum number of matches (default: 100)" })),
 });
 
+const leanCtxSchema = Type.Object({
+  args: Type.Array(
+    Type.String({
+      description:
+        "Arguments after 'lean-ctx'. Example: ['overview'] or ['knowledge','recall','Pi']",
+    }),
+  ),
+});
+
 function shellQuote(value: string): string {
   if (!value) return "''";
   if (/^[A-Za-z0-9_./=:@,+%^-]+$/.test(value)) return value;
   return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function envFlag(name: string): boolean {
+  const raw = process.env[name];
+  if (!raw) return false;
+  const v = raw.trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes" || v === "on";
 }
 
 function resolveBinary(): string {
@@ -490,9 +506,28 @@ export default async function (pi: ExtensionAPI) {
     },
   });
 
-  const mcpBridge = new McpBridge(resolveBinary());
+  pi.registerTool({
+    name: "lean_ctx",
+    label: "lean_ctx",
+    description:
+      "Run lean-ctx CLI directly (CLI-first; no MCP required). "
+      + "Use this for advanced commands like session/knowledge/overview/gain/stats/index/pack.",
+    promptSnippet: "Run lean-ctx CLI directly",
+    parameters: leanCtxSchema,
+    async execute(_toolCallId, params) {
+      const output = await execLeanCtx(pi, params.args);
+      return {
+        content: [{ type: "text", text: output.trimEnd() }],
+        details: { source: "lean-ctx", args: params.args },
+      };
+    },
+  });
 
-  if (!isMcpAdapterConfigured()) {
+  const enableMcpBridge = envFlag("LEAN_CTX_PI_ENABLE_MCP");
+  const adapterConfigured = isMcpAdapterConfigured();
+  const mcpBridge = enableMcpBridge && !adapterConfigured ? new McpBridge(resolveBinary()) : null;
+
+  if (mcpBridge) {
     try {
       await mcpBridge.start(pi);
     } catch (err) {
@@ -505,29 +540,37 @@ export default async function (pi: ExtensionAPI) {
     handler: async (_args, ctx) => {
       const bin = resolveBinary();
       const found = existsSync(bin);
-      const status = mcpBridge.getStatus();
+      const status = mcpBridge?.getStatus();
 
       const lines: string[] = [];
       lines.push(found ? `Binary: ${bin}` : "Binary: NOT FOUND — install: cargo install lean-ctx");
-      lines.push(`MCP bridge: ${status.mode} (${status.connected ? "connected" : "disconnected"})`);
-      lines.push(`Reconnect attempts: ${status.reconnectAttempts}`);
-      lines.push(`MCP tools: ${status.toolCount} registered`);
-      if (status.toolNames.length > 0) {
-        lines.push(`  ${status.toolNames.join(", ")}`);
-      }
-      if (status.lastHungTool) {
-        lines.push(`Last hung tool: ${status.lastHungTool}`);
-      }
-      if (status.lastRetry) {
-        lines.push(
-          `Last retry: ${status.lastRetry.toolName} (${status.lastRetry.reason}) at ${status.lastRetry.timestamp}`,
-        );
-      }
-      if (status.lastError) {
-        lines.push(`Last bridge error: ${status.lastError}`);
+      if (adapterConfigured) {
+        lines.push("MCP bridge: adapter-configured (extension bridge disabled)");
+      } else if (!enableMcpBridge) {
+        lines.push("MCP bridge: disabled (CLI-first)");
+        lines.push("  Enable: set LEAN_CTX_PI_ENABLE_MCP=1 and restart Pi");
+      } else if (status) {
+        lines.push(`MCP bridge: ${status.mode} (${status.connected ? "connected" : "disconnected"})`);
+        lines.push(`Reconnect attempts: ${status.reconnectAttempts}`);
+        lines.push(`MCP tools: ${status.toolCount} registered`);
+        if (status.toolNames.length > 0) {
+          lines.push(`  ${status.toolNames.join(", ")}`);
+        }
+        if (status.lastHungTool) {
+          lines.push(`Last hung tool: ${status.lastHungTool}`);
+        }
+        if (status.lastRetry) {
+          lines.push(
+            `Last retry: ${status.lastRetry.toolName} (${status.lastRetry.reason}) at ${status.lastRetry.timestamp}`,
+          );
+        }
+        if (status.lastError) {
+          lines.push(`Last bridge error: ${status.lastError}`);
+        }
       }
 
-      ctx.ui.notify(lines.join("\n"), found && status.connected ? "info" : "warning");
+      const ok = found && (adapterConfigured || !enableMcpBridge || (status?.connected ?? false));
+      ctx.ui.notify(lines.join("\n"), ok ? "info" : "warning");
     },
   });
 }

@@ -4,6 +4,8 @@
 //! Used by `ctx_read` (task mode) to surface a small, budgeted set of
 //! related files (deterministic ordering; no output spam).
 
+use std::collections::{HashMap, HashSet};
+
 use super::graph_provider::{self, GraphProviderSource};
 use super::tokens::count_tokens;
 
@@ -199,6 +201,120 @@ fn collect_candidates(
     }
 
     candidates
+}
+
+fn related_files_scored_for_path(
+    file_path: &str,
+    project_root: &str,
+    limit: usize,
+) -> Option<Vec<(String, f64)>> {
+    let provider = graph_provider::open_best_effort(project_root)?;
+    let rel_path = file_path
+        .strip_prefix(project_root)
+        .unwrap_or(file_path)
+        .trim_start_matches('/');
+    let scored = provider.provider.related_files_scored(rel_path, limit);
+    if scored.is_empty() {
+        return None;
+    }
+    Some(scored)
+}
+
+/// Comma-separated repo-relative paths for dependency-cluster hints (e.g. CCP XML).
+pub fn build_related_paths_csv(
+    file_path: &str,
+    project_root: &str,
+    limit: usize,
+) -> Option<String> {
+    let scored = related_files_scored_for_path(file_path, project_root, limit)?;
+    Some(
+        scored
+            .into_iter()
+            .map(|(path, _)| path)
+            .collect::<Vec<_>>()
+            .join(","),
+    )
+}
+
+/// Lightweight one-line hint of the top related files from the Property Graph.
+/// Returns `None` if no graph is available or no neighbors found.
+pub fn build_related_hint(file_path: &str, project_root: &str, limit: usize) -> Option<String> {
+    let scored = related_files_scored_for_path(file_path, project_root, limit)?;
+
+    let entries: Vec<String> = scored
+        .iter()
+        .map(|(path, score)| {
+            let short = path.rsplit('/').next().unwrap_or(path);
+            if *score >= 0.9 {
+                short.to_string()
+            } else {
+                format!("{short} ({:.0}%)", score * 100.0)
+            }
+        })
+        .collect();
+
+    Some(format!("[related: {}]", entries.join(", ")))
+}
+
+/// Repo-relative paths (same style as BM25 chunks / property graph) ranked for RRF graph proximity.
+///
+/// `recent_repo_paths` should be ordered **most recently touched first**. Neighbors from earlier
+/// seeds are ranked before those from later seeds; within a seed, graph `related_files_scored` order is kept.
+pub fn graph_neighbor_ranks_for_recent_files(
+    project_root: &str,
+    recent_repo_paths: &[String],
+    per_seed_limit: usize,
+    max_ranked: usize,
+) -> Option<HashMap<String, usize>> {
+    let open = graph_provider::open_best_effort(project_root)?;
+    let mut seen = HashSet::<String>::new();
+    let mut ranked: Vec<String> = Vec::new();
+
+    for seed in recent_repo_paths {
+        let rel_path = normalize_repo_rel_path(seed, project_root);
+        if rel_path.is_empty() {
+            continue;
+        }
+        let scored = open
+            .provider
+            .related_files_scored(&rel_path, per_seed_limit);
+        for (path, _) in scored {
+            if seen.insert(path.clone()) {
+                ranked.push(path);
+                if ranked.len() >= max_ranked {
+                    return Some(
+                        ranked
+                            .into_iter()
+                            .enumerate()
+                            .map(|(i, p)| (p, i))
+                            .collect(),
+                    );
+                }
+            }
+        }
+    }
+
+    if ranked.is_empty() {
+        None
+    } else {
+        Some(
+            ranked
+                .into_iter()
+                .enumerate()
+                .map(|(i, p)| (p, i))
+                .collect(),
+        )
+    }
+}
+
+fn normalize_repo_rel_path(path: &str, project_root: &str) -> String {
+    let p = path.replace('\\', "/");
+    let root = project_root.trim_end_matches('/').replace('\\', "/");
+    let prefix = format!("{root}/");
+    if let Some(rest) = p.strip_prefix(&prefix) {
+        return rest.to_string();
+    }
+    p.trim_start_matches('/').to_string()
 }
 
 pub fn format_graph_context(ctx: &GraphContext) -> String {

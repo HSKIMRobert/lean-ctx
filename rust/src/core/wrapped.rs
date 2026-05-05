@@ -9,7 +9,7 @@ pub struct WrappedReport {
     pub total_commands: u64,
     pub sessions_count: usize,
     pub top_commands: Vec<(String, u64, f64)>,
-    pub cache_hit_rate: f64,
+    pub compression_rate_pct: f64,
     pub files_touched: u64,
 }
 
@@ -59,7 +59,7 @@ impl WrappedReport {
         top_commands.sort_by_key(|x| std::cmp::Reverse(x.1));
         top_commands.truncate(5);
 
-        let cache_hit_rate = if tokens_input > 0 {
+        let compression_rate_pct = if tokens_input > 0 {
             tokens_saved as f64 / tokens_input as f64 * 100.0
         } else {
             0.0
@@ -75,7 +75,7 @@ impl WrappedReport {
             total_commands,
             sessions_count,
             top_commands,
-            cache_hit_rate,
+            compression_rate_pct,
             files_touched,
         }
     }
@@ -110,13 +110,13 @@ impl WrappedReport {
              {saved_str} tokens saved      {cost_str} avoided\n  \
              {sessions} sessions            {cmds} commands\n  \
              Top: {top_str}\n  \
-             Compression rate: {cache:.1}%\n \
+             Compression rate: {compression:.1}%\n \
              {border}\n  \
              \"Your AI saw only what mattered.\"\n  \
              leanctx.com\n",
             sessions = self.sessions_count,
             cmds = self.total_commands,
-            cache = self.cache_hit_rate,
+            compression = self.compression_rate_pct,
         )
     }
 
@@ -134,7 +134,7 @@ impl WrappedReport {
         format!(
             "WRAPPED [{}]: {} tok saved, {} avoided, {} sessions, {} cmds | Top: {} | Compression: {:.1}%",
             self.period, saved_str, cost_str, self.sessions_count,
-            self.total_commands, top_str, self.cache_hit_rate,
+            self.total_commands, top_str, self.compression_rate_pct,
         )
     }
 }

@@ -1,0 +1,28 @@
+---
+description: "lean-ctx hybrid: MCP reads + lean-ctx CLI for shell/search/tree"
+alwaysApply: true
+---
+
+# lean-ctx — Context Engineering Layer
+<!-- lean-ctx-rules-hybrid-v1 -->
+
+## Mode: Hybrid
+
+Use MCP for reads (cache benefits), and lean-ctx CLI for everything else (avoids MCP schema overhead where possible).
+
+### MCP tools (reads)
+
+| USE (MCP) | Why |
+|-----------|-----|
+| `ctx_read(path, mode)` | In-process cache, re-reads ~13 tokens |
+
+### CLI commands (via Shell/Bash)
+
+| USE (via Shell/Bash) | INSTEAD OF (MCP) |
+|---------------------|-------------------|
+| `lean-ctx -c "<cmd>"` | `ctx_shell` |
+| `lean-ctx grep <pattern> [path]` | `ctx_search` |
+| `lean-ctx ls [path]` | `ctx_tree` |
+
+File editing: use native Edit/StrReplace. Write/Delete/Glob → use normally.
+

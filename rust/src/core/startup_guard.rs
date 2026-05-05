@@ -1,8 +1,26 @@
+use std::io::Write as _;
 use std::path::PathBuf;
 use std::time::Duration;
 
 pub struct StartupLockGuard {
     path: PathBuf,
+}
+
+impl StartupLockGuard {
+    pub fn touch(&self) {
+        // Update mtime so stale eviction doesn't kill active long-running processes.
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(&self.path)
+        {
+            let _ = writeln!(f, "{now_ms}");
+        }
+    }
 }
 
 impl Drop for StartupLockGuard {

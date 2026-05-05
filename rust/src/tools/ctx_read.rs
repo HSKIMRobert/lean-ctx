@@ -10,7 +10,31 @@ use crate::core::symbol_map::{self, SymbolMap};
 use crate::core::tokens::count_tokens;
 use crate::tools::CrpMode;
 
+/// Pre-counted read output carrying the output string, resolved mode,
+/// and token count computed during mode processing.
+pub struct ReadOutput {
+    pub content: String,
+    pub resolved_mode: String,
+    /// Approximate output token count from mode processing.
+    /// The dispatch layer recounts the final assembled string for accurate savings.
+    pub output_tokens: usize,
+}
+
 const COMPRESSED_HINT: &str = "[compressed — use mode=\"full\" for complete source]";
+
+const CACHEABLE_MODES: &[&str] = &["map", "signatures"];
+
+fn is_cacheable_mode(mode: &str) -> bool {
+    CACHEABLE_MODES.contains(&mode)
+}
+
+fn compressed_cache_key(mode: &str, crp_mode: CrpMode) -> String {
+    if crp_mode.is_tdd() {
+        format!("{mode}:tdd")
+    } else {
+        mode.to_string()
+    }
+}
 
 fn append_compressed_hint(output: &str, file_path: &str) -> String {
     format!("{output}\n{COMPRESSED_HINT}\n  ctx_read(\"{file_path}\", mode=\"full\")")
@@ -56,14 +80,14 @@ pub fn handle_with_task(
     handle_with_options(cache, path, mode, false, crp_mode, task)
 }
 
-/// Like `handle_with_task`, also returns the resolved mode name.
+/// Like `handle_with_task`, also returns the resolved mode name and pre-counted tokens.
 pub fn handle_with_task_resolved(
     cache: &mut SessionCache,
     path: &str,
     mode: &str,
     crp_mode: CrpMode,
     task: Option<&str>,
-) -> (String, String) {
+) -> ReadOutput {
     handle_with_options_resolved(cache, path, mode, false, crp_mode, task)
 }
 
@@ -78,14 +102,14 @@ pub fn handle_fresh_with_task(
     handle_with_options(cache, path, mode, true, crp_mode, task)
 }
 
-/// Fresh read with task-aware filtering, also returns the resolved mode name.
+/// Fresh read with task-aware filtering, also returns the resolved mode name and pre-counted tokens.
 pub fn handle_fresh_with_task_resolved(
     cache: &mut SessionCache,
     path: &str,
     mode: &str,
     crp_mode: CrpMode,
     task: Option<&str>,
-) -> (String, String) {
+) -> ReadOutput {
     handle_with_options_resolved(cache, path, mode, true, crp_mode, task)
 }
 
@@ -97,7 +121,7 @@ fn handle_with_options(
     crp_mode: CrpMode,
     task: Option<&str>,
 ) -> String {
-    handle_with_options_resolved(cache, path, mode, fresh, crp_mode, task).0
+    handle_with_options_resolved(cache, path, mode, fresh, crp_mode, task).content
 }
 
 fn handle_with_options_resolved(
@@ -107,7 +131,7 @@ fn handle_with_options_resolved(
     fresh: bool,
     crp_mode: CrpMode,
     task: Option<&str>,
-) -> (String, String) {
+) -> ReadOutput {
     let file_ref = cache.get_file_ref(path);
     let short = protocol::shorten_path(path);
     let ext = Path::new(path)
@@ -120,7 +144,12 @@ fn handle_with_options_resolved(
     }
 
     if mode == "diff" {
-        return (handle_diff(cache, path, &file_ref), "diff".to_string());
+        let (out, sent) = handle_diff(cache, path, &file_ref);
+        return ReadOutput {
+            content: out,
+            resolved_mode: "diff".into(),
+            output_tokens: sent,
+        };
     }
 
     if mode != "full" {
@@ -134,10 +163,14 @@ fn handle_with_options_resolved(
 
     if let Some(existing) = cache.get(path) {
         if mode == "full" {
-            return (
-                handle_full_with_auto_delta(cache, path, &file_ref, &short, ext),
-                "full".to_string(),
-            );
+            let (out, sent) =
+                handle_full_with_auto_delta(cache, path, &file_ref, &short, ext, task);
+            let out = crate::core::redaction::redact_text_if_enabled(&out);
+            return ReadOutput {
+                content: out,
+                resolved_mode: "full".into(),
+                output_tokens: sent,
+            };
         }
         let content = existing.content.clone();
         let original_tokens = existing.original_tokens;
@@ -146,7 +179,19 @@ fn handle_with_options_resolved(
         } else {
             mode.to_string()
         };
-        let out = process_mode(
+        if is_cacheable_mode(&resolved_mode) {
+            let cache_key = compressed_cache_key(&resolved_mode, crp_mode);
+            if let Some(cached_output) = cache.get_compressed(path, &cache_key) {
+                let sent = count_tokens(cached_output);
+                let out = crate::core::redaction::redact_text_if_enabled(cached_output);
+                return ReadOutput {
+                    content: out,
+                    resolved_mode,
+                    output_tokens: sent,
+                };
+            }
+        }
+        let (out, sent) = process_mode(
             &content,
             &resolved_mode,
             &file_ref,
@@ -157,33 +202,60 @@ fn handle_with_options_resolved(
             path,
             task,
         );
-        return (out, resolved_mode);
+        if is_cacheable_mode(&resolved_mode) {
+            let cache_key = compressed_cache_key(&resolved_mode, crp_mode);
+            cache.set_compressed(path, &cache_key, out.clone());
+        }
+        let out = crate::core::redaction::redact_text_if_enabled(&out);
+        return ReadOutput {
+            content: out,
+            resolved_mode,
+            output_tokens: sent,
+        };
     }
 
     let content = match read_file_lossy(path) {
         Ok(c) => c,
-        Err(e) => return (format!("ERROR: {e}"), "error".to_string()),
+        Err(e) => {
+            let msg = format!("ERROR: {e}");
+            let tokens = count_tokens(&msg);
+            return ReadOutput {
+                content: msg,
+                resolved_mode: "error".into(),
+                output_tokens: tokens,
+            };
+        }
     };
 
     let similar_hint = find_semantic_similar(path, &content);
+    let graph_hint = build_graph_related_hint(path);
 
     let store_result = cache.store(path, content.clone());
 
     update_semantic_index(path, &content);
 
     if mode == "full" {
-        let mut output = format_full_output(
+        let (mut output, sent) = format_full_output(
             &file_ref,
             &short,
             ext,
             &content,
             store_result.original_tokens,
             store_result.line_count,
+            task,
         );
+        if let Some(hint) = &graph_hint {
+            output.push_str(&format!("\n{hint}"));
+        }
         if let Some(hint) = similar_hint {
             output.push_str(&format!("\n{hint}"));
         }
-        return (output, "full".to_string());
+        let output = crate::core::redaction::redact_text_if_enabled(&output);
+        return ReadOutput {
+            content: output,
+            resolved_mode: "full".into(),
+            output_tokens: sent,
+        };
     }
 
     let resolved_mode = if mode == "auto" {
@@ -192,7 +264,7 @@ fn handle_with_options_resolved(
         mode.to_string()
     };
 
-    let mut output = process_mode(
+    let (mut output, sent) = process_mode(
         &content,
         &resolved_mode,
         &file_ref,
@@ -203,13 +275,35 @@ fn handle_with_options_resolved(
         path,
         task,
     );
+    if is_cacheable_mode(&resolved_mode) {
+        let cache_key = compressed_cache_key(&resolved_mode, crp_mode);
+        cache.set_compressed(path, &cache_key, output.clone());
+    }
+    if let Some(hint) = &graph_hint {
+        output.push_str(&format!("\n{hint}"));
+    }
     if let Some(hint) = similar_hint {
         output.push_str(&format!("\n{hint}"));
     }
-    (output, resolved_mode)
+    let output = crate::core::redaction::redact_text_if_enabled(&output);
+    ReadOutput {
+        content: output,
+        resolved_mode,
+        output_tokens: sent,
+    }
 }
 
 fn resolve_auto_mode(file_path: &str, original_tokens: usize, task: Option<&str>) -> String {
+    // Priority 1: Intent Router with budget/pressure-aware degradation.
+    // Only fall through to Predictor/Bandit if the router returns "auto".
+    let intent_query = task.unwrap_or("read");
+    let route = crate::core::intent_router::route_v1(intent_query);
+    let intent_mode = &route.decision.effective_read_mode;
+    if intent_mode != "auto" && intent_mode != "reference" {
+        return intent_mode.clone();
+    }
+
+    // Priority 2: FileSignature-based predictor
     let sig = crate::core::mode_predictor::FileSignature::from_path(file_path, original_tokens);
     let predictor = crate::core::mode_predictor::ModePredictor::new();
     let mut predicted = predictor
@@ -219,6 +313,7 @@ fn resolve_auto_mode(file_path: &str, original_tokens: usize, task: Option<&str>
         predicted = "full".to_string();
     }
 
+    // Priority 3: Bandit exploration when budget is tight
     if let Some(project_root) =
         crate::core::session::SessionState::load_latest().and_then(|s| s.project_root)
     {
@@ -241,8 +336,25 @@ fn resolve_auto_mode(file_path: &str, original_tokens: usize, task: Option<&str>
         }
     }
 
+    // Priority 4: Adaptive mode policy
     let policy = crate::core::adaptive_mode_policy::AdaptiveModePolicyStore::load();
-    policy.choose_auto_mode(task, &predicted)
+    let chosen = policy.choose_auto_mode(task, &predicted);
+
+    if original_tokens > 2000 {
+        if predicted == "map" {
+            if chosen != "map" && chosen != "signatures" {
+                return predicted;
+            }
+        } else if predicted == "signatures" {
+            if chosen != "signatures" && chosen != "map" {
+                return predicted;
+            }
+        } else if chosen == "full" && predicted != "full" {
+            return predicted;
+        }
+    }
+
+    chosen
 }
 
 fn find_semantic_similar(path: &str, content: &str) -> Option<String> {
@@ -284,6 +396,11 @@ fn detect_project_root(path: &str) -> String {
     crate::core::protocol::detect_project_root_or_cwd(path)
 }
 
+fn build_graph_related_hint(path: &str) -> Option<String> {
+    let project_root = detect_project_root(path);
+    crate::core::graph_context::build_related_hint(path, &project_root, 5)
+}
+
 const AUTO_DELTA_THRESHOLD: f64 = 0.6;
 
 /// Re-reads from disk; if content changed and delta is compact, sends auto-delta.
@@ -293,10 +410,11 @@ fn handle_full_with_auto_delta(
     file_ref: &str,
     short: &str,
     ext: &str,
-) -> String {
+    task: Option<&str>,
+) -> (String, usize) {
     let Ok(disk_content) = read_file_lossy(path) else {
         cache.record_cache_hit(path);
-        return if let Some(existing) = cache.get(path) {
+        let out = if let Some(existing) = cache.get(path) {
             format!(
                 "[using cached version — file read failed]\n{file_ref}={short} cached {}t {}L",
                 existing.read_count, existing.line_count
@@ -304,6 +422,8 @@ fn handle_full_with_auto_delta(
         } else {
             format!("[file read failed and no cached version available] {file_ref}={short}")
         };
+        let sent = count_tokens(&out);
+        return (out, sent);
     };
 
     let old_content = cache
@@ -313,10 +433,12 @@ fn handle_full_with_auto_delta(
     let store_result = cache.store(path, disk_content.clone());
 
     if store_result.was_hit {
-        return format!(
+        let out = format!(
             "{file_ref}={short} cached {}t {}L\nFile already in context from previous read. Use fresh=true to re-read if content needed again.",
             store_result.read_count, store_result.line_count
         );
+        let sent = count_tokens(&out);
+        return (out, sent);
     }
 
     let diff = compressor::diff_content(&old_content, &disk_content);
@@ -325,10 +447,11 @@ fn handle_full_with_auto_delta(
 
     if full_tokens > 0 && (diff_tokens as f64) < (full_tokens as f64 * AUTO_DELTA_THRESHOLD) {
         let savings = protocol::format_savings(full_tokens, diff_tokens);
-        return format!(
+        let out = format!(
             "{file_ref}={short} [auto-delta] ∆{}L\n{diff}\n{savings}",
             disk_content.lines().count()
         );
+        return (out, diff_tokens);
     }
 
     format_full_output(
@@ -338,6 +461,7 @@ fn handle_full_with_auto_delta(
         &disk_content,
         store_result.original_tokens,
         store_result.line_count,
+        task,
     )
 }
 
@@ -348,40 +472,55 @@ fn format_full_output(
     content: &str,
     original_tokens: usize,
     line_count: usize,
-) -> String {
+    task: Option<&str>,
+) -> (String, usize) {
     let tokens = original_tokens;
     let metadata = build_header(file_ref, short, ext, content, line_count, true);
 
+    let mut reordered: Option<String> = None;
+    {
+        let profile = crate::core::profiles::active_profile();
+        let cfg = profile.layout;
+        if cfg.enabled_effective() && line_count >= cfg.min_lines_effective() {
+            let task_str = task.unwrap_or("");
+            if !task_str.is_empty() {
+                let (_files, keywords) = crate::core::task_relevance::parse_task_hints(task_str);
+                let r = crate::core::attention_layout_driver::maybe_reorder_for_attention(
+                    content, &keywords, &cfg,
+                );
+                if !r.skipped && r.changed {
+                    reordered = Some(r.output);
+                }
+            }
+        }
+    }
+
+    let content_for_output = reordered.as_deref().unwrap_or(content);
+
     let mut sym = SymbolMap::new();
-    let idents = symbol_map::extract_identifiers(content, ext);
+    let idents = symbol_map::extract_identifiers(content_for_output, ext);
     for ident in &idents {
         sym.register(ident);
     }
 
-    let sym_beneficial = if sym.len() >= 3 {
+    if sym.len() >= 3 {
         let sym_table = sym.format_table();
-        let compressed = sym.apply(content);
-        let original_tok = count_tokens(content);
+        let compressed = sym.apply(content_for_output);
+        let original_tok = count_tokens(content_for_output);
         let compressed_tok = count_tokens(&compressed) + count_tokens(&sym_table);
         let net_saving = original_tok.saturating_sub(compressed_tok);
-        original_tok > 0 && net_saving * 100 / original_tok >= 5
-    } else {
-        false
-    };
-
-    if sym_beneficial {
-        let compressed_content = sym.apply(content);
-        let sym_table = sym.format_table();
-        let output = format!("{compressed_content}{sym_table}\n{metadata}");
-        let sent = count_tokens(&output);
-        let savings = protocol::format_savings(tokens, sent);
-        return format!("{output}\n{savings}");
+        if original_tok > 0 && net_saving * 100 / original_tok >= 5 {
+            let output = format!("{metadata}\n{compressed}{sym_table}");
+            let sent = count_tokens(&output);
+            let savings = protocol::format_savings(tokens, sent);
+            return (format!("{output}\n{savings}"), sent);
+        }
     }
 
-    let output = format!("{content}\n{metadata}");
+    let output = format!("{metadata}\n{content_for_output}");
     let sent = count_tokens(&output);
     let savings = protocol::format_savings(tokens, sent);
-    format!("{output}\n{savings}")
+    (format!("{output}\n{savings}"), sent)
 }
 
 fn build_header(
@@ -430,7 +569,7 @@ fn process_mode(
     crp_mode: CrpMode,
     file_path: &str,
     task: Option<&str>,
-) -> String {
+) -> (String, usize) {
     let line_count = content.lines().count();
 
     match mode {
@@ -448,6 +587,15 @@ fn process_mode(
                 task,
             )
         }
+        "full" => format_full_output(
+            file_ref,
+            short,
+            ext,
+            content,
+            original_tokens,
+            line_count,
+            task,
+        ),
         "signatures" => {
             let sigs = signatures::extract_signatures(content, ext);
             let dep_info = deps::extract_deps(content, ext);
@@ -472,7 +620,10 @@ fn process_mode(
             }
             let sent = count_tokens(&output);
             let savings = protocol::format_savings(original_tokens, sent);
-            append_compressed_hint(&format!("{output}\n{savings}"), file_path)
+            (
+                append_compressed_hint(&format!("{output}\n{savings}"), file_path),
+                sent,
+            )
         }
         "map" => {
             if ext == "php" {
@@ -483,7 +634,7 @@ fn process_mode(
                     let savings = protocol::format_savings(original_tokens, sent);
                     output.push('\n');
                     output.push_str(&savings);
-                    return append_compressed_hint(&output, file_path);
+                    return (append_compressed_hint(&output, file_path), sent);
                 }
             }
 
@@ -521,7 +672,10 @@ fn process_mode(
 
             let sent = count_tokens(&output);
             let savings = protocol::format_savings(original_tokens, sent);
-            append_compressed_hint(&format!("{output}\n{savings}"), file_path)
+            (
+                append_compressed_hint(&format!("{output}\n{savings}"), file_path),
+                sent,
+            )
         }
         "aggressive" => {
             #[cfg(feature = "tree-sitter")]
@@ -547,31 +701,38 @@ fn process_mode(
                 sym.register(ident);
             }
 
-            let sym_beneficial = if sym.len() >= 3 {
+            if sym.len() >= 3 {
                 let sym_table = sym.format_table();
                 let sym_applied = sym.apply(&compressed);
                 let orig_tok = count_tokens(&compressed);
                 let comp_tok = count_tokens(&sym_applied) + count_tokens(&sym_table);
                 let net = orig_tok.saturating_sub(comp_tok);
-                orig_tok > 0 && net * 100 / orig_tok >= 5
-            } else {
-                false
-            };
-
-            if sym_beneficial {
-                let sym_output = sym.apply(&compressed);
-                let sym_table = sym.format_table();
-                let sent = count_tokens(&sym_output) + count_tokens(&sym_table);
-                let savings = protocol::format_savings(original_tokens, sent);
-                return append_compressed_hint(
-                    &format!("{header}\n{sym_output}{sym_table}\n{savings}"),
-                    file_path,
+                if orig_tok > 0 && net * 100 / orig_tok >= 5 {
+                    let savings = protocol::format_savings(original_tokens, comp_tok);
+                    return (
+                        append_compressed_hint(
+                            &format!("{header}\n{sym_applied}{sym_table}\n{savings}"),
+                            file_path,
+                        ),
+                        comp_tok,
+                    );
+                }
+                let savings = protocol::format_savings(original_tokens, orig_tok);
+                return (
+                    append_compressed_hint(
+                        &format!("{header}\n{compressed}\n{savings}"),
+                        file_path,
+                    ),
+                    orig_tok,
                 );
             }
 
             let sent = count_tokens(&compressed);
             let savings = protocol::format_savings(original_tokens, sent);
-            append_compressed_hint(&format!("{header}\n{compressed}\n{savings}"), file_path)
+            (
+                append_compressed_hint(&format!("{header}\n{compressed}\n{savings}"), file_path),
+                sent,
+            )
         }
         "entropy" => {
             let result = entropy::entropy_compress_adaptive(content, file_path);
@@ -587,20 +748,27 @@ fn process_mode(
                 0.0
             };
             crate::core::adaptive_thresholds::report_bandit_outcome(compression_ratio > 0.15);
-            append_compressed_hint(&format!("{output}\n{savings}"), file_path)
+            (
+                append_compressed_hint(&format!("{output}\n{savings}"), file_path),
+                sent,
+            )
         }
         "task" => {
             let task_str = task.unwrap_or("");
             if task_str.is_empty() {
                 let header = build_header(file_ref, short, ext, content, line_count, true);
-                return format!("{header}\n{content}\n[task mode: no task set — returned full]");
+                let out = format!("{header}\n{content}\n[task mode: no task set — returned full]");
+                let sent = count_tokens(&out);
+                return (out, sent);
             }
             let (_files, keywords) = crate::core::task_relevance::parse_task_hints(task_str);
             if keywords.is_empty() {
                 let header = build_header(file_ref, short, ext, content, line_count, true);
-                return format!(
+                let out = format!(
                     "{header}\n{content}\n[task mode: no keywords extracted — returned full]"
                 );
+                let sent = count_tokens(&out);
+                return (out, sent);
             }
             let filtered =
                 crate::core::task_relevance::information_bottleneck_filter(content, &keywords, 0.3);
@@ -619,9 +787,12 @@ fn process_mode(
 
             let sent = count_tokens(&filtered) + count_tokens(&header) + count_tokens(&graph_ctx);
             let savings = protocol::format_savings(original_tokens, sent);
-            append_compressed_hint(
-                &format!("{header}\n{filtered}{graph_ctx}\n{savings}"),
-                file_path,
+            (
+                append_compressed_hint(
+                    &format!("{header}\n{filtered}{graph_ctx}\n{savings}"),
+                    file_path,
+                ),
+                sent,
             )
         }
         "reference" => {
@@ -629,7 +800,7 @@ fn process_mode(
             let output = format!("{file_ref}={short}: {line_count} lines, {tok} tok ({ext})");
             let sent = count_tokens(&output);
             let savings = protocol::format_savings(original_tokens, sent);
-            format!("{output}\n{savings}")
+            (format!("{output}\n{savings}"), sent)
         }
         mode if mode.starts_with("lines:") => {
             let range_str = &mode[6..];
@@ -637,13 +808,15 @@ fn process_mode(
             let header = format!("{file_ref}={short} {line_count}L lines:{range_str}");
             let sent = count_tokens(&extracted);
             let savings = protocol::format_savings(original_tokens, sent);
-            format!("{header}\n{extracted}\n{savings}")
+            (format!("{header}\n{extracted}\n{savings}"), sent)
         }
         unknown => {
             let header = build_header(file_ref, short, ext, content, line_count, true);
-            format!(
+            let out = format!(
                 "[WARNING: unknown mode '{unknown}', falling back to full]\n{header}\n{content}"
-            )
+            );
+            let sent = count_tokens(&out);
+            (out, sent)
         }
     }
 }
@@ -677,13 +850,13 @@ fn extract_line_range(content: &str, range_str: &str) -> String {
     }
 }
 
-fn handle_diff(cache: &mut SessionCache, path: &str, file_ref: &str) -> String {
+fn handle_diff(cache: &mut SessionCache, path: &str, file_ref: &str) -> (String, usize) {
     let short = protocol::shorten_path(path);
     let old_content = cache.get(path).map(|e| e.content.clone());
 
     let new_content = match read_file_lossy(path) {
         Ok(c) => c,
-        Err(e) => return format!("ERROR: {e}"),
+        Err(e) => return (format!("ERROR: {e}"), 0),
     };
 
     let original_tokens = count_tokens(&new_content);
@@ -698,7 +871,10 @@ fn handle_diff(cache: &mut SessionCache, path: &str, file_ref: &str) -> String {
 
     let sent = count_tokens(&diff_output);
     let savings = protocol::format_savings(original_tokens, sent);
-    format!("{file_ref}={short} [diff]\n{diff_output}\n{savings}")
+    (
+        format!("{file_ref}={short} [diff]\n{diff_output}\n{savings}"),
+        sent,
+    )
 }
 
 #[cfg(test)]
@@ -769,7 +945,7 @@ mod tests {
             .join("\n");
         let full_tokens = count_tokens(&content);
         let task = Some("fix bug in validate_token");
-        let result = process_mode(
+        let (result, result_tokens) = process_mode(
             &content,
             "task",
             "F1",
@@ -780,7 +956,6 @@ mod tests {
             "test.rs",
             task,
         );
-        let result_tokens = count_tokens(&result);
         assert!(
             result_tokens < full_tokens,
             "task mode ({result_tokens} tok) should be less than full ({full_tokens} tok)"
@@ -795,7 +970,7 @@ mod tests {
     fn test_task_mode_without_task_returns_full() {
         let content = "fn main() {}\nfn helper() {}\n";
         let tokens = count_tokens(content);
-        let result = process_mode(
+        let (result, _sent) = process_mode(
             content,
             "task",
             "F1",
@@ -816,7 +991,7 @@ mod tests {
     fn test_reference_mode_one_line() {
         let content = "fn main() {}\nfn helper() {}\nfn other() {}\n";
         let tokens = count_tokens(content);
-        let result = process_mode(
+        let (result, _sent) = process_mode(
             content,
             "reference",
             "F1",
@@ -846,9 +1021,8 @@ mod tests {
         std::fs::write(&path, "one\nsecond\n").unwrap();
         let mut cache = SessionCache::new();
 
-        let (out1, _mode1) =
-            handle_with_task_resolved(&mut cache, &p, "lines:1-1", CrpMode::Off, None);
-        let l1: Vec<&str> = out1.lines().collect();
+        let r1 = handle_with_task_resolved(&mut cache, &p, "lines:1-1", CrpMode::Off, None);
+        let l1: Vec<&str> = r1.content.lines().collect();
         let got1 = l1.get(1).copied().unwrap_or_default().trim();
         let got1 = got1.split_once('|').map_or(got1, |(_, s)| s.trim());
         assert_eq!(got1, "one");
@@ -856,9 +1030,8 @@ mod tests {
         std::thread::sleep(Duration::from_secs(1));
         std::fs::write(&path, "two\nsecond\n").unwrap();
 
-        let (out2, _mode2) =
-            handle_with_task_resolved(&mut cache, &p, "lines:1-1", CrpMode::Off, None);
-        let l2: Vec<&str> = out2.lines().collect();
+        let r2 = handle_with_task_resolved(&mut cache, &p, "lines:1-1", CrpMode::Off, None);
+        let l2: Vec<&str> = r2.content.lines().collect();
         let got2 = l2.get(1).copied().unwrap_or_default().trim();
         let got2 = got2.split_once('|').map_or(got2, |(_, s)| s.trim());
         assert_eq!(got2, "two");
@@ -872,7 +1045,7 @@ mod tests {
         let full_tokens = count_tokens(&content);
         let task = Some("fix authentication in validate_token");
 
-        let full_output = process_mode(
+        let (_full_output, full_tok) = process_mode(
             &content,
             "full",
             "F1",
@@ -883,7 +1056,7 @@ mod tests {
             "server.rs",
             task,
         );
-        let task_output = process_mode(
+        let (_task_output, task_tok) = process_mode(
             &content,
             "task",
             "F1",
@@ -894,7 +1067,7 @@ mod tests {
             "server.rs",
             task,
         );
-        let sig_output = process_mode(
+        let (_sig_output, sig_tok) = process_mode(
             &content,
             "signatures",
             "F1",
@@ -905,7 +1078,7 @@ mod tests {
             "server.rs",
             task,
         );
-        let ref_output = process_mode(
+        let (_ref_output, ref_tok) = process_mode(
             &content,
             "reference",
             "F1",
@@ -916,11 +1089,6 @@ mod tests {
             "server.rs",
             task,
         );
-
-        let full_tok = count_tokens(&full_output);
-        let task_tok = count_tokens(&task_output);
-        let sig_tok = count_tokens(&sig_output);
-        let ref_tok = count_tokens(&ref_output);
 
         eprintln!("\n=== Task-Conditioned Compression Benchmark ===");
         eprintln!("Source: 200-line Rust file, task='fix authentication in validate_token'");

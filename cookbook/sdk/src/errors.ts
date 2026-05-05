@@ -4,6 +4,7 @@ export class LeanCtxHttpError extends Error {
   readonly status: number;
   readonly method: string;
   readonly url: string;
+  readonly errorCode: string | undefined;
   readonly body: JsonValue | string | undefined;
 
   constructor(opts: {
@@ -11,6 +12,7 @@ export class LeanCtxHttpError extends Error {
     method: string;
     url: string;
     message: string;
+    errorCode?: string;
     body?: JsonValue | string;
   }) {
     super(opts.message);
@@ -18,6 +20,7 @@ export class LeanCtxHttpError extends Error {
     this.status = opts.status;
     this.method = opts.method;
     this.url = opts.url;
+    this.errorCode = opts.errorCode;
     this.body = opts.body;
   }
 }

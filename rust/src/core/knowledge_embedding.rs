@@ -430,6 +430,7 @@ mod tests {
             feedback_up: 0,
             feedback_down: 0,
             last_feedback: None,
+            privacy: crate::core::memory_boundary::FactPrivacy::default(),
         });
         knowledge.facts.push(KnowledgeFact {
             category: "arch".to_string(),
@@ -448,6 +449,7 @@ mod tests {
             feedback_up: 0,
             feedback_down: 0,
             last_feedback: None,
+            privacy: crate::core::memory_boundary::FactPrivacy::default(),
         });
 
         let mut idx = KnowledgeEmbeddingIndex::new(&knowledge.project_hash);
@@ -498,6 +500,7 @@ mod tests {
             feedback_up: 0,
             feedback_down: 0,
             last_feedback: None,
+            privacy: crate::core::memory_boundary::FactPrivacy::default(),
         };
         let decay = recency_decay(&fact);
         assert!(
@@ -526,6 +529,7 @@ mod tests {
             feedback_up: 0,
             feedback_down: 0,
             last_feedback: None,
+            privacy: crate::core::memory_boundary::FactPrivacy::default(),
         };
         let decay = recency_decay(&fact);
         assert_eq!(decay, 0.0, "100-day-old fact should have 0 recency");
@@ -569,6 +573,7 @@ mod tests {
             feedback_up: 0,
             feedback_down: 0,
             last_feedback: None,
+            privacy: crate::core::memory_boundary::FactPrivacy::default(),
         };
         let scored = vec![ScoredFact {
             fact: &fact,

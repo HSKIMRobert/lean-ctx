@@ -228,8 +228,13 @@ fn collect_impacts(changed: &[ChangedFile], project_root: &str, depth: usize) ->
         if c.status == "D" {
             continue;
         }
-        let raw =
-            crate::tools::ctx_impact::handle("analyze", Some(&c.path), project_root, Some(depth));
+        let raw = crate::tools::ctx_impact::handle(
+            "analyze",
+            Some(&c.path),
+            project_root,
+            Some(depth),
+            None,
+        );
         let affected = parse_ctx_impact_output(&raw);
         out.push(ImpactEntry {
             file: c.path.clone(),
@@ -245,6 +250,9 @@ fn parse_ctx_impact_output(raw: &str) -> Vec<String> {
         let l = line.trim_end();
         if let Some(rest) = l.strip_prefix("  ") {
             let item = rest.trim().to_string();
+            if item.starts_with("...") {
+                continue;
+            }
             if !item.is_empty() {
                 out.push(item);
             }

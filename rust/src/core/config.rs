@@ -92,7 +92,7 @@ impl OutputDensity {
         }
         let profile_val = crate::core::profiles::active_profile()
             .compression
-            .output_density
+            .output_density_effective()
             .to_lowercase();
         let profile_density = match profile_val.as_str() {
             "terse" => Self::Terse,

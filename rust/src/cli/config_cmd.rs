@@ -103,6 +103,10 @@ pub fn cmd_benchmark(args: &[String]) {
     let action = args.first().map_or("run", std::string::String::as_str);
 
     match action {
+        "--help" | "-h" => {
+            println!("Usage: lean-ctx benchmark run [path] [--json]");
+            println!("       lean-ctx benchmark report [path]");
+        }
         "run" => {
             let path = args.get(1).map_or(".", std::string::String::as_str);
             let is_json = args.iter().any(|a| a == "--json");

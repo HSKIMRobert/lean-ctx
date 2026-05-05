@@ -20,6 +20,9 @@ server.md
 DISCORD_POST.md
 DEPLOY_CHECKLIST.md
 
+# ── Discord Bot (private, deployed separately) ──
+discord-bot/
+
 # ── Private workflows ──
 n8n-workflows/
 
@@ -45,4 +48,5 @@ lean-ctx-chrome-extension.zip
 /docs/_local/
 test-results/
 
-website/generated/mcp-tools.json
+# ── Git worktrees (local) ──
+worktrees/

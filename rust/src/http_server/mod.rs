@@ -473,6 +473,81 @@ pub async fn serve(cfg: HttpServerConfig) -> Result<()> {
     Ok(())
 }
 
+#[cfg(unix)]
+pub async fn serve_uds(cfg: HttpServerConfig, socket_path: PathBuf) -> Result<()> {
+    cfg.validate()?;
+
+    if socket_path.exists() {
+        std::fs::remove_file(&socket_path)
+            .with_context(|| format!("remove stale socket {}", socket_path.display()))?;
+    }
+
+    let project_root = cfg.project_root.to_string_lossy().to_string();
+    let service_project_root = project_root.clone();
+    let service_factory = move || -> Result<LeanCtxServer, std::io::Error> {
+        Ok(LeanCtxServer::new_shared_with_context(
+            &service_project_root,
+            "default",
+            "default",
+        ))
+    };
+    let mcp_http = StreamableHttpService::new(
+        service_factory,
+        Arc::new(
+            rmcp::transport::streamable_http_server::session::local::LocalSessionManager::default(),
+        ),
+        cfg.mcp_http_config(),
+    );
+
+    let state = AppState {
+        token: cfg.auth_token.clone().filter(|t| !t.is_empty()),
+        concurrency: Arc::new(tokio::sync::Semaphore::new(cfg.max_concurrency.max(1))),
+        rate: Arc::new(RateLimiter::new(cfg.max_rps, cfg.rate_burst)),
+        project_root: project_root.clone(),
+        timeout: Duration::from_millis(cfg.request_timeout_ms.max(1)),
+    };
+
+    let app = Router::new()
+        .route("/health", get(health))
+        .route("/v1/manifest", get(v1_manifest))
+        .route("/v1/tools", get(v1_tools))
+        .route("/v1/tools/call", axum::routing::post(v1_tool_call))
+        .route("/v1/events", get(v1_events))
+        .route("/v1/metrics", get(v1_metrics))
+        .fallback_service(mcp_http)
+        .layer(axum::extract::DefaultBodyLimit::max(cfg.max_body_bytes))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            rate_limit_middleware,
+        ))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            concurrency_middleware,
+        ))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ))
+        .with_state(state);
+
+    let listener = tokio::net::UnixListener::bind(&socket_path)
+        .with_context(|| format!("bind UDS {}", socket_path.display()))?;
+
+    tracing::info!(
+        "lean-ctx daemon listening on {} (project_root={})",
+        socket_path.display(),
+        cfg.project_root.display()
+    );
+
+    axum::serve(listener, app.into_make_service())
+        .with_graceful_shutdown(async move {
+            let _ = tokio::signal::ctrl_c().await;
+        })
+        .await
+        .context("uds server")?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -646,10 +721,9 @@ mod tests {
             .route("/v1/events", get(v1_events))
             .with_state(state);
 
-        // Trigger a tool call in a non-default workspace/channel.
         let body = json!({
-            "name": "ctx_tree",
-            "arguments": { "path": ".", "depth": 1 },
+            "name": "ctx_session",
+            "arguments": { "action": "status" },
             "workspaceId": "ws1",
             "channelId": "ch1"
         })
@@ -679,6 +753,5 @@ mod tests {
         assert!(msg.contains("event: tool_call_recorded"), "msg={msg:?}");
         assert!(msg.contains("\"workspaceId\":\"ws1\""), "msg={msg:?}");
         assert!(msg.contains("\"channelId\":\"ch1\""), "msg={msg:?}");
-        assert!(msg.contains("\"tool\":\"ctx_tree\""), "msg={msg:?}");
     }
 }

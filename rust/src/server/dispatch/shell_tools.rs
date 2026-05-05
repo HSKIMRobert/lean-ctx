@@ -17,6 +17,8 @@ impl LeanCtxServer {
                 let command = get_str(args, "command")
                     .ok_or_else(|| ErrorData::invalid_params("command is required", None))?;
 
+                let start = std::time::Instant::now();
+
                 if let Some(rejection) = crate::tools::ctx_shell::validate_command(&command) {
                     self.record_call("ctx_shell", 0, 0, None).await;
                     return Ok(rejection);
@@ -62,8 +64,16 @@ impl LeanCtxServer {
                     }
                 }
 
-                let raw = get_bool(args, "raw").unwrap_or(false)
-                    || std::env::var("LEAN_CTX_DISABLED").is_ok();
+                let arg_raw = get_bool(args, "raw").unwrap_or(false);
+                let arg_bypass = get_bool(args, "bypass").unwrap_or(false);
+                let env_disabled = std::env::var("LEAN_CTX_DISABLED").is_ok();
+                let env_raw = std::env::var("LEAN_CTX_RAW").is_ok();
+                let (raw, bypass) = resolve_shell_raw_flags(ShellRawFlagInputs {
+                    arg_raw,
+                    arg_bypass,
+                    env_disabled,
+                    env_raw,
+                });
                 let cmd_clone = command.clone();
                 let cwd_clone = effective_cwd.clone();
                 let crp_mode = crate::tools::CrpMode::effective();
@@ -115,7 +125,14 @@ impl LeanCtxServer {
                         )
                     });
 
-                self.record_call("ctx_shell", original, saved, None).await;
+                let mode = if bypass {
+                    Some("bypass".to_string())
+                } else if raw {
+                    Some("raw".to_string())
+                } else {
+                    None
+                };
+                self.record_call("ctx_shell", original, saved, mode).await;
 
                 let savings_note = if !minimal && !raw && saved > 0 {
                     format!("\n[saved {saved} tokens vs native Shell]")
@@ -123,36 +140,92 @@ impl LeanCtxServer {
                     String::new()
                 };
 
-                let shell_mismatch = if cfg!(windows) {
+                let shell_mismatch = if cfg!(windows) && !raw {
                     shell_mismatch_hint(&command, &result_out)
                 } else {
                     String::new()
                 };
 
-                format!("{result_out}{savings_note}{tee_hint}{shell_mismatch}")
+                let result_out = crate::core::redaction::redact_text_if_enabled(&result_out);
+
+                let final_out = format!("{result_out}{savings_note}{tee_hint}{shell_mismatch}");
+
+                let duration = start.elapsed();
+                let duration_us = duration.as_micros() as u64;
+                let output_tokens = original.saturating_sub(saved);
+
+                {
+                    let mut stats = self.pipeline_stats.write().await;
+                    stats.record(&[crate::core::pipeline::LayerMetrics::new(
+                        crate::core::pipeline::LayerKind::Compression,
+                        original,
+                        output_tokens,
+                        duration_us,
+                    )]);
+                    stats.save();
+                }
+                {
+                    if let Some(ref ir_lock) = self.context_ir {
+                        let client_name = { self.client_name.read().await.clone() };
+                        let agent_id = { self.agent_id.read().await.clone() };
+                        let mut ir = ir_lock.write().await;
+                        ir.record(crate::core::context_ir::RecordIrInput {
+                            kind: crate::core::context_ir::ContextIrSourceKindV1::Shell,
+                            tool: "ctx_shell",
+                            client_name: if client_name.trim().is_empty() {
+                                None
+                            } else {
+                                Some(client_name)
+                            },
+                            agent_id,
+                            path: None,
+                            command: Some(&command),
+                            pattern: None,
+                            input_tokens: original,
+                            output_tokens,
+                            duration,
+                            content_excerpt: &final_out,
+                        });
+                        ir.save();
+                    }
+                }
+
+                final_out
             }
             "ctx_search" => {
                 let pattern = get_str(args, "pattern")
                     .ok_or_else(|| ErrorData::invalid_params("pattern is required", None))?;
+                let start = std::time::Instant::now();
                 let path = self
                     .resolve_path(&get_str(args, "path").unwrap_or_else(|| ".".to_string()))
                     .await
                     .map_err(|e| ErrorData::invalid_params(e, None))?;
+                let pattern_for_task = pattern.clone();
+                let path_for_task = path.clone();
                 let ext = get_str(args, "ext");
                 let max = get_int(args, "max_results").unwrap_or(20) as usize;
                 let no_gitignore = get_bool(args, "ignore_gitignore").unwrap_or(false);
+                if no_gitignore {
+                    if let Err(e) =
+                        crate::core::io_boundary::ensure_ignore_gitignore_allowed("ctx_search")
+                    {
+                        return Ok(e);
+                    }
+                }
                 let crp = crate::tools::CrpMode::effective();
                 let respect = !no_gitignore;
+                let allow_secret_paths = crate::core::roles::active_role().io.allow_secret_paths;
                 let search_result = tokio::time::timeout(
                     std::time::Duration::from_secs(30),
                     tokio::task::spawn_blocking(move || {
                         crate::tools::ctx_search::handle(
-                            &pattern,
-                            &path,
+                            &pattern_for_task,
+                            &path_for_task,
                             ext.as_deref(),
                             max,
                             crp,
                             respect,
+                            allow_secret_paths,
                         )
                     }),
                 )
@@ -171,7 +244,12 @@ impl LeanCtxServer {
                                    • Specify ext= to limit file types\n\
                                    • Specify a subdirectory in path=";
                         self.record_call("ctx_search", 0, 0, None).await;
-                        return Ok(msg.to_string());
+                        let repeat = self
+                            .autonomy
+                            .track_search(&pattern, &path)
+                            .map(|h| format!("\n{h}"))
+                            .unwrap_or_default();
+                        return Ok(format!("{msg}{repeat}"));
                     }
                 };
                 let sent = crate::core::tokens::count_tokens(&result);
@@ -182,7 +260,53 @@ impl LeanCtxServer {
                 } else {
                     String::new()
                 };
-                format!("{result}{savings_note}")
+                let repeat_hint = self
+                    .autonomy
+                    .track_search(&pattern, &path)
+                    .map(|h| format!("\n{h}"))
+                    .unwrap_or_default();
+                let final_out = format!("{result}{savings_note}{repeat_hint}");
+
+                let duration = start.elapsed();
+                let duration_us = duration.as_micros() as u64;
+
+                {
+                    let mut stats = self.pipeline_stats.write().await;
+                    stats.record(&[crate::core::pipeline::LayerMetrics::new(
+                        crate::core::pipeline::LayerKind::Compression,
+                        original,
+                        sent,
+                        duration_us,
+                    )]);
+                    stats.save();
+                }
+                {
+                    if let Some(ref ir_lock) = self.context_ir {
+                        let client_name = { self.client_name.read().await.clone() };
+                        let agent_id = { self.agent_id.read().await.clone() };
+                        let mut ir = ir_lock.write().await;
+                        ir.record(crate::core::context_ir::RecordIrInput {
+                            kind: crate::core::context_ir::ContextIrSourceKindV1::Search,
+                            tool: "ctx_search",
+                            client_name: if client_name.trim().is_empty() {
+                                None
+                            } else {
+                                Some(client_name)
+                            },
+                            agent_id,
+                            path: Some(&path),
+                            command: None,
+                            pattern: Some(&pattern),
+                            input_tokens: original,
+                            output_tokens: sent,
+                            duration,
+                            content_excerpt: &final_out,
+                        });
+                        ir.save();
+                    }
+                }
+
+                final_out
             }
             "ctx_execute" => {
                 let action = get_str(args, "action").unwrap_or_default();
@@ -231,6 +355,20 @@ impl LeanCtxServer {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ShellRawFlagInputs {
+    arg_raw: bool,
+    arg_bypass: bool,
+    env_disabled: bool,
+    env_raw: bool,
+}
+
+fn resolve_shell_raw_flags(i: ShellRawFlagInputs) -> (bool, bool) {
+    let bypass = i.arg_bypass || i.env_raw;
+    let raw = i.arg_raw || bypass || i.env_disabled;
+    (raw, bypass)
+}
+
 fn shell_mismatch_hint(command: &str, output: &str) -> String {
     let shell = crate::shell::shell_name();
     let is_posix = matches!(shell.as_str(), "bash" | "sh" | "zsh" | "fish");
@@ -263,5 +401,79 @@ fn shell_mismatch_hint(command: &str, output: &str) -> String {
         )
     } else {
         String::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{resolve_shell_raw_flags, ShellRawFlagInputs};
+
+    #[test]
+    fn shell_raw_precedence() {
+        // Default: compressed
+        assert_eq!(
+            resolve_shell_raw_flags(ShellRawFlagInputs {
+                arg_raw: false,
+                arg_bypass: false,
+                env_disabled: false,
+                env_raw: false,
+            }),
+            (false, false)
+        );
+
+        // Explicit raw
+        assert_eq!(
+            resolve_shell_raw_flags(ShellRawFlagInputs {
+                arg_raw: true,
+                arg_bypass: false,
+                env_disabled: false,
+                env_raw: false,
+            }),
+            (true, false)
+        );
+
+        // Explicit bypass implies raw
+        assert_eq!(
+            resolve_shell_raw_flags(ShellRawFlagInputs {
+                arg_raw: false,
+                arg_bypass: true,
+                env_disabled: false,
+                env_raw: false,
+            }),
+            (true, true)
+        );
+
+        // Env raw implies bypass+raw
+        assert_eq!(
+            resolve_shell_raw_flags(ShellRawFlagInputs {
+                arg_raw: false,
+                arg_bypass: false,
+                env_disabled: false,
+                env_raw: true,
+            }),
+            (true, true)
+        );
+
+        // Disabled forces raw (but not bypass)
+        assert_eq!(
+            resolve_shell_raw_flags(ShellRawFlagInputs {
+                arg_raw: false,
+                arg_bypass: false,
+                env_disabled: true,
+                env_raw: false,
+            }),
+            (true, false)
+        );
+
+        // Disabled + env raw keeps bypass=true
+        assert_eq!(
+            resolve_shell_raw_flags(ShellRawFlagInputs {
+                arg_raw: false,
+                arg_bypass: false,
+                env_disabled: true,
+                env_raw: true,
+            }),
+            (true, true)
+        );
     }
 }

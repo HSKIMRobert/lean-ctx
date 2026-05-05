@@ -68,8 +68,8 @@ pub fn load_linked_projects(project_root: &Path) -> LinkedProjects {
             continue;
         }
 
-        match crate::core::pathjail::jail_path(&abs, project_root) {
-            Ok(_) => out.roots.push(abs),
+        match crate::core::io_boundary::jail_and_check_path("linkedProjects", &abs, project_root) {
+            Ok((_, _)) => out.roots.push(abs),
             Err(e) => out.warnings.push(format!(
                 "linked project rejected by pathjail: {} ({e})",
                 abs.display()

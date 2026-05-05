@@ -8,5 +8,5 @@ pub(crate) fn install_windsurf_rules(global: bool) {
 
     let rules = include_str!("../../templates/windsurfrules.txt");
     write_file(&rules_path, rules);
-    println!("Installed .windsurfrules in current project.");
+    eprintln!("Installed .windsurfrules in current project.");
 }

@@ -1,9 +1,36 @@
 use crate::compound_lexer;
 use crate::rewrite_registry;
 use std::io::Read;
+use std::sync::mpsc;
+use std::time::Duration;
+
+const HOOK_STDIN_TIMEOUT: Duration = Duration::from_secs(3);
 
 fn is_disabled() -> bool {
     std::env::var("LEAN_CTX_DISABLED").is_ok()
+}
+
+/// Arms a watchdog that force-kills the process after the given duration.
+/// Prevents hook processes from becoming zombies when stdin pipes break.
+pub fn arm_watchdog(timeout: Duration) {
+    std::thread::spawn(move || {
+        std::thread::sleep(timeout);
+        std::process::exit(1);
+    });
+}
+
+/// Reads all of stdin with a timeout. Returns None if stdin is empty, broken, or times out.
+fn read_stdin_with_timeout(timeout: Duration) -> Option<String> {
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut buf = String::new();
+        let result = std::io::stdin().read_to_string(&mut buf);
+        let _ = tx.send(result.ok().map(|_| buf));
+    });
+    match rx.recv_timeout(timeout) {
+        Ok(Some(s)) if !s.is_empty() => Some(s),
+        _ => None,
+    }
 }
 
 fn build_dual_allow_output() -> String {
@@ -50,10 +77,9 @@ pub fn handle_rewrite() {
         return;
     }
     let binary = resolve_binary();
-    let mut input = String::new();
-    if std::io::stdin().read_to_string(&mut input).is_err() {
+    let Some(input) = read_stdin_with_timeout(HOOK_STDIN_TIMEOUT) else {
         return;
-    }
+    };
 
     let v: serde_json::Value = match serde_json::from_str(&input) {
         Ok(v) => v,
@@ -143,10 +169,7 @@ fn emit_rewrite(rewritten: &str) {
 }
 
 pub fn handle_redirect() {
-    // Allow all native tools (Read, Grep, ListFiles) to pass through.
-    // Some hosts (Cursor hooks) expect a JSON response on exit 0.
-    let mut _input = String::new();
-    let _ = std::io::stdin().read_to_string(&mut _input);
+    let _ = read_stdin_with_timeout(HOOK_STDIN_TIMEOUT);
     print!("{}", build_dual_allow_output());
 }
 
@@ -161,10 +184,9 @@ pub fn handle_codex_pretooluse() {
         return;
     }
     let binary = resolve_binary();
-    let mut input = String::new();
-    if std::io::stdin().read_to_string(&mut input).is_err() {
+    let Some(input) = read_stdin_with_timeout(HOOK_STDIN_TIMEOUT) else {
         return;
-    }
+    };
 
     let tool = extract_json_field(&input, "tool_name");
     if !matches!(tool.as_deref(), Some("Bash" | "bash")) {
@@ -195,10 +217,9 @@ pub fn handle_copilot() {
         return;
     }
     let binary = resolve_binary();
-    let mut input = String::new();
-    if std::io::stdin().read_to_string(&mut input).is_err() {
+    let Some(input) = read_stdin_with_timeout(HOOK_STDIN_TIMEOUT) else {
         return;
-    }
+    };
 
     let tool = extract_json_field(&input, "tool_name");
     let Some(tool_name) = tool.as_deref() else {

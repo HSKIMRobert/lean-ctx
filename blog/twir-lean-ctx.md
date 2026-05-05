@@ -1,6 +1,6 @@
 # Building a Context Runtime for AI Coding Agents in Rust
 
-lean-ctx is an open-source context runtime that sits between AI coding tools (Cursor, Claude Code, Copilot, etc.) and the filesystem. It compresses file reads with AST-aware intelligence, strips noise from shell output via 90+ patterns, and manages cross-session memory. A single Rust binary, 49 MCP tools, zero runtime dependencies.
+lean-ctx is an open-source context runtime that sits between AI coding tools (Cursor, Claude Code, Copilot, etc.) and the filesystem. It compresses file reads with AST-aware intelligence, strips noise from shell output via 95+ patterns, and manages cross-session memory. A single Rust binary, 56 MCP tools, zero runtime dependencies.
 
 This post walks through the Rust-specific architecture decisions, patterns, and trade-offs that shaped lean-ctx — from tree-sitter integration to implementing Thompson Sampling bandits without pulling in a statistics crate.
 
@@ -138,7 +138,7 @@ The bandit state (`alpha`, `beta` per arm) is serializable via serde — it pers
 
 ## Shell pattern compression: OnceLock + modular dispatch
 
-lean-ctx compresses shell output from 90+ command patterns (git, cargo, npm, docker, kubectl, etc.). The architecture uses a macro for zero-cost lazy regex initialization:
+lean-ctx compresses shell output from 95+ command patterns (git, cargo, npm, docker, kubectl, etc.). The architecture uses a macro for zero-cost lazy regex initialization:
 
 ```rust
 macro_rules! static_regex {

@@ -9,28 +9,9 @@ impl LeanCtxServer {
         &self,
         name: &str,
         args: Option<&serde_json::Map<String, Value>>,
-        minimal: bool,
+        _minimal: bool,
     ) -> Result<String, ErrorData> {
         Ok(match name {
-            "ctx_tree" => {
-                let path = self
-                    .resolve_path(&get_str(args, "path").unwrap_or_else(|| ".".to_string()))
-                    .await
-                    .map_err(|e| ErrorData::invalid_params(e, None))?;
-                let depth = get_int(args, "depth").unwrap_or(3) as usize;
-                let show_hidden = get_bool(args, "show_hidden").unwrap_or(false);
-                let (result, original) = crate::tools::ctx_tree::handle(&path, depth, show_hidden);
-                let sent = crate::core::tokens::count_tokens(&result);
-                let saved = original.saturating_sub(sent);
-                self.record_call_with_path("ctx_tree", original, saved, None, Some(&path))
-                    .await;
-                let savings_note = if !minimal && saved > 0 {
-                    format!("\n[saved {saved} tokens vs native ls]")
-                } else {
-                    String::new()
-                };
-                format!("{result}{savings_note}")
-            }
             "ctx_compress" => {
                 let include_sigs = get_bool(args, "include_signatures").unwrap_or(true);
                 let cache = self.cache.read().await;
@@ -41,29 +22,6 @@ impl LeanCtxServer {
                 );
                 drop(cache);
                 self.record_call("ctx_compress", 0, 0, None).await;
-                result
-            }
-            "ctx_benchmark" => {
-                let path = match get_str(args, "path") {
-                    Some(p) => self
-                        .resolve_path(&p)
-                        .await
-                        .map_err(|e| ErrorData::invalid_params(e, None))?,
-                    None => return Err(ErrorData::invalid_params("path is required", None)),
-                };
-                let action = get_str(args, "action").unwrap_or_default();
-                let result = if action == "project" {
-                    let fmt = get_str(args, "format").unwrap_or_default();
-                    let bench = crate::core::benchmark::run_project_benchmark(&path);
-                    match fmt.as_str() {
-                        "json" => crate::core::benchmark::format_json(&bench),
-                        "markdown" | "md" => crate::core::benchmark::format_markdown(&bench),
-                        _ => crate::core::benchmark::format_terminal(&bench),
-                    }
-                } else {
-                    crate::tools::ctx_benchmark::handle(&path, crate::tools::CrpMode::effective())
-                };
-                self.record_call("ctx_benchmark", 0, 0, None).await;
                 result
             }
             "ctx_metrics" => {
@@ -82,28 +40,21 @@ impl LeanCtxServer {
                     result.push_str(&stats.format_summary());
                 }
                 drop(stats);
+                let (ts_hits, regex_hits) = crate::core::signatures::signature_backend_stats();
+                if ts_hits + regex_hits > 0 {
+                    result.push_str("\n--- SIGNATURE BACKEND ---\n");
+                    result.push_str(&format!(
+                        "tree-sitter: {} | regex fallback: {} | ratio: {:.0}%\n",
+                        ts_hits,
+                        regex_hits,
+                        if ts_hits + regex_hits > 0 {
+                            ts_hits as f64 / (ts_hits + regex_hits) as f64 * 100.0
+                        } else {
+                            0.0
+                        }
+                    ));
+                }
                 self.record_call("ctx_metrics", 0, 0, None).await;
-                result
-            }
-            "ctx_analyze" => {
-                let path = match get_str(args, "path") {
-                    Some(p) => self
-                        .resolve_path(&p)
-                        .await
-                        .map_err(|e| ErrorData::invalid_params(e, None))?,
-                    None => return Err(ErrorData::invalid_params("path is required", None)),
-                };
-                let result =
-                    crate::tools::ctx_analyze::handle(&path, crate::tools::CrpMode::effective());
-                self.record_call_with_path("ctx_analyze", 0, 0, None, Some(&path))
-                    .await;
-                result
-            }
-            "ctx_discover" => {
-                let limit = get_int(args, "limit").unwrap_or(15) as usize;
-                let history = crate::cli::load_shell_history_pub();
-                let result = crate::tools::ctx_discover::discover_from_history(&history, limit);
-                self.record_call("ctx_discover", 0, 0, None).await;
                 result
             }
             "ctx_dedup" => {
@@ -126,12 +77,14 @@ impl LeanCtxServer {
                 let query = get_str(args, "query")
                     .ok_or_else(|| ErrorData::invalid_params("query is required", None))?;
                 let root = get_str(args, "project_root").unwrap_or_else(|| ".".to_string());
+                let format = get_str(args, "format");
                 let mut cache = self.cache.write().await;
                 let output = crate::tools::ctx_intent::handle(
                     &mut cache,
                     &query,
                     &root,
                     crate::tools::CrpMode::effective(),
+                    format.as_deref(),
                 );
                 drop(cache);
                 {
@@ -140,14 +93,6 @@ impl LeanCtxServer {
                 }
                 self.record_call("ctx_intent", 0, 0, Some("semantic".to_string()))
                     .await;
-                output
-            }
-            "ctx_response" => {
-                let text = get_str(args, "text")
-                    .ok_or_else(|| ErrorData::invalid_params("text is required", None))?;
-                let output =
-                    crate::tools::ctx_response::handle(&text, crate::tools::CrpMode::effective());
-                self.record_call("ctx_response", 0, 0, None).await;
                 output
             }
             "ctx_context" => {
@@ -196,6 +141,46 @@ impl LeanCtxServer {
                 self.record_call("ctx_graph", 0, 0, Some(action_for_record))
                     .await;
                 result
+            }
+            "ctx_proof" => {
+                let action = get_str(args, "action")
+                    .ok_or_else(|| ErrorData::invalid_params("action is required", None))?;
+                if action != "export" {
+                    return Err(ErrorData::invalid_params(
+                        "unsupported action (expected: export)",
+                        None,
+                    ));
+                }
+                let root = self
+                    .resolve_path(&get_str(args, "project_root").unwrap_or_else(|| ".".to_string()))
+                    .await
+                    .map_err(|e| ErrorData::invalid_params(e, None))?;
+                let format = get_str(args, "format");
+                let write = get_bool(args, "write").unwrap_or(true);
+                let filename = get_str(args, "filename");
+                let max_evidence = get_int(args, "max_evidence").map(|v| v as usize);
+                let max_ledger_files = get_int(args, "max_ledger_files").map(|v| v as usize);
+
+                let sources = crate::core::context_proof::ProofSources {
+                    project_root: Some(root.clone()),
+                    session: Some(self.session.read().await.clone()),
+                    pipeline: Some(self.pipeline_stats.read().await.clone()),
+                    ledger: Some(self.ledger.read().await.clone()),
+                };
+
+                let out = crate::tools::ctx_proof::handle_export(
+                    &root,
+                    format.as_deref(),
+                    write,
+                    filename.as_deref(),
+                    max_evidence,
+                    max_ledger_files,
+                    sources,
+                )
+                .map_err(|e| ErrorData::invalid_params(e, None))?;
+                self.record_call_with_path("ctx_proof", 0, 0, Some(action), Some(&root))
+                    .await;
+                out
             }
             "ctx_cache" => {
                 let action = get_str(args, "action")
@@ -413,12 +398,6 @@ impl LeanCtxServer {
                     .await;
                 result
             }
-            "ctx_wrapped" => {
-                let period = get_str(args, "period").unwrap_or_else(|| "week".to_string());
-                let result = crate::tools::ctx_wrapped::handle(&period);
-                self.record_call("ctx_wrapped", 0, 0, Some(period)).await;
-                result
-            }
             "ctx_semantic_search" => {
                 let query = get_str(args, "query")
                     .ok_or_else(|| ErrorData::invalid_params("query is required", None))?;
@@ -480,242 +459,15 @@ impl LeanCtxServer {
                 };
                 self.record_call("ctx_semantic_search", 0, 0, Some("semantic".to_string()))
                     .await;
-                result
-            }
-            "ctx_symbol" => {
-                let sym_name = get_str(args, "name")
-                    .ok_or_else(|| ErrorData::invalid_params("name is required", None))?;
-                let file = get_str(args, "file");
-                let kind = get_str(args, "kind");
-                let session = self.session.read().await;
-                let project_root = session
-                    .project_root
-                    .clone()
-                    .unwrap_or_else(|| ".".to_string());
-                drop(session);
-                let (result, original) = crate::tools::ctx_symbol::handle(
-                    &sym_name,
-                    file.as_deref(),
-                    kind.as_deref(),
-                    &project_root,
-                );
-                let sent = crate::core::tokens::count_tokens(&result);
-                let saved = original.saturating_sub(sent);
-                self.record_call_with_path("ctx_symbol", original, saved, kind, file.as_deref())
-                    .await;
-                result
-            }
-            "ctx_graph_diagram" => {
-                let file = get_str(args, "file");
-                let depth = get_int(args, "depth").map(|d| d as usize);
-                let kind = get_str(args, "kind");
-                let session = self.session.read().await;
-                let project_root = session
-                    .project_root
-                    .clone()
-                    .unwrap_or_else(|| ".".to_string());
-                drop(session);
-                let mut cache = self.cache.write().await;
-                let graph_output = crate::tools::ctx_graph::handle(
-                    "diagram",
-                    file.as_deref(),
-                    &project_root,
-                    &mut cache,
-                    crate::tools::CrpMode::effective(),
-                    depth,
-                    kind.as_deref(),
-                );
-                drop(cache);
-                let result = format!(
-                    "[DEPRECATED] Use ctx_graph with action='diagram' (supports same args).\n{graph_output}"
-                );
-                self.record_call("ctx_graph_diagram", 0, 0, kind).await;
-                result
-            }
-            "ctx_expand" => {
-                let args_val = args.map_or(serde_json::Value::Null, |m| {
-                    serde_json::Value::Object(m.clone())
-                });
-                let result = crate::tools::ctx_expand::handle(&args_val);
-                self.record_call("ctx_expand", 0, 0, None).await;
-                result
-            }
-            "ctx_routes" => {
-                let method = get_str(args, "method");
-                let path_prefix = get_str(args, "path");
-                let session = self.session.read().await;
-                let project_root = session
-                    .project_root
-                    .clone()
-                    .unwrap_or_else(|| ".".to_string());
-                drop(session);
-                let result = crate::tools::ctx_routes::handle(
-                    method.as_deref(),
-                    path_prefix.as_deref(),
-                    &project_root,
-                );
-                self.record_call("ctx_routes", 0, 0, None).await;
-                result
-            }
-            "ctx_compress_memory" => {
-                let path = self
-                    .resolve_path(
-                        &get_str(args, "path")
-                            .ok_or_else(|| ErrorData::invalid_params("path is required", None))?,
-                    )
-                    .await
-                    .map_err(|e| ErrorData::invalid_params(e, None))?;
-                let result = crate::tools::ctx_compress_memory::handle(&path);
-                self.record_call("ctx_compress_memory", 0, 0, None).await;
-                result
-            }
-            "ctx_callers" => {
-                let symbol = get_str(args, "symbol")
-                    .ok_or_else(|| ErrorData::invalid_params("symbol is required", None))?;
-                let file = get_str(args, "file");
-                let session = self.session.read().await;
-                let project_root = session
-                    .project_root
-                    .clone()
-                    .unwrap_or_else(|| ".".to_string());
-                drop(session);
-                let result =
-                    crate::tools::ctx_callers::handle(&symbol, file.as_deref(), &project_root);
-                self.record_call("ctx_callers", 0, 0, None).await;
-                result
-            }
-            "ctx_callgraph" => {
-                let symbol = get_str(args, "symbol")
-                    .ok_or_else(|| ErrorData::invalid_params("symbol is required", None))?;
-                let direction = get_str(args, "direction").unwrap_or_else(|| "callers".to_string());
-                let file = get_str(args, "file");
-                let session = self.session.read().await;
-                let project_root = session
-                    .project_root
-                    .clone()
-                    .unwrap_or_else(|| ".".to_string());
-                drop(session);
-                let result = crate::tools::ctx_callgraph::handle(
-                    &symbol,
-                    file.as_deref(),
-                    &project_root,
-                    &direction,
-                );
-                self.record_call("ctx_callgraph", 0, 0, Some(direction))
-                    .await;
-                result
-            }
-            "ctx_review" => {
-                let action = get_str(args, "action")
-                    .ok_or_else(|| ErrorData::invalid_params("action is required", None))?;
-                let path = get_str(args, "path");
-                let depth = get_int(args, "depth").map(|d| d as usize);
-                let session = self.session.read().await;
-                let project_root = session
-                    .project_root
-                    .clone()
-                    .unwrap_or_else(|| ".".to_string());
-                drop(session);
-                let result = crate::tools::ctx_review::handle(
-                    &action,
-                    path.as_deref(),
-                    &project_root,
-                    depth,
-                );
-                self.record_call("ctx_review", 0, 0, Some(action)).await;
-                result
-            }
-            "ctx_pack" => {
-                let action = get_str(args, "action")
-                    .ok_or_else(|| ErrorData::invalid_params("action is required", None))?;
-                let base = get_str(args, "base");
-                let format = get_str(args, "format");
-                let depth = get_int(args, "depth").map(|d| d as usize);
-                let diff = get_str(args, "diff");
-
-                let project_root = if let Some(p) = get_str(args, "project_root") {
-                    self.resolve_path(&p)
-                        .await
-                        .map_err(|e| ErrorData::invalid_params(e, None))?
+                let repeat_hint = if action == "reindex" {
+                    String::new()
                 } else {
-                    let session = self.session.read().await;
-                    let project_root = session
-                        .project_root
-                        .clone()
-                        .unwrap_or_else(|| ".".to_string());
-                    drop(session);
-                    project_root
+                    self.autonomy
+                        .track_search(&query, &path)
+                        .map(|h| format!("\n{h}"))
+                        .unwrap_or_default()
                 };
-
-                let result = crate::tools::ctx_pack::handle(
-                    &action,
-                    &project_root,
-                    base.as_deref(),
-                    format.as_deref(),
-                    depth,
-                    diff.as_deref(),
-                );
-                self.record_call("ctx_pack", 0, 0, Some(action)).await;
-                result
-            }
-            "ctx_callees" => {
-                let symbol = get_str(args, "symbol")
-                    .ok_or_else(|| ErrorData::invalid_params("symbol is required", None))?;
-                let file = get_str(args, "file");
-                let session = self.session.read().await;
-                let project_root = session
-                    .project_root
-                    .clone()
-                    .unwrap_or_else(|| ".".to_string());
-                drop(session);
-                let result =
-                    crate::tools::ctx_callees::handle(&symbol, file.as_deref(), &project_root);
-                self.record_call("ctx_callees", 0, 0, None).await;
-                result
-            }
-            "ctx_outline" => {
-                let path = self
-                    .resolve_path(
-                        &get_str(args, "path")
-                            .ok_or_else(|| ErrorData::invalid_params("path is required", None))?,
-                    )
-                    .await
-                    .map_err(|e| ErrorData::invalid_params(e, None))?;
-                let kind = get_str(args, "kind");
-                let (result, original) = crate::tools::ctx_outline::handle(&path, kind.as_deref());
-                let sent = crate::core::tokens::count_tokens(&result);
-                let saved = original.saturating_sub(sent);
-                self.record_call_with_path("ctx_outline", original, saved, kind, Some(&path))
-                    .await;
-                result
-            }
-            "ctx_cost" => {
-                let action = get_str(args, "action").unwrap_or_else(|| "report".to_string());
-                let agent_id = get_str(args, "agent_id");
-                let limit = get_int(args, "limit").map(|n| n as usize);
-                let result = crate::tools::ctx_cost::handle(&action, agent_id.as_deref(), limit);
-                self.record_call("ctx_cost", 0, 0, Some(action)).await;
-                result
-            }
-            "ctx_discover_tools" => {
-                let query = get_str(args, "query").unwrap_or_default();
-                let result = crate::tool_defs::discover_tools(&query);
-                self.record_call("ctx_discover_tools", 0, 0, None).await;
-                result
-            }
-            "ctx_gain" => {
-                let action = get_str(args, "action").unwrap_or_else(|| "status".to_string());
-                let period = get_str(args, "period");
-                let model = get_str(args, "model");
-                let limit = get_int(args, "limit").map(|n| n as usize);
-                let result = crate::tools::ctx_gain::handle(
-                    &action,
-                    period.as_deref(),
-                    model.as_deref(),
-                    limit,
-                );
-                self.record_call("ctx_gain", 0, 0, Some(action)).await;
-                result
+                format!("{result}{repeat_hint}")
             }
             "ctx_feedback" => {
                 let action = get_str(args, "action").unwrap_or_else(|| "report".to_string());
@@ -804,49 +556,7 @@ impl LeanCtxServer {
                     }
                 }
             }
-            "ctx_heatmap" => {
-                let action = get_str(args, "action").unwrap_or_else(|| "status".to_string());
-                let path = get_str(args, "path");
-                let result = crate::tools::ctx_heatmap::handle(&action, path.as_deref());
-                self.record_call("ctx_heatmap", 0, 0, Some(action)).await;
-                result
-            }
-            "ctx_impact" => {
-                let action = get_str(args, "action").unwrap_or_else(|| "analyze".to_string());
-                let path = get_str(args, "path");
-                let depth = get_int(args, "depth").map(|d| d as usize);
-                let root = if let Some(r) = get_str(args, "root") {
-                    r
-                } else {
-                    let session = self.session.read().await;
-                    session
-                        .project_root
-                        .clone()
-                        .unwrap_or_else(|| ".".to_string())
-                };
-                let result =
-                    crate::tools::ctx_impact::handle(&action, path.as_deref(), &root, depth);
-                self.record_call("ctx_impact", 0, 0, Some(action)).await;
-                result
-            }
-            "ctx_architecture" => {
-                let action = get_str(args, "action").unwrap_or_else(|| "overview".to_string());
-                let path = get_str(args, "path");
-                let root = if let Some(r) = get_str(args, "root") {
-                    r
-                } else {
-                    let session = self.session.read().await;
-                    session
-                        .project_root
-                        .clone()
-                        .unwrap_or_else(|| ".".to_string())
-                };
-                let result =
-                    crate::tools::ctx_architecture::handle(&action, path.as_deref(), &root);
-                self.record_call("ctx_architecture", 0, 0, Some(action))
-                    .await;
-                result
-            }
+
             _ => {
                 return Err(ErrorData::invalid_params(
                     format!("Unknown tool: {name}"),

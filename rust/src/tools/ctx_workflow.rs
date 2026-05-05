@@ -62,6 +62,8 @@ fn handle_status(session: &SessionState) -> String {
         return "No active workflow. Use action=start to begin.".to_string();
     };
 
+    let ledger = crate::core::evidence_ledger::EvidenceLedgerV1::load();
+
     let mut lines = vec![
         format!("Workflow: {}", run.spec.name),
         format!("  State: {}", run.current),
@@ -88,7 +90,9 @@ fn handle_status(session: &SessionState) -> String {
         lines.push("  Transitions:".to_string());
         for t in transitions.iter().take(10) {
             let missing = workflow::missing_evidence_for_state(&run.spec, &t.to, |k| {
-                run.evidence.iter().any(|e| e.key == k) || session.has_evidence_key(k)
+                run.evidence.iter().any(|e| e.key == k)
+                    || session.has_evidence_key(k)
+                    || ledger.has_key(k)
             });
             if missing.is_empty() {
                 lines.push(format!("    → {} (ok)", t.to));
@@ -124,8 +128,9 @@ fn handle_transition(
         return "No active workflow. Use action=start to begin.".to_string();
     };
 
+    let ledger = crate::core::evidence_ledger::EvidenceLedgerV1::load();
     if let Err(e) = workflow::can_transition(&run.spec, &run.current, &to, |k| {
-        run.evidence.iter().any(|e| e.key == k) || session.has_evidence_key(k)
+        run.evidence.iter().any(|e| e.key == k) || session.has_evidence_key(k) || ledger.has_key(k)
     }) {
         return format!("Transition blocked: {e}");
     }
@@ -165,8 +170,9 @@ fn handle_complete(
         return format!("No transition to 'done' from '{}'", run.current);
     }
 
+    let ledger = crate::core::evidence_ledger::EvidenceLedgerV1::load();
     if let Err(e) = workflow::can_transition(&run.spec, &run.current, &done, |k| {
-        run.evidence.iter().any(|e| e.key == k) || session.has_evidence_key(k)
+        run.evidence.iter().any(|e| e.key == k) || session.has_evidence_key(k) || ledger.has_key(k)
     }) {
         return format!("Complete blocked: {e}");
     }
@@ -207,6 +213,11 @@ fn handle_evidence_add(
 
     run.add_manual_evidence(&key, value.as_deref());
     session.record_manual_evidence(&key, value.as_deref());
+    {
+        let mut ledger = crate::core::evidence_ledger::EvidenceLedgerV1::load();
+        ledger.record_manual(&key, value.as_deref(), chrono::Utc::now());
+        let _ = ledger.save();
+    }
 
     if let Err(e) = workflow::save_active(&run) {
         return format!("Failed to save workflow: {e}");
@@ -223,8 +234,9 @@ fn handle_evidence_list(session: &SessionState) -> String {
         return "No active workflow.".to_string();
     };
 
+    let ledger = crate::core::evidence_ledger::EvidenceLedgerV1::load();
     let mut lines = vec![format!("Evidence (workflow: {}):", run.spec.name)];
-    if run.evidence.is_empty() && session.evidence.is_empty() {
+    if run.evidence.is_empty() && session.evidence.is_empty() && ledger.items.is_empty() {
         lines.push("  (none)".to_string());
         return lines.join("\n");
     }
@@ -240,6 +252,13 @@ fn handle_evidence_list(session: &SessionState) -> String {
     if !session.evidence.is_empty() {
         lines.push("  Session receipts (latest):".to_string());
         for e in session.evidence.iter().rev().take(20) {
+            lines.push(format!("    {} ({:?})", e.key, e.kind));
+        }
+    }
+
+    if !ledger.items.is_empty() {
+        lines.push("  Ledger (latest):".to_string());
+        for e in ledger.items.iter().rev().take(20) {
             lines.push(format!("    {} ({:?})", e.key, e.kind));
         }
     }

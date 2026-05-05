@@ -45,20 +45,12 @@ pub fn handle(
     if has_task {
         let relevance = compute_relevance(&index, &task_files, &task_keywords);
 
-        if let Some(task_desc) = task {
-            let file_context: Vec<(String, usize)> = relevance
-                .iter()
-                .filter(|r| r.score >= 0.3)
-                .take(8)
-                .filter_map(|r| {
-                    std::fs::read_to_string(&r.path)
-                        .ok()
-                        .map(|c| (r.path.clone(), c.lines().count()))
-                })
-                .collect();
-            let briefing = crate::core::task_briefing::build_briefing(task_desc, &file_context);
-            output.push(crate::core::task_briefing::format_briefing(&briefing));
-        }
+        // Static project-level header first (prefix-cache-friendly)
+        output.push(format!(
+            "PROJECT OVERVIEW  {} files  task-filtered",
+            index.files.len()
+        ));
+        output.push(String::new());
 
         let high: Vec<&_> = relevance.iter().filter(|r| r.score >= 0.8).collect();
         let medium: Vec<&_> = relevance
@@ -66,12 +58,6 @@ pub fn handle(
             .filter(|r| r.score >= 0.3 && r.score < 0.8)
             .collect();
         let low: Vec<&_> = relevance.iter().filter(|r| r.score < 0.3).collect();
-
-        output.push(format!(
-            "PROJECT OVERVIEW  {} files  task-filtered",
-            index.files.len()
-        ));
-        output.push(String::new());
 
         if !high.is_empty() {
             output.push("▸ DIRECTLY RELEVANT (use ctx_read full):".to_string());
@@ -116,6 +102,23 @@ pub fn handle(
                 output.push(format!("  ... +{} more", low.len() - 10));
             }
         }
+
+        // Dynamic task-specific briefing last (prefix-cache-friendly)
+        if let Some(task_desc) = task {
+            let file_context: Vec<(String, usize)> = relevance
+                .iter()
+                .filter(|r| r.score >= 0.3)
+                .take(8)
+                .filter_map(|r| {
+                    std::fs::read_to_string(&r.path)
+                        .ok()
+                        .map(|c| (r.path.clone(), c.lines().count()))
+                })
+                .collect();
+            let briefing = crate::core::task_briefing::build_briefing(task_desc, &file_context);
+            output.push(String::new());
+            output.push(crate::core::task_briefing::format_briefing(&briefing));
+        }
     } else {
         // No task context: show project structure overview
         output.push(format!(
@@ -157,25 +160,12 @@ pub fn handle(
                 ));
             }
         }
-
-        // Show top connected files (hub files)
-        output.push(String::new());
-        let mut connection_counts: std::collections::HashMap<&str, usize> =
-            std::collections::HashMap::new();
-        for edge in &index.edges {
-            *connection_counts.entry(&edge.from).or_insert(0) += 1;
-            *connection_counts.entry(&edge.to).or_insert(0) += 1;
-        }
-        let mut hubs: Vec<(&&str, &usize)> = connection_counts.iter().collect();
-        hubs.sort_by_key(|item| std::cmp::Reverse(*item.1));
-
-        if !hubs.is_empty() {
-            output.push("HUB FILES (most connected):".to_string());
-            for (path, count) in hubs.iter().take(8) {
-                output.push(format!("  {} ({count} edges)", short_path(path)));
-            }
-        }
     }
+
+    if let Some(task_desc) = task {
+        append_knowledge_task_section(&mut output, &index.project_root, task_desc);
+    }
+    append_graph_hotspots_section(&mut output, &index.project_root, &index);
 
     let wakeup = build_wakeup_briefing(&project_root, task);
     if !wakeup.is_empty() {
@@ -189,6 +179,134 @@ pub fn handle(
     output.push(crate::core::protocol::format_savings(original, compressed));
 
     output.join("\n")
+}
+
+fn append_knowledge_task_section(output: &mut Vec<String>, project_root: &str, task: &str) {
+    let Some(knowledge) = crate::core::knowledge::ProjectKnowledge::load(project_root) else {
+        return;
+    };
+    let hits: Vec<_> = knowledge.recall(task).into_iter().take(5).collect();
+    if hits.is_empty() {
+        return;
+    }
+    let n = hits.len();
+    output.push(String::new());
+    output.push(format!("[knowledge: {n} relevant facts]"));
+    for f in hits {
+        let text = compact_fact_phrase(f);
+        output.push(format!("  \"{text}\" (confidence: {:.1})", f.confidence));
+    }
+}
+
+fn compact_fact_phrase(f: &crate::core::knowledge::KnowledgeFact) -> String {
+    let v = f.value.trim();
+    let k = f.key.trim();
+    let raw = if !v.is_empty() && (k.is_empty() || v.contains(' ') || v.len() >= k.len()) {
+        v.to_string()
+    } else if !k.is_empty() && !v.is_empty() {
+        format!("{k}: {v}")
+    } else {
+        k.to_string()
+    };
+    let neutral = crate::core::sanitize::neutralize_metadata(&raw);
+    const MAX: usize = 100;
+    if neutral.chars().count() > MAX {
+        let trimmed: String = neutral.chars().take(MAX.saturating_sub(1)).collect();
+        format!("{trimmed}…")
+    } else {
+        neutral
+    }
+}
+
+fn append_graph_hotspots_section(
+    output: &mut Vec<String>,
+    project_root: &str,
+    index: &crate::core::graph_index::ProjectIndex,
+) {
+    let rows = graph_hotspot_rows(project_root, index);
+    if rows.is_empty() {
+        return;
+    }
+    let n = rows.len();
+    output.push(String::new());
+    output.push(format!("[graph: {n} architectural hotspots]"));
+    for (path, imp, cal) in rows {
+        let p = short_path(&path);
+        if cal > 0 {
+            output.push(format!("  {p} ({imp} imports, {cal} calls)"));
+        } else {
+            output.push(format!("  {p} ({imp} imports)"));
+        }
+    }
+}
+
+/// Import/call edge touches per file from SQLite graph when available; otherwise
+/// import-edge degree from the JSON graph index (calls omitted).
+fn graph_hotspot_rows(
+    project_root: &str,
+    index: &crate::core::graph_index::ProjectIndex,
+) -> Vec<(String, usize, usize)> {
+    let root = std::path::Path::new(project_root);
+    if let Ok(graph) = crate::core::property_graph::CodeGraph::open(root) {
+        let sql = "
+            WITH edge_files AS (
+              SELECT e.kind AS kind, ns.file_path AS fp
+              FROM edges e
+              JOIN nodes ns ON e.source_id = ns.id
+              WHERE e.kind IN ('imports', 'calls')
+              UNION ALL
+              SELECT e.kind, nt.file_path
+              FROM edges e
+              JOIN nodes nt ON e.target_id = nt.id
+              WHERE e.kind IN ('imports', 'calls')
+            )
+            SELECT fp,
+                   SUM(CASE WHEN kind = 'imports' THEN 1 ELSE 0 END) AS imp,
+                   SUM(CASE WHEN kind = 'calls' THEN 1 ELSE 0 END) AS cal
+            FROM edge_files
+            GROUP BY fp
+            ORDER BY (imp + cal) DESC
+            LIMIT 5
+        ";
+        let conn = graph.connection();
+        if let Ok(mut stmt) = conn.prepare(sql) {
+            let mapped = stmt.query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)? as usize,
+                    row.get::<_, i64>(2)? as usize,
+                ))
+            });
+            if let Ok(iter) = mapped {
+                let collected: Vec<_> = iter.filter_map(std::result::Result::ok).collect();
+                if !collected.is_empty() {
+                    return collected;
+                }
+            }
+        }
+    }
+    index_import_hotspots(index, 5)
+}
+
+fn index_import_hotspots(
+    index: &crate::core::graph_index::ProjectIndex,
+    limit: usize,
+) -> Vec<(String, usize, usize)> {
+    use std::collections::HashMap;
+
+    let mut imp: HashMap<String, usize> = HashMap::new();
+    for e in &index.edges {
+        if e.kind != "import" {
+            continue;
+        }
+        *imp.entry(e.from.clone()).or_insert(0) += 1;
+        *imp.entry(e.to.clone()).or_insert(0) += 1;
+    }
+    let mut v: Vec<(String, usize, usize)> =
+        imp.into_iter().map(|(p, c)| (p, c, 0_usize)).collect();
+    v.sort_by(|a, b| (b.1 + b.2).cmp(&(a.1 + a.2)));
+    v.truncate(limit);
+    v
 }
 
 fn build_wakeup_briefing(project_root: &str, task: Option<&str>) -> String {

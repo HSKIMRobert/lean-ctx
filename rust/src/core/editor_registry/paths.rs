@@ -65,10 +65,6 @@ pub fn qoder_mcp_paths(home: &Path) -> Vec<PathBuf> {
     vec![qoder_mcp_path(home)]
 }
 
-pub fn qoderwork_mcp_path(home: &Path) -> PathBuf {
-    home.join(".qoderwork").join("mcp.json")
-}
-
 #[allow(unreachable_code)]
 pub fn cline_mcp_path() -> PathBuf {
     #[cfg(target_os = "windows")]
@@ -118,6 +114,33 @@ pub fn roo_mcp_path() -> PathBuf {
         return home.join(".config/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json");
     }
     PathBuf::from("/nonexistent")
+}
+
+pub fn qoder_settings_path(home: &Path) -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            return PathBuf::from(appdata)
+                .join("Qoder")
+                .join("SharedClientCache")
+                .join("mcp.json");
+        }
+    }
+    home.join(".qoder/mcp.json")
+}
+
+pub fn qoder_all_mcp_paths(home: &Path) -> Vec<PathBuf> {
+    let mut paths = vec![qoder_settings_path(home)];
+    #[cfg(target_os = "macos")]
+    {
+        paths.push(home.join("Library/Application Support/Qoder/User/mcp.json"));
+        paths.push(home.join("Library/Application Support/Qoder/SharedClientCache/mcp.json"));
+    }
+    paths
+}
+
+pub fn qoderwork_mcp_path(home: &Path) -> PathBuf {
+    home.join(".qoderwork/mcp.json")
 }
 
 pub fn claude_mcp_json_path(home: &Path) -> PathBuf {

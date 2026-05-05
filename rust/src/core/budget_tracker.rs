@@ -16,6 +16,7 @@ pub struct BudgetTracker {
     context_tokens: AtomicU64,
     shell_invocations: AtomicUsize,
     cost_millicents: AtomicU64,
+    tool_calls: AtomicUsize,
 }
 
 impl BudgetTracker {
@@ -24,6 +25,7 @@ impl BudgetTracker {
             context_tokens: AtomicU64::new(0),
             shell_invocations: AtomicUsize::new(0),
             cost_millicents: AtomicU64::new(0),
+            tool_calls: AtomicUsize::new(0),
         }
     }
 
@@ -37,6 +39,14 @@ impl BudgetTracker {
 
     pub fn record_shell(&self) {
         self.shell_invocations.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_tool_call(&self) {
+        self.tool_calls.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn tool_calls_count(&self) -> usize {
+        self.tool_calls.load(Ordering::Relaxed)
     }
 
     pub fn record_cost_usd(&self, usd: f64) {
@@ -60,6 +70,7 @@ impl BudgetTracker {
         self.context_tokens.store(0, Ordering::Relaxed);
         self.shell_invocations.store(0, Ordering::Relaxed);
         self.cost_millicents.store(0, Ordering::Relaxed);
+        self.tool_calls.store(0, Ordering::Relaxed);
     }
 
     pub fn check(&self) -> BudgetSnapshot {

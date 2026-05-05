@@ -97,7 +97,11 @@ pub fn reorder_for_lcurve(content: &str, task_keywords: &[String]) -> String {
         })
         .collect();
 
-    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    scored.sort_by(|a, b| {
+        b.1.partial_cmp(&a.1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.0.original_index.cmp(&b.0.original_index))
+    });
 
     scored
         .iter()

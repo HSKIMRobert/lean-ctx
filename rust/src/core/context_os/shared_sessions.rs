@@ -170,6 +170,7 @@ mod tests {
                         modified: false,
                         last_mode: "full".to_string(),
                         tokens: 0,
+                        stale: false,
                     });
                 }
             }));
@@ -205,6 +206,7 @@ mod tests {
                     modified: false,
                     last_mode: "full".to_string(),
                     tokens: 0,
+                    stale: false,
                 });
         }
         {
@@ -220,6 +222,7 @@ mod tests {
                     modified: false,
                     last_mode: "full".to_string(),
                     tokens: 0,
+                    stale: false,
                 });
         }
 

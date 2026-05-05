@@ -4,6 +4,8 @@ use md5::{Digest, Md5};
 use rmcp::model::Tool;
 use serde_json::{json, Value};
 
+use crate::core::contracts::MCP_MANIFEST_SCHEMA_VERSION;
+
 const READ_MODES: [&str; 10] = [
     "auto",
     "full",
@@ -82,7 +84,7 @@ pub fn manifest_value() -> Value {
         .collect();
 
     json!({
-        "schema_version": 1,
+        "schema_version": MCP_MANIFEST_SCHEMA_VERSION,
         "counts": {
             "granular": granular.len(),
             "unified": unified.len()

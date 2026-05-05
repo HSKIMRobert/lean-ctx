@@ -5,15 +5,47 @@
 
 use crate::core::property_graph::{CodeGraph, DependencyChain, Edge, EdgeKind, ImpactResult, Node};
 use crate::core::tokens::count_tokens;
+use serde_json::{json, Value};
+use std::collections::BTreeSet;
 use std::path::Path;
+use std::process::Stdio;
 
-pub fn handle(action: &str, path: Option<&str>, root: &str, depth: Option<usize>) -> String {
+const GRAPH_SOURCE_EXTS: &[&str] = &["rs", "ts", "tsx", "js", "jsx", "py", "go", "java"];
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum OutputFormat {
+    Text,
+    Json,
+}
+
+fn parse_format(format: Option<&str>) -> Result<OutputFormat, String> {
+    let f = format.unwrap_or("text").trim().to_lowercase();
+    match f.as_str() {
+        "text" => Ok(OutputFormat::Text),
+        "json" => Ok(OutputFormat::Json),
+        _ => Err("Error: format must be text|json".to_string()),
+    }
+}
+
+pub fn handle(
+    action: &str,
+    path: Option<&str>,
+    root: &str,
+    depth: Option<usize>,
+    format: Option<&str>,
+) -> String {
+    let fmt = match parse_format(format) {
+        Ok(f) => f,
+        Err(e) => return e,
+    };
+
     match action {
-        "analyze" => handle_analyze(path, root, depth.unwrap_or(5)),
-        "chain" => handle_chain(path, root),
-        "build" => handle_build(root),
-        "status" => handle_status(root),
-        _ => "Unknown action. Use: analyze, chain, build, status".to_string(),
+        "analyze" => handle_analyze(path, root, depth.unwrap_or(5), fmt),
+        "chain" => handle_chain(path, root, fmt),
+        "build" => handle_build(root, fmt),
+        "update" => handle_update(root, fmt),
+        "status" => handle_status(root, fmt),
+        _ => "Unknown action. Use: analyze, chain, build, status, update".to_string(),
     }
 }
 
@@ -21,7 +53,7 @@ fn open_graph(root: &str) -> Result<CodeGraph, String> {
     CodeGraph::open(Path::new(root)).map_err(|e| format!("Failed to open graph: {e}"))
 }
 
-fn handle_analyze(path: Option<&str>, root: &str, max_depth: usize) -> String {
+fn handle_analyze(path: Option<&str>, root: &str, max_depth: usize, fmt: OutputFormat) -> String {
     let Some(target) = path else {
         return "path is required for 'analyze' action".to_string();
     };
@@ -36,7 +68,7 @@ fn handle_analyze(path: Option<&str>, root: &str, max_depth: usize) -> String {
     let node_count = graph.node_count().unwrap_or(0);
     if node_count == 0 {
         drop(graph);
-        let build_result = handle_build(root);
+        let build_result = handle_build(root, OutputFormat::Text);
         tracing::info!(
             "Auto-built graph for impact analysis: {}",
             &build_result[..build_result.len().min(100)]
@@ -52,7 +84,7 @@ fn handle_analyze(path: Option<&str>, root: &str, max_depth: usize) -> String {
             Ok(r) => r,
             Err(e) => return format!("Impact analysis failed: {e}"),
         };
-        return format_impact(&impact, &rel_target);
+        return format_impact(&impact, &rel_target, root, fmt);
     }
 
     let impact = match graph.impact_analysis(&rel_target, max_depth) {
@@ -60,35 +92,66 @@ fn handle_analyze(path: Option<&str>, root: &str, max_depth: usize) -> String {
         Err(e) => return format!("Impact analysis failed: {e}"),
     };
 
-    format_impact(&impact, &rel_target)
+    format_impact(&impact, &rel_target, root, fmt)
 }
 
-fn format_impact(impact: &ImpactResult, target: &str) -> String {
-    if impact.affected_files.is_empty() {
-        let result = format!("No files depend on {target} (leaf node in the dependency graph).");
-        let tokens = count_tokens(&result);
-        return format!("{result}\n[ctx_impact: {tokens} tok]");
-    }
-
-    let mut result = format!(
-        "Impact of changing {target}: {} affected files (depth: {}, edges traversed: {})\n",
-        impact.affected_files.len(),
-        impact.max_depth_reached,
-        impact.edges_traversed
-    );
-
+fn format_impact(impact: &ImpactResult, target: &str, root: &str, fmt: OutputFormat) -> String {
     let mut sorted = impact.affected_files.clone();
     sorted.sort();
 
-    for file in &sorted {
-        result.push_str(&format!("  {file}\n"));
+    let total = sorted.len();
+    let limit = crate::core::budgets::IMPACT_AFFECTED_FILES_LIMIT.max(1);
+    let truncated = total > limit;
+    if truncated {
+        sorted.truncate(limit);
     }
 
-    let tokens = count_tokens(&result);
-    format!("{result}[ctx_impact: {tokens} tok]")
+    match fmt {
+        OutputFormat::Json => {
+            let root_path = Path::new(root);
+            let v = json!({
+                "schema_version": crate::core::contracts::GRAPH_REPRODUCIBILITY_V1_SCHEMA_VERSION,
+                "tool": "ctx_impact",
+                "action": "analyze",
+                "project": project_meta(root),
+                "graph": graph_summary(root_path),
+                "graph_meta": crate::core::property_graph::load_meta(root_path),
+                "target": target,
+                "max_depth_reached": impact.max_depth_reached,
+                "edges_traversed": impact.edges_traversed,
+                "affected_files_total": total,
+                "affected_files": sorted,
+                "truncated": truncated
+            });
+            serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".to_string())
+        }
+        OutputFormat::Text => {
+            if total == 0 {
+                let result =
+                    format!("No files depend on {target} (leaf node in the dependency graph).");
+                let tokens = count_tokens(&result);
+                return format!("{result}\n[ctx_impact: {tokens} tok]");
+            }
+
+            let mut result = format!(
+                "Impact of changing {target}: {total} affected files (depth: {}, edges traversed: {})\n",
+                impact.max_depth_reached, impact.edges_traversed
+            );
+
+            for file in &sorted {
+                result.push_str(&format!("  {file}\n"));
+            }
+            if truncated {
+                result.push_str(&format!("  ... +{} more\n", total - limit));
+            }
+
+            let tokens = count_tokens(&result);
+            format!("{result}[ctx_impact: {tokens} tok]")
+        }
+    }
 }
 
-fn handle_chain(path: Option<&str>, root: &str) -> String {
+fn handle_chain(path: Option<&str>, root: &str, fmt: OutputFormat) -> String {
     let Some(spec) = path else {
         return "path is required for 'chain' action (format: from_file->to_file)".to_string();
     };
@@ -112,29 +175,65 @@ fn handle_chain(path: Option<&str>, root: &str) -> String {
     let rel_to = graph_target_key(to, root);
 
     match graph.dependency_chain(&rel_from, &rel_to) {
-        Ok(Some(chain)) => format_chain(&chain),
-        Ok(None) => {
-            let result = format!("No dependency path from {rel_from} to {rel_to}");
-            let tokens = count_tokens(&result);
-            format!("{result}\n[ctx_impact chain: {tokens} tok]")
-        }
+        Ok(Some(chain)) => format_chain(&chain, root, fmt),
+        Ok(None) => match fmt {
+            OutputFormat::Json => {
+                let root_path = Path::new(root);
+                let v = json!({
+                    "schema_version": crate::core::contracts::GRAPH_REPRODUCIBILITY_V1_SCHEMA_VERSION,
+                    "tool": "ctx_impact",
+                    "action": "chain",
+                    "project": project_meta(root),
+                    "graph": graph_summary(root_path),
+                    "graph_meta": crate::core::property_graph::load_meta(root_path),
+                    "from": rel_from,
+                    "to": rel_to,
+                    "found": false
+                });
+                serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".to_string())
+            }
+            OutputFormat::Text => {
+                let result = format!("No dependency path from {rel_from} to {rel_to}");
+                let tokens = count_tokens(&result);
+                format!("{result}\n[ctx_impact chain: {tokens} tok]")
+            }
+        },
         Err(e) => format!("Chain analysis failed: {e}"),
     }
 }
 
-fn format_chain(chain: &DependencyChain) -> String {
-    let mut result = format!("Dependency chain (depth {}):\n", chain.depth);
-    for (i, step) in chain.path.iter().enumerate() {
-        if i > 0 {
-            result.push_str("  -> ");
-        } else {
-            result.push_str("  ");
+fn format_chain(chain: &DependencyChain, root: &str, fmt: OutputFormat) -> String {
+    match fmt {
+        OutputFormat::Json => {
+            let root_path = Path::new(root);
+            let v = json!({
+                "schema_version": crate::core::contracts::GRAPH_REPRODUCIBILITY_V1_SCHEMA_VERSION,
+                "tool": "ctx_impact",
+                "action": "chain",
+                "project": project_meta(root),
+                "graph": graph_summary(root_path),
+                "graph_meta": crate::core::property_graph::load_meta(root_path),
+                "found": true,
+                "depth": chain.depth,
+                "path": chain.path
+            });
+            serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".to_string())
         }
-        result.push_str(step);
-        result.push('\n');
+        OutputFormat::Text => {
+            let mut result = format!("Dependency chain (depth {}):\n", chain.depth);
+            for (i, step) in chain.path.iter().enumerate() {
+                if i > 0 {
+                    result.push_str("  -> ");
+                } else {
+                    result.push_str("  ");
+                }
+                result.push_str(step);
+                result.push('\n');
+            }
+            let tokens = count_tokens(&result);
+            format!("{result}[ctx_impact chain: {tokens} tok]")
+        }
     }
-    let tokens = count_tokens(&result);
-    format!("{result}[ctx_impact chain: {tokens} tok]")
 }
 
 fn graph_target_key(path: &str, root: &str) -> String {
@@ -147,23 +246,12 @@ fn graph_target_key(path: &str, root: &str) -> String {
     }
 }
 
-fn handle_build(root: &str) -> String {
-    let graph = match open_graph(root) {
-        Ok(g) => g,
-        Err(e) => return e,
-    };
-
-    if let Err(e) = graph.clear() {
-        return format!("Failed to clear graph: {e}");
-    }
-
-    let root_path = Path::new(root);
+fn walk_supported_sources(root_path: &Path) -> (Vec<String>, Vec<(String, String, String)>) {
     let walker = ignore::WalkBuilder::new(root_path)
         .hidden(true)
         .git_ignore(true)
         .build();
 
-    let supported_exts = ["rs", "ts", "tsx", "js", "jsx", "py", "go", "java"];
     let mut file_paths: Vec<String> = Vec::new();
     let mut file_contents: Vec<(String, String, String)> = Vec::new();
 
@@ -175,7 +263,7 @@ fn handle_build(root: &str) -> String {
         let path = entry.path();
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
-        if !supported_exts.contains(&ext) {
+        if !GRAPH_SOURCE_EXTS.contains(&ext) {
             continue;
         }
 
@@ -192,72 +280,511 @@ fn handle_build(root: &str) -> String {
         }
     }
 
+    file_paths.sort();
+    file_paths.dedup();
+    file_contents.sort_by(|a, b| a.0.cmp(&b.0));
+    (file_paths, file_contents)
+}
+
+fn normalize_git_path(line: &str) -> String {
+    line.trim().replace('\\', "/")
+}
+
+fn git_diff_name_only_lines(project_root: &Path, args: &[&str]) -> Option<Vec<String>> {
+    let out = std::process::Command::new("git")
+        .args(args)
+        .current_dir(project_root)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let s = String::from_utf8(out.stdout).ok()?;
+    Some(
+        s.lines()
+            .map(normalize_git_path)
+            .filter(|l| !l.is_empty())
+            .collect(),
+    )
+}
+
+fn collect_git_changed_paths(project_root: &Path, last_git_head: &str) -> Option<BTreeSet<String>> {
+    let range = format!("{last_git_head}..HEAD");
+    let mut set: BTreeSet<String> = BTreeSet::new();
+    for line in git_diff_name_only_lines(project_root, &["diff", "--name-only", &range])? {
+        set.insert(line);
+    }
+    for line in git_diff_name_only_lines(project_root, &["diff", "--name-only"])? {
+        set.insert(line);
+    }
+    for line in git_diff_name_only_lines(project_root, &["diff", "--name-only", "--cached"])? {
+        set.insert(line);
+    }
+    Some(set)
+}
+
+#[cfg(feature = "embeddings")]
+fn enclosing_symbol_name_for_line(
+    types: &[crate::core::deep_queries::TypeDef],
+    line: usize,
+) -> String {
+    let mut best: Option<(&crate::core::deep_queries::TypeDef, usize)> = None;
+    for t in types {
+        if line >= t.line && line <= t.end_line {
+            let span = t.end_line.saturating_sub(t.line);
+            match best {
+                None => best = Some((t, span)),
+                Some((_, prev_span)) => {
+                    if span < prev_span {
+                        best = Some((t, span));
+                    }
+                }
+            }
+        }
+    }
+    best.map_or_else(|| "<module>".to_string(), |(t, _)| t.name.clone())
+}
+
+#[cfg(feature = "embeddings")]
+fn resolve_call_callee_site(
+    def_index: &std::collections::HashMap<String, Vec<(String, usize, usize)>>,
+    callee: &str,
+    caller_file: &str,
+) -> Option<(String, usize, usize)> {
+    let sites = def_index.get(callee)?;
+    for (f, ls, le) in sites {
+        if f == caller_file {
+            return Some((f.clone(), *ls, *le));
+        }
+    }
+    let mut sorted: Vec<(String, usize, usize)> = sites.clone();
+    sorted.sort_by(|a, b| a.0.cmp(&b.0));
+    sorted.into_iter().next()
+}
+
+#[cfg(feature = "embeddings")]
+fn index_graph_file_embeddings(
+    graph: &CodeGraph,
+    rel_path: &str,
+    ext: &str,
+    analysis: &crate::core::deep_queries::DeepAnalysis,
+    resolver_ctx: &crate::core::import_resolver::ResolverContext,
+    def_index: &std::collections::HashMap<String, Vec<(String, usize, usize)>>,
+) -> (usize, usize) {
+    let mut total_nodes = 0usize;
+    let mut total_edges = 0usize;
+
+    let Ok(file_node_id) = graph.upsert_node(&Node::file(rel_path)) else {
+        return (0, 0);
+    };
+    total_nodes += 1;
+
+    for type_def in &analysis.types {
+        let sym_node = Node::symbol(
+            &type_def.name,
+            rel_path,
+            crate::core::property_graph::NodeKind::Symbol,
+        )
+        .with_lines(type_def.line, type_def.end_line);
+        if let Ok(sym_id) = graph.upsert_node(&sym_node) {
+            total_nodes += 1;
+            let _ = graph.upsert_edge(&Edge::new(file_node_id, sym_id, EdgeKind::Defines));
+            total_edges += 1;
+            if type_def.is_exported {
+                let _ = graph.upsert_edge(&Edge::new(sym_id, file_node_id, EdgeKind::Exports));
+                total_edges += 1;
+            }
+        }
+    }
+
+    let resolved = crate::core::import_resolver::resolve_imports(
+        &analysis.imports,
+        rel_path,
+        ext,
+        resolver_ctx,
+    );
+
+    let mut targets: Vec<String> = resolved
+        .into_iter()
+        .filter(|imp| !imp.is_external)
+        .filter_map(|imp| imp.resolved_path)
+        .collect();
+    targets.sort();
+    targets.dedup();
+
+    for target_path in targets {
+        let Ok(target_id) = graph.upsert_node(&Node::file(&target_path)) else {
+            continue;
+        };
+        let _ = graph.upsert_edge(&Edge::new(file_node_id, target_id, EdgeKind::Imports));
+        total_edges += 1;
+    }
+
+    for call in &analysis.calls {
+        let caller_name = enclosing_symbol_name_for_line(&analysis.types, call.line);
+        let mut caller_node = Node::symbol(
+            &caller_name,
+            rel_path,
+            crate::core::property_graph::NodeKind::Symbol,
+        );
+        if let Some(t) = analysis.types.iter().find(|t| t.name == caller_name) {
+            caller_node = caller_node.with_lines(t.line, t.end_line);
+        }
+        let Ok(caller_id) = graph.upsert_node(&caller_node) else {
+            continue;
+        };
+        total_nodes += 1;
+
+        let Some((callee_file, c_line, c_end)) =
+            resolve_call_callee_site(def_index, &call.callee, rel_path)
+        else {
+            continue;
+        };
+
+        let callee_node = Node::symbol(
+            &call.callee,
+            &callee_file,
+            crate::core::property_graph::NodeKind::Symbol,
+        )
+        .with_lines(c_line, c_end);
+        let Ok(callee_id) = graph.upsert_node(&callee_node) else {
+            continue;
+        };
+        total_nodes += 1;
+        let _ = graph.upsert_edge(&Edge::new(caller_id, callee_id, EdgeKind::Calls));
+        total_edges += 1;
+
+        if callee_file != rel_path {
+            let Ok(callee_file_id) = graph.upsert_node(&Node::file(&callee_file)) else {
+                continue;
+            };
+            let _ = graph.upsert_edge(&Edge::new(file_node_id, callee_file_id, EdgeKind::Calls));
+            total_edges += 1;
+        }
+    }
+
+    (total_nodes, total_edges)
+}
+
+#[cfg(not(feature = "embeddings"))]
+fn index_graph_file_minimal(
+    graph: &CodeGraph,
+    rel_path: &str,
+    content: &str,
+    ext: &str,
+) -> (usize, usize) {
+    let Ok(file_node_id) = graph.upsert_node(&Node::file(rel_path)) else {
+        return (0, 0);
+    };
+    let _ = (content, ext, file_node_id);
+    (1, 0)
+}
+
+fn handle_build(root: &str, fmt: OutputFormat) -> String {
+    let t0 = std::time::Instant::now();
+    let root_path = Path::new(root);
+
+    let graph = match open_graph(root) {
+        Ok(g) => g,
+        Err(e) => return e,
+    };
+
+    let incremental_hint: Option<&'static str> = {
+        let nodes_ok = graph.node_count().unwrap_or(0) > 0;
+        let has_head = crate::core::property_graph::load_meta(root_path)
+            .and_then(|m| m.git_head)
+            .is_some_and(|s| !s.is_empty());
+        if nodes_ok && has_head {
+            Some(
+                "Hint: Graph already indexed — for faster refresh, use ctx_impact action='update' \
+                 to apply incremental git-based updates instead of a full rebuild.",
+            )
+        } else {
+            None
+        }
+    };
+
+    if let Err(e) = graph.clear() {
+        return format!("Failed to clear graph: {e}");
+    }
+
+    let (file_paths, file_contents) = walk_supported_sources(root_path);
+
     let resolver_ctx =
         crate::core::import_resolver::ResolverContext::new(root_path, file_paths.clone());
 
     let mut total_nodes = 0usize;
     let mut total_edges = 0usize;
 
+    #[cfg(feature = "embeddings")]
+    let per_file: Vec<(
+        String,
+        String,
+        String,
+        crate::core::deep_queries::DeepAnalysis,
+    )> = file_contents
+        .iter()
+        .map(|(p, c, e)| {
+            (
+                p.clone(),
+                c.clone(),
+                e.clone(),
+                crate::core::deep_queries::analyze(c.as_str(), e.as_str()),
+            )
+        })
+        .collect();
+
+    #[cfg(feature = "embeddings")]
+    let def_index: std::collections::HashMap<String, Vec<(String, usize, usize)>> = {
+        let mut m: std::collections::HashMap<String, Vec<(String, usize, usize)>> =
+            std::collections::HashMap::new();
+        for (p, _, _, analysis) in &per_file {
+            for t in &analysis.types {
+                m.entry(t.name.clone())
+                    .or_default()
+                    .push((p.clone(), t.line, t.end_line));
+            }
+        }
+        m
+    };
+
+    #[cfg(feature = "embeddings")]
+    for (rel_path, _content, ext, analysis) in per_file {
+        let (n, e) = index_graph_file_embeddings(
+            &graph,
+            &rel_path,
+            &ext,
+            &analysis,
+            &resolver_ctx,
+            &def_index,
+        );
+        total_nodes += n;
+        total_edges += e;
+    }
+
+    #[cfg(not(feature = "embeddings"))]
     for (rel_path, content, ext) in &file_contents {
-        let Ok(file_node_id) = graph.upsert_node(&Node::file(rel_path)) else {
+        let (n, e) = index_graph_file_minimal(&graph, rel_path, content, ext);
+        total_nodes += n;
+        total_edges += e;
+    }
+
+    let build_time_ms = t0.elapsed().as_millis() as u64;
+
+    let mut result = format!(
+        "Graph built: {total_nodes} nodes, {total_edges} edges from {} files\n\
+         Stored at: .lean-ctx/graph.db\n\
+         Build time: {build_time_ms}ms",
+        file_contents.len(),
+    );
+    if let Some(h) = incremental_hint {
+        result.push('\n');
+        result.push_str(h);
+    }
+
+    let _ = crate::core::property_graph::write_meta(
+        root_path,
+        &crate::core::property_graph::PropertyGraphMetaV1 {
+            schema_version: 1,
+            built_at: chrono::Utc::now().to_rfc3339(),
+            git_head: git_out(root_path, &["rev-parse", "--short", "HEAD"]),
+            git_dirty: Some(git_dirty(root_path)),
+            nodes: graph.node_count().ok(),
+            edges: graph.edge_count().ok(),
+            files_indexed: Some(file_contents.len()),
+            build_time_ms: Some(build_time_ms),
+        },
+    );
+
+    let tokens = count_tokens(&result);
+    match fmt {
+        OutputFormat::Json => {
+            let mut v = serde_json::json!({
+                "schema_version": crate::core::contracts::GRAPH_REPRODUCIBILITY_V1_SCHEMA_VERSION,
+                "tool": "ctx_impact",
+                "action": "build",
+                "project": project_meta(root),
+                "graph": graph_summary(root_path),
+                "graph_meta": crate::core::property_graph::load_meta(root_path),
+                "indexed_files": file_contents.len(),
+                "nodes": total_nodes,
+                "edges": total_edges,
+                "build_time_ms": build_time_ms,
+                "db_path": ".lean-ctx/graph.db"
+            });
+            if let Some(h) = incremental_hint {
+                v.as_object_mut()
+                    .map(|m| m.insert("incremental_hint".to_string(), json!(h)));
+            }
+            serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".to_string())
+        }
+        OutputFormat::Text => format!("{result}\n[ctx_impact build: {tokens} tok]"),
+    }
+}
+
+fn handle_update(root: &str, fmt: OutputFormat) -> String {
+    let t0 = std::time::Instant::now();
+    let root_path = Path::new(root);
+
+    let graph = match open_graph(root) {
+        Ok(g) => g,
+        Err(e) => return e,
+    };
+
+    if graph.node_count().unwrap_or(0) == 0 {
+        return handle_build(root, fmt);
+    }
+
+    let Some(meta) = crate::core::property_graph::load_meta(root_path) else {
+        return handle_build(root, fmt);
+    };
+
+    let Some(last_git_head) = meta.git_head.filter(|s| !s.is_empty()) else {
+        return handle_build(root, fmt);
+    };
+
+    let Some(changed) = collect_git_changed_paths(root_path, &last_git_head) else {
+        return handle_build(root, fmt);
+    };
+
+    let changed_count = changed.len();
+    let (file_paths, file_contents) = walk_supported_sources(root_path);
+    let resolver_ctx =
+        crate::core::import_resolver::ResolverContext::new(root_path, file_paths.clone());
+
+    #[cfg(feature = "embeddings")]
+    let per_file: Vec<(
+        String,
+        String,
+        String,
+        crate::core::deep_queries::DeepAnalysis,
+    )> = file_contents
+        .iter()
+        .map(|(p, c, e)| {
+            (
+                p.clone(),
+                c.clone(),
+                e.clone(),
+                crate::core::deep_queries::analyze(c.as_str(), e.as_str()),
+            )
+        })
+        .collect();
+
+    #[cfg(feature = "embeddings")]
+    let def_index: std::collections::HashMap<String, Vec<(String, usize, usize)>> = {
+        let mut m: std::collections::HashMap<String, Vec<(String, usize, usize)>> =
+            std::collections::HashMap::new();
+        for (p, _, _, analysis) in &per_file {
+            for t in &analysis.types {
+                m.entry(t.name.clone())
+                    .or_default()
+                    .push((p.clone(), t.line, t.end_line));
+            }
+        }
+        m
+    };
+
+    let mut total_nodes = 0usize;
+    let mut total_edges = 0usize;
+
+    for rel_path in &changed {
+        let p = Path::new(rel_path);
+        let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let supported = GRAPH_SOURCE_EXTS.contains(&ext);
+        let abs = root_path.join(rel_path);
+
+        if !abs.exists() {
+            if supported {
+                let _ = graph.remove_file_nodes(rel_path);
+            }
             continue;
-        };
-        total_nodes += 1;
+        }
+
+        if !supported {
+            continue;
+        }
+
+        if let Err(e) = graph.remove_file_nodes(rel_path) {
+            return format!("Failed to remove old nodes for {rel_path}: {e}");
+        }
 
         #[cfg(feature = "embeddings")]
         {
-            let analysis = crate::core::deep_queries::analyze(content, ext);
-
-            for type_def in &analysis.types {
-                let kind = crate::core::property_graph::NodeKind::Symbol;
-                let sym_node = Node::symbol(&type_def.name, rel_path, kind)
-                    .with_lines(type_def.line, type_def.end_line);
-                if let Ok(sym_id) = graph.upsert_node(&sym_node) {
-                    total_nodes += 1;
-                    let _ = graph.upsert_edge(&Edge::new(file_node_id, sym_id, EdgeKind::Defines));
-                    total_edges += 1;
-                }
-            }
-
-            let resolved = crate::core::import_resolver::resolve_imports(
-                &analysis.imports,
+            let Some((_, _, ext_owned, analysis)) =
+                per_file.iter().find(|(p, _, _, _)| p == rel_path)
+            else {
+                continue;
+            };
+            let (n, e) = index_graph_file_embeddings(
+                &graph,
                 rel_path,
-                ext,
+                ext_owned,
+                analysis,
                 &resolver_ctx,
+                &def_index,
             );
-
-            for imp in &resolved {
-                if imp.is_external {
-                    continue;
-                }
-                if let Some(ref target_path) = imp.resolved_path {
-                    let Ok(target_id) = graph.upsert_node(&Node::file(target_path)) else {
-                        continue;
-                    };
-                    let _ =
-                        graph.upsert_edge(&Edge::new(file_node_id, target_id, EdgeKind::Imports));
-                    total_edges += 1;
-                }
-            }
+            total_nodes += n;
+            total_edges += e;
         }
 
         #[cfg(not(feature = "embeddings"))]
         {
-            let _ = (&content, &ext, file_node_id);
+            let Some((_, content, ext_owned)) = file_contents.iter().find(|t| t.0 == *rel_path)
+            else {
+                continue;
+            };
+            let (n, e) = index_graph_file_minimal(&graph, rel_path, content, ext_owned);
+            total_nodes += n;
+            total_edges += e;
         }
     }
 
-    let result = format!(
-        "Graph built: {total_nodes} nodes, {total_edges} edges from {} files\n\
-         Stored at: {}",
-        file_contents.len(),
-        graph.db_path().display()
+    let elapsed_ms = t0.elapsed().as_millis() as u64;
+
+    let _ = crate::core::property_graph::write_meta(
+        root_path,
+        &crate::core::property_graph::PropertyGraphMetaV1 {
+            schema_version: 1,
+            built_at: chrono::Utc::now().to_rfc3339(),
+            git_head: git_out(root_path, &["rev-parse", "--short", "HEAD"]),
+            git_dirty: Some(git_dirty(root_path)),
+            nodes: graph.node_count().ok(),
+            edges: graph.edge_count().ok(),
+            files_indexed: Some(file_contents.len()),
+            build_time_ms: Some(elapsed_ms),
+        },
     );
-    let tokens = count_tokens(&result);
-    format!("{result}\n[ctx_impact build: {tokens} tok]")
+
+    let summary = format!(
+        "Incremental update: {changed_count} files changed, {total_nodes} nodes updated, {total_edges} edges added ({elapsed_ms}ms)"
+    );
+
+    let tokens = count_tokens(&summary);
+    match fmt {
+        OutputFormat::Json => {
+            let v = json!({
+                "schema_version": crate::core::contracts::GRAPH_REPRODUCIBILITY_V1_SCHEMA_VERSION,
+                "tool": "ctx_impact",
+                "action": "update",
+                "project": project_meta(root),
+                "graph": graph_summary(root_path),
+                "graph_meta": crate::core::property_graph::load_meta(root_path),
+                "git_range_from": last_git_head,
+                "files_changed_reported": changed_count,
+                "nodes_added": total_nodes,
+                "edges_added": total_edges,
+                "update_time_ms": elapsed_ms,
+                "db_path": ".lean-ctx/graph.db"
+            });
+            serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".to_string())
+        }
+        OutputFormat::Text => format!("{summary}\n[ctx_impact update: {tokens} tok]"),
+    }
 }
 
-fn handle_status(root: &str) -> String {
+fn handle_status(root: &str, fmt: OutputFormat) -> String {
     let graph = match open_graph(root) {
         Ok(g) => g,
         Err(e) => return e,
@@ -267,13 +794,153 @@ fn handle_status(root: &str) -> String {
     let edges = graph.edge_count().unwrap_or(0);
 
     if nodes == 0 {
-        return "Graph is empty. Run ctx_impact action='build' to index.".to_string();
+        return match fmt {
+            OutputFormat::Json => {
+                let v = json!({
+                    "schema_version": crate::core::contracts::GRAPH_REPRODUCIBILITY_V1_SCHEMA_VERSION,
+                    "tool": "ctx_impact",
+                    "action": "status",
+                    "project": project_meta(root),
+                    "graph": {
+                        "exists": false,
+                        "db_path": ".lean-ctx/graph.db",
+                        "nodes": 0,
+                        "edges": 0
+                    },
+                    "freshness": "empty",
+                    "hint": "Run ctx_impact action='build' to index."
+                });
+                serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".to_string())
+            }
+            OutputFormat::Text => {
+                "Graph is empty. Run ctx_impact action='build' to index.".to_string()
+            }
+        };
     }
 
-    format!(
-        "Property Graph: {nodes} nodes, {edges} edges\nStored: {}",
-        graph.db_path().display()
-    )
+    let root_path = Path::new(root);
+    let meta = crate::core::property_graph::load_meta(root_path);
+    let current_head = git_out(root_path, &["rev-parse", "--short", "HEAD"]);
+    let current_dirty = git_dirty(root_path);
+    let stale = meta.as_ref().is_some_and(|m| {
+        let head_mismatch = match (m.git_head.as_ref(), current_head.as_ref()) {
+            (Some(a), Some(b)) => a != b,
+            _ => false,
+        };
+        let dirty_mismatch = match (m.git_dirty, Some(current_dirty)) {
+            (Some(a), Some(b)) => a != b,
+            _ => false,
+        };
+        head_mismatch || dirty_mismatch
+    });
+    let freshness = if stale { "stale" } else { "fresh" };
+
+    match fmt {
+        OutputFormat::Json => {
+            let v = json!({
+                "schema_version": crate::core::contracts::GRAPH_REPRODUCIBILITY_V1_SCHEMA_VERSION,
+                "tool": "ctx_impact",
+                "action": "status",
+                "project": project_meta(root),
+                "graph": graph_summary(root_path),
+                "freshness": freshness,
+                "meta": meta
+            });
+            serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".to_string())
+        }
+        OutputFormat::Text => {
+            let mut out =
+                format!("Property Graph: {nodes} nodes, {edges} edges\nStored: .lean-ctx/graph.db");
+            if stale {
+                out.push_str("\nWARNING: graph looks stale (git HEAD / dirty mismatch). Run ctx_impact action='build' to refresh.");
+            }
+            out
+        }
+    }
+}
+
+fn project_meta(root: &str) -> Value {
+    let root_hash = crate::core::project_hash::hash_project_root(root);
+    let identity_hash = crate::core::project_hash::project_identity(root)
+        .as_deref()
+        .map(md5_hex);
+
+    let root_path = Path::new(root);
+    json!({
+        "project_root_hash": root_hash,
+        "project_identity_hash": identity_hash,
+        "git": {
+            "head": git_out(root_path, &["rev-parse", "--short", "HEAD"]),
+            "branch": git_out(root_path, &["rev-parse", "--abbrev-ref", "HEAD"]),
+            "dirty": git_dirty(root_path)
+        }
+    })
+}
+
+fn graph_summary(project_root: &Path) -> Value {
+    let db_path = project_root.join(".lean-ctx").join("graph.db");
+    if !db_path.exists() {
+        return json!({
+            "exists": false,
+            "db_path": ".lean-ctx/graph.db",
+            "nodes": null,
+            "edges": null
+        });
+    }
+    match crate::core::property_graph::CodeGraph::open(project_root) {
+        Ok(g) => json!({
+            "exists": true,
+            "db_path": ".lean-ctx/graph.db",
+            "nodes": g.node_count().ok(),
+            "edges": g.edge_count().ok()
+        }),
+        Err(_) => json!({
+            "exists": true,
+            "db_path": ".lean-ctx/graph.db",
+            "nodes": null,
+            "edges": null
+        }),
+    }
+}
+
+fn git_dirty(project_root: &Path) -> bool {
+    let out = std::process::Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(project_root)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output();
+    match out {
+        Ok(o) if o.status.success() => !o.stdout.is_empty(),
+        _ => false,
+    }
+}
+
+fn git_out(project_root: &Path, args: &[&str]) -> Option<String> {
+    let out = std::process::Command::new("git")
+        .args(args)
+        .current_dir(project_root)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let s = String::from_utf8(out.stdout).ok()?;
+    let s = s.trim().to_string();
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
+    }
+}
+
+fn md5_hex(s: &str) -> String {
+    use md5::{Digest, Md5};
+    let mut hasher = Md5::new();
+    hasher.update(s.as_bytes());
+    format!("{:x}", hasher.finalize())
 }
 
 #[cfg(test)]
@@ -288,7 +955,7 @@ mod tests {
             max_depth_reached: 0,
             edges_traversed: 0,
         };
-        let result = format_impact(&impact, "a.rs");
+        let result = format_impact(&impact, "a.rs", "/tmp", OutputFormat::Text);
         assert!(result.contains("No files depend on"));
     }
 
@@ -300,7 +967,7 @@ mod tests {
             max_depth_reached: 2,
             edges_traversed: 3,
         };
-        let result = format_impact(&impact, "a.rs");
+        let result = format_impact(&impact, "a.rs", "/tmp", OutputFormat::Text);
         assert!(result.contains("2 affected files"));
         assert!(result.contains("b.rs"));
         assert!(result.contains("c.rs"));
@@ -312,7 +979,7 @@ mod tests {
             path: vec!["a.rs".to_string(), "b.rs".to_string(), "c.rs".to_string()],
             depth: 2,
         };
-        let result = format_chain(&chain);
+        let result = format_chain(&chain, "/tmp", OutputFormat::Text);
         assert!(result.contains("depth 2"));
         assert!(result.contains("a.rs"));
         assert!(result.contains("-> b.rs"));
@@ -321,19 +988,19 @@ mod tests {
 
     #[test]
     fn handle_missing_path() {
-        let result = handle("analyze", None, "/tmp", None);
+        let result = handle("analyze", None, "/tmp", None, None);
         assert!(result.contains("path is required"));
     }
 
     #[test]
     fn handle_invalid_chain_spec() {
-        let result = handle("chain", Some("no_arrow_here"), "/tmp", None);
+        let result = handle("chain", Some("no_arrow_here"), "/tmp", None, None);
         assert!(result.contains("Invalid chain spec"));
     }
 
     #[test]
     fn handle_unknown_action() {
-        let result = handle("invalid", None, "/tmp", None);
+        let result = handle("invalid", None, "/tmp", None, None);
         assert!(result.contains("Unknown action"));
     }
 

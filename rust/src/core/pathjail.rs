@@ -242,4 +242,23 @@ mod tests {
             "LEAN_CTX_ALLOW_PATH should permit access: {result:?}"
         );
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlink_escape_on_unix() {
+        use std::os::unix::fs::symlink;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("root");
+        let other = tmp.path().join("other");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::write(other.join("secret.txt"), "no").unwrap();
+
+        let link = root.join("link.txt");
+        symlink(other.join("secret.txt"), &link).unwrap();
+
+        let bad = jail_path(&link, &root);
+        assert!(bad.is_err(), "symlink escape must be rejected: {bad:?}");
+    }
 }

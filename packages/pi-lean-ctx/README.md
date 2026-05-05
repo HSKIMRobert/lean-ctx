@@ -1,6 +1,9 @@
 # pi-lean-ctx
 
-[Pi Coding Agent](https://github.com/badlogic/pi-mono) extension with **first-class MCP support** — routes all tool output through [lean-ctx](https://leanctx.com) for **60–90% token savings** and exposes **25+ MCP tools** natively in Pi.
+CLI-first [Pi Coding Agent](https://github.com/badlogic/pi-mono) extension that routes Pi’s built-in tools through [lean-ctx](https://leanctx.com) for **60–90% token savings**.
+
+- **Default**: CLI-only (no MCP required)
+- **Optional**: enable MCP tools (`LEAN_CTX_PI_ENABLE_MCP=1`) or run `lean-ctx init --agent pi --mode mcp`
 
 ## What it does
 
@@ -10,15 +13,27 @@ Overrides Pi's built-in tools to route them through `lean-ctx`:
 
 | Tool | Compression |
 |------|------------|
-| `bash` | All shell commands compressed via lean-ctx's 90+ patterns |
+| `bash` | All shell commands compressed via lean-ctx's 95+ patterns |
 | `read` | Smart mode selection (full/map/signatures) based on file type and size |
 | `grep` | Results grouped and compressed via ripgrep + lean-ctx |
 | `find` | File listings compressed and .gitignore-aware |
 | `ls` | Directory output compressed |
 
-### MCP Tools (Embedded Bridge)
+### Direct lean-ctx CLI tool
 
-Additionally, pi-lean-ctx spawns lean-ctx as an MCP server and registers all advanced tools directly in Pi:
+The extension registers a `lean_ctx` tool that runs `lean-ctx` directly (no nested compression).
+Use it for commands like:
+
+- `lean-ctx overview`
+- `lean-ctx session …`
+- `lean-ctx knowledge …`
+- `lean-ctx gain` / `lean-ctx stats`
+- `lean-ctx index …`
+
+### Optional MCP Tools (Embedded Bridge)
+
+By default, pi-lean-ctx does **not** start an MCP server. If enabled, it spawns `lean-ctx` as an MCP
+server and registers advanced tools directly in Pi:
 
 | Tool | Purpose |
 |------|---------|
@@ -45,7 +60,7 @@ Additionally, pi-lean-ctx spawns lean-ctx as an MCP server and registers all adv
 | `ctx_cache` | Cache management |
 | `ctx_execute` | Direct command execution |
 
-These MCP tools are the same ones available in Cursor, Claude Code, VS Code, and all other supported editors — now first-class in Pi.
+If you don’t want MCP: keep it disabled and use the CLI overrides + `lean_ctx` tool only.
 
 ## Install
 
@@ -72,15 +87,31 @@ lean-ctx init --agent pi
 
 These tools invoke the `lean-ctx` binary via CLI with `LEAN_CTX_COMPRESS=1`. The output is parsed for compression stats and displayed with a token savings footer.
 
-### MCP bridge (all other tools)
+### Optional MCP bridge (all other tools)
 
-On startup, pi-lean-ctx spawns the `lean-ctx` binary as an MCP server (JSON-RPC over stdio). It discovers available tools via `list_tools`, filters out those already covered by CLI overrides, and registers the rest as native Pi tools.
+If you enable the MCP bridge, pi-lean-ctx spawns the `lean-ctx` binary as an MCP server (JSON-RPC over stdio).
+It discovers available tools via `list_tools`, filters out those already covered by CLI overrides, and registers the rest as native Pi tools.
 
 If `lean-ctx` is already configured as an MCP server via [pi-mcp-adapter](https://github.com/nicobailon/pi-mcp-adapter) in `~/.pi/agent/mcp.json`, the embedded bridge is skipped to avoid duplicate tools.
 
 ### Automatic reconnection
 
 If the MCP server process crashes, the bridge automatically reconnects (up to 3 attempts with exponential backoff). If reconnection fails, CLI-based tools continue working normally — only the advanced MCP tools become unavailable.
+
+## Enabling MCP (optional)
+
+Set an environment variable and restart Pi:
+
+```bash
+export LEAN_CTX_PI_ENABLE_MCP=1
+pi
+```
+
+Or configure MCP via `lean-ctx init`:
+
+```bash
+lean-ctx init --agent pi --mode mcp
+```
 
 ## pi-mcp-adapter compatibility
 
@@ -134,7 +165,7 @@ The `read` tool automatically selects the optimal lean-ctx mode:
 
 Use `/lean-ctx` in Pi to check:
 - Which binary is being used
-- MCP bridge status (embedded vs. adapter, connected/disconnected)
+- MCP bridge status (disabled / embedded / adapter)
 - Number and names of registered MCP tools
 
 ## Disabling specific tools

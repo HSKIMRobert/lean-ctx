@@ -27,7 +27,7 @@ pub struct ResolvedArtifact {
     pub is_dir: bool,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
 pub struct ResolvedArtifacts {
     pub artifacts: Vec<ResolvedArtifact>,
     pub warnings: Vec<String>,
@@ -72,14 +72,33 @@ pub fn load_resolved(project_root: &Path) -> ResolvedArtifacts {
             project_root.join(&rel)
         };
 
-        let abs = match crate::core::pathjail::jail_path(&candidate, project_root) {
-            Ok(p) => p,
+        let abs = match crate::core::io_boundary::jail_and_check_path(
+            "artifacts",
+            &candidate,
+            project_root,
+        ) {
+            Ok((p, _)) => p,
             Err(e) => {
                 out.warnings
                     .push(format!("artifact path rejected ({name}): {rel} ({e})"));
                 continue;
             }
         };
+
+        // Secret-like paths are denied by default for artifacts unless explicitly allowed.
+        // Artifacts tend to be indexed/shared; prefer safety over convenience.
+        let role = crate::core::roles::active_role();
+        if !role.io.allow_secret_paths {
+            if let Some(reason) = crate::core::io_boundary::is_secret_like(&abs) {
+                let role_name = crate::core::roles::active_role_name();
+                let msg = format!(
+                    "artifact rejected ({name}): {rel} (secret-like path: {reason}; role: {role_name})"
+                );
+                crate::core::events::emit_policy_violation(&role_name, "artifacts", &msg);
+                out.warnings.push(msg);
+                continue;
+            }
+        }
 
         let (exists, is_dir) = match abs.metadata() {
             Ok(m) => (true, m.is_dir()),

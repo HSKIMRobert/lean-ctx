@@ -8,16 +8,37 @@ use std::path::Path;
 
 use crate::core::property_graph::CodeGraph;
 use crate::core::tokens::count_tokens;
+use serde_json::{json, Value};
 
 /// Dispatches architecture analysis actions (overview, clusters, layers, cycles, entrypoints, module).
-pub fn handle(action: &str, path: Option<&str>, root: &str) -> String {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum OutputFormat {
+    Text,
+    Json,
+}
+
+fn parse_format(format: Option<&str>) -> Result<OutputFormat, String> {
+    let f = format.unwrap_or("text").trim().to_lowercase();
+    match f.as_str() {
+        "text" => Ok(OutputFormat::Text),
+        "json" => Ok(OutputFormat::Json),
+        _ => Err("Error: format must be text|json".to_string()),
+    }
+}
+
+pub fn handle(action: &str, path: Option<&str>, root: &str, format: Option<&str>) -> String {
+    let fmt = match parse_format(format) {
+        Ok(f) => f,
+        Err(e) => return e,
+    };
+
     match action {
-        "overview" => handle_overview(root),
-        "clusters" => handle_clusters(root),
-        "layers" => handle_layers(root),
-        "cycles" => handle_cycles(root),
-        "entrypoints" => handle_entrypoints(root),
-        "module" => handle_module(path, root),
+        "overview" => handle_overview(root, fmt),
+        "clusters" => handle_clusters(root, fmt),
+        "layers" => handle_layers(root, fmt),
+        "cycles" => handle_cycles(root, fmt),
+        "entrypoints" => handle_entrypoints(root, fmt),
+        "module" => handle_module(path, root, fmt),
         _ => "Unknown action. Use: overview, clusters, layers, cycles, entrypoints, module"
             .to_string(),
     }
@@ -39,7 +60,7 @@ fn ensure_graph_built(root: &str) {
     };
     if graph.node_count().unwrap_or(0) == 0 {
         drop(graph);
-        let result = crate::tools::ctx_impact::handle("build", None, root, None);
+        let result = crate::tools::ctx_impact::handle("build", None, root, None, None);
         tracing::info!(
             "Auto-built graph for architecture: {}",
             &result[..result.len().min(100)]
@@ -96,6 +117,15 @@ fn load_graph_data(graph: &CodeGraph) -> Result<GraphData, String> {
         all_files.insert(f);
     }
 
+    for deps in forward.values_mut() {
+        deps.sort();
+        deps.dedup();
+    }
+    for deps in reverse.values_mut() {
+        deps.sort();
+        deps.dedup();
+    }
+
     Ok(GraphData {
         forward,
         reverse,
@@ -103,7 +133,7 @@ fn load_graph_data(graph: &CodeGraph) -> Result<GraphData, String> {
     })
 }
 
-fn handle_overview(root: &str) -> String {
+fn handle_overview(root: &str, fmt: OutputFormat) -> String {
     ensure_graph_built(root);
 
     let graph = match open_graph(root) {
@@ -121,47 +151,150 @@ fn handle_overview(root: &str) -> String {
     let entrypoints = find_entrypoints(&data);
     let cycles = find_cycles(&data);
 
-    let mut result = format!(
-        "Architecture Overview ({} files, {} import edges)\n",
-        data.all_files.len(),
-        data.forward.values().map(std::vec::Vec::len).sum::<usize>()
-    );
+    let files_total = data.all_files.len();
+    let import_edges = data.forward.values().map(std::vec::Vec::len).sum::<usize>();
 
-    result.push_str(&format!("\nClusters: {}\n", clusters.len()));
-    for (i, cluster) in clusters.iter().enumerate().take(5) {
-        let dir = common_prefix(&cluster.files);
-        result.push_str(&format!(
-            "  #{}: {} files ({})\n",
-            i + 1,
-            cluster.files.len(),
-            dir
-        ));
+    let clusters_total = clusters.len();
+    let clusters_limit = crate::core::budgets::ARCHITECTURE_OVERVIEW_CLUSTERS_LIMIT.max(1);
+    let clusters_truncated = clusters_total > clusters_limit;
+
+    let layers_total = layers.len();
+    let layers_limit = crate::core::budgets::ARCHITECTURE_OVERVIEW_LAYERS_LIMIT.max(1);
+    let layers_truncated = layers_total > layers_limit;
+
+    let entrypoints_total = entrypoints.len();
+    let entrypoints_limit = crate::core::budgets::ARCHITECTURE_OVERVIEW_ENTRYPOINTS_LIMIT.max(1);
+    let entrypoints_truncated = entrypoints_total > entrypoints_limit;
+
+    let cycles_total = cycles.len();
+    let cycles_limit = crate::core::budgets::ARCHITECTURE_OVERVIEW_CYCLES_LIMIT.max(1);
+    let cycles_truncated = cycles_total > cycles_limit;
+
+    match fmt {
+        OutputFormat::Json => {
+            let root_path = Path::new(root);
+            let clusters_json: Vec<Value> = clusters
+                .iter()
+                .take(clusters_limit)
+                .map(|c| {
+                    json!({
+                        "dir": common_prefix(&c.files),
+                        "file_count": c.files.len(),
+                        "internal_edges": c.internal_edges
+                    })
+                })
+                .collect();
+
+            let layers_json: Vec<Value> = layers
+                .iter()
+                .take(layers_limit)
+                .map(|l| {
+                    json!({
+                        "depth": l.depth,
+                        "file_count": l.files.len()
+                    })
+                })
+                .collect();
+
+            let entrypoints_json: Vec<Value> = entrypoints
+                .iter()
+                .take(entrypoints_limit)
+                .map(|ep| {
+                    let imports = data.forward.get(ep).map_or(0, std::vec::Vec::len);
+                    json!({ "file": ep, "imports": imports })
+                })
+                .collect();
+
+            let cycles_json: Vec<Value> = cycles
+                .iter()
+                .take(cycles_limit)
+                .map(|c| json!({ "path": c, "len": c.len().saturating_sub(1) }))
+                .collect();
+
+            let v = json!({
+                "schema_version": crate::core::contracts::GRAPH_REPRODUCIBILITY_V1_SCHEMA_VERSION,
+                "tool": "ctx_architecture",
+                "action": "overview",
+                "project": project_meta(root),
+                "graph": graph_summary(root_path),
+                "graph_meta": crate::core::property_graph::load_meta(root_path),
+                "files_total": files_total,
+                "import_edges": import_edges,
+                "clusters_total": clusters_total,
+                "clusters": clusters_json,
+                "clusters_truncated": clusters_truncated,
+                "layers_total": layers_total,
+                "layers": layers_json,
+                "layers_truncated": layers_truncated,
+                "entrypoints_total": entrypoints_total,
+                "entrypoints": entrypoints_json,
+                "entrypoints_truncated": entrypoints_truncated,
+                "cycles_total": cycles_total,
+                "cycles": cycles_json,
+                "cycles_truncated": cycles_truncated
+            });
+            serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".to_string())
+        }
+        OutputFormat::Text => {
+            let mut result = format!(
+                "Architecture Overview ({files_total} files, {import_edges} import edges)\n"
+            );
+
+            result.push_str(&format!("\nClusters: {clusters_total}\n"));
+            for (i, cluster) in clusters.iter().enumerate().take(clusters_limit) {
+                let dir = common_prefix(&cluster.files);
+                result.push_str(&format!(
+                    "  #{}: {} files ({})\n",
+                    i + 1,
+                    cluster.files.len(),
+                    dir
+                ));
+            }
+            if clusters_truncated {
+                result.push_str(&format!(
+                    "  ... +{} more\n",
+                    clusters_total - clusters_limit
+                ));
+            }
+
+            result.push_str(&format!("\nLayers: {layers_total}\n"));
+            for layer in layers.iter().take(layers_limit) {
+                result.push_str(&format!(
+                    "  L{}: {} files\n",
+                    layer.depth,
+                    layer.files.len()
+                ));
+            }
+            if layers_truncated {
+                result.push_str(&format!("  ... +{} more\n", layers_total - layers_limit));
+            }
+
+            result.push_str(&format!("\nEntrypoints: {entrypoints_total}\n"));
+            for ep in entrypoints.iter().take(entrypoints_limit) {
+                result.push_str(&format!("  {ep}\n"));
+            }
+            if entrypoints_truncated {
+                result.push_str(&format!(
+                    "  ... +{} more\n",
+                    entrypoints_total - entrypoints_limit
+                ));
+            }
+
+            result.push_str(&format!("\nCycles: {cycles_total}\n"));
+            for cycle in cycles.iter().take(cycles_limit) {
+                result.push_str(&format!("  {}\n", cycle.join(" -> ")));
+            }
+            if cycles_truncated {
+                result.push_str(&format!("  ... +{} more\n", cycles_total - cycles_limit));
+            }
+
+            let tokens = count_tokens(&result);
+            format!("{result}[ctx_architecture: {tokens} tok]")
+        }
     }
-
-    result.push_str(&format!("\nLayers: {}\n", layers.len()));
-    for layer in &layers {
-        result.push_str(&format!(
-            "  L{}: {} files\n",
-            layer.depth,
-            layer.files.len()
-        ));
-    }
-
-    result.push_str(&format!("\nEntrypoints: {}\n", entrypoints.len()));
-    for ep in entrypoints.iter().take(10) {
-        result.push_str(&format!("  {ep}\n"));
-    }
-
-    result.push_str(&format!("\nCycles: {}\n", cycles.len()));
-    for cycle in cycles.iter().take(5) {
-        result.push_str(&format!("  {}\n", cycle.join(" -> ")));
-    }
-
-    let tokens = count_tokens(&result);
-    format!("{result}[ctx_architecture: {tokens} tok]")
 }
 
-fn handle_clusters(root: &str) -> String {
+fn handle_clusters(root: &str, fmt: OutputFormat) -> String {
     ensure_graph_built(root);
     let graph = match open_graph(root) {
         Ok(g) => g,
@@ -174,30 +307,80 @@ fn handle_clusters(root: &str) -> String {
     };
 
     let clusters = compute_clusters(&data);
-    let mut result = format!("Module Clusters ({}):\n", clusters.len());
+    let total = clusters.len();
+    let limit = crate::core::budgets::ARCHITECTURE_CLUSTERS_LIMIT.max(1);
+    let file_limit = crate::core::budgets::ARCHITECTURE_CLUSTER_FILES_LIMIT.max(1);
+    let truncated = total > limit;
 
-    for (i, cluster) in clusters.iter().enumerate() {
-        let dir = common_prefix(&cluster.files);
-        result.push_str(&format!(
-            "\n#{} — {} ({} files, {} internal edges)\n",
-            i + 1,
-            dir,
-            cluster.files.len(),
-            cluster.internal_edges
-        ));
-        for file in cluster.files.iter().take(15) {
-            result.push_str(&format!("  {file}\n"));
+    match fmt {
+        OutputFormat::Json => {
+            let root_path = Path::new(root);
+            let items: Vec<Value> = clusters
+                .iter()
+                .take(limit)
+                .map(|c| {
+                    let dir = common_prefix(&c.files);
+                    let files_total = c.files.len();
+                    let files_truncated = files_total > file_limit;
+                    let mut files = c.files.clone();
+                    if files_truncated {
+                        files.truncate(file_limit);
+                    }
+                    json!({
+                        "dir": dir,
+                        "file_count": files_total,
+                        "internal_edges": c.internal_edges,
+                        "files": files,
+                        "files_truncated": files_truncated
+                    })
+                })
+                .collect();
+            let v = json!({
+                "schema_version": crate::core::contracts::GRAPH_REPRODUCIBILITY_V1_SCHEMA_VERSION,
+                "tool": "ctx_architecture",
+                "action": "clusters",
+                "project": project_meta(root),
+                "graph": graph_summary(root_path),
+                "graph_meta": crate::core::property_graph::load_meta(root_path),
+                "clusters_total": total,
+                "clusters": items,
+                "truncated": truncated
+            });
+            serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".to_string())
         }
-        if cluster.files.len() > 15 {
-            result.push_str(&format!("  ... +{} more\n", cluster.files.len() - 15));
+        OutputFormat::Text => {
+            let mut result = format!("Module Clusters ({total}):\n");
+
+            for (i, cluster) in clusters.iter().take(limit).enumerate() {
+                let dir = common_prefix(&cluster.files);
+                result.push_str(&format!(
+                    "\n#{} — {} ({} files, {} internal edges)\n",
+                    i + 1,
+                    dir,
+                    cluster.files.len(),
+                    cluster.internal_edges
+                ));
+                for file in cluster.files.iter().take(file_limit) {
+                    result.push_str(&format!("  {file}\n"));
+                }
+                if cluster.files.len() > file_limit {
+                    result.push_str(&format!(
+                        "  ... +{} more\n",
+                        cluster.files.len() - file_limit
+                    ));
+                }
+            }
+            if truncated {
+                result.push_str(&format!("\n... +{} more clusters\n", total - limit));
+            }
+
+            let tokens = count_tokens(&result);
+            format!("{result}[ctx_architecture clusters: {tokens} tok]")
         }
     }
-
-    let tokens = count_tokens(&result);
-    format!("{result}[ctx_architecture clusters: {tokens} tok]")
 }
 
-fn handle_layers(root: &str) -> String {
+fn handle_layers(root: &str, fmt: OutputFormat) -> String {
     ensure_graph_built(root);
     let graph = match open_graph(root) {
         Ok(g) => g,
@@ -210,27 +393,72 @@ fn handle_layers(root: &str) -> String {
     };
 
     let layers = compute_layers(&data);
-    let mut result = format!("Dependency Layers ({}):\n", layers.len());
+    let total = layers.len();
+    let limit = crate::core::budgets::ARCHITECTURE_LAYERS_LIMIT.max(1);
+    let file_limit = crate::core::budgets::ARCHITECTURE_LAYER_FILES_LIMIT.max(1);
+    let truncated = total > limit;
 
-    for layer in &layers {
-        result.push_str(&format!(
-            "\nLayer {} ({} files):\n",
-            layer.depth,
-            layer.files.len()
-        ));
-        for file in layer.files.iter().take(20) {
-            result.push_str(&format!("  {file}\n"));
+    match fmt {
+        OutputFormat::Json => {
+            let root_path = Path::new(root);
+            let items: Vec<Value> = layers
+                .iter()
+                .take(limit)
+                .map(|l| {
+                    let files_total = l.files.len();
+                    let files_truncated = files_total > file_limit;
+                    let mut files = l.files.clone();
+                    if files_truncated {
+                        files.truncate(file_limit);
+                    }
+                    json!({
+                        "depth": l.depth,
+                        "file_count": files_total,
+                        "files": files,
+                        "files_truncated": files_truncated
+                    })
+                })
+                .collect();
+            let v = json!({
+                "schema_version": crate::core::contracts::GRAPH_REPRODUCIBILITY_V1_SCHEMA_VERSION,
+                "tool": "ctx_architecture",
+                "action": "layers",
+                "project": project_meta(root),
+                "graph": graph_summary(root_path),
+                "graph_meta": crate::core::property_graph::load_meta(root_path),
+                "layers_total": total,
+                "layers": items,
+                "truncated": truncated
+            });
+            serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".to_string())
         }
-        if layer.files.len() > 20 {
-            result.push_str(&format!("  ... +{} more\n", layer.files.len() - 20));
+        OutputFormat::Text => {
+            let mut result = format!("Dependency Layers ({total}):\n");
+
+            for layer in layers.iter().take(limit) {
+                result.push_str(&format!(
+                    "\nLayer {} ({} files):\n",
+                    layer.depth,
+                    layer.files.len()
+                ));
+                for file in layer.files.iter().take(file_limit) {
+                    result.push_str(&format!("  {file}\n"));
+                }
+                if layer.files.len() > file_limit {
+                    result.push_str(&format!("  ... +{} more\n", layer.files.len() - file_limit));
+                }
+            }
+            if truncated {
+                result.push_str(&format!("\n... +{} more layers\n", total - limit));
+            }
+
+            let tokens = count_tokens(&result);
+            format!("{result}[ctx_architecture layers: {tokens} tok]")
         }
     }
-
-    let tokens = count_tokens(&result);
-    format!("{result}[ctx_architecture layers: {tokens} tok]")
 }
 
-fn handle_cycles(root: &str) -> String {
+fn handle_cycles(root: &str, fmt: OutputFormat) -> String {
     ensure_graph_built(root);
     let graph = match open_graph(root) {
         Ok(g) => g,
@@ -244,19 +472,66 @@ fn handle_cycles(root: &str) -> String {
 
     let cycles = find_cycles(&data);
     if cycles.is_empty() {
-        return "No dependency cycles found.".to_string();
+        return match fmt {
+            OutputFormat::Json => {
+                let root_path = Path::new(root);
+                let v = json!({
+                    "schema_version": crate::core::contracts::GRAPH_REPRODUCIBILITY_V1_SCHEMA_VERSION,
+                    "tool": "ctx_architecture",
+                    "action": "cycles",
+                    "project": project_meta(root),
+                    "graph": graph_summary(root_path),
+                    "graph_meta": crate::core::property_graph::load_meta(root_path),
+                    "cycles_total": 0,
+                    "cycles": []
+                });
+                serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".to_string())
+            }
+            OutputFormat::Text => "No dependency cycles found.".to_string(),
+        };
     }
 
-    let mut result = format!("Dependency Cycles ({}):\n", cycles.len());
-    for (i, cycle) in cycles.iter().enumerate() {
-        result.push_str(&format!("\n#{}: {}\n", i + 1, cycle.join(" -> ")));
-    }
+    let total = cycles.len();
+    let limit = crate::core::budgets::ARCHITECTURE_CYCLES_LIMIT.max(1);
+    let truncated = total > limit;
 
-    let tokens = count_tokens(&result);
-    format!("{result}[ctx_architecture cycles: {tokens} tok]")
+    match fmt {
+        OutputFormat::Json => {
+            let root_path = Path::new(root);
+            let items: Vec<Value> = cycles
+                .iter()
+                .take(limit)
+                .map(|c| json!({ "path": c, "len": c.len().saturating_sub(1) }))
+                .collect();
+            let v = json!({
+                "schema_version": crate::core::contracts::GRAPH_REPRODUCIBILITY_V1_SCHEMA_VERSION,
+                "tool": "ctx_architecture",
+                "action": "cycles",
+                "project": project_meta(root),
+                "graph": graph_summary(root_path),
+                "graph_meta": crate::core::property_graph::load_meta(root_path),
+                "cycles_total": total,
+                "cycles": items,
+                "truncated": truncated
+            });
+            serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".to_string())
+        }
+        OutputFormat::Text => {
+            let mut result = format!("Dependency Cycles ({total}):\n");
+            for (i, cycle) in cycles.iter().take(limit).enumerate() {
+                result.push_str(&format!("\n#{}: {}\n", i + 1, cycle.join(" -> ")));
+            }
+            if truncated {
+                result.push_str(&format!("\n... +{} more cycles\n", total - limit));
+            }
+
+            let tokens = count_tokens(&result);
+            format!("{result}[ctx_architecture cycles: {tokens} tok]")
+        }
+    }
 }
 
-fn handle_entrypoints(root: &str) -> String {
+fn handle_entrypoints(root: &str, fmt: OutputFormat) -> String {
     ensure_graph_built(root);
     let graph = match open_graph(root) {
         Ok(g) => g,
@@ -269,20 +544,51 @@ fn handle_entrypoints(root: &str) -> String {
     };
 
     let entrypoints = find_entrypoints(&data);
-    let mut result = format!(
-        "Entrypoints ({} — files with no dependents):\n",
-        entrypoints.len()
-    );
-    for ep in &entrypoints {
-        let dep_count = data.forward.get(ep).map_or(0, std::vec::Vec::len);
-        result.push_str(&format!("  {ep} (imports {dep_count} files)\n"));
-    }
+    let total = entrypoints.len();
+    let limit = crate::core::budgets::ARCHITECTURE_ENTRYPOINTS_LIMIT.max(1);
+    let truncated = total > limit;
 
-    let tokens = count_tokens(&result);
-    format!("{result}[ctx_architecture entrypoints: {tokens} tok]")
+    match fmt {
+        OutputFormat::Json => {
+            let root_path = Path::new(root);
+            let items: Vec<Value> = entrypoints
+                .iter()
+                .take(limit)
+                .map(|ep| {
+                    let imports = data.forward.get(ep).map_or(0, std::vec::Vec::len);
+                    json!({ "file": ep, "imports": imports })
+                })
+                .collect();
+            let v = json!({
+                "schema_version": crate::core::contracts::GRAPH_REPRODUCIBILITY_V1_SCHEMA_VERSION,
+                "tool": "ctx_architecture",
+                "action": "entrypoints",
+                "project": project_meta(root),
+                "graph": graph_summary(root_path),
+                "graph_meta": crate::core::property_graph::load_meta(root_path),
+                "entrypoints_total": total,
+                "entrypoints": items,
+                "truncated": truncated
+            });
+            serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".to_string())
+        }
+        OutputFormat::Text => {
+            let mut result = format!("Entrypoints ({total} — files with no dependents):\n",);
+            for ep in entrypoints.iter().take(limit) {
+                let dep_count = data.forward.get(ep).map_or(0, std::vec::Vec::len);
+                result.push_str(&format!("  {ep} (imports {dep_count} files)\n"));
+            }
+            if truncated {
+                result.push_str(&format!("  ... +{} more\n", total - limit));
+            }
+
+            let tokens = count_tokens(&result);
+            format!("{result}[ctx_architecture entrypoints: {tokens} tok]")
+        }
+    }
 }
 
-fn handle_module(path: Option<&str>, root: &str) -> String {
+fn handle_module(path: Option<&str>, root: &str, fmt: OutputFormat) -> String {
     let Some(target) = path else {
         return "path is required for 'module' action".to_string();
     };
@@ -319,24 +625,29 @@ fn handle_module(path: Option<&str>, root: &str) -> String {
         rel
     };
 
-    let module_files: Vec<&String> = data
+    let mut module_files: Vec<String> = data
         .all_files
         .iter()
         .filter(|f| f.starts_with(prefix))
+        .cloned()
         .collect();
+    module_files.sort();
 
     if module_files.is_empty() {
         return format!("No files found in module path '{prefix}'");
     }
 
-    let file_set: HashSet<&str> = module_files.iter().map(|f| f.as_str()).collect();
+    let file_set: HashSet<&str> = module_files
+        .iter()
+        .map(std::string::String::as_str)
+        .collect();
 
     let mut internal_edges = 0;
     let mut external_imports: Vec<String> = Vec::new();
     let mut external_dependents: Vec<String> = Vec::new();
 
     for file in &module_files {
-        if let Some(deps) = data.forward.get(*file) {
+        if let Some(deps) = data.forward.get(file) {
             for dep in deps {
                 if file_set.contains(dep.as_str()) {
                     internal_edges += 1;
@@ -345,7 +656,7 @@ fn handle_module(path: Option<&str>, root: &str) -> String {
                 }
             }
         }
-        if let Some(revs) = data.reverse.get(*file) {
+        if let Some(revs) = data.reverse.get(file) {
             for rev in revs {
                 if !file_set.contains(rev.as_str()) {
                     external_dependents.push(format!("{rev} -> {file}"));
@@ -354,39 +665,96 @@ fn handle_module(path: Option<&str>, root: &str) -> String {
         }
     }
 
-    let mut result = format!(
-        "Module '{prefix}' ({} files, {} internal edges)\n",
-        module_files.len(),
-        internal_edges
-    );
+    external_imports.sort();
+    external_imports.dedup();
+    external_dependents.sort();
+    external_dependents.dedup();
 
-    result.push_str("\nFiles:\n");
-    for f in &module_files {
-        result.push_str(&format!("  {f}\n"));
-    }
+    let files_total = module_files.len();
+    let file_limit = crate::core::budgets::ARCHITECTURE_MODULE_FILES_LIMIT.max(1);
+    let files_truncated = files_total > file_limit;
 
-    if !external_imports.is_empty() {
-        result.push_str(&format!(
-            "\nExternal imports ({}):\n",
-            external_imports.len()
-        ));
-        for imp in external_imports.iter().take(15) {
-            result.push_str(&format!("  {imp}\n"));
+    match fmt {
+        OutputFormat::Json => {
+            let root_path = Path::new(root);
+            let files: Vec<String> = module_files.iter().take(file_limit).cloned().collect();
+
+            let ext_limit = 50usize;
+            let ext_imports_total = external_imports.len();
+            let ext_dependents_total = external_dependents.len();
+            let imports_truncated = ext_imports_total > ext_limit;
+            let dependents_truncated = ext_dependents_total > ext_limit;
+            let imports: Vec<String> = external_imports.iter().take(ext_limit).cloned().collect();
+            let dependents: Vec<String> = external_dependents
+                .iter()
+                .take(ext_limit)
+                .cloned()
+                .collect();
+
+            let v = json!({
+                "schema_version": crate::core::contracts::GRAPH_REPRODUCIBILITY_V1_SCHEMA_VERSION,
+                "tool": "ctx_architecture",
+                "action": "module",
+                "project": project_meta(root),
+                "graph": graph_summary(root_path),
+                "graph_meta": crate::core::property_graph::load_meta(root_path),
+                "module_prefix": prefix,
+                "file_count": files_total,
+                "internal_edges": internal_edges,
+                "files": files,
+                "files_truncated": files_truncated,
+                "external_imports_total": ext_imports_total,
+                "external_imports": imports,
+                "external_imports_truncated": imports_truncated,
+                "external_dependents_total": ext_dependents_total,
+                "external_dependents": dependents,
+                "external_dependents_truncated": dependents_truncated
+            });
+            serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".to_string())
+        }
+        OutputFormat::Text => {
+            let mut result = format!(
+                "Module '{prefix}' ({files_total} files, {internal_edges} internal edges)\n"
+            );
+
+            result.push_str("\nFiles:\n");
+            for f in module_files.iter().take(file_limit) {
+                result.push_str(&format!("  {f}\n"));
+            }
+            if files_truncated {
+                result.push_str(&format!("  ... +{} more\n", files_total - file_limit));
+            }
+
+            if !external_imports.is_empty() {
+                result.push_str(&format!(
+                    "\nExternal imports ({}):\n",
+                    external_imports.len()
+                ));
+                for imp in external_imports.iter().take(15) {
+                    result.push_str(&format!("  {imp}\n"));
+                }
+                if external_imports.len() > 15 {
+                    result.push_str(&format!("  ... +{} more\n", external_imports.len() - 15));
+                }
+            }
+
+            if !external_dependents.is_empty() {
+                result.push_str(&format!(
+                    "\nExternal dependents ({}):\n",
+                    external_dependents.len()
+                ));
+                for dep in external_dependents.iter().take(15) {
+                    result.push_str(&format!("  {dep}\n"));
+                }
+                if external_dependents.len() > 15 {
+                    result.push_str(&format!("  ... +{} more\n", external_dependents.len() - 15));
+                }
+            }
+
+            let tokens = count_tokens(&result);
+            format!("{result}[ctx_architecture module: {tokens} tok]")
         }
     }
-
-    if !external_dependents.is_empty() {
-        result.push_str(&format!(
-            "\nExternal dependents ({}):\n",
-            external_dependents.len()
-        ));
-        for dep in external_dependents.iter().take(15) {
-            result.push_str(&format!("  {dep}\n"));
-        }
-    }
-
-    let tokens = count_tokens(&result);
-    format!("{result}[ctx_architecture module: {tokens} tok]")
 }
 
 // ---------------------------------------------------------------------------
@@ -431,7 +799,12 @@ fn compute_clusters(data: &GraphData) -> Vec<Cluster> {
         });
     }
 
-    clusters.sort_by_key(|x| std::cmp::Reverse(x.files.len()));
+    clusters.sort_by(|a, b| {
+        b.files
+            .len()
+            .cmp(&a.files.len())
+            .then_with(|| a.files[0].cmp(&b.files[0]))
+    });
     clusters
 }
 
@@ -504,7 +877,9 @@ fn find_cycles(data: &GraphData) -> Vec<Vec<String>> {
     let mut cycles: Vec<Vec<String>> = Vec::new();
     let mut visited: HashSet<String> = HashSet::new();
 
-    for start in &data.all_files {
+    let mut starts: Vec<&String> = data.all_files.iter().collect();
+    starts.sort();
+    for start in starts {
         if visited.contains(start) {
             continue;
         }
@@ -521,8 +896,8 @@ fn find_cycles(data: &GraphData) -> Vec<Vec<String>> {
         );
     }
 
-    cycles.sort_by_key(std::vec::Vec::len);
-    cycles.truncate(20);
+    cycles.sort_by(|a, b| a.len().cmp(&b.len()).then_with(|| a.cmp(b)));
+    cycles.truncate(crate::core::budgets::ARCHITECTURE_CYCLES_LIMIT.max(1));
     cycles
 }
 
@@ -590,6 +965,90 @@ fn common_prefix(files: &[String]) -> String {
     } else {
         common.join("/")
     }
+}
+
+fn project_meta(root: &str) -> Value {
+    let root_hash = crate::core::project_hash::hash_project_root(root);
+    let identity_hash = crate::core::project_hash::project_identity(root)
+        .as_deref()
+        .map(md5_hex);
+
+    let root_path = Path::new(root);
+    json!({
+        "project_root_hash": root_hash,
+        "project_identity_hash": identity_hash,
+        "git": {
+            "head": git_out(root_path, &["rev-parse", "--short", "HEAD"]),
+            "branch": git_out(root_path, &["rev-parse", "--abbrev-ref", "HEAD"]),
+            "dirty": git_dirty(root_path)
+        }
+    })
+}
+
+fn graph_summary(project_root: &Path) -> Value {
+    let db_path = project_root.join(".lean-ctx").join("graph.db");
+    if !db_path.exists() {
+        return json!({
+            "exists": false,
+            "db_path": ".lean-ctx/graph.db",
+            "nodes": null,
+            "edges": null
+        });
+    }
+    match CodeGraph::open(project_root) {
+        Ok(g) => json!({
+            "exists": true,
+            "db_path": ".lean-ctx/graph.db",
+            "nodes": g.node_count().ok(),
+            "edges": g.edge_count().ok()
+        }),
+        Err(_) => json!({
+            "exists": true,
+            "db_path": ".lean-ctx/graph.db",
+            "nodes": null,
+            "edges": null
+        }),
+    }
+}
+
+fn git_dirty(project_root: &Path) -> bool {
+    let out = std::process::Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(project_root)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output();
+    match out {
+        Ok(o) if o.status.success() => !o.stdout.is_empty(),
+        _ => false,
+    }
+}
+
+fn git_out(project_root: &Path, args: &[&str]) -> Option<String> {
+    let out = std::process::Command::new("git")
+        .args(args)
+        .current_dir(project_root)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let s = String::from_utf8(out.stdout).ok()?;
+    let s = s.trim().to_string();
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
+    }
+}
+
+fn md5_hex(s: &str) -> String {
+    use md5::{Digest, Md5};
+    let mut hasher = Md5::new();
+    hasher.update(s.as_bytes());
+    format!("{:x}", hasher.finalize())
 }
 
 #[cfg(test)]
@@ -699,7 +1158,7 @@ mod tests {
 
     #[test]
     fn handle_unknown() {
-        let result = handle("invalid", None, "/tmp");
+        let result = handle("invalid", None, "/tmp", None);
         assert!(result.contains("Unknown action"));
     }
 }

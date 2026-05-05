@@ -58,6 +58,12 @@ async fn ctx_handoff_create_show_list_pull_clear() {
         .expect("handoff create");
     let ledger_path = extract_path(&created);
 
+    let exported = engine
+        .call_tool_text("ctx_handoff", Some(json!({"action":"export","write":true})))
+        .await
+        .expect("handoff export");
+    let bundle_path = extract_path(&exported);
+
     let listed = engine
         .call_tool_text("ctx_handoff", Some(json!({"action":"list"})))
         .await
@@ -83,6 +89,18 @@ async fn ctx_handoff_create_show_list_pull_clear() {
         .await
         .expect("handoff pull");
     assert!(pulled.contains("imported_knowledge: 1"), "pull: {pulled}");
+
+    let imported = engine2
+        .call_tool_text(
+            "ctx_handoff",
+            Some(json!({"action":"import","path": bundle_path})),
+        )
+        .await
+        .expect("handoff import");
+    assert!(
+        imported.contains("imported_knowledge: 1"),
+        "import: {imported}"
+    );
 
     let cleared = engine
         .call_tool_text("ctx_handoff", Some(json!({"action":"clear"})))

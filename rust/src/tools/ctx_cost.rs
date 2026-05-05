@@ -38,6 +38,7 @@ fn handle_agent_detail(store: &CostStore, agent_id: Option<&str>) -> String {
                 format!("  Calls: {}", agent.total_calls),
                 format!("  Input tokens: {}", agent.total_input_tokens),
                 format!("  Output tokens: {}", agent.total_output_tokens),
+                format!("  Cached tokens: {}", agent.total_cached_tokens),
                 format!("  Estimated cost: ${:.4}", agent.cost_usd),
             ];
             if !agent.tools_used.is_empty() {
@@ -63,12 +64,13 @@ fn handle_tool_breakdown(store: &CostStore, limit: usize) -> String {
     let mut lines = vec![format!("Tool Cost Breakdown ({} tools):", tools.len())];
     for (i, tool) in tools.iter().enumerate() {
         lines.push(format!(
-            "  {}. {} — {} calls, avg {:.0} in + {:.0} out tok, ${:.4}",
+            "  {}. {} — {} calls, avg {:.0} in + {:.0} out + {:.0} cached tok, ${:.4}",
             i + 1,
             tool.tool_name,
             tool.total_calls,
             tool.avg_input_tokens,
             tool.avg_output_tokens,
+            tool.avg_cached_tokens,
             tool.cost_usd
         ));
     }

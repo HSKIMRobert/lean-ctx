@@ -1,0 +1,37 @@
+use rmcp::model::Tool;
+use rmcp::ErrorData;
+use serde_json::{json, Map, Value};
+
+use crate::server::tool_trait::{get_str, McpTool, ToolContext, ToolOutput};
+use crate::tool_defs::tool_def;
+
+pub struct CtxDiscoverToolsTool;
+
+impl McpTool for CtxDiscoverToolsTool {
+    fn name(&self) -> &'static str {
+        "ctx_discover_tools"
+    }
+
+    fn tool_def(&self) -> Tool {
+        tool_def(
+            "ctx_discover_tools",
+            "Search available lean-ctx tools by keyword. Returns matching tool names and descriptions.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "Search keyword to filter tools (optional, empty returns all)" }
+                }
+            }),
+        )
+    }
+
+    fn handle(
+        &self,
+        args: &Map<String, Value>,
+        _ctx: &ToolContext,
+    ) -> Result<ToolOutput, ErrorData> {
+        let query = get_str(args, "query").unwrap_or_default();
+        let result = crate::tool_defs::discover_tools(&query);
+        Ok(ToolOutput::simple(result))
+    }
+}

@@ -74,12 +74,12 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
         ),
         tool_def(
             "ctx_shell",
-            "Run shell command (compressed output, 90+ patterns). Use raw=true to skip compression. cwd sets working directory (persists across calls via cd tracking).",
+            "Run shell command (compressed output, 95+ patterns). Use raw=true to skip compression. cwd sets working directory (persists across calls via cd tracking). Output redaction is on by default for non-admin roles (admin can disable).",
             json!({
                 "type": "object",
                 "properties": {
                     "command": { "type": "string", "description": "Shell command to execute" },
-                    "raw": { "type": "boolean", "description": "Skip compression, return full uncompressed output. Use for small outputs or when full detail is critical." },
+                    "raw": { "type": "boolean", "description": "Skip compression, return full uncompressed output. Redaction still applies by default for non-admin roles." },
                     "cwd": { "type": "string", "description": "Working directory for the command. If omitted, uses last cd target or project root." }
                 },
                 "required": ["command"]
@@ -87,7 +87,7 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
         ),
         tool_def(
             "ctx_search",
-            "Regex code search (.gitignore aware, compact results).",
+            "Regex code search (.gitignore aware, compact results). Deterministic ordering. Secret-like files (e.g. .env, *.pem) are skipped unless role allows. ignore_gitignore requires explicit policy.",
             json!({
                 "type": "object",
                 "properties": {
@@ -95,7 +95,7 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
                     "path": { "type": "string", "description": "Directory to search" },
                     "ext": { "type": "string", "description": "File extension filter" },
                     "max_results": { "type": "integer", "description": "Max results (default: 20)" },
-                    "ignore_gitignore": { "type": "boolean", "description": "Set true to scan ALL files including .gitignore'd paths (default: false)" }
+                    "ignore_gitignore": { "type": "boolean", "description": "Set true to scan ALL files including .gitignore'd paths (default: false). Requires role policy (e.g. admin)." }
                 },
                 "required": ["pattern"]
             }),
@@ -197,6 +197,50 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
             }),
         ),
         tool_def(
+            "ctx_pack",
+            "PR Context Pack. action=pr yields changed files, related tests, impact summary, and relevant context artifacts.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "action": { "type": "string", "enum": ["pr"], "description": "Pack action" },
+                    "project_root": { "type": "string", "description": "Project root (default: session project root)" },
+                    "base": { "type": "string", "description": "Git base ref (default: auto-detect or HEAD~1)" },
+                    "format": { "type": "string", "enum": ["markdown", "json"], "description": "Output format (default: markdown)" },
+                    "depth": { "type": "integer", "description": "Impact depth (default: 3)" },
+                    "diff": { "type": "string", "description": "Optional git diff --name-status text. If omitted, computed via git." }
+                },
+                "required": ["action"]
+            }),
+        ),
+        tool_def(
+            "ctx_index",
+            "Index orchestration. Actions: status|build|build-full.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "action": { "type": "string", "enum": ["status", "build", "build-full"], "description": "Index action" },
+                    "project_root": { "type": "string", "description": "Project root (default: session project root)" }
+                },
+                "required": ["action"]
+            }),
+        ),
+        tool_def(
+            "ctx_artifacts",
+            "Context artifact registry + BM25 index. Actions: list|status|index|reindex|search|remove.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "action": { "type": "string", "enum": ["list", "status", "index", "reindex", "search", "remove"], "description": "Artifact action" },
+                    "project_root": { "type": "string", "description": "Project root (default: session project root)" },
+                    "query": { "type": "string", "description": "Search query (required for action=search)" },
+                    "name": { "type": "string", "description": "Artifact name (required for action=remove)" },
+                    "top_k": { "type": "integer", "description": "Max results (default: 10, max: 50)" },
+                    "format": { "type": "string", "enum": ["json", "markdown"], "description": "Output format (default: json)" }
+                },
+                "required": ["action"]
+            }),
+        ),
+        tool_def(
             "ctx_edit",
             "Edit a file via search-and-replace. Works without native Read/Edit tools. Use this when the IDE's Edit tool requires Read but Read is unavailable.",
             json!({
@@ -280,6 +324,34 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
             }),
         ),
         tool_def(
+            "ctx_proof",
+            "Export a machine-readable ContextProofV1 (Verifier + SLO + Pipeline + Provenance). Writes to .lean-ctx/proofs/ by default.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "action": { "type": "string", "description": "export (required)" },
+                    "project_root": { "type": "string", "description": "Project root for proof output (default: .)" },
+                    "format": { "type": "string", "description": "json|summary|both (default: json)" },
+                    "write": { "type": "boolean", "description": "Write proof file under .lean-ctx/proofs/ (default: true)" },
+                    "filename": { "type": "string", "description": "Optional output filename (default: timestamped context-proof-v1_*.json)" },
+                    "max_evidence": { "type": "integer", "description": "Max tool receipts to include (default: 50)" },
+                    "max_ledger_files": { "type": "integer", "description": "Max context ledger top files to include (default: 10)" }
+                },
+                "required": ["action"]
+            }),
+        ),
+        tool_def(
+            "ctx_verify",
+            "Verification observability snapshot. Action stats returns versioned JSON or compact summary (no raw content).",
+            json!({
+                "type": "object",
+                "properties": {
+                    "action": { "type": "string", "description": "stats (default)" },
+                    "format": { "type": "string", "description": "summary|json|both (default: summary)" }
+                }
+            }),
+        ),
+        tool_def(
             "ctx_graph",
             "Unified code graph. Actions: build (index), related (connected files), symbol (def/usages), \
 impact (blast radius), status (stats), enrich (add commits+tests+knowledge), context (task-based query), diagram (Mermaid deps/calls).",
@@ -345,7 +417,7 @@ episodes (episodic memory), procedures (procedural memory).",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["remember", "recall", "pattern", "feedback", "relate", "unrelate", "relations", "relations_diagram", "consolidate", "gotcha", "status", "remove", "export", "timeline", "rooms", "search", "wakeup", "embeddings_status", "embeddings_reset", "embeddings_reindex"],
+                        "enum": ["policy", "remember", "recall", "pattern", "feedback", "relate", "unrelate", "relations", "relations_diagram", "consolidate", "status", "health", "remove", "export", "timeline", "rooms", "search", "wakeup", "embeddings_status", "embeddings_reset", "embeddings_reindex"],
                         "description": "Knowledge operation to perform."
                     },
                     "trigger": {
@@ -915,6 +987,42 @@ Actions: review (single file), diff-review (from git diff), checklist (structure
                 "required": ["action"]
             }),
         ),
+        tool_def(
+            "ctx_provider",
+            "External context provider (GitLab-first). Actions: gitlab_issues (list), gitlab_issue (show by iid), gitlab_mrs (list MRs), gitlab_pipelines (list pipelines). \
+Requires GITLAB_TOKEN or LEAN_CTX_GITLAB_TOKEN.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["gitlab_issues", "gitlab_issue", "gitlab_mrs", "gitlab_pipelines"],
+                        "description": "Provider action"
+                    },
+                    "state": {
+                        "type": "string",
+                        "description": "Filter by state (opened, closed, merged, all)"
+                    },
+                    "labels": {
+                        "type": "string",
+                        "description": "Comma-separated labels filter"
+                    },
+                    "iid": {
+                        "type": "integer",
+                        "description": "Issue/MR IID for single-item lookup"
+                    },
+                    "status": {
+                        "type": "string",
+                        "description": "Pipeline status filter (running, success, failed)"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results (default 20, max 100)"
+                    }
+                },
+                "required": ["action"]
+            }),
+        ),
     ]
 }
 
@@ -1037,11 +1145,11 @@ task (A2A tasks), workflow (state machine), expand (retrieve archived output).",
 pub fn list_all_tool_defs() -> Vec<(&'static str, &'static str, Value)> {
     vec![
         ("ctx_read", "Read file (cached, compressed). Cached re-reads can be ~13 tok when unchanged. Auto-selects optimal mode. \
-Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fresh=true forces a disk re-read.", json!({"type": "object", "properties": {"path": {"type": "string"}, "mode": {"type": "string"}, "start_line": {"type": "integer"}, "fresh": {"type": "boolean"}}, "required": ["path"]})),
+Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fresh=true forces a disk re-read. Output is redacted by default for non-admin roles.", json!({"type": "object", "properties": {"path": {"type": "string"}, "mode": {"type": "string"}, "start_line": {"type": "integer"}, "fresh": {"type": "boolean"}}, "required": ["path"]})),
         ("ctx_multi_read", "Batch read files in one call. Same modes as ctx_read.", json!({"type": "object", "properties": {"paths": {"type": "array", "items": {"type": "string"}}, "mode": {"type": "string"}}, "required": ["paths"]})),
         ("ctx_tree", "Directory listing with file counts.", json!({"type": "object", "properties": {"path": {"type": "string"}, "depth": {"type": "integer"}, "show_hidden": {"type": "boolean"}}})),
-        ("ctx_shell", "Run shell command (compressed output, 90+ patterns). cwd sets working directory.", json!({"type": "object", "properties": {"command": {"type": "string"}, "cwd": {"type": "string", "description": "Working directory"}}, "required": ["command"]})),
-        ("ctx_search", "Regex code search (.gitignore aware, compact results).", json!({"type": "object", "properties": {"pattern": {"type": "string"}, "path": {"type": "string"}, "ext": {"type": "string"}, "max_results": {"type": "integer"}}, "required": ["pattern"]})),
+        ("ctx_shell", "Run shell command (compressed output, 95+ patterns). cwd sets working directory. raw=true disables compression (still respects output caps). bypass=true is an alias for raw with mode tagging. LEAN_CTX_DISABLED or LEAN_CTX_RAW also disable compression. Output redaction is on by default for non-admin roles (admin can disable).", json!({"type": "object", "properties": {"command": {"type": "string"}, "cwd": {"type": "string", "description": "Working directory"}, "raw": {"type": "boolean", "description": "Disable compression and return uncompressed output (still capped). Redaction still applies by default for non-admin roles."}, "bypass": {"type": "boolean", "description": "Alias for raw=true (no compression). Also tagged as mode=bypass for observability."}}, "required": ["command"]})),
+        ("ctx_search", "Regex code search (.gitignore aware, compact results). Deterministic ordering: same query + same tree + same limits => identical output. Secret-like files are skipped unless role allows. ignore_gitignore requires explicit policy.", json!({"type": "object", "properties": {"pattern": {"type": "string"}, "path": {"type": "string", "description": "Root directory to search (default: .)"}, "ext": {"type": "string", "description": "Optional file extension filter (e.g. rs, ts, py)"}, "max_results": {"type": "integer", "description": "Max matches to return (default: 20)"}, "ignore_gitignore": {"type": "boolean", "description": "If true, ignores .gitignore/.gitexclude and searches everything. Requires role policy (e.g. admin)."}}, "required": ["pattern"]})),
         ("ctx_compress", "Context checkpoint for long conversations.", json!({"type": "object", "properties": {"include_signatures": {"type": "boolean"}}})),
         ("ctx_benchmark", "Benchmark compression modes for a file or project.", json!({"type": "object", "properties": {"path": {"type": "string"}, "action": {"type": "string"}, "format": {"type": "string"}}, "required": ["path"]})),
         ("ctx_metrics", "Session token stats, cache rates, per-tool savings.", json!({"type": "object", "properties": {}})),
@@ -1050,23 +1158,43 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
         ("ctx_discover", "Find missed compression opportunities in shell history.", json!({"type": "object", "properties": {"limit": {"type": "integer"}}})),
         ("ctx_smart_read", "Auto-select optimal read mode for a file.", json!({"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]})),
         ("ctx_delta", "Incremental diff — sends only changed lines since last read.", json!({"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]})),
-        ("ctx_edit", "Edit a file via search-and-replace. Works without native Read/Edit tools. Use when Edit requires Read but Read is unavailable.", json!({"type": "object", "properties": {"path": {"type": "string"}, "old_string": {"type": "string"}, "new_string": {"type": "string"}, "replace_all": {"type": "boolean"}, "create": {"type": "boolean"}}, "required": ["path", "new_string"]})),
+        ("ctx_pack", "PR Context Pack. action=pr yields changed files, related tests, impact summary, and relevant context artifacts.", json!({"type": "object", "properties": {"action": {"type": "string"}, "project_root": {"type": "string"}, "base": {"type": "string"}, "format": {"type": "string"}, "depth": {"type": "integer"}, "diff": {"type": "string"}}, "required": ["action"]})),
+        ("ctx_index", "Index orchestration. Actions: status|build|build-full.", json!({"type": "object", "properties": {"action": {"type": "string"}, "project_root": {"type": "string"}}, "required": ["action"]})),
+        ("ctx_artifacts", "Context artifact registry + BM25 index. Actions: list|status|index|reindex|search|remove.", json!({"type": "object", "properties": {"action": {"type": "string"}, "project_root": {"type": "string"}, "query": {"type": "string"}, "name": {"type": "string"}, "top_k": {"type": "integer"}, "format": {"type": "string"}}, "required": ["action"]})),
+        (
+            "ctx_edit",
+            "Edit a file via search-and-replace with preimage guards and atomic writes. Optional backup + bounded (redacted) diff evidence.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string" },
+                    "old_string": { "type": "string" },
+                    "new_string": { "type": "string" },
+                    "replace_all": { "type": "boolean" },
+                    "create": { "type": "boolean" },
+                    "expected_md5": { "type": "string", "description": "Optional preimage guard: expected MD5 of current file contents." },
+                    "expected_size": { "type": "integer", "description": "Optional preimage guard: expected size in bytes." },
+                    "expected_mtime_ms": { "type": "integer", "description": "Optional preimage guard: expected mtime (unix epoch ms)." },
+                    "backup": { "type": "boolean", "description": "If true, create a backup copy before writing." },
+                    "backup_path": { "type": "string", "description": "Optional explicit backup path (subject to pathjail/allow_path)." },
+                    "evidence": { "type": "boolean", "description": "If true (default), emit bounded, redacted diff evidence." },
+                    "diff_max_lines": { "type": "integer", "description": "Max diff lines to include in evidence (default: 200)." },
+                    "allow_lossy_utf8": { "type": "boolean", "description": "If true, allow lossy UTF-8 reads. Default false (reject invalid UTF-8)." }
+                },
+                "required": ["path", "new_string"]
+            }),
+        ),
         ("ctx_dedup", "Cross-file dedup: analyze or apply shared block references.", json!({"type": "object", "properties": {"action": {"type": "string"}}})),
         ("ctx_fill", "Budget-aware context fill — auto-selects compression per file within token limit.", json!({"type": "object", "properties": {"paths": {"type": "array", "items": {"type": "string"}}, "budget": {"type": "integer"}, "task": {"type": "string"}}, "required": ["paths", "budget"]})),
-        ("ctx_intent", "Structured intent input with model routing. Returns intent classification + recommended model tier (fast/standard/premium) based on What/How/Do dimension.", json!({"type": "object", "properties": {"query": {"type": "string"}, "project_root": {"type": "string"}}, "required": ["query"]})),
+        ("ctx_intent", "Structured intent input with routing policy. Default returns a compact ack line. format=json returns IntentRouteV1 contract (dimension + model tier + read mode + reason) with budget/pressure degradation.", json!({"type": "object", "properties": {"query": {"type": "string"}, "project_root": {"type": "string"}, "format": {"type": "string", "description": "Output format: text|json (default: text)."}}, "required": ["query"]})),
         ("ctx_response", "Compress LLM response text (remove filler, apply TDD).", json!({"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]})),
         ("ctx_context", "Session context overview — cached files, seen files, session state.", json!({"type": "object", "properties": {}})),
+        ("ctx_proof", "Export a machine-readable ContextProofV1 (Verifier + SLO + Pipeline + Provenance). Writes to .lean-ctx/proofs/ by default.", json!({"type": "object", "properties": {"action": {"type": "string"}, "project_root": {"type": "string"}, "format": {"type": "string"}, "write": {"type": "boolean"}, "filename": {"type": "string"}, "max_evidence": {"type": "integer"}, "max_ledger_files": {"type": "integer"}}, "required": ["action"]})),
+        ("ctx_verify", "Verification observability snapshot. Action stats returns versioned JSON or compact summary (no raw content).", json!({"type": "object", "properties": {"action": {"type": "string"}, "format": {"type": "string"}}, "required": []})),
         ("ctx_graph", "Unified code graph. Actions: build, related, symbol, impact, status, enrich, context, diagram.", json!({"type": "object", "properties": {"action": {"type": "string"}, "path": {"type": "string"}, "depth": {"type": "integer"}, "kind": {"type": "string"}, "project_root": {"type": "string"}}, "required": ["action"]})),
-        ("ctx_session", "Cross-session memory (CCP). Actions: load (restore ~400 tok), save, status, \
-task, finding, decision, reset, list, cleanup, snapshot (~2KB), restore, resume, \
-profile (context profiles), role (governance), budget (limits), slo (observability), \
-diff (compare sessions: value=\"id_a id_b [json]\"), verify (output verification stats).", json!({"type": "object", "properties": {"action": {"type": "string"}, "value": {"type": "string"}, "session_id": {"type": "string"}}, "required": ["action"]})),
-        ("ctx_knowledge", "Persistent project knowledge with temporal facts + contradiction detection. Actions: remember (auto-tracks validity + detects contradictions), recall, pattern, consolidate, \
-gotcha (record a bug to never repeat — trigger+resolution), timeline (fact version history), rooms (list knowledge categories), \
-search (cross-session/cross-project), wakeup (compact AAAK briefing), status, remove, export, embeddings_status|embeddings_reset|embeddings_reindex.", json!({"type": "object", "properties": {"action": {"type": "string"}, "category": {"type": "string"}, "key": {"type": "string"}, "value": {"type": "string"}, "query": {"type": "string"}, "trigger": {"type": "string"}, "resolution": {"type": "string"}, "severity": {"type": "string"}}, "required": ["action"]})),
-        ("ctx_agent", "Multi-agent coordination with persistent diaries. Actions: register, \
-post, read, status, handoff, sync, diary (log discovery/decision/blocker/progress/insight — persisted), \
-recall_diary (read diary), diaries (list all), list, info.", json!({"type": "object", "properties": {"action": {"type": "string"}, "agent_type": {"type": "string"}, "role": {"type": "string"}, "message": {"type": "string"}, "to_agent": {"type": "string"}, "status": {"type": "string"}}, "required": ["action"]})),
+        ("ctx_session", "Cross-session memory (CCP). Actions: load|save|status|task|finding|decision|reset|list|cleanup|snapshot|restore|resume|configure|profile|role|budget|slo|diff|verify|export|import.", json!({"type": "object", "properties": {"action": {"type": "string"}, "value": {"type": "string"}, "session_id": {"type": "string"}, "format": {"type": "string", "description": "Output format: json|summary (default depends on action)."}, "path": {"type": "string", "description": "File path for export/import (jail: project_root)."}, "write": {"type": "boolean", "description": "If true, write export bundle to path (or default) and return a summary."}, "privacy": {"type": "string", "description": "Export privacy: redacted (default) | full (admin only)."}, "terse": {"type": "boolean", "description": "For action=configure: enable/disable terse output mode (compact model replies)."}}, "required": ["action"]})),
+        ("ctx_knowledge", "Project knowledge (facts/patterns/relations). Actions: policy|remember|recall|pattern|feedback|relate|unrelate|relations|relations_diagram|consolidate|timeline|rooms|search|wakeup|status|remove|export|embeddings_status|embeddings_reset|embeddings_reindex.", json!({"type": "object", "properties": {"action": {"type": "string", "enum": ["policy","remember","recall","pattern","feedback","relate","unrelate","relations","relations_diagram","status","remove","export","consolidate","timeline","rooms","search","wakeup","embeddings_status","embeddings_reset","embeddings_reindex"]}, "category": {"type": "string"}, "key": {"type": "string"}, "value": {"type": "string", "description": "Value payload or sub-action (e.g. policy: show|validate; relations kind)."}, "query": {"type": "string"}, "pattern_type": {"type": "string"}, "examples": {"type": "array", "items": {"type": "string"}}, "confidence": {"type": "number"}, "mode": {"type": "string", "description": "Recall mode: auto|semantic|hybrid."}, "trigger": {"type": "string"}, "resolution": {"type": "string"}, "severity": {"type": "string"}}, "required": ["action"]})),
+        ("ctx_agent", "Multi-agent coordination. Actions: register|list|post|read|status|handoff|sync|diary|recall_diary|diaries|info|export.", json!({"type": "object", "properties": {"action": {"type": "string"}, "agent_type": {"type": "string"}, "role": {"type": "string"}, "message": {"type": "string"}, "category": {"type": "string"}, "to_agent": {"type": "string"}, "status": {"type": "string"}, "privacy": {"type": "string"}, "priority": {"type": "string"}, "ttl_hours": {"type": "integer"}, "format": {"type": "string"}, "write": {"type": "boolean"}, "filename": {"type": "string"}}, "required": ["action"]})),
         ("ctx_share", "Share cached file contexts between agents. Actions: push (share files from cache), \
 pull (receive shared files), list (show all shared contexts), clear (remove your shared contexts).", json!({"type": "object", "properties": {"action": {"type": "string"}, "paths": {"type": "string"}, "to_agent": {"type": "string"}, "message": {"type": "string"}}, "required": ["action"]})),
         ("ctx_overview", "Task-relevant project map — use at session start.", json!({"type": "object", "properties": {"task": {"type": "string"}, "path": {"type": "string"}}})),
@@ -1076,11 +1204,11 @@ pull (receive shared files), list (show all shared contexts), clear (remove your
         ("ctx_cost", "Cost attribution (local-first). Actions: report|agent|tools|json|reset.", json!({"type": "object", "properties": {"action": {"type": "string"}, "agent_id": {"type": "string"}, "limit": {"type": "integer"}}})),
         ("ctx_gain", "Gain report (includes Wrapped via action=wrapped).", json!({"type": "object", "properties": {"action": {"type": "string"}, "period": {"type": "string"}, "model": {"type": "string"}, "limit": {"type": "integer"}}})),
         ("ctx_feedback", "Harness feedback for LLM output tokens/latency (local-first). Actions: record|report|json|reset|status.", json!({"type": "object", "properties": {"action": {"type": "string"}, "agent_id": {"type": "string"}, "intent": {"type": "string"}, "model": {"type": "string"}, "llm_input_tokens": {"type": "integer"}, "llm_output_tokens": {"type": "integer"}, "latency_ms": {"type": "integer"}, "note": {"type": "string"}, "limit": {"type": "integer"}}})),
-        ("ctx_handoff", "Context Ledger Protocol (hashed, deterministic, local-first). Actions: create|show|list|pull|clear.", json!({"type": "object", "properties": {"action": {"type": "string"}, "path": {"type": "string"}, "paths": {"type": "array", "items": {"type": "string"}}, "apply_workflow": {"type": "boolean"}, "apply_session": {"type": "boolean"}, "apply_knowledge": {"type": "boolean"}}})),
+        ("ctx_handoff", "Handoff ledger + transfer bundle. Actions: create|show|list|pull|clear|export|import.", json!({"type": "object", "properties": {"action": {"type": "string"}, "path": {"type": "string"}, "paths": {"type": "array", "items": {"type": "string"}}, "format": {"type": "string"}, "write": {"type": "boolean"}, "privacy": {"type": "string"}, "filename": {"type": "string"}, "apply_workflow": {"type": "boolean"}, "apply_session": {"type": "boolean"}, "apply_knowledge": {"type": "boolean"}}})),
         ("ctx_heatmap", "File access heatmap (local-first). Actions: status|directory|cold|json.", json!({"type": "object", "properties": {"action": {"type": "string"}, "path": {"type": "string"}}})),
         ("ctx_task", "Multi-agent task orchestration. Actions: create|update|list|get|cancel|message|info.", json!({"type": "object", "properties": {"action": {"type": "string"}, "task_id": {"type": "string"}, "to_agent": {"type": "string"}, "description": {"type": "string"}, "state": {"type": "string"}, "message": {"type": "string"}}, "required": ["action"]})),
-        ("ctx_impact", "Graph-based impact analysis. Actions: analyze|chain|build|status.", json!({"type": "object", "properties": {"action": {"type": "string"}, "path": {"type": "string"}, "root": {"type": "string"}, "depth": {"type": "integer"}}})),
-        ("ctx_architecture", "Graph-based architecture analysis. Actions: overview|clusters|layers|cycles|entrypoints|module.", json!({"type": "object", "properties": {"action": {"type": "string"}, "path": {"type": "string"}, "root": {"type": "string"}}})),
+        ("ctx_impact", "Graph-based impact analysis (Property Graph). Actions: analyze|chain|build|status. Optional: format=text|json.", json!({"type": "object", "properties": {"action": {"type": "string", "enum": ["analyze","chain","build","status"]}, "path": {"type": "string"}, "root": {"type": "string"}, "depth": {"type": "integer"}, "format": {"type": "string", "enum": ["text","json"]}}, "required": ["action"]})),
+        ("ctx_architecture", "Graph-based architecture analysis (Property Graph). Actions: overview|clusters|layers|cycles|entrypoints|module. Optional: format=text|json.", json!({"type": "object", "properties": {"action": {"type": "string", "enum": ["overview","clusters","layers","cycles","entrypoints","module"]}, "path": {"type": "string"}, "root": {"type": "string"}, "format": {"type": "string", "enum": ["text","json"]}}, "required": ["action"]})),
         ("ctx_workflow", "Workflow rails (state machine + evidence). Actions: start|status|transition|complete|evidence_add|evidence_list|stop.", json!({"type": "object", "properties": {"action": {"type": "string"}, "name": {"type": "string"}, "spec": {"type": "string"}, "to": {"type": "string"}, "key": {"type": "string"}, "value": {"type": "string"}}})),
         ("ctx_semantic_search", "Semantic code search (BM25 + optional embeddings/hybrid). action=reindex to rebuild.", json!({"type": "object", "properties": {"query": {"type": "string"}, "path": {"type": "string"}, "top_k": {"type": "integer"}, "action": {"type": "string"}, "mode": {"type": "string", "enum": ["bm25","dense","hybrid"]}, "languages": {"type": "array", "items": {"type": "string"}}, "path_glob": {"type": "string"}}, "required": ["query"]})),
         ("ctx_execute", "Run code in sandbox (11 languages). Only stdout enters context. Languages: javascript, typescript, python, shell, ruby, go, rust, php, perl, r, elixir. Actions: batch (multiple scripts), file (process file in sandbox).", json!({"type": "object", "properties": {"language": {"type": "string"}, "code": {"type": "string"}, "intent": {"type": "string"}, "timeout": {"type": "integer"}, "action": {"type": "string"}, "items": {"type": "string"}, "path": {"type": "string"}}, "required": ["language", "code"]})),
@@ -1094,5 +1222,6 @@ pull (receive shared files), list (show all shared contexts), clear (remove your
         ("ctx_graph_diagram", "Deprecated alias for ctx_graph action=diagram.", json!({"type": "object", "properties": {"file": {"type": "string"}, "depth": {"type": "integer"}, "kind": {"type": "string"}}})),
         ("ctx_expand", "Retrieve archived tool output (zero-loss). Large outputs are auto-archived; use this to retrieve full details. Actions: retrieve (default), list.", json!({"type": "object", "properties": {"id": {"type": "string", "description": "Archive ID from the [Archived: ...] hint"}, "action": {"type": "string", "description": "retrieve (default) or list"}, "start_line": {"type": "integer", "description": "Start line for range retrieval"}, "end_line": {"type": "integer", "description": "End line for range retrieval"}, "search": {"type": "string", "description": "Search pattern to filter archived output"}, "session_id": {"type": "string", "description": "Filter list by session ID"}}})),
         ("ctx_review", "Automated code review: combines impact analysis, caller tracking, and test discovery. Actions: review (single file), diff-review (from git diff), checklist (structured review questions).", json!({"type": "object", "properties": {"action": {"type": "string", "enum": ["review", "diff-review", "checklist"], "description": "Review action"}, "path": {"type": "string", "description": "File path to review (or git diff text for diff-review)"}, "depth": {"type": "integer", "description": "Impact analysis depth (default: 3)"}}, "required": ["action"]})),
+        ("ctx_provider", "External context provider (GitLab-first). Actions: gitlab_issues, gitlab_issue, gitlab_mrs, gitlab_pipelines.", json!({"type": "object", "properties": {"action": {"type": "string", "enum": ["gitlab_issues", "gitlab_issue", "gitlab_mrs", "gitlab_pipelines"]}, "state": {"type": "string", "description": "Filter by state (opened, closed, merged, all)"}, "labels": {"type": "string", "description": "Comma-separated labels filter"}, "iid": {"type": "integer", "description": "Issue/MR IID for single-item lookup"}, "status": {"type": "string", "description": "Pipeline status filter (running, success, failed)"}, "limit": {"type": "integer", "description": "Max results (default 20, max 100)"}}, "required": ["action"]})),
     ]
 }

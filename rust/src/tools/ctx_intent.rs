@@ -8,6 +8,7 @@ pub fn handle(
     query: &str,
     project_root: &str,
     _crp_mode: CrpMode,
+    format: Option<&str>,
 ) -> String {
     if query.trim().is_empty() {
         return "ERROR: ctx_intent requires query".to_string();
@@ -16,19 +17,32 @@ pub fn handle(
     let intent = crate::core::intent_protocol::intent_from_query(query, Some(project_root));
     let classification = classify(query);
     let route = route_intent(query, &classification);
-    format_ack(&intent, &route)
+    let route_v1 = crate::core::intent_router::route_v1(query);
+
+    if matches!(format.map(|s| s.trim().to_lowercase()), Some(ref f) if f == "json") {
+        return serde_json::to_string_pretty(&route_v1).unwrap_or_else(|e| format!("ERROR: {e}"));
+    }
+
+    format_ack(&intent, &route, &route_v1)
 }
 
-fn format_ack(intent: &IntentRecord, route: &crate::core::intent_engine::IntentRoute) -> String {
+fn format_ack(
+    intent: &IntentRecord,
+    route: &crate::core::intent_engine::IntentRoute,
+    route_v1: &crate::core::intent_router::IntentRouteV1,
+) -> String {
     format!(
-        "INTENT_OK id={} type={} source={} conf={:.0}% subj={} | route: dimension={} model_tier={} reason={}",
+        "INTENT_OK id={} type={} source={} conf={:.0}% subj={} | route_v1: task={} dimension={} model_tier={}→{} read={} reason={}",
         intent.id,
         intent.intent_type.as_str(),
         intent.source.as_str(),
         (intent.confidence.clamp(0.0, 1.0) * 100.0).round(),
         subject_short(&intent.subject),
+        route_v1.inputs.task_type.as_str(),
         route.dimension.as_str(),
         route.model_tier.as_str(),
+        route_v1.decision.effective_model_tier.as_str(),
+        route_v1.decision.effective_read_mode,
         route.reasoning,
     )
 }

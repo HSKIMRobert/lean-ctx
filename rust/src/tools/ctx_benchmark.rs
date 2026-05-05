@@ -40,6 +40,11 @@ pub fn handle(path: &str, crp_mode: CrpMode) -> String {
         .collect::<Vec<_>>()
         .join("\n");
     let sig_tdd_tokens = count_tokens(&sig_tdd);
+    let sig_tdd_ascii = crate::core::tokenizer_translation_driver::translate_text(
+        &sig_tdd,
+        crate::core::tokenizer_translation_driver::TranslationRulesetV1::Ascii,
+    );
+    let sig_tdd_ascii_tokens = count_tokens(&sig_tdd_ascii);
 
     let entropy_result = entropy::entropy_compress(&content);
     let entropy_tokens = entropy_result.compressed_tokens;
@@ -65,6 +70,7 @@ pub fn handle(path: &str, crp_mode: CrpMode) -> String {
     let q_aggressive = quality_cell(&content, &aggressive, ext);
     let q_sig_compact = quality_cell(&content, &sig_compact, ext);
     let q_sig_tdd = quality_cell(&content, &sig_tdd, ext);
+    let q_sig_tdd_ascii = quality_cell(&content, &sig_tdd_ascii, ext);
     let q_entropy = quality_cell(&content, &entropy_result.output, ext);
 
     if crp_mode.is_tdd() {
@@ -93,6 +99,12 @@ pub fn handle(path: &str, crp_mode: CrpMode) -> String {
             &q_sig_tdd,
         ));
         rows.push(format_row(
+            "signatures (tdd, ascii)",
+            sig_tdd_ascii_tokens,
+            raw_tokens,
+            &q_sig_tdd_ascii,
+        ));
+        rows.push(format_row(
             "entropy",
             entropy_tokens,
             raw_tokens,
@@ -117,6 +129,7 @@ pub fn handle(path: &str, crp_mode: CrpMode) -> String {
             ("aggressive", aggressive_tokens),
             ("signatures (compact)", sig_tokens),
             ("signatures (tdd)", sig_tdd_tokens),
+            ("signatures (tdd, ascii)", sig_tdd_ascii_tokens),
             ("entropy", entropy_tokens),
             ("full + §MAP", tdd_full_tokens),
             ("aggressive + §MAP", tdd_agg_tokens),
@@ -143,6 +156,16 @@ pub fn handle(path: &str, crp_mode: CrpMode) -> String {
         };
         rows.push(format!(
             "TDD bonus (signatures): {tdd_extra} extra tokens saved ({tdd_pct}%)"
+        ));
+
+        let ascii_extra = sig_tokens.saturating_sub(sig_tdd_ascii_tokens);
+        let ascii_pct = if sig_tokens > 0 {
+            (ascii_extra as f64 / sig_tokens as f64 * 100.0).round() as usize
+        } else {
+            0
+        };
+        rows.push(format!(
+            "ASCII ruleset bonus (signatures): {ascii_extra} extra tokens saved ({ascii_pct}%)"
         ));
     } else {
         rows.push(format!(

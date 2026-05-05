@@ -107,6 +107,15 @@ impl GotchaSource {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProvenanceRef {
+    pub kind: String,
+    pub url: Option<String>,
+    pub commit_hash: Option<String>,
+    pub tool_call_id: Option<String>,
+    pub session_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Gotcha {
     pub id: String,
     pub category: GotchaCategory,
@@ -122,6 +131,12 @@ pub struct Gotcha {
     pub source: GotchaSource,
     pub prevented_count: u32,
     pub tags: Vec<String>,
+    #[serde(default)]
+    pub provenance: Vec<ProvenanceRef>,
+    #[serde(default)]
+    pub expires_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub decay_rate_override: Option<f32>,
 }
 
 impl Gotcha {
@@ -155,6 +170,9 @@ impl Gotcha {
             source,
             prevented_count: 0,
             tags: Vec::new(),
+            provenance: Vec::new(),
+            expires_at: None,
+            decay_rate_override: None,
         }
     }
 

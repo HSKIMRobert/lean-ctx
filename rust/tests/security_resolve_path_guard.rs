@@ -28,31 +28,91 @@ fn server_fs_tools_use_resolve_path_chokepoint() {
         include_str!("../src/server/dispatch/utility_tools.rs"),
     ];
     let src = sources.join("\n");
-    let tools = [
+
+    // Tools dispatched via the legacy match-cascade must call resolve_path
+    // directly in their arm body.
+    let legacy_tools = [
         "ctx_read",
         "ctx_multi_read",
-        "ctx_tree",
         "ctx_search",
-        "ctx_benchmark",
-        "ctx_analyze",
         "ctx_smart_read",
         "ctx_delta",
         "ctx_edit",
         "ctx_fill",
-        "ctx_outline",
         "ctx_semantic_search",
         "ctx_prefetch",
         "ctx_cache",
         "ctx_graph",
-        "ctx_compress_memory",
         "ctx_handoff",
         "ctx_execute",
     ];
-    for t in tools {
+    for t in legacy_tools {
         let body = extract_arm_body(&src, t).unwrap_or_else(|| panic!("missing tool arm: {t}"));
         assert!(
             body.contains("resolve_path("),
             "{t} arm must call resolve_path() for path arguments"
+        );
+    }
+
+    // Tools migrated to the ToolRegistry get resolve_path automatically
+    // via dispatch_inner's pre-resolution loop. Verify the loop exists.
+    let dispatch_mod = include_str!("../src/server/dispatch/mod.rs");
+    assert!(
+        dispatch_mod.contains("self.resolve_path(raw)"),
+        "dispatch_inner must resolve paths for registry-dispatched tools"
+    );
+
+    // Verify registry-migrated tools use resolved_path from ToolContext
+    let registry_tools = [
+        (
+            "ctx_tree",
+            include_str!("../src/tools/registered/ctx_tree.rs"),
+        ),
+        (
+            "ctx_benchmark",
+            include_str!("../src/tools/registered/ctx_benchmark.rs"),
+        ),
+        (
+            "ctx_analyze",
+            include_str!("../src/tools/registered/ctx_analyze.rs"),
+        ),
+        (
+            "ctx_outline",
+            include_str!("../src/tools/registered/ctx_outline.rs"),
+        ),
+        (
+            "ctx_review",
+            include_str!("../src/tools/registered/ctx_review.rs"),
+        ),
+        (
+            "ctx_impact",
+            include_str!("../src/tools/registered/ctx_impact.rs"),
+        ),
+        (
+            "ctx_architecture",
+            include_str!("../src/tools/registered/ctx_architecture.rs"),
+        ),
+        (
+            "ctx_pack",
+            include_str!("../src/tools/registered/ctx_pack.rs"),
+        ),
+        (
+            "ctx_index",
+            include_str!("../src/tools/registered/ctx_index.rs"),
+        ),
+        (
+            "ctx_artifacts",
+            include_str!("../src/tools/registered/ctx_artifacts.rs"),
+        ),
+        (
+            "ctx_compress_memory",
+            include_str!("../src/tools/registered/ctx_compress_memory.rs"),
+        ),
+    ];
+    for (name, src) in registry_tools {
+        assert!(
+            src.contains("resolved_path("),
+            "{name}: registry tool must use ctx.resolved_path() for path access"
         );
     }
 }

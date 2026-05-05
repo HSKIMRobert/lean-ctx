@@ -22,17 +22,30 @@ pub fn cmd_index(args: &[String]) {
             println!("started");
         }
         Some("build-full") => {
-            crate::core::index_orchestrator::ensure_full_background(&project_root);
+            // Force rebuild by deleting existing on-disk indexes first.
+            let bm25 = crate::core::vector_index::BM25Index::index_file_path(root);
+            let _ = std::fs::remove_file(&bm25);
+            if let Some(dir) = crate::core::graph_index::ProjectIndex::index_dir(&project_root) {
+                let _ = std::fs::remove_file(dir.join("index.json"));
+            }
+            crate::core::index_orchestrator::ensure_all_background(&project_root);
             println!("started");
+        }
+        Some("build-graph") => {
+            let root_str = project_root.clone();
+            let result =
+                crate::tools::ctx_impact::handle("build", None, &root_str, None, Some("text"));
+            println!("{result}");
         }
         Some("watch") => run_watcher(root),
         _ => {
             eprintln!(
-                "Usage: lean-ctx index <status|build|build-full|watch> [--root <path>]\n\
+                "Usage: lean-ctx index <status|build|build-full|build-graph|watch> [--root <path>]\n\
                  Examples:\n\
                    lean-ctx index status\n\
-                   lean-ctx index build\n\
-                   lean-ctx index build-full\n\
+                   lean-ctx index build          (BM25 + JSON graph index)\n\
+                   lean-ctx index build-full     (force rebuild all indexes)\n\
+                   lean-ctx index build-graph    (SQLite property graph for impact analysis)\n\
                    lean-ctx index watch"
             );
         }

@@ -11,6 +11,7 @@ pub mod autonomy;
 pub mod ctx_agent;
 pub mod ctx_analyze;
 pub mod ctx_architecture;
+pub mod ctx_artifacts;
 pub mod ctx_benchmark;
 pub mod ctx_callees;
 pub mod ctx_callers;
@@ -33,6 +34,7 @@ pub mod ctx_graph_diagram;
 pub mod ctx_handoff;
 pub mod ctx_heatmap;
 pub mod ctx_impact;
+pub mod ctx_index;
 pub mod ctx_intent;
 pub mod ctx_knowledge;
 pub mod ctx_knowledge_relations;
@@ -43,6 +45,8 @@ pub mod ctx_overview;
 pub mod ctx_pack;
 pub mod ctx_prefetch;
 pub mod ctx_preload;
+pub mod ctx_proof;
+pub mod ctx_provider;
 pub mod ctx_read;
 pub mod ctx_response;
 pub mod ctx_review;
@@ -56,8 +60,10 @@ pub mod ctx_smart_read;
 pub mod ctx_symbol;
 pub mod ctx_task;
 pub mod ctx_tree;
+pub mod ctx_verify;
 pub mod ctx_workflow;
 pub mod ctx_wrapped;
+pub mod registered;
 
 const DEFAULT_CACHE_TTL_SECS: u64 = 300;
 
@@ -115,7 +121,7 @@ impl CrpMode {
             }
         }
         let p = crate::core::profiles::active_profile();
-        Self::parse(&p.compression.crp_mode).unwrap_or(Self::Tdd)
+        Self::parse(p.compression.crp_mode_effective()).unwrap_or(Self::Tdd)
     }
 
     /// Returns true if the mode is TDD (maximum compression).
@@ -155,6 +161,8 @@ pub struct LeanCtxServer {
     pub workspace_id: String,
     pub channel_id: String,
     pub context_os: Option<Arc<crate::core::context_os::ContextOsRuntime>>,
+    pub context_ir: Option<Arc<RwLock<crate::core::context_ir::ContextIrV1>>>,
+    pub registry: Option<Arc<crate::server::registry::ToolRegistry>>,
     startup_project_root: Option<String>,
     startup_shell_cwd: Option<String>,
 }
@@ -295,6 +303,8 @@ impl LeanCtxServer {
                 channel_id.trim().to_string()
             },
             context_os,
+            context_ir: None,
+            registry: None,
             startup_project_root: startup.project_root,
             startup_shell_cwd: startup.shell_cwd,
         }
@@ -308,7 +318,7 @@ impl LeanCtxServer {
         }
         let profile_interval = crate::core::profiles::active_profile()
             .autonomy
-            .checkpoint_interval;
+            .checkpoint_interval_effective();
         if profile_interval > 0 {
             return profile_interval as usize;
         }

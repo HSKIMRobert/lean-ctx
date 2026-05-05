@@ -2,13 +2,83 @@ use std::path::PathBuf;
 
 pub mod agents;
 mod support;
+
+/// Controls how hooks instruct agents to access lean-ctx functionality.
+///
+/// * `Mcp` — MCP server only (extension/plugin-based agents without reliable shell).
+/// * `CliRedirect` — CLI-first; agent has reliable shell access, so bash
+///   commands are rewritten to `lean-ctx -c "…"`.
+/// * `Hybrid` — MCP server + CLI redirect (agent has shell, both paths active).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HookMode {
+    #[default]
+    Mcp,
+    CliRedirect,
+    Hybrid,
+}
+
+impl std::fmt::Display for HookMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Mcp => write!(f, "MCP"),
+            Self::CliRedirect => write!(f, "CLI-redirect"),
+            Self::Hybrid => write!(f, "Hybrid"),
+        }
+    }
+}
+
+impl HookMode {
+    pub fn from_str_loose(s: &str) -> Option<Self> {
+        match s.to_lowercase().replace('-', "").as_str() {
+            "mcp" => Some(Self::Mcp),
+            "cliredirect" | "cli" => Some(Self::CliRedirect),
+            "hybrid" => Some(Self::Hybrid),
+            _ => None,
+        }
+    }
+
+    pub fn description(&self) -> &'static str {
+        match self {
+            Self::Mcp => "MCP server only (extension/plugin-based agents without reliable shell)",
+            Self::CliRedirect => {
+                "CLI-first (agent has shell access; commands rewritten to lean-ctx)"
+            }
+            Self::Hybrid => "MCP server + CLI redirect (agent has shell, both paths active)",
+        }
+    }
+}
+
+/// Auto-detect the best hook mode for a given agent key based on its shell capabilities.
+///
+/// Criteria (verified against provider docs May 2026):
+///   CliRedirect — agent has BeforeTool/PreToolUse hooks OR is CLI-native with reliable shell
+///   Hybrid      — agent has a shell/bash tool but no automatic hook interception; MCP + CLI rules
+///   Mcp         — agent has no reliable direct shell tool (e.g. IDE plugin only)
+pub fn recommend_hook_mode(agent_key: &str) -> HookMode {
+    match agent_key {
+        // BeforeTool / PreToolUse hook interception → CLI-redirect
+        // BeforeTool / PreToolUse hook interception → CLI-redirect
+        "crush" | "claude" | "claude-code" | "cursor" | "codex" | "opencode" | "gemini"
+        | "hermes" | "pi" | "qoder" => HookMode::CliRedirect,
+
+        // Shell/bash tool present (+ Cascade/hook support or not) → Hybrid (MCP + CLI rules)
+        "windsurf" | "amp" | "cline" | "roo" | "copilot" | "kiro" | "qwen" | "trae"
+        | "antigravity" | "amazonq" | "verdent" => HookMode::Hybrid,
+
+        // No reliable direct shell tool → MCP only
+        _ => HookMode::Mcp,
+    }
+}
 use agents::{
-    install_amp_hook, install_claude_hook, install_claude_hook_config, install_claude_hook_scripts,
-    install_claude_project_hooks, install_cline_rules, install_codex_hook, install_copilot_hook,
-    install_crush_hook, install_cursor_hook, install_cursor_hook_config,
-    install_cursor_hook_scripts, install_gemini_hook, install_gemini_hook_config,
-    install_gemini_hook_scripts, install_hermes_hook, install_jetbrains_hook, install_kiro_hook,
-    install_opencode_hook, install_pi_hook, install_qoder_hook, install_windsurf_rules,
+    install_amp_hook, install_claude_hook_config, install_claude_hook_scripts,
+    install_claude_hook_with_mode, install_claude_project_hooks, install_cline_rules,
+    install_codex_hook, install_copilot_hook, install_crush_hook_with_mode,
+    install_cursor_hook_config, install_cursor_hook_scripts, install_cursor_hook_with_mode,
+    install_gemini_hook, install_gemini_hook_config, install_gemini_hook_scripts,
+    install_hermes_hook_with_mode, install_jetbrains_hook, install_kiro_hook,
+    install_opencode_hook_with_mode, install_pi_hook_with_mode, install_qoder_hook_with_mode,
+    install_windsurf_rules,
 };
 use support::{
     ensure_codex_hooks_enabled, install_codex_instruction_docs, install_named_json_server,
@@ -207,6 +277,60 @@ const REDIRECT_SCRIPT_GENERIC: &str = r"#!/usr/bin/env bash
 exit 0
 ";
 
+pub(crate) const CLI_REDIRECT_RULES: &str = "\
+# lean-ctx — CLI-Redirect Mode
+
+PREFER lean-ctx CLI commands over MCP tools for token savings (no MCP schema overhead):
+
+| USE (via Shell/Bash) | INSTEAD OF (MCP) | Why |
+|---------------------|-------------------|-----|
+| `lean-ctx read <path>` | `ctx_read` | No MCP schema overhead, same caching |
+| `lean-ctx read <path> -m map` | `ctx_read(mode=\"map\")` | Compressed output via CLI |
+| `lean-ctx -c \"<cmd>\"` | `ctx_shell` | Pattern compression via CLI |
+| `lean-ctx grep <pattern> [path]` | `ctx_search` | Compact results via CLI |
+| `lean-ctx ls [path]` | `ctx_tree` | Directory maps via CLI |
+
+## Usage via Shell
+
+Run lean-ctx commands through your Shell/Bash tool:
+```
+lean-ctx read src/main.rs
+lean-ctx read src/main.rs -m signatures
+lean-ctx -c \"cargo test\"
+lean-ctx grep \"fn main\" src/
+lean-ctx ls src/
+```
+
+## Read modes (same as MCP):
+auto | full | map | signatures | diff | aggressive | entropy | task | reference | lines:N-M
+
+## File editing:
+Use native Edit/StrReplace — lean-ctx only handles READ operations.
+Write, Delete, Glob → use normally.
+";
+
+pub(crate) const HYBRID_RULES: &str = "\
+# lean-ctx — Hybrid Mode (MCP reads + CLI commands)
+
+Use MCP tools for reads (cache benefit), CLI commands for everything else (no schema overhead):
+
+## MCP tools (keep using):
+| Tool | Why MCP |
+|------|---------|
+| `ctx_read(path, mode)` | In-process cache, re-reads ~13 tokens |
+
+## CLI commands (via Shell/Bash):
+| USE (via Shell/Bash) | INSTEAD OF (MCP) | Why |
+|---------------------|-------------------|-----|
+| `lean-ctx -c \"<cmd>\"` | `ctx_shell` | No MCP schema overhead |
+| `lean-ctx grep <pattern> [path]` | `ctx_search` | No MCP schema overhead |
+| `lean-ctx ls [path]` | `ctx_tree` | No MCP schema overhead |
+
+## File editing:
+Use native Edit/StrReplace — lean-ctx only handles READ operations.
+Write, Delete, Glob → use normally.
+";
+
 pub fn install_project_rules() {
     if crate::core::config::Config::load().rules_scope_effective()
         == crate::core::config::RulesScope::Global
@@ -253,7 +377,9 @@ pub fn install_project_rules() {
         } else {
             write_file(&cursorrules, content);
         }
-        println!("Created/updated .cursorrules in project root.");
+        if !mcp_server_quiet_mode() {
+            eprintln!("Created/updated .cursorrules in project root.");
+        }
     }
 
     let claude_rules_dir = cwd.join(".claude").join("rules");
@@ -268,7 +394,9 @@ pub fn install_project_rules() {
             &claude_rules_file,
             crate::rules_inject::rules_dedicated_markdown(),
         );
-        println!("Created .claude/rules/lean-ctx.md (Claude Code project rules).");
+        if !mcp_server_quiet_mode() {
+            eprintln!("Created .claude/rules/lean-ctx.md (Claude Code project rules).");
+        }
     }
 
     install_claude_project_hooks(&cwd);
@@ -284,7 +412,9 @@ pub fn install_project_rules() {
         {
             let _ = std::fs::create_dir_all(&steering_dir);
             write_file(&steering_file, KIRO_STEERING_TEMPLATE);
-            println!("Created .kiro/steering/lean-ctx.md (Kiro steering).");
+            if !mcp_server_quiet_mode() {
+                eprintln!("Created .kiro/steering/lean-ctx.md (Kiro steering).");
+            }
         }
     }
 }
@@ -326,7 +456,9 @@ Full rules: @{PROJECT_LEAN_CTX_MD}\n\
     if !agents_md.exists() {
         let content = format!("# Agent Instructions\n\n{block}");
         write_file(&agents_md, &content);
-        println!("Created AGENTS.md in project root (lean-ctx reference only).");
+        if !mcp_server_quiet_mode() {
+            eprintln!("Created AGENTS.md in project root (lean-ctx reference only).");
+        }
         return;
     }
 
@@ -350,7 +482,9 @@ Full rules: @{PROJECT_LEAN_CTX_MD}\n\
     out.push('\n');
     out.push_str(&block);
     write_file(&agents_md, &out);
-    println!("Updated AGENTS.md (added lean-ctx reference block).");
+    if !mcp_server_quiet_mode() {
+        eprintln!("Updated AGENTS.md (added lean-ctx reference block).");
+    }
 }
 
 fn replace_marked_block(content: &str, start: &str, end: &str, replacement: &str) -> String {
@@ -433,28 +567,36 @@ The workspace has the `lean-ctx` MCP server installed. You MUST prefer lean-ctx 
 ";
 
 pub fn install_agent_hook(agent: &str, global: bool) {
+    install_agent_hook_with_mode(agent, global, HookMode::Mcp);
+}
+
+pub fn install_agent_hook_with_mode(agent: &str, global: bool, mode: HookMode) {
     let home = crate::core::home::resolve_home_dir().unwrap_or_default();
     match agent {
-        "claude" | "claude-code" => install_claude_hook(global),
-        "cursor" => install_cursor_hook(global),
+        "claude" | "claude-code" => install_claude_hook_with_mode(global, mode),
+        "cursor" => install_cursor_hook_with_mode(global, mode),
         "gemini" | "antigravity" => install_gemini_hook(),
         "codex" => install_codex_hook(),
         "windsurf" => install_windsurf_rules(global),
         "cline" | "roo" => install_cline_rules(global),
-        "copilot" => install_copilot_hook(global),
-        "pi" => install_pi_hook(global),
-        "qoder" => install_qoder_hook(),
-        "qoderwork" => {}
+        "copilot" | "vscode" => install_copilot_hook(global),
+        "pi" => install_pi_hook_with_mode(global, mode),
+        "qoder" => install_qoder_hook_with_mode(mode),
+        "qoderwork" => install_mcp_json_agent(
+            "QoderWork",
+            "~/.qoderwork/mcp.json",
+            &home.join(".qoderwork/mcp.json"),
+        ),
         "qwen" => install_mcp_json_agent(
             "Qwen Code",
-            "~/.qwen/mcp.json",
-            &home.join(".qwen/mcp.json"),
+            "~/.qwen/settings.json",
+            &home.join(".qwen/settings.json"),
         ),
         "trae" => install_mcp_json_agent("Trae", "~/.trae/mcp.json", &home.join(".trae/mcp.json")),
         "amazonq" => install_mcp_json_agent(
             "Amazon Q Developer",
-            "~/.aws/amazonq/mcp.json",
-            &home.join(".aws/amazonq/mcp.json"),
+            "~/.aws/amazonq/default.json",
+            &home.join(".aws/amazonq/default.json"),
         ),
         "jetbrains" => install_jetbrains_hook(),
         "kiro" => install_kiro_hook(),
@@ -463,18 +605,54 @@ pub fn install_agent_hook(agent: &str, global: bool) {
             "~/.verdent/mcp.json",
             &home.join(".verdent/mcp.json"),
         ),
-        "opencode" => install_opencode_hook(),
+        "opencode" => install_opencode_hook_with_mode(mode),
+        "amp" => install_amp_hook(),
+        "crush" => install_crush_hook_with_mode(mode),
+        "hermes" => install_hermes_hook_with_mode(global, mode),
+        "zed" => {
+            let zed_path = crate::core::editor_registry::zed_settings_path(&home);
+            let binary = resolve_binary_path();
+            let entry = full_server_entry(&binary);
+            install_named_json_server("Zed", "settings.json", &zed_path, "context_servers", entry);
+        }
         "aider" => {
             install_mcp_json_agent("Aider", "~/.aider/mcp.json", &home.join(".aider/mcp.json"));
         }
-        "amp" => install_amp_hook(),
-        "crush" => install_crush_hook(),
-        "hermes" => install_hermes_hook(global),
+        "continue" => install_mcp_json_agent(
+            "Continue",
+            "~/.continue/mcp.json",
+            &home.join(".continue/mcp.json"),
+        ),
+        "neovim" => install_mcp_json_agent(
+            "Neovim (mcphub.nvim)",
+            "~/.config/mcphub/servers.json",
+            &home.join(".config/mcphub/servers.json"),
+        ),
+        "emacs" => install_mcp_json_agent(
+            "Emacs (mcp.el)",
+            "~/.emacs.d/mcp.json",
+            &home.join(".emacs.d/mcp.json"),
+        ),
+        "sublime" => install_mcp_json_agent(
+            "Sublime Text",
+            "~/.config/sublime-text/mcp.json",
+            &home.join(".config/sublime-text/mcp.json"),
+        ),
         _ => {
             eprintln!("Unknown agent: {agent}");
-            eprintln!("  Supported: claude, cursor, gemini, codex, windsurf, cline, roo, copilot, pi, qoder, qoderwork, qwen, trae, amazonq, jetbrains, kiro, verdent, opencode, aider, amp, crush, antigravity, hermes");
+            eprintln!("  Supported: aider, amazonq, amp, antigravity, claude, cline, codex,");
+            eprintln!("    continue, copilot, crush, cursor, emacs, gemini, hermes, jetbrains,");
+            eprintln!("    kiro, neovim, opencode, pi, qoder, qoderwork, qwen, roo, sublime,");
+            eprintln!("    trae, verdent, vscode, windsurf, zed");
             std::process::exit(1);
         }
+    }
+}
+
+pub fn install_agent_project_hooks(agent: &str, cwd: &std::path::Path) {
+    match agent {
+        "claude" | "claude-code" => agents::install_claude_project_hooks(cwd),
+        _ => {}
     }
 }
 
@@ -510,14 +688,12 @@ fn full_server_entry(binary: &str) -> serde_json::Value {
     let data_dir = crate::core::data_dir::lean_ctx_data_dir()
         .map(|d| d.to_string_lossy().to_string())
         .unwrap_or_default();
-    let auto_approve = crate::core::editor_registry::auto_approve_tools();
     serde_json::json!({
         "command": binary,
         "env": {
             "LEAN_CTX_DATA_DIR": data_dir,
             "LEAN_CTX_FULL_TOOLS": "1"
-        },
-        "autoApprove": auto_approve
+        }
     })
 }
 

@@ -213,6 +213,7 @@ export class LeanCtxClient {
     const url = `${this.baseUrl}${path}`;
 
     let body: JsonValue | string | undefined;
+    let errorCode: string | undefined;
     let message = `HTTP ${res.status} ${method} ${url}`;
 
     const ct = res.headers.get("content-type") ?? "";
@@ -226,6 +227,10 @@ export class LeanCtxClient {
           parsed.error.trim()
         ) {
           message = parsed.error;
+        }
+        if (isJsonObject(parsed) && typeof parsed.error_code === "string") {
+          const c = parsed.error_code.trim();
+          if (c) errorCode = c;
         }
       } else {
         const txt = await res.text();
@@ -241,6 +246,7 @@ export class LeanCtxClient {
       method,
       url,
       message,
+      errorCode,
       body,
     });
   }

@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use crate::core::editor_registry::{ConfigType, EditorTarget, WriteAction, WriteOptions};
 use crate::core::portable_binary::resolve_portable_binary;
 use crate::core::setup_report::{PlatformInfo, SetupItem, SetupReport, SetupStepReport};
+use crate::hooks::{recommend_hook_mode, HookMode};
 use chrono::Utc;
 use std::ffi::OsString;
 
@@ -75,12 +76,27 @@ pub fn run_setup() {
     terminal_ui::print_setup_header();
 
     // Step 1: Shell hook (legacy aliases + universal shell hook)
-    terminal_ui::print_step_header(1, 7, "Shell Hook");
+    terminal_ui::print_step_header(1, 10, "Shell Hook");
     crate::cli::cmd_init(&["--global".to_string()]);
     crate::shell_hook::install_all(false);
 
-    // Step 2: Editor auto-detection + configuration
-    terminal_ui::print_step_header(2, 7, "AI Tool Detection");
+    // Step 2: Daemon (optional acceleration for CLI routing)
+    terminal_ui::print_step_header(2, 10, "Daemon");
+    #[cfg(unix)]
+    {
+        if crate::daemon::is_daemon_running() {
+            terminal_ui::print_status_ok("Daemon already running");
+        } else if let Err(e) = crate::daemon::start_daemon(&[]) {
+            terminal_ui::print_status_warn(&format!("Daemon start failed: {e}"));
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        terminal_ui::print_status_skip("Daemon supported on Unix only");
+    }
+
+    // Step 3: Editor auto-detection + configuration
+    terminal_ui::print_step_header(3, 10, "AI Tool Detection");
 
     let targets = crate::core::editor_registry::build_targets(&home);
     let mut newly_configured: Vec<&str> = Vec::new();
@@ -96,6 +112,40 @@ pub fn run_setup() {
             continue;
         }
 
+        let mode = if target.agent_key.is_empty() {
+            HookMode::Mcp
+        } else {
+            recommend_hook_mode(&target.agent_key)
+        };
+
+        if mode == HookMode::CliRedirect {
+            match crate::core::editor_registry::remove_lean_ctx_server(
+                target,
+                WriteOptions {
+                    overwrite_invalid: false,
+                },
+            ) {
+                Ok(res) => {
+                    let status_msg = format!(
+                        "{:<20} \x1b[36m{mode}\x1b[0m  \x1b[2m{short_path} (mcp=disabled)\x1b[0m",
+                        target.name
+                    );
+                    if res.action == WriteAction::Already {
+                        terminal_ui::print_status_ok(&status_msg);
+                        already_configured.push(target.name);
+                    } else {
+                        terminal_ui::print_status_new(&status_msg);
+                        newly_configured.push(target.name);
+                    }
+                }
+                Err(e) => {
+                    terminal_ui::print_status_warn(&format!("{}: {e}", target.name));
+                    errors.push(target.name);
+                }
+            }
+            continue;
+        }
+
         match crate::core::editor_registry::write_config_with_options(
             target,
             &binary,
@@ -105,14 +155,14 @@ pub fn run_setup() {
         ) {
             Ok(res) if res.action == WriteAction::Already => {
                 terminal_ui::print_status_ok(&format!(
-                    "{:<20} \x1b[2m{short_path}\x1b[0m",
+                    "{:<20} \x1b[36m{mode}\x1b[0m  \x1b[2m{short_path}\x1b[0m",
                     target.name
                 ));
                 already_configured.push(target.name);
             }
             Ok(_) => {
                 terminal_ui::print_status_new(&format!(
-                    "{:<20} \x1b[2m{short_path}\x1b[0m",
+                    "{:<20} \x1b[36m{mode}\x1b[0m  \x1b[2m{short_path}\x1b[0m",
                     target.name
                 ));
                 newly_configured.push(target.name);
@@ -139,8 +189,8 @@ pub fn run_setup() {
         );
     }
 
-    // Step 3: Agent rules injection
-    terminal_ui::print_step_header(3, 7, "Agent Rules");
+    // Step 4: Agent rules injection
+    terminal_ui::print_step_header(4, 10, "Agent Rules");
     let rules_result = crate::rules_inject::inject_all_rules(&home);
     for name in &rules_result.injected {
         terminal_ui::print_status_new(&format!("{name:<20} \x1b[2mrules injected\x1b[0m"));
@@ -162,16 +212,17 @@ pub fn run_setup() {
         terminal_ui::print_status_skip("No agent rules needed");
     }
 
-    // Legacy agent hooks
+    // Agent hooks (mode-aware)
     for target in &targets {
         if !target.detect_path.exists() || target.agent_key.is_empty() {
             continue;
         }
-        crate::hooks::install_agent_hook(&target.agent_key, true);
+        let mode = recommend_hook_mode(&target.agent_key);
+        crate::hooks::install_agent_hook_with_mode(&target.agent_key, true, mode);
     }
 
-    // Step 4: API Proxy configuration
-    terminal_ui::print_step_header(4, 7, "API Proxy");
+    // Step 5: API Proxy configuration
+    terminal_ui::print_step_header(5, 10, "API Proxy");
     crate::proxy_setup::install_proxy_env(&home, crate::proxy_setup::default_port(), false);
     println!();
     println!("  \x1b[2mStart proxy for maximum token savings:\x1b[0m");
@@ -179,8 +230,22 @@ pub fn run_setup() {
     println!("  \x1b[2mEnable autostart:\x1b[0m");
     println!("    \x1b[1mlean-ctx proxy start --autostart\x1b[0m");
 
-    // Step 5: Data directory + diagnostics
-    terminal_ui::print_step_header(5, 7, "Environment Check");
+    // Step 6: SKILL.md installation
+    terminal_ui::print_step_header(6, 10, "Skill Files");
+    let skill_result = install_skill_files(&home);
+    for (name, installed) in &skill_result {
+        if *installed {
+            terminal_ui::print_status_new(&format!("{name:<20} \x1b[2mSKILL.md installed\x1b[0m"));
+        } else {
+            terminal_ui::print_status_ok(&format!("{name:<20} \x1b[2mSKILL.md up-to-date\x1b[0m"));
+        }
+    }
+    if skill_result.is_empty() {
+        terminal_ui::print_status_skip("No skill directories to install");
+    }
+
+    // Step 7: Data directory + diagnostics
+    terminal_ui::print_step_header(7, 10, "Environment Check");
     let lean_dir = home.join(".lean-ctx");
     if lean_dir.exists() {
         terminal_ui::print_status_ok("~/.lean-ctx/ ready");
@@ -190,8 +255,8 @@ pub fn run_setup() {
     }
     crate::doctor::run_compact();
 
-    // Step 6: Data sharing
-    terminal_ui::print_step_header(6, 7, "Help Improve lean-ctx");
+    // Step 8: Data sharing
+    terminal_ui::print_step_header(8, 10, "Help Improve lean-ctx");
     println!("  Share anonymous compression stats to make lean-ctx better.");
     println!("  \x1b[1mNo code, no file names, no personal data — ever.\x1b[0m");
     println!();
@@ -224,9 +289,31 @@ pub fn run_setup() {
         terminal_ui::print_status_skip("Skipped — enable later with: lean-ctx config");
     }
 
-    // Step 7: Premium Features Configuration
-    terminal_ui::print_step_header(7, 7, "Premium Features");
+    // Step 9: Premium Features Configuration
+    terminal_ui::print_step_header(9, 10, "Premium Features");
     configure_premium_features(&home);
+
+    // Step 10: Code Intelligence — build graph in background
+    terminal_ui::print_step_header(10, 10, "Code Intelligence");
+    let cwd = std::env::current_dir().ok();
+    let is_project = cwd.as_ref().is_some_and(|d| {
+        d.join(".git").exists()
+            || d.join("Cargo.toml").exists()
+            || d.join("package.json").exists()
+            || d.join("go.mod").exists()
+    });
+    if is_project {
+        println!("  \x1b[2mBuilding code graph for graph-aware reads, impact analysis,\x1b[0m");
+        println!("  \x1b[2mand smart search fusion in the background...\x1b[0m");
+        if let Some(ref root) = cwd {
+            spawn_index_build_background(root);
+        }
+        terminal_ui::print_status_ok("Graph build started (background)");
+    } else {
+        println!("  \x1b[2mRun `lean-ctx impact build` inside any git project to enable\x1b[0m");
+        println!("  \x1b[2mgraph-aware reads, impact analysis, and smart search fusion.\x1b[0m");
+    }
+    println!();
 
     // Summary
     println!();
@@ -289,7 +376,7 @@ pub fn run_setup() {
         println!("  {cyan}2.{rst} {yellow}{bold}Restart your IDE / AI tool:{rst}");
         println!("     {bold}{}{rst}", tools_to_restart.join(", "));
         println!(
-            "     {dim}The MCP connection must be re-established for changes to take effect.{rst}"
+            "     {dim}Changes take effect after a full restart (MCP may be enabled or disabled depending on mode).{rst}"
         );
         println!("     {dim}Close and re-open the application completely.{rst}");
     } else if !already_configured.is_empty() {
@@ -380,6 +467,71 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
     }
     steps.push(shell_step);
 
+    // Step: Daemon (optional acceleration for CLI routing)
+    let mut daemon_step = SetupStepReport {
+        name: "daemon".to_string(),
+        ok: true,
+        items: Vec::new(),
+        warnings: Vec::new(),
+        errors: Vec::new(),
+    };
+    #[cfg(unix)]
+    {
+        if crate::daemon::is_daemon_running() {
+            daemon_step.items.push(SetupItem {
+                name: "serve --daemon".to_string(),
+                status: "already".to_string(),
+                path: Some(
+                    crate::daemon::daemon_socket_path()
+                        .to_string_lossy()
+                        .to_string(),
+                ),
+                note: Some("daemon already running".to_string()),
+            });
+        } else {
+            match crate::daemon::start_daemon(&[]) {
+                Ok(()) => {
+                    daemon_step.items.push(SetupItem {
+                        name: "serve --daemon".to_string(),
+                        status: "started".to_string(),
+                        path: Some(
+                            crate::daemon::daemon_socket_path()
+                                .to_string_lossy()
+                                .to_string(),
+                        ),
+                        note: Some("CLI commands can route via UDS when running".to_string()),
+                    });
+                }
+                Err(e) => {
+                    daemon_step.ok = false;
+                    daemon_step
+                        .warnings
+                        .push(format!("daemon start failed: {e}"));
+                    daemon_step.items.push(SetupItem {
+                        name: "serve --daemon".to_string(),
+                        status: "error".to_string(),
+                        path: Some(
+                            crate::daemon::daemon_socket_path()
+                                .to_string_lossy()
+                                .to_string(),
+                        ),
+                        note: Some(e.to_string()),
+                    });
+                }
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        daemon_step.items.push(SetupItem {
+            name: "serve --daemon".to_string(),
+            status: "skipped".to_string(),
+            path: None,
+            note: Some("daemon supported on Unix only".to_string()),
+        });
+    }
+    steps.push(daemon_step);
+
     // Step: Editor MCP config
     let mut editor_step = SetupStepReport {
         name: "editors".to_string(),
@@ -402,6 +554,55 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
             continue;
         }
 
+        let mode = if target.agent_key.is_empty() {
+            HookMode::Mcp
+        } else {
+            recommend_hook_mode(&target.agent_key)
+        };
+
+        // CLI-redirect means: do NOT configure MCP (avoid tool schema overhead).
+        // If lean-ctx was previously configured, proactively remove it from the editor config.
+        if mode == HookMode::CliRedirect {
+            let res = crate::core::editor_registry::remove_lean_ctx_server(
+                target,
+                WriteOptions {
+                    overwrite_invalid: opts.fix,
+                },
+            );
+            match res {
+                Ok(w) => {
+                    let note_parts: Vec<String> = [
+                        Some(format!("mode={mode}")),
+                        Some("mcp=disabled".to_string()),
+                        w.note,
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .collect();
+                    editor_step.items.push(SetupItem {
+                        name: target.name.to_string(),
+                        status: match w.action {
+                            WriteAction::Created => "created".to_string(),
+                            WriteAction::Updated => "updated".to_string(),
+                            WriteAction::Already => "already".to_string(),
+                        },
+                        path: Some(short_path),
+                        note: Some(note_parts.join("; ")),
+                    });
+                }
+                Err(e) => {
+                    editor_step.ok = false;
+                    editor_step.items.push(SetupItem {
+                        name: target.name.to_string(),
+                        status: "error".to_string(),
+                        path: Some(short_path),
+                        note: Some(format!("mode={mode}; mcp=disable_failed; {e}")),
+                    });
+                }
+            }
+            continue;
+        }
+
         let res = crate::core::editor_registry::write_config_with_options(
             target,
             &binary,
@@ -411,6 +612,10 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
         );
         match res {
             Ok(w) => {
+                let note_parts: Vec<String> = [Some(format!("mode={mode}")), w.note]
+                    .into_iter()
+                    .flatten()
+                    .collect();
                 editor_step.items.push(SetupItem {
                     name: target.name.to_string(),
                     status: match w.action {
@@ -419,7 +624,7 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
                         WriteAction::Already => "already".to_string(),
                     },
                     path: Some(short_path),
-                    note: w.note,
+                    note: Some(note_parts.join("; ")),
                 });
             }
             Err(e) => {
@@ -474,7 +679,28 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
     }
     steps.push(rules_step);
 
-    // Step: Agent-specific hooks
+    // Step: Skill files
+    let mut skill_step = SetupStepReport {
+        name: "skill_files".to_string(),
+        ok: true,
+        items: Vec::new(),
+        warnings: Vec::new(),
+        errors: Vec::new(),
+    };
+    let skill_results = crate::rules_inject::install_all_skills(&home);
+    for (name, is_new) in &skill_results {
+        skill_step.items.push(SetupItem {
+            name: name.clone(),
+            status: if *is_new { "installed" } else { "already" }.to_string(),
+            path: None,
+            note: Some("SKILL.md".to_string()),
+        });
+    }
+    if !skill_step.items.is_empty() {
+        steps.push(skill_step);
+    }
+
+    // Step: Agent-specific hooks (all detected agents)
     let mut hooks_step = SetupStepReport {
         name: "agent_hooks".to_string(),
         ok: true,
@@ -483,45 +709,19 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
         errors: Vec::new(),
     };
     for target in &targets {
-        if !target.detect_path.exists() {
+        if !target.detect_path.exists() || target.agent_key.is_empty() {
             continue;
         }
-        match target.agent_key.as_str() {
-            "codex" => {
-                crate::hooks::agents::install_codex_hook();
-                hooks_step.items.push(SetupItem {
-                    name: "Codex integration".to_string(),
-                    status: "installed".to_string(),
-                    path: Some("~/.codex/".to_string()),
-                    note: Some(
-                        "Installs AGENTS/MCP guidance and Codex-compatible SessionStart/PreToolUse hooks."
-                            .to_string(),
-                    ),
-                });
-            }
-            "cursor" => {
-                let hooks_path = home.join(".cursor/hooks.json");
-                if !hooks_path.exists() {
-                    crate::hooks::agents::install_cursor_hook(true);
-                    hooks_step.items.push(SetupItem {
-                        name: "Cursor hooks".to_string(),
-                        status: "installed".to_string(),
-                        path: Some("~/.cursor/hooks.json".to_string()),
-                        note: None,
-                    });
-                }
-            }
-            "qoder" => {
-                crate::hooks::agents::install_qoder_hook();
-                hooks_step.items.push(SetupItem {
-                    name: "Qoder hooks".to_string(),
-                    status: "installed".to_string(),
-                    path: Some("~/.qoder/settings.json".to_string()),
-                    note: Some("Installs PreToolUse shell rewrite hooks.".to_string()),
-                });
-            }
-            _ => {}
-        }
+        let mode = recommend_hook_mode(&target.agent_key);
+        crate::hooks::install_agent_hook_with_mode(&target.agent_key, true, mode);
+        hooks_step.items.push(SetupItem {
+            name: format!("{} hooks", target.name),
+            status: "installed".to_string(),
+            path: Some(target.detect_path.to_string_lossy().to_string()),
+            note: Some(format!(
+                "mode={mode}; merge-based install/repair (preserves other hooks/plugins)"
+            )),
+        });
     }
     if !hooks_step.items.is_empty() {
         steps.push(hooks_step);
@@ -566,6 +766,17 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
     }
     steps.push(env_step);
 
+    // Auto-build property graph if inside any recognized project
+    if let Ok(cwd) = std::env::current_dir() {
+        let is_project = cwd.join(".git").exists()
+            || cwd.join("Cargo.toml").exists()
+            || cwd.join("package.json").exists()
+            || cwd.join("go.mod").exists();
+        if is_project {
+            spawn_index_build_background(&cwd);
+        }
+    }
+
     let finished_at = Utc::now();
     let success = steps.iter().all(|s| s.ok);
     let report = SetupReport {
@@ -589,6 +800,20 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
     crate::config_io::write_atomic(&path, &content)?;
 
     Ok(report)
+}
+
+fn spawn_index_build_background(root: &std::path::Path) {
+    let binary = std::env::current_exe().map_or_else(
+        |_| resolve_portable_binary(),
+        |p| p.to_string_lossy().to_string(),
+    );
+    let _ = std::process::Command::new(&binary)
+        .args(["index", "build-graph", "--root"])
+        .arg(root)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .stdin(std::process::Stdio::null())
+        .spawn();
 }
 
 pub fn configure_agent_mcp(agent: &str) -> Result<(), String> {
@@ -629,6 +854,8 @@ fn agent_mcp_targets(agent: &str, home: &std::path::Path) -> Result<Vec<EditorTa
             config_type,
         });
     };
+
+    let pi_cfg = home.join(".pi").join("agent").join("mcp.json");
 
     match agent {
         "cursor" => push(
@@ -687,22 +914,17 @@ fn agent_mcp_targets(agent: &str, home: &std::path::Path) -> Result<Vec<EditorTa
             home.join(".config/crush/crush.json"),
             ConfigType::Crush,
         ),
-        "pi" => push(
-            &mut targets,
-            "Pi Coding Agent",
-            home.join(".pi/agent/mcp.json"),
-            ConfigType::McpJson,
-        ),
+        "pi" => push(&mut targets, "Pi Coding Agent", pi_cfg, ConfigType::McpJson),
         "qoder" => {
-            for path in crate::core::editor_registry::qoder_mcp_paths(home) {
-                push(&mut targets, "Qoder", path, ConfigType::QoderMcp);
+            for path in crate::core::editor_registry::qoder_all_mcp_paths(home) {
+                push(&mut targets, "Qoder", path, ConfigType::QoderSettings);
             }
         }
         "qoderwork" => push(
             &mut targets,
             "QoderWork",
             crate::core::editor_registry::qoderwork_mcp_path(home),
-            ConfigType::QoderMcp,
+            ConfigType::McpJson,
         ),
         "cline" => push(
             &mut targets,
@@ -734,7 +956,7 @@ fn agent_mcp_targets(agent: &str, home: &std::path::Path) -> Result<Vec<EditorTa
         "qwen" => push(
             &mut targets,
             "Qwen Code",
-            home.join(".qwen/mcp.json"),
+            home.join(".qwen/settings.json"),
             ConfigType::McpJson,
         ),
         "trae" => push(
@@ -746,7 +968,7 @@ fn agent_mcp_targets(agent: &str, home: &std::path::Path) -> Result<Vec<EditorTa
         "amazonq" => push(
             &mut targets,
             "Amazon Q Developer",
-            home.join(".aws/amazonq/mcp.json"),
+            home.join(".aws/amazonq/default.json"),
             ConfigType::McpJson,
         ),
         "opencode" => {
@@ -767,17 +989,53 @@ fn agent_mcp_targets(agent: &str, home: &std::path::Path) -> Result<Vec<EditorTa
                 ConfigType::OpenCode,
             );
         }
+        "hermes" => push(
+            &mut targets,
+            "Hermes Agent",
+            home.join(".hermes/config.yaml"),
+            ConfigType::HermesYaml,
+        ),
+        "vscode" => push(
+            &mut targets,
+            "VS Code",
+            crate::core::editor_registry::vscode_mcp_path(),
+            ConfigType::VsCodeMcp,
+        ),
+        "zed" => push(
+            &mut targets,
+            "Zed",
+            crate::core::editor_registry::zed_settings_path(home),
+            ConfigType::Zed,
+        ),
         "aider" => push(
             &mut targets,
             "Aider",
             home.join(".aider/mcp.json"),
             ConfigType::McpJson,
         ),
-        "hermes" => push(
+        "continue" => push(
             &mut targets,
-            "Hermes Agent",
-            home.join(".hermes/config.yaml"),
-            ConfigType::HermesYaml,
+            "Continue",
+            home.join(".continue/mcp.json"),
+            ConfigType::McpJson,
+        ),
+        "neovim" => push(
+            &mut targets,
+            "Neovim (mcphub.nvim)",
+            home.join(".config/mcphub/servers.json"),
+            ConfigType::McpJson,
+        ),
+        "emacs" => push(
+            &mut targets,
+            "Emacs (mcp.el)",
+            home.join(".emacs.d/mcp.json"),
+            ConfigType::McpJson,
+        ),
+        "sublime" => push(
+            &mut targets,
+            "Sublime Text",
+            home.join(".config/sublime-text/mcp.json"),
+            ConfigType::McpJson,
         ),
         _ => {
             return Err(format!("Unknown agent '{agent}'"));
@@ -785,6 +1043,225 @@ fn agent_mcp_targets(agent: &str, home: &std::path::Path) -> Result<Vec<EditorTa
     }
 
     Ok(targets)
+}
+
+pub fn disable_agent_mcp(agent: &str, overwrite_invalid: bool) -> Result<(), String> {
+    let home = dirs::home_dir().ok_or_else(|| "Cannot determine home directory".to_string())?;
+
+    let mut targets = Vec::<EditorTarget>::new();
+
+    let push = |targets: &mut Vec<EditorTarget>,
+                name: &'static str,
+                config_path: PathBuf,
+                config_type: ConfigType| {
+        targets.push(EditorTarget {
+            name,
+            agent_key: agent.to_string(),
+            detect_path: PathBuf::from("/nonexistent"),
+            config_path,
+            config_type,
+        });
+    };
+
+    let pi_cfg = home.join(".pi").join("agent").join("mcp.json");
+
+    match agent {
+        "cursor" => push(
+            &mut targets,
+            "Cursor",
+            home.join(".cursor/mcp.json"),
+            ConfigType::McpJson,
+        ),
+        "claude" | "claude-code" => push(
+            &mut targets,
+            "Claude Code",
+            crate::core::editor_registry::claude_mcp_json_path(&home),
+            ConfigType::McpJson,
+        ),
+        "windsurf" => push(
+            &mut targets,
+            "Windsurf",
+            home.join(".codeium/windsurf/mcp_config.json"),
+            ConfigType::McpJson,
+        ),
+        "codex" => push(
+            &mut targets,
+            "Codex CLI",
+            home.join(".codex/config.toml"),
+            ConfigType::Codex,
+        ),
+        "gemini" => {
+            push(
+                &mut targets,
+                "Gemini CLI",
+                home.join(".gemini/settings.json"),
+                ConfigType::GeminiSettings,
+            );
+            push(
+                &mut targets,
+                "Antigravity",
+                home.join(".gemini/antigravity/mcp_config.json"),
+                ConfigType::McpJson,
+            );
+        }
+        "antigravity" => push(
+            &mut targets,
+            "Antigravity",
+            home.join(".gemini/antigravity/mcp_config.json"),
+            ConfigType::McpJson,
+        ),
+        "copilot" => push(
+            &mut targets,
+            "VS Code / Copilot",
+            crate::core::editor_registry::vscode_mcp_path(),
+            ConfigType::VsCodeMcp,
+        ),
+        "crush" => push(
+            &mut targets,
+            "Crush",
+            home.join(".config/crush/crush.json"),
+            ConfigType::Crush,
+        ),
+        "pi" => push(&mut targets, "Pi Coding Agent", pi_cfg, ConfigType::McpJson),
+        "qoder" => {
+            for path in crate::core::editor_registry::qoder_all_mcp_paths(&home) {
+                push(&mut targets, "Qoder", path, ConfigType::QoderSettings);
+            }
+        }
+        "qoderwork" => push(
+            &mut targets,
+            "QoderWork",
+            crate::core::editor_registry::qoderwork_mcp_path(&home),
+            ConfigType::McpJson,
+        ),
+        "cline" => push(
+            &mut targets,
+            "Cline",
+            crate::core::editor_registry::cline_mcp_path(),
+            ConfigType::McpJson,
+        ),
+        "roo" => push(
+            &mut targets,
+            "Roo Code",
+            crate::core::editor_registry::roo_mcp_path(),
+            ConfigType::McpJson,
+        ),
+        "kiro" => push(
+            &mut targets,
+            "AWS Kiro",
+            home.join(".kiro/settings/mcp.json"),
+            ConfigType::McpJson,
+        ),
+        "verdent" => push(
+            &mut targets,
+            "Verdent",
+            home.join(".verdent/mcp.json"),
+            ConfigType::McpJson,
+        ),
+        "jetbrains" | "amp" => {
+            // Not supported for disable via this helper.
+        }
+        "qwen" => push(
+            &mut targets,
+            "Qwen Code",
+            home.join(".qwen/settings.json"),
+            ConfigType::McpJson,
+        ),
+        "trae" => push(
+            &mut targets,
+            "Trae",
+            home.join(".trae/mcp.json"),
+            ConfigType::McpJson,
+        ),
+        "amazonq" => push(
+            &mut targets,
+            "Amazon Q Developer",
+            home.join(".aws/amazonq/default.json"),
+            ConfigType::McpJson,
+        ),
+        "opencode" => {
+            #[cfg(windows)]
+            let opencode_path = if let Ok(appdata) = std::env::var("APPDATA") {
+                std::path::PathBuf::from(appdata)
+                    .join("opencode")
+                    .join("opencode.json")
+            } else {
+                home.join(".config/opencode/opencode.json")
+            };
+            #[cfg(not(windows))]
+            let opencode_path = home.join(".config/opencode/opencode.json");
+            push(
+                &mut targets,
+                "OpenCode",
+                opencode_path,
+                ConfigType::OpenCode,
+            );
+        }
+        "hermes" => push(
+            &mut targets,
+            "Hermes Agent",
+            home.join(".hermes/config.yaml"),
+            ConfigType::HermesYaml,
+        ),
+        "vscode" => push(
+            &mut targets,
+            "VS Code",
+            crate::core::editor_registry::vscode_mcp_path(),
+            ConfigType::VsCodeMcp,
+        ),
+        "zed" => push(
+            &mut targets,
+            "Zed",
+            crate::core::editor_registry::zed_settings_path(&home),
+            ConfigType::Zed,
+        ),
+        "aider" => push(
+            &mut targets,
+            "Aider",
+            home.join(".aider/mcp.json"),
+            ConfigType::McpJson,
+        ),
+        "continue" => push(
+            &mut targets,
+            "Continue",
+            home.join(".continue/mcp.json"),
+            ConfigType::McpJson,
+        ),
+        "neovim" => push(
+            &mut targets,
+            "Neovim (mcphub.nvim)",
+            home.join(".config/mcphub/servers.json"),
+            ConfigType::McpJson,
+        ),
+        "emacs" => push(
+            &mut targets,
+            "Emacs (mcp.el)",
+            home.join(".emacs.d/mcp.json"),
+            ConfigType::McpJson,
+        ),
+        "sublime" => push(
+            &mut targets,
+            "Sublime Text",
+            home.join(".config/sublime-text/mcp.json"),
+            ConfigType::McpJson,
+        ),
+        _ => {
+            return Err(format!("Unknown agent '{agent}'"));
+        }
+    }
+
+    for t in &targets {
+        crate::core::editor_registry::remove_lean_ctx_server(
+            t,
+            WriteOptions { overwrite_invalid },
+        )?;
+    }
+
+    Ok(())
+}
+
+pub fn install_skill_files(home: &std::path::Path) -> Vec<(String, bool)> {
+    crate::rules_inject::install_all_skills(home)
 }
 
 fn install_kiro_steering(home: &std::path::Path) {
@@ -955,6 +1432,6 @@ mod tests {
         );
         assert!(targets
             .iter()
-            .all(|t| t.config_type == ConfigType::QoderMcp));
+            .all(|t| t.config_type == ConfigType::QoderSettings));
     }
 }

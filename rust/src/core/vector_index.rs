@@ -60,7 +60,7 @@ pub struct BM25Index {
     pub files: HashMap<String, IndexedFileState>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchResult {
     pub chunk_idx: usize,
     pub score: f64,
@@ -259,6 +259,10 @@ impl BM25Index {
             b.score
                 .partial_cmp(&a.score)
                 .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.file_path.cmp(&b.file_path))
+                .then_with(|| a.symbol_name.cmp(&b.symbol_name))
+                .then_with(|| a.start_line.cmp(&b.start_line))
+                .then_with(|| a.end_line.cmp(&b.end_line))
         });
         results.truncate(top_k);
         results
@@ -758,6 +762,39 @@ mod tests {
         let results = index.search("jwt token validation", 5);
         assert!(!results.is_empty());
         assert_eq!(results[0].symbol_name, "validate_token");
+    }
+
+    #[test]
+    fn bm25_search_sorts_ties_deterministically() {
+        let mut index = BM25Index::new();
+
+        // Insert in reverse path order to ensure the sort tie-break matters.
+        index.add_chunk(CodeChunk {
+            file_path: "b.rs".into(),
+            symbol_name: "same".into(),
+            kind: ChunkKind::Function,
+            start_line: 1,
+            end_line: 1,
+            content: "fn same() {}".into(),
+            tokens: tokenize("same token"),
+            token_count: 2,
+        });
+        index.add_chunk(CodeChunk {
+            file_path: "a.rs".into(),
+            symbol_name: "same".into(),
+            kind: ChunkKind::Function,
+            start_line: 1,
+            end_line: 1,
+            content: "fn same() {}".into(),
+            tokens: tokenize("same token"),
+            token_count: 2,
+        });
+        index.finalize();
+
+        let results = index.search("same", 10);
+        assert!(results.len() >= 2);
+        assert_eq!(results[0].file_path, "a.rs");
+        assert_eq!(results[1].file_path, "b.rs");
     }
 
     #[test]

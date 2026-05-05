@@ -24,7 +24,9 @@ pub fn exec_argv(args: &[String]) -> i32 {
     let cfg = config::Config::load();
 
     if super::compress::is_excluded_command(&joined, &cfg.excluded_commands) {
-        return exec_direct(args);
+        let code = exec_direct(args);
+        stats::record(&joined, 0, 0);
+        return code;
     }
 
     let code = exec_direct(args);
@@ -74,7 +76,9 @@ pub fn exec(command: &str) -> i32 {
         if io::stdout().is_terminal() {
             return exec_inherit_tracked(command, &shell, &shell_flag);
         }
-        return exec_inherit(command, &shell, &shell_flag);
+        let code = exec_inherit(command, &shell, &shell_flag);
+        stats::record(command, 0, 0);
+        return code;
     }
 
     exec_buffered(command, &shell, &shell_flag, &cfg)

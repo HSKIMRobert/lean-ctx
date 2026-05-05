@@ -35,9 +35,13 @@ pub struct ToolCost {
     pub tool_name: String,
     pub total_input_tokens: u64,
     pub total_output_tokens: u64,
+    #[serde(default)]
+    pub total_cached_tokens: u64,
     pub total_calls: u64,
     pub avg_input_tokens: f64,
     pub avg_output_tokens: f64,
+    #[serde(default)]
+    pub avg_cached_tokens: f64,
     pub cost_usd: f64,
 }
 
@@ -49,6 +53,8 @@ pub struct SessionCostSnapshot {
     pub model_key: Option<String>,
     pub total_input: u64,
     pub total_output: u64,
+    #[serde(default)]
+    pub total_cached: u64,
     pub total_saved: u64,
     pub cost_usd: f64,
     pub duration_secs: u64,
@@ -83,11 +89,14 @@ impl CostStore {
         tool_name: &str,
         input_tokens: u64,
         output_tokens: u64,
+        cached_tokens: u64,
     ) {
         let now = Utc::now().to_rfc3339();
         let pricing = crate::core::gain::model_pricing::ModelPricing::load();
         let quote = pricing.quote_from_env_or_agent_type(agent_type);
-        let cost = quote.cost.estimate_usd(input_tokens, output_tokens, 0, 0);
+        let cost = quote
+            .cost
+            .estimate_usd(input_tokens, output_tokens, 0, cached_tokens);
 
         let agent = self
             .agents
@@ -100,6 +109,7 @@ impl CostStore {
             });
         agent.total_input_tokens += input_tokens;
         agent.total_output_tokens += output_tokens;
+        agent.total_cached_tokens += cached_tokens;
         agent.total_calls += 1;
         agent.cost_usd += cost;
         agent.last_seen = Some(now.clone());
@@ -116,11 +126,13 @@ impl CostStore {
             });
         tool.total_input_tokens += input_tokens;
         tool.total_output_tokens += output_tokens;
+        tool.total_cached_tokens += cached_tokens;
         tool.total_calls += 1;
         tool.cost_usd += cost;
         if tool.total_calls > 0 {
             tool.avg_input_tokens = tool.total_input_tokens as f64 / tool.total_calls as f64;
             tool.avg_output_tokens = tool.total_output_tokens as f64 / tool.total_calls as f64;
+            tool.avg_cached_tokens = tool.total_cached_tokens as f64 / tool.total_calls as f64;
         }
 
         self.updated_at = Some(now);
@@ -161,10 +173,11 @@ impl CostStore {
         self.agents.values().map(|a| a.cost_usd).sum()
     }
 
-    pub fn total_tokens(&self) -> (u64, u64) {
+    pub fn total_tokens(&self) -> (u64, u64, u64) {
         let input: u64 = self.agents.values().map(|a| a.total_input_tokens).sum();
         let output: u64 = self.agents.values().map(|a| a.total_output_tokens).sum();
-        (input, output)
+        let cached: u64 = self.agents.values().map(|a| a.total_cached_tokens).sum();
+        (input, output, cached)
     }
 
     pub fn add_session_snapshot(
@@ -187,6 +200,7 @@ impl CostStore {
             model_key,
             total_input: input,
             total_output: output,
+            total_cached: 0,
             total_saved: saved,
             cost_usd: cost,
             duration_secs,
@@ -235,7 +249,7 @@ fn save_to_disk(store: &CostStore) -> std::io::Result<()> {
 
 pub fn format_cost_report(store: &CostStore, limit: usize) -> String {
     let mut lines = Vec::new();
-    let (total_in, total_out) = store.total_tokens();
+    let (total_in, total_out, total_cached) = store.total_tokens();
     let total_cost = store.total_cost();
 
     lines.push(format!(
@@ -244,7 +258,7 @@ pub fn format_cost_report(store: &CostStore, limit: usize) -> String {
         store.tools.len()
     ));
     lines.push(format!(
-        "Total: {total_in} input + {total_out} output tokens = ${total_cost:.4}"
+        "Total: {total_in} input + {total_out} output + {total_cached} cached tokens = ${total_cost:.4}"
     ));
     if let Ok(m) = std::env::var("LEAN_CTX_MODEL").or_else(|_| std::env::var("LCTX_MODEL")) {
         if !m.trim().is_empty() {
@@ -267,13 +281,14 @@ pub fn format_cost_report(store: &CostStore, limit: usize) -> String {
         lines.push("Top Agents by Cost:".to_string());
         for (i, agent) in top_agents.iter().enumerate() {
             lines.push(format!(
-                "  {}. {} ({}) — {} calls, {} in + {} out tok, ${:.4}{}",
+                "  {}. {} ({}) — {} calls, {} in + {} out + {} cached tok, ${:.4}{}",
                 i + 1,
                 agent.agent_id,
                 agent.agent_type,
                 agent.total_calls,
                 agent.total_input_tokens,
                 agent.total_output_tokens,
+                agent.total_cached_tokens,
                 agent.cost_usd,
                 agent
                     .model_key
@@ -290,12 +305,13 @@ pub fn format_cost_report(store: &CostStore, limit: usize) -> String {
         lines.push("Top Tools by Cost:".to_string());
         for (i, tool) in top_tools.iter().enumerate() {
             lines.push(format!(
-                "  {}. {} — {} calls, avg {:.0} in + {:.0} out tok, ${:.4}",
+                "  {}. {} — {} calls, avg {:.0} in + {:.0} out + {:.0} cached tok, ${:.4}",
                 i + 1,
                 tool.tool_name,
                 tool.total_calls,
                 tool.avg_input_tokens,
                 tool.avg_output_tokens,
+                tool.avg_cached_tokens,
                 tool.cost_usd
             ));
         }
@@ -317,9 +333,9 @@ mod tests {
     #[test]
     fn record_and_query() {
         let mut store = CostStore::default();
-        store.record_tool_call("agent-1", "mcp", "ctx_read", 5000, 200);
-        store.record_tool_call("agent-1", "mcp", "ctx_read", 3000, 150);
-        store.record_tool_call("agent-2", "cursor", "ctx_shell", 1000, 100);
+        store.record_tool_call("agent-1", "mcp", "ctx_read", 5000, 200, 0);
+        store.record_tool_call("agent-1", "mcp", "ctx_read", 3000, 150, 500);
+        store.record_tool_call("agent-2", "cursor", "ctx_shell", 1000, 100, 0);
 
         assert_eq!(store.agents.len(), 2);
         assert_eq!(store.tools.len(), 2);
@@ -327,6 +343,7 @@ mod tests {
         let agent1 = &store.agents["agent-1"];
         assert_eq!(agent1.total_calls, 2);
         assert_eq!(agent1.total_input_tokens, 8000);
+        assert_eq!(agent1.total_cached_tokens, 500);
         assert_eq!(*agent1.tools_used.get("ctx_read").unwrap(), 2);
 
         let top = store.top_agents(5);
@@ -336,8 +353,8 @@ mod tests {
     #[test]
     fn format_report() {
         let mut store = CostStore::default();
-        store.record_tool_call("agent-a", "mcp", "ctx_read", 10000, 500);
-        store.record_tool_call("agent-b", "cursor", "ctx_shell", 2000, 100);
+        store.record_tool_call("agent-a", "mcp", "ctx_read", 10000, 500, 1000);
+        store.record_tool_call("agent-b", "cursor", "ctx_shell", 2000, 100, 0);
 
         let report = format_cost_report(&store, 5);
         assert!(report.contains("Cost Attribution Report"));

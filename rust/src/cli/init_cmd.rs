@@ -14,9 +14,28 @@ macro_rules! qprintln {
 
 pub fn cmd_init(args: &[String]) {
     let global = args.iter().any(|a| a == "--global" || a == "-g");
+    let project = args.iter().any(|a| a == "--project");
     let dry_run = args.iter().any(|a| a == "--dry-run");
     let no_hook = args.iter().any(|a| a == "--no-shell-hook")
         || crate::core::config::Config::load().shell_hook_disabled_effective();
+
+    let explicit_mode = args
+        .windows(2)
+        .find(|w| w[0] == "--mode")
+        .and_then(|w| crate::hooks::HookMode::from_str_loose(&w[1]));
+
+    if args.windows(2).any(|w| w[0] == "--mode")
+        && !args
+            .windows(2)
+            .any(|w| w[0] == "--mode" && crate::hooks::HookMode::from_str_loose(&w[1]).is_some())
+    {
+        let bad = args
+            .windows(2)
+            .find(|w| w[0] == "--mode")
+            .map_or("?", |w| w[1].as_str());
+        eprintln!("Unknown hook mode: '{bad}'. Valid: mcp, cli-redirect, hybrid");
+        std::process::exit(1);
+    }
 
     let agents: Vec<&str> = args
         .windows(2)
@@ -25,10 +44,20 @@ pub fn cmd_init(args: &[String]) {
         .collect();
 
     if !agents.is_empty() {
+        let cwd = std::env::current_dir().unwrap_or_default();
         for agent_name in &agents {
-            crate::hooks::install_agent_hook(agent_name, global);
-            if let Err(e) = crate::setup::configure_agent_mcp(agent_name) {
+            let mode =
+                explicit_mode.unwrap_or_else(|| crate::hooks::recommend_hook_mode(agent_name));
+            crate::hooks::install_agent_hook_with_mode(agent_name, global, mode);
+            if matches!(mode, crate::hooks::HookMode::CliRedirect) {
+                if let Err(e) = crate::setup::disable_agent_mcp(agent_name, false) {
+                    eprintln!("MCP config for '{agent_name}' not disabled: {e}");
+                }
+            } else if let Err(e) = crate::setup::configure_agent_mcp(agent_name) {
                 eprintln!("MCP config for '{agent_name}' not updated: {e}");
+            }
+            if project {
+                crate::hooks::install_agent_project_hooks(agent_name, &cwd);
             }
         }
         if !global {
@@ -128,10 +157,14 @@ pub fn cmd_init(args: &[String]) {
         qprintln!("  Restart your shell or run: source ~/{rc}");
     }
     qprintln!();
-    qprintln!("For AI tool integration: lean-ctx init --agent <tool>");
-    qprintln!("  Supported: aider, amazonq, amp, antigravity, claude, cline, codex, copilot,");
-    qprintln!("    crush, cursor, emacs, gemini, hermes, jetbrains, kiro, neovim, opencode,");
-    qprintln!("    pi, qoder, qoderwork, qwen, roo, sublime, trae, verdent, windsurf");
+    qprintln!("For AI tool integration: lean-ctx init --agent <tool> [--mode <mode>]");
+    qprintln!("  Supported: aider, amazonq, amp, antigravity, claude, cline, codex,");
+    qprintln!("    continue, copilot, crush, cursor, emacs, gemini, hermes, jetbrains,");
+    qprintln!("    kiro, neovim, opencode, pi, qoder, qoderwork, qwen, roo, sublime,");
+    qprintln!("    trae, verdent, vscode, windsurf, zed");
+    qprintln!(
+        "  Modes: mcp, cli-redirect, hybrid  (auto-detected per agent, override with --mode)"
+    );
 }
 
 pub fn cmd_init_quiet(args: &[String]) {

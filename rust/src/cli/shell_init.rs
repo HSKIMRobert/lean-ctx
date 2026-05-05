@@ -156,7 +156,7 @@ fn upsert_source_line(rc_path: &std::path::Path, source_line: &str) {
 pub fn generate_hook_powershell(binary: &str) -> String {
     let binary_escaped = binary.replace('\\', "\\\\");
     format!(
-        r#"# lean-ctx shell hook — transparent CLI compression (90+ patterns)
+        r#"# lean-ctx shell hook — transparent CLI compression (95+ patterns)
 if (-not $env:LEAN_CTX_ACTIVE -and -not $env:LEAN_CTX_DISABLED -and -not $env:LEAN_CTX_NO_HOOK) {{
   $LeanCtxBin = "{binary_escaped}"
   function _lc {{
@@ -598,7 +598,7 @@ mod tests {
         let input = r#"# existing config
 export PATH="$HOME/bin:$PATH"
 
-# lean-ctx shell hook — transparent CLI compression (90+ patterns)
+# lean-ctx shell hook — transparent CLI compression (95+ patterns)
 if [ -z "$LEAN_CTX_ACTIVE" ]; then
 alias git='lean-ctx -c git'
 alias npm='lean-ctx -c npm'
@@ -618,7 +618,7 @@ export EDITOR=vim
 
     #[test]
     fn test_remove_lean_ctx_block_fish() {
-        let input = "# other fish config\nset -x FOO bar\n\n# lean-ctx shell hook — transparent CLI compression (90+ patterns)\nif not set -q LEAN_CTX_ACTIVE\n\talias git 'lean-ctx -c git'\n\talias npm 'lean-ctx -c npm'\nend\n\n# more config\nset -x BAZ qux\n";
+        let input = "# other fish config\nset -x FOO bar\n\n# lean-ctx shell hook — transparent CLI compression (95+ patterns)\nif not set -q LEAN_CTX_ACTIVE\n\talias git 'lean-ctx -c git'\n\talias npm 'lean-ctx -c npm'\nend\n\n# more config\nset -x BAZ qux\n";
         let result = remove_lean_ctx_block(input);
         assert!(!result.contains("lean-ctx"), "block should be removed");
         assert!(result.contains("set -x FOO"), "other content preserved");
@@ -627,7 +627,7 @@ export EDITOR=vim
 
     #[test]
     fn test_remove_lean_ctx_block_ps() {
-        let input = "# PowerShell profile\n$env:FOO = 'bar'\n\n# lean-ctx shell hook — transparent CLI compression (90+ patterns)\nif (-not $env:LEAN_CTX_ACTIVE) {\n  $LeanCtxBin = \"C:\\\\bin\\\\lean-ctx.exe\"\n  function git { & $LeanCtxBin -c \"git $($args -join ' ')\" }\n}\n\n# other stuff\n$env:EDITOR = 'vim'\n";
+        let input = "# PowerShell profile\n$env:FOO = 'bar'\n\n# lean-ctx shell hook — transparent CLI compression (95+ patterns)\nif (-not $env:LEAN_CTX_ACTIVE) {\n  $LeanCtxBin = \"C:\\\\bin\\\\lean-ctx.exe\"\n  function git { & $LeanCtxBin -c \"git $($args -join ' ')\" }\n}\n\n# other stuff\n$env:EDITOR = 'vim'\n";
         let result = remove_lean_ctx_block_ps(input);
         assert!(
             !result.contains("lean-ctx shell hook"),
@@ -639,7 +639,7 @@ export EDITOR=vim
 
     #[test]
     fn test_remove_lean_ctx_block_ps_nested() {
-        let input = "# PowerShell profile\n$env:FOO = 'bar'\n\n# lean-ctx shell hook — transparent CLI compression (90+ patterns)\nif (-not $env:LEAN_CTX_ACTIVE) {\n  $LeanCtxBin = \"lean-ctx\"\n  function _lc {\n    & $LeanCtxBin -c \"$($args -join ' ')\"\n  }\n  if (Get-Command lean-ctx -ErrorAction SilentlyContinue) {\n    function git { _lc git @args }\n    foreach ($c in @('npm','pnpm')) {\n      if ($a) {\n        Set-Variable -Name \"_lc_$c\" -Value $a.Source -Scope Script\n      }\n    }\n  }\n}\n\n# other stuff\n$env:EDITOR = 'vim'\n";
+        let input = "# PowerShell profile\n$env:FOO = 'bar'\n\n# lean-ctx shell hook — transparent CLI compression (95+ patterns)\nif (-not $env:LEAN_CTX_ACTIVE) {\n  $LeanCtxBin = \"lean-ctx\"\n  function _lc {\n    & $LeanCtxBin -c \"$($args -join ' ')\"\n  }\n  if (Get-Command lean-ctx -ErrorAction SilentlyContinue) {\n    function git { _lc git @args }\n    foreach ($c in @('npm','pnpm')) {\n      if ($a) {\n        Set-Variable -Name \"_lc_$c\" -Value $a.Source -Scope Script\n      }\n    }\n  }\n}\n\n# other stuff\n$env:EDITOR = 'vim'\n";
         let result = remove_lean_ctx_block_ps(input);
         assert!(
             !result.contains("lean-ctx shell hook"),
@@ -750,7 +750,7 @@ lean-ctx-mode() {{
         let input = r#"# existing config
 export PATH="$HOME/bin:$PATH"
 
-# lean-ctx shell hook — transparent CLI compression (90+ patterns)
+# lean-ctx shell hook — transparent CLI compression (95+ patterns)
 _lean_ctx_cmds=(git npm pnpm)
 
 lean-ctx-on() {

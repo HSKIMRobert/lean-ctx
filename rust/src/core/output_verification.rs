@@ -9,26 +9,75 @@ fn global_stats() -> &'static VerificationStats {
     STATS.get_or_init(VerificationStats::new)
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct VerificationConfig {
-    pub enabled: bool,
-    pub strict_mode: bool,
-    pub check_paths: bool,
-    pub check_identifiers: bool,
-    pub check_line_numbers: bool,
-    pub check_structure: bool,
+    pub enabled: Option<bool>,
+    /// Optional explicit verification mode.
+    /// - "off": disable verifier entirely
+    /// - "warn": fail only on High severity warnings
+    /// - "fail": fail on Medium+High warnings (strict)
+    pub mode: Option<String>,
+    pub strict_mode: Option<bool>,
+    pub check_paths: Option<bool>,
+    pub check_identifiers: Option<bool>,
+    pub check_line_numbers: Option<bool>,
+    pub check_structure: Option<bool>,
 }
 
-impl Default for VerificationConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            strict_mode: false,
-            check_paths: true,
-            check_identifiers: true,
-            check_line_numbers: false,
-            check_structure: true,
+impl VerificationConfig {
+    pub fn enabled_effective(&self) -> bool {
+        self.enabled.unwrap_or(true)
+    }
+    pub fn strict_mode_effective(&self) -> bool {
+        self.strict_mode.unwrap_or(false)
+    }
+    pub fn check_paths_effective(&self) -> bool {
+        self.check_paths.unwrap_or(true)
+    }
+    pub fn check_identifiers_effective(&self) -> bool {
+        self.check_identifiers.unwrap_or(true)
+    }
+    pub fn check_line_numbers_effective(&self) -> bool {
+        self.check_line_numbers.unwrap_or(false)
+    }
+    pub fn check_structure_effective(&self) -> bool {
+        self.check_structure.unwrap_or(true)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum VerificationMode {
+    Off,
+    Warn,
+    Fail,
+}
+
+fn parse_mode(s: &str) -> VerificationMode {
+    match s.trim().to_lowercase().as_str() {
+        "off" | "disabled" | "none" => VerificationMode::Off,
+        "fail" | "strict" | "enforce" => VerificationMode::Fail,
+        _ => VerificationMode::Warn,
+    }
+}
+
+impl VerificationConfig {
+    fn effective_mode(&self) -> VerificationMode {
+        if let Some(m) = self.mode.as_deref() {
+            return parse_mode(m);
         }
+        if !self.enabled_effective() {
+            return VerificationMode::Off;
+        }
+        if self.strict_mode_effective() {
+            VerificationMode::Fail
+        } else {
+            VerificationMode::Warn
+        }
+    }
+
+    fn is_enabled(&self) -> bool {
+        self.effective_mode() != VerificationMode::Off
     }
 }
 
@@ -90,13 +139,11 @@ impl VerificationResult {
             return "PASS".to_string();
         }
         let status = if self.pass { "WARN" } else { "FAIL" };
-        let counts: Vec<String> = self
-            .warnings
-            .iter()
-            .fold(std::collections::HashMap::new(), |mut acc, w| {
-                *acc.entry(w.kind.to_string()).or_insert(0u32) += 1;
-                acc
-            })
+        let mut counts = std::collections::BTreeMap::<String, u32>::new();
+        for w in &self.warnings {
+            *counts.entry(w.kind.to_string()).or_insert(0) += 1;
+        }
+        let counts: Vec<String> = counts
             .into_iter()
             .map(|(k, v)| format!("{k}={v}"))
             .collect();
@@ -113,7 +160,7 @@ pub fn verify_output(
     compressed: &str,
     config: &VerificationConfig,
 ) -> VerificationResult {
-    if !config.enabled || source.is_empty() || compressed.is_empty() {
+    if !config.is_enabled() || source.is_empty() || compressed.is_empty() {
         return VerificationResult::ok();
     }
 
@@ -126,23 +173,23 @@ pub fn verify_output(
     let mut paths_checked = 0;
     let mut identifiers_checked = 0;
 
-    if config.check_paths {
+    if config.check_paths_effective() {
         let (path_warnings, count) = check_paths(source, compressed);
         paths_checked = count;
         warnings.extend(path_warnings);
     }
 
-    if config.check_identifiers {
+    if config.check_identifiers_effective() {
         let (id_warnings, count) = check_identifiers(source, compressed);
         identifiers_checked = count;
         warnings.extend(id_warnings);
     }
 
-    if config.check_line_numbers {
+    if config.check_line_numbers_effective() {
         warnings.extend(check_line_numbers(source, compressed));
     }
 
-    if config.check_structure {
+    if config.check_structure_effective() {
         warnings.extend(check_structure(source, compressed));
     }
 
@@ -158,7 +205,8 @@ pub fn verify_output(
             .count() as f64;
     let info_loss_score = (loss_items / total_checks as f64).min(1.0);
 
-    let pass = if config.strict_mode {
+    let mode = config.effective_mode();
+    let pass = if mode == VerificationMode::Fail {
         !warnings
             .iter()
             .any(|w| w.severity == WarningSeverity::High || w.severity == WarningSeverity::Medium)
@@ -556,8 +604,40 @@ mod tests {
     #[test]
     fn disabled_config_passes() {
         let mut c = cfg();
-        c.enabled = false;
+        c.enabled = Some(false);
         let r = verify_output("fn foo() {}", "bar", &c);
         assert!(r.pass);
+    }
+
+    #[test]
+    fn strict_mode_fails_on_medium() {
+        let mut c = cfg();
+        c.strict_mode = Some(true);
+        let src = "import { foo } from src/utils/helper.ts";
+        let compressed = "import foo";
+        let r = verify_output(src, compressed, &c);
+        assert!(!r.pass, "strict mode should FAIL on medium warnings");
+        assert!(
+            r.format_compact().starts_with("FAIL("),
+            "compact should show FAIL: {}",
+            r.format_compact()
+        );
+    }
+
+    #[test]
+    fn compact_format_is_deterministic_and_sorted() {
+        let src = "fn calculate_monthly_revenue() {} see src/utils/helper.ts";
+        let compressed = "compressed";
+        let r = verify_output(src, compressed, &cfg());
+        let s = r.format_compact();
+        // Stable ordering for parsing: keys are lexicographically sorted.
+        let want_order = ["mangled_identifier", "missing_path"];
+        let mut idx = 0usize;
+        for k in want_order {
+            if let Some(pos) = s.find(k) {
+                assert!(pos >= idx, "expected sorted keys in: {s}");
+                idx = pos;
+            }
+        }
     }
 }

@@ -26,6 +26,8 @@ pub struct CacheEntry {
     pub path: String,
     pub last_access: Instant,
     pub stored_mtime: Option<SystemTime>,
+    /// Mode-specific compressed outputs (e.g. "map", "signatures") cached to avoid re-parsing.
+    pub compressed_outputs: HashMap<String, String>,
 }
 
 /// Result of a cache store operation, indicating whether it was a hit or new entry.
@@ -48,6 +50,14 @@ impl CacheEntry {
         let frequency = (self.read_count as f64 + 1.0).ln();
         let size_value = (self.original_tokens as f64 + 1.0).ln();
         recency * 0.4 + frequency * 0.3 + size_value * 0.3
+    }
+
+    pub fn get_compressed(&self, mode_key: &str) -> Option<&String> {
+        self.compressed_outputs.get(mode_key)
+    }
+
+    pub fn set_compressed(&mut self, mode_key: &str, output: String) {
+        self.compressed_outputs.insert(mode_key.to_string(), output);
     }
 }
 
@@ -275,6 +285,7 @@ impl SessionCache {
                     was_hit: true,
                 };
             }
+            existing.compressed_outputs.clear();
             existing.content = content;
             existing.hash = hash;
             existing.line_count = line_count;
@@ -304,6 +315,7 @@ impl SessionCache {
             path: key.clone(),
             last_access: now,
             stored_mtime,
+            compressed_outputs: HashMap::new(),
         };
 
         self.entries.insert(key, entry);
@@ -403,6 +415,20 @@ impl SessionCache {
     /// Removes a file from the cache, forcing a fresh read on next access.
     pub fn invalidate(&mut self, path: &str) -> bool {
         self.entries.remove(&normalize_key(path)).is_some()
+    }
+
+    /// Returns a cached compressed output for a given file and mode key.
+    pub fn get_compressed(&self, path: &str, mode_key: &str) -> Option<&String> {
+        self.entries
+            .get(&normalize_key(path))?
+            .get_compressed(mode_key)
+    }
+
+    /// Stores a compressed output for a given file and mode key.
+    pub fn set_compressed(&mut self, path: &str, mode_key: &str, output: String) {
+        if let Some(entry) = self.entries.get_mut(&normalize_key(path)) {
+            entry.set_compressed(mode_key, output);
+        }
     }
 
     /// Clears all cached entries, file refs, and resets stats. Returns the number of entries removed.
@@ -534,6 +560,7 @@ mod tests {
             path: "/a.rs".to_string(),
             last_access: now,
             stored_mtime: None,
+            compressed_outputs: HashMap::new(),
         };
         let old = CacheEntry {
             content: "b".to_string(),
@@ -544,6 +571,7 @@ mod tests {
             path: "/b.rs".to_string(),
             last_access: base,
             stored_mtime: None,
+            compressed_outputs: HashMap::new(),
         };
         let entries: Vec<(&String, &CacheEntry)> = vec![(&key_a, &recent), (&key_b, &old)];
         let scores = eviction_scores_rrf(&entries, now);
@@ -569,6 +597,7 @@ mod tests {
             path: "/a.rs".to_string(),
             last_access: now,
             stored_mtime: None,
+            compressed_outputs: HashMap::new(),
         };
         let rare = CacheEntry {
             content: "b".to_string(),
@@ -579,6 +608,7 @@ mod tests {
             path: "/b.rs".to_string(),
             last_access: now,
             stored_mtime: None,
+            compressed_outputs: HashMap::new(),
         };
         let entries: Vec<(&String, &CacheEntry)> = vec![(&key_a, &frequent), (&key_b, &rare)];
         let scores = eviction_scores_rrf(&entries, now);
@@ -630,5 +660,60 @@ mod tests {
 
         let entry = cache.get(&p).unwrap();
         assert!(is_cache_entry_stale(&p, entry.stored_mtime));
+    }
+
+    #[test]
+    fn compressed_outputs_cached_and_retrieved() {
+        let mut cache = SessionCache::new();
+        cache.store("/test.rs", "fn main() {}".to_string());
+        cache.set_compressed("/test.rs", "map", "compressed map output".to_string());
+        assert_eq!(
+            cache.get_compressed("/test.rs", "map"),
+            Some(&"compressed map output".to_string())
+        );
+        assert_eq!(cache.get_compressed("/test.rs", "signatures"), None);
+    }
+
+    #[test]
+    fn compressed_outputs_cleared_on_content_change() {
+        let mut cache = SessionCache::new();
+        cache.store("/test.rs", "old content".to_string());
+        cache.set_compressed("/test.rs", "map", "old map".to_string());
+        assert!(cache.get_compressed("/test.rs", "map").is_some());
+
+        cache.store("/test.rs", "new content".to_string());
+        assert_eq!(cache.get_compressed("/test.rs", "map"), None);
+    }
+
+    #[test]
+    fn compressed_outputs_survive_same_content_store() {
+        let mut cache = SessionCache::new();
+        cache.store("/test.rs", "content".to_string());
+        cache.set_compressed("/test.rs", "map", "cached map".to_string());
+
+        let result = cache.store("/test.rs", "content".to_string());
+        assert!(result.was_hit);
+        assert_eq!(
+            cache.get_compressed("/test.rs", "map"),
+            Some(&"cached map".to_string())
+        );
+    }
+
+    #[test]
+    fn compressed_outputs_cleared_on_invalidate() {
+        let mut cache = SessionCache::new();
+        cache.store("/test.rs", "content".to_string());
+        cache.set_compressed("/test.rs", "signatures", "cached sigs".to_string());
+        cache.invalidate("/test.rs");
+        assert_eq!(cache.get_compressed("/test.rs", "signatures"), None);
+    }
+
+    #[test]
+    fn compressed_outputs_cleared_on_clear() {
+        let mut cache = SessionCache::new();
+        cache.store("/a.rs", "a".to_string());
+        cache.set_compressed("/a.rs", "map", "map_a".to_string());
+        cache.clear();
+        assert_eq!(cache.get_compressed("/a.rs", "map"), None);
     }
 }

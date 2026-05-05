@@ -98,16 +98,111 @@ pub fn run(args: &[String]) {
 }
 
 fn post_update_rewire() {
+    restart_daemon_if_running();
+
     let opts = crate::setup::SetupOptions {
         non_interactive: true,
         yes: true,
-        // After a binary update, rewire existing configs to the current binary.
         fix: true,
         json: false,
     };
     if let Err(e) = crate::setup::run_setup_with_options(opts) {
         tracing::error!("Setup refresh error: {e}");
     }
+
+    restart_proxy_if_running();
+}
+
+fn restart_daemon_if_running() {
+    #[cfg(unix)]
+    {
+        if !crate::daemon::is_daemon_running() {
+            return;
+        }
+        println!("  \x1b[33m⟳\x1b[0m Restarting daemon with new binary…");
+        if let Err(e) = crate::daemon::stop_daemon() {
+            println!("  \x1b[33m⚠\x1b[0m Could not stop daemon: {e}");
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        match crate::daemon::start_daemon(&[]) {
+            Ok(()) => println!("  \x1b[32m✓\x1b[0m Daemon restarted"),
+            Err(e) => println!("  \x1b[33m⚠\x1b[0m Daemon restart failed: {e}"),
+        }
+    }
+}
+
+fn restart_proxy_if_running() {
+    let port = crate::proxy_setup::default_port();
+
+    if restart_managed_proxy() {
+        return;
+    }
+
+    if is_proxy_reachable(port) {
+        println!(
+            "  \x1b[33m⟳\x1b[0m Proxy running on port {port} — restart it to use the new binary:"
+        );
+        println!("    \x1b[1mlean-ctx proxy start --port={port}\x1b[0m");
+    }
+}
+
+/// Restart proxy managed by launchd (macOS) or systemd (Linux).
+/// Returns `true` if a managed service was found and restarted.
+fn restart_managed_proxy() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        let plist_path = dirs::home_dir()
+            .unwrap_or_default()
+            .join("Library/LaunchAgents/com.leanctx.proxy.plist");
+        if plist_path.exists() {
+            let plist_str = plist_path.to_string_lossy().to_string();
+            let _ = std::process::Command::new("launchctl")
+                .args(["unload", &plist_str])
+                .output();
+            let result = std::process::Command::new("launchctl")
+                .args(["load", &plist_str])
+                .output();
+            match result {
+                Ok(o) if o.status.success() => {
+                    println!("  \x1b[32m✓\x1b[0m Proxy restarted (LaunchAgent)");
+                }
+                _ => {
+                    println!("  \x1b[33m⚠\x1b[0m Could not restart proxy LaunchAgent");
+                }
+            }
+            return true;
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let service_path = dirs::home_dir()
+            .unwrap_or_default()
+            .join(".config/systemd/user/lean-ctx-proxy.service");
+        if service_path.exists() {
+            let result = std::process::Command::new("systemctl")
+                .args(["--user", "restart", "lean-ctx-proxy"])
+                .output();
+            match result {
+                Ok(o) if o.status.success() => {
+                    println!("  \x1b[32m✓\x1b[0m Proxy restarted (systemd)");
+                }
+                _ => {
+                    println!("  \x1b[33m⚠\x1b[0m Could not restart proxy systemd service");
+                }
+            }
+            return true;
+        }
+    }
+
+    false
+}
+
+fn is_proxy_reachable(port: u16) -> bool {
+    ureq::get(&format!("http://127.0.0.1:{port}/health"))
+        .call()
+        .is_ok()
 }
 
 fn fetch_latest_release() -> Result<serde_json::Value, String> {

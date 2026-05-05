@@ -5,6 +5,7 @@ use crate::core::deps as dep_extract;
 use crate::core::entropy;
 use crate::core::patterns::deps_cmd;
 use crate::core::protocol;
+use crate::core::roles;
 use crate::core::signatures;
 use crate::core::stats;
 use crate::core::tokens::count_tokens;
@@ -14,7 +15,7 @@ use super::common::print_savings;
 pub fn cmd_read(args: &[String]) {
     if args.is_empty() {
         eprintln!(
-            "Usage: lean-ctx read <file> [--mode full|map|signatures|aggressive|entropy] [--fresh]"
+            "Usage: lean-ctx read <file> [--mode auto|full|map|signatures|aggressive|entropy] [--fresh]"
         );
         std::process::exit(1);
     }
@@ -24,10 +25,23 @@ pub fn cmd_read(args: &[String]) {
         .iter()
         .position(|a| a == "--mode" || a == "-m")
         .and_then(|i| args.get(i + 1))
-        .map_or("full", std::string::String::as_str);
+        .map_or("auto", std::string::String::as_str);
     let force_fresh = args.iter().any(|a| a == "--fresh" || a == "--no-cache");
 
     let short = protocol::shorten_path(path);
+
+    if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
+        "ctx_read",
+        Some(serde_json::json!({
+            "path": path,
+            "mode": mode,
+            "fresh": force_fresh,
+        })),
+    ) {
+        println!("{out}");
+        return;
+    }
+    super::common::daemon_fallback_hint();
 
     if !force_fresh && mode == "full" {
         use crate::core::cli_cache::{self, CacheResult};
@@ -35,7 +49,13 @@ pub fn cmd_read(args: &[String]) {
             CacheResult::Hit { entry, file_ref } => {
                 let msg = cli_cache::format_hit(&entry, &file_ref, &short);
                 println!("{msg}");
-                stats::record("cli_read", entry.original_tokens, count_tokens(&msg));
+                let sent = count_tokens(&msg);
+                stats::record("cli_read", entry.original_tokens, sent);
+                crate::core::heatmap::record_file_access(
+                    path,
+                    entry.original_tokens,
+                    entry.original_tokens.saturating_sub(sent),
+                );
                 return;
             }
             CacheResult::Miss { content } if content.is_empty() => {
@@ -46,7 +66,9 @@ pub fn cmd_read(args: &[String]) {
                 let line_count = content.lines().count();
                 println!("{short} [{line_count}L]");
                 println!("{content}");
-                stats::record("cli_read", count_tokens(&content), count_tokens(&content));
+                let tok = count_tokens(&content);
+                stats::record("cli_read", tok, tok);
+                crate::core::heatmap::record_file_access(path, tok, 0);
                 return;
             }
         }
@@ -83,34 +105,38 @@ pub fn cmd_read(args: &[String]) {
             let sigs = signatures::extract_signatures(&content, ext);
             let dep_info = dep_extract::extract_deps(&content, ext);
 
-            println!("{short} [{line_count}L]");
+            let mut output_buf = format!("{short} [{line_count}L]");
             if !dep_info.imports.is_empty() {
-                println!("  deps: {}", dep_info.imports.join(", "));
+                output_buf.push_str(&format!("\n  deps: {}", dep_info.imports.join(", ")));
             }
             if !dep_info.exports.is_empty() {
-                println!("  exports: {}", dep_info.exports.join(", "));
+                output_buf.push_str(&format!("\n  exports: {}", dep_info.exports.join(", ")));
             }
             let key_sigs: Vec<_> = sigs
                 .iter()
                 .filter(|s| s.is_exported || s.indent == 0)
                 .collect();
             if !key_sigs.is_empty() {
-                println!("  API:");
+                output_buf.push_str("\n  API:");
                 for sig in &key_sigs {
-                    println!("    {}", sig.to_compact());
+                    output_buf.push_str(&format!("\n    {}", sig.to_compact()));
                 }
             }
-            let sent = count_tokens(&short.clone());
+            println!("{output_buf}");
+            let sent = count_tokens(&output_buf);
             print_savings(original_tokens, sent);
+            super::common::cli_track_read(path, "map", original_tokens, sent);
         }
         "signatures" => {
             let sigs = signatures::extract_signatures(&content, ext);
-            println!("{short} [{line_count}L]");
+            let mut output_buf = format!("{short} [{line_count}L]");
             for sig in &sigs {
-                println!("{}", sig.to_compact());
+                output_buf.push_str(&format!("\n{}", sig.to_compact()));
             }
-            let sent = count_tokens(&short.clone());
+            println!("{output_buf}");
+            let sent = count_tokens(&output_buf);
             print_savings(original_tokens, sent);
+            super::common::cli_track_read(path, "signatures", original_tokens, sent);
         }
         "aggressive" => {
             let compressed = compressor::aggressive_compress(&content, Some(ext));
@@ -118,6 +144,7 @@ pub fn cmd_read(args: &[String]) {
             println!("{compressed}");
             let sent = count_tokens(&compressed);
             print_savings(original_tokens, sent);
+            super::common::cli_track_read(path, "aggressive", original_tokens, sent);
         }
         "entropy" => {
             let result = entropy::entropy_compress(&content);
@@ -129,10 +156,12 @@ pub fn cmd_read(args: &[String]) {
             println!("{}", result.output);
             let sent = count_tokens(&result.output);
             print_savings(original_tokens, sent);
+            super::common::cli_track_read(path, "entropy", original_tokens, sent);
         }
         _ => {
             println!("{short} [{line_count}L]");
             println!("{content}");
+            super::common::cli_track_read(path, "full", original_tokens, original_tokens);
         }
     }
 }
@@ -170,6 +199,7 @@ pub fn cmd_diff(args: &[String]) {
     );
     println!("{diff}");
     print_savings(original, sent);
+    stats::record("cli_diff", original, sent);
 }
 
 pub fn cmd_grep(args: &[String]) {
@@ -181,39 +211,33 @@ pub fn cmd_grep(args: &[String]) {
     let pattern = &args[0];
     let path = args.get(1).map_or(".", std::string::String::as_str);
 
-    let re = match regex::Regex::new(pattern) {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("Invalid regex pattern: {e}");
+    if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
+        "ctx_search",
+        Some(serde_json::json!({
+            "pattern": pattern,
+            "path": path,
+        })),
+    ) {
+        println!("{out}");
+        if out.trim_start().starts_with("0 matches") {
             std::process::exit(1);
         }
-    };
-
-    let mut found = false;
-    for entry in ignore::WalkBuilder::new(path)
-        .hidden(true)
-        .git_ignore(true)
-        .git_global(true)
-        .git_exclude(true)
-        .max_depth(Some(10))
-        .build()
-        .flatten()
-    {
-        if !entry.file_type().is_some_and(|ft| ft.is_file()) {
-            continue;
-        }
-        let file_path = entry.path();
-        if let Ok(content) = std::fs::read_to_string(file_path) {
-            for (i, line) in content.lines().enumerate() {
-                if re.is_match(line) {
-                    println!("{}:{}:{}", file_path.display(), i + 1, line);
-                    found = true;
-                }
-            }
-        }
+        return;
     }
+    super::common::daemon_fallback_hint();
 
-    if !found {
+    let (out, original) = crate::tools::ctx_search::handle(
+        pattern,
+        path,
+        None,
+        20,
+        crate::tools::CrpMode::effective(),
+        true,
+        roles::active_role().io.allow_secret_paths,
+    );
+    println!("{out}");
+    super::common::cli_track_search(original, count_tokens(&out));
+    if original == 0 && out.trim_start().starts_with("0 matches") {
         std::process::exit(1);
     }
 }
@@ -257,6 +281,8 @@ pub fn cmd_find(args: &[String]) {
         }
     }
 
+    stats::record("cli_find", 0, 0);
+
     if !found {
         std::process::exit(1);
     }
@@ -264,13 +290,25 @@ pub fn cmd_find(args: &[String]) {
 
 pub fn cmd_ls(args: &[String]) {
     let path = args.first().map_or(".", std::string::String::as_str);
-    let command = if cfg!(windows) {
-        format!("dir {}", path.replace('/', "\\"))
-    } else {
-        format!("ls {path}")
-    };
-    let code = crate::shell::exec(&command);
-    std::process::exit(code);
+    let depth = 3usize;
+    let show_hidden = false;
+
+    if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
+        "ctx_tree",
+        Some(serde_json::json!({
+            "path": path,
+            "depth": depth,
+            "show_hidden": show_hidden,
+        })),
+    ) {
+        println!("{out}");
+        return;
+    }
+    super::common::daemon_fallback_hint();
+
+    let (out, _original) = crate::tools::ctx_tree::handle(path, depth, show_hidden);
+    println!("{out}");
+    super::common::cli_track_tree(0, count_tokens(&out));
 }
 
 pub fn cmd_deps(args: &[String]) {
@@ -278,6 +316,7 @@ pub fn cmd_deps(args: &[String]) {
 
     if let Some(result) = deps_cmd::detect_and_compress(path) {
         println!("{result}");
+        stats::record("cli_deps", 0, 0);
     } else {
         eprintln!("No dependency file found in {path}");
         std::process::exit(1);

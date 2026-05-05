@@ -1,0 +1,12 @@
+{
+  "servers": {
+    "lean-ctx": {
+      "args": [],
+      "command": "lean-ctx",
+      "env": {
+        "LEAN_CTX_DATA_DIR": "/var/folders/bb/cyj_m1m12kn6vlhn45fw70w80000gn/T/tmp.crc7n5WisU/data"
+      },
+      "type": "stdio"
+    }
+  }
+}

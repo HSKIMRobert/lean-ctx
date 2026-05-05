@@ -21,7 +21,7 @@ pub(crate) fn install_jetbrains_hook() {
     if config_path.exists() {
         let content = std::fs::read_to_string(&config_path).unwrap_or_default();
         if content.contains("lean-ctx") {
-            println!("JetBrains MCP already configured at {display_path}");
+            eprintln!("JetBrains MCP already configured at {display_path}");
             return;
         }
 
@@ -35,7 +35,7 @@ pub(crate) fn install_jetbrains_hook() {
                 }
                 if let Ok(formatted) = serde_json::to_string_pretty(&json) {
                     let _ = std::fs::write(&config_path, formatted);
-                    println!("  \x1b[32m✓\x1b[0m JetBrains MCP configured at {display_path}");
+                    eprintln!("  \x1b[32m✓\x1b[0m JetBrains MCP configured at {display_path}");
                     return;
                 }
             }
@@ -45,7 +45,7 @@ pub(crate) fn install_jetbrains_hook() {
     let config = serde_json::json!({ "mcpServers": { "lean-ctx": entry } });
     if let Ok(json_str) = serde_json::to_string_pretty(&config) {
         let _ = std::fs::write(&config_path, json_str);
-        println!("  \x1b[32m✓\x1b[0m JetBrains MCP configured at {display_path}");
+        eprintln!("  \x1b[32m✓\x1b[0m JetBrains MCP configured at {display_path}");
     } else {
         tracing::error!("Failed to configure JetBrains");
     }

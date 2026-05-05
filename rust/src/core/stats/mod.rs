@@ -27,7 +27,7 @@ pub fn load() -> StatsStore {
 }
 
 pub fn save(store: &StatsStore) {
-    io::write_to_disk(store);
+    io::locked_write(store);
 }
 
 fn maybe_flush(store: &mut StatsStore, baseline: &mut StatsStore, last_flush: &mut Instant) {
@@ -125,7 +125,7 @@ pub fn reset_cep() {
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut store = io::load_from_disk();
     store.cep = CepStats::default();
-    io::write_to_disk(&store);
+    io::locked_write(&store);
     *guard = Some((store.clone(), store, Instant::now()));
 }
 
@@ -134,8 +134,9 @@ pub fn reset_all() {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let store = StatsStore::default();
-    io::write_to_disk(&store);
+    io::locked_write(&store);
     *guard = Some((store.clone(), store, Instant::now()));
+    crate::core::heatmap::reset();
 }
 
 pub fn load_stats() -> GainSummary {

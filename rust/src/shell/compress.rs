@@ -401,8 +401,8 @@ fn compress_if_beneficial(command: &str, output: &str) -> String {
             let compressed_tokens = count_tokens(&compressed);
             if compressed_tokens >= min_output_tokens && compressed_tokens < original_tokens {
                 let ratio = compressed_tokens as f64 / original_tokens as f64;
-                if ratio < 0.05 && original_tokens > 100 {
-                    tracing::warn!("compression removed >95% of content, returning original");
+                if ratio < 0.05 && original_tokens > 100 && original_tokens < 2000 {
+                    tracing::warn!("compression removed >95% of small output, returning original");
                     return output.to_string();
                 }
                 let saved = original_tokens - compressed_tokens;

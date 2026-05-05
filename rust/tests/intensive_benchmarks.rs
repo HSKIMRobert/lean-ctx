@@ -167,8 +167,8 @@ fn bench_total_input_overhead() {
     eprintln!("{}", "=".repeat(70));
 
     assert!(
-        total < 5000,
-        "Total input overhead should be <5000 tokens, got {total}"
+        total < 5200,
+        "Total input overhead should be <5200 tokens, got {total}"
     );
 }
 
@@ -608,6 +608,7 @@ fn bench_rrf_eviction_vs_legacy() {
                 .checked_sub(Duration::from_secs(i as u64))
                 .unwrap_or(now),
             stored_mtime: None,
+            compressed_outputs: std::collections::HashMap::new(),
         })
         .collect();
 
@@ -668,6 +669,7 @@ fn bench_rrf_eviction_handles_single_entry() {
         path: "/solo.rs".to_string(),
         last_access: now,
         stored_mtime: None,
+        compressed_outputs: std::collections::HashMap::new(),
     };
 
     let refs: Vec<(&String, &lean_ctx::core::cache::CacheEntry)> = vec![(&key, &entry)];

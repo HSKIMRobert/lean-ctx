@@ -12,7 +12,7 @@
 
 <p align="center">
   <strong>Reduce token waste in Cursor, Claude Code, Copilot, Windsurf, Codex, Gemini & more by 60–95% (up to 99% on cached reads)</strong><br/>
-  Shell Hook + MCP Server · 49 tools · 10 read modes · 90+ patterns · Single Rust binary
+  Shell Hook + MCP Server · 56 tools · 10 read modes · 95+ patterns · Single Rust binary
 </p>
 
 <p align="center">
@@ -22,6 +22,7 @@
   <a href="https://crates.io/crates/lean-ctx"><img src="https://img.shields.io/crates/d/lean-ctx?color=%23e6522c" alt="Downloads"></a>
   <a href="https://www.npmjs.com/package/lean-ctx-bin"><img src="https://img.shields.io/npm/v/lean-ctx-bin?label=npm&color=%23cb3837" alt="npm"></a>
   <a href="https://aur.archlinux.org/packages/lean-ctx"><img src="https://img.shields.io/aur/version/lean-ctx?color=%231793d1" alt="AUR"></a>
+  <a href="https://pi.dev/packages/pi-lean-ctx"><img src="https://img.shields.io/badge/Pi.dev-pi--lean--ctx-6366f1?logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJ3aGl0ZSI+PHRleHQgeD0iNCIgeT0iMTgiIGZvbnQtc2l6ZT0iMTYiIGZvbnQtZmFtaWx5PSJzZXJpZiI+z4A8L3RleHQ+PC9zdmc+" alt="Pi.dev"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License"></a>
   <a href="https://discord.gg/pTHkG9Hew9"><img src="https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
   <a href="https://x.com/leanctx"><img src="https://img.shields.io/badge/𝕏-Follow-000000?logo=x&logoColor=white" alt="X/Twitter"></a>
@@ -76,9 +77,11 @@
 
 ## What it does
 
-- **File reads (MCP)**: cached + mode-aware reads (`full`, `map`, `signatures`, `diff`, …)
-- **Shell output (hook)**: compresses noisy CLI output via 90+ patterns (git, npm, cargo, docker, …)
-- **Session memory (CCP)**: persist task/facts/decisions across chats for faster cold starts
+- **File reads (MCP)**: cached + mode-aware reads (`full`, `map`, `signatures`, `diff`, …) with graph-aware related files hints
+- **Shell output (hook)**: compresses noisy CLI output via 95+ patterns (git, npm, cargo, docker, …)
+- **Graph-Powered Intelligence**: multi-edge Property Graph (imports, calls, exports, type_ref) with weighted impact analysis, hybrid search (BM25 + embeddings + graph proximity via RRF), and incremental git-diff updates
+- **PR Context Packs**: `lean-ctx pack --pr` builds a PR-ready context pack (changed files, related tests, impact, artifacts)
+- **Session memory (CCP)**: persist task/facts/decisions across chats with structured recovery queries surviving compaction
 - **HTTP mode**: `lean-ctx serve` for Streamable HTTP MCP + `/v1/tools/call` (used by the Cookbook + SDK)
 
 ## How it works (30 seconds)
@@ -89,7 +92,8 @@ AI tool  →  (MCP tools + shell commands)  →  lean-ctx  →  your repo + CLI
 
 - **MCP server**: exposes `ctx_*` tools (read modes, caching, deltas, search, memory, multi-agent)
 - **Shell hook**: transparently compresses common commands so the LLM sees less noise
-- **CCP**: persists session state so long-running work doesn’t “cold start” every chat
+- **Property Graph**: multi-edge code graph powers impact analysis, related file discovery, and search ranking
+- **CCP**: persists session state with structured recovery queries so long-running work doesn’t “cold start” every chat
 
 ## Get started (60 seconds)
 
@@ -99,6 +103,7 @@ curl -fsSL https://leanctx.com/install.sh | sh      # universal (no Rust needed)
 brew tap yvgude/lean-ctx && brew install lean-ctx    # macOS / Linux
 npm install -g lean-ctx-bin                          # Node.js
 cargo install lean-ctx                               # Rust
+pi install npm:pi-lean-ctx                           # Pi Coding Agent
 
 # 2) Setup (shell + auto-detected AI tools)
 lean-ctx setup
@@ -158,7 +163,6 @@ Supported `<tool>` values (26):
 - Trae (`trae`)
 - Verdent (`verdent`)
 - Pi (`pi`)
-- Aider (`aider`)
 - Amp (`amp`)
 - JetBrains IDEs (`jetbrains`)
 - Emacs (`emacs`)
@@ -242,6 +246,7 @@ lean-ctx uninstall # remove hooks + editor configs + data dir
 brew uninstall lean-ctx
 npm uninstall -g lean-ctx-bin
 cargo uninstall lean-ctx
+pi uninstall npm:pi-lean-ctx                        # Pi Coding Agent
 ```
 
 ## Contributing

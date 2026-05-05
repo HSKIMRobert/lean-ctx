@@ -8,6 +8,7 @@ pub struct MemoryPolicy {
     pub procedural: ProceduralPolicy,
     pub lifecycle: LifecyclePolicy,
     pub embeddings: EmbeddingsPolicy,
+    pub gotcha: GotchaPolicy,
 }
 
 impl MemoryPolicy {
@@ -17,6 +18,12 @@ impl MemoryPolicy {
         self.procedural.apply_env_overrides();
         self.lifecycle.apply_env_overrides();
         self.embeddings.apply_env_overrides();
+        self.gotcha.apply_env_overrides();
+    }
+
+    pub fn apply_overrides(&mut self, o: &MemoryPolicyOverrides) {
+        self.knowledge.apply_overrides(&o.knowledge);
+        self.lifecycle.apply_overrides(&o.lifecycle);
     }
 
     pub fn validate(&self) -> Result<(), String> {
@@ -25,8 +32,38 @@ impl MemoryPolicy {
         self.procedural.validate()?;
         self.lifecycle.validate()?;
         self.embeddings.validate()?;
+        self.gotcha.validate()?;
         Ok(())
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct MemoryPolicyOverrides {
+    pub knowledge: KnowledgePolicyOverrides,
+    pub lifecycle: LifecyclePolicyOverrides,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct KnowledgePolicyOverrides {
+    pub max_facts: Option<usize>,
+    pub max_patterns: Option<usize>,
+    pub max_history: Option<usize>,
+    pub contradiction_threshold: Option<f32>,
+    pub recall_facts_limit: Option<usize>,
+    pub rooms_limit: Option<usize>,
+    pub timeline_limit: Option<usize>,
+    pub relations_limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct LifecyclePolicyOverrides {
+    pub decay_rate: Option<f32>,
+    pub low_confidence_threshold: Option<f32>,
+    pub stale_days: Option<i64>,
+    pub similarity_threshold: Option<f32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,6 +73,14 @@ pub struct KnowledgePolicy {
     pub max_patterns: usize,
     pub max_history: usize,
     pub contradiction_threshold: f32,
+    /// Maximum number of facts returned by recall operations.
+    pub recall_facts_limit: usize,
+    /// Maximum number of rooms returned by `ctx_knowledge action=rooms`.
+    pub rooms_limit: usize,
+    /// Maximum number of timeline entries returned by `ctx_knowledge action=timeline`.
+    pub timeline_limit: usize,
+    /// Maximum number of relations/edges returned by relations queries/diagrams.
+    pub relations_limit: usize,
 }
 
 impl Default for KnowledgePolicy {
@@ -45,6 +90,10 @@ impl Default for KnowledgePolicy {
             max_patterns: 50,
             max_history: 100,
             contradiction_threshold: 0.5,
+            recall_facts_limit: crate::core::budgets::KNOWLEDGE_RECALL_FACTS_LIMIT,
+            rooms_limit: crate::core::budgets::KNOWLEDGE_ROOMS_LIMIT,
+            timeline_limit: crate::core::budgets::KNOWLEDGE_TIMELINE_LIMIT,
+            relations_limit: 40,
         }
     }
 }
@@ -71,6 +120,26 @@ impl KnowledgePolicy {
                 self.contradiction_threshold = n;
             }
         }
+        if let Ok(v) = std::env::var("LEAN_CTX_KNOWLEDGE_RECALL_FACTS_LIMIT") {
+            if let Ok(n) = v.parse() {
+                self.recall_facts_limit = n;
+            }
+        }
+        if let Ok(v) = std::env::var("LEAN_CTX_KNOWLEDGE_ROOMS_LIMIT") {
+            if let Ok(n) = v.parse() {
+                self.rooms_limit = n;
+            }
+        }
+        if let Ok(v) = std::env::var("LEAN_CTX_KNOWLEDGE_TIMELINE_LIMIT") {
+            if let Ok(n) = v.parse() {
+                self.timeline_limit = n;
+            }
+        }
+        if let Ok(v) = std::env::var("LEAN_CTX_KNOWLEDGE_RELATIONS_LIMIT") {
+            if let Ok(n) = v.parse() {
+                self.relations_limit = n;
+            }
+        }
     }
 
     fn validate(&self) -> Result<(), String> {
@@ -88,7 +157,46 @@ impl KnowledgePolicy {
                 "memory.knowledge.contradiction_threshold must be in [0.0, 1.0]".to_string(),
             );
         }
+        if self.recall_facts_limit == 0 {
+            return Err("memory.knowledge.recall_facts_limit must be > 0".to_string());
+        }
+        if self.rooms_limit == 0 {
+            return Err("memory.knowledge.rooms_limit must be > 0".to_string());
+        }
+        if self.timeline_limit == 0 {
+            return Err("memory.knowledge.timeline_limit must be > 0".to_string());
+        }
+        if self.relations_limit == 0 {
+            return Err("memory.knowledge.relations_limit must be > 0".to_string());
+        }
         Ok(())
+    }
+
+    fn apply_overrides(&mut self, o: &KnowledgePolicyOverrides) {
+        if let Some(v) = o.max_facts {
+            self.max_facts = v;
+        }
+        if let Some(v) = o.max_patterns {
+            self.max_patterns = v;
+        }
+        if let Some(v) = o.max_history {
+            self.max_history = v;
+        }
+        if let Some(v) = o.contradiction_threshold {
+            self.contradiction_threshold = v;
+        }
+        if let Some(v) = o.recall_facts_limit {
+            self.recall_facts_limit = v;
+        }
+        if let Some(v) = o.rooms_limit {
+            self.rooms_limit = v;
+        }
+        if let Some(v) = o.timeline_limit {
+            self.timeline_limit = v;
+        }
+        if let Some(v) = o.relations_limit {
+            self.relations_limit = v;
+        }
     }
 }
 
@@ -267,6 +375,21 @@ impl LifecyclePolicy {
         }
         Ok(())
     }
+
+    fn apply_overrides(&mut self, o: &LifecyclePolicyOverrides) {
+        if let Some(v) = o.decay_rate {
+            self.decay_rate = v;
+        }
+        if let Some(v) = o.low_confidence_threshold {
+            self.low_confidence_threshold = v;
+        }
+        if let Some(v) = o.stale_days {
+            self.stale_days = v;
+        }
+        if let Some(v) = o.similarity_threshold {
+            self.similarity_threshold = v;
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -295,6 +418,65 @@ impl EmbeddingsPolicy {
             return Err("memory.embeddings.max_facts must be > 0".to_string());
         }
         Ok(())
+    }
+}
+
+use std::collections::HashMap;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GotchaPolicy {
+    pub max_gotchas_per_project: usize,
+    pub retrieval_budget_per_room: usize,
+    pub default_decay_rate: f32,
+    pub category_decay_overrides: HashMap<String, f32>,
+    pub auto_expire_days: Option<i64>,
+}
+
+impl Default for GotchaPolicy {
+    fn default() -> Self {
+        Self {
+            max_gotchas_per_project: 100,
+            retrieval_budget_per_room: 10,
+            default_decay_rate: 0.03,
+            category_decay_overrides: HashMap::new(),
+            auto_expire_days: None,
+        }
+    }
+}
+
+impl GotchaPolicy {
+    fn apply_env_overrides(&mut self) {
+        if let Ok(v) = std::env::var("LEAN_CTX_GOTCHA_MAX_PER_PROJECT") {
+            if let Ok(n) = v.parse() {
+                self.max_gotchas_per_project = n;
+            }
+        }
+        if let Ok(v) = std::env::var("LEAN_CTX_GOTCHA_RETRIEVAL_BUDGET") {
+            if let Ok(n) = v.parse() {
+                self.retrieval_budget_per_room = n;
+            }
+        }
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        if self.max_gotchas_per_project == 0 {
+            return Err("memory.gotcha.max_gotchas_per_project must be > 0".to_string());
+        }
+        if self.retrieval_budget_per_room == 0 {
+            return Err("memory.gotcha.retrieval_budget_per_room must be > 0".to_string());
+        }
+        if !(0.0..=1.0).contains(&self.default_decay_rate) {
+            return Err("memory.gotcha.default_decay_rate must be 0.0-1.0".to_string());
+        }
+        Ok(())
+    }
+
+    pub fn effective_decay_rate(&self, category: &str) -> f32 {
+        self.category_decay_overrides
+            .get(category)
+            .copied()
+            .unwrap_or(self.default_decay_rate)
     }
 }
 

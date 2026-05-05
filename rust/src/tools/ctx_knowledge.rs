@@ -7,6 +7,26 @@ use crate::core::knowledge::ProjectKnowledge;
 use crate::core::memory_policy::MemoryPolicy;
 use crate::core::session::SessionState;
 
+fn load_policy_or_error() -> Result<MemoryPolicy, String> {
+    let cfg = crate::core::config::Config::load();
+    let path = crate::core::config::Config::path().map_or_else(
+        || "~/.lean-ctx/config.toml".to_string(),
+        |p| p.display().to_string(),
+    );
+
+    let mut policy = cfg
+        .memory_policy_effective()
+        .map_err(|e| format!("Error: invalid memory policy: {e}\nFix: edit {path}"))?;
+
+    let profile = crate::core::profiles::active_profile();
+    policy.apply_overrides(&profile.memory);
+    policy
+        .validate()
+        .map_err(|e| format!("Error: invalid memory policy: {e}\nFix: edit {path}"))?;
+
+    Ok(policy)
+}
+
 /// Dispatches knowledge base actions (remember, recall, pattern, timeline, etc.).
 #[allow(clippy::too_many_arguments)]
 pub fn handle(
@@ -23,6 +43,7 @@ pub fn handle(
     mode: Option<&str>,
 ) -> String {
     match action {
+        "policy" => handle_policy(value),
         "remember" => handle_remember(project_root, category, key, value, session_id, confidence),
         "recall" => handle_recall(project_root, category, query, session_id, mode),
         "pattern" => handle_pattern(project_root, pattern_type, value, examples, session_id),
@@ -57,6 +78,7 @@ pub fn handle(
             query,
         ),
         "status" => handle_status(project_root),
+        "health" => handle_health(project_root),
         "remove" => handle_remove(project_root, category, key),
         "export" => handle_export(project_root),
         "consolidate" => handle_consolidate(project_root),
@@ -68,8 +90,53 @@ pub fn handle(
         "embeddings_reset" => handle_embeddings_reset(project_root),
         "embeddings_reindex" => handle_embeddings_reindex(project_root),
         _ => format!(
-            "Unknown action: {action}. Use: remember, recall, pattern, feedback, relate, unrelate, relations, relations_diagram, status, remove, export, consolidate, timeline, rooms, search, wakeup, embeddings_status, embeddings_reset, embeddings_reindex"
+            "Unknown action: {action}. Use: policy, remember, recall, pattern, feedback, relate, unrelate, relations, relations_diagram, status, health, remove, export, consolidate, timeline, rooms, search, wakeup, embeddings_status, embeddings_reset, embeddings_reindex"
         ),
+    }
+}
+
+fn handle_policy(value: Option<&str>) -> String {
+    let sub = value.unwrap_or("show").trim().to_lowercase();
+    let profile = crate::core::profiles::active_profile_name();
+
+    match sub.as_str() {
+        "show" => {
+            let policy = match load_policy_or_error() {
+                Ok(p) => p,
+                Err(e) => return e,
+            };
+
+            let cfg_path = crate::core::config::Config::path().map_or_else(
+                || "~/.lean-ctx/config.toml".to_string(),
+                |p| p.display().to_string(),
+            );
+
+            format!(
+                "Knowledge policy (effective, profile={profile}):\n\
+                 - memory.knowledge.max_facts={}\n\
+                 - memory.knowledge.contradiction_threshold={}\n\
+                 - memory.knowledge.recall_facts_limit={}\n\
+                 - memory.knowledge.rooms_limit={}\n\
+                 - memory.knowledge.timeline_limit={}\n\
+                 - memory.knowledge.relations_limit={}\n\
+                 - memory.lifecycle.decay_rate={}\n\
+                 - memory.lifecycle.stale_days={}\n\
+                 \nConfig: {cfg_path}",
+                policy.knowledge.max_facts,
+                policy.knowledge.contradiction_threshold,
+                policy.knowledge.recall_facts_limit,
+                policy.knowledge.rooms_limit,
+                policy.knowledge.timeline_limit,
+                policy.knowledge.relations_limit,
+                policy.lifecycle.decay_rate,
+                policy.lifecycle.stale_days
+            )
+        }
+        "validate" => match load_policy_or_error() {
+            Ok(_) => format!("OK: memory policy valid (profile={profile})"),
+            Err(e) => e,
+        },
+        _ => "Error: policy value must be show|validate".to_string(),
     }
 }
 
@@ -223,15 +290,9 @@ fn handle_embeddings_reindex(project_root: &str) -> String {
         let Some(knowledge) = ProjectKnowledge::load(project_root) else {
             return "No knowledge stored for this project yet.".to_string();
         };
-        let policy = match crate::core::config::Config::load().memory_policy_effective() {
+        let policy = match load_policy_or_error() {
             Ok(p) => p,
-            Err(e) => {
-                let path = crate::core::config::Config::path().map_or_else(
-                    || "~/.lean-ctx/config.toml".to_string(),
-                    |p| p.display().to_string(),
-                );
-                return format!("Error: invalid memory policy: {e}\nFix: edit {path}");
-            }
+            Err(e) => return e,
         };
 
         let Some(engine) = embedding_engine() else {
@@ -300,15 +361,9 @@ fn handle_remember(
         return "Error: value is required for remember".to_string();
     };
     let conf = confidence.unwrap_or(0.8);
-    let policy = match crate::core::config::Config::load().memory_policy_effective() {
+    let policy = match load_policy_or_error() {
         Ok(p) => p,
-        Err(e) => {
-            let path = crate::core::config::Config::path().map_or_else(
-                || "~/.lean-ctx/config.toml".to_string(),
-                |p| p.display().to_string(),
-            );
-            return format!("Error: invalid memory policy: {e}\nFix: edit {path}");
-        }
+        Err(e) => return e,
     };
     let mut knowledge = ProjectKnowledge::load_or_create(project_root);
     let contradiction = knowledge.remember(cat, k, v, session_id, conf, &policy);
@@ -367,19 +422,13 @@ fn handle_recall(
     let Some(mut knowledge) = ProjectKnowledge::load(project_root) else {
         return "No knowledge stored for this project yet.".to_string();
     };
-    let policy = match crate::core::config::Config::load().memory_policy_effective() {
+    let policy = match load_policy_or_error() {
         Ok(p) => p,
-        Err(e) => {
-            let path = crate::core::config::Config::path().map_or_else(
-                || "~/.lean-ctx/config.toml".to_string(),
-                |p| p.display().to_string(),
-            );
-            return format!("Error: invalid memory policy: {e}\nFix: edit {path}");
-        }
+        Err(e) => return e,
     };
 
     if let Some(cat) = category {
-        let limit = crate::core::budgets::KNOWLEDGE_RECALL_FACTS_LIMIT;
+        let limit = policy.knowledge.recall_facts_limit;
         let (facts, total) = knowledge.recall_by_category_for_output(cat, limit);
         if facts.is_empty() || total == 0 {
             // System 2: archive rehydrate (category-only)
@@ -416,7 +465,7 @@ fn handle_recall(
                 if let Some(idx) = crate::core::knowledge_embedding::KnowledgeEmbeddingIndex::load(
                     &knowledge.project_hash,
                 ) {
-                    let limit = crate::core::budgets::KNOWLEDGE_RECALL_FACTS_LIMIT;
+                    let limit = policy.knowledge.recall_facts_limit;
                     if mode == "semantic" {
                         let scored =
                             crate::core::knowledge_embedding::semantic_recall_semantic_only(
@@ -481,7 +530,7 @@ fn handle_recall(
             return "Semantic recall requires embeddings. Run ctx_knowledge(action=\"embeddings_reindex\") and ensure embeddings are enabled.".to_string();
         }
 
-        let limit = crate::core::budgets::KNOWLEDGE_RECALL_FACTS_LIMIT;
+        let limit = policy.knowledge.recall_facts_limit;
         let (facts, total) = knowledge.recall_for_output(q, limit);
         if facts.is_empty() || total == 0 {
             // System 2: archive rehydrate (query)
@@ -694,6 +743,98 @@ fn handle_status(project_root: &str) -> String {
     out
 }
 
+fn handle_health(project_root: &str) -> String {
+    let Some(knowledge) = ProjectKnowledge::load(project_root) else {
+        return "No knowledge stored. Nothing to report.".to_string();
+    };
+
+    let total = knowledge.facts.len();
+    let current: Vec<_> = knowledge.facts.iter().filter(|f| f.is_current()).collect();
+    let archived = total - current.len();
+
+    let mut low_quality = 0u32;
+    let mut high_quality = 0u32;
+    let mut stale_candidates = 0u32;
+    let mut total_quality: f32 = 0.0;
+    let mut never_retrieved = 0u32;
+    let mut room_counts: std::collections::HashMap<String, (u32, f32)> =
+        std::collections::HashMap::new();
+
+    let now = chrono::Utc::now();
+    for f in &current {
+        let q = f.quality_score();
+        total_quality += q;
+        if q < 0.4 {
+            low_quality += 1;
+        } else if q >= 0.8 {
+            high_quality += 1;
+        }
+        if f.retrieval_count == 0 {
+            never_retrieved += 1;
+        }
+        let age_days = (now - f.created_at).num_days();
+        if age_days > 30 && f.retrieval_count == 0 {
+            stale_candidates += 1;
+        }
+
+        let entry = room_counts.entry(f.category.clone()).or_insert((0, 0.0));
+        entry.0 += 1;
+        entry.1 += q;
+    }
+
+    let avg_quality = if current.is_empty() {
+        0.0
+    } else {
+        total_quality / current.len() as f32
+    };
+
+    let mut out = String::from("=== Knowledge Health Report ===\n");
+    out.push_str(&format!(
+        "Total: {} facts ({} active, {} archived)\n",
+        total,
+        current.len(),
+        archived
+    ));
+    out.push_str(&format!("Avg Quality: {avg_quality:.2}\n"));
+    out.push_str(&format!(
+        "Distribution: {high_quality} high (>=0.8) | {low_quality} low (<0.4)\n"
+    ));
+    out.push_str(&format!(
+        "Stale (>30d, never retrieved): {stale_candidates}\n"
+    ));
+    out.push_str(&format!("Never retrieved: {never_retrieved}\n"));
+
+    if !room_counts.is_empty() {
+        out.push_str("\nRoom Balance:\n");
+        let mut rooms: Vec<_> = room_counts.into_iter().collect();
+        rooms.sort_by(|a, b| b.1 .0.cmp(&a.1 .0));
+        for (cat, (count, total_q)) in &rooms {
+            let avg = if *count > 0 {
+                total_q / *count as f32
+            } else {
+                0.0
+            };
+            out.push_str(&format!("  {cat}: {count} facts, avg quality {avg:.2}\n"));
+        }
+    }
+
+    let policy = crate::core::memory_policy::MemoryPolicy::default();
+    out.push_str(&format!(
+        "\nPolicy: max {} facts, max {} patterns\n",
+        policy.knowledge.max_facts, policy.knowledge.max_patterns
+    ));
+
+    if current.len() > policy.knowledge.max_facts {
+        out.push_str(&format!(
+            "WARNING: Active facts ({}) exceed policy max ({})\n",
+            current.len(),
+            policy.knowledge.max_facts
+        ));
+    }
+
+    out
+}
+
 fn handle_remove(project_root: &str, category: Option<&str>, key: Option<&str>) -> String {
     let Some(cat) = category else {
         return "Error: category is required for remove".to_string();
@@ -865,6 +1006,11 @@ fn handle_timeline(project_root: &str, category: Option<&str>) -> String {
         return "No knowledge stored yet.".to_string();
     };
 
+    let policy = match load_policy_or_error() {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+
     let Some(cat) = category else {
         return "Error: category is required for timeline".to_string();
     };
@@ -886,7 +1032,7 @@ fn handle_timeline(project_root: &str, category: Option<&str>) -> String {
     });
 
     let total = ordered.len();
-    let limit = crate::core::budgets::KNOWLEDGE_TIMELINE_LIMIT;
+    let limit = policy.knowledge.timeline_limit;
     if ordered.len() > limit {
         ordered = ordered[ordered.len() - limit..].to_vec();
     }
@@ -927,6 +1073,11 @@ fn handle_rooms(project_root: &str) -> String {
         return "No knowledge stored yet.".to_string();
     };
 
+    let policy = match load_policy_or_error() {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+
     let rooms = knowledge.list_rooms();
     if rooms.is_empty() {
         return "No knowledge rooms yet. Use ctx_knowledge(action=\"remember\", category=\"...\") to create rooms.".to_string();
@@ -935,7 +1086,7 @@ fn handle_rooms(project_root: &str) -> String {
     let mut rooms = rooms;
     rooms.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
     let total = rooms.len();
-    rooms.truncate(crate::core::budgets::KNOWLEDGE_ROOMS_LIMIT);
+    rooms.truncate(policy.knowledge.rooms_limit);
 
     let mut out = format!(
         "Knowledge Rooms (showing {}/{} rooms, project: {}):\n",
@@ -966,6 +1117,15 @@ fn handle_search(query: Option<&str>) -> String {
 
     let knowledge_dir = data_dir.join("knowledge");
 
+    let allow_cross_project = {
+        let role = crate::core::roles::active_role();
+        role.io.allow_cross_project_search
+    };
+
+    let current_project_hash = std::env::current_dir()
+        .ok()
+        .map(|p| crate::core::project_hash::hash_project_root(&p.to_string_lossy()));
+
     let q_lower = q.to_lowercase();
     let terms: Vec<&str> = q_lower.split_whitespace().collect();
     let mut results = Vec::new();
@@ -973,10 +1133,31 @@ fn handle_search(query: Option<&str>) -> String {
     if knowledge_dir.exists() {
         if let Ok(entries) = std::fs::read_dir(&knowledge_dir) {
             for entry in entries.flatten() {
+                let dir_name = entry.file_name().to_string_lossy().to_string();
+
+                if !allow_cross_project {
+                    if let Some(ref current_hash) = current_project_hash {
+                        if &dir_name != current_hash {
+                            continue;
+                        }
+                    }
+                }
+
                 let knowledge_file = entry.path().join("knowledge.json");
                 if let Ok(content) = std::fs::read_to_string(&knowledge_file) {
                     if let Ok(knowledge) = serde_json::from_str::<ProjectKnowledge>(&content) {
+                        let is_foreign = current_project_hash
+                            .as_ref()
+                            .is_some_and(|h| h != &knowledge.project_hash);
+
                         for fact in &knowledge.facts {
+                            if is_foreign
+                                && fact.privacy
+                                    == crate::core::memory_boundary::FactPrivacy::ProjectOnly
+                            {
+                                continue;
+                            }
+
                             let searchable = format!(
                                 "{} {} {}",
                                 fact.category.to_lowercase(),

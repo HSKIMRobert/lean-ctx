@@ -1,11 +1,11 @@
 ---
 name: lean-ctx
-description: Context Runtime for AI Agents — 49 MCP tools, 10 read modes, 90+ shell patterns, tree-sitter AST for 18 languages. Compresses LLM context by up to 99%. Use when reading files, running shell commands, searching code, or exploring directories. Auto-installs if not present.
+description: Context Runtime for AI Agents — 56 MCP tools, 10 read modes, 95+ shell patterns, tree-sitter AST for 18 languages. Compresses LLM context by up to 99%. Use when reading files, running shell commands, searching code, or exploring directories. Auto-installs if not present.
 ---
 
 # LeanCTX — Context Runtime for AI Agents
 
-LeanCTX optimizes LLM context through 49 MCP tools, 90+ shell compression patterns, and tree-sitter AST parsing for 18 languages. It provides adaptive file reading, cross-session memory (CCP), task-conditioned relevance scoring, and a feedback loop for learning optimal compression.
+LeanCTX optimizes LLM context through 56 MCP tools, 95+ shell compression patterns, and tree-sitter AST parsing for 18 languages. It provides adaptive file reading, cross-session memory (CCP), task-conditioned relevance scoring, and a feedback loop for learning optimal compression.
 
 ## Setup (run first)
 
@@ -21,12 +21,15 @@ If the install script is not available locally, install manually:
 curl -fsSL https://raw.githubusercontent.com/yvgude/lean-ctx/main/skills/lean-ctx/scripts/install.sh | bash
 ```
 
-After installation, configure the MCP server:
+After installation, run the one-command setup (installs shell hook + editor wiring + rules + skills):
 
 ```bash
-lean-ctx init --global
-lean-ctx doctor --fix
+lean-ctx setup
 ```
+
+lean-ctx supports two integration styles:
+- **CLI-redirect (preferred when shell access exists)**: no MCP tool schema overhead.
+- **MCP (required for some IDE extensions)**: cached reads + tools via MCP.
 
 ## When to use lean-ctx
 
@@ -73,32 +76,34 @@ Use `full` mode only when you will edit the file.
 ## AI Tool Integration
 
 ```bash
-lean-ctx init --global          # Install shell aliases
-lean-ctx init --agent claude    # Claude Code PreToolUse hook
-lean-ctx init --agent cursor    # Cursor hooks.json
-lean-ctx init --agent gemini    # Gemini CLI BeforeTool hook
-lean-ctx init --agent codex     # Codex AGENTS.md
-lean-ctx init --agent windsurf  # .windsurfrules
-lean-ctx init --agent cline     # .clinerules
-lean-ctx init --agent crush     # Crush MCP config
-lean-ctx init --agent copilot   # VS Code / Copilot .vscode/mcp.json
+lean-ctx init --global                             # Install shell aliases
+lean-ctx init --agent cursor --mode cli-redirect   # CLI-first (no MCP schema overhead)
+lean-ctx init --agent claude --mode cli-redirect   # CLI-first (Claude Code)
+lean-ctx init --agent codex --mode cli-redirect    # CLI-first (Codex)
+lean-ctx init --agent opencode --mode cli-redirect # CLI-first (OpenCode)
+
+lean-ctx init --agent copilot                      # MCP (VS Code / Copilot)
+lean-ctx init --agent jetbrains                    # MCP (JetBrains)
+lean-ctx init --agent windsurf                     # MCP/Hybrid (Windsurf)
 ```
 
 ## Multi-Agent & Knowledge (v2.7.0+)
 
-MCP tools:
-- `ctx_knowledge(action="remember", category, key, value)` — persistent cross-session project knowledge store
-- `ctx_knowledge(action="recall", query)` — search stored facts by text or category
-- `ctx_knowledge(action="consolidate")` — extract session findings into permanent knowledge
-- `ctx_agent(action="register", agent_type, role)` — multi-agent context sharing with scratchpad messaging
-- `ctx_agent(action="post", message, tags)` — share findings/warnings between concurrent agents
-- `ctx_agent(action="read")` — read messages from other agents
-- `ctx_agent(action="handoff", to_agent, message)` — transfer task to another agent
-- `ctx_agent(action="sync")` — multi-agent sync status (active agents, pending messages, shared contexts)
-- `ctx_share(action="push", paths, to_agent, message)` — push cached file contexts to another agent
-- `ctx_share(action="pull")` — pull shared contexts from other agents
-- `ctx_share(action="list")` — list all shared contexts
-- `ctx_share(action="clear")` — remove contexts shared by this agent
+CLI (works in CLI-redirect and MCP setups):
+
+```bash
+lean-ctx knowledge remember "value" --category <c> --key <k>
+lean-ctx knowledge recall "query"
+lean-ctx knowledge search "query"
+
+lean-ctx session task "what you're doing"
+lean-ctx session finding "what you found"
+lean-ctx session decision "what you decided"
+lean-ctx session save
+```
+
+If MCP is enabled for your IDE, the same capabilities are also available as MCP tools
+(`ctx_knowledge`, `ctx_session`, `ctx_agent`, ...).
 
 ## Additional Intelligence Tools (v2.19.0)
 

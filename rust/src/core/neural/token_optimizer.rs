@@ -4,11 +4,10 @@
 //! Experiment C's cross-tokenizer analysis. Falls back to identity when
 //! no optimizations are known.
 
-use std::collections::HashMap;
 use std::path::Path;
 
 pub struct TokenOptimizer {
-    replacements: HashMap<String, String>,
+    replacements: Vec<(String, String)>,
 }
 
 // Lab Experiment C (2026-04-02): Unicode symbols (λ, →, §, ∂, ⊕) INCREASE token count
@@ -92,26 +91,27 @@ impl TokenOptimizer {
     }
 
     pub fn with_defaults() -> Self {
-        let mut replacements: HashMap<String, String> = DEFAULT_OPTIMIZATIONS
+        let mut rules: Vec<(String, String)> = DEFAULT_OPTIMIZATIONS
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();
-
-        for &(from, to) in BPE_ALIGNED_RULES {
-            replacements.insert(from.to_string(), to.to_string());
+        rules.extend(
+            BPE_ALIGNED_RULES
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string())),
+        );
+        Self {
+            replacements: sort_rules(rules),
         }
-
-        Self { replacements }
     }
 
     fn load_from_file(path: &Path) -> anyhow::Result<Self> {
         let content = std::fs::read_to_string(path)?;
-        let data: HashMap<String, String> = serde_json::from_str(&content)?;
-        Ok(Self { replacements: data })
-    }
-
-    pub fn optimize<'a>(&'a self, _concept: &str, representation: &'a str) -> &'a str {
-        representation
+        let data: std::collections::HashMap<String, String> = serde_json::from_str(&content)?;
+        let rules: Vec<(String, String)> = data.into_iter().collect();
+        Ok(Self {
+            replacements: sort_rules(rules),
+        })
     }
 
     pub fn optimize_line(&self, line: &str) -> String {
@@ -150,6 +150,18 @@ impl TokenOptimizer {
             b
         }
     }
+}
+
+fn sort_rules(mut rules: Vec<(String, String)>) -> Vec<(String, String)> {
+    // Deterministic application order: longer patterns first, then lexical tie-break.
+    rules.sort_by(|a, b| {
+        let la = a.0.len();
+        let lb = b.0.len();
+        lb.cmp(&la)
+            .then_with(|| a.0.cmp(&b.0))
+            .then_with(|| a.1.cmp(&b.1))
+    });
+    rules
 }
 
 fn elide_lifetimes(line: &str) -> String {

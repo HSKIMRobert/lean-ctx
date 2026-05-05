@@ -1,0 +1,166 @@
+use std::path::{Path, PathBuf};
+
+use crate::core::{events, pathjail, roles};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BoundaryMode {
+    Warn,
+    Enforce,
+}
+
+impl BoundaryMode {
+    fn parse(s: &str) -> Self {
+        match s.trim().to_lowercase().as_str() {
+            "enforce" | "strict" => Self::Enforce,
+            _ => Self::Warn,
+        }
+    }
+}
+
+pub fn boundary_mode_effective(role: &roles::Role) -> BoundaryMode {
+    if let Ok(v) = std::env::var("LEAN_CTX_IO_BOUNDARY_MODE") {
+        if !v.trim().is_empty() {
+            return BoundaryMode::parse(&v);
+        }
+    }
+    BoundaryMode::parse(&role.io.boundary_mode)
+}
+
+pub fn is_secret_like(path: &Path) -> Option<&'static str> {
+    let file = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+    let lower = file.to_lowercase();
+
+    // Directory-level sensitive roots
+    for comp in path.components() {
+        if let std::path::Component::Normal(s) = comp {
+            let c = s.to_string_lossy().to_lowercase();
+            if c == ".ssh" {
+                return Some(".ssh directory");
+            }
+            if c == ".aws" {
+                return Some(".aws directory");
+            }
+            if c == ".gnupg" {
+                return Some(".gnupg directory");
+            }
+        }
+    }
+
+    // Common secret-like files (deny-by-default unless explicitly allowed).
+    if lower == ".env" {
+        return Some(".env file");
+    }
+    if lower.starts_with(".env.") {
+        let allow_suffixes = [".example", ".sample", ".template", ".dist", ".defaults"];
+        if allow_suffixes.iter().any(|s| lower.ends_with(s)) {
+            return None;
+        }
+        return Some(".env.* file");
+    }
+
+    if matches!(
+        lower.as_str(),
+        "id_rsa"
+            | "id_ed25519"
+            | "authorized_keys"
+            | "known_hosts"
+            | ".npmrc"
+            | ".netrc"
+            | ".pypirc"
+            | ".dockerconfigjson"
+    ) {
+        return Some("credential file");
+    }
+
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let secret_exts = ["pem", "key", "p12", "pfx", "kdbx"];
+    if secret_exts.iter().any(|e| ext.eq_ignore_ascii_case(e)) {
+        return Some("secret key material");
+    }
+
+    // AWS credentials file (often inside .aws/)
+    if lower == "credentials" && path.to_string_lossy().to_lowercase().contains("/.aws/") {
+        return Some("aws credentials");
+    }
+
+    None
+}
+
+pub fn check_secret_path_for_tool(tool: &str, path: &Path) -> Result<Option<String>, String> {
+    let role_name = roles::active_role_name();
+    let role = roles::active_role();
+    let mode = boundary_mode_effective(&role);
+
+    let Some(reason) = is_secret_like(path) else {
+        return Ok(None);
+    };
+
+    if role.io.allow_secret_paths {
+        return Ok(None);
+    }
+
+    let msg = format!(
+        "[I/O BOUNDARY] Secret-like path detected ({reason}): {}.\n\
+Role: {role_name}. To allow: switch role to 'admin' or set io.allow_secret_paths=true in the active role.",
+        path.display()
+    );
+    events::emit_policy_violation(&role_name, tool, &msg);
+
+    match mode {
+        BoundaryMode::Enforce => Err(format!("ERROR: {msg}")),
+        BoundaryMode::Warn => Ok(Some(format!("[BOUNDARY WARNING] {msg}"))),
+    }
+}
+
+pub fn jail_and_check_path(
+    tool: &str,
+    candidate: &Path,
+    jail_root: &Path,
+) -> Result<(PathBuf, Option<String>), String> {
+    let role_name = roles::active_role_name();
+    let jailed = pathjail::jail_path(candidate, jail_root).map_err(|e| {
+        let msg = format!("pathjail denied: {} ({e})", candidate.display());
+        events::emit_policy_violation(&role_name, tool, &msg);
+        e
+    })?;
+    let warning = check_secret_path_for_tool(tool, &jailed)?;
+    Ok((jailed, warning))
+}
+
+pub fn ensure_ignore_gitignore_allowed(tool: &str) -> Result<(), String> {
+    let role_name = roles::active_role_name();
+    let role = roles::active_role();
+    if role.io.allow_ignore_gitignore {
+        return Ok(());
+    }
+    let msg = format!(
+        "[I/O BOUNDARY] ignore_gitignore requires explicit policy.\n\
+Role '{role_name}' does not allow scanning .gitignore'd paths. Switch to role 'admin' or set io.allow_ignore_gitignore=true."
+    );
+    events::emit_policy_violation(&role_name, tool, &msg);
+    Err(format!("ERROR: {msg}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn env_is_secret_like() {
+        assert_eq!(is_secret_like(Path::new(".env")), Some(".env file"));
+        assert_eq!(is_secret_like(Path::new(".env.local")), Some(".env.* file"));
+        assert_eq!(is_secret_like(Path::new(".env.example")), None);
+    }
+
+    #[test]
+    fn key_is_secret_like() {
+        assert_eq!(
+            is_secret_like(Path::new("key.pem")),
+            Some("secret key material")
+        );
+        assert_eq!(
+            is_secret_like(Path::new("cert.KEY")),
+            Some("secret key material")
+        );
+    }
+}

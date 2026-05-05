@@ -1,6 +1,40 @@
 use std::path::Path;
 
-use super::super::{mcp_server_quiet_mode, resolve_binary_path, write_file};
+use super::super::{
+    mcp_server_quiet_mode, resolve_binary_path, write_file, HookMode, CLI_REDIRECT_RULES,
+    HYBRID_RULES,
+};
+
+pub(crate) fn install_qoder_hook_with_mode(mode: HookMode) {
+    match mode {
+        HookMode::CliRedirect => {
+            let home = crate::core::home::resolve_home_dir().unwrap_or_default();
+            for path in crate::core::editor_registry::qoder_all_mcp_paths(&home) {
+                let target = crate::core::editor_registry::EditorTarget {
+                    name: "Qoder",
+                    agent_key: "qoder".to_string(),
+                    config_path: path,
+                    detect_path: home.join(".qoder"),
+                    config_type: crate::core::editor_registry::ConfigType::QoderSettings,
+                };
+                let _ = crate::core::editor_registry::remove_lean_ctx_server(
+                    &target,
+                    crate::core::editor_registry::WriteOptions {
+                        overwrite_invalid: true,
+                    },
+                );
+            }
+            install_qoder_cli_redirect_rules(mode);
+        }
+        HookMode::Hybrid => {
+            install_qoder_hook();
+            install_qoder_cli_redirect_rules(mode);
+        }
+        HookMode::Mcp => {
+            install_qoder_hook();
+        }
+    }
+}
 
 pub fn install_qoder_hook() {
     let Some(home) = crate::core::home::resolve_home_dir() else {
@@ -83,6 +117,31 @@ fn upsert_qoder_hook_config(root: &mut serde_json::Value, rewrite_cmd: &str) -> 
     }));
 
     *root != original
+}
+
+fn install_qoder_cli_redirect_rules(mode: HookMode) {
+    let home = crate::core::home::resolve_home_dir().unwrap_or_default();
+    let rules_dir = home.join(".qoder").join("rules");
+    let _ = std::fs::create_dir_all(&rules_dir);
+    let rules_path = rules_dir.join("lean-ctx.md");
+
+    let content = match mode {
+        HookMode::CliRedirect => CLI_REDIRECT_RULES,
+        HookMode::Hybrid => HYBRID_RULES,
+        HookMode::Mcp => return,
+    };
+
+    write_file(&rules_path, content);
+
+    let mode_name = match mode {
+        HookMode::CliRedirect => "cli-redirect",
+        HookMode::Hybrid => "hybrid",
+        HookMode::Mcp => "mcp",
+    };
+    eprintln!(
+        "  \x1b[32m✓\x1b[0m Qoder rules installed in {mode_name} mode at {}",
+        rules_path.display()
+    );
 }
 
 fn is_lean_ctx_qoder_managed_entry(entry: &serde_json::Value) -> bool {

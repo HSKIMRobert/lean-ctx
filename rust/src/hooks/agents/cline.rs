@@ -16,10 +16,10 @@ When running shell commands, always prefix them with `{binary} -c` to compress o
 - `{binary} -c cargo test` instead of `cargo test`
 - `{binary} -c ls src/` instead of `ls src/`
 
-Supported commands: git, cargo, npm, pnpm, docker, kubectl, pip, ruff, go, curl, grep, find, ls, aws, helm, and 90+ more.
+Supported commands: git, cargo, npm, pnpm, docker, kubectl, pip, ruff, go, curl, grep, find, ls, aws, helm, and 95+ more.
 "
     );
 
     write_file(&rules_path, &rules);
-    println!("Installed .clinerules in current project.");
+    eprintln!("Installed .clinerules in current project.");
 }

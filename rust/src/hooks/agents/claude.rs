@@ -1,9 +1,9 @@
 use super::super::{
     generate_rewrite_script, make_executable, mcp_server_quiet_mode, resolve_binary_path,
-    resolve_binary_path_for_bash, write_file, REDIRECT_SCRIPT_CLAUDE,
+    resolve_binary_path_for_bash, write_file, HookMode, REDIRECT_SCRIPT_CLAUDE,
 };
 
-pub(crate) fn install_claude_hook(global: bool) {
+pub(crate) fn install_claude_hook_with_mode(global: bool, mode: HookMode) {
     let Some(home) = crate::core::home::resolve_home_dir() else {
         tracing::error!("Cannot resolve home directory");
         return;
@@ -14,8 +14,8 @@ pub(crate) fn install_claude_hook(global: bool) {
 
     let scope = crate::core::config::Config::load().rules_scope_effective();
     if scope != crate::core::config::RulesScope::Project {
-        install_claude_rules_file(&home);
-        install_claude_global_claude_md(&home);
+        install_claude_rules_file_for_mode(&home, mode);
+        install_claude_global_claude_md_for_mode(&home, mode);
         install_claude_skill(&home);
     }
 
@@ -26,14 +26,14 @@ const CLAUDE_MD_BLOCK_START: &str = "<!-- lean-ctx -->";
 const CLAUDE_MD_BLOCK_END: &str = "<!-- /lean-ctx -->";
 const CLAUDE_MD_BLOCK_VERSION: &str = "lean-ctx-claude-v2";
 
-const CLAUDE_MD_BLOCK_CONTENT: &str = "\
+const CLAUDE_MD_BLOCK_CONTENT_MCP: &str = "\
 <!-- lean-ctx -->
 <!-- lean-ctx-claude-v2 -->
 ## lean-ctx — Context Runtime
 
 Always prefer lean-ctx MCP tools over native equivalents:
 - `ctx_read` instead of `Read` / `cat` (cached, 10 modes, re-reads ~13 tokens)
-- `ctx_shell` instead of `bash` / `Shell` (90+ compression patterns)
+- `ctx_shell` instead of `bash` / `Shell` (95+ compression patterns)
 - `ctx_search` instead of `Grep` / `rg` (compact results)
 - `ctx_tree` instead of `ls` / `find` (compact directory maps)
 - Native Edit/StrReplace stay unchanged. If Edit requires Read and Read is unavailable, use `ctx_edit(path, old_string, new_string)` instead.
@@ -44,27 +44,48 @@ Full rules: @rules/lean-ctx.md
 Verify setup: run `/mcp` to check lean-ctx is connected, `/memory` to confirm this file loaded.
 <!-- /lean-ctx -->";
 
-fn install_claude_global_claude_md(home: &std::path::Path) {
+const CLAUDE_MD_BLOCK_CONTENT_CLI: &str = "\
+<!-- lean-ctx -->
+<!-- lean-ctx-claude-cli-v1 -->
+## lean-ctx — CLI-Redirect Mode
+
+Prefer lean-ctx CLI commands (no MCP schema overhead):
+- `lean-ctx read <path> [-m mode]` for cached reads (modes: full|map|signatures|diff|task|reference|aggressive|entropy|lines:N-M)
+- `lean-ctx -c \"<cmd>\"` for compressed shell output (95+ patterns)
+- `lean-ctx grep <pattern> <path>` / `lean-ctx ls <path>` / `lean-ctx find ...` / `lean-ctx diff ...`
+
+Native Edit/StrReplace stay unchanged. Write/Delete/Glob — use normally.
+<!-- /lean-ctx -->";
+
+fn install_claude_global_claude_md_for_mode(home: &std::path::Path, mode: HookMode) {
     let claude_dir = crate::core::editor_registry::claude_state_dir(home);
     let _ = std::fs::create_dir_all(&claude_dir);
     let claude_md_path = claude_dir.join("CLAUDE.md");
 
     let existing = std::fs::read_to_string(&claude_md_path).unwrap_or_default();
+    let block = match mode {
+        HookMode::CliRedirect => CLAUDE_MD_BLOCK_CONTENT_CLI,
+        HookMode::Mcp | HookMode::Hybrid => CLAUDE_MD_BLOCK_CONTENT_MCP,
+    };
+    let block_version = match mode {
+        HookMode::CliRedirect => "lean-ctx-claude-cli-v1",
+        HookMode::Mcp | HookMode::Hybrid => CLAUDE_MD_BLOCK_VERSION,
+    };
 
     if existing.contains(CLAUDE_MD_BLOCK_START) {
-        if existing.contains(CLAUDE_MD_BLOCK_VERSION) {
+        if existing.contains(block_version) {
             return;
         }
         let cleaned = remove_block(&existing, CLAUDE_MD_BLOCK_START, CLAUDE_MD_BLOCK_END);
-        let updated = format!("{}\n\n{}\n", cleaned.trim(), CLAUDE_MD_BLOCK_CONTENT);
+        let updated = format!("{}\n\n{}\n", cleaned.trim(), block);
         write_file(&claude_md_path, &updated);
         return;
     }
 
     if existing.trim().is_empty() {
-        write_file(&claude_md_path, CLAUDE_MD_BLOCK_CONTENT);
+        write_file(&claude_md_path, block);
     } else {
-        let updated = format!("{}\n\n{}\n", existing.trim(), CLAUDE_MD_BLOCK_CONTENT);
+        let updated = format!("{}\n\n{}\n", existing.trim(), block);
         write_file(&claude_md_path, &updated);
     }
 }
@@ -112,12 +133,15 @@ fn install_claude_skill(home: &std::path::Path) {
     }
 }
 
-fn install_claude_rules_file(home: &std::path::Path) {
+fn install_claude_rules_file_for_mode(home: &std::path::Path, mode: HookMode) {
     let rules_dir = crate::core::editor_registry::claude_rules_dir(home);
     let _ = std::fs::create_dir_all(&rules_dir);
     let rules_path = rules_dir.join("lean-ctx.md");
 
-    let desired = crate::rules_inject::rules_dedicated_markdown();
+    let desired = match mode {
+        HookMode::CliRedirect => crate::hooks::CLI_REDIRECT_RULES,
+        HookMode::Hybrid | HookMode::Mcp => crate::rules_inject::rules_dedicated_markdown(),
+    };
     let existing = std::fs::read_to_string(&rules_path).unwrap_or_default();
 
     if existing.is_empty() {
@@ -305,7 +329,7 @@ pub(crate) fn install_claude_hook_config(home: &std::path::Path) {
         }
     }
     if !mcp_server_quiet_mode() {
-        println!("Installed Claude Code hooks at {}", hooks_dir.display());
+        eprintln!("Installed Claude Code hooks at {}", hooks_dir.display());
     }
 }
 
@@ -366,5 +390,7 @@ pub(crate) fn install_claude_project_hooks(cwd: &std::path::Path) {
             );
         }
     }
-    println!("Created .claude/settings.local.json (project-local PreToolUse hooks).");
+    if !mcp_server_quiet_mode() {
+        eprintln!("Created .claude/settings.local.json (project-local PreToolUse hooks).");
+    }
 }

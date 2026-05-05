@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use super::paths::{
-    claude_mcp_json_path, cline_mcp_path, qoder_mcp_paths, qoderwork_mcp_path, roo_mcp_path,
+    claude_mcp_json_path, cline_mcp_path, qoder_all_mcp_paths, qoderwork_mcp_path, roo_mcp_path,
     vscode_mcp_path, zed_config_dir, zed_settings_path,
 };
 use super::types::{ConfigType, EditorTarget};
@@ -71,7 +71,7 @@ pub fn build_targets(home: &Path) -> Vec<EditorTarget> {
         },
         EditorTarget {
             name: "Zed",
-            agent_key: String::new(),
+            agent_key: "zed".to_string(),
             config_path: zed_settings_path(home),
             detect_path: zed_config_dir(home),
             config_type: ConfigType::Zed,
@@ -93,16 +93,9 @@ pub fn build_targets(home: &Path) -> Vec<EditorTarget> {
         EditorTarget {
             name: "Qwen Code",
             agent_key: "qwen".to_string(),
-            config_path: home.join(".qwen/mcp.json"),
+            config_path: home.join(".qwen/settings.json"),
             detect_path: home.join(".qwen"),
             config_type: ConfigType::McpJson,
-        },
-        EditorTarget {
-            name: "QoderWork",
-            agent_key: "qoderwork".to_string(),
-            config_path: qoderwork_mcp_path(home),
-            detect_path: detect_qoderwork_path(home),
-            config_type: ConfigType::QoderMcp,
         },
         EditorTarget {
             name: "Trae",
@@ -114,7 +107,7 @@ pub fn build_targets(home: &Path) -> Vec<EditorTarget> {
         EditorTarget {
             name: "Amazon Q Developer",
             agent_key: "amazonq".to_string(),
-            config_path: home.join(".aws/amazonq/mcp.json"),
+            config_path: home.join(".aws/amazonq/default.json"),
             detect_path: home.join(".aws/amazonq"),
             config_type: ConfigType::McpJson,
         },
@@ -168,18 +161,18 @@ pub fn build_targets(home: &Path) -> Vec<EditorTarget> {
             config_type: ConfigType::McpJson,
         },
         EditorTarget {
-            name: "Aider",
-            agent_key: "aider".to_string(),
-            config_path: home.join(".aider/mcp.json"),
-            detect_path: home.join(".aider"),
-            config_type: ConfigType::McpJson,
-        },
-        EditorTarget {
             name: "Amp",
             agent_key: "amp".to_string(),
             config_path: home.join(".config/amp/settings.json"),
             detect_path: home.join(".config/amp"),
             config_type: ConfigType::Amp,
+        },
+        EditorTarget {
+            name: "QoderWork",
+            agent_key: "qoderwork".to_string(),
+            config_path: qoderwork_mcp_path(home),
+            detect_path: detect_qoderwork_path(home),
+            config_type: ConfigType::McpJson,
         },
         EditorTarget {
             name: "Hermes Agent",
@@ -188,27 +181,69 @@ pub fn build_targets(home: &Path) -> Vec<EditorTarget> {
             detect_path: home.join(".hermes"),
             config_type: ConfigType::HermesYaml,
         },
+        EditorTarget {
+            name: "Aider",
+            agent_key: "aider".to_string(),
+            config_path: home.join(".aider/mcp.json"),
+            detect_path: home.join(".aider"),
+            config_type: ConfigType::McpJson,
+        },
+        EditorTarget {
+            name: "Continue",
+            agent_key: "continue".to_string(),
+            config_path: home.join(".continue/mcp.json"),
+            detect_path: home.join(".continue"),
+            config_type: ConfigType::McpJson,
+        },
+        EditorTarget {
+            name: "Neovim (mcphub.nvim)",
+            agent_key: "neovim".to_string(),
+            config_path: home.join(".config/mcphub/servers.json"),
+            detect_path: home.join(".config/nvim"),
+            config_type: ConfigType::McpJson,
+        },
+        EditorTarget {
+            name: "Emacs (mcp.el)",
+            agent_key: "emacs".to_string(),
+            config_path: home.join(".emacs.d/mcp.json"),
+            detect_path: home.join(".emacs.d"),
+            config_type: ConfigType::McpJson,
+        },
+        EditorTarget {
+            name: "Sublime Text",
+            agent_key: "sublime".to_string(),
+            config_path: detect_sublime_mcp_path(home),
+            detect_path: detect_sublime_path(home),
+            config_type: ConfigType::McpJson,
+        },
     ];
 
     targets.extend(
-        qoder_mcp_paths(home)
+        qoder_all_mcp_paths(home)
             .into_iter()
             .map(|config_path| EditorTarget {
                 name: "Qoder",
                 agent_key: "qoder".to_string(),
                 config_path,
                 detect_path: detect_qoder_path(home),
-                config_type: ConfigType::QoderMcp,
+                config_type: ConfigType::QoderSettings,
             }),
     );
 
     targets
 }
 
-pub fn detect_qoder_path(home: &Path) -> PathBuf {
+fn detect_qoder_path(home: &Path) -> PathBuf {
     let qoder_dir = home.join(".qoder");
     if qoder_dir.exists() {
         return qoder_dir;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let app_dir = home.join("Library/Application Support/Qoder");
+        if app_dir.exists() {
+            return app_dir;
+        }
     }
     #[cfg(target_os = "windows")]
     {
@@ -222,10 +257,10 @@ pub fn detect_qoder_path(home: &Path) -> PathBuf {
     PathBuf::from("/nonexistent")
 }
 
-pub fn detect_qoderwork_path(home: &Path) -> PathBuf {
-    let qoderwork_dir = home.join(".qoderwork");
-    if qoderwork_dir.exists() {
-        return qoderwork_dir;
+fn detect_qoderwork_path(home: &Path) -> PathBuf {
+    let dir = home.join(".qoderwork");
+    if dir.exists() {
+        return dir;
     }
     #[cfg(target_os = "windows")]
     {
@@ -237,6 +272,41 @@ pub fn detect_qoderwork_path(home: &Path) -> PathBuf {
         }
     }
     PathBuf::from("/nonexistent")
+}
+
+fn detect_sublime_path(home: &Path) -> PathBuf {
+    #[cfg(target_os = "macos")]
+    {
+        let app_dir = home.join("Library/Application Support/Sublime Text");
+        if app_dir.exists() {
+            return app_dir;
+        }
+    }
+    let xdg_dir = home.join(".config/sublime-text");
+    if xdg_dir.exists() {
+        return xdg_dir;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let app_dir = PathBuf::from(appdata).join("Sublime Text");
+            if app_dir.exists() {
+                return app_dir;
+            }
+        }
+    }
+    PathBuf::from("/nonexistent")
+}
+
+fn detect_sublime_mcp_path(home: &Path) -> PathBuf {
+    #[cfg(target_os = "macos")]
+    {
+        let app_dir = home.join("Library/Application Support/Sublime Text/Packages/User/mcp.json");
+        if app_dir.parent().is_some_and(std::path::Path::exists) {
+            return app_dir;
+        }
+    }
+    home.join(".config/sublime-text/mcp.json")
 }
 
 pub fn detect_claude_path() -> PathBuf {

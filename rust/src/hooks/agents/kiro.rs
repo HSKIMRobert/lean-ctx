@@ -18,11 +18,11 @@ pub(crate) fn install_kiro_hook() {
             .unwrap_or_default()
             .contains("lean-ctx")
     {
-        println!("  Kiro steering file already exists at .kiro/steering/lean-ctx.md");
+        eprintln!("  Kiro steering file already exists at .kiro/steering/lean-ctx.md");
     } else {
         let _ = std::fs::create_dir_all(&steering_dir);
         write_file(&steering_file, KIRO_STEERING_TEMPLATE);
-        println!(
+        eprintln!(
             "  \x1b[32m✓\x1b[0m Created .kiro/steering/lean-ctx.md (Kiro will now prefer lean-ctx tools)"
         );
     }

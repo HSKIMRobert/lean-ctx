@@ -1,7 +1,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
+use crate::core::graph_context;
 use crate::core::intent_protocol::{IntentRecord, IntentSource};
 
 const MAX_FINDINGS: usize = 20;
@@ -34,6 +35,9 @@ pub struct SessionState {
     #[serde(default)]
     pub active_structured_intent: Option<crate::core::intent_engine::StructuredIntent>,
     pub stats: SessionStats,
+    /// When true, resume / compaction prompts encourage concise model replies.
+    #[serde(default)]
+    pub terse_mode: bool,
 }
 
 /// Description of the current task being worked on, with optional progress tracking.
@@ -70,6 +74,8 @@ pub struct FileTouched {
     pub modified: bool,
     pub last_mode: String,
     pub tokens: usize,
+    #[serde(default)]
+    pub stale: bool,
 }
 
 /// Snapshot of a test run with pass/fail counts.
@@ -140,10 +146,12 @@ pub struct PreparedSave {
     id: String,
     json: String,
     pointer_json: String,
+    compaction_snapshot: Option<String>,
 }
 
 impl PreparedSave {
-    /// Writes the pre-serialized session data and latest pointer to disk atomically.
+    /// Writes the pre-serialized session data, latest pointer, and compaction
+    /// snapshot to disk atomically.
     pub fn write_to_disk(self) -> Result<(), String> {
         if !self.dir.exists() {
             std::fs::create_dir_all(&self.dir).map_err(|e| e.to_string())?;
@@ -157,6 +165,11 @@ impl PreparedSave {
         let latest_tmp = self.dir.join(".latest.json.tmp");
         std::fs::write(&latest_tmp, &self.pointer_json).map_err(|e| e.to_string())?;
         std::fs::rename(&latest_tmp, &latest_path).map_err(|e| e.to_string())?;
+
+        if let Some(snapshot) = self.compaction_snapshot {
+            let snap_path = self.dir.join(format!("{}_snapshot.txt", self.id));
+            let _ = std::fs::write(&snap_path, &snapshot);
+        }
         Ok(())
     }
 }
@@ -189,6 +202,9 @@ impl SessionState {
             intents: Vec::new(),
             active_structured_intent: None,
             stats: SessionStats::default(),
+            terse_mode: crate::core::profiles::active_profile()
+                .compression
+                .terse_mode_effective(),
         }
     }
 
@@ -272,6 +288,7 @@ impl SessionState {
                 modified: false,
                 last_mode: mode.to_string(),
                 tokens,
+                stale: false,
             });
             while self.files_touched.len() > MAX_FILES {
                 self.files_touched.remove(0);
@@ -535,6 +552,10 @@ impl SessionState {
 
         let mut sections: Vec<(u8, String)> = Vec::new();
 
+        if self.terse_mode {
+            sections.push((0, "<config terse=\"true\" />".to_string()));
+        }
+
         if let Some(ref task) = self.task {
             let pct = task
                 .progress_pct
@@ -630,6 +651,11 @@ impl SessionState {
 
         sections.sort_by_key(|(priority, _)| *priority);
 
+        const SNAPSHOT_HARD_CAP: usize = 2200;
+        const CLOSE_TAG: &str = "</session_snapshot>";
+        let open_len = "<session_snapshot>\n".len();
+        let reserve_body = SNAPSHOT_HARD_CAP.saturating_sub(open_len + CLOSE_TAG.len());
+
         let mut snapshot = String::from("<session_snapshot>\n");
         for (_, section) in &sections {
             if snapshot.len() + section.len() + 25 > MAX_SNAPSHOT_BYTES {
@@ -638,8 +664,179 @@ impl SessionState {
             snapshot.push_str(section);
             snapshot.push('\n');
         }
-        snapshot.push_str("</session_snapshot>");
+
+        let used = snapshot.len().saturating_sub(open_len);
+        let suffix_budget = reserve_body.saturating_sub(used).saturating_sub(1);
+        if suffix_budget > 64 {
+            let suffix = self.build_compaction_structured_suffix(suffix_budget);
+            if !suffix.is_empty() {
+                snapshot.push_str(&suffix);
+                if !suffix.ends_with('\n') {
+                    snapshot.push('\n');
+                }
+            }
+        }
+
+        snapshot.push_str(CLOSE_TAG);
         snapshot
+    }
+
+    /// Structured recovery hints (search/read/knowledge/graph) appended after legacy snapshot lines.
+    fn build_compaction_structured_suffix(&self, max_bytes: usize) -> String {
+        if max_bytes <= 64 {
+            return String::new();
+        }
+
+        let mut recovery_queries: Vec<String> = Vec::new();
+        for ft in self.files_touched.iter().rev().take(12) {
+            let path_esc = escape_xml_attr(&ft.path);
+            let mode = if ft.last_mode.is_empty() {
+                "map".to_string()
+            } else {
+                escape_xml_attr(&ft.last_mode)
+            };
+            recovery_queries.push(format!(
+                r#"<query tool="ctx_read" path="{path_esc}" mode="{mode}" />"#,
+            ));
+            let pattern = file_stem_search_pattern(&ft.path);
+            if !pattern.is_empty() {
+                let search_dir = parent_dir_slash(&ft.path);
+                let pat_esc = escape_xml_attr(&pattern);
+                let dir_esc = escape_xml_attr(&search_dir);
+                recovery_queries.push(format!(
+                    r#"<query tool="ctx_search" pattern="{pat_esc}" path="{dir_esc}" />"#,
+                ));
+            }
+        }
+
+        let mut parts: Vec<String> = Vec::new();
+        if !recovery_queries.is_empty() {
+            parts.push(format!(
+                "<recovery_queries>\n{}\n</recovery_queries>",
+                recovery_queries.join("\n")
+            ));
+        }
+
+        let knowledge_ok = !self.findings.is_empty() || !self.decisions.is_empty();
+        if knowledge_ok {
+            if let Some(q) = self.knowledge_recall_query_stem() {
+                let q_esc = escape_xml_attr(&q);
+                parts.push(format!(
+                    "<knowledge_context>\n<recall query=\"{q_esc}\" />\n</knowledge_context>",
+                ));
+            }
+        }
+
+        if let Some(root) = self
+            .project_root
+            .as_deref()
+            .filter(|r| !r.trim().is_empty())
+        {
+            let root_trim = root.trim_end_matches('/');
+            let mut cluster_lines: Vec<String> = Vec::new();
+            for ft in self.files_touched.iter().rev().take(3) {
+                let primary_esc = escape_xml_attr(&ft.path);
+                let abs_primary = format!("{root_trim}/{}", ft.path.trim_start_matches('/'));
+                let related_csv =
+                    graph_context::build_related_paths_csv(&abs_primary, root_trim, 8)
+                        .map(|s| escape_xml_attr(&s))
+                        .unwrap_or_default();
+                if related_csv.is_empty() {
+                    continue;
+                }
+                cluster_lines.push(format!(
+                    r#"<cluster primary="{primary_esc}" related="{related_csv}" />"#,
+                ));
+            }
+            if !cluster_lines.is_empty() {
+                parts.push(format!(
+                    "<graph_context>\n{}\n</graph_context>",
+                    cluster_lines.join("\n")
+                ));
+            }
+        }
+
+        Self::shrink_structured_suffix_parts(&mut parts, max_bytes)
+    }
+
+    fn shrink_structured_suffix_parts(parts: &mut Vec<String>, max_bytes: usize) -> String {
+        let mut out = parts.join("\n");
+        while out.len() > max_bytes && !parts.is_empty() {
+            parts.pop();
+            out = parts.join("\n");
+        }
+        if out.len() <= max_bytes {
+            return out;
+        }
+        if let Some(idx) = parts
+            .iter()
+            .position(|p| p.starts_with("<recovery_queries>"))
+        {
+            let mut lines: Vec<String> = parts[idx]
+                .lines()
+                .filter(|l| l.starts_with("<query "))
+                .map(str::to_string)
+                .collect();
+            while !lines.is_empty() && out.len() > max_bytes {
+                if lines.len() == 1 {
+                    parts.remove(idx);
+                    out = parts.join("\n");
+                    break;
+                }
+                lines.truncate(lines.len().saturating_sub(2));
+                parts[idx] = format!(
+                    "<recovery_queries>\n{}\n</recovery_queries>",
+                    lines.join("\n")
+                );
+                out = parts.join("\n");
+            }
+        }
+        if out.len() > max_bytes {
+            return String::new();
+        }
+        out
+    }
+
+    fn knowledge_recall_query_stem(&self) -> Option<String> {
+        let mut bits: Vec<String> = Vec::new();
+        if let Some(ref t) = self.task {
+            bits.push(Self::task_keyword_stem(&t.description));
+        }
+        if bits.iter().all(std::string::String::is_empty) {
+            if let Some(f) = self.findings.last() {
+                bits.push(Self::task_keyword_stem(&f.summary));
+            } else if let Some(d) = self.decisions.last() {
+                bits.push(Self::task_keyword_stem(&d.summary));
+            }
+        }
+        let q = bits.join(" ").trim().to_string();
+        if q.is_empty() {
+            None
+        } else {
+            Some(q)
+        }
+    }
+
+    fn task_keyword_stem(text: &str) -> String {
+        const STOP: &[&str] = &[
+            "the", "a", "an", "and", "or", "to", "for", "of", "in", "on", "with", "is", "are",
+            "be", "this", "that", "it", "as", "at", "by", "from",
+        ];
+        text.split_whitespace()
+            .filter_map(|w| {
+                let w = w.trim_matches(|c: char| !c.is_alphanumeric());
+                if w.len() < 3 {
+                    return None;
+                }
+                let lower = w.to_lowercase();
+                if STOP.contains(&lower.as_str()) {
+                    return None;
+                }
+                Some(w.to_string())
+            })
+            .take(8)
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     /// Writes the compaction snapshot to disk and returns the snapshot string.
@@ -662,8 +859,16 @@ impl SessionState {
     }
 
     /// Loads the most recently modified compaction snapshot from disk.
+    ///
+    /// When a project root can be derived from CWD, only snapshots whose
+    /// embedded session data matches the project root are considered. This
+    /// prevents cross-project snapshot leakage.
     pub fn load_latest_snapshot() -> Option<String> {
         let dir = sessions_dir()?;
+        let project_root = std::env::current_dir()
+            .ok()
+            .map(|p| p.to_string_lossy().to_string());
+
         let mut snapshots: Vec<(std::time::SystemTime, PathBuf)> = std::fs::read_dir(&dir)
             .ok()?
             .filter_map(std::result::Result::ok)
@@ -671,6 +876,14 @@ impl SessionState {
             .filter_map(|e| {
                 let meta = e.metadata().ok()?;
                 let modified = meta.modified().ok()?;
+
+                if let Some(ref root) = project_root {
+                    let content = std::fs::read_to_string(e.path()).ok()?;
+                    if !content.contains(root) {
+                        return None;
+                    }
+                }
+
                 Some((modified, e.path()))
             })
             .collect();
@@ -685,6 +898,13 @@ impl SessionState {
     /// Max ~500 tokens. Includes task, decisions, files, and archive references.
     pub fn build_resume_block(&self) -> String {
         let mut parts: Vec<String> = Vec::new();
+
+        if self.terse_mode {
+            parts.push(
+                "[TERSE MODE] Keep responses concise. Use bullet points, avoid filler. Focus on code and actions, not explanations."
+                    .to_string(),
+            );
+        }
 
         if let Some(ref root) = self.project_root {
             let short = root.rsplit('/').next().unwrap_or(root);
@@ -770,6 +990,11 @@ impl SessionState {
     /// to a background thread via `write_to_disk()`.
     pub fn prepare_save(&mut self) -> Result<PreparedSave, String> {
         let dir = sessions_dir().ok_or("cannot determine home directory")?;
+        let compaction_snapshot = if self.task.is_some() {
+            Some(self.build_compaction_snapshot())
+        } else {
+            None
+        };
         let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
         let pointer_json = serde_json::to_string(&LatestPointer {
             id: self.id.clone(),
@@ -781,11 +1006,24 @@ impl SessionState {
             id: self.id.clone(),
             json,
             pointer_json,
+            compaction_snapshot,
         })
     }
 
-    /// Loads the most recent session from disk via the `latest.json` pointer.
+    /// Loads the most recent session from disk.
+    ///
+    /// Prefers the session matching the current working directory's project root.
+    /// Falls back to the global `latest.json` pointer only if no project-scoped
+    /// match is found. This prevents cross-project session leakage.
     pub fn load_latest() -> Option<Self> {
+        if let Some(project_root) = std::env::current_dir()
+            .ok()
+            .map(|p| p.to_string_lossy().to_string())
+        {
+            if let Some(session) = Self::load_latest_for_project_root(&project_root) {
+                return Some(session);
+            }
+        }
         let dir = sessions_dir()?;
         let latest_path = dir.join("latest.json");
         let pointer_json = std::fs::read_to_string(&latest_path).ok()?;
@@ -923,6 +1161,42 @@ pub struct SessionSummary {
     pub tokens_saved: u64,
 }
 
+fn escape_xml_attr(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+fn file_stem_search_pattern(path: &str) -> String {
+    Path::new(path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && s.chars().any(char::is_alphanumeric))
+        .unwrap_or("")
+        .to_string()
+}
+
+fn parent_dir_slash(path: &str) -> String {
+    Path::new(path)
+        .parent()
+        .and_then(|p| p.to_str())
+        .map_or_else(
+            || "./".to_string(),
+            |p| {
+                let norm = p.replace('\\', "/");
+                let trimmed = norm.trim_end_matches('/');
+                if trimmed.is_empty() {
+                    "./".to_string()
+                } else {
+                    format!("{trimmed}/")
+                }
+            },
+        )
+}
+
 fn sessions_dir() -> Option<PathBuf> {
     crate::core::data_dir::lean_ctx_data_dir()
         .ok()
@@ -998,6 +1272,16 @@ fn normalize_loaded_session(mut session: SessionState) -> SessionState {
 
         if !root_looks_real && cwd_looks_real && is_agent_or_temp_dir(root_p) {
             session.project_root = Some(cwd.clone());
+        }
+    }
+
+    // Upgrade terse_mode from profile if session was created before the profile default.
+    if !session.terse_mode {
+        let profile_terse = crate::core::profiles::active_profile()
+            .compression
+            .terse_mode_effective();
+        if profile_terse {
+            session.terse_mode = true;
         }
     }
 
@@ -1123,6 +1407,23 @@ mod tests {
         let mut session = SessionState::new();
         session.project_root = Some("/project".to_string());
         assert_eq!(session.effective_cwd(Some(".")), "/project");
+    }
+
+    #[test]
+    fn compaction_snapshot_includes_terse_config_when_enabled() {
+        let mut session = SessionState::new();
+        session.terse_mode = true;
+        session.set_task("x", None);
+        let snapshot = session.build_compaction_snapshot();
+        assert!(snapshot.contains("<config terse=\"true\" />"));
+    }
+
+    #[test]
+    fn resume_block_prefixes_terse_instruction_when_enabled() {
+        let mut session = SessionState::new();
+        session.terse_mode = true;
+        let block = session.build_resume_block();
+        assert!(block.contains("[TERSE MODE]"));
     }
 
     #[test]

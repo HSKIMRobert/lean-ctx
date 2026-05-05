@@ -20,11 +20,49 @@ If you discover a security vulnerability in lean-ctx, please report it privately
 lean-ctx is a **local-only CLI tool and MCP server**. Understanding its scope helps assess risk:
 
 **Does:**
-- Read files from your local filesystem (only files you explicitly request)
+- Read files from your local filesystem (explicit reads and tool-driven scans within the project boundary)
 - Execute shell commands (only commands you or your AI tool explicitly invoke)
 - Cache file contents in memory during a session
 - Store statistics in `~/.lean-ctx/stats.json` (command counts, token savings)
 - Store session state in `~/.lean-ctx/sessions/` (task context, findings)
+
+### I/O Boundary (PathJail + Roles)
+
+lean-ctx enforces a **project boundary** for filesystem I/O:
+
+- **PathJail**: all tool path inputs are resolved and jailed under the current `project_root`.
+  - If a path would escape, the call fails with a clear hint to explicitly allow additional roots.
+- **Explicit allow roots**:
+  - Env: `LEAN_CTX_ALLOW_PATH` (or `LCTX_ALLOW_PATH`) — a path list (`:` on Unix, `;` on Windows)
+  - Config: `allow_paths` in `~/.lean-ctx/config.toml`
+- **Symlink escape protection**: canonicalization ensures that symlinks pointing outside the jail are rejected.
+
+In addition, roles can restrict **unsafe I/O**:
+
+- **Secret-like deny-by-default**:
+  - Search skips secret-like files (e.g. `.env`, `*.pem`, `id_rsa`, `.ssh/`, `.aws/`) unless the active role explicitly allows them.
+  - Artifact registry resolution rejects secret-like artifact paths unless allowed (artifacts are indexed/shareable by design).
+  - Direct reads/edits can warn or error depending on boundary mode.
+- **`.gitignore` bypass is policy-gated**:
+  - `ctx_search ignore_gitignore=true` requires explicit role permission (typically the `admin` role).
+- **Boundary mode**:
+  - Roles can set `io.boundary_mode = "warn" | "enforce"`.
+  - Env override: `LEAN_CTX_IO_BOUNDARY_MODE=warn|enforce`.
+- **Auditability**:
+  - Boundary denials/warnings emit local `PolicyViolation` events (no secret content is returned as part of the violation).
+
+### Threat Model (v1)
+
+**Primary risks (local-only, but high impact):**
+- **Accidental secret exfiltration to LLMs** via `ctx_read`, `ctx_search`, compressed `ctx_shell`, archives, or exported artifacts.
+- **Boundary escapes** via absolute paths, symlinks, linked projects, or artifact path tricks.
+- **Amplification / token burn** by scanning large files or returning unbounded outputs.
+
+**Core mitigations:**
+- **PathJail** + explicit allow roots (`LEAN_CTX_ALLOW_PATH` / `allow_paths`).
+- **Role-gated unsafe I/O** (`ignore_gitignore`, secret-like allow).
+- **Deterministic redaction** on tool outputs (non-admin roles, and for persisted archives).
+- **Hard caps** on reads and outputs to limit DoS/token burn.
 
 **Optional network activity (fully disableable):**
 - **Update check**: a lightweight daily GET to `leanctx.com/version.txt` to notify you of new versions. Sends only the current version as User-Agent. Disable with `update_check_disabled = true` in `~/.lean-ctx/config.toml` or `LEAN_CTX_NO_UPDATE_CHECK=1`.

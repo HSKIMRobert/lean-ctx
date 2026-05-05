@@ -1,4 +1,7 @@
+use crate::core::a2a::message::{MessagePriority, PrivacyLevel};
+use crate::core::a2a::task::TaskStore;
 use crate::core::agents::{AgentDiary, AgentRegistry, AgentStatus, DiaryEntryType};
+use crate::core::evidence_ledger::EvidenceLedgerV1;
 
 #[allow(clippy::too_many_arguments)]
 pub fn handle(
@@ -11,6 +14,12 @@ pub fn handle(
     category: Option<&str>,
     to_agent: Option<&str>,
     status: Option<&str>,
+    privacy: Option<&str>,
+    priority: Option<&str>,
+    _ttl_hours: Option<u64>,
+    format: Option<&str>,
+    write: bool,
+    filename: Option<&str>,
 ) -> String {
     match action {
         "register" => {
@@ -58,6 +67,10 @@ pub fn handle(
             let Some(msg) = message else { return "Error: message is required for post".to_string() };
             let cat = category.unwrap_or("status");
             let from = current_agent_id.unwrap_or("anonymous");
+            let _privacy = privacy
+                .map_or(PrivacyLevel::Team, PrivacyLevel::parse_str);
+            let _priority = priority
+                .map_or(MessagePriority::Normal, MessagePriority::parse_str);
             let mut registry = AgentRegistry::load_or_create();
             let msg_id = registry.post_message(from, to_agent, cat, msg);
             match registry.save() {
@@ -157,27 +170,26 @@ pub fn handle(
 
         "sync" => {
             let registry = AgentRegistry::load_or_create();
+            let pending_count = current_agent_id.map_or(0, |id| {
+                registry
+                    .scratchpad
+                    .iter()
+                    .filter(|e| {
+                        !e.read_by.contains(&id.to_string())
+                            && e.from_agent != id
+                            && (e.to_agent.is_none() || e.to_agent.as_deref() == Some(id))
+                    })
+                    .count()
+            });
             let agents: Vec<&crate::core::agents::AgentEntry> = registry
                 .agents
                 .iter()
-                .filter(|a| a.status != AgentStatus::Finished)
+                .filter(|a| a.status != AgentStatus::Finished && a.project_root == project_root)
                 .collect();
 
             if agents.is_empty() {
                 return "No active agents to sync with.".to_string();
             }
-
-            let pending_count = registry
-                .scratchpad
-                .iter()
-                .filter(|e| {
-                    if let Some(ref id) = current_agent_id {
-                        !e.read_by.contains(&id.to_string()) && e.from_agent != *id
-                    } else {
-                        false
-                    }
-                })
-                .count();
 
             let shared_dir = crate::core::data_dir::lean_ctx_data_dir()
                 .unwrap_or_default()
@@ -204,6 +216,276 @@ pub fn handle(
             out.push_str(&format!("  Pending messages: {pending_count}\n"));
             out.push_str(&format!("  Shared contexts: {shared_count}\n"));
             out
+        }
+
+        "export" => {
+            let Some(agent_id) = current_agent_id else {
+                return "Error: agent must be registered first (use action=register)".to_string();
+            };
+
+            fn privacy_label(p: &PrivacyLevel) -> &'static str {
+                match p {
+                    PrivacyLevel::Public => "public",
+                    PrivacyLevel::Team => "team",
+                    PrivacyLevel::Private => "private",
+                }
+            }
+
+            fn priority_label(p: &MessagePriority) -> &'static str {
+                match p {
+                    MessagePriority::Low => "low",
+                    MessagePriority::Normal => "normal",
+                    MessagePriority::High => "high",
+                    MessagePriority::Critical => "critical",
+                }
+            }
+
+            fn maybe_redact(s: &str, should_redact: bool) -> String {
+                if should_redact {
+                    crate::core::redaction::redact_text(s)
+                } else {
+                    s.to_string()
+                }
+            }
+
+            #[derive(serde::Serialize)]
+            struct ExportAgentV1 {
+                agent_id: String,
+                agent_type: String,
+                role: Option<String>,
+                status: String,
+                status_message: Option<String>,
+                started_at: String,
+                last_active: String,
+                pid: u32,
+            }
+
+            #[derive(serde::Serialize)]
+            struct ExportMessageV1 {
+                id: String,
+                from_agent: String,
+                to_agent: Option<String>,
+                category: String,
+                privacy: String,
+                priority: String,
+                message: String,
+                metadata: std::collections::BTreeMap<String, String>,
+                timestamp: String,
+                expires_at: Option<String>,
+                read_by_count: usize,
+            }
+
+            #[derive(serde::Serialize)]
+            struct ExportTaskV1 {
+                id: String,
+                from_agent: String,
+                to_agent: String,
+                state: String,
+                description: String,
+                created_at: String,
+                updated_at: String,
+                messages: usize,
+                artifacts: usize,
+                transitions: usize,
+            }
+
+            #[derive(serde::Serialize)]
+            struct ExportDiaryEntryV1 {
+                entry_type: String,
+                content: String,
+                context: Option<String>,
+                timestamp: String,
+            }
+
+            #[derive(serde::Serialize)]
+            struct ExportDiaryV1 {
+                agent_id: String,
+                agent_type: String,
+                project_root: String,
+                updated_at: String,
+                entries: Vec<ExportDiaryEntryV1>,
+            }
+
+            #[derive(serde::Serialize)]
+            struct A2ASnapshotV1 {
+                schema_version: u32,
+                created_at: String,
+                project_root: String,
+                agent_id: String,
+                agents: Vec<ExportAgentV1>,
+                messages: Vec<ExportMessageV1>,
+                tasks: Vec<ExportTaskV1>,
+                diary: Option<ExportDiaryV1>,
+            }
+
+            let privacy_mode = privacy.unwrap_or("redacted");
+            let allow_full = privacy_mode == "full"
+                && !crate::core::redaction::redaction_enabled_for_active_role();
+            let should_redact = !allow_full;
+
+            let now = chrono::Utc::now();
+            let mut registry = AgentRegistry::load_or_create();
+            registry.cleanup_stale(24);
+
+            let mut agents: Vec<ExportAgentV1> = registry
+                .list_active(Some(project_root))
+                .into_iter()
+                .map(|a| ExportAgentV1 {
+                    agent_id: a.agent_id.clone(),
+                    agent_type: a.agent_type.clone(),
+                    role: a.role.clone(),
+                    status: a.status.to_string(),
+                    status_message: a.status_message.clone(),
+                    started_at: a.started_at.to_rfc3339(),
+                    last_active: a.last_active.to_rfc3339(),
+                    pid: a.pid,
+                })
+                .collect();
+            agents.sort_by(|a, b| a.agent_id.cmp(&b.agent_id));
+
+            let mut messages: Vec<ExportMessageV1> = registry
+                .scratchpad
+                .iter()
+                .filter(|e| {
+                    e.to_agent.is_none() || e.to_agent.as_deref() == Some(agent_id)
+                })
+                .take(200)
+                .map(|m| ExportMessageV1 {
+                    id: m.id.clone(),
+                    from_agent: m.from_agent.clone(),
+                    to_agent: m.to_agent.clone(),
+                    category: m.category.clone(),
+                    privacy: privacy_label(&m.privacy).to_string(),
+                    priority: priority_label(&m.priority).to_string(),
+                    message: maybe_redact(&m.message, should_redact),
+                    metadata: m
+                        .metadata
+                        .iter()
+                        .map(|(k, v)| (k.clone(), maybe_redact(v, should_redact)))
+                        .collect(),
+                    timestamp: m.timestamp.to_rfc3339(),
+                    expires_at: m.expires_at.map(|t| t.to_rfc3339()),
+                    read_by_count: m.read_by.len(),
+                })
+                .collect();
+            messages.sort_by(|a, b| {
+                a.timestamp
+                    .cmp(&b.timestamp)
+                    .then_with(|| a.id.cmp(&b.id))
+            });
+
+            let mut task_store = TaskStore::load();
+            task_store.cleanup_old(72);
+            let mut tasks: Vec<ExportTaskV1> = task_store
+                .tasks_for_agent(agent_id)
+                .into_iter()
+                .take(200)
+                .map(|t| ExportTaskV1 {
+                    id: t.id.clone(),
+                    from_agent: t.from_agent.clone(),
+                    to_agent: t.to_agent.clone(),
+                    state: t.state.to_string(),
+                    description: maybe_redact(&t.description, should_redact),
+                    created_at: t.created_at.to_rfc3339(),
+                    updated_at: t.updated_at.to_rfc3339(),
+                    messages: t.messages.len(),
+                    artifacts: t.artifacts.len(),
+                    transitions: t.history.len(),
+                })
+                .collect();
+            tasks.sort_by(|a, b| {
+                b.updated_at
+                    .cmp(&a.updated_at)
+                    .then_with(|| a.id.cmp(&b.id))
+            });
+
+            let diary = AgentDiary::load(agent_id).map(|d| ExportDiaryV1 {
+                agent_id: d.agent_id,
+                agent_type: d.agent_type,
+                project_root: d.project_root,
+                updated_at: d.updated_at.to_rfc3339(),
+                entries: d
+                    .entries
+                    .iter()
+                    .rev()
+                    .take(25)
+                    .rev()
+                    .map(|e| ExportDiaryEntryV1 {
+                        entry_type: e.entry_type.to_string(),
+                        content: maybe_redact(&e.content, should_redact),
+                        context: e.context.as_deref().map(|c| maybe_redact(c, should_redact)),
+                        timestamp: e.timestamp.to_rfc3339(),
+                    })
+                    .collect(),
+            });
+
+            let payload = A2ASnapshotV1 {
+                schema_version: crate::core::contracts::A2A_SNAPSHOT_V1_SCHEMA_VERSION,
+                created_at: now.to_rfc3339(),
+                project_root: project_root.to_string(),
+                agent_id: agent_id.to_string(),
+                agents,
+                messages,
+                tasks,
+                diary,
+            };
+
+            let json = serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string());
+
+            if write {
+                let proofs_dir = std::path::Path::new(project_root)
+                    .join(".lean-ctx")
+                    .join("proofs");
+                if let Err(e) = std::fs::create_dir_all(&proofs_dir) {
+                    return format!("Error: create proofs dir: {e}");
+                }
+
+                let name = if let Some(f) = filename {
+                    let p = std::path::Path::new(f);
+                    if p.components().count() != 1 {
+                        return "Error: filename must be a plain file name (no directories)"
+                            .to_string();
+                    }
+                    f.to_string()
+                } else {
+                    format!("a2a-snapshot-v1_{}.json", now.format("%Y%m%d_%H%M%S"))
+                };
+
+                let out_path = proofs_dir.join(name);
+                if let Err(e) = std::fs::write(&out_path, &json) {
+                    return format!("Error: write snapshot: {e}");
+                }
+
+                let mut ledger = EvidenceLedgerV1::load();
+                if let Err(e) = ledger.record_artifact_file(
+                    "proof:a2a-snapshot-v1",
+                    &out_path,
+                    chrono::Utc::now(),
+                ) {
+                    return format!("Snapshot written but evidence ledger record failed: {e}");
+                }
+                if let Err(e) = ledger.save() {
+                    return format!("Snapshot written but evidence ledger save failed: {e}");
+                }
+
+                return format!(
+                    "A2A snapshot exported: {}\n  agents: {}\n  messages: {}\n  tasks: {}",
+                    out_path.display(),
+                    payload.agents.len(),
+                    payload.messages.len(),
+                    payload.tasks.len()
+                );
+            }
+
+            match format.unwrap_or("json") {
+                "text" => format!(
+                    "A2A snapshot (v1)\n  agents: {}\n  messages: {}\n  tasks: {}",
+                    payload.agents.len(),
+                    payload.messages.len(),
+                    payload.tasks.len()
+                ),
+                _ => json,
+            }
         }
 
         "diary" => {

@@ -165,6 +165,7 @@ pub fn order_for_attention(
         b.relevance
             .partial_cmp(&a.relevance)
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.start_line.cmp(&b.start_line))
     });
 
     if chunks.len() <= 2 {
@@ -197,11 +198,13 @@ pub fn order_for_attention(
         b.relevance
             .partial_cmp(&a.relevance)
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.start_line.cmp(&b.start_line))
     });
     rest.sort_by(|a, b| {
         b.relevance
             .partial_cmp(&a.relevance)
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.start_line.cmp(&b.start_line))
     });
 
     let mut ordered = Vec::with_capacity(chunks.len());

@@ -755,6 +755,76 @@ pub fn format_gain_themed_at(t: &Theme, tick: Option<u64>) -> String {
         }
     }
 
+    {
+        let project_root = std::env::current_dir()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let a = t.accent.fg();
+        let m = t.muted.fg();
+
+        let mut ctx_items: Vec<String> = Vec::new();
+
+        if let Some(session) =
+            crate::core::session::SessionState::load_latest_for_project_root(&project_root)
+        {
+            let task_str = session
+                .task
+                .as_ref()
+                .map_or("—", |tk| tk.description.as_str());
+            let task_disp = if task_str.len() > 35 {
+                format!("{}…", &task_str[..32])
+            } else {
+                task_str.to_string()
+            };
+            ctx_items.push(format!(
+                "   Session: {bold}{task_disp}{rst}  {m}files={} findings={} terse={}{rst}",
+                session.files_touched.len(),
+                session.findings.len(),
+                if session.terse_mode { "on" } else { "off" },
+            ));
+        }
+
+        let knowledge = crate::core::knowledge::ProjectKnowledge::load_or_create(&project_root);
+        let active_facts = knowledge.facts.iter().filter(|f| f.is_current()).count();
+        if active_facts > 0 {
+            ctx_items.push(format!(
+                "   Knowledge: {bold}{active_facts}{rst} active facts  {m}{} total{rst}",
+                knowledge.facts.len(),
+            ));
+        }
+
+        if let Some(open) = crate::core::graph_provider::open_best_effort(&project_root) {
+            let nc = open.provider.node_count().unwrap_or(0);
+            let ec = open.provider.edge_count().unwrap_or(0);
+            if nc > 0 {
+                let suffix = match open.source {
+                    crate::core::graph_provider::GraphProviderSource::PropertyGraph => "",
+                    crate::core::graph_provider::GraphProviderSource::GraphIndex => " (index)",
+                };
+                ctx_items.push(format!(
+                    "   Graph: {bold}{nc}{rst} nodes  {bold}{ec}{rst} edges{suffix}",
+                ));
+            }
+        }
+
+        if crate::daemon::is_daemon_running() {
+            ctx_items.push(format!("   Daemon: {c}running{rst}", c = t.success.fg(),));
+        } else {
+            ctx_items.push(format!(
+                "   {w}Daemon: offline{rst} {m}(lean-ctx serve -d for persistent tracking){rst}",
+                w = t.warning.fg(),
+            ));
+        }
+
+        if !ctx_items.is_empty() {
+            out.push(format!("    {a}⚡ Context OS{rst}"));
+            for item in &ctx_items {
+                out.push(format!("    {item}"));
+            }
+            out.push(String::new());
+        }
+    }
+
     let m = t.muted.fg();
     out.push(format!(
         "    {m}🐛 Found a bug? Run: lean-ctx report-issue{rst}"

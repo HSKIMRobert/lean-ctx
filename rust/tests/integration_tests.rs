@@ -4,6 +4,7 @@ fn lean_ctx_bin() -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_lean-ctx"));
     cmd.current_dir(env!("CARGO_MANIFEST_DIR"));
     cmd.env("LEAN_CTX_ACTIVE", "1");
+    cmd.env("__LEAN_CTX_SKIP_EVENTS", "1");
     cmd
 }
 
@@ -75,6 +76,7 @@ fn disabled_env_bypasses_compression() {
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .env("LEAN_CTX_DISABLED", "1")
         .env("LEAN_CTX_COMPRESS", "1")
+        .env("__LEAN_CTX_SKIP_EVENTS", "1")
         .args(["-c", "echo", "passthrough test"])
         .output()
         .expect("failed to run lean-ctx with LEAN_CTX_DISABLED");
@@ -115,6 +117,7 @@ fn pipe_guard_no_compression_when_stdout_is_piped() {
     }
     let output = Command::new(env!("CARGO_BIN_EXE_lean-ctx"))
         .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .env("__LEAN_CTX_SKIP_EVENTS", "1")
         .args(["-c", "echo hello world"])
         .output()
         .expect("failed to run lean-ctx -c with piped stdout");
@@ -134,6 +137,7 @@ fn pipe_guard_force_compress_overrides_pipe_guard() {
     let output = Command::new(env!("CARGO_BIN_EXE_lean-ctx"))
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .env("LEAN_CTX_COMPRESS", "1")
+        .env("__LEAN_CTX_SKIP_EVENTS", "1")
         .args(["-c", "echo hello world"])
         .output()
         .expect("failed to run lean-ctx -c with LEAN_CTX_COMPRESS");
@@ -156,6 +160,7 @@ fn pipe_guard_multiline_output_unchanged_when_piped() {
     let script = "echo line1; echo line2; echo line3; echo 'result: 42'";
     let output = Command::new(env!("CARGO_BIN_EXE_lean-ctx"))
         .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .env("__LEAN_CTX_SKIP_EVENTS", "1")
         .args(["-c", script])
         .output()
         .expect("failed to run lean-ctx -c with multiline output");
@@ -271,6 +276,7 @@ fn pipe_guard_rust_side_defense_in_depth() {
     let script = "for i in 1 2 3 4 5; do echo \"item_$i: $(date +%s)\"; done";
     let output = Command::new(env!("CARGO_BIN_EXE_lean-ctx"))
         .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .env("__LEAN_CTX_SKIP_EVENTS", "1")
         .args(["-c", script])
         .output()
         .expect("failed to run lean-ctx -c");

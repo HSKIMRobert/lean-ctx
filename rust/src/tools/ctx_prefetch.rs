@@ -65,9 +65,22 @@ pub fn handle(
 
     let mut total = 0usize;
     let mut prefetched: Vec<(String, String)> = Vec::new(); // (path, mode)
+    let jail_root = Path::new(project_root);
     for p in &picked {
         let full = to_fs_path(project_root, p);
-        let Ok(content) = std::fs::read_to_string(&full) else {
+        let Ok((jailed, warning)) = crate::core::io_boundary::jail_and_check_path(
+            "ctx_prefetch",
+            Path::new(&full),
+            jail_root,
+        ) else {
+            continue;
+        };
+        if warning.is_some() {
+            continue;
+        }
+        let jailed_s = jailed.to_string_lossy().to_string();
+
+        let Ok(content) = std::fs::read_to_string(&jailed) else {
             continue;
         };
         let tokens = crate::core::tokens::count_tokens(&content);
@@ -86,9 +99,10 @@ pub fn handle(
             "signatures"
         };
 
-        let _ =
-            crate::tools::ctx_read::handle_with_task_resolved(cache, &full, mode, crp_mode, task);
-        prefetched.push((full.clone(), mode.to_string()));
+        let _ = crate::tools::ctx_read::handle_with_task_resolved(
+            cache, &jailed_s, mode, crp_mode, task,
+        );
+        prefetched.push((jailed_s, mode.to_string()));
     }
 
     let mut lines = vec![

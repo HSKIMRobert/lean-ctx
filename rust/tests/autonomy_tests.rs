@@ -6,12 +6,21 @@ use lean_ctx::tools::autonomy::{
 };
 use lean_ctx::tools::CrpMode;
 use std::sync::atomic::Ordering;
+use std::sync::OnceLock;
+
+fn init_test_data_dir() {
+    static DIR: OnceLock<tempfile::TempDir> = OnceLock::new();
+    let dir = DIR.get_or_init(|| tempfile::tempdir().expect("tempdir"));
+    std::env::set_var("LEAN_CTX_DATA_DIR", dir.path());
+}
 
 fn make_state() -> AutonomyState {
+    init_test_data_dir();
     AutonomyState::new()
 }
 
 fn make_disabled_state() -> AutonomyState {
+    init_test_data_dir();
     let mut state = AutonomyState::new();
     state.config.enabled = false;
     state
@@ -142,7 +151,7 @@ fn auto_dedup_fires_at_threshold() {
         cache.store(&path, content);
     }
 
-    maybe_auto_dedup(&state, &mut cache);
+    maybe_auto_dedup(&state, &mut cache, "ctx_read");
     assert!(
         state.dedup_applied.load(Ordering::SeqCst),
         "dedup must be applied at threshold"
@@ -159,7 +168,7 @@ fn auto_dedup_skips_below_threshold() {
         cache.store(&path, format!("content {i}"));
     }
 
-    maybe_auto_dedup(&state, &mut cache);
+    maybe_auto_dedup(&state, &mut cache, "ctx_read");
     assert!(
         !state.dedup_applied.load(Ordering::SeqCst),
         "dedup must NOT be applied below threshold"
@@ -175,7 +184,7 @@ fn auto_dedup_disabled() {
         cache.store(&format!("f{i}.rs"), format!("c{i}"));
     }
 
-    maybe_auto_dedup(&state, &mut cache);
+    maybe_auto_dedup(&state, &mut cache, "ctx_read");
     assert!(!state.dedup_applied.load(Ordering::SeqCst));
 }
 
@@ -233,7 +242,15 @@ fn enrich_after_read_disabled() {
     let mut cache = SessionCache::new();
     cache.store("test.rs", "fn main() {}".to_string());
 
-    let result = enrich_after_read(&state, &mut cache, "test.rs", None);
+    let result = enrich_after_read(
+        &state,
+        &mut cache,
+        "test.rs",
+        None,
+        None,
+        CrpMode::Tdd,
+        false,
+    );
     assert!(result.related_hint.is_none());
 }
 
@@ -243,7 +260,15 @@ fn enrich_after_read_no_index() {
     let mut cache = SessionCache::new();
     cache.store("test.rs", "fn main() {}".to_string());
 
-    let result = enrich_after_read(&state, &mut cache, "test.rs", Some("/nonexistent/path"));
+    let result = enrich_after_read(
+        &state,
+        &mut cache,
+        "test.rs",
+        Some("/nonexistent/path"),
+        None,
+        CrpMode::Tdd,
+        false,
+    );
     assert!(
         result.related_hint.is_none(),
         "must return None when no project index exists"

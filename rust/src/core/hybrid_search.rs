@@ -1,9 +1,7 @@
 //! Hybrid search combining BM25 (lexical) with dense vector search.
 //!
-//! Uses Reciprocal Rank Fusion (RRF) to merge results from both retrieval
-//! methods into a single ranked list. The RRF formula ensures that documents
-//! appearing high in both rankings get boosted, while documents appearing
-//! in only one ranking still contribute.
+//! Uses Reciprocal Rank Fusion (RRF) to merge BM25, dense embeddings, and optional
+//! property-graph proximity (session neighborhood) into one ranked list.
 //!
 //! Formula: score(d) = Σ 1/(k + rank_i(d))
 //! where k=60 (standard constant), and i ranges over retrieval methods.
@@ -20,8 +18,9 @@ use super::embeddings::{cosine_similarity, EmbeddingEngine};
 
 const RRF_K: f64 = 60.0;
 
-const DEFAULT_BM25_WEIGHT: f64 = 0.4;
-const DEFAULT_DENSE_WEIGHT: f64 = 0.6;
+/// Default weights for standard RRF: equal contribution per ranking (`Σ weight/(k+r)` with weight=1).
+const DEFAULT_BM25_WEIGHT: f64 = 1.0;
+const DEFAULT_DENSE_WEIGHT: f64 = 1.0;
 
 /// Configuration for hybrid search behavior.
 pub struct HybridConfig {
@@ -44,13 +43,14 @@ impl Default for HybridConfig {
 
 /// Fuse two ranked result lists using Reciprocal Rank Fusion.
 ///
-/// Each result is identified by `(file_path, start_line)` as a unique key.
-/// Returns a merged list sorted by combined RRF score.
+/// `graph_file_ranks`: optional repo-relative file path → rank (0-based) for neighbors of
+/// recently touched session files; each matching result gets an extra `1/(k+r)` term.
 pub fn reciprocal_rank_fusion(
     bm25_results: &[SearchResult],
     dense_results: &[DenseSearchResult],
     config: &HybridConfig,
     top_k: usize,
+    graph_file_ranks: Option<&HashMap<String, usize>>,
 ) -> Vec<HybridResult> {
     let mut scores: HashMap<String, HybridResult> = HashMap::new();
 
@@ -97,6 +97,16 @@ pub fn reciprocal_rank_fusion(
         entry.dense_rank = Some(rank + 1);
     }
 
+    if let Some(gr) = graph_file_ranks {
+        if !gr.is_empty() {
+            for entry in scores.values_mut() {
+                if let Some(&rank) = gr.get(&entry.file_path) {
+                    entry.rrf_score += 1.0 / (RRF_K + rank as f64 + 1.0);
+                }
+            }
+        }
+    }
+
     let mut results: Vec<HybridResult> = scores.into_values().collect();
     results.sort_by(|a, b| {
         b.rrf_score
@@ -117,6 +127,7 @@ pub fn hybrid_search(
     chunk_embeddings: Option<&[Vec<f32>]>,
     top_k: usize,
     config: &HybridConfig,
+    graph_file_ranks: Option<&HashMap<String, usize>>,
 ) -> Vec<HybridResult> {
     let bm25_results = index.search(query, config.bm25_candidates);
 
@@ -131,7 +142,12 @@ pub fn hybrid_search(
         _ => Vec::new(),
     };
 
+    let graph_enhances = graph_file_ranks.is_some_and(|m| !m.is_empty());
+
     if dense_results.is_empty() {
+        if graph_enhances {
+            return reciprocal_rank_fusion(&bm25_results, &[], config, top_k, graph_file_ranks);
+        }
         return bm25_results
             .into_iter()
             .take(top_k)
@@ -139,7 +155,13 @@ pub fn hybrid_search(
             .collect();
     }
 
-    reciprocal_rank_fusion(&bm25_results, &dense_results, config, top_k)
+    reciprocal_rank_fusion(
+        &bm25_results,
+        &dense_results,
+        config,
+        top_k,
+        graph_file_ranks,
+    )
 }
 
 #[cfg(not(feature = "embeddings"))]
@@ -344,7 +366,7 @@ mod tests {
         ];
 
         let config = HybridConfig::default();
-        let results = reciprocal_rank_fusion(&bm25, &dense, &config, 10);
+        let results = reciprocal_rank_fusion(&bm25, &dense, &config, 10, None);
 
         assert!(!results.is_empty());
 
@@ -375,7 +397,7 @@ mod tests {
             dense_weight: 0.5,
             ..Default::default()
         };
-        let results = reciprocal_rank_fusion(&bm25, &dense, &config, 10);
+        let results = reciprocal_rank_fusion(&bm25, &dense, &config, 10, None);
 
         let both = results.iter().find(|r| r.symbol_name == "both").unwrap();
         let only_bm25 = results
@@ -403,20 +425,20 @@ mod tests {
             .map(|i| make_bm25_result("a.rs", &format!("fn_{i}"), i * 10 + 1, 10.0 - i as f64))
             .collect();
 
-        let results = reciprocal_rank_fusion(&bm25, &[], &HybridConfig::default(), 5);
+        let results = reciprocal_rank_fusion(&bm25, &[], &HybridConfig::default(), 5, None);
         assert_eq!(results.len(), 5);
     }
 
     #[test]
     fn rrf_empty_inputs() {
-        let results = reciprocal_rank_fusion(&[], &[], &HybridConfig::default(), 10);
+        let results = reciprocal_rank_fusion(&[], &[], &HybridConfig::default(), 10, None);
         assert!(results.is_empty());
     }
 
     #[test]
     fn rrf_bm25_only() {
         let bm25 = vec![make_bm25_result("a.rs", "alpha", 1, 5.0)];
-        let results = reciprocal_rank_fusion(&bm25, &[], &HybridConfig::default(), 10);
+        let results = reciprocal_rank_fusion(&bm25, &[], &HybridConfig::default(), 10, None);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].source_label(), "bm25");
     }
@@ -424,7 +446,7 @@ mod tests {
     #[test]
     fn rrf_dense_only() {
         let dense = vec![make_dense_result("a.rs", "alpha", 1, 0.95)];
-        let results = reciprocal_rank_fusion(&[], &dense, &HybridConfig::default(), 10);
+        let results = reciprocal_rank_fusion(&[], &dense, &HybridConfig::default(), 10, None);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].source_label(), "dense");
     }
@@ -495,5 +517,32 @@ mod tests {
         r.bm25_rank = None;
         r.dense_rank = Some(1);
         assert_eq!(r.source_label(), "dense");
+    }
+
+    #[test]
+    fn rrf_graph_proximity_boost() {
+        let bm25 = vec![
+            make_bm25_result("neighbor.rs", "n", 1, 5.0),
+            make_bm25_result("weak.rs", "low", 1, 1.0),
+        ];
+        let dense = vec![
+            make_dense_result("weak.rs", "low", 1, 0.99),
+            make_dense_result("other.rs", "o", 1, 0.50),
+        ];
+        let mut graph = HashMap::new();
+        graph.insert("neighbor.rs".to_string(), 0usize);
+
+        let results =
+            reciprocal_rank_fusion(&bm25, &dense, &HybridConfig::default(), 10, Some(&graph));
+
+        let neighbor = results
+            .iter()
+            .find(|r| r.file_path == "neighbor.rs")
+            .unwrap();
+        let weak = results.iter().find(|r| r.file_path == "weak.rs").unwrap();
+        assert!(
+            neighbor.rrf_score > weak.rrf_score,
+            "graph neighbor should outrank when it gets a third RRF signal"
+        );
     }
 }

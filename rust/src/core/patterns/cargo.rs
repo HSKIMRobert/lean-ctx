@@ -48,6 +48,12 @@ pub fn compress(command: &str, output: &str) -> Option<String> {
     if command.contains("metadata") {
         return Some(compress_metadata(output));
     }
+    if command.contains("run") {
+        return Some(compress_run(output));
+    }
+    if command.contains("bench") {
+        return Some(compress_bench(output));
+    }
     None
 }
 
@@ -296,6 +302,147 @@ fn compress_update(output: &str) -> String {
     parts.join("\n")
 }
 
+fn compress_run(output: &str) -> String {
+    let mut program_lines = Vec::new();
+    let mut compiling = 0u32;
+    let mut time = String::new();
+
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if compiling_re().is_match(trimmed) || trimmed.starts_with("Compiling ") {
+            compiling += 1;
+            continue;
+        }
+        if trimmed.starts_with("Downloading ")
+            || trimmed.starts_with("Downloaded ")
+            || trimmed.starts_with("Blocking waiting")
+            || trimmed.starts_with("Locking ")
+        {
+            continue;
+        }
+        if trimmed.starts_with("Running `") || trimmed.starts_with("Running ") {
+            continue;
+        }
+        if let Some(caps) = finished_re().captures(trimmed) {
+            time = caps[1].to_string();
+            continue;
+        }
+        program_lines.push(line);
+    }
+
+    let mut result = String::new();
+    if compiling > 0 {
+        result.push_str(&format!("(compiled {compiling} crates"));
+        if !time.is_empty() {
+            result.push_str(&format!(", {time}"));
+        }
+        result.push_str(")\n");
+    }
+
+    if program_lines.len() <= 50 {
+        result.push_str(&program_lines.join("\n"));
+    } else {
+        result.push_str(&program_lines[..25].join("\n"));
+        result.push_str(&format!(
+            "\n... ({} lines omitted)\n",
+            program_lines.len() - 50
+        ));
+        result.push_str(&program_lines[program_lines.len() - 25..].join("\n"));
+    }
+
+    if result.trim().is_empty() {
+        return "ok".to_string();
+    }
+    result
+}
+
+fn compress_bench(output: &str) -> String {
+    let mut compiling = 0u32;
+    let mut bench_results = Vec::new();
+    let mut time = String::new();
+    let mut errors = Vec::new();
+
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if compiling_re().is_match(trimmed) || trimmed.starts_with("Compiling ") {
+            compiling += 1;
+            continue;
+        }
+        if trimmed.starts_with("Downloading ")
+            || trimmed.starts_with("Downloaded ")
+            || trimmed.starts_with("Blocking waiting")
+            || trimmed.starts_with("Locking ")
+        {
+            continue;
+        }
+        if trimmed.starts_with("Benchmarking ")
+            || trimmed.starts_with("Gnuplot ")
+            || trimmed.starts_with("Collecting ")
+            || trimmed.starts_with("Warming up")
+            || trimmed.starts_with("Analyzing ")
+        {
+            continue;
+        }
+        if trimmed.starts_with("Running ") && trimmed.contains("target") {
+            continue;
+        }
+        if let Some(caps) = finished_re().captures(trimmed) {
+            time = caps[1].to_string();
+            continue;
+        }
+        if let Some(caps) = error_re().captures(trimmed) {
+            errors.push(format!("E{}: {}", &caps[1], &caps[2]));
+            continue;
+        }
+        if trimmed.starts_with("test ") && trimmed.contains("bench:") {
+            bench_results.push(trimmed.to_string());
+            continue;
+        }
+        if trimmed.contains("time:") || trimmed.contains("thrpt:") {
+            bench_results.push(trimmed.to_string());
+            continue;
+        }
+        if let Some(caps) = test_result_re().captures(trimmed) {
+            bench_results.push(format!(
+                "{}: {} pass, {} fail, {} skip",
+                &caps[1], &caps[2], &caps[3], &caps[4]
+            ));
+        }
+    }
+
+    let mut parts = Vec::new();
+
+    if !errors.is_empty() {
+        parts.push(format!("{} errors:", errors.len()));
+        for e in &errors {
+            parts.push(format!("  {e}"));
+        }
+        return parts.join("\n");
+    }
+
+    if compiling > 0 {
+        let mut header = format!("compiled {compiling} crates");
+        if !time.is_empty() {
+            header.push_str(&format!(" ({time})"));
+        }
+        parts.push(header);
+    }
+
+    if bench_results.is_empty() {
+        parts.push("no benchmark results captured".to_string());
+    } else {
+        parts.push(format!("{} benchmarks:", bench_results.len()));
+        for b in &bench_results {
+            parts.push(format!("  {b}"));
+        }
+    }
+
+    if parts.is_empty() {
+        return "ok".to_string();
+    }
+    parts.join("\n")
+}
+
 fn compress_metadata(output: &str) -> String {
     let parsed: Result<serde_json::Value, _> = serde_json::from_str(output);
     let Ok(json) = parsed else {
@@ -463,6 +610,41 @@ mod tests {
             result.len() < json.len(),
             "compressed output should be shorter"
         );
+    }
+
+    #[test]
+    fn cargo_run_strips_compilation() {
+        let output = "   Compiling lean-ctx v2.1.1\n    Finished `dev` profile [unoptimized] target(s) in 5.2s\n     Running `target/debug/lean-ctx`\nHello, world!\nResult: 42";
+        let result = compress("cargo run", output).unwrap();
+        assert!(
+            !result.contains("Running `target"),
+            "should strip Running line"
+        );
+        assert!(
+            result.contains("Hello, world!"),
+            "should keep program output"
+        );
+        assert!(result.contains("compiled"), "should summarize compilation");
+    }
+
+    #[test]
+    fn cargo_bench_keeps_results() {
+        let output = "   Compiling lean-ctx v2.1.1\n    Finished `bench` profile [optimized] target(s) in 12.0s\n     Running benches/main.rs\ntest bench_parse  ... bench:     1,234 ns/iter (+/- 56)\ntest bench_render ... bench:     5,678 ns/iter (+/- 123)\n\ntest result: ok. 0 passed; 0 failed; 2 ignored";
+        let result = compress("cargo bench", output).unwrap();
+        assert!(result.contains("bench_parse"), "should keep bench results");
+        assert!(result.contains("bench_render"), "should keep bench results");
+        assert!(result.contains("compiled"), "should summarize compilation");
+    }
+
+    #[test]
+    fn cargo_bench_with_criterion() {
+        let output = "   Compiling bench-suite v0.1.0\nBenchmarking parser/parse_large\nCollecting 100 samples\nWarming up for 3.0000 s\nAnalyzing results...\nparser/parse_large      time:   [1.2345 ms 1.3000 ms 1.3500 ms]";
+        let result = compress("cargo bench", output).unwrap();
+        assert!(
+            result.contains("time:"),
+            "should keep criterion timing lines"
+        );
+        assert!(!result.contains("Collecting"), "should strip progress");
     }
 
     #[test]

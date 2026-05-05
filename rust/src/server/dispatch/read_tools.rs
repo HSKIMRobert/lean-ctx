@@ -4,6 +4,27 @@ use serde_json::Value;
 use crate::server::helpers::{get_bool, get_int, get_str, get_str_array};
 use crate::tools::LeanCtxServer;
 
+fn auto_degrade_read_mode(mode: &str) -> String {
+    use crate::core::degradation_policy::DegradationVerdictV1;
+    let profile = crate::core::profiles::active_profile();
+    if !profile.degradation.enforce_effective() {
+        return mode.to_string();
+    }
+    let policy = crate::core::degradation_policy::evaluate_v1_for_tool("ctx_read", None);
+    match policy.decision.verdict {
+        DegradationVerdictV1::Ok => mode.to_string(),
+        DegradationVerdictV1::Warn => match mode {
+            "full" => "map".to_string(),
+            other => other.to_string(),
+        },
+        DegradationVerdictV1::Throttle => match mode {
+            "full" | "map" => "signatures".to_string(),
+            other => other.to_string(),
+        },
+        DegradationVerdictV1::Block => "signatures".to_string(),
+    }
+}
+
 impl LeanCtxServer {
     pub(crate) async fn dispatch_read_tools(
         &self,
@@ -28,13 +49,11 @@ impl LeanCtxServer {
                 let profile = crate::core::profiles::active_profile();
                 let mut mode = if let Some(m) = get_str(args, "mode") {
                     m
-                } else if profile.read.default_mode.trim().is_empty()
-                    || profile.read.default_mode.trim() == "auto"
-                {
+                } else if profile.read.default_mode_effective() == "auto" {
                     let cache = self.cache.read().await;
                     crate::tools::ctx_smart_read::select_mode_with_task(&cache, &path, task_ref)
                 } else {
-                    profile.read.default_mode.clone()
+                    profile.read.default_mode_effective().to_string()
                 };
                 let mut fresh = get_bool(args, "fresh").unwrap_or(false);
                 let start_line = get_int(args, "start_line");
@@ -43,6 +62,7 @@ impl LeanCtxServer {
                     mode = format!("lines:{sl}-999999");
                     fresh = true;
                 }
+                let mode = auto_degrade_read_mode(&mode);
                 let stale = self.is_prompt_cache_stale().await;
                 let effective_mode = LeanCtxServer::upgrade_mode_if_stale(&mode, stale).to_string();
                 if mode.starts_with("lines:") {
@@ -53,7 +73,7 @@ impl LeanCtxServer {
                 }
                 let read_start = std::time::Instant::now();
                 let mut cache = self.cache.write().await;
-                let (output, resolved_mode) = if fresh {
+                let read_output = if fresh {
                     crate::tools::ctx_read::handle_fresh_with_task_resolved(
                         &mut cache,
                         &path,
@@ -70,16 +90,18 @@ impl LeanCtxServer {
                         task_ref,
                     )
                 };
+                let output = read_output.content;
+                let resolved_mode = read_output.resolved_mode;
                 let stale_note = if !minimal && effective_mode != mode {
                     format!("[cache stale, {mode}→{effective_mode}]\n")
                 } else {
                     String::new()
                 };
                 let original = cache.get(&path).map_or(0, |e| e.original_tokens);
-                let output_tokens = crate::core::tokens::count_tokens(&output);
-                let saved = original.saturating_sub(output_tokens);
                 let is_cache_hit = output.contains(" cached ");
                 let output = format!("{stale_note}{output}");
+                let output_tokens = crate::core::tokens::count_tokens(&output);
+                let saved = original.saturating_sub(output_tokens);
                 let file_ref = cache.file_ref_map().get(&path).cloned();
                 drop(cache);
                 let mut ensured_root: Option<String> = None;
@@ -144,14 +166,41 @@ impl LeanCtxServer {
                     ledger.save();
                 }
                 {
+                    let duration = read_start.elapsed();
+                    let duration_us = duration.as_micros() as u64;
+
                     let mut stats = self.pipeline_stats.write().await;
-                    stats.record_single(
+                    stats.record(&[crate::core::pipeline::LayerMetrics::new(
                         crate::core::pipeline::LayerKind::Compression,
                         original,
                         output_tokens,
-                        read_start.elapsed(),
-                    );
+                        duration_us,
+                    )]);
                     stats.save();
+
+                    if let Some(ref ir_lock) = self.context_ir {
+                        let client_name = { self.client_name.read().await.clone() };
+                        let agent_id = { self.agent_id.read().await.clone() };
+                        let mut ir = ir_lock.write().await;
+                        ir.record(crate::core::context_ir::RecordIrInput {
+                            kind: crate::core::context_ir::ContextIrSourceKindV1::Read,
+                            tool: "ctx_read",
+                            client_name: if client_name.trim().is_empty() {
+                                None
+                            } else {
+                                Some(client_name)
+                            },
+                            agent_id,
+                            path: Some(&path),
+                            command: None,
+                            pattern: None,
+                            input_tokens: original,
+                            output_tokens,
+                            duration,
+                            content_excerpt: &output,
+                        });
+                        ir.save();
+                    }
                 }
                 {
                     let sig =
@@ -220,11 +269,11 @@ impl LeanCtxServer {
                 }
                 let mode = get_str(args, "mode").unwrap_or_else(|| {
                     let p = crate::core::profiles::active_profile();
-                    if p.read.default_mode.trim() == "auto" || p.read.default_mode.trim().is_empty()
-                    {
+                    let dm = p.read.default_mode_effective();
+                    if dm == "auto" {
                         "full".to_string()
                     } else {
-                        p.read.default_mode
+                        dm.to_string()
                     }
                 });
                 let current_task = {
@@ -330,6 +379,25 @@ impl LeanCtxServer {
                     .and_then(|a| a.get("create"))
                     .and_then(serde_json::Value::as_bool)
                     .unwrap_or(false);
+                let expected_md5 = get_str(args, "expected_md5");
+                let expected_size =
+                    get_int(args, "expected_size").and_then(|v| u64::try_from(v).ok());
+                let expected_mtime_ms =
+                    get_int(args, "expected_mtime_ms").and_then(|v| u64::try_from(v).ok());
+                let backup = get_bool(args, "backup").unwrap_or(false);
+                let backup_path = match get_str(args, "backup_path") {
+                    Some(p) => Some(
+                        self.resolve_path(&p)
+                            .await
+                            .map_err(|e| ErrorData::invalid_params(e, None))?,
+                    ),
+                    None => None,
+                };
+                let evidence = get_bool(args, "evidence").unwrap_or(true);
+                let diff_max_lines = get_int(args, "diff_max_lines")
+                    .and_then(|v| usize::try_from(v.max(0)).ok())
+                    .unwrap_or(200);
+                let allow_lossy_utf8 = get_bool(args, "allow_lossy_utf8").unwrap_or(false);
 
                 let mut cache = self.cache.write().await;
                 let output = crate::tools::ctx_edit::handle(
@@ -340,6 +408,14 @@ impl LeanCtxServer {
                         new_string,
                         replace_all,
                         create,
+                        expected_md5,
+                        expected_size,
+                        expected_mtime_ms,
+                        backup,
+                        backup_path,
+                        evidence,
+                        diff_max_lines,
+                        allow_lossy_utf8,
                     },
                 );
                 drop(cache);

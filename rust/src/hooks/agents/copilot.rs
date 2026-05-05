@@ -8,7 +8,9 @@ pub(crate) fn install_copilot_hook(global: bool) {
     if global {
         let mcp_path = crate::core::editor_registry::vscode_mcp_path();
         if mcp_path.as_os_str() == "/nonexistent" {
-            println!("  \x1b[2mVS Code not found — skipping global Copilot config\x1b[0m");
+            if !mcp_server_quiet_mode() {
+                eprintln!("  \x1b[2mVS Code not found — skipping global Copilot config\x1b[0m");
+            }
             return;
         }
         write_vscode_mcp_file(&mcp_path, &binary, "global VS Code User MCP");
@@ -81,7 +83,7 @@ fn install_copilot_pretooluse_hook(global: bool) {
                     &serde_json::to_string_pretty(&existing).unwrap_or_default(),
                 );
                 if !mcp_server_quiet_mode() {
-                    println!("Updated Copilot hooks at {}", hook_path.display());
+                    eprintln!("Updated Copilot hooks at {}", hook_path.display());
                 }
                 return;
             }
@@ -93,7 +95,7 @@ fn install_copilot_pretooluse_hook(global: bool) {
         &serde_json::to_string_pretty(&hook_config).unwrap_or_default(),
     );
     if !mcp_server_quiet_mode() {
-        println!("Installed Copilot hooks at {}", hook_path.display());
+        eprintln!("Installed Copilot hooks at {}", hook_path.display());
     }
 }
 
@@ -112,7 +114,11 @@ fn write_vscode_mcp_file(mcp_path: &PathBuf, binary: &str, label: &str) {
                         .or_insert_with(|| serde_json::json!({}));
                     if let Some(servers_obj) = servers.as_object_mut() {
                         if servers_obj.get("lean-ctx") == Some(&desired) {
-                            println!("  \x1b[32m✓\x1b[0m Copilot already configured in {label}");
+                            if !mcp_server_quiet_mode() {
+                                eprintln!(
+                                    "  \x1b[32m✓\x1b[0m Copilot already configured in {label}"
+                                );
+                            }
                             return;
                         }
                         servers_obj.insert("lean-ctx".to_string(), desired);
@@ -121,7 +127,9 @@ fn write_vscode_mcp_file(mcp_path: &PathBuf, binary: &str, label: &str) {
                         mcp_path,
                         &serde_json::to_string_pretty(&json).unwrap_or_default(),
                     );
-                    println!("  \x1b[32m✓\x1b[0m Added lean-ctx to {label}");
+                    if !mcp_server_quiet_mode() {
+                        eprintln!("  \x1b[32m✓\x1b[0m Added lean-ctx to {label}");
+                    }
                     return;
                 }
             }
@@ -158,5 +166,7 @@ fn write_vscode_mcp_file(mcp_path: &PathBuf, binary: &str, label: &str) {
         mcp_path,
         &serde_json::to_string_pretty(&config).unwrap_or_default(),
     );
-    println!("  \x1b[32m✓\x1b[0m Created {label} with lean-ctx MCP server");
+    if !mcp_server_quiet_mode() {
+        eprintln!("  \x1b[32m✓\x1b[0m Created {label} with lean-ctx MCP server");
+    }
 }
