@@ -511,7 +511,10 @@ fn full_server_entry(binary: &str) -> serde_json::Value {
     let auto_approve = crate::core::editor_registry::auto_approve_tools();
     serde_json::json!({
         "command": binary,
-        "env": { "LEAN_CTX_DATA_DIR": data_dir },
+        "env": {
+            "LEAN_CTX_DATA_DIR": data_dir,
+            "LEAN_CTX_FULL_TOOLS": "1"
+        },
         "autoApprove": auto_approve
     })
 }
