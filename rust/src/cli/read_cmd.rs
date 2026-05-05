@@ -20,7 +20,16 @@ pub fn cmd_read(args: &[String]) {
         std::process::exit(1);
     }
 
-    let path = &args[0];
+    let raw_path = &args[0];
+    let path = if Path::new(raw_path).is_relative() {
+        std::env::current_dir().ok().map_or_else(
+            || raw_path.clone(),
+            |cwd| cwd.join(raw_path).to_string_lossy().into_owned(),
+        )
+    } else {
+        raw_path.clone()
+    };
+    let path = path.as_str();
     let mode = args
         .iter()
         .position(|a| a == "--mode" || a == "-m")
