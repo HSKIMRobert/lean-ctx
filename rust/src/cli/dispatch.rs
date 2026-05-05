@@ -336,8 +336,16 @@ pub fn run() {
                                             crate::http_server::team::TeamScope::Artifacts
                                         }
                                         "index" => crate::http_server::team::TeamScope::Index,
+                                        "events" => crate::http_server::team::TeamScope::Events,
+                                        "sessionmutations" | "session_mutations" => {
+                                            crate::http_server::team::TeamScope::SessionMutations
+                                        }
+                                        "knowledge" => {
+                                            crate::http_server::team::TeamScope::Knowledge
+                                        }
+                                        "audit" => crate::http_server::team::TeamScope::Audit,
                                         _ => {
-                                            eprintln!("Unknown scope: {p}");
+                                            eprintln!("Unknown scope: {p}. Valid: search, graph, artifacts, index, events, sessionmutations, knowledge, audit");
                                             std::process::exit(1);
                                         }
                                     };
