@@ -16,19 +16,6 @@ pub(crate) fn vectors_dir(project_root: &Path) -> PathBuf {
     PathBuf::from(".").join("vectors").join(hash)
 }
 
-#[allow(dead_code)]
-pub(crate) fn graphs_dir(project_root: &str) -> Option<PathBuf> {
-    let root_path = Path::new(project_root);
-    let hash = namespace_hash(root_path);
-    let legacy = legacy_graphs_hash(project_root);
-
-    let data_dir = crate::core::data_dir::lean_ctx_data_dir().ok()?;
-    let old_dir = data_dir.join("graphs").join(&legacy);
-    let new_dir = data_dir.join("graphs").join(&hash);
-    migrate_dir_if_needed(&old_dir, &new_dir);
-    Some(new_dir)
-}
-
 pub(crate) fn namespace_hash(project_root: &Path) -> String {
     let seed = namespace_seed(project_root);
     let mut hasher = Md5::new();
@@ -83,17 +70,6 @@ fn legacy_vectors_hash(project_root: &Path) -> String {
     let mut hasher = Md5::new();
     hasher.update(project_root.to_string_lossy().as_bytes());
     format!("{:x}", hasher.finalize())
-}
-
-#[allow(dead_code)]
-fn legacy_graphs_hash(project_root: &str) -> String {
-    let input = crate::core::graph_index::normalize_project_root(project_root);
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-
-    let mut hasher = DefaultHasher::new();
-    input.hash(&mut hasher);
-    format!("{:08x}", hasher.finish() & 0xFFFF_FFFF)
 }
 
 fn migrate_dir_if_needed(old_dir: &Path, new_dir: &Path) {

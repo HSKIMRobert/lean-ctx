@@ -763,7 +763,6 @@ async fn audit_write(
 }
 
 /// Event-level audit entry: records who triggered which Context OS event.
-#[allow(dead_code)]
 async fn audit_event(
     file: &tokio::sync::Mutex<tokio::fs::File>,
     token_id: &str,
@@ -981,8 +980,8 @@ async fn v1_tool_call(
 }
 
 async fn v1_events(
-    State(_state): State<TeamAppState>,
-    Extension(_auth): Extension<TeamAuthContext>,
+    State(state): State<TeamAppState>,
+    Extension(auth): Extension<TeamAuthContext>,
     Extension(ctx): Extension<TeamRequestContext>,
     Query(q): Query<EventsQuery>,
 ) -> Sse<impl Stream<Item = Result<SseEvent, std::convert::Infallible>>> {
@@ -990,6 +989,17 @@ async fn v1_events(
     let ch = q.channel_id.unwrap_or_else(|| "default".to_string());
     let since = q.since.unwrap_or(0);
     let limit = q.limit.unwrap_or(200).min(1000);
+
+    let _ = audit_event(
+        &state.team.audit,
+        &auth.token_id,
+        &ws,
+        &ch,
+        "sse_subscribe",
+        None,
+        since,
+    )
+    .await;
 
     let rt = crate::core::context_os::runtime();
     let replay = rt.bus.read(&ws, &ch, since, limit);
