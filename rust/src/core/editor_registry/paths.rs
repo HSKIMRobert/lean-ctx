@@ -39,6 +39,36 @@ pub fn vscode_mcp_path() -> PathBuf {
     }
 }
 
+pub fn qoder_mcp_path(home: &Path) -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            return PathBuf::from(appdata)
+                .join("Qoder")
+                .join("SharedClientCache")
+                .join("mcp.json");
+        }
+    }
+    home.join(".qoder").join("mcp.json")
+}
+
+#[cfg(target_os = "macos")]
+pub fn qoder_mcp_paths(home: &Path) -> Vec<PathBuf> {
+    let mut paths = vec![qoder_mcp_path(home)];
+    paths.push(home.join("Library/Application Support/Qoder/User/mcp.json"));
+    paths.push(home.join("Library/Application Support/Qoder/SharedClientCache/mcp.json"));
+    paths
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn qoder_mcp_paths(home: &Path) -> Vec<PathBuf> {
+    vec![qoder_mcp_path(home)]
+}
+
+pub fn qoderwork_mcp_path(home: &Path) -> PathBuf {
+    home.join(".qoderwork").join("mcp.json")
+}
+
 #[allow(unreachable_code)]
 pub fn cline_mcp_path() -> PathBuf {
     #[cfg(target_os = "windows")]
@@ -112,4 +142,25 @@ pub fn claude_state_dir(home: &Path) -> PathBuf {
 
 pub fn claude_rules_dir(home: &Path) -> PathBuf {
     claude_state_dir(home).join("rules")
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn qoder_mcp_paths_include_macos_user_and_shared_cache_locations() {
+        let home = Path::new("/Users/tester");
+        let paths = qoder_mcp_paths(home);
+
+        assert_eq!(
+            paths,
+            vec![
+                home.join(".qoder/mcp.json"),
+                home.join("Library/Application Support/Qoder/User/mcp.json"),
+                home.join("Library/Application Support/Qoder/SharedClientCache/mcp.json"),
+            ]
+        );
+    }
 }
