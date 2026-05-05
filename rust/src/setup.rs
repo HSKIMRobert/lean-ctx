@@ -462,7 +462,7 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
     }
     steps.push(rules_step);
 
-    // Step: Agent-specific hooks (Codex, Cursor)
+    // Step: Agent-specific hooks
     let mut hooks_step = SetupStepReport {
         name: "agent_hooks".to_string(),
         ok: true,
@@ -498,6 +498,15 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
                         note: None,
                     });
                 }
+            }
+            "qoder" => {
+                crate::hooks::agents::install_qoder_hook();
+                hooks_step.items.push(SetupItem {
+                    name: "Qoder hooks".to_string(),
+                    status: "installed".to_string(),
+                    path: Some("~/.qoder/settings.json".to_string()),
+                    note: Some("Installs PreToolUse shell rewrite hooks.".to_string()),
+                });
             }
             _ => {}
         }
@@ -574,6 +583,26 @@ pub fn configure_agent_mcp(agent: &str) -> Result<(), String> {
     let home = dirs::home_dir().ok_or_else(|| "Cannot determine home directory".to_string())?;
     let binary = resolve_portable_binary();
 
+    let targets = agent_mcp_targets(agent, &home)?;
+
+    for t in &targets {
+        crate::core::editor_registry::write_config_with_options(
+            t,
+            &binary,
+            WriteOptions {
+                overwrite_invalid: true,
+            },
+        )?;
+    }
+
+    if agent == "kiro" {
+        install_kiro_steering(&home);
+    }
+
+    Ok(())
+}
+
+fn agent_mcp_targets(agent: &str, home: &std::path::Path) -> Result<Vec<EditorTarget>, String> {
     let mut targets = Vec::<EditorTarget>::new();
 
     let push = |targets: &mut Vec<EditorTarget>,
@@ -651,6 +680,17 @@ pub fn configure_agent_mcp(agent: &str) -> Result<(), String> {
             "Pi Coding Agent",
             home.join(".pi/agent/mcp.json"),
             ConfigType::McpJson,
+        ),
+        "qoder" => {
+            for path in crate::core::editor_registry::qoder_mcp_paths(home) {
+                push(&mut targets, "Qoder", path, ConfigType::QoderMcp);
+            }
+        }
+        "qoderwork" => push(
+            &mut targets,
+            "QoderWork",
+            crate::core::editor_registry::qoderwork_mcp_path(&home),
+            ConfigType::QoderMcp,
         ),
         "cline" => push(
             &mut targets,
@@ -732,21 +772,7 @@ pub fn configure_agent_mcp(agent: &str) -> Result<(), String> {
         }
     }
 
-    for t in &targets {
-        crate::core::editor_registry::write_config_with_options(
-            t,
-            &binary,
-            WriteOptions {
-                overwrite_invalid: true,
-            },
-        )?;
-    }
-
-    if agent == "kiro" {
-        install_kiro_steering(&home);
-    }
-
-    Ok(())
+    Ok(targets)
 }
 
 fn install_kiro_steering(home: &std::path::Path) {
@@ -892,4 +918,31 @@ fn configure_premium_features(home: &std::path::Path) {
     }
 
     let _ = std::fs::write(&config_path, config_content);
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn qoder_agent_targets_include_all_macos_mcp_locations() {
+        let home = std::path::Path::new("/Users/tester");
+        let targets = agent_mcp_targets("qoder", home).unwrap();
+        let paths: Vec<_> = targets.iter().map(|t| t.config_path.as_path()).collect();
+
+        assert_eq!(
+            paths,
+            vec![
+                home.join(".qoder/mcp.json").as_path(),
+                home.join("Library/Application Support/Qoder/User/mcp.json")
+                    .as_path(),
+                home.join("Library/Application Support/Qoder/SharedClientCache/mcp.json")
+                    .as_path(),
+            ]
+        );
+        assert!(targets
+            .iter()
+            .all(|t| t.config_type == ConfigType::QoderMcp));
+    }
 }

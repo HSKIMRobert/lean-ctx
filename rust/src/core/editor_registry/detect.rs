@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 
 use super::paths::{
-    claude_mcp_json_path, cline_mcp_path, roo_mcp_path, vscode_mcp_path, zed_config_dir,
-    zed_settings_path,
+    claude_mcp_json_path, cline_mcp_path, qoder_mcp_paths, qoderwork_mcp_path, roo_mcp_path,
+    vscode_mcp_path, zed_config_dir, zed_settings_path,
 };
 use super::types::{ConfigType, EditorTarget};
 
@@ -26,7 +26,7 @@ pub fn build_targets(home: &Path) -> Vec<EditorTarget> {
     #[cfg(not(windows))]
     let opencode_detect = home.join(".config/opencode");
 
-    vec![
+    let mut targets = vec![
         EditorTarget {
             name: "Cursor",
             agent_key: "cursor".to_string(),
@@ -96,6 +96,13 @@ pub fn build_targets(home: &Path) -> Vec<EditorTarget> {
             config_path: home.join(".qwen/mcp.json"),
             detect_path: home.join(".qwen"),
             config_type: ConfigType::McpJson,
+        },
+        EditorTarget {
+            name: "QoderWork",
+            agent_key: "qoderwork".to_string(),
+            config_path: qoderwork_mcp_path(home),
+            detect_path: detect_qoderwork_path(home),
+            config_type: ConfigType::QoderMcp,
         },
         EditorTarget {
             name: "Trae",
@@ -181,7 +188,55 @@ pub fn build_targets(home: &Path) -> Vec<EditorTarget> {
             detect_path: home.join(".hermes"),
             config_type: ConfigType::HermesYaml,
         },
-    ]
+    ];
+
+    targets.extend(
+        qoder_mcp_paths(home)
+            .into_iter()
+            .map(|config_path| EditorTarget {
+                name: "Qoder",
+                agent_key: "qoder".to_string(),
+                config_path,
+                detect_path: detect_qoder_path(home),
+                config_type: ConfigType::QoderMcp,
+            }),
+    );
+
+    targets
+}
+
+pub fn detect_qoder_path(home: &Path) -> PathBuf {
+    let qoder_dir = home.join(".qoder");
+    if qoder_dir.exists() {
+        return qoder_dir;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let app_dir = PathBuf::from(appdata).join("Qoder");
+            if app_dir.exists() {
+                return app_dir;
+            }
+        }
+    }
+    PathBuf::from("/nonexistent")
+}
+
+pub fn detect_qoderwork_path(home: &Path) -> PathBuf {
+    let qoderwork_dir = home.join(".qoderwork");
+    if qoderwork_dir.exists() {
+        return qoderwork_dir;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let app_dir = PathBuf::from(appdata).join("QoderWork");
+            if app_dir.exists() {
+                return app_dir;
+            }
+        }
+    }
+    PathBuf::from("/nonexistent")
 }
 
 pub fn detect_claude_path() -> PathBuf {
@@ -363,4 +418,29 @@ pub fn detect_roo_path() -> PathBuf {
         }
     }
     PathBuf::from("/nonexistent")
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn build_targets_includes_all_qoder_macos_mcp_locations() {
+        let home = Path::new("/Users/tester");
+        let qoder_paths: Vec<_> = build_targets(home)
+            .into_iter()
+            .filter(|target| target.agent_key == "qoder")
+            .map(|target| target.config_path)
+            .collect();
+
+        assert_eq!(
+            qoder_paths,
+            vec![
+                home.join(".qoder/mcp.json"),
+                home.join("Library/Application Support/Qoder/User/mcp.json"),
+                home.join("Library/Application Support/Qoder/SharedClientCache/mcp.json"),
+            ]
+        );
+    }
 }
