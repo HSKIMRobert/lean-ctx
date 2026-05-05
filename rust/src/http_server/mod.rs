@@ -9,13 +9,16 @@ use axum::{
     extract::State,
     http::{header, Request, StatusCode},
     middleware::{self, Next},
+    response::sse::{Event as SseEvent, KeepAlive, Sse},
     response::{IntoResponse, Response},
     routing::get,
     Router,
 };
+use futures::Stream;
 use rmcp::transport::{StreamableHttpServerConfig, StreamableHttpService};
 use serde::Deserialize;
 use serde_json::Value;
+use tokio::sync::broadcast;
 use tokio::time::{Duration, Instant};
 
 use crate::engine::ContextEngine;
@@ -104,7 +107,7 @@ struct AppState {
     token: Option<String>,
     concurrency: Arc<tokio::sync::Semaphore>,
     rate: Arc<RateLimiter>,
-    engine: Arc<ContextEngine>,
+    project_root: String,
     timeout: Duration,
 }
 
@@ -233,10 +236,28 @@ struct ToolCallBody {
     name: String,
     #[serde(default)]
     arguments: Option<Value>,
+    #[serde(default)]
+    workspace_id: Option<String>,
+    #[serde(default)]
+    channel_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EventsQuery {
+    #[serde(default)]
+    workspace_id: Option<String>,
+    #[serde(default)]
+    channel_id: Option<String>,
+    #[serde(default)]
+    since: Option<i64>,
+    #[serde(default)]
+    limit: Option<usize>,
 }
 
 async fn v1_manifest(State(state): State<AppState>) -> impl IntoResponse {
-    let v = state.engine.manifest();
+    let _ = state;
+    let v = crate::core::mcp_manifest::manifest_value();
     (StatusCode::OK, Json(v))
 }
 
@@ -250,7 +271,8 @@ struct ToolsQuery {
 }
 
 async fn v1_tools(State(state): State<AppState>, Query(q): Query<ToolsQuery>) -> impl IntoResponse {
-    let v = state.engine.manifest();
+    let _ = state;
+    let v = crate::core::mcp_manifest::manifest_value();
     let tools = v
         .get("tools")
         .and_then(|t| t.get("granular"))
@@ -278,9 +300,13 @@ async fn v1_tool_call(
     State(state): State<AppState>,
     Json(body): Json<ToolCallBody>,
 ) -> impl IntoResponse {
+    let ws = body.workspace_id.as_deref().unwrap_or("default");
+    let ch = body.channel_id.as_deref().unwrap_or("default");
+    let server = LeanCtxServer::new_shared_with_context(&state.project_root, ws, ch);
+    let engine = ContextEngine::from_server(server);
     match tokio::time::timeout(
         state.timeout,
-        state.engine.call_tool_value(&body.name, body.arguments),
+        engine.call_tool_value(&body.name, body.arguments),
     )
     .await
     {
@@ -298,6 +324,56 @@ async fn v1_tool_call(
     }
 }
 
+async fn v1_events(
+    State(_state): State<AppState>,
+    Query(q): Query<EventsQuery>,
+) -> Sse<impl Stream<Item = Result<SseEvent, std::convert::Infallible>>> {
+    let ws = q.workspace_id.unwrap_or_else(|| "default".to_string());
+    let ch = q.channel_id.unwrap_or_else(|| "default".to_string());
+    let since = q.since.unwrap_or(0);
+    let limit = q.limit.unwrap_or(200).min(1000);
+
+    let rt = crate::core::context_os::runtime();
+    let replay = rt.bus.read(&ws, &ch, since, limit);
+    let rx = rt.bus.subscribe();
+
+    let stream = futures::stream::unfold(
+        (replay.into_iter(), rx, ws.clone(), ch.clone(), since),
+        |(mut replay_it, mut rx, ws, ch, mut last_id)| async move {
+            if let Some(ev) = replay_it.next() {
+                last_id = ev.id;
+                let data = serde_json::to_string(&ev).unwrap_or_else(|_| "{}".to_string());
+                let evt = SseEvent::default()
+                    .id(ev.id.to_string())
+                    .event(ev.kind)
+                    .data(data);
+                return Some((Ok(evt), (replay_it, rx, ws, ch, last_id)));
+            }
+
+            loop {
+                match rx.recv().await {
+                    Ok(ev) => {
+                        if ev.workspace_id == ws && ev.channel_id == ch && ev.id > last_id {
+                            last_id = ev.id;
+                            let data =
+                                serde_json::to_string(&ev).unwrap_or_else(|_| "{}".to_string());
+                            let evt = SseEvent::default()
+                                .id(ev.id.to_string())
+                                .event(ev.kind)
+                                .data(data);
+                            return Some((Ok(evt), (replay_it, rx, ws, ch, last_id)));
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Closed) => return None,
+                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                }
+            }
+        },
+    );
+
+    Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
+}
+
 pub async fn serve(cfg: HttpServerConfig) -> Result<()> {
     cfg.validate()?;
 
@@ -306,10 +382,16 @@ pub async fn serve(cfg: HttpServerConfig) -> Result<()> {
         .context("invalid host/port")?;
 
     let project_root = cfg.project_root.to_string_lossy().to_string();
-    let base = LeanCtxServer::new_with_project_root(Some(&project_root));
-    let engine = Arc::new(ContextEngine::from_server(base.clone()));
-
-    let service_factory = move || Ok(base.clone());
+    // IMPORTANT: Create a fresh server per MCP session in *shared* mode.
+    // This avoids per-client state clobbering while still sharing the Context OS store.
+    let service_project_root = project_root.clone();
+    let service_factory = move || -> Result<LeanCtxServer, std::io::Error> {
+        Ok(LeanCtxServer::new_shared_with_context(
+            &service_project_root,
+            "default",
+            "default",
+        ))
+    };
     let mcp_http = StreamableHttpService::new(
         service_factory,
         Arc::new(
@@ -322,7 +404,7 @@ pub async fn serve(cfg: HttpServerConfig) -> Result<()> {
         token: cfg.auth_token.clone().filter(|t| !t.is_empty()),
         concurrency: Arc::new(tokio::sync::Semaphore::new(cfg.max_concurrency.max(1))),
         rate: Arc::new(RateLimiter::new(cfg.max_rps, cfg.rate_burst)),
-        engine,
+        project_root: project_root.clone(),
         timeout: Duration::from_millis(cfg.request_timeout_ms.max(1)),
     };
 
@@ -331,6 +413,7 @@ pub async fn serve(cfg: HttpServerConfig) -> Result<()> {
         .route("/v1/manifest", get(v1_manifest))
         .route("/v1/tools", get(v1_tools))
         .route("/v1/tools/call", axum::routing::post(v1_tool_call))
+        .route("/v1/events", get(v1_events))
         .fallback_service(mcp_http)
         .layer(axum::extract::DefaultBodyLimit::max(cfg.max_body_bytes))
         .layer(middleware::from_fn_with_state(
@@ -370,16 +453,39 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use axum::http::Request;
+    use futures::StreamExt;
     use rmcp::transport::{StreamableHttpServerConfig, StreamableHttpService};
     use serde_json::json;
     use tower::ServiceExt;
+
+    async fn read_first_sse_message(body: Body) -> String {
+        let mut stream = body.into_data_stream();
+        let mut buf: Vec<u8> = Vec::new();
+        for _ in 0..32 {
+            let next = tokio::time::timeout(Duration::from_secs(2), stream.next()).await;
+            let Ok(Some(Ok(bytes))) = next else {
+                break;
+            };
+            buf.extend_from_slice(&bytes);
+            if buf.windows(2).any(|w| w == b"\n\n") {
+                break;
+            }
+        }
+        String::from_utf8_lossy(&buf).to_string()
+    }
 
     #[tokio::test]
     async fn auth_token_blocks_requests_without_bearer_header() {
         let dir = tempfile::tempdir().expect("tempdir");
         let root_str = dir.path().to_string_lossy().to_string();
-        let base = LeanCtxServer::new_with_project_root(Some(&root_str));
-        let service_factory = move || Ok(base.clone());
+        let service_project_root = root_str.clone();
+        let service_factory = move || -> Result<LeanCtxServer, std::io::Error> {
+            Ok(LeanCtxServer::new_shared_with_context(
+                &service_project_root,
+                "default",
+                "default",
+            ))
+        };
         let cfg = StreamableHttpServerConfig::default()
             .with_stateful_mode(false)
             .with_json_response(true);
@@ -396,9 +502,7 @@ mod tests {
             token: Some("secret".to_string()),
             concurrency: Arc::new(tokio::sync::Semaphore::new(4)),
             rate: Arc::new(RateLimiter::new(50, 100)),
-            engine: Arc::new(ContextEngine::from_server(
-                LeanCtxServer::new_with_project_root(Some(&root_str)),
-            )),
+            project_root: root_str.clone(),
             timeout: Duration::from_millis(30_000),
         };
 
@@ -432,12 +536,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn mcp_service_factory_isolates_per_client_state() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root_str = dir.path().to_string_lossy().to_string();
+
+        // Mirrors the serve() setup: service_factory must create a fresh server per MCP session.
+        let service_project_root = root_str.clone();
+        let service_factory = move || -> Result<LeanCtxServer, std::convert::Infallible> {
+            Ok(LeanCtxServer::new_shared_with_context(
+                &service_project_root,
+                "default",
+                "default",
+            ))
+        };
+
+        let s1 = service_factory().expect("server 1");
+        let s2 = service_factory().expect("server 2");
+
+        // If the two servers accidentally share the same Arc-backed fields, these writes would
+        // clobber each other. This test stays independent of rmcp's InitializeRequestParams API.
+        *s1.client_name.write().await = "client-a".to_string();
+        *s2.client_name.write().await = "client-b".to_string();
+
+        let a = s1.client_name.read().await.clone();
+        let b = s2.client_name.read().await.clone();
+        assert_eq!(a, "client-a");
+        assert_eq!(b, "client-b");
+    }
+
+    #[tokio::test]
     async fn rate_limit_returns_429_when_exhausted() {
         let state = AppState {
             token: None,
             concurrency: Arc::new(tokio::sync::Semaphore::new(16)),
             rate: Arc::new(RateLimiter::new(1, 1)),
-            engine: Arc::new(ContextEngine::new()),
+            project_root: ".".to_string(),
             timeout: Duration::from_millis(30_000),
         };
 
@@ -466,5 +599,61 @@ mod tests {
             .expect("req2");
         let resp2 = app.clone().oneshot(req2).await.expect("resp2");
         assert_eq!(resp2.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[tokio::test]
+    async fn events_endpoint_replays_tool_call_event() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir_all(dir.path().join(".git")).expect("git marker");
+        std::fs::write(dir.path().join("a.txt"), "ok").expect("file");
+        let root_str = dir.path().to_string_lossy().to_string();
+
+        let state = AppState {
+            token: None,
+            concurrency: Arc::new(tokio::sync::Semaphore::new(16)),
+            rate: Arc::new(RateLimiter::new(50, 100)),
+            project_root: root_str.clone(),
+            timeout: Duration::from_millis(30_000),
+        };
+
+        let app = Router::new()
+            .route("/v1/tools/call", axum::routing::post(v1_tool_call))
+            .route("/v1/events", get(v1_events))
+            .with_state(state);
+
+        // Trigger a tool call in a non-default workspace/channel.
+        let body = json!({
+            "name": "ctx_tree",
+            "arguments": { "path": ".", "depth": 1 },
+            "workspaceId": "ws1",
+            "channelId": "ch1"
+        })
+        .to_string();
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1/tools/call")
+            .header("Host", "localhost")
+            .header("Content-Type", "application/json")
+            .body(Body::from(body))
+            .expect("req");
+        let resp = app.clone().oneshot(req).await.expect("call");
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Subscribe with replay semantics; read the first SSE message.
+        let req = Request::builder()
+            .method("GET")
+            .uri("/v1/events?workspaceId=ws1&channelId=ch1&since=0&limit=1")
+            .header("Host", "localhost")
+            .header("Accept", "text/event-stream")
+            .body(Body::empty())
+            .expect("req");
+        let resp = app.clone().oneshot(req).await.expect("events");
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let msg = read_first_sse_message(resp.into_body()).await;
+        assert!(msg.contains("event: tool_call_recorded"), "msg={msg:?}");
+        assert!(msg.contains("\"workspaceId\":\"ws1\""), "msg={msg:?}");
+        assert!(msg.contains("\"channelId\":\"ch1\""), "msg={msg:?}");
+        assert!(msg.contains("\"tool\":\"ctx_tree\""), "msg={msg:?}");
     }
 }

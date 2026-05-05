@@ -492,7 +492,12 @@ fi
 "#,
     );
     match std::fs::write(&env_sh, content) {
-        Ok(()) => qprintln!("  env.sh: {}", env_sh.display()),
+        Ok(()) => {
+            // Keep JSON-mode stdout clean; non-quiet hints go to stderr.
+            if !super::quiet_enabled() {
+                eprintln!("  env.sh: {}", env_sh.display());
+            }
+        }
         Err(e) => tracing::warn!("could not write {}: {e}", env_sh.display()),
     }
 }

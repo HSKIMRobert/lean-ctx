@@ -62,7 +62,20 @@ impl ServerHandler for LeanCtxServer {
                     session.project_root = None;
                 }
             }
-            let _ = session.save();
+            if self.session_mode == crate::tools::SessionMode::Shared {
+                if let Some(ref root) = session.project_root {
+                    if let Some(ref rt) = self.context_os {
+                        rt.shared_sessions.persist_best_effort(
+                            root,
+                            &self.workspace_id,
+                            &self.channel_id,
+                            &session,
+                        );
+                    }
+                }
+            } else {
+                let _ = session.save();
+            }
         }
 
         let agent_name = name.clone();
@@ -653,6 +666,33 @@ impl ServerHandler for LeanCtxServer {
                     output_token_count_u64,
                 );
                 let _ = store.save();
+            });
+        }
+
+        // Context OS: persist shared session + publish an event (reference-only payload).
+        if self.session_mode == crate::tools::SessionMode::Shared {
+            let ws = self.workspace_id.clone();
+            let ch = self.channel_id.clone();
+            let rt = self.context_os.clone();
+            let agent = self.agent_id.read().await.clone();
+            let tool = name.to_string();
+            let session_snapshot = self.session.read().await.clone();
+            tokio::task::spawn_blocking(move || {
+                let Some(rt) = rt else {
+                    return;
+                };
+                let Some(root) = session_snapshot.project_root.as_deref() else {
+                    return;
+                };
+                rt.shared_sessions
+                    .persist_best_effort(root, &ws, &ch, &session_snapshot);
+                let _ = rt.bus.append(
+                    &ws,
+                    &ch,
+                    &crate::core::context_os::ContextEventKindV1::ToolCallRecorded,
+                    agent.as_deref(),
+                    serde_json::json!({ "tool": tool }),
+                );
             });
         }
 

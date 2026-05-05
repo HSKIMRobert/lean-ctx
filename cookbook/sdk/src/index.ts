@@ -5,6 +5,7 @@ export { toolResultToText } from "./toolText.js";
 export type {
   JsonObject,
   JsonValue,
+  ContextEventV1,
   ListToolsResponse,
   ToolArguments,
   ToolCallResponse,

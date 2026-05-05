@@ -26,6 +26,7 @@ pub mod consolidation_engine;
 pub mod context_artifacts;
 pub mod context_deficit;
 pub mod context_ledger;
+pub mod context_os;
 pub mod data_dir;
 pub mod deep_queries;
 pub mod dense_backend;

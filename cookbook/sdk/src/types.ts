@@ -20,3 +20,13 @@ export interface ListToolsResponse {
 export interface ToolCallResponse {
   result: unknown;
 }
+
+export interface ContextEventV1 {
+  id: number;
+  workspaceId: string;
+  channelId: string;
+  kind: string;
+  actor?: string | null;
+  timestamp: string;
+  payload: JsonValue;
+}

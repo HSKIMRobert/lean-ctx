@@ -127,6 +127,14 @@ impl CrpMode {
 /// Thread-safe handle to the shared file content cache.
 pub type SharedCache = Arc<RwLock<SessionCache>>;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SessionMode {
+    /// Traditional single-client session persistence under `~/.lean-ctx/sessions/`.
+    Personal,
+    /// Context OS mode: shared sessions + event bus for multi-client HTTP/team-server.
+    Shared,
+}
+
 /// Central MCP server state: cache, session, metrics, and autonomy runtime.
 #[derive(Clone)]
 pub struct LeanCtxServer {
@@ -143,6 +151,10 @@ pub struct LeanCtxServer {
     pub workflow: Arc<RwLock<Option<crate::core::workflow::WorkflowRun>>>,
     pub ledger: Arc<RwLock<crate::core::context_ledger::ContextLedger>>,
     pub pipeline_stats: Arc<RwLock<crate::core::pipeline::PipelineStats>>,
+    pub session_mode: SessionMode,
+    pub workspace_id: String,
+    pub channel_id: String,
+    pub context_os: Option<Arc<crate::core::context_os::ContextOsRuntime>>,
     startup_project_root: Option<String>,
     startup_shell_cwd: Option<String>,
 }
@@ -172,32 +184,86 @@ impl LeanCtxServer {
 
     /// Creates a new server rooted at the given project directory.
     pub fn new_with_project_root(project_root: Option<&str>) -> Self {
-        Self::new_with_startup(project_root, std::env::current_dir().ok().as_deref())
+        Self::new_with_startup(
+            project_root,
+            std::env::current_dir().ok().as_deref(),
+            SessionMode::Personal,
+            "default",
+            "default",
+        )
     }
 
-    fn new_with_startup(project_root: Option<&str>, startup_cwd: Option<&Path>) -> Self {
+    /// Creates a new server in Context OS shared mode for a specific workspace/channel.
+    pub fn new_shared_with_context(
+        project_root: &str,
+        workspace_id: &str,
+        channel_id: &str,
+    ) -> Self {
+        Self::new_with_startup(
+            Some(project_root),
+            std::env::current_dir().ok().as_deref(),
+            SessionMode::Shared,
+            workspace_id,
+            channel_id,
+        )
+    }
+
+    fn new_with_startup(
+        project_root: Option<&str>,
+        startup_cwd: Option<&Path>,
+        session_mode: SessionMode,
+        workspace_id: &str,
+        channel_id: &str,
+    ) -> Self {
         let ttl = std::env::var("LEAN_CTX_CACHE_TTL")
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(DEFAULT_CACHE_TTL_SECS);
 
         let startup = detect_startup_context(project_root, startup_cwd);
-        let mut session = if let Some(ref root) = startup.project_root {
-            SessionState::load_latest_for_project_root(root).unwrap_or_default()
-        } else {
-            SessionState::load_latest().unwrap_or_default()
+        let (session, context_os) = match session_mode {
+            SessionMode::Personal => {
+                let mut session = if let Some(ref root) = startup.project_root {
+                    SessionState::load_latest_for_project_root(root).unwrap_or_default()
+                } else {
+                    SessionState::load_latest().unwrap_or_default()
+                };
+                if let Some(ref root) = startup.project_root {
+                    session.project_root = Some(root.clone());
+                }
+                if let Some(ref cwd) = startup.shell_cwd {
+                    session.shell_cwd = Some(cwd.clone());
+                }
+                (Arc::new(RwLock::new(session)), None)
+            }
+            SessionMode::Shared => {
+                let Some(ref root) = startup.project_root else {
+                    // Shared mode without a project root is not useful; fall back to personal.
+                    return Self::new_with_startup(
+                        project_root,
+                        startup_cwd,
+                        SessionMode::Personal,
+                        workspace_id,
+                        channel_id,
+                    );
+                };
+                let rt = crate::core::context_os::runtime();
+                let session = rt
+                    .shared_sessions
+                    .get_or_load(root, workspace_id, channel_id);
+                // Ensure shell_cwd is refreshed (best-effort).
+                if let Some(ref cwd) = startup.shell_cwd {
+                    if let Ok(mut s) = session.try_write() {
+                        s.shell_cwd = Some(cwd.clone());
+                    }
+                }
+                (session, Some(rt))
+            }
         };
-
-        if let Some(ref root) = startup.project_root {
-            session.project_root = Some(root.clone());
-        }
-        if let Some(ref cwd) = startup.shell_cwd {
-            session.shell_cwd = Some(cwd.clone());
-        }
 
         Self {
             cache: Arc::new(RwLock::new(SessionCache::new())),
-            session: Arc::new(RwLock::new(session)),
+            session,
             tool_calls: Arc::new(RwLock::new(Vec::new())),
             call_count: Arc::new(AtomicUsize::new(0)),
             cache_ttl_secs: ttl,
@@ -217,6 +283,18 @@ impl LeanCtxServer {
                 crate::core::context_ledger::ContextLedger::new(),
             )),
             pipeline_stats: Arc::new(RwLock::new(crate::core::pipeline::PipelineStats::new())),
+            session_mode,
+            workspace_id: if workspace_id.trim().is_empty() {
+                "default".to_string()
+            } else {
+                workspace_id.trim().to_string()
+            },
+            channel_id: if channel_id.trim().is_empty() {
+                "default".to_string()
+            } else {
+                channel_id.trim().to_string()
+            },
+            context_os,
             startup_project_root: startup.project_root,
             startup_shell_cwd: startup.shell_cwd,
         }
@@ -893,7 +971,13 @@ mod resolve_path_tests {
         let real_root = create_git_root(&real);
         std::fs::write(real.join("a.txt"), "ok").unwrap();
 
-        let server = LeanCtxServer::new_with_startup(None, Some(real.as_path()));
+        let server = LeanCtxServer::new_with_startup(
+            None,
+            Some(real.as_path()),
+            SessionMode::Personal,
+            "default",
+            "default",
+        );
         {
             let mut session = server.session.write().await;
             session.project_root = Some(stale.to_string_lossy().to_string());
@@ -923,7 +1007,13 @@ mod resolve_path_tests {
         let _other_value = create_git_root(&other);
         std::fs::write(other.join("b.txt"), "no").unwrap();
 
-        let server = LeanCtxServer::new_with_startup(None, Some(root.as_path()));
+        let server = LeanCtxServer::new_with_startup(
+            None,
+            Some(root.as_path()),
+            SessionMode::Personal,
+            "default",
+            "default",
+        );
         {
             let mut session = server.session.write().await;
             session.project_root = Some(stale.to_string_lossy().to_string());
@@ -971,7 +1061,13 @@ mod resolve_path_tests {
         session_a.set_task("repo-a latest task", None);
         session_a.save().unwrap();
 
-        let server = LeanCtxServer::new_with_startup(None, Some(repo_b.as_path()));
+        let server = LeanCtxServer::new_with_startup(
+            None,
+            Some(repo_b.as_path()),
+            SessionMode::Personal,
+            "default",
+            "default",
+        );
         std::env::remove_var("LEAN_CTX_DATA_DIR");
 
         let session = server.session.read().await;
@@ -1007,7 +1103,13 @@ mod resolve_path_tests {
         let old_id = session_a.id.clone();
         session_a.save().unwrap();
 
-        let server = LeanCtxServer::new_with_startup(None, Some(repo_b_src.as_path()));
+        let server = LeanCtxServer::new_with_startup(
+            None,
+            Some(repo_b_src.as_path()),
+            SessionMode::Personal,
+            "default",
+            "default",
+        );
         std::env::remove_var("LEAN_CTX_DATA_DIR");
 
         let session = server.session.read().await;

@@ -342,6 +342,18 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
             crate::cli::cmd_init(&["--global".to_string()]);
         }
         crate::shell_hook::install_all(opts.json);
+        #[cfg(not(windows))]
+        {
+            // Ensure Docker/CI shells can source lean-ctx hooks via BASH_ENV / CLAUDE_ENV_FILE.
+            let hook_content = crate::cli::generate_hook_posix(&binary);
+            crate::cli::write_env_sh_for_containers(&hook_content);
+            shell_step.items.push(SetupItem {
+                name: "env_sh".to_string(),
+                status: "created".to_string(),
+                path: Some("~/.lean-ctx/env.sh".to_string()),
+                note: Some("Docker/CI helper (BASH_ENV / CLAUDE_ENV_FILE)".to_string()),
+            });
+        }
         shell_step.items.push(SetupItem {
             name: "init --global".to_string(),
             status: "ran".to_string(),

@@ -9,10 +9,12 @@ use axum::{
     extract::{Extension, Json, Query, State},
     http::{header, Request, StatusCode},
     middleware::{self, Next},
+    response::sse::{Event as SseEvent, KeepAlive, Sse},
     response::{IntoResponse, Response},
     routing::get,
     Router,
 };
+use futures::Stream;
 use md5::{Digest, Md5};
 use rmcp::{
     handler::server::ServerHandler,
@@ -27,11 +29,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use sha2::Sha256;
 use tokio::io::AsyncWriteExt;
+use tokio::sync::broadcast;
 use tokio::time::Duration;
 
 use crate::tools::LeanCtxServer;
 
 const WORKSPACE_ARG_KEY: &str = "workspaceId";
+const CHANNEL_ARG_KEY: &str = "channelId";
 const WORKSPACE_HEADER: &str = "x-leanctx-workspace";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -107,6 +111,7 @@ pub enum TeamScope {
     Graph,
     Artifacts,
     Index,
+    Events,
 }
 
 impl TeamServerConfig {
@@ -222,6 +227,8 @@ struct ToolCallBody {
     arguments: Option<Value>,
     #[serde(default)]
     workspace_id: Option<String>,
+    #[serde(default)]
+    channel_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -233,18 +240,28 @@ struct ToolsQuery {
     limit: Option<usize>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EventsQuery {
+    #[serde(default)]
+    since: Option<i64>,
+    #[serde(default)]
+    limit: Option<usize>,
+    #[serde(default)]
+    channel_id: Option<String>,
+}
+
 #[derive(Clone)]
 struct TeamCtxServer {
     default_workspace_id: String,
-    workspaces: Arc<HashMap<String, LeanCtxServer>>,
     roots: Arc<HashMap<String, String>>,
 }
 
 impl TeamCtxServer {
-    fn default_server(&self) -> &LeanCtxServer {
-        self.workspaces
+    fn default_root(&self) -> &str {
+        self.roots
             .get(&self.default_workspace_id)
-            .expect("default workspace")
+            .expect("default workspace root")
     }
 
     fn rewrite_dot_paths(args: &mut Map<String, Value>, root: &str) {
@@ -259,10 +276,10 @@ impl TeamCtxServer {
         }
     }
 
-    fn pick_workspace<'a>(
-        &'a self,
+    fn pick_workspace(
+        &self,
         args: &mut Map<String, Value>,
-    ) -> std::result::Result<&'a LeanCtxServer, rmcp::ErrorData> {
+    ) -> std::result::Result<(String, String), rmcp::ErrorData> {
         let ws = args
             .get(WORKSPACE_ARG_KEY)
             .and_then(|v| v.as_str())
@@ -270,19 +287,29 @@ impl TeamCtxServer {
             .to_string();
         args.remove(WORKSPACE_ARG_KEY);
 
-        if let Some(root) = self.roots.get(&ws) {
-            Self::rewrite_dot_paths(args, root);
-        }
-
-        self.workspaces
+        let root = self
+            .roots
             .get(&ws)
-            .ok_or_else(|| rmcp::ErrorData::invalid_params("unknown workspaceId", None))
+            .cloned()
+            .ok_or_else(|| rmcp::ErrorData::invalid_params("unknown workspaceId", None))?;
+        Self::rewrite_dot_paths(args, &root);
+        Ok((ws, root))
+    }
+
+    fn make_server(&self, workspace_id: &str, channel_id: &str) -> LeanCtxServer {
+        let root = self
+            .roots
+            .get(workspace_id)
+            .cloned()
+            .unwrap_or_else(|| self.default_root().to_string());
+        LeanCtxServer::new_shared_with_context(&root, workspace_id, channel_id)
     }
 }
 
 impl ServerHandler for TeamCtxServer {
     fn get_info(&self) -> rmcp::model::ServerInfo {
-        <LeanCtxServer as ServerHandler>::get_info(self.default_server())
+        let s = self.make_server(&self.default_workspace_id, "default");
+        <LeanCtxServer as ServerHandler>::get_info(&s)
     }
 
     async fn initialize(
@@ -290,7 +317,8 @@ impl ServerHandler for TeamCtxServer {
         request: rmcp::model::InitializeRequestParams,
         context: RequestContext<RoleServer>,
     ) -> std::result::Result<rmcp::model::InitializeResult, rmcp::ErrorData> {
-        <LeanCtxServer as ServerHandler>::initialize(self.default_server(), request, context).await
+        let s = self.make_server(&self.default_workspace_id, "default");
+        <LeanCtxServer as ServerHandler>::initialize(&s, request, context).await
     }
 
     async fn list_tools(
@@ -298,7 +326,8 @@ impl ServerHandler for TeamCtxServer {
         request: Option<rmcp::model::PaginatedRequestParams>,
         context: RequestContext<RoleServer>,
     ) -> std::result::Result<rmcp::model::ListToolsResult, rmcp::ErrorData> {
-        <LeanCtxServer as ServerHandler>::list_tools(self.default_server(), request, context).await
+        let s = self.make_server(&self.default_workspace_id, "default");
+        <LeanCtxServer as ServerHandler>::list_tools(&s, request, context).await
     }
 
     async fn call_tool(
@@ -307,9 +336,18 @@ impl ServerHandler for TeamCtxServer {
         context: RequestContext<RoleServer>,
     ) -> std::result::Result<CallToolResult, rmcp::ErrorData> {
         let mut args = request.arguments.take().unwrap_or_default();
-        let target = self.pick_workspace(&mut args)?;
+        let (ws, root) = self.pick_workspace(&mut args)?;
+        let channel = args
+            .get(CHANNEL_ARG_KEY)
+            .and_then(|v| v.as_str())
+            .unwrap_or("default")
+            .to_string();
+        args.remove(CHANNEL_ARG_KEY);
+        // Re-apply dot path rewriting against the resolved root.
+        Self::rewrite_dot_paths(&mut args, &root);
         request.arguments = Some(args);
-        <LeanCtxServer as ServerHandler>::call_tool(target, request, context).await
+        let s = LeanCtxServer::new_shared_with_context(&root, &ws, &channel);
+        <LeanCtxServer as ServerHandler>::call_tool(&s, request, context).await
     }
 }
 
@@ -575,13 +613,7 @@ async fn team_auth_middleware(
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| state.team.engine.server.default_workspace_id.clone());
-    if !state
-        .team
-        .engine
-        .server
-        .workspaces
-        .contains_key(&workspace_id)
-    {
+    if !state.team.engine.server.roots.contains_key(&workspace_id) {
         return StatusCode::BAD_REQUEST.into_response();
     }
     let workspace_id_for_audit = workspace_id.clone();
@@ -592,6 +624,26 @@ async fn team_auth_middleware(
     });
     req.extensions_mut()
         .insert(TeamRequestContext { workspace_id });
+
+    // Endpoint-level authz (non-tool endpoints).
+    let path0 = req.uri().path();
+    if path0 == "/v1/events" {
+        let allow = tok_scopes.contains(&TeamScope::Events);
+        let _ = audit_write(
+            &state.team.audit,
+            &tok.id,
+            &workspace_id_for_audit,
+            None,
+            Some("events"),
+            allow,
+            if allow { None } else { Some("scope_denied") },
+            None,
+        )
+        .await;
+        if !allow {
+            return StatusCode::FORBIDDEN.into_response();
+        }
+    }
 
     // Tool-level authz for MCP fallback (tools/call).
     let path = req.uri().path().to_string();
@@ -732,13 +784,7 @@ async fn v1_tool_call(
         .workspace_id
         .clone()
         .unwrap_or_else(|| ctx.workspace_id.clone());
-    if !state
-        .team
-        .engine
-        .server
-        .workspaces
-        .contains_key(&workspace_id)
-    {
+    if !state.team.engine.server.roots.contains_key(&workspace_id) {
         let _ = audit_write(
             &state.team.audit,
             &auth.token_id,
@@ -785,6 +831,14 @@ async fn v1_tool_call(
             WORKSPACE_ARG_KEY.to_string(),
             Value::String(workspace_id.clone()),
         );
+        if let Some(ch) = body.channel_id.as_deref() {
+            if !ch.trim().is_empty() {
+                m.insert(
+                    CHANNEL_ARG_KEY.to_string(),
+                    Value::String(ch.trim().to_string()),
+                );
+            }
+        }
     }
 
     let required = required_scopes(&body.name, Some(&args));
@@ -875,6 +929,58 @@ async fn v1_tool_call(
     }
 }
 
+async fn v1_events(
+    State(_state): State<TeamAppState>,
+    Extension(_auth): Extension<TeamAuthContext>,
+    Extension(ctx): Extension<TeamRequestContext>,
+    Query(q): Query<EventsQuery>,
+) -> Sse<impl Stream<Item = Result<SseEvent, std::convert::Infallible>>> {
+    let ws = ctx.workspace_id;
+    let ch = q.channel_id.unwrap_or_else(|| "default".to_string());
+    let since = q.since.unwrap_or(0);
+    let limit = q.limit.unwrap_or(200).min(1000);
+
+    let rt = crate::core::context_os::runtime();
+    let replay = rt.bus.read(&ws, &ch, since, limit);
+    let rx = rt.bus.subscribe();
+
+    let stream = futures::stream::unfold(
+        (replay.into_iter(), rx, ws.clone(), ch.clone(), since),
+        |(mut replay_it, mut rx, ws, ch, mut last_id)| async move {
+            if let Some(ev) = replay_it.next() {
+                last_id = ev.id;
+                let data = serde_json::to_string(&ev).unwrap_or_else(|_| "{}".to_string());
+                let evt = SseEvent::default()
+                    .id(ev.id.to_string())
+                    .event(ev.kind)
+                    .data(data);
+                return Some((Ok(evt), (replay_it, rx, ws, ch, last_id)));
+            }
+
+            loop {
+                match rx.recv().await {
+                    Ok(ev) => {
+                        if ev.workspace_id == ws && ev.channel_id == ch && ev.id > last_id {
+                            last_id = ev.id;
+                            let data =
+                                serde_json::to_string(&ev).unwrap_or_else(|_| "{}".to_string());
+                            let evt = SseEvent::default()
+                                .id(ev.id.to_string())
+                                .event(ev.kind)
+                                .data(data);
+                            return Some((Ok(evt), (replay_it, rx, ws, ch, last_id)));
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Closed) => return None,
+                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                }
+            }
+        },
+    );
+
+    Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
+}
+
 fn streamable_http_config(cfg: &TeamServerConfig) -> rmcp::transport::StreamableHttpServerConfig {
     let mut out = rmcp::transport::StreamableHttpServerConfig::default()
         .with_stateful_mode(cfg.stateful_mode)
@@ -902,17 +1008,8 @@ pub async fn serve_team(cfg: TeamServerConfig) -> Result<()> {
         .parse()
         .context("invalid host/port")?;
 
-    let mut workspaces: HashMap<String, LeanCtxServer> = HashMap::new();
-    for ws in &cfg.workspaces {
-        let root_s = ws.root.to_string_lossy().to_string();
-        workspaces.insert(
-            ws.id.clone(),
-            LeanCtxServer::new_with_project_root(Some(&root_s)),
-        );
-    }
     let team_server = TeamCtxServer {
         default_workspace_id: cfg.default_workspace_id.clone(),
-        workspaces: Arc::new(workspaces),
         roots: Arc::new(
             cfg.workspaces
                 .iter()
@@ -943,7 +1040,8 @@ pub async fn serve_team(cfg: TeamServerConfig) -> Result<()> {
         max_body_bytes: cfg.max_body_bytes,
     };
 
-    let service_factory = move || Ok(team_server.clone());
+    let service_factory =
+        move || -> std::result::Result<TeamCtxServer, std::io::Error> { Ok(team_server.clone()) };
     let mcp_http = StreamableHttpService::new(
         service_factory,
         Arc::new(
@@ -957,6 +1055,7 @@ pub async fn serve_team(cfg: TeamServerConfig) -> Result<()> {
         .route("/v1/manifest", get(v1_manifest))
         .route("/v1/tools", get(v1_tools))
         .route("/v1/tools/call", axum::routing::post(v1_tool_call))
+        .route("/v1/events", get(v1_events))
         .fallback_service(mcp_http)
         .layer(axum::extract::DefaultBodyLimit::max(cfg.max_body_bytes))
         .layer(middleware::from_fn_with_state(
@@ -994,7 +1093,7 @@ pub async fn serve_team(cfg: TeamServerConfig) -> Result<()> {
 
 pub fn create_token() -> Result<(String, String)> {
     let mut bytes = [0u8; 32];
-    getrandom::fill(&mut bytes).with_context(|| "getrandom")?;
+    getrandom::fill(&mut bytes).map_err(|e| anyhow!("getrandom: {e}"))?;
     let token = hex_lower(&bytes);
     let hash = sha256_hex(token.as_bytes());
     Ok((token, hash))
@@ -1004,7 +1103,24 @@ pub fn create_token() -> Result<(String, String)> {
 mod tests {
     use super::super::RateLimiter;
     use super::*;
+    use futures::StreamExt;
     use tower::ServiceExt;
+
+    async fn read_first_sse_message(body: Body) -> String {
+        let mut stream = body.into_data_stream();
+        let mut buf: Vec<u8> = Vec::new();
+        for _ in 0..32 {
+            let next = tokio::time::timeout(Duration::from_secs(2), stream.next()).await;
+            let Ok(Some(Ok(bytes))) = next else {
+                break;
+            };
+            buf.extend_from_slice(&bytes);
+            if buf.windows(2).any(|w| w == b"\n\n") {
+                break;
+            }
+        }
+        String::from_utf8_lossy(&buf).to_string()
+    }
 
     fn cfg_two(tmp: &tempfile::TempDir) -> TeamServerConfig {
         let ws1 = tmp.path().join("ws1");
@@ -1033,7 +1149,7 @@ mod tests {
             tokens: vec![TeamTokenConfig {
                 id: "t1".to_string(),
                 sha256_hex: sha256_hex(b"secret"),
-                scopes: vec![TeamScope::Search],
+                scopes: vec![TeamScope::Search, TeamScope::Events],
             }],
             audit_log_path: tmp.path().join("audit.jsonl"),
             disable_host_check: true,
@@ -1049,17 +1165,8 @@ mod tests {
     }
 
     async fn build_app(cfg: TeamServerConfig) -> Router {
-        let mut workspaces: HashMap<String, LeanCtxServer> = HashMap::new();
-        for ws in &cfg.workspaces {
-            let root_s = ws.root.to_string_lossy().to_string();
-            workspaces.insert(
-                ws.id.clone(),
-                LeanCtxServer::new_with_project_root(Some(&root_s)),
-            );
-        }
         let team_server = TeamCtxServer {
             default_workspace_id: cfg.default_workspace_id.clone(),
-            workspaces: Arc::new(workspaces),
             roots: Arc::new(
                 cfg.workspaces
                     .iter()
@@ -1089,6 +1196,7 @@ mod tests {
 
         Router::new()
             .route("/v1/tools/call", axum::routing::post(v1_tool_call))
+            .route("/v1/events", get(v1_events))
             .layer(middleware::from_fn_with_state(
                 state.clone(),
                 team_auth_middleware,
@@ -1144,5 +1252,50 @@ mod tests {
         assert!(log.contains("\"tokenId\":\"t1\""));
         assert!(log.contains("\"workspaceId\":\"ws2\""));
         assert!(log.contains("\"tool\":\"ctx_tree\""));
+    }
+
+    #[tokio::test]
+    async fn events_endpoint_replays_tool_call_event_for_workspace_channel() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cfg = cfg_two(&tmp);
+        let app = build_app(cfg).await;
+
+        // Trigger a tool call for ws1 + channelId=ch1.
+        let body = json!({
+            "name":"ctx_tree",
+            "arguments":{"path":".","depth":1},
+            "channelId":"ch1"
+        })
+        .to_string();
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1/tools/call")
+            .header("Host", "localhost")
+            .header("Content-Type", "application/json")
+            .header("Authorization", "Bearer secret")
+            .header(WORKSPACE_HEADER, "ws1")
+            .body(Body::from(body))
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Replay via SSE.
+        let req = Request::builder()
+            .method("GET")
+            .uri("/v1/events?since=0&limit=1&channelId=ch1")
+            .header("Host", "localhost")
+            .header("Accept", "text/event-stream")
+            .header("Authorization", "Bearer secret")
+            .header(WORKSPACE_HEADER, "ws1")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let msg = read_first_sse_message(resp.into_body()).await;
+        assert!(msg.contains("event: tool_call_recorded"), "msg={msg:?}");
+        assert!(msg.contains("\"workspaceId\":\"ws1\""), "msg={msg:?}");
+        assert!(msg.contains("\"channelId\":\"ch1\""), "msg={msg:?}");
+        assert!(msg.contains("\"tool\":\"ctx_tree\""), "msg={msg:?}");
     }
 }

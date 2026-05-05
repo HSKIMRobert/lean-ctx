@@ -3,6 +3,7 @@ import { toolResultToText } from "./toolText.js";
 import type {
   JsonObject,
   JsonValue,
+  ContextEventV1,
   ListToolsResponse,
   ToolArguments,
   ToolCallResponse,
@@ -12,6 +13,8 @@ export interface LeanCtxClientOptions {
   baseUrl: string;
   bearerToken?: string;
   fetchImpl?: typeof fetch;
+  workspaceId?: string;
+  channelId?: string;
 }
 
 function normalizeBaseUrl(baseUrl: string): string {
@@ -28,11 +31,15 @@ export class LeanCtxClient {
   readonly baseUrl: string;
   private readonly bearerToken: string | undefined;
   private readonly fetchImpl: typeof fetch;
+  private readonly workspaceId: string | undefined;
+  private readonly channelId: string | undefined;
 
   constructor(opts: LeanCtxClientOptions) {
     this.baseUrl = normalizeBaseUrl(opts.baseUrl);
     this.bearerToken = opts.bearerToken?.trim() || undefined;
     this.fetchImpl = opts.fetchImpl ?? fetch;
+    this.workspaceId = opts.workspaceId?.trim() || undefined;
+    this.channelId = opts.channelId?.trim() || undefined;
   }
 
   async health(): Promise<string> {
@@ -66,7 +73,11 @@ export class LeanCtxClient {
     return v as unknown as ListToolsResponse;
   }
 
-  async callToolResult(name: string, args?: ToolArguments): Promise<unknown> {
+  async callToolResult(
+    name: string,
+    args?: ToolArguments,
+    ctx?: { workspaceId?: string; channelId?: string }
+  ): Promise<unknown> {
     const body: Record<string, unknown> = { name };
     if (args !== undefined) {
       if (!isJsonObject(args)) {
@@ -76,12 +87,17 @@ export class LeanCtxClient {
       }
       body.arguments = args;
     }
+    const ws = ctx?.workspaceId?.trim() || this.workspaceId;
+    const ch = ctx?.channelId?.trim() || this.channelId;
+    if (ws) body.workspaceId = ws;
+    if (ch) body.channelId = ch;
 
     const res = await this.fetchImpl(`${this.baseUrl}/v1/tools/call`, {
       method: "POST",
       headers: this.authHeaders({
         accept: "application/json",
         contentType: "application/json",
+        workspaceId: ws,
       }),
       body: JSON.stringify(body),
     });
@@ -100,19 +116,81 @@ export class LeanCtxClient {
     return resp.result;
   }
 
-  async callToolText(name: string, args?: ToolArguments): Promise<string> {
-    const result = await this.callToolResult(name, args);
+  async callToolText(
+    name: string,
+    args?: ToolArguments,
+    ctx?: { workspaceId?: string; channelId?: string }
+  ): Promise<string> {
+    const result = await this.callToolResult(name, args, ctx);
     return toolResultToText(result);
+  }
+
+  async *subscribeEvents(params?: {
+    workspaceId?: string;
+    channelId?: string;
+    since?: number;
+    limit?: number;
+  }): AsyncIterable<ContextEventV1> {
+    const ws = params?.workspaceId?.trim() || this.workspaceId;
+    const ch = params?.channelId?.trim() || this.channelId;
+    const q = new URLSearchParams();
+    if (ws) q.set("workspaceId", ws);
+    if (ch) q.set("channelId", ch);
+    if (params?.since !== undefined) q.set("since", String(params.since));
+    if (params?.limit !== undefined) q.set("limit", String(params.limit));
+    const suffix = q.toString() ? `?${q}` : "";
+
+    const res = await this.fetchImpl(`${this.baseUrl}/v1/events${suffix}`, {
+      method: "GET",
+      headers: this.authHeaders({
+        accept: "text/event-stream",
+        workspaceId: ws,
+      }),
+    });
+    if (!res.ok) {
+      throw await this.toHttpError(res, "GET", `/v1/events${suffix}`);
+    }
+    if (!res.body) {
+      throw new Error("LeanCtxClient.subscribeEvents: missing response body");
+    }
+
+    const decoder = new TextDecoder();
+    const reader = res.body.getReader();
+    let buf = "";
+
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+
+      for (;;) {
+        const idx = buf.indexOf("\n\n");
+        if (idx < 0) break;
+        const chunk = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+
+        const ev = parseSseChunk(chunk);
+        if (!ev?.data) continue;
+        try {
+          const parsed = JSON.parse(ev.data) as ContextEventV1;
+          if (parsed && typeof parsed === "object") yield parsed;
+        } catch {
+          // ignore parse errors
+        }
+      }
+    }
   }
 
   private authHeaders(extra: {
     accept?: string;
     contentType?: string;
+    workspaceId?: string;
   }): HeadersInit {
     const h: Record<string, string> = {};
     if (extra.accept) h.Accept = extra.accept;
     if (extra.contentType) h["Content-Type"] = extra.contentType;
     if (this.bearerToken) h.Authorization = `Bearer ${this.bearerToken}`;
+    if (extra.workspaceId) h["x-leanctx-workspace"] = extra.workspaceId;
     return h;
   }
 
@@ -166,4 +244,21 @@ export class LeanCtxClient {
       body,
     });
   }
+}
+
+function parseSseChunk(
+  chunk: string
+): { id?: string; event?: string; data?: string } | null {
+  const out: { id?: string; event?: string; data?: string } = {};
+  const dataLines: string[] = [];
+  for (const line of chunk.split("\n")) {
+    const trimmed = line.trimEnd();
+    if (!trimmed) continue;
+    if (trimmed.startsWith(":")) continue; // comment
+    if (trimmed.startsWith("id:")) out.id = trimmed.slice(3).trim();
+    else if (trimmed.startsWith("event:")) out.event = trimmed.slice(6).trim();
+    else if (trimmed.startsWith("data:")) dataLines.push(trimmed.slice(5).trimStart());
+  }
+  if (dataLines.length) out.data = dataLines.join("\n");
+  return out;
 }
