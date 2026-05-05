@@ -1,6 +1,9 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
+
+use crate::core::a2a::message::{A2AMessage, MessageCategory, MessagePriority, PrivacyLevel};
 
 const MAX_SCRATCHPAD_ENTRIES: usize = 200;
 const MAX_DIARY_ENTRIES: usize = 100;
@@ -74,10 +77,22 @@ pub struct ScratchpadEntry {
     pub id: String,
     pub from_agent: String,
     pub to_agent: Option<String>,
+    #[serde(default)]
+    pub task_id: Option<String>,
     pub category: String,
+    #[serde(default)]
+    pub priority: MessagePriority,
+    #[serde(default)]
+    pub privacy: PrivacyLevel,
     pub message: String,
+    #[serde(default)]
+    pub metadata: HashMap<String, String>,
+    #[serde(default)]
+    pub project_root: Option<String>,
     pub timestamp: DateTime<Utc>,
     pub read_by: Vec<String>,
+    #[serde(default)]
+    pub expires_at: Option<DateTime<Utc>>,
 }
 
 impl AgentRegistry {
@@ -163,10 +178,16 @@ impl AgentRegistry {
             id: id.clone(),
             from_agent: from_agent.to_string(),
             to_agent: to_agent.map(std::string::ToString::to_string),
+            task_id: None,
             category: category.to_string(),
+            priority: MessagePriority::default(),
+            privacy: PrivacyLevel::default(),
             message: message.to_string(),
+            metadata: HashMap::new(),
+            project_root: None,
             timestamp: Utc::now(),
             read_by: vec![from_agent.to_string()],
+            expires_at: None,
         });
 
         if self.scratchpad.len() > MAX_SCRATCHPAD_ENTRIES {
@@ -524,10 +545,16 @@ impl AgentRegistry {
                 id: format!("knowledge-{}", chrono::Utc::now().timestamp_millis()),
                 from_agent: from.to_string(),
                 to_agent: None,
+                task_id: None,
                 category: category.to_string(),
+                priority: MessagePriority::default(),
+                privacy: PrivacyLevel::Team,
                 message: format!("[knowledge] {key}={value}"),
+                metadata: HashMap::new(),
+                project_root: None,
                 timestamp: Utc::now(),
                 read_by: Vec::new(),
+                expires_at: None,
             });
         }
         let shared_path = Self::shared_knowledge_path();
@@ -699,6 +726,46 @@ impl ContextDepthConfig {
             "signatures"
         } else {
             "map"
+        }
+    }
+}
+
+impl From<ScratchpadEntry> for A2AMessage {
+    fn from(entry: ScratchpadEntry) -> Self {
+        Self {
+            id: entry.id,
+            from_agent: entry.from_agent,
+            to_agent: entry.to_agent,
+            task_id: entry.task_id,
+            category: MessageCategory::parse_str(&entry.category),
+            priority: entry.priority,
+            privacy: entry.privacy,
+            content: entry.message,
+            metadata: entry.metadata,
+            project_root: entry.project_root,
+            timestamp: entry.timestamp,
+            read_by: entry.read_by,
+            expires_at: entry.expires_at,
+        }
+    }
+}
+
+impl From<A2AMessage> for ScratchpadEntry {
+    fn from(msg: A2AMessage) -> Self {
+        Self {
+            id: msg.id,
+            from_agent: msg.from_agent,
+            to_agent: msg.to_agent,
+            task_id: msg.task_id,
+            category: msg.category.to_string(),
+            priority: msg.priority,
+            privacy: msg.privacy,
+            message: msg.content,
+            metadata: msg.metadata,
+            project_root: msg.project_root,
+            timestamp: msg.timestamp,
+            read_by: msg.read_by,
+            expires_at: msg.expires_at,
         }
     }
 }

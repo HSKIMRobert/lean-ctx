@@ -68,6 +68,8 @@ pub struct A2AMessage {
     pub privacy: PrivacyLevel,
     pub content: String,
     pub metadata: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    pub project_root: Option<String>,
     pub timestamp: DateTime<Utc>,
     pub read_by: Vec<String>,
     pub expires_at: Option<DateTime<Utc>>,
@@ -127,6 +129,7 @@ impl A2AMessage {
             privacy: PrivacyLevel::Team,
             content: content.to_string(),
             metadata: std::collections::HashMap::new(),
+            project_root: None,
             timestamp: Utc::now(),
             read_by: vec![from.to_string()],
             expires_at: None,

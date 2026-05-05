@@ -7,6 +7,12 @@ pub use shared_sessions::{SharedSessionKey, SharedSessionStore};
 mod context_bus;
 pub use context_bus::{ContextBus, ContextEventKindV1, ContextEventV1};
 
+pub mod redaction;
+pub use redaction::{redact_event_payload, RedactionLevel};
+
+mod metrics;
+pub use metrics::{ContextOsMetrics, MetricsSnapshot};
+
 /// Shared runtime backing Context OS features (shared sessions + event bus).
 ///
 /// This is intentionally process-local: it enables multi-client coordination
@@ -15,6 +21,7 @@ pub use context_bus::{ContextBus, ContextEventKindV1, ContextEventV1};
 pub struct ContextOsRuntime {
     pub shared_sessions: Arc<SharedSessionStore>,
     pub bus: Arc<ContextBus>,
+    pub metrics: Arc<ContextOsMetrics>,
 }
 
 impl Default for ContextOsRuntime {
@@ -22,6 +29,7 @@ impl Default for ContextOsRuntime {
         Self {
             shared_sessions: Arc::new(SharedSessionStore::new()),
             bus: Arc::new(ContextBus::new()),
+            metrics: Arc::new(ContextOsMetrics::default()),
         }
     }
 }

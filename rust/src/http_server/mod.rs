@@ -328,40 +328,55 @@ async fn v1_events(
     State(_state): State<AppState>,
     Query(q): Query<EventsQuery>,
 ) -> Sse<impl Stream<Item = Result<SseEvent, std::convert::Infallible>>> {
+    use crate::core::context_os::{redact_event_payload, RedactionLevel};
+
     let ws = q.workspace_id.unwrap_or_else(|| "default".to_string());
     let ch = q.channel_id.unwrap_or_else(|| "default".to_string());
     let since = q.since.unwrap_or(0);
     let limit = q.limit.unwrap_or(200).min(1000);
+    let redaction = RedactionLevel::RefsOnly;
 
     let rt = crate::core::context_os::runtime();
     let replay = rt.bus.read(&ws, &ch, since, limit);
     let rx = rt.bus.subscribe();
+    rt.metrics.record_sse_connect();
+    rt.metrics.record_events_replayed(replay.len() as u64);
+    rt.metrics.record_workspace_active(&ws);
 
     let stream = futures::stream::unfold(
-        (replay.into_iter(), rx, ws.clone(), ch.clone(), since),
-        |(mut replay_it, mut rx, ws, ch, mut last_id)| async move {
-            if let Some(ev) = replay_it.next() {
+        (
+            replay.into_iter(),
+            rx,
+            ws.clone(),
+            ch.clone(),
+            since,
+            redaction,
+        ),
+        |(mut replay_it, mut rx, ws, ch, mut last_id, redaction)| async move {
+            if let Some(mut ev) = replay_it.next() {
                 last_id = ev.id;
+                redact_event_payload(&mut ev, redaction);
                 let data = serde_json::to_string(&ev).unwrap_or_else(|_| "{}".to_string());
                 let evt = SseEvent::default()
                     .id(ev.id.to_string())
                     .event(ev.kind)
                     .data(data);
-                return Some((Ok(evt), (replay_it, rx, ws, ch, last_id)));
+                return Some((Ok(evt), (replay_it, rx, ws, ch, last_id, redaction)));
             }
 
             loop {
                 match rx.recv().await {
-                    Ok(ev) => {
+                    Ok(mut ev) => {
                         if ev.workspace_id == ws && ev.channel_id == ch && ev.id > last_id {
                             last_id = ev.id;
+                            redact_event_payload(&mut ev, redaction);
                             let data =
                                 serde_json::to_string(&ev).unwrap_or_else(|_| "{}".to_string());
                             let evt = SseEvent::default()
                                 .id(ev.id.to_string())
                                 .event(ev.kind)
                                 .data(data);
-                            return Some((Ok(evt), (replay_it, rx, ws, ch, last_id)));
+                            return Some((Ok(evt), (replay_it, rx, ws, ch, last_id, redaction)));
                         }
                     }
                     Err(broadcast::error::RecvError::Closed) => return None,
@@ -372,6 +387,15 @@ async fn v1_events(
     );
 
     Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
+}
+
+async fn v1_metrics(State(_state): State<AppState>) -> impl IntoResponse {
+    let rt = crate::core::context_os::runtime();
+    let snap = rt.metrics.snapshot();
+    (
+        StatusCode::OK,
+        Json(serde_json::to_value(snap).unwrap_or_default()),
+    )
 }
 
 pub async fn serve(cfg: HttpServerConfig) -> Result<()> {
@@ -414,6 +438,7 @@ pub async fn serve(cfg: HttpServerConfig) -> Result<()> {
         .route("/v1/tools", get(v1_tools))
         .route("/v1/tools/call", axum::routing::post(v1_tool_call))
         .route("/v1/events", get(v1_events))
+        .route("/v1/metrics", get(v1_metrics))
         .fallback_service(mcp_http)
         .layer(axum::extract::DefaultBodyLimit::max(cfg.max_body_bytes))
         .layer(middleware::from_fn_with_state(
