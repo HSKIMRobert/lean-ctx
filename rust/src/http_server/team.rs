@@ -112,6 +112,9 @@ pub enum TeamScope {
     Artifacts,
     Index,
     Events,
+    SessionMutations,
+    Knowledge,
+    Audit,
 }
 
 impl TeamServerConfig {
@@ -645,6 +648,24 @@ async fn team_auth_middleware(
         }
     }
 
+    if path0 == "/v1/metrics" {
+        let allow = tok_scopes.contains(&TeamScope::Audit);
+        let _ = audit_write(
+            &state.team.audit,
+            &tok.id,
+            &workspace_id_for_audit,
+            None,
+            Some("metrics"),
+            allow,
+            if allow { None } else { Some("scope_denied") },
+            None,
+        )
+        .await;
+        if !allow {
+            return StatusCode::FORBIDDEN.into_response();
+        }
+    }
+
     // Tool-level authz for MCP fallback (tools/call).
     let path = req.uri().path().to_string();
     if path != "/v1/tools/call"
@@ -732,6 +753,36 @@ async fn audit_write(
         "allowed": allowed,
         "deniedReason": denied_reason,
         "argumentsMd5": args_hash,
+    });
+
+    let mut guard = file.lock().await;
+    guard.write_all(rec.to_string().as_bytes()).await?;
+    guard.write_all(b"\n").await?;
+    guard.flush().await?;
+    Ok(())
+}
+
+/// Event-level audit entry: records who triggered which Context OS event.
+#[allow(dead_code)]
+async fn audit_event(
+    file: &tokio::sync::Mutex<tokio::fs::File>,
+    token_id: &str,
+    workspace_id: &str,
+    channel_id: &str,
+    event_kind: &str,
+    actor: Option<&str>,
+    event_id: i64,
+) -> Result<()> {
+    let ts = chrono::Local::now().to_rfc3339();
+    let rec = json!({
+        "ts": ts,
+        "type": "context_event",
+        "tokenId": token_id,
+        "workspaceId": workspace_id,
+        "channelId": channel_id,
+        "eventKind": event_kind,
+        "actor": actor,
+        "eventId": event_id,
     });
 
     let mut guard = file.lock().await;
@@ -981,6 +1032,15 @@ async fn v1_events(
     Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
 }
 
+async fn v1_team_metrics(State(_state): State<TeamAppState>) -> impl IntoResponse {
+    let rt = crate::core::context_os::runtime();
+    let snap = rt.metrics.snapshot();
+    (
+        StatusCode::OK,
+        Json(serde_json::to_value(snap).unwrap_or_default()),
+    )
+}
+
 fn streamable_http_config(cfg: &TeamServerConfig) -> rmcp::transport::StreamableHttpServerConfig {
     let mut out = rmcp::transport::StreamableHttpServerConfig::default()
         .with_stateful_mode(cfg.stateful_mode)
@@ -1056,6 +1116,7 @@ pub async fn serve_team(cfg: TeamServerConfig) -> Result<()> {
         .route("/v1/tools", get(v1_tools))
         .route("/v1/tools/call", axum::routing::post(v1_tool_call))
         .route("/v1/events", get(v1_events))
+        .route("/v1/metrics", get(v1_team_metrics))
         .fallback_service(mcp_http)
         .layer(axum::extract::DefaultBodyLimit::max(cfg.max_body_bytes))
         .layer(middleware::from_fn_with_state(
@@ -1149,7 +1210,13 @@ mod tests {
             tokens: vec![TeamTokenConfig {
                 id: "t1".to_string(),
                 sha256_hex: sha256_hex(b"secret"),
-                scopes: vec![TeamScope::Search, TeamScope::Events],
+                scopes: vec![
+                    TeamScope::Search,
+                    TeamScope::Events,
+                    TeamScope::SessionMutations,
+                    TeamScope::Knowledge,
+                    TeamScope::Audit,
+                ],
             }],
             audit_log_path: tmp.path().join("audit.jsonl"),
             disable_host_check: true,
