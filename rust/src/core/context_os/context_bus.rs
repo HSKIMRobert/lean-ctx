@@ -218,4 +218,170 @@ mod tests {
         let got = bus.read("ws", "ch", ev.id - 1, 10);
         assert!(got.iter().any(|e| e.id == ev.id));
     }
+
+    #[test]
+    fn multi_client_concurrent_appends_have_deterministic_ordering() {
+        let bus = Arc::new(ContextBus::new());
+        let n_clients = 5;
+        let n_events_per_client = 20;
+        let ws = format!("ws-concurrent-{}", std::process::id());
+        let ch = format!("ch-concurrent-{}", std::process::id());
+
+        let mut handles = vec![];
+        for client_idx in 0..n_clients {
+            let bus = Arc::clone(&bus);
+            let ws = ws.clone();
+            let ch = ch.clone();
+            handles.push(std::thread::spawn(move || {
+                let agent = format!("agent-{client_idx}");
+                for event_idx in 0..n_events_per_client {
+                    bus.append(
+                        &ws,
+                        &ch,
+                        &ContextEventKindV1::ToolCallRecorded,
+                        Some(&agent),
+                        serde_json::json!({"client": client_idx, "seq": event_idx}),
+                    );
+                }
+            }));
+        }
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        let all = bus.read(&ws, &ch, 0, 1000);
+        assert_eq!(
+            all.len(),
+            n_clients * n_events_per_client,
+            "all events should be persisted"
+        );
+
+        let ids: Vec<i64> = all.iter().map(|e| e.id).collect();
+        let mut sorted = ids.clone();
+        sorted.sort_unstable();
+        assert_eq!(ids, sorted, "events must be in strictly ascending ID order");
+
+        for win in ids.windows(2) {
+            assert!(
+                win[1] > win[0],
+                "IDs must be strictly monotonic (no gaps from concurrent access)"
+            );
+        }
+    }
+
+    #[test]
+    fn workspace_channel_isolation() {
+        let bus = ContextBus::new();
+        let pid = std::process::id();
+        let ws_a = format!("ws-iso-a-{pid}");
+        let ws_b = format!("ws-iso-b-{pid}");
+        let ws_c = format!("ws-iso-c-{pid}");
+        let ch1 = format!("ch-iso-1-{pid}");
+        let ch2 = format!("ch-iso-2-{pid}");
+
+        bus.append(
+            &ws_a,
+            &ch1,
+            &ContextEventKindV1::SessionMutated,
+            Some("agent-a"),
+            serde_json::json!({"ws":"a","ch":"1"}),
+        );
+        bus.append(
+            &ws_a,
+            &ch2,
+            &ContextEventKindV1::KnowledgeRemembered,
+            Some("agent-a"),
+            serde_json::json!({"ws":"a","ch":"2"}),
+        );
+        bus.append(
+            &ws_b,
+            &ch1,
+            &ContextEventKindV1::ArtifactStored,
+            Some("agent-b"),
+            serde_json::json!({"ws":"b","ch":"1"}),
+        );
+
+        let ws_a_ch_1 = bus.read(&ws_a, &ch1, 0, 100);
+        assert_eq!(ws_a_ch_1.len(), 1);
+        assert_eq!(ws_a_ch_1[0].kind, "session_mutated");
+
+        let ws_a_ch_2 = bus.read(&ws_a, &ch2, 0, 100);
+        assert_eq!(ws_a_ch_2.len(), 1);
+        assert_eq!(ws_a_ch_2[0].kind, "knowledge_remembered");
+
+        let ws_b_ch_1 = bus.read(&ws_b, &ch1, 0, 100);
+        assert_eq!(ws_b_ch_1.len(), 1);
+        assert_eq!(ws_b_ch_1[0].kind, "artifact_stored");
+
+        let ws_c_ch_1 = bus.read(&ws_c, &ch1, 0, 100);
+        assert!(ws_c_ch_1.is_empty(), "non-existent workspace returns empty");
+    }
+
+    #[test]
+    fn replay_from_cursor_returns_only_newer_events() {
+        let bus = ContextBus::new();
+        let pid = std::process::id();
+        let ws = &format!("ws-replay-{pid}");
+        let ch = &format!("ch-replay-{pid}");
+
+        let ev1 = bus
+            .append(
+                ws,
+                ch,
+                &ContextEventKindV1::ToolCallRecorded,
+                None,
+                serde_json::json!({"seq":1}),
+            )
+            .unwrap();
+        let ev2 = bus
+            .append(
+                ws,
+                ch,
+                &ContextEventKindV1::SessionMutated,
+                None,
+                serde_json::json!({"seq":2}),
+            )
+            .unwrap();
+        let _ev3 = bus
+            .append(
+                ws,
+                ch,
+                &ContextEventKindV1::GraphBuilt,
+                None,
+                serde_json::json!({"seq":3}),
+            )
+            .unwrap();
+
+        let from_cursor = bus.read(ws, ch, ev2.id, 100);
+        assert_eq!(from_cursor.len(), 1, "only events after cursor");
+        assert_eq!(from_cursor[0].kind, "graph_built");
+
+        let from_first = bus.read(ws, ch, ev1.id, 100);
+        assert_eq!(from_first.len(), 2, "events after first");
+
+        let from_zero = bus.read(ws, ch, 0, 100);
+        assert_eq!(from_zero.len(), 3, "all events from zero");
+    }
+
+    #[test]
+    fn broadcast_subscriber_receives_events() {
+        let bus = ContextBus::new();
+        let mut rx = bus.subscribe();
+
+        let ev = bus
+            .append(
+                "ws",
+                "ch",
+                &ContextEventKindV1::ProofAdded,
+                Some("verifier"),
+                serde_json::json!({"proof":"hash"}),
+            )
+            .unwrap();
+
+        let received = rx.try_recv().expect("subscriber should receive event");
+        assert_eq!(received.id, ev.id);
+        assert_eq!(received.kind, "proof_added");
+        assert_eq!(received.actor.as_deref(), Some("verifier"));
+    }
 }

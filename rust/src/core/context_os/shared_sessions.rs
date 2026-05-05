@@ -149,4 +149,86 @@ mod tests {
         let k2 = SharedSessionKey::new("/tmp/proj", "ws", "ch");
         assert_eq!(k1, k2);
     }
+
+    #[tokio::test]
+    async fn concurrent_session_access_no_data_race() {
+        let store = Arc::new(SharedSessionStore::new());
+        let n_tasks: usize = 8;
+
+        let mut handles = vec![];
+        for task_idx in 0..n_tasks {
+            let store = Arc::clone(&store);
+            handles.push(tokio::spawn(async move {
+                let project_root = "/tmp/test-concurrent";
+                for i in 0..10 {
+                    let session_arc = store.get_or_load(project_root, "ws-shared", "ch-shared");
+                    let mut s = session_arc.write().await;
+                    s.files_touched.push(crate::core::session::FileTouched {
+                        path: format!("file-{task_idx}-{i}.rs"),
+                        file_ref: None,
+                        read_count: 1,
+                        modified: false,
+                        last_mode: "full".to_string(),
+                        tokens: 0,
+                    });
+                }
+            }));
+        }
+
+        for h in handles {
+            h.await.unwrap();
+        }
+
+        let final_arc = store.get_or_load("/tmp/test-concurrent", "ws-shared", "ch-shared");
+        let final_session = final_arc.read().await;
+        assert_eq!(
+            final_session.files_touched.len(),
+            n_tasks * 10,
+            "all concurrent mutations must be persisted"
+        );
+    }
+
+    #[tokio::test]
+    async fn different_workspace_channels_are_isolated() {
+        let store = SharedSessionStore::new();
+
+        {
+            let arc_a = store.get_or_load("/tmp/proj-iso", "ws-a", "ch-1");
+            arc_a
+                .write()
+                .await
+                .files_touched
+                .push(crate::core::session::FileTouched {
+                    path: "fileA.rs".to_string(),
+                    file_ref: None,
+                    read_count: 1,
+                    modified: false,
+                    last_mode: "full".to_string(),
+                    tokens: 0,
+                });
+        }
+        {
+            let arc_b = store.get_or_load("/tmp/proj-iso", "ws-b", "ch-1");
+            arc_b
+                .write()
+                .await
+                .files_touched
+                .push(crate::core::session::FileTouched {
+                    path: "fileB.rs".to_string(),
+                    file_ref: None,
+                    read_count: 1,
+                    modified: false,
+                    last_mode: "full".to_string(),
+                    tokens: 0,
+                });
+        }
+
+        let session_a = store.get_or_load("/tmp/proj-iso", "ws-a", "ch-1");
+        let session_b = store.get_or_load("/tmp/proj-iso", "ws-b", "ch-1");
+
+        assert_eq!(session_a.read().await.files_touched.len(), 1);
+        assert_eq!(session_a.read().await.files_touched[0].path, "fileA.rs");
+        assert_eq!(session_b.read().await.files_touched.len(), 1);
+        assert_eq!(session_b.read().await.files_touched[0].path, "fileB.rs");
+    }
 }
