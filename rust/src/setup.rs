@@ -640,7 +640,7 @@ fn agent_mcp_targets(agent: &str, home: &std::path::Path) -> Result<Vec<EditorTa
         "claude" | "claude-code" => push(
             &mut targets,
             "Claude Code",
-            crate::core::editor_registry::claude_mcp_json_path(&home),
+            crate::core::editor_registry::claude_mcp_json_path(home),
             ConfigType::McpJson,
         ),
         "windsurf" => push(
@@ -701,7 +701,7 @@ fn agent_mcp_targets(agent: &str, home: &std::path::Path) -> Result<Vec<EditorTa
         "qoderwork" => push(
             &mut targets,
             "QoderWork",
-            crate::core::editor_registry::qoderwork_mcp_path(&home),
+            crate::core::editor_registry::qoderwork_mcp_path(home),
             ConfigType::QoderMcp,
         ),
         "cline" => push(

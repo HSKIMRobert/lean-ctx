@@ -464,7 +464,8 @@ fn write_qoder_mcp_config(
         "command": binary,
         "args": [],
         "env": {
-            "LEAN_CTX_DATA_DIR": data_dir
+            "LEAN_CTX_DATA_DIR": data_dir,
+            "LEAN_CTX_FULL_TOOLS": "1"
         }
     });
 
