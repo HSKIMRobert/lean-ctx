@@ -3,6 +3,41 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.5.0] — 2026-05-06
+
+### Added
+
+- **Context OS Runtime** — full integration of shared sessions, event bus, and SSE endpoints for real-time multi-agent collaboration. Agents can subscribe to context changes, broadcast events, and share session state across workspaces.
+- **Daemon Mode** — persistent background daemon with CLI-first dispatch. `lean-ctx daemon start/stop/status` manages the process. All CLI commands route through the daemon for sub-millisecond response times and shared state.
+- **Context Package System** — versioned, shareable context bundles with `lean-ctx pack create/list/info/export/import/install/remove/auto-load`. Package layers (knowledge, gotchas, config, graph) enable portable project intelligence.
+- **Context Field Theory (CFT)** — unified model for context management with Context Potential Function, Rich Context Ledger, Context Overlay System, Context Handles, and Context Compiler.
+- **Provider Framework** — pluggable provider system with GitLab integration and caching layer for external context sources.
+- **Autonomy Drivers** — configurable agent autonomy levels with intent routing and degradation policies.
+- **Context IR** — intermediate representation for context compilation, enabling cross-provider optimization.
+- **Instruction Compiler** — `lean-ctx instructions` command compiles project-specific rules into optimized agent instructions.
+- **Context Proof System** — `lean-ctx proof` generates verifiable context provenance chains for audit trails.
+- **Team Server: Context OS scopes** — `SessionMutations`, `Knowledge`, and `Audit` scopes for fine-grained team permissions via `lean-ctx team token create`.
+- **Qoder & QoderWork support** — new editor integration for Qoder IDE. PR #180 by @zsefvlol.
+- **56 MCP tools** — exposed all registered tools for installed agents, including new `ctx_verify`, `ctx_proof`, `ctx_provider`, `ctx_artifacts`, `ctx_index` tools. Fixes #176.
+- **38 Context OS integration tests** — comprehensive test suite covering multi-client concurrency, event bus, shared sessions, and SSE endpoints.
+- **Windows OpenCode guide** — step-by-step manual for OpenCode on Windows 10. PR #181 by @HamedEmine.
+
+### Changed
+
+- **CLI-First Architecture** — all new modules (daemon, providers, instruction compiler, proof, overview, knowledge, compress, verify) are accessible as CLI subcommands, reducing MCP schema overhead.
+- **Server Refactor** — modular tool registry with `ToolTrait`, pipeline stages, and per-tool dispatch for cleaner extensibility.
+- **A2A alignment** — `ScratchpadEntry` now aligns with `A2AMessage` types for cross-agent interoperability.
+- **HTTP-MCP contract** — extended with full Context OS API surface documentation.
+- **Shell pattern library** — expanded to 95+ output compression patterns including clang, fd, glab, just, ninja.
+- **Property Graph** — enhanced with metadata layer and reproducibility contract.
+
+### Fixed
+
+- **CLI relative path resolution** — paths are now resolved to absolute before sending to the daemon, preventing "file not found" errors when working directory differs.
+- **`install.sh` POSIX compliance** — rewritten as pure POSIX sh so `curl | sh` works on dash (Ubuntu/Debian default). PR #175 by @narthanaj.
+- **Qoder MCP config** — added `LEAN_CTX_FULL_TOOLS` to Qoder configuration for complete tool exposure. Includes clippy fixes.
+- **Team SSE endpoint** — removed dead code and properly wired `audit_event` into the SSE stream.
+
 ## [3.4.7] — 2026-05-01
 
 ### Added

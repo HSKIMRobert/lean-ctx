@@ -2,6 +2,10 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use super::context_field::{
+    ContextItemId, ContextKind, ContextState, Provenance, ViewCosts, ViewKind,
+};
+
 const DEFAULT_CONTEXT_WINDOW: usize = 128_000;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -19,6 +23,22 @@ pub struct LedgerEntry {
     pub original_tokens: usize,
     pub sent_tokens: usize,
     pub timestamp: i64,
+    #[serde(default)]
+    pub id: Option<ContextItemId>,
+    #[serde(default)]
+    pub kind: Option<ContextKind>,
+    #[serde(default)]
+    pub source_hash: Option<String>,
+    #[serde(default)]
+    pub state: Option<ContextState>,
+    #[serde(default)]
+    pub phi: Option<f64>,
+    #[serde(default)]
+    pub view_costs: Option<ViewCosts>,
+    #[serde(default)]
+    pub active_view: Option<ViewKind>,
+    #[serde(default)]
+    pub provenance: Option<Provenance>,
 }
 
 #[derive(Debug, Clone)]
@@ -57,6 +77,7 @@ impl ContextLedger {
     }
 
     pub fn record(&mut self, path: &str, mode: &str, original_tokens: usize, sent_tokens: usize) {
+        let item_id = ContextItemId::from_file(path);
         if let Some(existing) = self.entries.iter_mut().find(|e| e.path == path) {
             self.total_tokens_sent -= existing.sent_tokens;
             self.total_tokens_saved -= existing
@@ -66,6 +87,13 @@ impl ContextLedger {
             existing.original_tokens = original_tokens;
             existing.sent_tokens = sent_tokens;
             existing.timestamp = chrono::Utc::now().timestamp();
+            existing.active_view = Some(ViewKind::parse(mode));
+            if existing.id.is_none() {
+                existing.id = Some(item_id);
+            }
+            if existing.state.is_none() || existing.state == Some(ContextState::Candidate) {
+                existing.state = Some(ContextState::Included);
+            }
         } else {
             self.entries.push(LedgerEntry {
                 path: path.to_string(),
@@ -73,28 +101,140 @@ impl ContextLedger {
                 original_tokens,
                 sent_tokens,
                 timestamp: chrono::Utc::now().timestamp(),
+                id: Some(item_id),
+                kind: Some(ContextKind::File),
+                source_hash: None,
+                state: Some(ContextState::Included),
+                phi: None,
+                view_costs: Some(ViewCosts::from_full_tokens(original_tokens)),
+                active_view: Some(ViewKind::parse(mode)),
+                provenance: None,
             });
         }
         self.total_tokens_sent += sent_tokens;
         self.total_tokens_saved += original_tokens.saturating_sub(sent_tokens);
     }
 
+    /// Record with full CFT metadata including source hash and provenance.
+    pub fn upsert(
+        &mut self,
+        path: &str,
+        mode: &str,
+        original_tokens: usize,
+        sent_tokens: usize,
+        source_hash: Option<&str>,
+        kind: ContextKind,
+        provenance: Option<Provenance>,
+    ) {
+        self.record(path, mode, original_tokens, sent_tokens);
+        if let Some(entry) = self.entries.iter_mut().find(|e| e.path == path) {
+            entry.kind = Some(kind);
+            if let Some(h) = source_hash {
+                if entry.source_hash.as_deref() != Some(h) {
+                    if entry.source_hash.is_some() {
+                        entry.state = Some(ContextState::Stale);
+                    }
+                    entry.source_hash = Some(h.to_string());
+                }
+            }
+            if let Some(prov) = provenance {
+                entry.provenance = Some(prov);
+            }
+        }
+    }
+
+    /// Update the Phi score for an entry.
+    pub fn update_phi(&mut self, path: &str, phi: f64) {
+        if let Some(entry) = self.entries.iter_mut().find(|e| e.path == path) {
+            entry.phi = Some(phi);
+        }
+    }
+
+    /// Set the state for an entry.
+    pub fn set_state(&mut self, path: &str, state: ContextState) {
+        if let Some(entry) = self.entries.iter_mut().find(|e| e.path == path) {
+            entry.state = Some(state);
+        }
+    }
+
+    /// Find an entry by its ContextItemId.
+    pub fn find_by_id(&self, id: &ContextItemId) -> Option<&LedgerEntry> {
+        self.entries.iter().find(|e| e.id.as_ref() == Some(id))
+    }
+
+    /// Get all entries with a specific state.
+    pub fn items_by_state(&self, state: ContextState) -> Vec<&LedgerEntry> {
+        self.entries
+            .iter()
+            .filter(|e| e.state == Some(state))
+            .collect()
+    }
+
+    /// Eviction candidates ordered by Phi (lowest first), falling back to
+    /// timestamp for entries without Phi scores.
+    pub fn eviction_candidates_by_phi(&self, keep_count: usize) -> Vec<String> {
+        if self.entries.len() <= keep_count {
+            return Vec::new();
+        }
+        let mut sorted = self.entries.clone();
+        sorted.sort_by(|a, b| {
+            let a_phi = a.phi.unwrap_or(0.0);
+            let b_phi = b.phi.unwrap_or(0.0);
+            a_phi
+                .partial_cmp(&b_phi)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.timestamp.cmp(&b.timestamp))
+        });
+        sorted
+            .iter()
+            .filter(|e| e.state != Some(ContextState::Pinned))
+            .take(self.entries.len() - keep_count)
+            .map(|e| e.path.clone())
+            .collect()
+    }
+
+    /// Mark entries as stale if their source hash has changed.
+    pub fn mark_stale_by_hash(&mut self, path: &str, new_hash: &str) {
+        if let Some(entry) = self.entries.iter_mut().find(|e| e.path == path) {
+            if let Some(ref old_hash) = entry.source_hash {
+                if old_hash != new_hash {
+                    entry.state = Some(ContextState::Stale);
+                    entry.source_hash = Some(new_hash.to_string());
+                }
+            }
+        }
+    }
+
     pub fn pressure(&self) -> ContextPressure {
         let utilization = self.total_tokens_sent as f64 / self.window_size as f64;
         let remaining = self.window_size.saturating_sub(self.total_tokens_sent);
 
-        let recommendation = if utilization > 0.9 {
+        let pinned_count = self
+            .entries
+            .iter()
+            .filter(|e| e.state == Some(ContextState::Pinned))
+            .count();
+        let stale_count = self
+            .entries
+            .iter()
+            .filter(|e| e.state == Some(ContextState::Stale))
+            .count();
+        let pinned_pressure = pinned_count as f64 * 0.02;
+        let stale_penalty = stale_count as f64 * 0.01;
+        let effective_utilization = (utilization + pinned_pressure + stale_penalty).min(1.0);
+
+        let recommendation = if effective_utilization > 0.9 {
             PressureAction::EvictLeastRelevant
-        } else if utilization > 0.75 {
+        } else if effective_utilization > 0.75 {
             PressureAction::ForceCompression
-        } else if utilization > 0.5 {
+        } else if effective_utilization > 0.5 {
             PressureAction::SuggestCompression
         } else {
             PressureAction::NoAction
         };
 
         ContextPressure {
-            utilization,
+            utilization: effective_utilization,
             remaining_tokens: remaining,
             entries_count: self.entries.len(),
             recommendation,
@@ -228,9 +368,11 @@ impl ContextLedger {
             .collect();
 
         candidates.sort_by(|a, b| {
-            let a_age = a.1.timestamp;
-            let b_age = b.1.timestamp;
-            a_age.cmp(&b_age)
+            let a_phi = a.1.phi.unwrap_or(0.0);
+            let b_phi = b.1.phi.unwrap_or(0.0);
+            a_phi
+                .partial_cmp(&b_phi)
+                .unwrap_or_else(|| a.1.timestamp.cmp(&b.1.timestamp))
         });
 
         let mut actions = Vec::new();
@@ -445,5 +587,132 @@ mod tests {
             Some(("reference".to_string(), 25))
         );
         assert_eq!(downgrade_mode("reference", 25), None);
+    }
+
+    #[test]
+    fn record_assigns_item_id() {
+        let mut ledger = ContextLedger::new();
+        ledger.record("src/main.rs", "full", 500, 500);
+        let entry = &ledger.entries[0];
+        assert!(entry.id.is_some());
+        assert_eq!(entry.id.as_ref().unwrap().as_str(), "file:src/main.rs");
+    }
+
+    #[test]
+    fn record_sets_state_to_included() {
+        let mut ledger = ContextLedger::new();
+        ledger.record("src/main.rs", "full", 500, 500);
+        assert_eq!(
+            ledger.entries[0].state,
+            Some(crate::core::context_field::ContextState::Included)
+        );
+    }
+
+    #[test]
+    fn record_generates_view_costs() {
+        let mut ledger = ContextLedger::new();
+        ledger.record("src/main.rs", "full", 5000, 5000);
+        let vc = ledger.entries[0].view_costs.as_ref().unwrap();
+        assert_eq!(vc.get(&crate::core::context_field::ViewKind::Full), 5000);
+        assert_eq!(
+            vc.get(&crate::core::context_field::ViewKind::Signatures),
+            1000
+        );
+    }
+
+    #[test]
+    fn update_phi_works() {
+        let mut ledger = ContextLedger::new();
+        ledger.record("a.rs", "full", 100, 100);
+        ledger.update_phi("a.rs", 0.85);
+        assert_eq!(ledger.entries[0].phi, Some(0.85));
+    }
+
+    #[test]
+    fn set_state_works() {
+        let mut ledger = ContextLedger::new();
+        ledger.record("a.rs", "full", 100, 100);
+        ledger.set_state("a.rs", crate::core::context_field::ContextState::Pinned);
+        assert_eq!(
+            ledger.entries[0].state,
+            Some(crate::core::context_field::ContextState::Pinned)
+        );
+    }
+
+    #[test]
+    fn items_by_state_filters() {
+        let mut ledger = ContextLedger::new();
+        ledger.record("a.rs", "full", 100, 100);
+        ledger.record("b.rs", "full", 100, 100);
+        ledger.set_state("b.rs", crate::core::context_field::ContextState::Excluded);
+        let included = ledger.items_by_state(crate::core::context_field::ContextState::Included);
+        assert_eq!(included.len(), 1);
+        assert_eq!(included[0].path, "a.rs");
+    }
+
+    #[test]
+    fn eviction_by_phi_prefers_low_phi() {
+        let mut ledger = ContextLedger::with_window_size(10000);
+        ledger.record("high.rs", "full", 100, 100);
+        ledger.update_phi("high.rs", 0.9);
+        ledger.record("low.rs", "full", 100, 100);
+        ledger.update_phi("low.rs", 0.1);
+        let candidates = ledger.eviction_candidates_by_phi(1);
+        assert_eq!(candidates, vec!["low.rs"]);
+    }
+
+    #[test]
+    fn eviction_by_phi_skips_pinned() {
+        let mut ledger = ContextLedger::with_window_size(10000);
+        ledger.record("pinned.rs", "full", 100, 100);
+        ledger.update_phi("pinned.rs", 0.01);
+        ledger.set_state(
+            "pinned.rs",
+            crate::core::context_field::ContextState::Pinned,
+        );
+        ledger.record("normal.rs", "full", 100, 100);
+        ledger.update_phi("normal.rs", 0.5);
+        let candidates = ledger.eviction_candidates_by_phi(1);
+        assert_eq!(candidates, vec!["normal.rs"]);
+    }
+
+    #[test]
+    fn mark_stale_by_hash_detects_change() {
+        let mut ledger = ContextLedger::new();
+        ledger.record("a.rs", "full", 100, 100);
+        ledger.entries[0].source_hash = Some("hash_v1".to_string());
+        ledger.mark_stale_by_hash("a.rs", "hash_v2");
+        assert_eq!(
+            ledger.entries[0].state,
+            Some(crate::core::context_field::ContextState::Stale)
+        );
+    }
+
+    #[test]
+    fn find_by_id_works() {
+        let mut ledger = ContextLedger::new();
+        ledger.record("src/lib.rs", "full", 100, 100);
+        let id = crate::core::context_field::ContextItemId::from_file("src/lib.rs");
+        assert!(ledger.find_by_id(&id).is_some());
+    }
+
+    #[test]
+    fn upsert_sets_source_hash_and_kind() {
+        let mut ledger = ContextLedger::new();
+        ledger.upsert(
+            "src/main.rs",
+            "full",
+            500,
+            500,
+            Some("sha256_abc"),
+            crate::core::context_field::ContextKind::File,
+            None,
+        );
+        let entry = &ledger.entries[0];
+        assert_eq!(entry.source_hash.as_deref(), Some("sha256_abc"));
+        assert_eq!(
+            entry.kind,
+            Some(crate::core::context_field::ContextKind::File)
+        );
     }
 }

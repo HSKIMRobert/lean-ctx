@@ -5,6 +5,7 @@ const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub fn run(args: &[String]) {
     let check_only = args.iter().any(|a| a == "--check");
+    let insecure = args.iter().any(|a| a == "--insecure");
 
     println!();
     println!("  \x1b[1m◆ lean-ctx updater\x1b[0m  \x1b[2mv{CURRENT_VERSION}\x1b[0m");
@@ -61,6 +62,20 @@ pub fn run(args: &[String]) {
         }
     };
 
+    if let Err(e) = verify_download_integrity(&release, &asset_name, &bytes) {
+        if insecure {
+            eprintln!("  \x1b[33m⚠\x1b[0m Integrity verification failed: {e}");
+            eprintln!("  \x1b[33m⚠\x1b[0m Proceeding due to --insecure.");
+        } else {
+            tracing::error!("Integrity verification failed: {e}");
+            eprintln!();
+            eprintln!("Refusing to install an unverifiable binary.");
+            eprintln!("If you trust this network and want to proceed anyway, re-run with: \x1b[1mlean-ctx update --insecure\x1b[0m");
+            eprintln!("Or download manually: https://github.com/yvgude/lean-ctx/releases/latest");
+            std::process::exit(1);
+        }
+    }
+
     let current_exe = match std::env::current_exe() {
         Ok(p) => p,
         Err(e) => {
@@ -95,6 +110,135 @@ pub fn run(args: &[String]) {
         "    \x1b[2mRun 'source ~/.zshrc' (or restart terminal) for updated shell aliases.\x1b[0m"
     );
     println!();
+}
+
+fn verify_download_integrity(
+    release: &serde_json::Value,
+    asset_name: &str,
+    bytes: &[u8],
+) -> Result<(), String> {
+    #[cfg(not(feature = "secure-update"))]
+    {
+        let _ = (release, asset_name, bytes);
+        return Err("secure-update feature disabled (sha256 verification unavailable)".to_string());
+    }
+
+    #[cfg(feature = "secure-update")]
+    {
+        let computed = sha256_hex(bytes);
+
+        let Some((checksum_url, kind)) = find_checksum_asset_url(release, asset_name) else {
+            return Err(
+                "no checksum asset found for this release (expected SHA256SUMS or *.sha256)"
+                    .to_string(),
+            );
+        };
+        let checksum_bytes = download_bytes(&checksum_url)?;
+        let checksum_text = String::from_utf8_lossy(&checksum_bytes).to_string();
+
+        let expected = match kind {
+            ChecksumAssetKind::SingleSha256 => parse_single_sha256(&checksum_text),
+            ChecksumAssetKind::Sha256Sums => parse_sha256sums(&checksum_text, asset_name),
+        }
+        .ok_or_else(|| format!("checksum file did not contain an entry for {asset_name}"))?;
+
+        if !constant_time_eq(computed.as_bytes(), expected.as_bytes()) {
+            return Err(format!(
+                "sha256 mismatch for {asset_name}: expected {expected}, got {computed}"
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ChecksumAssetKind {
+    Sha256Sums,
+    SingleSha256,
+}
+
+fn find_checksum_asset_url(
+    release: &serde_json::Value,
+    asset_name: &str,
+) -> Option<(String, ChecksumAssetKind)> {
+    // Prefer per-asset checksum (asset.ext.sha256) if present.
+    let candidates = [
+        format!("{asset_name}.sha256"),
+        format!("{asset_name}.sha256.txt"),
+        "SHA256SUMS".to_string(),
+        "SHA256SUMS.txt".to_string(),
+        "sha256sums.txt".to_string(),
+        "checksums.txt".to_string(),
+    ];
+
+    for c in candidates {
+        if let Some(url) = find_asset_url(release, &c) {
+            let kind = if c.to_lowercase().contains("sha256sums")
+                || c.to_uppercase() == "SHA256SUMS"
+                || c.to_lowercase().contains("checksums")
+            {
+                ChecksumAssetKind::Sha256Sums
+            } else {
+                ChecksumAssetKind::SingleSha256
+            };
+            return Some((url, kind));
+        }
+    }
+    None
+}
+
+fn parse_single_sha256(text: &str) -> Option<String> {
+    let t = text.trim();
+    let first = t.split_whitespace().next().unwrap_or("").trim();
+    if first.len() == 64 && first.chars().all(|c| c.is_ascii_hexdigit()) {
+        Some(first.to_ascii_lowercase())
+    } else {
+        None
+    }
+}
+
+fn parse_sha256sums(text: &str, asset_name: &str) -> Option<String> {
+    for line in text.lines() {
+        let l = line.trim();
+        if l.is_empty() || l.starts_with('#') {
+            continue;
+        }
+        let mut parts = l.split_whitespace();
+        let hash = parts.next().unwrap_or("");
+        let file = parts.next().unwrap_or("");
+        if file == asset_name && hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Some(hash.to_ascii_lowercase());
+        }
+    }
+    None
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(bytes);
+    let out = h.finalize();
+    hex_lower(&out)
+}
+
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter()
+        .zip(b.iter())
+        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
+        == 0
+}
+
+fn hex_lower(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for &b in bytes {
+        out.push(HEX[(b >> 4) as usize] as char);
+        out.push(HEX[(b & 0x0f) as usize] as char);
+    }
+    out
 }
 
 fn post_update_rewire() {

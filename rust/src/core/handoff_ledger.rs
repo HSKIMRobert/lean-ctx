@@ -29,6 +29,8 @@ pub struct HandoffLedgerV1 {
     pub evidence_keys: Vec<String>,
     pub knowledge: KnowledgeExcerpt,
     pub curated_refs: Vec<CuratedRef>,
+    #[serde(default)]
+    pub active_overlays: Vec<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -159,6 +161,16 @@ pub fn create_ledger(input: CreateLedgerInput) -> Result<(HandoffLedgerV1, PathB
         evidence_keys: evidence_keys.into_iter().collect(),
         knowledge: knowledge_excerpt,
         curated_refs: curated,
+        active_overlays: {
+            let overlay_store = crate::core::context_overlay::OverlayStore::load_project(
+                &std::env::current_dir().unwrap_or_default(),
+            );
+            overlay_store
+                .all()
+                .iter()
+                .filter_map(|o| serde_json::to_value(o).ok())
+                .collect()
+        },
     };
 
     let md5 = ledger_content_md5(&ledger);
@@ -514,6 +526,7 @@ mod tests {
             evidence_keys: Vec::new(),
             knowledge: KnowledgeExcerpt::default(),
             curated_refs: Vec::new(),
+            active_overlays: Vec::new(),
         }
     }
 

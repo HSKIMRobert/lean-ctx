@@ -957,7 +957,11 @@ mod tests {
         let script = generate_rewrite_script("lean-ctx");
         let compact = generate_compact_rewrite_script("lean-ctx");
         for entry in crate::rewrite_registry::REWRITE_COMMANDS {
-            if entry.category == crate::rewrite_registry::Category::Search {
+            if matches!(
+                entry.category,
+                crate::rewrite_registry::Category::Search
+                    | crate::rewrite_registry::Category::FileRead
+            ) {
                 continue;
             }
             let pattern = if entry.command.contains('-') {

@@ -10,11 +10,23 @@ fn is_disabled() -> bool {
     std::env::var("LEAN_CTX_DISABLED").is_ok()
 }
 
-/// Arms a watchdog that force-kills the process after the given duration.
-/// Prevents hook processes from becoming zombies when stdin pipes break.
+/// Mark this process as a hook child so the daemon-client never auto-starts
+/// the daemon from inside a hook (which would create zombie processes).
+pub fn mark_hook_environment() {
+    std::env::set_var("LEAN_CTX_HOOK_CHILD", "1");
+}
+
+/// Arms a watchdog that force-exits the process after the given duration.
+/// Prevents hook processes from becoming zombies when stdin pipes break or
+/// the IDE cancels the call. Since hooks MUST NOT spawn child processes
+/// (to avoid orphan zombies), a simple exit(1) suffices.
 pub fn arm_watchdog(timeout: Duration) {
     std::thread::spawn(move || {
         std::thread::sleep(timeout);
+        eprintln!(
+            "[lean-ctx hook] watchdog timeout after {}s — force exit",
+            timeout.as_secs()
+        );
         std::process::exit(1);
     });
 }
@@ -137,6 +149,10 @@ fn rewrite_candidate(cmd: &str, binary: &str) -> Option<String> {
         return None;
     }
 
+    if let Some(rewritten) = rewrite_file_read_command(cmd, binary) {
+        return Some(rewritten);
+    }
+
     if let Some(rewritten) = build_rewrite_compound(cmd, binary) {
         return Some(rewritten);
     }
@@ -146,6 +162,66 @@ fn rewrite_candidate(cmd: &str, binary: &str) -> Option<String> {
     }
 
     None
+}
+
+/// Rewrites cat/head/tail to lean-ctx read with appropriate arguments.
+fn rewrite_file_read_command(cmd: &str, binary: &str) -> Option<String> {
+    if !rewrite_registry::is_file_read_command(cmd) {
+        return None;
+    }
+
+    let parts: Vec<&str> = cmd.split_whitespace().collect();
+    if parts.len() < 2 {
+        return None;
+    }
+
+    match parts[0] {
+        "cat" => {
+            let path = parts[1..].join(" ");
+            Some(format!("{binary} read {path}"))
+        }
+        "head" => {
+            let (n, path) = parse_head_tail_args(&parts[1..]);
+            let path = path?;
+            match n {
+                Some(lines) => Some(format!("{binary} read {path} -m lines:1-{lines}")),
+                None => Some(format!("{binary} read {path} -m lines:1-10")),
+            }
+        }
+        "tail" => {
+            let (n, path) = parse_head_tail_args(&parts[1..]);
+            let path = path?;
+            let lines = n.unwrap_or(10);
+            Some(format!("{binary} read {path} -m lines:-{lines}"))
+        }
+        _ => None,
+    }
+}
+
+fn parse_head_tail_args<'a>(args: &[&'a str]) -> (Option<usize>, Option<&'a str>) {
+    let mut n: Option<usize> = None;
+    let mut path: Option<&str> = None;
+
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "-n" && i + 1 < args.len() {
+            n = args[i + 1].parse().ok();
+            i += 2;
+        } else if let Some(num) = args[i].strip_prefix("-n") {
+            n = num.parse().ok();
+            i += 1;
+        } else if args[i].starts_with('-') && args[i].len() > 1 {
+            if let Ok(num) = args[i][1..].parse::<usize>() {
+                n = Some(num);
+            }
+            i += 1;
+        } else {
+            path = Some(args[i]);
+            i += 1;
+        }
+    }
+
+    (n, path)
 }
 
 fn build_rewrite_compound(cmd: &str, binary: &str) -> Option<String> {
@@ -169,8 +245,204 @@ fn emit_rewrite(rewritten: &str) {
 }
 
 pub fn handle_redirect() {
-    let _ = read_stdin_with_timeout(HOOK_STDIN_TIMEOUT);
+    if is_disabled() {
+        let _ = read_stdin_with_timeout(HOOK_STDIN_TIMEOUT);
+        print!("{}", build_dual_allow_output());
+        return;
+    }
+
+    let Some(input) = read_stdin_with_timeout(HOOK_STDIN_TIMEOUT) else {
+        return;
+    };
+
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&input) else {
+        print!("{}", build_dual_allow_output());
+        return;
+    };
+
+    let tool_name = v.get("tool_name").and_then(|t| t.as_str()).unwrap_or("");
+    let tool_input = v.get("tool_input");
+
+    match tool_name {
+        "Read" | "read" | "read_file" => redirect_read(tool_input),
+        "Grep" | "grep" | "search" | "ripgrep" => redirect_grep(tool_input),
+        _ => print!("{}", build_dual_allow_output()),
+    }
+}
+
+/// Redirect Read through lean-ctx for compression + caching.
+/// Safe because `mark_hook_environment()` sets LEAN_CTX_HOOK_CHILD=1 which
+/// prevents daemon auto-start. The subprocess uses the fast local-only path.
+fn redirect_read(tool_input: Option<&serde_json::Value>) {
+    let path = tool_input
+        .and_then(|ti| ti.get("path"))
+        .and_then(|p| p.as_str())
+        .unwrap_or("");
+
+    if path.is_empty() || should_passthrough(path) {
+        print!("{}", build_dual_allow_output());
+        return;
+    }
+
+    let binary = resolve_binary();
+    let temp_path = redirect_temp_path(path);
+
+    if let Some(output) = run_with_timeout(&binary, &["read", path], REDIRECT_SUBPROCESS_TIMEOUT) {
+        if !output.is_empty() && std::fs::write(&temp_path, &output).is_ok() {
+            let temp_str = temp_path.to_str().unwrap_or("");
+            print!("{}", build_redirect_output(tool_input, "path", temp_str));
+            return;
+        }
+    }
+
     print!("{}", build_dual_allow_output());
+}
+
+/// Redirect Grep through lean-ctx for compressed results.
+fn redirect_grep(tool_input: Option<&serde_json::Value>) {
+    let pattern = tool_input
+        .and_then(|ti| ti.get("pattern"))
+        .and_then(|p| p.as_str())
+        .unwrap_or("");
+    let search_path = tool_input
+        .and_then(|ti| ti.get("path"))
+        .and_then(|p| p.as_str())
+        .unwrap_or(".");
+
+    if pattern.is_empty() {
+        print!("{}", build_dual_allow_output());
+        return;
+    }
+
+    let binary = resolve_binary();
+    let key = format!("grep:{pattern}:{search_path}");
+    let temp_path = redirect_temp_path(&key);
+
+    if let Some(output) = run_with_timeout(
+        &binary,
+        &["grep", pattern, search_path],
+        REDIRECT_SUBPROCESS_TIMEOUT,
+    ) {
+        if !output.is_empty() && std::fs::write(&temp_path, &output).is_ok() {
+            let temp_str = temp_path.to_str().unwrap_or("");
+            print!("{}", build_redirect_output(tool_input, "path", temp_str));
+            return;
+        }
+    }
+
+    print!("{}", build_dual_allow_output());
+}
+
+const REDIRECT_SUBPROCESS_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// Run a lean-ctx subprocess with a hard timeout. Returns stdout on success.
+/// Kills the child if it exceeds the timeout to prevent orphan processes.
+fn run_with_timeout(binary: &str, args: &[&str], timeout: Duration) -> Option<Vec<u8>> {
+    let mut child = std::process::Command::new(binary)
+        .args(args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .ok()?;
+
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) if status.success() => {
+                let mut stdout = Vec::new();
+                if let Some(mut out) = child.stdout.take() {
+                    let _ = out.read_to_end(&mut stdout);
+                }
+                return if stdout.is_empty() {
+                    None
+                } else {
+                    Some(stdout)
+                };
+            }
+            Ok(Some(_)) | Err(_) => return None,
+            Ok(None) => {
+                if std::time::Instant::now() > deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+    }
+}
+
+fn redirect_temp_path(key: &str) -> std::path::PathBuf {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = DefaultHasher::new();
+    key.hash(&mut hasher);
+    let hash = hasher.finish();
+
+    let temp_dir = std::env::temp_dir().join("lean-ctx-hook");
+    let _ = std::fs::create_dir_all(&temp_dir);
+    temp_dir.join(format!("{hash:016x}.lctx"))
+}
+
+fn build_redirect_output(
+    tool_input: Option<&serde_json::Value>,
+    field: &str,
+    temp_path: &str,
+) -> String {
+    let updated_input = if let Some(obj) = tool_input.and_then(|v| v.as_object()) {
+        let mut m = obj.clone();
+        m.insert(
+            field.to_string(),
+            serde_json::Value::String(temp_path.to_string()),
+        );
+        serde_json::Value::Object(m)
+    } else {
+        serde_json::json!({ field: temp_path })
+    };
+
+    serde_json::json!({
+        "permission": "allow",
+        "updated_input": updated_input,
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+            "updatedInput": { field: temp_path }
+        }
+    })
+    .to_string()
+}
+
+const PASSTHROUGH_SUBSTRINGS: &[&str] = &[
+    ".cursorrules",
+    ".cursor/rules",
+    ".cursor/hooks",
+    "skill.md",
+    "agents.md",
+    ".env",
+    "hooks.json",
+    "node_modules",
+];
+
+const PASSTHROUGH_EXTENSIONS: &[&str] = &[
+    "lock", "png", "jpg", "jpeg", "gif", "webp", "pdf", "ico", "svg", "woff", "woff2", "ttf", "eot",
+];
+
+fn should_passthrough(path: &str) -> bool {
+    let p = path.to_lowercase();
+
+    if PASSTHROUGH_SUBSTRINGS.iter().any(|s| p.contains(s)) {
+        return true;
+    }
+
+    std::path::Path::new(&p)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| {
+            PASSTHROUGH_EXTENSIONS
+                .iter()
+                .any(|e| ext.eq_ignore_ascii_case(e))
+        })
 }
 
 fn codex_reroute_message(rewritten: &str) -> String {
@@ -315,6 +587,78 @@ mod tests {
         assert!(is_rewritable("npm run build"));
         assert!(!is_rewritable("echo hello"));
         assert!(!is_rewritable("cd src"));
+        assert!(!is_rewritable("cat file.rs"));
+    }
+
+    #[test]
+    fn file_read_rewrite_cat() {
+        let r = rewrite_file_read_command("cat src/main.rs", "lean-ctx");
+        assert_eq!(r, Some("lean-ctx read src/main.rs".to_string()));
+    }
+
+    #[test]
+    fn file_read_rewrite_head_with_n() {
+        let r = rewrite_file_read_command("head -n 20 src/main.rs", "lean-ctx");
+        assert_eq!(
+            r,
+            Some("lean-ctx read src/main.rs -m lines:1-20".to_string())
+        );
+    }
+
+    #[test]
+    fn file_read_rewrite_head_short() {
+        let r = rewrite_file_read_command("head -50 src/main.rs", "lean-ctx");
+        assert_eq!(
+            r,
+            Some("lean-ctx read src/main.rs -m lines:1-50".to_string())
+        );
+    }
+
+    #[test]
+    fn file_read_rewrite_tail() {
+        let r = rewrite_file_read_command("tail -n 10 src/main.rs", "lean-ctx");
+        assert_eq!(
+            r,
+            Some("lean-ctx read src/main.rs -m lines:-10".to_string())
+        );
+    }
+
+    #[test]
+    fn file_read_rewrite_not_git() {
+        assert_eq!(rewrite_file_read_command("git status", "lean-ctx"), None);
+    }
+
+    #[test]
+    fn parse_head_tail_args_basic() {
+        let (n, path) = parse_head_tail_args(&["-n", "20", "file.rs"]);
+        assert_eq!(n, Some(20));
+        assert_eq!(path, Some("file.rs"));
+    }
+
+    #[test]
+    fn parse_head_tail_args_combined() {
+        let (n, path) = parse_head_tail_args(&["-n20", "file.rs"]);
+        assert_eq!(n, Some(20));
+        assert_eq!(path, Some("file.rs"));
+    }
+
+    #[test]
+    fn parse_head_tail_args_short_flag() {
+        let (n, path) = parse_head_tail_args(&["-50", "file.rs"]);
+        assert_eq!(n, Some(50));
+        assert_eq!(path, Some("file.rs"));
+    }
+
+    #[test]
+    fn should_passthrough_rules_files() {
+        assert!(should_passthrough("/home/user/.cursorrules"));
+        assert!(should_passthrough("/project/.cursor/rules/test.mdc"));
+        assert!(should_passthrough("/home/.cursor/hooks/hooks.json"));
+        assert!(should_passthrough("/project/SKILL.md"));
+        assert!(should_passthrough("/project/AGENTS.md"));
+        assert!(should_passthrough("/project/icon.png"));
+        assert!(!should_passthrough("/project/src/main.rs"));
+        assert!(!should_passthrough("/project/src/lib.ts"));
     }
 
     #[test]

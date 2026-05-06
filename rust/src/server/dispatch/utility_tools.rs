@@ -557,6 +557,54 @@ impl LeanCtxServer {
                 }
             }
 
+            "ctx_control" => {
+                let mut ledger = crate::core::context_ledger::ContextLedger::load();
+                let mut overlays = {
+                    let session = self.session.read().await;
+                    let root = session.project_root.clone().unwrap_or_default();
+                    crate::core::context_overlay::OverlayStore::load_project(
+                        &std::path::PathBuf::from(&root),
+                    )
+                };
+                let result = crate::tools::ctx_control::handle(args, &mut ledger, &mut overlays);
+                ledger.save();
+                {
+                    let session = self.session.read().await;
+                    let root = session.project_root.clone().unwrap_or_default();
+                    let _ = overlays.save_project(&std::path::PathBuf::from(&root));
+                }
+                self.record_call("ctx_control", 0, 0, None).await;
+                result
+            }
+
+            "ctx_plan" => {
+                let ledger = crate::core::context_ledger::ContextLedger::load();
+                let policies = {
+                    let session = self.session.read().await;
+                    let root = session.project_root.clone().unwrap_or_default();
+                    crate::core::context_policies::PolicySet::load_project(
+                        &std::path::PathBuf::from(&root),
+                    )
+                };
+                let result = crate::tools::ctx_plan::handle(args, &ledger, &policies);
+                self.record_call("ctx_plan", 0, 0, None).await;
+                result
+            }
+
+            "ctx_compile" => {
+                let ledger = crate::core::context_ledger::ContextLedger::load();
+                let policies = {
+                    let session = self.session.read().await;
+                    let root = session.project_root.clone().unwrap_or_default();
+                    crate::core::context_policies::PolicySet::load_project(
+                        &std::path::PathBuf::from(&root),
+                    )
+                };
+                let result = crate::tools::ctx_compile::handle(args, &ledger, &policies);
+                self.record_call("ctx_compile", 0, 0, None).await;
+                result
+            }
+
             _ => {
                 return Err(ErrorData::invalid_params(
                     format!("Unknown tool: {name}"),

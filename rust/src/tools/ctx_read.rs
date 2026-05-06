@@ -264,7 +264,7 @@ fn handle_with_options_resolved(
         mode.to_string()
     };
 
-    let (mut output, sent) = process_mode(
+    let (mut output, _sent) = process_mode(
         &content,
         &resolved_mode,
         &file_ref,
@@ -286,10 +286,11 @@ fn handle_with_options_resolved(
         output.push_str(&format!("\n{hint}"));
     }
     let output = crate::core::redaction::redact_text_if_enabled(&output);
+    let final_tokens = count_tokens(&output);
     ReadOutput {
         content: output,
         resolved_mode,
-        output_tokens: sent,
+        output_tokens: final_tokens,
     }
 }
 
@@ -856,7 +857,11 @@ fn handle_diff(cache: &mut SessionCache, path: &str, file_ref: &str) -> (String,
 
     let new_content = match read_file_lossy(path) {
         Ok(c) => c,
-        Err(e) => return (format!("ERROR: {e}"), 0),
+        Err(e) => {
+            let msg = format!("ERROR: {e}");
+            let tokens = count_tokens(&msg);
+            return (msg, tokens);
+        }
     };
 
     let original_tokens = count_tokens(&new_content);

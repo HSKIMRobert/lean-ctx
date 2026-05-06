@@ -112,6 +112,13 @@ pub fn try_daemon_tool_call_blocking(
     let mut ready = socket_path.exists() && rt.block_on(async { daemon_health_check().await });
 
     if !ready {
+        // SAFETY: Never auto-start the daemon from inside a hook subprocess.
+        // Hooks have a tight watchdog timeout; spawning a daemon would create
+        // orphan processes when the watchdog fires.
+        if std::env::var("LEAN_CTX_HOOK_CHILD").is_ok() {
+            return None;
+        }
+
         #[cfg(unix)]
         {
             // Prevent double-daemon races when multiple CLI commands auto-start concurrently.

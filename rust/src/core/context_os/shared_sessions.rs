@@ -171,6 +171,7 @@ mod tests {
                         last_mode: "full".to_string(),
                         tokens: 0,
                         stale: false,
+                        context_item_id: None,
                     });
                 }
             }));
@@ -207,6 +208,7 @@ mod tests {
                     last_mode: "full".to_string(),
                     tokens: 0,
                     stale: false,
+                    context_item_id: None,
                 });
         }
         {
@@ -223,6 +225,7 @@ mod tests {
                     last_mode: "full".to_string(),
                     tokens: 0,
                     stale: false,
+                    context_item_id: None,
                 });
         }
 

@@ -3,6 +3,7 @@ use std::path::Path;
 use crate::core::compressor;
 use crate::core::deps as dep_extract;
 use crate::core::entropy;
+use crate::core::io_boundary;
 use crate::core::patterns::deps_cmd;
 use crate::core::protocol;
 use crate::core::roles;
@@ -39,6 +40,30 @@ pub fn cmd_read(args: &[String]) {
 
     let short = protocol::shorten_path(path);
 
+    // Apply the same secret-path policy in CLI mode as in MCP tools.
+    // Default is warn; enforce depends on active role/policy.
+    if let Ok(abs) = std::fs::canonicalize(path) {
+        match io_boundary::check_secret_path_for_tool("cli_read", &abs) {
+            Ok(Some(w)) => eprintln!("{w}"),
+            Ok(None) => {}
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        }
+    } else {
+        // Best-effort: still check the raw path string.
+        let raw = std::path::Path::new(path);
+        match io_boundary::check_secret_path_for_tool("cli_read", raw) {
+            Ok(Some(w)) => eprintln!("{w}"),
+            Ok(None) => {}
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
     if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
         "ctx_read",
         Some(serde_json::json!({
@@ -48,6 +73,8 @@ pub fn cmd_read(args: &[String]) {
         })),
     ) {
         println!("{out}");
+        let sent = count_tokens(&out);
+        super::common::cli_track_read(path, mode, sent, sent);
         return;
     }
     super::common::daemon_fallback_hint();
@@ -168,9 +195,10 @@ pub fn cmd_read(args: &[String]) {
             super::common::cli_track_read(path, "entropy", original_tokens, sent);
         }
         _ => {
-            println!("{short} [{line_count}L]");
-            println!("{content}");
-            super::common::cli_track_read(path, "full", original_tokens, original_tokens);
+            let full_output = format!("{short} [{line_count}L]\n{content}");
+            println!("{full_output}");
+            let sent = count_tokens(&full_output);
+            super::common::cli_track_read(path, "full", original_tokens, sent);
         }
     }
 }

@@ -363,6 +363,7 @@ mod tests {
                 content_md5: "x".to_string(),
                 content: "fn a() {}".to_string(),
             }],
+            active_overlays: Vec::new(),
         }
     }
 

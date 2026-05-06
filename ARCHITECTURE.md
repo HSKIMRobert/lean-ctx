@@ -28,7 +28,7 @@ flowchart TB
         DispatchRead["read_tools — ctx_read, ctx_multi_read, ctx_edit, ctx_fill, ctx_delta, ctx_smart_read"]
         DispatchShell["shell_tools — ctx_shell, ctx_search, ctx_execute"]
         DispatchSession["session_tools — ctx_session, ctx_knowledge, ctx_agent, ctx_share, ctx_task, ctx_handoff, ctx_workflow"]
-        DispatchUtility["utility_tools — 13 async-state tools (legacy)"]
+        DispatchUtility["utility_tools — 16 async-state tools incl. CFT (ctx_control, ctx_plan, ctx_compile)"]
         PostPipeline["Post-Pipeline — tokens, archive, density, translation, verify, enrich, auto-response, evidence, search throttle, sandbox routing"]
     end
 
@@ -64,6 +64,15 @@ flowchart TB
         MemPolicy["Memory Policy — knowledge limits, decay, lifecycle"]
         AutonomyDrv["Autonomy Drivers — prefetch, auto-dedup, auto-response"]
         BoundaryPolicy["Boundary Policy — cross-project search/import, audit, universal gotchas"]
+    end
+
+    subgraph packaging [Context Packaging]
+        PkgManifest["Manifest — schema v1, SHA-256 integrity, provenance"]
+        PkgBuilder["Builder — collects Knowledge + Graph + Session + Gotchas"]
+        PkgLoader["Loader — merge facts (dedup), import graph, import gotchas"]
+        PkgRegistry["Registry — ~/.lean-ctx/packages/, index, versioning"]
+        PkgAutoLoad["Auto-Load — marked packages loaded on ctx_overview"]
+        PkgExport["Export/Import — .lctxpkg portable format"]
     end
 
     subgraph routing [Intent and Routing]
@@ -507,7 +516,7 @@ flowchart LR
 | `server/dispatch/read_tools.rs` | ctx_read, ctx_multi_read, ctx_edit, ctx_fill, ctx_delta, ctx_smart_read |
 | `server/dispatch/shell_tools.rs` | ctx_shell, ctx_search, ctx_execute |
 | `server/dispatch/session_tools.rs` | ctx_session, ctx_knowledge, ctx_agent, ctx_handoff, ctx_workflow, ctx_task, ctx_share |
-| `server/dispatch/utility_tools.rs` | 13 async-state tools remaining in legacy dispatch |
+| `server/dispatch/utility_tools.rs` | 16 async-state tools including CFT (ctx_control, ctx_plan, ctx_compile) |
 | `server/execute.rs` | Shell command execution within MCP context |
 | `server/helpers.rs` | Shared server utilities |
 | `server/role_guard.rs` | Role-based tool access policy |
@@ -567,8 +576,13 @@ flowchart LR
 | `core/compression_safety.rs` | Safety checks for compression (no semantic loss) |
 | `core/pop_pruning.rs` | Intent-conditioned content pruning (POP) |
 | `core/context_deficit.rs` | Context deficit analysis for proactive fetch |
-| `core/context_ledger.rs` | Context usage ledger for audit and governance |
-| `core/contracts.rs` | 19 versioned contract definitions |
+| `core/context_field.rs` | **CFT** — Unified Context Potential Function Φ(i,t): relevance + surprise + graph + history − cost − redundancy |
+| `core/context_ledger.rs` | **CFT** — Rich Context Ledger with ContextItemId, states (Candidate/Included/Excluded/Pinned/Stale), Φ scores, ViewCosts, provenance |
+| `core/context_overlay.rs` | **CFT** — Reversible overlays (Include/Exclude/Pin/Rewrite/SetView) with scope and staleness |
+| `core/context_handles.rs` | **CFT** — Sparse lazy-loading handles (@F1, @S1, @K1) — 5-30 tokens per item |
+| `core/context_compiler.rs` | **CFT** — Greedy Knapsack compiler with Boltzmann view selection and phase-transition downgrades |
+| `core/context_policies.rs` | **CFT** — Declarative policy engine: match-pattern + condition + action rules |
+| `core/contracts.rs` | 20 versioned contract definitions (incl. CONTEXT_PACKAGE_V1) |
 | `core/integrity.rs` | Contract compliance verification |
 | `core/memory_boundary.rs` | Cross-project boundary policy, audit events |
 | `core/io_boundary.rs` | I/O boundary — secret-path checks, role-aware access |
@@ -587,6 +601,18 @@ flowchart LR
 | `core/memory_policy.rs` | Knowledge limits, decay rates, lifecycle config |
 | `core/autonomy_drivers.rs` | Prefetch, auto-dedup, auto-response rules |
 | `core/loop_detection.rs` | Search loop throttling and blocking |
+
+### Context Packaging
+
+| Module | Purpose |
+|:---|:---|
+| `core/context_package/manifest.rs` | PackageManifest — schema validation, integrity (SHA-256), provenance, compatibility |
+| `core/context_package/content.rs` | PackageContent — 5 layers: Knowledge, Graph, Session, Patterns, Gotchas |
+| `core/context_package/builder.rs` | PackageBuilder — collects from Knowledge DB, Property Graph, Session, GotchaStore |
+| `core/context_package/loader.rs` | PackageLoader — merges knowledge (dedup), imports graph nodes/edges, imports gotchas |
+| `core/context_package/registry.rs` | LocalRegistry — `~/.lean-ctx/packages/`, index, versioning, export/import (.lctxpkg) |
+| `core/context_package/auto_load.rs` | Auto-load — marked packages loaded on `ctx_overview` session start |
+| `cli/pack_cmd.rs` | CLI — `lean-ctx pack create/list/info/remove/export/import/install/auto-load` (9 subcommands) |
 
 ### Memory and Knowledge
 
@@ -774,6 +800,75 @@ ctx_compress, ctx_benchmark, ctx_metrics, ctx_analyze, ctx_cache, ctx_discover, 
 21. **Incremental graph updates** — `ctx_impact(action="update")` uses `git diff --name-only` to re-index only changed files instead of a full graph rebuild, keeping the Property Graph current with minimal cost.
 
 22. **Progressive throttling** — `AutonomyState` tracks repeated searches. Calls 1–3: normal; 4–6: hint to use `ctx_knowledge`; 7+: throttle hint. Sandbox-first routing redirects large outputs (>5 KB shell, >10 K tokens read) toward more efficient alternatives.
+
+23. **Context Field Theory (CFT)** — Each context item has a unified potential Φ(i,t) combining 6 signals: task relevance (heat diffusion + PageRank), predictive surprise (cross-entropy), graph proximity (weighted BFS), history signal (Thompson Sampling bandit), token cost, and redundancy (Jaccard/MinHash). Budget pressure drives phase-transition view downgrades (full→signatures→map→handle) via Boltzmann-weighted selection.
+
+24. **Context Handles** — Sparse lazy references (@F1, @S1, @K1) that represent context items in 5-30 tokens each, deferring expansion until the agent explicitly requests it via `ctx_expand`. This achieves Working Memory-like sparse coding.
+
+25. **Reversible Overlays** — Context manipulations (exclude, pin, rewrite, set_view) are stored as reversible overlays with scope (Call/Session/Project/Agent/Global) and automatic staleness detection when source content changes.
+
+26. **Context Compiler** — Greedy Knapsack algorithm selects items by efficiency (Φ/token), applies phase-transition view downgrades under budget pressure, and outputs in three modes: HandleManifest (5-10% tokens), Compressed (optimal views), FullPrompt (complete content).
+
+## Diagram 5: Context Field Theory (CFT) Architecture
+
+```mermaid
+flowchart TB
+  subgraph signals [Scoring Signals]
+    Relevance["R(i,t) — task_relevance.rs\nHeat Diffusion + PageRank"]
+    Surprise["S(i) — surprise.rs\nCross-Entropy Zipfian"]
+    Graph["G(i,t) — queries.rs\nWeighted BFS Distance"]
+    History["H(i) — bandit.rs\nThompson Sampling"]
+    Cost["C(i,v) — tokens.rs\nPer-View Token Cost"]
+    Redundancy["D(i) — entropy.rs\nJaccard/MinHash"]
+  end
+
+  subgraph cft [Context Field Theory]
+    Field["context_field.rs\nΦ = wR·R + wS·S + wG·G + wH·H − wC·C − wD·D"]
+    Ledger["context_ledger.rs\nRich Items + States + ViewCosts"]
+    Overlays["context_overlay.rs\nReversible Manipulations"]
+    Handles["context_handles.rs\n@F1 @S1 @K1 Sparse Refs"]
+    Compiler["context_compiler.rs\nGreedy Knapsack + Boltzmann"]
+    Policies["context_policies.rs\nDeclarative Rules"]
+  end
+
+  subgraph tools [MCP Tools]
+    CtxControl["ctx_control\nUniversal Manipulation"]
+    CtxPlan["ctx_plan\nContext Planning"]
+    CtxCompile["ctx_compile\nContext Compilation"]
+  end
+
+  subgraph dashboard [Dashboard]
+    APIField["/api/context-field"]
+    APIHandles["/api/context-handles"]
+    APIOverlays["/api/context-overlay-history"]
+    APIPlan["/api/context-plan"]
+  end
+
+  Relevance --> Field
+  Surprise --> Field
+  Graph --> Field
+  History --> Field
+  Cost --> Field
+  Redundancy --> Field
+
+  Field --> Ledger
+  Ledger --> Compiler
+  Overlays --> Compiler
+  Handles --> Compiler
+  Policies --> Compiler
+
+  CtxControl --> Overlays
+  CtxControl --> Ledger
+  CtxPlan --> Field
+  CtxPlan --> Policies
+  CtxCompile --> Compiler
+  CtxCompile --> Handles
+
+  Compiler --> APIField
+  Handles --> APIHandles
+  Overlays --> APIOverlays
+  Compiler --> APIPlan
+```
 
 ## Build
 

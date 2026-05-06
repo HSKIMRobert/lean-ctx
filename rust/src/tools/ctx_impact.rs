@@ -474,12 +474,59 @@ fn index_graph_file_minimal(
     rel_path: &str,
     content: &str,
     ext: &str,
+    resolver_ctx: &crate::core::import_resolver::ResolverContext,
 ) -> (usize, usize) {
     let Ok(file_node_id) = graph.upsert_node(&Node::file(rel_path)) else {
         return (0, 0);
     };
-    let _ = (content, ext, file_node_id);
-    (1, 0)
+    let mut total_nodes = 1usize;
+    let mut total_edges = 0usize;
+
+    let analysis = crate::core::deep_queries::analyze(content, ext);
+
+    let resolved = crate::core::import_resolver::resolve_imports(
+        &analysis.imports,
+        rel_path,
+        ext,
+        resolver_ctx,
+    );
+
+    let mut targets: Vec<String> = resolved
+        .into_iter()
+        .filter(|imp| !imp.is_external)
+        .filter_map(|imp| imp.resolved_path)
+        .filter(|p| p != rel_path)
+        .collect();
+    targets.sort();
+    targets.dedup();
+
+    for target_path in targets {
+        let Ok(target_id) = graph.upsert_node(&Node::file(&target_path)) else {
+            continue;
+        };
+        total_nodes += 1;
+        let _ = graph.upsert_edge(&Edge::new(file_node_id, target_id, EdgeKind::Imports));
+        total_edges += 1;
+    }
+
+    for type_def in &analysis.types {
+        if type_def.is_exported {
+            let sym_node = Node::symbol(
+                &type_def.name,
+                rel_path,
+                crate::core::property_graph::NodeKind::Symbol,
+            )
+            .with_lines(type_def.line, type_def.end_line);
+            if let Ok(sym_id) = graph.upsert_node(&sym_node) {
+                total_nodes += 1;
+                let _ = graph.upsert_edge(&Edge::new(file_node_id, sym_id, EdgeKind::Defines));
+                let _ = graph.upsert_edge(&Edge::new(sym_id, file_node_id, EdgeKind::Exports));
+                total_edges += 2;
+            }
+        }
+    }
+
+    (total_nodes, total_edges)
 }
 
 fn handle_build(root: &str, fmt: OutputFormat) -> String {
@@ -566,7 +613,7 @@ fn handle_build(root: &str, fmt: OutputFormat) -> String {
 
     #[cfg(not(feature = "embeddings"))]
     for (rel_path, content, ext) in &file_contents {
-        let (n, e) = index_graph_file_minimal(&graph, rel_path, content, ext);
+        let (n, e) = index_graph_file_minimal(&graph, rel_path, content, ext, &resolver_ctx);
         total_nodes += n;
         total_edges += e;
     }
@@ -735,7 +782,8 @@ fn handle_update(root: &str, fmt: OutputFormat) -> String {
             else {
                 continue;
             };
-            let (n, e) = index_graph_file_minimal(&graph, rel_path, content, ext_owned);
+            let (n, e) =
+                index_graph_file_minimal(&graph, rel_path, content, ext_owned, &resolver_ctx);
             total_nodes += n;
             total_edges += e;
         }

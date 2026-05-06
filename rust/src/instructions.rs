@@ -200,9 +200,7 @@ CEP v1: 1.ACT FIRST 2.DELTA ONLY (Fn refs) 3.STRUCTURED (+/-/~) 4.ONE LINE PER A
 {origin}\n\
 \n\
 --- TOOL PREFERENCE (LITM-END) ---\n\
-Prefer: ctx_read over Read | ctx_shell over Shell | ctx_search over Grep | ctx_tree over ls\n\
-Edit files: native Edit/StrReplace if available, ctx_edit if Edit requires unavailable Read.\n\
-Write, Delete, Glob -> use normally. NEVER loop on Edit failures — use ctx_edit.",
+ctx_read>Read ctx_shell>Shell ctx_search>Grep ctx_tree>ls | Edit/Write/Glob=native",
         decoder_block = crate::core::protocol::instruction_decoder_block(),
         origin = crate::core::integrity::origin_line()
     );
@@ -287,9 +285,7 @@ CEP v1: 1.ACT FIRST 2.DELTA ONLY (Fn refs) 3.STRUCTURED (+/-/~) 4.ONE LINE PER A
 {origin}\n\
 \n\
 --- TOOL PREFERENCE (LITM-END) ---\n\
-Prefer: ctx_read over Read | ctx_shell over Shell | ctx_search over Grep | ctx_tree over ls\n\
-Edit files: native Edit/StrReplace if available, ctx_edit if Edit requires unavailable Read.\n\
-Write, Delete, Glob -> use normally. NEVER loop on Edit failures — use ctx_edit.",
+ctx_read>Read ctx_shell>Shell ctx_search>Grep ctx_tree>ls | Edit/Write/Glob=native",
         decoder_block = crate::core::protocol::instruction_decoder_block(),
         origin = crate::core::integrity::origin_line(),
     );
@@ -377,9 +373,7 @@ CEP v1: 1.ACT FIRST 2.DELTA ONLY (Fn refs) 3.STRUCTURED (+/-/~) 4.ONE LINE PER A
 {origin}\n\
 \n\
 --- TOOL PREFERENCE (LITM-END) ---\n\
-Prefer: ctx_read over Read | ctx_shell over Shell | ctx_search over Grep | ctx_tree over ls\n\
-Edit files: native Edit/StrReplace if available, ctx_edit if Edit requires unavailable Read.\n\
-Write, Delete, Glob -> use normally. NEVER loop on Edit failures — use ctx_edit.",
+ctx_read>Read ctx_shell>Shell ctx_search>Grep ctx_tree>ls | Edit/Write/Glob=native",
         decoder_block = crate::core::protocol::instruction_decoder_block(),
         origin = crate::core::integrity::origin_line(),
     );

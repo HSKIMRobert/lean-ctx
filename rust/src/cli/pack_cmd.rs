@@ -1,9 +1,33 @@
 use std::io::Read as _;
+use std::path::PathBuf;
 
 pub fn cmd_pack(args: &[String]) {
     let project_root = super::common::detect_project_root(args);
 
-    let mut action: Option<&str> = None;
+    let subcommand = args
+        .iter()
+        .find(|a| !a.starts_with("--"))
+        .map_or("pr", String::as_str);
+
+    match subcommand {
+        "pr" => cmd_pack_pr(args, &project_root),
+        "create" => cmd_pack_create(args, &project_root),
+        "install" => cmd_pack_install(args, &project_root),
+        "list" | "ls" => cmd_pack_list(),
+        "info" => cmd_pack_info(args),
+        "remove" | "rm" => cmd_pack_remove(args),
+        "export" => cmd_pack_export(args),
+        "import" => cmd_pack_import(args, &project_root),
+        "auto-load" => cmd_pack_auto_load(args),
+        "help" | "--help" | "-h" => print_usage(),
+        other => {
+            eprintln!("Unknown pack subcommand: {other}");
+            print_usage();
+        }
+    }
+}
+
+fn cmd_pack_pr(args: &[String], project_root: &str) {
     let mut base: Option<String> = None;
     let mut format: Option<String> = None;
     let mut depth: Option<usize> = None;
@@ -11,8 +35,7 @@ pub fn cmd_pack(args: &[String]) {
 
     let mut it = args.iter().peekable();
     while let Some(a) = it.next() {
-        if a == "--pr" {
-            action = Some("pr");
+        if a == "pr" {
             continue;
         }
         if let Some(v) = a.strip_prefix("--base=") {
@@ -60,18 +83,7 @@ pub fn cmd_pack(args: &[String]) {
         }
         if a == "--diff-from-stdin" {
             diff_from_stdin = true;
-            continue;
         }
-        if !a.starts_with("--") && action.is_none() {
-            // Support `lean-ctx pack pr ...`
-            if a == "pr" {
-                action = Some("pr");
-            }
-        }
-    }
-
-    if action.is_none() {
-        action = Some("pr");
     }
 
     let diff = if diff_from_stdin {
@@ -86,27 +98,631 @@ pub fn cmd_pack(args: &[String]) {
         None
     };
 
-    match action.unwrap_or("pr") {
-        "pr" => {
-            let out = crate::tools::ctx_pack::handle(
-                "pr",
-                &project_root,
-                base.as_deref(),
-                format.as_deref(),
-                depth,
-                diff.as_deref(),
-            );
-            println!("{out}");
+    let out = crate::tools::ctx_pack::handle(
+        "pr",
+        project_root,
+        base.as_deref(),
+        format.as_deref(),
+        depth,
+        diff.as_deref(),
+    );
+    println!("{out}");
+}
+
+fn cmd_pack_create(args: &[String], project_root: &str) {
+    let mut name: Option<String> = None;
+    let mut version = "1.0.0".to_string();
+    let mut description = String::new();
+    let mut author: Option<String> = None;
+    let mut tags: Vec<String> = Vec::new();
+    let mut layers_str: Option<String> = None;
+
+    let mut i = 0;
+    while i < args.len() {
+        let a = &args[i];
+        if a == "create" {
+            i += 1;
+            continue;
         }
-        _ => {
-            eprintln!(
-                "Usage: lean-ctx pack --pr [--base <ref>] [--format markdown|json] [--depth <n>] [--diff-from-stdin] [--root <path>]\n\
-                 Examples:\n\
-                   lean-ctx pack --pr\n\
-                   lean-ctx pack --pr --base main\n\
-                   git diff --name-status main...HEAD | lean-ctx pack --pr --diff-from-stdin\n\
-                   lean-ctx pack --pr --json\n"
-            );
+        if let Some(v) = a.strip_prefix("--name=") {
+            name = Some(v.to_string());
+        } else if a == "--name" {
+            i += 1;
+            if let Some(v) = args.get(i).filter(|v| !v.starts_with("--")) {
+                name = Some(v.clone());
+            }
+        } else if let Some(v) = a.strip_prefix("--version=") {
+            version = v.to_string();
+        } else if a == "--version" {
+            i += 1;
+            if let Some(v) = args.get(i).filter(|v| !v.starts_with("--")) {
+                v.clone_into(&mut version);
+            }
+        } else if let Some(v) = a.strip_prefix("--description=") {
+            description = v.to_string();
+        } else if a == "--description" {
+            i += 1;
+            if let Some(v) = args.get(i).filter(|v| !v.starts_with("--")) {
+                v.clone_into(&mut description);
+            }
+        } else if let Some(v) = a.strip_prefix("--author=") {
+            author = Some(v.to_string());
+        } else if a == "--author" {
+            i += 1;
+            if let Some(v) = args.get(i).filter(|v| !v.starts_with("--")) {
+                author = Some(v.clone());
+            }
+        } else if let Some(v) = a.strip_prefix("--tags=") {
+            tags = v.split(',').map(|s| s.trim().to_string()).collect();
+        } else if let Some(v) = a.strip_prefix("--layers=") {
+            layers_str = Some(v.to_string());
+        }
+        i += 1;
+    }
+
+    let Some(pkg_name) = name else {
+        eprintln!("ERROR: --name is required for pack create");
+        return;
+    };
+
+    let requested_layers: Vec<&str> = layers_str.as_deref().map_or_else(
+        || vec!["knowledge", "graph", "session", "gotchas", "patterns"],
+        |s| s.split(',').map(str::trim).collect(),
+    );
+
+    let mut builder = crate::core::context_package::PackageBuilder::new(&pkg_name, &version)
+        .description(&description)
+        .tags(tags);
+
+    if let Some(ref a) = author {
+        builder = builder.author(a);
+    }
+
+    let phash = crate::core::project_hash::hash_project_root(project_root);
+    builder = builder.project_hash(&phash);
+
+    if requested_layers.contains(&"knowledge") || requested_layers.contains(&"patterns") {
+        builder = builder.add_knowledge_from_project(project_root);
+    }
+    if requested_layers.contains(&"graph") {
+        builder = builder.add_graph_from_project(project_root);
+    }
+    if requested_layers.contains(&"session") {
+        if let Some(session) = crate::core::session::SessionState::load_latest() {
+            builder = builder.add_session(&session);
         }
     }
+    if requested_layers.contains(&"gotchas") {
+        builder = builder.add_gotchas_from_project(project_root);
+    }
+
+    match builder.build() {
+        Ok((manifest, content)) => {
+            let registry = match crate::core::context_package::LocalRegistry::open() {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("ERROR: cannot open registry: {e}");
+                    return;
+                }
+            };
+
+            match registry.install(&manifest, &content) {
+                Ok(dir) => {
+                    println!("Package created successfully:");
+                    println!("  Name:    {}", manifest.name);
+                    println!("  Version: {}", manifest.version);
+                    println!(
+                        "  Layers:  {}",
+                        manifest
+                            .layers
+                            .iter()
+                            .map(crate::core::context_package::PackageLayer::as_str)
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
+                    println!("  Stats:");
+                    println!("    Knowledge facts: {}", manifest.stats.knowledge_facts);
+                    println!("    Graph nodes:     {}", manifest.stats.graph_nodes);
+                    println!("    Graph edges:     {}", manifest.stats.graph_edges);
+                    println!("    Patterns:        {}", manifest.stats.pattern_count);
+                    println!("    Gotchas:         {}", manifest.stats.gotcha_count);
+                    println!(
+                        "    Compression:     {:.1}%",
+                        manifest.stats.compression_ratio * 100.0
+                    );
+                    println!("  Size:    {} bytes", manifest.integrity.byte_size);
+                    println!(
+                        "  SHA256:  {}...{}",
+                        &manifest.integrity.sha256[..8],
+                        &manifest.integrity.sha256[56..]
+                    );
+                    println!("  Stored:  {}", dir.display());
+                }
+                Err(e) => eprintln!("ERROR: install failed: {e}"),
+            }
+        }
+        Err(e) => eprintln!("ERROR: build failed: {e}"),
+    }
+}
+
+fn cmd_pack_install(args: &[String], project_root: &str) {
+    let mut pkg_name: Option<String> = None;
+    let mut pkg_version: Option<String> = None;
+    let mut from_file: Option<String> = None;
+
+    for a in args {
+        if a == "install" {
+            continue;
+        }
+        if let Some(v) = a.strip_prefix("--file=") {
+            from_file = Some(v.to_string());
+        } else if let Some(v) = a.strip_prefix("--version=") {
+            pkg_version = Some(v.to_string());
+        } else if !a.starts_with("--") && pkg_name.is_none() {
+            if a.contains('@') {
+                let parts: Vec<&str> = a.splitn(2, '@').collect();
+                pkg_name = Some(parts[0].to_string());
+                pkg_version = Some(parts[1].to_string());
+            } else {
+                pkg_name = Some(a.clone());
+            }
+        }
+    }
+
+    if let Some(file_path) = from_file {
+        let registry = match crate::core::context_package::LocalRegistry::open() {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("ERROR: {e}");
+                return;
+            }
+        };
+        match registry.import_from_file(std::path::Path::new(&file_path)) {
+            Ok(manifest) => {
+                println!("Imported: {} v{}", manifest.name, manifest.version);
+                apply_package(&manifest.name, &manifest.version, project_root);
+            }
+            Err(e) => eprintln!("ERROR: import failed: {e}"),
+        }
+        return;
+    }
+
+    let Some(name) = pkg_name else {
+        eprintln!("ERROR: package name is required");
+        eprintln!("Usage: lean-ctx pack install <name>[@version] [--file=path]");
+        return;
+    };
+
+    let registry = match crate::core::context_package::LocalRegistry::open() {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("ERROR: {e}");
+            return;
+        }
+    };
+
+    let version = pkg_version.as_deref().unwrap_or_else(|| {
+        registry
+            .list()
+            .ok()
+            .and_then(|entries| {
+                entries
+                    .iter()
+                    .filter(|e| e.name == name)
+                    .max_by(|a, b| a.installed_at.cmp(&b.installed_at))
+                    .map(|e| e.version.clone())
+            })
+            .unwrap_or_default()
+            .leak()
+    });
+
+    apply_package(&name, version, project_root);
+}
+
+fn apply_package(name: &str, version: &str, project_root: &str) {
+    let registry = match crate::core::context_package::LocalRegistry::open() {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("ERROR: {e}");
+            return;
+        }
+    };
+
+    match registry.load_package(name, version) {
+        Ok((manifest, content)) => {
+            match crate::core::context_package::load_package(&manifest, &content, project_root) {
+                Ok(report) => {
+                    println!("{report}");
+                    println!("Package applied successfully.");
+                }
+                Err(e) => eprintln!("ERROR: load failed: {e}"),
+            }
+        }
+        Err(e) => eprintln!("ERROR: {e}"),
+    }
+}
+
+fn cmd_pack_list() {
+    let registry = match crate::core::context_package::LocalRegistry::open() {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("ERROR: {e}");
+            return;
+        }
+    };
+
+    match registry.list() {
+        Ok(entries) => {
+            if entries.is_empty() {
+                println!("No packages installed.");
+                println!("Create one with: lean-ctx pack create --name <name>");
+                return;
+            }
+
+            let header = format!(
+                "{:<24} {:<10} {:<30} {:<10} AUTO-LOAD",
+                "NAME", "VERSION", "LAYERS", "SIZE"
+            );
+            println!("{header}");
+            println!("{}", "-".repeat(84));
+
+            for e in &entries {
+                println!(
+                    "{:<24} {:<10} {:<30} {:<10} {}",
+                    e.name,
+                    e.version,
+                    e.layers.join(", "),
+                    format_bytes(e.byte_size),
+                    if e.auto_load { "yes" } else { "no" }
+                );
+            }
+            println!("\n{} package(s) installed.", entries.len());
+        }
+        Err(e) => eprintln!("ERROR: {e}"),
+    }
+}
+
+fn cmd_pack_info(args: &[String]) {
+    let pkg_ref = args.iter().find(|a| !a.starts_with("--") && *a != "info");
+    let Some(pkg_ref) = pkg_ref else {
+        eprintln!("Usage: lean-ctx pack info <name>[@version]");
+        return;
+    };
+
+    let (name, version) = if pkg_ref.contains('@') {
+        let parts: Vec<&str> = pkg_ref.splitn(2, '@').collect();
+        (parts[0], Some(parts[1]))
+    } else {
+        (pkg_ref.as_str(), None)
+    };
+
+    let registry = match crate::core::context_package::LocalRegistry::open() {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("ERROR: {e}");
+            return;
+        }
+    };
+
+    let ver = version.unwrap_or_else(|| {
+        registry
+            .list()
+            .ok()
+            .and_then(|entries| {
+                entries
+                    .iter()
+                    .filter(|e| e.name == name)
+                    .max_by(|a, b| a.installed_at.cmp(&b.installed_at))
+                    .map(|e| e.version.clone())
+            })
+            .unwrap_or_default()
+            .leak()
+    });
+
+    match registry.load_package(name, ver) {
+        Ok((manifest, content)) => {
+            println!("Package: {} v{}", manifest.name, manifest.version);
+            if !manifest.description.is_empty() {
+                println!("Description: {}", manifest.description);
+            }
+            if let Some(ref a) = manifest.author {
+                println!("Author: {a}");
+            }
+            println!(
+                "Created: {}",
+                manifest.created_at.format("%Y-%m-%d %H:%M UTC")
+            );
+            println!(
+                "Layers: {}",
+                manifest
+                    .layers
+                    .iter()
+                    .map(crate::core::context_package::PackageLayer::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+            if !manifest.tags.is_empty() {
+                println!("Tags: {}", manifest.tags.join(", "));
+            }
+            println!("\nStats:");
+            println!("  Knowledge facts:  {}", manifest.stats.knowledge_facts);
+            println!("  Graph nodes:      {}", manifest.stats.graph_nodes);
+            println!("  Graph edges:      {}", manifest.stats.graph_edges);
+            println!("  Patterns:         {}", manifest.stats.pattern_count);
+            println!("  Gotchas:          {}", manifest.stats.gotcha_count);
+            println!(
+                "  Compression:      {:.1}%",
+                manifest.stats.compression_ratio * 100.0
+            );
+            println!("  Est. tokens:      ~{}", content.estimated_token_count());
+            println!("\nIntegrity:");
+            println!("  SHA256:       {}", manifest.integrity.sha256);
+            println!("  Content hash: {}", manifest.integrity.content_hash);
+            println!(
+                "  Size:         {}",
+                format_bytes(manifest.integrity.byte_size)
+            );
+            println!("\nProvenance:");
+            println!(
+                "  Tool:    {} v{}",
+                manifest.provenance.tool, manifest.provenance.tool_version
+            );
+            if let Some(ref h) = manifest.provenance.project_hash {
+                println!("  Project: {h}");
+            }
+        }
+        Err(e) => eprintln!("ERROR: {e}"),
+    }
+}
+
+fn cmd_pack_remove(args: &[String]) {
+    let pkg_ref = args
+        .iter()
+        .find(|a| !a.starts_with("--") && *a != "remove" && *a != "rm");
+
+    let Some(pkg_ref) = pkg_ref else {
+        eprintln!("Usage: lean-ctx pack remove <name>[@version]");
+        return;
+    };
+
+    let (name, version) = if pkg_ref.contains('@') {
+        let parts: Vec<&str> = pkg_ref.splitn(2, '@').collect();
+        (parts[0], Some(parts[1]))
+    } else {
+        (pkg_ref.as_str(), None)
+    };
+
+    let registry = match crate::core::context_package::LocalRegistry::open() {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("ERROR: {e}");
+            return;
+        }
+    };
+
+    match registry.remove(name, version) {
+        Ok(0) => eprintln!("No matching package found: {name}"),
+        Ok(n) => println!("Removed {n} package(s)."),
+        Err(e) => eprintln!("ERROR: {e}"),
+    }
+}
+
+fn cmd_pack_export(args: &[String]) {
+    let mut pkg_ref: Option<&str> = None;
+    let mut output: Option<String> = None;
+
+    for a in args {
+        if a == "export" {
+            continue;
+        }
+        if let Some(v) = a.strip_prefix("--output=") {
+            output = Some(v.to_string());
+        } else if let Some(v) = a.strip_prefix("-o=") {
+            output = Some(v.to_string());
+        } else if !a.starts_with("--") && pkg_ref.is_none() {
+            pkg_ref = Some(a.as_str());
+        }
+    }
+
+    let Some(pkg_ref) = pkg_ref else {
+        eprintln!("Usage: lean-ctx pack export <name>[@version] [--output=path]");
+        return;
+    };
+
+    let (name, version) = if pkg_ref.contains('@') {
+        let parts: Vec<&str> = pkg_ref.splitn(2, '@').collect();
+        (parts[0].to_string(), parts[1].to_string())
+    } else {
+        let registry = crate::core::context_package::LocalRegistry::open().unwrap();
+        let ver = registry
+            .list()
+            .ok()
+            .and_then(|entries| {
+                entries
+                    .iter()
+                    .filter(|e| e.name == pkg_ref)
+                    .max_by(|a, b| a.installed_at.cmp(&b.installed_at))
+                    .map(|e| e.version.clone())
+            })
+            .unwrap_or_default();
+        (pkg_ref.to_string(), ver)
+    };
+
+    let out_path = output.unwrap_or_else(|| format!("{name}-{version}.lctxpkg"));
+
+    let registry = match crate::core::context_package::LocalRegistry::open() {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("ERROR: {e}");
+            return;
+        }
+    };
+
+    match registry.export_to_file(&name, &version, &PathBuf::from(&out_path)) {
+        Ok(bytes) => {
+            println!("Exported: {out_path} ({})", format_bytes(bytes));
+        }
+        Err(e) => eprintln!("ERROR: {e}"),
+    }
+}
+
+fn cmd_pack_import(args: &[String], project_root: &str) {
+    let file_path = args.iter().find(|a| !a.starts_with("--") && *a != "import");
+    let apply = args.iter().any(|a| a == "--apply");
+
+    let Some(file_path) = file_path else {
+        eprintln!("Usage: lean-ctx pack import <file.lctxpkg> [--apply]");
+        return;
+    };
+
+    let registry = match crate::core::context_package::LocalRegistry::open() {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("ERROR: {e}");
+            return;
+        }
+    };
+
+    match registry.import_from_file(std::path::Path::new(file_path)) {
+        Ok(manifest) => {
+            println!("Imported: {} v{}", manifest.name, manifest.version);
+            println!(
+                "  Layers: {}",
+                manifest
+                    .layers
+                    .iter()
+                    .map(crate::core::context_package::PackageLayer::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+            println!("  Size:   {}", format_bytes(manifest.integrity.byte_size));
+
+            if apply {
+                apply_package(&manifest.name, &manifest.version, project_root);
+            } else {
+                println!("\nTo apply this package to the current project:");
+                println!("  lean-ctx pack install {}", manifest.name);
+            }
+        }
+        Err(e) => eprintln!("ERROR: import failed: {e}"),
+    }
+}
+
+fn cmd_pack_auto_load(args: &[String]) {
+    let mut pkg_ref: Option<&str> = None;
+    let mut enable = true;
+
+    for a in args {
+        if a == "auto-load" {
+            continue;
+        }
+        if a == "--off" || a == "--disable" {
+            enable = false;
+        } else if !a.starts_with("--") && pkg_ref.is_none() {
+            pkg_ref = Some(a.as_str());
+        }
+    }
+
+    let Some(pkg_ref) = pkg_ref else {
+        let registry = match crate::core::context_package::LocalRegistry::open() {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("ERROR: {e}");
+                return;
+            }
+        };
+        match registry.auto_load_packages() {
+            Ok(entries) => {
+                if entries.is_empty() {
+                    println!("No packages set for auto-load.");
+                } else {
+                    println!("Auto-load packages:");
+                    for e in &entries {
+                        println!("  {} v{}", e.name, e.version);
+                    }
+                }
+            }
+            Err(e) => eprintln!("ERROR: {e}"),
+        }
+        return;
+    };
+
+    let (name, version) = if pkg_ref.contains('@') {
+        let parts: Vec<&str> = pkg_ref.splitn(2, '@').collect();
+        (parts[0], parts[1].to_string())
+    } else {
+        let registry = crate::core::context_package::LocalRegistry::open().unwrap();
+        let ver = registry
+            .list()
+            .ok()
+            .and_then(|entries| {
+                entries
+                    .iter()
+                    .filter(|e| e.name == pkg_ref)
+                    .max_by(|a, b| a.installed_at.cmp(&b.installed_at))
+                    .map(|e| e.version.clone())
+            })
+            .unwrap_or_default();
+        (pkg_ref, ver)
+    };
+
+    let registry = match crate::core::context_package::LocalRegistry::open() {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("ERROR: {e}");
+            return;
+        }
+    };
+
+    match registry.set_auto_load(name, &version, enable) {
+        Ok(()) => {
+            if enable {
+                println!("Auto-load enabled for {name}@{version}");
+            } else {
+                println!("Auto-load disabled for {name}@{version}");
+            }
+        }
+        Err(e) => eprintln!("ERROR: {e}"),
+    }
+}
+
+fn format_bytes(bytes: u64) -> String {
+    if bytes < 1024 {
+        format!("{bytes} B")
+    } else if bytes < 1024 * 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else {
+        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+    }
+}
+
+fn print_usage() {
+    eprintln!(
+        "lean-ctx pack — Context Package Manager\n\n\
+         SUBCOMMANDS:\n\
+         \n\
+         Create & Manage:\n\
+         \x20 create   --name <name> [--version <v>] [--description <d>] [--author <a>] [--tags <t>] [--layers <l>]\n\
+         \x20 list     List all installed packages\n\
+         \x20 info     <name>[@version]  Show package details\n\
+         \x20 remove   <name>[@version]  Remove a package\n\
+         \n\
+         Share & Distribute:\n\
+         \x20 export   <name>[@version] [--output=<path>]  Export to .lctxpkg file\n\
+         \x20 import   <file.lctxpkg> [--apply]            Import from file\n\
+         \x20 install  <name>[@version] [--file=<path>]    Apply package to current project\n\
+         \n\
+         Automation:\n\
+         \x20 auto-load [<name>[@version]] [--off]          Manage auto-load packages\n\
+         \n\
+         PR Pack:\n\
+         \x20 pr       [--base <ref>] [--format json|markdown] [--depth <n>]  PR context pack\n\
+         \n\
+         EXAMPLES:\n\
+         \x20 lean-ctx pack create --name rust-patterns --description \"Rust best practices\"\n\
+         \x20 lean-ctx pack export rust-patterns --output=rust-patterns.lctxpkg\n\
+         \x20 lean-ctx pack import rust-patterns.lctxpkg --apply\n\
+         \x20 lean-ctx pack auto-load rust-patterns\n\
+         \x20 lean-ctx pack list\n"
+    );
 }

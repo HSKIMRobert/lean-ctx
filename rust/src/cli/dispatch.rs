@@ -1076,6 +1076,18 @@ pub fn run() {
                 super::cmd_session_action(&rest);
                 return;
             }
+            "control" | "context-control" => {
+                super::cmd_control(&rest);
+                return;
+            }
+            "plan" | "context-plan" => {
+                super::cmd_plan(&rest);
+                return;
+            }
+            "compile" | "context-compile" => {
+                super::cmd_compile(&rest);
+                return;
+            }
             "knowledge" => {
                 super::cmd_knowledge(&rest);
                 return;
@@ -1152,6 +1164,7 @@ pub fn run() {
                 return;
             }
             "hook" => {
+                hook_handlers::mark_hook_environment();
                 hook_handlers::arm_watchdog(std::time::Duration::from_secs(5));
                 let action = rest.first().map_or("help", std::string::String::as_str);
                 match action {
@@ -1350,7 +1363,7 @@ fn print_help() {
     println!(
         "lean-ctx {version} — Context Runtime for AI Agents
 
-95+ compression patterns | 56 MCP tools | Context Continuity Protocol
+95+ compression patterns | 57 MCP tools | Context Continuity Protocol
 
 USAGE:
     lean-ctx                       Start MCP server (stdio)

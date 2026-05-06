@@ -1,4 +1,6 @@
 use crate::core::archive;
+use crate::core::context_handles::HandleRegistry;
+use crate::core::context_ledger::ContextLedger;
 
 pub fn handle(args: &serde_json::Value) -> String {
     let action = args
@@ -12,10 +14,59 @@ pub fn handle(args: &serde_json::Value) -> String {
     }
 }
 
+/// Try to resolve a handle reference (@F1, @K1, etc.) to a file path.
+/// Returns None if the ID is not a handle reference.
+pub fn resolve_handle_ref(id: &str) -> Option<String> {
+    let clean = id.strip_prefix('@').unwrap_or(id);
+    if clean.len() < 2 {
+        return None;
+    }
+    let prefix = clean.chars().next()?;
+    if !matches!(prefix, 'F' | 'S' | 'K' | 'M' | 'P') {
+        return None;
+    }
+    if !clean[1..].chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+
+    let ledger = ContextLedger::load();
+    let mut registry = HandleRegistry::new();
+    for entry in &ledger.entries {
+        if let (Some(ref item_id), Some(ref kind)) = (&entry.id, &entry.kind) {
+            let phi = entry.phi.unwrap_or(0.5);
+            let view_costs = entry.view_costs.clone().unwrap_or_else(|| {
+                crate::core::context_field::ViewCosts::from_full_tokens(entry.original_tokens)
+            });
+            registry.register(
+                item_id.clone(),
+                *kind,
+                &entry.path,
+                &format!("{} {}L", entry.path, entry.original_tokens),
+                &view_costs,
+                phi,
+                entry
+                    .state
+                    .as_ref()
+                    .is_some_and(|s| *s == crate::core::context_field::ContextState::Pinned),
+            );
+        }
+    }
+
+    registry.resolve(clean).map(|h| h.source_path.clone())
+}
+
 fn handle_retrieve(args: &serde_json::Value) -> String {
     let Some(id) = args.get("id").and_then(|v| v.as_str()) else {
-        return "ERROR: 'id' parameter is required. Use ctx_expand(action=\"list\") to see available archives.".to_string();
+        return "ERROR: 'id' parameter is required. Use ctx_expand(action=\"list\") to see available archives, or pass a handle ref like @F1.".to_string();
     };
+
+    // Handle reference resolution: @F1, @K1, @S1, etc.
+    if let Some(path) = resolve_handle_ref(id) {
+        let mode = args.get("mode").and_then(|v| v.as_str()).unwrap_or("full");
+        return format!(
+            "[handle:{id} -> {path}]\nUse ctx_read(path=\"{path}\", mode=\"{mode}\") to load content."
+        );
+    }
 
     if let Some(pattern) = args.get("search").and_then(|v| v.as_str()) {
         return match archive::retrieve_with_search(id, pattern) {

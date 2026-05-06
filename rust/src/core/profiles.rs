@@ -352,6 +352,7 @@ fn builtin_exploration() -> Profile {
         },
         compression: CompressionConfig {
             terse_mode: Some(true),
+            output_density: Some("terse".to_string()),
             ..CompressionConfig::default()
         },
         translation: TranslationConfig::default(),

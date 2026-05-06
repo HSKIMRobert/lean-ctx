@@ -473,9 +473,10 @@ impl ServerHandler for LeanCtxServer {
                     .or_else(|| helpers::get_str(args, "path"))
                     .unwrap_or_default();
                 let session_id = self.session.read().await.id.clone();
-                let tokens = crate::core::tokens::count_tokens(&result_text);
-                archive::store(name, &cmd, &result_text, Some(&session_id))
-                    .map(|id| archive::format_hint(&id, result_text.len(), tokens))
+                let to_store = crate::core::redaction::redact_text_if_enabled(&result_text);
+                let tokens = crate::core::tokens::count_tokens(&to_store);
+                archive::store(name, &cmd, &to_store, Some(&session_id))
+                    .map(|id| archive::format_hint(&id, to_store.len(), tokens))
             } else {
                 None
             }
@@ -552,22 +553,23 @@ impl ServerHandler for LeanCtxServer {
             }
         }
 
-        let output_token_count = crate::core::tokens::count_tokens(&result_text);
-
         if !minimal && name == "ctx_shell" {
             let cmd = helpers::get_str(args, "command").unwrap_or_default();
             let calls = self.tool_calls.read().await;
             let last_original = calls.last().map_or(0, |c| c.original_tokens);
             drop(calls);
+            let pre_hint_tokens = crate::core::tokens::count_tokens(&result_text);
             if let Some(hint) = crate::tools::autonomy::shell_efficiency_hint(
                 &self.autonomy,
                 &cmd,
                 last_original,
-                output_token_count,
+                pre_hint_tokens,
             ) {
                 result_text = format!("{result_text}\n{hint}");
             }
         }
+
+        let output_token_count = crate::core::tokens::count_tokens(&result_text);
 
         {
             let input = helpers::canonical_args_string(args);

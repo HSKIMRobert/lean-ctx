@@ -24,7 +24,7 @@ This catalog is the single feature inventory for LeanCTX at release/runtime leve
 - Granular MCP tools: **56**
 - Unified MCP tools: **5**
 - Shell pattern modules: **56** (fd, just, ninja, clang, extended cargo run/bench added in 3.4.x)
-- CLI commands: **75+** (knowledge, overview, compress, serve --daemon/--stop/--status, session subcommands added in 3.4.x)
+- CLI commands: **80+** (knowledge, overview, compress, serve --daemon/--stop/--status, session, pack create/list/info/export/import/install/remove/auto-load subcommands added in 3.4.x)
 - Read modes: **10** (`auto`, `full`, `map`, `signatures`, `diff`, `aggressive`, `entropy`, `task`, `reference`, `lines:N-M`)
 - Positioning: Context Runtime for AI agents (shell hook + context server + setup integrations)
 
@@ -218,6 +218,38 @@ This catalog is the single feature inventory for LeanCTX at release/runtime leve
 - `ctx_session action="configure" terse=true` enables concise response mode
 - Injects instruction into resume block: focus on code/actions, avoid filler
 - Survives context compaction via snapshot
+
+#### Context Package System (3.4.7)
+
+Context packages bundle Knowledge, Graph, Session, Patterns, and Gotchas into portable `.lctxpkg` files that can be shared, versioned, and auto-loaded across projects.
+
+##### Package Layers
+- **Knowledge**: facts, patterns, consolidated insights from ProjectKnowledge
+- **Graph**: nodes + edges from the Property Graph (full SQLite export)
+- **Session**: task description, findings, decisions, next steps, files touched
+- **Patterns**: project patterns extracted from knowledge
+- **Gotchas**: gotcha entries with triggers, resolutions, file patterns
+
+##### CLI Commands (9 subcommands under `lean-ctx pack`)
+- `create` — build package from current project context (knowledge, graph, session, gotchas)
+- `list` — list all installed packages with layers, size, auto-load status
+- `info` — detailed package view (stats, integrity, provenance, estimated tokens)
+- `remove` — remove package from local registry
+- `export` — export to portable `.lctxpkg` file (JSON bundle with SHA-256 integrity)
+- `import` — import from `.lctxpkg` file into local registry
+- `install` — apply package to current project (merge knowledge, import graph, import gotchas)
+- `auto-load` — enable/disable automatic loading on `ctx_overview` session start
+- `pr` — existing PR context pack (unchanged)
+
+##### Premium Features
+- **SHA-256 Content Integrity**: canonical compact JSON hashing, verified on every load
+- **Atomic Writes**: tmp + rename pattern prevents corruption
+- **Knowledge Merge**: duplicate detection (category + key + value), confidence capped at 0.8 for imports
+- **Graph Overlay**: nodes and edges imported directly into the SQLite Property Graph
+- **Gotcha Import**: ID-based dedup, severity mapping, confidence capping
+- **Auto-Load**: packages flagged `auto_load=true` loaded on every `ctx_overview` call
+- **Schema Versioning**: `CONTEXT_PACKAGE_V1_SCHEMA_VERSION` in `contracts.rs`
+- **Compression Stats**: gzip-based compression ratio tracked in manifest
 
 ---
 

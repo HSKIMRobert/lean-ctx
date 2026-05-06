@@ -76,6 +76,8 @@ pub struct FileTouched {
     pub tokens: usize,
     #[serde(default)]
     pub stale: bool,
+    #[serde(default)]
+    pub context_item_id: Option<String>,
 }
 
 /// Snapshot of a test run with pass/fail counts.
@@ -281,6 +283,7 @@ impl SessionState {
                 existing.file_ref = Some(r.to_string());
             }
         } else {
+            let item_id = crate::core::context_field::ContextItemId::from_file(path);
             self.files_touched.push(FileTouched {
                 path: path.to_string(),
                 file_ref: file_ref.map(std::string::ToString::to_string),
@@ -289,6 +292,7 @@ impl SessionState {
                 last_mode: mode.to_string(),
                 tokens,
                 stale: false,
+                context_item_id: Some(item_id.to_string()),
             });
             while self.files_touched.len() > MAX_FILES {
                 self.files_touched.remove(0);
@@ -990,7 +994,7 @@ impl SessionState {
     /// to a background thread via `write_to_disk()`.
     pub fn prepare_save(&mut self) -> Result<PreparedSave, String> {
         let dir = sessions_dir().ok_or("cannot determine home directory")?;
-        let compaction_snapshot = if self.task.is_some() {
+        let compaction_snapshot = if self.stats.total_tool_calls > 0 {
             Some(self.build_compaction_snapshot())
         } else {
             None

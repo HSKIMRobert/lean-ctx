@@ -605,7 +605,6 @@ fn label_for_root(root: &Path) -> String {
         .unwrap_or_else(|| root.to_string_lossy().to_string())
 }
 
-#[cfg(feature = "embeddings")]
 fn graph_rrf_ranks_for_search_root(
     root: &Path,
 ) -> Option<std::collections::HashMap<String, usize>> {
@@ -632,7 +631,6 @@ fn graph_rrf_ranks_for_search_root(
     crate::core::graph_context::graph_neighbor_ranks_for_recent_files(&root_s, &recent, 40, 120)
 }
 
-#[cfg(feature = "embeddings")]
 fn path_under_search_root(path: &str, root: &Path) -> bool {
     let p = std::path::Path::new(path);
     if p.is_absolute() {
@@ -720,16 +718,36 @@ fn hybrid_search_mode(
         if filter.is_active() {
             results.retain(|x| filter.matches(&x.file_path));
         }
+
+        if let Some(graph_ranks) = graph_rrf_ranks_for_search_root(root) {
+            const GRAPH_RRF_K: f64 = 60.0;
+            for r in &mut results {
+                if let Some(&rank) = graph_ranks.get(&r.file_path) {
+                    r.score += 1.0 / (GRAPH_RRF_K + rank as f64 + 1.0);
+                }
+            }
+            results.sort_by(|a, b| {
+                b.score
+                    .partial_cmp(&a.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+        }
+
         results.truncate(top_k);
+        let graph_tag = if graph_rrf_ranks_for_search_root(root).is_some() {
+            "+graph"
+        } else {
+            ""
+        };
         let header = if compact {
             format!(
-                "semantic_search(bm25,{top_k}) → {} results, {} chunks indexed\n",
+                "semantic_search(bm25{graph_tag},{top_k}) → {} results, {} chunks indexed\n",
                 results.len(),
                 index.doc_count
             )
         } else {
             format!(
-                "Semantic search (BM25): \"{}\" ({} results from {} indexed chunks)\n",
+                "Semantic search (BM25{graph_tag}): \"{}\" ({} results from {} indexed chunks)\n",
                 truncate_query(query, 60),
                 results.len(),
                 index.doc_count,

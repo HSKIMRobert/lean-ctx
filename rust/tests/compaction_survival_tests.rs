@@ -115,6 +115,7 @@ fn resume_block_with_files() {
             last_mode: "full".to_string(),
             tokens: 100,
             stale: false,
+            context_item_id: None,
         });
     session
         .files_touched
@@ -126,6 +127,7 @@ fn resume_block_with_files() {
             last_mode: "full".to_string(),
             tokens: 50,
             stale: false,
+            context_item_id: None,
         });
     let block = session.build_resume_block();
     assert!(

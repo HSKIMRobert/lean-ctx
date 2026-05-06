@@ -34,16 +34,17 @@ pub async fn start(port: Option<u16>, host: Option<String>) {
         return;
     }
 
-    let token = if is_local {
-        None
-    } else {
-        let t = generate_token();
-        save_token(&t);
-        Some(Arc::new(t))
-    };
+    // Always enable auth (even on loopback) to prevent cross-origin reads of /api/*
+    // from a malicious website (CORS is not a reliable boundary for localhost services).
+    let t = generate_token();
+    save_token(&t);
+    let token = Some(Arc::new(t));
 
-    if !is_local {
-        if let Some(t) = token.as_ref() {
+    if let Some(t) = token.as_ref() {
+        if is_local {
+            println!("  Auth: enabled (local)");
+            println!("  Browser URL:  http://localhost:{port}/?token={t}");
+        } else {
             eprintln!(
                 "  \x1b[33m⚠\x1b[0m Binding to {host} — authentication enabled.\n  \
                  Bearer token: \x1b[1;32m{t}\x1b[0m\n  \
@@ -75,7 +76,11 @@ pub async fn start(port: Option<u16>, host: Option<String>) {
     println!("  Press Ctrl+C to stop\n");
 
     if is_local {
-        open_browser(&format!("http://localhost:{port}"));
+        if let Some(t) = token.as_ref() {
+            open_browser(&format!("http://localhost:{port}/?token={t}"));
+        } else {
+            open_browser(&format!("http://localhost:{port}"));
+        }
     }
     if crate::shell::is_container() && is_local {
         println!("  Tip (Docker): bind 0.0.0.0 + publish port:");
@@ -93,19 +98,32 @@ pub async fn start(port: Option<u16>, host: Option<String>) {
 }
 
 fn generate_token() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let seed = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    format!("lctx_{:016x}", seed ^ 0xdeadbeef_cafebabe)
+    let mut bytes = [0u8; 32];
+    let _ = getrandom::fill(&mut bytes);
+    format!("lctx_{}", hex_lower(&bytes))
 }
 
 fn save_token(token: &str) {
     if let Ok(dir) = crate::core::data_dir::lean_ctx_data_dir() {
         let _ = std::fs::create_dir_all(&dir);
-        let _ = std::fs::write(dir.join("dashboard.token"), token);
+        let path = dir.join("dashboard.token");
+        let _ = std::fs::write(&path, token);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+        }
     }
+}
+
+fn hex_lower(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for &b in bytes {
+        out.push(HEX[(b >> 4) as usize] as char);
+        out.push(HEX[(b & 0x0f) as usize] as char);
+    }
+    out
 }
 
 fn open_browser(url: &str) {
@@ -191,12 +209,12 @@ async fn handle_request(mut stream: tokio::net::TcpStream, token: Option<Arc<Str
     let is_api = path.starts_with("/api/");
 
     if let Some(ref expected) = token {
+        // Only allow Authorization header for /api/*.
+        // Query token is accepted only to bootstrap the initial HTML page, then JS
+        // uses Authorization headers for subsequent /api requests.
         let has_header_auth = check_auth(&request, expected);
-        let has_query_auth = query_token
-            .as_deref()
-            .is_some_and(|t| t == expected.as_str());
 
-        if is_api && !has_header_auth && !has_query_auth {
+        if is_api && !has_header_auth {
             let body = r#"{"error":"unauthorized"}"#;
             let response = format!(
                 "HTTP/1.1 401 Unauthorized\r\n\
@@ -238,7 +256,6 @@ async fn handle_request(mut stream: tokio::net::TcpStream, token: Option<Arc<Str
          Content-Type: {content_type}\r\n\
          Content-Length: {}\r\n\
          {cache_header}\
-         Access-Control-Allow-Origin: *\r\n\
          Connection: close\r\n\
          \r\n\
          {body}",
@@ -877,16 +894,19 @@ fn route_response(
         }
         "/" | "/index.html" => {
             let mut html = DASHBOARD_HTML.to_string();
-            if let Some(tok) = query_token {
+            if let Some(t) = token {
+                let expected = t.as_str();
+                let chosen = query_token
+                    .and_then(|q| {
+                        if q.as_str() == expected {
+                            Some(q.as_str())
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(expected);
                 let script = format!(
-                    "<script>window.__LEAN_CTX_TOKEN__=\"{}\";</script>",
-                    tok.replace('"', "")
-                );
-                html = html.replacen("<head>", &format!("<head>{script}"), 1);
-            } else if let Some(t) = token {
-                let script = format!(
-                    "<script>window.__LEAN_CTX_TOKEN__=\"{}\";</script>",
-                    t.as_str()
+                    "<script>window.__LEAN_CTX_TOKEN__=\"{chosen}\";try{{if(location.search.includes('token=')){{history.replaceState(null,'',location.pathname);}}}}catch(e){{}}</script>"
                 );
                 html = html.replacen("<head>", &format!("<head>{script}"), 1);
             }
@@ -914,6 +934,106 @@ fn route_response(
                 "mode_distribution": ledger.mode_distribution(),
                 "entries": ledger.entries.iter().take(50).collect::<Vec<_>>(),
             });
+            let json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+            ("200 OK", "application/json", json)
+        }
+        "/api/context-control" => {
+            let project_root = detect_project_root_for_dashboard();
+            let mut ledger = crate::core::context_ledger::ContextLedger::load();
+            let mut overlays = crate::core::context_overlay::OverlayStore::load_project(
+                &std::path::PathBuf::from(&project_root),
+            );
+            let mut args = serde_json::Map::new();
+            args.insert(
+                "action".to_string(),
+                serde_json::Value::String("list".to_string()),
+            );
+            let result = crate::tools::ctx_control::handle(Some(&args), &mut ledger, &mut overlays);
+            ledger.save();
+            let _ = overlays.save_project(&std::path::PathBuf::from(&project_root));
+            let payload = serde_json::json!({ "result": result });
+            let json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+            ("200 OK", "application/json", json)
+        }
+        "/api/context-field" => {
+            let ledger = crate::core::context_ledger::ContextLedger::load();
+            let field = crate::core::context_field::ContextField::new();
+            let budget = crate::core::context_field::TokenBudget {
+                total: ledger.window_size,
+                used: ledger.total_tokens_sent,
+            };
+            let items: Vec<serde_json::Value> = ledger
+                .entries
+                .iter()
+                .map(|e| {
+                    let phi = e.phi.unwrap_or_else(|| {
+                        field.compute_phi(&crate::core::context_field::FieldSignals {
+                            relevance: 0.3,
+                            ..Default::default()
+                        })
+                    });
+                    serde_json::json!({
+                        "path": e.path,
+                        "phi": phi,
+                        "state": e.state,
+                        "view": e.active_view,
+                        "tokens": e.sent_tokens,
+                        "kind": e.kind,
+                    })
+                })
+                .collect();
+            let payload = serde_json::json!({
+                "temperature": budget.temperature(),
+                "budget_total": budget.total,
+                "budget_used": budget.used,
+                "budget_remaining": budget.remaining(),
+                "items": items,
+            });
+            let json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+            ("200 OK", "application/json", json)
+        }
+        "/api/context-handles" => {
+            let ledger = crate::core::context_ledger::ContextLedger::load();
+            let project_root = detect_project_root_for_dashboard();
+            let policies = crate::core::context_policies::PolicySet::load_project(
+                &std::path::PathBuf::from(&project_root),
+            );
+            let candidates = crate::tools::ctx_plan::plan_to_candidates(&ledger, &policies);
+            let mut registry = crate::core::context_handles::HandleRegistry::new();
+            for c in &candidates {
+                if c.state == crate::core::context_field::ContextState::Excluded {
+                    continue;
+                }
+                let summary = format!("{} {}", c.path, c.selected_view.as_str());
+                registry.register(
+                    c.id.clone(),
+                    c.kind,
+                    &c.path,
+                    &summary,
+                    &c.view_costs,
+                    c.phi,
+                    c.pinned,
+                );
+            }
+            let json = serde_json::to_string(&registry).unwrap_or_else(|_| "{}".to_string());
+            ("200 OK", "application/json", json)
+        }
+        "/api/context-overlay-history" => {
+            let project_root = detect_project_root_for_dashboard();
+            let store = crate::core::context_overlay::OverlayStore::load_project(
+                &std::path::PathBuf::from(&project_root),
+            );
+            let json = serde_json::to_string(store.all()).unwrap_or_else(|_| "[]".to_string());
+            ("200 OK", "application/json", json)
+        }
+        "/api/context-plan" => {
+            let ledger = crate::core::context_ledger::ContextLedger::load();
+            let project_root = detect_project_root_for_dashboard();
+            let policies = crate::core::context_policies::PolicySet::load_project(
+                &std::path::PathBuf::from(&project_root),
+            );
+            let text = crate::tools::ctx_plan::handle(None, &ledger, &policies);
+            let payload = serde_json::json!({ "plan": text });
             let json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
             ("200 OK", "application/json", json)
         }

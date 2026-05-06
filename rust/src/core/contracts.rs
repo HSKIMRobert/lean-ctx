@@ -20,6 +20,7 @@ pub const A2A_SNAPSHOT_V1_SCHEMA_VERSION: u32 = 1;
 pub const MEMORY_BOUNDARY_V1_SCHEMA_VERSION: u32 = 1;
 pub const GOTCHAS_REMINDERS_V1_SCHEMA_VERSION: u32 = 1;
 pub const PROVIDER_FRAMEWORK_V1_SCHEMA_VERSION: u32 = 1;
+pub const CONTEXT_PACKAGE_V1_SCHEMA_VERSION: u32 = 1;
 
 // Documentation-level contracts (do not have a schema field in payloads).
 pub const HTTP_MCP_CONTRACT_VERSION: u32 = 1;
@@ -102,6 +103,10 @@ pub fn versions_kv() -> BTreeMap<&'static str, u32> {
         (
             "leanctx.contract.provider_framework_v1.schema_version",
             PROVIDER_FRAMEWORK_V1_SCHEMA_VERSION,
+        ),
+        (
+            "leanctx.contract.context_package_v1.schema_version",
+            CONTEXT_PACKAGE_V1_SCHEMA_VERSION,
         ),
         (
             "leanctx.contract.http_mcp.contract_version",

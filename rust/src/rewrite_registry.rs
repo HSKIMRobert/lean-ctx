@@ -56,6 +56,10 @@ pub const REWRITE_COMMANDS: &[RewriteEntry] = &[
     re("make", Category::Build),
     // Search (only in shell aliases, NOT in hook rewrite to avoid overriding native tools)
     re("rg", Category::Search),
+    // File read alternatives (rewritten to lean-ctx read, not lean-ctx -c)
+    re("cat", Category::FileRead),
+    re("head", Category::FileRead),
+    re("tail", Category::FileRead),
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -67,6 +71,7 @@ pub enum Category {
     Infra,
     Http,
     Search,
+    FileRead,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -80,11 +85,11 @@ const fn re(command: &'static str, category: Category) -> RewriteEntry {
 }
 
 /// Commands eligible for PreToolUse hook rewriting (IDE hooks).
-/// Excludes `rg` (search tools should use native Read/Grep in IDEs).
+/// Excludes `rg` (search tools) and `FileRead` (handled separately in hook_handlers).
 pub fn hook_prefixes() -> Vec<String> {
     REWRITE_COMMANDS
         .iter()
-        .filter(|e| e.category != Category::Search)
+        .filter(|e| !matches!(e.category, Category::Search | Category::FileRead))
         .map(|e| format!("{} ", e.command))
         .collect()
 }
@@ -94,9 +99,21 @@ pub fn hook_prefixes() -> Vec<String> {
 pub fn hook_bare_commands() -> Vec<&'static str> {
     REWRITE_COMMANDS
         .iter()
-        .filter(|e| e.category != Category::Search)
+        .filter(|e| !matches!(e.category, Category::Search | Category::FileRead))
         .map(|e| e.command)
         .collect()
+}
+
+/// Check if a command is a file-read alternative (cat/head/tail) that should be
+/// rewritten to `lean-ctx read` rather than `lean-ctx -c`.
+pub fn is_file_read_command(cmd: &str) -> bool {
+    REWRITE_COMMANDS
+        .iter()
+        .filter(|e| e.category == Category::FileRead)
+        .any(|e| {
+            let prefix = format!("{} ", e.command);
+            cmd.starts_with(&prefix) || cmd == e.command
+        })
 }
 
 /// All command names for shell alias generation.
@@ -109,7 +126,7 @@ pub fn shell_alias_commands() -> Vec<&'static str> {
 pub fn bash_case_pattern() -> String {
     REWRITE_COMMANDS
         .iter()
-        .filter(|e| e.category != Category::Search)
+        .filter(|e| !matches!(e.category, Category::Search | Category::FileRead))
         .map(|e| {
             if e.command.contains('-') {
                 format!("{}*", e.command.replace('-', r"\-"))
@@ -127,9 +144,10 @@ pub fn shell_alias_list() -> String {
 }
 
 /// Check if a command string matches a rewritable prefix (for hook handlers).
+/// Excludes Search and FileRead (both have dedicated rewrite paths).
 pub fn is_rewritable_command(cmd: &str) -> bool {
     for entry in REWRITE_COMMANDS {
-        if entry.category == Category::Search {
+        if matches!(entry.category, Category::Search | Category::FileRead) {
             continue;
         }
         let prefix = format!("{} ", entry.command);
@@ -157,9 +175,12 @@ mod tests {
     }
 
     #[test]
-    fn hook_prefixes_exclude_search() {
+    fn hook_prefixes_exclude_search_and_fileread() {
         let prefixes = hook_prefixes();
         assert!(!prefixes.contains(&"rg ".to_string()));
+        assert!(!prefixes.contains(&"cat ".to_string()));
+        assert!(!prefixes.contains(&"head ".to_string()));
+        assert!(!prefixes.contains(&"tail ".to_string()));
         assert!(prefixes.contains(&"git ".to_string()));
         assert!(prefixes.contains(&"cargo ".to_string()));
     }
@@ -185,6 +206,17 @@ mod tests {
         assert!(!is_rewritable_command("echo hello"));
         assert!(!is_rewritable_command("cd src"));
         assert!(!is_rewritable_command("rg pattern"));
+        assert!(!is_rewritable_command("cat file.rs"));
+        assert!(!is_rewritable_command("head -20 file.rs"));
+    }
+
+    #[test]
+    fn file_read_commands_detected() {
+        assert!(is_file_read_command("cat file.rs"));
+        assert!(is_file_read_command("head -20 file.rs"));
+        assert!(is_file_read_command("tail -n 10 file.rs"));
+        assert!(!is_file_read_command("git status"));
+        assert!(!is_file_read_command("echo hello"));
     }
 
     #[test]
@@ -218,6 +250,10 @@ mod tests {
                 "bare command '{cmd}' missing from hook_prefixes"
             );
         }
+        assert!(
+            !bare.contains(&"cat"),
+            "FileRead commands must not be in hook_bare_commands"
+        );
     }
 
     #[test]
@@ -246,13 +282,18 @@ mod tests {
     }
 
     #[test]
-    fn every_command_rewritable_except_search() {
+    fn every_command_rewritable_except_search_and_fileread() {
         for entry in REWRITE_COMMANDS {
             let cmd = format!("{} --version", entry.command);
-            if entry.category == Category::Search {
+            if matches!(entry.category, Category::Search | Category::FileRead) {
                 assert!(
                     !is_rewritable_command(&cmd),
-                    "search command '{}' should NOT be rewritable",
+                    "{} command '{}' should NOT be rewritable via -c wrap",
+                    if entry.category == Category::Search {
+                        "search"
+                    } else {
+                        "file-read"
+                    },
                     entry.command
                 );
             } else {
@@ -266,10 +307,10 @@ mod tests {
     }
 
     #[test]
-    fn bash_pattern_has_entry_for_every_non_search_command() {
+    fn bash_pattern_has_entry_for_every_non_search_non_fileread_command() {
         let pattern = bash_case_pattern();
         for entry in REWRITE_COMMANDS {
-            if entry.category == Category::Search {
+            if matches!(entry.category, Category::Search | Category::FileRead) {
                 continue;
             }
             let escaped = if entry.command.contains('-') {

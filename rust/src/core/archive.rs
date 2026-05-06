@@ -34,6 +34,12 @@ fn meta_path(id: &str) -> PathBuf {
     entry_dir(id).join(format!("{id}.meta.json"))
 }
 
+#[cfg(unix)]
+fn set_private_file_perms(path: &PathBuf) {
+    use std::os::unix::fs::PermissionsExt;
+    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+}
+
 fn compute_id(content: &str) -> String {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
@@ -116,6 +122,8 @@ pub fn store(tool: &str, command: &str, content: &str, session_id: Option<&str>)
         }
         return None;
     }
+    #[cfg(unix)]
+    set_private_file_perms(&c_path);
 
     let tokens = super::tokens::count_tokens(content);
     let entry = ArchiveEntry {
@@ -131,7 +139,10 @@ pub fn store(tool: &str, command: &str, content: &str, session_id: Option<&str>)
     if let Ok(json) = serde_json::to_string_pretty(&entry) {
         let meta_tmp = meta_path(&id).with_extension(format!("tmp.{pid}"));
         if std::fs::write(&meta_tmp, &json).is_ok() {
-            let _ = std::fs::rename(&meta_tmp, meta_path(&id));
+            let meta_final = meta_path(&id);
+            let _ = std::fs::rename(&meta_tmp, &meta_final);
+            #[cfg(unix)]
+            set_private_file_perms(&meta_final);
         }
     }
 

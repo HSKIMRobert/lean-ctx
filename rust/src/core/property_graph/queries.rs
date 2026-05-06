@@ -91,35 +91,41 @@ pub fn dependencies(conn: &Connection, file_path: &str) -> anyhow::Result<Vec<St
 
 /// Weighted BFS from `file_path` following reverse structural edges up to `max_depth`.
 /// Edge weights attenuate propagation: calls edges carry less impact than imports.
+/// Nodes only propagate when cumulative weight exceeds the threshold (0.1).
 pub fn impact_analysis(
     conn: &Connection,
     file_path: &str,
     max_depth: usize,
 ) -> anyhow::Result<ImpactResult> {
-    let reverse_graph = build_reverse_graph(conn)?;
+    let reverse_graph = build_weighted_reverse_graph(conn)?;
+    const PROPAGATION_THRESHOLD: f64 = 0.1;
 
     let mut visited: HashSet<String> = HashSet::new();
-    let mut queue: VecDeque<(String, usize)> = VecDeque::new();
+    let mut queue: VecDeque<(String, usize, f64)> = VecDeque::new();
     let mut max_depth_reached = 0;
     let mut edges_traversed = 0;
 
     visited.insert(file_path.to_string());
-    queue.push_back((file_path.to_string(), 0));
+    queue.push_back((file_path.to_string(), 0, 1.0));
 
-    while let Some((current, depth)) = queue.pop_front() {
+    while let Some((current, depth, weight)) = queue.pop_front() {
         if depth >= max_depth {
             continue;
         }
 
         if let Some(dependents) = reverse_graph.get(&current) {
-            for dep in dependents {
+            for (dep, ew) in dependents {
                 edges_traversed += 1;
+                let propagated = weight * ew;
+                if propagated < PROPAGATION_THRESHOLD {
+                    continue;
+                }
                 if visited.insert(dep.clone()) {
                     let new_depth = depth + 1;
                     if new_depth > max_depth_reached {
                         max_depth_reached = new_depth;
                     }
-                    queue.push_back((dep.clone(), new_depth));
+                    queue.push_back((dep.clone(), new_depth, propagated));
                 }
             }
         }
@@ -251,9 +257,11 @@ pub fn file_connectivity(
     Ok(result)
 }
 
-fn build_reverse_graph(conn: &Connection) -> anyhow::Result<HashMap<String, Vec<String>>> {
+fn build_weighted_reverse_graph(
+    conn: &Connection,
+) -> anyhow::Result<HashMap<String, Vec<(String, f64)>>> {
     let sql = format!(
-        "SELECT DISTINCT n_tgt.file_path, n_src.file_path
+        "SELECT n_tgt.file_path, n_src.file_path, e.kind
          FROM edges e
          JOIN nodes n_src ON e.source_id = n_src.id
          JOIN nodes n_tgt ON e.target_id = n_tgt.id
@@ -262,21 +270,32 @@ fn build_reverse_graph(conn: &Connection) -> anyhow::Result<HashMap<String, Vec<
     );
     let mut stmt = conn.prepare(&sql)?;
 
-    let mut graph: HashMap<String, Vec<String>> = HashMap::new();
+    let mut graph: HashMap<String, HashMap<String, f64>> = HashMap::new();
     let rows = stmt.query_map([], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+        ))
     })?;
 
     for row in rows {
-        let (target, source) = row?;
-        graph.entry(target).or_default().push(source);
+        let (target, source, kind) = row?;
+        let w = edge_weight(&kind);
+        let entry = graph
+            .entry(target)
+            .or_default()
+            .entry(source)
+            .or_insert(0.0);
+        if w > *entry {
+            *entry = w;
+        }
     }
 
-    for deps in graph.values_mut() {
-        deps.sort();
-        deps.dedup();
-    }
-    Ok(graph)
+    Ok(graph
+        .into_iter()
+        .map(|(k, v)| (k, v.into_iter().collect()))
+        .collect())
 }
 
 fn build_forward_graph(conn: &Connection) -> anyhow::Result<HashMap<String, Vec<String>>> {

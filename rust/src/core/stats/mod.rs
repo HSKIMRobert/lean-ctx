@@ -68,9 +68,11 @@ pub fn record(command: &str, input_tokens: usize, output_tokens: usize) {
     let today = now.format("%Y-%m-%d").to_string();
     let timestamp = now.to_rfc3339();
 
-    store.total_commands += 1;
-    store.total_input_tokens += input_tokens as u64;
-    store.total_output_tokens += output_tokens as u64;
+    store.total_commands = store.total_commands.saturating_add(1);
+    store.total_input_tokens = store.total_input_tokens.saturating_add(input_tokens as u64);
+    store.total_output_tokens = store
+        .total_output_tokens
+        .saturating_add(output_tokens as u64);
 
     if store.first_use.is_none() {
         store.first_use = Some(timestamp.clone());
@@ -79,15 +81,15 @@ pub fn record(command: &str, input_tokens: usize, output_tokens: usize) {
 
     let cmd_key = format::normalize_command(command);
     let entry = store.commands.entry(cmd_key).or_default();
-    entry.count += 1;
-    entry.input_tokens += input_tokens as u64;
-    entry.output_tokens += output_tokens as u64;
+    entry.count = entry.count.saturating_add(1);
+    entry.input_tokens = entry.input_tokens.saturating_add(input_tokens as u64);
+    entry.output_tokens = entry.output_tokens.saturating_add(output_tokens as u64);
 
     if let Some(day) = store.daily.last_mut() {
         if day.date == today {
-            day.commands += 1;
-            day.input_tokens += input_tokens as u64;
-            day.output_tokens += output_tokens as u64;
+            day.commands = day.commands.saturating_add(1);
+            day.input_tokens = day.input_tokens.saturating_add(input_tokens as u64);
+            day.output_tokens = day.output_tokens.saturating_add(output_tokens as u64);
         } else {
             store.daily.push(DayStats {
                 date: today,

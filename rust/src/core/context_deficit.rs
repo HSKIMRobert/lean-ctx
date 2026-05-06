@@ -1,3 +1,4 @@
+use super::context_field::ContextItemId;
 use super::context_ledger::{ContextLedger, PressureAction};
 use super::intent_engine::{IntentScope, StructuredIntent, TaskType};
 
@@ -12,6 +13,7 @@ pub struct ContextDeficit {
 #[derive(Debug, Clone)]
 pub struct SuggestedFile {
     pub path: String,
+    pub item_id: ContextItemId,
     pub reason: DeficitReason,
     pub estimated_tokens: usize,
     pub recommended_mode: String,
@@ -64,6 +66,7 @@ pub fn detect_deficit(
                     let mode = mode_for_pressure(&pressure.recommendation, &intent.scope);
                     suggestions.push(SuggestedFile {
                         path: file.clone(),
+                        item_id: ContextItemId::from_file(file),
                         reason: DeficitReason::TargetNotLoaded,
                         estimated_tokens: estimate_tokens_for_mode(&mode),
                         recommended_mode: mode,
@@ -89,6 +92,7 @@ pub fn detect_deficit(
                             let mode = mode_for_pressure(&pressure.recommendation, &intent.scope);
                             suggestions.push(SuggestedFile {
                                 path: file.clone(),
+                                item_id: ContextItemId::from_file(file),
                                 reason: DeficitReason::TestFileForTarget,
                                 estimated_tokens: estimate_tokens_for_mode(&mode),
                                 recommended_mode: mode,
@@ -120,6 +124,7 @@ pub fn detect_deficit(
                 {
                     suggestions.push(SuggestedFile {
                         path: file.clone(),
+                        item_id: ContextItemId::from_file(file),
                         reason: DeficitReason::ConfigForTask,
                         estimated_tokens: estimate_tokens_for_mode("full"),
                         recommended_mode: "full".to_string(),
