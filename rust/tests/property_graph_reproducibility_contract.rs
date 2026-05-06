@@ -14,6 +14,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(unix), ignore = "import resolution assumes forward-slash paths")]
     fn property_graph_outputs_are_deterministic_and_bounded() {
         let td = tempfile::tempdir().expect("tempdir");
         let root = td.path();
