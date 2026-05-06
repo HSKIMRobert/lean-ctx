@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
@@ -58,7 +58,7 @@ function startLeanCtxServer(opts: {
   authToken?: string;
   maxRps?: number;
   rateBurst?: number;
-}): { proc: ChildProcessWithoutNullStreams; baseUrl: string; stop: () => Promise<void> } {
+}): { proc: ChildProcess; baseUrl: string; stop: () => Promise<void> } {
   const baseUrl = `http://127.0.0.1:${opts.port}`;
   const args = [
     "serve",
