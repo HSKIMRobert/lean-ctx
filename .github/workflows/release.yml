@@ -83,7 +83,9 @@ jobs:
         if: matrix.zig == true
         run: |
           pip3 install -q ziglang==0.13.0
-          zig version
+          ZIG_BIN="$(python3 -c 'import ziglang, os; print(os.path.dirname(ziglang.__file__))')"
+          echo "${ZIG_BIN}" >> $GITHUB_PATH
+          "${ZIG_BIN}/zig" version
 
       - name: Install cargo-zigbuild
         if: matrix.zig == true
