@@ -6,27 +6,31 @@ pub fn cmd_overview(args: &[String]) {
     let task = positional_value(args);
     let json = args.iter().any(|a| a == "--json");
 
-    if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
-        "ctx_overview",
-        Some(serde_json::json!({
-            "task": task,
-            "path": project_root,
-        })),
-    ) {
-        if json {
-            let payload = serde_json::json!({
-                "project_root": project_root,
+    #[cfg(unix)]
+    {
+        #[cfg(unix)]
+        if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
+            "ctx_overview",
+            Some(serde_json::json!({
                 "task": task,
-                "output": out,
-            });
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&payload).unwrap_or_else(|_| out.clone())
-            );
-        } else {
-            println!("{out}");
+                "path": project_root,
+            })),
+        ) {
+            if json {
+                let payload = serde_json::json!({
+                    "project_root": project_root,
+                    "task": task,
+                    "output": out,
+                });
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&payload).unwrap_or_else(|_| out.clone())
+                );
+            } else {
+                println!("{out}");
+            }
+            return;
         }
-        return;
     }
 
     let cache = SessionCache::new();

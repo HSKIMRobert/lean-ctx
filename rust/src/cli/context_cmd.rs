@@ -33,11 +33,15 @@ pub fn cmd_control(args: &[String]) {
         json["value"] = serde_json::Value::String(v.clone());
     }
 
-    if let Some(out) =
-        crate::daemon_client::try_daemon_tool_call_blocking_text("ctx_control", Some(json))
+    #[cfg(unix)]
     {
-        println!("{out}");
-        return;
+        if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
+            "ctx_control",
+            Some(json.clone()),
+        ) {
+            println!("{out}");
+            return;
+        }
     }
     super::common::daemon_fallback_hint();
 
@@ -74,11 +78,14 @@ pub fn cmd_plan(args: &[String]) {
         }
     }
 
-    if let Some(out) =
-        crate::daemon_client::try_daemon_tool_call_blocking_text("ctx_plan", Some(json))
+    #[cfg(unix)]
     {
-        println!("{out}");
-        return;
+        if let Some(out) =
+            crate::daemon_client::try_daemon_tool_call_blocking_text("ctx_plan", Some(json.clone()))
+        {
+            println!("{out}");
+            return;
+        }
     }
     super::common::daemon_fallback_hint();
 
@@ -102,11 +109,15 @@ pub fn cmd_compile(args: &[String]) {
         }
     }
 
-    if let Some(out) =
-        crate::daemon_client::try_daemon_tool_call_blocking_text("ctx_compile", Some(json))
+    #[cfg(unix)]
     {
-        println!("{out}");
-        return;
+        if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
+            "ctx_compile",
+            Some(json.clone()),
+        ) {
+            println!("{out}");
+            return;
+        }
     }
     super::common::daemon_fallback_hint();
 

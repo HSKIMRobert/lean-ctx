@@ -12,15 +12,19 @@ pub fn cmd_knowledge(args: &[String]) {
         Some("recall") => cmd_recall(args, &project_root),
         Some("search") => cmd_search(args),
         Some("status") => {
-            if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
-                "ctx_knowledge",
-                Some(serde_json::json!({
-                    "action": "status",
-                    "project_root": project_root,
-                })),
-            ) {
-                println!("{out}");
-                return;
+            #[cfg(unix)]
+            {
+                #[cfg(unix)]
+                if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
+                    "ctx_knowledge",
+                    Some(serde_json::json!({
+                        "action": "status",
+                        "project_root": project_root,
+                    })),
+                ) {
+                    println!("{out}");
+                    return;
+                }
             }
             let out = ctx_knowledge::handle(
                 &project_root,
@@ -38,15 +42,19 @@ pub fn cmd_knowledge(args: &[String]) {
             println!("{out}");
         }
         Some("health") => {
-            if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
-                "ctx_knowledge",
-                Some(serde_json::json!({
-                    "action": "health",
-                    "project_root": project_root,
-                })),
-            ) {
-                println!("{out}");
-                return;
+            #[cfg(unix)]
+            {
+                #[cfg(unix)]
+                if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
+                    "ctx_knowledge",
+                    Some(serde_json::json!({
+                        "action": "health",
+                        "project_root": project_root,
+                    })),
+                ) {
+                    println!("{out}");
+                    return;
+                }
             }
             let out = ctx_knowledge::handle(
                 &project_root,
@@ -87,19 +95,23 @@ fn cmd_remember(args: &[String], project_root: &str) {
         std::process::exit(1);
     }
 
-    if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
-        "ctx_knowledge",
-        Some(serde_json::json!({
-            "action": "remember",
-            "project_root": project_root,
-            "category": category,
-            "key": key,
-            "value": value,
-            "confidence": confidence,
-        })),
-    ) {
-        println!("{out}");
-        return;
+    #[cfg(unix)]
+    {
+        #[cfg(unix)]
+        if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
+            "ctx_knowledge",
+            Some(serde_json::json!({
+                "action": "remember",
+                "project_root": project_root,
+                "category": category,
+                "key": key,
+                "value": value,
+                "confidence": confidence,
+            })),
+        ) {
+            println!("{out}");
+            return;
+        }
     }
 
     let out = ctx_knowledge::handle(
@@ -129,18 +141,22 @@ fn cmd_recall(args: &[String], project_root: &str) {
         std::process::exit(1);
     }
 
-    if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
-        "ctx_knowledge",
-        Some(serde_json::json!({
-            "action": "recall",
-            "project_root": project_root,
-            "category": category,
-            "query": query,
-            "mode": mode,
-        })),
-    ) {
-        println!("{out}");
-        return;
+    #[cfg(unix)]
+    {
+        #[cfg(unix)]
+        if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
+            "ctx_knowledge",
+            Some(serde_json::json!({
+                "action": "recall",
+                "project_root": project_root,
+                "category": category,
+                "query": query,
+                "mode": mode,
+            })),
+        ) {
+            println!("{out}");
+            return;
+        }
     }
 
     let out = ctx_knowledge::handle(
@@ -168,15 +184,19 @@ fn cmd_search(args: &[String]) {
         std::process::exit(1);
     }
 
-    if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
-        "ctx_knowledge",
-        Some(serde_json::json!({
-            "action": "search",
-            "query": query,
-        })),
-    ) {
-        println!("{out}");
-        return;
+    #[cfg(unix)]
+    {
+        #[cfg(unix)]
+        if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
+            "ctx_knowledge",
+            Some(serde_json::json!({
+                "action": "search",
+                "query": query,
+            })),
+        ) {
+            println!("{out}");
+            return;
+        }
     }
 
     let out = ctx_knowledge::handle(

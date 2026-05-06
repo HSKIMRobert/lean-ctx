@@ -836,6 +836,7 @@ pub fn run() {
     print_check(&port);
 
     // Daemon status
+    #[cfg(unix)]
     let daemon_outcome = if crate::daemon::is_daemon_running() {
         let pid_path = crate::daemon::daemon_pid_path();
         let pid_str = std::fs::read_to_string(&pid_path).unwrap_or_default();
@@ -853,6 +854,11 @@ pub fn run() {
                 "{BOLD}Daemon{RST}  {YELLOW}not running{RST}  {DIM}(run: lean-ctx serve -d){RST}"
             ),
         }
+    };
+    #[cfg(not(unix))]
+    let daemon_outcome = Outcome {
+        ok: true,
+        line: format!("{BOLD}Daemon{RST}  {DIM}not supported on this platform{RST}"),
     };
     if daemon_outcome.ok {
         passed += 1;

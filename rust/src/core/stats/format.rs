@@ -807,12 +807,17 @@ pub fn format_gain_themed_at(t: &Theme, tick: Option<u64>) -> String {
             }
         }
 
-        if crate::daemon::is_daemon_running() {
+        #[cfg(unix)]
+        let daemon_running = crate::daemon::is_daemon_running();
+        #[cfg(not(unix))]
+        let daemon_running = false;
+
+        if daemon_running {
             ctx_items.push(format!("   Daemon: {c}running{rst}", c = t.success.fg()));
         } else {
             ctx_items.push(format!(
                 "   {w}Daemon: offline{rst} {m}(lean-ctx serve -d for persistent tracking){rst}",
-                w = t.warning.fg(),
+                w = t.warning.fg()
             ));
         }
 

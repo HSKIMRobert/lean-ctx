@@ -85,6 +85,7 @@ impl GainEngine {
             None
         };
         let score = GainScore::compute(&self.stats, &self.costs, &self.pricing, model);
+        #[cfg(unix)]
         let daemon_hint = if crate::daemon::is_daemon_running() {
             None
         } else {
@@ -93,6 +94,8 @@ impl GainEngine {
                     .to_string(),
             )
         };
+        #[cfg(not(unix))]
+        let daemon_hint: Option<String> = None;
         GainSummary {
             model: quote,
             total_commands: self.stats.total_commands,

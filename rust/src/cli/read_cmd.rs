@@ -64,18 +64,22 @@ pub fn cmd_read(args: &[String]) {
         }
     }
 
-    if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
-        "ctx_read",
-        Some(serde_json::json!({
-            "path": path,
-            "mode": mode,
-            "fresh": force_fresh,
-        })),
-    ) {
-        println!("{out}");
-        let sent = count_tokens(&out);
-        super::common::cli_track_read(path, mode, sent, sent);
-        return;
+    #[cfg(unix)]
+    {
+        #[cfg(unix)]
+        if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
+            "ctx_read",
+            Some(serde_json::json!({
+                "path": path,
+                "mode": mode,
+                "fresh": force_fresh,
+            })),
+        ) {
+            println!("{out}");
+            let sent = count_tokens(&out);
+            super::common::cli_track_read(path, mode, sent, sent);
+            return;
+        }
     }
     super::common::daemon_fallback_hint();
 
@@ -248,18 +252,22 @@ pub fn cmd_grep(args: &[String]) {
     let pattern = &args[0];
     let path = args.get(1).map_or(".", std::string::String::as_str);
 
-    if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
-        "ctx_search",
-        Some(serde_json::json!({
-            "pattern": pattern,
-            "path": path,
-        })),
-    ) {
-        println!("{out}");
-        if out.trim_start().starts_with("0 matches") {
-            std::process::exit(1);
+    #[cfg(unix)]
+    {
+        #[cfg(unix)]
+        if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
+            "ctx_search",
+            Some(serde_json::json!({
+                "pattern": pattern,
+                "path": path,
+            })),
+        ) {
+            println!("{out}");
+            if out.trim_start().starts_with("0 matches") {
+                std::process::exit(1);
+            }
+            return;
         }
-        return;
     }
     super::common::daemon_fallback_hint();
 
@@ -330,16 +338,20 @@ pub fn cmd_ls(args: &[String]) {
     let depth = 3usize;
     let show_hidden = false;
 
-    if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
-        "ctx_tree",
-        Some(serde_json::json!({
-            "path": path,
-            "depth": depth,
-            "show_hidden": show_hidden,
-        })),
-    ) {
-        println!("{out}");
-        return;
+    #[cfg(unix)]
+    {
+        #[cfg(unix)]
+        if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
+            "ctx_tree",
+            Some(serde_json::json!({
+                "path": path,
+                "depth": depth,
+                "show_hidden": show_hidden,
+            })),
+        ) {
+            println!("{out}");
+            return;
+        }
     }
     super::common::daemon_fallback_hint();
 

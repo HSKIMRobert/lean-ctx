@@ -5,22 +5,26 @@ pub fn cmd_compress(args: &[String]) {
     let signatures = args.iter().any(|a| a == "--signatures" || a == "-s");
     let json = args.iter().any(|a| a == "--json");
 
-    if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
-        "ctx_compress",
-        Some(serde_json::json!({
-            "include_signatures": signatures
-        })),
-    ) {
-        if json {
-            let payload = serde_json::json!({ "output": out });
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&payload).unwrap_or_else(|_| out.clone())
-            );
-        } else {
-            println!("{out}");
+    #[cfg(unix)]
+    {
+        #[cfg(unix)]
+        if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
+            "ctx_compress",
+            Some(serde_json::json!({
+                "include_signatures": signatures
+            })),
+        ) {
+            if json {
+                let payload = serde_json::json!({ "output": out });
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&payload).unwrap_or_else(|_| out.clone())
+                );
+            } else {
+                println!("{out}");
+            }
+            return;
         }
-        return;
     }
 
     let cache = build_cli_cache();

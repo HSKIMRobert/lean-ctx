@@ -273,6 +273,7 @@ fn atomic_write(path: &Path, data: &[u8]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::context_package::manifest::{CompatibilitySpec, PackageStats};
 
     #[test]
     fn registry_round_trip() {
@@ -309,8 +310,8 @@ mod tests {
                 project_hash: None,
                 source_session_id: None,
             },
-            compatibility: Default::default(),
-            stats: Default::default(),
+            compatibility: CompatibilitySpec::default(),
+            stats: PackageStats::default(),
         };
 
         let content = PackageContent::default();
@@ -361,8 +362,8 @@ mod tests {
                 project_hash: None,
                 source_session_id: None,
             },
-            compatibility: Default::default(),
-            stats: Default::default(),
+            compatibility: CompatibilitySpec::default(),
+            stats: PackageStats::default(),
         };
 
         reg.install(&manifest, &content).unwrap();
