@@ -82,13 +82,8 @@ jobs:
       - name: Setup Zig
         if: matrix.zig == true
         run: |
-          ZIG_VERSION=0.13.0
-          ZIG_ARCHIVE="zig-linux-x86_64-${ZIG_VERSION}.tar.xz"
-          ZIG_URL="https://ziglang.org/download/${ZIG_VERSION}/${ZIG_ARCHIVE}"
-          curl --proto '=https' --tlsv1.2 --retry 5 --retry-delay 10 --retry-connrefused \
-               --location --fail --silent --show-error -o "${ZIG_ARCHIVE}" "${ZIG_URL}"
-          tar xf "${ZIG_ARCHIVE}"
-          echo "${PWD}/zig-linux-x86_64-${ZIG_VERSION}" >> $GITHUB_PATH
+          pip3 install -q ziglang==0.13.0
+          zig version
 
       - name: Install cargo-zigbuild
         if: matrix.zig == true
