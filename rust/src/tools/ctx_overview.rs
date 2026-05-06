@@ -335,7 +335,7 @@ fn index_import_hotspots(
     }
     let mut v: Vec<(String, usize, usize)> =
         imp.into_iter().map(|(p, c)| (p, c, 0_usize)).collect();
-    v.sort_by(|a, b| (b.1 + b.2).cmp(&(a.1 + a.2)));
+    v.sort_by_key(|x| std::cmp::Reverse(x.1 + x.2));
     v.truncate(limit);
     v
 }

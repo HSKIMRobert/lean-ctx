@@ -76,7 +76,7 @@ impl ContextOsMetrics {
             sse_connections_total: opened,
             shared_sessions_loaded: self.shared_sessions_loaded.load(Ordering::Relaxed),
             shared_sessions_persisted: self.shared_sessions_persisted.load(Ordering::Relaxed),
-            active_workspace_count: self.active_workspaces.lock().map(|s| s.len()).unwrap_or(0),
+            active_workspace_count: self.active_workspaces.lock().map_or(0, |s| s.len()),
         }
     }
 }

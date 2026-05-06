@@ -342,12 +342,8 @@ fn resolve_auto_mode(file_path: &str, original_tokens: usize, task: Option<&str>
     let chosen = policy.choose_auto_mode(task, &predicted);
 
     if original_tokens > 2000 {
-        if predicted == "map" {
+        if predicted == "map" || predicted == "signatures" {
             if chosen != "map" && chosen != "signatures" {
-                return predicted;
-            }
-        } else if predicted == "signatures" {
-            if chosen != "signatures" && chosen != "map" {
                 return predicted;
             }
         } else if chosen == "full" && predicted != "full" {

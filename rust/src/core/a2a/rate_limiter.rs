@@ -168,7 +168,7 @@ pub fn check_rate_limit(agent_id: &str, tool_name: &str) -> RateLimitResult {
     }
     match guard.as_mut() {
         Some(limiter) => {
-            limiter.cleanup_stale(Duration::from_secs(15 * 60));
+            limiter.cleanup_stale(Duration::from_mins(15));
             limiter.check(agent_id, tool_name)
         }
         None => RateLimitResult::Allowed,

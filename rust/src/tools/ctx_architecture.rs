@@ -573,7 +573,7 @@ fn handle_entrypoints(root: &str, fmt: OutputFormat) -> String {
             serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".to_string())
         }
         OutputFormat::Text => {
-            let mut result = format!("Entrypoints ({total} — files with no dependents):\n",);
+            let mut result = format!("Entrypoints ({total} — files with no dependents):\n");
             for ep in entrypoints.iter().take(limit) {
                 let dep_count = data.forward.get(ep).map_or(0, std::vec::Vec::len);
                 result.push_str(&format!("  {ep} (imports {dep_count} files)\n"));

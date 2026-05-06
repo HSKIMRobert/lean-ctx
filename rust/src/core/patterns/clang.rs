@@ -71,10 +71,8 @@ fn compress_diagnostics(output: &str) -> String {
                         locations.push(file.to_string());
                     }
                 }
-                "note" => {
-                    if notes.len() < 5 {
-                        notes.push(format!("{file}: {message}"));
-                    }
+                "note" if notes.len() < 5 => {
+                    notes.push(format!("{file}: {message}"));
                 }
                 _ => {}
             }

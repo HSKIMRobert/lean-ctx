@@ -17,7 +17,7 @@ use crate::tools::CrpMode;
 #[cfg(test)]
 const SEARCH_REPEAT_IDLE_RESET: Duration = Duration::from_millis(50);
 #[cfg(not(test))]
-const SEARCH_REPEAT_IDLE_RESET: Duration = Duration::from_secs(300);
+const SEARCH_REPEAT_IDLE_RESET: Duration = Duration::from_mins(5);
 
 /// Per-key stats for progressive search hints (`ctx_search` / `ctx_semantic_search`).
 #[derive(Debug, Clone)]

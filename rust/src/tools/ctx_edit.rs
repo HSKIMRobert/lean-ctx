@@ -53,8 +53,7 @@ struct FilePreimage {
 
 fn system_time_to_millis(t: SystemTime) -> u64 {
     t.duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+        .map_or(0, |d| d.as_millis() as u64)
 }
 
 fn md5_hex_bytes(bytes: &[u8]) -> String {
@@ -107,7 +106,7 @@ fn read_file_bytes_limited(
 fn fingerprint_from_bytes(bytes: &[u8], meta: &std::fs::Metadata) -> FileFingerprint {
     FileFingerprint {
         size: bytes.len() as u64,
-        mtime_ms: meta.modified().map(system_time_to_millis).unwrap_or(0),
+        mtime_ms: meta.modified().map_or(0, system_time_to_millis),
         md5: md5_hex_bytes(bytes),
     }
 }

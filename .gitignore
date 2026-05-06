@@ -49,4 +49,4 @@ lean-ctx-chrome-extension.zip
 test-results/
 
 # ── Git worktrees (local) ──
-worktrees/
+worktrees/website/generated/

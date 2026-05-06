@@ -675,9 +675,7 @@ pub fn install_all_skills(home: &std::path::Path) -> Vec<(String, bool)> {
 
         let skill_path = target.skill_dir.join("SKILL.md");
         let already_current = skill_path.exists()
-            && std::fs::read_to_string(&skill_path)
-                .map(|c| c == SKILL_TEMPLATE)
-                .unwrap_or(false);
+            && std::fs::read_to_string(&skill_path).is_ok_and(|c| c == SKILL_TEMPLATE);
 
         if already_current {
             results.push((target.display_name.to_string(), false));

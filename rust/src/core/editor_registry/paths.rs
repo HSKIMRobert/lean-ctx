@@ -130,6 +130,7 @@ pub fn qoder_settings_path(home: &Path) -> PathBuf {
 }
 
 pub fn qoder_all_mcp_paths(home: &Path) -> Vec<PathBuf> {
+    #[allow(unused_mut)]
     let mut paths = vec![qoder_settings_path(home)];
     #[cfg(target_os = "macos")]
     {

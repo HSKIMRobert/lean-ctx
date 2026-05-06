@@ -251,8 +251,7 @@ pub fn write_project_proof(
     PROOFS_WRITTEN.fetch_add(1, Ordering::Relaxed);
     let ms = std::time::SystemTime::now()
         .duration_since(std::time::SystemTime::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0);
+        .map_or(0, |d| d.as_millis() as u64);
     LAST_WRITTEN_UNIX_MS.store(ms, Ordering::Relaxed);
 
     Ok(path)

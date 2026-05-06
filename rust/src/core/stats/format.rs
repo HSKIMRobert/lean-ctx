@@ -808,7 +808,7 @@ pub fn format_gain_themed_at(t: &Theme, tick: Option<u64>) -> String {
         }
 
         if crate::daemon::is_daemon_running() {
-            ctx_items.push(format!("   Daemon: {c}running{rst}", c = t.success.fg(),));
+            ctx_items.push(format!("   Daemon: {c}running{rst}", c = t.success.fg()));
         } else {
             ctx_items.push(format!(
                 "   {w}Daemon: offline{rst} {m}(lean-ctx serve -d for persistent tracking){rst}",

@@ -232,7 +232,7 @@ fn build_artifacts_excerpt_v1(project_root: &Path) -> ArtifactsExcerptV1 {
             if name.is_empty() {
                 continue;
             }
-            let bytes = p.metadata().map(|m| m.len()).unwrap_or(0);
+            let bytes = p.metadata().map_or(0, |m| m.len());
             let md5 = match std::fs::read(&p) {
                 Ok(b) => md5_hex_bytes(&b),
                 Err(e) => {
