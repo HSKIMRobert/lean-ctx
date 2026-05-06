@@ -151,8 +151,8 @@ describe("LeanCtxClient E2E (real server)", () => {
         expect(text).toContain("HTTP MCP Contract v1");
       } finally {
         await stop();
-        proc.stdout.destroy();
-        proc.stderr.destroy();
+        proc.stdout?.destroy();
+        proc.stderr?.destroy();
       }
     },
     60_000
