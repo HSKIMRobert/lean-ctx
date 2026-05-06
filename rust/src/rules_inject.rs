@@ -624,6 +624,11 @@ fn build_skill_targets(home: &std::path::Path) -> Vec<SkillTarget> {
             display_name: "Codex CLI",
             skill_dir: home.join(".codex/skills/lean-ctx"),
         },
+        SkillTarget {
+            agent_key: "copilot",
+            display_name: "GitHub Copilot",
+            skill_dir: home.join(".vscode/skills/lean-ctx"),
+        },
     ]
 }
 
@@ -636,6 +641,11 @@ fn is_skill_agent_detected(agent_key: &str, home: &std::path::Path) -> bool {
         }
         "cursor" => home.join(".cursor").exists(),
         "codex" => home.join(".codex").exists() || command_exists("codex"),
+        "copilot" => {
+            home.join(".vscode").exists()
+                || crate::core::editor_registry::vscode_mcp_path().exists()
+                || command_exists("code")
+        }
         _ => false,
     }
 }
@@ -906,7 +916,7 @@ mod tests {
     fn skill_targets_count() {
         let home = std::path::PathBuf::from("/tmp/fake_home");
         let targets = build_skill_targets(&home);
-        assert_eq!(targets.len(), 3);
+        assert_eq!(targets.len(), 4);
     }
 
     #[test]

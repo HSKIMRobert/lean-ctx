@@ -3,6 +3,15 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.5.1] — 2026-05-06
+
+### Fixed
+
+- **Tool Registry not initialized** — `ctx_tree`, `ctx_discover_tools`, and 23 other trait-based tools returned "Unknown tool" because the registry was never wired up at server startup. All 56 advertised tools are now dispatchable. Fixes #184.
+- **Copilot CLI MCP path** — `lean-ctx init --agent copilot` now creates `.github/mcp.json` with the correct `"mcpServers"` key (per GitHub Copilot CLI spec), in addition to `.vscode/mcp.json` with the VS Code `"servers"` key. Previously wrote to the wrong path (`.github/copilot/mcp.json`) with the wrong key format.
+- **Agent-scoped project rules** — `lean-ctx init --agent copilot` no longer creates `.cursorrules` or `.claude/rules/` files. Project rules are now scoped to the requested agent(s).
+- **SKILL.md for Copilot/VS Code** — `lean-ctx setup` now installs SKILL.md for GitHub Copilot / VS Code users, and `lean-ctx doctor` checks the correct path (`~/.vscode/skills/lean-ctx/SKILL.md`).
+
 ## [3.5.0] — 2026-05-06
 
 ### Added

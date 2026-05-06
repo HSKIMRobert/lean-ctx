@@ -332,6 +332,12 @@ Write, Delete, Glob → use normally.
 ";
 
 pub fn install_project_rules() {
+    install_project_rules_for_agents(&[]);
+}
+
+/// Install project rules, optionally scoped to specific agents.
+/// If `agents` is empty, installs for all agents (legacy behavior).
+pub fn install_project_rules_for_agents(agents: &[&str]) {
     if crate::core::config::Config::load().rules_scope_effective()
         == crate::core::config::RulesScope::Global
     {
@@ -357,63 +363,72 @@ pub fn install_project_rules() {
         return;
     }
 
+    let all = agents.is_empty();
+    let wants = |name: &str| all || agents.iter().any(|a| a.eq_ignore_ascii_case(name));
+
     ensure_project_agents_integration(&cwd);
 
-    let cursorrules = cwd.join(".cursorrules");
-    if !cursorrules.exists()
-        || !std::fs::read_to_string(&cursorrules)
-            .unwrap_or_default()
-            .contains("lean-ctx")
-    {
-        let content = CURSORRULES_TEMPLATE;
-        if cursorrules.exists() {
-            let mut existing = std::fs::read_to_string(&cursorrules).unwrap_or_default();
-            if !existing.ends_with('\n') {
-                existing.push('\n');
-            }
-            existing.push('\n');
-            existing.push_str(content);
-            write_file(&cursorrules, &existing);
-        } else {
-            write_file(&cursorrules, content);
-        }
-        if !mcp_server_quiet_mode() {
-            eprintln!("Created/updated .cursorrules in project root.");
-        }
-    }
-
-    let claude_rules_dir = cwd.join(".claude").join("rules");
-    let claude_rules_file = claude_rules_dir.join("lean-ctx.md");
-    if !claude_rules_file.exists()
-        || !std::fs::read_to_string(&claude_rules_file)
-            .unwrap_or_default()
-            .contains(crate::rules_inject::RULES_VERSION_STR)
-    {
-        let _ = std::fs::create_dir_all(&claude_rules_dir);
-        write_file(
-            &claude_rules_file,
-            crate::rules_inject::rules_dedicated_markdown(),
-        );
-        if !mcp_server_quiet_mode() {
-            eprintln!("Created .claude/rules/lean-ctx.md (Claude Code project rules).");
-        }
-    }
-
-    install_claude_project_hooks(&cwd);
-
-    let kiro_dir = cwd.join(".kiro");
-    if kiro_dir.exists() {
-        let steering_dir = kiro_dir.join("steering");
-        let steering_file = steering_dir.join("lean-ctx.md");
-        if !steering_file.exists()
-            || !std::fs::read_to_string(&steering_file)
+    if wants("cursor") || wants("windsurf") {
+        let cursorrules = cwd.join(".cursorrules");
+        if !cursorrules.exists()
+            || !std::fs::read_to_string(&cursorrules)
                 .unwrap_or_default()
                 .contains("lean-ctx")
         {
-            let _ = std::fs::create_dir_all(&steering_dir);
-            write_file(&steering_file, KIRO_STEERING_TEMPLATE);
+            let content = CURSORRULES_TEMPLATE;
+            if cursorrules.exists() {
+                let mut existing = std::fs::read_to_string(&cursorrules).unwrap_or_default();
+                if !existing.ends_with('\n') {
+                    existing.push('\n');
+                }
+                existing.push('\n');
+                existing.push_str(content);
+                write_file(&cursorrules, &existing);
+            } else {
+                write_file(&cursorrules, content);
+            }
             if !mcp_server_quiet_mode() {
-                eprintln!("Created .kiro/steering/lean-ctx.md (Kiro steering).");
+                eprintln!("Created/updated .cursorrules in project root.");
+            }
+        }
+    }
+
+    if wants("claude") {
+        let claude_rules_dir = cwd.join(".claude").join("rules");
+        let claude_rules_file = claude_rules_dir.join("lean-ctx.md");
+        if !claude_rules_file.exists()
+            || !std::fs::read_to_string(&claude_rules_file)
+                .unwrap_or_default()
+                .contains(crate::rules_inject::RULES_VERSION_STR)
+        {
+            let _ = std::fs::create_dir_all(&claude_rules_dir);
+            write_file(
+                &claude_rules_file,
+                crate::rules_inject::rules_dedicated_markdown(),
+            );
+            if !mcp_server_quiet_mode() {
+                eprintln!("Created .claude/rules/lean-ctx.md (Claude Code project rules).");
+            }
+        }
+
+        install_claude_project_hooks(&cwd);
+    }
+
+    if wants("kiro") {
+        let kiro_dir = cwd.join(".kiro");
+        if kiro_dir.exists() {
+            let steering_dir = kiro_dir.join("steering");
+            let steering_file = steering_dir.join("lean-ctx.md");
+            if !steering_file.exists()
+                || !std::fs::read_to_string(&steering_file)
+                    .unwrap_or_default()
+                    .contains("lean-ctx")
+            {
+                let _ = std::fs::create_dir_all(&steering_dir);
+                write_file(&steering_file, KIRO_STEERING_TEMPLATE);
+                if !mcp_server_quiet_mode() {
+                    eprintln!("Created .kiro/steering/lean-ctx.md (Kiro steering).");
+                }
             }
         }
     }

@@ -307,7 +307,9 @@ impl LeanCtxServer {
             },
             context_os,
             context_ir: None,
-            registry: None,
+            registry: Some(std::sync::Arc::new(
+                crate::server::registry::build_registry(),
+            )),
             startup_project_root: startup.project_root,
             startup_shell_cwd: startup.shell_cwd,
         }

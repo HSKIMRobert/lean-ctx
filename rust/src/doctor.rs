@@ -953,6 +953,10 @@ fn skill_files_outcome() -> Outcome {
         ("Claude Code", home.join(".claude/skills/lean-ctx/SKILL.md")),
         ("Cursor", home.join(".cursor/skills/lean-ctx/SKILL.md")),
         ("Codex CLI", home.join(".codex/skills/lean-ctx/SKILL.md")),
+        (
+            "GitHub Copilot",
+            home.join(".vscode/skills/lean-ctx/SKILL.md"),
+        ),
     ];
 
     let mut found: Vec<&str> = Vec::new();

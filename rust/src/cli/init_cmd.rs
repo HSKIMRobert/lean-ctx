@@ -61,7 +61,7 @@ pub fn cmd_init(args: &[String]) {
             }
         }
         if !global {
-            crate::hooks::install_project_rules();
+            crate::hooks::install_project_rules_for_agents(&agents);
         }
         qprintln!("\nRun 'lean-ctx gain' after using some commands to see your savings.");
         return;

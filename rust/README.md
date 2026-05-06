@@ -483,12 +483,25 @@ Add to `~/.cursor/mcp.json`:
 
 ### GitHub Copilot
 
-Add `.github/copilot/mcp.json` to your project:
+Add `.github/mcp.json` to your project (Copilot CLI):
+
+```json
+{
+  "mcpServers": {
+    "lean-ctx": {
+      "command": "lean-ctx"
+    }
+  }
+}
+```
+
+Or `.vscode/mcp.json` for VS Code Copilot:
 
 ```json
 {
   "servers": {
     "lean-ctx": {
+      "type": "stdio",
       "command": "lean-ctx"
     }
   }

@@ -20,6 +20,12 @@ pub(crate) fn install_copilot_hook(global: bool) {
         let _ = std::fs::create_dir_all(&vscode_dir);
         let mcp_path = vscode_dir.join("mcp.json");
         write_vscode_mcp_file(&mcp_path, &binary, ".vscode/mcp.json");
+
+        let github_dir = PathBuf::from(".github");
+        let _ = std::fs::create_dir_all(&github_dir);
+        let copilot_mcp = github_dir.join("mcp.json");
+        write_copilot_cli_mcp_file(&copilot_mcp, &binary, ".github/mcp.json");
+
         install_copilot_pretooluse_hook(false);
     }
 }
@@ -99,24 +105,54 @@ fn install_copilot_pretooluse_hook(global: bool) {
     }
 }
 
-fn write_vscode_mcp_file(mcp_path: &PathBuf, binary: &str, label: &str) {
+fn server_entry(binary: &str) -> serde_json::Value {
     let data_dir = crate::core::data_dir::lean_ctx_data_dir()
         .map(|d| d.to_string_lossy().to_string())
         .unwrap_or_default();
-    let desired = serde_json::json!({ "type": "stdio", "command": binary, "args": [], "env": { "LEAN_CTX_DATA_DIR": data_dir } });
+    serde_json::json!({
+        "type": "stdio",
+        "command": binary,
+        "args": [],
+        "env": { "LEAN_CTX_DATA_DIR": data_dir }
+    })
+}
+
+/// VS Code uses `"servers"` as the top-level key (not `"mcpServers"`).
+fn write_vscode_mcp_file(mcp_path: &PathBuf, binary: &str, label: &str) {
+    write_mcp_config(mcp_path, binary, label, "servers", server_entry(binary));
+}
+
+/// Copilot CLI uses `"mcpServers"` as the top-level key in `.github/mcp.json`.
+fn write_copilot_cli_mcp_file(mcp_path: &PathBuf, binary: &str, label: &str) {
+    let data_dir = crate::core::data_dir::lean_ctx_data_dir()
+        .map(|d| d.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let entry = serde_json::json!({
+        "command": binary,
+        "args": [],
+        "env": { "LEAN_CTX_DATA_DIR": data_dir }
+    });
+    write_mcp_config(mcp_path, binary, label, "mcpServers", entry);
+}
+
+fn write_mcp_config(
+    mcp_path: &PathBuf,
+    binary: &str,
+    label: &str,
+    root_key: &str,
+    desired: serde_json::Value,
+) {
     if mcp_path.exists() {
         let content = std::fs::read_to_string(mcp_path).unwrap_or_default();
         match crate::core::jsonc::parse_jsonc(&content) {
             Ok(mut json) => {
                 if let Some(obj) = json.as_object_mut() {
-                    let servers = obj
-                        .entry("servers")
-                        .or_insert_with(|| serde_json::json!({}));
+                    let servers = obj.entry(root_key).or_insert_with(|| serde_json::json!({}));
                     if let Some(servers_obj) = servers.as_object_mut() {
                         if servers_obj.get("lean-ctx") == Some(&desired) {
                             if !mcp_server_quiet_mode() {
                                 eprintln!(
-                                    "  \x1b[32m✓\x1b[0m Copilot already configured in {label}"
+                                    "  \x1b[32m✓\x1b[0m lean-ctx already configured in {label}"
                                 );
                             }
                             return;
@@ -135,7 +171,7 @@ fn write_vscode_mcp_file(mcp_path: &PathBuf, binary: &str, label: &str) {
             }
             Err(e) => {
                 tracing::warn!(
-                    "Could not parse VS Code MCP config at {}: {e}\nAdd to \"servers\": \"lean-ctx\": {{ \"command\": \"{}\", \"args\": [] }}",
+                    "Could not parse MCP config at {}: {e}\nAdd to \"{root_key}\": \"lean-ctx\": {{ \"command\": \"{}\", \"args\": [] }}",
                     mcp_path.display(),
                     binary
                 );
@@ -148,17 +184,9 @@ fn write_vscode_mcp_file(mcp_path: &PathBuf, binary: &str, label: &str) {
         let _ = std::fs::create_dir_all(parent);
     }
 
-    let data_dir = crate::core::data_dir::lean_ctx_data_dir()
-        .map(|d| d.to_string_lossy().to_string())
-        .unwrap_or_default();
     let config = serde_json::json!({
-        "servers": {
-            "lean-ctx": {
-                "type": "stdio",
-                "command": binary,
-                "args": [],
-                "env": { "LEAN_CTX_DATA_DIR": data_dir }
-            }
+        root_key: {
+            "lean-ctx": desired
         }
     });
 
