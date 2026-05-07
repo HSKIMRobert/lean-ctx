@@ -68,7 +68,7 @@ pub fn exec(command: &str) -> i32 {
         || (!force_compress
             && super::compress::is_excluded_command(command, &cfg.excluded_commands))
     {
-        return exec_inherit(command, &shell, &shell_flag);
+        return exec_inherit_tracked(command, &shell, &shell_flag);
     }
 
     if !force_compress {

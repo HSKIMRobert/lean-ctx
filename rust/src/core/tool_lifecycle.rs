@@ -83,12 +83,10 @@ pub fn record_tree(original_tokens: usize, output_tokens: usize) {
 }
 
 /// Record a shell command with full Context OS side effects.
-/// When both original and output are 0 (track-only, no compression), only updates
-/// the session command counter without inflating token statistics.
+/// Always records in stats (even for track-only 0-token calls) so the dashboard
+/// command counter stays accurate. Adding 0 tokens does not inflate savings.
 pub fn record_shell_command(original_tokens: usize, output_tokens: usize) {
-    if original_tokens > 0 || output_tokens > 0 {
-        stats::record("cli_shell", original_tokens, output_tokens);
-    }
+    stats::record("cli_shell", original_tokens, output_tokens);
 
     if let Some(mut session) = SessionState::load_latest() {
         session.record_command();
