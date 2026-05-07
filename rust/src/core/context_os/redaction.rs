@@ -94,6 +94,9 @@ mod tests {
             kind: "tool_call_recorded".to_string(),
             actor: Some("agent".to_string()),
             timestamp: Utc::now(),
+            version: 1,
+            parent_id: None,
+            consistency_level: "local".to_string(),
             payload: json!({
                 "tool": "ctx_read",
                 "kind": "tool_call_recorded",

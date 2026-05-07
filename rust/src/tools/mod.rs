@@ -167,6 +167,7 @@ pub struct LeanCtxServer {
     pub context_ir: Option<Arc<RwLock<crate::core::context_ir::ContextIrV1>>>,
     pub registry: Option<Arc<crate::server::registry::ToolRegistry>>,
     pub(crate) rules_stale_checked: Arc<std::sync::atomic::AtomicBool>,
+    pub(crate) last_seen_event_id: Arc<std::sync::atomic::AtomicI64>,
     startup_project_root: Option<String>,
     startup_shell_cwd: Option<String>,
 }
@@ -263,6 +264,7 @@ impl LeanCtxServer {
                 let session = rt
                     .shared_sessions
                     .get_or_load(root, workspace_id, channel_id);
+                rt.metrics.record_session_loaded();
                 // Ensure shell_cwd is refreshed (best-effort).
                 if let Some(ref cwd) = startup.shell_cwd {
                     if let Ok(mut s) = session.try_write() {
@@ -312,6 +314,7 @@ impl LeanCtxServer {
                 crate::server::registry::build_registry(),
             )),
             rules_stale_checked: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            last_seen_event_id: Arc::new(std::sync::atomic::AtomicI64::new(0)),
             startup_project_root: startup.project_root,
             startup_shell_cwd: startup.shell_cwd,
         }

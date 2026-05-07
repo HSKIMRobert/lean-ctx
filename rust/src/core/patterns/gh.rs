@@ -19,6 +19,9 @@ fn pr_created_re() -> &'static regex::Regex {
 
 pub fn compress(command: &str, output: &str) -> Option<String> {
     if command.contains("pr") {
+        if command.contains("diff") {
+            return Some(output.to_string()); // safety: verbatim (issue #149)
+        }
         if command.contains("list") {
             return Some(compress_pr_list(output));
         }
@@ -64,7 +67,9 @@ pub fn compress(command: &str, output: &str) -> Option<String> {
         return Some(compress_release(output));
     }
 
-    Some(compact_output(output, 10))
+    // Safety: unknown gh subcommands (api, search, diff, workflow, auth, secret, etc.)
+    // pass through verbatim to prevent fallback compressors from stripping content.
+    Some(output.to_string())
 }
 
 fn compress_pr_list(output: &str) -> String {

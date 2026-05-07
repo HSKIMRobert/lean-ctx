@@ -497,6 +497,9 @@ mod redaction {
             kind: "tool_call_recorded".to_string(),
             actor: Some("agent".to_string()),
             timestamp: chrono::Utc::now(),
+            version: 1,
+            parent_id: None,
+            consistency_level: "local".to_string(),
             payload: serde_json::json!({
                 "tool": tool,
                 "content": content,

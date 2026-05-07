@@ -21,11 +21,39 @@ use serde_json::Value;
 use tokio::sync::broadcast;
 use tokio::time::{Duration, Instant};
 
+use crate::core::context_os::ContextOsMetrics;
 use crate::engine::ContextEngine;
 use crate::tools::LeanCtxServer;
 
+pub mod context_views;
+
 #[cfg(feature = "team-server")]
 pub mod team;
+
+/// Wrapper stream that calls `record_sse_disconnect` on drop.
+use std::pin::Pin;
+
+pub(crate) struct SseDisconnectGuard<I> {
+    pub(crate) inner: Pin<Box<dyn Stream<Item = I> + Send>>,
+    pub(crate) metrics: Arc<ContextOsMetrics>,
+}
+
+impl<I> Stream for SseDisconnectGuard<I> {
+    type Item = I;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        self.inner.as_mut().poll_next(cx)
+    }
+}
+
+impl<I> Drop for SseDisconnectGuard<I> {
+    fn drop(&mut self) {
+        self.metrics.record_sse_disconnect();
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct HttpServerConfig {
@@ -328,7 +356,7 @@ async fn v1_events(
     State(_state): State<AppState>,
     Query(q): Query<EventsQuery>,
 ) -> Sse<impl Stream<Item = Result<SseEvent, std::convert::Infallible>>> {
-    use crate::core::context_os::{redact_event_payload, RedactionLevel};
+    use crate::core::context_os::{redact_event_payload, ContextEventV1, RedactionLevel};
 
     let ws = q.workspace_id.unwrap_or_else(|| "default".to_string());
     let ch = q.channel_id.unwrap_or_else(|| "default".to_string());
@@ -343,17 +371,23 @@ async fn v1_events(
     rt.metrics.record_events_replayed(replay.len() as u64);
     rt.metrics.record_workspace_active(&ws);
 
+    let bus = rt.bus.clone();
+    let metrics = rt.metrics.clone();
+    let pending: std::collections::VecDeque<ContextEventV1> = replay.into();
+
     let stream = futures::stream::unfold(
         (
-            replay.into_iter(),
+            pending,
             rx,
             ws.clone(),
             ch.clone(),
             since,
             redaction,
+            bus,
+            metrics,
         ),
-        |(mut replay_it, mut rx, ws, ch, mut last_id, redaction)| async move {
-            if let Some(mut ev) = replay_it.next() {
+        |(mut pending, mut rx, ws, ch, mut last_id, redaction, bus, metrics)| async move {
+            if let Some(mut ev) = pending.pop_front() {
                 last_id = ev.id;
                 redact_event_payload(&mut ev, redaction);
                 let data = serde_json::to_string(&ev).unwrap_or_else(|_| "{}".to_string());
@@ -361,7 +395,10 @@ async fn v1_events(
                     .id(ev.id.to_string())
                     .event(ev.kind)
                     .data(data);
-                return Some((Ok(evt), (replay_it, rx, ws, ch, last_id, redaction)));
+                return Some((
+                    Ok(evt),
+                    (pending, rx, ws, ch, last_id, redaction, bus, metrics),
+                ));
             }
 
             loop {
@@ -376,17 +413,33 @@ async fn v1_events(
                                 .id(ev.id.to_string())
                                 .event(ev.kind)
                                 .data(data);
-                            return Some((Ok(evt), (replay_it, rx, ws, ch, last_id, redaction)));
+                            return Some((
+                                Ok(evt),
+                                (pending, rx, ws, ch, last_id, redaction, bus, metrics),
+                            ));
                         }
                     }
                     Err(broadcast::error::RecvError::Closed) => return None,
-                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                        let missed = bus.read(&ws, &ch, last_id, skipped as usize);
+                        metrics.record_events_replayed(missed.len() as u64);
+                        for ev in missed {
+                            last_id = last_id.max(ev.id);
+                            pending.push_back(ev);
+                        }
+                    }
                 }
             }
         },
     );
 
-    Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
+    let metrics_ref = rt.metrics.clone();
+    let guarded = SseDisconnectGuard {
+        inner: Box::pin(stream),
+        metrics: metrics_ref,
+    };
+
+    Sse::new(guarded).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
 }
 
 async fn v1_metrics(State(_state): State<AppState>) -> impl IntoResponse {
@@ -438,6 +491,12 @@ pub async fn serve(cfg: HttpServerConfig) -> Result<()> {
         .route("/v1/tools", get(v1_tools))
         .route("/v1/tools/call", axum::routing::post(v1_tool_call))
         .route("/v1/events", get(v1_events))
+        .route(
+            "/v1/context/summary",
+            get(context_views::v1_context_summary),
+        )
+        .route("/v1/events/search", get(context_views::v1_events_search))
+        .route("/v1/events/lineage", get(context_views::v1_event_lineage))
         .route("/v1/metrics", get(v1_metrics))
         .fallback_service(mcp_http)
         .layer(axum::extract::DefaultBodyLimit::max(cfg.max_body_bytes))
@@ -513,6 +572,12 @@ pub async fn serve_uds(cfg: HttpServerConfig, socket_path: PathBuf) -> Result<()
         .route("/v1/tools", get(v1_tools))
         .route("/v1/tools/call", axum::routing::post(v1_tool_call))
         .route("/v1/events", get(v1_events))
+        .route(
+            "/v1/context/summary",
+            get(context_views::v1_context_summary),
+        )
+        .route("/v1/events/search", get(context_views::v1_events_search))
+        .route("/v1/events/lineage", get(context_views::v1_event_lineage))
         .route("/v1/metrics", get(v1_metrics))
         .fallback_service(mcp_http)
         .layer(axum::extract::DefaultBodyLimit::max(cfg.max_body_bytes))

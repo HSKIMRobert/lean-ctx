@@ -46,6 +46,17 @@ For arguments keys `path`, `target_directory`, `targetDirectory`:
 
 Scope enforcement is tool/action-aware. Tokens must include required scopes for the requested tool.
 
+| Scope | Grants Access To |
+|-------|-----------------|
+| `search` | `ctx_read`, `ctx_multi_read`, `ctx_smart_read`, `ctx_search`, `ctx_tree`, `ctx_outline`, `ctx_expand`, `ctx_delta`, `ctx_dedup`, `ctx_prefetch`, `ctx_preload`, `ctx_review`, `ctx_response`, `ctx_task`, `ctx_overview`, `ctx_pack`, `ctx_semantic_search`, `ctx_proof`, `ctx_verify` |
+| `graph` | `ctx_graph`, `ctx_graph_diagram`, `ctx_impact`, `ctx_callgraph`, `ctx_callers`, `ctx_callees`, `ctx_routes`, `ctx_pack` |
+| `artifacts` | `ctx_artifacts`, `ctx_semantic_search` with `artifacts=true` |
+| `index` | `ctx_graph` with `action=index-build*`, `ctx_semantic_search` with `action=reindex` |
+| `events` | `GET /v1/events` SSE stream |
+| `sessionMutations` | `ctx_session` (mutating: `save`, `set_task`, `task`, `checkpoint`, `finding`, `decision`, `reset`, `import`), `ctx_handoff`, `ctx_workflow`, `ctx_share` |
+| `knowledge` | `ctx_knowledge` (mutating: `remember`, `feedback`, `remove`, `consolidate`), `ctx_knowledge_relations` (mutating: `relate`, `unrelate`) |
+| `audit` | `GET /v1/metrics`, full-payload event access, audit log reads |
+
 Errors:
 
 - `401 unauthorized` (missing/invalid token)

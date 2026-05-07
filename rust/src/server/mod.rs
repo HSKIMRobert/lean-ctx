@@ -74,6 +74,7 @@ impl ServerHandler for LeanCtxServer {
                             &self.channel_id,
                             &session,
                         );
+                        rt.metrics.record_session_persisted();
                     }
                 }
             } else {
@@ -582,12 +583,32 @@ impl ServerHandler for LeanCtxServer {
         }
 
         let output_token_count = crate::core::tokens::count_tokens(&result_text);
+        let action = helpers::get_str(args, "action");
+
+        // K-bounded staleness guard: warn if shared context has diverged.
+        const K_STALENESS_BOUND: i64 = 10;
+        if self.session_mode == crate::tools::SessionMode::Shared {
+            if let Some(ref rt) = self.context_os {
+                let latest = rt.bus.latest_id(&self.workspace_id, &self.channel_id);
+                let cursor = self
+                    .last_seen_event_id
+                    .load(std::sync::atomic::Ordering::Relaxed);
+                if cursor > 0 && latest - cursor > K_STALENESS_BOUND {
+                    let gap = latest - cursor;
+                    result_text = format!(
+                        "[CONTEXT STALE] {gap} events happened since your last read. \
+                         Use ctx_session(action=\"status\") to sync.\n\n{result_text}"
+                    );
+                }
+                self.last_seen_event_id
+                    .store(latest, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
 
         {
             let input = helpers::canonical_args_string(args);
             let input_md5 = helpers::md5_hex_fast(&input);
             let output_md5 = helpers::md5_hex_fast(&result_text);
-            let action = helpers::get_str(args, "action");
             let agent_id = self.agent_id.read().await.clone();
             let client_name = self.client_name.read().await.clone();
             let mut explicit_intent: Option<(
@@ -690,14 +711,56 @@ impl ServerHandler for LeanCtxServer {
             });
         }
 
-        // Context OS: persist shared session + publish an event (reference-only payload).
+        // Context Bus: conflict detection for knowledge writes in shared mode.
+        if self.session_mode == crate::tools::SessionMode::Shared
+            && name == "ctx_knowledge"
+            && action.as_deref() == Some("remember")
+        {
+            if let Some(ref rt) = self.context_os {
+                let my_agent = self.agent_id.read().await.clone();
+                let category = helpers::get_str(args, "category");
+                let key = helpers::get_str(args, "key");
+                if let (Some(ref cat), Some(ref k)) = (&category, &key) {
+                    let recent = rt.bus.recent_by_kind(
+                        &self.workspace_id,
+                        &self.channel_id,
+                        "knowledge_remembered",
+                        20,
+                    );
+                    for ev in &recent {
+                        let p = &ev.payload;
+                        let ev_cat = p.get("category").and_then(|v| v.as_str());
+                        let ev_key = p.get("key").and_then(|v| v.as_str());
+                        let ev_actor = ev.actor.as_deref();
+                        if ev_cat == Some(cat.as_str())
+                            && ev_key == Some(k.as_str())
+                            && ev_actor != my_agent.as_deref()
+                        {
+                            let other = ev_actor.unwrap_or("unknown");
+                            result_text = format!(
+                                "[CONFLICT] Agent '{other}' recently wrote to the same knowledge key \
+                                 '{cat}/{k}'. Review before proceeding.\n\n{result_text}"
+                            );
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Context OS: persist shared session + publish events.
         if self.session_mode == crate::tools::SessionMode::Shared {
             let ws = self.workspace_id.clone();
             let ch = self.channel_id.clone();
             let rt = self.context_os.clone();
             let agent = self.agent_id.read().await.clone();
             let tool = name.to_string();
+            let tool_action = action.clone();
+            let tool_path = helpers::get_str(args, "path");
+            let tool_category = helpers::get_str(args, "category");
+            let tool_key = helpers::get_str(args, "key");
             let session_snapshot = self.session.read().await.clone();
+            let session_task = session_snapshot.task.clone();
             tokio::task::spawn_blocking(move || {
                 let Some(rt) = rt else {
                     return;
@@ -707,13 +770,52 @@ impl ServerHandler for LeanCtxServer {
                 };
                 rt.shared_sessions
                     .persist_best_effort(root, &ws, &ch, &session_snapshot);
-                let _ = rt.bus.append(
-                    &ws,
-                    &ch,
-                    &crate::core::context_os::ContextEventKindV1::ToolCallRecorded,
-                    agent.as_deref(),
-                    serde_json::json!({ "tool": tool }),
-                );
+                rt.metrics.record_session_persisted();
+
+                let mut base_payload = serde_json::json!({
+                    "tool": tool,
+                    "action": tool_action,
+                });
+                if let Some(ref p) = tool_path {
+                    base_payload["path"] = serde_json::Value::String(p.clone());
+                }
+                if let Some(ref c) = tool_category {
+                    base_payload["category"] = serde_json::Value::String(c.clone());
+                }
+                if let Some(ref k) = tool_key {
+                    base_payload["key"] = serde_json::Value::String(k.clone());
+                }
+                if let Some(ref t) = session_task {
+                    base_payload["reasoning"] = serde_json::Value::String(t.description.clone());
+                }
+
+                if rt
+                    .bus
+                    .append(
+                        &ws,
+                        &ch,
+                        &crate::core::context_os::ContextEventKindV1::ToolCallRecorded,
+                        agent.as_deref(),
+                        base_payload.clone(),
+                    )
+                    .is_some()
+                {
+                    rt.metrics.record_event_appended();
+                    rt.metrics.record_event_broadcast();
+                }
+
+                if let Some(secondary) =
+                    crate::core::context_os::secondary_event_kind(&tool, tool_action.as_deref())
+                {
+                    if rt
+                        .bus
+                        .append(&ws, &ch, &secondary, agent.as_deref(), base_payload)
+                        .is_some()
+                    {
+                        rt.metrics.record_event_appended();
+                        rt.metrics.record_event_broadcast();
+                    }
+                }
             });
         }
 

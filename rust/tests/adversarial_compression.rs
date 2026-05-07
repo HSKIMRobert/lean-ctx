@@ -920,3 +920,95 @@ fn adversarial_shell_hook_preserves_errors_in_truncation() {
         "shell hook must preserve ERROR lines during truncation: {compressed}"
     );
 }
+
+// --- gh CLI security regression tests (issue #149 follow-up) ---
+
+#[test]
+fn adversarial_gh_pr_diff_passes_through_verbatim() {
+    let diff = r#"diff --git a/src/auth.rs b/src/auth.rs
+--- a/src/auth.rs
++++ b/src/auth.rs
+@@ -42,7 +42,6 @@ fn validate_csrf_token(req: &Request) -> bool {
+     let token = req.header("X-CSRF-Token");
+-    if !csrf::verify(token, &session.secret) {
+-        return false;
+-    }
++    // SECURITY: CSRF check removed for performance
+     true
+ }
+"#;
+    let result = compress_output("gh pr diff 185", diff).expect("should return Some (verbatim)");
+    assert!(
+        result.contains("csrf::verify"),
+        "gh pr diff must preserve all diff content verbatim: {result}"
+    );
+    assert!(
+        result.contains("SECURITY: CSRF check removed"),
+        "gh pr diff must preserve security-critical additions: {result}"
+    );
+    assert_eq!(
+        result.trim(),
+        diff.trim(),
+        "gh pr diff output must be byte-identical to input"
+    );
+}
+
+#[test]
+fn adversarial_gh_api_passes_through_verbatim() {
+    let api_output = r#"[{"filename":"src/auth.rs","patch":"@@ -42,7 +42,6 @@\n-    csrf::verify(token)\n+    // removed"}]"#;
+    let result = compress_output("gh api repos/org/repo/pulls/42/files", api_output)
+        .expect("should return Some (verbatim)");
+    assert_eq!(
+        result, api_output,
+        "gh api output must be byte-identical to input"
+    );
+}
+
+#[test]
+fn adversarial_gh_search_passes_through_verbatim() {
+    let search_output = (0..50)
+        .map(|i| format!("repo/file{i}.rs:42: fn vulnerable_handler() {{"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let result = compress_output("gh search code 'sql injection'", &search_output)
+        .expect("should return Some (verbatim)");
+    assert_eq!(
+        result, search_output,
+        "gh search output must be byte-identical to input"
+    );
+}
+
+#[test]
+fn adversarial_gh_workflow_passes_through_verbatim() {
+    let workflow_output = "ID       STATUS     CONCLUSION  NAME\n123456   completed  failure     CI\n123457   completed  success     Deploy\n123458   in_progress            Security Scan";
+    let result = compress_output("gh workflow view ci.yml", workflow_output)
+        .expect("should return Some (verbatim)");
+    assert_eq!(
+        result, workflow_output,
+        "gh workflow output must be byte-identical to input"
+    );
+}
+
+#[test]
+fn adversarial_gh_pr_list_still_compresses() {
+    let pr_list = "#185\tSupport configurable proxy\tzsefvlol:feat/proxy\tDRAFT\n#184\tFix auth bypass\tsecurity-team:fix/auth\tOPEN\n";
+    let result = compress_output("gh pr list", pr_list);
+    assert!(
+        result.is_some(),
+        "gh pr list should still compress (known safe pattern)"
+    );
+}
+
+#[test]
+fn adversarial_gh_diff_preserves_security_change() {
+    let diff = format!(
+        "diff --git a/middleware/auth.js b/middleware/auth.js\n{}\n{}",
+        "- const isAdmin = await checkAdminRole(user);",
+        "+ const isAdmin = true; // HACK: bypassed for demo"
+    );
+    let shell_result = lean_ctx::shell::compress_if_beneficial_pub("gh pr diff 200", &diff);
+    assert!(
+        shell_result.contains("isAdmin = true") || shell_result.contains("HACK"),
+        "gh pr diff through shell hook must preserve security-critical diff content: {shell_result}"
+    );
+}

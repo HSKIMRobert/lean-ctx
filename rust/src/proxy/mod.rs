@@ -22,6 +22,9 @@ pub struct ProxyState {
     pub client: reqwest::Client,
     pub port: u16,
     pub stats: Arc<ProxyStats>,
+    pub anthropic_upstream: String,
+    pub openai_upstream: String,
+    pub gemini_upstream: String,
 }
 
 pub struct ProxyStats {
@@ -70,14 +73,24 @@ impl ProxyStats {
 }
 
 pub async fn start_proxy(port: u16) -> anyhow::Result<()> {
+    use crate::core::config::{Config, ProxyProvider};
+
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_mins(2))
         .build()?;
+
+    let cfg = Config::load();
+    let anthropic_upstream = cfg.proxy.resolve_upstream(ProxyProvider::Anthropic);
+    let openai_upstream = cfg.proxy.resolve_upstream(ProxyProvider::OpenAi);
+    let gemini_upstream = cfg.proxy.resolve_upstream(ProxyProvider::Gemini);
 
     let state = ProxyState {
         client,
         port,
         stats: Arc::new(ProxyStats::default()),
+        anthropic_upstream: anthropic_upstream.clone(),
+        openai_upstream: openai_upstream.clone(),
+        gemini_upstream: gemini_upstream.clone(),
     };
 
     let app = Router::new()
@@ -90,9 +103,9 @@ pub async fn start_proxy(port: u16) -> anyhow::Result<()> {
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     println!("lean-ctx proxy listening on http://{addr}");
-    println!("  Anthropic: POST /v1/messages");
-    println!("  OpenAI:    POST /v1/chat/completions");
-    println!("  Gemini:    POST /v1beta/models/...");
+    println!("  Anthropic: POST /v1/messages → {anthropic_upstream}");
+    println!("  OpenAI:    POST /v1/chat/completions → {openai_upstream}");
+    println!("  Gemini:    POST /v1beta/models/... → {gemini_upstream}");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;

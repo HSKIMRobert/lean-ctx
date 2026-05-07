@@ -156,7 +156,8 @@ leanctx.contract.team_server.contract_version=1
 ### HTTP MCP Contract v1
 
 - **Doc**: `docs/contracts/http-mcp-contract-v1.md`
-- **Stable endpoints**: `/health`, `/v1/manifest`, `/v1/tools`, `/v1/tools/call`
+- **Stable endpoints**: `/health`, `/v1/manifest`, `/v1/tools`, `/v1/tools/call`, `/v1/events`, `/v1/context/summary`, `/v1/events/search`, `/v1/events/lineage`, `/v1/metrics`
+- **Event schema**: `ContextEventV1` with `version`, `parentId`, `consistencyLevel` fields
 - **Typed errors**: JSON `error_code` + `error`
 
 ### Team Server Contract v1

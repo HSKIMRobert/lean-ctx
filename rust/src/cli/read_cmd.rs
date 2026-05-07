@@ -8,6 +8,18 @@ use crate::core::patterns::deps_cmd;
 use crate::core::protocol;
 use crate::core::roles;
 use crate::core::signatures;
+
+fn resolve_cli_path(raw: &str) -> String {
+    if let Ok(abs) = std::path::Path::new(raw).canonicalize() {
+        return abs.to_string_lossy().to_string();
+    }
+    if Path::new(raw).is_relative() {
+        if let Ok(cwd) = std::env::current_dir() {
+            return cwd.join(raw).to_string_lossy().into_owned();
+        }
+    }
+    raw.to_string()
+}
 use crate::core::tokens::count_tokens;
 
 use super::common::print_savings;
@@ -241,7 +253,9 @@ pub fn cmd_grep(args: &[String]) {
     }
 
     let pattern = &args[0];
-    let path = args.get(1).map_or(".", std::string::String::as_str);
+    let raw_path = args.get(1).map_or(".", std::string::String::as_str);
+    let abs_path = resolve_cli_path(raw_path);
+    let path = abs_path.as_str();
 
     #[cfg(unix)]
     {
@@ -325,7 +339,9 @@ pub fn cmd_find(args: &[String]) {
 }
 
 pub fn cmd_ls(args: &[String]) {
-    let path = args.first().map_or(".", std::string::String::as_str);
+    let raw_path = args.first().map_or(".", std::string::String::as_str);
+    let abs_path = resolve_cli_path(raw_path);
+    let path = abs_path.as_str();
     let depth = 3usize;
     let show_hidden = false;
 

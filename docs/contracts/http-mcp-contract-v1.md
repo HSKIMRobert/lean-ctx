@@ -30,6 +30,9 @@ served by the same `axum` server that handles MCP protocol messages via fallback
 | GET | `/v1/tools` | bearer | Paginated tool list |
 | POST | `/v1/tools/call` | bearer | Execute a single tool |
 | GET | `/v1/events` | bearer + `Events` scope | SSE stream with replay |
+| GET | `/v1/context/summary` | bearer | Materialized workspace/channel summary |
+| GET | `/v1/events/search` | bearer | Full-text search over event payloads (FTS5) |
+| GET | `/v1/events/lineage` | bearer | Causal lineage chain for an event |
 | GET | `/v1/metrics` | bearer + `Audit` scope | JSON metrics snapshot |
 | POST (fallback) | `/*` | bearer | Streamable HTTP MCP transport |
 
@@ -133,9 +136,17 @@ data: {"id":43,"workspaceId":"ws1","channelId":"ch1","kind":"session_mutated","a
   "workspaceId": "ws1",
   "channelId": "ch1",
   "kind": "tool_call_recorded",
-  "actor": "agent",
+  "actor": "agent-a",
   "timestamp": "2026-05-05T13:00:00.000Z",
-  "payload": { "tool": "ctx_read", "..." : "..." }
+  "version": 17,
+  "parentId": null,
+  "consistencyLevel": "local",
+  "payload": {
+    "tool": "ctx_read",
+    "action": null,
+    "path": "src/main.rs",
+    "reasoning": "Reading entry point for auth refactor"
+  }
 }
 ```
 
@@ -147,7 +158,57 @@ data: {"id":43,"workspaceId":"ws1","channelId":"ch1","kind":"session_mutated","a
 | `kind` | string | One of the event types above |
 | `actor` | string \| null | Identifier of the agent/user that triggered the event |
 | `timestamp` | RFC 3339 | Server-side UTC timestamp |
+| `version` | i64 | Monotonic counter per (workspace, channel) pair |
+| `parentId` | i64 \| null | Causal link to the triggering event (enables lineage graphs) |
+| `consistencyLevel` | string | `"local"`, `"eventual"`, or `"strong"` (see below) |
 | `payload` | object | Event-specific data (subject to redaction) |
+
+### Consistency Levels
+
+Each event is classified by how it should be treated in multi-agent coordination:
+
+| Level | Meaning | Event Kinds |
+|-------|---------|-------------|
+| `local` | Agent-local, informational — never requires sync | `tool_call_recorded`, `graph_built` |
+| `eventual` | Shared, eventually consistent — broadcast via bus | `knowledge_remembered`, `artifact_stored` |
+| `strong` | Shared, critical — other agents should sync before proceeding | `session_mutated`, `proof_added` |
+
+### Enriched Payloads
+
+Event payloads include contextual metadata when available:
+
+| Field | Included When | Description |
+|-------|--------------|-------------|
+| `tool` | always | Tool name that triggered the event |
+| `action` | tool has action param | Tool action (e.g., `"remember"`, `"save"`) |
+| `path` | file-related tools | File path involved |
+| `category` | knowledge tools | Knowledge category |
+| `key` | knowledge tools | Knowledge key |
+| `reasoning` | session has active task | Current task description from session state |
+
+### Staleness Guard
+
+When an agent in shared mode has fallen behind by more than **K events** (default: 10),
+the server injects a `[CONTEXT STALE]` prefix into tool responses:
+
+```
+[CONTEXT STALE] 15 events happened since your last read. Use ctx_session(action="status") to sync.
+```
+
+### Knowledge Conflict Detection
+
+When `ctx_knowledge(action="remember")` writes a fact and another agent recently wrote to
+the same `category/key`, a `[CONFLICT]` warning is injected:
+
+```
+[CONFLICT] Agent 'agent-b' recently wrote to the same knowledge key 'architecture/auth-strategy'. Review before proceeding.
+```
+
+### SSE Backfill on Lag
+
+When a broadcast subscriber falls behind (channel buffer overflow), the server automatically
+backfills missed events from SQLite instead of silently dropping them. Clients may
+receive a synthetic `event: backfill` SSE message indicating the recovery.
 
 ### Reconnect
 
@@ -164,6 +225,94 @@ The server sends a keep-alive comment every **15 seconds** to prevent proxy/clie
 
 ```
 : keep-alive
+```
+
+---
+
+## Context Summary
+
+### Endpoint
+
+```
+GET /v1/context/summary?workspaceId=<ws>&channelId=<ch>&limit=<n>
+```
+
+Returns a materialized view of the workspace/channel state: active agents, recent decisions,
+knowledge delta, conflict alerts, and event counts by kind.
+
+### Response Schema
+
+```json
+{
+  "workspaceId": "ws1",
+  "channelId": "ch1",
+  "totalEvents": 142,
+  "latestVersion": 142,
+  "activeAgents": ["agent-a", "agent-b"],
+  "recentDecisions": [
+    {
+      "agent": "agent-b",
+      "tool": "ctx_knowledge",
+      "action": "remember",
+      "reasoning": "JWT preferred for scaling",
+      "timestamp": "2026-05-05T13:00:01Z"
+    }
+  ],
+  "knowledgeDelta": [...],
+  "conflictAlerts": [
+    { "category": "architecture", "key": "auth-strategy", "agents": ["agent-a", "agent-b"] }
+  ],
+  "eventCountsByKind": {
+    "tool_call_recorded": 120,
+    "session_mutated": 10,
+    "knowledge_remembered": 8,
+    "artifact_stored": 3,
+    "graph_built": 1,
+    "proof_added": 0
+  }
+}
+```
+
+---
+
+## Event Search (FTS5)
+
+### Endpoint
+
+```
+GET /v1/events/search?q=<query>&workspaceId=<ws>&limit=<n>
+```
+
+Full-text search over event payloads using SQLite FTS5. Returns matching events
+ranked by relevance.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `q` | string | required | FTS5 search query |
+| `workspaceId` | string | `"default"` | Filter by workspace |
+| `limit` | usize | `20` | Max results (capped at 100) |
+
+---
+
+## Event Lineage
+
+### Endpoint
+
+```
+GET /v1/events/lineage?id=<eventId>&depth=<n>
+```
+
+Traces the causal chain of an event by following `parentId` links. Returns the event
+and all ancestors up to `depth` (default 20, max 50).
+
+### Response Schema
+
+```json
+{
+  "eventId": 42,
+  "chain": [ /* ContextEventV1[] from child to root */ ],
+  "depth": 3
+}
 ```
 
 ---
@@ -303,9 +452,13 @@ The following tools are **never allowed** on the team server (no scope grants ac
 
 ### Scope Enforcement
 
-1. **Endpoint-level**: `/v1/events` requires `Events`, `/v1/metrics` requires `Audit`.
+1. **Endpoint-level**: `/v1/events` requires `events`, `/v1/metrics` requires `audit`.
 2. **Tool-level**: each tool call is mapped to required scopes via `required_scopes()`.
    The request is allowed only if `required_scopes ⊆ token_scopes`.
+   - `ctx_session` (mutating actions) → `sessionMutations`
+   - `ctx_knowledge`, `ctx_knowledge_relations` (mutating actions) → `knowledge`
+   - `ctx_artifacts` (mutating actions) → `artifacts`
+   - `ctx_proof`, `ctx_verify` (mutating actions) → `search`
 3. **MCP fallback**: `tools/call` JSON-RPC requests on the MCP transport are also
    scope-checked by parsing the request body in the auth middleware.
 

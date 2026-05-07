@@ -99,7 +99,9 @@ pub fn run(dry_run: bool) {
     let mut removed_any = false;
 
     removed_any |= remove_shell_hook(&home, dry_run);
-    if !dry_run {
+    if dry_run {
+        crate::proxy_setup::preview_proxy_cleanup(&home);
+    } else {
         crate::proxy_setup::uninstall_proxy_env(&home, false);
     }
     removed_any |= remove_mcp_configs(&home, dry_run);

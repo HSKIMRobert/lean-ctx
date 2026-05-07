@@ -486,10 +486,13 @@ fn required_scopes(tool_name: &str, args: Option<&Value>) -> Option<BTreeSet<Tea
 
     let mut s = BTreeSet::new();
     match tool_name {
-        // Search scope (read/discovery)
+        // Search scope (read/discovery/analysis)
         "ctx_read" | "ctx_multi_read" | "ctx_smart_read" | "ctx_search" | "ctx_tree"
         | "ctx_outline" | "ctx_expand" | "ctx_delta" | "ctx_dedup" | "ctx_prefetch"
-        | "ctx_preload" | "ctx_review" | "ctx_response" | "ctx_task" | "ctx_overview" => {
+        | "ctx_preload" | "ctx_review" | "ctx_response" | "ctx_task" | "ctx_overview"
+        | "ctx_architecture" | "ctx_benchmark" | "ctx_cost" | "ctx_intent" | "ctx_heatmap"
+        | "ctx_gain" | "ctx_analyze" | "ctx_discover_tools" | "ctx_discover" | "ctx_symbol"
+        | "ctx_index" | "ctx_metrics" | "ctx_cache" | "ctx_agent" => {
             s.insert(TeamScope::Search);
             Some(s)
         }
@@ -538,6 +541,21 @@ fn required_scopes(tool_name: &str, args: Option<&Value>) -> Option<BTreeSet<Tea
             {
                 s.insert(TeamScope::Index);
             }
+            Some(s)
+        }
+        // Session-mutating tools
+        "ctx_session" | "ctx_handoff" | "ctx_workflow" | "ctx_compress" | "ctx_share" => {
+            s.insert(TeamScope::SessionMutations);
+            Some(s)
+        }
+        // Knowledge tools
+        "ctx_knowledge" | "ctx_knowledge_relations" => {
+            s.insert(TeamScope::Knowledge);
+            Some(s)
+        }
+        // Artifact + proof tools
+        "ctx_artifacts" | "ctx_proof" | "ctx_verify" => {
+            s.insert(TeamScope::Artifacts);
             Some(s)
         }
         _ => None,
@@ -1004,18 +1022,26 @@ async fn v1_events(
     let rt = crate::core::context_os::runtime();
     let replay = rt.bus.read(&ws, &ch, since, limit);
     let rx = rt.bus.subscribe();
+    rt.metrics.record_sse_connect();
+    rt.metrics.record_events_replayed(replay.len() as u64);
+    rt.metrics.record_workspace_active(&ws);
+
+    let bus = rt.bus.clone();
+    let metrics = rt.metrics.clone();
+    let pending: std::collections::VecDeque<crate::core::context_os::ContextEventV1> =
+        replay.into();
 
     let stream = futures::stream::unfold(
-        (replay.into_iter(), rx, ws.clone(), ch.clone(), since),
-        |(mut replay_it, mut rx, ws, ch, mut last_id)| async move {
-            if let Some(ev) = replay_it.next() {
+        (pending, rx, ws.clone(), ch.clone(), since, bus, metrics),
+        |(mut pending, mut rx, ws, ch, mut last_id, bus, metrics)| async move {
+            if let Some(ev) = pending.pop_front() {
                 last_id = ev.id;
                 let data = serde_json::to_string(&ev).unwrap_or_else(|_| "{}".to_string());
                 let evt = SseEvent::default()
                     .id(ev.id.to_string())
                     .event(ev.kind)
                     .data(data);
-                return Some((Ok(evt), (replay_it, rx, ws, ch, last_id)));
+                return Some((Ok(evt), (pending, rx, ws, ch, last_id, bus, metrics)));
             }
 
             loop {
@@ -1029,17 +1055,30 @@ async fn v1_events(
                                 .id(ev.id.to_string())
                                 .event(ev.kind)
                                 .data(data);
-                            return Some((Ok(evt), (replay_it, rx, ws, ch, last_id)));
+                            return Some((Ok(evt), (pending, rx, ws, ch, last_id, bus, metrics)));
                         }
                     }
                     Err(broadcast::error::RecvError::Closed) => return None,
-                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                        let missed = bus.read(&ws, &ch, last_id, skipped as usize);
+                        metrics.record_events_replayed(missed.len() as u64);
+                        for ev in missed {
+                            last_id = last_id.max(ev.id);
+                            pending.push_back(ev);
+                        }
+                    }
                 }
             }
         },
     );
 
-    Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
+    let metrics_ref = rt.metrics.clone();
+    let guarded = super::SseDisconnectGuard {
+        inner: Box::pin(stream),
+        metrics: metrics_ref,
+    };
+
+    Sse::new(guarded).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
 }
 
 async fn v1_team_metrics(State(_state): State<TeamAppState>) -> impl IntoResponse {

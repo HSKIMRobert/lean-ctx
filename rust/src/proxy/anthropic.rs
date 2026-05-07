@@ -10,13 +10,15 @@ use super::compress::compress_tool_result;
 use super::forward;
 use super::ProxyState;
 
-const UPSTREAM: &str = "https://api.anthropic.com";
-
-pub async fn handler(state: State<ProxyState>, req: Request<Body>) -> Result<Response, StatusCode> {
+pub async fn handler(
+    State(state): State<ProxyState>,
+    req: Request<Body>,
+) -> Result<Response, StatusCode> {
+    let upstream = state.anthropic_upstream.clone();
     forward::forward_request(
-        state,
+        State(state),
         req,
-        UPSTREAM,
+        &upstream,
         "/v1/messages",
         compress_request_body,
         "Anthropic",

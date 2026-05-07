@@ -21,6 +21,8 @@ export interface ToolCallResponse {
   result: unknown;
 }
 
+export type ConsistencyLevel = 'local' | 'eventual' | 'strong';
+
 export interface ContextEventV1 {
   id: number;
   workspaceId: string;
@@ -28,5 +30,8 @@ export interface ContextEventV1 {
   kind: string;
   actor?: string | null;
   timestamp: string;
+  version: number;
+  parentId: number | null;
+  consistencyLevel: ConsistencyLevel;
   payload: JsonValue;
 }

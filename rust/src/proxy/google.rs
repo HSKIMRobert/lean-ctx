@@ -10,13 +10,15 @@ use super::compress::compress_tool_result;
 use super::forward;
 use super::ProxyState;
 
-const UPSTREAM: &str = "https://generativelanguage.googleapis.com";
-
-pub async fn handler(state: State<ProxyState>, req: Request<Body>) -> Result<Response, StatusCode> {
+pub async fn handler(
+    State(state): State<ProxyState>,
+    req: Request<Body>,
+) -> Result<Response, StatusCode> {
+    let upstream = state.gemini_upstream.clone();
     forward::forward_request(
-        state,
+        State(state),
         req,
-        UPSTREAM,
+        &upstream,
         "/",
         compress_request_body,
         "Gemini",

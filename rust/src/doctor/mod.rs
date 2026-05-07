@@ -655,7 +655,7 @@ fn docker_env_outcomes() -> Vec<Outcome> {
 /// Run diagnostic checks and print colored results to stdout.
 pub fn run() {
     let mut passed = 0u32;
-    let total = 9u32;
+    let total = 10u32;
 
     println!("{BOLD}{WHITE}lean-ctx doctor{RST}  {DIM}diagnostics{RST}\n");
 
@@ -807,7 +807,14 @@ pub fn run() {
     };
     print_check(&config_outcome);
 
-    // 6) Shell aliases
+    // 6) Proxy upstreams
+    let proxy_outcome = proxy_upstream_outcome();
+    if proxy_outcome.ok {
+        passed += 1;
+    }
+    print_check(&proxy_outcome);
+
+    // 7) Shell aliases
     let aliases = shell_aliases_outcome();
     if aliases.ok {
         passed += 1;
@@ -979,6 +986,77 @@ fn skill_files_outcome() -> Outcome {
             line: format!(
                 "{BOLD}SKILL.md{RST}  {GREEN}installed for {}{RST}",
                 found.join(", ")
+            ),
+        }
+    }
+}
+
+fn proxy_upstream_outcome() -> Outcome {
+    use crate::core::config::{is_local_proxy_url, Config, ProxyProvider};
+
+    let cfg = Config::load();
+    let checks = [
+        (
+            "Anthropic",
+            "proxy.anthropic_upstream",
+            cfg.proxy.resolve_upstream(ProxyProvider::Anthropic),
+        ),
+        (
+            "OpenAI",
+            "proxy.openai_upstream",
+            cfg.proxy.resolve_upstream(ProxyProvider::OpenAi),
+        ),
+        (
+            "Gemini",
+            "proxy.gemini_upstream",
+            cfg.proxy.resolve_upstream(ProxyProvider::Gemini),
+        ),
+    ];
+
+    let mut custom = Vec::new();
+    for (label, key, resolved) in &checks {
+        if is_local_proxy_url(resolved) {
+            return Outcome {
+                ok: false,
+                line: format!(
+                    "{BOLD}Proxy upstream{RST}  {RED}{label} upstream points back to local proxy{RST}  {YELLOW}run: lean-ctx config set {key} <url>{RST}"
+                ),
+            };
+        }
+        if !resolved.starts_with("http://") && !resolved.starts_with("https://") {
+            return Outcome {
+                ok: false,
+                line: format!(
+                    "{BOLD}Proxy upstream{RST}  {RED}invalid {label} upstream{RST}  {YELLOW}set {key} to an http(s) URL{RST}"
+                ),
+            };
+        }
+        let is_default = matches!(
+            *label,
+            "Anthropic" if resolved == "https://api.anthropic.com"
+        ) || matches!(
+            *label,
+            "OpenAI" if resolved == "https://api.openai.com"
+        ) || matches!(
+            *label,
+            "Gemini" if resolved == "https://generativelanguage.googleapis.com"
+        );
+        if !is_default {
+            custom.push(format!("{label}={resolved}"));
+        }
+    }
+
+    if custom.is_empty() {
+        Outcome {
+            ok: true,
+            line: format!("{BOLD}Proxy upstream{RST}  {GREEN}provider defaults{RST}"),
+        }
+    } else {
+        Outcome {
+            ok: true,
+            line: format!(
+                "{BOLD}Proxy upstream{RST}  {GREEN}custom: {}{RST}",
+                custom.join(", ")
             ),
         }
     }

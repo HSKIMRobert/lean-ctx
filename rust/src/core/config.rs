@@ -128,6 +128,8 @@ pub struct Config {
     pub cloud: CloudConfig,
     #[serde(default)]
     pub autonomy: AutonomyConfig,
+    #[serde(default)]
+    pub proxy: ProxyConfig,
     #[serde(default = "default_buddy_enabled")]
     pub buddy_enabled: bool,
     #[serde(default)]
@@ -201,6 +203,69 @@ impl Default for ArchiveConfig {
             max_disk_mb: 500,
         }
     }
+}
+
+/// API proxy upstream overrides. `None` = use provider default.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ProxyConfig {
+    pub anthropic_upstream: Option<String>,
+    pub openai_upstream: Option<String>,
+    pub gemini_upstream: Option<String>,
+}
+
+impl ProxyConfig {
+    pub fn resolve_upstream(&self, provider: ProxyProvider) -> String {
+        let (env_var, config_val, default) = match provider {
+            ProxyProvider::Anthropic => (
+                "LEAN_CTX_ANTHROPIC_UPSTREAM",
+                self.anthropic_upstream.as_deref(),
+                "https://api.anthropic.com",
+            ),
+            ProxyProvider::OpenAi => (
+                "LEAN_CTX_OPENAI_UPSTREAM",
+                self.openai_upstream.as_deref(),
+                "https://api.openai.com",
+            ),
+            ProxyProvider::Gemini => (
+                "LEAN_CTX_GEMINI_UPSTREAM",
+                self.gemini_upstream.as_deref(),
+                "https://generativelanguage.googleapis.com",
+            ),
+        };
+        std::env::var(env_var)
+            .ok()
+            .and_then(|v| normalize_url_opt(&v))
+            .or_else(|| config_val.and_then(normalize_url_opt))
+            .unwrap_or_else(|| normalize_url(default))
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ProxyProvider {
+    Anthropic,
+    OpenAi,
+    Gemini,
+}
+
+pub fn normalize_url(value: &str) -> String {
+    value.trim().trim_end_matches('/').to_string()
+}
+
+pub fn normalize_url_opt(value: &str) -> Option<String> {
+    let trimmed = normalize_url(value);
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
+}
+
+pub fn is_local_proxy_url(value: &str) -> bool {
+    let n = normalize_url(value);
+    n.starts_with("http://127.0.0.1:")
+        || n.starts_with("http://localhost:")
+        || n.starts_with("http://[::1]:")
 }
 
 fn default_buddy_enabled() -> bool {
@@ -390,6 +455,7 @@ impl Default for Config {
             theme: default_theme(),
             cloud: CloudConfig::default(),
             autonomy: AutonomyConfig::default(),
+            proxy: ProxyConfig::default(),
             buddy_enabled: default_buddy_enabled(),
             redirect_exclude: Vec::new(),
             disabled_tools: Vec::new(),
@@ -842,6 +908,15 @@ impl Config {
         }
         if local.rules_scope.is_some() {
             self.rules_scope = local.rules_scope;
+        }
+        if local.proxy.anthropic_upstream.is_some() {
+            self.proxy.anthropic_upstream = local.proxy.anthropic_upstream;
+        }
+        if local.proxy.openai_upstream.is_some() {
+            self.proxy.openai_upstream = local.proxy.openai_upstream;
+        }
+        if local.proxy.gemini_upstream.is_some() {
+            self.proxy.gemini_upstream = local.proxy.gemini_upstream;
         }
         if !local.autonomy.enabled {
             self.autonomy.enabled = false;

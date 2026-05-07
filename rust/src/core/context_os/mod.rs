@@ -5,7 +5,7 @@ mod shared_sessions;
 pub use shared_sessions::{SharedSessionKey, SharedSessionStore};
 
 mod context_bus;
-pub use context_bus::{ContextBus, ContextEventKindV1, ContextEventV1};
+pub use context_bus::{ConsistencyLevel, ContextBus, ContextEventKindV1, ContextEventV1};
 
 pub mod redaction;
 pub use redaction::{redact_event_payload, RedactionLevel};
@@ -50,4 +50,89 @@ pub fn runtime() -> Arc<ContextOsRuntime> {
     RUNTIME
         .get_or_init(|| Arc::new(ContextOsRuntime::new()))
         .clone()
+}
+
+/// Convenience: append an event to the global bus with metrics tracking.
+pub fn emit_event(
+    workspace_id: &str,
+    channel_id: &str,
+    kind: &ContextEventKindV1,
+    actor: Option<&str>,
+    payload: serde_json::Value,
+) {
+    let rt = runtime();
+    if rt
+        .bus
+        .append(workspace_id, channel_id, kind, actor, payload)
+        .is_some()
+    {
+        rt.metrics.record_event_appended();
+    }
+}
+
+/// Classify a tool name into a secondary event kind (beyond ToolCallRecorded).
+pub fn secondary_event_kind(tool: &str, action: Option<&str>) -> Option<ContextEventKindV1> {
+    match tool {
+        "ctx_session" => {
+            let a = action.unwrap_or("");
+            if matches!(
+                a,
+                "save"
+                    | "set_task"
+                    | "task"
+                    | "checkpoint"
+                    | "finding"
+                    | "decision"
+                    | "reset"
+                    | "import"
+            ) {
+                Some(ContextEventKindV1::SessionMutated)
+            } else {
+                None
+            }
+        }
+        "ctx_handoff" | "ctx_workflow" | "ctx_share" => Some(ContextEventKindV1::SessionMutated),
+        "ctx_knowledge" | "ctx_knowledge_relations" => {
+            let a = action.unwrap_or("");
+            if matches!(
+                a,
+                "remember" | "relate" | "unrelate" | "feedback" | "remove" | "consolidate"
+            ) {
+                Some(ContextEventKindV1::KnowledgeRemembered)
+            } else {
+                None
+            }
+        }
+        "ctx_artifacts" => {
+            let a = action.unwrap_or("");
+            if matches!(a, "store" | "reindex" | "remove") {
+                Some(ContextEventKindV1::ArtifactStored)
+            } else {
+                None
+            }
+        }
+        "ctx_graph" => {
+            let a = action.unwrap_or("");
+            if matches!(
+                a,
+                "index-build"
+                    | "index-build-full"
+                    | "index-build-background"
+                    | "index-build-full-background"
+            ) {
+                Some(ContextEventKindV1::GraphBuilt)
+            } else {
+                None
+            }
+        }
+        "ctx_proof" | "ctx_verify" => {
+            let a = action.unwrap_or("");
+            if matches!(a, "generate" | "export" | "verify") {
+                Some(ContextEventKindV1::ProofAdded)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
 }

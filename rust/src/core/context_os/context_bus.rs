@@ -40,6 +40,41 @@ impl ContextEventKindV1 {
             _ => Self::ToolCallRecorded,
         }
     }
+
+    /// Classifies the consistency requirement for this event kind.
+    ///
+    /// - `Local`: Agent-local, never shared (tool reads, cache hits).
+    /// - `Eventual`: Broadcast via bus, other agents see it "soon" (knowledge, artifacts).
+    /// - `Strong`: Critical decisions that require acknowledgment before proceeding.
+    pub fn consistency_level(&self) -> ConsistencyLevel {
+        match self {
+            Self::ToolCallRecorded | Self::GraphBuilt => ConsistencyLevel::Local,
+            Self::KnowledgeRemembered | Self::ArtifactStored => ConsistencyLevel::Eventual,
+            Self::SessionMutated | Self::ProofAdded => ConsistencyLevel::Strong,
+        }
+    }
+}
+
+/// Consistency requirement for shared context events.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConsistencyLevel {
+    /// Agent-local, authoritative: session task, local cache, current file set.
+    Local,
+    /// Shared, eventually consistent: knowledge facts, gotchas, artifact refs.
+    Eventual,
+    /// Shared, strongly consistent: workspace config, critical decisions.
+    Strong,
+}
+
+impl ConsistencyLevel {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Local => "local",
+            Self::Eventual => "eventual",
+            Self::Strong => "strong",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,7 +86,42 @@ pub struct ContextEventV1 {
     pub kind: String,
     pub actor: Option<String>,
     pub timestamp: DateTime<Utc>,
+    pub version: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<i64>,
+    pub consistency_level: String,
     pub payload: Value,
+}
+
+impl ContextEventV1 {
+    pub fn consistency(&self) -> ConsistencyLevel {
+        ContextEventKindV1::parse(&self.kind).consistency_level()
+    }
+}
+
+fn event_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ContextEventV1> {
+    let ts_str: String = row.get(5)?;
+    let ts = DateTime::parse_from_rfc3339(&ts_str)
+        .map_or_else(|_| Utc::now(), |d| d.with_timezone(&Utc));
+    let payload_str: String = row.get(6)?;
+    let payload: Value = serde_json::from_str(&payload_str).unwrap_or(Value::Null);
+    let kind_str: String = row.get(3)?;
+    let cl = ContextEventKindV1::parse(&kind_str)
+        .consistency_level()
+        .as_str()
+        .to_string();
+    Ok(ContextEventV1 {
+        id: row.get(0)?,
+        workspace_id: row.get(1)?,
+        channel_id: row.get(2)?,
+        kind: kind_str,
+        actor: row.get::<_, Option<String>>(4)?,
+        timestamp: ts,
+        version: row.get::<_, i64>(7).unwrap_or(0),
+        parent_id: row.get::<_, Option<i64>>(8).ok().flatten(),
+        consistency_level: cl,
+        payload,
+    })
 }
 
 #[derive(Clone)]
@@ -86,12 +156,29 @@ impl ContextBus {
                kind TEXT NOT NULL,
                actor TEXT,
                timestamp TEXT NOT NULL,
-               payload_json TEXT NOT NULL
+               payload_json TEXT NOT NULL,
+               version INTEGER NOT NULL DEFAULT 0,
+               parent_id INTEGER
              );
              CREATE INDEX IF NOT EXISTS idx_context_events_stream
                ON context_events(workspace_id, channel_id, id);",
         )
         .expect("init context-os db");
+
+        // Migration: add version + parent_id to existing tables (idempotent).
+        let _ = conn.execute_batch(
+            "ALTER TABLE context_events ADD COLUMN version INTEGER NOT NULL DEFAULT 0;",
+        );
+        let _ = conn.execute_batch("ALTER TABLE context_events ADD COLUMN parent_id INTEGER;");
+
+        // FTS5 virtual table for full-text search over event payloads (idempotent).
+        let _ = conn.execute_batch(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS context_events_fts USING fts5(
+               payload_text,
+               content=context_events,
+               content_rowid=id
+             );",
+        );
 
         let (tx, _) = broadcast::channel(1024);
         Self {
@@ -114,35 +201,65 @@ impl ContextBus {
         actor: Option<&str>,
         payload: Value,
     ) -> Option<ContextEventV1> {
+        self.append_with_parent(workspace_id, channel_id, kind, actor, payload, None)
+    }
+
+    pub fn append_with_parent(
+        &self,
+        workspace_id: &str,
+        channel_id: &str,
+        kind: &ContextEventKindV1,
+        actor: Option<&str>,
+        payload: Value,
+        parent_id: Option<i64>,
+    ) -> Option<ContextEventV1> {
         let ts = Utc::now();
         let payload_json = payload.to_string();
 
-        let id = {
+        let (id, version) = {
             let Ok(conn) = self.inner.conn.lock() else {
                 return None;
             };
+            let version: i64 = conn
+                .query_row(
+                    "SELECT COALESCE(MAX(version), 0) FROM context_events WHERE workspace_id = ?1 AND channel_id = ?2",
+                    params![workspace_id, channel_id],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0)
+                + 1;
             let _ = conn.execute(
-                "INSERT INTO context_events (workspace_id, channel_id, kind, actor, timestamp, payload_json)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                "INSERT INTO context_events (workspace_id, channel_id, kind, actor, timestamp, payload_json, version, parent_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
                     workspace_id,
                     channel_id,
                     kind.as_str(),
                     actor.map(str::to_string),
                     ts.to_rfc3339(),
-                    payload_json
+                    payload_json,
+                    version,
+                    parent_id,
                 ],
             );
-            conn.last_insert_rowid()
+            let rowid = conn.last_insert_rowid();
+            let _ = conn.execute(
+                "INSERT INTO context_events_fts(rowid, payload_text) VALUES (?1, ?2)",
+                params![rowid, payload_json],
+            );
+            (rowid, version)
         };
 
         let ev = ContextEventV1 {
             id,
             workspace_id: workspace_id.to_string(),
             channel_id: channel_id.to_string(),
+            consistency_level: kind.consistency_level().as_str().to_string(),
             kind: kind.as_str().to_string(),
             actor: actor.map(str::to_string),
             timestamp: ts,
+            version,
+            parent_id,
             payload,
         };
         let _ = self.inner.tx.send(ev.clone());
@@ -161,7 +278,7 @@ impl ContextBus {
             return Vec::new();
         };
         let Ok(mut stmt) = conn.prepare(
-            "SELECT id, workspace_id, channel_id, kind, actor, timestamp, payload_json
+            "SELECT id, workspace_id, channel_id, kind, actor, timestamp, payload_json, version, parent_id
              FROM context_events
              WHERE workspace_id = ?1 AND channel_id = ?2 AND id > ?3
              ORDER BY id ASC
@@ -170,27 +287,111 @@ impl ContextBus {
             return Vec::new();
         };
         let rows = stmt
-            .query_map(params![workspace_id, channel_id, since, limit], |row| {
-                let ts_str: String = row.get(5)?;
-                let ts = DateTime::parse_from_rfc3339(&ts_str)
-                    .map_or_else(|_| Utc::now(), |d| d.with_timezone(&Utc));
-                let payload_str: String = row.get(6)?;
-                let payload: Value = serde_json::from_str(&payload_str).unwrap_or(Value::Null);
-                Ok(ContextEventV1 {
-                    id: row.get(0)?,
-                    workspace_id: row.get(1)?,
-                    channel_id: row.get(2)?,
-                    kind: row.get(3)?,
-                    actor: row.get::<_, Option<String>>(4)?,
-                    timestamp: ts,
-                    payload,
-                })
-            })
+            .query_map(
+                params![workspace_id, channel_id, since, limit],
+                event_from_row,
+            )
             .ok();
         let Some(rows) = rows else {
             return Vec::new();
         };
         rows.flatten().collect()
+    }
+
+    /// Query recent events of a specific kind (for conflict detection).
+    pub fn recent_by_kind(
+        &self,
+        workspace_id: &str,
+        channel_id: &str,
+        kind: &str,
+        limit: usize,
+    ) -> Vec<ContextEventV1> {
+        let limit = limit.clamp(1, 100) as i64;
+        let Ok(conn) = self.inner.conn.lock() else {
+            return Vec::new();
+        };
+        let Ok(mut stmt) = conn.prepare(
+            "SELECT id, workspace_id, channel_id, kind, actor, timestamp, payload_json, version, parent_id
+             FROM context_events
+             WHERE workspace_id = ?1 AND channel_id = ?2 AND kind = ?3
+             ORDER BY id DESC
+             LIMIT ?4",
+        ) else {
+            return Vec::new();
+        };
+        let rows = stmt
+            .query_map(
+                params![workspace_id, channel_id, kind, limit],
+                event_from_row,
+            )
+            .ok();
+        rows.map(|r| r.flatten().collect()).unwrap_or_default()
+    }
+
+    /// Full-text search over event payloads via FTS5.
+    pub fn search(&self, workspace_id: &str, query: &str, limit: usize) -> Vec<ContextEventV1> {
+        let limit = limit.clamp(1, 100) as i64;
+        let Ok(conn) = self.inner.conn.lock() else {
+            return Vec::new();
+        };
+        let Ok(mut stmt) = conn.prepare(
+            "SELECT e.id, e.workspace_id, e.channel_id, e.kind, e.actor, e.timestamp,
+                    e.payload_json, e.version, e.parent_id
+             FROM context_events e
+             JOIN context_events_fts f ON e.id = f.rowid
+             WHERE f.payload_text MATCH ?1 AND e.workspace_id = ?2
+             ORDER BY f.rank
+             LIMIT ?3",
+        ) else {
+            return Vec::new();
+        };
+        let rows = stmt
+            .query_map(params![query, workspace_id, limit], event_from_row)
+            .ok();
+        rows.map(|r| r.flatten().collect()).unwrap_or_default()
+    }
+
+    /// Trace the causal lineage of an event by following parent_id chains.
+    pub fn lineage(&self, event_id: i64, max_depth: usize) -> Vec<ContextEventV1> {
+        let max_depth = max_depth.clamp(1, 50);
+        let Ok(conn) = self.inner.conn.lock() else {
+            return Vec::new();
+        };
+        let mut chain = Vec::new();
+        let mut current_id = Some(event_id);
+
+        for _ in 0..max_depth {
+            let Some(id) = current_id else {
+                break;
+            };
+            let ev = conn.query_row(
+                "SELECT id, workspace_id, channel_id, kind, actor, timestamp, payload_json, version, parent_id
+                 FROM context_events WHERE id = ?1",
+                params![id],
+                event_from_row,
+            );
+            match ev {
+                Ok(ev) => {
+                    current_id = ev.parent_id;
+                    chain.push(ev);
+                }
+                Err(_) => break,
+            }
+        }
+        chain
+    }
+
+    /// Returns the highest event id for a workspace/channel pair, or 0 if none.
+    pub fn latest_id(&self, workspace_id: &str, channel_id: &str) -> i64 {
+        let Ok(conn) = self.inner.conn.lock() else {
+            return 0;
+        };
+        conn.query_row(
+            "SELECT COALESCE(MAX(id), 0) FROM context_events WHERE workspace_id = ?1 AND channel_id = ?2",
+            params![workspace_id, channel_id],
+            |row| row.get(0),
+        )
+        .unwrap_or(0)
     }
 }
 

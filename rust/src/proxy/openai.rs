@@ -10,13 +10,15 @@ use super::compress::compress_tool_result;
 use super::forward;
 use super::ProxyState;
 
-const UPSTREAM: &str = "https://api.openai.com";
-
-pub async fn handler(state: State<ProxyState>, req: Request<Body>) -> Result<Response, StatusCode> {
+pub async fn handler(
+    State(state): State<ProxyState>,
+    req: Request<Body>,
+) -> Result<Response, StatusCode> {
+    let upstream = state.openai_upstream.clone();
     forward::forward_request(
-        state,
+        State(state),
         req,
-        UPSTREAM,
+        &upstream,
         "/v1/chat/completions",
         compress_request_body,
         "OpenAI",

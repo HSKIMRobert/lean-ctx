@@ -3,6 +3,36 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+## [3.5.4] — 2026-05-07
+
+### Fixed
+
+- **`gh` CLI compression safety** — Unknown `gh` subcommands (`gh pr diff`, `gh api`, `gh search`, `gh workflow`, `gh auth`, `gh secret`, etc.) now pass through verbatim instead of being truncated to 10 lines. Previously, fallback compressors (JSON, log-dedup) could also strip content from `gh api` and `gh search` output. The fix returns `Some(output)` for unmatched commands (blocking fallback compression), matching the safe behavior already used by `git` and `glab` patterns.
+- **Uninstall proxy cleanup** — `lean-ctx uninstall` now cleans up Claude Code (`ANTHROPIC_BASE_URL` in `settings.json`) and Codex CLI (`OPENAI_BASE_URL` in `config.toml`) proxy settings. Previously only shell exports (Gemini) were removed, leaving Claude/Codex pointing at the dead local proxy after uninstall. If a saved upstream exists, Claude Code settings are restored to the original URL.
+- **CLI `ls`/`grep` daemon path resolution** — `lean-ctx ls .` and `lean-ctx grep <pattern> .` now resolve relative paths to absolute before sending to the daemon, fixing incorrect directory listings when the daemon's CWD differs from the CLI's CWD.
+
+### Added
+
+- **Context Bus v2: Multi-Agent Coordination** — Major upgrade to the event bus with versioned events, causal lineage, consistency levels, and multi-agent conflict detection.
+  - **Event versioning**: Every event now carries a monotonic `version` per (workspace, channel) and an optional `parentId` for causal chains.
+  - **Consistency levels**: Events classified as `local` (informational), `eventual` (shared, async), or `strong` (requires sync) — enables agents to prioritize reactions.
+  - **K-bounded staleness guard**: When a shared-mode agent falls behind by >10 events, tool responses include a `[CONTEXT STALE]` warning.
+  - **Knowledge conflict detection**: Concurrent writes to the same knowledge key by different agents inject `[CONFLICT]` warnings before proceeding.
+  - **Enriched payloads**: Event payloads now include `path`, `category`, `key`, and `reasoning` (from active session task) for richer observability.
+  - **SSE backfill on lag**: When a broadcast subscriber falls behind, missed events are automatically backfilled from SQLite instead of dropped.
+  - **New REST endpoints**: `GET /v1/context/summary` (materialized workspace view), `GET /v1/events/search` (FTS5 full-text search), `GET /v1/events/lineage` (causal chain traversal).
+  - **Team Server scopes expanded**: `ctx_session`, `ctx_knowledge`, `ctx_artifacts`, `ctx_proof`, `ctx_verify` mapped to `sessionMutations`, `knowledge`, `artifacts`, `search` scopes.
+  - **Session race fix**: `SharedSessionStore::get_or_load` uses atomic `entry` API to prevent TOCTOU races under concurrent agent loads.
+- **Configurable proxy upstreams** — Teams routing through custom API gateways can now set `proxy.anthropic_upstream`, `proxy.openai_upstream`, and `proxy.gemini_upstream` via `lean-ctx config set` or environment variables. Upstreams are resolved once at proxy startup (env > config > default).
+- **Proxy upstream diagnostics** — `lean-ctx doctor` validates proxy upstream URLs (self-referential loop detection, URL format) and reports which upstreams are active.
+- **6 new adversarial compression tests** — `gh pr diff`, `gh api`, `gh search`, `gh workflow` verbatim passthrough, plus shell-hook-level diff preservation test.
+
+### Changed
+
+- **Dry-run uninstall** — `lean-ctx uninstall --dry-run` now previews Claude Code and Codex proxy cleanup actions.
+
 ## [3.5.3] — 2026-05-07
 
 ### Fixed

@@ -48,23 +48,21 @@ impl SharedSessionStore {
         channel_id: &str,
     ) -> Arc<RwLock<SessionState>> {
         let key = SharedSessionKey::new(project_root, workspace_id, channel_id);
-
-        if let Some(existing) = self.sessions.lock().ok().and_then(|m| m.get(&key).cloned()) {
-            return existing;
-        }
-
-        let loaded = load_session_from_disk(project_root, &key)
-            .or_else(|| SessionState::load_latest_for_project_root(project_root))
-            .unwrap_or_default();
-
-        let mut loaded = loaded;
-        loaded.project_root = Some(project_root.to_string());
-
-        let arc = Arc::new(RwLock::new(loaded));
-        if let Ok(mut m) = self.sessions.lock() {
-            m.insert(key, arc.clone());
-        }
-        arc
+        let disk_key = key.clone();
+        let root = project_root.to_string();
+        let mut map = self
+            .sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        map.entry(key)
+            .or_insert_with(|| {
+                let mut loaded = load_session_from_disk(&root, &disk_key)
+                    .or_else(|| SessionState::load_latest_for_project_root(&root))
+                    .unwrap_or_default();
+                loaded.project_root = Some(root);
+                Arc::new(RwLock::new(loaded))
+            })
+            .clone()
     }
 
     pub fn persist_best_effort(
