@@ -131,48 +131,47 @@ After `setup`, restart your shell and your editor/AI tool once so the MCP + hook
 
 ## Supported IDEs & AI tools
 
-lean-ctx is a standard **MCP server**, so it works with any MCP-compatible client.
+lean-ctx is a standard **MCP server**, so it works with any MCP-compatible client. Three integration modes are auto-selected per agent:
 
-For first-class integration, run:
+| Mode | How it works | Best for |
+|---|---|---|
+| **CLI-Redirect** | Agent calls `lean-ctx` directly via shell — zero MCP schema overhead | Agents with shell access |
+| **Hybrid** | MCP for cached reads (13 tokens), CLI for shell + search | Mixed environments |
+| **Full MCP** | All 56 tools via MCP protocol | Protocol-only agents |
 
-```bash
-lean-ctx init --agent <tool>
-```
+### Agent compatibility matrix
 
-Supported `<tool>` values (26):
+| Agent | CLI | Hybrid | MCP | Setup |
+|---|:---:|:---:|:---:|---|
+| Cursor | ● | | | `lean-ctx init --agent cursor` |
+| Claude Code | ● | | | `lean-ctx init --agent claude` |
+| Codex CLI | ● | | | `lean-ctx init --agent codex` |
+| OpenCode | ● | | | `lean-ctx init --agent opencode` |
+| Gemini CLI | ● | | | `lean-ctx init --agent gemini` |
+| CRUSH | ● | | | `lean-ctx init --agent crush` |
+| Hermes | ● | | | `lean-ctx init --agent hermes` |
+| Pi | ● | | | `lean-ctx init --agent pi` |
+| Qoder | ● | | | `lean-ctx init --agent qoder` |
+| Windsurf | | ● | | `lean-ctx init --agent windsurf` |
+| GitHub Copilot | | ● | | `lean-ctx init --agent copilot` |
+| Amp | | ● | | `lean-ctx init --agent amp` |
+| Cline | | ● | | `lean-ctx init --agent cline` |
+| Roo Code | | ● | | `lean-ctx init --agent roo` |
+| Kiro | | ● | | `lean-ctx init --agent kiro` |
+| Antigravity | | ● | | `lean-ctx init --agent antigravity` |
+| Amazon Q | | ● | | `lean-ctx init --agent amazonq` |
+| Qwen | | ● | | `lean-ctx init --agent qwen` |
+| Trae | | ● | | `lean-ctx init --agent trae` |
+| Verdent | | ● | | `lean-ctx init --agent verdent` |
+| JetBrains IDEs | | | ● | `lean-ctx init --agent jetbrains` |
+| QoderWork | | | ● | `lean-ctx init --agent qoderwork` |
+| VS Code | | | ● | `lean-ctx init --agent vscode` |
+| Zed | | | ● | `lean-ctx init --agent zed` |
+| Neovim | | | ● | `lean-ctx init --agent neovim` |
+| Emacs | | | ● | `lean-ctx init --agent emacs` |
+| Sublime Text | | | ● | `lean-ctx init --agent sublime` |
 
-<details>
-<summary><strong>Show full list</strong></summary>
-
-- Cursor (`cursor`)
-- Claude Code (`claude`)
-- GitHub Copilot (`copilot`)
-- Windsurf (`windsurf`)
-- Codex CLI (`codex`)
-- Gemini CLI (`gemini`)
-- Cline (`cline`)
-- Roo Code (`roo`)
-- OpenCode (`opencode`)
-- Crush (`crush`)
-- Amazon Q Developer (`amazonq`)
-- AWS Kiro (`kiro`)
-- Antigravity (`antigravity`)
-- Hermes (`hermes`)
-- Qoder (`qoder`)
-- QoderWork (`qoderwork`)
-- Qwen (`qwen`)
-- Trae (`trae`)
-- Verdent (`verdent`)
-- Pi (`pi`)
-- Amp (`amp`)
-- JetBrains IDEs (`jetbrains`)
-- Emacs (`emacs`)
-- Neovim (`neovim`)
-- Sublime Text (`sublime`)
-
-</details>
-
-Also supported via MCP config (auto-detected in `setup`): **VS Code** and **Zed**.
+> **Any MCP-compatible client** works out of the box — the table above shows agents with first-class auto-setup.
 
 ### When to use (and when not to)
 
