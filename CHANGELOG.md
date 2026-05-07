@@ -3,6 +3,25 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.5.3] — 2026-05-07
+
+### Fixed
+
+- **Dashboard command counter** — Shell commands in track-only mode (e.g. `git status`, `docker ps`) that use `exec_inherit` are now counted via `exec_inherit_tracked()`, and `record_shell_command` no longer skips zero-token commands. Previously many commands went unrecorded in the dashboard.
+- **SLO false positives** — `CompressionRatio` SLO now requires a minimum of 5,000 original tokens before evaluating, and the threshold was raised from 0.75 to 0.90. Eliminates constant "violated CompressionRatio" warnings caused by `full` mode reads.
+- **X11 clipboard in vim** — Removed explicit stripping of `DISPLAY`, `XAUTHORITY`, and `WAYLAND_DISPLAY` environment variables from `exec_buffered`, restoring X11 clipboard sync after exiting vim/vi in Claude Code.
+- **pack_cmd unwrap** — `LocalRegistry::open()` now returns a graceful error instead of panicking on IO failures.
+- **cursor.rs JSON type safety** — `merge_cursor_hooks` now validates JSON types before unwrapping, preventing panics when `hooks.json` contains unexpected structures.
+
+### Added
+
+- **Rules-staleness detection** — On the first MCP tool call of a session, lean-ctx checks whether the agent's rules file contains the current version marker. If outdated, a `[RULES OUTDATED]` warning is injected into the tool response, prompting the agent to re-read rules or run `lean-ctx setup`.
+
+### Changed
+
+- **Codebase maintainability** — Split `doctor.rs` (2,348 lines) into `doctor/{mod,integrations,fix}.rs` and `uninstall.rs` (1,859 lines) into `uninstall/{mod,agents,parsers}.rs` for better modularity.
+- **Cloud-server cleanup** — Removed unused `jwt_secret` field from cloud-server config and auth state.
+
 ## [3.5.2] — 2026-05-07
 
 ### Fixed
