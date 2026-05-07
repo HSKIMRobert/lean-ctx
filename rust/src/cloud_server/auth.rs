@@ -21,20 +21,12 @@ pub async fn health() -> impl IntoResponse {
 pub struct AppState {
     pub pool: Pool,
     pub cfg: Config,
-    #[allow(dead_code)]
-    pub jwt_secret: std::sync::Arc<Vec<u8>>,
     pub mailer: Option<Mailer>,
 }
 
 impl AppState {
     pub fn new(pool: Pool, cfg: Config, mailer: Option<Mailer>) -> Self {
-        let jwt_secret = std::sync::Arc::new(cfg.jwt_secret.as_bytes().to_vec());
-        Self {
-            pool,
-            cfg,
-            jwt_secret,
-            mailer,
-        }
+        Self { pool, cfg, mailer }
     }
 }
 

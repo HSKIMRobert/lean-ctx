@@ -166,6 +166,7 @@ pub struct LeanCtxServer {
     pub context_os: Option<Arc<crate::core::context_os::ContextOsRuntime>>,
     pub context_ir: Option<Arc<RwLock<crate::core::context_ir::ContextIrV1>>>,
     pub registry: Option<Arc<crate::server::registry::ToolRegistry>>,
+    pub(crate) rules_stale_checked: Arc<std::sync::atomic::AtomicBool>,
     startup_project_root: Option<String>,
     startup_shell_cwd: Option<String>,
 }
@@ -310,6 +311,7 @@ impl LeanCtxServer {
             registry: Some(std::sync::Arc::new(
                 crate::server::registry::build_registry(),
             )),
+            rules_stale_checked: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             startup_project_root: startup.project_root,
             startup_shell_cwd: startup.shell_cwd,
         }

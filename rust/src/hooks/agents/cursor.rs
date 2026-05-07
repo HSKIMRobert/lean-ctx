@@ -41,11 +41,17 @@ fn merge_cursor_hooks(existing: &mut serde_json::Value, rewrite_cmd: &str, redir
     let hooks = root
         .entry("hooks".to_string())
         .or_insert_with(|| serde_json::json!({}));
+    if !hooks.is_object() {
+        *hooks = serde_json::json!({});
+    }
     let hooks_obj = hooks.as_object_mut().unwrap();
 
     let pre = hooks_obj
         .entry("preToolUse".to_string())
         .or_insert_with(|| serde_json::json!([]));
+    if !pre.is_array() {
+        *pre = serde_json::json!([]);
+    }
     let pre_arr = pre.as_array_mut().unwrap();
 
     ensure_pretooluse_hook(pre_arr, &["Shell"], "Shell", rewrite_cmd);

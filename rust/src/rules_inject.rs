@@ -155,6 +155,54 @@ pub fn inject_all_rules(home: &std::path::Path) -> InjectResult {
     result
 }
 
+/// Check if the rules file for a given MCP client is up-to-date.
+/// Returns `Some(message)` if rules are stale/missing, `None` if current.
+pub fn check_rules_freshness(client_name: &str) -> Option<String> {
+    let home = dirs::home_dir()?;
+    let targets = build_rules_targets(&home);
+
+    let needle = client_name.to_lowercase();
+    let matched: Vec<&RulesTarget> = targets
+        .iter()
+        .filter(|t| {
+            let tn = t.name.to_lowercase();
+            needle.contains(&tn)
+                || tn.contains(&needle)
+                || (needle.contains("cursor") && tn.contains("cursor"))
+                || (needle.contains("claude") && tn.contains("claude"))
+                || (needle.contains("windsurf") && tn.contains("windsurf"))
+                || (needle.contains("codex") && tn.contains("claude"))
+                || (needle.contains("zed") && tn.contains("zed"))
+                || (needle.contains("copilot") && tn.contains("copilot"))
+                || (needle.contains("jetbrains") && tn.contains("jetbrains"))
+                || (needle.contains("kiro") && tn.contains("kiro"))
+                || (needle.contains("gemini") && tn.contains("gemini"))
+        })
+        .collect();
+
+    if matched.is_empty() {
+        return None;
+    }
+
+    for target in &matched {
+        if !target.path.exists() {
+            continue;
+        }
+        let content = std::fs::read_to_string(&target.path).ok()?;
+        if content.contains(MARKER) && !content.contains(RULES_VERSION) {
+            return Some(format!(
+                "[RULES OUTDATED] Your {} rules were written by an older lean-ctx version. \
+                 Re-read your rules file ({}) or run `lean-ctx setup` to update, \
+                 then start a new session for full compatibility.",
+                target.name,
+                target.path.display()
+            ));
+        }
+    }
+
+    None
+}
+
 pub fn collect_rules_status(home: &std::path::Path) -> Vec<RulesTargetStatus> {
     let targets = build_rules_targets(home);
     let mut out = Vec::new();

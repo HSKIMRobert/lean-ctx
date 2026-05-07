@@ -1,0 +1,280 @@
+use chrono::Utc;
+
+use super::{compact_score, print_compact_status, shell_aliases_outcome, DIM, RST};
+
+pub(super) struct DoctorFixOptions {
+    pub json: bool,
+}
+
+pub(super) fn run_fix(opts: &DoctorFixOptions) -> Result<i32, String> {
+    use crate::core::setup_report::{
+        doctor_report_path, PlatformInfo, SetupItem, SetupReport, SetupStepReport,
+    };
+
+    let _quiet_guard = opts
+        .json
+        .then(|| crate::setup::EnvVarGuard::set("LEAN_CTX_QUIET", "1"));
+    let started_at = Utc::now();
+    let home = dirs::home_dir().ok_or_else(|| "Cannot determine home directory".to_string())?;
+
+    let mut steps: Vec<SetupStepReport> = Vec::new();
+
+    let mut shell_step = SetupStepReport {
+        name: "shell_hook".to_string(),
+        ok: true,
+        items: Vec::new(),
+        warnings: Vec::new(),
+        errors: Vec::new(),
+    };
+    let before = shell_aliases_outcome();
+    if before.ok {
+        shell_step.items.push(SetupItem {
+            name: "init --global".to_string(),
+            status: "already".to_string(),
+            path: None,
+            note: None,
+        });
+    } else {
+        if opts.json {
+            crate::cli::cmd_init_quiet(&["--global".to_string()]);
+        } else {
+            crate::cli::cmd_init(&["--global".to_string()]);
+        }
+        let after = shell_aliases_outcome();
+        shell_step.ok = after.ok;
+        shell_step.items.push(SetupItem {
+            name: "init --global".to_string(),
+            status: if after.ok {
+                "fixed".to_string()
+            } else {
+                "failed".to_string()
+            },
+            path: None,
+            note: if after.ok {
+                None
+            } else {
+                Some("shell hook still not detected by doctor checks".to_string())
+            },
+        });
+        if !after.ok {
+            shell_step
+                .warnings
+                .push("shell hook not detected after init --global".to_string());
+        }
+    }
+    steps.push(shell_step);
+
+    let mut mcp_step = SetupStepReport {
+        name: "mcp_config".to_string(),
+        ok: true,
+        items: Vec::new(),
+        warnings: Vec::new(),
+        errors: Vec::new(),
+    };
+    let binary = crate::core::portable_binary::resolve_portable_binary();
+    let targets = crate::core::editor_registry::build_targets(&home);
+    for t in &targets {
+        if !t.detect_path.exists() {
+            continue;
+        }
+        let short = t.config_path.to_string_lossy().to_string();
+
+        let mode = if t.agent_key.is_empty() {
+            crate::hooks::HookMode::Mcp
+        } else {
+            crate::hooks::recommend_hook_mode(&t.agent_key)
+        };
+
+        let res = if mode == crate::hooks::HookMode::CliRedirect {
+            crate::core::editor_registry::remove_lean_ctx_server(
+                t,
+                crate::core::editor_registry::WriteOptions {
+                    overwrite_invalid: true,
+                },
+            )
+        } else {
+            crate::core::editor_registry::write_config_with_options(
+                t,
+                &binary,
+                crate::core::editor_registry::WriteOptions {
+                    overwrite_invalid: true,
+                },
+            )
+        };
+
+        match res {
+            Ok(r) => {
+                let status = match r.action {
+                    crate::core::editor_registry::WriteAction::Created => "created",
+                    crate::core::editor_registry::WriteAction::Updated => "updated",
+                    crate::core::editor_registry::WriteAction::Already => "already",
+                };
+                let note_parts: Vec<String> = [Some(format!("mode={mode}")), r.note]
+                    .into_iter()
+                    .flatten()
+                    .collect();
+                mcp_step.items.push(SetupItem {
+                    name: t.name.to_string(),
+                    status: status.to_string(),
+                    path: Some(short),
+                    note: Some(note_parts.join("; ")),
+                });
+            }
+            Err(e) => {
+                mcp_step.ok = false;
+                mcp_step.items.push(SetupItem {
+                    name: t.name.to_string(),
+                    status: "error".to_string(),
+                    path: Some(short),
+                    note: Some(e.clone()),
+                });
+                mcp_step.errors.push(format!("{}: {e}", t.name));
+            }
+        }
+    }
+    if mcp_step.items.is_empty() {
+        mcp_step
+            .warnings
+            .push("no supported AI tools detected; skipped MCP config repair".to_string());
+    }
+    steps.push(mcp_step);
+
+    let mut rules_step = SetupStepReport {
+        name: "agent_rules".to_string(),
+        ok: true,
+        items: Vec::new(),
+        warnings: Vec::new(),
+        errors: Vec::new(),
+    };
+    let inj = crate::rules_inject::inject_all_rules(&home);
+    if !inj.injected.is_empty() {
+        rules_step.items.push(SetupItem {
+            name: "injected".to_string(),
+            status: inj.injected.len().to_string(),
+            path: None,
+            note: Some(inj.injected.join(", ")),
+        });
+    }
+    if !inj.updated.is_empty() {
+        rules_step.items.push(SetupItem {
+            name: "updated".to_string(),
+            status: inj.updated.len().to_string(),
+            path: None,
+            note: Some(inj.updated.join(", ")),
+        });
+    }
+    if !inj.already.is_empty() {
+        rules_step.items.push(SetupItem {
+            name: "already".to_string(),
+            status: inj.already.len().to_string(),
+            path: None,
+            note: Some(inj.already.join(", ")),
+        });
+    }
+    if !inj.errors.is_empty() {
+        rules_step.ok = false;
+        rules_step.errors.extend(inj.errors.clone());
+    }
+    steps.push(rules_step);
+
+    let mut hooks_step = SetupStepReport {
+        name: "agent_hooks".to_string(),
+        ok: true,
+        items: Vec::new(),
+        warnings: Vec::new(),
+        errors: Vec::new(),
+    };
+    let targets = crate::core::editor_registry::build_targets(&home);
+    for t in &targets {
+        if !t.detect_path.exists() || t.agent_key.trim().is_empty() {
+            continue;
+        }
+        let mode = crate::hooks::recommend_hook_mode(&t.agent_key);
+        crate::hooks::install_agent_hook_with_mode(&t.agent_key, true, mode);
+        hooks_step.items.push(SetupItem {
+            name: format!("{} hooks", t.name),
+            status: "installed".to_string(),
+            path: Some(t.detect_path.to_string_lossy().to_string()),
+            note: Some(format!("mode={mode}; merge-based install/repair")),
+        });
+    }
+    if !hooks_step.items.is_empty() {
+        steps.push(hooks_step);
+    }
+
+    let mut skill_step = SetupStepReport {
+        name: "skill_files".to_string(),
+        ok: true,
+        items: Vec::new(),
+        warnings: Vec::new(),
+        errors: Vec::new(),
+    };
+    let skill_result = crate::setup::install_skill_files(&home);
+    for (name, installed) in &skill_result {
+        skill_step.items.push(SetupItem {
+            name: name.clone(),
+            status: if *installed {
+                "installed".to_string()
+            } else {
+                "already".to_string()
+            },
+            path: None,
+            note: Some("SKILL.md".to_string()),
+        });
+    }
+    if !skill_result.is_empty() {
+        steps.push(skill_step);
+    }
+
+    let mut verify_step = SetupStepReport {
+        name: "verify".to_string(),
+        ok: true,
+        items: Vec::new(),
+        warnings: Vec::new(),
+        errors: Vec::new(),
+    };
+    let (passed, total) = compact_score();
+    verify_step.items.push(SetupItem {
+        name: "doctor_compact".to_string(),
+        status: format!("{passed}/{total}"),
+        path: None,
+        note: None,
+    });
+    if passed != total {
+        verify_step.warnings.push(format!(
+            "doctor compact not fully passing: {passed}/{total}"
+        ));
+    }
+    steps.push(verify_step);
+
+    let finished_at = Utc::now();
+    let success = steps.iter().all(|s| s.ok);
+
+    let report = SetupReport {
+        schema_version: 1,
+        started_at,
+        finished_at,
+        success,
+        platform: PlatformInfo {
+            os: std::env::consts::OS.to_string(),
+            arch: std::env::consts::ARCH.to_string(),
+        },
+        steps,
+        warnings: Vec::new(),
+        errors: Vec::new(),
+    };
+
+    let path = doctor_report_path()?;
+    let json_text = serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?;
+    crate::config_io::write_atomic_with_backup(&path, &json_text)?;
+
+    if opts.json {
+        println!("{json_text}");
+    } else {
+        let (passed, total) = compact_score();
+        print_compact_status(passed, total);
+        println!("  {DIM}report saved:{RST} {}", path.display());
+    }
+
+    Ok(i32::from(!report.success))
+}

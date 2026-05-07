@@ -533,7 +533,13 @@ fn cmd_pack_export(args: &[String]) {
         let parts: Vec<&str> = pkg_ref.splitn(2, '@').collect();
         (parts[0].to_string(), parts[1].to_string())
     } else {
-        let registry = crate::core::context_package::LocalRegistry::open().unwrap();
+        let registry = match crate::core::context_package::LocalRegistry::open() {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("ERROR opening registry: {e}");
+                return;
+            }
+        };
         let ver = registry
             .list()
             .ok()

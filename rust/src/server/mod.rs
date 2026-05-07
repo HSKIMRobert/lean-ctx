@@ -517,6 +517,18 @@ impl ServerHandler for LeanCtxServer {
             result_text = format!("{result_text}\n\n{bw}");
         }
 
+        if !self
+            .rules_stale_checked
+            .swap(true, std::sync::atomic::Ordering::Relaxed)
+        {
+            let client = self.client_name.read().await.clone();
+            if !client.is_empty() {
+                if let Some(stale_msg) = crate::rules_inject::check_rules_freshness(&client) {
+                    result_text = format!("{result_text}\n\n{stale_msg}");
+                }
+            }
+        }
+
         {
             // Evaluate SLOs for observability (watch/dashboard), but keep tool outputs clean.
             let _ = crate::core::slo::evaluate();

@@ -5,7 +5,6 @@ pub struct Config {
     pub public_base_url: String,
     pub api_base_url: String,
     pub database_url: String,
-    pub jwt_secret: String,
     pub smtp_host: Option<String>,
     pub smtp_port: Option<u16>,
     pub smtp_username: Option<String>,
@@ -30,9 +29,6 @@ impl Config {
             .map_err(|_| {
                 anyhow::anyhow!("Missing env: LEANCTX_CLOUD_DATABASE_URL (or DATABASE_URL)")
             })?;
-        let jwt_secret = std::env::var("LEANCTX_CLOUD_JWT_SECRET")
-            .map_err(|_| anyhow::anyhow!("Missing env: LEANCTX_CLOUD_JWT_SECRET"))?;
-
         let smtp_host = std::env::var("LEANCTX_CLOUD_SMTP_HOST").ok();
         let smtp_port = std::env::var("LEANCTX_CLOUD_SMTP_PORT")
             .ok()
@@ -47,7 +43,6 @@ impl Config {
             public_base_url,
             api_base_url,
             database_url,
-            jwt_secret,
             smtp_host,
             smtp_port,
             smtp_username,

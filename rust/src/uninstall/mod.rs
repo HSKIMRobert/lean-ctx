@@ -1,0 +1,313 @@
+mod agents;
+mod parsers;
+
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use agents::{
+    remove_hook_files, remove_mcp_configs, remove_project_agent_files, remove_rules_files,
+    remove_shell_hook,
+};
+
+pub(super) fn backup_before_modify(path: &Path, dry_run: bool) {
+    if dry_run {
+        return;
+    }
+    if path.exists() {
+        let bak = bak_path_for(path);
+        let _ = fs::copy(path, &bak);
+    }
+}
+
+pub(super) fn bak_path_for(path: &Path) -> PathBuf {
+    let filename = path.file_name().unwrap_or_default().to_string_lossy();
+    path.with_file_name(format!("{filename}.lean-ctx.bak"))
+}
+
+fn cleanup_bak(path: &Path) {
+    let bak = bak_path_for(path);
+    if bak.exists() {
+        let _ = fs::remove_file(&bak);
+    }
+}
+
+pub(super) fn shorten(path: &Path, home: &Path) -> String {
+    match path.strip_prefix(home) {
+        Ok(rel) => format!("~/{}", rel.display()),
+        Err(_) => path.display().to_string(),
+    }
+}
+
+pub(super) fn copilot_instructions_path(home: &Path) -> PathBuf {
+    #[cfg(target_os = "macos")]
+    {
+        return home.join("Library/Application Support/Code/User/github-copilot-instructions.md");
+    }
+    #[cfg(target_os = "linux")]
+    {
+        return home.join(".config/Code/User/github-copilot-instructions.md");
+    }
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            return PathBuf::from(appdata).join("Code/User/github-copilot-instructions.md");
+        }
+    }
+    #[allow(unreachable_code)]
+    home.join(".config/Code/User/github-copilot-instructions.md")
+}
+
+/// Write `content` to `path` only if not in dry-run mode.
+pub(super) fn safe_write(path: &Path, content: &str, dry_run: bool) -> Result<(), std::io::Error> {
+    if dry_run {
+        return Ok(());
+    }
+    fs::write(path, content)?;
+    // If we successfully wrote the cleaned file, the backup is no longer needed.
+    cleanup_bak(path);
+    Ok(())
+}
+
+/// Remove `path` only if not in dry-run mode.
+pub(super) fn safe_remove(path: &Path, dry_run: bool) -> Result<(), std::io::Error> {
+    if dry_run {
+        return Ok(());
+    }
+    fs::remove_file(path)?;
+    // If we successfully removed the file, also remove its backup.
+    cleanup_bak(path);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Main entry
+// ---------------------------------------------------------------------------
+
+pub fn run(dry_run: bool) {
+    let Some(home) = dirs::home_dir() else {
+        tracing::warn!("Could not determine home directory");
+        return;
+    };
+
+    if dry_run {
+        println!("\n  lean-ctx uninstall --dry-run\n  ──────────────────────────────────\n");
+        println!("  Preview mode — no files will be modified.\n");
+    } else {
+        println!("\n  lean-ctx uninstall\n  ──────────────────────────────────\n");
+    }
+
+    let mut removed_any = false;
+
+    removed_any |= remove_shell_hook(&home, dry_run);
+    if !dry_run {
+        crate::proxy_setup::uninstall_proxy_env(&home, false);
+    }
+    removed_any |= remove_mcp_configs(&home, dry_run);
+    removed_any |= remove_rules_files(&home, dry_run);
+    removed_any |= remove_hook_files(&home, dry_run);
+    removed_any |= remove_project_agent_files(dry_run);
+
+    if !dry_run {
+        cleanup_bak_files(&home);
+    }
+
+    removed_any |= remove_data_dir(&home, dry_run);
+
+    println!();
+
+    if removed_any {
+        println!("  ──────────────────────────────────");
+        if dry_run {
+            println!(
+                "  The above changes WOULD be applied.\n  Run `lean-ctx uninstall` to execute.\n"
+            );
+        } else {
+            println!("  lean-ctx configuration removed.\n");
+        }
+    } else {
+        println!("  Nothing to remove — lean-ctx was not configured.\n");
+    }
+
+    if !dry_run {
+        print_binary_removal_instructions();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Marked block removal (for AGENTS.md, SharedMarkdown)
+// ---------------------------------------------------------------------------
+
+pub(super) fn remove_marked_block(content: &str, start: &str, end: &str) -> String {
+    let s = content.find(start);
+    let e = content.find(end);
+    match (s, e) {
+        (Some(si), Some(ei)) if ei >= si => {
+            let after_end = ei + end.len();
+            let before = &content[..si];
+            let after = &content[after_end..];
+            let mut out = String::new();
+            out.push_str(before.trim_end_matches('\n'));
+            out.push('\n');
+            if !after.trim().is_empty() {
+                out.push('\n');
+                out.push_str(after.trim_start_matches('\n'));
+            }
+            out
+        }
+        _ => content.to_string(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Data directory
+// ---------------------------------------------------------------------------
+
+fn remove_data_dir(home: &Path, dry_run: bool) -> bool {
+    let data_dir = home.join(".lean-ctx");
+    if !data_dir.exists() {
+        println!("  · No data directory found");
+        return false;
+    }
+
+    if dry_run {
+        println!("  Would remove Data directory (~/.lean-ctx/)");
+        return true;
+    }
+
+    match fs::remove_dir_all(&data_dir) {
+        Ok(()) => {
+            println!("  ✓ Data directory removed (~/.lean-ctx/)");
+            true
+        }
+        Err(e) => {
+            tracing::warn!("Failed to remove ~/.lean-ctx/: {e}");
+            false
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// .bak cleanup: remove orphaned backup files after successful surgical removal
+// ---------------------------------------------------------------------------
+
+fn cleanup_bak_files(home: &Path) {
+    let dirs_to_scan: Vec<PathBuf> = vec![
+        home.join(".cursor"),
+        home.join(".claude"),
+        crate::core::editor_registry::claude_state_dir(home),
+        home.join(".gemini"),
+        home.join(".gemini/antigravity"),
+        home.join(".codex"),
+        home.join(".codeium"),
+        home.join(".codeium/windsurf"),
+        home.join(".config/opencode"),
+        home.join(".config/amp"),
+        home.join(".config/crush"),
+        home.join(".config/zed"),
+        home.join(".qwen"),
+        home.join(".trae"),
+        home.join(".aws/amazonq"),
+        home.join(".kiro"),
+        home.join(".kiro/settings"),
+        home.join(".ampcoder"),
+        home.join(".pi"),
+        home.join(".pi/agent"),
+        home.join(".hermes"),
+        home.join(".verdent"),
+        home.join(".cline"),
+        home.join(".roo"),
+        home.join(".continue"),
+        home.join(".jb-rules"),
+    ];
+
+    let mut cleaned = 0;
+    for dir in &dirs_to_scan {
+        if !dir.exists() {
+            continue;
+        }
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let name_str = name.to_string_lossy();
+                if name_str.ends_with(".lean-ctx.tmp") {
+                    let _ = fs::remove_file(entry.path());
+                    cleaned += 1;
+                    continue;
+                }
+                if name_str.ends_with(".lean-ctx.bak") {
+                    let original_name = name_str.trim_end_matches(".lean-ctx.bak");
+                    let original = entry.path().with_file_name(original_name);
+                    if original.exists() {
+                        // Only remove backups if the original is already clean.
+                        match fs::read_to_string(&original) {
+                            Ok(c) if !c.contains("lean-ctx") => {
+                                let _ = fs::remove_file(entry.path());
+                                cleaned += 1;
+                            }
+                            _ => {}
+                        }
+                    } else {
+                        // If the original is gone, the backup is no longer needed.
+                        let _ = fs::remove_file(entry.path());
+                        cleaned += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    // Also clean shell RC backups
+    let rc_baks = [
+        home.join(".zshrc.lean-ctx.bak"),
+        home.join(".zshenv.lean-ctx.bak"),
+        home.join(".bashrc.lean-ctx.bak"),
+        home.join(".bashenv.lean-ctx.bak"),
+    ];
+    for bak in &rc_baks {
+        if bak.exists() {
+            let original_name = bak
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .trim_end_matches(".lean-ctx.bak")
+                .to_string();
+            let original = bak.with_file_name(original_name);
+            if original.exists() {
+                if let Ok(c) = fs::read_to_string(&original) {
+                    if !c.contains("lean-ctx") {
+                        let _ = fs::remove_file(bak);
+                        cleaned += 1;
+                    }
+                }
+            } else {
+                let _ = fs::remove_file(bak);
+                cleaned += 1;
+            }
+        }
+    }
+
+    if cleaned > 0 {
+        println!("  ✓ Cleaned up {cleaned} backup file(s)");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Binary removal instructions
+// ---------------------------------------------------------------------------
+
+fn print_binary_removal_instructions() {
+    let binary_path = std::env::current_exe()
+        .map_or_else(|_| "lean-ctx".to_string(), |p| p.display().to_string());
+
+    println!("  To complete uninstallation, remove the binary:\n");
+
+    if binary_path.contains(".cargo") {
+        println!("    cargo uninstall lean-ctx\n");
+    } else if binary_path.contains("homebrew") || binary_path.contains("Cellar") {
+        println!("    brew uninstall lean-ctx\n");
+    } else {
+        println!("    rm {binary_path}\n");
+    }
+
+    println!("  Then restart your shell.\n");
+}
