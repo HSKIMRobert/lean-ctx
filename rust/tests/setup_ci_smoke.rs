@@ -13,6 +13,16 @@ fn run_json(bin: &str, args: &[&str], envs: &[(&str, &str)]) -> (i32, String) {
     let out = cmd.output().expect("process start");
     let code = out.status.code().unwrap_or(1);
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    if stdout.trim().is_empty() || !stdout.trim_start().starts_with('{') {
+        eprintln!(
+            "--- run_json debug ({} {}) ---\nexit={code}\nstdout[{}]={stdout}\nstderr[{}]={stderr}\n---",
+            bin,
+            args.join(" "),
+            out.stdout.len(),
+            out.stderr.len(),
+        );
+    }
     (code, stdout)
 }
 
@@ -86,7 +96,12 @@ fn setup_bootstrap_doctor_status_json_smoke() {
     // bootstrap --json returns clean JSON (SetupReport)
     let (code, out) = run_json(bin, &["bootstrap", "--json"], &envs);
     assert_eq!(code, 0, "bootstrap exit code");
-    let setup: SetupReport = serde_json::from_str(&out).expect("bootstrap JSON parse");
+    let setup: SetupReport = serde_json::from_str(&out).unwrap_or_else(|e| {
+        panic!(
+            "bootstrap JSON parse: {e}\nstdout[{}]=<<<{out}>>>",
+            out.len()
+        )
+    });
     assert_eq!(setup.schema_version, 1);
 
     // bootstrap should create env.sh in LEAN_CTX_DATA_DIR for Docker/CI shells.
