@@ -144,9 +144,6 @@ fn exec_buffered(command: &str, shell: &str, shell_flag: &str, cfg: &config::Con
 
     let child = cmd
         .env("LEAN_CTX_ACTIVE", "1")
-        .env_remove("DISPLAY")
-        .env_remove("XAUTHORITY")
-        .env_remove("WAYLAND_DISPLAY")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn();
