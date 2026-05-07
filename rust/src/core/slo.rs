@@ -178,8 +178,9 @@ fn default_slos() -> Vec<SloDefinition> {
             name: "compression_efficiency".into(),
             metric: SloMetric::CompressionRatio,
             // CompressionRatio = sent/original. Lower is better.
-            // Warn only when compression is poor (e.g. >75% of original tokens still sent).
-            threshold: 0.75,
+            // Warn when compression is poor (>90% of original still sent after 5000+ tokens).
+            // Previous 0.75 threshold triggered false positives for full-mode reads.
+            threshold: 0.90,
             direction: SloDirection::Max,
             action: SloAction::Warn,
         },
@@ -209,7 +210,8 @@ fn read_metric(metric: SloMetric) -> f64 {
         SloMetric::ShellInvocations => tracker.shell_used() as f64,
         SloMetric::CompressionRatio => {
             let ledger = crate::core::context_ledger::ContextLedger::load();
-            if ledger.entries.is_empty() {
+            let total_original: usize = ledger.entries.iter().map(|e| e.original_tokens).sum();
+            if total_original < 5000 {
                 0.0
             } else {
                 ledger.compression_ratio()
