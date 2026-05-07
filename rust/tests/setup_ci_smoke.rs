@@ -14,7 +14,8 @@ fn run_json(bin: &str, args: &[&str], envs: &[(&str, &str)]) -> (i32, String) {
     let code = out.status.code().unwrap_or(1);
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-    if stdout.trim().is_empty() || !stdout.trim_start().starts_with('{') {
+
+    let json_str = extract_json(&stdout).unwrap_or_else(|| {
         eprintln!(
             "--- run_json debug ({} {}) ---\nexit={code}\nstdout[{}]={stdout}\nstderr[{}]={stderr}\n---",
             bin,
@@ -22,8 +23,19 @@ fn run_json(bin: &str, args: &[&str], envs: &[(&str, &str)]) -> (i32, String) {
             out.stdout.len(),
             out.stderr.len(),
         );
+        stdout.clone()
+    });
+    (code, json_str)
+}
+
+fn extract_json(s: &str) -> Option<String> {
+    let start = s.find('{')?;
+    let end = s.rfind('}')?;
+    if end >= start {
+        Some(s[start..=end].to_string())
+    } else {
+        None
     }
-    (code, stdout)
 }
 
 fn write_exe(path: &std::path::Path, content: &str) {

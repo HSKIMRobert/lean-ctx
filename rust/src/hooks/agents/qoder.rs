@@ -73,7 +73,7 @@ fn install_qoder_hook_config_at(name: &str, settings_path: &Path) -> bool {
             &serde_json::to_string_pretty(&root).unwrap_or_default(),
         );
         if !mcp_server_quiet_mode() {
-            println!("Installed {name} hooks at {}", settings_path.display());
+            eprintln!("Installed {name} hooks at {}", settings_path.display());
         }
     }
 

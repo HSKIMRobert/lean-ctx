@@ -28,7 +28,7 @@ pub fn upsert(path: &Path, start: &str, end: &str, block: &str, quiet: bool, lab
         out.push('\n');
         std::fs::write(path, &out).ok();
         if !quiet {
-            println!("  Installed {label}");
+            eprintln!("  Installed {label}");
         }
     }
 }

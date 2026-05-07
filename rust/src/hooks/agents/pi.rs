@@ -25,12 +25,12 @@ pub(crate) fn install_pi_hook_with_mode(global: bool, mode: HookMode) {
 
     match install_result {
         Ok(status) if status.success() => {
-            println!("Installed pi-lean-ctx Pi Package.");
+            eprintln!("Installed pi-lean-ctx Pi Package.");
         }
         _ => {
-            println!("Could not auto-install pi-lean-ctx. Install manually:");
-            println!("  pi install npm:pi-lean-ctx");
-            println!();
+            eprintln!("Could not auto-install pi-lean-ctx. Install manually:");
+            eprintln!("  pi install npm:pi-lean-ctx");
+            eprintln!();
         }
     }
 
