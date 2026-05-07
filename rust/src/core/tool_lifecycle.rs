@@ -1,0 +1,140 @@
+//! Shared tool lifecycle — ensures CLI and MCP paths have identical side effects.
+//!
+//! The MCP server dispatcher handles session, ledger, heatmap, intent detection,
+//! and knowledge consolidation inline (via in-memory state). When the daemon is
+//! unavailable, CLI commands call functions here to achieve the same coverage by
+//! loading/saving state from disk.
+//!
+//! NOTE: When the daemon IS running, CLI routes through `daemon_client` which
+//! calls the MCP server — these functions are NOT called in that path.
+
+use crate::core::context_ledger::ContextLedger;
+use crate::core::heatmap;
+use crate::core::intent_engine::StructuredIntent;
+use crate::core::session::SessionState;
+use crate::core::stats;
+
+/// Record a file-read operation with full Context OS side effects.
+pub fn record_file_read(
+    path: &str,
+    mode: &str,
+    original_tokens: usize,
+    output_tokens: usize,
+    is_cache_hit: bool,
+) {
+    let saved = original_tokens.saturating_sub(output_tokens);
+    let tool_key = format!("cli_{mode}");
+
+    stats::record(&tool_key, original_tokens, output_tokens);
+    heatmap::record_file_access(path, original_tokens, saved);
+
+    if let Some(mut session) = SessionState::load_latest() {
+        session.touch_file(path, None, mode, original_tokens);
+        if is_cache_hit {
+            session.record_cache_hit();
+        }
+
+        if session.active_structured_intent.is_none() && session.files_touched.len() >= 2 {
+            let touched: Vec<String> = session
+                .files_touched
+                .iter()
+                .map(|ft| ft.path.clone())
+                .collect();
+            let inferred = StructuredIntent::from_file_patterns(&touched);
+            if inferred.confidence >= 0.4 {
+                session.active_structured_intent = Some(inferred);
+            }
+        }
+
+        let project_root = session.project_root.clone();
+        let calls = session.stats.total_tool_calls;
+        let _ = session.save();
+
+        maybe_consolidate(project_root.as_deref(), calls);
+    }
+
+    let mut ledger = ContextLedger::load();
+    ledger.record(path, mode, original_tokens, output_tokens);
+    ledger.save();
+}
+
+/// Record a search/grep operation with full Context OS side effects.
+pub fn record_search(original_tokens: usize, output_tokens: usize) {
+    stats::record("cli_grep", original_tokens, output_tokens);
+
+    if let Some(mut session) = SessionState::load_latest() {
+        session.record_command();
+        let project_root = session.project_root.clone();
+        let calls = session.stats.total_tool_calls;
+        let _ = session.save();
+
+        maybe_consolidate(project_root.as_deref(), calls);
+    }
+}
+
+/// Record a tree/ls operation with full Context OS side effects.
+pub fn record_tree(original_tokens: usize, output_tokens: usize) {
+    stats::record("cli_ls", original_tokens, output_tokens);
+
+    if let Some(mut session) = SessionState::load_latest() {
+        session.record_command();
+        let _ = session.save();
+    }
+}
+
+/// Record a shell command with full Context OS side effects.
+/// When both original and output are 0 (track-only, no compression), only updates
+/// the session command counter without inflating token statistics.
+pub fn record_shell_command(original_tokens: usize, output_tokens: usize) {
+    if original_tokens > 0 || output_tokens > 0 {
+        stats::record("cli_shell", original_tokens, output_tokens);
+    }
+
+    if let Some(mut session) = SessionState::load_latest() {
+        session.record_command();
+        let project_root = session.project_root.clone();
+        let calls = session.stats.total_tool_calls;
+        let _ = session.save();
+
+        if original_tokens > 0 {
+            maybe_consolidate(project_root.as_deref(), calls);
+        }
+    }
+}
+
+fn maybe_consolidate(project_root: Option<&str>, calls: u32) {
+    let Some(root) = project_root else { return };
+    let autonomy = crate::tools::autonomy::AutonomyState::new();
+    if crate::tools::autonomy::should_auto_consolidate(&autonomy, calls) {
+        let root = root.to_string();
+        let _ = crate::core::consolidation_engine::consolidate_latest(
+            &root,
+            crate::core::consolidation_engine::ConsolidationBudgets::default(),
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn record_file_read_does_not_panic_without_session() {
+        record_file_read("/tmp/nonexistent.rs", "full", 100, 50, false);
+    }
+
+    #[test]
+    fn record_search_does_not_panic_without_session() {
+        record_search(200, 150);
+    }
+
+    #[test]
+    fn record_tree_does_not_panic_without_session() {
+        record_tree(100, 80);
+    }
+
+    #[test]
+    fn record_shell_does_not_panic_without_session() {
+        record_shell_command(500, 200);
+    }
+}

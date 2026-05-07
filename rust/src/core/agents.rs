@@ -256,14 +256,16 @@ impl AgentRegistry {
         let cutoff = Utc::now() - chrono::Duration::hours(max_age_hours as i64);
 
         for agent in &mut self.agents {
-            if agent.last_active < cutoff
-                && agent.status != AgentStatus::Finished
-                && !is_process_alive(agent.pid)
-            {
+            if agent.status == AgentStatus::Finished {
+                continue;
+            }
+            // Mark as finished if process is no longer running (regardless of age)
+            if !is_process_alive(agent.pid) {
                 agent.status = AgentStatus::Finished;
             }
         }
 
+        // Remove finished agents older than the cutoff to keep recent history visible
         self.agents
             .retain(|a| !(a.status == AgentStatus::Finished && a.last_active < cutoff));
 
@@ -475,7 +477,7 @@ fn generate_short_id() -> String {
     format!("{:08x}", hasher.finish() as u32)
 }
 
-fn is_process_alive(pid: u32) -> bool {
+pub fn is_process_alive(pid: u32) -> bool {
     #[cfg(unix)]
     {
         std::process::Command::new("kill")

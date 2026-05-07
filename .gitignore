@@ -48,5 +48,9 @@ lean-ctx-chrome-extension.zip
 /docs/_local/
 test-results/
 
-# ── Git worktrees (local) ──
+# ── IDE local config ──
+**/.cursor/
+
+# ── Generated / worktrees (local) ──
+website/generated/
 worktrees/website/generated/

@@ -140,6 +140,7 @@ pub mod telemetry;
 pub mod theme;
 pub mod tokenizer_translation_driver;
 pub mod tokens;
+pub mod tool_lifecycle;
 pub mod updater;
 pub mod vector_index;
 pub mod verification_observability;

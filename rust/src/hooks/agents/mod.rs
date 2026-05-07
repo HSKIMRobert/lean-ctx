@@ -1,4 +1,5 @@
 mod amp;
+mod antigravity;
 mod claude;
 mod cline;
 mod codex;
@@ -16,6 +17,7 @@ mod shared;
 mod windsurf;
 
 pub(super) use amp::install_amp_hook;
+pub(super) use antigravity::install_antigravity_hook;
 pub(super) use claude::{
     install_claude_hook_config, install_claude_hook_scripts, install_claude_hook_with_mode,
     install_claude_project_hooks,

@@ -2,6 +2,10 @@ use std::io::Write as _;
 use std::path::PathBuf;
 use std::time::Duration;
 
+const CRASH_LOOP_WINDOW_SECS: u64 = 30;
+const CRASH_LOOP_THRESHOLD: usize = 5;
+const CRASH_LOOP_MAX_BACKOFF_SECS: u64 = 60;
+
 pub struct StartupLockGuard {
     path: PathBuf,
 }
@@ -88,6 +92,50 @@ pub fn try_acquire_lock(
 
         std::thread::sleep(Duration::from_millis(sleep_ms));
         sleep_ms = (sleep_ms.saturating_mul(2)).min(120);
+    }
+}
+
+/// Detects rapid restart loops (e.g., IDE keeps respawning a crashing MCP server).
+/// Records each startup timestamp; if too many happen within the window, sleeps
+/// with exponential backoff to break the loop and avoid host degradation.
+pub fn crash_loop_backoff(process_name: &str) {
+    let Some(dir) = crate::core::data_dir::lean_ctx_data_dir().ok() else {
+        return;
+    };
+    let _ = std::fs::create_dir_all(&dir);
+    let ts_path = dir.join(format!(".{}-starts.log", sanitize_lock_name(process_name)));
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let cutoff = now.saturating_sub(CRASH_LOOP_WINDOW_SECS);
+
+    let mut recent: Vec<u64> = std::fs::read_to_string(&ts_path)
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| l.trim().parse::<u64>().ok())
+        .filter(|&ts| ts >= cutoff)
+        .collect();
+    recent.push(now);
+
+    if let Ok(mut f) = std::fs::File::create(&ts_path) {
+        for ts in &recent {
+            let _ = writeln!(f, "{ts}");
+        }
+    }
+
+    if recent.len() > CRASH_LOOP_THRESHOLD {
+        let restarts_over = recent.len() - CRASH_LOOP_THRESHOLD;
+        let backoff_secs =
+            (2u64.saturating_pow(restarts_over as u32)).min(CRASH_LOOP_MAX_BACKOFF_SECS);
+        eprintln!(
+            "lean-ctx: crash-loop detected ({} starts in {CRASH_LOOP_WINDOW_SECS}s), \
+             backing off {backoff_secs}s",
+            recent.len()
+        );
+        std::thread::sleep(Duration::from_secs(backoff_secs));
     }
 }
 

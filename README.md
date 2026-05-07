@@ -144,14 +144,14 @@ lean-ctx is a standard **MCP server**, so it works with any MCP-compatible clien
 | Agent | CLI | Hybrid | MCP | Setup |
 |---|:---:|:---:|:---:|---|
 | Cursor | ● | | | `lean-ctx init --agent cursor` |
-| Claude Code | ● | | | `lean-ctx init --agent claude` |
 | Codex CLI | ● | | | `lean-ctx init --agent codex` |
-| OpenCode | ● | | | `lean-ctx init --agent opencode` |
 | Gemini CLI | ● | | | `lean-ctx init --agent gemini` |
-| CRUSH | ● | | | `lean-ctx init --agent crush` |
-| Hermes | ● | | | `lean-ctx init --agent hermes` |
-| Pi | ● | | | `lean-ctx init --agent pi` |
-| Qoder | ● | | | `lean-ctx init --agent qoder` |
+| Claude Code | | ● | | `lean-ctx init --agent claude` |
+| CRUSH | | ● | | `lean-ctx init --agent crush` |
+| Hermes | | ● | | `lean-ctx init --agent hermes` |
+| OpenCode | | ● | | `lean-ctx init --agent opencode` |
+| Pi | | ● | | `lean-ctx init --agent pi` |
+| Qoder | | ● | | `lean-ctx init --agent qoder` |
 | Windsurf | | ● | | `lean-ctx init --agent windsurf` |
 | GitHub Copilot | | ● | | `lean-ctx init --agent copilot` |
 | Amp | | ● | | `lean-ctx init --agent amp` |

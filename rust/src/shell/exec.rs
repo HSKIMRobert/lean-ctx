@@ -3,7 +3,6 @@ use std::process::{Command, Stdio};
 
 use crate::core::config;
 use crate::core::slow_log;
-use crate::core::stats;
 use crate::core::tokens::count_tokens;
 
 /// Execute a command from pre-split argv without going through `sh -c`.
@@ -25,12 +24,12 @@ pub fn exec_argv(args: &[String]) -> i32 {
 
     if super::compress::is_excluded_command(&joined, &cfg.excluded_commands) {
         let code = exec_direct(args);
-        stats::record(&joined, 0, 0);
+        crate::core::tool_lifecycle::record_shell_command(0, 0);
         return code;
     }
 
     let code = exec_direct(args);
-    stats::record(&joined, 0, 0);
+    crate::core::tool_lifecycle::record_shell_command(0, 0);
     code
 }
 
@@ -77,7 +76,7 @@ pub fn exec(command: &str) -> i32 {
             return exec_inherit_tracked(command, &shell, &shell_flag);
         }
         let code = exec_inherit(command, &shell, &shell_flag);
-        stats::record(command, 0, 0);
+        crate::core::tool_lifecycle::record_shell_command(0, 0);
         return code;
     }
 
@@ -105,7 +104,7 @@ fn exec_inherit(command: &str, shell: &str, shell_flag: &str) -> i32 {
 
 fn exec_inherit_tracked(command: &str, shell: &str, shell_flag: &str) -> i32 {
     let code = exec_inherit(command, shell, shell_flag);
-    stats::record(command, 0, 0);
+    crate::core::tool_lifecycle::record_shell_command(0, 0);
     code
 }
 
@@ -179,7 +178,7 @@ fn exec_buffered(command: &str, shell: &str, shell_flag: &str, cfg: &config::Con
     let (compressed, output_tokens) =
         super::compress::compress_and_measure(command, &stdout, &stderr);
 
-    stats::record(command, input_tokens, output_tokens);
+    crate::core::tool_lifecycle::record_shell_command(input_tokens, output_tokens);
 
     if !compressed.is_empty() {
         let _ = io::stdout().write_all(compressed.as_bytes());

@@ -71,20 +71,30 @@ pub(crate) fn format_tokens_cli(tokens: u64) -> String {
 }
 
 pub(crate) fn cli_track_read(path: &str, mode: &str, original_tokens: usize, output_tokens: usize) {
-    crate::core::stats::record(&format!("cli_{mode}"), original_tokens, output_tokens);
-    crate::core::heatmap::record_file_access(
+    crate::core::tool_lifecycle::record_file_read(
         path,
+        mode,
         original_tokens,
-        original_tokens.saturating_sub(output_tokens),
+        output_tokens,
+        false,
     );
 }
 
+pub(crate) fn cli_track_read_cached(
+    path: &str,
+    mode: &str,
+    original_tokens: usize,
+    output_tokens: usize,
+) {
+    crate::core::tool_lifecycle::record_file_read(path, mode, original_tokens, output_tokens, true);
+}
+
 pub(crate) fn cli_track_search(original_tokens: usize, output_tokens: usize) {
-    crate::core::stats::record("cli_grep", original_tokens, output_tokens);
+    crate::core::tool_lifecycle::record_search(original_tokens, output_tokens);
 }
 
 pub(crate) fn cli_track_tree(original_tokens: usize, output_tokens: usize) {
-    crate::core::stats::record("cli_ls", original_tokens, output_tokens);
+    crate::core::tool_lifecycle::record_tree(original_tokens, output_tokens);
 }
 
 pub(crate) fn detect_project_root(args: &[String]) -> String {

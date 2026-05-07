@@ -3,6 +3,25 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.5.2] — 2026-05-07
+
+### Fixed
+
+- **Agent zombie cleanup** — `cleanup_stale()` now marks dead processes as `Finished` immediately regardless of age, fixing the "phantom agents" bug where terminated MCP sessions (e.g. from Claude Code subagents, `/superpowers`, `/gsd` plugins) stayed listed as "Active" in the Agent World dashboard indefinitely. Previously, agents were only cleaned up after 24 hours. Fixes the issue reported by daviddatu_.
+- **Dashboard live-filter** — `build_agents_json()` now calls `cleanup_stale()` on every API request and additionally filters by `is_process_alive()` as a safety net, ensuring the Agent World dashboard never shows zombie entries.
+- **CLI/MCP feature parity** — new `core::tool_lifecycle` module ensures CLI commands (`lean-ctx read`, `lean-ctx grep`, `lean-ctx ls`, `lean-ctx -c`) trigger the same side effects as MCP tools: session tracking, Context Ledger updates, heatmap recording, intent detection, and knowledge consolidation. Previously CLI-only users lost ~60% of Context OS features.
+- **Daemon double-recording bug** — CLI reads routed through the daemon no longer record a second `(sent, sent)` stats entry with 0% savings, which was diluting the overall savings rate on the dashboard.
+- **Search savings accuracy** — `ctx_search` now estimates native grep baseline cost at 2.5× raw match tokens (accounting for context lines, separators, and full paths), up from 1× which showed misleadingly low savings.
+- **Track-mode dilution** — Shell commands in track-only mode (no compression) no longer record `(0, 0)` token entries that inflated command counts without contributing savings, improving the dashboard savings rate from ~30% to 86%+.
+- **Crash-loop backoff guard** — MCP server startup now detects rapid restart loops (>5 starts in 30s) and applies exponential backoff (up to 60s), preventing system hangs during binary updates.
+- **Stats flush for short-lived CLI** — explicit `stats::flush()` calls after CLI `read`, `grep`, `ls`, `diff`, `deps` commands ensure token savings from hook subprocesses are persisted to disk immediately.
+
+### Changed
+
+- **Agent HookMode reclassification** — CRUSH, Hermes, OpenCode, Pi, and Qoder moved from `CliRedirect` to `Hybrid` mode because their hook mechanisms cannot guarantee full interception of all tool types. Only Cursor, Codex CLI, and Gemini CLI remain in pure CLI-redirect mode.
+- **Claude Code Hybrid mode** — Claude Code now uses Hybrid mode (MCP + hooks) instead of CLI-redirect. `lean-ctx init --agent claude` installs the MCP server entry in `~/.claude.json` and configures PreToolUse hooks for Bash compression. This ensures full functionality even in headless (`-p`) mode where PreToolUse hooks don't fire.
+- **Antigravity dedicated hook** — `lean-ctx init --agent antigravity` now has its own installation function (no longer shares with Gemini CLI), correctly configuring MCP at `~/.gemini/antigravity/mcp_config.json` and hook matchers for Antigravity's native tools (`run_command`, `view_file`, `grep_search`).
+
 ## [3.5.1] — 2026-05-06
 
 ### Fixed

@@ -783,7 +783,7 @@ ctx_compress, ctx_benchmark, ctx_metrics, ctx_analyze, ctx_cache, ctx_discover, 
 
 13. **Multi-tokenizer support** — Token counting supports o200k_base (GPT), cl100k_base (Claude/Llama), and Gemini (with 1.1x correction). Auto-detected from client name.
 
-14. **CLI-redirect hook mode** — Agents with shell access (Claude Code, Codex, OpenCode) can use CLI commands instead of MCP tools, eliminating schema overhead. `lean-ctx init --agent cursor --mode cli-redirect`.
+14. **CLI-redirect hook mode** — Agents with verified hook interception for all tool types (Cursor, Codex, Gemini CLI) can use CLI commands instead of MCP tools, eliminating schema overhead. Most agents use Hybrid mode (MCP + hooks) to ensure full Context OS features. `lean-ctx init --agent cursor --mode cli-redirect`.
 
 15. **Field-wise profile merge** — Child profiles inherit unset fields from parents using `Option<T>` + `.or()` semantics. A child with only `[read] default_mode = "map"` inherits all other fields.
 

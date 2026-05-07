@@ -8,7 +8,6 @@ use crate::core::patterns::deps_cmd;
 use crate::core::protocol;
 use crate::core::roles;
 use crate::core::signatures;
-use crate::core::stats;
 use crate::core::tokens::count_tokens;
 
 use super::common::print_savings;
@@ -76,8 +75,6 @@ pub fn cmd_read(args: &[String]) {
             })),
         ) {
             println!("{out}");
-            let sent = count_tokens(&out);
-            super::common::cli_track_read(path, mode, sent, sent);
             return;
         }
     }
@@ -90,12 +87,7 @@ pub fn cmd_read(args: &[String]) {
                 let msg = cli_cache::format_hit(&entry, &file_ref, &short);
                 println!("{msg}");
                 let sent = count_tokens(&msg);
-                stats::record("cli_read", entry.original_tokens, sent);
-                crate::core::heatmap::record_file_access(
-                    path,
-                    entry.original_tokens,
-                    entry.original_tokens.saturating_sub(sent),
-                );
+                super::common::cli_track_read_cached(path, "full", entry.original_tokens, sent);
                 return;
             }
             CacheResult::Miss { content } if content.is_empty() => {
@@ -107,8 +99,7 @@ pub fn cmd_read(args: &[String]) {
                 println!("{short} [{line_count}L]");
                 println!("{content}");
                 let tok = count_tokens(&content);
-                stats::record("cli_read", tok, tok);
-                crate::core::heatmap::record_file_access(path, tok, 0);
+                super::common::cli_track_read(path, "full", tok, tok);
                 return;
             }
         }
@@ -240,7 +231,7 @@ pub fn cmd_diff(args: &[String]) {
     );
     println!("{diff}");
     print_savings(original, sent);
-    stats::record("cli_diff", original, sent);
+    crate::core::stats::record("cli_diff", original, sent);
 }
 
 pub fn cmd_grep(args: &[String]) {
@@ -326,7 +317,7 @@ pub fn cmd_find(args: &[String]) {
         }
     }
 
-    stats::record("cli_find", 0, 0);
+    crate::core::stats::record("cli_find", 0, 0);
 
     if !found {
         std::process::exit(1);
@@ -365,7 +356,7 @@ pub fn cmd_deps(args: &[String]) {
 
     if let Some(result) = deps_cmd::detect_and_compress(path) {
         println!("{result}");
-        stats::record("cli_deps", 0, 0);
+        crate::core::stats::record("cli_deps", 0, 0);
     } else {
         eprintln!("No dependency file found in {path}");
         std::process::exit(1);

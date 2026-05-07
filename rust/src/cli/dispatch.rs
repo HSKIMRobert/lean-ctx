@@ -952,26 +952,32 @@ pub fn run() {
             }
             "read" => {
                 super::cmd_read(&rest);
+                core::stats::flush();
                 return;
             }
             "diff" => {
                 super::cmd_diff(&rest);
+                core::stats::flush();
                 return;
             }
             "grep" => {
                 super::cmd_grep(&rest);
+                core::stats::flush();
                 return;
             }
             "find" => {
                 super::cmd_find(&rest);
+                core::stats::flush();
                 return;
             }
             "ls" => {
                 super::cmd_ls(&rest);
+                core::stats::flush();
                 return;
             }
             "deps" => {
                 super::cmd_deps(&rest);
+                core::stats::flush();
                 return;
             }
             "discover" => {
@@ -1286,6 +1292,8 @@ fn run_mcp_server() -> Result<()> {
     use rmcp::ServiceExt;
 
     std::env::set_var("LEAN_CTX_MCP_SERVER", "1");
+
+    crate::core::startup_guard::crash_loop_backoff("mcp-server");
 
     // Concurrency hardening:
     // - Smooths "thundering herd" MCP startups (multiple agent sessions).

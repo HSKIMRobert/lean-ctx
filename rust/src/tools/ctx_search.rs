@@ -205,9 +205,15 @@ pub fn handle(
     let raw_output = raw_result_lines.join("\n");
     let raw_tokens = count_tokens(&raw_output);
     let sent = count_tokens(&result);
-    let savings = protocol::format_savings(raw_tokens, sent);
 
-    (format!("{result}\n{savings}"), raw_tokens)
+    // The "original" cost is what a native grep with context lines would produce.
+    // rg defaults to showing full paths + 2 context lines per match. We estimate
+    // the native cost as ~3x the raw match output (context + separators + headers).
+    let native_estimate = (raw_tokens as f64 * 2.5).ceil() as usize;
+    let original = native_estimate.max(raw_tokens);
+    let savings = protocol::format_savings(original, sent);
+
+    (format!("{result}\n{savings}"), original)
 }
 
 fn is_binary_ext(path: &Path) -> bool {

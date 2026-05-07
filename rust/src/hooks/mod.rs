@@ -52,18 +52,29 @@ impl HookMode {
 /// Auto-detect the best hook mode for a given agent key based on its shell capabilities.
 ///
 /// Criteria (verified against provider docs May 2026):
-///   CliRedirect — agent has BeforeTool/PreToolUse hooks OR is CLI-native with reliable shell
-///   Hybrid      — agent has a shell/bash tool but no automatic hook interception; MCP + CLI rules
+///   CliRedirect — agent has verified hooks for ALL tool types (bash + read + grep)
+///                 AND we can guarantee interception in every execution mode
+///   Hybrid      — MCP server (full Context OS) + CLI hooks where available
 ///   Mcp         — agent has no reliable direct shell tool (e.g. IDE plugin only)
+///
+/// Hybrid is the safe default: it ensures graph, knowledge, sessions, and all
+/// background automations work (these require the MCP server). CLI-Redirect
+/// only for agents where hooks demonstrably intercept every tool call.
 pub fn recommend_hook_mode(agent_key: &str) -> HookMode {
     match agent_key {
-        // BeforeTool / PreToolUse hook interception → CLI-redirect
-        // BeforeTool / PreToolUse hook interception → CLI-redirect
-        "crush" | "claude" | "claude-code" | "cursor" | "codex" | "opencode" | "gemini"
-        | "hermes" | "pi" | "qoder" => HookMode::CliRedirect,
+        // CLI-Redirect: hooks verified to intercept ALL tool types (bash + read + grep).
+        // Cursor: hooks.json with Shell + Read|Grep matchers.
+        // Codex: all file ops go through Bash → single Bash hook catches everything.
+        // Gemini CLI: BeforeTool for shell + read_file + grep + list_dir.
+        "cursor" | "codex" | "gemini" => HookMode::CliRedirect,
 
-        // Shell/bash tool present (+ Cascade/hook support or not) → Hybrid (MCP + CLI rules)
-        "windsurf" | "amp" | "cline" | "roo" | "copilot" | "kiro" | "qwen" | "trae"
+        // Hybrid: MCP for Context OS features + hooks/rules for shell compression.
+        // Claude Code: PreToolUse hooks don't fire in -p mode; needs MCP.
+        // CRUSH/Hermes: no hooks at all, rules only → need MCP as reliable path.
+        // OpenCode/Qoder: Bash hook only, no Read/Grep interception → need MCP.
+        // Pi: external package routing, can't verify → need MCP.
+        "claude" | "claude-code" | "crush" | "hermes" | "opencode" | "pi" | "qoder"
+        | "windsurf" | "amp" | "cline" | "roo" | "copilot" | "kiro" | "qwen" | "trae"
         | "antigravity" | "amazonq" | "verdent" => HookMode::Hybrid,
 
         // No reliable direct shell tool → MCP only
@@ -71,9 +82,9 @@ pub fn recommend_hook_mode(agent_key: &str) -> HookMode {
     }
 }
 use agents::{
-    install_amp_hook, install_claude_hook_config, install_claude_hook_scripts,
-    install_claude_hook_with_mode, install_claude_project_hooks, install_cline_rules,
-    install_codex_hook, install_copilot_hook, install_crush_hook_with_mode,
+    install_amp_hook, install_antigravity_hook, install_claude_hook_config,
+    install_claude_hook_scripts, install_claude_hook_with_mode, install_claude_project_hooks,
+    install_cline_rules, install_codex_hook, install_copilot_hook, install_crush_hook_with_mode,
     install_cursor_hook_config, install_cursor_hook_scripts, install_cursor_hook_with_mode,
     install_gemini_hook, install_gemini_hook_config, install_gemini_hook_scripts,
     install_hermes_hook_with_mode, install_jetbrains_hook, install_kiro_hook,
@@ -590,7 +601,8 @@ pub fn install_agent_hook_with_mode(agent: &str, global: bool, mode: HookMode) {
     match agent {
         "claude" | "claude-code" => install_claude_hook_with_mode(global, mode),
         "cursor" => install_cursor_hook_with_mode(global, mode),
-        "gemini" | "antigravity" => install_gemini_hook(),
+        "gemini" => install_gemini_hook(),
+        "antigravity" => install_antigravity_hook(),
         "codex" => install_codex_hook(),
         "windsurf" => install_windsurf_rules(global),
         "cline" | "roo" => install_cline_rules(global),

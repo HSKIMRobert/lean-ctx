@@ -1365,11 +1365,17 @@ fn build_heatmap_json(index: &crate::core::graph_index::ProjectIndex) -> String 
 }
 
 fn build_agents_json() -> String {
-    let registry = crate::core::agents::AgentRegistry::load_or_create();
+    let mut registry = crate::core::agents::AgentRegistry::load_or_create();
+    registry.cleanup_stale(24);
+    let _ = registry.save();
+
     let agents: Vec<serde_json::Value> = registry
         .agents
         .iter()
-        .filter(|a| a.status != crate::core::agents::AgentStatus::Finished)
+        .filter(|a| {
+            a.status != crate::core::agents::AgentStatus::Finished
+                && crate::core::agents::is_process_alive(a.pid)
+        })
         .map(|a| {
             let age_min = (chrono::Utc::now() - a.last_active).num_minutes();
             serde_json::json!({

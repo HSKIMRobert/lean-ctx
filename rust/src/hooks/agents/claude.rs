@@ -12,6 +12,10 @@ pub(crate) fn install_claude_hook_with_mode(global: bool, mode: HookMode) {
     install_claude_hook_scripts(&home);
     install_claude_hook_config(&home);
 
+    if matches!(mode, HookMode::Hybrid | HookMode::Mcp) {
+        install_claude_mcp_server(&home);
+    }
+
     let scope = crate::core::config::Config::load().rules_scope_effective();
     if scope != crate::core::config::RulesScope::Project {
         install_claude_rules_file_for_mode(&home, mode);
@@ -20,6 +24,48 @@ pub(crate) fn install_claude_hook_with_mode(global: bool, mode: HookMode) {
     }
 
     let _ = global;
+}
+
+fn install_claude_mcp_server(home: &std::path::Path) {
+    let config_path = crate::core::editor_registry::claude_mcp_json_path(home);
+    let binary = super::super::resolve_binary_path();
+
+    let existing = std::fs::read_to_string(&config_path).unwrap_or_default();
+    if existing.contains("\"lean-ctx\"") && existing.contains("mcpServers") {
+        return;
+    }
+
+    let parsed: Result<serde_json::Value, _> = if existing.trim().is_empty() {
+        Ok(serde_json::json!({}))
+    } else {
+        crate::core::jsonc::parse_jsonc(&existing)
+    };
+
+    if let Ok(mut root) = parsed {
+        if let Some(obj) = root.as_object_mut() {
+            let servers = obj
+                .entry("mcpServers")
+                .or_insert_with(|| serde_json::json!({}));
+            if let Some(servers_obj) = servers.as_object_mut() {
+                if !servers_obj.contains_key("lean-ctx") {
+                    servers_obj.insert(
+                        "lean-ctx".to_string(),
+                        serde_json::json!({
+                            "command": binary,
+                            "args": []
+                        }),
+                    );
+                    write_file(
+                        &config_path,
+                        &serde_json::to_string_pretty(&root).unwrap_or_default(),
+                    );
+                    if !super::super::mcp_server_quiet_mode() {
+                        eprintln!("Added lean-ctx MCP server to {}", config_path.display());
+                    }
+                }
+            }
+        }
+    }
 }
 
 const CLAUDE_MD_BLOCK_START: &str = "<!-- lean-ctx -->";
