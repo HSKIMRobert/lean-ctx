@@ -803,6 +803,9 @@ mod tests {
         let resp = app.clone().oneshot(req).await.expect("call");
         assert_eq!(resp.status(), StatusCode::OK);
 
+        // Allow async event persistence to complete (Windows CI disk IO is slower).
+        tokio::time::sleep(Duration::from_millis(250)).await;
+
         // Subscribe with replay semantics; read the first SSE message.
         let req = Request::builder()
             .method("GET")
