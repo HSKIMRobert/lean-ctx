@@ -51,18 +51,31 @@ In addition, roles can restrict **unsafe I/O**:
 - **Auditability**:
   - Boundary denials/warnings emit local `PolicyViolation` events (no secret content is returned as part of the violation).
 
-### Threat Model (v1)
+### Threat Model (v2)
 
 **Primary risks (local-only, but high impact):**
 - **Accidental secret exfiltration to LLMs** via `ctx_read`, `ctx_search`, compressed `ctx_shell`, archives, or exported artifacts.
 - **Boundary escapes** via absolute paths, symlinks, linked projects, or artifact path tricks.
 - **Amplification / token burn** by scanning large files or returning unbounded outputs.
+- **ReDoS** via user-supplied regex patterns in `ctx_search`.
+- **Cross-workspace data access** in team server deployments (IDOR).
 
 **Core mitigations:**
 - **PathJail** + explicit allow roots (`LEAN_CTX_ALLOW_PATH` / `allow_paths`).
 - **Role-gated unsafe I/O** (`ignore_gitignore`, secret-like allow).
+- **Secret path check on all MCP read paths** — `.env`, SSH keys, etc. blocked by default.
+- **Shell CWD jail enforcement** — explicit `cwd` parameters are jail-checked, `cd` targets validated.
 - **Deterministic redaction** on tool outputs (non-admin roles, and for persisted archives).
 - **Hard caps** on reads and outputs to limit DoS/token burn.
+- **Regex guards** — pattern length (1024 chars) and DFA size (1 MiB) limits on `ctx_search`.
+- **MCP message size limit** — 32 MiB cap on JSON-RPC message size.
+- **Constant-time token comparison** in all auth paths (dashboard, HTTP server, team server).
+- **Team server tenant isolation** — workspace enforced from authenticated token, not query parameters.
+- **JSON-RPC batch rejection** — batch requests rejected on team server to prevent scope bypass.
+- **Event payload redaction** — REST API responses redacted to `Summary` level by default.
+- **Pipeline archive redaction** — shell output archives redacted before storage.
+- **UDS socket permissions** — `0o600` enforced on Unix domain sockets after bind.
+- **Error response sanitization** — internal details logged server-side, generic codes returned to clients.
 
 **Optional network activity (fully disableable):**
 - **Update check**: a lightweight daily GET to `leanctx.com/version.txt` to notify you of new versions. Sends only the current version as User-Agent. Disable with `update_check_disabled = true` in `~/.lean-ctx/config.toml` or `LEAN_CTX_NO_UPDATE_CHECK=1`.
@@ -183,6 +196,87 @@ Critical vulnerabilities (RCE, data exfiltration) are fast-tracked.
 
 ---
 
+## Known Residual Risks
+
+### TOCTOU (Time-of-Check to Time-of-Use)
+
+**Status:** Accepted residual risk.
+
+A race condition exists between `jail_path` validation and the subsequent file read. The filesystem could change between the check and the operation (e.g., a symlink replaced after validation). Complete mitigation would require `openat`/`O_NOFOLLOW` at the syscall level, which is impractical across all supported platforms.
+
+**Recommendation for regulated environments:** Run lean-ctx inside a container or VM where the filesystem is controlled and no untrusted processes can modify symlinks concurrently.
+
+### ctx_execute Sandbox Naming
+
+**Status:** Documented limitation.
+
+The `ctx_execute` tool provides **timeout enforcement** and **output capping** but does **not** provide OS-level sandboxing (no containers, namespaces, or seccomp filters). The term "sandbox" in tool descriptions refers to the execution boundary, not kernel-level isolation.
+
+**Recommendation for regulated environments:** Disable `ctx_execute` via role configuration (`denied: ["ctx_execute"]`) or run lean-ctx in a pre-existing container sandbox.
+
+### HuggingFace Model Downloads
+
+**Status:** Documented risk.
+
+Embedding models for semantic search are downloaded from HuggingFace Hub. Verification is size-based heuristic only, not cryptographic (no SHA256 pinning for model files).
+
+**Recommendation for regulated environments:** Pre-provision models manually from an internal mirror with signature verification. Set `LEAN_CTX_EMBEDDING_MODEL_DIR` to point to the pre-provisioned directory to skip downloads entirely.
+
+---
+
+## Security Architecture for Enterprise Deployments
+
+### Recommended Configuration (Bank / Regulated)
+
+```toml
+# ~/.lean-ctx/config.toml
+
+# Disable all outbound network
+update_check_disabled = true
+contribute_enabled = false
+
+# Enforce strict I/O boundary
+[io]
+boundary_mode = "enforce"
+allow_secret_paths = false
+
+# Use restrictive role
+[roles.bank]
+denied = ["ctx_execute"]
+io.boundary_mode = "enforce"
+io.allow_secret_paths = false
+io.allow_ignore_gitignore = false
+```
+
+### Network Surface
+
+| Endpoint | Purpose | Disable |
+|----------|---------|---------|
+| `leanctx.com/version.txt` | Update check (daily GET) | `update_check_disabled = true` |
+| `api.leanctx.com` | Opt-in anonymous stats | `contribute_enabled = false` (default) |
+| `huggingface.co` | Embedding model download | Pre-provision models, set `LEAN_CTX_EMBEDDING_MODEL_DIR` |
+| `localhost:PORT` | Dashboard (local TCP) | Don't start dashboard, or bind to loopback only |
+| UDS socket | Daemon IPC | Permissions `0o600`, owner-only access |
+
+### Team Server Hardening
+
+When running the team server (`lean-ctx team-server`):
+
+1. **Token rotation**: Rotate workspace tokens periodically. Tokens are stored in the team config.
+2. **Scope minimization**: Grant only necessary scopes per workspace token (e.g., `read` only, no `shell`).
+3. **Network isolation**: Bind the team server to an internal network interface, not `0.0.0.0`.
+4. **Audit log monitoring**: Team server writes audit logs for all tool calls. Monitor for denied requests.
+5. **JSON-RPC batch requests**: Rejected by default to prevent scope bypass.
+
+### Supply Chain
+
+- **`cargo audit`** runs on every CI push (zero known CVEs tolerated).
+- **`cargo deny`** checks licenses and advisories.
+- **npm `postinstall.js`** verifies SHA256 of downloaded binaries against `SHA256SUMS` release asset.
+- **GitHub Actions** uses pinned action versions with hash verification.
+
+---
+
 ## Contact
 
 - **Security issues**: yves@pounce.ch
@@ -191,4 +285,4 @@ Critical vulnerabilities (RCE, data exfiltration) are fast-tracked.
 
 ---
 
-**Last updated**: 2026-04-27
+**Last updated**: 2026-05-08

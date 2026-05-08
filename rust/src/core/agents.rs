@@ -173,21 +173,43 @@ impl AgentRegistry {
         category: &str,
         message: &str,
     ) -> String {
+        self.post_message_full(
+            from_agent,
+            to_agent,
+            category,
+            message,
+            PrivacyLevel::default(),
+            MessagePriority::default(),
+            None,
+        )
+    }
+
+    pub fn post_message_full(
+        &mut self,
+        from_agent: &str,
+        to_agent: Option<&str>,
+        category: &str,
+        message: &str,
+        privacy: PrivacyLevel,
+        priority: MessagePriority,
+        ttl_hours: Option<u64>,
+    ) -> String {
         let id = generate_short_id();
+        let expires_at = ttl_hours.map(|h| Utc::now() + chrono::Duration::hours(h as i64));
         self.scratchpad.push(ScratchpadEntry {
             id: id.clone(),
             from_agent: from_agent.to_string(),
             to_agent: to_agent.map(std::string::ToString::to_string),
             task_id: None,
             category: category.to_string(),
-            priority: MessagePriority::default(),
-            privacy: PrivacyLevel::default(),
+            priority,
+            privacy,
             message: message.to_string(),
             metadata: HashMap::new(),
             project_root: None,
             timestamp: Utc::now(),
             read_by: vec![from_agent.to_string()],
-            expires_at: None,
+            expires_at,
         });
 
         if self.scratchpad.len() > MAX_SCRATCHPAD_ENTRIES {

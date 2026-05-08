@@ -114,7 +114,38 @@ Alle neuen Felder sind `#[serde(default)]` für backward compatibility.
 - **Evidence ledger key**: `proof:a2a-snapshot-v1`
 - **Redaction**: Exports sind standardmäßig redacted.
 
+## Selektives Routing (Phase 1)
+
+- **TopicFilter**: Agents können Events nach `kinds`, `actors`, `min_consistency`, und `agent_id` filtern.
+- **Directed Events**: Events mit `target_agents` sind nur für gelistete Agents sichtbar.
+- **Filtered Subscriptions**: `subscribe_filtered()` liefert nur passende Events (spart Tokens).
+- **Runtime**: `rust/src/core/context_os/context_bus.rs` (`TopicFilter`, `FilteredSubscription`)
+- **Poll-Endpoint**: `ctx_agent(action=poll_events)` — cursor-basiertes Polling mit Filtern.
+
+## Transport Layer (Phase 2)
+
+- **TransportEnvelopeV1**: Versioniertes, signiertes Wrapper-Format für Cross-Machine Transport.
+  - HMAC-SHA256 Signatur für Integrität
+  - `AgentIdentityV1` mit daemon_fingerprint
+  - Content Types: `handoff_bundle`, `context_package`, `a2a_message`, `a2a_task`
+- **Runtime**: `rust/src/core/a2a_transport.rs`
+- **CLI**: `lean-ctx pack send/receive` für file- und HTTP-basiertes Senden/Empfangen.
+- **HTTP Endpoints**:
+  - `POST /v1/a2a/handoff` — Empfängt TransportEnvelope
+  - `GET /v1/a2a/agent-card` — Agent Card für Discovery
+  - `GET /.well-known/agent.json` — Standard-Pfad (A2A v1.0)
+  - `POST /a2a` — JSON-RPC 2.0 Endpoint
+
+## Google A2A Kompatibilität (Phase 3)
+
+- **Agent Card v1.0**: Publiziert unter `/.well-known/agent.json` mit `provider`, `documentationUrl`, `skills` mit `inputModes/outputModes`.
+- **JSON-RPC 2.0**: `tasks/send`, `tasks/get`, `tasks/cancel` gemapped auf interne TaskStore.
+- **Runtime**: `rust/src/core/a2a/a2a_compat.rs`
+
 ## Security & Privacy
 
 - Redaction‑Pipeline gilt für alle Exports/Proof‑Artefakte.
 - A2A Snapshot ist bounded (agents/messages/tasks/diary capped) und project-scoped.
+- TransportEnvelope unterstützt HMAC-SHA256 Signatur für Integrität.
+- Private Messages erfordern `to_agent` (keine private broadcasts).
+- Directed Events sind nur für gelistete Agents sichtbar.

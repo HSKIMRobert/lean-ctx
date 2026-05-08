@@ -67,12 +67,21 @@ pub fn handle(
             let Some(msg) = message else { return "Error: message is required for post".to_string() };
             let cat = category.unwrap_or("status");
             let from = current_agent_id.unwrap_or("anonymous");
-            let _privacy = privacy
-                .map_or(PrivacyLevel::Team, PrivacyLevel::parse_str);
-            let _priority = priority
-                .map_or(MessagePriority::Normal, MessagePriority::parse_str);
+            let msg_privacy = privacy.map_or(PrivacyLevel::Team, PrivacyLevel::parse_str);
+            let msg_priority = priority.map_or(MessagePriority::Normal, MessagePriority::parse_str);
+            if msg_privacy == PrivacyLevel::Private && to_agent.is_none() {
+                return "Error: private messages require to_agent".to_string();
+            }
             let mut registry = AgentRegistry::load_or_create();
-            let msg_id = registry.post_message(from, to_agent, cat, msg);
+            let msg_id = registry.post_message_full(
+                from,
+                to_agent,
+                cat,
+                msg,
+                msg_privacy,
+                msg_priority,
+                _ttl_hours,
+            );
             match registry.save() {
                 Ok(()) => {
                     let target = to_agent.unwrap_or("all agents (broadcast)");
@@ -582,6 +591,50 @@ pub fn handle(
             out
         }
 
-        _ => format!("Unknown action: {action}. Use: register, list, post, read, status, info, handoff, sync, diary, recall_diary, diaries, share_knowledge, receive_knowledge"),
+        "poll_events" => {
+            let Some(agent_id) = current_agent_id else {
+                return "Error: agent must be registered first".to_string();
+            };
+            let workspace_id = to_agent.unwrap_or(project_root);
+            let channel_id = category.unwrap_or("default");
+            let since_id: i64 = message.and_then(|s| s.parse().ok()).unwrap_or(0);
+            let limit: usize = _ttl_hours.unwrap_or(50) as usize;
+
+            let rt = crate::core::context_os::runtime();
+            let events = rt.bus.read(workspace_id, channel_id, since_id, limit);
+
+            let filter = crate::core::context_os::TopicFilter {
+                agent_id: Some(agent_id.to_string()),
+                kinds: privacy.and_then(|s| {
+                    let kinds: Vec<_> = s
+                        .split(',')
+                        .map(|k| crate::core::context_os::ContextEventKindV1::parse(k.trim()))
+                        .collect();
+                    if kinds.is_empty() { None } else { Some(kinds) }
+                }),
+                ..Default::default()
+            };
+
+            let filtered: Vec<_> = events.into_iter().filter(|e| filter.matches(e)).collect();
+            if filtered.is_empty() {
+                return format!("No new events since id={since_id} for {agent_id}.");
+            }
+
+            let mut out = format!("Events ({}, since={since_id}):\n", filtered.len());
+            for ev in &filtered {
+                let actor = ev.actor.as_deref().unwrap_or("-");
+                out.push_str(&format!(
+                    "  #{} [{}] actor={} cl={} ({})\n",
+                    ev.id, ev.kind, actor, ev.consistency_level,
+                    ev.timestamp.format("%H:%M:%S")
+                ));
+            }
+            if let Some(last) = filtered.last() {
+                out.push_str(&format!("cursor={}", last.id));
+            }
+            out
+        }
+
+        _ => format!("Unknown action: {action}. Use: register, list, post, read, status, info, handoff, sync, poll_events, diary, recall_diary, diaries, share_knowledge, receive_knowledge"),
     }
 }

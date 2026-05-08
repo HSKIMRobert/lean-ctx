@@ -1,7 +1,20 @@
-use super::super::{resolve_binary_path, write_file};
+use std::path::PathBuf;
+
+use super::super::{mcp_server_quiet_mode, resolve_binary_path, write_file};
 use super::shared::prepare_project_rules_path;
 
 pub(crate) fn install_cline_rules(global: bool) {
+    if global {
+        let vscode_mcp = crate::core::editor_registry::vscode_mcp_path();
+        if vscode_mcp.as_os_str() != "/nonexistent" {
+            install_vscode_mcp_for_cline(&vscode_mcp);
+        }
+    } else {
+        let vscode_dir = PathBuf::from(".vscode");
+        let _ = std::fs::create_dir_all(&vscode_dir);
+        install_vscode_mcp_for_cline(&vscode_dir.join("mcp.json"));
+    }
+
     let Some(rules_path) = prepare_project_rules_path(global, ".clinerules") else {
         return;
     };
@@ -21,5 +34,28 @@ Supported commands: git, cargo, npm, pnpm, docker, kubectl, pip, ruff, go, curl,
     );
 
     write_file(&rules_path, &rules);
-    eprintln!("Installed .clinerules in current project.");
+    if !mcp_server_quiet_mode() {
+        eprintln!("Installed .clinerules in current project.");
+    }
+}
+
+fn install_vscode_mcp_for_cline(mcp_path: &std::path::Path) {
+    let binary = resolve_binary_path();
+    let data_dir = crate::core::data_dir::lean_ctx_data_dir()
+        .map(|d| d.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let entry = serde_json::json!({
+        "type": "stdio",
+        "command": binary,
+        "args": [],
+        "env": { "LEAN_CTX_DATA_DIR": data_dir }
+    });
+
+    crate::hooks::install_named_json_server(
+        "Cline/Roo",
+        &mcp_path.display().to_string(),
+        mcp_path,
+        "servers",
+        entry,
+    );
 }

@@ -242,8 +242,8 @@ fn hex_lower(bytes: &[u8]) -> String {
 }
 
 fn post_update_rewire() {
-    restart_daemon_if_running();
-
+    // run_setup_with_options now handles daemon restart internally,
+    // so no separate restart_daemon_if_running() call needed.
     let opts = crate::setup::SetupOptions {
         non_interactive: true,
         yes: true,
@@ -257,6 +257,9 @@ fn post_update_rewire() {
     restart_proxy_if_running();
 }
 
+// Daemon lifecycle is now centralized in setup::run_setup_with_options.
+// Kept as a standalone utility for cases outside the full setup flow.
+#[allow(dead_code)]
 fn restart_daemon_if_running() {
     #[cfg(unix)]
     {

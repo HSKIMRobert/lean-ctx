@@ -6,6 +6,7 @@ const fs = require("fs");
 const path = require("path");
 const https = require("https");
 const { createGunzip } = require("zlib");
+const crypto = require("crypto");
 
 const REPO = "yvgude/lean-ctx";
 const BIN_DIR = path.join(__dirname, "bin");
@@ -161,6 +162,27 @@ async function main() {
 
   try {
     await downloadToFile(asset.browser_download_url, archivePath);
+
+    const sumsAsset = (release.assets || []).find((a) => a.name === "SHA256SUMS");
+    if (sumsAsset) {
+      const sumsText = await new Promise((resolve, reject) => {
+        httpsGet(sumsAsset.browser_download_url).then((res) => {
+          let data = "";
+          res.on("data", (c) => (data += c));
+          res.on("end", () => resolve(data));
+        }).catch(reject);
+      });
+      const expectedLine = sumsText.split("\n").find((l) => l.includes(assetName));
+      if (expectedLine) {
+        const expectedHash = expectedLine.trim().split(/\s+/)[0].toLowerCase();
+        const fileHash = crypto.createHash("sha256").update(fs.readFileSync(archivePath)).digest("hex");
+        if (fileHash !== expectedHash) {
+          throw new Error(`SHA256 mismatch: expected ${expectedHash}, got ${fileHash}. Binary may be compromised.`);
+        }
+        console.log("lean-ctx: SHA256 verified");
+      }
+    }
+
     console.log("lean-ctx: downloaded, extracting...");
 
     fs.mkdirSync(BIN_DIR, { recursive: true });

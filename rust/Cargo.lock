@@ -1742,7 +1742,7 @@ checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 
 [[package]]
 name = "lean-ctx"
-version = "3.5.5"
+version = "3.5.6"
 dependencies = [
  "anyhow",
  "axum",
@@ -1757,6 +1757,7 @@ dependencies = [
  "getrandom 0.3.4",
  "glob",
  "hex",
+ "hmac 0.12.1",
  "ignore",
  "jsonwebtoken",
  "lettre",

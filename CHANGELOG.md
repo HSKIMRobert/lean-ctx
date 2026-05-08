@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.5.6] — 2026-05-08
+
+### Fixed
+
+- **Daemon auto-restart on setup and update** — `lean-ctx setup` and `lean-ctx update` now automatically stop and restart the daemon with the current binary. Previously, a running daemon would be left untouched, causing stale-binary mismatches after updates. Both interactive and non-interactive (`--yes`) flows are covered.
+- **Proactive stale daemon cleanup** — `is_daemon_running()` now removes orphaned PID and socket files when the referenced process is dead. This prevents connection attempts to stale Unix Domain Sockets after crashes or reboots.
+- **UDS connection timeouts** — All daemon socket connections now have a 3-second connect timeout and 10-second I/O timeout. Previously, connections to a stale or unresponsive socket could block indefinitely, cascading into system-wide hangs.
+- **Daemon readiness wait reduced** — The CLI auto-start readiness loop was reduced from 12 seconds to 3 seconds, keeping CLI commands responsive even when the daemon is slow to start.
+
+### Improved
+
+- **Website navigation completeness** — Added `/docs/concepts/multi-agent` to the Docs mega dropdown. Mobile navigation now includes all Context OS pages (Integrations, Shared Sessions, Context Bus, SDK) that were previously desktop-only.
+- **Daemon documentation updated** — Integrations pillar and Context OS overview pages now document auto-restart on update, stale-file cleanup, and connection timeouts across all 11 languages.
+
 ## [3.5.5] — 2026-05-08
 
 ### Fixed

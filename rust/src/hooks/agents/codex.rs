@@ -278,7 +278,7 @@ command = \"lean-ctx\"
             "lean-ctx block must be appended"
         );
         assert!(
-            result.contains("@LEAN-CTX.md"),
+            result.contains("LEAN-CTX.md (same directory)"),
             "lean-ctx reference must be present"
         );
 
@@ -307,7 +307,7 @@ command = \"lean-ctx\"
             "user content after block preserved"
         );
         assert!(
-            result.contains("@LEAN-CTX.md"),
+            result.contains("LEAN-CTX.md (same directory)"),
             "block updated to current reference"
         );
         assert!(

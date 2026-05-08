@@ -500,6 +500,7 @@ mod redaction {
             version: 1,
             parent_id: None,
             consistency_level: "local".to_string(),
+            target_agents: None,
             payload: serde_json::json!({
                 "tool": tool,
                 "content": content,

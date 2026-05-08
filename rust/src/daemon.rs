@@ -27,7 +27,14 @@ pub fn is_daemon_running() -> bool {
     let Ok(pid) = contents.trim().parse::<u32>() else {
         return false;
     };
-    process_alive(pid)
+    if process_alive(pid) {
+        return true;
+    }
+    // PID is stale — proactively clean up so nothing tries to connect
+    // to the dead socket or re-reads the stale PID.
+    let _ = fs::remove_file(&pid_path);
+    cleanup_stale_socket();
+    false
 }
 
 pub fn read_daemon_pid() -> Option<u32> {

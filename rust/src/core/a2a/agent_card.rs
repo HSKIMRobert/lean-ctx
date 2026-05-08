@@ -148,6 +148,64 @@ fn build_skills() -> Vec<AgentSkill> {
     ]
 }
 
+/// Build an agent card from the current runtime state for HTTP endpoints.
+pub fn build_agent_card(project_root: &str) -> serde_json::Value {
+    let version = env!("CARGO_PKG_VERSION");
+    let card = generate_agent_card(&default_tool_list(), version, None);
+
+    serde_json::json!({
+        "name": card.name,
+        "description": card.description,
+        "url": card.url,
+        "version": card.version,
+        "protocolVersion": card.protocol_version,
+        "provider": {
+            "organization": "LeanCTX",
+            "url": "https://leanctx.com"
+        },
+        "documentationUrl": "https://leanctx.com/docs",
+        "capabilities": {
+            "streaming": card.capabilities.streaming,
+            "pushNotifications": card.capabilities.push_notifications,
+            "stateTransitionHistory": card.capabilities.state_transition_history,
+            "tools": card.capabilities.tools,
+        },
+        "skills": card.skills.iter().map(|s| serde_json::json!({
+            "id": s.id,
+            "name": s.name,
+            "description": s.description,
+            "tags": s.tags,
+            "examples": s.examples,
+            "inputModes": ["text/plain", "application/json"],
+            "outputModes": ["text/plain", "application/json"],
+        })).collect::<Vec<_>>(),
+        "authentication": {
+            "schemes": card.authentication.schemes,
+        },
+        "defaultInputModes": card.default_input_modes,
+        "defaultOutputModes": card.default_output_modes,
+        "supportsAuthenticatedExtendedCard": false,
+        "projectRoot": project_root,
+    })
+}
+
+fn default_tool_list() -> Vec<String> {
+    vec![
+        "ctx_read",
+        "ctx_shell",
+        "ctx_search",
+        "ctx_tree",
+        "ctx_session",
+        "ctx_knowledge",
+        "ctx_agent",
+        "ctx_handoff",
+        "ctx_pack",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect()
+}
+
 pub fn save_agent_card(card: &AgentCard) -> std::io::Result<()> {
     let dir = crate::core::data_dir::lean_ctx_data_dir()
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::NotFound, format!("data dir: {e}")))?;

@@ -97,6 +97,7 @@ mod tests {
             version: 1,
             parent_id: None,
             consistency_level: "local".to_string(),
+            target_agents: None,
             payload: json!({
                 "tool": "ctx_read",
                 "kind": "tool_call_recorded",

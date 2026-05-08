@@ -85,7 +85,12 @@ pub fn run_setup() {
     #[cfg(unix)]
     {
         if crate::daemon::is_daemon_running() {
-            terminal_ui::print_status_ok("Daemon already running");
+            terminal_ui::print_status_ok("Daemon running — restarting with current binary…");
+            let _ = crate::daemon::stop_daemon();
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            if let Err(e) = crate::daemon::start_daemon(&[]) {
+                terminal_ui::print_status_warn(&format!("Daemon restart failed: {e}"));
+            }
         } else if let Err(e) = crate::daemon::start_daemon(&[]) {
             terminal_ui::print_status_warn(&format!("Daemon start failed: {e}"));
         }
@@ -477,47 +482,40 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
     };
     #[cfg(unix)]
     {
-        if crate::daemon::is_daemon_running() {
-            daemon_step.items.push(SetupItem {
-                name: "serve --daemon".to_string(),
-                status: "already".to_string(),
-                path: Some(
-                    crate::daemon::daemon_socket_path()
-                        .to_string_lossy()
-                        .to_string(),
-                ),
-                note: Some("daemon already running".to_string()),
-            });
-        } else {
-            match crate::daemon::start_daemon(&[]) {
-                Ok(()) => {
-                    daemon_step.items.push(SetupItem {
-                        name: "serve --daemon".to_string(),
-                        status: "started".to_string(),
-                        path: Some(
-                            crate::daemon::daemon_socket_path()
-                                .to_string_lossy()
-                                .to_string(),
-                        ),
-                        note: Some("CLI commands can route via UDS when running".to_string()),
-                    });
-                }
-                Err(e) => {
-                    daemon_step.ok = false;
-                    daemon_step
-                        .warnings
-                        .push(format!("daemon start failed: {e}"));
-                    daemon_step.items.push(SetupItem {
-                        name: "serve --daemon".to_string(),
-                        status: "error".to_string(),
-                        path: Some(
-                            crate::daemon::daemon_socket_path()
-                                .to_string_lossy()
-                                .to_string(),
-                        ),
-                        note: Some(e.to_string()),
-                    });
-                }
+        let was_running = crate::daemon::is_daemon_running();
+        if was_running {
+            let _ = crate::daemon::stop_daemon();
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        match crate::daemon::start_daemon(&[]) {
+            Ok(()) => {
+                let action = if was_running { "restarted" } else { "started" };
+                daemon_step.items.push(SetupItem {
+                    name: "serve --daemon".to_string(),
+                    status: action.to_string(),
+                    path: Some(
+                        crate::daemon::daemon_socket_path()
+                            .to_string_lossy()
+                            .to_string(),
+                    ),
+                    note: Some("CLI commands can route via UDS when running".to_string()),
+                });
+            }
+            Err(e) => {
+                daemon_step.ok = false;
+                daemon_step
+                    .warnings
+                    .push(format!("daemon start failed: {e}"));
+                daemon_step.items.push(SetupItem {
+                    name: "serve --daemon".to_string(),
+                    status: "error".to_string(),
+                    path: Some(
+                        crate::daemon::daemon_socket_path()
+                            .to_string_lossy()
+                            .to_string(),
+                    ),
+                    note: Some(e.to_string()),
+                });
             }
         }
     }

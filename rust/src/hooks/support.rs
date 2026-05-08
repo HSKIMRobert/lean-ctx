@@ -1,6 +1,6 @@
 use std::path::Path;
 
-pub(super) fn install_named_json_server(
+pub(crate) fn install_named_json_server(
     name: &str,
     display_path: &str,
     config_path: &std::path::Path,
@@ -90,7 +90,7 @@ pub(super) fn install_codex_instruction_docs(codex_dir: &Path) -> bool {
     let lean_ctx_content = codex_instruction_doc_content();
 
     let block = format!(
-        "{CODEX_AGENTS_BLOCK_START}\n## lean-ctx\n\n@LEAN-CTX.md\n{CODEX_AGENTS_BLOCK_END}\n"
+        "{CODEX_AGENTS_BLOCK_START}\n## lean-ctx\n\nPrefer lean-ctx MCP tools over native equivalents for token savings.\nFull rules: LEAN-CTX.md (same directory)\n{CODEX_AGENTS_BLOCK_END}\n"
     );
 
     let mut changed = false;

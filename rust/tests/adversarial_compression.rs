@@ -151,24 +151,21 @@ fn adversarial_grep_preserves_context() {
     let output = grep_lines.join("\n");
 
     let result = compress_output("grep -rn 'get_user'", &output);
-    match result {
-        Some(ref compressed) => {
-            assert!(
-                compressed.contains("get_user"),
-                "grep compressed output must preserve key content: {compressed}"
-            );
-            assert!(
-                compressed.contains("auth.rs"),
-                "grep compressed output must preserve file reference: {compressed}"
-            );
-            assert!(
-                compressed.len() <= output.len(),
-                "grep compression must not inflate: {} vs {}",
-                compressed.len(),
-                output.len()
-            );
-        }
-        None => {} // no compression possible for small output — original preserved by caller
+    if let Some(ref compressed) = result {
+        assert!(
+            compressed.contains("get_user"),
+            "grep compressed output must preserve key content: {compressed}"
+        );
+        assert!(
+            compressed.contains("auth.rs"),
+            "grep compressed output must preserve file reference: {compressed}"
+        );
+        assert!(
+            compressed.len() <= output.len(),
+            "grep compression must not inflate: {} vs {}",
+            compressed.len(),
+            output.len()
+        );
     }
 }
 

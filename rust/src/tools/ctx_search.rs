@@ -3,7 +3,7 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use ignore::WalkBuilder;
-use regex::Regex;
+use regex::RegexBuilder;
 
 use crate::core::protocol;
 use crate::core::symbol_map::{self, SymbolMap};
@@ -23,8 +23,24 @@ pub fn handle(
     respect_gitignore: bool,
     allow_secret_paths: bool,
 ) -> (String, usize) {
+    const MAX_PATTERN_LEN: usize = 1024;
+    const MAX_REGEX_SIZE: usize = 1 << 20; // 1 MiB DFA limit
+
     let redact = crate::core::redaction::redaction_enabled_for_active_role();
-    let re = match Regex::new(pattern) {
+    if pattern.len() > MAX_PATTERN_LEN {
+        return (
+            format!(
+                "ERROR: pattern too long ({} > {MAX_PATTERN_LEN} chars)",
+                pattern.len()
+            ),
+            0,
+        );
+    }
+    let re = match RegexBuilder::new(pattern)
+        .size_limit(MAX_REGEX_SIZE)
+        .dfa_size_limit(MAX_REGEX_SIZE)
+        .build()
+    {
         Ok(r) => r,
         Err(e) => return (format!("ERROR: invalid regex: {e}"), 0),
     };

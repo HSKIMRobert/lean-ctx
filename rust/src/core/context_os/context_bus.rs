@@ -65,15 +65,16 @@ impl ContextEventKindV1 {
 }
 
 /// Consistency requirement for shared context events.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// Ordered from least to most strict for filtering comparisons.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ConsistencyLevel {
     /// Agent-local, authoritative: session task, local cache, current file set.
-    Local,
+    Local = 0,
     /// Shared, eventually consistent: knowledge facts, gotchas, artifact refs.
-    Eventual,
+    Eventual = 1,
     /// Shared, strongly consistent: workspace config, critical decisions.
-    Strong,
+    Strong = 2,
 }
 
 impl ConsistencyLevel {
@@ -100,11 +101,58 @@ pub struct ContextEventV1 {
     pub parent_id: Option<i64>,
     pub consistency_level: String,
     pub payload: Value,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub target_agents: Option<Vec<String>>,
 }
 
 impl ContextEventV1 {
     pub fn consistency(&self) -> ConsistencyLevel {
         ContextEventKindV1::parse(&self.kind).consistency_level()
+    }
+
+    pub fn is_visible_to_agent(&self, agent_id: &str) -> bool {
+        match &self.target_agents {
+            None => true,
+            Some(targets) => targets.iter().any(|t| t == agent_id),
+        }
+    }
+}
+
+/// Filter for selective event subscriptions.
+/// All fields are optional; `None` means "accept all".
+#[derive(Debug, Clone, Default)]
+pub struct TopicFilter {
+    pub kinds: Option<Vec<ContextEventKindV1>>,
+    pub actors: Option<Vec<String>>,
+    pub min_consistency: Option<ConsistencyLevel>,
+    pub agent_id: Option<String>,
+}
+
+impl TopicFilter {
+    pub fn matches(&self, event: &ContextEventV1) -> bool {
+        if let Some(ref kinds) = self.kinds {
+            let parsed = ContextEventKindV1::parse(&event.kind);
+            if !kinds.contains(&parsed) {
+                return false;
+            }
+        }
+        if let Some(ref actors) = self.actors {
+            match &event.actor {
+                Some(actor) if actors.iter().any(|a| a == actor) => {}
+                Some(_) | None => return false,
+            }
+        }
+        if let Some(min) = self.min_consistency {
+            if event.consistency() < min {
+                return false;
+            }
+        }
+        if let Some(ref aid) = self.agent_id {
+            if !event.is_visible_to_agent(aid) {
+                return false;
+            }
+        }
+        true
     }
 }
 
@@ -130,6 +178,7 @@ fn event_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ContextEventV1> {
         parent_id: row.get::<_, Option<i64>>(8).ok().flatten(),
         consistency_level: cl,
         payload,
+        target_agents: None,
     })
 }
 
@@ -288,6 +337,18 @@ impl ContextBus {
         tx.subscribe()
     }
 
+    /// Subscribe with a filter — only events matching the filter are delivered.
+    /// Returns `(Receiver, TopicFilter)` for use in filtered receive loops.
+    pub fn subscribe_filtered(
+        &self,
+        workspace_id: &str,
+        channel_id: &str,
+        filter: TopicFilter,
+    ) -> FilteredSubscription {
+        let rx = self.subscribe(workspace_id, channel_id);
+        FilteredSubscription { rx, filter }
+    }
+
     pub fn append(
         &self,
         workspace_id: &str,
@@ -307,6 +368,53 @@ impl ContextBus {
         actor: Option<&str>,
         payload: Value,
         parent_id: Option<i64>,
+    ) -> Option<ContextEventV1> {
+        let ev = self.insert_event(
+            workspace_id,
+            channel_id,
+            kind,
+            actor,
+            payload,
+            parent_id,
+            None,
+        )?;
+        self.broadcast_event(&ev);
+        Some(ev)
+    }
+
+    /// Append an event directed at specific agents only.
+    /// Only subscribers whose `TopicFilter.agent_id` matches a target will see it.
+    pub fn append_directed(
+        &self,
+        workspace_id: &str,
+        channel_id: &str,
+        kind: &ContextEventKindV1,
+        actor: Option<&str>,
+        payload: Value,
+        target_agents: Vec<String>,
+    ) -> Option<ContextEventV1> {
+        let ev = self.insert_event(
+            workspace_id,
+            channel_id,
+            kind,
+            actor,
+            payload,
+            None,
+            Some(target_agents),
+        )?;
+        self.broadcast_event(&ev);
+        Some(ev)
+    }
+
+    fn insert_event(
+        &self,
+        workspace_id: &str,
+        channel_id: &str,
+        kind: &ContextEventKindV1,
+        actor: Option<&str>,
+        payload: Value,
+        parent_id: Option<i64>,
+        target_agents: Option<Vec<String>>,
     ) -> Option<ContextEventV1> {
         let ts = Utc::now();
         let payload_json = payload.to_string();
@@ -355,7 +463,7 @@ impl ContextBus {
             }
         };
 
-        let ev = ContextEventV1 {
+        Some(ContextEventV1 {
             id,
             workspace_id: workspace_id.to_string(),
             channel_id: channel_id.to_string(),
@@ -366,8 +474,12 @@ impl ContextBus {
             version,
             parent_id,
             payload,
-        };
-        let key = Inner::stream_key(workspace_id, channel_id);
+            target_agents,
+        })
+    }
+
+    fn broadcast_event(&self, ev: &ContextEventV1) {
+        let key = Inner::stream_key(&ev.workspace_id, &ev.channel_id);
         let tx = self
             .inner
             .streams
@@ -378,7 +490,6 @@ impl ContextBus {
         if let Some(tx) = tx {
             let _ = tx.send(ev.clone());
         }
-        Some(ev)
     }
 
     pub fn read(
@@ -489,7 +600,13 @@ impl ContextBus {
     }
 
     /// Trace the causal lineage of an event by following parent_id chains.
-    pub fn lineage(&self, event_id: i64, max_depth: usize) -> Vec<ContextEventV1> {
+    /// Only returns events belonging to the given workspace (tenant isolation).
+    pub fn lineage(
+        &self,
+        event_id: i64,
+        workspace_id: &str,
+        max_depth: usize,
+    ) -> Vec<ContextEventV1> {
         let max_depth = max_depth.clamp(1, 50);
         let conn = self.inner.take_read_conn();
         let mut chain = Vec::new();
@@ -501,8 +618,8 @@ impl ContextBus {
             };
             let ev = conn.query_row(
                 "SELECT id, workspace_id, channel_id, kind, actor, timestamp, payload_json, version, parent_id
-                 FROM context_events WHERE id = ?1",
-                params![id],
+                 FROM context_events WHERE id = ?1 AND workspace_id = ?2",
+                params![id, workspace_id],
                 event_from_row,
             );
             match ev {
@@ -529,6 +646,25 @@ impl ContextBus {
             .unwrap_or(0);
         self.inner.return_read_conn(conn);
         result
+    }
+}
+
+/// A subscription wrapper that applies a [`TopicFilter`] to received events.
+pub struct FilteredSubscription {
+    pub rx: broadcast::Receiver<ContextEventV1>,
+    pub filter: TopicFilter,
+}
+
+impl FilteredSubscription {
+    /// Receive the next event that matches the filter.
+    /// Skips non-matching events silently.
+    pub async fn recv_filtered(&mut self) -> Result<ContextEventV1, broadcast::error::RecvError> {
+        loop {
+            let ev = self.rx.recv().await?;
+            if self.filter.matches(&ev) {
+                return Ok(ev);
+            }
+        }
     }
 }
 

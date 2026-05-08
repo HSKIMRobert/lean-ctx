@@ -192,14 +192,13 @@ mod tests {
             .collect();
         let output = lines.join("\n");
         let result = compress(&output);
-        match result {
-            Some(ref c) => assert!(
+        if let Some(ref c) = result {
+            assert!(
                 c.len() < output.len(),
                 "if claimed, must be shorter: {} vs {}",
                 c.len(),
                 output.len()
-            ),
-            None => {} // correctly declined — overhead too large for 1-match-per-file
+            );
         }
     }
 

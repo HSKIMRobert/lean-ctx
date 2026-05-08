@@ -418,36 +418,57 @@ impl SessionState {
     }
 
     /// Returns the effective working directory for shell commands.
-    /// Priority: explicit cwd arg > session shell_cwd > project_root > process cwd
+    /// Priority: explicit cwd arg > session shell_cwd > project_root > process cwd.
+    /// Explicit CWD and stored shell_cwd are jail-checked against the project root
+    /// to prevent MCP clients from escaping the workspace.
     pub fn effective_cwd(&self, explicit_cwd: Option<&str>) -> String {
+        let root = self.project_root.as_deref().unwrap_or(".");
         if let Some(cwd) = explicit_cwd {
             if !cwd.is_empty() && cwd != "." {
-                return cwd.to_string();
+                return Self::jail_cwd(cwd, root);
             }
         }
         if let Some(ref cwd) = self.shell_cwd {
             return cwd.clone();
         }
-        if let Some(ref root) = self.project_root {
-            return root.clone();
+        if let Some(ref r) = self.project_root {
+            return r.clone();
         }
         std::env::current_dir()
             .map_or_else(|_| ".".to_string(), |p| p.to_string_lossy().to_string())
     }
 
+    /// Verifies that `candidate` is within the project jail.
+    /// Falls back to `fallback_root` if the candidate escapes.
+    fn jail_cwd(candidate: &str, fallback_root: &str) -> String {
+        let p = std::path::Path::new(candidate);
+        match crate::core::pathjail::jail_path(p, std::path::Path::new(fallback_root)) {
+            Ok(jailed) => jailed.to_string_lossy().to_string(),
+            Err(_) => fallback_root.to_string(),
+        }
+    }
+
     /// Updates shell_cwd by detecting `cd` in the command.
     /// Handles: `cd /abs/path`, `cd rel/path` (relative to current cwd),
     /// `cd ..`, and chained commands like `cd foo && ...`.
+    /// The new CWD is jail-checked against the project root.
     pub fn update_shell_cwd(&mut self, command: &str) {
         let base = self.effective_cwd(None);
         if let Some(new_cwd) = extract_cd_target(command, &base) {
             let path = std::path::Path::new(&new_cwd);
             if path.exists() && path.is_dir() {
-                self.shell_cwd = Some(
-                    crate::core::pathutil::safe_canonicalize_or_self(path)
-                        .to_string_lossy()
-                        .to_string(),
-                );
+                let canonical = crate::core::pathutil::safe_canonicalize_or_self(path)
+                    .to_string_lossy()
+                    .to_string();
+                let root = self.project_root.as_deref().unwrap_or(".");
+                if crate::core::pathjail::jail_path(
+                    std::path::Path::new(&canonical),
+                    std::path::Path::new(root),
+                )
+                .is_ok()
+                {
+                    self.shell_cwd = Some(canonical);
+                }
             }
         }
     }
@@ -1385,10 +1406,36 @@ mod tests {
 
     #[test]
     fn effective_cwd_explicit_takes_priority() {
+        let tmp = std::env::temp_dir().join("lean-ctx-test-cwd-explicit");
+        let sub = tmp.join("sub");
+        let _ = std::fs::create_dir_all(&sub);
+        let root_canon = crate::core::pathutil::safe_canonicalize_or_self(&tmp)
+            .to_string_lossy()
+            .to_string();
+        let sub_canon = crate::core::pathutil::safe_canonicalize_or_self(&sub)
+            .to_string_lossy()
+            .to_string();
+
         let mut session = SessionState::new();
-        session.project_root = Some("/project".to_string());
-        session.shell_cwd = Some("/project/src".to_string());
-        assert_eq!(session.effective_cwd(Some("/explicit")), "/explicit");
+        session.project_root = Some(root_canon);
+        let result = session.effective_cwd(Some(&sub_canon));
+        assert_eq!(result, sub_canon);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn effective_cwd_explicit_outside_root_is_jailed() {
+        let tmp = std::env::temp_dir().join("lean-ctx-test-cwd-jail");
+        let _ = std::fs::create_dir_all(&tmp);
+        let root_canon = crate::core::pathutil::safe_canonicalize_or_self(&tmp)
+            .to_string_lossy()
+            .to_string();
+
+        let mut session = SessionState::new();
+        session.project_root = Some(root_canon.clone());
+        let result = session.effective_cwd(Some("/nonexistent-outside-path"));
+        assert_eq!(result, root_canon);
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]

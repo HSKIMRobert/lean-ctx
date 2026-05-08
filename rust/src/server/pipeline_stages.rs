@@ -454,7 +454,10 @@ impl LeanCtxServer {
             let tokens = crate::core::tokens::count_tokens(result_text);
             let tail_lines: Vec<&str> = result_text.lines().rev().take(10).collect();
             let tail: String = tail_lines.into_iter().rev().collect::<Vec<_>>().join("\n");
-            if let Some(id) = archive::store("ctx_shell", &cmd, result_text, Some(&session_id)) {
+            let redacted_for_archive = crate::core::redaction::redact_text_if_enabled(result_text);
+            if let Some(id) =
+                archive::store("ctx_shell", &cmd, &redacted_for_archive, Some(&session_id))
+            {
                 let hint = archive::format_hint(&id, output_bytes, tokens);
                 *result_text =
                     format!("[sandbox] Output archived ({output_bytes} bytes, {tokens} tok).\n{hint}\n\nTail:\n{tail}");

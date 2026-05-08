@@ -7,6 +7,12 @@ use crate::daemon;
 /// Send an HTTP request to the daemon over the Unix Domain Socket.
 /// Returns the response body as a string.
 pub async fn daemon_request(method: &str, path: &str, body: &str) -> Result<String> {
+    use std::time::Duration;
+    use tokio::time::timeout;
+
+    const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
+    const IO_TIMEOUT: Duration = Duration::from_secs(10);
+
     let socket_path = daemon::daemon_socket_path();
     if !socket_path.exists() {
         anyhow::bail!(
@@ -15,20 +21,26 @@ pub async fn daemon_request(method: &str, path: &str, body: &str) -> Result<Stri
         );
     }
 
-    let mut stream = UnixStream::connect(&socket_path)
+    let mut stream = timeout(CONNECT_TIMEOUT, UnixStream::connect(&socket_path))
         .await
+        .with_context(|| {
+            format!(
+                "connect to daemon timed out ({}s)",
+                CONNECT_TIMEOUT.as_secs()
+            )
+        })?
         .with_context(|| format!("cannot connect to daemon at {}", socket_path.display()))?;
 
     let request = format_http_request(method, path, body);
-    stream
-        .write_all(request.as_bytes())
+    timeout(IO_TIMEOUT, stream.write_all(request.as_bytes()))
         .await
+        .context("write to daemon timed out")?
         .context("failed to write request to daemon socket")?;
 
     let mut response_buf = Vec::with_capacity(4096);
-    stream
-        .read_to_end(&mut response_buf)
+    timeout(IO_TIMEOUT, stream.read_to_end(&mut response_buf))
         .await
+        .context("read from daemon timed out")?
         .context("failed to read response from daemon")?;
 
     parse_http_response(&response_buf)
@@ -121,20 +133,20 @@ pub fn try_daemon_tool_call_blocking(
 
         #[cfg(unix)]
         {
-            // Prevent double-daemon races when multiple CLI commands auto-start concurrently.
-            // One process starts; others wait briefly for readiness.
+            // is_daemon_running() now cleans stale PID/socket files when the
+            // PID is dead, so subsequent connect attempts won't hang on a
+            // stale socket.
+
             let lock = crate::core::startup_guard::try_acquire_lock(
                 "daemon-start",
                 Duration::from_millis(1200),
-                Duration::from_secs(8),
+                Duration::from_secs(5),
             );
 
             if let Some(g) = lock {
                 g.touch();
                 let mut did_start = false;
 
-                // If a daemon process exists but isn't ready yet, don't try to start a second
-                // one (daemon::start_daemon would bail). Just wait for readiness.
                 if !daemon::is_daemon_running() {
                     if daemon::start_daemon(&[]).is_ok() {
                         did_start = true;
@@ -143,8 +155,8 @@ pub fn try_daemon_tool_call_blocking(
                     }
                 }
 
-                // Wait for readiness (socket + /health).
-                for _ in 0..240 {
+                // Max 3s readiness wait (60 × 50ms) — keeps CLI snappy.
+                for _ in 0..60 {
                     if socket_path.exists() && rt.block_on(async { daemon_health_check().await }) {
                         ready = true;
                         break;
@@ -156,8 +168,8 @@ pub fn try_daemon_tool_call_blocking(
                     eprintln!("\x1b[2m▸ daemon auto-started\x1b[0m");
                 }
             } else {
-                // Another process likely holds the start lock; wait briefly for readiness.
-                for _ in 0..240 {
+                // Another process likely holds the start lock; wait briefly.
+                for _ in 0..60 {
                     if socket_path.exists() && rt.block_on(async { daemon_health_check().await }) {
                         ready = true;
                         break;
@@ -181,9 +193,8 @@ pub fn try_daemon_tool_call_blocking(
         return Some(out);
     }
 
-    // If the daemon is starting up, the first request can still lose a race even after /health
-    // briefly succeeds. Retry once after a short wait.
-    for _ in 0..20 {
+    // Brief retry — the first request can lose a race even after /health succeeds.
+    for _ in 0..5 {
         std::thread::sleep(Duration::from_millis(50));
         if let Some(out) =
             rt.block_on(async { daemon_tool_call(name, arguments.as_ref()).await.ok() })

@@ -1,4 +1,5 @@
 pub mod a2a;
+pub mod a2a_transport;
 pub mod adaptive;
 pub mod adaptive_mode_policy;
 pub mod adaptive_thresholds;

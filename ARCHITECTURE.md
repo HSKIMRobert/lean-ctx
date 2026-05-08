@@ -636,8 +636,8 @@ flowchart LR
 
 | Module | Purpose |
 |:---|:---|
-| `core/context_os/mod.rs` | Runtime entry point, `emit_event`, event classification, consistency levels |
-| `core/context_os/context_bus.rs` | Immutable event log — SQLite WAL, R/W connection split, per-stream broadcast channels, FTS5 search, in-memory version counter |
+| `core/context_os/mod.rs` | Runtime entry point, `emit_event`, `emit_directed_event`, event classification, consistency levels |
+| `core/context_os/context_bus.rs` | Immutable event log — SQLite WAL, R/W split, per-stream broadcast, FTS5, TopicFilter, directed events, filtered subscriptions |
 | `core/context_os/shared_sessions.rs` | Multi-agent shared sessions — LRU-64 eviction, workspace/channel keyed, persist-on-evict |
 | `core/context_os/metrics.rs` | Observability — event counts, session loads/persists, active workspaces with TTL cleanup |
 | `http_server/context_views.rs` | REST endpoints — `/v1/context/summary`, `/v1/events/search` (FTS + channel filter), `/v1/events/lineage` |
@@ -664,7 +664,8 @@ flowchart LR
 | Module | Purpose |
 |:---|:---|
 | `core/agents.rs` | Agent registry (register, list, status) |
-| `core/a2a/` | Agent-to-agent: cost attribution, rate limiting, messaging, agent cards, task protocol |
+| `core/a2a/` | Agent-to-agent: cost attribution, rate limiting, messaging, agent cards, task protocol, A2A JSON-RPC compat |
+| `core/a2a_transport.rs` | TransportEnvelopeV1 + AgentIdentityV1 — HMAC-signed cross-machine transport for .lctxpkg and handoff bundles |
 | `core/handoff_ledger.rs` | Handoff creation and listing |
 | `core/handoff_transfer_bundle.rs` | Privacy-aware portable export/import |
 | `core/ccp_session_bundle.rs` | CCP session bundle format |

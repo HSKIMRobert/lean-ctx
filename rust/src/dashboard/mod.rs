@@ -207,14 +207,12 @@ async fn handle_request(mut stream: tokio::net::TcpStream, token: Option<Arc<Str
     let query_str = raw_path.find('?').map_or("", |i| &raw_path[i + 1..]);
 
     let is_api = path.starts_with("/api/");
+    let requires_auth = is_api || path == "/metrics";
 
     if let Some(ref expected) = token {
-        // Only allow Authorization header for /api/*.
-        // Query token is accepted only to bootstrap the initial HTML page, then JS
-        // uses Authorization headers for subsequent /api requests.
         let has_header_auth = check_auth(&request, expected);
 
-        if is_api && !has_header_auth {
+        if requires_auth && !has_header_auth {
             let body = r#"{"error":"unauthorized"}"#;
             let response = format!(
                 "HTTP/1.1 401 Unauthorized\r\n\
@@ -896,19 +894,15 @@ fn route_response(
             let mut html = DASHBOARD_HTML.to_string();
             if let Some(t) = token {
                 let expected = t.as_str();
-                let chosen = query_token
-                    .and_then(|q| {
-                        if q.as_str() == expected {
-                            Some(q.as_str())
-                        } else {
-                            None
-                        }
-                    })
-                    .unwrap_or(expected);
-                let script = format!(
-                    "<script>window.__LEAN_CTX_TOKEN__=\"{chosen}\";try{{if(location.search.includes('token=')){{history.replaceState(null,'',location.pathname);}}}}catch(e){{}}</script>"
-                );
-                html = html.replacen("<head>", &format!("<head>{script}"), 1);
+                let valid_query = query_token
+                    .as_ref()
+                    .is_some_and(|q| constant_time_eq(q.as_bytes(), expected.as_bytes()));
+                if valid_query {
+                    let script = format!(
+                        "<script>window.__LEAN_CTX_TOKEN__=\"{expected}\";try{{if(location.search.includes('token=')){{history.replaceState(null,'',location.pathname);}}}}catch(e){{}}</script>"
+                    );
+                    html = html.replacen("<head>", &format!("<head>{script}"), 1);
+                }
             }
             ("200 OK", "text/html; charset=utf-8", html)
         }
@@ -1086,15 +1080,25 @@ fn check_auth(request: &str, expected_token: &str) -> bool {
         let lower = line.to_lowercase();
         if lower.starts_with("authorization:") {
             let value = line["authorization:".len()..].trim();
-            if let Some(token) = value.strip_prefix("Bearer ") {
-                return token.trim() == expected_token;
-            }
-            if let Some(token) = value.strip_prefix("bearer ") {
-                return token.trim() == expected_token;
+            if let Some(token) = value
+                .strip_prefix("Bearer ")
+                .or_else(|| value.strip_prefix("bearer "))
+            {
+                return constant_time_eq(token.trim().as_bytes(), expected_token.as_bytes());
             }
         }
     }
     false
+}
+
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter()
+        .zip(b.iter())
+        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
+        == 0
 }
 
 fn extract_query_param(qs: &str, key: &str) -> Option<String> {

@@ -729,7 +729,11 @@ fn full_server_entry(binary: &str) -> serde_json::Value {
     })
 }
 
-fn install_mcp_json_agent(name: &str, display_path: &str, config_path: &std::path::Path) {
+pub(crate) fn install_mcp_json_agent(
+    name: &str,
+    display_path: &str,
+    config_path: &std::path::Path,
+) {
     let binary = resolve_binary_path();
     let entry = full_server_entry(&binary);
     install_named_json_server(name, display_path, config_path, "mcpServers", entry);

@@ -339,11 +339,14 @@ async fn v1_tool_call(
     .await
     {
         Ok(Ok(v)) => (StatusCode::OK, Json(serde_json::json!({ "result": v }))).into_response(),
-        Ok(Err(e)) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        )
-            .into_response(),
+        Ok(Err(e)) => {
+            tracing::warn!("tool call error: {e}");
+            (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": "tool_error", "code": "TOOL_ERROR" })),
+            )
+                .into_response()
+        }
         Err(_) => (
             StatusCode::GATEWAY_TIMEOUT,
             Json(serde_json::json!({ "error": "request_timeout" })),
@@ -449,6 +452,119 @@ async fn v1_metrics(State(_state): State<AppState>) -> impl IntoResponse {
     )
 }
 
+async fn v1_a2a_handoff(
+    State(state): State<AppState>,
+    Json(body): Json<Value>,
+) -> impl IntoResponse {
+    let envelope = match crate::core::a2a_transport::parse_envelope(
+        &serde_json::to_string(&body).unwrap_or_default(),
+    ) {
+        Ok(env) => env,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": e})),
+            );
+        }
+    };
+
+    let rt = crate::core::context_os::runtime();
+    rt.bus.append(
+        &state.project_root,
+        "a2a",
+        &crate::core::context_os::ContextEventKindV1::SessionMutated,
+        Some(&envelope.sender.agent_id),
+        serde_json::json!({
+            "type": "handoff_received",
+            "content_type": format!("{:?}", envelope.content_type),
+            "sender": envelope.sender.agent_id,
+            "payload_size": envelope.payload_json.len(),
+        }),
+    );
+
+    match envelope.content_type {
+        crate::core::a2a_transport::TransportContentType::ContextPackage => {
+            let tmp = std::env::temp_dir().join(format!(
+                "lean-ctx-a2a-{}.lctxpkg",
+                chrono::Utc::now().format("%Y%m%d_%H%M%S")
+            ));
+            if let Err(e) = std::fs::write(&tmp, &envelope.payload_json) {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": format!("write: {e}")})),
+                );
+            }
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "status": "received",
+                    "content_type": "context_package",
+                    "stored": tmp.display().to_string(),
+                })),
+            )
+        }
+        crate::core::a2a_transport::TransportContentType::HandoffBundle => {
+            let dir = std::path::Path::new(&state.project_root)
+                .join(".lean-ctx")
+                .join("handoffs");
+            let _ = std::fs::create_dir_all(&dir);
+            let out = dir.join(format!(
+                "received-{}.json",
+                chrono::Utc::now().format("%Y%m%d_%H%M%S")
+            ));
+            if let Err(e) = std::fs::write(&out, &envelope.payload_json) {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": format!("write: {e}")})),
+                );
+            }
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "status": "received",
+                    "content_type": "handoff_bundle",
+                    "stored": out.display().to_string(),
+                })),
+            )
+        }
+        _ => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "status": "received",
+                "content_type": format!("{:?}", envelope.content_type),
+            })),
+        ),
+    }
+}
+
+async fn a2a_jsonrpc(Json(body): Json<Value>) -> impl IntoResponse {
+    let req: crate::core::a2a::a2a_compat::JsonRpcRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": null,
+                    "error": {"code": -32700, "message": format!("parse error: {e}")}
+                })),
+            );
+        }
+    };
+    let resp = crate::core::a2a::a2a_compat::handle_a2a_jsonrpc(&req);
+    let json = serde_json::to_value(resp).unwrap_or_default();
+    (StatusCode::OK, Json(json))
+}
+
+async fn v1_a2a_agent_card(State(state): State<AppState>) -> impl IntoResponse {
+    let card = crate::core::a2a::agent_card::build_agent_card(&state.project_root);
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "application/json")],
+        Json(card),
+    )
+}
+
 pub async fn serve(cfg: HttpServerConfig) -> Result<()> {
     cfg.validate()?;
 
@@ -496,6 +612,10 @@ pub async fn serve(cfg: HttpServerConfig) -> Result<()> {
         .route("/v1/events/search", get(context_views::v1_events_search))
         .route("/v1/events/lineage", get(context_views::v1_event_lineage))
         .route("/v1/metrics", get(v1_metrics))
+        .route("/v1/a2a/handoff", axum::routing::post(v1_a2a_handoff))
+        .route("/v1/a2a/agent-card", get(v1_a2a_agent_card))
+        .route("/.well-known/agent.json", get(v1_a2a_agent_card))
+        .route("/a2a", axum::routing::post(a2a_jsonrpc))
         .fallback_service(mcp_http)
         .layer(axum::extract::DefaultBodyLimit::max(cfg.max_body_bytes))
         .layer(middleware::from_fn_with_state(
@@ -577,6 +697,10 @@ pub async fn serve_uds(cfg: HttpServerConfig, socket_path: PathBuf) -> Result<()
         .route("/v1/events/search", get(context_views::v1_events_search))
         .route("/v1/events/lineage", get(context_views::v1_event_lineage))
         .route("/v1/metrics", get(v1_metrics))
+        .route("/v1/a2a/handoff", axum::routing::post(v1_a2a_handoff))
+        .route("/v1/a2a/agent-card", get(v1_a2a_agent_card))
+        .route("/.well-known/agent.json", get(v1_a2a_agent_card))
+        .route("/a2a", axum::routing::post(a2a_jsonrpc))
         .fallback_service(mcp_http)
         .layer(axum::extract::DefaultBodyLimit::max(cfg.max_body_bytes))
         .layer(middleware::from_fn_with_state(
@@ -595,6 +719,13 @@ pub async fn serve_uds(cfg: HttpServerConfig, socket_path: PathBuf) -> Result<()
 
     let listener = tokio::net::UnixListener::bind(&socket_path)
         .with_context(|| format!("bind UDS {}", socket_path.display()))?;
+
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o600);
+        std::fs::set_permissions(&socket_path, perms)
+            .with_context(|| format!("chmod 600 UDS {}", socket_path.display()))?;
+    }
 
     tracing::info!(
         "lean-ctx daemon listening on {} (project_root={})",

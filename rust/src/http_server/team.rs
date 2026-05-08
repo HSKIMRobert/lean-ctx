@@ -202,8 +202,8 @@ struct TeamAuthContext {
 }
 
 #[derive(Clone)]
-struct TeamRequestContext {
-    workspace_id: String,
+pub(crate) struct TeamRequestContext {
+    pub(crate) workspace_id: String,
 }
 
 #[derive(Clone)]
@@ -700,35 +700,41 @@ async fn team_auth_middleware(
             return StatusCode::BAD_REQUEST.into_response();
         };
 
-        let mut allow = true;
+        let mut allow = false;
         let mut denied_reason: Option<String> = None;
         if let Ok(v) = serde_json::from_slice::<Value>(&bytes) {
-            let method = v.get("method").and_then(|m| m.as_str()).unwrap_or("");
-            if method.eq_ignore_ascii_case("tools/call") {
-                let tool = v
-                    .pointer("/params/name")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("");
-                let args = v.pointer("/params/arguments");
-                let req_scopes = required_scopes(tool, args);
-                allow = match req_scopes {
-                    None => false,
-                    Some(reqs) => reqs.is_subset(&tok_scopes),
-                };
-                if !allow {
-                    denied_reason = Some("scope_denied".to_string());
+            if v.is_array() {
+                denied_reason = Some("batch_requests_not_supported".to_string());
+            } else {
+                let method = v.get("method").and_then(|m| m.as_str()).unwrap_or("");
+                if method.eq_ignore_ascii_case("tools/call") {
+                    let tool = v
+                        .pointer("/params/name")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("");
+                    let args = v.pointer("/params/arguments");
+                    let req_scopes = required_scopes(tool, args);
+                    allow = match req_scopes {
+                        None => false,
+                        Some(reqs) => reqs.is_subset(&tok_scopes),
+                    };
+                    if !allow {
+                        denied_reason = Some("scope_denied".to_string());
+                    }
+                    let _ = audit_write(
+                        &state.team.audit,
+                        &tok.id,
+                        &workspace_id_for_audit,
+                        Some(tool),
+                        Some(method),
+                        allow,
+                        denied_reason.as_deref(),
+                        args,
+                    )
+                    .await;
+                } else {
+                    allow = true;
                 }
-                let _ = audit_write(
-                    &state.team.audit,
-                    &tok.id,
-                    &workspace_id_for_audit,
-                    Some(tool),
-                    Some(method),
-                    allow,
-                    denied_reason.as_deref(),
-                    args,
-                )
-                .await;
             }
         }
 
@@ -970,11 +976,14 @@ async fn v1_tool_call(
                 Some(&args),
             )
             .await;
-            (
-                StatusCode::BAD_REQUEST,
-                Json(json!({ "error": e.to_string() })),
-            )
-                .into_response()
+            {
+                tracing::warn!("team tool call error: {e}");
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({ "error": "tool_error", "code": "TOOL_ERROR" })),
+                )
+                    .into_response()
+            }
         }
         Err(_) => {
             let _ = audit_write(

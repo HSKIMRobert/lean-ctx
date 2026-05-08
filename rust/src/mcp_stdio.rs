@@ -142,7 +142,7 @@ impl<T> HybridJsonRpcMessageCodec<T> {
         Self {
             _marker: PhantomData,
             next_index: 0,
-            max_length: usize::MAX,
+            max_length: 32 * 1024 * 1024, // 32 MiB — prevents OOM from oversized messages
             is_discarding: false,
             protocol,
         }
