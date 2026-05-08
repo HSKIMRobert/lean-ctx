@@ -320,20 +320,19 @@ fn remove_lean_ctx_codex_server(path: &std::path::Path) -> Result<WriteResult, S
 }
 
 fn remove_codex_toml_section(existing: &str, header: &str) -> String {
+    let prefix = header.trim_end_matches(']');
     let mut out = String::with_capacity(existing.len());
     let mut skipping = false;
     for line in existing.lines() {
         let trimmed = line.trim();
-        if !skipping && trimmed == header {
-            skipping = true;
-            continue;
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            if trimmed == header || trimmed.starts_with(&format!("{prefix}.")) {
+                skipping = true;
+                continue;
+            }
+            skipping = false;
         }
         if skipping {
-            if trimmed.starts_with('[') && trimmed.ends_with(']') {
-                skipping = false;
-                out.push_str(line);
-                out.push('\n');
-            }
             continue;
         }
         out.push_str(line);
@@ -1683,5 +1682,58 @@ args = ["x"]
         let t = target("test", path.clone(), ConfigType::HermesYaml);
         let res = write_hermes_yaml(&t, "lean-ctx", WriteOptions::default()).unwrap();
         assert_eq!(res.action, WriteAction::Already);
+    }
+
+    #[test]
+    fn remove_codex_section_also_removes_env_subtable() {
+        let input = "\
+[other]
+x = 1
+
+[mcp_servers.lean-ctx]
+args = []
+command = \"/usr/local/bin/lean-ctx\"
+
+[mcp_servers.lean-ctx.env]
+LEAN_CTX_DATA_DIR = \"/home/user/.lean-ctx\"
+
+[features]
+codex_hooks = true
+";
+        let result = remove_codex_toml_section(input, "[mcp_servers.lean-ctx]");
+        assert!(
+            !result.contains("[mcp_servers.lean-ctx]"),
+            "parent section must be removed"
+        );
+        assert!(
+            !result.contains("LEAN_CTX_DATA_DIR"),
+            "env sub-table must be removed too"
+        );
+        assert!(result.contains("[other]"), "unrelated sections preserved");
+        assert!(
+            result.contains("[features]"),
+            "sections after must be preserved"
+        );
+    }
+
+    #[test]
+    fn remove_codex_section_preserves_other_mcp_servers() {
+        let input = "\
+[mcp_servers.lean-ctx]
+command = \"lean-ctx\"
+
+[mcp_servers.lean-ctx.env]
+X = \"1\"
+
+[mcp_servers.other]
+command = \"other\"
+";
+        let result = remove_codex_toml_section(input, "[mcp_servers.lean-ctx]");
+        assert!(!result.contains("[mcp_servers.lean-ctx]"));
+        assert!(
+            result.contains("[mcp_servers.other]"),
+            "other MCP servers must be preserved"
+        );
+        assert!(result.contains("command = \"other\""));
     }
 }

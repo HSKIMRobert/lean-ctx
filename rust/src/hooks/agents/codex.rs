@@ -99,13 +99,24 @@ fn ensure_codex_mcp_server(config_content: &str, binary: &str) -> Option<String>
     if config_content.contains("[mcp_servers.lean-ctx]") {
         return None;
     }
+
+    let section = format!("[mcp_servers.lean-ctx]\ncommand = \"{binary}\"\nargs = []\n");
+
+    if let Some(pos) = config_content.find("[mcp_servers.lean-ctx.") {
+        let insert_at = config_content[..pos].rfind('\n').map_or(0, |nl| nl + 1);
+        let mut out = String::with_capacity(config_content.len() + section.len() + 2);
+        out.push_str(&config_content[..insert_at]);
+        out.push_str(&section);
+        out.push('\n');
+        out.push_str(&config_content[insert_at..]);
+        return Some(out);
+    }
+
     let mut out = config_content.to_string();
     if !out.is_empty() && !out.ends_with('\n') {
         out.push('\n');
     }
-    out.push_str(&format!(
-        "\n[mcp_servers.lean-ctx]\ncommand = \"{binary}\"\nargs = []\n"
-    ));
+    out.push_str(&format!("\n{section}"));
     Some(out)
 }
 
@@ -371,5 +382,48 @@ command = \"lean-ctx\"
         assert!(result.contains("[mcp_servers.other]"));
         assert!(result.contains("[mcp_servers.lean-ctx]"));
         assert!(result.contains("command = \"/usr/bin/lean-ctx\""));
+    }
+
+    #[test]
+    fn ensure_mcp_server_inserts_before_orphaned_env_subtable() {
+        let input = "\
+[mcp_servers.lean-ctx.env]
+LEAN_CTX_DATA_DIR = \"/Users/user/.lean-ctx\"
+";
+        let result = ensure_codex_mcp_server(input, "/usr/local/bin/lean-ctx")
+            .expect("should insert parent section before orphaned env");
+        let parent_pos = result
+            .find("[mcp_servers.lean-ctx]")
+            .expect("parent section must exist");
+        let env_pos = result
+            .find("[mcp_servers.lean-ctx.env]")
+            .expect("env sub-table must be preserved");
+        assert!(
+            parent_pos < env_pos,
+            "parent section must come before env sub-table"
+        );
+        assert!(result.contains("command = \"/usr/local/bin/lean-ctx\""));
+        assert!(result.contains("LEAN_CTX_DATA_DIR"));
+    }
+
+    #[test]
+    fn ensure_mcp_server_handles_issue_189_scenario() {
+        let input = "\
+source = \"/Users/user/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime\"
+source_type = \"local\"
+
+[mcp_servers.lean-ctx.env]
+LEAN_CTX_DATA_DIR = \"/Users/user/.lean-ctx\"
+";
+        let result = ensure_codex_mcp_server(input, "/usr/local/bin/lean-ctx")
+            .expect("should fix orphaned config from issue #189");
+        assert!(result.contains("[mcp_servers.lean-ctx]\n"));
+        assert!(result.contains("command = \"/usr/local/bin/lean-ctx\""));
+        assert!(result.contains("[mcp_servers.lean-ctx.env]"));
+        assert!(result.contains("LEAN_CTX_DATA_DIR"));
+
+        let parent_pos = result.find("[mcp_servers.lean-ctx]\n").unwrap();
+        let env_pos = result.find("[mcp_servers.lean-ctx.env]").unwrap();
+        assert!(parent_pos < env_pos);
     }
 }
