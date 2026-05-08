@@ -1736,4 +1736,32 @@ command = \"other\"
         );
         assert!(result.contains("command = \"other\""));
     }
+
+    #[test]
+    fn remove_codex_section_does_not_remove_similarly_named_server() {
+        let input = "\
+[mcp_servers.lean-ctx]
+command = \"lean-ctx\"
+
+[mcp_servers.lean-ctx-probe]
+command = \"probe\"
+";
+        let result = remove_codex_toml_section(input, "[mcp_servers.lean-ctx]");
+        assert!(
+            !result.contains("[mcp_servers.lean-ctx]\n"),
+            "target section must be removed"
+        );
+        assert!(
+            result.contains("[mcp_servers.lean-ctx-probe]"),
+            "similarly-named server must NOT be removed"
+        );
+        assert!(result.contains("command = \"probe\""));
+    }
+
+    #[test]
+    fn remove_codex_section_handles_no_match() {
+        let input = "[other]\nx = 1\n";
+        let result = remove_codex_toml_section(input, "[mcp_servers.lean-ctx]");
+        assert_eq!(result, "[other]\nx = 1\n");
+    }
 }

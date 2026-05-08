@@ -95,12 +95,21 @@ fn install_codex_hook_config(home: &std::path::Path) -> bool {
     changed
 }
 
+fn toml_quote_value(value: &str) -> String {
+    if value.contains('\\') {
+        format!("'{value}'")
+    } else {
+        format!("\"{value}\"")
+    }
+}
+
 fn ensure_codex_mcp_server(config_content: &str, binary: &str) -> Option<String> {
     if config_content.contains("[mcp_servers.lean-ctx]") {
         return None;
     }
 
-    let section = format!("[mcp_servers.lean-ctx]\ncommand = \"{binary}\"\nargs = []\n");
+    let quoted = toml_quote_value(binary);
+    let section = format!("[mcp_servers.lean-ctx]\ncommand = {quoted}\nargs = []\n");
 
     if let Some(pos) = config_content.find("[mcp_servers.lean-ctx.") {
         let insert_at = config_content[..pos].rfind('\n').map_or(0, |nl| nl + 1);
@@ -425,5 +434,28 @@ LEAN_CTX_DATA_DIR = \"/Users/user/.lean-ctx\"
         let parent_pos = result.find("[mcp_servers.lean-ctx]\n").unwrap();
         let env_pos = result.find("[mcp_servers.lean-ctx.env]").unwrap();
         assert!(parent_pos < env_pos);
+    }
+
+    #[test]
+    fn ensure_mcp_server_quotes_windows_backslash_paths() {
+        let input = "[features]\ncodex_hooks = true\n";
+        let win_path = r"C:\Users\Foo\AppData\Roaming\npm\lean-ctx.cmd";
+        let result = ensure_codex_mcp_server(input, win_path).expect("should add MCP section");
+        assert!(
+            result.contains(&format!("command = '{win_path}'")),
+            "Windows paths must use TOML single quotes: {result}"
+        );
+    }
+
+    #[test]
+    fn ensure_mcp_server_does_not_match_similarly_named_section() {
+        let input = "\
+[mcp_servers.lean-ctx-other]
+command = \"other\"
+";
+        let result = ensure_codex_mcp_server(input, "lean-ctx")
+            .expect("should add lean-ctx section despite similarly-named section");
+        assert!(result.contains("[mcp_servers.lean-ctx]\n"));
+        assert!(result.contains("[mcp_servers.lean-ctx-other]"));
     }
 }
