@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.5.8] — 2026-05-08
+
+### Security
+
+- **CodeQL #40 (High): XSS in dashboard search** — `cockpit-search.js` fallback `esc()` function was `function(s) { return String(s); }` — no HTML escaping. Replaced with safe `textContent`→`innerHTML` implementation matching `format.js`.
+- **CodeQL #38/#39 (Medium): Unpinned GitHub Actions** — `codecov/codecov-action@v4` and `EmbarkStudios/cargo-deny-action@v2` are now pinned to commit SHAs (`b9fd7d16…`, `5bb39ff5…`) in `ci.yml`.
+
+### Fixed
+
+- **Codex config corruption on mode change (GitHub #189)** — When `lean-ctx setup` or `lean-ctx update` ran with v3.5.6 (where Codex was CLI-Redirect mode), `remove_codex_toml_section` removed the `[mcp_servers.lean-ctx]` parent section but left orphaned sub-tables like `[mcp_servers.lean-ctx.env]`, causing Codex to fail with "invalid transport in mcp_servers.lean-ctx".
+  - `remove_codex_toml_section` now removes **all** TOML sub-tables via prefix matching when removing a parent section.
+  - `ensure_codex_mcp_server` now detects orphaned sub-tables and inserts the parent section **before** them instead of appending at the end.
+  - `ensure_codex_mcp_server` now uses `toml_quote_value` for Windows backslash-safe TOML quoting (was using raw `format!` with double quotes).
+
 ## [3.5.7] — 2026-05-08
 
 ### Security
