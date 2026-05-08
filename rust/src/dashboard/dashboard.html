@@ -665,6 +665,11 @@ tr:hover td{background:var(--surface-2)}
 </div>
 
 <script>
+if (window.__LEAN_CTX_TOKEN__) {
+  try { sessionStorage.setItem('lctx_token', window.__LEAN_CTX_TOKEN__); } catch(e) {}
+} else {
+  try { const st = sessionStorage.getItem('lctx_token'); if (st) window.__LEAN_CTX_TOKEN__ = st; } catch(e) {}
+}
 const _origFetch = window.fetch;
 window.fetch = function(url, opts) {
   if (window.__LEAN_CTX_TOKEN__ && typeof url === 'string' && url.startsWith('/api/')) {

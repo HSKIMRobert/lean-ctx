@@ -30,7 +30,12 @@ pub async fn start(port: Option<u16>, host: Option<String>) {
     if is_local && dashboard_responding(&host, port) {
         println!("\n  lean-ctx dashboard already running → http://{host}:{port}");
         println!("  Tip: use Ctrl+C in the existing terminal to stop it.\n");
-        open_browser(&format!("http://localhost:{port}"));
+        let saved = load_saved_token();
+        if let Some(ref t) = saved {
+            open_browser(&format!("http://localhost:{port}/?token={t}"));
+        } else {
+            open_browser(&format!("http://localhost:{port}"));
+        }
         return;
     }
 
@@ -114,6 +119,14 @@ fn save_token(token: &str) {
             let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
         }
     }
+}
+
+fn load_saved_token() -> Option<String> {
+    let dir = crate::core::data_dir::lean_ctx_data_dir().ok()?;
+    let path = dir.join("dashboard.token");
+    std::fs::read_to_string(path)
+        .ok()
+        .map(|s| s.trim().to_string())
 }
 
 fn hex_lower(bytes: &[u8]) -> String {
