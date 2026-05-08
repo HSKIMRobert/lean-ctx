@@ -70,25 +70,32 @@ pub fn compress_output(command: &str, output: &str) -> Option<String> {
 
     if let Some(engine) = crate::core::filters::FilterEngine::load() {
         if let Some(filtered) = engine.apply(command, output) {
-            return Some(filtered);
+            return shorter_only(filtered, output);
         }
     }
 
-    let specific = try_specific_pattern(command, output);
-    if specific.is_some() {
-        return specific;
+    if let Some(compressed) = try_specific_pattern(command, output) {
+        if let Some(r) = shorter_only(compressed, output) {
+            return Some(r);
+        }
     }
 
     if let Some(r) = json_schema::compress(output) {
-        return Some(r);
+        if let Some(r) = shorter_only(r, output) {
+            return Some(r);
+        }
     }
 
     if let Some(r) = log_dedup::compress(output) {
-        return Some(r);
+        if let Some(r) = shorter_only(r, output) {
+            return Some(r);
+        }
     }
 
     if let Some(r) = test::compress(output) {
-        return Some(r);
+        if let Some(r) = shorter_only(r, output) {
+            return Some(r);
+        }
     }
 
     if output.len() > 8000 {
@@ -96,6 +103,14 @@ pub fn compress_output(command: &str, output: &str) -> Option<String> {
     }
 
     None
+}
+
+fn shorter_only(compressed: String, original: &str) -> Option<String> {
+    if compressed.len() < original.len() {
+        Some(compressed)
+    } else {
+        None
+    }
 }
 
 fn truncate_large_output(command: &str, output: &str) -> String {
@@ -454,9 +469,13 @@ mod tests {
 
     #[test]
     fn routes_bunx_commands() {
-        let output = "1 pass tests\nDone 12ms";
-        let compressed = compress_output("bunx test", output).unwrap();
-        assert!(compressed.contains("bun test: 1 passed"));
+        let output = "1 pass tests\n0 fail tests\n3 skip tests\nDone 12ms\nsome extra line\nmore output here";
+        let result = compress_output("bunx test", output);
+        assert!(
+            result.is_some(),
+            "bunx should compress when output is large enough"
+        );
+        assert!(result.unwrap().contains("bun test: 1 passed"));
     }
 
     #[test]

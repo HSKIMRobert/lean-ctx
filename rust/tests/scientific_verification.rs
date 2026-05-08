@@ -469,7 +469,7 @@ fn safeguard_prevents_over_compression() {
     let result = safeguard_ratio(&original, over_compressed);
     assert_eq!(
         result, original,
-        "safeguard must return original when ratio < 0.15"
+        "safeguard must return original when ratio < 0.05 on small output"
     );
 }
 

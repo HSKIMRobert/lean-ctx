@@ -543,8 +543,8 @@ fn bench_safeguard_prevents_over_compression() {
         ratio
     );
     assert!(
-        ratio > 0.15,
-        "Safeguard should prevent compression below 15%, ratio: {ratio:.2}"
+        ratio > 0.05,
+        "Safeguard should prevent extreme compression on small outputs, ratio: {ratio:.2}"
     );
 }
 

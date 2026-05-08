@@ -379,12 +379,22 @@ pub(super) fn compress_and_measure(command: &str, stdout: &str, stderr: &str) ->
     (result, output_tokens)
 }
 
+fn is_search_output(command: &str) -> bool {
+    let c = command.trim_start();
+    c.starts_with("grep ")
+        || c.starts_with("rg ")
+        || c.starts_with("find ")
+        || c.starts_with("fd ")
+        || c.starts_with("ag ")
+        || c.starts_with("ack ")
+}
+
 fn compress_if_beneficial(command: &str, output: &str) -> String {
     if output.trim().is_empty() {
         return String::new();
     }
 
-    if crate::tools::ctx_shell::contains_auth_flow(output) {
+    if !is_search_output(command) && crate::tools::ctx_shell::contains_auth_flow(output) {
         return output.to_string();
     }
 

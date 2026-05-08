@@ -81,27 +81,63 @@ fn print_named_json_server_success(name: &str, display_path: &str) {
     }
 }
 
+const CODEX_AGENTS_BLOCK_START: &str = "<!-- lean-ctx -->";
+const CODEX_AGENTS_BLOCK_END: &str = "<!-- /lean-ctx -->";
+
 pub(super) fn install_codex_instruction_docs(codex_dir: &Path) -> bool {
     let agents_path = codex_dir.join("AGENTS.md");
-    let agents_content = "# Global Agent Instructions\n\n@LEAN-CTX.md\n";
     let lean_ctx_md = codex_dir.join("LEAN-CTX.md");
     let lean_ctx_content = codex_instruction_doc_content();
 
-    match std::fs::read_to_string(&agents_path) {
-        Ok(content) if content.contains("lean-ctx") || content.contains("LEAN-CTX") => {
-            if lean_ctx_md.exists() {
-                false
-            } else {
-                super::write_file(&lean_ctx_md, &lean_ctx_content);
-                true
-            }
-        }
-        _ => {
-            super::write_file(&agents_path, agents_content);
-            super::write_file(&lean_ctx_md, &lean_ctx_content);
-            true
-        }
+    let block = format!(
+        "{CODEX_AGENTS_BLOCK_START}\n## lean-ctx\n\n@LEAN-CTX.md\n{CODEX_AGENTS_BLOCK_END}\n"
+    );
+
+    let mut changed = false;
+
+    if !lean_ctx_md.exists()
+        || !std::fs::read_to_string(&lean_ctx_md)
+            .unwrap_or_default()
+            .contains("lean-ctx")
+    {
+        super::write_file(&lean_ctx_md, &lean_ctx_content);
+        changed = true;
     }
+
+    if !agents_path.exists() {
+        let content = format!("# Global Agent Instructions\n\n{block}");
+        super::write_file(&agents_path, &content);
+        return true;
+    }
+
+    let existing = std::fs::read_to_string(&agents_path).unwrap_or_default();
+
+    if existing.contains(CODEX_AGENTS_BLOCK_START) {
+        let updated = super::replace_marked_block(
+            &existing,
+            CODEX_AGENTS_BLOCK_START,
+            CODEX_AGENTS_BLOCK_END,
+            &block,
+        );
+        if updated != existing {
+            super::write_file(&agents_path, &updated);
+            return true;
+        }
+        return changed;
+    }
+
+    if existing.contains("lean-ctx") || existing.contains("LEAN-CTX") {
+        return changed;
+    }
+
+    let mut out = existing;
+    if !out.ends_with('\n') {
+        out.push('\n');
+    }
+    out.push('\n');
+    out.push_str(&block);
+    super::write_file(&agents_path, &out);
+    true
 }
 
 fn codex_instruction_doc_content() -> String {

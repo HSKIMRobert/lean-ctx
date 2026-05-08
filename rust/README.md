@@ -399,7 +399,7 @@ When configured as an MCP server, lean-ctx provides 56 tools that replace or aug
 | Tool | Purpose |
 |---|---|
 | `ctx_session` | Cross-session memory — persist task, findings, decisions, files across chats and context compactions |
-| `ctx_knowledge` | Persistent project knowledge — remember facts, recall by query/category |
+| `ctx_knowledge` | Persistent project knowledge — remember, recall, export, import, remove, search, timeline, relations |
 | `ctx_agent` | Multi-agent coordination — register, post/read scratchpad, handoff tasks, sync status |
 | `ctx_share` | Multi-agent context sharing — push/pull cached file contexts between agents |
 | `ctx_wrapped` | Shareable savings report — "Spotify Wrapped" for your token savings |

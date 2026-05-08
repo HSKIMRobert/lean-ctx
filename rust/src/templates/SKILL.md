@@ -95,6 +95,9 @@ CLI (works in CLI-redirect and MCP setups):
 lean-ctx knowledge remember "value" --category <c> --key <k>
 lean-ctx knowledge recall "query"
 lean-ctx knowledge search "query"
+lean-ctx knowledge export [--format json|jsonl|simple] [--output <path>]
+lean-ctx knowledge import <path> [--merge replace|append|skip-existing] [--dry-run]
+lean-ctx knowledge remove --category <c> --key <k>
 
 lean-ctx session task "what you're doing"
 lean-ctx session finding "what you found"

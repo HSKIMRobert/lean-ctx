@@ -147,7 +147,7 @@ pub fn normalize_command_for_shell(command: &str) -> String {
 pub fn handle(command: &str, output: &str, crp_mode: CrpMode) -> String {
     let original_tokens = count_tokens(output);
 
-    if contains_auth_flow(output) {
+    if !is_search_command(command) && contains_auth_flow(output) {
         let savings = protocol::format_savings(original_tokens, original_tokens);
         return format!(
             "{output}\n[lean-ctx: auth/device-code flow detected — output preserved uncompressed]\n{savings}"
@@ -155,6 +155,13 @@ pub fn handle(command: &str, output: &str, crp_mode: CrpMode) -> String {
     }
 
     let raw_compressed = match patterns::compress_output(command, output) {
+        Some(c) if is_search_command(command) => {
+            if c.len() <= output.len() {
+                c
+            } else {
+                output.to_string()
+            }
+        }
         Some(c) => crate::core::compressor::safeguard_ratio(output, &c),
         None if is_search_command(command) => {
             let stripped = crate::core::compressor::strip_ansi(output);

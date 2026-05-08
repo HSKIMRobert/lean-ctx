@@ -99,7 +99,13 @@ pub fn secondary_event_kind(tool: &str, action: Option<&str>) -> Option<ContextE
             let a = action.unwrap_or("");
             if matches!(
                 a,
-                "remember" | "relate" | "unrelate" | "feedback" | "remove" | "consolidate"
+                "remember"
+                    | "relate"
+                    | "unrelate"
+                    | "feedback"
+                    | "remove"
+                    | "consolidate"
+                    | "import"
             ) {
                 Some(ContextEventKindV1::KnowledgeRemembered)
             } else {

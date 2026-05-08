@@ -251,4 +251,70 @@ command = \"lean-ctx\"
 
         assert!(output.ends_with("\n[features]\ncodex_hooks = true\n"));
     }
+
+    #[test]
+    fn install_codex_docs_preserves_existing_user_instructions() {
+        let tmp = std::env::temp_dir().join("lean-ctx-test-codex-preserve");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let agents_md = tmp.join("AGENTS.md");
+        let user_content = "# My Custom Instructions\n\nDo not change my codebase style.\n\n## Rules\n- Always use tabs\n- No semicolons\n";
+        std::fs::write(&agents_md, user_content).unwrap();
+
+        crate::hooks::support::install_codex_instruction_docs(&tmp);
+
+        let result = std::fs::read_to_string(&agents_md).unwrap();
+        assert!(
+            result.contains("My Custom Instructions"),
+            "user content must be preserved"
+        );
+        assert!(
+            result.contains("Always use tabs"),
+            "user rules must be preserved"
+        );
+        assert!(
+            result.contains("<!-- lean-ctx -->"),
+            "lean-ctx block must be appended"
+        );
+        assert!(
+            result.contains("@LEAN-CTX.md"),
+            "lean-ctx reference must be present"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn install_codex_docs_updates_only_marked_block() {
+        let tmp = std::env::temp_dir().join("lean-ctx-test-codex-marked");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let agents_md = tmp.join("AGENTS.md");
+        let content_with_block = "# My Instructions\n\nCustom rule here.\n\n<!-- lean-ctx -->\n## lean-ctx\n\n@OLD-LEAN-CTX.md\n<!-- /lean-ctx -->\n\n## Other Section\nKeep this.\n";
+        std::fs::write(&agents_md, content_with_block).unwrap();
+
+        crate::hooks::support::install_codex_instruction_docs(&tmp);
+
+        let result = std::fs::read_to_string(&agents_md).unwrap();
+        assert!(
+            result.contains("Custom rule here."),
+            "user content before block preserved"
+        );
+        assert!(
+            result.contains("Other Section"),
+            "user content after block preserved"
+        );
+        assert!(
+            result.contains("@LEAN-CTX.md"),
+            "block updated to current reference"
+        );
+        assert!(
+            !result.contains("OLD-LEAN-CTX"),
+            "old block content replaced"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 }

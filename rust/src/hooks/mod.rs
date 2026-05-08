@@ -513,7 +513,12 @@ Full rules: @{PROJECT_LEAN_CTX_MD}\n\
     }
 }
 
-fn replace_marked_block(content: &str, start: &str, end: &str, replacement: &str) -> String {
+pub(crate) fn replace_marked_block(
+    content: &str,
+    start: &str,
+    end: &str,
+    replacement: &str,
+) -> String {
     let s = content.find(start);
     let e = content.find(end);
     match (s, e) {

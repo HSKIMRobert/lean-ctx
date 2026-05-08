@@ -161,8 +161,9 @@ pub fn lightweight_cleanup(content: &str) -> String {
     result.join("\n")
 }
 
-/// Safeguard: ensures compression ratio stays within safe bounds.
-/// Returns the compressed content if ratio is in [0.15, 1.0], otherwise the original.
+/// Safeguard: prevents compression from inflating output or destroying small outputs.
+/// For small outputs (<2000 tokens), rejects extreme compression (>95% reduction)
+/// that likely lost important content. For large outputs, trusts the pattern.
 pub fn safeguard_ratio(original: &str, compressed: &str) -> String {
     let orig_tokens = super::tokens::count_tokens(original);
     let comp_tokens = super::tokens::count_tokens(compressed);
@@ -171,8 +172,12 @@ pub fn safeguard_ratio(original: &str, compressed: &str) -> String {
         return compressed.to_string();
     }
 
+    if comp_tokens > orig_tokens {
+        return original.to_string();
+    }
+
     let ratio = comp_tokens as f64 / orig_tokens as f64;
-    if ratio < 0.15 || comp_tokens > orig_tokens {
+    if ratio < 0.05 && orig_tokens < 2000 {
         original.to_string()
     } else {
         compressed.to_string()
@@ -437,11 +442,25 @@ mod tests {
     }
 
     #[test]
-    fn test_safeguard_ratio_prevents_over_compression() {
-        let original = "a ".repeat(100);
+    fn test_safeguard_ratio_prevents_over_compression_on_small_output() {
+        let original = "a ".repeat(100); // ~100 tokens, < 2000
         let too_compressed = "a";
         let result = safeguard_ratio(&original, too_compressed);
-        assert_eq!(result, original, "should return original when ratio < 0.15");
+        assert_eq!(
+            result, original,
+            "should return original when ratio < 0.05 and output is small"
+        );
+    }
+
+    #[test]
+    fn test_safeguard_ratio_allows_strong_compression_on_large_output() {
+        let original = "line content here\n".repeat(1000); // ~4000 tokens, > 2000
+        let compressed = "summary: 1000 lines";
+        let result = safeguard_ratio(&original, compressed);
+        assert_eq!(
+            result, compressed,
+            "should allow strong compression for large outputs"
+        );
     }
 
     #[test]

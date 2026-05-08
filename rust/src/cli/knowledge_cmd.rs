@@ -11,6 +11,9 @@ pub fn cmd_knowledge(args: &[String]) {
         Some("remember") => cmd_remember(args, &project_root),
         Some("recall") => cmd_recall(args, &project_root),
         Some("search") => cmd_search(args),
+        Some("export") => cmd_export(args, &project_root),
+        Some("remove") => cmd_remove(args, &project_root),
+        Some("import") => cmd_import(args, &project_root),
         Some("status") => {
             #[cfg(unix)]
             {
@@ -215,6 +218,212 @@ fn cmd_search(args: &[String]) {
     println!("{out}");
 }
 
+fn cmd_export(args: &[String], project_root: &str) {
+    let format = value_arg(args, "--format")
+        .or_else(|| value_arg(args, "-f"))
+        .unwrap_or_else(|| "json".into());
+    let output = value_arg(args, "--output").or_else(|| value_arg(args, "-o"));
+
+    let Some(knowledge) = crate::core::knowledge::ProjectKnowledge::load(project_root) else {
+        eprintln!("No knowledge stored for this project yet.");
+        std::process::exit(1);
+    };
+
+    let content = match format.as_str() {
+        "json" => match serde_json::to_string_pretty(&knowledge) {
+            Ok(j) => j,
+            Err(e) => {
+                eprintln!("Export failed: {e}");
+                std::process::exit(1);
+            }
+        },
+        "jsonl" => {
+            let entries = knowledge.export_simple();
+            entries
+                .iter()
+                .filter_map(|e| serde_json::to_string(e).ok())
+                .collect::<Vec<_>>()
+                .join("\n")
+        }
+        "simple" => match serde_json::to_string_pretty(&knowledge.export_simple()) {
+            Ok(j) => j,
+            Err(e) => {
+                eprintln!("Export failed: {e}");
+                std::process::exit(1);
+            }
+        },
+        _ => {
+            eprintln!("Unknown format: {format}. Use: json, jsonl, simple");
+            std::process::exit(1);
+        }
+    };
+
+    if let Some(path) = output {
+        let p = std::path::Path::new(&path);
+        if let Some(parent) = p.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        match crate::config_io::write_atomic_with_backup(p, &content) {
+            Ok(()) => {
+                let active = knowledge.facts.iter().filter(|f| f.is_current()).count();
+                eprintln!("Exported to {path} ({active} active facts, format={format})");
+            }
+            Err(e) => {
+                eprintln!("Failed to write {path}: {e}");
+                std::process::exit(1);
+            }
+        }
+    } else {
+        println!("{content}");
+    }
+}
+
+fn cmd_remove(args: &[String], project_root: &str) {
+    let category = value_arg(args, "--category").or_else(|| value_arg(args, "-c"));
+    let key = value_arg(args, "--key").or_else(|| value_arg(args, "-k"));
+
+    if category.is_none() || key.is_none() {
+        eprintln!("Usage: lean-ctx knowledge remove --category <cat> --key <key>");
+        eprintln!("Example: lean-ctx knowledge remove --category auth --key token-type");
+        std::process::exit(1);
+    }
+
+    #[cfg(unix)]
+    {
+        #[cfg(unix)]
+        if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
+            "ctx_knowledge",
+            Some(serde_json::json!({
+                "action": "remove",
+                "project_root": project_root,
+                "category": category,
+                "key": key,
+            })),
+        ) {
+            println!("{out}");
+            return;
+        }
+    }
+
+    let out = ctx_knowledge::handle(
+        project_root,
+        "remove",
+        category.as_deref(),
+        key.as_deref(),
+        None,
+        None,
+        &cli_session_id(),
+        None,
+        None,
+        None,
+        None,
+    );
+    println!("{out}");
+}
+
+fn cmd_import(args: &[String], project_root: &str) {
+    let path = positional_after(args, "import");
+    let merge_str = value_arg(args, "--merge")
+        .or_else(|| value_arg(args, "-m"))
+        .unwrap_or_else(|| "skip-existing".into());
+    let dry_run = args.iter().any(|a| a == "--dry-run");
+
+    let Some(path) = path else {
+        eprintln!(
+            "Usage: lean-ctx knowledge import <path> [--merge replace|append|skip-existing] [--dry-run]"
+        );
+        eprintln!("Formats accepted: native JSON, simple JSON array, JSONL");
+        std::process::exit(1);
+    };
+
+    let Some(merge) = crate::core::knowledge::ImportMerge::parse(&merge_str) else {
+        eprintln!("Unknown merge strategy: {merge_str}. Use: replace, append, skip-existing");
+        std::process::exit(1);
+    };
+
+    let data = match std::fs::read_to_string(&path) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("Failed to read {path}: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    let facts = match crate::core::knowledge::parse_import_data(&data) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("Parse error: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    let total = facts.len();
+    println!("Parsed {total} facts from {path}");
+
+    if dry_run {
+        let knowledge = crate::core::knowledge::ProjectKnowledge::load_or_create(project_root);
+        let mut would_add = 0u32;
+        let mut would_skip = 0u32;
+        let mut would_replace = 0u32;
+
+        for fact in &facts {
+            let exists = knowledge
+                .facts
+                .iter()
+                .any(|f| f.category == fact.category && f.key == fact.key && f.is_current());
+            match (&merge, exists) {
+                (crate::core::knowledge::ImportMerge::SkipExisting, true) => would_skip += 1,
+                (crate::core::knowledge::ImportMerge::Replace, true) => would_replace += 1,
+                (crate::core::knowledge::ImportMerge::Append, true) | (_, false) => {
+                    would_add += 1;
+                }
+            }
+        }
+
+        println!("[DRY RUN] Would add: {would_add}, skip: {would_skip}, replace: {would_replace}");
+        for fact in facts.iter().take(10) {
+            println!(
+                "  [{}/{}]: {}",
+                fact.category,
+                fact.key,
+                &fact.value[..fact.value.len().min(80)]
+            );
+        }
+        if total > 10 {
+            println!("  ... and {} more", total - 10);
+        }
+        return;
+    }
+
+    let policy = match crate::tools::knowledge_shared::load_policy_or_error() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+    };
+
+    let mut knowledge = crate::core::knowledge::ProjectKnowledge::load_or_create(project_root);
+    let session_id = cli_session_id();
+    let result = knowledge.import_facts(facts, merge, &session_id, &policy);
+
+    match knowledge.save() {
+        Ok(()) => {
+            println!(
+                "Import complete: {} added, {} skipped, {} replaced (merge={})",
+                result.added, result.skipped, result.replaced, merge_str
+            );
+        }
+        Err(e) => {
+            eprintln!(
+                "Import done ({} added, {} skipped, {} replaced) but save failed: {e}",
+                result.added, result.skipped, result.replaced
+            );
+            std::process::exit(1);
+        }
+    }
+}
+
 fn cli_session_id() -> String {
     format!("cli-{}", &uuid_short())
 }
@@ -278,14 +487,18 @@ Usage:
   lean-ctx knowledge remember <value> --category <cat> --key <key> [--confidence <0-1>]
   lean-ctx knowledge recall [query] [--category <cat>] [--mode auto|semantic|hybrid]
   lean-ctx knowledge search <query>
+  lean-ctx knowledge export [--format json|jsonl|simple] [--output <path>]
+  lean-ctx knowledge import <path> [--merge replace|append|skip-existing] [--dry-run]
+  lean-ctx knowledge remove --category <cat> --key <key>
   lean-ctx knowledge status
   lean-ctx knowledge health
 
 Examples:
   lean-ctx knowledge remember \"Uses JWT tokens\" --category auth --key token-type
   lean-ctx knowledge recall \"authentication\"
-  lean-ctx knowledge recall --category security
-  lean-ctx knowledge search \"database migration\"
+  lean-ctx knowledge export --format jsonl --output backup.jsonl
+  lean-ctx knowledge import backup.json --merge skip-existing --dry-run
+  lean-ctx knowledge remove --category auth --key token-type
   lean-ctx knowledge status"
     );
 }

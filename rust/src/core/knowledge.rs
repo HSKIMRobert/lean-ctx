@@ -401,6 +401,71 @@ impl ProjectKnowledge {
         self.updated_at = Utc::now();
     }
 
+    /// Import facts from an external source with a configurable merge strategy.
+    /// Returns (added, skipped, replaced) counts.
+    pub fn import_facts(
+        &mut self,
+        incoming: Vec<KnowledgeFact>,
+        merge: ImportMerge,
+        session_id: &str,
+        policy: &MemoryPolicy,
+    ) -> ImportResult {
+        let mut added = 0u32;
+        let mut skipped = 0u32;
+        let mut replaced = 0u32;
+
+        for fact in incoming {
+            let existing = self
+                .facts
+                .iter()
+                .position(|f| f.category == fact.category && f.key == fact.key && f.is_current());
+
+            match (&merge, existing) {
+                (ImportMerge::SkipExisting, Some(_)) => {
+                    skipped += 1;
+                }
+                (ImportMerge::Replace, Some(idx)) => {
+                    self.facts[idx].valid_until = Some(Utc::now());
+                    self.facts.push(imported_fact(&fact, session_id));
+                    replaced += 1;
+                }
+                (ImportMerge::Append, Some(_)) | (_, None) => {
+                    self.facts.push(imported_fact(&fact, session_id));
+                    added += 1;
+                }
+            }
+        }
+
+        if added > 0 || replaced > 0 {
+            self.updated_at = Utc::now();
+            if self.facts.len() > policy.knowledge.max_facts.saturating_mul(2) {
+                let _ = self.run_memory_lifecycle(policy);
+            }
+        }
+
+        ImportResult {
+            added,
+            skipped,
+            replaced,
+        }
+    }
+
+    /// Export current facts as a simple JSON array (community-compatible schema).
+    pub fn export_simple(&self) -> Vec<SimpleFactEntry> {
+        self.facts
+            .iter()
+            .filter(|f| f.is_current())
+            .map(|f| SimpleFactEntry {
+                category: f.category.clone(),
+                key: f.key.clone(),
+                value: f.value.clone(),
+                confidence: Some(f.confidence),
+                source: Some(f.source_session.clone()),
+                timestamp: Some(f.created_at.to_rfc3339()),
+            })
+            .collect()
+    }
+
     pub fn remove_fact(&mut self, category: &str, key: &str) -> bool {
         let before = self.facts.len();
         self.facts
@@ -1009,6 +1074,145 @@ fn fact_version_id_v1(f: &KnowledgeFact) -> String {
     format!("{:x}", hasher.finalize())
 }
 
+// ─── Import / Export types ───────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImportMerge {
+    Replace,
+    Append,
+    SkipExisting,
+}
+
+impl ImportMerge {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "replace" => Some(Self::Replace),
+            "append" => Some(Self::Append),
+            "skip-existing" | "skip_existing" | "skip" => Some(Self::SkipExisting),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ImportResult {
+    pub added: u32,
+    pub skipped: u32,
+    pub replaced: u32,
+}
+
+/// Community-compatible simple fact format for import/export interop.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SimpleFactEntry {
+    pub category: String,
+    pub key: String,
+    pub value: String,
+    #[serde(default)]
+    pub confidence: Option<f32>,
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default)]
+    pub timestamp: Option<String>,
+}
+
+/// Parse import data: tries native `ProjectKnowledge` first, then simple `[{...}]` array.
+pub fn parse_import_data(data: &str) -> Result<Vec<KnowledgeFact>, String> {
+    if let Ok(pk) = serde_json::from_str::<ProjectKnowledge>(data) {
+        return Ok(pk.facts);
+    }
+
+    if let Ok(entries) = serde_json::from_str::<Vec<SimpleFactEntry>>(data) {
+        let now = Utc::now();
+        let facts = entries
+            .into_iter()
+            .map(|e| KnowledgeFact {
+                category: e.category,
+                key: e.key,
+                value: e.value,
+                source_session: e.source.unwrap_or_else(|| "import".to_string()),
+                confidence: e.confidence.unwrap_or(0.8),
+                created_at: now,
+                last_confirmed: now,
+                retrieval_count: 0,
+                last_retrieved: None,
+                valid_from: Some(now),
+                valid_until: None,
+                supersedes: None,
+                confirmation_count: 1,
+                feedback_up: 0,
+                feedback_down: 0,
+                last_feedback: None,
+                privacy: FactPrivacy::default(),
+            })
+            .collect();
+        return Ok(facts);
+    }
+
+    // Try JSONL (one JSON object per line)
+    let mut facts = Vec::new();
+    for line in data.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Ok(entry) = serde_json::from_str::<SimpleFactEntry>(line) {
+            let now = Utc::now();
+            facts.push(KnowledgeFact {
+                category: entry.category,
+                key: entry.key,
+                value: entry.value,
+                source_session: entry.source.unwrap_or_else(|| "import".to_string()),
+                confidence: entry.confidence.unwrap_or(0.8),
+                created_at: now,
+                last_confirmed: now,
+                retrieval_count: 0,
+                last_retrieved: None,
+                valid_from: Some(now),
+                valid_until: None,
+                supersedes: None,
+                confirmation_count: 1,
+                feedback_up: 0,
+                feedback_down: 0,
+                last_feedback: None,
+                privacy: FactPrivacy::default(),
+            });
+        } else {
+            return Err(format!(
+                "Invalid JSONL line: {}",
+                &line[..line.len().min(80)]
+            ));
+        }
+    }
+
+    if facts.is_empty() {
+        return Err("No facts found. Expected: native JSON, simple JSON array, or JSONL.".into());
+    }
+    Ok(facts)
+}
+
+fn imported_fact(source: &KnowledgeFact, session_id: &str) -> KnowledgeFact {
+    let now = Utc::now();
+    KnowledgeFact {
+        category: source.category.clone(),
+        key: source.key.clone(),
+        value: source.value.clone(),
+        source_session: session_id.to_string(),
+        confidence: source.confidence,
+        created_at: now,
+        last_confirmed: now,
+        retrieval_count: 0,
+        last_retrieved: None,
+        valid_from: Some(now),
+        valid_until: None,
+        supersedes: None,
+        confirmation_count: 1,
+        feedback_up: 0,
+        feedback_down: 0,
+        last_feedback: None,
+        privacy: source.privacy,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1275,5 +1479,149 @@ mod tests {
             &policy,
         );
         assert!(c.is_none());
+    }
+
+    #[test]
+    fn import_skip_existing() {
+        let policy = default_policy();
+        let mut k = ProjectKnowledge::new("/tmp/test");
+        k.remember("arch", "db", "PostgreSQL", "s1", 0.95, &policy);
+
+        let incoming = vec![KnowledgeFact {
+            category: "arch".into(),
+            key: "db".into(),
+            value: "MySQL".into(),
+            source_session: "import".into(),
+            confidence: 0.8,
+            created_at: Utc::now(),
+            last_confirmed: Utc::now(),
+            retrieval_count: 0,
+            last_retrieved: None,
+            valid_from: Some(Utc::now()),
+            valid_until: None,
+            supersedes: None,
+            confirmation_count: 1,
+            feedback_up: 0,
+            feedback_down: 0,
+            last_feedback: None,
+            privacy: FactPrivacy::default(),
+        }];
+
+        let result = k.import_facts(incoming, ImportMerge::SkipExisting, "imp-1", &policy);
+        assert_eq!(result.skipped, 1);
+        assert_eq!(result.added, 0);
+        assert_eq!(k.facts.iter().filter(|f| f.is_current()).count(), 1);
+    }
+
+    #[test]
+    fn import_replace_existing() {
+        let policy = default_policy();
+        let mut k = ProjectKnowledge::new("/tmp/test");
+        k.remember("arch", "db", "PostgreSQL", "s1", 0.95, &policy);
+
+        let incoming = vec![KnowledgeFact {
+            category: "arch".into(),
+            key: "db".into(),
+            value: "MySQL".into(),
+            source_session: "import".into(),
+            confidence: 0.8,
+            created_at: Utc::now(),
+            last_confirmed: Utc::now(),
+            retrieval_count: 0,
+            last_retrieved: None,
+            valid_from: Some(Utc::now()),
+            valid_until: None,
+            supersedes: None,
+            confirmation_count: 1,
+            feedback_up: 0,
+            feedback_down: 0,
+            last_feedback: None,
+            privacy: FactPrivacy::default(),
+        }];
+
+        let result = k.import_facts(incoming, ImportMerge::Replace, "imp-1", &policy);
+        assert_eq!(result.replaced, 1);
+        let current: Vec<_> = k.facts.iter().filter(|f| f.is_current()).collect();
+        assert_eq!(current.len(), 1);
+        assert_eq!(current[0].value, "MySQL");
+    }
+
+    #[test]
+    fn import_adds_new_facts() {
+        let policy = default_policy();
+        let mut k = ProjectKnowledge::new("/tmp/test");
+        k.remember("arch", "db", "PostgreSQL", "s1", 0.95, &policy);
+
+        let incoming = vec![KnowledgeFact {
+            category: "security".into(),
+            key: "auth".into(),
+            value: "JWT".into(),
+            source_session: "import".into(),
+            confidence: 0.9,
+            created_at: Utc::now(),
+            last_confirmed: Utc::now(),
+            retrieval_count: 0,
+            last_retrieved: None,
+            valid_from: Some(Utc::now()),
+            valid_until: None,
+            supersedes: None,
+            confirmation_count: 1,
+            feedback_up: 0,
+            feedback_down: 0,
+            last_feedback: None,
+            privacy: FactPrivacy::default(),
+        }];
+
+        let result = k.import_facts(incoming, ImportMerge::SkipExisting, "imp-1", &policy);
+        assert_eq!(result.added, 1);
+        assert_eq!(k.facts.iter().filter(|f| f.is_current()).count(), 2);
+    }
+
+    #[test]
+    fn parse_simple_json_array() {
+        let data = r#"[
+            {"category": "arch", "key": "db", "value": "PostgreSQL"},
+            {"category": "security", "key": "auth", "value": "JWT", "confidence": 0.9}
+        ]"#;
+        let facts = parse_import_data(data).unwrap();
+        assert_eq!(facts.len(), 2);
+        assert_eq!(facts[0].category, "arch");
+        assert_eq!(facts[1].confidence, 0.9);
+    }
+
+    #[test]
+    fn parse_jsonl_format() {
+        let data = "{\"category\":\"arch\",\"key\":\"db\",\"value\":\"PG\"}\n\
+                    {\"category\":\"security\",\"key\":\"auth\",\"value\":\"JWT\"}";
+        let facts = parse_import_data(data).unwrap();
+        assert_eq!(facts.len(), 2);
+    }
+
+    #[test]
+    fn export_simple_only_current() {
+        let policy = default_policy();
+        let mut k = ProjectKnowledge::new("/tmp/test");
+        k.remember("arch", "db", "PostgreSQL", "s1", 0.95, &policy);
+        k.remember("arch", "db", "MySQL", "s2", 0.9, &policy);
+
+        let exported = k.export_simple();
+        assert_eq!(exported.len(), 1);
+        assert_eq!(exported[0].value, "MySQL");
+    }
+
+    #[test]
+    fn import_merge_parse() {
+        assert_eq!(ImportMerge::parse("replace"), Some(ImportMerge::Replace));
+        assert_eq!(ImportMerge::parse("append"), Some(ImportMerge::Append));
+        assert_eq!(
+            ImportMerge::parse("skip-existing"),
+            Some(ImportMerge::SkipExisting)
+        );
+        assert_eq!(
+            ImportMerge::parse("skip_existing"),
+            Some(ImportMerge::SkipExisting)
+        );
+        assert_eq!(ImportMerge::parse("skip"), Some(ImportMerge::SkipExisting));
+        assert!(ImportMerge::parse("invalid").is_none());
     }
 }

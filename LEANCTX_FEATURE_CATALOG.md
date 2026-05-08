@@ -91,6 +91,21 @@ This catalog is the single feature inventory for LeanCTX at release/runtime leve
 - `ctx_workflow`
 - `ctx_feedback`
 
+#### Knowledge CLI (`lean-ctx knowledge`)
+
+Full CLI parity with MCP `ctx_knowledge`:
+
+- `remember <value> --category <c> --key <k>` — store a fact
+- `recall [query] [--category <c>] [--mode auto|semantic|hybrid]` — retrieve facts
+- `search <query>` — cross-project knowledge search
+- `export [--format json|jsonl|simple] [--output <path>]` — export knowledge (stdout or file)
+- `import <path> [--merge replace|append|skip-existing] [--dry-run]` — import from JSON/JSONL
+- `remove --category <c> --key <k>` — remove a fact
+- `status` — knowledge base summary
+- `health` — health report with quality metrics
+
+Import supports three formats: native `ProjectKnowledge` JSON, simple `[{category, key, value}]` array, and JSONL (one fact per line). The `simple` format serves as the community interop schema for migration from other tools.
+
 ### D) Compression / Metrics / Runtime Ops
 
 - `ctx_cache`

@@ -1429,6 +1429,9 @@ COMMANDS:
     knowledge remember <value> --category <c> --key <k>   Store a fact
     knowledge recall [query] [--category <c>]             Retrieve facts
     knowledge search <query>       Cross-project knowledge search
+    knowledge export [--format json|jsonl|simple] [--output <path>]  Export knowledge
+    knowledge import <path> [--merge replace|append|skip-existing]   Import knowledge
+    knowledge remove --category <c> --key <k>             Remove a fact
     knowledge status               Knowledge base summary
     overview [task]                Project overview (task-contextualized if given)
     compress [--signatures]        Context compression checkpoint

@@ -5,6 +5,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.5.5] — 2026-05-08
+
+### Fixed
+
+- **Search command compression blocked by auth-flow false positive** — `rg`, `grep`, `find`, `fd`, `ag`, and `ack` outputs were silently skipped by the compression pipeline whenever the search results contained OAuth-related strings (`device_code`, `user_code`, `verification_uri`, etc.) anywhere in the matched source code. This caused 0% savings for any `rg` search over a codebase that implements or references OAuth device-code flows — even though the output was search results, not an actual auth prompt. The fix skips the `contains_auth_flow` guard for search commands in both the CLI (`shell/compress.rs`) and MCP (`ctx_shell`) paths. Real auth flows (e.g. `az login`, `gh auth login`) are still preserved verbatim for non-search commands. Reported by aguarella (Discord).
+- **Central `shorter_only` guard for all shell patterns** — Added a centralized length check in `patterns/mod.rs` that wraps every compressor (`FilterEngine`, `try_specific_pattern`, `json_schema`, `log_dedup`, `test`). No pattern can return `Some(result)` unless `result` is strictly shorter than the original output. Eliminates a class of bugs where patterns claimed compression without actually reducing size.
+- **`grep` compressor removes verbatim threshold** — Removed the `<= 100 lines` early return that passed small `rg`/`grep` outputs through uncompressed. All search outputs are now grouped by file with per-file match limits, regardless of size. Combined with the `shorter_only` guard, small outputs that can't be meaningfully compressed correctly return `None` instead of faking 0% savings.
+- **`gh` CLI verbatim returns replaced with `None`** — `gh pr diff`, `gh api`, `gh search`, `gh workflow`, and unknown `gh` subcommands no longer return `Some(output.to_string())` (which falsely claimed compression). They now return `None`, allowing fallback compressors or the caller to handle the output appropriately.
+- **`safeguard_ratio` aligned with CLI behavior** — The MCP compression guard now uses a 5% floor only for small outputs (<2,000 tokens) and allows aggressive compression for large outputs, matching the CLI pipeline behavior.
+- **`ctx_shell` search command inflation guard** — For search commands (`rg`, `grep`, etc.), the MCP handler now explicitly checks `c.len() <= output.len()` before using the compressed result, preventing any inflation from reaching the agent.
+- **Codex `AGENTS.md` overwrite** — `install_codex_instruction_docs` now uses marked-block insertion (`<!-- lean-ctx -->...<!-- /lean-ctx -->`) instead of overwriting `~/.codex/AGENTS.md`, preserving user instructions. Reported by Vitu (Discord).
+
+### Added
+
+- **Knowledge CLI: export/import/remove** — Full CLI parity with MCP `ctx_knowledge`:
+  - `lean-ctx knowledge export [--format json|jsonl|simple] [--output <path>]`
+  - `lean-ctx knowledge import <path> [--merge replace|append|skip-existing] [--dry-run]`
+  - `lean-ctx knowledge remove --category <cat> --key <key>`
+  - Core: `import_facts()` with merge strategies, `export_simple()` for interop, `parse_import_data()` with auto-format detection.
+  - Context OS: knowledge `import` events tracked via `KnowledgeRemembered` bus event.
+- **Context OS optimizations** — Connection pooling for Context Bus R/W, broadcast channels replacing mutex-guarded Vec, inverted token index for BM25 search, LRU session eviction, metrics consolidation cleanup.
+
+### Fixed (cont.)
+
+- **Dashboard scroll after fullscreen** — `switchView()` now closes any active fullscreen before tab transitions, restoring scroll in all views. (GitHub #186)
+
 ## [3.5.4] — 2026-05-07
 
 ### Fixed

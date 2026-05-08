@@ -770,6 +770,9 @@ function stopActiveSimulations() {
 function switchView(name) {
   if (currentView === name) return;
   stopActiveSimulations();
+  closeFullscreen();
+  const fsGraph = document.querySelector('.d3-container.graph-fullscreen');
+  if (fsGraph) toggleGraphFullscreen(fsGraph.id);
   currentView = name;
   document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
   const target = $('view-' + name);
