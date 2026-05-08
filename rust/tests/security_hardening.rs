@@ -6,10 +6,10 @@
 // ---------------------------------------------------------------------------
 #[test]
 fn dashboard_route_response_omits_token_without_valid_query() {
-    let src = include_str!("../src/dashboard/mod.rs");
+    let src = include_str!("../src/dashboard/routes/mod.rs");
 
     assert!(
-        src.contains("is_some_and(|q| constant_time_eq(q.as_bytes(), expected.as_bytes()))"),
+        src.contains("is_some_and(|q| super::constant_time_eq(q.as_bytes(), expected.as_bytes()))"),
         "C1: dashboard must use constant_time_eq via is_some_and for query token validation"
     );
     assert!(
