@@ -349,7 +349,7 @@ fn dir_size(path: &std::path::Path) -> u64 {
         for entry in entries.flatten() {
             let p = entry.path();
             if p.is_file() {
-                total += std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
+                total += std::fs::metadata(&p).map_or(0, |m| m.len());
             } else if p.is_dir() {
                 total += dir_size(&p);
             }
