@@ -1,0 +1,132 @@
+//! HTTP route handlers for the LeanCTX dashboard API.
+
+mod agents;
+mod context;
+mod graph;
+pub mod helpers;
+mod knowledge;
+mod memory;
+mod stats;
+mod system;
+mod tools;
+
+use std::sync::Arc;
+
+fn match_component_path(path: &str) -> Option<String> {
+    let content = match path {
+        "/static/components/cockpit-nav.js" => super::COCKPIT_COMPONENT_NAV_JS,
+        "/static/components/cockpit-context.js" => super::COCKPIT_COMPONENT_CONTEXT_JS,
+        "/static/components/cockpit-overview.js" => super::COCKPIT_COMPONENT_OVERVIEW_JS,
+        "/static/components/cockpit-live.js" => super::COCKPIT_COMPONENT_LIVE_JS,
+        "/static/components/cockpit-knowledge.js" => super::COCKPIT_COMPONENT_KNOWLEDGE_JS,
+        "/static/components/cockpit-agents.js" => super::COCKPIT_COMPONENT_AGENTS_JS,
+        "/static/components/cockpit-memory.js" => super::COCKPIT_COMPONENT_MEMORY_JS,
+        "/static/components/cockpit-search.js" => super::COCKPIT_COMPONENT_SEARCH_JS,
+        "/static/components/cockpit-compression.js" => super::COCKPIT_COMPONENT_COMPRESSION_JS,
+        "/static/components/cockpit-graph.js" => super::COCKPIT_COMPONENT_GRAPH_JS,
+        "/static/components/cockpit-health.js" => super::COCKPIT_COMPONENT_HEALTH_JS,
+        "/static/components/cockpit-remaining.js" => super::COCKPIT_COMPONENT_REMAINING_JS,
+        _ => return None,
+    };
+    Some(content.to_string())
+}
+
+pub fn route_response(
+    path: &str,
+    query_str: &str,
+    query_token: Option<&String>,
+    token: Option<&Arc<String>>,
+    method: &str,
+    body: &str,
+) -> (&'static str, &'static str, String) {
+    if path == "/" || path == "/index.html" || path == "/cockpit" || path == "/cockpit/" {
+        let mut html = super::COCKPIT_INDEX_HTML.to_string();
+        if let Some(t) = token {
+            let expected = t.as_str();
+            let valid_query = query_token
+                .as_ref()
+                .is_some_and(|q| super::constant_time_eq(q.as_bytes(), expected.as_bytes()));
+            if valid_query {
+                let script = format!(
+                    "<script>window.__LEAN_CTX_TOKEN__=\"{expected}\";try{{if(location.search.includes('token=')){{history.replaceState(null,'',location.pathname+location.hash);}}}}catch(e){{}}</script>"
+                );
+                html = html.replacen("<head>", &format!("<head>{script}"), 1);
+            }
+        }
+        return ("200 OK", "text/html; charset=utf-8", html);
+    }
+    if path == "/legacy" || path == "/legacy/" {
+        let mut html = super::DASHBOARD_HTML.to_string();
+        if let Some(t) = token {
+            let expected = t.as_str();
+            let valid_query = query_token
+                .as_ref()
+                .is_some_and(|q| super::constant_time_eq(q.as_bytes(), expected.as_bytes()));
+            if valid_query {
+                let script = format!(
+                    "<script>window.__LEAN_CTX_TOKEN__=\"{expected}\";try{{if(location.search.includes('token=')){{history.replaceState(null,'',location.pathname);}}}}catch(e){{}}</script>"
+                );
+                html = html.replacen("<head>", &format!("<head>{script}"), 1);
+            }
+        }
+        return ("200 OK", "text/html; charset=utf-8", html);
+    }
+    if path == "/static/style.css" {
+        return (
+            "200 OK",
+            "text/css; charset=utf-8",
+            super::COCKPIT_STYLE_CSS.to_string(),
+        );
+    }
+    if path == "/static/lib/api.js" {
+        return (
+            "200 OK",
+            "application/javascript; charset=utf-8",
+            super::COCKPIT_LIB_API_JS.to_string(),
+        );
+    }
+    if path == "/static/lib/format.js" {
+        return (
+            "200 OK",
+            "application/javascript; charset=utf-8",
+            super::COCKPIT_LIB_FORMAT_JS.to_string(),
+        );
+    }
+    if path == "/static/lib/router.js" {
+        return (
+            "200 OK",
+            "application/javascript; charset=utf-8",
+            super::COCKPIT_LIB_ROUTER_JS.to_string(),
+        );
+    }
+    if path == "/static/lib/charts.js" {
+        return (
+            "200 OK",
+            "application/javascript; charset=utf-8",
+            super::COCKPIT_LIB_CHARTS_JS.to_string(),
+        );
+    }
+    if path == "/static/lib/shared.js" {
+        return (
+            "200 OK",
+            "application/javascript; charset=utf-8",
+            super::COCKPIT_LIB_SHARED_JS.to_string(),
+        );
+    }
+    if let Some(content) = match_component_path(path) {
+        return ("200 OK", "application/javascript; charset=utf-8", content);
+    }
+    if path == "/favicon.ico" {
+        return ("204 No Content", "text/plain", String::new());
+    }
+
+    stats::handle(path, query_str, method, body)
+        .or_else(|| context::handle(path, query_str, method, body))
+        .or_else(|| knowledge::handle(path, query_str, method, body))
+        .or_else(|| memory::handle(path, query_str, method, body))
+        .or_else(|| graph::handle(path, query_str, method, body))
+        .or_else(|| agents::handle(path, query_str, method, body))
+        .or_else(|| tools::handle(path, query_str, method, body))
+        .or_else(|| system::handle(path, query_str, method, body))
+        .unwrap_or_else(|| ("404 Not Found", "text/plain", "Not Found".to_string()))
+}

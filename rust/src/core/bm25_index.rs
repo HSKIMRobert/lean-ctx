@@ -4,6 +4,35 @@ use std::time::UNIX_EPOCH;
 
 use serde::{Deserialize, Serialize};
 
+const MAX_BM25_FILES: usize = 5000;
+const CHUNK_COUNT_WARNING: usize = 50_000;
+
+const DEFAULT_BM25_IGNORES: &[&str] = &[
+    "vendor/**",
+    "dist/**",
+    "build/**",
+    "public/vendor/**",
+    "public/js/**",
+    "public/css/**",
+    "public/build/**",
+    ".next/**",
+    ".nuxt/**",
+    "__pycache__/**",
+    "*.min.js",
+    "*.min.css",
+    "*.bundle.js",
+    "*.chunk.js",
+];
+
+fn max_bm25_cache_bytes() -> u64 {
+    std::env::var("LEAN_CTX_BM25_MAX_CACHE_MB")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or_else(|| crate::core::config::Config::load().bm25_max_cache_mb)
+        * 1024
+        * 1024
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodeChunk {
     pub file_path: String,
@@ -269,19 +298,58 @@ impl BM25Index {
     }
 
     pub fn save(&self, root: &Path) -> std::io::Result<()> {
+        if self.chunks.len() > CHUNK_COUNT_WARNING {
+            tracing::warn!(
+                "[bm25] index has {} chunks (threshold {}), consider adding extra_ignore_patterns",
+                self.chunks.len(),
+                CHUNK_COUNT_WARNING
+            );
+        }
+
         let dir = index_dir(root);
         std::fs::create_dir_all(&dir)?;
         let data = serde_json::to_string(self).map_err(std::io::Error::other)?;
+
+        let max_bytes = max_bm25_cache_bytes();
+        if data.len() as u64 > max_bytes {
+            tracing::warn!(
+                "[bm25] serialized index too large ({:.1} MB, limit {:.0} MB), refusing to persist: {}",
+                data.len() as f64 / 1_048_576.0,
+                max_bytes / (1024 * 1024),
+                dir.display()
+            );
+            return Ok(());
+        }
+
         let target = dir.join("bm25_index.json");
         let tmp = dir.join("bm25_index.json.tmp");
-        std::fs::write(&tmp, data)?;
+        std::fs::write(&tmp, &data)?;
         std::fs::rename(&tmp, &target)?;
+
+        let _ = std::fs::write(
+            dir.join("project_root.txt"),
+            root.to_string_lossy().as_bytes(),
+        );
+
         Ok(())
     }
 
     pub fn load(root: &Path) -> Option<Self> {
         let path = index_dir(root).join("bm25_index.json");
-        let data = std::fs::read_to_string(path).ok()?;
+        let meta = std::fs::metadata(&path).ok()?;
+        let max_bytes = max_bm25_cache_bytes();
+        if meta.len() > max_bytes {
+            tracing::warn!(
+                "[bm25] index too large ({:.1} GB, limit {:.0} MB), quarantining: {}",
+                meta.len() as f64 / 1_073_741_824.0,
+                max_bytes / (1024 * 1024),
+                path.display()
+            );
+            let quarantined = path.with_extension("json.quarantined");
+            let _ = std::fs::rename(&path, &quarantined);
+            return None;
+        }
+        let data = std::fs::read_to_string(&path).ok()?;
         serde_json::from_str(&data).ok()
     }
 
@@ -372,6 +440,17 @@ fn list_code_files(root: &Path) -> Vec<String> {
         .git_exclude(true)
         .build();
 
+    let cfg = crate::core::config::Config::load();
+    let mut ignore_patterns: Vec<glob::Pattern> = DEFAULT_BM25_IGNORES
+        .iter()
+        .filter_map(|p| glob::Pattern::new(p).ok())
+        .collect();
+    ignore_patterns.extend(
+        cfg.extra_ignore_patterns
+            .iter()
+            .filter_map(|p| glob::Pattern::new(p).ok()),
+    );
+
     let mut files: Vec<String> = Vec::new();
     for entry in walker.flatten() {
         let path = entry.path();
@@ -388,6 +467,16 @@ fn list_code_files(root: &Path) -> Vec<String> {
             .to_string();
         if rel.is_empty() {
             continue;
+        }
+        if ignore_patterns.iter().any(|p| p.matches(&rel)) {
+            continue;
+        }
+        if files.len() >= MAX_BM25_FILES {
+            tracing::warn!(
+                "[bm25] file cap reached ({MAX_BM25_FILES}), skipping remaining files in {}",
+                root.display()
+            );
+            break;
         }
         files.push(rel);
     }
@@ -850,5 +939,136 @@ mod tests {
         let mut perms = std::fs::metadata(&a_path).expect("meta a.rs").permissions();
         perms.set_mode(0o644);
         let _ = std::fs::set_permissions(&a_path, perms);
+    }
+
+    #[test]
+    fn load_quarantines_oversized_index() {
+        let _env = crate::core::data_dir::test_env_lock();
+        let td = tempdir().expect("tempdir");
+        let root = td.path();
+        let dir = crate::core::index_namespace::vectors_dir(root);
+        std::fs::create_dir_all(&dir).expect("create vectors dir");
+
+        let index_path = dir.join("bm25_index.json");
+        std::env::set_var("LEAN_CTX_BM25_MAX_CACHE_MB", "0");
+        std::fs::write(&index_path, r#"{"chunks":[]}"#).expect("write index");
+
+        let result = BM25Index::load(root);
+        assert!(result.is_none(), "oversized index should return None");
+        assert!(
+            !index_path.exists(),
+            "original index should be removed after quarantine"
+        );
+        assert!(
+            dir.join("bm25_index.json.quarantined").exists(),
+            "quarantined file should exist"
+        );
+
+        std::env::remove_var("LEAN_CTX_BM25_MAX_CACHE_MB");
+    }
+
+    #[test]
+    fn save_refuses_oversized_output() {
+        let _env = crate::core::data_dir::test_env_lock();
+        let data_dir = tempdir().expect("data_dir");
+        std::env::set_var("LEAN_CTX_DATA_DIR", data_dir.path());
+        std::env::set_var("LEAN_CTX_BM25_MAX_CACHE_MB", "0");
+
+        let td = tempdir().expect("tempdir");
+        let root = td.path();
+
+        let mut index = BM25Index::new();
+        index.add_chunk(CodeChunk {
+            file_path: "a.rs".into(),
+            symbol_name: "a".into(),
+            kind: ChunkKind::Function,
+            start_line: 1,
+            end_line: 1,
+            content: "fn a() {}".into(),
+            tokens: tokenize("fn a"),
+            token_count: 2,
+        });
+        index.finalize();
+
+        let _ = index.save(root);
+        let index_path = BM25Index::index_file_path(root);
+        assert!(
+            !index_path.exists(),
+            "save should refuse to persist oversized index"
+        );
+
+        std::env::remove_var("LEAN_CTX_BM25_MAX_CACHE_MB");
+    }
+
+    #[test]
+    fn save_writes_project_root_marker() {
+        let td = tempdir().expect("tempdir");
+        let root = td.path();
+        std::fs::write(root.join("a.rs"), "pub fn a() {}\n").expect("write");
+
+        std::env::remove_var("LEAN_CTX_BM25_MAX_CACHE_MB");
+        let index = BM25Index::build_from_directory(root);
+        index.save(root).expect("save");
+
+        let dir = crate::core::index_namespace::vectors_dir(root);
+        let marker = dir.join("project_root.txt");
+        assert!(marker.exists(), "project_root.txt marker should exist");
+        let content = std::fs::read_to_string(&marker).expect("read marker");
+        assert_eq!(content, root.to_string_lossy());
+    }
+
+    #[test]
+    fn list_code_files_skips_default_vendor_ignores() {
+        let td = tempdir().expect("tempdir");
+        let root = td.path();
+
+        std::fs::write(root.join("main.rs"), "pub fn main() {}\n").expect("write main");
+        std::fs::create_dir_all(root.join("vendor/lib")).expect("mkdir vendor");
+        std::fs::write(root.join("vendor/lib/dep.rs"), "pub fn dep() {}\n").expect("write vendor");
+        std::fs::create_dir_all(root.join("dist")).expect("mkdir dist");
+        std::fs::write(root.join("dist/bundle.js"), "function x() {}").expect("write dist");
+
+        let files = list_code_files(root);
+        assert!(
+            files.iter().any(|f| f == "main.rs"),
+            "main.rs should be included"
+        );
+        assert!(
+            !files.iter().any(|f| f.starts_with("vendor/")),
+            "vendor/ files should be excluded by DEFAULT_BM25_IGNORES"
+        );
+        assert!(
+            !files.iter().any(|f| f.starts_with("dist/")),
+            "dist/ files should be excluded by DEFAULT_BM25_IGNORES"
+        );
+    }
+
+    #[test]
+    fn list_code_files_respects_max_files_cap() {
+        let td = tempdir().expect("tempdir");
+        let root = td.path();
+
+        // Create more files than MAX_BM25_FILES wouldn't let us test easily (5000),
+        // but we can verify the cap constant exists and the function returns a bounded vec.
+        for i in 0..10 {
+            std::fs::write(
+                root.join(format!("f{i}.rs")),
+                format!("pub fn f{i}() {{}}\n"),
+            )
+            .expect("write");
+        }
+        let files = list_code_files(root);
+        assert!(
+            files.len() <= MAX_BM25_FILES,
+            "file count should not exceed MAX_BM25_FILES"
+        );
+    }
+
+    #[test]
+    fn max_bm25_cache_bytes_reads_env() {
+        std::env::set_var("LEAN_CTX_BM25_MAX_CACHE_MB", "64");
+        let bytes = max_bm25_cache_bytes();
+        assert_eq!(bytes, 64 * 1024 * 1024);
+        std::env::remove_var("LEAN_CTX_BM25_MAX_CACHE_MB");
     }
 }

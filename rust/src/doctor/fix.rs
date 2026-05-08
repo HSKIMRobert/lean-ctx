@@ -226,6 +226,31 @@ pub(super) fn run_fix(opts: &DoctorFixOptions) -> Result<i32, String> {
         steps.push(skill_step);
     }
 
+    let mut bm25_step = SetupStepReport {
+        name: "bm25_cache_prune".to_string(),
+        ok: true,
+        items: Vec::new(),
+        warnings: Vec::new(),
+        errors: Vec::new(),
+    };
+    let prune_result = crate::cli::prune_bm25_caches();
+    bm25_step.items.push(SetupItem {
+        name: "prune".to_string(),
+        status: if prune_result.removed > 0 {
+            "pruned".to_string()
+        } else {
+            "clean".to_string()
+        },
+        path: None,
+        note: Some(format!(
+            "scanned {}, removed {}, freed {:.1} MB",
+            prune_result.scanned,
+            prune_result.removed,
+            prune_result.bytes_freed as f64 / 1_048_576.0
+        )),
+    });
+    steps.push(bm25_step);
+
     let mut verify_step = SetupStepReport {
         name: "verify".to_string(),
         ok: true,

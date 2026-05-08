@@ -239,6 +239,14 @@ pub fn cmd_cache(args: &[String]) {
             cli_cache::invalidate(&args[1]);
             println!("Invalidated cache for {}", args[1]);
         }
+        Some("prune") => {
+            let result = prune_bm25_caches();
+            println!(
+                "Pruned {} entries, freed {:.1} MB",
+                result.removed,
+                result.bytes_freed as f64 / 1_048_576.0
+            );
+        }
         _ => {
             let (hits, reads, entries) = cli_cache::stats();
             let rate = if reads > 0 {
@@ -253,6 +261,99 @@ pub fn cmd_cache(args: &[String]) {
             println!("  cache clear       Clear all cached entries");
             println!("  cache reset       Reset all cache (or --project for current project only)");
             println!("  cache invalidate  Remove specific file from cache");
+            println!(
+                "  cache prune       Remove oversized, quarantined, and orphaned BM25 indexes"
+            );
         }
     }
+}
+
+pub struct PruneResult {
+    pub scanned: u32,
+    pub removed: u32,
+    pub bytes_freed: u64,
+}
+
+pub fn prune_bm25_caches() -> PruneResult {
+    let mut result = PruneResult {
+        scanned: 0,
+        removed: 0,
+        bytes_freed: 0,
+    };
+
+    let Ok(data_dir) = crate::core::data_dir::lean_ctx_data_dir() else {
+        return result;
+    };
+    let vectors_dir = data_dir.join("vectors");
+    let Ok(entries) = std::fs::read_dir(&vectors_dir) else {
+        return result;
+    };
+
+    let max_bytes = crate::core::config::Config::load().bm25_max_cache_mb * 1024 * 1024;
+
+    for entry in entries.flatten() {
+        let dir = entry.path();
+        if !dir.is_dir() {
+            continue;
+        }
+        result.scanned += 1;
+
+        let quarantined = dir.join("bm25_index.json.quarantined");
+        if quarantined.exists() {
+            if let Ok(meta) = std::fs::metadata(&quarantined) {
+                result.bytes_freed += meta.len();
+            }
+            let _ = std::fs::remove_file(&quarantined);
+            result.removed += 1;
+            println!("  Removed quarantined: {}", quarantined.display());
+        }
+
+        let index_path = dir.join("bm25_index.json");
+        if let Ok(meta) = std::fs::metadata(&index_path) {
+            if meta.len() > max_bytes {
+                result.bytes_freed += meta.len();
+                let _ = std::fs::remove_file(&index_path);
+                result.removed += 1;
+                println!(
+                    "  Removed oversized ({:.1} MB): {}",
+                    meta.len() as f64 / 1_048_576.0,
+                    index_path.display()
+                );
+            }
+        }
+
+        let marker = dir.join("project_root.txt");
+        if let Ok(root_str) = std::fs::read_to_string(&marker) {
+            let root_path = std::path::Path::new(root_str.trim());
+            if !root_path.exists() {
+                let freed = dir_size(&dir);
+                result.bytes_freed += freed;
+                let _ = std::fs::remove_dir_all(&dir);
+                result.removed += 1;
+                println!(
+                    "  Removed orphaned ({:.1} MB, project gone: {}): {}",
+                    freed as f64 / 1_048_576.0,
+                    root_str.trim(),
+                    dir.display()
+                );
+            }
+        }
+    }
+
+    result
+}
+
+fn dir_size(path: &std::path::Path) -> u64 {
+    let mut total = 0u64;
+    if let Ok(entries) = std::fs::read_dir(path) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.is_file() {
+                total += std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
+            } else if p.is_dir() {
+                total += dir_size(&p);
+            }
+        }
+    }
+    total
 }

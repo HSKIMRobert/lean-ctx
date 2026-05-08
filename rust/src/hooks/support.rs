@@ -95,11 +95,8 @@ pub(super) fn install_codex_instruction_docs(codex_dir: &Path) -> bool {
 
     let mut changed = false;
 
-    if !lean_ctx_md.exists()
-        || !std::fs::read_to_string(&lean_ctx_md)
-            .unwrap_or_default()
-            .contains("lean-ctx")
-    {
+    let existing_lean_ctx = std::fs::read_to_string(&lean_ctx_md).unwrap_or_default();
+    if existing_lean_ctx != lean_ctx_content {
         super::write_file(&lean_ctx_md, &lean_ctx_content);
         changed = true;
     }
@@ -143,9 +140,23 @@ pub(super) fn install_codex_instruction_docs(codex_dir: &Path) -> bool {
 fn codex_instruction_doc_content() -> String {
     let binary = super::resolve_binary_path();
     format!(
-        r"# lean-ctx — Token Optimization
+        r"# lean-ctx — Context Engineering Layer (Hybrid Mode)
 
-Prefix all shell commands with `{binary} -c` for compressed output:
+lean-ctx is available via **both** MCP tools and CLI commands.
+Use whichever path the current environment supports.
+
+## MCP tools (preferred when available)
+
+| Tool | Purpose |
+|------|---------|
+| `ctx_read` | Cached, compressed file reads (6 modes) |
+| `ctx_shell` | Shell commands with pattern compression (95+ patterns) |
+| `ctx_search` | Token-efficient code search |
+| `ctx_tree` | Compact directory maps |
+
+## CLI fallback
+
+Prefix shell commands with `{binary} -c` for compressed output:
 
 ```bash
 {binary} -c git status    # instead of: git status
@@ -155,6 +166,11 @@ Prefix all shell commands with `{binary} -c` for compressed output:
 
 This saves 60-90% tokens per command. Works with: git, cargo, npm, pnpm, docker, kubectl, pip, ruff, go, curl, grep, find, ls, aws, helm, and 95+ more commands.
 Use `{binary} -c --raw <cmd>` to skip compression and get full output.
+
+## When to use which
+
+- **Codex Desktop / Cloud**: MCP tools are the primary path (CLI may not be available).
+- **Codex CLI**: Both paths work; CLI is slightly faster for shell commands.
 "
     )
 }

@@ -5,6 +5,44 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.5.7] — 2026-05-08
+
+### Security
+
+- **BM25 index memory balloon fix (GitHub #188)** — Oversized BM25 cache files (observed up to 50 GB in monorepos with vendor/generated code) could cause the daemon to allocate unbounded memory on startup, leading to system-wide swapping and OOM conditions. This release implements an 8-layer defense:
+  1. **Load-time size guard** — `BM25Index::load()` now checks file metadata before reading. Indexes exceeding the configurable limit (default 512 MB) are quarantined by renaming to `.quarantined` and skipped.
+  2. **Save-time size guard** — `BM25Index::save()` refuses to persist serialized data exceeding the limit, preventing bloated indexes from being written in the first place.
+  3. **Chunk count warning** — Indexes with >50,000 chunks trigger a `tracing::warn` suggesting `extra_ignore_patterns` in `config.toml`.
+  4. **Default vendor/build ignores** — 14 glob patterns (`vendor/**`, `dist/**`, `build/**`, `.next/**`, `__pycache__/**`, `*.min.js`, `*.bundle.js`, etc.) are now excluded from BM25 indexing by default.
+  5. **File count cap** — `list_code_files()` stops collecting after 5,000 files per project, preventing runaway indexing in massive repos.
+  6. **Configurable limit** — New `bm25_max_cache_mb` setting in `config.toml` (default: 512). Override per-project or via `LEAN_CTX_BM25_MAX_CACHE_MB` env var.
+  7. **Project root marker** — `save()` writes a `project_root.txt` file alongside each index, enabling orphan detection when the original project directory is deleted.
+  8. **`lean-ctx doctor` BM25 health check** — Doctor now scans all vector directories, warns about large indexes (>100 MB), and fails for oversized indexes. `lean-ctx doctor --fix` automatically prunes quarantined, oversized, and orphaned caches.
+
+### Fixed
+
+- **Codex integration mode changed from CLI-Redirect to Hybrid** — Codex exists in three variants (CLI, Desktop App, Cloud Agent) that share `~/.codex/config.toml`. Only the CLI variant has reliable shell hooks; Desktop and Cloud require MCP. lean-ctx now treats Codex as **Hybrid** (MCP + CLI hooks where available) instead of CLI-Redirect, ensuring all three variants work correctly.
+- **Codex hook installer now writes MCP server entry** — `lean-ctx init --agent codex` now ensures `[mcp_servers.lean-ctx]` exists in `~/.codex/config.toml`. Previously, only CLI hooks and `codex_hooks = true` were written, leaving Desktop/Cloud variants without MCP access.
+- **Codex LEAN-CTX.md upgrade detection** — `install_codex_instruction_docs()` now compares file content instead of just checking for the string "lean-ctx". This ensures the instruction file is updated when the template changes (e.g., CLI-only → Hybrid mode), instead of being silently skipped on every subsequent install.
+- **Dashboard HTTP parser handles large POST bodies** — The dashboard TCP handler now reads complete HTTP messages using `Content-Length` header parsing instead of assuming the entire request fits in the first read. POST requests to API endpoints (e.g., knowledge CRUD, memory management) no longer fail silently when the body exceeds 8 KB. Maximum message size enforced at 2 MB.
+
+### Added
+
+- **Cockpit dashboard (complete rewrite)** — The localhost dashboard has been rebuilt from scratch as a modular single-page application:
+  - **12 Web Components**: Overview, Live Activity, Context Explorer, Knowledge Base, Graph Visualizer, Agent Sessions, Memory Inspector, Compression Stats, Health Monitor, Search, Remaining Token Budget, Navigation.
+  - **Modular Rust backend**: Monolithic route handler (~1,200 lines) replaced with 10 focused route modules (`routes/agents.rs`, `context.rs`, `graph.rs`, `knowledge.rs`, `memory.rs`, `stats.rs`, `system.rs`, `tools.rs`, `helpers.rs`, `mod.rs`).
+  - **Shared JS libraries**: `api.js` (fetch wrapper with token auth), `charts.js` (SVG charting), `format.js` (number/byte/duration formatting), `router.js` (hash-based SPA routing), `shared.js` (common utilities).
+  - **Full CSS redesign**: 800+ lines of modern CSS with dark theme, responsive layout, data tables, card grids, and chart containers.
+  - Legacy dashboard preserved at `/legacy` route for backwards compatibility.
+- **`lean-ctx cache prune` command** — New CLI command to scan `~/.lean-ctx/vectors/`, remove quarantined (`.quarantined`) files, oversized indexes, and orphaned directories (project root no longer exists). Reports count and freed space.
+- **`lean-ctx doctor` BM25 cache health check** — Proactive diagnostics for BM25 index health, integrated into the standard doctor report. `--fix` auto-prunes.
+
+### Improved
+
+- **Codex instruction docs now document Hybrid mode** — `~/.codex/LEAN-CTX.md` now includes both MCP tool table (ctx_read, ctx_shell, ctx_search, ctx_tree) and CLI fallback instructions, with guidance on when to use which path depending on the Codex variant.
+- **Website: Codex moved to Hybrid in Context OS table** — All 11 locale files and the ContextOsPage agent table updated. Codex now correctly appears under Hybrid mode instead of CLI-Redirect.
+- **Website: Codex editor guide updated** — DocsGuideEditorsPage now describes Codex as running in Hybrid mode across CLI, Desktop, and Cloud variants.
+
 ## [3.5.6] — 2026-05-08
 
 ### Fixed

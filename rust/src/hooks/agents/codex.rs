@@ -71,12 +71,22 @@ fn install_codex_hook_config(home: &std::path::Path) -> bool {
 
     let config_toml_path = codex_dir.join("config.toml");
     let config_content = std::fs::read_to_string(&config_toml_path).unwrap_or_default();
-    if let Some(updated) = ensure_codex_hooks_enabled(&config_content) {
-        write_file(&config_toml_path, &updated);
+
+    // Hybrid mode: ensure MCP server entry exists in config.toml so Codex
+    // Desktop/Cloud can reach lean-ctx even without CLI hooks.
+    let mcp_updated = ensure_codex_mcp_server(&config_content, &binary);
+    let hooks_updated =
+        ensure_codex_hooks_enabled(mcp_updated.as_deref().unwrap_or(&config_content));
+
+    let final_content = hooks_updated
+        .or(mcp_updated)
+        .unwrap_or_else(|| config_content.clone());
+    if final_content != config_content {
+        write_file(&config_toml_path, &final_content);
         changed = true;
         if !mcp_server_quiet_mode() {
             eprintln!(
-                "Enabled codex_hooks feature in {}",
+                "Updated Codex config (MCP server + hooks) in {}",
                 config_toml_path.display()
             );
         }
@@ -85,13 +95,29 @@ fn install_codex_hook_config(home: &std::path::Path) -> bool {
     changed
 }
 
+fn ensure_codex_mcp_server(config_content: &str, binary: &str) -> Option<String> {
+    if config_content.contains("[mcp_servers.lean-ctx]") {
+        return None;
+    }
+    let mut out = config_content.to_string();
+    if !out.is_empty() && !out.ends_with('\n') {
+        out.push('\n');
+    }
+    out.push_str(&format!(
+        "\n[mcp_servers.lean-ctx]\ncommand = \"{binary}\"\nargs = []\n"
+    ));
+    Some(out)
+}
+
 fn ensure_codex_hooks_enabled(config_content: &str) -> Option<String> {
     shared_ensure_codex_hooks_enabled(config_content)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{ensure_codex_hooks_enabled, upsert_lean_ctx_codex_hook_entries};
+    use super::{
+        ensure_codex_hooks_enabled, ensure_codex_mcp_server, upsert_lean_ctx_codex_hook_entries,
+    };
     use serde_json::json;
 
     #[test]
@@ -316,5 +342,34 @@ command = \"lean-ctx\"
         );
 
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn ensure_mcp_server_adds_section_when_missing() {
+        let input = "[features]\ncodex_hooks = true\n";
+        let result = ensure_codex_mcp_server(input, "lean-ctx").expect("should add MCP section");
+        assert!(result.contains("[mcp_servers.lean-ctx]"));
+        assert!(result.contains("command = \"lean-ctx\""));
+        assert!(result.contains("args = []"));
+        assert!(result.contains("[features]\ncodex_hooks = true\n"));
+    }
+
+    #[test]
+    fn ensure_mcp_server_noop_when_present() {
+        let input = "[mcp_servers.lean-ctx]\ncommand = \"lean-ctx\"\nargs = []\n";
+        assert!(
+            ensure_codex_mcp_server(input, "lean-ctx").is_none(),
+            "should not modify config when MCP section already exists"
+        );
+    }
+
+    #[test]
+    fn ensure_mcp_server_preserves_existing_sections() {
+        let input = "[mcp_servers.other]\ncommand = \"other\"\n";
+        let result = ensure_codex_mcp_server(input, "/usr/bin/lean-ctx")
+            .expect("should add lean-ctx section");
+        assert!(result.contains("[mcp_servers.other]"));
+        assert!(result.contains("[mcp_servers.lean-ctx]"));
+        assert!(result.contains("command = \"/usr/bin/lean-ctx\""));
     }
 }

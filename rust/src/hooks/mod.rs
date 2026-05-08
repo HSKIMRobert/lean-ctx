@@ -62,18 +62,20 @@ impl HookMode {
 /// only for agents where hooks demonstrably intercept every tool call.
 pub fn recommend_hook_mode(agent_key: &str) -> HookMode {
     match agent_key {
-        // CLI-Redirect: hooks verified to intercept ALL tool types (bash + read + grep).
+        // CLI-Redirect: hooks verified to intercept ALL tool types (bash + read + grep)
+        // in every execution mode the agent offers.
         // Cursor: hooks.json with Shell + Read|Grep matchers.
-        // Codex: all file ops go through Bash → single Bash hook catches everything.
         // Gemini CLI: BeforeTool for shell + read_file + grep + list_dir.
-        "cursor" | "codex" | "gemini" => HookMode::CliRedirect,
+        "cursor" | "gemini" => HookMode::CliRedirect,
 
         // Hybrid: MCP for Context OS features + hooks/rules for shell compression.
+        // Codex: CLI variant has Bash hooks, but Desktop/Cloud variants need MCP.
+        //   Shared config (~/.codex/config.toml) → Hybrid covers all three.
         // Claude Code: PreToolUse hooks don't fire in -p mode; needs MCP.
         // CRUSH/Hermes: no hooks at all, rules only → need MCP as reliable path.
         // OpenCode/Qoder: Bash hook only, no Read/Grep interception → need MCP.
         // Pi: external package routing, can't verify → need MCP.
-        "claude" | "claude-code" | "crush" | "hermes" | "opencode" | "pi" | "qoder"
+        "codex" | "claude" | "claude-code" | "crush" | "hermes" | "opencode" | "pi" | "qoder"
         | "windsurf" | "amp" | "cline" | "roo" | "copilot" | "kiro" | "qwen" | "trae"
         | "antigravity" | "amazonq" | "verdent" => HookMode::Hybrid,
 
@@ -1018,5 +1020,30 @@ mod tests {
                 pattern
             );
         }
+    }
+
+    #[test]
+    fn codex_is_hybrid_not_cli_redirect() {
+        assert_eq!(recommend_hook_mode("codex"), HookMode::Hybrid);
+    }
+
+    #[test]
+    fn cursor_remains_cli_redirect() {
+        assert_eq!(recommend_hook_mode("cursor"), HookMode::CliRedirect);
+    }
+
+    #[test]
+    fn gemini_remains_cli_redirect() {
+        assert_eq!(recommend_hook_mode("gemini"), HookMode::CliRedirect);
+    }
+
+    #[test]
+    fn claude_is_hybrid() {
+        assert_eq!(recommend_hook_mode("claude"), HookMode::Hybrid);
+    }
+
+    #[test]
+    fn unknown_agent_falls_back_to_mcp() {
+        assert_eq!(recommend_hook_mode("unknown-agent"), HookMode::Mcp);
     }
 }

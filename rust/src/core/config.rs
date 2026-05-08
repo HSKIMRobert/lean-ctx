@@ -182,6 +182,10 @@ pub struct Config {
     /// Override via LEAN_CTX_NO_UPDATE_CHECK env var.
     #[serde(default)]
     pub update_check_disabled: bool,
+    /// Maximum BM25 cache file size in MB. Indexes exceeding this are quarantined on load
+    /// and refused on save. Override via LEAN_CTX_BM25_MAX_CACHE_MB env var.
+    #[serde(default = "default_bm25_max_cache_mb")]
+    pub bm25_max_cache_mb: u64,
 }
 
 /// Settings for the zero-loss compression archive (large tool outputs saved to disk).
@@ -270,6 +274,10 @@ pub fn is_local_proxy_url(value: &str) -> bool {
 
 fn default_buddy_enabled() -> bool {
     true
+}
+
+fn default_bm25_max_cache_mb() -> u64 {
+    512
 }
 
 fn deserialize_tee_mode<'de, D>(deserializer: D) -> Result<TeeMode, D::Error>
@@ -470,6 +478,7 @@ impl Default for Config {
             minimal_overhead: false,
             shell_hook_disabled: false,
             update_check_disabled: false,
+            bm25_max_cache_mb: default_bm25_max_cache_mb(),
         }
     }
 }
@@ -1037,6 +1046,9 @@ impl Config {
         }
         if local.shell_hook_disabled {
             self.shell_hook_disabled = true;
+        }
+        if local.bm25_max_cache_mb != default_bm25_max_cache_mb() {
+            self.bm25_max_cache_mb = local.bm25_max_cache_mb;
         }
     }
 

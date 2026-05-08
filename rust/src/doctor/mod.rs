@@ -935,7 +935,14 @@ pub fn run() {
         print_check(ct);
     }
 
-    let mut effective_total = total + 3; // session_state + integrity + cache_safety always shown
+    // 15) BM25 cache health
+    let bm25_health = bm25_cache_health_outcome();
+    if bm25_health.ok {
+        passed += 1;
+    }
+    print_check(&bm25_health);
+
+    let mut effective_total = total + 4; // session_state + integrity + cache_safety + bm25_health
     effective_total += docker_outcomes.len() as u32;
     if pi.is_some() {
         effective_total += 1;
@@ -1159,6 +1166,100 @@ fn claude_truncation_outcome() -> Option<Outcome> {
                 "{BOLD}Claude Code instructions{RST}  {YELLOW}MCP instructions truncated at 2048 chars, no rules file found{RST}  {DIM}(run: lean-ctx init --agent claude){RST}"
             ),
         })
+    }
+}
+
+fn bm25_cache_health_outcome() -> Outcome {
+    let Ok(data_dir) = crate::core::data_dir::lean_ctx_data_dir() else {
+        return Outcome {
+            ok: true,
+            line: format!("{BOLD}BM25 cache{RST}  {DIM}skipped (no data dir){RST}"),
+        };
+    };
+
+    let vectors_dir = data_dir.join("vectors");
+    let Ok(entries) = std::fs::read_dir(&vectors_dir) else {
+        return Outcome {
+            ok: true,
+            line: format!("{BOLD}BM25 cache{RST}  {GREEN}no vector dirs{RST}"),
+        };
+    };
+
+    let max_bytes = crate::core::config::Config::load().bm25_max_cache_mb * 1024 * 1024;
+    let warn_bytes = 100 * 1024 * 1024; // 100 MB
+    let mut total_dirs = 0u32;
+    let mut total_bytes = 0u64;
+    let mut oversized: Vec<(String, u64)> = Vec::new();
+    let mut warnings: Vec<(String, u64)> = Vec::new();
+    let mut quarantined_count = 0u32;
+
+    for entry in entries.flatten() {
+        let dir = entry.path();
+        if !dir.is_dir() {
+            continue;
+        }
+        total_dirs += 1;
+
+        if dir.join("bm25_index.json.quarantined").exists() {
+            quarantined_count += 1;
+        }
+
+        let index_path = dir.join("bm25_index.json");
+        if let Ok(meta) = std::fs::metadata(&index_path) {
+            let size = meta.len();
+            total_bytes += size;
+            let display = index_path.display().to_string();
+            if size > max_bytes {
+                oversized.push((display, size));
+            } else if size > warn_bytes {
+                warnings.push((display, size));
+            }
+        }
+    }
+
+    if !oversized.is_empty() {
+        let details: Vec<String> = oversized
+            .iter()
+            .map(|(p, s)| format!("{p} ({:.1} GB)", *s as f64 / 1_073_741_824.0))
+            .collect();
+        return Outcome {
+            ok: false,
+            line: format!(
+                "{BOLD}BM25 cache{RST}  {RED}{} index(es) exceed limit ({:.0} MB){RST}: {}  {DIM}(run: lean-ctx cache prune){RST}",
+                oversized.len(),
+                max_bytes / (1024 * 1024),
+                details.join(", ")
+            ),
+        };
+    }
+
+    if !warnings.is_empty() {
+        let details: Vec<String> = warnings
+            .iter()
+            .map(|(p, s)| format!("{p} ({:.0} MB)", *s as f64 / 1_048_576.0))
+            .collect();
+        return Outcome {
+            ok: true,
+            line: format!(
+                "{BOLD}BM25 cache{RST}  {YELLOW}{} large index(es) (>100 MB){RST}: {}  {DIM}(consider extra_ignore_patterns){RST}",
+                warnings.len(),
+                details.join(", ")
+            ),
+        };
+    }
+
+    let quarantine_note = if quarantined_count > 0 {
+        format!("  {YELLOW}{quarantined_count} quarantined (run: lean-ctx cache prune){RST}")
+    } else {
+        String::new()
+    };
+
+    Outcome {
+        ok: true,
+        line: format!(
+            "{BOLD}BM25 cache{RST}  {GREEN}{total_dirs} index(es), {:.1} MB total{RST}{quarantine_note}",
+            total_bytes as f64 / 1_048_576.0
+        ),
     }
 }
 
