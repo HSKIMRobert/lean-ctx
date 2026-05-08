@@ -190,7 +190,8 @@ class CockpitSearch extends HTMLElement {
     if (!container) return;
 
     var F = fmtLib();
-    var esc = F.esc || function (s) { return String(s); };
+    var _e = document.createElement('span');
+    var esc = F.esc || function (s) { _e.textContent = s; return _e.innerHTML; };
     var fmt = F.fmt || function (n) { return String(n); };
 
     if (this._loading) {
