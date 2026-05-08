@@ -324,8 +324,8 @@ command = \"lean-ctx\"
             "lean-ctx block must be appended"
         );
         assert!(
-            result.contains("LEAN-CTX.md (same directory)"),
-            "lean-ctx reference must be present"
+            result.contains("~/.codex/LEAN-CTX.md"),
+            "lean-ctx reference must use absolute path"
         );
 
         let _ = std::fs::remove_dir_all(&tmp);
@@ -353,7 +353,7 @@ command = \"lean-ctx\"
             "user content after block preserved"
         );
         assert!(
-            result.contains("LEAN-CTX.md (same directory)"),
+            result.contains("~/.codex/LEAN-CTX.md"),
             "block updated to current reference"
         );
         assert!(
