@@ -86,10 +86,11 @@ impl ContextOsMetrics {
         let opened = self.sse_connections_opened.load(Ordering::Relaxed);
         let closed = self.sse_connections_closed.load(Ordering::Relaxed);
         let active_workspace_count = if let Ok(mut map) = self.active_workspaces.lock() {
-            let cutoff = Instant::now()
+            if let Some(cutoff) = Instant::now()
                 .checked_sub(std::time::Duration::from_secs(WORKSPACE_ACTIVE_TTL_SECS))
-                .unwrap_or_else(Instant::now);
-            map.retain(|_, last_seen| *last_seen > cutoff);
+            {
+                map.retain(|_, last_seen| *last_seen > cutoff);
+            }
             map.len()
         } else {
             0
