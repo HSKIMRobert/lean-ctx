@@ -1,9 +1,9 @@
 use std::path::Path;
 
-use crate::core::hybrid_search::{DenseSearchResult, HybridConfig, HybridResult};
-use crate::core::vector_index::BM25Index;
+use crate::core::bm25_index::BM25Index;
 #[cfg(feature = "qdrant")]
-use crate::core::vector_index::ChunkKind;
+use crate::core::bm25_index::ChunkKind;
+use crate::core::hybrid_search::{DenseSearchResult, HybridConfig, HybridResult};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DenseBackendKind {

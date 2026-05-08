@@ -366,7 +366,7 @@ async fn v1_events(
 
     let rt = crate::core::context_os::runtime();
     let replay = rt.bus.read(&ws, &ch, since, limit);
-    let rx = rt.bus.subscribe();
+    let rx = rt.bus.subscribe(&ws, &ch);
     rt.metrics.record_sse_connect();
     rt.metrics.record_events_replayed(replay.len() as u64);
     rt.metrics.record_workspace_active(&ws);
@@ -403,22 +403,20 @@ async fn v1_events(
 
             loop {
                 match rx.recv().await {
-                    Ok(mut ev) => {
-                        if ev.workspace_id == ws && ev.channel_id == ch && ev.id > last_id {
-                            last_id = ev.id;
-                            redact_event_payload(&mut ev, redaction);
-                            let data =
-                                serde_json::to_string(&ev).unwrap_or_else(|_| "{}".to_string());
-                            let evt = SseEvent::default()
-                                .id(ev.id.to_string())
-                                .event(ev.kind)
-                                .data(data);
-                            return Some((
-                                Ok(evt),
-                                (pending, rx, ws, ch, last_id, redaction, bus, metrics),
-                            ));
-                        }
+                    Ok(mut ev) if ev.id > last_id => {
+                        last_id = ev.id;
+                        redact_event_payload(&mut ev, redaction);
+                        let data = serde_json::to_string(&ev).unwrap_or_else(|_| "{}".to_string());
+                        let evt = SseEvent::default()
+                            .id(ev.id.to_string())
+                            .event(ev.kind)
+                            .data(data);
+                        return Some((
+                            Ok(evt),
+                            (pending, rx, ws, ch, last_id, redaction, bus, metrics),
+                        ));
                     }
+                    Ok(_) => {}
                     Err(broadcast::error::RecvError::Closed) => return None,
                     Err(broadcast::error::RecvError::Lagged(skipped)) => {
                         let missed = bus.read(&ws, &ch, last_id, skipped as usize);

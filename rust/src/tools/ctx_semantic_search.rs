@@ -2,11 +2,11 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::sync::OnceLock;
 
+use crate::core::bm25_index::{format_search_results, BM25Index};
 use crate::core::embedding_index::EmbeddingIndex;
 #[cfg(feature = "embeddings")]
 use crate::core::embeddings::EmbeddingEngine;
 use crate::core::hybrid_search::{format_hybrid_results, HybridConfig, HybridResult};
-use crate::core::vector_index::{format_search_results, BM25Index};
 use crate::tools::CrpMode;
 
 /// Performs semantic code search using BM25, dense embeddings, or hybrid ranking.
@@ -186,7 +186,7 @@ fn artifacts_search(
     roots.sort();
     roots.dedup();
 
-    let mut per_project: Vec<(String, Vec<crate::core::vector_index::SearchResult>)> = Vec::new();
+    let mut per_project: Vec<(String, Vec<crate::core::bm25_index::SearchResult>)> = Vec::new();
     let mut total_chunks = 0usize;
 
     for r in &roots {
@@ -215,7 +215,7 @@ fn artifacts_search(
         per_project.push((label, results));
     }
 
-    let mut fused: Vec<crate::core::vector_index::SearchResult> = if per_project.len() <= 1 {
+    let mut fused: Vec<crate::core::bm25_index::SearchResult> = if per_project.len() <= 1 {
         per_project
             .into_iter()
             .next()
@@ -485,12 +485,12 @@ fn rrf_merge_hybrid(lists: Vec<(String, Vec<HybridResult>)>, top_k: usize) -> Ve
 }
 
 fn rrf_merge_bm25(
-    lists: Vec<(String, Vec<crate::core::vector_index::SearchResult>)>,
+    lists: Vec<(String, Vec<crate::core::bm25_index::SearchResult>)>,
     top_k: usize,
-) -> Vec<crate::core::vector_index::SearchResult> {
+) -> Vec<crate::core::bm25_index::SearchResult> {
     use std::collections::HashMap;
 
-    let mut acc: HashMap<String, (crate::core::vector_index::SearchResult, f64)> = HashMap::new();
+    let mut acc: HashMap<String, (crate::core::bm25_index::SearchResult, f64)> = HashMap::new();
     for (label, results) in lists {
         for (rank, r) in results.into_iter().enumerate() {
             let key = format!(
@@ -504,7 +504,7 @@ fn rrf_merge_bm25(
         }
     }
 
-    let mut out: Vec<crate::core::vector_index::SearchResult> = acc
+    let mut out: Vec<crate::core::bm25_index::SearchResult> = acc
         .into_values()
         .map(|(mut r, s)| {
             r.score = s;
@@ -1051,7 +1051,7 @@ mod determinism_tests {
         let a = HybridResult {
             file_path: "a.rs".to_string(),
             symbol_name: "foo".to_string(),
-            kind: crate::core::vector_index::ChunkKind::Function,
+            kind: crate::core::bm25_index::ChunkKind::Function,
             start_line: 1,
             end_line: 1,
             snippet: "a".to_string(),
@@ -1064,7 +1064,7 @@ mod determinism_tests {
         let b = HybridResult {
             file_path: "b.rs".to_string(),
             symbol_name: "foo".to_string(),
-            kind: crate::core::vector_index::ChunkKind::Function,
+            kind: crate::core::bm25_index::ChunkKind::Function,
             start_line: 1,
             end_line: 1,
             snippet: "b".to_string(),

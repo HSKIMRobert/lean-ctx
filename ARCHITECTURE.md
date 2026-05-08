@@ -108,9 +108,18 @@ flowchart TB
         EvidenceLedger["Evidence Ledger — tool call journal with hashes"]
     end
 
+    subgraph contextos [Context OS — Multi-Agent Runtime]
+        ContextBus["Context Bus — SQLite WAL, R/W split, per-stream broadcast, FTS5"]
+        SharedSessions["Shared Sessions — LRU-64, workspace/channel keyed, persist-on-evict"]
+        ContextOSMetrics["Metrics — events, sessions, active workspaces (TTL)"]
+        ContextOSRuntime["Runtime — emit_event, event classification, consistency levels"]
+        SSEStream["SSE Streaming — per-stream subscribe, redacted team events"]
+        ContextViews["Context Views — /v1/context/summary, /v1/events/search, /v1/events/lineage"]
+    end
+
     subgraph memory [Context Memory]
         Session["Session State — CCP, file refs F1..Fn, task, receipts"]
-        KnowledgeStore["Knowledge Store — facts, patterns, history, rooms"]
+        KnowledgeStore["Knowledge Store — facts, patterns, history, rooms, inverted token index"]
         GotchaTracker["Gotcha Tracker — project + universal gotchas"]
         EpisodicMem["Episodic Memory — episode tracking"]
         ProceduralMem["Procedural Memory — learned procedures"]
@@ -118,7 +127,7 @@ flowchart TB
         KnowledgeRelations["Knowledge Relations — fact-to-fact graph"]
         KnowledgeEmbeddings["Knowledge Embeddings — semantic recall"]
         ConsolidationEngine["Consolidation Engine — merge insights"]
-        MemoryLifecycle["Memory Lifecycle — decay, archive, rehydrate"]
+        MemoryLifecycle["Memory Lifecycle — decay, category-grouped consolidation, archive, rehydrate"]
         SurvivalEngine["Session Survival — structured recovery queries"]
     end
 
@@ -128,7 +137,7 @@ flowchart TB
         GraphEnricher["Graph Enricher — metadata enrichment"]
         CallGraph["Call Graph — callers/callees"]
         SymbolMap["Symbol Map — symbol to position"]
-        VectorIndex["Vector Index — BM25 + dense embeddings"]
+        BM25Index["BM25 Index — lexical search + dense embeddings"]
         HybridSearch["Hybrid Search — RRF: BM25 + semantic + graph proximity"]
         RRFSearch["RRF Fusion — BM25 + Semantic + Graph Proximity"]
         ArtifactIndex["Artifact Index — proof, pack, bundle indexing"]
@@ -250,9 +259,9 @@ flowchart TB
     PropertyGraph --> GraphIndex
     GraphIndex --> GraphEnricher
     GraphEnricher --> CallGraph
-    VectorIndex --> HybridSearch
+    BM25Index --> HybridSearch
     PropertyGraph --> RRFSearch
-    VectorIndex --> RRFSearch
+    BM25Index --> RRFSearch
 
     HandoffLedger --> TransferBundle
     AgentRegistry --> CostAttribution
@@ -303,12 +312,21 @@ flowchart TB
 
     SymbolMap --> CallGraph
     PropertyGraph --> SymbolMap
-    VectorIndex --> ArtifactIndex
+    BM25Index --> ArtifactIndex
 
     SafetyNeedles --> ShellCompress
     VerifyObserve --> SLOEvaluate
     VerifyObserve --> ToolRegistry
     DegPolicy --> DegradationEval
+
+    ContextBus --> SharedSessions
+    ContextBus --> ContextOSMetrics
+    ContextOSRuntime --> ContextBus
+    SharedSessions --> Session
+    SSEStream --> ContextBus
+    ContextViews --> ContextBus
+    HTTPTeam --> ContextViews
+    HTTPTeam --> SSEStream
 
     CCPBundle --> Session
     EpisodicMem -.->|"project_hash, actions"| Session
@@ -614,16 +632,27 @@ flowchart LR
 | `core/context_package/auto_load.rs` | Auto-load — marked packages loaded on `ctx_overview` session start |
 | `cli/pack_cmd.rs` | CLI — `lean-ctx pack create/list/info/remove/export/import/install/auto-load` (9 subcommands) |
 
+### Context OS — Multi-Agent Runtime
+
+| Module | Purpose |
+|:---|:---|
+| `core/context_os/mod.rs` | Runtime entry point, `emit_event`, event classification, consistency levels |
+| `core/context_os/context_bus.rs` | Immutable event log — SQLite WAL, R/W connection split, per-stream broadcast channels, FTS5 search, in-memory version counter |
+| `core/context_os/shared_sessions.rs` | Multi-agent shared sessions — LRU-64 eviction, workspace/channel keyed, persist-on-evict |
+| `core/context_os/metrics.rs` | Observability — event counts, session loads/persists, active workspaces with TTL cleanup |
+| `http_server/context_views.rs` | REST endpoints — `/v1/context/summary`, `/v1/events/search` (FTS + channel filter), `/v1/events/lineage` |
+| `tools/knowledge_shared.rs` | Shared policy loader — deduplicated `load_policy_or_error` for knowledge tools |
+
 ### Memory and Knowledge
 
 | Module | Purpose |
 |:---|:---|
-| `core/knowledge.rs` | ProjectKnowledge — facts, patterns, history, rooms |
+| `core/knowledge.rs` | ProjectKnowledge — facts, patterns, history, rooms, inverted token index for O(terms) recall |
 | `core/gotcha_tracker/` | Gotcha tracking (project + universal) |
 | `core/knowledge_relations.rs` | Fact-to-fact relation graph |
 | `core/knowledge_embedding.rs` | Semantic recall via embeddings |
 | `core/knowledge_bootstrap.rs` | Initial knowledge population |
-| `core/memory_lifecycle.rs` | Decay, archive, rehydrate lifecycle |
+| `core/memory_lifecycle.rs` | Decay, category-grouped consolidation (O(n) per category), archive, rehydrate |
 | `core/consolidation_engine.rs` | Merge insights across sessions |
 | `core/session_diff.rs` | Session state diffing for change detection |
 | `core/episodic_memory.rs` | Episode tracking |
@@ -747,7 +776,7 @@ flowchart LR
 | `ctx_search` | Code search (regex + glob) |
 | `ctx_edit` | Safe file editing with TOCTOU guard |
 | `ctx_tree` | Directory listing |
-| `ctx_session` | Session management (24 actions) |
+| `ctx_session` | Session management (25 actions incl. output_stats) |
 | `ctx_knowledge` | Knowledge store (21 actions incl. health) |
 | `ctx_call` | Meta-tool for dynamic tool invocation |
 
@@ -808,6 +837,12 @@ ctx_compress, ctx_benchmark, ctx_metrics, ctx_analyze, ctx_cache, ctx_discover, 
 25. **Reversible Overlays** — Context manipulations (exclude, pin, rewrite, set_view) are stored as reversible overlays with scope (Call/Session/Project/Agent/Global) and automatic staleness detection when source content changes.
 
 26. **Context Compiler** — Greedy Knapsack algorithm selects items by efficiency (Φ/token), applies phase-transition view downgrades under budget pressure, and outputs in three modes: HandleManifest (5-10% tokens), Compressed (optimal views), FullPrompt (complete content).
+
+27. **Context Bus R/W split** — The Context Bus uses a dedicated write connection plus a pool of read-only connections (WAL mode), enabling concurrent reads without blocking event appends. Per-stream broadcast channels replace the global channel, eliminating cross-workspace filtering overhead.
+
+28. **Knowledge recall via inverted index** — Knowledge `recall()` builds a token index on load, reducing search from O(facts × terms × string_length) to O(terms × lookups). Category-grouped consolidation in `memory_lifecycle` reduces pairwise comparisons from O(n²) to O(n per category).
+
+29. **LRU session eviction** — `SharedSessionStore` caps cached sessions at 64, evicting the least-recently-used session (with disk persistence) when the limit is reached. Active workspace metrics auto-expire after 10 minutes of inactivity.
 
 ## Diagram 5: Context Field Theory (CFT) Architecture
 

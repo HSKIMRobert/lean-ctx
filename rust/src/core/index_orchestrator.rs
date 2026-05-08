@@ -5,8 +5,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 
+use crate::core::bm25_index::BM25Index;
 use crate::core::graph_index::{self, ProjectIndex};
-use crate::core::vector_index::BM25Index;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum State {

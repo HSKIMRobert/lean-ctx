@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-use crate::core::vector_index::{BM25Index, ChunkKind, CodeChunk, IndexedFileState};
+use crate::core::bm25_index::{BM25Index, ChunkKind, CodeChunk, IndexedFileState};
 
 const MAX_ARTIFACT_BYTES: u64 = 2_000_000;
 const MAX_CHUNKS_PER_FILE: usize = 50;
@@ -369,7 +369,7 @@ fn extract_artifact_chunks(file_path: &str, content: &str) -> Vec<CodeChunk> {
             let end = (c.offset + c.length).min(bytes.len());
             let slice = &bytes[c.offset..end];
             let chunk_text = String::from_utf8_lossy(slice).into_owned();
-            let tokens = crate::core::vector_index::tokenize_for_index(&chunk_text);
+            let tokens = crate::core::bm25_index::tokenize_for_index(&chunk_text);
             let token_count = tokens.len();
             let start_line = 1 + bytecount::count(&bytes[..c.offset], b'\n');
             let end_line = start_line + bytecount::count(slice, b'\n');
@@ -387,7 +387,7 @@ fn extract_artifact_chunks(file_path: &str, content: &str) -> Vec<CodeChunk> {
         return out;
     }
 
-    let tokens = crate::core::vector_index::tokenize_for_index(content);
+    let tokens = crate::core::bm25_index::tokenize_for_index(content);
     let token_count = tokens.len();
     let snippet = lines
         .iter()

@@ -10,7 +10,7 @@ use std::path::Path;
 use md5::{Digest, Md5};
 use serde::{Deserialize, Serialize};
 
-use crate::core::vector_index::{BM25Index, CodeChunk};
+use crate::core::bm25_index::{BM25Index, CodeChunk};
 
 #[derive(Debug, Clone)]
 pub struct QdrantConfig {
@@ -66,7 +66,7 @@ pub struct QdrantHit {
     pub score: f32,
     pub file_path: String,
     pub symbol_name: String,
-    pub kind: crate::core::vector_index::ChunkKind,
+    pub kind: crate::core::bm25_index::ChunkKind,
     pub start_line: usize,
     pub end_line: usize,
 }
@@ -397,7 +397,7 @@ fn point_id_for_chunk(chunk: &CodeChunk) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::vector_index::ChunkKind;
+    use crate::core::bm25_index::ChunkKind;
 
     fn chunk(file: &str, name: &str, start: usize, end: usize, kind: ChunkKind) -> CodeChunk {
         CodeChunk {

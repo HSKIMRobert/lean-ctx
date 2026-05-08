@@ -60,6 +60,8 @@ pub struct SearchQuery {
     pub q: String,
     #[serde(rename = "workspaceId")]
     pub workspace_id: Option<String>,
+    #[serde(rename = "channelId")]
+    pub channel_id: Option<String>,
     pub limit: Option<usize>,
 }
 
@@ -68,13 +70,14 @@ pub async fn v1_events_search(Query(q): Query<SearchQuery>) -> impl IntoResponse
     let limit = q.limit.unwrap_or(20).min(100);
 
     let rt = crate::core::context_os::runtime();
-    let results = rt.bus.search(&ws, &q.q, limit);
+    let results = rt.bus.search(&ws, q.channel_id.as_deref(), &q.q, limit);
 
     (
         StatusCode::OK,
         Json(serde_json::json!({
             "query": q.q,
             "workspaceId": ws,
+            "channelId": q.channel_id,
             "results": results,
             "count": results.len(),
         })),

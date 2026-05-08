@@ -709,7 +709,7 @@ fn route_response(
         "/api/search-index" => {
             let root_s = detect_project_root_for_dashboard();
             let root = std::path::Path::new(&root_s);
-            let index = crate::core::vector_index::BM25Index::load_or_build(root);
+            let index = crate::core::bm25_index::BM25Index::load_or_build(root);
             let summary = bm25_index_summary_json(&index);
             let json = serde_json::to_string(&summary).unwrap_or_else(|_| {
                 "{\"error\":\"failed to serialize search index summary\"}".to_string()
@@ -730,7 +730,7 @@ fn route_response(
             } else {
                 let root_s = detect_project_root_for_dashboard();
                 let root = std::path::Path::new(&root_s);
-                let index = crate::core::vector_index::BM25Index::load_or_build(root);
+                let index = crate::core::bm25_index::BM25Index::load_or_build(root);
                 let hits = index.search(&q, limit);
                 let results: Vec<serde_json::Value> = hits
                     .iter()
@@ -1226,8 +1226,8 @@ fn compression_demo_modes_json(
     })
 }
 
-fn bm25_index_summary_json(index: &crate::core::vector_index::BM25Index) -> serde_json::Value {
-    let mut sorted: Vec<&crate::core::vector_index::CodeChunk> = index.chunks.iter().collect();
+fn bm25_index_summary_json(index: &crate::core::bm25_index::BM25Index) -> serde_json::Value {
+    let mut sorted: Vec<&crate::core::bm25_index::CodeChunk> = index.chunks.iter().collect();
     sorted.sort_by_key(|c| std::cmp::Reverse(c.token_count));
     let top: Vec<serde_json::Value> = sorted
         .into_iter()

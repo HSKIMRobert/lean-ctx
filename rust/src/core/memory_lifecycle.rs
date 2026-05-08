@@ -89,48 +89,53 @@ pub fn apply_confidence_decay(facts: &mut [KnowledgeFact], config: &LifecycleCon
 }
 
 pub fn consolidate_similar(facts: &mut Vec<KnowledgeFact>, similarity_threshold: f32) -> usize {
-    let mut to_remove: Vec<usize> = Vec::new();
-    let len = facts.len();
+    let mut to_remove: std::collections::HashSet<usize> = std::collections::HashSet::new();
 
-    for i in 0..len {
-        if to_remove.contains(&i) || !facts[i].is_current() {
-            continue;
+    let mut category_groups: std::collections::HashMap<String, Vec<usize>> =
+        std::collections::HashMap::new();
+    for (i, f) in facts.iter().enumerate() {
+        if f.is_current() {
+            category_groups
+                .entry(f.category.clone())
+                .or_default()
+                .push(i);
         }
+    }
 
-        for j in (i + 1)..len {
-            if to_remove.contains(&j) || !facts[j].is_current() {
+    for indices in category_groups.values() {
+        for (pos_a, &i) in indices.iter().enumerate() {
+            if to_remove.contains(&i) {
                 continue;
             }
-
-            if facts[i].category != facts[j].category {
-                continue;
-            }
-
-            let sim = word_similarity(&facts[i].value, &facts[j].value);
-            if sim >= similarity_threshold {
-                if facts[i].confidence >= facts[j].confidence {
-                    facts[i].confirmation_count += facts[j].confirmation_count;
-                    if facts[j].last_confirmed > facts[i].last_confirmed {
-                        facts[i].last_confirmed = facts[j].last_confirmed;
+            for &j in &indices[pos_a + 1..] {
+                if to_remove.contains(&j) {
+                    continue;
+                }
+                let sim = word_similarity(&facts[i].value, &facts[j].value);
+                if sim >= similarity_threshold {
+                    if facts[i].confidence >= facts[j].confidence {
+                        facts[i].confirmation_count += facts[j].confirmation_count;
+                        if facts[j].last_confirmed > facts[i].last_confirmed {
+                            facts[i].last_confirmed = facts[j].last_confirmed;
+                        }
+                        to_remove.insert(j);
+                    } else {
+                        facts[j].confirmation_count += facts[i].confirmation_count;
+                        if facts[i].last_confirmed > facts[j].last_confirmed {
+                            facts[j].last_confirmed = facts[i].last_confirmed;
+                        }
+                        to_remove.insert(i);
+                        break;
                     }
-                    to_remove.push(j);
-                } else {
-                    facts[j].confirmation_count += facts[i].confirmation_count;
-                    if facts[i].last_confirmed > facts[j].last_confirmed {
-                        facts[j].last_confirmed = facts[i].last_confirmed;
-                    }
-                    to_remove.push(i);
-                    break;
                 }
             }
         }
     }
 
-    to_remove.sort_unstable();
-    to_remove.dedup();
     let count = to_remove.len();
-
-    for idx in to_remove.into_iter().rev() {
+    let mut sorted: Vec<usize> = to_remove.into_iter().collect();
+    sorted.sort_unstable();
+    for idx in sorted.into_iter().rev() {
         facts.remove(idx);
     }
 

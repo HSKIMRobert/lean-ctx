@@ -13,7 +13,7 @@ pub fn handle(action: &str, project_root: &Path) -> String {
         }
         "build-full" => {
             // Force rebuild by deleting existing on-disk indexes first.
-            let bm25 = crate::core::vector_index::BM25Index::index_file_path(project_root);
+            let bm25 = crate::core::bm25_index::BM25Index::index_file_path(project_root);
             let _ = std::fs::remove_file(&bm25);
             if let Some(dir) = crate::core::graph_index::ProjectIndex::index_dir(
                 project_root.to_string_lossy().as_ref(),

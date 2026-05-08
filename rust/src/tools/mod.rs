@@ -66,6 +66,7 @@ pub mod ctx_tree;
 pub mod ctx_verify;
 pub mod ctx_workflow;
 pub mod ctx_wrapped;
+pub(crate) mod knowledge_shared;
 pub mod registered;
 
 const DEFAULT_CACHE_TTL_SECS: u64 = 300;

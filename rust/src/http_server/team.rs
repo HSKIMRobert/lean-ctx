@@ -1021,7 +1021,7 @@ async fn v1_events(
 
     let rt = crate::core::context_os::runtime();
     let replay = rt.bus.read(&ws, &ch, since, limit);
-    let rx = rt.bus.subscribe();
+    let rx = rt.bus.subscribe(&ws, &ch);
     rt.metrics.record_sse_connect();
     rt.metrics.record_events_replayed(replay.len() as u64);
     rt.metrics.record_workspace_active(&ws);
@@ -1031,33 +1031,51 @@ async fn v1_events(
     let pending: std::collections::VecDeque<crate::core::context_os::ContextEventV1> =
         replay.into();
 
+    use crate::core::context_os::{redact_event_payload, RedactionLevel};
+    let redaction = RedactionLevel::RefsOnly;
+
     let stream = futures::stream::unfold(
-        (pending, rx, ws.clone(), ch.clone(), since, bus, metrics),
-        |(mut pending, mut rx, ws, ch, mut last_id, bus, metrics)| async move {
-            if let Some(ev) = pending.pop_front() {
+        (
+            pending,
+            rx,
+            ws.clone(),
+            ch.clone(),
+            since,
+            redaction,
+            bus,
+            metrics,
+        ),
+        |(mut pending, mut rx, ws, ch, mut last_id, redaction, bus, metrics)| async move {
+            if let Some(mut ev) = pending.pop_front() {
                 last_id = ev.id;
+                redact_event_payload(&mut ev, redaction);
                 let data = serde_json::to_string(&ev).unwrap_or_else(|_| "{}".to_string());
                 let evt = SseEvent::default()
                     .id(ev.id.to_string())
                     .event(ev.kind)
                     .data(data);
-                return Some((Ok(evt), (pending, rx, ws, ch, last_id, bus, metrics)));
+                return Some((
+                    Ok(evt),
+                    (pending, rx, ws, ch, last_id, redaction, bus, metrics),
+                ));
             }
 
             loop {
                 match rx.recv().await {
-                    Ok(ev) => {
-                        if ev.workspace_id == ws && ev.channel_id == ch && ev.id > last_id {
-                            last_id = ev.id;
-                            let data =
-                                serde_json::to_string(&ev).unwrap_or_else(|_| "{}".to_string());
-                            let evt = SseEvent::default()
-                                .id(ev.id.to_string())
-                                .event(ev.kind)
-                                .data(data);
-                            return Some((Ok(evt), (pending, rx, ws, ch, last_id, bus, metrics)));
-                        }
+                    Ok(mut ev) if ev.id > last_id => {
+                        last_id = ev.id;
+                        redact_event_payload(&mut ev, redaction);
+                        let data = serde_json::to_string(&ev).unwrap_or_else(|_| "{}".to_string());
+                        let evt = SseEvent::default()
+                            .id(ev.id.to_string())
+                            .event(ev.kind)
+                            .data(data);
+                        return Some((
+                            Ok(evt),
+                            (pending, rx, ws, ch, last_id, redaction, bus, metrics),
+                        ));
                     }
+                    Ok(_) => {}
                     Err(broadcast::error::RecvError::Closed) => return None,
                     Err(broadcast::error::RecvError::Lagged(skipped)) => {
                         let missed = bus.read(&ws, &ch, last_id, skipped as usize);
@@ -1165,6 +1183,18 @@ pub async fn serve_team(cfg: TeamServerConfig) -> Result<()> {
         .route("/v1/tools", get(v1_tools))
         .route("/v1/tools/call", axum::routing::post(v1_tool_call))
         .route("/v1/events", get(v1_events))
+        .route(
+            "/v1/context/summary",
+            get(super::context_views::v1_context_summary),
+        )
+        .route(
+            "/v1/events/search",
+            get(super::context_views::v1_events_search),
+        )
+        .route(
+            "/v1/events/lineage",
+            get(super::context_views::v1_event_lineage),
+        )
         .route("/v1/metrics", get(v1_team_metrics))
         .fallback_service(mcp_http)
         .layer(axum::extract::DefaultBodyLimit::max(cfg.max_body_bytes))

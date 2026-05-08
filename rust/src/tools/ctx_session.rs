@@ -464,9 +464,17 @@ stale_files: {}\n",
             }
         }
 
-        "verify" => {
+        "output_stats" => {
             let snap = crate::core::output_verification::stats_snapshot();
             snap.format_compact()
+        }
+
+        "verify" => {
+            let snap = crate::core::output_verification::stats_snapshot();
+            format!(
+                "DEPRECATION: action=\"verify\" is renamed to action=\"output_stats\" (ctx_verify is the full observability stack).\n{}",
+                snap.format_compact()
+            )
         }
 
         "episodes" => {
@@ -673,7 +681,7 @@ stale_files: {}\n",
             }
         }
 
-        _ => format!("Unknown action: {action}. Use: status, load, save, task, finding, decision, reset, list, cleanup, snapshot, restore, resume, configure, profile, role, budget, slo, diff, verify, export, import, episodes, procedures"),
+        _ => format!("Unknown action: {action}. Use: status, load, save, task, finding, decision, reset, list, cleanup, snapshot, restore, resume, configure, profile, role, budget, slo, diff, output_stats, verify, export, import, episodes, procedures"),
     }
 }
 

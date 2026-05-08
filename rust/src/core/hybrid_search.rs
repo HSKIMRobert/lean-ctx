@@ -11,7 +11,7 @@
 
 use std::collections::HashMap;
 
-use super::vector_index::{BM25Index, ChunkKind, SearchResult};
+use super::bm25_index::{BM25Index, ChunkKind, SearchResult};
 
 #[cfg(feature = "embeddings")]
 use super::embeddings::{cosine_similarity, EmbeddingEngine};
@@ -178,7 +178,7 @@ pub fn hybrid_search(query: &str, index: &BM25Index, top_k: usize) -> Vec<Hybrid
 fn dense_search(
     query: &str,
     engine: &EmbeddingEngine,
-    chunks: &[super::vector_index::CodeChunk],
+    chunks: &[super::bm25_index::CodeChunk],
     embeddings: &[Vec<f32>],
     top_k: usize,
 ) -> Vec<DenseSearchResult> {

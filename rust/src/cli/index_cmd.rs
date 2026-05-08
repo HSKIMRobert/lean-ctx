@@ -23,7 +23,7 @@ pub fn cmd_index(args: &[String]) {
         }
         Some("build-full") => {
             // Force rebuild by deleting existing on-disk indexes first.
-            let bm25 = crate::core::vector_index::BM25Index::index_file_path(root);
+            let bm25 = crate::core::bm25_index::BM25Index::index_file_path(root);
             let _ = std::fs::remove_file(&bm25);
             if let Some(dir) = crate::core::graph_index::ProjectIndex::index_dir(&project_root) {
                 let _ = std::fs::remove_file(dir.join("index.json"));
@@ -152,5 +152,5 @@ fn snapshot_code_files(project_root: &Path) -> HashMap<String, FileState> {
 }
 
 fn is_code_file(path: &Path) -> bool {
-    crate::core::vector_index::is_code_file(path)
+    crate::core::bm25_index::is_code_file(path)
 }

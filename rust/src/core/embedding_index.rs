@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use md5::{Digest, Md5};
 use serde::{Deserialize, Serialize};
 
-use super::vector_index::CodeChunk;
+use super::bm25_index::CodeChunk;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddingIndex {
@@ -199,8 +199,8 @@ fn compute_file_hashes(chunks: &[CodeChunk]) -> HashMap<String, String> {
     out
 }
 
-fn kind_tag(kind: &super::vector_index::ChunkKind) -> u8 {
-    use super::vector_index::ChunkKind;
+fn kind_tag(kind: &super::bm25_index::ChunkKind) -> u8 {
+    use super::bm25_index::ChunkKind;
     match kind {
         ChunkKind::Function => 1,
         ChunkKind::Struct => 2,
@@ -215,7 +215,7 @@ fn kind_tag(kind: &super::vector_index::ChunkKind) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::vector_index::{ChunkKind, CodeChunk};
+    use crate::core::bm25_index::{ChunkKind, CodeChunk};
 
     fn make_chunk(file: &str, name: &str, content: &str, start: usize, end: usize) -> CodeChunk {
         CodeChunk {

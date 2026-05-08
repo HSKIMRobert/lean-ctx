@@ -67,6 +67,8 @@ pub fn emit_event(
         .is_some()
     {
         rt.metrics.record_event_appended();
+        rt.metrics.record_event_broadcast();
+        rt.metrics.record_workspace_active(workspace_id);
     }
 }
 
@@ -85,6 +87,7 @@ pub fn secondary_event_kind(tool: &str, action: Option<&str>) -> Option<ContextE
                     | "decision"
                     | "reset"
                     | "import"
+                    | "export"
             ) {
                 Some(ContextEventKindV1::SessionMutated)
             } else {
@@ -105,7 +108,7 @@ pub fn secondary_event_kind(tool: &str, action: Option<&str>) -> Option<ContextE
         }
         "ctx_artifacts" => {
             let a = action.unwrap_or("");
-            if matches!(a, "store" | "reindex" | "remove") {
+            if matches!(a, "reindex" | "remove") {
                 Some(ContextEventKindV1::ArtifactStored)
             } else {
                 None

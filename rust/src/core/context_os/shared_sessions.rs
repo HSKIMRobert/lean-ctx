@@ -1,11 +1,14 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use tokio::sync::RwLock;
 
 use crate::core::project_hash;
 use crate::core::session::SessionState;
+
+const MAX_CACHED_SESSIONS: usize = 64;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SharedSessionKey {
@@ -24,8 +27,14 @@ impl SharedSessionKey {
     }
 }
 
+struct SessionEntry {
+    session: Arc<RwLock<SessionState>>,
+    project_root: String,
+    last_accessed: Instant,
+}
+
 pub struct SharedSessionStore {
-    sessions: Mutex<HashMap<SharedSessionKey, Arc<RwLock<SessionState>>>>,
+    sessions: Mutex<HashMap<SharedSessionKey, SessionEntry>>,
 }
 
 impl Default for SharedSessionStore {
@@ -54,15 +63,56 @@ impl SharedSessionStore {
             .sessions
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        map.entry(key)
-            .or_insert_with(|| {
-                let mut loaded = load_session_from_disk(&root, &disk_key)
-                    .or_else(|| SessionState::load_latest_for_project_root(&root))
-                    .unwrap_or_default();
-                loaded.project_root = Some(root);
-                Arc::new(RwLock::new(loaded))
-            })
-            .clone()
+
+        if let Some(entry) = map.get_mut(&key) {
+            entry.last_accessed = Instant::now();
+            return entry.session.clone();
+        }
+
+        Self::evict_lru_if_needed(&mut map);
+
+        let mut loaded = load_session_from_disk(&root, &disk_key)
+            .or_else(|| SessionState::load_latest_for_project_root(&root))
+            .unwrap_or_default();
+        loaded.project_root = Some(root.clone());
+        let session = Arc::new(RwLock::new(loaded));
+
+        map.insert(
+            key,
+            SessionEntry {
+                session: session.clone(),
+                project_root: root,
+                last_accessed: Instant::now(),
+            },
+        );
+
+        session
+    }
+
+    fn evict_lru_if_needed(map: &mut HashMap<SharedSessionKey, SessionEntry>) {
+        if map.len() < MAX_CACHED_SESSIONS {
+            return;
+        }
+
+        let lru_key = map
+            .iter()
+            .min_by_key(|(_, e)| e.last_accessed)
+            .map(|(k, _)| k.clone());
+
+        if let Some(key) = lru_key {
+            if let Some(entry) = map.remove(&key) {
+                if let Ok(session) = entry.session.try_read() {
+                    persist_session_to_disk(&key, &entry.project_root, &session);
+                }
+            }
+        }
+    }
+
+    pub fn active_count(&self) -> usize {
+        self.sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .len()
     }
 
     pub fn persist_best_effort(
@@ -73,27 +123,26 @@ impl SharedSessionStore {
         session: &SessionState,
     ) {
         let key = SharedSessionKey::new(project_root, workspace_id, channel_id);
-        let Some(dir) = shared_session_dir(&key) else {
-            return;
-        };
-        let _ = std::fs::create_dir_all(&dir);
-        let state_path = dir.join("session.json");
-        let tmp = dir.join("session.json.tmp");
+        persist_session_to_disk(&key, project_root, session);
+    }
+}
 
-        if let Ok(json) = serde_json::to_string_pretty(session) {
-            let _ = std::fs::write(&tmp, json);
-            let _ = std::fs::rename(&tmp, &state_path);
-        }
+fn persist_session_to_disk(key: &SharedSessionKey, _project_root: &str, session: &SessionState) {
+    let Some(dir) = shared_session_dir(key) else {
+        return;
+    };
+    let _ = std::fs::create_dir_all(&dir);
+    let state_path = dir.join("session.json");
+    let tmp = dir.join("session.json.tmp");
 
-        // Persist a compaction snapshot alongside the shared session (premium UX).
-        let snap = if session.task.is_some() {
-            Some(session.build_compaction_snapshot())
-        } else {
-            None
-        };
-        if let Some(snapshot) = snap {
-            let _ = std::fs::write(dir.join("snapshot.txt"), snapshot);
-        }
+    if let Ok(json) = serde_json::to_string_pretty(session) {
+        let _ = std::fs::write(&tmp, json);
+        let _ = std::fs::rename(&tmp, &state_path);
+    }
+
+    if session.task.is_some() {
+        let snapshot = session.build_compaction_snapshot();
+        let _ = std::fs::write(dir.join("snapshot.txt"), snapshot);
     }
 }
 

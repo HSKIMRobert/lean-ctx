@@ -294,8 +294,8 @@ mod context_bus {
         let ws = unique_ws();
         let ch = unique_ch();
 
-        let mut rx1 = bus.subscribe();
-        let mut rx2 = bus.subscribe();
+        let mut rx1 = bus.subscribe(&ws, &ch);
+        let mut rx2 = bus.subscribe(&ws, &ch);
 
         let ev1 = bus
             .append(
@@ -596,7 +596,7 @@ mod external_app_docking {
         metrics.record_event_appended();
 
         // --- Phase 2: External app subscribes and reads ---
-        let mut rx = bus.subscribe();
+        let mut rx = bus.subscribe(ws, ch);
         metrics.record_sse_connect();
 
         let session = store.get_or_load(project, ws, ch);
@@ -638,8 +638,8 @@ mod external_app_docking {
         let ws = "ws-multi-app";
         let ch = "ch-default";
 
-        let mut app1_rx = bus.subscribe();
-        let mut app2_rx = bus.subscribe();
+        let mut app1_rx = bus.subscribe(ws, ch);
+        let mut app2_rx = bus.subscribe(ws, ch);
 
         // Agent 1 writes to session
         {
@@ -1199,7 +1199,7 @@ mod e2e_multi_agent_scenario {
         metrics.record_event_appended();
 
         // ── Step 2: Claude Agent reads context and adds findings ──
-        let mut claude_rx = bus.subscribe();
+        let mut claude_rx = bus.subscribe(ws, ch);
         metrics.record_sse_connect();
 
         {
@@ -1242,7 +1242,7 @@ mod e2e_multi_agent_scenario {
         metrics.record_event_broadcast();
 
         // ── Step 3: External dashboard app subscribes ──
-        let mut dashboard_rx = bus.subscribe();
+        let mut dashboard_rx = bus.subscribe(ws, ch);
         metrics.record_sse_connect();
 
         // ── Step 4: Copilot Agent adds a decision ──

@@ -1,10 +1,12 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::time::Instant;
 
 use serde::Serialize;
 
+const WORKSPACE_ACTIVE_TTL_SECS: u64 = 600;
+
 /// Process-local metrics for Context OS observability.
-#[derive(Default)]
 pub struct ContextOsMetrics {
     events_appended: AtomicU64,
     events_broadcast: AtomicU64,
@@ -13,7 +15,22 @@ pub struct ContextOsMetrics {
     sse_connections_closed: AtomicU64,
     shared_sessions_loaded: AtomicU64,
     shared_sessions_persisted: AtomicU64,
-    active_workspaces: Mutex<std::collections::HashSet<String>>,
+    active_workspaces: Mutex<std::collections::HashMap<String, Instant>>,
+}
+
+impl Default for ContextOsMetrics {
+    fn default() -> Self {
+        Self {
+            events_appended: AtomicU64::new(0),
+            events_broadcast: AtomicU64::new(0),
+            events_replayed: AtomicU64::new(0),
+            sse_connections_opened: AtomicU64::new(0),
+            sse_connections_closed: AtomicU64::new(0),
+            shared_sessions_loaded: AtomicU64::new(0),
+            shared_sessions_persisted: AtomicU64::new(0),
+            active_workspaces: Mutex::new(std::collections::HashMap::new()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -60,14 +77,23 @@ impl ContextOsMetrics {
     }
 
     pub fn record_workspace_active(&self, workspace_id: &str) {
-        if let Ok(mut set) = self.active_workspaces.lock() {
-            set.insert(workspace_id.to_string());
+        if let Ok(mut map) = self.active_workspaces.lock() {
+            map.insert(workspace_id.to_string(), Instant::now());
         }
     }
 
     pub fn snapshot(&self) -> MetricsSnapshot {
         let opened = self.sse_connections_opened.load(Ordering::Relaxed);
         let closed = self.sse_connections_closed.load(Ordering::Relaxed);
+        let active_workspace_count = if let Ok(mut map) = self.active_workspaces.lock() {
+            let cutoff = Instant::now()
+                .checked_sub(std::time::Duration::from_secs(WORKSPACE_ACTIVE_TTL_SECS))
+                .unwrap_or_else(Instant::now);
+            map.retain(|_, last_seen| *last_seen > cutoff);
+            map.len()
+        } else {
+            0
+        };
         MetricsSnapshot {
             events_appended: self.events_appended.load(Ordering::Relaxed),
             events_broadcast: self.events_broadcast.load(Ordering::Relaxed),
@@ -76,7 +102,7 @@ impl ContextOsMetrics {
             sse_connections_total: opened,
             shared_sessions_loaded: self.shared_sessions_loaded.load(Ordering::Relaxed),
             shared_sessions_persisted: self.shared_sessions_persisted.load(Ordering::Relaxed),
-            active_workspace_count: self.active_workspaces.lock().map_or(0, |s| s.len()),
+            active_workspace_count,
         }
     }
 }

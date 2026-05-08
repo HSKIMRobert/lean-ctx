@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -6,6 +7,8 @@ use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::broadcast;
+
+const MAX_READ_CONNS: usize = 4;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -32,12 +35,18 @@ impl ContextEventKindV1 {
 
     pub fn parse(s: &str) -> Self {
         match s.trim().to_lowercase().as_str() {
+            "tool_call_recorded" => Self::ToolCallRecorded,
             "session_mutated" => Self::SessionMutated,
             "knowledge_remembered" => Self::KnowledgeRemembered,
             "artifact_stored" => Self::ArtifactStored,
             "graph_built" => Self::GraphBuilt,
             "proof_added" => Self::ProofAdded,
-            _ => Self::ToolCallRecorded,
+            other => {
+                tracing::warn!(
+                    "unknown ContextEventKind '{other}', defaulting to ToolCallRecorded"
+                );
+                Self::ToolCallRecorded
+            }
         }
     }
 
@@ -129,9 +138,77 @@ pub struct ContextBus {
     inner: Arc<Inner>,
 }
 
+const STREAM_CHANNEL_SIZE: usize = 256;
+
 struct Inner {
-    conn: Mutex<Connection>,
-    tx: broadcast::Sender<ContextEventV1>,
+    write_conn: Mutex<Connection>,
+    read_pool: Mutex<Vec<Connection>>,
+    streams: Mutex<HashMap<String, broadcast::Sender<ContextEventV1>>>,
+    version_cache: Mutex<HashMap<String, i64>>,
+    db_path: PathBuf,
+}
+
+impl Inner {
+    fn open_read_conn(path: &PathBuf) -> Connection {
+        let conn = Connection::open(path).expect("open read context-os db");
+        let _ = conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA query_only=ON;");
+        conn
+    }
+
+    fn take_read_conn(&self) -> Connection {
+        self.read_pool
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .pop()
+            .unwrap_or_else(|| Self::open_read_conn(&self.db_path))
+    }
+
+    fn return_read_conn(&self, conn: Connection) {
+        let mut pool = self
+            .read_pool
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if pool.len() < MAX_READ_CONNS {
+            pool.push(conn);
+        }
+    }
+
+    fn stream_key(workspace_id: &str, channel_id: &str) -> String {
+        format!("{workspace_id}\0{channel_id}")
+    }
+
+    fn next_version(&self, workspace_id: &str, channel_id: &str) -> i64 {
+        let key = Self::stream_key(workspace_id, channel_id);
+
+        {
+            let mut cache = self
+                .version_cache
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if let Some(v) = cache.get_mut(&key) {
+                *v += 1;
+                return *v;
+            }
+        }
+
+        let conn = self.take_read_conn();
+        let v: i64 = conn
+            .query_row(
+                "SELECT COALESCE(MAX(version), 0) FROM context_events WHERE workspace_id = ?1 AND channel_id = ?2",
+                params![workspace_id, channel_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        self.return_read_conn(conn);
+
+        let mut cache = self
+            .version_cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let entry = cache.entry(key).or_insert(v);
+        *entry = (*entry).max(v) + 1;
+        *entry
+    }
 }
 
 impl Default for ContextBus {
@@ -146,7 +223,7 @@ impl ContextBus {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let conn = Connection::open(path).expect("open context-os db");
+        let conn = Connection::open(&path).expect("open context-os db");
         conn.execute_batch(
             "PRAGMA journal_mode=WAL;
              CREATE TABLE IF NOT EXISTS context_events (
@@ -165,13 +242,11 @@ impl ContextBus {
         )
         .expect("init context-os db");
 
-        // Migration: add version + parent_id to existing tables (idempotent).
         let _ = conn.execute_batch(
             "ALTER TABLE context_events ADD COLUMN version INTEGER NOT NULL DEFAULT 0;",
         );
         let _ = conn.execute_batch("ALTER TABLE context_events ADD COLUMN parent_id INTEGER;");
 
-        // FTS5 virtual table for full-text search over event payloads (idempotent).
         let _ = conn.execute_batch(
             "CREATE VIRTUAL TABLE IF NOT EXISTS context_events_fts USING fts5(
                payload_text,
@@ -180,17 +255,37 @@ impl ContextBus {
              );",
         );
 
-        let (tx, _) = broadcast::channel(1024);
+        let mut read_conns = Vec::with_capacity(MAX_READ_CONNS);
+        for _ in 0..MAX_READ_CONNS {
+            read_conns.push(Inner::open_read_conn(&path));
+        }
+
         Self {
             inner: Arc::new(Inner {
-                conn: Mutex::new(conn),
-                tx,
+                write_conn: Mutex::new(conn),
+                read_pool: Mutex::new(read_conns),
+                streams: Mutex::new(HashMap::new()),
+                version_cache: Mutex::new(HashMap::new()),
+                db_path: path,
             }),
         }
     }
 
-    pub fn subscribe(&self) -> broadcast::Receiver<ContextEventV1> {
-        self.inner.tx.subscribe()
+    pub fn subscribe(
+        &self,
+        workspace_id: &str,
+        channel_id: &str,
+    ) -> broadcast::Receiver<ContextEventV1> {
+        let key = Inner::stream_key(workspace_id, channel_id);
+        let mut streams = self
+            .inner
+            .streams
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let tx = streams
+            .entry(key)
+            .or_insert_with(|| broadcast::channel(STREAM_CHANNEL_SIZE).0);
+        tx.subscribe()
     }
 
     pub fn append(
@@ -217,37 +312,47 @@ impl ContextBus {
         let payload_json = payload.to_string();
 
         let (id, version) = {
-            let Ok(conn) = self.inner.conn.lock() else {
+            let Ok(conn) = self.inner.write_conn.lock() else {
                 return None;
             };
-            let version: i64 = conn
-                .query_row(
-                    "SELECT COALESCE(MAX(version), 0) FROM context_events WHERE workspace_id = ?1 AND channel_id = ?2",
-                    params![workspace_id, channel_id],
-                    |row| row.get(0),
-                )
-                .unwrap_or(0)
-                + 1;
-            let _ = conn.execute(
-                "INSERT INTO context_events (workspace_id, channel_id, kind, actor, timestamp, payload_json, version, parent_id)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                params![
-                    workspace_id,
-                    channel_id,
-                    kind.as_str(),
-                    actor.map(str::to_string),
-                    ts.to_rfc3339(),
-                    payload_json,
-                    version,
-                    parent_id,
-                ],
-            );
-            let rowid = conn.last_insert_rowid();
-            let _ = conn.execute(
-                "INSERT INTO context_events_fts(rowid, payload_text) VALUES (?1, ?2)",
-                params![rowid, payload_json],
-            );
-            (rowid, version)
+            let version = self.inner.next_version(workspace_id, channel_id);
+
+            let result: Result<(i64, i64), rusqlite::Error> = conn
+                .execute_batch("BEGIN IMMEDIATE")
+                .and_then(|()| {
+                    conn.execute(
+                        "INSERT INTO context_events (workspace_id, channel_id, kind, actor, timestamp, payload_json, version, parent_id)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                        params![
+                            workspace_id,
+                            channel_id,
+                            kind.as_str(),
+                            actor.map(str::to_string),
+                            ts.to_rfc3339(),
+                            payload_json,
+                            version,
+                            parent_id,
+                        ],
+                    )?;
+                    let rowid = conn.last_insert_rowid();
+                    if let Err(e) = conn.execute(
+                        "INSERT INTO context_events_fts(rowid, payload_text) VALUES (?1, ?2)",
+                        params![rowid, payload_json],
+                    ) {
+                        tracing::warn!("FTS insert failed for event {rowid}: {e}");
+                    }
+                    conn.execute_batch("COMMIT")?;
+                    Ok((rowid, version))
+                });
+
+            match result {
+                Ok(pair) => pair,
+                Err(e) => {
+                    tracing::warn!("context bus append failed: {e}");
+                    let _ = conn.execute_batch("ROLLBACK");
+                    return None;
+                }
+            }
         };
 
         let ev = ContextEventV1 {
@@ -262,7 +367,17 @@ impl ContextBus {
             parent_id,
             payload,
         };
-        let _ = self.inner.tx.send(ev.clone());
+        let key = Inner::stream_key(workspace_id, channel_id);
+        let tx = self
+            .inner
+            .streams
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&key)
+            .cloned();
+        if let Some(tx) = tx {
+            let _ = tx.send(ev.clone());
+        }
         Some(ev)
     }
 
@@ -274,28 +389,25 @@ impl ContextBus {
         limit: usize,
     ) -> Vec<ContextEventV1> {
         let limit = limit.clamp(1, 1000) as i64;
-        let Ok(conn) = self.inner.conn.lock() else {
-            return Vec::new();
-        };
-        let Ok(mut stmt) = conn.prepare(
-            "SELECT id, workspace_id, channel_id, kind, actor, timestamp, payload_json, version, parent_id
-             FROM context_events
-             WHERE workspace_id = ?1 AND channel_id = ?2 AND id > ?3
-             ORDER BY id ASC
-             LIMIT ?4",
-        ) else {
-            return Vec::new();
-        };
-        let rows = stmt
-            .query_map(
-                params![workspace_id, channel_id, since, limit],
-                event_from_row,
-            )
-            .ok();
-        let Some(rows) = rows else {
-            return Vec::new();
-        };
-        rows.flatten().collect()
+        let conn = self.inner.take_read_conn();
+        let result = (|| {
+            let mut stmt = conn.prepare(
+                "SELECT id, workspace_id, channel_id, kind, actor, timestamp, payload_json, version, parent_id
+                 FROM context_events
+                 WHERE workspace_id = ?1 AND channel_id = ?2 AND id > ?3
+                 ORDER BY id ASC
+                 LIMIT ?4",
+            ).ok()?;
+            let rows = stmt
+                .query_map(
+                    params![workspace_id, channel_id, since, limit],
+                    event_from_row,
+                )
+                .ok()?;
+            Some(rows.flatten().collect::<Vec<_>>())
+        })();
+        self.inner.return_read_conn(conn);
+        result.unwrap_or_default()
     }
 
     /// Query recent events of a specific kind (for conflict detection).
@@ -307,56 +419,79 @@ impl ContextBus {
         limit: usize,
     ) -> Vec<ContextEventV1> {
         let limit = limit.clamp(1, 100) as i64;
-        let Ok(conn) = self.inner.conn.lock() else {
-            return Vec::new();
-        };
-        let Ok(mut stmt) = conn.prepare(
-            "SELECT id, workspace_id, channel_id, kind, actor, timestamp, payload_json, version, parent_id
-             FROM context_events
-             WHERE workspace_id = ?1 AND channel_id = ?2 AND kind = ?3
-             ORDER BY id DESC
-             LIMIT ?4",
-        ) else {
-            return Vec::new();
-        };
-        let rows = stmt
-            .query_map(
-                params![workspace_id, channel_id, kind, limit],
-                event_from_row,
-            )
-            .ok();
-        rows.map(|r| r.flatten().collect()).unwrap_or_default()
+        let conn = self.inner.take_read_conn();
+        let result = (|| {
+            let mut stmt = conn.prepare(
+                "SELECT id, workspace_id, channel_id, kind, actor, timestamp, payload_json, version, parent_id
+                 FROM context_events
+                 WHERE workspace_id = ?1 AND channel_id = ?2 AND kind = ?3
+                 ORDER BY id DESC
+                 LIMIT ?4",
+            ).ok()?;
+            let rows = stmt
+                .query_map(
+                    params![workspace_id, channel_id, kind, limit],
+                    event_from_row,
+                )
+                .ok()?;
+            Some(rows.flatten().collect::<Vec<_>>())
+        })();
+        self.inner.return_read_conn(conn);
+        result.unwrap_or_default()
     }
 
     /// Full-text search over event payloads via FTS5.
-    pub fn search(&self, workspace_id: &str, query: &str, limit: usize) -> Vec<ContextEventV1> {
+    pub fn search(
+        &self,
+        workspace_id: &str,
+        channel_id: Option<&str>,
+        query: &str,
+        limit: usize,
+    ) -> Vec<ContextEventV1> {
         let limit = limit.clamp(1, 100) as i64;
-        let Ok(conn) = self.inner.conn.lock() else {
-            return Vec::new();
-        };
-        let Ok(mut stmt) = conn.prepare(
-            "SELECT e.id, e.workspace_id, e.channel_id, e.kind, e.actor, e.timestamp,
-                    e.payload_json, e.version, e.parent_id
-             FROM context_events e
-             JOIN context_events_fts f ON e.id = f.rowid
-             WHERE f.payload_text MATCH ?1 AND e.workspace_id = ?2
-             ORDER BY f.rank
-             LIMIT ?3",
-        ) else {
-            return Vec::new();
-        };
-        let rows = stmt
-            .query_map(params![query, workspace_id, limit], event_from_row)
-            .ok();
-        rows.map(|r| r.flatten().collect()).unwrap_or_default()
+        let conn = self.inner.take_read_conn();
+        let result =
+            if let Some(ch) = channel_id {
+                (|| {
+                    let mut stmt = conn.prepare(
+                    "SELECT e.id, e.workspace_id, e.channel_id, e.kind, e.actor, e.timestamp,
+                            e.payload_json, e.version, e.parent_id
+                     FROM context_events e
+                     JOIN context_events_fts f ON e.id = f.rowid
+                     WHERE f.payload_text MATCH ?1 AND e.workspace_id = ?2 AND e.channel_id = ?3
+                     ORDER BY f.rank
+                     LIMIT ?4",
+                ).ok()?;
+                    let rows = stmt
+                        .query_map(params![query, workspace_id, ch, limit], event_from_row)
+                        .ok()?;
+                    Some(rows.flatten().collect::<Vec<_>>())
+                })()
+            } else {
+                (|| {
+                    let mut stmt = conn.prepare(
+                    "SELECT e.id, e.workspace_id, e.channel_id, e.kind, e.actor, e.timestamp,
+                            e.payload_json, e.version, e.parent_id
+                     FROM context_events e
+                     JOIN context_events_fts f ON e.id = f.rowid
+                     WHERE f.payload_text MATCH ?1 AND e.workspace_id = ?2
+                     ORDER BY f.rank
+                     LIMIT ?3",
+                ).ok()?;
+                    let rows = stmt
+                        .query_map(params![query, workspace_id, limit], event_from_row)
+                        .ok()?;
+                    Some(rows.flatten().collect::<Vec<_>>())
+                })()
+            };
+        self.inner.return_read_conn(conn);
+        result.unwrap_or_default()
     }
 
     /// Trace the causal lineage of an event by following parent_id chains.
     pub fn lineage(&self, event_id: i64, max_depth: usize) -> Vec<ContextEventV1> {
         let max_depth = max_depth.clamp(1, 50);
-        let Ok(conn) = self.inner.conn.lock() else {
-            return Vec::new();
-        };
+        let conn = self.inner.take_read_conn();
         let mut chain = Vec::new();
         let mut current_id = Some(event_id);
 
@@ -378,20 +513,22 @@ impl ContextBus {
                 Err(_) => break,
             }
         }
+        self.inner.return_read_conn(conn);
         chain
     }
 
     /// Returns the highest event id for a workspace/channel pair, or 0 if none.
     pub fn latest_id(&self, workspace_id: &str, channel_id: &str) -> i64 {
-        let Ok(conn) = self.inner.conn.lock() else {
-            return 0;
-        };
-        conn.query_row(
-            "SELECT COALESCE(MAX(id), 0) FROM context_events WHERE workspace_id = ?1 AND channel_id = ?2",
-            params![workspace_id, channel_id],
-            |row| row.get(0),
-        )
-        .unwrap_or(0)
+        let conn = self.inner.take_read_conn();
+        let result = conn
+            .query_row(
+                "SELECT COALESCE(MAX(id), 0) FROM context_events WHERE workspace_id = ?1 AND channel_id = ?2",
+                params![workspace_id, channel_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        self.inner.return_read_conn(conn);
+        result
     }
 }
 
@@ -568,7 +705,7 @@ mod tests {
     #[test]
     fn broadcast_subscriber_receives_events() {
         let bus = ContextBus::new();
-        let mut rx = bus.subscribe();
+        let mut rx = bus.subscribe("ws", "ch");
 
         let ev = bus
             .append(

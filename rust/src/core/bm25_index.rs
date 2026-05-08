@@ -287,11 +287,11 @@ impl BM25Index {
 
     pub fn load_or_build(root: &Path) -> Self {
         if let Some(idx) = Self::load(root) {
-            if !vector_index_looks_stale(&idx, root) {
+            if !bm25_index_looks_stale(&idx, root) {
                 return idx;
             }
             tracing::warn!(
-                "[vector_index: stale index detected for {}; rebuilding]",
+                "[bm25_index: stale index detected for {}; rebuilding]",
                 root.display()
             );
             let rebuilt = if idx.files.is_empty() {
@@ -313,7 +313,7 @@ impl BM25Index {
     }
 }
 
-fn vector_index_looks_stale(index: &BM25Index, root: &Path) -> bool {
+fn bm25_index_looks_stale(index: &BM25Index, root: &Path) -> bool {
     if index.chunks.is_empty() {
         return false;
     }
@@ -798,16 +798,16 @@ mod tests {
     }
 
     #[test]
-    fn vector_index_is_stale_when_any_indexed_file_is_missing() {
+    fn bm25_index_is_stale_when_any_indexed_file_is_missing() {
         let td = tempdir().expect("tempdir");
         let root = td.path();
         std::fs::write(root.join("a.rs"), "pub fn a() {}\n").expect("write a.rs");
 
         let idx = BM25Index::build_from_directory(root);
-        assert!(!vector_index_looks_stale(&idx, root));
+        assert!(!bm25_index_looks_stale(&idx, root));
 
         std::fs::remove_file(root.join("a.rs")).expect("remove a.rs");
-        assert!(vector_index_looks_stale(&idx, root));
+        assert!(bm25_index_looks_stale(&idx, root));
     }
 
     #[test]

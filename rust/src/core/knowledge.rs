@@ -262,26 +262,29 @@ impl ProjectKnowledge {
     pub fn recall(&self, query: &str) -> Vec<&KnowledgeFact> {
         let q = query.to_lowercase();
         let terms: Vec<&str> = q.split_whitespace().collect();
+        if terms.is_empty() {
+            return Vec::new();
+        }
 
-        let mut results: Vec<(&KnowledgeFact, f32)> = self
-            .facts
-            .iter()
-            .filter(|f| f.is_current())
-            .filter_map(|f| {
-                let searchable = format!(
-                    "{} {} {} {}",
-                    f.category.to_lowercase(),
-                    f.key.to_lowercase(),
-                    f.value.to_lowercase(),
-                    f.source_session
-                );
-                let match_count = terms.iter().filter(|t| searchable.contains(**t)).count();
-                if match_count > 0 {
-                    let relevance = (match_count as f32 / terms.len() as f32) * f.quality_score();
-                    Some((f, relevance))
-                } else {
-                    None
+        let index = build_token_index(&self.facts, true);
+        let mut match_counts: std::collections::HashMap<usize, usize> =
+            std::collections::HashMap::new();
+        for term in &terms {
+            if let Some(indices) = index.get(*term) {
+                for &idx in indices {
+                    if self.facts[idx].is_current() {
+                        *match_counts.entry(idx).or_insert(0) += 1;
+                    }
                 }
+            }
+        }
+
+        let mut results: Vec<(&KnowledgeFact, f32)> = match_counts
+            .into_iter()
+            .map(|(idx, count)| {
+                let f = &self.facts[idx];
+                let relevance = (count as f32 / terms.len() as f32) * f.quality_score();
+                (f, relevance)
             })
             .collect();
 
@@ -299,24 +302,28 @@ impl ProjectKnowledge {
     pub fn recall_at_time(&self, query: &str, at: DateTime<Utc>) -> Vec<&KnowledgeFact> {
         let q = query.to_lowercase();
         let terms: Vec<&str> = q.split_whitespace().collect();
+        if terms.is_empty() {
+            return Vec::new();
+        }
 
-        let mut results: Vec<(&KnowledgeFact, f32)> = self
-            .facts
-            .iter()
-            .filter(|f| f.was_valid_at(at))
-            .filter_map(|f| {
-                let searchable = format!(
-                    "{} {} {}",
-                    f.category.to_lowercase(),
-                    f.key.to_lowercase(),
-                    f.value.to_lowercase(),
-                );
-                let match_count = terms.iter().filter(|t| searchable.contains(**t)).count();
-                if match_count > 0 {
-                    Some((f, match_count as f32 / terms.len() as f32))
-                } else {
-                    None
+        let index = build_token_index(&self.facts, false);
+        let mut match_counts: std::collections::HashMap<usize, usize> =
+            std::collections::HashMap::new();
+        for term in &terms {
+            if let Some(indices) = index.get(*term) {
+                for &idx in indices {
+                    if self.facts[idx].was_valid_at(at) {
+                        *match_counts.entry(idx).or_insert(0) += 1;
+                    }
                 }
+            }
+        }
+
+        let mut results: Vec<(&KnowledgeFact, f32)> = match_counts
+            .into_iter()
+            .map(|(idx, count)| {
+                let f = &self.facts[idx];
+                (f, count as f32 / terms.len() as f32)
             })
             .collect();
 
@@ -736,31 +743,30 @@ impl ProjectKnowledge {
             return (Vec::new(), 0);
         }
 
+        let index = build_token_index(&self.facts, true);
+        let mut match_counts: std::collections::HashMap<usize, usize> =
+            std::collections::HashMap::new();
+        for term in &terms {
+            if let Some(indices) = index.get(*term) {
+                for &idx in indices {
+                    if self.facts[idx].is_current() {
+                        *match_counts.entry(idx).or_insert(0) += 1;
+                    }
+                }
+            }
+        }
+
         struct Scored {
             idx: usize,
             relevance: f32,
         }
 
-        let mut scored: Vec<Scored> = self
-            .facts
-            .iter()
-            .enumerate()
-            .filter(|(_, f)| f.is_current())
-            .filter_map(|(idx, f)| {
-                let searchable = format!(
-                    "{} {} {} {}",
-                    f.category.to_lowercase(),
-                    f.key.to_lowercase(),
-                    f.value.to_lowercase(),
-                    f.source_session
-                );
-                let match_count = terms.iter().filter(|t| searchable.contains(**t)).count();
-                if match_count > 0 {
-                    let relevance = (match_count as f32 / terms.len() as f32) * f.confidence;
-                    Some(Scored { idx, relevance })
-                } else {
-                    None
-                }
+        let mut scored: Vec<Scored> = match_counts
+            .into_iter()
+            .map(|(idx, count)| {
+                let f = &self.facts[idx];
+                let relevance = (count as f32 / terms.len() as f32) * f.confidence;
+                Scored { idx, relevance }
             })
             .collect();
 
@@ -949,6 +955,43 @@ fn salience_score(f: &KnowledgeFact) -> u32 {
 
 fn hash_project_root(root: &str) -> String {
     crate::core::project_hash::hash_project_root(root)
+}
+
+fn tokenize_lower(s: &str) -> impl Iterator<Item = String> + '_ {
+    s.to_lowercase()
+        .split(|c: char| c.is_whitespace() || c == '-' || c == '_' || c == '/' || c == '.')
+        .filter(|t| !t.is_empty())
+        .map(String::from)
+        .collect::<Vec<_>>()
+        .into_iter()
+}
+
+fn build_token_index(
+    facts: &[KnowledgeFact],
+    include_session: bool,
+) -> std::collections::HashMap<String, Vec<usize>> {
+    let mut index: std::collections::HashMap<String, Vec<usize>> = std::collections::HashMap::new();
+    for (i, f) in facts.iter().enumerate() {
+        for token in tokenize_lower(&f.category) {
+            index.entry(token).or_default().push(i);
+        }
+        for token in tokenize_lower(&f.key) {
+            index.entry(token).or_default().push(i);
+        }
+        for token in tokenize_lower(&f.value) {
+            index.entry(token).or_default().push(i);
+        }
+        if include_session {
+            for token in tokenize_lower(&f.source_session) {
+                index.entry(token).or_default().push(i);
+            }
+        }
+    }
+    for indices in index.values_mut() {
+        indices.sort_unstable();
+        indices.dedup();
+    }
+    index
 }
 
 fn fact_version_id_v1(f: &KnowledgeFact) -> String {
