@@ -202,8 +202,8 @@ struct TeamAuthContext {
 }
 
 #[derive(Clone)]
-pub(crate) struct TeamRequestContext {
-    pub(crate) workspace_id: String,
+pub struct TeamRequestContext {
+    pub workspace_id: String,
 }
 
 #[derive(Clone)]
@@ -705,6 +705,17 @@ async fn team_auth_middleware(
         if let Ok(v) = serde_json::from_slice::<Value>(&bytes) {
             if v.is_array() {
                 denied_reason = Some("batch_requests_not_supported".to_string());
+                let _ = audit_write(
+                    &state.team.audit,
+                    &tok.id,
+                    &workspace_id_for_audit,
+                    None,
+                    None,
+                    false,
+                    denied_reason.as_deref(),
+                    None,
+                )
+                .await;
             } else {
                 let method = v.get("method").and_then(|m| m.as_str()).unwrap_or("");
                 if method.eq_ignore_ascii_case("tools/call") {
