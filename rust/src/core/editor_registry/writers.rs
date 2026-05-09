@@ -1120,6 +1120,12 @@ fn upsert_codex_toml(existing: &str, binary: &str) -> String {
     let mut saw_section = false;
     let mut wrote_command = false;
     let mut wrote_args = false;
+    let mut inserted_parent_before_subtable = false;
+
+    let parent_block = format!(
+        "[mcp_servers.lean-ctx]\ncommand = {}\nargs = []\n\n",
+        toml_quote(binary)
+    );
 
     for line in existing.lines() {
         let trimmed = line.trim();
@@ -1138,6 +1144,12 @@ fn upsert_codex_toml(existing: &str, binary: &str) -> String {
             in_section = trimmed == "[mcp_servers.lean-ctx]";
             if in_section {
                 saw_section = true;
+            } else if !saw_section
+                && !inserted_parent_before_subtable
+                && trimmed.starts_with("[mcp_servers.lean-ctx.")
+            {
+                out.push_str(&parent_block);
+                inserted_parent_before_subtable = true;
             }
             out.push_str(line);
             out.push('\n');
@@ -1168,6 +1180,10 @@ fn upsert_codex_toml(existing: &str, binary: &str) -> String {
         if in_section && !wrote_args {
             out.push_str("args = []\n");
         }
+        return out;
+    }
+
+    if inserted_parent_before_subtable {
         return out;
     }
 
@@ -1557,6 +1573,83 @@ args = ["x"]
             updated.contains(&format!("command = \"{unix_path}\"")),
             "Unix paths should use double quotes: {updated}"
         );
+    }
+
+    #[test]
+    fn upsert_codex_toml_inserts_parent_before_orphaned_tool_subtables() {
+        let input = "\
+[mcp_servers.lean-ctx.tools.ctx_multi_read]
+approval_mode = \"approve\"
+
+[mcp_servers.lean-ctx.tools.ctx_read]
+approval_mode = \"approve\"
+";
+        let updated = upsert_codex_toml(input, "lean-ctx");
+        let parent_pos = updated
+            .find("[mcp_servers.lean-ctx]\n")
+            .expect("parent section must be inserted");
+        let tools_pos = updated
+            .find("[mcp_servers.lean-ctx.tools.")
+            .expect("tool sub-tables must be preserved");
+        assert!(
+            parent_pos < tools_pos,
+            "parent must come before tool sub-tables:\n{updated}"
+        );
+        assert!(updated.contains("command = \"lean-ctx\""));
+        assert!(updated.contains("args = []"));
+        assert!(updated.contains("approval_mode = \"approve\""));
+    }
+
+    #[test]
+    fn upsert_codex_toml_handles_issue_191_windows_scenario() {
+        let input = "\
+[mcp_servers.lean-ctx.tools.ctx_multi_read]
+approval_mode = \"approve\"
+
+[mcp_servers.lean-ctx.tools.ctx_read]
+approval_mode = \"approve\"
+
+[mcp_servers.lean-ctx.tools.ctx_search]
+approval_mode = \"approve\"
+
+[mcp_servers.lean-ctx.tools.ctx_tree]
+approval_mode = \"approve\"
+";
+        let win_path = r"C:\Users\wudon\AppData\Roaming\npm\lean-ctx.cmd";
+        let updated = upsert_codex_toml(input, win_path);
+        assert!(
+            updated.contains(&format!("command = '{win_path}'")),
+            "Windows path must use single quotes: {updated}"
+        );
+        let parent_pos = updated.find("[mcp_servers.lean-ctx]\n").unwrap();
+        let first_tool = updated.find("[mcp_servers.lean-ctx.tools.").unwrap();
+        assert!(parent_pos < first_tool);
+        assert_eq!(
+            updated.matches("[mcp_servers.lean-ctx]\n").count(),
+            1,
+            "parent section must appear exactly once"
+        );
+    }
+
+    #[test]
+    fn upsert_codex_toml_does_not_duplicate_parent_when_present() {
+        let input = "\
+[mcp_servers.lean-ctx]
+command = \"old\"
+args = [\"x\"]
+
+[mcp_servers.lean-ctx.tools.ctx_read]
+approval_mode = \"approve\"
+";
+        let updated = upsert_codex_toml(input, "new");
+        assert_eq!(
+            updated.matches("[mcp_servers.lean-ctx]").count(),
+            1,
+            "must not duplicate parent section"
+        );
+        assert!(updated.contains("command = \"new\""));
+        assert!(updated.contains("args = []"));
+        assert!(updated.contains("approval_mode = \"approve\""));
     }
 
     #[test]
