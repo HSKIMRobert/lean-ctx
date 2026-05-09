@@ -231,6 +231,18 @@ pub fn cosine_similarity_raw(a: &[f32], b: &[f32]) -> f32 {
     dot / (norm_a * norm_b)
 }
 
+/// Global singleton embedding engine. Loaded once, shared across all consumers.
+/// Returns None if the embeddings feature is disabled or the model fails to load.
+#[cfg(feature = "embeddings")]
+pub fn shared_engine() -> Option<&'static EmbeddingEngine> {
+    use std::sync::OnceLock;
+    static ENGINE: OnceLock<anyhow::Result<EmbeddingEngine>> = OnceLock::new();
+    ENGINE
+        .get_or_init(EmbeddingEngine::load_default)
+        .as_ref()
+        .ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.5.12] — 2026-05-09
+
+### Improved
+
+- **RAM optimization: eliminate double tokenization** — `extract_chunks` in `bm25_index.rs`, `artifact_index.rs`, and `chunks_ts.rs` no longer allocates a `tokens: Vec<String>` per chunk. Token count is computed inline; the vector is set to `Vec::new()`. `add_chunk` tokenizes from `content` once for the inverted index and overwrites `token_count` from the fresh result. This eliminates one redundant allocation + tokenization pass per chunk during index build.
+- **MemoryProfile fully wired** — The `MemoryProfile` enum (`low` / `balanced` / `performance`) now actively controls runtime behavior:
+  - `max_bm25_cache_bytes()` respects profile limits (64 / 128 / 512 MB), with explicit user config taking precedence.
+  - Semantic cache (`SemanticCacheIndex`) is skipped entirely when `memory_profile = low`.
+  - Embedding engine loading is skipped in `ctx_semantic_search` and `ctx_knowledge` when `memory_profile = low`.
+- **Doctor shows active memory profile** — `lean-ctx doctor` now displays the effective memory profile (low / balanced / performance), its source (env / config / default), and what it controls (cache limits, embedding status). Helps users understand and debug RAM behavior.
+- **MCP manifest regenerated** — Updated `mcp-tools.json` to reflect current tool count (57 granular tools).
+
 ## [3.5.11] — 2026-05-09
 
 ### Fixed

@@ -511,6 +511,12 @@ impl LeanCtxServer {
             timestamp: ts.clone(),
         });
 
+        const MAX_TOOL_CALL_RECORDS: usize = 500;
+        if calls.len() > MAX_TOOL_CALL_RECORDS {
+            let excess = calls.len() - MAX_TOOL_CALL_RECORDS;
+            calls.drain(..excess);
+        }
+
         if duration_ms > 0 {
             Self::append_tool_call_log(tool, duration_ms, original, saved, mode.as_deref(), &ts);
         }

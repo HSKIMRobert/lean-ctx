@@ -148,8 +148,7 @@ pub fn extract_chunks_ts(file_path: &str, content: &str, file_ext: &str) -> Opti
                 .join("\n");
 
             let kind = node_kind_to_chunk_kind(node.kind());
-            let tokens = super::bm25_index::tokenize_for_index(&block);
-            let token_count = tokens.len();
+            let token_count = super::bm25_index::tokenize_for_index(&block).len();
 
             chunks.push(CodeChunk {
                 file_path: file_path.to_string(),
@@ -158,7 +157,7 @@ pub fn extract_chunks_ts(file_path: &str, content: &str, file_ext: &str) -> Opti
                 start_line: start_line + 1,
                 end_line: end_line + 1,
                 content: block,
-                tokens,
+                tokens: Vec::new(),
                 token_count,
             });
         }

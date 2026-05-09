@@ -209,6 +209,55 @@ impl CompressionLevel {
     }
 }
 
+/// Controls RAM usage vs. feature richness trade-off.
+/// - `low`: Minimal RAM footprint, disables optional caches and embedding features
+/// - `balanced`: Default — moderate caches, single embedding engine
+/// - `performance`: Maximum caches, all features enabled
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum MemoryProfile {
+    Low,
+    #[default]
+    Balanced,
+    Performance,
+}
+
+impl MemoryProfile {
+    pub fn from_env() -> Option<Self> {
+        std::env::var("LEAN_CTX_MEMORY_PROFILE").ok().and_then(|v| {
+            match v.trim().to_lowercase().as_str() {
+                "low" => Some(Self::Low),
+                "balanced" => Some(Self::Balanced),
+                "performance" => Some(Self::Performance),
+                _ => None,
+            }
+        })
+    }
+
+    pub fn effective(config: &Config) -> Self {
+        if let Some(env_val) = Self::from_env() {
+            return env_val;
+        }
+        config.memory_profile.clone()
+    }
+
+    pub fn bm25_max_cache_mb(&self) -> u64 {
+        match self {
+            Self::Low => 64,
+            Self::Balanced => 128,
+            Self::Performance => 512,
+        }
+    }
+
+    pub fn semantic_cache_enabled(&self) -> bool {
+        !matches!(self, Self::Low)
+    }
+
+    pub fn embeddings_enabled(&self) -> bool {
+        !matches!(self, Self::Low)
+    }
+}
+
 /// Global lean-ctx configuration loaded from `config.toml`, merged with project-local overrides.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -294,6 +343,10 @@ pub struct Config {
     /// and refused on save. Override via LEAN_CTX_BM25_MAX_CACHE_MB env var.
     #[serde(default = "default_bm25_max_cache_mb")]
     pub bm25_max_cache_mb: u64,
+    /// Controls RAM vs feature trade-off. Values: "low", "balanced" (default), "performance".
+    /// Override via LEAN_CTX_MEMORY_PROFILE env var.
+    #[serde(default)]
+    pub memory_profile: MemoryProfile,
 }
 
 /// Settings for the zero-loss compression archive (large tool outputs saved to disk).
@@ -384,8 +437,8 @@ fn default_buddy_enabled() -> bool {
     true
 }
 
-fn default_bm25_max_cache_mb() -> u64 {
-    512
+pub fn default_bm25_max_cache_mb() -> u64 {
+    128
 }
 
 fn deserialize_tee_mode<'de, D>(deserializer: D) -> Result<TeeMode, D::Error>
@@ -588,6 +641,7 @@ impl Default for Config {
             shell_hook_disabled: false,
             update_check_disabled: false,
             bm25_max_cache_mb: default_bm25_max_cache_mb(),
+            memory_profile: MemoryProfile::default(),
         }
     }
 }
@@ -1161,6 +1215,9 @@ impl Config {
         }
         if local.bm25_max_cache_mb != default_bm25_max_cache_mb() {
             self.bm25_max_cache_mb = local.bm25_max_cache_mb;
+        }
+        if local.memory_profile != MemoryProfile::default() {
+            self.memory_profile = local.memory_profile;
         }
     }
 

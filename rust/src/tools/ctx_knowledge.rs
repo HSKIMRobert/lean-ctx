@@ -200,17 +200,15 @@ fn embeddings_auto_download_allowed() -> bool {
 
 #[cfg(feature = "embeddings")]
 fn embedding_engine() -> Option<&'static EmbeddingEngine> {
-    use std::sync::OnceLock;
-
+    let cfg = crate::core::config::Config::load();
+    let profile = crate::core::config::MemoryProfile::effective(&cfg);
+    if !profile.embeddings_enabled() {
+        return None;
+    }
     if !EmbeddingEngine::is_available() && !embeddings_auto_download_allowed() {
         return None;
     }
-
-    static ENGINE: OnceLock<anyhow::Result<EmbeddingEngine>> = OnceLock::new();
-    ENGINE
-        .get_or_init(EmbeddingEngine::load_default)
-        .as_ref()
-        .ok()
+    crate::core::embeddings::shared_engine()
 }
 
 fn handle_embeddings_status(project_root: &str) -> String {

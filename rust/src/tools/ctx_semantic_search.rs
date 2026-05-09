@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 use std::path::Path;
-use std::sync::OnceLock;
 
 use crate::core::bm25_index::{format_search_results, BM25Index};
 use crate::core::embedding_index::EmbeddingIndex;
@@ -834,11 +833,14 @@ fn dense_search_mode(
 fn load_engine_and_index(
     root: &Path,
 ) -> Result<(&'static EmbeddingEngine, EmbeddingIndex), String> {
-    static ENGINE: OnceLock<anyhow::Result<EmbeddingEngine>> = OnceLock::new();
-    let engine = ENGINE
-        .get_or_init(EmbeddingEngine::load_default)
-        .as_ref()
-        .map_err(|e| format!("embedding engine load failed: {e}"))?;
+    let cfg = crate::core::config::Config::load();
+    let profile = crate::core::config::MemoryProfile::effective(&cfg);
+    if !profile.embeddings_enabled() {
+        return Err("embeddings disabled by memory_profile=low".into());
+    }
+
+    let engine = crate::core::embeddings::shared_engine()
+        .ok_or_else(|| "embedding engine load failed".to_string())?;
 
     let mut idx =
         EmbeddingIndex::load(root).unwrap_or_else(|| EmbeddingIndex::new(engine.dimensions()));

@@ -25,12 +25,20 @@ const DEFAULT_BM25_IGNORES: &[&str] = &[
 ];
 
 fn max_bm25_cache_bytes() -> u64 {
-    std::env::var("LEAN_CTX_BM25_MAX_CACHE_MB")
+    let mb = std::env::var("LEAN_CTX_BM25_MAX_CACHE_MB")
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
-        .unwrap_or_else(|| crate::core::config::Config::load().bm25_max_cache_mb)
-        * 1024
-        * 1024
+        .unwrap_or_else(|| {
+            let cfg = crate::core::config::Config::load();
+            let profile = crate::core::config::MemoryProfile::effective(&cfg);
+            let profile_mb = profile.bm25_max_cache_mb();
+            if cfg.bm25_max_cache_mb == crate::core::config::default_bm25_max_cache_mb() {
+                profile_mb
+            } else {
+                cfg.bm25_max_cache_mb
+            }
+        });
+    mb * 1024 * 1024
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,6 +49,7 @@ pub struct CodeChunk {
     pub start_line: usize,
     pub end_line: usize,
     pub content: String,
+    #[serde(skip_serializing, default)]
     pub tokens: Vec<String>,
     pub token_count: usize,
 }
@@ -177,11 +186,13 @@ impl BM25Index {
             let unchanged = prev.files.get(&rel).is_some_and(|old| *old == state);
             if unchanged {
                 if let Some(chunks) = old_by_file.get(&rel) {
-                    for chunk in chunks {
-                        index.add_chunk(chunk.clone());
+                    if chunks.first().is_some_and(|c| !c.content.is_empty()) {
+                        for chunk in chunks {
+                            index.add_chunk(chunk.clone());
+                        }
+                        index.files.insert(rel, state);
+                        continue;
                     }
-                    index.files.insert(rel, state);
-                    continue;
                 }
             }
 
@@ -207,12 +218,17 @@ impl BM25Index {
     fn add_chunk(&mut self, chunk: CodeChunk) {
         let idx = self.chunks.len();
 
-        for token in &chunk.tokens {
+        let tokens = tokenize(&chunk.content);
+        for token in &tokens {
             let lower = token.to_lowercase();
             self.inverted.entry(lower).or_default().push((idx, 1.0));
         }
 
-        self.chunks.push(chunk);
+        self.chunks.push(CodeChunk {
+            token_count: tokens.len(),
+            tokens: Vec::new(),
+            ..chunk
+        });
     }
 
     fn finalize(&mut self) {
@@ -600,8 +616,7 @@ fn extract_chunks(file_path: &str, content: &str) -> Vec<CodeChunk> {
             let start = i;
             let end = find_block_end(&lines, i);
             let block: String = lines[start..=end.min(lines.len() - 1)].to_vec().join("\n");
-            let tokens = tokenize(&block);
-            let token_count = tokens.len();
+            let token_count = tokenize(&block).len();
 
             chunks.push(CodeChunk {
                 file_path: file_path.to_string(),
@@ -610,7 +625,7 @@ fn extract_chunks(file_path: &str, content: &str) -> Vec<CodeChunk> {
                 start_line: start + 1,
                 end_line: end + 1,
                 content: block,
-                tokens,
+                tokens: Vec::new(),
                 token_count,
             });
 
@@ -632,8 +647,7 @@ fn extract_chunks(file_path: &str, content: &str) -> Vec<CodeChunk> {
                 let end = (c.offset + c.length).min(bytes.len());
                 let slice = &bytes[c.offset..end];
                 let chunk_text = String::from_utf8_lossy(slice).into_owned();
-                let tokens = tokenize(&chunk_text);
-                let token_count = tokens.len();
+                let token_count = tokenize(&chunk_text).len();
                 let start_line = 1 + bytecount::count(&bytes[..c.offset], b'\n');
                 let end_line = start_line + bytecount::count(slice, b'\n');
                 chunks.push(CodeChunk {
@@ -643,13 +657,12 @@ fn extract_chunks(file_path: &str, content: &str) -> Vec<CodeChunk> {
                     start_line,
                     end_line: end_line.max(start_line),
                     content: chunk_text,
-                    tokens,
+                    tokens: Vec::new(),
                     token_count,
                 });
             }
         } else {
-            let tokens = tokenize(content);
-            let token_count = tokens.len();
+            let token_count = tokenize(content).len();
             let snippet = lines
                 .iter()
                 .take(50)
@@ -663,7 +676,7 @@ fn extract_chunks(file_path: &str, content: &str) -> Vec<CodeChunk> {
                 start_line: 1,
                 end_line: lines.len(),
                 content: snippet,
-                tokens,
+                tokens: Vec::new(),
                 token_count,
             });
         }

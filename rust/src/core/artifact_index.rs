@@ -198,14 +198,19 @@ fn rebuild_incremental(
 
 fn add_chunk(idx: &mut BM25Index, chunk: CodeChunk) {
     let chunk_idx = idx.chunks.len();
-    for token in &chunk.tokens {
+    let tokens = crate::core::bm25_index::tokenize_for_index(&chunk.content);
+    for token in &tokens {
         let lower = token.to_lowercase();
         idx.inverted
             .entry(lower)
             .or_default()
             .push((chunk_idx, 1.0));
     }
-    idx.chunks.push(chunk);
+    idx.chunks.push(CodeChunk {
+        token_count: tokens.len(),
+        tokens: Vec::new(),
+        ..chunk
+    });
 }
 
 fn finalize(idx: &mut BM25Index) {
@@ -369,8 +374,7 @@ fn extract_artifact_chunks(file_path: &str, content: &str) -> Vec<CodeChunk> {
             let end = (c.offset + c.length).min(bytes.len());
             let slice = &bytes[c.offset..end];
             let chunk_text = String::from_utf8_lossy(slice).into_owned();
-            let tokens = crate::core::bm25_index::tokenize_for_index(&chunk_text);
-            let token_count = tokens.len();
+            let token_count = crate::core::bm25_index::tokenize_for_index(&chunk_text).len();
             let start_line = 1 + bytecount::count(&bytes[..c.offset], b'\n');
             let end_line = start_line + bytecount::count(slice, b'\n');
             out.push(CodeChunk {
@@ -380,15 +384,14 @@ fn extract_artifact_chunks(file_path: &str, content: &str) -> Vec<CodeChunk> {
                 start_line,
                 end_line: end_line.max(start_line),
                 content: chunk_text,
-                tokens,
+                tokens: Vec::new(),
                 token_count,
             });
         }
         return out;
     }
 
-    let tokens = crate::core::bm25_index::tokenize_for_index(content);
-    let token_count = tokens.len();
+    let token_count = crate::core::bm25_index::tokenize_for_index(content).len();
     let snippet = lines
         .iter()
         .take(50)
@@ -402,7 +405,7 @@ fn extract_artifact_chunks(file_path: &str, content: &str) -> Vec<CodeChunk> {
         start_line: 1,
         end_line: lines.len(),
         content: snippet,
-        tokens,
+        tokens: Vec::new(),
         token_count,
     }]
 }

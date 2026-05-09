@@ -227,12 +227,10 @@ fn handle_with_options_resolved(
         }
     };
 
-    let similar_hint = find_semantic_similar(path, &content);
+    let similar_hint = find_similar_and_update_semantic_index(path, &content);
     let graph_hint = build_graph_related_hint(path);
 
     let store_result = cache.store(path, content.clone());
-
-    update_semantic_index(path, &content);
 
     if mode == "full" {
         cache.mark_full_delivered(path);
@@ -355,9 +353,16 @@ fn resolve_auto_mode(file_path: &str, original_tokens: usize, task: Option<&str>
     chosen
 }
 
-fn find_semantic_similar(path: &str, content: &str) -> Option<String> {
+fn find_similar_and_update_semantic_index(path: &str, content: &str) -> Option<String> {
+    let cfg = crate::core::config::Config::load();
+    let profile = crate::core::config::MemoryProfile::effective(&cfg);
+    if !profile.semantic_cache_enabled() {
+        return None;
+    }
+
     let project_root = detect_project_root(path);
-    let index = crate::core::semantic_cache::SemanticCacheIndex::load(&project_root)?;
+    let session_id = format!("{}", std::process::id());
+    let mut index = crate::core::semantic_cache::SemanticCacheIndex::load_or_create(&project_root);
 
     let similar = index.find_similar(content, 0.7);
     let relevant: Vec<_> = similar
@@ -365,6 +370,9 @@ fn find_semantic_similar(path: &str, content: &str) -> Option<String> {
         .filter(|(p, _)| p != path)
         .take(3)
         .collect();
+
+    index.add_file(path, content, &session_id);
+    let _ = index.save(&project_root);
 
     if relevant.is_empty() {
         return None;
@@ -380,14 +388,6 @@ fn find_semantic_similar(path: &str, content: &str) -> Option<String> {
         relevant.len(),
         hints.join("\n")
     ))
-}
-
-fn update_semantic_index(path: &str, content: &str) {
-    let project_root = detect_project_root(path);
-    let session_id = format!("{}", std::process::id());
-    let mut index = crate::core::semantic_cache::SemanticCacheIndex::load_or_create(&project_root);
-    index.add_file(path, content, &session_id);
-    let _ = index.save(&project_root);
 }
 
 fn detect_project_root(path: &str) -> String {

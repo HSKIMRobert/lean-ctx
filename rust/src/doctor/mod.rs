@@ -942,7 +942,12 @@ pub fn run() {
     }
     print_check(&bm25_health);
 
-    let mut effective_total = total + 5; // session_state + integrity + cache_safety + bm25_health + daemon
+    // 16) Memory profile
+    let mem_profile = memory_profile_outcome();
+    passed += 1;
+    print_check(&mem_profile);
+
+    let mut effective_total = total + 6; // session_state + integrity + cache_safety + bm25_health + daemon + mem_profile
     effective_total += docker_outcomes.len() as u32;
     if pi.is_some() {
         effective_total += 1;
@@ -1346,4 +1351,33 @@ pub(super) fn print_compact_status(passed: u32, total: u32) {
         format!("{YELLOW}{passed}/{total} passed{RST} — run {BOLD}lean-ctx doctor{RST} for details")
     };
     println!("  {status}");
+}
+
+fn memory_profile_outcome() -> Outcome {
+    let cfg = crate::core::config::Config::load();
+    let profile = crate::core::config::MemoryProfile::effective(&cfg);
+    let (label, detail) = match profile {
+        crate::core::config::MemoryProfile::Low => {
+            ("low", "embeddings+semantic cache disabled, BM25 64 MB")
+        }
+        crate::core::config::MemoryProfile::Balanced => {
+            ("balanced", "default — BM25 128 MB, single embedding engine")
+        }
+        crate::core::config::MemoryProfile::Performance => {
+            ("performance", "full caches, BM25 512 MB")
+        }
+    };
+    let source = if crate::core::config::MemoryProfile::from_env().is_some() {
+        "env"
+    } else if cfg.memory_profile != crate::core::config::MemoryProfile::default() {
+        "config"
+    } else {
+        "default"
+    };
+    Outcome {
+        ok: true,
+        line: format!(
+            "{BOLD}Memory profile{RST}  {GREEN}{label}{RST}  {DIM}({source}: {detail}){RST}"
+        ),
+    }
 }
