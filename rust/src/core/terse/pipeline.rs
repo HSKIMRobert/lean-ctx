@@ -19,6 +19,10 @@ use crate::core::config::CompressionLevel;
 ///
 /// If a `command` is provided, pattern compression runs first (via `patterns::compress_output`),
 /// then terse compression runs on the residual.
+///
+/// When `content_defined_chunking` is enabled in config, output is reordered at
+/// Rabin-Karp chunk boundaries so structurally stable sections appear first,
+/// maximizing prompt-cache hit rates.
 pub fn compress(
     input: &str,
     level: &CompressionLevel,
@@ -29,10 +33,66 @@ pub fn compress(
         return TerseResult::passthrough(input.to_string(), tokens);
     }
 
-    match pattern_compressed {
+    let mut result = match pattern_compressed {
         Some(after_patterns) => compress_with_patterns(input, after_patterns, level),
         None => compress_direct(input, level),
+    };
+
+    if crate::core::config::Config::load().content_defined_chunking {
+        result.output = reorder_cdc_stable(&result.output);
     }
+
+    result
+}
+
+/// Reorders compressed output at CDC boundaries so stable blocks (imports,
+/// type definitions, module headers) appear before volatile content.
+/// Stable-first ordering improves LLM prompt-cache hit rates because caches
+/// are prefix-matched.
+fn reorder_cdc_stable(output: &str) -> String {
+    let chunks = crate::core::rabin_karp::chunk(output);
+    if chunks.len() < 3 {
+        return output.to_string();
+    }
+
+    let bytes = output.as_bytes();
+    let mut stable = Vec::new();
+    let mut volatile = Vec::new();
+
+    for c in &chunks {
+        let end = (c.offset + c.length).min(bytes.len());
+        let text = String::from_utf8_lossy(&bytes[c.offset..end]);
+        let first_line = text.lines().next().unwrap_or("").trim();
+        let is_stable = first_line.starts_with("use ")
+            || first_line.starts_with("import ")
+            || first_line.starts_with("from ")
+            || first_line.starts_with("#include")
+            || first_line.starts_with("require")
+            || first_line.starts_with("pub mod ")
+            || first_line.starts_with("mod ")
+            || first_line.starts_with("export ")
+            || first_line.starts_with("//!")
+            || first_line.starts_with("///");
+
+        if is_stable {
+            stable.push(text.into_owned());
+        } else {
+            volatile.push(text.into_owned());
+        }
+    }
+
+    if stable.is_empty() || volatile.is_empty() {
+        return output.to_string();
+    }
+
+    let mut result = String::with_capacity(output.len());
+    for s in &stable {
+        result.push_str(s);
+    }
+    for v in &volatile {
+        result.push_str(v);
+    }
+    result
 }
 
 fn compress_direct(input: &str, level: &CompressionLevel) -> TerseResult {

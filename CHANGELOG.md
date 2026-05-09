@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.5.11] — 2026-05-09
+
+### Fixed
+
+- **Cache-loop elimination for hybrid-mode agents** — When an agent reads a file with `mode=auto` (compressed) and then re-reads with `mode=full`, the full content is now delivered immediately instead of returning a 2-line "already in context" stub. Previously, agents (especially smaller/local models) needed 3 calls to get full content: auto → full (stub) → fresh. A new `full_content_delivered` flag on cache entries tracks whether uncompressed content was already sent for the current hash.
+- **Cache stub text no longer provokes unnecessary calls** — The "file already in context" message no longer suggests `fresh=true`, which misled weaker models into making a redundant third call. New text: "File content unchanged since last read (same hash). Already in your context window."
+- **AGENTS.md Pi-header replaced on non-Pi agents** — When a project had `AGENTS.md` from a prior `lean-ctx init --agent pi` but was later initialized for OpenCode or another agent, the Pi-specific header ("CLI-first Token Optimization for Pi") persisted. The generic lean-ctx block now replaces it automatically.
+- **Doctor check count mismatch (16/15)** — The daemon health check incremented `passed` but was not counted in `effective_total`, causing the summary to show e.g. "16/15 checks passed". Fixed by including the daemon check in the total (`+5` instead of `+4`).
+- **"INDEXING IN PROGRESS" no longer blocks read output** — When the graph index is still building, the autonomy pre-hook returned the indexing notice as auto-context, which was prepended to the actual tool output. This is now suppressed — the file content is returned immediately while indexing continues in the background.
+
+### Improved
+
+- **RAM usage reduced during compaction/checkpoint** — Four targeted optimizations to prevent memory spikes reported during OpenCode session compaction:
+  - **Codebook uses borrows instead of clones** — `build_from_files` now accepts `&[(&str, &str)]` instead of `Vec<(String, String)>`, eliminating a full duplication of all cached file contents (~2MB saved at 500k tokens).
+  - **Auto-checkpoint skips signature extraction** — Periodic checkpoints now use `include_signatures: false`, avoiding expensive tree-sitter parsing. Explicit `ctx_compress` calls still extract signatures.
+  - **Compressed output variants capped at 3 per cache entry** — Prevents unbounded growth of the `compressed_outputs` HashMap.
+  - **Codebook early-exit at >50,000 lines** — Skips the codebook deduplication phase entirely for very large caches, preventing HashMap/HashSet memory explosions.
+
 ## [3.5.10] — 2026-05-09
 
 ### Added

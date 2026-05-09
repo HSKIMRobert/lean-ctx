@@ -581,7 +581,7 @@ impl LeanCtxServer {
             return None;
         }
         let complexity = crate::core::adaptive::classify_from_context(&cache);
-        let checkpoint = ctx_compress::handle(&cache, true, CrpMode::effective());
+        let checkpoint = ctx_compress::handle(&cache, false, CrpMode::effective());
         drop(cache);
 
         let mut session = self.session.write().await;

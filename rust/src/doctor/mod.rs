@@ -942,7 +942,7 @@ pub fn run() {
     }
     print_check(&bm25_health);
 
-    let mut effective_total = total + 4; // session_state + integrity + cache_safety + bm25_health
+    let mut effective_total = total + 5; // session_state + integrity + cache_safety + bm25_health + daemon
     effective_total += docker_outcomes.len() as u32;
     if pi.is_some() {
         effective_total += 1;

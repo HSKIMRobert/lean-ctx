@@ -26,15 +26,21 @@ impl Codebook {
         Self::default()
     }
 
-    /// Build codebook from multiple file contents.
+    /// Build codebook from multiple file contents (borrows, no cloning).
     /// Identifies lines that appear in 3+ files and creates short references.
-    pub fn build_from_files(&mut self, files: &[(String, String)]) {
+    /// Skips codebook phase entirely if total line count exceeds 50,000
+    /// to prevent memory spikes on large projects.
+    pub fn build_from_files(&mut self, files: &[(&str, &str)]) {
         let total_docs = files.len() as f64;
         if total_docs < 2.0 {
             return;
         }
 
-        // Count document frequency for each normalized line
+        let total_lines: usize = files.iter().map(|(_, c)| c.lines().count()).sum();
+        if total_lines > 50_000 {
+            return;
+        }
+
         let mut doc_freq: HashMap<String, usize> = HashMap::new();
         let mut term_freq: HashMap<String, usize> = HashMap::new();
 
@@ -283,23 +289,20 @@ mod tests {
 
     #[test]
     fn codebook_identifies_common_patterns() {
-        let files = vec![
+        let files: Vec<(&str, &str)> = vec![
             (
-                "a.rs".to_string(),
-                "use std::io;\nuse std::collections::HashMap;\nfn main() {}\n".to_string(),
+                "a.rs",
+                "use std::io;\nuse std::collections::HashMap;\nfn main() {}\n",
             ),
             (
-                "b.rs".to_string(),
-                "use std::io;\nuse std::collections::HashMap;\nfn helper() {}\n".to_string(),
+                "b.rs",
+                "use std::io;\nuse std::collections::HashMap;\nfn helper() {}\n",
             ),
             (
-                "c.rs".to_string(),
-                "use std::io;\nuse std::collections::HashMap;\nfn other() {}\n".to_string(),
+                "c.rs",
+                "use std::io;\nuse std::collections::HashMap;\nfn other() {}\n",
             ),
-            (
-                "d.rs".to_string(),
-                "use std::io;\nfn unique() {}\n".to_string(),
-            ),
+            ("d.rs", "use std::io;\nfn unique() {}\n"),
         ];
 
         let mut cb = Codebook::new();

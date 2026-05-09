@@ -129,6 +129,19 @@ pub struct TopicFilter {
 }
 
 impl TopicFilter {
+    /// Convenience constructor: filter by event kind strings.
+    pub fn kinds(kind_strs: &[&str]) -> Self {
+        Self {
+            kinds: Some(
+                kind_strs
+                    .iter()
+                    .map(|s| ContextEventKindV1::parse(s))
+                    .collect(),
+            ),
+            ..Self::default()
+        }
+    }
+
     pub fn matches(&self, event: &ContextEventV1) -> bool {
         if let Some(ref kinds) = self.kinds {
             let parsed = ContextEventKindV1::parse(&event.kind);

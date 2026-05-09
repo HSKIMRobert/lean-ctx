@@ -209,7 +209,9 @@ pub fn session_lifecycle_pre_hook(
         crate::tools::ctx_overview::handle(cache_readonly, None, Some(&root), crp_mode)
     };
 
-    let empty = result.trim().is_empty() || result.contains("No directly relevant files");
+    let empty = result.trim().is_empty()
+        || result.contains("No directly relevant files")
+        || result.contains("INDEXING IN PROGRESS");
     decisions.push(AutonomyDriverDecisionV1 {
         driver: AutonomyDriverKindV1::Preload,
         verdict: AutonomyVerdictV1::Run,

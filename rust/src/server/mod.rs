@@ -192,6 +192,28 @@ impl ServerHandler for LeanCtxServer {
             tools
         };
 
+        let tools = {
+            let level = crate::core::config::Config::load().compression_level;
+            let mode =
+                crate::core::terse::mcp_compress::DescriptionMode::from_compression_level(&level);
+            if mode == crate::core::terse::mcp_compress::DescriptionMode::Full {
+                tools
+            } else {
+                tools
+                    .into_iter()
+                    .map(|mut t| {
+                        let compressed = crate::core::terse::mcp_compress::compress_description(
+                            t.name.as_ref(),
+                            t.description.as_deref().unwrap_or(""),
+                            mode,
+                        );
+                        t.description = Some(compressed.into());
+                        t
+                    })
+                    .collect()
+            }
+        };
+
         Ok(ListToolsResult {
             tools,
             ..Default::default()

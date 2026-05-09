@@ -159,13 +159,17 @@ impl CompressionLevel {
     /// Returns the effective compression level with resolution order:
     /// 1. `LEAN_CTX_COMPRESSION` env var
     /// 2. `compression_level` in config
-    /// 3. Inferred from legacy `terse_agent` + `output_density`
+    /// 3. Legacy `ultra_compact` flag (maps to `Max`)
+    /// 4. Inferred from legacy `terse_agent` + `output_density`
     pub fn effective(config: &Config) -> Self {
         if let Some(env_level) = Self::from_env() {
             return env_level;
         }
         if config.compression_level != Self::Off {
             return config.compression_level.clone();
+        }
+        if config.ultra_compact {
+            return Self::Max;
         }
         Self::from_legacy(&config.terse_agent, &config.output_density)
     }

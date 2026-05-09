@@ -1,6 +1,6 @@
 # lean-ctx for VS Code
 
-**Context Runtime for AI Agents** — Reduces LLM token consumption by up to 99%. 56 MCP tools, 10 read modes, 95+ compression patterns, cross-session memory.
+**Context Runtime for AI Agents** — Reduces LLM token consumption by up to 99%. 57 MCP tools, 10 read modes, 95+ compression patterns, cross-session memory.
 
 ## Features
 

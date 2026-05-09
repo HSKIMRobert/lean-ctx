@@ -15,7 +15,7 @@ impl McpTool for CtxVerifyTool {
     fn tool_def(&self) -> Tool {
         tool_def(
             "ctx_verify",
-            "Verification observability — tool call statistics.",
+            "Verification observability. Actions: stats (tool call statistics), proof|v2 (ContextProofV2 claim-based verification with Lean4 proofs).",
             json!({
                 "type": "object",
                 "properties": {
@@ -32,21 +32,34 @@ impl McpTool for CtxVerifyTool {
         _ctx: &ToolContext,
     ) -> Result<ToolOutput, ErrorData> {
         let action = get_str(args, "action").unwrap_or_else(|| "stats".to_string());
-        if action != "stats" {
-            return Err(ErrorData::invalid_params(
-                "unsupported action (expected: stats)",
-                None,
-            ));
-        }
         let format = get_str(args, "format");
-        let out = crate::tools::ctx_verify::handle_stats(format.as_deref())
-            .map_err(|e| ErrorData::invalid_params(e, None))?;
-        Ok(ToolOutput {
-            text: out,
-            original_tokens: 0,
-            saved_tokens: 0,
-            mode: Some(action),
-            path: None,
-        })
+        match action.as_str() {
+            "stats" => {
+                let out = crate::tools::ctx_verify::handle_stats(format.as_deref())
+                    .map_err(|e| ErrorData::invalid_params(e, None))?;
+                Ok(ToolOutput {
+                    text: out,
+                    original_tokens: 0,
+                    saved_tokens: 0,
+                    mode: Some(action),
+                    path: None,
+                })
+            }
+            "proof" | "v2" => {
+                let out = crate::tools::ctx_verify::handle_proof(format.as_deref())
+                    .map_err(|e| ErrorData::invalid_params(e, None))?;
+                Ok(ToolOutput {
+                    text: out,
+                    original_tokens: 0,
+                    saved_tokens: 0,
+                    mode: Some(action),
+                    path: None,
+                })
+            }
+            _ => Err(ErrorData::invalid_params(
+                "unsupported action (expected: stats, proof, v2)",
+                None,
+            )),
+        }
     }
 }

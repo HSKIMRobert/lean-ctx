@@ -13,6 +13,24 @@ pub use context_bus::{
 pub mod redaction;
 pub use redaction::{redact_event_payload, RedactionLevel};
 
+/// Wraps either a plain `broadcast::Receiver` or a `FilteredSubscription`
+/// so the SSE route can handle both with the same code path.
+pub enum SubscriptionKind {
+    Unfiltered(tokio::sync::broadcast::Receiver<ContextEventV1>),
+    Filtered(FilteredSubscription),
+}
+
+impl SubscriptionKind {
+    pub async fn recv(
+        &mut self,
+    ) -> Result<ContextEventV1, tokio::sync::broadcast::error::RecvError> {
+        match self {
+            Self::Unfiltered(rx) => rx.recv().await,
+            Self::Filtered(fs) => fs.recv_filtered().await,
+        }
+    }
+}
+
 mod metrics;
 pub use metrics::{ContextOsMetrics, MetricsSnapshot};
 

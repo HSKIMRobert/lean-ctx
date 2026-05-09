@@ -491,6 +491,15 @@ Full rules: @{PROJECT_LEAN_CTX_MD}\n\
     }
 
     let existing = std::fs::read_to_string(&agents_md).unwrap_or_default();
+
+    if existing.contains("CLI-first Token Optimization for Pi")
+        && !existing.contains(AGENTS_BLOCK_START)
+    {
+        let content = format!("# Agent Instructions\n\n{block}");
+        write_file(&agents_md, &content);
+        return;
+    }
+
     if existing.contains(AGENTS_BLOCK_START) {
         let updated = replace_marked_block(&existing, AGENTS_BLOCK_START, AGENTS_BLOCK_END, &block);
         if updated != existing {

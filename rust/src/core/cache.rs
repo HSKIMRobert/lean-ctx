@@ -28,6 +28,9 @@ pub struct CacheEntry {
     pub stored_mtime: Option<SystemTime>,
     /// Mode-specific compressed outputs (e.g. "map", "signatures") cached to avoid re-parsing.
     pub compressed_outputs: HashMap<String, String>,
+    /// Whether full (uncompressed) content was already delivered for this hash.
+    /// Prevents cache-stub loops when upgrading from compressed to full mode.
+    pub full_content_delivered: bool,
 }
 
 /// Result of a cache store operation, indicating whether it was a hit or new entry.
@@ -37,6 +40,8 @@ pub struct StoreResult {
     pub original_tokens: usize,
     pub read_count: u32,
     pub was_hit: bool,
+    /// Whether full content was previously delivered for this cache entry.
+    pub full_content_delivered: bool,
 }
 
 impl CacheEntry {
@@ -57,7 +62,19 @@ impl CacheEntry {
     }
 
     pub fn set_compressed(&mut self, mode_key: &str, output: String) {
+        const MAX_COMPRESSED_VARIANTS: usize = 3;
+        if self.compressed_outputs.len() >= MAX_COMPRESSED_VARIANTS
+            && !self.compressed_outputs.contains_key(mode_key)
+        {
+            if let Some(oldest_key) = self.compressed_outputs.keys().next().cloned() {
+                self.compressed_outputs.remove(&oldest_key);
+            }
+        }
         self.compressed_outputs.insert(mode_key.to_string(), output);
+    }
+
+    pub fn mark_full_delivered(&mut self) {
+        self.full_content_delivered = true;
     }
 }
 
@@ -283,6 +300,7 @@ impl SessionCache {
                     original_tokens: existing.original_tokens,
                     read_count: existing.read_count,
                     was_hit: true,
+                    full_content_delivered: existing.full_content_delivered,
                 };
             }
             existing.compressed_outputs.clear();
@@ -291,6 +309,7 @@ impl SessionCache {
             existing.line_count = line_count;
             existing.original_tokens = original_tokens;
             existing.read_count += 1;
+            existing.full_content_delivered = false;
             if stored_mtime.is_some() {
                 existing.stored_mtime = stored_mtime;
             }
@@ -300,6 +319,7 @@ impl SessionCache {
                 original_tokens,
                 read_count: existing.read_count,
                 was_hit: false,
+                full_content_delivered: false,
             };
         }
 
@@ -316,6 +336,7 @@ impl SessionCache {
             last_access: now,
             stored_mtime,
             compressed_outputs: HashMap::new(),
+            full_content_delivered: false,
         };
 
         self.entries.insert(key, entry);
@@ -326,6 +347,7 @@ impl SessionCache {
             original_tokens,
             read_count: 1,
             was_hit: false,
+            full_content_delivered: false,
         }
     }
 
@@ -422,6 +444,13 @@ impl SessionCache {
         self.entries
             .get(&normalize_key(path))?
             .get_compressed(mode_key)
+    }
+
+    /// Marks that full (uncompressed) content was delivered for this file.
+    pub fn mark_full_delivered(&mut self, path: &str) {
+        if let Some(entry) = self.entries.get_mut(&normalize_key(path)) {
+            entry.mark_full_delivered();
+        }
     }
 
     /// Stores a compressed output for a given file and mode key.
@@ -561,6 +590,7 @@ mod tests {
             last_access: now,
             stored_mtime: None,
             compressed_outputs: HashMap::new(),
+            full_content_delivered: false,
         };
         let old = CacheEntry {
             content: "b".to_string(),
@@ -572,6 +602,7 @@ mod tests {
             last_access: base,
             stored_mtime: None,
             compressed_outputs: HashMap::new(),
+            full_content_delivered: false,
         };
         let entries: Vec<(&String, &CacheEntry)> = vec![(&key_a, &recent), (&key_b, &old)];
         let scores = eviction_scores_rrf(&entries, now);
@@ -598,6 +629,7 @@ mod tests {
             last_access: now,
             stored_mtime: None,
             compressed_outputs: HashMap::new(),
+            full_content_delivered: false,
         };
         let rare = CacheEntry {
             content: "b".to_string(),
@@ -609,6 +641,7 @@ mod tests {
             last_access: now,
             stored_mtime: None,
             compressed_outputs: HashMap::new(),
+            full_content_delivered: false,
         };
         let entries: Vec<(&String, &CacheEntry)> = vec![(&key_a, &frequent), (&key_b, &rare)];
         let scores = eviction_scores_rrf(&entries, now);

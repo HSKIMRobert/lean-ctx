@@ -602,13 +602,12 @@ fn bench_rrf_eviction_vs_legacy() {
             original_tokens: (i + 1) * 100,
             read_count: (10 - i) as u32,
             path: format!("/file_{i}.rs"),
-            // Instant::checked_sub can underflow early in process lifetime on some platforms.
-            // Use a small duration and fall back to `now` to keep this benchmark deterministic.
             last_access: now
                 .checked_sub(Duration::from_secs(i as u64))
                 .unwrap_or(now),
             stored_mtime: None,
             compressed_outputs: std::collections::HashMap::new(),
+            full_content_delivered: false,
         })
         .collect();
 
@@ -670,6 +669,7 @@ fn bench_rrf_eviction_handles_single_entry() {
         last_access: now,
         stored_mtime: None,
         compressed_outputs: std::collections::HashMap::new(),
+        full_content_delivered: false,
     };
 
     let refs: Vec<(&String, &lean_ctx::core::cache::CacheEntry)> = vec![(&key, &entry)];

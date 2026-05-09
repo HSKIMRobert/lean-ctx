@@ -79,7 +79,7 @@ export async function showWelcome(): Promise<void> {
   if (version) {
     const channel = getOutputChannel();
     channel.appendLine(
-      `lean-ctx v${version} activated — 56 MCP tools, 10 read modes, 95+ compression patterns`
+      `lean-ctx v${version} activated — 57 MCP tools, 10 read modes, 95+ compression patterns`
     );
   }
 }

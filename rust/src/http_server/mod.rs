@@ -281,6 +281,10 @@ struct EventsQuery {
     since: Option<i64>,
     #[serde(default)]
     limit: Option<usize>,
+    /// Comma-separated event kind filter (e.g. `tool_call,session_start`).
+    /// When set, only matching events are delivered via SSE.
+    #[serde(default)]
+    kind: Option<String>,
 }
 
 async fn v1_manifest(State(state): State<AppState>) -> impl IntoResponse {
@@ -367,9 +371,33 @@ async fn v1_events(
     let limit = q.limit.unwrap_or(200).min(1000);
     let redaction = RedactionLevel::RefsOnly;
 
+    let kind_filter: Option<Vec<String>> = q
+        .kind
+        .as_deref()
+        .map(|k| k.split(',').map(|s| s.trim().to_string()).collect());
+
     let rt = crate::core::context_os::runtime();
     let replay = rt.bus.read(&ws, &ch, since, limit);
-    let rx = rt.bus.subscribe(&ws, &ch);
+
+    let replay = if let Some(ref kinds) = kind_filter {
+        replay
+            .into_iter()
+            .filter(|ev| kinds.contains(&ev.kind))
+            .collect()
+    } else {
+        replay
+    };
+
+    let rx = if let Some(ref kinds) = kind_filter {
+        let kind_refs: Vec<&str> = kinds.iter().map(String::as_str).collect();
+        let filter = crate::core::context_os::TopicFilter::kinds(&kind_refs);
+        crate::core::context_os::SubscriptionKind::Filtered(
+            rt.bus.subscribe_filtered(&ws, &ch, filter),
+        )
+    } else {
+        crate::core::context_os::SubscriptionKind::Unfiltered(rt.bus.subscribe(&ws, &ch))
+    };
+
     rt.metrics.record_sse_connect();
     rt.metrics.record_events_replayed(replay.len() as u64);
     rt.metrics.record_workspace_active(&ws);

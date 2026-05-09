@@ -12,7 +12,7 @@
 
 <p align="center">
   <strong>Reduce token waste in Cursor, Claude Code, Copilot, Windsurf, Codex, Gemini & more by 60–95% (up to 99% on cached reads)</strong><br/>
-  Shell Hook + MCP Server · 56 tools · 10 read modes · 95+ patterns · Single Rust binary
+  Shell Hook + MCP Server · 57 tools · 10 read modes · 95+ patterns · Single Rust binary
 </p>
 
 <p align="center">
@@ -137,7 +137,7 @@ lean-ctx is a standard **MCP server**, so it works with any MCP-compatible clien
 |---|---|---|
 | **CLI-Redirect** | Agent calls `lean-ctx` directly via shell — zero MCP schema overhead | Agents with shell access |
 | **Hybrid** | MCP for cached reads (13 tokens), CLI for shell + search | Mixed environments |
-| **Full MCP** | All 56 tools via MCP protocol | Protocol-only agents |
+| **Full MCP** | All 57 tools via MCP protocol | Protocol-only agents |
 
 ### Agent compatibility matrix
 

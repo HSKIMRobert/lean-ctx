@@ -342,12 +342,12 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
         ),
         tool_def(
             "ctx_verify",
-            "Verification observability snapshot. Action stats returns versioned JSON or compact summary (no raw content).",
+            "Verification observability. Actions: stats (versioned JSON or compact summary), proof|v2 (ContextProofV2 claim-based verification with Lean4 theorems). format=json|summary.",
             json!({
                 "type": "object",
                 "properties": {
-                    "action": { "type": "string", "description": "stats (default)" },
-                    "format": { "type": "string", "description": "summary|json|both (default: summary)" }
+                    "action": { "type": "string", "description": "stats (default) | proof | v2" },
+                    "format": { "type": "string", "description": "summary|json|both (default: summary for stats, json for proof)" }
                 }
             }),
         ),
@@ -1023,6 +1023,20 @@ Requires GITLAB_TOKEN or LEAN_CTX_GITLAB_TOKEN.",
                 "required": ["action"]
             }),
         ),
+        tool_def(
+            "ctx_discover_tools",
+            "Search available lean-ctx tools by keyword. Returns matching tool names + descriptions for on-demand loading.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search keyword (e.g. 'graph', 'cost', 'workflow', 'dedup')"
+                    }
+                },
+                "required": ["query"]
+            }),
+        ),
     ]
 }
 
@@ -1190,7 +1204,7 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
         ("ctx_response", "Compress LLM response text (remove filler, apply TDD).", json!({"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]})),
         ("ctx_context", "Session context overview — cached files, seen files, session state.", json!({"type": "object", "properties": {}})),
         ("ctx_proof", "Export a machine-readable ContextProofV1 (Verifier + SLO + Pipeline + Provenance). Writes to .lean-ctx/proofs/ by default.", json!({"type": "object", "properties": {"action": {"type": "string"}, "project_root": {"type": "string"}, "format": {"type": "string"}, "write": {"type": "boolean"}, "filename": {"type": "string"}, "max_evidence": {"type": "integer"}, "max_ledger_files": {"type": "integer"}}, "required": ["action"]})),
-        ("ctx_verify", "Verification observability snapshot. Action stats returns versioned JSON or compact summary (no raw content).", json!({"type": "object", "properties": {"action": {"type": "string"}, "format": {"type": "string"}}, "required": []})),
+        ("ctx_verify", "Verification observability. Actions: stats (versioned JSON or compact summary), proof|v2 (ContextProofV2 claim-based verification with Lean4 theorems). format=json|summary.", json!({"type": "object", "properties": {"action": {"type": "string"}, "format": {"type": "string"}}, "required": []})),
         ("ctx_graph", "Unified code graph. Actions: build, related, symbol, impact, status, enrich, context, diagram.", json!({"type": "object", "properties": {"action": {"type": "string"}, "path": {"type": "string"}, "depth": {"type": "integer"}, "kind": {"type": "string"}, "project_root": {"type": "string"}}, "required": ["action"]})),
         ("ctx_session", "Cross-session memory (CCP). Actions: load|save|status|task|finding|decision|reset|list|cleanup|snapshot|restore|resume|configure|profile|role|budget|slo|diff|verify|export|import.", json!({"type": "object", "properties": {"action": {"type": "string"}, "value": {"type": "string"}, "session_id": {"type": "string"}, "format": {"type": "string", "description": "Output format: json|summary (default depends on action)."}, "path": {"type": "string", "description": "File path for export/import (jail: project_root)."}, "write": {"type": "boolean", "description": "If true, write export bundle to path (or default) and return a summary."}, "privacy": {"type": "string", "description": "Export privacy: redacted (default) | full (admin only)."}, "terse": {"type": "boolean", "description": "For action=configure: enable/disable terse output mode (compact model replies)."}}, "required": ["action"]})),
         ("ctx_knowledge", "Project knowledge (facts/patterns/relations). Actions: policy|remember|recall|pattern|feedback|relate|unrelate|relations|relations_diagram|consolidate|timeline|rooms|search|wakeup|status|remove|export|embeddings_status|embeddings_reset|embeddings_reindex.", json!({"type": "object", "properties": {"action": {"type": "string", "enum": ["policy","remember","recall","pattern","feedback","relate","unrelate","relations","relations_diagram","status","remove","export","consolidate","timeline","rooms","search","wakeup","embeddings_status","embeddings_reset","embeddings_reindex"]}, "category": {"type": "string"}, "key": {"type": "string"}, "value": {"type": "string", "description": "Value payload or sub-action (e.g. policy: show|validate; relations kind)."}, "query": {"type": "string"}, "pattern_type": {"type": "string"}, "examples": {"type": "array", "items": {"type": "string"}}, "confidence": {"type": "number"}, "mode": {"type": "string", "description": "Recall mode: auto|semantic|hybrid."}, "trigger": {"type": "string"}, "resolution": {"type": "string"}, "severity": {"type": "string"}}, "required": ["action"]})),
@@ -1226,5 +1240,7 @@ pull (receive shared files), list (show all shared contexts), clear (remove your
         ("ctx_control", "Universal context manipulation (Context Field Theory). Actions: exclude|include|pin|unpin|set_view|set_priority|mark_outdated|reset|list|history. Overlay-based, reversible, scoped.", json!({"type": "object", "properties": {"action": {"type": "string", "description": "exclude|include|pin|unpin|set_view|set_priority|mark_outdated|reset|list|history"}, "target": {"type": "string", "description": "@F1 or path or item ID"}, "value": {"type": "string", "description": "New content, view name, or priority"}, "scope": {"type": "string", "description": "call|session|project (default: session)"}, "reason": {"type": "string", "description": "Reason for the action"}}, "required": ["action"]})),
         ("ctx_plan", "Context planning (CFT). Computes optimal context plan with Phi scoring, budget allocation, and policy-driven view selection.", json!({"type": "object", "properties": {"task": {"type": "string", "description": "Task description"}, "budget": {"type": "integer", "description": "Token budget (default: 12000)"}, "profile": {"type": "string", "description": "ultra_lean|balanced|forensic"}}, "required": ["task"]})),
         ("ctx_compile", "Context compilation (CFT). Builds minimal context package via greedy knapsack + Boltzmann view selection. Modes: handles|compressed|full.", json!({"type": "object", "properties": {"mode": {"type": "string", "description": "handles|compressed|full (default: handles)"}, "budget": {"type": "integer", "description": "Token budget (default: 12000)"}}})),
+        ("ctx_discover_tools", "Search available lean-ctx tools by keyword. Returns matching tool names + descriptions for on-demand loading.", json!({"type": "object", "properties": {"query": {"type": "string", "description": "Search keyword"}}, "required": ["query"]})),
+        ("ctx_call", "Invoke any lean-ctx tool by name (for lazy-loading clients). Pass tool name + arguments JSON.", json!({"type": "object", "properties": {"name": {"type": "string", "description": "Tool name (e.g. ctx_graph)"}, "arguments": {"type": "object", "description": "Tool arguments as JSON object"}}, "required": ["name"]})),
     ]
 }

@@ -69,10 +69,9 @@ pub fn handle(cache: &SessionCache, include_signatures: bool, crp_mode: CrpMode)
         stats.hit_rate()
     ));
 
-    // Cross-file codebook deduplication
-    let files_for_codebook: Vec<(String, String)> = entries
+    let files_for_codebook: Vec<(&str, &str)> = entries
         .iter()
-        .map(|(p, e)| ((*p).clone(), e.content.clone()))
+        .map(|(p, e)| (p.as_str(), e.content.as_str()))
         .collect();
     let mut codebook = crate::core::codebook::Codebook::new();
     codebook.build_from_files(&files_for_codebook);

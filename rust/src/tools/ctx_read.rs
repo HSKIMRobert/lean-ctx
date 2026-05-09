@@ -235,6 +235,7 @@ fn handle_with_options_resolved(
     update_semantic_index(path, &content);
 
     if mode == "full" {
+        cache.mark_full_delivered(path);
         let (mut output, sent) = format_full_output(
             &file_ref,
             &short,
@@ -430,12 +431,24 @@ fn handle_full_with_auto_delta(
     let store_result = cache.store(path, disk_content.clone());
 
     if store_result.was_hit {
-        let out = format!(
-            "{file_ref}={short} cached {}t {}L\nFile already in context from previous read. Use fresh=true to re-read if content needed again.",
-            store_result.read_count, store_result.line_count
+        if store_result.full_content_delivered {
+            let out = format!(
+                "{file_ref}={short} cached {}t {}L\nFile content unchanged since last read (same hash). Already in your context window.",
+                store_result.read_count, store_result.line_count
+            );
+            let sent = count_tokens(&out);
+            return (out, sent);
+        }
+        cache.mark_full_delivered(path);
+        return format_full_output(
+            file_ref,
+            short,
+            ext,
+            &disk_content,
+            store_result.original_tokens,
+            store_result.line_count,
+            task,
         );
-        let sent = count_tokens(&out);
-        return (out, sent);
     }
 
     let diff = compressor::diff_content(&old_content, &disk_content);
