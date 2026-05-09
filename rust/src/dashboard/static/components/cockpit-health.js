@@ -20,6 +20,10 @@ function ckhCharts() {
   return window.LctxCharts || {};
 }
 
+function tip(k) {
+  return window.LctxShared && window.LctxShared.tip ? window.LctxShared.tip(k) : '';
+}
+
 /* ========== component ========== */
 
 class CockpitHealth extends HTMLElement {
@@ -390,7 +394,7 @@ class CockpitHealth extends HTMLElement {
 
     return (
       '<div class="card">' +
-      '<div class="card-header"><h3>Bug Memory / Gotchas</h3>' +
+      '<div class="card-header"><h3>Bug Memory / Gotchas' + tip('health_gotchas') + '</h3>' +
       '<span class="badge">' + esc(ff(gotchas.length)) + ' learned</span></div>' +
       '<div class="table-scroll"><table>' +
       '<thead><tr><th>Severity</th><th>Summary</th><th>Category</th>' +

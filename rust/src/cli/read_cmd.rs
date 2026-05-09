@@ -202,9 +202,17 @@ pub fn cmd_read(args: &[String]) {
             super::common::cli_track_read(path, "entropy", original_tokens, sent);
         }
         _ => {
-            let full_output = format!("{short} [{line_count}L]\n{content}");
-            println!("{full_output}");
-            let sent = count_tokens(&full_output);
+            let mut output = format!("{short} [{line_count}L]\n{content}");
+            let config = crate::core::config::Config::load();
+            let level = crate::core::config::CompressionLevel::effective(&config);
+            if level.is_active() {
+                let terse_result = crate::core::terse::pipeline::compress(&output, &level, None);
+                if terse_result.quality_passed && terse_result.savings_pct >= 1.0 {
+                    output = terse_result.output;
+                }
+            }
+            println!("{output}");
+            let sent = count_tokens(&output);
             super::common::cli_track_read(path, "full", original_tokens, sent);
         }
     }

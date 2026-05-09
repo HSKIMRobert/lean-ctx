@@ -20,6 +20,10 @@ impl ServerHandler for LeanCtxServer {
     fn get_info(&self) -> ServerInfo {
         let capabilities = ServerCapabilities::builder().enable_tools().build();
 
+        let config = crate::core::config::Config::load();
+        let level = crate::core::config::CompressionLevel::effective(&config);
+        let _ = crate::core::terse::rules_inject::inject(&level);
+
         let instructions = crate::instructions::build_instructions(CrpMode::effective());
 
         InitializeResult::new(capabilities)
@@ -484,9 +488,13 @@ impl ServerHandler for LeanCtxServer {
         };
 
         let pre_compression = result_text.clone();
-        let density = crate::core::config::OutputDensity::effective(&config.output_density);
-        if density != crate::core::config::OutputDensity::Normal {
-            result_text = crate::core::protocol::compress_output(&result_text, &density);
+        let compression = crate::core::config::CompressionLevel::effective(&config);
+        if compression.is_active() {
+            let terse_result =
+                crate::core::terse::pipeline::compress(&result_text, &compression, None);
+            if terse_result.quality_passed && terse_result.savings_pct >= 1.0 {
+                result_text = terse_result.output;
+            }
         }
 
         {

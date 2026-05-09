@@ -83,7 +83,29 @@ fn get_routes(path: &str, query_str: &str) -> Option<(&'static str, &'static str
             Some(("200 OK", "application/json", json))
         }
         "/api/session" => {
-            let session = crate::core::session::SessionState::load_latest().unwrap_or_default();
+            let mut session = crate::core::session::SessionState::load_latest().unwrap_or_default();
+            let global = crate::core::stats::load();
+            let g_cmds = global.total_commands;
+            let g_input = global.total_input_tokens;
+            let g_output = global.total_output_tokens;
+            let g_saved = g_input.saturating_sub(g_output);
+            if g_cmds > session.stats.total_tool_calls as u64 {
+                session.stats.total_tool_calls = g_cmds as u32;
+            }
+            if g_saved > session.stats.total_tokens_saved {
+                session.stats.total_tokens_saved = g_saved;
+            }
+            if g_input > session.stats.total_tokens_input {
+                session.stats.total_tokens_input = g_input;
+            }
+            if let Some(lu) = &global.last_use {
+                if let Ok(ts) = chrono::DateTime::parse_from_rfc3339(lu) {
+                    let utc = ts.with_timezone(&chrono::Utc);
+                    if utc > session.updated_at {
+                        session.updated_at = utc;
+                    }
+                }
+            }
             let json = serde_json::to_string(&session)
                 .unwrap_or_else(|_| "{\"error\":\"failed to serialize session\"}".to_string());
             Some(("200 OK", "application/json", json))

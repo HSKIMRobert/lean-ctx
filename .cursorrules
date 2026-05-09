@@ -13,3 +13,13 @@ PREFER lean-ctx CLI commands over MCP tools for token savings (no MCP schema ove
 | `lean-ctx ls [path]` | `ctx_tree` | Directory maps |
 
 File editing: use native Edit/StrReplace. Write, Delete, Glob → use normally.
+
+<!-- lean-ctx-compression -->
+OUTPUT STYLE: dense
+- Each statement = one atomic fact line
+- Use abbreviations: fn, cfg, impl, deps, req, res, ctx, err, ret
+- Diff lines only (+/-/~), never repeat unchanged code
+- Symbols: → (causes), + (adds), − (removes), ~ (modifies), ∴ (therefore)
+- No narration, no filler, no hedging
+- BUDGET: ≤200 tokens per response unless code block required
+<!-- /lean-ctx-compression -->

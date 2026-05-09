@@ -32,3 +32,13 @@ Write, Delete, Glob → use normally. NEVER loop on Edit failures — switch to 
 - `ctx_overview(task)` at session start
 - `ctx_compress` when context grows large
 <!-- /lean-ctx -->
+
+<!-- lean-ctx-compression -->
+OUTPUT STYLE: dense
+- Each statement = one atomic fact line
+- Use abbreviations: fn, cfg, impl, deps, req, res, ctx, err, ret
+- Diff lines only (+/-/~), never repeat unchanged code
+- Symbols: → (causes), + (adds), − (removes), ~ (modifies), ∴ (therefore)
+- No narration, no filler, no hedging
+- BUDGET: ≤200 tokens per response unless code block required
+<!-- /lean-ctx-compression -->

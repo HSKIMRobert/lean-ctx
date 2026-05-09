@@ -1142,8 +1142,8 @@ pub fn run() {
                 super::cmd_tee(&rest);
                 return;
             }
-            "terse" => {
-                super::cmd_terse(&rest);
+            "terse" | "compression" => {
+                super::cmd_compression(&rest);
                 return;
             }
             "slow-log" => {

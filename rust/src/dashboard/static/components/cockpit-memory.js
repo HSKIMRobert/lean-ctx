@@ -34,6 +34,10 @@ function successBadge(success) {
   return '<span class="tag">—</span>';
 }
 
+function tip(k) {
+  return window.LctxShared && window.LctxShared.tip ? window.LctxShared.tip(k) : '';
+}
+
 var TABS = ['episodes', 'procedures', 'gotchas'];
 var TAB_LABELS = { episodes: 'Episodes', procedures: 'Procedures', gotchas: 'Bug Memory' };
 
@@ -209,7 +213,7 @@ class CockpitMemory extends HTMLElement {
 
     return (
       '<div class="card">' +
-      '<div class="card-header"><h3>Episodes</h3></div>' +
+      '<div class="card-header"><h3>Episodes' + tip('episodes') + '</h3></div>' +
       '<div class="table-scroll"><table>' +
       '<thead><tr>' +
       '<th>Summary</th><th>Outcome</th><th class="r">Duration</th>' +
@@ -272,7 +276,7 @@ class CockpitMemory extends HTMLElement {
 
     return (
       '<div class="card">' +
-      '<div class="card-header"><h3>Procedures</h3></div>' +
+      '<div class="card-header"><h3>Procedures' + tip('procedures') + '</h3></div>' +
       '<div class="ckm-procedure-grid">' + cards + '</div>' +
       '</div>'
     );
@@ -285,7 +289,7 @@ class CockpitMemory extends HTMLElement {
     if (list.length === 0) {
       return (
         '<div class="card">' +
-        '<h3>Bug Memory</h3>' +
+        '<h3>Bug Memory' + tip('bug_memory') + '</h3>' +
         '<p class="hs">No gotchas recorded yet. Bug patterns are captured when agents encounter recurring issues.</p>' +
         '</div>'
       );
@@ -311,7 +315,7 @@ class CockpitMemory extends HTMLElement {
 
     return (
       '<div class="card">' +
-      '<div class="card-header"><h3>Bug Memory</h3></div>' +
+      '<div class="card-header"><h3>Bug Memory' + tip('bug_memory') + '</h3></div>' +
       '<div class="table-scroll"><table>' +
       '<thead><tr>' +
       '<th>Summary</th><th>Severity</th><th>Category</th>' +

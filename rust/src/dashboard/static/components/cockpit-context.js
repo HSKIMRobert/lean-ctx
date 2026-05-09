@@ -17,6 +17,10 @@ function api() {
   return window.LctxApi && window.LctxApi.apiFetch ? window.LctxApi.apiFetch : null;
 }
 
+function tip(k) {
+  return window.LctxShared && window.LctxShared.tip ? window.LctxShared.tip(k) : '';
+}
+
 function fmtLib() {
   return window.LctxFmt || {};
 }
@@ -292,7 +296,7 @@ class CockpitContext extends HTMLElement {
 
     let body = '';
 
-    body += this._renderMetrics(ledger, field, F, esc, ff, pc);
+    body += this._renderMetrics(ledger, field, F, esc, ff, pc, this._data.session);
     body += this._renderPressureRow(ledger, esc, ff);
     body += this._renderTableShell(ledger, field, esc, ff, pc);
     body += this._renderOverlays(control, esc);
@@ -303,16 +307,19 @@ class CockpitContext extends HTMLElement {
     this._bindTable();
   }
 
-  _renderMetrics(ledger, field, F, esc, ff, pc) {
+  _renderMetrics(ledger, field, F, esc, ff, pc, session) {
     const pressure = ledger && ledger.pressure;
     const util = pressure && typeof pressure.utilization === 'number' ? pressure.utilization : 0;
     const rec = pressure && pressure.recommendation != null ? pressure.recommendation : '';
-    const cr = ledger && typeof ledger.compression_ratio === 'number' ? ledger.compression_ratio : 1;
-    const savedPct = Math.max(0, Math.min(100, Math.round((1 - Math.min(1, cr)) * 100)));
-    const sent = ledger ? ledger.total_tokens_sent : 0;
-    const saved = ledger ? ledger.total_tokens_saved : 0;
     const win = ledger ? ledger.window_size : 0;
     const temp = field && field.temperature != null ? Number(field.temperature).toFixed(2) : '—';
+
+    const st = session && session.stats ? session.stats : {};
+    const tokInput = st.total_tokens_input || 0;
+    const tokSaved = st.total_tokens_saved || 0;
+    var comprPct = tokInput > 0 ? Math.max(0, Math.min(100, Math.round((tokSaved / tokInput) * 100))) : 0;
+    var retainedPct = tokInput > 0 ? Math.round(((tokInput - tokSaved) / tokInput) * 100) : 0;
+    var outputTok = tokInput - tokSaved;
 
     const p100 = util * 100;
     const dash = Math.max(0, Math.min(100, p100));
@@ -336,23 +343,23 @@ class CockpitContext extends HTMLElement {
       '</svg>' +
       '<span class="gauge-value">' + Math.round(p100) + '%</span>' +
       '</div>' +
-      '<span class="hl" style="margin-top:8px">Token Budget</span>' +
+      '<span class="hl" style="margin-top:8px">Token Budget' + tip('token_budget') + '</span>' +
       '<p class="hs">' + esc(ff(win)) + ' window · temp ' + esc(temp) + '</p>' +
       '</div>' +
       '<div class="ctx-metrics-stack">' +
       '<div class="hero r3 stagger">' +
       '<div class="hc">' +
-      '<span class="hl">Tokens saved</span>' +
-      '<div class="hv cockpit-ctx-sparkle" style="color:var(--green)">' + esc(ff(saved)) + '</div>' +
-      '<p class="hs">compression vs original</p>' +
+      '<span class="hl">Tokens saved' + tip('tokens_saved') + '</span>' +
+      '<div class="hv cockpit-ctx-sparkle" style="color:var(--green)">' + esc(ff(tokSaved)) + '</div>' +
+      '<p class="hs">' + esc(ff(tokInput)) + ' input · ' + esc(ff(outputTok)) + ' output</p>' +
       '</div>' +
       '<div class="hc">' +
-      '<span class="hl">Compression</span>' +
-      '<div class="hv">' + esc(String(savedPct)) + '%</div>' +
-      '<p class="hs">' + esc(String(Math.round(cr * 100))) + '% retained · ' + esc(ff(sent)) + ' sent</p>' +
+      '<span class="hl">Compression' + tip('compression') + '</span>' +
+      '<div class="hv">' + esc(String(comprPct)) + '%</div>' +
+      '<p class="hs">' + esc(String(retainedPct)) + '% retained · ' + esc(ff(st.total_tool_calls || 0)) + ' calls</p>' +
       '</div>' +
       '<div class="hc">' +
-      '<span class="hl">Pressure</span>' +
+      '<span class="hl">Pressure' + tip('pressure') + '</span>' +
       '<div class="hv" style="font-size:16px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + recDot + ';margin-right:6px"></span>' + esc(recLabel) + '</div>' +
       '<p class="hs">' + esc(recommendationCopy(rec)) + '</p>' +
       '</div>' +
@@ -388,7 +395,7 @@ class CockpitContext extends HTMLElement {
     return (
       '<div class="row r12" style="margin-bottom:20px">' +
       '<div class="card">' +
-      '<div class="card-header"><h3>Token Pressure</h3>' +
+      '<div class="card-header"><h3>Token Pressure' + tip('token_pressure') + '</h3>' +
       '<span class="badge" style="background:' + (pct < 60 ? 'var(--green-dim)' : pct < 80 ? 'var(--yellow-dim)' : 'var(--red-dim)') + ';color:' + (pct < 60 ? 'var(--green)' : pct < 80 ? 'var(--yellow)' : 'var(--red)') + '">' + pct + '%</span></div>' +
       '<div class="pressure-bar" style="height:10px;margin-bottom:12px">' +
       '<div class="pressure-fill" style="width:' + Math.min(100, pct) + '%;background:' + fillCol + '"></div>' +
@@ -401,7 +408,7 @@ class CockpitContext extends HTMLElement {
       warn +
       '</div>' +
       '<div class="card">' +
-      '<div class="card-header"><h3>Mode Distribution</h3></div>' +
+      '<div class="card-header"><h3>Mode Distribution' + tip('mode_distribution') + '</h3></div>' +
       (hasModes
         ? '<canvas id="cockpitCtxModeDist" height="180" width="280" aria-label="Mode distribution"></canvas>'
         : '<p class="hs">No ledger entries yet — mode mix appears after reads are recorded.</p>') +
@@ -570,7 +577,7 @@ class CockpitContext extends HTMLElement {
     return (
       '<div class="card" style="margin-bottom:20px">' +
       '<div class="card-header">' +
-      '<h3>Active Context Items</h3>' +
+      '<h3>Active Context Items' + tip('context_items') + '</h3>' +
       '<div style="display:flex;align-items:center;gap:8px">' +
       '<span class="badge">' + rows.length + '</span>' +
       '<select id="cockpitCtxModeFilter" class="btn" style="padding:4px 8px;font-size:11px">' +
@@ -598,18 +605,16 @@ class CockpitContext extends HTMLElement {
     if (!Array.isArray(list)) {
       return (
         '<div class="card" style="margin-bottom:20px">' +
-        '<div class="card-header"><h3>Active Overlays</h3></div>' +
+        '<div class="card-header"><h3>Active Overlays' + tip('overlays') + '</h3></div>' +
         '<p class="hs">Could not read overlays.</p></div>'
       );
     }
     if (list.length === 0) {
       return (
-        '<div class="card" style="margin-bottom:20px">' +
-        '<div class="card-header"><h3>Active Overlays</h3><span class="badge">0</span></div>' +
-        '<div class="empty-state" style="padding:20px;text-align:center">' +
-        '<p class="hs" style="margin-bottom:8px">No active overlays</p>' +
-        '<p class="hs" style="opacity:.6">Pin, exclude, or change views from the table above to add overlays.</p>' +
-        '</div></div>'
+        '<div class="card" style="margin-bottom:20px;opacity:.7">' +
+        '<div class="card-header"><h3>Active Overlays' + tip('overlays') + '</h3><span class="badge">0</span></div>' +
+        '<p class="hs" style="text-align:center;padding:12px 0">No active overlays — use the actions above to pin, exclude, or change file views.</p>' +
+        '</div>'
       );
     }
 
@@ -658,7 +663,7 @@ class CockpitContext extends HTMLElement {
 
     return (
       '<div class="card" style="margin-bottom:20px">' +
-      '<div class="card-header"><h3>Active Overlays</h3></div>' +
+      '<div class="card-header"><h3>Active Overlays' + tip('overlays') + '</h3></div>' +
       '<div class="cockpit-ctx-overlay-grid">' +
       cards +
       '</div></div>'
@@ -690,7 +695,7 @@ class CockpitContext extends HTMLElement {
         }
       }
       planBlock = '<div class="card" style="margin-bottom:20px">';
-      planBlock += '<div class="card-header"><h3>Context Plan</h3></div>';
+      planBlock += '<div class="card-header"><h3>Context Plan' + tip('context_plan') + '</h3></div>';
       if (header) planBlock += '<p class="hs" style="margin-bottom:12px">' + esc(header) + '</p>';
       if (items.length > 0) {
         planBlock += '<table><thead><tr><th>Path</th><th>Mode</th><th class="r">Tokens</th><th>Status</th></tr></thead><tbody>';
@@ -713,7 +718,7 @@ class CockpitContext extends HTMLElement {
     } else {
       planBlock =
         '<div class="card" style="margin-bottom:20px">' +
-        '<div class="card-header"><h3>Context Plan</h3></div>' +
+        '<div class="card-header"><h3>Context Plan' + tip('context_plan') + '</h3></div>' +
         '<p class="hs" style="padding:16px">No plan text yet. Run <code>lean-ctx plan</code> to populate the planner.</p>' +
         '</div>';
     }
@@ -735,7 +740,7 @@ class CockpitContext extends HTMLElement {
       const intents = st.intents_inferred || 0;
 
       sessionBlock += '<div class="card" style="margin-bottom:20px">';
-      sessionBlock += '<div class="card-header"><h3>Session</h3>';
+      sessionBlock += '<div class="card-header"><h3>Session' + tip('session') + '</h3>';
       if (sess.id) sessionBlock += '<span class="hs"><code>' + esc(sess.id) + '</code></span>';
       sessionBlock += '</div>';
 
@@ -751,6 +756,7 @@ class CockpitContext extends HTMLElement {
       if (tokInput > 0) rows.push(['Input Tokens', ff(tokInput)]);
       if (intents > 0) rows.push(['Intents Inferred', String(intents)]);
       if (sess.started_at) rows.push(['Started', String(sess.started_at).replace('T', ' ').slice(0, 19)]);
+      if (sess.updated_at) rows.push(['Last Active', String(sess.updated_at).replace('T', ' ').slice(0, 19)]);
       if (sess.version) rows.push(['Version', String(sess.version)]);
 
       if (rows.length > 0) {
@@ -768,7 +774,7 @@ class CockpitContext extends HTMLElement {
       const layers = pipe.per_layer && typeof pipe.per_layer === 'object' ? pipe.per_layer : {};
       const layerKeys = Object.keys(layers);
       pipeBlock += '<div class="card" style="margin-bottom:20px">';
-      pipeBlock += '<div class="card-header"><h3>Pipeline</h3><span class="badge">' + pipe.runs + ' run' + (pipe.runs !== 1 ? 's' : '') + '</span></div>';
+      pipeBlock += '<div class="card-header"><h3>Pipeline' + tip('pipeline') + '</h3><span class="badge">' + pipe.runs + ' run' + (pipe.runs !== 1 ? 's' : '') + '</span></div>';
       if (layerKeys.length > 0) {
         pipeBlock += '<table><thead><tr><th>Layer</th><th class="r">Input Tokens</th><th class="r">Output Tokens</th><th class="r">Duration</th></tr></thead><tbody>';
         for (let i = 0; i < layerKeys.length; i++) {
@@ -788,7 +794,7 @@ class CockpitContext extends HTMLElement {
       const it = activeIntent;
       const confPct = it.confidence != null ? Math.round(it.confidence * 100) : null;
       intentBlock += '<div class="card" style="margin-bottom:20px">';
-      intentBlock += '<div class="card-header"><h3>Active Intent</h3>';
+      intentBlock += '<div class="card-header"><h3>Active Intent' + tip('active_intent') + '</h3>';
       intentBlock += '<span class="tag tg">' + esc(it.task_type) + '</span>';
       if (it.scope) intentBlock += '<span class="tag">' + esc(it.scope) + '</span>';
       intentBlock += '</div>';
@@ -824,10 +830,9 @@ class CockpitContext extends HTMLElement {
     if (items.length === 0) {
       return (
         '<div class="card">' +
-        '<div class="card-header"><h3>Overlay History</h3></div>' +
-        '<div class="empty-state" style="padding:20px;text-align:center">' +
-        '<p class="hs">No overlay operations recorded yet.</p>' +
-        '</div></div>'
+        '<div class="card-header"><h3>Overlay History' + tip('overlay_history') + '</h3></div>' +
+        '<p class="hs" style="text-align:center;padding:12px 0;opacity:.6">No overlay operations recorded yet.</p>' +
+        '</div>'
       );
     }
 
@@ -862,7 +867,7 @@ class CockpitContext extends HTMLElement {
 
     return (
       '<div class="card">' +
-      '<div class="card-header"><h3>Overlay History</h3><span class="badge">' + items.length + '</span></div>' +
+      '<div class="card-header"><h3>Overlay History' + tip('overlay_history') + '</h3><span class="badge">' + items.length + '</span></div>' +
       '<div class="cockpit-ctx-timeline">' +
       lines +
       '</div></div>'

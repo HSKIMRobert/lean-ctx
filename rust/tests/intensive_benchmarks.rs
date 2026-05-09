@@ -1586,31 +1586,30 @@ fn bench_md5_fast_vs_full_correctness() {
 }
 
 #[test]
-fn bench_compress_output_normal_is_noop() {
-    use lean_ctx::core::config::OutputDensity;
-    use lean_ctx::core::protocol::compress_output;
+fn bench_terse_pipeline_compression() {
+    use lean_ctx::core::config::CompressionLevel;
+    use lean_ctx::core::terse;
 
     let input = "fn main() {\n    println!(\"hello\");\n}\n".repeat(500);
 
-    let start_terse = std::time::Instant::now();
+    let start_standard = std::time::Instant::now();
     for _ in 0..100 {
-        let _ = compress_output(&input, &OutputDensity::Terse);
+        let _ = terse::pipeline::compress(&input, &CompressionLevel::Standard, None);
     }
-    let terse_us = start_terse.elapsed().as_micros();
+    let standard_us = start_standard.elapsed().as_micros();
 
-    let start_normal = std::time::Instant::now();
+    let start_off = std::time::Instant::now();
     for _ in 0..100 {
-        let result = compress_output(&input, &OutputDensity::Normal);
-        assert_eq!(result.len(), input.len());
+        let result = terse::pipeline::compress(&input, &CompressionLevel::Off, None);
+        assert_eq!(result.output.len(), input.len());
     }
-    let normal_us = start_normal.elapsed().as_micros();
+    let off_us = start_off.elapsed().as_micros();
 
     eprintln!("\n{}", "=".repeat(70));
-    eprintln!("  COMPRESS_OUTPUT DENSITY BENCHMARK (100 iters, ~20KB input)");
+    eprintln!("  TERSE PIPELINE BENCHMARK (100 iters, ~20KB input)");
     eprintln!("{}", "=".repeat(70));
-    eprintln!("  Normal (to_string copy): {normal_us:>6} us");
-    eprintln!("  Terse (filter+join):     {terse_us:>6} us");
-    eprintln!("  Note: In production, Normal is skipped entirely (no copy).");
+    eprintln!("  Off (passthrough):  {off_us:>6} us");
+    eprintln!("  Standard (4-layer): {standard_us:>6} us");
     eprintln!("{}", "=".repeat(70));
 }
 

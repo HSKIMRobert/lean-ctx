@@ -35,3 +35,13 @@ but the default workflow is CLI-first.
 Prefer lean-ctx MCP tools over native equivalents for token savings.
 Full rules: LEAN-CTX.md (same directory)
 <!-- /lean-ctx -->
+
+<!-- lean-ctx-compression -->
+OUTPUT STYLE: dense
+- Each statement = one atomic fact line
+- Use abbreviations: fn, cfg, impl, deps, req, res, ctx, err, ret
+- Diff lines only (+/-/~), never repeat unchanged code
+- Symbols: → (causes), + (adds), − (removes), ~ (modifies), ∴ (therefore)
+- No narration, no filler, no hedging
+- BUDGET: ≤200 tokens per response unless code block required
+<!-- /lean-ctx-compression -->

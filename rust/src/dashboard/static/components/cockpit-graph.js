@@ -29,6 +29,10 @@ function ckgShared() {
   return window.LctxShared || {};
 }
 
+function tip(k) {
+  return window.LctxShared && window.LctxShared.tip ? window.LctxShared.tip(k) : '';
+}
+
 function ckgLangColor(lang) {
   if (!lang) return CKG_DEFAULT_COLOR;
   return CKG_LANG_COLORS[String(lang).toLowerCase()] || CKG_DEFAULT_COLOR;
@@ -268,14 +272,14 @@ class CockpitGraph extends HTMLElement {
 
     g.append('g').selectAll('line')
       .data(links).join('line')
-      .attr('stroke', 'rgba(255,255,255,0.08)')
+      .attr('class', 'deps-edge-line')
       .attr('stroke-width', 1);
 
     var nodeG = g.append('g').selectAll('circle')
       .data(nodes).join('circle')
       .attr('r', function (d) { return Math.max(4, Math.min(12, Math.sqrt(d.size / 500))); })
       .attr('fill', function (d) { return ckgLangColor(d.language); })
-      .attr('stroke', 'rgba(0,0,0,0.3)')
+      .attr('class', 'graph-node-stroke')
       .attr('stroke-width', 1)
       .call(d3.drag()
         .on('start', function (event, d) {
@@ -428,7 +432,7 @@ class CockpitGraph extends HTMLElement {
       .attr('orient', 'auto')
       .append('path')
       .attr('d', 'M0,-5L10,0L0,5')
-      .attr('fill', 'rgba(255,255,255,0.15)');
+      .attr('class', 'cg-arrow-fill');
 
     var g = svg.append('g');
     var zoom = d3.zoom()
@@ -450,7 +454,7 @@ class CockpitGraph extends HTMLElement {
 
     var linkSel = g.append('g').selectAll('line')
       .data(links).join('line')
-      .attr('stroke', 'rgba(255,255,255,0.08)')
+      .attr('class', 'cg-edge-line')
       .attr('stroke-width', 1)
       .attr('marker-end', 'url(#ckg-arrow)');
 
@@ -458,7 +462,7 @@ class CockpitGraph extends HTMLElement {
       .data(nodes).join('circle')
       .attr('r', function (d) { return Math.max(5, Math.min(14, 5 + Math.sqrt(d.calls + d.calledBy))); })
       .attr('fill', 'var(--purple)')
-      .attr('stroke', 'rgba(0,0,0,0.3)')
+      .attr('class', 'graph-node-stroke')
       .attr('stroke-width', 1)
       .call(d3.drag()
         .on('start', function (event, d) {
@@ -561,7 +565,7 @@ class CockpitGraph extends HTMLElement {
 
     container.innerHTML =
       '<div class="card">' +
-      '<div class="card-header"><h3>Symbols</h3>' +
+      '<div class="card-header"><h3>Symbols' + tip('symbols_table') + '</h3>' +
       '<span class="badge">' + esc(ff(syms.length)) + ' symbols</span></div>' +
       '<div class="table-scroll"><table>' +
       '<thead><tr><th>Name</th><th>Kind</th><th>File</th>' +

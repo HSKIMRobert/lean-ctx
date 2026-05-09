@@ -295,55 +295,6 @@ impl LeanCtxServer {
         }
     }
 
-    /// Post-dispatch: output density compression + translation + verification.
-    pub(super) async fn post_process_output(
-        &self,
-        result_text: &str,
-        pre_compression: &str,
-    ) -> String {
-        let config = crate::core::config::Config::load();
-        let density = crate::core::config::OutputDensity::effective(&config.output_density);
-        let mut output = if density == crate::core::config::OutputDensity::Normal {
-            result_text.to_string()
-        } else {
-            crate::core::protocol::compress_output(result_text, &density)
-        };
-
-        let translation_cfg = crate::core::profiles::active_profile().translation;
-        if translation_cfg.enabled_effective() {
-            let before = output.clone();
-            let before_tokens = crate::core::tokens::count_tokens(&before);
-            let start = std::time::Instant::now();
-            let translated = crate::core::tokenizer_translation_driver::translate_tool_output(
-                &before,
-                &translation_cfg,
-            );
-            let duration_us = start.elapsed().as_micros() as u64;
-            if translated.changed {
-                let after_tokens = crate::core::tokens::count_tokens(&translated.output);
-                let mut stats = self.pipeline_stats.write().await;
-                stats.record(&[crate::core::pipeline::LayerMetrics::new(
-                    crate::core::pipeline::LayerKind::Translation,
-                    before_tokens,
-                    after_tokens,
-                    duration_us,
-                )]);
-                stats.save();
-            }
-            output = translated.output;
-        }
-
-        let verify_cfg = crate::core::profiles::active_profile().verification;
-        let vr =
-            crate::core::output_verification::verify_output(pre_compression, &output, &verify_cfg);
-        if !vr.warnings.is_empty() {
-            let msg = format!("[VERIFY] {}", vr.format_compact());
-            output = format!("{output}\n\n{msg}");
-        }
-
-        output
-    }
-
     /// Post-dispatch: ctx_read enrichment (related files, prefetch).
     pub(super) async fn enrich_after_read(
         &self,

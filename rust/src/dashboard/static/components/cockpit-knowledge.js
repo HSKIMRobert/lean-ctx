@@ -16,9 +16,9 @@ var CATEGORY_COLORS = {
 };
 
 var EDGE_STYLES = {
-  category: { color: 'rgba(255,255,255,0.04)', dash: null },
+  category: { color: 'var(--border)', dash: null },
   depends_on: { color: 'rgba(56,189,248,0.55)', dash: null },
-  related_to: { color: 'rgba(255,255,255,0.08)', dash: null },
+  related_to: { color: 'var(--border-light)', dash: null },
   supports: { color: 'rgba(52,211,153,0.55)', dash: null },
   contradicts: { color: 'rgba(248,113,113,0.6)', dash: null },
   supersedes: { color: 'rgba(192,132,252,0.6)', dash: '6,3' },
@@ -47,6 +47,10 @@ function catColor(cat) {
 function truncLabel(s) {
   if (!s) return '';
   return s.length > LABEL_MAX ? s.slice(0, LABEL_MAX - 1) + '\u2026' : s;
+}
+
+function tip(k) {
+  return window.LctxShared && window.LctxShared.tip ? window.LctxShared.tip(k) : '';
 }
 
 function edgeStyle(kind) {
@@ -409,7 +413,7 @@ class CockpitKnowledge extends HTMLElement {
       .append('circle')
       .attr('r', function (d) { return d.radius; })
       .attr('fill', function (d) { return catColor(d.category); })
-      .attr('stroke', function (d) { return d.type === 'category' ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.08)'; })
+      .attr('stroke', function (d) { return d.type === 'category' ? 'var(--border-light)' : 'var(--border)'; })
       .attr('stroke-width', function (d) { return d.type === 'category' ? 1.5 : 0.5; })
       .attr('cursor', 'pointer')
       .on('mouseover', function (event, d) {

@@ -1,0 +1,10 @@
+name = "LeanCtxProofs"
+version = "0.1.0"
+defaultTargets = ["leanctxproofs"]
+
+[[lean_lib]]
+name = "LeanCtxProofs"
+
+[[lean_exe]]
+name = "leanctxproofs"
+root = "Main"

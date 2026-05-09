@@ -38,6 +38,9 @@ pub struct SessionState {
     /// When true, resume / compaction prompts encourage concise model replies.
     #[serde(default)]
     pub terse_mode: bool,
+    /// Unified compression level label (off/lite/standard/max).
+    #[serde(default)]
+    pub compression_level: String,
 }
 
 /// Description of the current task being worked on, with optional progress tracking.
@@ -204,10 +207,34 @@ impl SessionState {
             intents: Vec::new(),
             active_structured_intent: None,
             stats: SessionStats::default(),
-            terse_mode: crate::core::profiles::active_profile()
-                .compression
-                .terse_mode_effective(),
+            terse_mode: false,
+            compression_level: String::new(),
         }
+        .with_compression_from_config()
+    }
+
+    fn with_compression_from_config(mut self) -> Self {
+        let level = if let Some(env_level) = crate::core::config::CompressionLevel::from_env() {
+            env_level
+        } else {
+            let profile = crate::core::profiles::active_profile();
+            let terse = profile.compression.terse_mode_effective();
+            let density = profile.compression.output_density_effective();
+            let od = match density {
+                "ultra" => crate::core::config::OutputDensity::Ultra,
+                "terse" => crate::core::config::OutputDensity::Terse,
+                _ => crate::core::config::OutputDensity::Normal,
+            };
+            let ta = if terse {
+                crate::core::config::TerseAgent::Full
+            } else {
+                crate::core::config::TerseAgent::Off
+            };
+            crate::core::config::CompressionLevel::from_legacy(&ta, &od)
+        };
+        self.compression_level = level.label().to_string();
+        self.terse_mode = level.is_active();
+        self
     }
 
     /// Bumps the version counter and marks the session as dirty.
@@ -577,8 +604,10 @@ impl SessionState {
 
         let mut sections: Vec<(u8, String)> = Vec::new();
 
-        if self.terse_mode {
-            sections.push((0, "<config terse=\"true\" />".to_string()));
+        let level = crate::core::config::CompressionLevel::from_str_label(&self.compression_level)
+            .unwrap_or_default();
+        if let Some(tag) = crate::core::terse::agent_prompts::session_context_tag(&level) {
+            sections.push((0, tag));
         }
 
         if let Some(ref task) = self.task {
@@ -924,11 +953,10 @@ impl SessionState {
     pub fn build_resume_block(&self) -> String {
         let mut parts: Vec<String> = Vec::new();
 
-        if self.terse_mode {
-            parts.push(
-                "[TERSE MODE] Keep responses concise. Use bullet points, avoid filler. Focus on code and actions, not explanations."
-                    .to_string(),
-            );
+        let level = crate::core::config::CompressionLevel::from_str_label(&self.compression_level)
+            .unwrap_or_default();
+        if let Some(hint) = crate::core::terse::agent_prompts::resume_block_hint(&level) {
+            parts.push(hint);
         }
 
         if let Some(ref root) = self.project_root {
@@ -1300,14 +1328,27 @@ fn normalize_loaded_session(mut session: SessionState) -> SessionState {
         }
     }
 
-    // Upgrade terse_mode from profile if session was created before the profile default.
-    if !session.terse_mode {
-        let profile_terse = crate::core::profiles::active_profile()
-            .compression
-            .terse_mode_effective();
-        if profile_terse {
-            session.terse_mode = true;
+    // Upgrade compression_level from config if session was created before unified levels.
+    if session.compression_level.is_empty() {
+        if session.terse_mode {
+            session.compression_level = "lite".to_string();
+        } else if let Some(env_level) = crate::core::config::CompressionLevel::from_env() {
+            session.compression_level = env_level.label().to_string();
+            session.terse_mode = env_level.is_active();
+        } else {
+            let profile = crate::core::profiles::active_profile();
+            if profile.compression.terse_mode_effective() {
+                session.compression_level = "lite".to_string();
+                session.terse_mode = true;
+            } else {
+                session.compression_level = "off".to_string();
+            }
         }
+    } else if !session.terse_mode {
+        let level =
+            crate::core::config::CompressionLevel::from_str_label(&session.compression_level)
+                .unwrap_or_default();
+        session.terse_mode = level.is_active();
     }
 
     session
@@ -1461,20 +1502,22 @@ mod tests {
     }
 
     #[test]
-    fn compaction_snapshot_includes_terse_config_when_enabled() {
+    fn compaction_snapshot_includes_compression_config_when_enabled() {
         let mut session = SessionState::new();
+        session.compression_level = "standard".to_string();
         session.terse_mode = true;
         session.set_task("x", None);
         let snapshot = session.build_compaction_snapshot();
-        assert!(snapshot.contains("<config terse=\"true\" />"));
+        assert!(snapshot.contains("<config compression=\"standard\" />"));
     }
 
     #[test]
-    fn resume_block_prefixes_terse_instruction_when_enabled() {
+    fn resume_block_prefixes_compression_hint_when_enabled() {
         let mut session = SessionState::new();
+        session.compression_level = "lite".to_string();
         session.terse_mode = true;
         let block = session.build_resume_block();
-        assert!(block.contains("[TERSE MODE]"));
+        assert!(block.contains("[COMPRESSION: lite]"));
     }
 
     #[test]

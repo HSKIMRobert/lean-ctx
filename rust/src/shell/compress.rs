@@ -406,8 +406,18 @@ fn compress_if_beneficial(command: &str, output: &str) -> String {
 
     let min_output_tokens = 5;
 
-    if let Some(compressed) = patterns::compress_output(command, output) {
+    if let Some(mut compressed) = patterns::compress_output(command, output) {
         if !compressed.trim().is_empty() {
+            let config = crate::core::config::Config::load();
+            let level = crate::core::config::CompressionLevel::effective(&config);
+            if level.is_active() {
+                let terse_result =
+                    crate::core::terse::pipeline::compress(output, &level, Some(&compressed));
+                if terse_result.quality_passed {
+                    compressed = terse_result.output;
+                }
+            }
+
             let compressed_tokens = count_tokens(&compressed);
             if compressed_tokens >= min_output_tokens && compressed_tokens < original_tokens {
                 let ratio = compressed_tokens as f64 / original_tokens as f64;
@@ -426,6 +436,23 @@ fn compress_if_beneficial(command: &str, output: &str) -> String {
             }
             if compressed_tokens < min_output_tokens {
                 return output.to_string();
+            }
+        }
+    }
+
+    {
+        let config = crate::core::config::Config::load();
+        let level = crate::core::config::CompressionLevel::effective(&config);
+        if level.is_active() {
+            let terse_result = crate::core::terse::pipeline::compress(output, &level, None);
+            if terse_result.quality_passed && terse_result.savings_pct >= 3.0 {
+                let tok_before = terse_result.tokens_before;
+                let tok_after = terse_result.tokens_after;
+                let pct = terse_result.savings_pct.round() as usize;
+                return format!(
+                    "{}\n[lean-ctx: {tok_before}→{tok_after} tok, -{pct}%]",
+                    terse_result.output
+                );
             }
         }
     }

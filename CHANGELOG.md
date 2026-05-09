@@ -5,6 +5,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.5.10] — 2026-05-09
+
+### Added
+
+- **4-layer terse compression engine** — Scientifically grounded compression pipeline replacing the legacy `output_density` / `terse_agent` settings with a unified `CompressionLevel` system (`off` / `lite` / `standard` / `max`):
+  - **Layer 1 — Deterministic Output Terse** (`engine.rs`): Surprisal scoring, content/function-word filtering, filler-line removal, and a quality gate that preserves all paths and identifiers.
+  - **Layer 2 — Pattern-Aware Residual** (`residual.rs`): Runs after pattern compression, applies terse on the remaining output with attribution split.
+  - **Layer 3 — Agent Output Shaping** (`agent_prompts.rs`): Scale-aware brevity prompts injected into LLM instructions — telegraph-English-inspired format for `max`, dense atomic facts for `standard`, concise bullets for `lite`.
+  - **Layer 4 — MCP Description Terse** (`mcp_compress.rs`): Compresses tool descriptions and lazy-load stubs for reduced schema overhead.
+- **Unified `CompressionLevel` configuration** — Single `compression_level` setting in `config.toml` replaces the legacy `output_density` and `terse_agent` options. Resolution order: `LEAN_CTX_COMPRESSION` env var → `compression_level` config → legacy fallback. CLI: `lean-ctx compression <off|lite|standard|max>` (alias: `lean-ctx terse`).
+- **Quality gate for terse compression** (`quality.rs`) — Ensures all file paths and code identifiers survive compression. If `max` level fails the quality check, automatically falls back to `standard`. Inputs shorter than 5 lines skip compression entirely.
+- **Agent prompt injection across all IDEs** (`rules_inject.rs`) — Compression prompts are automatically injected into 7 agent rules files (Cursor `.cursorrules`, `~/.cursor/rules/lean-ctx.mdc`, Claude `.claude/rules/lean-ctx.md`, AGENTS.md, CRUSH, Qoder, Kiro). Injection runs from `lean-ctx compression`, `lean-ctx setup`, and on MCP server startup — ensuring retroactive consistency when users change settings.
+- **Context Proof V2** (`context_proof_v2.rs`) — Proof-carrying context with claim extraction, quality levels Q0–Q4, and structured verification output.
+- **Claim extractor** (`claim_extractor.rs`) — Decomposes session context into atomic verifiable claims for the proof system.
+- **29 new Lean4 formal proofs** — Two new proof modules bringing the total to **82 machine-checked theorems** with zero `sorry`:
+  - `TerseQuality.lean` (12 theorems): Quality gate correctness, conjunction semantics, idempotence, empty-set triviality.
+  - `TerseEngine.lean` (17 theorems): Compression level ordering, Max-to-Standard fallback correctness, structural marker preservation, filter-subset invariant, high-score line protection.
+- **Terse evaluation harness** (`terse_eval.rs`) — Integration test covering git diff, JSON API, Docker build, Cargo build, and Rust error outputs across all compression levels.
+- **Domain-aware dictionaries** (`dictionaries.rs`) — Whole-word replacement dictionaries for general programming terms, Git operations, and domain-specific abbreviations. Applied after quality gate to prevent identifier corruption.
+- **Surprisal-based line scoring** (`scoring.rs`) — Information-theoretic scoring using bigram surprisal to identify high-information-density lines for preservation.
+
+### Improved
+
+- **Dashboard: shared utilities refactored** — New `shared.js` library with common dashboard utilities, reducing code duplication across cockpit components.
+- **Dashboard: cockpit components polished** — Updated Context Explorer, Agent Sessions, Graph Visualizer, Knowledge Base, Memory Inspector, Compression Stats, and Overview with improved layouts, consistent styling, and better data presentation.
+- **Setup flow consolidated** — Premium feature configuration (compression, TDD) unified into a single interactive prompt flow. Shell alias refresh integrated.
+- **Test suite robustness** — `terse_agent_tests.rs` rewritten to explicitly control both `LEAN_CTX_COMPRESSION` and `LEAN_CTX_TERSE_AGENT` env vars, eliminating dependency on local config state. Mutex poison recovery added. 5 new tests for the `CompressionLevel` system alongside 6 fixed legacy backward-compat tests.
+- **Intensive benchmarks updated** — `intensive_benchmarks.rs` now benchmarks the new 4-layer terse pipeline instead of the removed `protocol::compress_output`.
+
+### Fixed
+
+- **Token counter overflow** (`counter.rs`) — `savings_pct` no longer panics when dictionary replacements expand text beyond the original token count.
+- **Short input over-compression** — Inputs shorter than 5 lines are now passed through unchanged, preventing the terse engine from removing single-line outputs like file reads.
+- **Legacy pipeline cleanup** — Removed deprecated `compress_output`, `OutputDensity` functions from `protocol.rs`. All compression now routes through the unified terse pipeline.
+
 ## [3.5.9] — 2026-05-09
 
 ### Fixed

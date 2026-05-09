@@ -18,6 +18,10 @@ function sharedLib() {
   return window.LctxShared || {};
 }
 
+function tip(k) {
+  return window.LctxShared && window.LctxShared.tip ? window.LctxShared.tip(k) : '';
+}
+
 var CKO_CHARTS = [
   'cko-chartCumSavings',
   'cko-chartDailyActivity',
@@ -244,7 +248,7 @@ class CockpitOverview extends HTMLElement {
       '<div class="hero stagger">' +
 
       '<div class="hero-main">' +
-      '<span class="hl">Total tokens saved</span>' +
+      '<span class="hl">Total tokens saved' + tip('total_tokens_saved') + '</span>' +
       '<div class="hv" id="cko-vSaved">' + esc(ff(saved)) + '</div>' +
       '<p class="hs">' +
       'From <b>' + esc(ff(totalIn)) + '</b> input to <b>' +
@@ -253,19 +257,19 @@ class CockpitOverview extends HTMLElement {
       '</div>' +
 
       '<div class="hc">' +
-      '<span class="hl">Cost saved</span>' +
+      '<span class="hl">Cost saved' + tip('cost_saved') + '</span>' +
       '<div class="hv" style="color:var(--yellow)">' + esc(fu(avoidedUsd)) + '</div>' +
       '<p class="hs">estimated API cost avoided</p>' +
       '</div>' +
 
       '<div class="hc">' +
-      '<span class="hl">Compression rate</span>' +
+      '<span class="hl">Compression rate' + tip('compression_rate') + '</span>' +
       '<div class="hv" style="color:var(--purple)">' + esc(String(compRate)) + '%</div>' +
       '<p class="hs">tokens removed before sending</p>' +
       '</div>' +
 
       '<div class="hc">' +
-      '<span class="hl">Gain score</span>' +
+      '<span class="hl">Gain score' + tip('gain_score') + '</span>' +
       '<div class="gauge-ring" style="width:72px;height:72px">' +
       '<svg width="72" height="72" viewBox="0 0 36 36" aria-hidden="true">' +
       '<circle class="bg" cx="18" cy="18" r="15.91549430918954" />' +
@@ -280,7 +284,7 @@ class CockpitOverview extends HTMLElement {
       '</div>' +
 
       '<div class="hc">' +
-      '<span class="hl">Total calls</span>' +
+      '<span class="hl">Total calls' + tip('total_calls') + '</span>' +
       '<div class="hv" style="color:var(--blue)">' + esc(ff(calls)) + '</div>' +
       '<p class="hs">' +
       (stats && stats.first_use
@@ -309,6 +313,7 @@ class CockpitOverview extends HTMLElement {
 
     var statNames = ['CMP', 'VIG', 'END', 'WIS', 'EXP'];
     var statKeys = ['compression', 'vigilance', 'endurance', 'wisdom', 'experience'];
+    var statTipKeys = ['buddy_cmp', 'buddy_vig', 'buddy_end', 'buddy_wis', 'buddy_exp'];
     var statColors = [
       'var(--green)', 'var(--blue)', 'var(--purple)',
       'var(--yellow)', 'var(--pink)',
@@ -320,7 +325,7 @@ class CockpitOverview extends HTMLElement {
       var val = bStats[statKeys[i]] || 0;
       statsHtml +=
         '<div class="stat-cell">' +
-        '<div class="stat-label">' + statNames[i] + '</div>' +
+        '<div class="stat-label">' + statNames[i] + tip(statTipKeys[i]) + '</div>' +
         miniGauge(val, statColors[i]) +
         '<div class="stat-val">' + val + '</div>' +
         '</div>';
@@ -339,11 +344,11 @@ class CockpitOverview extends HTMLElement {
       esc(rarity) + '</span></div>' +
       '<div class="buddy-meta">' +
       '<span>' + esc(b.species || '') + '</span>' +
-      '<span>Lv.' + (b.level || 1) + '</span>' +
+      '<span>Lv.' + (b.level || 1) + tip('buddy_level') + '</span>' +
       '<span class="mood-dot mood-' + esc(mood) + '"></span>' +
-      '<span>' + esc(mood) + '</span>' +
+      '<span>' + esc(mood) + tip('buddy_mood') + '</span>' +
       (b.streak_days
-        ? '<span>' + b.streak_days + 'd streak</span>'
+        ? '<span>' + b.streak_days + 'd streak' + tip('buddy_streak') + '</span>'
         : '') +
       '</div>' +
       '<div class="xp-wrap">' +
@@ -396,13 +401,13 @@ class CockpitOverview extends HTMLElement {
       '<div class="row r21" style="margin-bottom:20px">' +
 
       '<div class="card">' +
-      '<h3>Cumulative token savings</h3>' +
+      '<h3>Cumulative token savings' + tip('cumulative_savings') + '</h3>' +
       '<canvas id="cko-chartCumSavings" height="220"' +
       ' aria-label="Cumulative savings chart"></canvas>' +
       '</div>' +
 
       '<div class="card">' +
-      '<h3>Cost analysis</h3>' +
+      '<h3>Cost analysis' + tip('cost_analysis') + '</h3>' +
       '<div class="cost-row">' +
       '<div class="cost-box bad">' +
       '<div class="amt" style="color:var(--red)">' +
@@ -469,7 +474,7 @@ class CockpitOverview extends HTMLElement {
       '<div class="row r4" style="margin-bottom:20px">' +
 
       '<div class="card">' +
-      '<h3>Session</h3>' +
+      '<h3>Session' + tip('session_overview') + '</h3>' +
       '<div class="sr"><span class="sl">Task</span>' +
       '<span class="sv" title="' + esc(taskDesc) +
       '" style="max-width:160px;overflow:hidden;' +
@@ -484,7 +489,7 @@ class CockpitOverview extends HTMLElement {
       '</div>' +
 
       '<div class="card">' +
-      '<h3>SLO compliance</h3>' +
+      '<h3>SLO compliance' + tip('slo_compliance') + '</h3>' +
       '<div class="hv" style="font-size:28px;color:' + sloCol + '">' +
       sloPct + '%</div>' +
       '<div class="sr" style="margin-top:8px">' +
@@ -493,7 +498,7 @@ class CockpitOverview extends HTMLElement {
       '</div>' +
 
       '<div class="card">' +
-      '<h3>Verification</h3>' +
+      '<h3>Verification' + tip('verification') + '</h3>' +
       '<div class="hv" style="font-size:28px;color:' + vCol + '">' +
       vPct + '%</div>' +
       '<div class="sr" style="margin-top:8px">' +
@@ -502,7 +507,7 @@ class CockpitOverview extends HTMLElement {
       '</div>' +
 
       '<div class="card">' +
-      '<h3>Property graph</h3>' +
+      '<h3>Property graph' + tip('property_graph') + '</h3>' +
       '<div class="sr"><span class="sl">Nodes</span>' +
       '<span class="sv">' + gNodes + '</span></div>' +
       '<div class="sr"><span class="sl">Edges</span>' +
@@ -520,26 +525,26 @@ class CockpitOverview extends HTMLElement {
       '<div class="row r4" style="margin-bottom:20px">' +
 
       '<div class="card">' +
-      '<h3>Daily activity</h3>' +
+      '<h3>Daily activity' + tip('daily_activity') + '</h3>' +
       '<canvas id="cko-chartDailyActivity" height="200"' +
       ' aria-label="Daily activity chart"></canvas>' +
       '</div>' +
 
       '<div class="card">' +
-      '<h3>Savings rate</h3>' +
+      '<h3>Savings rate' + tip('savings_rate') + '</h3>' +
       '<canvas id="cko-chartSavingsRate" height="200"' +
       ' aria-label="Savings rate chart"></canvas>' +
       '</div>' +
 
       '<div class="card">' +
-      '<h3>MCP vs Shell hook</h3>' +
+      '<h3>MCP vs Shell hook' + tip('mcp_vs_shell') + '</h3>' +
       '<canvas id="cko-chartMcpShell" height="180"' +
       ' aria-label="MCP vs Shell chart"></canvas>' +
       '<div id="cko-mcpShellGrid"></div>' +
       '</div>' +
 
       '<div class="card">' +
-      '<h3>Task breakdown</h3>' +
+      '<h3>Task breakdown' + tip('task_breakdown') + '</h3>' +
       '<canvas id="cko-chartTaskBreak" height="180"' +
       ' aria-label="Task breakdown chart"></canvas>' +
       '</div>' +
@@ -622,7 +627,7 @@ class CockpitOverview extends HTMLElement {
     return (
       '<div class="card">' +
       '<h3>Command breakdown ' +
-      '<span class="badge">' + keys.length + ' commands</span></h3>' +
+      '<span class="badge">' + keys.length + ' commands</span>' + tip('command_breakdown') + '</h3>' +
       '<div class="table-scroll"><table>' +
       '<thead><tr>' +
       th('name', 'Command') +

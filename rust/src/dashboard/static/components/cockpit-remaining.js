@@ -16,6 +16,10 @@ function remCharts() {
   return window.LctxCharts || {};
 }
 
+function tip(k) {
+  return window.LctxShared && window.LctxShared.tip ? window.LctxShared.tip(k) : '';
+}
+
 function remShared() {
   return window.LctxShared || {};
 }
@@ -100,11 +104,11 @@ class CockpitLearning extends HTMLElement {
 
     this.innerHTML =
       '<div class="row r3">' +
-      '<div class="card"><div class="card-header"><h3>Savings Growth</h3></div>' +
+      '<div class="card"><div class="card-header"><h3>Savings Growth' + tip('savings_growth') + '</h3></div>' +
       '<canvas id="ckle-savings" height="200"></canvas></div>' +
-      '<div class="card"><div class="card-header"><h3>Compression Trend</h3></div>' +
+      '<div class="card"><div class="card-header"><h3>Compression Trend' + tip('compression_trend') + '</h3></div>' +
       '<canvas id="ckle-compression" height="200"></canvas></div>' +
-      '<div class="card"><div class="card-header"><h3>Command Volume</h3></div>' +
+      '<div class="card"><div class="card-header"><h3>Command Volume' + tip('command_volume') + '</h3></div>' +
       '<canvas id="ckle-volume" height="200"></canvas></div>' +
       '</div>';
 
@@ -268,7 +272,7 @@ class CockpitRoutes extends HTMLElement {
 
     this.innerHTML =
       '<div class="card">' +
-      '<div class="card-header"><h3>API Routes</h3>' +
+      '<div class="card-header"><h3>API Routes' + tip('routes_table') + '</h3>' +
       '<span class="badge">' + esc(ff(this._routes.length)) + ' routes</span></div>' +
       '<div class="table-scroll"><table>' +
       '<thead><tr><th>Method</th><th>Path</th><th>Handler</th>' +
@@ -394,7 +398,7 @@ class CockpitContextLayer extends HTMLElement {
     var modes = Object.keys(modeDist).sort();
     if (modes.length === 0) return '';
 
-    var html = '<div class="card" style="margin-bottom:16px"><h3>View modes in use</h3>';
+    var html = '<div class="card" style="margin-bottom:20px"><h3>View modes in use' + tip('context_layer_modes') + '</h3>';
     for (var i = 0; i < modes.length; i++) {
       var m = modes[i];
       html +=
@@ -411,7 +415,7 @@ class CockpitContextLayer extends HTMLElement {
 
     if (entries.length === 0) {
       return (
-        '<div class="card" style="margin-bottom:16px"><h3>Active context files</h3>' +
+        '<div class="card" style="margin-bottom:20px"><h3>Active context files' + tip('context_layer_files') + '</h3>' +
         '<p class="hs">No files in the context ledger yet.</p></div>'
       );
     }
@@ -434,7 +438,7 @@ class CockpitContextLayer extends HTMLElement {
 
     return (
       '<div class="card" style="margin-bottom:16px">' +
-      '<div class="card-header"><h3>Active context files</h3>' +
+      '<div class="card-header"><h3>Active context files' + tip('context_layer_files') + '</h3>' +
       '<span class="badge">' + esc(ff(entries.length)) + '</span></div>' +
       '<div class="table-scroll"><table>' +
       '<thead><tr><th>Path</th><th>Mode</th><th class="r">Tokens</th></tr></thead>' +
@@ -451,7 +455,7 @@ class CockpitContextLayer extends HTMLElement {
 
     return (
       '<div class="card">' +
-      '<h3>Field info</h3>' +
+      '<h3>Field info' + tip('context_layer_field') + '</h3>' +
       '<div class="sr"><span class="sl">Temperature</span>' +
       '<span class="sv">' + esc(temp) + '</span></div>' +
       '<div class="sr"><span class="sl">Field items</span>' +

@@ -56,48 +56,62 @@ pub fn cmd_cheatsheet() {
     );
 }
 
-pub fn cmd_terse(args: &[String]) {
-    use crate::core::config::{Config, TerseAgent};
+pub fn cmd_compression(args: &[String]) {
+    use crate::core::config::{CompressionLevel, Config};
 
     let action = args.first().map(std::string::String::as_str);
-    if let Some(level @ ("off" | "lite" | "full" | "ultra")) = action {
+    if let Some(level @ ("off" | "lite" | "standard" | "max")) = action {
         let mut cfg = Config::load();
-        cfg.terse_agent = match level {
-            "lite" => TerseAgent::Lite,
-            "full" => TerseAgent::Full,
-            "ultra" => TerseAgent::Ultra,
-            _ => TerseAgent::Off,
+        cfg.compression_level = match level {
+            "lite" => CompressionLevel::Lite,
+            "standard" => CompressionLevel::Standard,
+            "max" => CompressionLevel::Max,
+            _ => CompressionLevel::Off,
         };
         if let Err(e) = cfg.save() {
             eprintln!("Error saving config: {e}");
             std::process::exit(1);
         }
-        let desc = match level {
-            "lite" => "concise responses, bullet points over paragraphs",
-            "full" => "maximum density, diff-only code, 1-sentence explanations",
-            "ultra" => "expert pair-programmer mode, minimal narration",
-            _ => "normal verbose output",
-        };
-        println!("Terse agent mode: {level} ({desc})");
+        let effective = CompressionLevel::from_str_label(level).unwrap_or(CompressionLevel::Off);
+        println!("Compression level: {level} — {}", effective.description());
+        let n = crate::core::terse::rules_inject::inject(&effective);
+        if n > 0 {
+            println!("Updated {n} rules file(s) with compression prompt.");
+        }
         println!("Restart your agent/IDE for changes to take effect.");
     } else {
         let cfg = Config::load();
-        let effective = TerseAgent::effective(&cfg.terse_agent);
-        let name = match &effective {
-            TerseAgent::Off => "off",
-            TerseAgent::Lite => "lite",
-            TerseAgent::Full => "full",
-            TerseAgent::Ultra => "ultra",
+        let effective = CompressionLevel::effective(&cfg);
+        println!("Compression level: {}", effective.label());
+        println!();
+        println!("Usage: lean-ctx compression <off|lite|standard|max>");
+        println!("       lean-ctx terse <off|lite|standard|max>  (alias)");
+        println!();
+        println!("  off      — {}", CompressionLevel::Off.description());
+        println!("  lite     — {}", CompressionLevel::Lite.description());
+        println!("  standard — {}", CompressionLevel::Standard.description());
+        println!("  max      — {}", CompressionLevel::Max.description());
+        println!();
+        println!("Override per session:  LEAN_CTX_COMPRESSION=standard");
+        println!("Override per project:  compression_level = \"standard\" in .lean-ctx.toml");
+        println!();
+
+        let (ta, od, crp, tm) = effective.to_components();
+        let ta_name = match ta {
+            crate::core::config::TerseAgent::Off => "off",
+            crate::core::config::TerseAgent::Lite => "lite",
+            crate::core::config::TerseAgent::Full => "full",
+            crate::core::config::TerseAgent::Ultra => "ultra",
         };
-        println!("Terse agent mode: {name}");
-        println!();
-        println!("Usage: lean-ctx terse <off|lite|full|ultra>");
-        println!("  off   — Normal verbose output (default)");
-        println!("  lite  — Concise: bullet points, skip narration");
-        println!("  full  — Dense: diff-only, 1-sentence max");
-        println!("  ultra — Expert: minimal narration, code speaks");
-        println!();
-        println!("Override per session: LEAN_CTX_TERSE_AGENT=full");
-        println!("Override per project: terse_agent = \"full\" in .lean-ctx.toml");
+        let od_name = match od {
+            crate::core::config::OutputDensity::Normal => "normal",
+            crate::core::config::OutputDensity::Terse => "terse",
+            crate::core::config::OutputDensity::Ultra => "ultra",
+        };
+        println!("Active components:");
+        println!("  Agent prompt:    {ta_name}");
+        println!("  Output density:  {od_name}");
+        println!("  CRP mode:        {crp}");
+        println!("  Terse session:   {tm}");
     }
 }

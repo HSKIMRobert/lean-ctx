@@ -66,6 +66,8 @@ pub struct SessionExcerptV1 {
     pub stats: SessionStats,
     #[serde(default)]
     pub terse_mode: bool,
+    #[serde(default)]
+    pub compression_level: String,
 }
 
 pub fn build_bundle_v1(session: &SessionState, privacy: BundlePrivacyV1) -> CcpSessionBundleV1 {
@@ -110,6 +112,7 @@ pub fn build_bundle_v1(session: &SessionState, privacy: BundlePrivacyV1) -> CcpS
         evidence: session.evidence.clone(),
         stats: session.stats.clone(),
         terse_mode: session.terse_mode,
+        compression_level: session.compression_level.clone(),
     };
 
     // Path minimization: prefer relative paths when project_root is known.
@@ -275,6 +278,7 @@ pub fn import_bundle_v1_into_session(
         active_structured_intent: None,
         stats: imported.stats.clone(),
         terse_mode: imported.terse_mode,
+        compression_level: imported.compression_level.clone(),
     };
 
     ImportReportV1 {

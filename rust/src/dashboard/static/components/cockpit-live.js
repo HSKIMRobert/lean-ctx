@@ -14,6 +14,10 @@ function shared() {
   return window.LctxShared || {};
 }
 
+function tip(k) {
+  return window.LctxShared && window.LctxShared.tip ? window.LctxShared.tip(k) : '';
+}
+
 /* ─── Event type → display info ─── */
 
 var EVENT_COLORS = {
@@ -425,7 +429,7 @@ class CockpitLive extends HTMLElement {
     return (
       '<div class="hero" style="grid-template-columns:1fr 1fr;margin-bottom:14px">' +
       '<div class="hc" style="background:linear-gradient(145deg,rgba(52,211,153,0.06),rgba(52,211,153,0.02));border-color:var(--green-glow)">' +
-      '<span class="hl">Session Tokens Saved</span>' +
+      '<span class="hl">Session Tokens Saved' + tip('session_tokens_saved') + '</span>' +
       '<div class="token-counter" id="ckl-session-saved" data-live="1">' +
       esc(ff(sessionSaved)) +
       '</div>' +
@@ -434,7 +438,7 @@ class CockpitLive extends HTMLElement {
         : '<p class="hs">cumulative this session</p>') +
       '</div>' +
       '<div class="hc" style="background:linear-gradient(145deg,rgba(129,140,248,0.06),rgba(129,140,248,0.02));border-color:rgba(129,140,248,0.15)">' +
-      '<span class="hl">All-Time Tokens Saved</span>' +
+      '<span class="hl">All-Time Tokens Saved' + tip('all_time_saved') + '</span>' +
       '<div class="token-counter" id="ckl-alltime-saved" data-live="1" style="background:linear-gradient(135deg,var(--purple),#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;filter:drop-shadow(0 0 20px rgba(129,140,248,0.2))">' +
       esc(ff(allTimeSaved)) +
       '</div>' +
@@ -468,7 +472,7 @@ class CockpitLive extends HTMLElement {
     return (
       '<div class="row r11" style="margin-bottom:14px">' +
       '<div class="card">' +
-      '<div class="card-header"><h3><span class="tag tp">MCP</span> Tools</h3></div>' +
+      '<div class="card-header"><h3><span class="tag tp">MCP</span> Tools' + tip('mcp_tools') + '</h3></div>' +
       '<div class="ctx-metric">' +
       '<span class="ctx-label">Saved</span>' +
       '<span class="ctx-val" style="color:var(--purple)">' + esc(ff(Math.max(0, mcpStats.saved))) + '</span>' +
@@ -483,7 +487,7 @@ class CockpitLive extends HTMLElement {
       '</div>' +
       '</div>' +
       '<div class="card">' +
-      '<div class="card-header"><h3><span class="tag tb">Hook</span> Shell Hooks</h3></div>' +
+      '<div class="card-header"><h3><span class="tag tb">Hook</span> Shell Hooks' + tip('shell_hooks') + '</h3></div>' +
       '<div class="ctx-metric">' +
       '<span class="ctx-label">Saved</span>' +
       '<span class="ctx-val" style="color:var(--blue)">' + esc(ff(Math.max(0, hookStats.saved))) + '</span>' +
@@ -576,7 +580,7 @@ class CockpitLive extends HTMLElement {
     if (count === 0) {
       return (
         '<div class="card" style="margin-bottom:14px">' +
-        '<h3>Event Feed</h3>' +
+        '<h3>Event Feed' + tip('event_feed') + '</h3>' +
         '<p class="hs">No events recorded yet. Events appear as lean-ctx intercepts tool calls.</p>' +
         '</div>'
       );

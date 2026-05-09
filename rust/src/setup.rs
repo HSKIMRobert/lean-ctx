@@ -1304,6 +1304,16 @@ fn upsert_toml_key(content: &mut String, key: &str, value: &str) {
     }
 }
 
+fn remove_toml_key(content: &mut String, key: &str) {
+    let pattern = format!("{key} = ");
+    if let Some(start) = content.find(&pattern) {
+        let line_end = content[start..]
+            .find('\n')
+            .map_or(content.len(), |p| start + p + 1);
+        content.replace_range(start..line_end, "");
+    }
+}
+
 fn configure_premium_features(home: &std::path::Path) {
     use crate::terminal_ui;
     use std::io::Write;
@@ -1315,43 +1325,60 @@ fn configure_premium_features(home: &std::path::Path) {
 
     let dim = "\x1b[2m";
     let bold = "\x1b[1m";
+    let cyan = "\x1b[36m";
     let rst = "\x1b[0m";
 
-    // Terse Agent Mode
-    println!(
-        "\n  {bold}Agent Output Optimization{rst} {dim}(reduces output tokens by 40-70%){rst}"
-    );
-    println!(
-        "  {dim}Levels: lite (concise), full (max density), ultra (expert pair-programmer){rst}"
-    );
-    print!("  Terse agent mode? {bold}[off/lite/full/ultra]{rst} {dim}(default: off){rst} ");
+    // Unified Compression Level (replaces terse_agent + output_density)
+    println!("\n  {bold}Compression Level{rst} {dim}(controls all token optimization layers){rst}");
+    println!("  {dim}Applies to tool output, agent prompts, and protocol mode.{rst}");
+    println!();
+    println!("  {cyan}off{rst}      — No compression (full verbose output)");
+    println!("  {cyan}lite{rst}     — Light: concise output, basic terse filtering {dim}(~25% savings){rst}");
+    println!("  {cyan}standard{rst} — Dense output + compact protocol + pattern-aware {dim}(~45% savings){rst}");
+    println!("  {cyan}max{rst}      — Expert mode: TDD protocol, all layers active {dim}(~65% savings){rst}");
+    println!();
+    print!("  Compression level? {bold}[off/lite/standard/max]{rst} {dim}(default: off){rst} ");
     std::io::stdout().flush().ok();
 
-    let mut terse_input = String::new();
-    let terse_level = if std::io::stdin().read_line(&mut terse_input).is_ok() {
-        match terse_input.trim().to_lowercase().as_str() {
+    let mut level_input = String::new();
+    let level = if std::io::stdin().read_line(&mut level_input).is_ok() {
+        match level_input.trim().to_lowercase().as_str() {
             "lite" => "lite",
-            "full" => "full",
-            "ultra" => "ultra",
+            "standard" | "std" => "standard",
+            "max" => "max",
             _ => "off",
         }
     } else {
         "off"
     };
 
-    if terse_level != "off" {
-        upsert_toml_key(&mut config_content, "terse_agent", terse_level);
-        terminal_ui::print_status_ok(&format!("Terse agent: {terse_level}"));
-    } else if config_content.contains("terse_agent") {
-        upsert_toml_key(&mut config_content, "terse_agent", "off");
-        terminal_ui::print_status_ok("Terse agent: off");
+    let effective_level = if level != "off" {
+        upsert_toml_key(&mut config_content, "compression_level", level);
+        remove_toml_key(&mut config_content, "terse_agent");
+        remove_toml_key(&mut config_content, "output_density");
+        terminal_ui::print_status_ok(&format!("Compression: {level}"));
+        crate::core::config::CompressionLevel::from_str_label(level)
+    } else if config_content.contains("compression_level") {
+        upsert_toml_key(&mut config_content, "compression_level", "off");
+        terminal_ui::print_status_ok("Compression: off");
+        Some(crate::core::config::CompressionLevel::Off)
     } else {
         terminal_ui::print_status_skip(
-            "Terse agent: off (change later with: lean-ctx terse <level>)",
+            "Compression: off (change later with: lean-ctx compression <level>)",
         );
+        Some(crate::core::config::CompressionLevel::Off)
+    };
+
+    if let Some(lvl) = effective_level {
+        let n = crate::core::terse::rules_inject::inject(&lvl);
+        if n > 0 {
+            terminal_ui::print_status_ok(&format!(
+                "Updated {n} rules file(s) with compression prompt"
+            ));
+        }
     }
 
-    // Tool Result Archive
+    // Tool Result Archive (unchanged)
     println!(
         "\n  {bold}Tool Result Archive{rst} {dim}(zero-loss: large outputs archived, retrievable via ctx_expand){rst}"
     );
@@ -1374,34 +1401,6 @@ fn configure_premium_features(home: &std::path::Path) {
         terminal_ui::print_status_ok("Tool Result Archive: enabled");
     } else if !archive_on {
         terminal_ui::print_status_skip("Archive: off (enable later in config.toml)");
-    }
-
-    // Output Density
-    println!(
-        "\n  {bold}Output Density{rst} {dim}(compresses tool output: normal, terse, ultra){rst}"
-    );
-    print!("  Output density? {bold}[normal/terse/ultra]{rst} {dim}(default: normal){rst} ");
-    std::io::stdout().flush().ok();
-
-    let mut density_input = String::new();
-    let density = if std::io::stdin().read_line(&mut density_input).is_ok() {
-        match density_input.trim().to_lowercase().as_str() {
-            "terse" => "terse",
-            "ultra" => "ultra",
-            _ => "normal",
-        }
-    } else {
-        "normal"
-    };
-
-    if density != "normal" {
-        upsert_toml_key(&mut config_content, "output_density", density);
-        terminal_ui::print_status_ok(&format!("Output density: {density}"));
-    } else if config_content.contains("output_density") {
-        upsert_toml_key(&mut config_content, "output_density", "normal");
-        terminal_ui::print_status_ok("Output density: normal");
-    } else {
-        terminal_ui::print_status_skip("Output density: normal (change later in config.toml)");
     }
 
     let _ = std::fs::write(&config_path, config_content);

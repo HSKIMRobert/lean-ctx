@@ -106,6 +106,105 @@ impl OutputDensity {
     }
 }
 
+/// Unified compression level that replaces the 4 separate legacy concepts:
+/// `terse_agent`, `output_density`, `terse_mode`, and `crp_mode`.
+///
+/// Each level maps to specific component settings via `to_components()`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum CompressionLevel {
+    #[default]
+    Off,
+    Lite,
+    Standard,
+    Max,
+}
+
+impl CompressionLevel {
+    /// Decomposes the unified level into legacy component settings.
+    /// Returns (TerseAgent, OutputDensity, crp_mode_str, terse_mode_bool).
+    pub fn to_components(&self) -> (TerseAgent, OutputDensity, &'static str, bool) {
+        match self {
+            Self::Off => (TerseAgent::Off, OutputDensity::Normal, "off", false),
+            Self::Lite => (TerseAgent::Lite, OutputDensity::Terse, "off", true),
+            Self::Standard => (TerseAgent::Full, OutputDensity::Terse, "compact", true),
+            Self::Max => (TerseAgent::Ultra, OutputDensity::Ultra, "tdd", true),
+        }
+    }
+
+    /// Infers a `CompressionLevel` from legacy config keys for backward compatibility.
+    /// Priority: terse_agent > output_density (picks the highest implied level).
+    pub fn from_legacy(terse_agent: &TerseAgent, output_density: &OutputDensity) -> Self {
+        match (terse_agent, output_density) {
+            (TerseAgent::Ultra, _) | (_, OutputDensity::Ultra) => Self::Max,
+            (TerseAgent::Full, _) => Self::Standard,
+            (TerseAgent::Lite, _) | (_, OutputDensity::Terse) => Self::Lite,
+            _ => Self::Off,
+        }
+    }
+
+    /// Reads the compression level from the `LEAN_CTX_COMPRESSION` env var.
+    pub fn from_env() -> Option<Self> {
+        std::env::var("LEAN_CTX_COMPRESSION").ok().and_then(|v| {
+            match v.trim().to_lowercase().as_str() {
+                "off" => Some(Self::Off),
+                "lite" => Some(Self::Lite),
+                "standard" => Some(Self::Standard),
+                "max" => Some(Self::Max),
+                _ => None,
+            }
+        })
+    }
+
+    /// Returns the effective compression level with resolution order:
+    /// 1. `LEAN_CTX_COMPRESSION` env var
+    /// 2. `compression_level` in config
+    /// 3. Inferred from legacy `terse_agent` + `output_density`
+    pub fn effective(config: &Config) -> Self {
+        if let Some(env_level) = Self::from_env() {
+            return env_level;
+        }
+        if config.compression_level != Self::Off {
+            return config.compression_level.clone();
+        }
+        Self::from_legacy(&config.terse_agent, &config.output_density)
+    }
+
+    pub fn from_str_label(s: &str) -> Option<Self> {
+        match s.trim().to_lowercase().as_str() {
+            "off" => Some(Self::Off),
+            "lite" => Some(Self::Lite),
+            "standard" | "std" => Some(Self::Standard),
+            "max" => Some(Self::Max),
+            _ => None,
+        }
+    }
+
+    pub fn is_active(&self) -> bool {
+        !matches!(self, Self::Off)
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Lite => "lite",
+            Self::Standard => "standard",
+            Self::Max => "max",
+        }
+    }
+
+    pub fn description(&self) -> &'static str {
+        match self {
+            Self::Off => "No compression — full verbose output",
+            Self::Lite => "Light compression — concise output, basic terse filtering",
+            Self::Standard => {
+                "Standard compression — dense output, compact protocol, pattern-aware"
+            }
+            Self::Max => "Maximum compression — expert mode, TDD protocol, all layers active",
+        }
+    }
+}
+
 /// Global lean-ctx configuration loaded from `config.toml`, merged with project-local overrides.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -155,6 +254,11 @@ pub struct Config {
     /// Override via LEAN_CTX_TERSE_AGENT env var.
     #[serde(default)]
     pub terse_agent: TerseAgent,
+    /// Unified compression level (replaces separate terse_agent + output_density).
+    /// Values: "off" (default), "lite", "standard", "max".
+    /// Override via LEAN_CTX_COMPRESSION env var.
+    #[serde(default)]
+    pub compression_level: CompressionLevel,
     /// Archive configuration for zero-loss compression.
     #[serde(default)]
     pub archive: ArchiveConfig,
@@ -471,6 +575,7 @@ impl Default for Config {
             rules_scope: None,
             extra_ignore_patterns: Vec::new(),
             terse_agent: TerseAgent::default(),
+            compression_level: CompressionLevel::default(),
             archive: ArchiveConfig::default(),
             memory: MemoryPolicy::default(),
             allow_paths: Vec::new(),
@@ -961,6 +1066,9 @@ impl Config {
         {
             self.autonomy.consolidate_cooldown_secs = local.autonomy.consolidate_cooldown_secs;
         }
+        if local.compression_level != CompressionLevel::default() {
+            self.compression_level = local.compression_level;
+        }
         if local.terse_agent != TerseAgent::default() {
             self.terse_agent = local.terse_agent;
         }
@@ -1087,5 +1195,151 @@ impl Config {
             }
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod compression_level_tests {
+    use super::*;
+
+    #[test]
+    fn default_is_off() {
+        assert_eq!(CompressionLevel::default(), CompressionLevel::Off);
+    }
+
+    #[test]
+    fn to_components_off() {
+        let (ta, od, crp, tm) = CompressionLevel::Off.to_components();
+        assert_eq!(ta, TerseAgent::Off);
+        assert_eq!(od, OutputDensity::Normal);
+        assert_eq!(crp, "off");
+        assert!(!tm);
+    }
+
+    #[test]
+    fn to_components_lite() {
+        let (ta, od, crp, tm) = CompressionLevel::Lite.to_components();
+        assert_eq!(ta, TerseAgent::Lite);
+        assert_eq!(od, OutputDensity::Terse);
+        assert_eq!(crp, "off");
+        assert!(tm);
+    }
+
+    #[test]
+    fn to_components_standard() {
+        let (ta, od, crp, tm) = CompressionLevel::Standard.to_components();
+        assert_eq!(ta, TerseAgent::Full);
+        assert_eq!(od, OutputDensity::Terse);
+        assert_eq!(crp, "compact");
+        assert!(tm);
+    }
+
+    #[test]
+    fn to_components_max() {
+        let (ta, od, crp, tm) = CompressionLevel::Max.to_components();
+        assert_eq!(ta, TerseAgent::Ultra);
+        assert_eq!(od, OutputDensity::Ultra);
+        assert_eq!(crp, "tdd");
+        assert!(tm);
+    }
+
+    #[test]
+    fn from_legacy_ultra_agent_maps_to_max() {
+        assert_eq!(
+            CompressionLevel::from_legacy(&TerseAgent::Ultra, &OutputDensity::Normal),
+            CompressionLevel::Max
+        );
+    }
+
+    #[test]
+    fn from_legacy_ultra_density_maps_to_max() {
+        assert_eq!(
+            CompressionLevel::from_legacy(&TerseAgent::Off, &OutputDensity::Ultra),
+            CompressionLevel::Max
+        );
+    }
+
+    #[test]
+    fn from_legacy_full_agent_maps_to_standard() {
+        assert_eq!(
+            CompressionLevel::from_legacy(&TerseAgent::Full, &OutputDensity::Normal),
+            CompressionLevel::Standard
+        );
+    }
+
+    #[test]
+    fn from_legacy_lite_agent_maps_to_lite() {
+        assert_eq!(
+            CompressionLevel::from_legacy(&TerseAgent::Lite, &OutputDensity::Normal),
+            CompressionLevel::Lite
+        );
+    }
+
+    #[test]
+    fn from_legacy_terse_density_maps_to_lite() {
+        assert_eq!(
+            CompressionLevel::from_legacy(&TerseAgent::Off, &OutputDensity::Terse),
+            CompressionLevel::Lite
+        );
+    }
+
+    #[test]
+    fn from_legacy_both_off_maps_to_off() {
+        assert_eq!(
+            CompressionLevel::from_legacy(&TerseAgent::Off, &OutputDensity::Normal),
+            CompressionLevel::Off
+        );
+    }
+
+    #[test]
+    fn labels_match() {
+        assert_eq!(CompressionLevel::Off.label(), "off");
+        assert_eq!(CompressionLevel::Lite.label(), "lite");
+        assert_eq!(CompressionLevel::Standard.label(), "standard");
+        assert_eq!(CompressionLevel::Max.label(), "max");
+    }
+
+    #[test]
+    fn is_active_false_for_off() {
+        assert!(!CompressionLevel::Off.is_active());
+    }
+
+    #[test]
+    fn is_active_true_for_all_others() {
+        assert!(CompressionLevel::Lite.is_active());
+        assert!(CompressionLevel::Standard.is_active());
+        assert!(CompressionLevel::Max.is_active());
+    }
+
+    #[test]
+    fn deserialization_defaults_to_off() {
+        let cfg: Config = toml::from_str("").unwrap();
+        assert_eq!(cfg.compression_level, CompressionLevel::Off);
+    }
+
+    #[test]
+    fn deserialization_from_toml() {
+        let cfg: Config = toml::from_str(r#"compression_level = "standard""#).unwrap();
+        assert_eq!(cfg.compression_level, CompressionLevel::Standard);
+    }
+
+    #[test]
+    fn roundtrip_all_levels() {
+        for level in [
+            CompressionLevel::Off,
+            CompressionLevel::Lite,
+            CompressionLevel::Standard,
+            CompressionLevel::Max,
+        ] {
+            let (ta, od, crp, tm) = level.to_components();
+            assert!(!crp.is_empty());
+            if level == CompressionLevel::Off {
+                assert!(!tm);
+                assert_eq!(ta, TerseAgent::Off);
+                assert_eq!(od, OutputDensity::Normal);
+            } else {
+                assert!(tm);
+            }
+        }
     }
 }

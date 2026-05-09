@@ -10,6 +10,10 @@ function fmtLib() {
   return window.LctxFmt || {};
 }
 
+function tip(k) {
+  return window.LctxShared && window.LctxShared.tip ? window.LctxShared.tip(k) : '';
+}
+
 class CockpitSearch extends HTMLElement {
   constructor() {
     super();
@@ -258,7 +262,7 @@ class CockpitSearch extends HTMLElement {
     container.innerHTML =
       '<div class="card">' +
       '<div class="card-header">' +
-      '<h3>Results</h3>' +
+      '<h3>Results' + tip('search_results') + '</h3>' +
       '<span class="hs">' + meta + '</span>' +
       '</div>' +
       '<div class="cks-results-list">' + items + '</div>' +

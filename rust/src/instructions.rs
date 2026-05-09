@@ -420,7 +420,7 @@ pub fn claude_code_instructions() -> String {
 }
 
 pub fn build_cli_redirect_instructions() -> String {
-    "\
+    let base = "\
 PREFER lean-ctx CLI commands over MCP tools (no schema overhead):\n\
 \n\
 Via Shell/Bash:\n\
@@ -431,12 +431,21 @@ Via Shell/Bash:\n\
 • lean-ctx tree <path>                -> replaces ctx_tree\n\
 \n\
 Edit files: native Edit/StrReplace. Write, Delete, Glob → use normally.\n\
-Read modes: auto|full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M"
-        .to_string()
+Read modes: auto|full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M";
+
+    let config = crate::core::config::Config::load();
+    let level = crate::core::config::CompressionLevel::effective(&config);
+    let terse_block = crate::core::terse::agent_prompts::build_prompt_block(&level);
+
+    if terse_block.is_empty() {
+        base.to_string()
+    } else {
+        format!("{base}\n\n{terse_block}")
+    }
 }
 
 pub fn build_hybrid_instructions() -> String {
-    "\
+    let base = "\
 Hybrid mode: MCP for reads (cache), CLI for everything else (no schema overhead):\n\
 \n\
 MCP (keep using): ctx_read(path, mode) — in-process cache, re-reads ~13 tokens.\n\
@@ -446,8 +455,17 @@ Via Shell/Bash:\n\
 • lean-ctx search <pattern> <path> -> replaces ctx_search\n\
 • lean-ctx tree <path>             -> replaces ctx_tree\n\
 \n\
-Edit files: native Edit/StrReplace. Write, Delete, Glob → use normally."
-        .to_string()
+Edit files: native Edit/StrReplace. Write, Delete, Glob → use normally.";
+
+    let config = crate::core::config::Config::load();
+    let level = crate::core::config::CompressionLevel::effective(&config);
+    let terse_block = crate::core::terse::agent_prompts::build_prompt_block(&level);
+
+    if terse_block.is_empty() {
+        base.to_string()
+    } else {
+        format!("{base}\n\n{terse_block}")
+    }
 }
 
 pub fn full_instructions_for_rules_file(crp_mode: CrpMode) -> String {
@@ -455,8 +473,14 @@ pub fn full_instructions_for_rules_file(crp_mode: CrpMode) -> String {
 }
 
 fn build_terse_agent_block(crp_mode: &CrpMode) -> String {
-    use crate::core::config::{Config, TerseAgent};
+    use crate::core::config::{CompressionLevel, Config, TerseAgent};
     let cfg = Config::load();
+
+    let compression = CompressionLevel::effective(&cfg);
+    if compression.is_active() {
+        return crate::core::terse::agent_prompts::build_prompt_block(&compression);
+    }
+
     let level = TerseAgent::effective(&cfg.terse_agent);
     if !level.is_active() {
         return String::new();

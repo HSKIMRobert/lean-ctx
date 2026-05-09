@@ -15,6 +15,10 @@ function ckcShared() {
   return window.LctxShared || {};
 }
 
+function tip(k) {
+  return window.LctxShared && window.LctxShared.tip ? window.LctxShared.tip(k) : '';
+}
+
 class CockpitCompression extends HTMLElement {
   constructor() {
     super();
@@ -172,7 +176,7 @@ class CockpitCompression extends HTMLElement {
 
     html +=
       '<div class="card" style="padding:0;overflow:hidden">' +
-      '<div style="padding:16px 16px 8px"><h3>Recently read files</h3></div>';
+      '<div style="padding:16px 16px 8px"><h3>Recently read files' + tip('recently_read') + '</h3></div>';
 
     if (this._files.length === 0) {
       html +=
@@ -199,13 +203,13 @@ class CockpitCompression extends HTMLElement {
       html += '<div class="loading-state">Compressing\u2026</div>';
     } else if (this._error && !this._demoData) {
       html +=
-        '<h3>Compression Demo</h3>' +
+        '<h3>Compression Demo' + tip('compression_demo') + '</h3>' +
         '<p class="hs" style="color:var(--red)">' + esc(String(this._error)) + '</p>';
     } else if (this._demoData) {
       html += this._renderDemoResult(esc, ff);
     } else {
       html +=
-        '<h3>Compression Demo</h3>' +
+        '<h3>Compression Demo' + tip('compression_demo') + '</h3>' +
         '<p class="hs">Select a file from the left to see compression in action.</p>';
     }
     html += '</div></div>';
@@ -248,7 +252,7 @@ class CockpitCompression extends HTMLElement {
         var mv = allModes[mk];
         var isCurrent = mk === this._mode;
         comparisonRows +=
-          '<tr' + (isCurrent ? ' style="background:rgba(255,255,255,0.03)"' : '') + '>' +
+          '<tr' + (isCurrent ? ' style="background:var(--surface-2)"' : '') + '>' +
           '<td><code>' + esc(mk) + '</code>' + (isCurrent ? ' <span class="tag tg">active</span>' : '') + '</td>' +
           '<td class="r">' + esc(ff(mv.tokens || 0)) + '</td>' +
           '<td class="r">' + esc(String(mv.savings_pct || 0)) + '%</td>' +
@@ -267,7 +271,7 @@ class CockpitCompression extends HTMLElement {
       '</div>' +
       (comparisonRows ?
         '<div class="card" style="margin-bottom:16px;padding:12px">' +
-        '<h4 style="margin-bottom:8px">All modes comparison</h4>' +
+        '<h4 style="margin-bottom:8px">All modes comparison' + tip('all_modes_comparison') + '</h4>' +
         '<table><thead><tr><th>Mode</th><th class="r">Tokens</th><th class="r">Savings</th></tr></thead>' +
         '<tbody>' + comparisonRows + '</tbody></table></div>'
         : '') +

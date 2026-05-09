@@ -30,6 +30,10 @@ function statusDotHtml(status) {
   return '<span class="status-dot offline"></span>';
 }
 
+function tip(k) {
+  return window.LctxShared && window.LctxShared.tip ? window.LctxShared.tip(k) : '';
+}
+
 class CockpitAgents extends HTMLElement {
   constructor() {
     super();
@@ -147,19 +151,19 @@ class CockpitAgents extends HTMLElement {
     return (
       '<div class="hero r4 stagger">' +
       '<div class="hc">' +
-      '<span class="hl">Active Agents</span>' +
+      '<span class="hl">Active Agents' + tip('active_agents') + '</span>' +
       '<div class="hv">' + esc(String(activeCount)) + '</div>' +
       '</div>' +
       '<div class="hc">' +
-      '<span class="hl">Total Tool Calls</span>' +
+      '<span class="hl">Total Tool Calls' + tip('agent_tool_calls') + '</span>' +
       '<div class="hv">' + esc(fmt(toolCalls)) + '</div>' +
       '</div>' +
       '<div class="hc">' +
-      '<span class="hl">Tokens Saved</span>' +
+      '<span class="hl">Tokens Saved' + tip('agent_tokens_saved') + '</span>' +
       '<div class="hv">' + esc(fmt(tokensSaved)) + '</div>' +
       '</div>' +
       '<div class="hc">' +
-      '<span class="hl">Shared Contexts</span>' +
+      '<span class="hl">Shared Contexts' + tip('shared_contexts') + '</span>' +
       '<div class="hv">' + esc(fmt(sharedCtx)) + '</div>' +
       '</div>' +
       '</div>'
@@ -173,7 +177,7 @@ class CockpitAgents extends HTMLElement {
     if (list.length === 0) {
       return (
         '<div class="card" style="margin-bottom:16px">' +
-        '<h3>Agent Swimlanes</h3>' +
+        '<h3>Agent Swimlanes' + tip('agent_swimlanes') + '</h3>' +
         '<p class="hs">No agents registered yet. Agents appear here once they connect.</p>' +
         '</div>'
       );
@@ -205,7 +209,7 @@ class CockpitAgents extends HTMLElement {
 
     return (
       '<div class="card" style="margin-bottom:16px">' +
-      '<div class="card-header"><h3>Agent Swimlanes</h3></div>' +
+      '<div class="card-header"><h3>Agent Swimlanes' + tip('agent_swimlanes') + '</h3></div>' +
       '<div class="cka-swimlane-grid">' + cards + '</div>' +
       '</div>'
     );
@@ -218,7 +222,7 @@ class CockpitAgents extends HTMLElement {
     if (tools.length === 0) {
       return (
         '<div class="card" style="margin-bottom:16px">' +
-        '<h3>MCP Tools</h3>' +
+        '<h3>MCP Tools' + tip('agent_mcp_tools') + '</h3>' +
         '<p class="hs">No MCP tools registered.</p>' +
         '</div>'
       );
@@ -245,7 +249,7 @@ class CockpitAgents extends HTMLElement {
 
     return (
       '<div class="card" style="margin-bottom:16px">' +
-      '<div class="card-header"><h3>MCP Tools</h3></div>' +
+      '<div class="card-header"><h3>MCP Tools' + tip('agent_mcp_tools') + '</h3></div>' +
       '<div class="table-scroll"><table>' +
       '<thead><tr><th>Tool</th><th>Description</th><th class="r">Calls</th><th class="r">Tokens Saved</th></tr></thead>' +
       '<tbody>' + rows + '</tbody>' +
@@ -273,7 +277,7 @@ class CockpitAgents extends HTMLElement {
     if (list.length === 0) {
       return (
         '<div class="card">' +
-        '<h3>Recent Events</h3>' +
+        '<h3>Recent Events' + tip('recent_events') + '</h3>' +
         '<p class="hs">No events recorded yet.</p>' +
         '</div>'
       );
@@ -320,7 +324,7 @@ class CockpitAgents extends HTMLElement {
 
     return (
       '<div class="card">' +
-      '<div class="card-header"><h3>Recent Events</h3></div>' +
+      '<div class="card-header"><h3>Recent Events' + tip('recent_events') + '</h3></div>' +
       '<div class="cka-events-feed">' + items + '</div>' +
       '</div>'
     );
