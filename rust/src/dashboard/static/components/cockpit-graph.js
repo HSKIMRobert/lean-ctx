@@ -365,7 +365,7 @@ class CockpitGraph extends HTMLElement {
     }
 
     var allNodes = Object.keys(nodeSet).map(function (k) { return nodeSet[k]; });
-    var MAX_NODES = 300;
+    var MAX_NODES = 150;
     var nodes;
     var topNodeIds;
     if (allNodes.length > MAX_NODES) {
@@ -438,12 +438,14 @@ class CockpitGraph extends HTMLElement {
     this._zoom = zoom;
     this._svg = svg;
 
-    var chargeStr = nodes.length > 150 ? -100 : -300;
+    var chargeStr = nodes.length > 200 ? -200 : nodes.length > 80 ? -400 : -600;
+    var linkDist = nodes.length > 200 ? 150 : nodes.length > 80 ? 200 : 250;
     var simulation = d3.forceSimulation(nodes)
-      .force('link', d3.forceLink(links).id(function (d) { return d.id; }).distance(100))
+      .force('link', d3.forceLink(links).id(function (d) { return d.id; }).distance(linkDist))
       .force('charge', d3.forceManyBody().strength(chargeStr))
       .force('center', d3.forceCenter(width / 2, height / 2))
-      .force('collide', d3.forceCollide(20));
+      .force('collide', d3.forceCollide(35))
+      .alphaDecay(0.03);
     this._simulation = simulation;
 
     var linkSel = g.append('g').selectAll('line')
@@ -519,15 +521,17 @@ class CockpitGraph extends HTMLElement {
     var esc = F.esc || function (s) { return String(s); };
     var ff = F.ff || function (n) { return String(n); };
 
-    if (!this._symbolsData || !this._symbolsData.symbols ||
-        this._symbolsData.symbols.length === 0) {
+    var syms = Array.isArray(this._symbolsData)
+      ? this._symbolsData
+      : (this._symbolsData && Array.isArray(this._symbolsData.symbols)
+        ? this._symbolsData.symbols : []);
+
+    if (syms.length === 0) {
       container.innerHTML =
         '<div class="card" style="padding:40px"><div class="loading-state">' +
         'Building symbol index\u2026 this may take a moment on first load.</div></div>';
       return;
     }
-
-    var syms = this._symbolsData.symbols;
     var kindColors = {
       'function': 'tg', method: 'tg',
       'class': 'tp', struct: 'tp', 'interface': 'tp', trait: 'tp', 'enum': 'tp',
@@ -550,7 +554,7 @@ class CockpitGraph extends HTMLElement {
         '<td>' + esc(s.name || '\u2014') + '</td>' +
         '<td><span class="tag ' + kindCls + '">' + esc(s.kind || '\u2014') + '</span></td>' +
         '<td title="' + esc(s.file || '') + '">' + esc(shortPath) + '</td>' +
-        '<td class="r">' + esc(String(s.line != null ? s.line : '\u2014')) + '</td>' +
+        '<td class="r">' + esc(String(s.line != null ? s.line : (s.start_line != null ? s.start_line : '\u2014'))) + '</td>' +
         '<td title="' + esc(s.signature || '') + '" style="font-size:10px">' +
         esc(sig) + '</td></tr>';
     }

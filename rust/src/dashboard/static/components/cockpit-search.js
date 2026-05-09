@@ -160,8 +160,8 @@ class CockpitSearch extends HTMLElement {
     var esc = F.esc || function (s) { return String(s); };
     var fmt = F.fmt || function (n) { return String(n); };
 
-    var indexed = stats.indexed_files != null ? fmt(stats.indexed_files) : '—';
-    var symbols = stats.total_symbols != null ? fmt(stats.total_symbols) : '—';
+    var indexed = stats.doc_count != null ? fmt(stats.doc_count) : (stats.indexed_files != null ? fmt(stats.indexed_files) : '—');
+    var symbols = stats.chunk_count != null ? fmt(stats.chunk_count) : (stats.total_symbols != null ? fmt(stats.total_symbols) : '—');
     var lastIndexed = stats.last_indexed
       ? String(stats.last_indexed).replace('T', ' ').slice(0, 19)
       : '—';
@@ -234,19 +234,23 @@ class CockpitSearch extends HTMLElement {
       (elapsed ? ' in ' + esc(elapsed) : '');
 
     var items = this._results.results.map(function (r) {
-      var path = esc(r.path || '—');
-      var line = r.line != null ? String(r.line) : '—';
-      var content = esc(String(r.content || '').trim().slice(0, 200));
+      var path = esc(r.file_path || r.path || '—');
+      var line = r.start_line != null ? String(r.start_line) : (r.line != null ? String(r.line) : '');
+      var symName = r.symbol_name || '';
+      var kind = r.kind || '';
+      var content = esc(String(r.snippet || r.content || '').trim().slice(0, 300));
       var score = r.score != null ? Number(r.score).toFixed(2) : '—';
+
+      var header = '<code class="cks-result-path">' + path + '</code>';
+      if (line) header += '<span class="cks-result-line">:' + esc(line) + '</span>';
+      if (symName) header += ' <strong>' + esc(symName) + '</strong>';
+      if (kind) header += ' <span class="tag ts">' + esc(kind) + '</span>';
+      header += '<span class="cks-result-score tag tg">' + esc(score) + '</span>';
 
       return (
         '<div class="cks-result-item">' +
-        '<div class="cks-result-header">' +
-        '<code class="cks-result-path">' + path + '</code>' +
-        '<span class="cks-result-line">:' + esc(line) + '</span>' +
-        '<span class="cks-result-score tag tg">' + esc(score) + '</span>' +
-        '</div>' +
-        '<pre class="cks-result-content">' + content + '</pre>' +
+        '<div class="cks-result-header">' + header + '</div>' +
+        (content ? '<pre class="cks-result-content">' + content + '</pre>' : '') +
         '</div>'
       );
     }).join('');

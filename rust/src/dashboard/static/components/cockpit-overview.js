@@ -329,7 +329,7 @@ class CockpitOverview extends HTMLElement {
 
     return (
       '<div class="buddy-card rarity-' + esc(rarity) + ' ' + tier +
-      '" style="margin-bottom:12px">' +
+      '" style="margin-bottom:20px">' +
       '<div class="buddy-sprite rarity-' + esc(rarity) + ' ' + tier + '">' +
       '<pre id="cko-buddyArt">' + esc(art) + '</pre>' +
       '</div>' +
@@ -393,7 +393,7 @@ class CockpitOverview extends HTMLElement {
     var c = gc(totalIn, totalOut, calls);
 
     return (
-      '<div class="row r21" style="margin-bottom:12px">' +
+      '<div class="row r21" style="margin-bottom:20px">' +
 
       '<div class="card">' +
       '<h3>Cumulative token savings</h3>' +
@@ -466,7 +466,7 @@ class CockpitOverview extends HTMLElement {
       ? taskDesc.slice(0, 40) + '\u2026' : taskDesc;
 
     return (
-      '<div class="row r4" style="margin-bottom:12px">' +
+      '<div class="row r4" style="margin-bottom:20px">' +
 
       '<div class="card">' +
       '<h3>Session</h3>' +
@@ -517,7 +517,7 @@ class CockpitOverview extends HTMLElement {
 
   _renderChartsRow2() {
     return (
-      '<div class="row r4" style="margin-bottom:12px">' +
+      '<div class="row r4" style="margin-bottom:20px">' +
 
       '<div class="card">' +
       '<h3>Daily activity</h3>' +

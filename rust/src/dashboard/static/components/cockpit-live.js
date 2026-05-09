@@ -575,7 +575,7 @@ class CockpitLive extends HTMLElement {
 
     if (count === 0) {
       return (
-        '<div class="card" style="margin-bottom:8px">' +
+        '<div class="card" style="margin-bottom:14px">' +
         '<h3>Event Feed</h3>' +
         '<p class="hs">No events recorded yet. Events appear as lean-ctx intercepts tool calls.</p>' +
         '</div>'
@@ -583,7 +583,7 @@ class CockpitLive extends HTMLElement {
     }
 
     return (
-      '<div style="margin-bottom:8px">' +
+      '<div style="margin-bottom:14px">' +
       '<h3 style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.18em;font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:8px">' +
       'Event Feed <span class="badge">' + esc(String(count)) + '</span></h3>' +
       '<div id="ckl-event-list" style="display:flex;flex-direction:column;gap:6px">' +

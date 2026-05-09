@@ -165,14 +165,25 @@ class CockpitMemory extends HTMLElement {
 
   _renderEpisodes(esc, ff, fmt) {
     var ep = this._data.episodes;
-    var list = ep && Array.isArray(ep.episodes) ? ep.episodes : [];
+    var list = ep && Array.isArray(ep.recent) ? ep.recent
+      : (ep && Array.isArray(ep.episodes) ? ep.episodes : []);
+    var stats = ep && ep.stats ? ep.stats : {};
+
+    var statsHtml = '<div class="hero r4 stagger" style="margin-bottom:16px">' +
+      '<div class="hc"><span class="hl">Total Episodes</span><div class="hv">' + esc(ff(stats.total_episodes || 0)) + '</div></div>' +
+      '<div class="hc"><span class="hl">Successes</span><div class="hv" style="color:var(--green)">' + esc(ff(stats.successes || 0)) + '</div></div>' +
+      '<div class="hc"><span class="hl">Failures</span><div class="hv" style="color:var(--red)">' + esc(ff(stats.failures || 0)) + '</div></div>' +
+      '<div class="hc"><span class="hl">Success Rate</span><div class="hv">' + esc(String(stats.success_rate != null ? Math.round(stats.success_rate * 100) : 0)) + '%</div></div>' +
+      '</div>';
 
     if (list.length === 0) {
       return (
+        statsHtml +
         '<div class="card">' +
-        '<h3>Episodes</h3>' +
-        '<p class="hs">No episodes recorded yet. Episodes are created as agents complete tasks.</p>' +
-        '</div>'
+        '<div class="empty-state">' +
+        '<h2>No Episodes Yet</h2>' +
+        '<p>Episodes are recorded as agents complete tasks. Use lean-ctx tools to generate activity.</p>' +
+        '</div></div>'
       );
     }
 
@@ -213,12 +224,19 @@ class CockpitMemory extends HTMLElement {
     var pr = this._data.procedures;
     var list = pr && Array.isArray(pr.procedures) ? pr.procedures : [];
 
+    var totalProc = pr && pr.total_procedures != null ? pr.total_procedures : list.length;
+    var taskHtml = pr && pr.task
+      ? '<div class="card" style="margin-bottom:16px;padding:12px"><span class="hl">Current Task</span> <code>' + esc(pr.task) + '</code></div>'
+      : '';
+
     if (list.length === 0) {
       return (
+        taskHtml +
         '<div class="card">' +
-        '<h3>Procedures</h3>' +
-        '<p class="hs">No procedures learned yet. Procedures emerge from repeated successful patterns.</p>' +
-        '</div>'
+        '<div class="empty-state">' +
+        '<h2>No Procedures Yet</h2>' +
+        '<p>Procedures emerge from repeated successful patterns across sessions.</p>' +
+        '</div></div>'
       );
     }
 
