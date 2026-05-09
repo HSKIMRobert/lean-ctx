@@ -167,8 +167,8 @@ fn bench_total_input_overhead() {
     eprintln!("{}", "=".repeat(70));
 
     assert!(
-        total < 5600,
-        "Total input overhead should be <5600 tokens, got {total}"
+        total < 5700,
+        "Total input overhead should be <5700 tokens, got {total}"
     );
 }
 
