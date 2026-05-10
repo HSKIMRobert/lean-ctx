@@ -1420,7 +1420,7 @@ fn print_help() {
     println!(
         "lean-ctx {version} — Context Runtime for AI Agents
 
-95+ compression patterns | 63 MCP tools | Context Continuity Protocol
+95+ compression patterns | 58 MCP tools | Context Continuity Protocol
 
 USAGE:
     lean-ctx                       Start MCP server (stdio)
@@ -1495,6 +1495,11 @@ COMMANDS:
     buddy [show|stats|ascii|json]  Token Guardian: your data-driven coding companion
     doctor integrations [--json]   Integration health checks (Cursor/Claude Code)
     doctor [--fix] [--json]        Run diagnostics (and optionally repair)
+    smells [scan|summary|rules|file] [--rule=<r>] [--path=<p>] [--json]
+                                   Code smell detection (Property Graph, 8 rules)
+    control <action> [--target=<t>] Context field manipulation (exclude/pin/priority)
+    plan <task> [--budget=N]       Context planning (optimal Phi-scored context plan)
+    compile [--mode=<m>] [--budget=N] Context compilation (knapsack + Boltzmann)
     uninstall                      Remove shell hook, MCP configs, and data directory
 
 SHELL HOOK PATTERNS (95+):
