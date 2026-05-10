@@ -28,9 +28,16 @@ pub fn analyze(content: &str, ext: &str) -> DeepAnalysis {
 #[cfg(feature = "tree-sitter")]
 fn analyze_with_tree_sitter(content: &str, ext: &str) -> Option<DeepAnalysis> {
     let language = get_language(ext)?;
-    let mut parser = Parser::new();
-    parser.set_language(&language).ok()?;
-    let tree = parser.parse(content.as_bytes(), None)?;
+
+    thread_local! {
+        static PARSER: std::cell::RefCell<Parser> = std::cell::RefCell::new(Parser::new());
+    }
+
+    let tree = PARSER.with(|p| {
+        let mut parser = p.borrow_mut();
+        let _ = parser.set_language(&language);
+        parser.parse(content.as_bytes(), None)
+    })?;
     let root = tree.root_node();
 
     let imports = imports::extract_imports(root, content, ext);

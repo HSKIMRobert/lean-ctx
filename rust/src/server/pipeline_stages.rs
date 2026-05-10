@@ -443,8 +443,8 @@ impl LeanCtxServer {
         output_token_count: usize,
     ) {
         let input = helpers::canonical_args_string(args);
-        let input_md5 = helpers::md5_hex_fast(&input);
-        let output_md5 = helpers::md5_hex_fast(result_text);
+        let input_md5 = helpers::hash_fast(&input);
+        let output_md5 = helpers::hash_fast(result_text);
         let action = helpers::get_str(args, "action");
         let agent_id = self.agent_id.read().await.clone();
         let client_name = self.client_name.read().await.clone();

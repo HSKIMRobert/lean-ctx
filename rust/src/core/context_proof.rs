@@ -120,8 +120,10 @@ pub fn collect_v1(sources: ProofSources, opts: ProofOptions) -> ContextProofV1 {
     let profile_name = crate::core::profiles::active_profile_name();
     let profile = crate::core::profiles::active_profile();
 
-    let role_policy_md5 = md5_hex(&serde_json::to_string(&role).unwrap_or_default());
-    let profile_policy_md5 = md5_hex(&serde_json::to_string(&profile).unwrap_or_default());
+    let role_policy_md5 =
+        crate::core::hasher::hash_str(&serde_json::to_string(&role).unwrap_or_default());
+    let profile_policy_md5 =
+        crate::core::hasher::hash_str(&serde_json::to_string(&profile).unwrap_or_default());
 
     let project_root = sources.project_root.clone().or_else(|| {
         sources
@@ -133,7 +135,7 @@ pub fn collect_v1(sources: ProofSources, opts: ProofOptions) -> ContextProofV1 {
     let (project_root_hash, project_identity_hash) = if let Some(ref root) = project_root {
         let root_hash = crate::core::project_hash::hash_project_root(root);
         let identity = crate::core::project_hash::project_identity(root);
-        let identity_hash = identity.as_deref().map(md5_hex);
+        let identity_hash = identity.as_deref().map(crate::core::hasher::hash_str);
         (Some(root_hash), identity_hash)
     } else {
         (None, None)
@@ -255,13 +257,6 @@ pub fn write_project_proof(
     LAST_WRITTEN_UNIX_MS.store(ms, Ordering::Relaxed);
 
     Ok(path)
-}
-
-fn md5_hex(s: &str) -> String {
-    use md5::{Digest, Md5};
-    let mut hasher = Md5::new();
-    hasher.update(s.as_bytes());
-    format!("{:x}", hasher.finalize())
 }
 
 #[cfg(test)]

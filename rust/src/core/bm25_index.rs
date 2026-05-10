@@ -1015,6 +1015,7 @@ mod tests {
 
     #[test]
     fn save_writes_project_root_marker() {
+        let _env = crate::core::data_dir::test_env_lock();
         let td = tempdir().expect("tempdir");
         let root = td.path();
         std::fs::write(root.join("a.rs"), "pub fn a() {}\n").expect("write");
@@ -1079,6 +1080,7 @@ mod tests {
 
     #[test]
     fn max_bm25_cache_bytes_reads_env() {
+        let _env = crate::core::data_dir::test_env_lock();
         std::env::set_var("LEAN_CTX_BM25_MAX_CACHE_MB", "64");
         let bytes = max_bm25_cache_bytes();
         assert_eq!(bytes, 64 * 1024 * 1024);

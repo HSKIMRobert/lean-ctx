@@ -45,28 +45,16 @@ pub fn get_bool(args: Option<&serde_json::Map<String, Value>>, key: &str) -> Opt
     args?.get(key)?.as_bool()
 }
 
-pub fn md5_hex(s: &str) -> String {
-    use md5::{Digest, Md5};
-    let mut hasher = Md5::new();
-    hasher.update(s.as_bytes());
-    format!("{:x}", hasher.finalize())
-}
-
-/// Fast MD5 fingerprint for dedup purposes.
-/// Hashes prefix + suffix + length for strings larger than 16 KB to avoid
-/// O(n) hashing on multi-megabyte tool outputs.
-pub fn md5_hex_fast(s: &str) -> String {
-    use md5::{Digest, Md5};
+pub fn hash_fast(s: &str) -> String {
     const THRESHOLD: usize = 16 * 1024;
-    let mut hasher = Md5::new();
     if s.len() <= THRESHOLD {
-        hasher.update(s.as_bytes());
+        crate::core::hasher::hash_str(s)
     } else {
-        hasher.update(&s.as_bytes()[..8192]);
-        hasher.update(&s.as_bytes()[s.len() - 8192..]);
-        hasher.update(s.len().to_le_bytes());
+        let prefix = &s[..4096];
+        let suffix = &s[s.len().saturating_sub(4096)..];
+        let key = format!("{}{}{}", prefix, s.len(), suffix);
+        crate::core::hasher::hash_str(&key)
     }
-    format!("{:x}", hasher.finalize())
 }
 
 pub fn canonicalize_json(v: &Value) -> Value {

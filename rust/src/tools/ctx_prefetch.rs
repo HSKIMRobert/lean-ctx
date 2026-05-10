@@ -86,7 +86,9 @@ pub fn handle(
         let tokens = crate::core::tokens::count_tokens(&content);
         total = total.saturating_add(tokens);
 
-        let mode = if budget_tokens > 0 {
+        let mode = if crate::tools::ctx_read::is_instruction_file(&jailed_s) {
+            "full"
+        } else if budget_tokens > 0 {
             let ratio = budget_tokens as f64 / total.max(1) as f64;
             if ratio >= 0.8 {
                 "full"

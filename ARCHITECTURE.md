@@ -23,7 +23,7 @@ flowchart TB
         LoopDetect["Loop Detection — throttle/block repeated searches"]
         BudgetGate["Budget / SLO Gate — exhaustion blocking, throttling"]
         DegradationEval["Degradation Policy — evaluate_v1_for_tool"]
-        HybridDispatch["Hybrid Dispatch — Context Server (57 tools)"]
+        HybridDispatch["Hybrid Dispatch — Context Server (58 tools)"]
         ToolRegistry["ToolRegistry — 27 trait-based tools (McpTool)"]
         DispatchRead["read_tools — ctx_read, ctx_multi_read, ctx_edit, ctx_fill, ctx_delta, ctx_smart_read"]
         DispatchShell["shell_tools — ctx_shell, ctx_search, ctx_execute"]

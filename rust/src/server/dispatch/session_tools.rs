@@ -286,10 +286,15 @@ impl LeanCtxServer {
                                     .resolve_path(&p)
                                     .await
                                     .map_err(|e| ErrorData::invalid_params(e, None))?;
+                                let mode = if crate::tools::ctx_read::is_instruction_file(&abs) {
+                                    "full"
+                                } else {
+                                    "signatures"
+                                };
                                 let text = crate::tools::ctx_read::handle_with_task(
                                     &mut cache,
                                     &abs,
-                                    "signatures",
+                                    mode,
                                     crate::tools::CrpMode::effective(),
                                     None,
                                 );
@@ -352,10 +357,15 @@ impl LeanCtxServer {
                                     .resolve_path(&p)
                                     .await
                                     .map_err(|e| ErrorData::invalid_params(e, None))?;
+                                let mode = if crate::tools::ctx_read::is_instruction_file(&abs) {
+                                    "full"
+                                } else {
+                                    "signatures"
+                                };
                                 let text = crate::tools::ctx_read::handle_with_task(
                                     &mut cache,
                                     &abs,
-                                    "signatures",
+                                    mode,
                                     crate::tools::CrpMode::effective(),
                                     None,
                                 );

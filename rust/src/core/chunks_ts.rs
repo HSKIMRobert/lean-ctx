@@ -87,9 +87,33 @@ const CHUNK_QUERY_CPP: &str = r"
 /// Returns `None` if the language is unsupported, allowing callers to fall back
 /// to heuristic-based chunking.
 #[cfg(feature = "tree-sitter")]
+fn get_cached_query(file_ext: &str) -> Option<&'static Query> {
+    use std::collections::HashMap;
+    use std::sync::OnceLock;
+
+    static QUERY_CACHE: OnceLock<HashMap<&'static str, Query>> = OnceLock::new();
+
+    let cache = QUERY_CACHE.get_or_init(|| {
+        let mut map = HashMap::new();
+        let exts: &[&str] = &[
+            "rs", "ts", "tsx", "js", "jsx", "py", "go", "java", "c", "h", "cpp", "cc", "cxx", "hpp",
+        ];
+        for &ext in exts {
+            if let (Some(lang), Some(src)) = (get_language(ext), get_chunk_query(ext)) {
+                if let Ok(q) = Query::new(&lang, src) {
+                    map.insert(ext, q);
+                }
+            }
+        }
+        map
+    });
+
+    cache.get(file_ext)
+}
+
+#[cfg(feature = "tree-sitter")]
 pub fn extract_chunks_ts(file_path: &str, content: &str, file_ext: &str) -> Option<Vec<CodeChunk>> {
     let language = get_language(file_ext)?;
-    let query_src = get_chunk_query(file_ext)?;
 
     thread_local! {
         static PARSER: std::cell::RefCell<Parser> = std::cell::RefCell::new(Parser::new());
@@ -101,15 +125,15 @@ pub fn extract_chunks_ts(file_path: &str, content: &str, file_ext: &str) -> Opti
         parser.parse(content, None)
     })?;
 
-    let query = Query::new(&language, query_src).ok()?;
-    let chunk_idx = find_capture_index(&query, "chunk")?;
-    let name_idx = find_capture_index(&query, "name")?;
+    let query = get_cached_query(file_ext)?;
+    let chunk_idx = find_capture_index(query, "chunk")?;
+    let name_idx = find_capture_index(query, "name")?;
 
     let source = content.as_bytes();
     let lines: Vec<&str> = content.lines().collect();
     let mut chunks = Vec::new();
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, tree.root_node(), source);
+    let mut matches = cursor.matches(query, tree.root_node(), source);
     let mut seen_ranges = Vec::new();
 
     while let Some(m) = matches.next() {

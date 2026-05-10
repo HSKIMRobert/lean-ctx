@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 
-use md5::{Digest, Md5};
 use rmcp::model::Tool;
 use serde_json::{json, Value};
 
@@ -28,12 +27,6 @@ fn extract_field<'a>(v: &'a Value, keys: &[&str]) -> Option<&'a Value> {
     None
 }
 
-fn md5_hex(s: &str) -> String {
-    let mut hasher = Md5::new();
-    hasher.update(s.as_bytes());
-    format!("{:x}", hasher.finalize())
-}
-
 fn normalize_tool_entry(tool_json: &Value) -> Value {
     let name = extract_field(tool_json, &["name"])
         .and_then(|v| v.as_str())
@@ -48,7 +41,7 @@ fn normalize_tool_entry(tool_json: &Value) -> Value {
         .cloned()
         .unwrap_or(Value::Null);
     let schema_str = serde_json::to_string(&schema).unwrap_or_default();
-    let schema_md5 = md5_hex(&schema_str);
+    let schema_md5 = crate::core::hasher::hash_str(&schema_str);
 
     json!({
         "name": name,

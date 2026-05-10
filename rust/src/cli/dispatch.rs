@@ -1078,6 +1078,55 @@ pub fn run() {
                 }
                 return;
             }
+            "smells" => {
+                let action = rest.first().map_or("summary", String::as_str);
+                let rule = rest.iter().enumerate().find_map(|(i, a)| {
+                    if let Some(v) = a.strip_prefix("--rule=") {
+                        return Some(v.to_string());
+                    }
+                    if a == "--rule" {
+                        return rest.get(i + 1).cloned();
+                    }
+                    None
+                });
+                let path = rest.iter().enumerate().find_map(|(i, a)| {
+                    if let Some(v) = a.strip_prefix("--path=") {
+                        return Some(v.to_string());
+                    }
+                    if a == "--path" {
+                        return rest.get(i + 1).cloned();
+                    }
+                    None
+                });
+                let root = rest
+                    .iter()
+                    .enumerate()
+                    .find_map(|(i, a)| {
+                        if let Some(v) = a.strip_prefix("--root=") {
+                            return Some(v.to_string());
+                        }
+                        if a == "--root" {
+                            return rest.get(i + 1).cloned();
+                        }
+                        None
+                    })
+                    .or_else(|| {
+                        std::env::current_dir()
+                            .ok()
+                            .map(|p| p.to_string_lossy().to_string())
+                    })
+                    .unwrap_or_else(|| ".".to_string());
+                let fmt = if rest.iter().any(|a| a == "--json") {
+                    Some("json")
+                } else {
+                    None
+                };
+                println!(
+                    "{}",
+                    tools::ctx_smells::handle(action, rule.as_deref(), path.as_deref(), &root, fmt)
+                );
+                return;
+            }
             "session" => {
                 super::cmd_session_action(&rest);
                 return;
@@ -1371,7 +1420,7 @@ fn print_help() {
     println!(
         "lean-ctx {version} — Context Runtime for AI Agents
 
-95+ compression patterns | 57 MCP tools | Context Continuity Protocol
+95+ compression patterns | 63 MCP tools | Context Continuity Protocol
 
 USAGE:
     lean-ctx                       Start MCP server (stdio)

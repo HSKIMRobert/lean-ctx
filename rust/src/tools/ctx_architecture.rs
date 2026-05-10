@@ -35,11 +35,14 @@ pub fn handle(action: &str, path: Option<&str>, root: &str, format: Option<&str>
     match action {
         "overview" => handle_overview(root, fmt),
         "clusters" => handle_clusters(root, fmt),
+        "communities" => handle_communities(root, fmt),
         "layers" => handle_layers(root, fmt),
         "cycles" => handle_cycles(root, fmt),
         "entrypoints" => handle_entrypoints(root, fmt),
+        "hotspots" => handle_hotspots(root, fmt),
+        "health" => handle_health(root, fmt),
         "module" => handle_module(path, root, fmt),
-        _ => "Unknown action. Use: overview, clusters, layers, cycles, entrypoints, module"
+        _ => "Unknown action. Use: overview, clusters, communities, layers, cycles, entrypoints, hotspots, health, module"
             .to_string(),
     }
 }
@@ -380,6 +383,81 @@ fn handle_clusters(root: &str, fmt: OutputFormat) -> String {
     }
 }
 
+fn handle_communities(root: &str, fmt: OutputFormat) -> String {
+    ensure_graph_built(root);
+    let graph = match open_graph(root) {
+        Ok(g) => g,
+        Err(e) => return e,
+    };
+
+    let result = crate::core::community::detect_communities(graph.connection());
+
+    match fmt {
+        OutputFormat::Json => {
+            let root_path = Path::new(root);
+            let comms: Vec<Value> = result
+                .communities
+                .iter()
+                .take(30)
+                .map(|c| {
+                    json!({
+                        "id": c.id,
+                        "file_count": c.files.len(),
+                        "files": c.files.iter().take(20).collect::<Vec<_>>(),
+                        "internal_edges": c.internal_edges,
+                        "external_edges": c.external_edges,
+                        "cohesion": (c.cohesion * 100.0).round() / 100.0,
+                    })
+                })
+                .collect();
+            let v = json!({
+                "schema_version": crate::core::contracts::GRAPH_REPRODUCIBILITY_V1_SCHEMA_VERSION,
+                "tool": "ctx_architecture",
+                "action": "communities",
+                "project": project_meta(root),
+                "graph": graph_summary(root_path),
+                "modularity": (result.modularity * 1000.0).round() / 1000.0,
+                "node_count": result.node_count,
+                "edge_count": result.edge_count,
+                "community_count": result.communities.len(),
+                "communities": comms
+            });
+            serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".to_string())
+        }
+        OutputFormat::Text => {
+            let mut out = format!(
+                "Community Detection (Louvain) — {} communities, modularity {:.3}\n\n",
+                result.communities.len(),
+                result.modularity
+            );
+            for c in result.communities.iter().take(20) {
+                out.push_str(&format!(
+                    "  Community #{}: {} files, cohesion {:.0}%, {} internal / {} external edges\n",
+                    c.id,
+                    c.files.len(),
+                    c.cohesion * 100.0,
+                    c.internal_edges,
+                    c.external_edges
+                ));
+                for f in c.files.iter().take(10) {
+                    out.push_str(&format!("    {f}\n"));
+                }
+                if c.files.len() > 10 {
+                    out.push_str(&format!("    ... +{} more\n", c.files.len() - 10));
+                }
+            }
+            if result.communities.len() > 20 {
+                out.push_str(&format!(
+                    "\n  ... +{} more communities\n",
+                    result.communities.len() - 20
+                ));
+            }
+            let tokens = count_tokens(&out);
+            format!("{out}\n[ctx_architecture communities: {tokens} tok]")
+        }
+    }
+}
+
 fn handle_layers(root: &str, fmt: OutputFormat) -> String {
     ensure_graph_built(root);
     let graph = match open_graph(root) {
@@ -586,6 +664,231 @@ fn handle_entrypoints(root: &str, fmt: OutputFormat) -> String {
             format!("{result}[ctx_architecture entrypoints: {tokens} tok]")
         }
     }
+}
+
+fn handle_hotspots(root: &str, fmt: OutputFormat) -> String {
+    ensure_graph_built(root);
+    let graph = match open_graph(root) {
+        Ok(g) => g,
+        Err(e) => return e,
+    };
+
+    let data = match load_graph_data(&graph) {
+        Ok(d) => d,
+        Err(e) => return e,
+    };
+
+    let pr_input = crate::core::pagerank::PageRankInput {
+        files: data.all_files.clone(),
+        forward: data.forward.clone(),
+    };
+    let pagerank = crate::core::pagerank::compute(&pr_input, 0.85, 30);
+    let cfg = crate::core::smells::SmellConfig::default();
+    let findings = crate::core::smells::scan_all(graph.connection(), &cfg);
+
+    let mut smell_count: HashMap<String, usize> = HashMap::new();
+    for f in &findings {
+        *smell_count.entry(f.file_path.clone()).or_default() += 1;
+    }
+
+    let mut hotspots: Vec<(String, f64, f64, usize, usize)> = pagerank
+        .iter()
+        .map(|(file, &rank)| {
+            let in_edges = data.reverse.get(file).map_or(0, Vec::len);
+            let out_edges = data.forward.get(file).map_or(0, Vec::len);
+            let smells = smell_count.get(file).copied().unwrap_or(0);
+            let score = rank * 0.4
+                + (in_edges + out_edges) as f64 * 0.01 * 0.3
+                + smells as f64 * 0.05 * 0.3;
+            (file.clone(), score, rank, in_edges + out_edges, smells)
+        })
+        .collect();
+
+    hotspots.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    let limit = 30;
+    match fmt {
+        OutputFormat::Json => {
+            let items: Vec<Value> = hotspots
+                .iter()
+                .take(limit)
+                .map(|(file, score, rank, edges, smells)| {
+                    json!({
+                        "file": file,
+                        "score": (score * 1000.0).round() / 1000.0,
+                        "pagerank": (rank * 10000.0).round() / 10000.0,
+                        "edges": edges,
+                        "smells": smells
+                    })
+                })
+                .collect();
+            let v = json!({
+                "tool": "ctx_architecture",
+                "action": "hotspots",
+                "total_files": data.all_files.len(),
+                "hotspots": items
+            });
+            serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".to_string())
+        }
+        OutputFormat::Text => {
+            let mut result = format!(
+                "Hotspots ({} files analyzed)\n\n  {:<50} {:>8} {:>8} {:>6} {:>6}\n",
+                data.all_files.len(),
+                "File",
+                "Score",
+                "PageRank",
+                "Edges",
+                "Smells"
+            );
+            result.push_str(&format!("  {}\n", "-".repeat(82)));
+            for (file, score, rank, edges, smells) in hotspots.iter().take(limit) {
+                let display = if file.len() > 48 {
+                    format!("...{}", &file[file.len() - 45..])
+                } else {
+                    file.clone()
+                };
+                result.push_str(&format!(
+                    "  {display:<50} {score:>8.3} {rank:>8.4} {edges:>6} {smells:>6}\n"
+                ));
+            }
+            if hotspots.len() > limit {
+                result.push_str(&format!("\n  ... +{} more\n", hotspots.len() - limit));
+            }
+            let tokens = count_tokens(&result);
+            format!("{result}\n[ctx_architecture hotspots: {tokens} tok]")
+        }
+    }
+}
+
+fn handle_health(root: &str, fmt: OutputFormat) -> String {
+    ensure_graph_built(root);
+    let graph = match open_graph(root) {
+        Ok(g) => g,
+        Err(e) => return e,
+    };
+
+    let data = match load_graph_data(&graph) {
+        Ok(d) => d,
+        Err(e) => return e,
+    };
+
+    let communities = crate::core::community::detect_communities(graph.connection());
+    let cfg = crate::core::smells::SmellConfig::default();
+    let findings = crate::core::smells::scan_all(graph.connection(), &cfg);
+    let summary = crate::core::smells::summarize(&findings);
+    let cycles = find_cycles(&data);
+    let layers = compute_layers(&data);
+
+    let total_smells: usize = summary.iter().map(|s| s.findings).sum();
+    let files = data.all_files.len();
+    let edges = data.forward.values().map(Vec::len).sum::<usize>();
+
+    let smell_density = if files > 0 {
+        total_smells as f64 / files as f64
+    } else {
+        0.0
+    };
+    let avg_cohesion = if communities.communities.is_empty() {
+        0.0
+    } else {
+        communities
+            .communities
+            .iter()
+            .map(|c| c.cohesion)
+            .sum::<f64>()
+            / communities.communities.len() as f64
+    };
+
+    let health_score = compute_health_score(
+        smell_density,
+        avg_cohesion,
+        communities.modularity,
+        cycles.len(),
+        files,
+    );
+
+    let grade = match health_score {
+        s if s >= 90.0 => "A",
+        s if s >= 80.0 => "B",
+        s if s >= 65.0 => "C",
+        s if s >= 50.0 => "D",
+        _ => "F",
+    };
+
+    match fmt {
+        OutputFormat::Json => {
+            let smell_items: Vec<Value> = summary
+                .iter()
+                .filter(|s| s.findings > 0)
+                .map(|s| json!({"rule": s.rule, "findings": s.findings}))
+                .collect();
+            let v = json!({
+                "tool": "ctx_architecture",
+                "action": "health",
+                "health_score": (health_score * 10.0).round() / 10.0,
+                "grade": grade,
+                "files": files,
+                "edges": edges,
+                "total_smells": total_smells,
+                "smell_density": (smell_density * 100.0).round() / 100.0,
+                "modularity": (communities.modularity * 1000.0).round() / 1000.0,
+                "avg_cohesion": (avg_cohesion * 100.0).round() / 100.0,
+                "communities": communities.communities.len(),
+                "cycles": cycles.len(),
+                "layers": layers.len(),
+                "smells_by_rule": smell_items
+            });
+            serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".to_string())
+        }
+        OutputFormat::Text => {
+            let mut result = format!(
+                "Architecture Health Report\n\n  Score:       {health_score:.0}/100 (Grade: {grade})\n  Files:       {files}\n  Edges:       {edges}\n"
+            );
+            result.push_str(&format!(
+                "  Communities: {} (modularity {:.3}, avg cohesion {:.0}%)\n",
+                communities.communities.len(),
+                communities.modularity,
+                avg_cohesion * 100.0
+            ));
+            result.push_str(&format!(
+                "  Cycles:      {}\n  Layers:      {}\n  Smells:      {} (density {:.2}/file)\n",
+                cycles.len(),
+                layers.len(),
+                total_smells,
+                smell_density
+            ));
+
+            if total_smells > 0 {
+                result.push_str("\n  Smell breakdown:\n");
+                for s in &summary {
+                    if s.findings > 0 {
+                        result.push_str(&format!("    {:<25} {:>3}\n", s.rule, s.findings));
+                    }
+                }
+            }
+
+            let tokens = count_tokens(&result);
+            format!("{result}\n[ctx_architecture health: {tokens} tok]")
+        }
+    }
+}
+
+fn compute_health_score(
+    smell_density: f64,
+    avg_cohesion: f64,
+    modularity: f64,
+    cycle_count: usize,
+    file_count: usize,
+) -> f64 {
+    let smell_penalty = (smell_density * 10.0).min(30.0);
+    let cohesion_bonus = avg_cohesion * 20.0;
+    let modularity_bonus = modularity.max(0.0) * 30.0;
+    let cycle_penalty = (cycle_count as f64 * 5.0).min(20.0);
+    let size_factor = if file_count > 1000 { 0.95 } else { 1.0 };
+
+    let raw =
+        (50.0 + cohesion_bonus + modularity_bonus - smell_penalty - cycle_penalty) * size_factor;
+    raw.clamp(0.0, 100.0)
 }
 
 fn handle_module(path: Option<&str>, root: &str, fmt: OutputFormat) -> String {
@@ -971,7 +1274,7 @@ fn project_meta(root: &str) -> Value {
     let root_hash = crate::core::project_hash::hash_project_root(root);
     let identity_hash = crate::core::project_hash::project_identity(root)
         .as_deref()
-        .map(md5_hex);
+        .map(crate::core::hasher::hash_str);
 
     let root_path = Path::new(root);
     json!({
@@ -1042,13 +1345,6 @@ fn git_out(project_root: &Path, args: &[&str]) -> Option<String> {
     } else {
         Some(s)
     }
-}
-
-fn md5_hex(s: &str) -> String {
-    use md5::{Digest, Md5};
-    let mut hasher = Md5::new();
-    hasher.update(s.as_bytes());
-    format!("{:x}", hasher.finalize())
 }
 
 #[cfg(test)]

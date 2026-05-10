@@ -88,26 +88,20 @@ const GEMINI_CORRECTION: f64 = 1.08;
 
 // ── Cache ──────────────────────────────────────────────────
 
-const TOKEN_CACHE_MAX: usize = 256;
+const TOKEN_CACHE_MAX: usize = 2048;
 
 static TOKEN_CACHE: Mutex<Option<HashMap<u64, usize>>> = Mutex::new(None);
 
 fn hash_text(text: &str, family: TokenizerFamily) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    family.hash(&mut hasher);
-    text.len().hash(&mut hasher);
-    if text.len() <= 512 {
-        text.hash(&mut hasher);
-    } else {
-        let start_end = floor_char_boundary(text, 256);
-        let tail_start = ceil_char_boundary(text, text.len() - 256);
-        text[..start_end].hash(&mut hasher);
-        text[tail_start..].hash(&mut hasher);
-    }
-    hasher.finish()
+    let h = blake3::hash(text.as_bytes());
+    let bytes = h.as_bytes();
+    let base = u64::from_le_bytes([
+        bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+    ]);
+    base ^ (family as u64)
 }
 
+#[cfg(test)]
 fn floor_char_boundary(s: &str, idx: usize) -> usize {
     let idx = idx.min(s.len());
     let mut i = idx;
@@ -117,6 +111,7 @@ fn floor_char_boundary(s: &str, idx: usize) -> usize {
     i
 }
 
+#[cfg(test)]
 fn ceil_char_boundary(s: &str, idx: usize) -> usize {
     let idx = idx.min(s.len());
     let mut i = idx;
@@ -164,7 +159,10 @@ pub fn count_tokens_for(text: &str, family: TokenizerFamily) -> usize {
     if let Ok(mut guard) = TOKEN_CACHE.lock() {
         let map = guard.get_or_insert_with(HashMap::new);
         if map.len() >= TOKEN_CACHE_MAX {
-            map.clear();
+            let keys: Vec<u64> = map.keys().take(TOKEN_CACHE_MAX / 2).copied().collect();
+            for k in keys {
+                map.remove(&k);
+            }
         }
         map.insert(key, count);
     }

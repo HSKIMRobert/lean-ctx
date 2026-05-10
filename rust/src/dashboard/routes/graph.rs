@@ -108,6 +108,43 @@ pub fn handle(
             let json = build_symbols_json(&index, q.as_deref(), kind.as_deref());
             Some(("200 OK", "application/json", json))
         }
+        "/api/health" => {
+            let root = detect_project_root_for_dashboard();
+            let result =
+                crate::tools::ctx_architecture::handle("health", None, &root, Some("json"));
+            Some(("200 OK", "application/json", result))
+        }
+        "/api/hotspots" => {
+            let root = detect_project_root_for_dashboard();
+            let result =
+                crate::tools::ctx_architecture::handle("hotspots", None, &root, Some("json"));
+            Some(("200 OK", "application/json", result))
+        }
+        "/api/communities" => {
+            let root = detect_project_root_for_dashboard();
+            let result =
+                crate::tools::ctx_architecture::handle("communities", None, &root, Some("json"));
+            Some(("200 OK", "application/json", result))
+        }
+        "/api/smells" => {
+            let root = detect_project_root_for_dashboard();
+            let rule = extract_query_param(query_str, "rule");
+            let path_filter = extract_query_param(query_str, "path");
+            let result = crate::tools::ctx_smells::handle(
+                "scan",
+                rule.as_deref(),
+                path_filter.as_deref(),
+                &root,
+                Some("json"),
+            );
+            Some(("200 OK", "application/json", result))
+        }
+        "/api/smells/summary" => {
+            let root = detect_project_root_for_dashboard();
+            let result =
+                crate::tools::ctx_smells::handle("summary", None, None, &root, Some("json"));
+            Some(("200 OK", "application/json", result))
+        }
         "/api/routes" => {
             let root = detect_project_root_for_dashboard();
             let index = crate::core::graph_index::load_or_build(&root);

@@ -120,7 +120,7 @@ impl ContextIrV1 {
         let content_md5 = if content_excerpt.trim().is_empty() {
             None
         } else {
-            Some(md5_hex(&content_excerpt))
+            Some(crate::core::hasher::hash_str(&content_excerpt))
         };
 
         let item = ContextIrItemV1 {
@@ -247,13 +247,6 @@ fn total_content_chars(items: &[ContextIrItemV1]) -> usize {
         .iter()
         .map(|i| i.content_excerpt.chars().count())
         .sum()
-}
-
-fn md5_hex(s: &str) -> String {
-    use md5::{Digest, Md5};
-    let mut hasher = Md5::new();
-    hasher.update(s.as_bytes());
-    format!("{:x}", hasher.finalize())
 }
 
 #[cfg(test)]

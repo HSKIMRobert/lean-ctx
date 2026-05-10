@@ -56,13 +56,6 @@ fn system_time_to_millis(t: SystemTime) -> u64 {
         .map_or(0, |d| d.as_millis() as u64)
 }
 
-fn md5_hex_bytes(bytes: &[u8]) -> String {
-    use md5::{Digest, Md5};
-    let mut h = Md5::new();
-    h.update(bytes);
-    format!("{:x}", h.finalize())
-}
-
 fn read_file_bytes_limited(
     path: &Path,
     cap: usize,
@@ -107,7 +100,7 @@ fn fingerprint_from_bytes(bytes: &[u8], meta: &std::fs::Metadata) -> FileFingerp
     FileFingerprint {
         size: bytes.len() as u64,
         mtime_ms: meta.modified().map_or(0, system_time_to_millis),
-        md5: md5_hex_bytes(bytes),
+        md5: crate::core::hasher::hash_hex(bytes),
     }
 }
 
@@ -534,7 +527,7 @@ fn do_replace(
     let post_fp = FileFingerprint {
         size: new_content.len() as u64,
         mtime_ms: post_mtime_ms,
-        md5: md5_hex_bytes(new_content.as_bytes()),
+        md5: crate::core::hasher::hash_hex(new_content.as_bytes()),
     };
 
     let mut out = format!(

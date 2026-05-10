@@ -41,11 +41,12 @@ pub fn handle(
 
     match action {
         "analyze" => handle_analyze(path, root, depth.unwrap_or(5), fmt),
+        "diff" => handle_diff(root, depth.unwrap_or(5), fmt),
         "chain" => handle_chain(path, root, fmt),
         "build" => handle_build(root, fmt),
         "update" => handle_update(root, fmt),
         "status" => handle_status(root, fmt),
-        _ => "Unknown action. Use: analyze, chain, build, status, update".to_string(),
+        _ => "Unknown action. Use: analyze, diff, chain, build, status, update".to_string(),
     }
 }
 
@@ -147,6 +148,181 @@ fn format_impact(impact: &ImpactResult, target: &str, root: &str, fmt: OutputFor
 
             let tokens = count_tokens(&result);
             format!("{result}[ctx_impact: {tokens} tok]")
+        }
+    }
+}
+
+fn handle_diff(root: &str, max_depth: usize, fmt: OutputFormat) -> String {
+    let changed = git_changed_files(root);
+    if changed.is_empty() {
+        return match fmt {
+            OutputFormat::Json => {
+                let v = json!({
+                    "tool": "ctx_impact",
+                    "action": "diff",
+                    "changed_files": [],
+                    "blast_radius": [],
+                    "total_affected": 0
+                });
+                serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".to_string())
+            }
+            OutputFormat::Text => "No uncommitted changes found.".to_string(),
+        };
+    }
+
+    let graph = match open_graph(root) {
+        Ok(g) => g,
+        Err(e) => return e,
+    };
+
+    if graph.node_count().unwrap_or(0) == 0 {
+        drop(graph);
+        handle_build(root, OutputFormat::Text);
+        let graph = match open_graph(root) {
+            Ok(g) => g,
+            Err(e) => return e,
+        };
+        return compute_diff_impact(&graph, &changed, root, max_depth, fmt);
+    }
+
+    compute_diff_impact(&graph, &changed, root, max_depth, fmt)
+}
+
+fn git_changed_files(root: &str) -> Vec<String> {
+    let output = std::process::Command::new("git")
+        .args(["diff", "--name-only", "HEAD"])
+        .current_dir(root)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output();
+
+    let mut files: BTreeSet<String> = BTreeSet::new();
+
+    if let Ok(o) = output {
+        if o.status.success() {
+            for line in String::from_utf8_lossy(&o.stdout).lines() {
+                let trimmed = line.trim();
+                if !trimmed.is_empty() {
+                    files.insert(trimmed.to_string());
+                }
+            }
+        }
+    }
+
+    let staged = std::process::Command::new("git")
+        .args(["diff", "--name-only", "--cached"])
+        .current_dir(root)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output();
+
+    if let Ok(o) = staged {
+        if o.status.success() {
+            for line in String::from_utf8_lossy(&o.stdout).lines() {
+                let trimmed = line.trim();
+                if !trimmed.is_empty() {
+                    files.insert(trimmed.to_string());
+                }
+            }
+        }
+    }
+
+    let untracked = std::process::Command::new("git")
+        .args(["ls-files", "--others", "--exclude-standard"])
+        .current_dir(root)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output();
+
+    if let Ok(o) = untracked {
+        if o.status.success() {
+            for line in String::from_utf8_lossy(&o.stdout).lines() {
+                let trimmed = line.trim();
+                if !trimmed.is_empty() {
+                    files.insert(trimmed.to_string());
+                }
+            }
+        }
+    }
+
+    files.into_iter().collect()
+}
+
+fn compute_diff_impact(
+    graph: &CodeGraph,
+    changed: &[String],
+    root: &str,
+    max_depth: usize,
+    fmt: OutputFormat,
+) -> String {
+    let mut all_affected: BTreeSet<String> = BTreeSet::new();
+    let mut per_file: Vec<(String, Vec<String>)> = Vec::new();
+
+    for file in changed {
+        let rel = graph_target_key(file, root);
+        if let Ok(impact) = graph.impact_analysis(&rel, max_depth) {
+            let mut affected: Vec<String> = impact
+                .affected_files
+                .into_iter()
+                .filter(|f| !changed.contains(f))
+                .collect();
+            affected.sort();
+            for a in &affected {
+                all_affected.insert(a.clone());
+            }
+            if !affected.is_empty() {
+                per_file.push((rel, affected));
+            }
+        }
+    }
+
+    match fmt {
+        OutputFormat::Json => {
+            let items: Vec<Value> = per_file
+                .iter()
+                .map(|(file, affected)| {
+                    json!({
+                        "changed_file": file,
+                        "affected": affected,
+                        "count": affected.len()
+                    })
+                })
+                .collect();
+            let v = json!({
+                "tool": "ctx_impact",
+                "action": "diff",
+                "changed_files": changed,
+                "blast_radius": items,
+                "total_affected": all_affected.len()
+            });
+            serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".to_string())
+        }
+        OutputFormat::Text => {
+            let mut result = format!(
+                "Diff Impact Analysis ({} changed files, {} blast radius)\n\n",
+                changed.len(),
+                all_affected.len()
+            );
+            result.push_str("Changed files:\n");
+            for f in changed.iter().take(30) {
+                result.push_str(&format!("  {f}\n"));
+            }
+
+            if !per_file.is_empty() {
+                result.push_str("\nBlast radius:\n");
+                for (file, affected) in per_file.iter().take(15) {
+                    result.push_str(&format!("  {file} -> {} affected\n", affected.len()));
+                    for a in affected.iter().take(10) {
+                        result.push_str(&format!("    {a}\n"));
+                    }
+                    if affected.len() > 10 {
+                        result.push_str(&format!("    ... +{} more\n", affected.len() - 10));
+                    }
+                }
+            }
+
+            let tokens = count_tokens(&result);
+            format!("{result}\n[ctx_impact diff: {tokens} tok]")
         }
     }
 }
@@ -571,17 +747,20 @@ fn handle_build(root: &str, fmt: OutputFormat) -> String {
         String,
         String,
         crate::core::deep_queries::DeepAnalysis,
-    )> = file_contents
-        .iter()
-        .map(|(p, c, e)| {
-            (
-                p.clone(),
-                c.clone(),
-                e.clone(),
-                crate::core::deep_queries::analyze(c.as_str(), e.as_str()),
-            )
-        })
-        .collect();
+    )> = {
+        use rayon::prelude::*;
+        file_contents
+            .par_iter()
+            .map(|(p, c, e)| {
+                (
+                    p.clone(),
+                    c.clone(),
+                    e.clone(),
+                    crate::core::deep_queries::analyze(c.as_str(), e.as_str()),
+                )
+            })
+            .collect()
+    };
 
     #[cfg(feature = "embeddings")]
     let def_index: std::collections::HashMap<String, Vec<(String, usize, usize)>> = {
@@ -911,7 +1090,7 @@ fn project_meta(root: &str) -> Value {
     let root_hash = crate::core::project_hash::hash_project_root(root);
     let identity_hash = crate::core::project_hash::project_identity(root)
         .as_deref()
-        .map(md5_hex);
+        .map(crate::core::hasher::hash_str);
 
     let root_path = Path::new(root);
     json!({
@@ -982,13 +1161,6 @@ fn git_out(project_root: &Path, args: &[&str]) -> Option<String> {
     } else {
         Some(s)
     }
-}
-
-fn md5_hex(s: &str) -> String {
-    use md5::{Digest, Md5};
-    let mut hasher = Md5::new();
-    hasher.update(s.as_bytes());
-    format!("{:x}", hasher.finalize())
 }
 
 #[cfg(test)]

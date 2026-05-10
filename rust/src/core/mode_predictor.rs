@@ -1,11 +1,11 @@
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 const STATS_FILE: &str = "mode_stats.json";
 const PREDICTOR_FLUSH_SECS: u64 = 10;
 
-static PREDICTOR_BUFFER: Mutex<Option<(ModePredictor, Instant)>> = Mutex::new(None);
+static PREDICTOR_BUFFER: Mutex<Option<(Arc<ModePredictor>, Instant)>> = Mutex::new(None);
 
 /// Observed outcome of a read mode: tokens in/out and information density.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -66,7 +66,10 @@ impl ModePredictor {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some((ref predictor, _)) = *guard {
-            return predictor.clone();
+            return Self {
+                history: predictor.history.clone(),
+                project_root: predictor.project_root.clone(),
+            };
         }
         let mut loaded = Self::load_from_disk().unwrap_or_default();
         if loaded.project_root.is_none() {
@@ -74,7 +77,7 @@ impl ModePredictor {
                 .ok()
                 .map(|p| p.to_string_lossy().to_string());
         }
-        *guard = Some((loaded.clone(), Instant::now()));
+        *guard = Some((Arc::new(loaded.clone()), Instant::now()));
         loaded
     }
 
@@ -277,7 +280,7 @@ impl ModePredictor {
             Some((_, ref last_flush)) => last_flush.elapsed().as_secs() >= PREDICTOR_FLUSH_SECS,
             None => true,
         };
-        *guard = Some((self.clone(), Instant::now()));
+        *guard = Some((Arc::new(self.clone()), Instant::now()));
         if should_flush {
             self.save_to_disk();
         }

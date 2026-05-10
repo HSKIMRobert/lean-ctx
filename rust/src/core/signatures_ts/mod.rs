@@ -5,13 +5,38 @@ use tree_sitter::{Node, Parser, Query, QueryCursor, StreamingIterator};
 use super::signatures::Signature;
 use queries::{get_language, get_query};
 
+fn get_cached_sig_query(file_ext: &str) -> Option<&'static Query> {
+    use std::collections::HashMap;
+    use std::sync::OnceLock;
+
+    static SIG_QUERY_CACHE: OnceLock<HashMap<&'static str, Query>> = OnceLock::new();
+
+    let cache = SIG_QUERY_CACHE.get_or_init(|| {
+        let mut map = HashMap::new();
+        let exts: &[&str] = &[
+            "rs", "ts", "tsx", "js", "jsx", "py", "go", "java", "c", "h", "cpp", "cc", "cxx",
+            "hpp", "rb", "cs", "kt", "kts", "swift", "php", "sh", "bash", "dart", "scala", "sc",
+            "ex", "exs", "zig",
+        ];
+        for &ext in exts {
+            if let (Some(lang), Some(src)) = (get_language(ext), get_query(ext)) {
+                if let Ok(q) = Query::new(&lang, src) {
+                    map.insert(ext, q);
+                }
+            }
+        }
+        map
+    });
+
+    cache.get(file_ext)
+}
+
 pub fn extract_signatures_ts(content: &str, file_ext: &str) -> Option<Vec<Signature>> {
     if matches!(file_ext, "svelte" | "vue") {
         return extract_sfc_signatures(content);
     }
 
     let language = get_language(file_ext)?;
-    let query_src = get_query(file_ext)?;
 
     thread_local! {
         static PARSER: std::cell::RefCell<Parser> = std::cell::RefCell::new(Parser::new());
@@ -22,15 +47,15 @@ pub fn extract_signatures_ts(content: &str, file_ext: &str) -> Option<Vec<Signat
         let _ = parser.set_language(&language);
         parser.parse(content, None)
     })?;
-    let query = Query::new(&language, query_src).ok()?;
+    let query = get_cached_sig_query(file_ext)?;
 
-    let def_idx = find_capture_index(&query, "def")?;
-    let name_idx = find_capture_index(&query, "name")?;
+    let def_idx = find_capture_index(query, "def")?;
+    let name_idx = find_capture_index(query, "name")?;
 
     let source = content.as_bytes();
     let mut sigs = Vec::new();
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, tree.root_node(), source);
+    let mut matches = cursor.matches(query, tree.root_node(), source);
 
     while let Some(m) = matches.next() {
         let mut def_node: Option<Node> = None;
@@ -757,7 +782,6 @@ fn extract_script_block(content: &str) -> Option<String> {
 
 pub fn ast_prune(content: &str, file_ext: &str) -> Option<String> {
     let language = get_language(file_ext)?;
-    let query_src = get_query(file_ext)?;
 
     thread_local! {
         static PARSER: std::cell::RefCell<Parser> = std::cell::RefCell::new(Parser::new());
@@ -768,12 +792,12 @@ pub fn ast_prune(content: &str, file_ext: &str) -> Option<String> {
         let _ = parser.set_language(&language);
         parser.parse(content, None)
     })?;
-    let query = Query::new(&language, query_src).ok()?;
+    let query = get_cached_sig_query(file_ext)?;
 
-    let def_idx = find_capture_index(&query, "def")?;
+    let def_idx = find_capture_index(query, "def")?;
     let source = content.as_bytes();
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, tree.root_node(), source);
+    let mut matches = cursor.matches(query, tree.root_node(), source);
 
     let lines: Vec<&str> = content.lines().collect();
     let mut keep = vec![false; lines.len()];

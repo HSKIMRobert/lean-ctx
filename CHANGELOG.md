@@ -5,6 +5,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.5.14] — 2026-05-10
+
+### Performance
+
+- **BLAKE3 hashing** — Replaced all MD5 (`md5_hex`, `md5_hex_bytes`) with BLAKE3 via centralized `core::hasher` module. 12 duplicate hash functions eliminated across the codebase. BLAKE3 is ~3x faster than MD5 for large inputs with better collision resistance.
+- **Tree-sitter Query Cache** — Compiled tree-sitter `Query` objects are now cached in `OnceLock<HashMap>` statics in `chunks_ts`, `signatures_ts`, and `deep_queries`. Eliminates re-compilation of query patterns on every file parse. Parser instances reuse via `thread_local!`.
+- **Token cache upgrade** — Token cache enlarged from 256→2048 entries with BLAKE3-based keys and LRU-like eviction (half-evict instead of full clear). Reduces redundant BPE tokenization across sessions.
+- **SQLite Property Graph optimized** — Added `PRAGMA cache_size = -8000`, `mmap_size = 256MB`, `temp_store = MEMORY`. 5 new composite indices on `nodes(kind)`, `nodes(kind, file_path)`, `edges(kind)`, `edges(source_id, kind)`, `edges(target_id, kind)`. `busy_timeout(5000ms)` for WAL contention.
+- **Parallel indexing** — `rayon::par_iter` for CPU-bound deep-query parsing in `ctx_impact build` (embeddings feature path).
+- **ModePredictor Arc** — `ModePredictor` stored as `Arc<ModePredictor>` to avoid deep cloning on every `ctx_read` call.
+- **Compact JSON serialization** — `ProjectIndex::save()` uses `serde_json::to_string` (compact) instead of `to_string_pretty`, reducing index file size and serialization time.
+- **Server dispatch deduplicated** — `count_tokens` called once per request instead of redundantly after terse pass when content unchanged.
+
+### Improved
+
+- **Rules: Mode Selection Decision Tree** — Adopted community-contributed improvement (credit: Zeel Connor). Rules now include a numbered decision tree for `ctx_read` mode selection and an anti-pattern warning against using `full` for context-only files. Applied across all rule formats (shared, dedicated, Cursor MDC, CLI-redirect).
+- **Flaky test fixes** — BM25 tests (`save_writes_project_root_marker`, `max_bm25_cache_bytes_reads_env`) now acquire `test_env_lock()` to prevent `env::set_var` race conditions. ContextBus tests use isolated temp SQLite databases via `test_bus()` instead of shared global DB.
+
+### Added
+
+- **`core::hasher` module** — Centralized BLAKE3 hashing: `hash_hex(bytes)`, `hash_str(s)`, `hash_short(s)`. Single source of truth for all non-cryptographic hashing.
+- **`core::community` module** — Louvain-based community detection on the Property Graph (file clustering by dependency).
+- **`core::pagerank` module** — PageRank computation on the Property Graph for file importance scoring.
+- **`core::smells` module** — Code smell detection (long functions, deep nesting, high complexity).
+- **`ctx_smells` tool** — MCP + CLI tool for code smell analysis with graph-enriched scoring.
+- **58 MCP tools** — Up from 57 in previous release (added `ctx_smells`).
+
 ## [3.5.13] — 2026-05-10
 
 ### Fixed

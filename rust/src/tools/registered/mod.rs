@@ -21,6 +21,7 @@ pub mod ctx_provider;
 pub mod ctx_response;
 pub mod ctx_review;
 pub mod ctx_routes;
+pub mod ctx_smells;
 pub mod ctx_symbol;
 pub mod ctx_tree;
 pub mod ctx_verify;

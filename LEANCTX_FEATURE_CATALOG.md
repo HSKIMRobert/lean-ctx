@@ -21,7 +21,7 @@ This catalog is the single feature inventory for LeanCTX at release/runtime leve
 
 ## Runtime Surface (Current)
 
-- Granular MCP tools: **57**
+- Granular MCP tools: **58**
 - Unified MCP tools: **5**
 - Shell pattern modules: **56** (fd, just, ninja, clang, extended cargo run/bench added in 3.4.x)
 - CLI commands: **80+** (knowledge, overview, compress, serve --daemon/--stop/--status, session, pack create/list/info/export/import/install/remove/auto-load subcommands added in 3.4.x)
@@ -40,7 +40,7 @@ This catalog is the single feature inventory for LeanCTX at release/runtime leve
 
 ---
 
-## Granular MCP Tools (57)
+## Granular MCP Tools (58)
 
 ### A) Read / Search / IO Surface
 

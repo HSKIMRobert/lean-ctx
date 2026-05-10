@@ -126,7 +126,7 @@ impl EvidenceLedgerV1 {
 
     fn record_tool_receipt_key(&mut self, key: &str, r: &ToolReceiptRecord<'_>) {
         let key = truncate(key, MAX_KEY_CHARS);
-        let id = md5_hex(&format!(
+        let id = crate::core::hasher::hash_str(&format!(
             "tool_receipt|{key}|{}|{}|{}|{}",
             r.tool,
             r.action.unwrap_or(""),
@@ -153,11 +153,11 @@ impl EvidenceLedgerV1 {
     pub fn record_manual(&mut self, key: &str, value: Option<&str>, created_at: DateTime<Utc>) {
         let key = truncate(key, MAX_KEY_CHARS);
         let value_redacted = value.map(crate::core::redaction::redact_text);
-        let value_md5 = value_redacted.as_deref().map(md5_hex);
+        let value_md5 = value_redacted.as_deref().map(crate::core::hasher::hash_str);
         let value_excerpt = value_redacted
             .as_deref()
             .map(|v| truncate(v, MAX_VALUE_EXCERPT_CHARS));
-        let id = md5_hex(&format!(
+        let id = crate::core::hasher::hash_str(&format!(
             "manual|{key}|{}",
             value_md5.as_deref().unwrap_or("")
         ));
@@ -187,12 +187,12 @@ impl EvidenceLedgerV1 {
     ) -> Result<(), String> {
         let key = truncate(key, MAX_KEY_CHARS);
         let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
-        let value_md5 = Some(md5_hex_bytes(&bytes));
+        let value_md5 = Some(crate::core::hasher::hash_hex(&bytes));
         let name = path
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
-        let id = md5_hex(&format!(
+        let id = crate::core::hasher::hash_str(&format!(
             "artifact|{key}|{}|{}",
             name,
             value_md5.as_deref().unwrap_or("")
@@ -266,17 +266,6 @@ struct ToolReceiptRecord<'a> {
     agent_id: Option<&'a str>,
     client_name: Option<&'a str>,
     ts: DateTime<Utc>,
-}
-
-fn md5_hex(s: &str) -> String {
-    md5_hex_bytes(s.as_bytes())
-}
-
-fn md5_hex_bytes(bytes: &[u8]) -> String {
-    use md5::{Digest, Md5};
-    let mut hasher = Md5::new();
-    hasher.update(bytes);
-    format!("{:x}", hasher.finalize())
 }
 
 #[cfg(test)]

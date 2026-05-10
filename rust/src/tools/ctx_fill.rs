@@ -24,6 +24,7 @@ pub fn handle(
         return "No files specified.".to_string();
     }
 
+    let pagerank_scores = load_pagerank_scores(paths);
     let mut candidates: Vec<FileCandidate> = Vec::new();
 
     for path in paths {
@@ -47,7 +48,10 @@ pub fn handle(
         let map_text = format_map(&content, ext, &sigs);
         let tokens_map = count_tokens(&map_text);
 
-        let score = compute_relevance_score(path, &content);
+        let mut score = compute_relevance_score(path, &content);
+        if let Some(pr_boost) = pagerank_scores.get(path) {
+            score *= 1.0 + pr_boost * 5.0;
+        }
 
         candidates.push(FileCandidate {
             path: path.clone(),
@@ -107,6 +111,12 @@ pub fn handle(
     for candidate in &candidates {
         if used_tokens >= budget {
             break;
+        }
+
+        if crate::tools::ctx_read::is_instruction_file(&candidate.path) {
+            selections.push((candidate.path.clone(), "full".to_string()));
+            used_tokens += candidate.tokens_full;
+            continue;
         }
 
         let remaining = budget - used_tokens;
@@ -204,6 +214,27 @@ fn compute_relevance_score(path: &str, content: &str) -> f64 {
     score *= 1.0 + (export_count as f64 * 0.02).min(0.5);
 
     score
+}
+
+fn load_pagerank_scores(paths: &[String]) -> std::collections::HashMap<String, f64> {
+    let root = paths
+        .first()
+        .and_then(|p| crate::core::protocol::detect_project_root(p));
+
+    let Some(root) = root else {
+        return std::collections::HashMap::new();
+    };
+
+    let Ok(graph) = crate::core::property_graph::CodeGraph::open(Path::new(&root)) else {
+        return std::collections::HashMap::new();
+    };
+
+    if graph.node_count().unwrap_or(0) == 0 {
+        return std::collections::HashMap::new();
+    }
+
+    let top = crate::core::pagerank::top_files(graph.connection(), 200);
+    top.into_iter().collect()
 }
 
 fn format_map(content: &str, ext: &str, sigs: &[crate::core::signatures::Signature]) -> String {

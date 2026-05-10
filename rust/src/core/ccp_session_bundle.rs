@@ -76,8 +76,10 @@ pub fn build_bundle_v1(session: &SessionState, privacy: BundlePrivacyV1) -> CcpS
     let profile_name = crate::core::profiles::active_profile_name();
     let profile = crate::core::profiles::active_profile();
 
-    let role_policy_md5 = md5_hex(&serde_json::to_string(&role).unwrap_or_default());
-    let profile_policy_md5 = md5_hex(&serde_json::to_string(&profile).unwrap_or_default());
+    let role_policy_md5 =
+        crate::core::hasher::hash_str(&serde_json::to_string(&role).unwrap_or_default());
+    let profile_policy_md5 =
+        crate::core::hasher::hash_str(&serde_json::to_string(&profile).unwrap_or_default());
 
     let (project_root_hash, project_identity_hash) =
         session
@@ -86,7 +88,7 @@ pub fn build_bundle_v1(session: &SessionState, privacy: BundlePrivacyV1) -> CcpS
             .map_or((None, None), |root| {
                 let root_hash = crate::core::project_hash::hash_project_root(root);
                 let identity = crate::core::project_hash::project_identity(root);
-                let identity_hash = identity.as_deref().map(md5_hex);
+                let identity_hash = identity.as_deref().map(crate::core::hasher::hash_str);
                 (Some(root_hash), identity_hash)
             });
 
@@ -351,13 +353,6 @@ fn candidate_path(jail_root: &Path, stored_path: &str) -> PathBuf {
     } else {
         jail_root.join(p)
     }
-}
-
-fn md5_hex(text: &str) -> String {
-    use md5::{Digest, Md5};
-    let mut hasher = Md5::new();
-    hasher.update(text.as_bytes());
-    format!("{:x}", hasher.finalize())
 }
 
 #[cfg(test)]

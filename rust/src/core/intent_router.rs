@@ -118,9 +118,9 @@ pub fn route_v1_with(
     let base = route_intent(query, &classification);
 
     let query_redacted = truncate(&crate::core::redaction::redact_text(query), 180);
-    let query_md5 = md5_hex(query);
+    let query_md5 = crate::core::hasher::hash_str(query);
 
-    let policy_md5 = md5_hex(&format!(
+    let policy_md5 = crate::core::hasher::hash_str(&format!(
         "max_model_tier={};degrade_under_pressure={}",
         routing.max_model_tier_effective(),
         routing.degrade_under_pressure_effective()
@@ -301,13 +301,6 @@ fn truncate(s: &str, max: usize) -> String {
         return s.to_string();
     }
     s.chars().take(max).collect()
-}
-
-fn md5_hex(s: &str) -> String {
-    use md5::{Digest, Md5};
-    let mut hasher = Md5::new();
-    hasher.update(s.as_bytes());
-    format!("{:x}", hasher.finalize())
 }
 
 #[cfg(test)]

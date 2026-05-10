@@ -25,7 +25,12 @@ pub fn handle_with_task(
     let mut total_original: usize = 0;
 
     for path in paths {
-        let chunk = ctx_read::handle_with_task(cache, path, mode, crp_mode, task);
+        let effective_mode = if ctx_read::is_instruction_file(path) {
+            "full"
+        } else {
+            mode
+        };
+        let chunk = ctx_read::handle_with_task(cache, path, effective_mode, crp_mode, task);
         let original = cache.get(path).map_or(0, |e| e.original_tokens);
         let sent = count_tokens(&chunk);
         heatmap::record_file_access(path, original, original.saturating_sub(sent));

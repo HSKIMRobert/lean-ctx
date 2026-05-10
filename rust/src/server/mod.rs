@@ -432,6 +432,7 @@ impl ServerHandler for LeanCtxServer {
             }
         };
 
+        let pre_terse_len = result_text.len();
         let output_tokens = {
             let tokens = crate::core::tokens::count_tokens(&result_text) as u64;
             crate::core::budget_tracker::BudgetTracker::global().record_tokens(tokens);
@@ -612,7 +613,12 @@ impl ServerHandler for LeanCtxServer {
             }
         }
 
-        let output_token_count = crate::core::tokens::count_tokens(&result_text);
+        #[allow(clippy::cast_possible_truncation)]
+        let output_token_count = if result_text.len() == pre_terse_len {
+            output_tokens as usize
+        } else {
+            crate::core::tokens::count_tokens(&result_text)
+        };
         let action = helpers::get_str(args, "action");
 
         // K-bounded staleness guard: warn if shared context has diverged.
@@ -637,8 +643,8 @@ impl ServerHandler for LeanCtxServer {
 
         {
             let input = helpers::canonical_args_string(args);
-            let input_md5 = helpers::md5_hex_fast(&input);
-            let output_md5 = helpers::md5_hex_fast(&result_text);
+            let input_md5 = helpers::hash_fast(&input);
+            let output_md5 = helpers::hash_fast(&result_text);
             let agent_id = self.agent_id.read().await.clone();
             let client_name = self.client_name.read().await.clone();
             let mut explicit_intent: Option<(
@@ -872,6 +878,7 @@ impl ServerHandler for LeanCtxServer {
                     | "ctx_task"
                     | "ctx_impact"
                     | "ctx_architecture"
+                    | "ctx_smells"
                     | "ctx_workflow"
             );
 

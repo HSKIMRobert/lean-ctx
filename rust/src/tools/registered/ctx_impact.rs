@@ -15,13 +15,13 @@ impl McpTool for CtxImpactTool {
     fn tool_def(&self) -> Tool {
         tool_def(
             "ctx_impact",
-            "Graph-based impact analysis. Actions: analyze|chain|build|status.",
+            "Graph-based impact analysis. Actions: analyze|diff|chain|build|update|status.",
             json!({
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["analyze", "chain", "build", "status"],
+                        "enum": ["analyze", "diff", "chain", "build", "update", "status"],
                         "description": "Impact operation (default: analyze)"
                     },
                     "path": {

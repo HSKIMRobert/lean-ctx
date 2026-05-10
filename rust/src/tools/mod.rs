@@ -60,6 +60,7 @@ pub mod ctx_session;
 pub mod ctx_share;
 pub mod ctx_shell;
 pub mod ctx_smart_read;
+pub mod ctx_smells;
 pub mod ctx_symbol;
 pub mod ctx_task;
 pub mod ctx_tree;

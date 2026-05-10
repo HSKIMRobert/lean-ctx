@@ -8,6 +8,9 @@ pub fn initialize(conn: &Connection) -> anyhow::Result<()> {
         PRAGMA journal_mode = WAL;
         PRAGMA synchronous = NORMAL;
         PRAGMA foreign_keys = ON;
+        PRAGMA cache_size  = -8000;
+        PRAGMA mmap_size   = 268435456;
+        PRAGMA temp_store  = MEMORY;
 
         CREATE TABLE IF NOT EXISTS nodes (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -24,6 +27,10 @@ pub fn initialize(conn: &Connection) -> anyhow::Result<()> {
             ON nodes(file_path);
         CREATE INDEX IF NOT EXISTS idx_nodes_name
             ON nodes(name);
+        CREATE INDEX IF NOT EXISTS idx_nodes_kind
+            ON nodes(kind);
+        CREATE INDEX IF NOT EXISTS idx_nodes_kind_file
+            ON nodes(kind, file_path);
 
         CREATE TABLE IF NOT EXISTS edges (
             id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -38,6 +45,12 @@ pub fn initialize(conn: &Connection) -> anyhow::Result<()> {
             ON edges(source_id);
         CREATE INDEX IF NOT EXISTS idx_edges_target
             ON edges(target_id);
+        CREATE INDEX IF NOT EXISTS idx_edges_kind
+            ON edges(kind);
+        CREATE INDEX IF NOT EXISTS idx_edges_source_kind
+            ON edges(source_id, kind);
+        CREATE INDEX IF NOT EXISTS idx_edges_target_kind
+            ON edges(target_id, kind);
         ",
     )?;
     Ok(())

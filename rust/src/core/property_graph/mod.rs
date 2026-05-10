@@ -32,6 +32,7 @@ impl CodeGraph {
         std::fs::create_dir_all(&db_dir)?;
         let db_path = db_dir.join("graph.db");
         let conn = Connection::open(&db_path)?;
+        conn.busy_timeout(std::time::Duration::from_millis(5000))?;
         schema::initialize(&conn)?;
         Ok(Self { conn, db_path })
     }

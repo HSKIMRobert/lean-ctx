@@ -80,7 +80,7 @@ impl ProjectIndex {
         let dir = Self::index_dir(&self.project_root)
             .ok_or_else(|| "Cannot determine data directory".to_string())?;
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
+        let json = serde_json::to_string(self).map_err(|e| e.to_string())?;
         std::fs::write(dir.join("index.json"), json).map_err(|e| e.to_string())
     }
 

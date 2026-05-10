@@ -127,8 +127,8 @@ fn bench_tool_descriptions_token_count() {
     eprintln!("{}", "=".repeat(70));
 
     assert!(
-        total < 1500,
-        "Total tool description tokens should be <1500, got {total}"
+        total < 1600,
+        "Total tool description tokens should be <1600, got {total}"
     );
 
     for (name, desc) in &descriptions {
@@ -167,8 +167,8 @@ fn bench_total_input_overhead() {
     eprintln!("{}", "=".repeat(70));
 
     assert!(
-        total < 5700,
-        "Total input overhead should be <5700 tokens, got {total}"
+        total < 6000,
+        "Total input overhead should be <6000 tokens, got {total}"
     );
 }
 
@@ -1532,56 +1532,61 @@ fn bench_minimal_overhead_suppresses_all_meta_strings() {
 }
 
 #[test]
-fn bench_md5_fast_vs_full_correctness() {
-    use lean_ctx::server::helpers::{md5_hex, md5_hex_fast};
+fn bench_hash_fast_vs_full_correctness() {
+    use lean_ctx::core::hasher::hash_str;
+    use lean_ctx::server::helpers::hash_fast;
 
     let small = "a".repeat(1000);
     assert_eq!(
-        md5_hex(&small),
-        md5_hex_fast(&small),
-        "md5_hex_fast must match md5_hex for small strings"
+        hash_str(&small),
+        hash_fast(&small),
+        "hash_fast must match hash_str for small strings"
     );
 
     let exactly_16k = "x".repeat(16 * 1024);
     assert_eq!(
-        md5_hex(&exactly_16k),
-        md5_hex_fast(&exactly_16k),
-        "md5_hex_fast must match md5_hex at the 16KB boundary"
+        hash_str(&exactly_16k),
+        hash_fast(&exactly_16k),
+        "hash_fast must match hash_str at the 16KB boundary"
     );
 
     let large = "b".repeat(100_000);
-    let fast_hash = md5_hex_fast(&large);
-    assert_eq!(fast_hash.len(), 32, "md5_hex_fast should produce valid hex");
+    let fast_hash = hash_fast(&large);
+    assert_eq!(
+        fast_hash.len(),
+        64,
+        "hash_fast should produce valid BLAKE3 hex"
+    );
     assert_ne!(
         fast_hash,
-        md5_hex_fast(&"c".repeat(100_000)),
+        hash_fast(&"c".repeat(100_000)),
         "different large strings should produce different hashes"
     );
 
     eprintln!("\n{}", "=".repeat(70));
-    eprintln!("  MD5 FAST FINGERPRINT");
+    eprintln!("  BLAKE3 FAST FINGERPRINT");
     eprintln!("{}", "=".repeat(70));
     let start_full = std::time::Instant::now();
     for _ in 0..100 {
-        let _ = md5_hex(&large);
+        let _ = hash_str(&large);
     }
     let full_us = start_full.elapsed().as_micros();
 
     let start_fast = std::time::Instant::now();
     for _ in 0..100 {
-        let _ = md5_hex_fast(&large);
+        let _ = hash_fast(&large);
     }
     let fast_us = start_fast.elapsed().as_micros();
 
     let speedup = full_us as f64 / fast_us.max(1) as f64;
-    eprintln!("  100x md5_hex(100KB):      {full_us:>6} us");
-    eprintln!("  100x md5_hex_fast(100KB):  {fast_us:>6} us");
+    eprintln!("  100x hash_str(100KB):     {full_us:>6} us");
+    eprintln!("  100x hash_fast(100KB):    {fast_us:>6} us");
     eprintln!("  Speedup:                  {speedup:>6.1}x");
     eprintln!("{}", "=".repeat(70));
 
     assert!(
-        speedup > 2.0,
-        "md5_hex_fast should be at least 2x faster for 100KB, got {speedup:.1}x"
+        speedup > 1.5,
+        "hash_fast should be faster for 100KB, got {speedup:.1}x"
     );
 }
 

@@ -282,6 +282,10 @@ impl Default for ContextBus {
 impl ContextBus {
     pub fn new() -> Self {
         let path = default_db_path();
+        Self::open_at(path)
+    }
+
+    fn open_at(path: PathBuf) -> Self {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
@@ -689,10 +693,17 @@ fn default_db_path() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
+
+    fn test_bus() -> (ContextBus, tempfile::TempDir) {
+        let td = tempdir().expect("tempdir");
+        let bus = ContextBus::open_at(td.path().join("test-context-os.db"));
+        (bus, td)
+    }
 
     #[test]
     fn append_and_read_roundtrip() {
-        let bus = ContextBus::new();
+        let (bus, _td) = test_bus();
         let ev = bus
             .append(
                 "ws",
@@ -708,7 +719,8 @@ mod tests {
 
     #[test]
     fn multi_client_concurrent_appends_have_deterministic_ordering() {
-        let bus = Arc::new(ContextBus::new());
+        let (bus, _td) = test_bus();
+        let bus = Arc::new(bus);
         let n_clients = 5;
         let n_events_per_client = 20;
         let ws = format!("ws-concurrent-{}", std::process::id());
@@ -759,7 +771,7 @@ mod tests {
 
     #[test]
     fn workspace_channel_isolation() {
-        let bus = ContextBus::new();
+        let (bus, _td) = test_bus();
         let pid = std::process::id();
         let ws_a = format!("ws-iso-a-{pid}");
         let ws_b = format!("ws-iso-b-{pid}");
@@ -807,7 +819,7 @@ mod tests {
 
     #[test]
     fn replay_from_cursor_returns_only_newer_events() {
-        let bus = ContextBus::new();
+        let (bus, _td) = test_bus();
         let pid = std::process::id();
         let ws = &format!("ws-replay-{pid}");
         let ch = &format!("ch-replay-{pid}");
@@ -853,7 +865,7 @@ mod tests {
 
     #[test]
     fn broadcast_subscriber_receives_events() {
-        let bus = ContextBus::new();
+        let (bus, _td) = test_bus();
         let mut rx = bus.subscribe("ws", "ch");
 
         let ev = bus

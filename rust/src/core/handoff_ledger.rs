@@ -133,7 +133,7 @@ pub fn create_ledger(input: CreateLedgerInput) -> Result<(HandoffLedgerV1, PathB
 
     let mut curated = Vec::new();
     for (p, text) in input.curated_refs.into_iter().take(MAX_CURATED_REFS) {
-        let md5 = md5_hex(text.as_bytes());
+        let md5 = crate::core::hasher::hash_hex(text.as_bytes());
         curated.push(CuratedRef {
             path: p,
             mode: "signatures".to_string(),
@@ -277,7 +277,7 @@ fn handoffs_dir() -> Result<PathBuf, String> {
 fn manifest_md5() -> String {
     let v = crate::core::mcp_manifest::manifest_value();
     let canon = canonicalize_json(&v);
-    md5_hex(canon.to_string().as_bytes())
+    crate::core::hasher::hash_hex(canon.to_string().as_bytes())
 }
 
 fn ledger_content_md5(ledger: &HandoffLedgerV1) -> String {
@@ -285,14 +285,7 @@ fn ledger_content_md5(ledger: &HandoffLedgerV1) -> String {
     tmp.content_md5.clear();
     let v = serde_json::to_value(&tmp).unwrap_or(Value::Null);
     let canon = canonicalize_json(&v);
-    md5_hex(canon.to_string().as_bytes())
-}
-
-fn md5_hex(bytes: &[u8]) -> String {
-    use md5::{Digest, Md5};
-    let mut hasher = Md5::new();
-    hasher.update(bytes);
-    format!("{:x}", hasher.finalize())
+    crate::core::hasher::hash_hex(canon.to_string().as_bytes())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

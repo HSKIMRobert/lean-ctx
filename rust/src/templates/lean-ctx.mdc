@@ -35,12 +35,16 @@ Re-reads cost ~13 tokens. File refs F1, F2.. persist across the session.
 
 Set `fresh=true` on ctx_read to bypass cache when spawned as a subagent or after context compaction.
 
-## Default Strategy
+## Mode Selection
 
-- Reading for context → `map`
-- Reading to understand API → `signatures`
-- Reading to edit → `full`
-- Re-reading → just call `full` again (cache returns ~13 tokens)
+1. Editing the file? → `full` first, then `diff` for re-reads
+2. Need API surface only? → `map` or `signatures`
+3. Large file, context only? → `entropy` or `aggressive`
+4. Specific lines? → `lines:N-M`
+5. Active task set? → `task`
+6. Unsure? → `auto` (system selects optimal mode)
+
+Anti-pattern: never use `full` for files you won't edit — use `map` or `signatures`.
 
 ## File Editing
 

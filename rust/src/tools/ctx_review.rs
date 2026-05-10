@@ -50,6 +50,12 @@ fn handle_review(path: Option<&str>, root: &str, depth: usize) -> String {
         }
     }
 
+    let smells = super::ctx_smells::handle("file", None, Some(target), root, None);
+    if !smells.contains("No smells") {
+        sections.push("### Code Smells".to_string());
+        sections.push(smells);
+    }
+
     let output = sections.join("\n");
     let tok = count_tokens(&output);
     format!("{output}\n\n[{tok} tok]")

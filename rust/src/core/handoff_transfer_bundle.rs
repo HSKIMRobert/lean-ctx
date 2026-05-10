@@ -85,7 +85,7 @@ pub fn build_bundle_v1(
     let (project_root_hash, project_identity_hash) = project_root.map_or((None, None), |root| {
         let root_hash = crate::core::project_hash::hash_project_root(root);
         let identity = crate::core::project_hash::project_identity(root);
-        let identity_hash = identity.as_deref().map(md5_hex);
+        let identity_hash = identity.as_deref().map(crate::core::hasher::hash_str);
         (Some(root_hash), identity_hash)
     });
 
@@ -180,7 +180,7 @@ pub fn project_identity_warning(
     let current_root_hash = crate::core::project_hash::hash_project_root(project_root);
     let current_identity_hash = crate::core::project_hash::project_identity(project_root)
         .as_deref()
-        .map(md5_hex);
+        .map(crate::core::hasher::hash_str);
 
     if let Some(ref exported) = bundle.project.project_root_hash {
         if exported != &current_root_hash {
@@ -234,7 +234,7 @@ fn build_artifacts_excerpt_v1(project_root: &Path) -> ArtifactsExcerptV1 {
             }
             let bytes = p.metadata().map_or(0, |m| m.len());
             let md5 = match std::fs::read(&p) {
-                Ok(b) => md5_hex_bytes(&b),
+                Ok(b) => crate::core::hasher::hash_hex(&b),
                 Err(e) => {
                     out.warnings
                         .push(format!("proof read failed: {} ({e})", p.display()));
@@ -308,20 +308,6 @@ fn truncate_chars(s: &str, max: usize) -> String {
         return s.to_string();
     }
     s.chars().take(max).collect::<String>()
-}
-
-fn md5_hex(text: &str) -> String {
-    use md5::{Digest, Md5};
-    let mut hasher = Md5::new();
-    hasher.update(text.as_bytes());
-    format!("{:x}", hasher.finalize())
-}
-
-fn md5_hex_bytes(bytes: &[u8]) -> String {
-    use md5::{Digest, Md5};
-    let mut hasher = Md5::new();
-    hasher.update(bytes);
-    format!("{:x}", hasher.finalize())
 }
 
 #[cfg(test)]

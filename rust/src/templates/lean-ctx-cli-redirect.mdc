@@ -21,6 +21,15 @@ Prefer lean-ctx CLI commands over MCP tools:
 
 auto | full | map | signatures | diff | aggressive | entropy | task | reference | lines:N-M
 
+## Mode selection
+
+1. Editing? → `full`, then `diff` for re-reads
+2. API surface? → `map` or `signatures`
+3. Large context-only? → `entropy` or `aggressive`
+4. Unsure? → `auto`
+
+Anti-pattern: never use `full` for files you won't edit.
+
 ## File editing
 
 Use native Edit/StrReplace. Write/Delete/Glob → use normally.

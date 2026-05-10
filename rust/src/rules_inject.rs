@@ -18,7 +18,7 @@ pub fn rules_dedicated_markdown() -> &'static str {
 // LITM-optimized: critical instruction at START and END of block.
 // Used for: CLAUDE.md, instructions.md, GEMINI.md, copilot-instructions.md
 // ---------------------------------------------------------------------------
-const RULES_SHARED: &str = r#"# lean-ctx — Context Engineering Layer
+const RULES_SHARED: &str = r"# lean-ctx — Context Engineering Layer
 <!-- lean-ctx-rules-v9 -->
 
 CRITICAL: ALWAYS use lean-ctx MCP tools instead of native equivalents. This is NOT optional.
@@ -30,15 +30,16 @@ CRITICAL: ALWAYS use lean-ctx MCP tools instead of native equivalents. This is N
 | `ctx_search(pattern, path)` | `Grep` / `rg` | Compact, token-efficient results |
 | `ctx_tree(path, depth)` | `ls` / `find` | Compact directory maps |
 
-Compatibility: ctx_read replaces READ operations only. Your native Edit/Write/StrReplace tools remain unchanged — keep using them for editing. If your rules say "use Edit or Write tools only", that is compatible: lean-ctx only replaces how you READ files, not how you EDIT them.
+Mode selection: editing → `full` then `diff`; context only → `map` or `signatures`; unsure → `auto`.
+Anti-pattern: never use `full` for files you won't edit.
+
+Compatibility: ctx_read replaces READ operations only. Your native Edit/Write/StrReplace tools remain unchanged — keep using them for editing.
 
 If Edit requires native Read and Read is unavailable, use `ctx_edit(path, old_string, new_string)` instead.
 Write, Delete, Glob → use normally. NEVER loop on Edit failures — switch to ctx_edit immediately.
 
-Preferred workflow control: use `ctx_workflow` to track states + enforce tool gates + evidence.
-
 Fallback only if a lean-ctx tool is unavailable: use native equivalents.
-<!-- /lean-ctx -->"#;
+<!-- /lean-ctx -->";
 
 // ---------------------------------------------------------------------------
 // Rules content for DEDICATED lean-ctx rule files (we control entire file).
@@ -70,6 +71,16 @@ PREFER lean-ctx MCP tools over native equivalents for token savings:
 - `task` — IB-filtered (task relevant)
 - `reference` — quote-friendly minimal excerpts
 - `lines:N-M` — specific range
+
+## Mode selection:
+1. Editing the file? → `full` first, then `diff` for re-reads
+2. Need API surface only? → `map` or `signatures`
+3. Large file, context only? → `entropy` or `aggressive`
+4. Specific lines? → `lines:N-M`
+5. Active task set? → `task`
+6. Unsure? → `auto` (system selects optimal mode)
+
+Anti-pattern: never use `full` for files you won't edit — use `map` or `signatures`.
 
 ## File editing:
 Use native Edit/StrReplace if available. If Edit requires Read and Read is unavailable, use ctx_edit.

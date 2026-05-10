@@ -733,13 +733,13 @@ pull (receive files shared by other agents), list (show all shared contexts), cl
         ),
         tool_def(
             "ctx_impact",
-            "Graph-based impact analysis. Actions: analyze|chain|build|status.",
+            "Graph-based impact analysis. Actions: analyze|diff|chain|build|update|status.",
             json!({
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["analyze", "chain", "build", "status"],
+                        "enum": ["analyze", "diff", "chain", "build", "update", "status"],
                         "description": "Impact operation (default: analyze)"
                     },
                     "path": { "type": "string", "description": "Target file path (required for analyze). For chain: from->to spec." },
@@ -750,13 +750,13 @@ pull (receive files shared by other agents), list (show all shared contexts), cl
         ),
         tool_def(
             "ctx_architecture",
-            "Graph-based architecture analysis. Actions: overview|clusters|layers|cycles|entrypoints|module.",
+            "Graph-based architecture analysis. Actions: overview|clusters|communities|layers|cycles|entrypoints|hotspots|health|module.",
             json!({
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["overview", "clusters", "layers", "cycles", "entrypoints", "module"],
+                        "enum": ["overview", "clusters", "communities", "layers", "cycles", "entrypoints", "hotspots", "health", "module"],
                         "description": "Architecture operation (default: overview)"
                     },
                     "path": { "type": "string", "description": "Used for action=module (module/file path)" },
@@ -965,7 +965,7 @@ Much fewer tokens than reading the full file.",
         ),
         tool_def(
             "ctx_review",
-            "Automated code review: combines impact analysis, caller tracking, and test discovery. \
+            "Automated code review: combines impact analysis, caller tracking, test discovery, and code smell detection. \
 Actions: review (single file), diff-review (from git diff), checklist (structured review questions).",
             json!({
                 "type": "object",
@@ -1018,6 +1018,38 @@ Requires GITLAB_TOKEN or LEAN_CTX_GITLAB_TOKEN.",
                     "limit": {
                         "type": "integer",
                         "description": "Max results (default 20, max 100)"
+                    }
+                },
+                "required": ["action"]
+            }),
+        ),
+        tool_def(
+            "ctx_smells",
+            "Code smell detection (Property Graph). Actions: scan|summary|rules|file. \
+8 rules: dead_code, long_function, long_file, god_file, fan_out_skew, duplicate_definitions, untested_function, cyclomatic_complexity.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["scan", "summary", "rules", "file"],
+                        "description": "Smell operation (default: summary)"
+                    },
+                    "rule": {
+                        "type": "string",
+                        "description": "Filter by rule name (optional, for scan)"
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Filter by file path (optional)"
+                    },
+                    "root": {
+                        "type": "string",
+                        "description": "Project root (default: .)"
+                    },
+                    "format": {
+                        "type": "string",
+                        "description": "Output format (text or json)"
                     }
                 },
                 "required": ["action"]
@@ -1221,8 +1253,9 @@ pull (receive shared files), list (show all shared contexts), clear (remove your
         ("ctx_handoff", "Handoff ledger + transfer bundle. Actions: create|show|list|pull|clear|export|import.", json!({"type": "object", "properties": {"action": {"type": "string"}, "path": {"type": "string"}, "paths": {"type": "array", "items": {"type": "string"}}, "format": {"type": "string"}, "write": {"type": "boolean"}, "privacy": {"type": "string"}, "filename": {"type": "string"}, "apply_workflow": {"type": "boolean"}, "apply_session": {"type": "boolean"}, "apply_knowledge": {"type": "boolean"}}})),
         ("ctx_heatmap", "File access heatmap (local-first). Actions: status|directory|cold|json.", json!({"type": "object", "properties": {"action": {"type": "string"}, "path": {"type": "string"}}})),
         ("ctx_task", "Multi-agent task orchestration. Actions: create|update|list|get|cancel|message|info.", json!({"type": "object", "properties": {"action": {"type": "string"}, "task_id": {"type": "string"}, "to_agent": {"type": "string"}, "description": {"type": "string"}, "state": {"type": "string"}, "message": {"type": "string"}}, "required": ["action"]})),
-        ("ctx_impact", "Graph-based impact analysis (Property Graph). Actions: analyze|chain|build|status. Optional: format=text|json.", json!({"type": "object", "properties": {"action": {"type": "string", "enum": ["analyze","chain","build","status"]}, "path": {"type": "string"}, "root": {"type": "string"}, "depth": {"type": "integer"}, "format": {"type": "string", "enum": ["text","json"]}}, "required": ["action"]})),
-        ("ctx_architecture", "Graph-based architecture analysis (Property Graph). Actions: overview|clusters|layers|cycles|entrypoints|module. Optional: format=text|json.", json!({"type": "object", "properties": {"action": {"type": "string", "enum": ["overview","clusters","layers","cycles","entrypoints","module"]}, "path": {"type": "string"}, "root": {"type": "string"}, "format": {"type": "string", "enum": ["text","json"]}}, "required": ["action"]})),
+        ("ctx_impact", "Graph-based impact analysis (Property Graph). Actions: analyze|diff|chain|build|update|status. diff=auto-detect git changes + blast radius. Optional: format=text|json.", json!({"type": "object", "properties": {"action": {"type": "string", "enum": ["analyze","diff","chain","build","update","status"]}, "path": {"type": "string"}, "root": {"type": "string"}, "depth": {"type": "integer"}, "format": {"type": "string", "enum": ["text","json"]}}, "required": ["action"]})),
+        ("ctx_architecture", "Graph-based architecture analysis (Property Graph). Actions: overview|clusters|communities|layers|cycles|entrypoints|hotspots|health|module. Optional: format=text|json.", json!({"type": "object", "properties": {"action": {"type": "string", "enum": ["overview","clusters","communities","layers","cycles","entrypoints","hotspots","health","module"]}, "path": {"type": "string"}, "root": {"type": "string"}, "format": {"type": "string", "enum": ["text","json"]}}, "required": ["action"]})),
+        ("ctx_smells", "Code smell detection (Property Graph). Actions: scan|summary|rules|file. 8 rules: dead_code, long_function, long_file, god_file, fan_out_skew, duplicate_definitions, untested_function, cyclomatic_complexity. Optional: format=text|json.", json!({"type": "object", "properties": {"action": {"type": "string", "enum": ["scan","summary","rules","file"]}, "rule": {"type": "string", "description": "Filter by rule name (optional, for scan)"}, "path": {"type": "string", "description": "Filter by file path (optional)"}, "root": {"type": "string", "description": "Project root (default: .)"}, "format": {"type": "string", "enum": ["text","json"]}}, "required": ["action"]})),
         ("ctx_workflow", "Workflow rails (state machine + evidence). Actions: start|status|transition|complete|evidence_add|evidence_list|stop.", json!({"type": "object", "properties": {"action": {"type": "string"}, "name": {"type": "string"}, "spec": {"type": "string"}, "to": {"type": "string"}, "key": {"type": "string"}, "value": {"type": "string"}}})),
         ("ctx_semantic_search", "Semantic code search (BM25 + optional embeddings/hybrid). action=reindex to rebuild.", json!({"type": "object", "properties": {"query": {"type": "string"}, "path": {"type": "string"}, "top_k": {"type": "integer"}, "action": {"type": "string"}, "mode": {"type": "string", "enum": ["bm25","dense","hybrid"]}, "languages": {"type": "array", "items": {"type": "string"}}, "path_glob": {"type": "string"}}, "required": ["query"]})),
         ("ctx_execute", "Run code in sandbox (11 languages). Only stdout enters context. Languages: javascript, typescript, python, shell, ruby, go, rust, php, perl, r, elixir. Actions: batch (multiple scripts), file (process file in sandbox).", json!({"type": "object", "properties": {"language": {"type": "string"}, "code": {"type": "string"}, "intent": {"type": "string"}, "timeout": {"type": "integer"}, "action": {"type": "string"}, "items": {"type": "string"}, "path": {"type": "string"}}, "required": ["language", "code"]})),
@@ -1235,7 +1268,7 @@ pull (receive shared files), list (show all shared contexts), clear (remove your
         ("ctx_routes", "List HTTP routes/endpoints extracted from the project. Supports Express, Flask, FastAPI, Actix, Spring, Rails, Next.js.", json!({"type": "object", "properties": {"method": {"type": "string"}, "path": {"type": "string"}}})),
         ("ctx_graph_diagram", "Deprecated alias for ctx_graph action=diagram.", json!({"type": "object", "properties": {"file": {"type": "string"}, "depth": {"type": "integer"}, "kind": {"type": "string"}}})),
         ("ctx_expand", "Retrieve archived tool output (zero-loss). Large outputs are auto-archived; use this to retrieve full details. Actions: retrieve (default), list.", json!({"type": "object", "properties": {"id": {"type": "string", "description": "Archive ID from the [Archived: ...] hint"}, "action": {"type": "string", "description": "retrieve (default) or list"}, "start_line": {"type": "integer", "description": "Start line for range retrieval"}, "end_line": {"type": "integer", "description": "End line for range retrieval"}, "search": {"type": "string", "description": "Search pattern to filter archived output"}, "session_id": {"type": "string", "description": "Filter list by session ID"}}})),
-        ("ctx_review", "Automated code review: combines impact analysis, caller tracking, and test discovery. Actions: review (single file), diff-review (from git diff), checklist (structured review questions).", json!({"type": "object", "properties": {"action": {"type": "string", "enum": ["review", "diff-review", "checklist"], "description": "Review action"}, "path": {"type": "string", "description": "File path to review (or git diff text for diff-review)"}, "depth": {"type": "integer", "description": "Impact analysis depth (default: 3)"}}, "required": ["action"]})),
+        ("ctx_review", "Automated code review: combines impact analysis, caller tracking, test discovery, and code smell detection. Actions: review (single file), diff-review (from git diff), checklist (structured review questions).", json!({"type": "object", "properties": {"action": {"type": "string", "enum": ["review", "diff-review", "checklist"], "description": "Review action"}, "path": {"type": "string", "description": "File path to review (or git diff text for diff-review)"}, "depth": {"type": "integer", "description": "Impact analysis depth (default: 3)"}}, "required": ["action"]})),
         ("ctx_provider", "External context provider (GitLab-first). Actions: gitlab_issues, gitlab_issue, gitlab_mrs, gitlab_pipelines.", json!({"type": "object", "properties": {"action": {"type": "string", "enum": ["gitlab_issues", "gitlab_issue", "gitlab_mrs", "gitlab_pipelines"]}, "state": {"type": "string", "description": "Filter by state (opened, closed, merged, all)"}, "labels": {"type": "string", "description": "Comma-separated labels filter"}, "iid": {"type": "integer", "description": "Issue/MR IID for single-item lookup"}, "status": {"type": "string", "description": "Pipeline status filter (running, success, failed)"}, "limit": {"type": "integer", "description": "Max results (default 20, max 100)"}}, "required": ["action"]})),
         ("ctx_control", "Universal context manipulation (Context Field Theory). Actions: exclude|include|pin|unpin|set_view|set_priority|mark_outdated|reset|list|history. Overlay-based, reversible, scoped.", json!({"type": "object", "properties": {"action": {"type": "string", "description": "exclude|include|pin|unpin|set_view|set_priority|mark_outdated|reset|list|history"}, "target": {"type": "string", "description": "@F1 or path or item ID"}, "value": {"type": "string", "description": "New content, view name, or priority"}, "scope": {"type": "string", "description": "call|session|project (default: session)"}, "reason": {"type": "string", "description": "Reason for the action"}}, "required": ["action"]})),
         ("ctx_plan", "Context planning (CFT). Computes optimal context plan with Phi scoring, budget allocation, and policy-driven view selection.", json!({"type": "object", "properties": {"task": {"type": "string", "description": "Task description"}, "budget": {"type": "integer", "description": "Token budget (default: 12000)"}, "profile": {"type": "string", "description": "ultra_lean|balanced|forensic"}}, "required": ["task"]})),

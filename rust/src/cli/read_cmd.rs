@@ -142,6 +142,8 @@ pub fn cmd_read(args: &[String]) {
                 .predict_best_mode(&sig)
                 .unwrap_or_else(|| "full".to_string())
         }
+    } else if mode != "full" && crate::tools::ctx_read::is_instruction_file(path) {
+        "full".to_string()
     } else {
         mode.to_string()
     };

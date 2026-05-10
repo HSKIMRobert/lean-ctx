@@ -1,8 +1,8 @@
 [package]
 name = "lean-ctx"
-version = "3.5.13"
+version = "3.5.14"
 edition = "2021"
-description = "Context Runtime for AI Agents with CCP. 57 MCP tools, 10 read modes, 95+ compression patterns, cross-session memory (CCP), persistent AI knowledge with temporal facts + contradiction detection, multi-agent context sharing + diaries, LITM-aware positioning, AAAK compact format, adaptive compression with Thompson Sampling bandits. Supports 24 AI tools. Reduces LLM token consumption by up to 99%."
+description = "Context Runtime for AI Agents with CCP. 63 MCP tools, 10 read modes, 95+ compression patterns, cross-session memory (CCP), persistent AI knowledge with temporal facts + contradiction detection, multi-agent context sharing + diaries, LITM-aware positioning, AAAK compact format, adaptive compression with Thompson Sampling bandits. Supports 24 AI tools. Reduces LLM token consumption by up to 99%."
 license = "Apache-2.0"
 repository = "https://github.com/yvgude/lean-ctx"
 homepage = "https://leanctx.com"
@@ -131,6 +131,8 @@ getrandom = "0.3"
 reqwest = { version = "0.13.2", default-features = false, features = ["rustls", "stream", "json"], optional = true }
 bytecount = "0.6.9"
 libc = "0.2"
+blake3 = "1"
+rayon = "1.10"
 
 [lints.rust]
 # CI coverage (cargo-tarpaulin) injects `--cfg tarpaulin`; declare it to avoid

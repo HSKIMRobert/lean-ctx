@@ -344,9 +344,49 @@ pub fn enrich_graph(
     if let Some(root_str) = project_root.to_str() {
         let knowledge_stats = index_knowledge(graph, root_str)?;
         total.merge(&knowledge_stats);
+
+        let callgraph_stats = consolidate_callgraph(graph, root_str)?;
+        total.merge(&callgraph_stats);
     }
 
     Ok(total)
+}
+
+fn consolidate_callgraph(graph: &CodeGraph, project_root: &str) -> anyhow::Result<EnrichmentStats> {
+    let mut stats = EnrichmentStats::default();
+
+    let index = crate::core::graph_index::load_or_build(project_root);
+    let call_graph = crate::core::call_graph::CallGraph::load_or_build(project_root, &index);
+
+    let callee_to_file: std::collections::HashMap<&str, &str> = index
+        .symbols
+        .values()
+        .map(|s| (s.name.as_str(), s.file.as_str()))
+        .collect();
+
+    for edge in &call_graph.edges {
+        let from_file = &edge.caller_file;
+        let to_file = match callee_to_file.get(edge.callee_name.as_str()) {
+            Some(f) => *f,
+            None => continue,
+        };
+
+        if from_file == to_file {
+            continue;
+        }
+
+        let from_node = graph.get_node_by_path(from_file)?;
+        let to_node = graph.get_node_by_path(to_file)?;
+
+        if let (Some(from_n), Some(to_n)) = (from_node, to_node) {
+            if let (Some(from_id), Some(to_id)) = (from_n.id, to_n.id) {
+                graph.upsert_edge(&Edge::new(from_id, to_id, EdgeKind::Calls))?;
+                stats.edges_created += 1;
+            }
+        }
+    }
+
+    Ok(stats)
 }
 
 // ---------------------------------------------------------------------------
