@@ -234,10 +234,14 @@ impl ModePredictor {
     /// Ensures reasonable compression even without local history or cloud models.
     /// Respects Kolmogorov-Gate: files with K>0.7 skip aggressive modes.
     fn predict_from_defaults(sig: &FileSignature) -> Option<String> {
-        let mode = match (sig.ext.as_str(), sig.size_bucket) {
-            // Tiny files (0-500 tokens): always full — compression overhead not worth it
-            (_, 0) => return None,
+        if sig.size_bucket == 0 {
+            return None;
+        }
+        if matches!(sig.ext.as_str(), "md" | "mdx" | "txt" | "rst") {
+            return None;
+        }
 
+        let mode = match (sig.ext.as_str(), sig.size_bucket) {
             // Lock / large code files: signatures only
             ("lock", _)
             | (
@@ -434,6 +438,21 @@ mod tests {
             ModePredictor::predict_from_defaults(&sig),
             Some("aggressive".to_string())
         );
+    }
+
+    #[test]
+    fn defaults_never_compress_markdown() {
+        for tokens in [600, 3000, 8000, 25000] {
+            let sig = FileSignature::from_path("SKILL.md", tokens);
+            assert!(
+                ModePredictor::predict_from_defaults(&sig).is_none(),
+                "SKILL.md at {tokens} tokens should get full (None), not compressed"
+            );
+        }
+        let sig = FileSignature::from_path("AGENTS.md", 5000);
+        assert!(ModePredictor::predict_from_defaults(&sig).is_none());
+        let sig = FileSignature::from_path("README.md", 12000);
+        assert!(ModePredictor::predict_from_defaults(&sig).is_none());
     }
 
     #[test]

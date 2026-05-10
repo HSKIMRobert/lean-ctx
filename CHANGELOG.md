@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.5.13] — 2026-05-10
+
+### Fixed
+
+- **Instruction files no longer compressed** — SKILL.md, AGENTS.md, RULES.md, .cursorrules, and files in `/skills/`, `/.cursor/rules/`, `/.claude/rules/` are now **always delivered in full mode**, bypassing all heuristic/bandit/adaptive mode selection. This was the root cause of agents losing instructions after v3.4.7 when the Intent Router was introduced. Guards added in 5 code paths: `resolve_auto_mode`, `predict_from_defaults`, `select_mode_with_task`, `auto_degrade_read_mode`, and CLI `read_cmd`. Fixes #159 regression, resolves GlemSom's report.
+- **Markdown files exempt from aggressive compression** — `.md`, `.mdx`, `.txt`, `.rst` files no longer fall into the `aggressive` default bucket in `predict_from_defaults`. These file types return `None` (= full mode) to prevent stripping prose/instruction content.
+- **Windows Claude Code PowerShell compatibility** — Claude Code hook matchers now include `PowerShell|powershell` on Windows, so PreToolUse hooks fire regardless of whether Claude uses Bash or PowerShell. Rewrite script also accepts PowerShell tool names. Fixes #192.
+
+### Added
+
+- **`is_instruction_file()` public API** — Reusable guard function detecting instruction/skill/rule files by filename and path patterns. Used across MCP, CLI, and server dispatch paths.
+- **Lean4 formal proofs** — Theorems 12-13 in `ReadModes.lean`: instruction files always resolve to full mode, content is always preserved.
+- **7 new regression tests** — `instruction_file_detection`, `resolve_auto_mode_returns_full_for_instruction_files`, `defaults_never_compress_markdown`, and PowerShell hook matcher tests.
+
 ## [3.5.12] — 2026-05-09
 
 ### Improved

@@ -232,9 +232,10 @@ LEAN_CTX_BIN="{binary}"
 INPUT=$(cat)
 TOOL=$(echo "$INPUT" | grep -oE '"tool_name":"([^"\\]|\\.)*"' | head -1 | sed 's/^"tool_name":"//;s/"$//' | sed 's/\\"/"/g;s/\\\\/\\/g')
 
-if [ "$TOOL" != "Bash" ] && [ "$TOOL" != "bash" ]; then
-  exit 0
-fi
+case "$TOOL" in
+  Bash|bash|PowerShell|powershell) ;;
+  *) exit 0 ;;
+esac
 
 CMD=$(echo "$INPUT" | grep -oE '"command":"([^"\\]|\\.)*"' | head -1 | sed 's/^"command":"//;s/"$//' | sed 's/\\"/"/g;s/\\\\/\\/g')
 
@@ -985,6 +986,10 @@ mod tests {
         assert!(
             script.contains("LEAN_CTX_BIN=\"/usr/bin/lean-ctx\""),
             "script missing binary path"
+        );
+        assert!(
+            script.contains("PowerShell|powershell"),
+            "rewrite script must accept PowerShell tool names for Windows compatibility"
         );
     }
 

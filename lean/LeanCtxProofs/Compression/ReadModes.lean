@@ -156,4 +156,37 @@ theorem import_lookup_preserved (src : SourceFile) (mod_ : String)
   simp [compressMap]
   exact h
 
+-- ============================================================================
+-- Instruction File Protection (Mirrors: is_instruction_file in ctx_read.rs)
+-- ============================================================================
+
+/-- Predicate: a file path is an instruction file (skill, agent rules, etc.). -/
+def isInstructionFile (path : String) : Bool :=
+  let lower := path.toLower
+  let filename := lower.splitOn "/" |>.getLast!
+  filename == "skill.md" ∨ filename == "agents.md" ∨
+  filename == "rules.md" ∨ filename == ".cursorrules" ∨
+  lower.containsSubstr "/skills/" ∨
+  lower.containsSubstr "/.cursor/rules/"
+
+/-- Resolve auto mode: instruction files always get full mode. -/
+def resolveAutoMode (path : String) (_tokens : Nat) : ReadMode :=
+  if isInstructionFile path then ReadMode.full
+  else ReadMode.map
+
+/-- **Theorem 12 (Instruction Guard): Instruction files are NEVER compressed.
+    Any file matching isInstructionFile always resolves to full mode,
+    bypassing all heuristic/bandit/adaptive mode selection.** -/
+theorem instruction_files_always_full (path : String) (tokens : Nat)
+    (h : isInstructionFile path = true) :
+    resolveAutoMode path tokens = ReadMode.full := by
+  simp [resolveAutoMode, h]
+
+/-- **Theorem 13 (Full mode identity on instruction files):
+    Instruction files compressed with full mode retain all content.** -/
+theorem instruction_file_content_preserved (src : SourceFile)
+    (h : isInstructionFile src.path = true) :
+    (compressFull src).content = src.lines := by
+  rfl
+
 end LeanCtxProofs.Compression.ReadModes

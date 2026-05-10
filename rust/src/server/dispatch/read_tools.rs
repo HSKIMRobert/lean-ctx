@@ -62,7 +62,11 @@ impl LeanCtxServer {
                     mode = format!("lines:{sl}-999999");
                     fresh = true;
                 }
-                let mode = auto_degrade_read_mode(&mode);
+                let mode = if crate::tools::ctx_read::is_instruction_file(&path) {
+                    "full".to_string()
+                } else {
+                    auto_degrade_read_mode(&mode)
+                };
                 let stale = self.is_prompt_cache_stale().await;
                 let effective_mode = LeanCtxServer::upgrade_mode_if_stale(&mode, stale).to_string();
                 if mode.starts_with("lines:") {

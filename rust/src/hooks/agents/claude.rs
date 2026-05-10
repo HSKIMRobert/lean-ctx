@@ -296,9 +296,15 @@ pub(crate) fn install_claude_hook_config(home: &std::path::Path) {
     let has_old_hooks = settings_content.contains("lean-ctx-rewrite.sh")
         || settings_content.contains("lean-ctx-redirect.sh");
 
+    let bash_matcher = if cfg!(windows) {
+        "Bash|bash|PowerShell|powershell"
+    } else {
+        "Bash|bash"
+    };
+
     let desired_pretooluse = serde_json::json!([
         {
-            "matcher": "Bash|bash",
+            "matcher": bash_matcher,
             "hooks": [{
                 "type": "command",
                 "command": rewrite_cmd
@@ -388,9 +394,15 @@ pub(crate) fn install_claude_project_hooks(cwd: &std::path::Path) {
     let _ = std::fs::create_dir_all(cwd.join(".claude"));
 
     let existing = std::fs::read_to_string(&settings_path).unwrap_or_default();
+    let bash_matcher = if cfg!(windows) {
+        "Bash|bash|PowerShell|powershell"
+    } else {
+        "Bash|bash"
+    };
+
     let desired_pretooluse = serde_json::json!([
         {
-            "matcher": "Bash|bash",
+            "matcher": bash_matcher,
             "hooks": [{
                 "type": "command",
                 "command": rewrite_cmd
@@ -421,8 +433,7 @@ pub(crate) fn install_claude_project_hooks(cwd: &std::path::Path) {
                     .entry("PreToolUse".to_string())
                     .or_insert_with(|| serde_json::json!([]));
                 if let Some(pre_arr) = pre.as_array_mut() {
-                    // Merge: preserve other hooks/plugins. Only ensure our command hooks exist.
-                    ensure_command_hook(pre_arr, "Bash|bash", &rewrite_cmd);
+                    ensure_command_hook(pre_arr, bash_matcher, &rewrite_cmd);
                     ensure_command_hook(
                         pre_arr,
                         "Read|read|ReadFile|read_file|View|view|Grep|grep|Search|search|ListFiles|list_files|ListDirectory|list_directory",

@@ -8,6 +8,10 @@ pub fn select_mode(cache: &SessionCache, path: &str) -> String {
 }
 
 pub fn select_mode_with_task(cache: &SessionCache, path: &str, task: Option<&str>) -> String {
+    if crate::tools::ctx_read::is_instruction_file(path) {
+        return "full".to_string();
+    }
+
     let Ok(content) = std::fs::read_to_string(path) else {
         return "full".to_string();
     };

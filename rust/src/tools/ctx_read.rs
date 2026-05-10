@@ -293,7 +293,33 @@ fn handle_with_options_resolved(
     }
 }
 
+pub fn is_instruction_file(path: &str) -> bool {
+    let lower = path.to_lowercase();
+    let filename = std::path::Path::new(&lower)
+        .file_name()
+        .and_then(|f| f.to_str())
+        .unwrap_or("");
+
+    matches!(
+        filename,
+        "skill.md"
+            | "agents.md"
+            | "rules.md"
+            | ".cursorrules"
+            | ".clinerules"
+            | "lean-ctx.md"
+            | "lean-ctx.mdc"
+    ) || lower.contains("/skills/")
+        || lower.contains("/.cursor/rules/")
+        || lower.contains("/.claude/rules/")
+        || lower.contains("/agents.md")
+}
+
 fn resolve_auto_mode(file_path: &str, original_tokens: usize, task: Option<&str>) -> String {
+    if is_instruction_file(file_path) {
+        return "full".to_string();
+    }
+
     // Priority 1: Intent Router with budget/pressure-aware degradation.
     // Only fall through to Predictor/Bandit if the router returns "auto".
     let intent_query = task.unwrap_or("read");
@@ -1163,5 +1189,37 @@ mod tests {
         }
         code.push("}".to_string());
         code.join("\n")
+    }
+
+    #[test]
+    fn instruction_file_detection() {
+        assert!(is_instruction_file(
+            "/home/user/.pi/agent/skills/committing-changes/SKILL.md"
+        ));
+        assert!(is_instruction_file("/workspace/.cursor/rules/lean-ctx.mdc"));
+        assert!(is_instruction_file("/project/AGENTS.md"));
+        assert!(is_instruction_file("/project/.cursorrules"));
+        assert!(is_instruction_file("/home/user/.claude/rules/my-rule.md"));
+        assert!(is_instruction_file("/skills/some-skill/README.md"));
+
+        assert!(!is_instruction_file("/project/src/main.rs"));
+        assert!(!is_instruction_file("/project/config.json"));
+        assert!(!is_instruction_file("/project/data/report.csv"));
+    }
+
+    #[test]
+    fn resolve_auto_mode_returns_full_for_instruction_files() {
+        let mode = resolve_auto_mode(
+            "/home/user/.pi/agent/skills/committing-changes/SKILL.md",
+            5000,
+            Some("read"),
+        );
+        assert_eq!(mode, "full", "SKILL.md must always be read in full");
+
+        let mode = resolve_auto_mode("/workspace/AGENTS.md", 3000, Some("read"));
+        assert_eq!(mode, "full", "AGENTS.md must always be read in full");
+
+        let mode = resolve_auto_mode("/workspace/.cursorrules", 2000, None);
+        assert_eq!(mode, "full", ".cursorrules must always be read in full");
     }
 }

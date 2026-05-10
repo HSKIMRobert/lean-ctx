@@ -133,11 +133,15 @@ pub fn cmd_read(args: &[String]) {
     let original_tokens = count_tokens(&content);
 
     let mode = if mode == "auto" {
-        let sig = crate::core::mode_predictor::FileSignature::from_path(path, original_tokens);
-        let predictor = crate::core::mode_predictor::ModePredictor::new();
-        predictor
-            .predict_best_mode(&sig)
-            .unwrap_or_else(|| "full".to_string())
+        if crate::tools::ctx_read::is_instruction_file(path) {
+            "full".to_string()
+        } else {
+            let sig = crate::core::mode_predictor::FileSignature::from_path(path, original_tokens);
+            let predictor = crate::core::mode_predictor::ModePredictor::new();
+            predictor
+                .predict_best_mode(&sig)
+                .unwrap_or_else(|| "full".to_string())
+        }
     } else {
         mode.to_string()
     };
