@@ -88,6 +88,7 @@ function flattenEvent(ev) {
         title: kind.tool || 'tool call',
         saved: kind.tokens_saved || 0,
         detail: buildToolDetail(kind),
+        explanation: eventExplanation(t),
         ts: ts,
       };
     }
@@ -100,6 +101,7 @@ function flattenEvent(ev) {
         title: 'cache hit',
         saved: kind.saved_tokens || 0,
         detail: kind.path ? String(kind.path) : '',
+        explanation: eventExplanation(t),
         ts: ts,
       };
     case 'Compression':
@@ -111,6 +113,7 @@ function flattenEvent(ev) {
         title: kind.strategy || 'compression',
         saved: 0,
         detail: buildCompressionDetail(kind),
+        explanation: eventExplanation(t),
         ts: ts,
       };
     case 'AgentAction':
@@ -122,6 +125,7 @@ function flattenEvent(ev) {
         title: (kind.agent_id || 'agent') + ' · ' + (kind.action || ''),
         saved: 0,
         detail: '',
+        explanation: eventExplanation(t),
         ts: ts,
       };
     case 'KnowledgeUpdate':
@@ -133,6 +137,7 @@ function flattenEvent(ev) {
         title: (kind.action || 'update') + ' · ' + (kind.category || '') + '/' + (kind.key || ''),
         saved: 0,
         detail: '',
+        explanation: eventExplanation(t),
         ts: ts,
       };
     case 'ThresholdShift':
@@ -144,6 +149,7 @@ function flattenEvent(ev) {
         title: 'threshold · ' + (kind.language || ''),
         saved: 0,
         detail: buildThresholdDetail(kind),
+        explanation: eventExplanation(t),
         ts: ts,
       };
     case 'VerificationWarning': {
@@ -157,6 +163,7 @@ function flattenEvent(ev) {
         title: (kind.warning_kind || 'warning') + ' · ' + (sev),
         saved: 0,
         detail: kind.detail || '',
+        explanation: eventExplanation(t),
         ts: ts,
       };
     }
@@ -169,6 +176,7 @@ function flattenEvent(ev) {
         title: 'denied · ' + (kind.tool || ''),
         saved: 0,
         detail: kind.reason || '',
+        explanation: eventExplanation(t),
         ts: ts,
       };
     case 'SloViolation':
@@ -180,7 +188,8 @@ function flattenEvent(ev) {
         icon: EVENT_ICONS.slo,
         title: 'violated · ' + (kind.metric || kind.name || ''),
         saved: 0,
-        detail: '',
+        detail: buildSloDetail(kind),
+        explanation: eventExplanation('SloViolation'),
         ts: ts,
       };
     default:
@@ -192,9 +201,28 @@ function flattenEvent(ev) {
         title: t || 'event',
         saved: 0,
         detail: '',
+        explanation: '',
         ts: ts,
       };
   }
+}
+
+/* ─── Event explanations — human-readable help for each event type ─── */
+
+var EVENT_EXPLANATIONS = {
+  ToolCall: 'A tool was called by the AI agent. lean-ctx compressed the response to save tokens. No action needed.',
+  CacheHit: 'This file was served from cache instead of re-reading from disk. This is normal and saves tokens.',
+  Compression: 'lean-ctx applied a compression strategy to reduce token usage. The numbers show lines before → after compression. This is normal optimization — no action needed.',
+  AgentAction: 'An AI agent performed an action tracked by the Context OS. Informational only.',
+  KnowledgeUpdate: 'The persistent knowledge base was updated with new information. This improves future sessions.',
+  ThresholdShift: 'Adaptive compression thresholds were recalibrated based on observed data patterns. This self-tuning is automatic — no action needed.',
+  VerificationWarning: 'Output quality verification detected a potential issue. If severity is "warning", the output was still delivered. "Critical" means content may have been degraded.',
+  PolicyViolation: 'A tool call was blocked by an active policy rule (e.g. budget limit, file-type restriction). Check your lean-ctx profile if this is unexpected.',
+  SloViolation: 'An internal quality metric (SLO) was breached. This is lean-ctx monitoring itself — e.g. compression ratio fell below target. Occasional violations are normal; frequent ones may indicate a configuration issue.',
+};
+
+function eventExplanation(eventType) {
+  return EVENT_EXPLANATIONS[eventType] || '';
 }
 
 function buildToolDetail(kind) {
@@ -215,6 +243,16 @@ function buildCompressionDetail(kind) {
   if (kind.removed_line_count != null) {
     parts.push('-' + kind.removed_line_count + ' removed');
   }
+  return parts.join(' · ');
+}
+
+function buildSloDetail(kind) {
+  var parts = [];
+  if (kind.metric || kind.name) parts.push(String(kind.metric || kind.name));
+  if (kind.actual != null && kind.target != null) {
+    parts.push('actual ' + Number(kind.actual).toFixed(2) + ' vs target ' + Number(kind.target).toFixed(2));
+  }
+  if (kind.detail) parts.push(String(kind.detail));
   return parts.join(' · ');
 }
 
@@ -616,6 +654,18 @@ class CockpitLive extends HTMLElement {
         ' tok</span>';
     }
 
+    var helpIcon = '';
+    if (flat.explanation) {
+      helpIcon =
+        '<span class="event-help-icon" title="' + esc(flat.explanation) + '" ' +
+        'style="margin-left:6px;cursor:help;opacity:0.4;font-size:11px;vertical-align:middle" ' +
+        'data-event-help="' + esc(flat.explanation) + '">' +
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" style="vertical-align:-2px">' +
+        '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>' +
+        '</svg>' +
+        '</span>';
+    }
+
     return (
       '<div class="event-card" style="--event-accent:' + flat.color + '">' +
       '<div class="event-icon" style="background:' + iconBg + '">' +
@@ -625,6 +675,7 @@ class CockpitLive extends HTMLElement {
       '<div class="event-tool">' +
       esc(flat.title) +
       savedBadge +
+      helpIcon +
       '</div>' +
       (flat.detail
         ? '<div class="event-detail">' + esc(flat.detail) + '</div>'
@@ -643,12 +694,22 @@ class CockpitLive extends HTMLElement {
       'Live Observatory',
       '<strong>Real-time event stream</strong> from the lean-ctx daemon. ' +
       'Every tool call, cache hit, compression run, policy check, and agent action is captured ' +
-      'as a structured event and streamed here.<br><br>' +
+      'as a structured event and streamed here. Click the <strong>?</strong> icon on any event for a detailed explanation.<br><br>' +
       '<strong>Session counters</strong> show tokens saved since the daemon started. ' +
       '<strong>All-time counters</strong> accumulate across all sessions from the persistent stats store.<br><br>' +
       'The <strong>MCP vs Hook split</strong> shows how savings distribute between MCP tool calls ' +
       '(prefixed <code>ctx_</code>) and shell hook interceptions. ' +
-      'Filter the feed by event category to focus on reads, shell commands, searches, or cache hits.'
+      'Filter the feed by event category to focus on reads, shell commands, searches, or cache hits.<br><br>' +
+      '<strong>Event Types:</strong><br>' +
+      '• <strong style="color:var(--green)">Tool Call</strong> — an AI agent invoked a lean-ctx tool (read, shell, search, etc.)<br>' +
+      '• <strong style="color:var(--purple)">Cache Hit</strong> — file served from memory instead of disk (saves a re-read)<br>' +
+      '• <strong style="color:var(--blue)">Compression</strong> — lean-ctx compressed output to save tokens (e.g. entropy_adaptive, map, signatures)<br>' +
+      '• <strong style="color:var(--blue)">Threshold Shift</strong> — adaptive compression thresholds were recalibrated<br>' +
+      '• <strong style="color:var(--yellow)">Verification Warning</strong> — output quality check flagged a potential issue<br>' +
+      '• <strong style="color:var(--red)">SLO Violation</strong> — an internal quality metric was breached (e.g. CompressionRatio). Occasional violations are normal; no user action needed unless frequent<br>' +
+      '• <strong style="color:var(--red)">Policy Violation</strong> — a tool call was blocked by a policy rule<br>' +
+      '• <strong style="color:var(--yellow)">Agent Action</strong> — an AI agent lifecycle event<br>' +
+      '• <strong style="color:var(--purple)">Knowledge Update</strong> — persistent knowledge base was updated'
     );
   }
 
@@ -662,6 +723,32 @@ class CockpitLive extends HTMLElement {
         self._filter = btn.getAttribute('data-ckl-filter') || 'all';
         self.render();
         self._bindInteractions();
+      });
+    });
+
+    var helpIcons = this.querySelectorAll('[data-event-help]');
+    helpIcons.forEach(function (icon) {
+      icon.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var card = icon.closest('.event-card');
+        if (!card) return;
+        var existing = card.querySelector('.event-explanation');
+        if (existing) {
+          existing.remove();
+          icon.style.opacity = '0.4';
+          return;
+        }
+        var text = icon.getAttribute('data-event-help') || '';
+        var el = document.createElement('div');
+        el.className = 'event-explanation';
+        el.style.cssText =
+          'margin-top:6px;padding:8px 10px;font-size:11px;line-height:1.5;' +
+          'color:var(--muted);background:var(--surface-2);border-radius:6px;' +
+          'border-left:2px solid var(--event-accent, var(--border))';
+        el.textContent = text;
+        var body = card.querySelector('.event-body');
+        if (body) body.appendChild(el);
+        icon.style.opacity = '0.8';
       });
     });
 

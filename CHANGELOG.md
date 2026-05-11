@@ -5,6 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.5.15] — 2026-05-11
+
+### Fixed
+
+- **Dashboard "unauthorized" on localhost** — Users accessing the dashboard on `localhost` after v3.5.14 saw `/api/stats: unauthorized` because the browser didn't have the auth token. The server now auto-injects the token into HTML for loopback connections (`127.0.0.1`, `::1`) so the JS fetch interceptor can authenticate API calls automatically. API auth remains fully active — no bypass, no CSRF risk. Fixes webut's report.
+- **Dashboard probe sends Bearer** — The `dashboard_responding` health probe now sends the saved Bearer token, so the "already running" detection works correctly with auth-enabled dashboards.
+- **Large file crash / MCP hang** — Reading very large files (multi-GB) via `ctx_read` or `ctx_smart_read` caused the MCP server to allocate unbounded RAM and crash. Now enforced at 4 layers: binary file detection rejects before any I/O, `metadata().len()` checks reject before allocation, `read_file_lossy` refuses unbounded reads on `stat()` failure, and MCP dispatch returns `Err(ErrorData)` instead of `Ok("ERROR:...")` to prevent client retries. Fixes sb's report.
+
+### Added
+
+- **Binary file detection** (`core::binary_detect`) — Detects 100+ binary file extensions (Parquet, SQLite, ONNX, ZIP, images, ML models, bytecode, archives, fonts, disk images) plus magic-byte NULL check on the first 8 KB. Returns human-readable file type labels (e.g. "columnar data file", "ML model file"). Used across `ctx_read`, `ctx_smart_read`, `ctx_multi_read`, and `ctx_prefetch`.
+- **Live Observatory event explanations** — Every event in the dashboard's Live Observatory now has a `?` help icon. Click to expand an inline explanation of what the event means and whether user action is needed. SLO violations ("violated · CompressionRatio") and compression events ("entropy_adaptive · 293 → 264 lines") are now clearly documented. Event type legend added to "How it works" section.
+- **3 new security hardening tests** — `dashboard_api_auth_never_bypassed_for_loopback`, `dashboard_probe_sends_bearer_token`, loopback injection signature validation.
+
+### Improved
+
+- **Graceful error messages for binary/oversize files** — Instead of crashing or returning generic errors, binary files get a helpful message like "Binary file detected (.parquet, columnar data file). Use a specialized tool for this file type." Oversize files suggest `mode="lines:1-100"` for partial reads.
+- **MCP error semantics** — Binary/oversize file errors now return `Err(ErrorData::invalid_params(...))` at the MCP dispatch level, signaling to clients that retrying won't help. Previously returned `Ok("ERROR: ...")` which caused some clients to retry indefinitely.
+
 ## [3.5.14] — 2026-05-10
 
 ### Performance

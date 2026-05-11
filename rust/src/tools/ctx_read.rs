@@ -40,18 +40,26 @@ fn append_compressed_hint(output: &str, file_path: &str) -> String {
     format!("{output}\n{COMPRESSED_HINT}\n  ctx_read(\"{file_path}\", mode=\"full\")")
 }
 
-/// Reads a file as UTF-8 with lossy fallback, enforcing the max read size limit.
+/// Reads a file as UTF-8 with lossy fallback, enforcing binary detection and max read size limit.
 pub fn read_file_lossy(path: &str) -> Result<String, std::io::Error> {
-    let cap = crate::core::limits::max_read_bytes();
-    if let Ok(meta) = std::fs::metadata(path) {
-        if meta.len() > cap as u64 {
-            return Err(std::io::Error::other(format!(
-                "file too large ({} bytes, cap {} via LCTX_MAX_READ_BYTES)",
-                meta.len(),
-                cap
-            )));
-        }
+    if crate::core::binary_detect::is_binary_file(path) {
+        let msg = crate::core::binary_detect::binary_file_message(path);
+        return Err(std::io::Error::other(msg));
     }
+
+    let cap = crate::core::limits::max_read_bytes();
+    let meta = std::fs::metadata(path).map_err(|e| {
+        std::io::Error::other(format!("cannot stat file (refusing unbounded read): {e}"))
+    })?;
+    if meta.len() > cap as u64 {
+        return Err(std::io::Error::other(format!(
+            "file too large ({} bytes, limit {} bytes via LCTX_MAX_READ_BYTES). \
+             Increase the limit or use a line-range read: mode=\"lines:1-100\"",
+            meta.len(),
+            cap
+        )));
+    }
+
     let bytes = std::fs::read(path)?;
     match String::from_utf8(bytes) {
         Ok(s) => Ok(s),

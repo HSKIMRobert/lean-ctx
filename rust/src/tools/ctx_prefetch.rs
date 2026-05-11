@@ -80,6 +80,16 @@ pub fn handle(
         }
         let jailed_s = jailed.to_string_lossy().to_string();
 
+        if crate::core::binary_detect::is_binary_file(&jailed_s) {
+            continue;
+        }
+        let cap = crate::core::limits::max_read_bytes() as u64;
+        if let Ok(meta) = std::fs::metadata(&jailed) {
+            if meta.len() > cap {
+                continue;
+            }
+        }
+
         let Ok(content) = std::fs::read_to_string(&jailed) else {
             continue;
         };

@@ -36,6 +36,7 @@ pub fn route_response(
     query_str: &str,
     query_token: Option<&String>,
     token: Option<&Arc<String>>,
+    is_loopback: bool,
     method: &str,
     body: &str,
 ) -> (&'static str, &'static str, String) {
@@ -46,7 +47,7 @@ pub fn route_response(
             let valid_query = query_token
                 .as_ref()
                 .is_some_and(|q| super::constant_time_eq(q.as_bytes(), expected.as_bytes()));
-            if valid_query {
+            if valid_query || is_loopback {
                 let script = format!(
                     "<script>window.__LEAN_CTX_TOKEN__=\"{expected}\";try{{if(location.search.includes('token=')){{history.replaceState(null,'',location.pathname+location.hash);}}}}catch(e){{}}</script>"
                 );
@@ -62,7 +63,7 @@ pub fn route_response(
             let valid_query = query_token
                 .as_ref()
                 .is_some_and(|q| super::constant_time_eq(q.as_bytes(), expected.as_bytes()));
-            if valid_query {
+            if valid_query || is_loopback {
                 let script = format!(
                     "<script>window.__LEAN_CTX_TOKEN__=\"{expected}\";try{{if(location.search.includes('token=')){{history.replaceState(null,'',location.pathname);}}}}catch(e){{}}</script>"
                 );

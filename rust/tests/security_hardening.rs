@@ -13,8 +13,25 @@ fn dashboard_route_response_omits_token_without_valid_query() {
         "C1: dashboard must use constant_time_eq via is_some_and for query token validation"
     );
     assert!(
-        src.contains("if valid_query"),
-        "C1: token embedding must be gated on valid_query"
+        src.contains("if valid_query || is_loopback"),
+        "C1: token embedding gated on valid_query OR loopback (seamless local access)"
+    );
+    assert!(
+        src.contains("is_loopback: bool"),
+        "C1: route_response signature must accept is_loopback parameter"
+    );
+}
+
+#[test]
+fn dashboard_api_auth_never_bypassed_for_loopback() {
+    let src = include_str!("../src/dashboard/mod.rs");
+    assert!(
+        !src.contains("if requires_auth && !has_header_auth && !is_loopback"),
+        "C1: API auth must NOT be bypassed for loopback — only HTML token injection is allowed"
+    );
+    assert!(
+        src.contains("if requires_auth && !has_header_auth"),
+        "C1: API auth gate must remain unconditional (no loopback exception)"
     );
 }
 
@@ -24,6 +41,15 @@ fn dashboard_check_auth_uses_constant_time_eq() {
     assert!(
         src.contains("constant_time_eq(token.trim().as_bytes(), expected_token.as_bytes())"),
         "C1: check_auth must use constant_time_eq, not plain =="
+    );
+}
+
+#[test]
+fn dashboard_probe_sends_bearer_token() {
+    let src = include_str!("../src/dashboard/mod.rs");
+    assert!(
+        src.contains("Authorization: Bearer {t}"),
+        "C1: dashboard_responding probe must send saved Bearer token"
     );
 }
 

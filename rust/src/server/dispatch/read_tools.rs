@@ -75,6 +75,24 @@ impl LeanCtxServer {
                 if stale && effective_mode == "full" && !fresh {
                     fresh = true;
                 }
+                if crate::core::binary_detect::is_binary_file(&path) {
+                    let msg = crate::core::binary_detect::binary_file_message(&path);
+                    return Err(ErrorData::invalid_params(msg, None));
+                }
+                {
+                    let cap = crate::core::limits::max_read_bytes() as u64;
+                    if let Ok(meta) = std::fs::metadata(&path) {
+                        if meta.len() > cap {
+                            let msg = format!(
+                                "File too large ({} bytes, limit {} bytes via LCTX_MAX_READ_BYTES). \
+                                 Use mode=\"lines:1-100\" for partial reads or increase the limit.",
+                                meta.len(), cap
+                            );
+                            return Err(ErrorData::invalid_params(msg, None));
+                        }
+                    }
+                }
+
                 let read_start = std::time::Instant::now();
                 let mut cache = self.cache.write().await;
                 let read_output = if fresh {
@@ -264,12 +282,27 @@ impl LeanCtxServer {
                 let raw_paths = get_str_array(args, "paths")
                     .ok_or_else(|| ErrorData::invalid_params("paths array is required", None))?;
                 let mut paths = Vec::with_capacity(raw_paths.len());
+                let cap = crate::core::limits::max_read_bytes() as u64;
                 for p in raw_paths {
-                    paths.push(
-                        self.resolve_path(&p)
-                            .await
-                            .map_err(|e| ErrorData::invalid_params(e, None))?,
-                    );
+                    let resolved = self
+                        .resolve_path(&p)
+                        .await
+                        .map_err(|e| ErrorData::invalid_params(e, None))?;
+                    if crate::core::binary_detect::is_binary_file(&resolved) {
+                        continue;
+                    }
+                    if let Ok(meta) = std::fs::metadata(&resolved) {
+                        if meta.len() > cap {
+                            continue;
+                        }
+                    }
+                    paths.push(resolved);
+                }
+                if paths.is_empty() {
+                    return Err(ErrorData::invalid_params(
+                        "all paths are binary or exceed the size limit",
+                        None,
+                    ));
                 }
                 let mode = get_str(args, "mode").unwrap_or_else(|| {
                     let p = crate::core::profiles::active_profile();
@@ -316,6 +349,23 @@ impl LeanCtxServer {
                         .map_err(|e| ErrorData::invalid_params(e, None))?,
                     None => return Err(ErrorData::invalid_params("path is required", None)),
                 };
+                if crate::core::binary_detect::is_binary_file(&path) {
+                    let msg = crate::core::binary_detect::binary_file_message(&path);
+                    return Err(ErrorData::invalid_params(msg, None));
+                }
+                {
+                    let cap = crate::core::limits::max_read_bytes() as u64;
+                    if let Ok(meta) = std::fs::metadata(&path) {
+                        if meta.len() > cap {
+                            let msg = format!(
+                                "File too large ({} bytes, limit {} bytes via LCTX_MAX_READ_BYTES). \
+                                 Use mode=\"lines:1-100\" for partial reads or increase the limit.",
+                                meta.len(), cap
+                            );
+                            return Err(ErrorData::invalid_params(msg, None));
+                        }
+                    }
+                }
                 let mut cache = self.cache.write().await;
                 let output = crate::tools::ctx_smart_read::handle(
                     &mut cache,

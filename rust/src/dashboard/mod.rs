@@ -51,8 +51,7 @@ pub async fn start(port: Option<u16>, host: Option<String>) {
     if is_local && dashboard_responding(&host, port) {
         println!("\n  lean-ctx dashboard already running → http://{host}:{port}");
         println!("  Tip: use Ctrl+C in the existing terminal to stop it.\n");
-        let saved = load_saved_token();
-        if let Some(ref t) = saved {
+        if let Some(t) = load_saved_token() {
             open_browser(&format!("http://localhost:{port}/?token={t}"));
         } else {
             open_browser(&format!("http://localhost:{port}"));
@@ -199,7 +198,13 @@ fn dashboard_responding(host: &str, port: u16) -> bool {
     let _ = s.set_read_timeout(Some(Duration::from_millis(150)));
     let _ = s.set_write_timeout(Some(Duration::from_millis(150)));
 
-    let req = "GET /api/version HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+    let auth_header = load_saved_token()
+        .map(|t| format!("Authorization: Bearer {t}\r\n"))
+        .unwrap_or_default();
+
+    let req = format!(
+        "GET /api/version HTTP/1.1\r\nHost: localhost\r\n{auth_header}Connection: close\r\n\r\n"
+    );
     if s.write_all(req.as_bytes()).is_err() {
         return false;
     }
@@ -260,6 +265,11 @@ async fn read_http_message(stream: &mut tokio::net::TcpStream) -> Option<Vec<u8>
 }
 
 async fn handle_request(mut stream: tokio::net::TcpStream, token: Option<Arc<String>>) {
+    let is_loopback = stream
+        .peer_addr()
+        .map(|a| a.ip().is_loopback())
+        .unwrap_or(false);
+
     let Some(buf) = read_http_message(&mut stream).await else {
         return;
     };
@@ -332,6 +342,7 @@ async fn handle_request(mut stream: tokio::net::TcpStream, token: Option<Arc<Str
             query_str,
             query_token.as_ref(),
             token.as_ref(),
+            is_loopback,
             method,
             &body_str,
         )
@@ -484,7 +495,7 @@ mod tests {
     #[test]
     fn api_profile_returns_json() {
         let (_status, _ct, body) =
-            routes::route_response("/api/profile", "", None, None, "GET", "");
+            routes::route_response("/api/profile", "", None, None, false, "GET", "");
         let v: serde_json::Value = serde_json::from_str(&body).expect("valid JSON");
         assert!(v.get("active_name").is_some(), "missing active_name");
         assert!(
@@ -499,7 +510,7 @@ mod tests {
     #[test]
     fn api_episodes_returns_json() {
         let (_status, _ct, body) =
-            routes::route_response("/api/episodes", "", None, None, "GET", "");
+            routes::route_response("/api/episodes", "", None, None, false, "GET", "");
         let v: serde_json::Value = serde_json::from_str(&body).expect("valid JSON");
         assert!(v.get("project_hash").is_some());
         assert!(v.get("stats").is_some());
@@ -509,7 +520,7 @@ mod tests {
     #[test]
     fn api_procedures_returns_json() {
         let (_status, _ct, body) =
-            routes::route_response("/api/procedures", "", None, None, "GET", "");
+            routes::route_response("/api/procedures", "", None, None, false, "GET", "");
         let v: serde_json::Value = serde_json::from_str(&body).expect("valid JSON");
         assert!(v.get("project_hash").is_some());
         assert!(v.get("procedures").and_then(|a| a.as_array()).is_some());
@@ -536,6 +547,7 @@ mod tests {
             "path=src/foo.rs",
             None,
             None,
+            false,
             "GET",
             "",
         );

@@ -13,6 +13,7 @@ pub mod attention_model;
 pub mod autonomy_drivers;
 pub mod bandit;
 pub mod benchmark;
+pub mod binary_detect;
 pub mod bm25_index;
 pub mod buddy;
 pub mod budget_tracker;
