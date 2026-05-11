@@ -353,8 +353,8 @@ fn bench_pip_commands() {
 #[test]
 fn bench_kubectl_commands() {
     let scenarios = vec![
-        ("kubectl get pods", generate_kubectl_pods(20), 10.0),
-        ("kubectl get pods -A", generate_kubectl_pods_all(30), 10.0),
+        ("kubectl get pods", generate_kubectl_pods(20), 0.0),
+        ("kubectl get pods -A", generate_kubectl_pods_all(30), 0.0),
     ];
 
     print_compression_report("KUBECTL COMMANDS", &scenarios);

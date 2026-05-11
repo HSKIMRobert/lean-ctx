@@ -31,8 +31,7 @@ pub fn token_jaccard(a: &str, b: &str) -> f64 {
 fn unix_now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+        .map_or(0, |d| d.as_secs())
 }
 
 fn days_since(ts: u64, now: u64) -> f64 {

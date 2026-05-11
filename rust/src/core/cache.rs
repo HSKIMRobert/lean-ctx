@@ -386,7 +386,7 @@ impl SessionCache {
             .collect();
         protected.sort_by_key(|(_, t)| *t);
 
-        for (path, _) in probationary.into_iter().chain(protected.into_iter()) {
+        for (path, _) in probationary.into_iter().chain(protected) {
             if freed >= target {
                 break;
             }
