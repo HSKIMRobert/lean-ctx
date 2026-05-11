@@ -62,7 +62,22 @@ pub mod zig;
 
 use crate::core::tokens::count_tokens;
 
+fn is_passthrough_command(cmd: &str) -> bool {
+    let c = cmd.to_ascii_lowercase();
+    if c.starts_with("gh api ") || c.starts_with("gh api\t") {
+        return true;
+    }
+    if (c.starts_with("gh ") && c.contains("--log")) || c.contains("log-failed") {
+        return true;
+    }
+    false
+}
+
 pub fn compress_output(command: &str, output: &str) -> Option<String> {
+    if is_passthrough_command(command) {
+        return None;
+    }
+
     let cleaned = crate::core::compressor::strip_ansi(output);
     let output = if cleaned.len() < output.len() {
         &cleaned
@@ -599,5 +614,29 @@ mod tests {
         let output = "npm warn deprecated inflight@1.0.6\nnpm warn deprecated rimraf@3.0.2\nadded 150 packages, and audited 151 packages in 5s\n\n25 packages are looking for funding\n  run `npm fund` for details\n\nfound 0 vulnerabilities";
         assert!(try_specific_pattern("turbo install", output).is_some());
         assert!(try_specific_pattern("nx install", output).is_some());
+    }
+
+    #[test]
+    fn gh_api_passthrough_never_compresses() {
+        let huge = "line\n".repeat(5000);
+        assert!(
+            compress_output("gh api repos/owner/repo/actions/jobs/123/logs", &huge).is_none(),
+            "gh api must never be compressed, even for large output"
+        );
+        assert!(compress_output("gh api repos/owner/repo/actions/runs/123/logs", &huge).is_none());
+    }
+
+    #[test]
+    fn gh_log_flags_passthrough() {
+        let huge = "line\n".repeat(5000);
+        assert!(compress_output("gh run view 123 --log-failed", &huge).is_none());
+        assert!(compress_output("gh run view 123 --log", &huge).is_none());
+    }
+
+    #[test]
+    fn gh_structured_commands_still_compress() {
+        let output = "On branch main\nnothing to commit";
+        assert!(try_specific_pattern("gh pr list", output).is_some());
+        assert!(try_specific_pattern("gh run list", output).is_some());
     }
 }

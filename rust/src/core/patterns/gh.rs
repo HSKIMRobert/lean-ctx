@@ -18,6 +18,9 @@ fn pr_created_re() -> &'static regex::Regex {
 }
 
 pub fn compress(command: &str, output: &str) -> Option<String> {
+    if command.contains(" api ") || command.starts_with("gh api") {
+        return None;
+    }
     if command.contains("pr") {
         if command.contains("diff") {
             return None;

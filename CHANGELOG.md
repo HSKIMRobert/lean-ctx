@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.5.18] — 2026-05-12
+
+### Fixed
+
+- **`gh api` output no longer compressed** — Commands like `gh api repos/.../actions/jobs/.../logs` are now passthrough (no compression, no truncation). Previously, large API responses were silently truncated by the generic 8000-byte fallback, making CI log debugging impossible. Also applies to `gh run view --log` and `--log-failed` flags.
+
 ## [3.5.17] — 2026-05-12
 
 ### Security
