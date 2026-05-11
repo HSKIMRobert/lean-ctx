@@ -1,0 +1,36 @@
+//! Serde helpers and `#[serde(default = "...")]` fns for `Config`.
+
+use serde::Deserialize;
+
+use super::TeeMode;
+
+pub(super) fn deserialize_tee_mode<'de, D>(deserializer: D) -> Result<TeeMode, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error;
+    let v = serde_json::Value::deserialize(deserializer)?;
+    match &v {
+        serde_json::Value::Bool(true) => Ok(TeeMode::Failures),
+        serde_json::Value::Bool(false) => Ok(TeeMode::Never),
+        serde_json::Value::String(s) => match s.as_str() {
+            "never" => Ok(TeeMode::Never),
+            "failures" => Ok(TeeMode::Failures),
+            "always" => Ok(TeeMode::Always),
+            other => Err(D::Error::custom(format!("unknown tee_mode: {other}"))),
+        },
+        _ => Err(D::Error::custom("tee_mode must be string or bool")),
+    }
+}
+
+pub(super) fn default_theme() -> String {
+    "default".to_string()
+}
+
+pub(super) fn default_buddy_enabled() -> bool {
+    true
+}
+
+pub(super) fn default_bm25_max_cache_mb() -> u64 {
+    128
+}

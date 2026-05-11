@@ -20,6 +20,11 @@ pub fn execute_command_in(command: &str, cwd: &str) -> (String, i32) {
         .stdin(Stdio::null());
     if dir.is_dir() {
         cmd.current_dir(dir);
+    } else {
+        return (
+            format!("ERROR: working directory does not exist or is not a directory: {cwd}"),
+            1,
+        );
     }
     let cap = crate::core::limits::max_shell_bytes();
 

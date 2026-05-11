@@ -160,7 +160,10 @@ pub async fn v1_context_summary(
     let limit = q.limit.unwrap_or(100).min(500);
 
     let rt = crate::core::context_os::runtime();
-    let events = rt.bus.read(&ws, &ch, 0, limit);
+    let mut events = rt.bus.read(&ws, &ch, 0, limit);
+    for ev in &mut events {
+        redact_event_payload(ev, RedactionLevel::Summary);
+    }
 
     let summary = build_summary(&ws, &ch, &events);
     (
@@ -193,10 +196,17 @@ fn build_summary(ws: &str, ch: &str, events: &[ContextEventV1]) -> ContextSummar
             .unwrap_or("")
             .to_string();
         let action = p.get("action").and_then(|v| v.as_str()).map(String::from);
-        let reasoning = p
-            .get("reasoning")
-            .and_then(|v| v.as_str())
-            .map(String::from);
+        let reasoning = {
+            let mut payload_clone = p.clone();
+            crate::core::context_os::redact_payload_value(
+                &mut payload_clone,
+                crate::core::context_os::RedactionLevel::Summary,
+            );
+            payload_clone
+                .get("reasoning")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        };
 
         if ev.kind == ContextEventKindV1::SessionMutated.as_str()
             || ev.kind == ContextEventKindV1::KnowledgeRemembered.as_str()

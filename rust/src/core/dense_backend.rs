@@ -213,20 +213,18 @@ fn dense_results_local(
         .embed(query)
         .map_err(|e| format!("embedding failed: {e}"))?;
 
-    let mut scored: Vec<(usize, f32)> = aligned_embeddings
-        .iter()
-        .enumerate()
-        .filter(|(i, _)| {
+    let top = top_k_by_similarity(
+        &query_embedding,
+        aligned_embeddings,
+        top_k,
+        |i| {
             let Some(pred) = filter else { return true };
-            index.chunks.get(*i).is_some_and(|c| pred(&c.file_path))
-        })
-        .map(|(i, emb)| (i, cosine_similarity(&query_embedding, emb)))
-        .collect();
+            index.chunks.get(i).is_some_and(|c| pred(&c.file_path))
+        },
+        cosine_similarity,
+    );
 
-    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-    scored.truncate(top_k);
-
-    Ok(scored
+    Ok(top
         .into_iter()
         .filter_map(|(idx, sim)| {
             let chunk = index.chunks.get(idx)?;
@@ -243,6 +241,59 @@ fn dense_results_local(
             })
         })
         .collect())
+}
+
+/// Min-heap based Top-K selection: O(n log k) instead of O(n log n) full sort.
+#[cfg(feature = "embeddings")]
+fn top_k_by_similarity(
+    query: &[f32],
+    embeddings: &[Vec<f32>],
+    k: usize,
+    filter: impl Fn(usize) -> bool,
+    similarity_fn: fn(&[f32], &[f32]) -> f32,
+) -> Vec<(usize, f32)> {
+    use std::cmp::Ordering;
+    use std::collections::BinaryHeap;
+
+    #[derive(PartialEq)]
+    struct MinEntry(f32, usize);
+
+    impl Eq for MinEntry {}
+    impl PartialOrd for MinEntry {
+        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+            Some(self.cmp(other))
+        }
+    }
+    impl Ord for MinEntry {
+        fn cmp(&self, other: &Self) -> Ordering {
+            other
+                .0
+                .partial_cmp(&self.0)
+                .unwrap_or(Ordering::Equal)
+                .then_with(|| self.1.cmp(&other.1))
+        }
+    }
+
+    let mut heap: BinaryHeap<MinEntry> = BinaryHeap::with_capacity(k + 1);
+
+    for (i, emb) in embeddings.iter().enumerate() {
+        if !filter(i) {
+            continue;
+        }
+        let sim = similarity_fn(query, emb);
+        if heap.len() < k {
+            heap.push(MinEntry(sim, i));
+        } else if let Some(min) = heap.peek() {
+            if sim > min.0 {
+                heap.pop();
+                heap.push(MinEntry(sim, i));
+            }
+        }
+    }
+
+    let mut result: Vec<(usize, f32)> = heap.into_iter().map(|e| (e.1, e.0)).collect();
+    result.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    result
 }
 
 #[cfg(feature = "qdrant")]

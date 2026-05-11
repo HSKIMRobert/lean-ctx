@@ -14,7 +14,7 @@ fn size_re() -> &'static regex::Regex {
     static_regex!(r"(\d+\.?\d*)\s*(kB|MB|B)\b")
 }
 fn build_time_re() -> &'static regex::Regex {
-    static_regex!(r"(?:compiled|built|done)\s+(?:in\s+)?(\d+\.?\d*\s*[ms]+)")
+    static_regex!(r"(?:(?:compiled|built|done)|ready)\s+(?:in\s+)?(\d+\.?\d*\s*[ms]+)")
 }
 fn vite_chunk_re() -> &'static regex::Regex {
     static_regex!(r"dist/(\S+)\s+(\d+\.?\d*\s*[kKMm]?B)")
@@ -132,7 +132,7 @@ fn compress_vite(output: &str) -> String {
         }
     }
 
-    if parts.len() == 1 {
+    if parts.len() == 1 && parts[0] == "built" {
         return compact_output(trimmed, 10);
     }
     parts.join("\n")

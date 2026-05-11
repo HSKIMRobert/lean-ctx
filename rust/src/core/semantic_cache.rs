@@ -1,7 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+
+/// Recompute global IDF after this many mutations; searches refresh IDF when `idf_dirty`.
+const IDF_REBUILD_BATCH: u32 = 100;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SemanticCacheEntry {
@@ -17,6 +20,13 @@ pub struct SemanticCacheIndex {
     pub entries: Vec<SemanticCacheEntry>,
     pub idf: HashMap<String, f64>,
     pub total_docs: usize,
+    /// Documents containing each term (unique terms per entry).
+    #[serde(default)]
+    pub term_document_freq: HashMap<String, usize>,
+    #[serde(default)]
+    idf_dirty: bool,
+    #[serde(default)]
+    mutations_since_idf_rebuild: u32,
 }
 
 impl SemanticCacheIndex {
@@ -25,14 +35,18 @@ impl SemanticCacheIndex {
         let token_count = content.split_whitespace().count();
 
         if let Some(existing) = self.entries.iter_mut().find(|e| e.path == path) {
+            remove_doc_terms(&mut self.term_document_freq, &existing.tfidf_vector);
             existing.tfidf_vector = tf.iter().map(|(k, v)| (k.clone(), *v)).collect();
             existing.token_count = token_count;
             existing.access_count += 1;
             existing.last_session = session_id.to_string();
+            add_doc_terms(&mut self.term_document_freq, &existing.tfidf_vector);
         } else {
+            let tf_vec: Vec<(String, f64)> = tf.iter().map(|(k, v)| (k.clone(), *v)).collect();
+            add_doc_terms(&mut self.term_document_freq, &tf_vec);
             self.entries.push(SemanticCacheEntry {
                 path: path.to_string(),
-                tfidf_vector: tf.iter().map(|(k, v)| (k.clone(), *v)).collect(),
+                tfidf_vector: tf_vec,
                 token_count,
                 access_count: 1,
                 last_session: session_id.to_string(),
@@ -40,28 +54,57 @@ impl SemanticCacheIndex {
         }
 
         self.total_docs = self.entries.len();
-        self.rebuild_idf();
+        self.note_idf_mutation();
     }
 
-    fn rebuild_idf(&mut self) {
-        let mut df: HashMap<String, usize> = HashMap::new();
-        for entry in &self.entries {
-            let unique_terms: std::collections::HashSet<&str> =
-                entry.tfidf_vector.iter().map(|(k, _)| k.as_str()).collect();
-            for term in unique_terms {
-                *df.entry(term.to_string()).or_default() += 1;
-            }
+    fn note_idf_mutation(&mut self) {
+        self.idf_dirty = true;
+        self.mutations_since_idf_rebuild = self.mutations_since_idf_rebuild.saturating_add(1);
+        if self.mutations_since_idf_rebuild >= IDF_REBUILD_BATCH {
+            self.recompute_idf_from_df();
+            self.idf_dirty = false;
+            self.mutations_since_idf_rebuild = 0;
         }
+    }
 
+    fn recompute_idf_from_df(&mut self) {
         self.idf.clear();
         let n = self.total_docs as f64;
-        for (term, count) in &df {
+        if n <= 0.0 {
+            return;
+        }
+        for (term, count) in &self.term_document_freq {
             let idf = (n / (*count as f64 + 1.0)).ln() + 1.0;
             self.idf.insert(term.clone(), idf);
         }
     }
 
-    pub fn find_similar(&self, content: &str, threshold: f64) -> Vec<(String, f64)> {
+    fn rebuild_df_from_entries(&mut self) {
+        self.term_document_freq.clear();
+        for entry in &self.entries {
+            add_doc_terms(&mut self.term_document_freq, &entry.tfidf_vector);
+        }
+    }
+
+    fn repair_after_deserialize(&mut self) {
+        self.total_docs = self.entries.len();
+        if self.term_document_freq.is_empty() && !self.entries.is_empty() {
+            self.rebuild_df_from_entries();
+            self.idf_dirty = true;
+        }
+    }
+
+    fn ensure_idf_for_search(&mut self) {
+        if self.idf_dirty {
+            self.recompute_idf_from_df();
+            self.idf_dirty = false;
+            self.mutations_since_idf_rebuild = 0;
+        }
+    }
+
+    pub fn find_similar(&mut self, content: &str, threshold: f64) -> Vec<(String, f64)> {
+        self.ensure_idf_for_search();
+
         let query_tf = compute_tf(content);
         let query_vec = self.tfidf_vector(&query_tf);
 
@@ -133,11 +176,32 @@ impl SemanticCacheIndex {
     pub fn load(project_root: &str) -> Option<Self> {
         let path = index_path(project_root);
         let content = std::fs::read_to_string(path).ok()?;
-        serde_json::from_str(&content).ok()
+        let mut index: SemanticCacheIndex = serde_json::from_str(&content).ok()?;
+        index.repair_after_deserialize();
+        Some(index)
     }
 
     pub fn load_or_create(project_root: &str) -> Self {
         Self::load(project_root).unwrap_or_default()
+    }
+}
+
+fn remove_doc_terms(df: &mut HashMap<String, usize>, tf_vec: &[(String, f64)]) {
+    let unique: HashSet<&str> = tf_vec.iter().map(|(k, _)| k.as_str()).collect();
+    for term in unique {
+        if let Some(c) = df.get_mut(term) {
+            *c = c.saturating_sub(1);
+            if *c == 0 {
+                df.remove(term);
+            }
+        }
+    }
+}
+
+fn add_doc_terms(df: &mut HashMap<String, usize>, tf_vec: &[(String, f64)]) {
+    let unique: HashSet<&str> = tf_vec.iter().map(|(k, _)| k.as_str()).collect();
+    for term in unique {
+        *df.entry(term.to_string()).or_default() += 1;
     }
 }
 

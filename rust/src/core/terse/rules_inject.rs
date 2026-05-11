@@ -51,7 +51,7 @@ pub fn inject(level: &CompressionLevel) -> usize {
 
 fn upsert_block(content: &str, block: &str) -> String {
     if content.contains(COMPRESSION_BLOCK_START) {
-        crate::hooks::replace_marked_block(
+        crate::marked_block::replace_marked_block(
             content,
             COMPRESSION_BLOCK_START,
             COMPRESSION_BLOCK_END,

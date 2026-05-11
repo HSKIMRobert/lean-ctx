@@ -320,8 +320,13 @@ impl<T: DeserializeOwned> HybridJsonRpcMessageCodec<T> {
         let header = std::str::from_utf8(&buf[..header_end])
             .map_err(|error| HybridCodecError::InvalidHeaderFrame(error.to_string()))?;
         let content_length = parse_content_length(header)?;
+        if content_length > self.max_length {
+            return Err(HybridCodecError::MaxLineLengthExceeded);
+        }
         let body_start = header_end + delimiter_len;
-        let frame_len = body_start + content_length;
+        let frame_len = body_start
+            .checked_add(content_length)
+            .ok_or(HybridCodecError::MaxLineLengthExceeded)?;
         if buf.len() < frame_len {
             return Ok(None);
         }

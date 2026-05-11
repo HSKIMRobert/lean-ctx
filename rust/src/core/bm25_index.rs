@@ -131,6 +131,20 @@ impl BM25Index {
         }
     }
 
+    /// Builds an index from explicit chunks (unit tests; avoids filesystem walking).
+    #[cfg(test)]
+    pub(crate) fn from_chunks_for_test(chunks: Vec<CodeChunk>) -> Self {
+        let mut index = Self::new();
+        for mut chunk in chunks {
+            if chunk.token_count == 0 {
+                chunk.token_count = tokenize(&chunk.content).len();
+            }
+            index.add_chunk(chunk);
+        }
+        index.finalize();
+        index
+    }
+
     pub fn build_from_directory(root: &Path) -> Self {
         let mut index = Self::new();
         let files = list_code_files(root);
@@ -221,7 +235,11 @@ impl BM25Index {
         let tokens = tokenize(&chunk.content);
         for token in &tokens {
             let lower = token.to_lowercase();
-            self.inverted.entry(lower).or_default().push((idx, 1.0));
+            let postings = self.inverted.entry(lower.clone()).or_default();
+            if postings.last().map(|(last_idx, _)| *last_idx) != Some(idx) {
+                *self.doc_freqs.entry(lower).or_insert(0) += 1;
+            }
+            postings.push((idx, 1.0));
         }
 
         self.chunks.push(CodeChunk {
@@ -239,13 +257,6 @@ impl BM25Index {
 
         let total_len: usize = self.chunks.iter().map(|c| c.token_count).sum();
         self.avg_doc_len = total_len as f64 / self.doc_count as f64;
-
-        self.doc_freqs.clear();
-        for (term, postings) in &self.inverted {
-            let unique_docs: std::collections::HashSet<usize> =
-                postings.iter().map(|(idx, _)| *idx).collect();
-            self.doc_freqs.insert(term.clone(), unique_docs.len());
-        }
     }
 
     pub fn search(&self, query: &str, top_k: usize) -> Vec<SearchResult> {
@@ -324,7 +335,8 @@ impl BM25Index {
 
         let dir = index_dir(root);
         std::fs::create_dir_all(&dir)?;
-        let data = serde_json::to_string(self).map_err(std::io::Error::other)?;
+        let data = bincode::serde::encode_to_vec(self, bincode::config::standard())
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
 
         let max_bytes = max_bm25_cache_bytes();
         if data.len() as u64 > max_bytes {
@@ -337,10 +349,12 @@ impl BM25Index {
             return Ok(());
         }
 
-        let target = dir.join("bm25_index.json");
-        let tmp = dir.join("bm25_index.json.tmp");
+        let target = dir.join("bm25_index.bin");
+        let tmp = dir.join("bm25_index.bin.tmp");
         std::fs::write(&tmp, &data)?;
         std::fs::rename(&tmp, &target)?;
+
+        let _ = std::fs::remove_file(dir.join("bm25_index.json"));
 
         let _ = std::fs::write(
             dir.join("project_root.txt"),
@@ -351,22 +365,48 @@ impl BM25Index {
     }
 
     pub fn load(root: &Path) -> Option<Self> {
-        let path = index_dir(root).join("bm25_index.json");
-        let meta = std::fs::metadata(&path).ok()?;
+        let dir = index_dir(root);
         let max_bytes = max_bm25_cache_bytes();
-        if meta.len() > max_bytes {
-            tracing::warn!(
-                "[bm25] index too large ({:.1} GB, limit {:.0} MB), quarantining: {}",
-                meta.len() as f64 / 1_073_741_824.0,
-                max_bytes / (1024 * 1024),
-                path.display()
-            );
-            let quarantined = path.with_extension("json.quarantined");
-            let _ = std::fs::rename(&path, &quarantined);
-            return None;
+
+        let bin_path = dir.join("bm25_index.bin");
+        if bin_path.exists() {
+            let meta = std::fs::metadata(&bin_path).ok()?;
+            if meta.len() > max_bytes {
+                tracing::warn!(
+                    "[bm25] index too large ({:.1} GB, limit {:.0} MB), quarantining: {}",
+                    meta.len() as f64 / 1_073_741_824.0,
+                    max_bytes / (1024 * 1024),
+                    bin_path.display()
+                );
+                let quarantined = bin_path.with_extension("bin.quarantined");
+                let _ = std::fs::rename(&bin_path, &quarantined);
+                return None;
+            }
+            let data = std::fs::read(&bin_path).ok()?;
+            let (idx, _): (Self, _) =
+                bincode::serde::decode_from_slice(&data, bincode::config::standard()).ok()?;
+            return Some(idx);
         }
-        let data = std::fs::read_to_string(&path).ok()?;
-        serde_json::from_str(&data).ok()
+
+        let json_path = dir.join("bm25_index.json");
+        if json_path.exists() {
+            let meta = std::fs::metadata(&json_path).ok()?;
+            if meta.len() > max_bytes {
+                tracing::warn!(
+                    "[bm25] index too large ({:.1} GB, limit {:.0} MB), quarantining: {}",
+                    meta.len() as f64 / 1_073_741_824.0,
+                    max_bytes / (1024 * 1024),
+                    json_path.display()
+                );
+                let quarantined = json_path.with_extension("json.quarantined");
+                let _ = std::fs::rename(&json_path, &quarantined);
+                return None;
+            }
+            let data = std::fs::read_to_string(&json_path).ok()?;
+            return serde_json::from_str(&data).ok();
+        }
+
+        None
     }
 
     pub fn load_or_build(root: &Path) -> Self {
@@ -393,7 +433,12 @@ impl BM25Index {
     }
 
     pub fn index_file_path(root: &Path) -> PathBuf {
-        index_dir(root).join("bm25_index.json")
+        let dir = index_dir(root);
+        let bin = dir.join("bm25_index.bin");
+        if bin.exists() {
+            return bin;
+        }
+        dir.join("bm25_index.json")
     }
 }
 

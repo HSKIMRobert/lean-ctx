@@ -60,6 +60,8 @@ pub mod typescript;
 pub mod wget;
 pub mod zig;
 
+use crate::core::tokens::count_tokens;
+
 pub fn compress_output(command: &str, output: &str) -> Option<String> {
     let cleaned = crate::core::compressor::strip_ansi(output);
     let output = if cleaned.len() < output.len() {
@@ -105,8 +107,17 @@ pub fn compress_output(command: &str, output: &str) -> Option<String> {
     None
 }
 
+/// Collapse whitespace into single spaces so comparisons align with logical word tokens.
+fn normalize_shell_tokens(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 fn shorter_only(compressed: String, original: &str) -> Option<String> {
-    if compressed.len() < original.len() {
+    let orig_n = normalize_shell_tokens(original);
+    let comp_n = normalize_shell_tokens(&compressed);
+    let ct_c = count_tokens(&comp_n);
+    let ct_o = count_tokens(&orig_n);
+    if ct_c < ct_o || (ct_c == ct_o && comp_n.len() < orig_n.len()) {
         Some(compressed)
     } else {
         None
@@ -154,7 +165,7 @@ fn truncate_large_output(command: &str, output: &str) -> String {
     result
 }
 
-fn try_specific_pattern(cmd: &str, output: &str) -> Option<String> {
+pub fn try_specific_pattern(cmd: &str, output: &str) -> Option<String> {
     let cl = cmd.to_ascii_lowercase();
     let c = cl.as_str();
 

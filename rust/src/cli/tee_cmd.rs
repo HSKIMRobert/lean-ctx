@@ -63,7 +63,18 @@ pub fn cmd_tee(args: &[String]) {
                 eprintln!("Usage: lean-ctx tee show <filename>");
                 std::process::exit(1);
             };
-            let path = tee_dir.join(filename);
+            let fname = filename.as_str();
+            let basename = std::path::Path::new(fname).file_name().unwrap_or_default();
+            if basename.is_empty()
+                || basename != fname
+                || fname == "."
+                || fname == ".."
+                || fname.contains(std::path::MAIN_SEPARATOR)
+            {
+                eprintln!("Error: filename must be a plain basename (no path separators or '..')");
+                std::process::exit(1);
+            }
+            let path = tee_dir.join(basename);
             match crate::tools::ctx_read::read_file_lossy(&path.to_string_lossy()) {
                 Ok(content) => print!("{content}"),
                 Err(e) => {

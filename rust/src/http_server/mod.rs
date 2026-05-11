@@ -55,6 +55,25 @@ impl<I> Drop for SseDisconnectGuard<I> {
     }
 }
 
+const MAX_ID_LEN: usize = 64;
+
+fn sanitize_id(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return "default".to_string();
+    }
+    let cleaned: String = trimmed
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_' || *c == '.')
+        .take(MAX_ID_LEN)
+        .collect();
+    if cleaned.is_empty() {
+        "default".to_string()
+    } else {
+        cleaned
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct HttpServerConfig {
     pub host: String,
@@ -111,6 +130,10 @@ impl HttpServerConfig {
             .with_json_response(self.json_response);
 
         if self.disable_host_check {
+            tracing::warn!(
+                "⚠ --disable-host-check is active: DNS rebinding protection is OFF. \
+                 Do NOT use this in production or on non-loopback interfaces."
+            );
             cfg = cfg.disable_allowed_hosts();
             return cfg;
         }
@@ -229,9 +252,6 @@ async fn rate_limit_middleware(
     req: Request<axum::body::Body>,
     next: Next,
 ) -> Response {
-    if req.uri().path() == "/health" {
-        return next.run(req).await;
-    }
     if !state.rate.allow().await {
         return StatusCode::TOO_MANY_REQUESTS.into_response();
     }
@@ -243,9 +263,6 @@ async fn concurrency_middleware(
     req: Request<axum::body::Body>,
     next: Next,
 ) -> Response {
-    if req.uri().path() == "/health" {
-        return next.run(req).await;
-    }
     let Ok(permit) = state.concurrency.clone().try_acquire_owned() else {
         return StatusCode::TOO_MANY_REQUESTS.into_response();
     };
@@ -332,8 +349,10 @@ async fn v1_tool_call(
     State(state): State<AppState>,
     Json(body): Json<ToolCallBody>,
 ) -> impl IntoResponse {
-    let ws = body.workspace_id.as_deref().unwrap_or("default");
-    let ch = body.channel_id.as_deref().unwrap_or("default");
+    let ws = sanitize_id(body.workspace_id.as_deref().unwrap_or("default"));
+    let ch = sanitize_id(body.channel_id.as_deref().unwrap_or("default"));
+    let ws = ws.as_str();
+    let ch = ch.as_str();
     let server = LeanCtxServer::new_shared_with_context(&state.project_root, ws, ch);
     let engine = ContextEngine::from_server(server);
     match tokio::time::timeout(
@@ -360,13 +379,14 @@ async fn v1_tool_call(
 }
 
 async fn v1_events(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Query(q): Query<EventsQuery>,
 ) -> Sse<impl Stream<Item = Result<SseEvent, std::convert::Infallible>>> {
     use crate::core::context_os::{redact_event_payload, ContextEventV1, RedactionLevel};
 
-    let ws = q.workspace_id.unwrap_or_else(|| "default".to_string());
-    let ch = q.channel_id.unwrap_or_else(|| "default".to_string());
+    let ws = sanitize_id(&q.workspace_id.unwrap_or_else(|| "default".to_string()));
+    let ch = sanitize_id(&q.channel_id.unwrap_or_else(|| "default".to_string()));
+    let _ = &state.project_root;
     let since = q.since.unwrap_or(0);
     let limit = q.limit.unwrap_or(200).min(1000);
     let redaction = RedactionLevel::RefsOnly;
@@ -391,11 +411,19 @@ async fn v1_events(
     let rx = if let Some(ref kinds) = kind_filter {
         let kind_refs: Vec<&str> = kinds.iter().map(String::as_str).collect();
         let filter = crate::core::context_os::TopicFilter::kinds(&kind_refs);
-        crate::core::context_os::SubscriptionKind::Filtered(
-            rt.bus.subscribe_filtered(&ws, &ch, filter),
-        )
+        if let Some(sub) = rt.bus.subscribe_filtered(&ws, &ch, filter) {
+            crate::core::context_os::SubscriptionKind::Filtered(sub)
+        } else {
+            tracing::warn!("SSE subscriber limit reached for {ws}/{ch}");
+            let (_, rx) = broadcast::channel::<ContextEventV1>(1);
+            crate::core::context_os::SubscriptionKind::Unfiltered(rx)
+        }
+    } else if let Some(sub) = rt.bus.subscribe(&ws, &ch) {
+        crate::core::context_os::SubscriptionKind::Unfiltered(sub)
     } else {
-        crate::core::context_os::SubscriptionKind::Unfiltered(rt.bus.subscribe(&ws, &ch))
+        tracing::warn!("SSE subscriber limit reached for {ws}/{ch}");
+        let (_, rx) = broadcast::channel::<ContextEventV1>(1);
+        crate::core::context_os::SubscriptionKind::Unfiltered(rx)
     };
 
     rt.metrics.record_sse_connect();
@@ -489,9 +517,10 @@ async fn v1_a2a_handoff(
     ) {
         Ok(env) => env,
         Err(e) => {
+            tracing::warn!("a2a handoff parse error: {e}");
             return (
                 StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": e})),
+                Json(serde_json::json!({"error": "invalid_envelope"})),
             );
         }
     };
@@ -517,9 +546,10 @@ async fn v1_a2a_handoff(
                 chrono::Utc::now().format("%Y%m%d_%H%M%S")
             ));
             if let Err(e) = std::fs::write(&tmp, &envelope.payload_json) {
+                tracing::error!("a2a handoff write failed: {e}");
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({"error": format!("write: {e}")})),
+                    Json(serde_json::json!({"error": "write_failed"})),
                 );
             }
             (
@@ -527,7 +557,6 @@ async fn v1_a2a_handoff(
                 Json(serde_json::json!({
                     "status": "received",
                     "content_type": "context_package",
-                    "stored": tmp.display().to_string(),
                 })),
             )
         }
@@ -541,9 +570,10 @@ async fn v1_a2a_handoff(
                 chrono::Utc::now().format("%Y%m%d_%H%M%S")
             ));
             if let Err(e) = std::fs::write(&out, &envelope.payload_json) {
+                tracing::error!("a2a handoff write failed: {e}");
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({"error": format!("write: {e}")})),
+                    Json(serde_json::json!({"error": "write_failed"})),
                 );
             }
             (
@@ -551,7 +581,6 @@ async fn v1_a2a_handoff(
                 Json(serde_json::json!({
                     "status": "received",
                     "content_type": "handoff_bundle",
-                    "stored": out.display().to_string(),
                 })),
             )
         }
@@ -569,12 +598,13 @@ async fn a2a_jsonrpc(Json(body): Json<Value>) -> impl IntoResponse {
     let req: crate::core::a2a::a2a_compat::JsonRpcRequest = match serde_json::from_value(body) {
         Ok(r) => r,
         Err(e) => {
+            tracing::debug!("a2a JSON-RPC parse error: {e}");
             return (
                 StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({
                     "jsonrpc": "2.0",
                     "id": null,
-                    "error": {"code": -32700, "message": format!("parse error: {e}")}
+                    "error": {"code": -32700, "message": "invalid request"}
                 })),
             );
         }

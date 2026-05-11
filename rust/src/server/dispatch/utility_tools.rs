@@ -185,6 +185,23 @@ impl LeanCtxServer {
             "ctx_cache" => {
                 let action = get_str(args, "action")
                     .ok_or_else(|| ErrorData::invalid_params("action is required", None))?;
+                let invalidate_path = if action == "invalidate" {
+                    match get_str(args, "path") {
+                        Some(p) => Some(
+                            self.resolve_path(&p)
+                                .await
+                                .map_err(|e| ErrorData::invalid_params(e, None))?,
+                        ),
+                        None => {
+                            return Err(ErrorData::invalid_params(
+                                "path is required for invalidate",
+                                None,
+                            ))
+                        }
+                    }
+                } else {
+                    None
+                };
                 let mut cache = self.cache.write().await;
                 let result = match action.as_str() {
                     "status" => {
@@ -214,18 +231,7 @@ impl LeanCtxServer {
                         format!("Cache cleared — {count} file(s) removed. Next ctx_read will return full content.")
                     }
                     "invalidate" => {
-                        let path = match get_str(args, "path") {
-                            Some(p) => self
-                                .resolve_path(&p)
-                                .await
-                                .map_err(|e| ErrorData::invalid_params(e, None))?,
-                            None => {
-                                return Err(ErrorData::invalid_params(
-                                    "path is required for invalidate",
-                                    None,
-                                ))
-                            }
-                        };
+                        let path = invalidate_path.unwrap();
                         if cache.invalidate(&path) {
                             format!(
                                 "Invalidated cache for {}. Next ctx_read will return full content.",

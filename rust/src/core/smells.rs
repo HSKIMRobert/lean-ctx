@@ -295,10 +295,19 @@ fn detect_untested(conn: &Connection) -> Vec<SmellFinding> {
 }
 
 fn detect_cyclomatic_complexity(conn: &Connection) -> Vec<SmellFinding> {
-    // Cyclomatic complexity requires source access (tree-sitter AST).
-    // We approximate via the node span + number of outgoing call edges
-    // as a proxy: functions with many calls AND large spans tend to have
-    // high branching complexity.
+    #[cfg(feature = "tree-sitter")]
+    {
+        detect_cyclomatic_tree_sitter(conn)
+    }
+    #[cfg(not(feature = "tree-sitter"))]
+    {
+        detect_cyclomatic_heuristic(conn)
+    }
+}
+
+/// Span × calls proxy when the `tree-sitter` feature is off (no AST available).
+#[cfg(not(feature = "tree-sitter"))]
+fn detect_cyclomatic_heuristic(conn: &Connection) -> Vec<SmellFinding> {
     let sql = "
         SELECT n.name, n.file_path, n.line_start,
                (n.line_end - n.line_start) AS span,
@@ -351,6 +360,88 @@ fn detect_cyclomatic_complexity(conn: &Connection) -> Vec<SmellFinding> {
             metric: Some(complexity_proxy),
         });
     }
+    findings
+}
+
+#[cfg(feature = "tree-sitter")]
+fn detect_cyclomatic_tree_sitter(conn: &Connection) -> Vec<SmellFinding> {
+    use std::collections::HashMap;
+    use std::path::Path;
+
+    const WARN_CC: u32 = 11;
+    const ERR_CC: u32 = 21;
+
+    let sql = "
+        SELECT DISTINCT n.file_path
+        FROM nodes n
+        WHERE n.kind = 'symbol'
+          AND n.file_path IS NOT NULL
+          AND length(trim(n.file_path)) > 0
+        LIMIT 400
+    ";
+    let mut paths = Vec::new();
+    let Ok(mut stmt) = conn.prepare(sql) else {
+        return Vec::new();
+    };
+    let Ok(rows) = stmt.query_map([], |row| row.get::<_, String>(0)) else {
+        return Vec::new();
+    };
+    for row in rows.flatten() {
+        paths.push(row);
+    }
+
+    let mut per_file: HashMap<String, Vec<crate::core::cyclomatic::FunctionComplexity>> =
+        HashMap::new();
+
+    for path in paths {
+        if per_file.contains_key(&path) {
+            continue;
+        }
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Some(ext) = Path::new(&path).extension().and_then(|e| e.to_str()) else {
+            continue;
+        };
+        let Some(metrics) = crate::core::cyclomatic::cyclomatic_per_function(&content, ext) else {
+            continue;
+        };
+        per_file.insert(path, metrics);
+    }
+
+    let mut findings = Vec::new();
+    for (path, metrics) in per_file {
+        for m in metrics {
+            if m.cyclomatic < WARN_CC {
+                continue;
+            }
+            let severity = if m.cyclomatic >= ERR_CC {
+                Severity::Error
+            } else {
+                Severity::Warning
+            };
+            findings.push(SmellFinding {
+                rule: "cyclomatic_complexity",
+                severity,
+                file_path: path.clone(),
+                symbol: Some(m.name.clone()),
+                line: Some(m.line),
+                message: format!(
+                    "'{}' cyclomatic complexity {} (thresholds: warning {WARN_CC}, error {ERR_CC})",
+                    m.name, m.cyclomatic
+                ),
+                metric: Some(f64::from(m.cyclomatic)),
+            });
+        }
+    }
+
+    findings.sort_by(|a, b| {
+        b.metric
+            .unwrap_or(0.0)
+            .partial_cmp(&a.metric.unwrap_or(0.0))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    findings.truncate(100);
     findings
 }
 

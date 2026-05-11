@@ -201,6 +201,7 @@ pub struct ContextBus {
 }
 
 const STREAM_CHANNEL_SIZE: usize = 256;
+const MAX_SUBSCRIBERS_PER_CHANNEL: usize = 64;
 
 struct Inner {
     write_conn: Mutex<Connection>,
@@ -213,6 +214,7 @@ struct Inner {
 impl Inner {
     fn open_read_conn(path: &PathBuf) -> Connection {
         let conn = Connection::open(path).expect("open read context-os db");
+        let _ = conn.busy_timeout(std::time::Duration::from_secs(5));
         let _ = conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA query_only=ON;");
         conn
     }
@@ -290,6 +292,7 @@ impl ContextBus {
             let _ = std::fs::create_dir_all(parent);
         }
         let conn = Connection::open(&path).expect("open context-os db");
+        let _ = conn.busy_timeout(std::time::Duration::from_secs(5));
         conn.execute_batch(
             "PRAGMA journal_mode=WAL;
              CREATE TABLE IF NOT EXISTS context_events (
@@ -341,7 +344,7 @@ impl ContextBus {
         &self,
         workspace_id: &str,
         channel_id: &str,
-    ) -> broadcast::Receiver<ContextEventV1> {
+    ) -> Option<broadcast::Receiver<ContextEventV1>> {
         let key = Inner::stream_key(workspace_id, channel_id);
         let mut streams = self
             .inner
@@ -351,7 +354,13 @@ impl ContextBus {
         let tx = streams
             .entry(key)
             .or_insert_with(|| broadcast::channel(STREAM_CHANNEL_SIZE).0);
-        tx.subscribe()
+        if tx.receiver_count() >= MAX_SUBSCRIBERS_PER_CHANNEL {
+            tracing::warn!(
+                "SSE subscriber cap ({MAX_SUBSCRIBERS_PER_CHANNEL}) reached for {workspace_id}/{channel_id} — rejecting"
+            );
+            return None;
+        }
+        Some(tx.subscribe())
     }
 
     /// Subscribe with a filter — only events matching the filter are delivered.
@@ -361,9 +370,9 @@ impl ContextBus {
         workspace_id: &str,
         channel_id: &str,
         filter: TopicFilter,
-    ) -> FilteredSubscription {
-        let rx = self.subscribe(workspace_id, channel_id);
-        FilteredSubscription { rx, filter }
+    ) -> Option<FilteredSubscription> {
+        let rx = self.subscribe(workspace_id, channel_id)?;
+        Some(FilteredSubscription { rx, filter })
     }
 
     pub fn append(
@@ -866,7 +875,7 @@ mod tests {
     #[test]
     fn broadcast_subscriber_receives_events() {
         let (bus, _td) = test_bus();
-        let mut rx = bus.subscribe("ws", "ch");
+        let mut rx = bus.subscribe("ws", "ch").expect("subscribe should succeed");
 
         let ev = bus
             .append(

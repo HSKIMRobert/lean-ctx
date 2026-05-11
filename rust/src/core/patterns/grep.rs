@@ -1,5 +1,11 @@
 use std::collections::HashMap;
 
+use crate::core::tokens::count_tokens;
+
+fn normalize_shell_tokens(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 pub fn compress(output: &str) -> Option<String> {
     let lines: Vec<&str> = output.lines().collect();
     if lines.len() < 3 {
@@ -54,7 +60,11 @@ pub fn compress(output: &str) -> Option<String> {
         }
     }
 
-    if result.len() >= output.len() {
+    let out_n = normalize_shell_tokens(output);
+    let res_n = normalize_shell_tokens(&result);
+    let ct_r = count_tokens(&res_n);
+    let ct_o = count_tokens(&out_n);
+    if ct_r >= ct_o && !(ct_r == ct_o && res_n.len() < out_n.len()) {
         return None;
     }
 
@@ -116,10 +126,10 @@ mod tests {
             "should group by file: {compressed}"
         );
         assert!(
-            compressed.len() < output.len(),
+            count_tokens(&compressed) < count_tokens(&output),
             "should compress: {} vs {}",
-            compressed.len(),
-            output.len()
+            count_tokens(&compressed),
+            count_tokens(&output)
         );
     }
 
@@ -149,10 +159,10 @@ mod tests {
         let result = compress(output);
         if let Some(ref compressed) = result {
             assert!(
-                compressed.len() < output.len(),
+                count_tokens(compressed) < count_tokens(output),
                 "must never inflate: compressed={} vs original={}",
-                compressed.len(),
-                output.len()
+                count_tokens(compressed),
+                count_tokens(output)
             );
         }
     }
@@ -175,10 +185,10 @@ mod tests {
         let output = lines.join("\n");
         let result = compress(&output).expect("80 matches should compress");
         assert!(
-            result.len() < output.len(),
+            count_tokens(&result) < count_tokens(&output),
             "must compress: {} vs {}",
-            result.len(),
-            output.len()
+            count_tokens(&result),
+            count_tokens(&output)
         );
         assert!(result.contains("80 matches in 2F:"));
         assert!(result.contains("src/models/user.rs (50):"));
@@ -194,10 +204,10 @@ mod tests {
         let result = compress(&output);
         if let Some(ref c) = result {
             assert!(
-                c.len() < output.len(),
-                "if claimed, must be shorter: {} vs {}",
-                c.len(),
-                output.len()
+                count_tokens(c) < count_tokens(&output),
+                "if claimed, must be shorter in tokens: {} vs {}",
+                count_tokens(c),
+                count_tokens(&output)
             );
         }
     }
@@ -209,10 +219,10 @@ mod tests {
             let output = lines.join("\n");
             if let Some(ref c) = compress(&output) {
                 assert!(
-                    c.len() < output.len(),
+                    count_tokens(c) < count_tokens(&output),
                     "count={count}: inflated {} vs {}",
-                    c.len(),
-                    output.len()
+                    count_tokens(c),
+                    count_tokens(&output)
                 );
             }
         }

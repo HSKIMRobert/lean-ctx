@@ -126,22 +126,28 @@ impl FilterEngine {
     }
 }
 
-fn compile_rule(raw: RawFilterRule, path: &Path) -> CompiledRule {
-    let command_re = raw.command.as_ref().and_then(|s| {
-        Regex::new(s)
-            .map_err(|e| {
-                tracing::warn!("lean-ctx: invalid command regex in {}: {e}", path.display());
-            })
-            .ok()
-    });
+const MAX_FILTER_REGEX_SIZE: usize = 1 << 20; // 1 MiB DFA limit (matches ctx_search)
 
-    let pattern_re = raw.pattern.as_ref().and_then(|s| {
-        Regex::new(s)
-            .map_err(|e| {
-                tracing::warn!("lean-ctx: invalid pattern regex in {}: {e}", path.display());
-            })
-            .ok()
-    });
+fn build_bounded_regex(pattern: &str, source_path: &Path) -> Option<Regex> {
+    regex::RegexBuilder::new(pattern)
+        .size_limit(MAX_FILTER_REGEX_SIZE)
+        .dfa_size_limit(MAX_FILTER_REGEX_SIZE)
+        .build()
+        .map_err(|e| {
+            tracing::warn!("lean-ctx: invalid regex in {}: {e}", source_path.display());
+        })
+        .ok()
+}
+
+fn compile_rule(raw: RawFilterRule, path: &Path) -> CompiledRule {
+    let command_re = raw
+        .command
+        .as_ref()
+        .and_then(|s| build_bounded_regex(s, path));
+    let pattern_re = raw
+        .pattern
+        .as_ref()
+        .and_then(|s| build_bounded_regex(s, path));
 
     CompiledRule {
         command_re,
@@ -157,16 +163,26 @@ pub fn validate_filter_file(path: &str) -> Result<usize, String> {
     let file: FilterFile =
         toml::from_str(&content).map_err(|e| format!("TOML parse error: {e}"))?;
 
+    let source = std::path::Path::new(path);
     let mut valid = 0;
     for (i, rule) in file.rules.iter().enumerate() {
         if let Some(ref cmd) = rule.command {
-            Regex::new(cmd).map_err(|e| format!("Rule {}: invalid command regex: {e}", i + 1))?;
+            regex::RegexBuilder::new(cmd)
+                .size_limit(MAX_FILTER_REGEX_SIZE)
+                .dfa_size_limit(MAX_FILTER_REGEX_SIZE)
+                .build()
+                .map_err(|e| format!("Rule {}: invalid command regex: {e}", i + 1))?;
         }
         if let Some(ref pat) = rule.pattern {
-            Regex::new(pat).map_err(|e| format!("Rule {}: invalid pattern regex: {e}", i + 1))?;
+            regex::RegexBuilder::new(pat)
+                .size_limit(MAX_FILTER_REGEX_SIZE)
+                .dfa_size_limit(MAX_FILTER_REGEX_SIZE)
+                .build()
+                .map_err(|e| format!("Rule {}: invalid pattern regex: {e}", i + 1))?;
         }
         valid += 1;
     }
+    let _ = source;
     Ok(valid)
 }
 

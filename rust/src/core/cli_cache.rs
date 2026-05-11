@@ -58,7 +58,7 @@ fn compute_md5(content: &str) -> String {
 }
 
 fn normalize_key(path: &str) -> String {
-    crate::hooks::normalize_tool_path(path)
+    crate::core::pathutil::normalize_tool_path(path)
 }
 
 fn load_store() -> CliCacheStore {

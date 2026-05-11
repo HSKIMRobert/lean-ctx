@@ -425,8 +425,8 @@ impl ServerHandler for LeanCtxServer {
                     } else {
                         "unknown".to_string()
                     };
-                    tracing::error!("Tool '{name}' panicked: {detail}");
-                    format!("ERROR: lean-ctx internal error in tool '{name}': {detail}\n\
+                    tracing::error!(tool = name, "Tool panicked: {detail}");
+                    format!("ERROR: lean-ctx internal error in tool '{name}'.\n\
                              The MCP server is still running. Please retry or use a different approach.")
                 }
             }
@@ -511,8 +511,11 @@ impl ServerHandler for LeanCtxServer {
         };
 
         let pre_compression = result_text.clone();
+        let skip_terse = name == "ctx_shell"
+            && helpers::get_str(args, "command")
+                .is_some_and(|c| crate::shell::compress::has_structural_output(&c));
         let compression = crate::core::config::CompressionLevel::effective(&config);
-        if compression.is_active() {
+        if compression.is_active() && !skip_terse {
             let terse_result =
                 crate::core::terse::pipeline::compress(&result_text, &compression, None);
             if terse_result.quality_passed && terse_result.savings_pct >= 1.0 {

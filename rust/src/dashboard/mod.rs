@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use subtle::ConstantTimeEq;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
@@ -124,7 +125,7 @@ pub async fn start(port: Option<u16>, host: Option<String>) {
 
 fn generate_token() -> String {
     let mut bytes = [0u8; 32];
-    let _ = getrandom::fill(&mut bytes);
+    getrandom::fill(&mut bytes).expect("CSPRNG unavailable — cannot generate secure token");
     format!("lctx_{}", hex_lower(&bytes))
 }
 
@@ -217,6 +218,68 @@ fn dashboard_responding(host: &str, port: u16) -> bool {
 }
 
 const MAX_HTTP_MESSAGE: usize = 2 * 1024 * 1024;
+
+fn header_line_value<'a>(header_section: &'a str, name: &str) -> Option<&'a str> {
+    for line in header_section.lines() {
+        let Some((k, v)) = line.split_once(':') else {
+            continue;
+        };
+        if k.trim().eq_ignore_ascii_case(name) {
+            return Some(v.trim());
+        }
+    }
+    None
+}
+
+/// Loopback dashboards often use `localhost` vs `127.0.0.1` interchangeably in `Origin`.
+fn host_loopback_aliases(host: &str) -> Vec<String> {
+    let mut v = vec![host.to_string()];
+    if let Some(port) = host.strip_prefix("127.0.0.1:") {
+        v.push(format!("localhost:{port}"));
+    }
+    if let Some(port) = host.strip_prefix("localhost:") {
+        v.push(format!("127.0.0.1:{port}"));
+    }
+    if let Some(port) = host.strip_prefix("[::1]:") {
+        v.push(format!("127.0.0.1:{port}"));
+        v.push(format!("localhost:{port}"));
+    }
+    v
+}
+
+fn origin_matches_dashboard_host(origin: &str, host: &str) -> bool {
+    let origin = origin.trim_end_matches('/');
+    for h in host_loopback_aliases(host) {
+        if origin.eq_ignore_ascii_case(&format!("http://{h}"))
+            || origin.eq_ignore_ascii_case(&format!("https://{h}"))
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// Defense-in-depth for browser POSTs: reject cross-site `Origin` on mutating `/api/*` calls.
+/// Non-browser clients (no `Origin`) remain allowed when Bearer auth succeeds.
+fn csrf_origin_ok(header_section: &str, method: &str, path: &str) -> bool {
+    let uc = method.to_ascii_uppercase();
+    if !matches!(uc.as_str(), "POST" | "PUT" | "PATCH" | "DELETE") {
+        return true;
+    }
+    if !path.starts_with("/api/") {
+        return true;
+    }
+    let Some(origin) = header_line_value(header_section, "Origin") else {
+        return true;
+    };
+    if origin.is_empty() || origin.eq_ignore_ascii_case("null") {
+        return true;
+    }
+    let Some(host) = header_line_value(header_section, "Host") else {
+        return false;
+    };
+    origin_matches_dashboard_host(origin, host)
+}
 
 fn find_headers_end(buf: &[u8]) -> Option<usize> {
     buf.windows(4).position(|w| w == b"\r\n\r\n")
@@ -327,6 +390,21 @@ async fn handle_request(mut stream: tokio::net::TcpStream, token: Option<Arc<Str
             let _ = stream.write_all(response.as_bytes()).await;
             return;
         }
+
+        if !csrf_origin_ok(&header_text, method.as_str(), path.as_str()) {
+            let body = r#"{"error":"forbidden"}"#;
+            let response = format!(
+                "HTTP/1.1 403 Forbidden\r\n\
+                 Content-Type: application/json\r\n\
+                 Content-Length: {}\r\n\
+                 Connection: close\r\n\
+                 \r\n\
+                 {body}",
+                body.len()
+            );
+            let _ = stream.write_all(response.as_bytes()).await;
+            return;
+        }
     }
 
     let path = path.as_str();
@@ -344,7 +422,7 @@ async fn handle_request(mut stream: tokio::net::TcpStream, token: Option<Arc<Str
             &body_str,
         )
     });
-    let (status, content_type, body) = match compute {
+    let (status, content_type, mut body) = match compute {
         Ok(v) => v,
         Err(_) => (
             "500 Internal Server Error",
@@ -359,11 +437,23 @@ async fn handle_request(mut stream: tokio::net::TcpStream, token: Option<Arc<Str
         ""
     };
 
-    let security_headers = "\
-        X-Content-Type-Options: nosniff\r\n\
-        X-Frame-Options: DENY\r\n\
-        Referrer-Policy: no-referrer\r\n\
-        Content-Security-Policy: default-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com https://fonts.gstatic.com; img-src 'self' data:; font-src 'self' https://fonts.gstatic.com\r\n";
+    let nonce = {
+        let mut nb = [0u8; 16];
+        getrandom::fill(&mut nb).expect("CSPRNG unavailable — cannot generate CSP nonce");
+        hex_lower(&nb)
+    };
+    if body.contains("<script>window.__LEAN_CTX_TOKEN__") {
+        body = body.replace(
+            "<script>window.__LEAN_CTX_TOKEN__",
+            &format!("<script nonce=\"{nonce}\">window.__LEAN_CTX_TOKEN__"),
+        );
+    }
+    let security_headers = format!(
+        "X-Content-Type-Options: nosniff\r\n\
+         X-Frame-Options: DENY\r\n\
+         Referrer-Policy: no-referrer\r\n\
+         Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-{nonce}' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'\r\n"
+    );
 
     let response = format!(
         "HTTP/1.1 {status}\r\n\
@@ -400,10 +490,7 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
     }
-    a.iter()
-        .zip(b.iter())
-        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
-        == 0
+    bool::from(a.ct_eq(b))
 }
 
 #[cfg(test)]

@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 use tiktoken_rs::CoreBPE;
 
 // ── Tokenizer Families ─────────────────────────────────────
@@ -88,9 +87,16 @@ const GEMINI_CORRECTION: f64 = 1.08;
 
 // ── Cache ──────────────────────────────────────────────────
 
-const TOKEN_CACHE_MAX: usize = 2048;
+const TOKEN_CACHE_MAX: u64 = 4096;
 
-static TOKEN_CACHE: Mutex<Option<HashMap<u64, usize>>> = Mutex::new(None);
+fn token_cache() -> &'static moka::sync::Cache<u64, usize> {
+    static CACHE: std::sync::OnceLock<moka::sync::Cache<u64, usize>> = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| {
+        moka::sync::Cache::builder()
+            .max_capacity(TOKEN_CACHE_MAX)
+            .build()
+    })
+}
 
 fn hash_text(text: &str, family: TokenizerFamily) -> u64 {
     let h = blake3::hash(text.as_bytes());
@@ -138,13 +144,10 @@ pub fn count_tokens_for(text: &str, family: TokenizerFamily) -> usize {
     }
 
     let key = hash_text(text, family);
+    let cache = token_cache();
 
-    if let Ok(guard) = TOKEN_CACHE.lock() {
-        if let Some(ref map) = *guard {
-            if let Some(&cached) = map.get(&key) {
-                return cached;
-            }
-        }
+    if let Some(cached) = cache.get(&key) {
+        return cached;
     }
 
     let raw = bpe_for_family(family)
@@ -156,17 +159,7 @@ pub fn count_tokens_for(text: &str, family: TokenizerFamily) -> usize {
         raw
     };
 
-    if let Ok(mut guard) = TOKEN_CACHE.lock() {
-        let map = guard.get_or_insert_with(HashMap::new);
-        if map.len() >= TOKEN_CACHE_MAX {
-            let keys: Vec<u64> = map.keys().take(TOKEN_CACHE_MAX / 2).copied().collect();
-            for k in keys {
-                map.remove(&k);
-            }
-        }
-        map.insert(key, count);
-    }
-
+    cache.insert(key, count);
     count
 }
 
@@ -191,7 +184,6 @@ pub fn encode_tokens_for(text: &str, family: TokenizerFamily) -> Vec<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
     use std::sync::{Mutex, OnceLock};
 
     fn token_test_lock() -> std::sync::MutexGuard<'static, ()> {
@@ -202,9 +194,7 @@ mod tests {
     }
 
     fn reset_cache() {
-        if let Ok(mut guard) = TOKEN_CACHE.lock() {
-            *guard = Some(HashMap::new());
-        }
+        token_cache().invalidate_all();
     }
 
     // ── Backward-compatible tests ──────────────────────────

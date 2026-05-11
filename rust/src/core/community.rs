@@ -1,12 +1,12 @@
-//! Louvain community detection on the Property Graph.
+//! Leiden community detection on the Property Graph.
 //!
-//! Implements the Louvain algorithm for modularity-based graph clustering:
-//!   1. Start with each node in its own community.
-//!   2. Greedily move nodes to the community that yields the highest
-//!      modularity gain.
-//!   3. Aggregate communities into super-nodes and repeat.
-//!
-//! The result maps each file to a community ID, along with modularity metrics.
+//! Implements the Leiden algorithm (Traag, Waltman, van Eck 2019) for
+//! modularity-based graph clustering with guaranteed connected communities:
+//!   1. **Local moving:** greedily move nodes to the community that yields
+//!      the highest modularity gain.
+//!   2. **Refinement:** within each community, find well-connected
+//!      sub-communities to ensure connectivity.
+//!   3. **Aggregation:** collapse sub-communities into super-nodes and repeat.
 
 use std::collections::HashMap;
 
@@ -44,14 +44,25 @@ impl AdjGraph {
         let mut node_ids: Vec<String> = Vec::new();
         let mut node_to_idx: HashMap<String, usize> = HashMap::new();
 
-        let mut file_stmt = conn
-            .prepare("SELECT DISTINCT file_path FROM nodes WHERE kind = 'file'")
-            .unwrap();
-        let files = file_stmt
-            .query_map([], |row| row.get::<_, String>(0))
-            .unwrap()
-            .filter_map(std::result::Result::ok)
-            .collect::<Vec<_>>();
+        let Ok(mut file_stmt) =
+            conn.prepare("SELECT DISTINCT file_path FROM nodes WHERE kind = 'file'")
+        else {
+            tracing::warn!("community: failed to prepare file query");
+            return Self {
+                node_ids: Vec::new(),
+                node_to_idx: HashMap::new(),
+                adj: Vec::new(),
+                degree: Vec::new(),
+                total_weight: 0.0,
+            };
+        };
+        let files = match file_stmt.query_map([], |row| row.get::<_, String>(0)) {
+            Ok(rows) => rows.filter_map(std::result::Result::ok).collect::<Vec<_>>(),
+            Err(e) => {
+                tracing::warn!("community: file query failed: {e}");
+                Vec::new()
+            }
+        };
 
         for f in &files {
             let idx = node_ids.len();
@@ -72,18 +83,29 @@ impl AdjGraph {
             WHERE n1.kind = 'file' AND n2.kind = 'file'
               AND n1.file_path != n2.file_path
         ";
-        let mut edge_stmt = conn.prepare(edge_sql).unwrap();
-        let edges = edge_stmt
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
-            })
-            .unwrap()
-            .filter_map(std::result::Result::ok)
-            .collect::<Vec<_>>();
+        let Ok(mut edge_stmt) = conn.prepare(edge_sql) else {
+            tracing::warn!("community: failed to prepare edge query");
+            return Self {
+                node_ids,
+                node_to_idx,
+                adj,
+                total_weight,
+                degree,
+            };
+        };
+        let edges = match edge_stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        }) {
+            Ok(rows) => rows.filter_map(std::result::Result::ok).collect::<Vec<_>>(),
+            Err(e) => {
+                tracing::warn!("community: edge query failed: {e}");
+                Vec::new()
+            }
+        };
 
         for (from, to, kind) in &edges {
             let Some(&i) = node_to_idx.get(from) else {
@@ -132,51 +154,10 @@ pub fn detect_communities(conn: &Connection) -> CommunityResult {
         };
     }
 
-    let mut community: Vec<usize> = (0..n).collect();
-    let mut changed = true;
-    let m2 = graph.total_weight.max(1.0) * 2.0;
-
-    while changed {
-        changed = false;
-        for i in 0..n {
-            let current = community[i];
-            let mut best_delta = 0.0f64;
-            let mut best_community = current;
-
-            let mut neighbor_comm_weight: HashMap<usize, f64> = HashMap::new();
-            for &(j, w) in &graph.adj[i] {
-                *neighbor_comm_weight.entry(community[j]).or_default() += w;
-            }
-
-            let ki = graph.degree[i];
-            let sigma_current = comm_sum_degree(&graph, &community, current);
-            let sigma_in_current = neighbor_comm_weight.get(&current).copied().unwrap_or(0.0);
-
-            for (&c, &ki_in) in &neighbor_comm_weight {
-                if c == current {
-                    continue;
-                }
-                let sigma_c = comm_sum_degree(&graph, &community, c);
-
-                let delta_remove = -2.0 * (sigma_in_current - ki * (sigma_current - ki) / m2) / m2;
-                let delta_add = 2.0 * (ki_in - ki * sigma_c / m2) / m2;
-                let delta = delta_add + delta_remove;
-
-                if delta > best_delta {
-                    best_delta = delta;
-                    best_community = c;
-                }
-            }
-
-            if best_community != current {
-                community[i] = best_community;
-                changed = true;
-            }
-        }
-    }
+    let assignment = leiden(&graph);
 
     let mut comm_map: HashMap<usize, Vec<usize>> = HashMap::new();
-    for (i, &c) in community.iter().enumerate() {
+    for (i, &c) in assignment.iter().enumerate() {
         comm_map.entry(c).or_default().push(i);
     }
 
@@ -221,7 +202,7 @@ pub fn detect_communities(conn: &Connection) -> CommunityResult {
         c.id = new_id;
     }
 
-    let modularity = compute_modularity(&graph, &community);
+    let modularity = compute_modularity(&graph, &assignment);
     let edge_count = graph.adj.iter().map(Vec::len).sum::<usize>();
 
     CommunityResult {
@@ -232,14 +213,206 @@ pub fn detect_communities(conn: &Connection) -> CommunityResult {
     }
 }
 
-fn comm_sum_degree(graph: &AdjGraph, community: &[usize], c: usize) -> f64 {
-    let mut sum = 0.0;
-    for (i, &ci) in community.iter().enumerate() {
-        if ci == c {
-            sum += graph.degree[i];
+// ── Leiden Algorithm ────────────────────────────────────────
+
+const MAX_ITERATIONS: usize = 20;
+const GAMMA: f64 = 1.0;
+
+fn leiden(graph: &AdjGraph) -> Vec<usize> {
+    let n = graph.node_ids.len();
+    let mut assignment: Vec<usize> = (0..n).collect();
+    let m2 = graph.total_weight.max(1.0) * 2.0;
+
+    for _ in 0..MAX_ITERATIONS {
+        let moved = local_moving(graph, &mut assignment, m2);
+        if !moved {
+            break;
+        }
+        refine_communities(graph, &mut assignment, m2);
+    }
+
+    assignment
+}
+
+/// Phase 1: Local Moving — greedily move nodes to their best neighbor community.
+fn local_moving(graph: &AdjGraph, assignment: &mut [usize], m2: f64) -> bool {
+    let n = assignment.len();
+    let mut comm_total: Vec<f64> = vec![0.0; n];
+    for (i, &c) in assignment.iter().enumerate() {
+        comm_total[c] += graph.degree[i];
+    }
+
+    let mut changed = false;
+    let mut improved = true;
+
+    while improved {
+        improved = false;
+        for i in 0..n {
+            let current = assignment[i];
+            let ki = graph.degree[i];
+
+            let mut neighbor_comm_weight: HashMap<usize, f64> = HashMap::new();
+            for &(j, w) in &graph.adj[i] {
+                *neighbor_comm_weight.entry(assignment[j]).or_default() += w;
+            }
+
+            let sigma_current = comm_total[current];
+            let ki_in_current = neighbor_comm_weight.get(&current).copied().unwrap_or(0.0);
+
+            let mut best_delta = 0.0f64;
+            let mut best_comm = current;
+
+            for (&c, &ki_in) in &neighbor_comm_weight {
+                if c == current {
+                    continue;
+                }
+                let sigma_c = comm_total[c];
+                let delta_remove = -2.0 * (ki_in_current - ki * (sigma_current - ki) / m2) / m2;
+                let delta_add = 2.0 * (ki_in - ki * sigma_c / m2) / m2;
+                let delta = delta_add + delta_remove;
+
+                if delta > best_delta {
+                    best_delta = delta;
+                    best_comm = c;
+                }
+            }
+
+            if best_comm != current {
+                comm_total[current] -= ki;
+                comm_total[best_comm] += ki;
+                assignment[i] = best_comm;
+                improved = true;
+                changed = true;
+            }
         }
     }
-    sum
+
+    changed
+}
+
+/// Phase 2: Refinement — ensure each community is well-connected by splitting
+/// disconnected components within communities.
+fn refine_communities(graph: &AdjGraph, assignment: &mut [usize], m2: f64) {
+    let mut comm_members: HashMap<usize, Vec<usize>> = HashMap::new();
+    for (i, &c) in assignment.iter().enumerate() {
+        comm_members.entry(c).or_default().push(i);
+    }
+
+    let mut next_id = *assignment.iter().max().unwrap_or(&0) + 1;
+
+    for members in comm_members.values() {
+        if members.len() <= 1 {
+            continue;
+        }
+
+        let components = find_connected_components(graph, members);
+        if components.len() <= 1 {
+            continue;
+        }
+
+        for component in components.iter().skip(1) {
+            let new_comm = next_id;
+            next_id += 1;
+            for &node in component {
+                assignment[node] = new_comm;
+            }
+        }
+    }
+
+    merge_singleton_communities(graph, assignment, m2);
+}
+
+/// Find connected components within a subset of nodes.
+fn find_connected_components(graph: &AdjGraph, members: &[usize]) -> Vec<Vec<usize>> {
+    let member_set: std::collections::HashSet<usize> = members.iter().copied().collect();
+    let mut visited = std::collections::HashSet::new();
+    let mut components = Vec::new();
+
+    for &start in members {
+        if visited.contains(&start) {
+            continue;
+        }
+
+        let mut component = Vec::new();
+        let mut stack = vec![start];
+
+        while let Some(node) = stack.pop() {
+            if !visited.insert(node) {
+                continue;
+            }
+            component.push(node);
+            for &(neighbor, _) in &graph.adj[node] {
+                if member_set.contains(&neighbor) && !visited.contains(&neighbor) {
+                    stack.push(neighbor);
+                }
+            }
+        }
+
+        components.push(component);
+    }
+
+    components
+}
+
+/// Try to merge singleton communities into their best neighbor community.
+fn merge_singleton_communities(graph: &AdjGraph, assignment: &mut [usize], m2: f64) {
+    let n = assignment.len();
+    let mut comm_total: Vec<f64> =
+        vec![0.0; n.max(assignment.iter().copied().max().unwrap_or(0) + 1)];
+    for (i, &c) in assignment.iter().enumerate() {
+        if c < comm_total.len() {
+            comm_total[c] += graph.degree[i];
+        }
+    }
+
+    let mut comm_sizes: HashMap<usize, usize> = HashMap::new();
+    for &c in assignment.iter() {
+        *comm_sizes.entry(c).or_default() += 1;
+    }
+
+    for i in 0..n {
+        let current = assignment[i];
+        if *comm_sizes.get(&current).unwrap_or(&0) > 1 {
+            continue;
+        }
+
+        let ki = graph.degree[i];
+        let mut neighbor_comm_weight: HashMap<usize, f64> = HashMap::new();
+        for &(j, w) in &graph.adj[i] {
+            *neighbor_comm_weight.entry(assignment[j]).or_default() += w;
+        }
+
+        let mut best_delta = 0.0f64;
+        let mut best_comm = current;
+
+        for (&c, &ki_in) in &neighbor_comm_weight {
+            if c == current {
+                continue;
+            }
+            let sigma_c = if c < comm_total.len() {
+                comm_total[c]
+            } else {
+                0.0
+            };
+            let delta = 2.0 * (ki_in - GAMMA * ki * sigma_c / m2) / m2;
+            if delta > best_delta {
+                best_delta = delta;
+                best_comm = c;
+            }
+        }
+
+        if best_comm != current {
+            if current < comm_total.len() {
+                comm_total[current] -= ki;
+            }
+            if best_comm < comm_total.len() {
+                comm_total[best_comm] += ki;
+            }
+            *comm_sizes.entry(current).or_default() -= 1;
+            *comm_sizes.entry(best_comm).or_default() += 1;
+            assignment[i] = best_comm;
+        }
+    }
 }
 
 fn compute_modularity(graph: &AdjGraph, community: &[usize]) -> f64 {
@@ -336,5 +509,32 @@ mod tests {
         let result = detect_communities(g.connection());
         assert!(result.communities.is_empty());
         assert_eq!(result.modularity, 0.0);
+    }
+
+    #[test]
+    fn communities_are_connected() {
+        let g = build_test_graph();
+        let graph = AdjGraph::from_property_graph(g.connection());
+        let result = detect_communities(g.connection());
+
+        for comm in &result.communities {
+            if comm.files.len() <= 1 {
+                continue;
+            }
+            let indices: Vec<usize> = comm
+                .files
+                .iter()
+                .filter_map(|f| graph.node_to_idx.get(f).copied())
+                .collect();
+            let components = find_connected_components(&graph, &indices);
+            assert_eq!(
+                components.len(),
+                1,
+                "Community {} with {} files should be connected, found {} components",
+                comm.id,
+                comm.files.len(),
+                components.len()
+            );
+        }
     }
 }

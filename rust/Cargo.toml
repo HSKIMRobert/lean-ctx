@@ -1,6 +1,6 @@
 [package]
 name = "lean-ctx"
-version = "3.5.15"
+version = "3.5.16"
 edition = "2021"
 description = "Context Runtime for AI Agents with CCP. 63 MCP tools, 10 read modes, 95+ compression patterns, cross-session memory (CCP), persistent AI knowledge with temporal facts + contradiction detection, multi-agent context sharing + diaries, LITM-aware positioning, AAAK compact format, adaptive compression with Thompson Sampling bandits. Supports 24 AI tools. Reduces LLM token consumption by up to 99%."
 license = "Apache-2.0"
@@ -41,6 +41,7 @@ cloud-server = [
   "dep:uuid",
   "dep:hex",
   "dep:rand",
+  "dep:argon2",
 ]
 tree-sitter = [
   "dep:tree-sitter",
@@ -70,6 +71,7 @@ tiktoken-rs = "0.6"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "io-std", "io-util", "net", "sync", "time", "signal"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+subtle = "2"
 md-5 = "0.10"
 anyhow = "1"
 regex = "1"
@@ -122,6 +124,7 @@ hex = { version = "0.4", optional = true }
 hmac = "0.12"
 sha2 = "0.10"
 rand = { version = "0.9.3", optional = true }
+argon2 = { version = "0.5", optional = true }
 glob = "0.3.3"
 urlencoding = "2"
 ratatui = "0.30"
@@ -133,6 +136,8 @@ bytecount = "0.6.9"
 libc = "0.2"
 blake3 = "1"
 rayon = "1.10"
+moka = { version = "0.12.15", features = ["sync"] }
+bincode = { version = "2", features = ["serde"] }
 
 [lints.rust]
 # CI coverage (cargo-tarpaulin) injects `--cfg tarpaulin`; declare it to avoid

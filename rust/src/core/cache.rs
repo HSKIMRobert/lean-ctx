@@ -5,7 +5,7 @@ use std::time::{Instant, SystemTime};
 use super::tokens::count_tokens;
 
 fn normalize_key(path: &str) -> String {
-    crate::hooks::normalize_tool_path(path)
+    crate::core::pathutil::normalize_tool_path(path)
 }
 
 fn max_cache_tokens() -> usize {
@@ -187,7 +187,8 @@ pub struct SharedBlock {
     pub content: String,
 }
 
-/// In-memory file cache with RRF-based eviction, file references, and cross-file dedup.
+/// In-memory file cache with segmented LRU eviction (probationary vs protected),
+/// file references, and cross-file dedup.
 pub struct SessionCache {
     entries: HashMap<String, CacheEntry>,
     file_refs: HashMap<String, String>,
@@ -356,7 +357,9 @@ impl SessionCache {
         self.entries.values().map(|e| e.original_tokens).sum()
     }
 
-    /// Evict lowest-scoring entries (by RRF) until cache fits within token budget.
+    /// Evict until cache fits within token budget using segmented LRU:
+    /// probationary (`read_count` ≤ 1, newly inserted / single-touch) first by oldest `last_access`,
+    /// then protected entries (`read_count` > 1) by oldest access.
     pub fn evict_if_needed(&mut self, incoming_tokens: usize) {
         let max_tokens = max_cache_tokens();
         let current = self.total_cached_tokens();
@@ -364,20 +367,32 @@ impl SessionCache {
             return;
         }
 
-        let now = Instant::now();
-        let all_entries: Vec<(&String, &CacheEntry)> = self.entries.iter().collect();
-        let mut scored = eviction_scores_rrf(&all_entries, now);
-        scored.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-
         let mut freed = 0usize;
         let target = (current + incoming_tokens).saturating_sub(max_tokens);
-        for (path, _score) in &scored {
+
+        let mut probationary: Vec<(String, Instant)> = self
+            .entries
+            .iter()
+            .filter(|(_, e)| e.read_count <= 1)
+            .map(|(p, e)| (p.clone(), e.last_access))
+            .collect();
+        probationary.sort_by_key(|(_, t)| *t);
+
+        let mut protected: Vec<(String, Instant)> = self
+            .entries
+            .iter()
+            .filter(|(_, e)| e.read_count > 1)
+            .map(|(p, e)| (p.clone(), e.last_access))
+            .collect();
+        protected.sort_by_key(|(_, t)| *t);
+
+        for (path, _) in probationary.into_iter().chain(protected.into_iter()) {
             if freed >= target {
                 break;
             }
-            if let Some(entry) = self.entries.remove(path) {
+            if let Some(entry) = self.entries.remove(&path) {
                 freed += entry.original_tokens;
-                self.file_refs.remove(path);
+                self.file_refs.remove(&path);
             }
         }
     }

@@ -17,7 +17,7 @@ const IDE_CONFIG_DIRS: &[&str] = &[
     ".continue",
 ];
 
-fn allow_paths_from_env_and_config() -> Vec<PathBuf> {
+pub fn allow_paths_from_env_and_config() -> Vec<PathBuf> {
     let mut out = Vec::new();
 
     if let Ok(data_dir) = crate::core::data_dir::lean_ctx_data_dir() {
@@ -55,7 +55,7 @@ fn is_under_prefix(path: &Path, prefix: &Path) -> bool {
     path.starts_with(prefix)
 }
 
-fn canonicalize_or_self(path: &Path) -> PathBuf {
+pub fn canonicalize_or_self(path: &Path) -> PathBuf {
     super::pathutil::safe_canonicalize_or_self(path)
 }
 

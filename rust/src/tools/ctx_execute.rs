@@ -9,6 +9,17 @@ pub fn handle(language: &str, code: &str, intent: Option<&str>, timeout: Option<
 
 /// Reads a file from disk, detects its language, and executes a processing script.
 pub fn handle_file(path: &str, intent: Option<&str>) -> String {
+    let cap = crate::core::limits::max_read_bytes();
+    let meta = match std::fs::metadata(path) {
+        Ok(m) => m,
+        Err(e) => return format!("Error reading {path}: {e}"),
+    };
+    if meta.len() > cap as u64 {
+        return format!(
+            "File too large ({} bytes, limit {cap} bytes). Use a line-range read instead.",
+            meta.len()
+        );
+    }
     let content = match std::fs::read_to_string(path) {
         Ok(c) => c,
         Err(e) => return format!("Error reading {path}: {e}"),
@@ -16,7 +27,9 @@ pub fn handle_file(path: &str, intent: Option<&str>) -> String {
 
     let language = detect_language_from_extension(path);
     let code = build_file_processing_script(&language, &content, intent);
+    let tmp_dat = std::env::temp_dir().join(format!("lean-ctx-exec-{}.dat", std::process::id()));
     let result = sandbox::execute(&language, &code, None);
+    let _ = std::fs::remove_file(&tmp_dat);
     format_result(&result, intent)
 }
 
@@ -98,18 +111,28 @@ fn detect_language_from_extension(path: &str) -> String {
     .to_string()
 }
 
+fn sanitize_intent(raw: &str) -> String {
+    raw.chars()
+        .filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-' || *c == '_' || *c == '.')
+        .take(200)
+        .collect()
+}
+
 fn build_file_processing_script(language: &str, content: &str, intent: Option<&str>) -> String {
-    let escaped = content.replace('\\', "\\\\").replace('\'', "\\'");
-    let intent_str = intent.unwrap_or("summarize the content");
+    let tmp = std::env::temp_dir().join(format!("lean-ctx-exec-{}.dat", std::process::id()));
+    let _ = std::fs::write(&tmp, content);
+    let tmp_path = tmp.to_string_lossy();
+    let intent_str = sanitize_intent(intent.unwrap_or("summarize the content"));
 
     match language {
         "python" => {
             format!(
                 r#"
-import json, re
-from collections import Counter
+import os
 
-data = '''{escaped}'''
+with open(r"{tmp_path}", "r", encoding="utf-8") as f:
+    data = f.read()
+os.remove(r"{tmp_path}")
 
 lines = data.strip().split('\n')
 total_lines = len(lines)
@@ -118,7 +141,7 @@ total_bytes = len(data.encode('utf-8'))
 word_count = sum(len(line.split()) for line in lines)
 
 print(f"{{total_lines}} lines, {{total_bytes}} bytes, {{word_count}} words")
-print(f"Intent: {intent_str}")
+print("Intent: {intent_str}")
 
 if total_lines > 10:
     print(f"First 3: {{lines[:3]}}")
@@ -129,11 +152,12 @@ if total_lines > 10:
         _ => {
             format!(
                 r#"
-data='{escaped}'
+data=$(cat "{tmp_path}")
+rm -f "{tmp_path}"
 lines=$(echo "$data" | wc -l | tr -d ' ')
 bytes=$(echo "$data" | wc -c | tr -d ' ')
 echo "$lines lines, $bytes bytes"
-echo "Intent: {intent_str}"
+echo 'Intent: {intent_str}'
 echo "$data" | head -3
 echo "..."
 echo "$data" | tail -3

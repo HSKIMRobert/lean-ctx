@@ -5,6 +5,18 @@ use std::time::SystemTime;
 
 use super::memory_policy::MemoryPolicy;
 
+mod memory;
+mod proxy;
+mod serde_defaults;
+
+pub use memory::{MemoryCleanup, MemoryProfile};
+pub use proxy::{is_local_proxy_url, normalize_url, normalize_url_opt, ProxyConfig, ProxyProvider};
+
+/// Default BM25 cache cap from config (also used by `bm25_index` heuristics).
+pub fn default_bm25_max_cache_mb() -> u64 {
+    serde_defaults::default_bm25_max_cache_mb()
+}
+
 /// Controls when shell output is tee'd to disk for later retrieval.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -209,107 +221,12 @@ impl CompressionLevel {
     }
 }
 
-/// Controls how aggressively lean-ctx frees memory when idle.
-/// - `aggressive`: (Default) Cache cleared after short idle period (5 min). Best for single-IDE use.
-/// - `shared`: Cache retained longer (30 min). Best when multiple IDEs/models share lean-ctx context.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum MemoryCleanup {
-    #[default]
-    Aggressive,
-    Shared,
-}
-
-impl MemoryCleanup {
-    pub fn from_env() -> Option<Self> {
-        std::env::var("LEAN_CTX_MEMORY_CLEANUP").ok().and_then(|v| {
-            match v.trim().to_lowercase().as_str() {
-                "aggressive" => Some(Self::Aggressive),
-                "shared" => Some(Self::Shared),
-                _ => None,
-            }
-        })
-    }
-
-    pub fn effective(config: &Config) -> Self {
-        if let Some(env_val) = Self::from_env() {
-            return env_val;
-        }
-        config.memory_cleanup.clone()
-    }
-
-    /// Idle TTL in seconds before cache is auto-cleared.
-    pub fn idle_ttl_secs(&self) -> u64 {
-        match self {
-            Self::Aggressive => 300,
-            Self::Shared => 1800,
-        }
-    }
-
-    /// BM25 index eviction age multiplier (shared mode retains longer).
-    pub fn index_retention_multiplier(&self) -> f64 {
-        match self {
-            Self::Aggressive => 1.0,
-            Self::Shared => 3.0,
-        }
-    }
-}
-
-/// Controls RAM usage vs. feature richness trade-off.
-/// - `low`: Minimal RAM footprint, disables optional caches and embedding features
-/// - `balanced`: Default — moderate caches, single embedding engine
-/// - `performance`: Maximum caches, all features enabled
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum MemoryProfile {
-    Low,
-    #[default]
-    Balanced,
-    Performance,
-}
-
-impl MemoryProfile {
-    pub fn from_env() -> Option<Self> {
-        std::env::var("LEAN_CTX_MEMORY_PROFILE").ok().and_then(|v| {
-            match v.trim().to_lowercase().as_str() {
-                "low" => Some(Self::Low),
-                "balanced" => Some(Self::Balanced),
-                "performance" => Some(Self::Performance),
-                _ => None,
-            }
-        })
-    }
-
-    pub fn effective(config: &Config) -> Self {
-        if let Some(env_val) = Self::from_env() {
-            return env_val;
-        }
-        config.memory_profile.clone()
-    }
-
-    pub fn bm25_max_cache_mb(&self) -> u64 {
-        match self {
-            Self::Low => 64,
-            Self::Balanced => 128,
-            Self::Performance => 512,
-        }
-    }
-
-    pub fn semantic_cache_enabled(&self) -> bool {
-        !matches!(self, Self::Low)
-    }
-
-    pub fn embeddings_enabled(&self) -> bool {
-        !matches!(self, Self::Low)
-    }
-}
-
 /// Global lean-ctx configuration loaded from `config.toml`, merged with project-local overrides.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
     pub ultra_compact: bool,
-    #[serde(default, deserialize_with = "deserialize_tee_mode")]
+    #[serde(default, deserialize_with = "serde_defaults::deserialize_tee_mode")]
     pub tee_mode: TeeMode,
     #[serde(default)]
     pub output_density: OutputDensity,
@@ -320,7 +237,7 @@ pub struct Config {
     /// Commands taking longer than this threshold (ms) are recorded in the slow log.
     /// Set to 0 to disable slow logging.
     pub slow_command_threshold_ms: u64,
-    #[serde(default = "default_theme")]
+    #[serde(default = "serde_defaults::default_theme")]
     pub theme: String,
     #[serde(default)]
     pub cloud: CloudConfig,
@@ -328,7 +245,7 @@ pub struct Config {
     pub autonomy: AutonomyConfig,
     #[serde(default)]
     pub proxy: ProxyConfig,
-    #[serde(default = "default_buddy_enabled")]
+    #[serde(default = "serde_defaults::default_buddy_enabled")]
     pub buddy_enabled: bool,
     #[serde(default)]
     pub redirect_exclude: Vec<String>,
@@ -387,7 +304,7 @@ pub struct Config {
     pub update_check_disabled: bool,
     /// Maximum BM25 cache file size in MB. Indexes exceeding this are quarantined on load
     /// and refused on save. Override via LEAN_CTX_BM25_MAX_CACHE_MB env var.
-    #[serde(default = "default_bm25_max_cache_mb")]
+    #[serde(default = "serde_defaults::default_bm25_max_cache_mb")]
     pub bm25_max_cache_mb: u64,
     /// Controls RAM vs feature trade-off. Values: "low", "balanced" (default), "performance".
     /// Override via LEAN_CTX_MEMORY_PROFILE env var.
@@ -419,100 +336,6 @@ impl Default for ArchiveConfig {
             max_disk_mb: 500,
         }
     }
-}
-
-/// API proxy upstream overrides. `None` = use provider default.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct ProxyConfig {
-    pub anthropic_upstream: Option<String>,
-    pub openai_upstream: Option<String>,
-    pub gemini_upstream: Option<String>,
-}
-
-impl ProxyConfig {
-    pub fn resolve_upstream(&self, provider: ProxyProvider) -> String {
-        let (env_var, config_val, default) = match provider {
-            ProxyProvider::Anthropic => (
-                "LEAN_CTX_ANTHROPIC_UPSTREAM",
-                self.anthropic_upstream.as_deref(),
-                "https://api.anthropic.com",
-            ),
-            ProxyProvider::OpenAi => (
-                "LEAN_CTX_OPENAI_UPSTREAM",
-                self.openai_upstream.as_deref(),
-                "https://api.openai.com",
-            ),
-            ProxyProvider::Gemini => (
-                "LEAN_CTX_GEMINI_UPSTREAM",
-                self.gemini_upstream.as_deref(),
-                "https://generativelanguage.googleapis.com",
-            ),
-        };
-        std::env::var(env_var)
-            .ok()
-            .and_then(|v| normalize_url_opt(&v))
-            .or_else(|| config_val.and_then(normalize_url_opt))
-            .unwrap_or_else(|| normalize_url(default))
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum ProxyProvider {
-    Anthropic,
-    OpenAi,
-    Gemini,
-}
-
-pub fn normalize_url(value: &str) -> String {
-    value.trim().trim_end_matches('/').to_string()
-}
-
-pub fn normalize_url_opt(value: &str) -> Option<String> {
-    let trimmed = normalize_url(value);
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed)
-    }
-}
-
-pub fn is_local_proxy_url(value: &str) -> bool {
-    let n = normalize_url(value);
-    n.starts_with("http://127.0.0.1:")
-        || n.starts_with("http://localhost:")
-        || n.starts_with("http://[::1]:")
-}
-
-fn default_buddy_enabled() -> bool {
-    true
-}
-
-pub fn default_bm25_max_cache_mb() -> u64 {
-    128
-}
-
-fn deserialize_tee_mode<'de, D>(deserializer: D) -> Result<TeeMode, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    use serde::de::Error;
-    let v = serde_json::Value::deserialize(deserializer)?;
-    match &v {
-        serde_json::Value::Bool(true) => Ok(TeeMode::Failures),
-        serde_json::Value::Bool(false) => Ok(TeeMode::Never),
-        serde_json::Value::String(s) => match s.as_str() {
-            "never" => Ok(TeeMode::Never),
-            "failures" => Ok(TeeMode::Failures),
-            "always" => Ok(TeeMode::Always),
-            other => Err(D::Error::custom(format!("unknown tee_mode: {other}"))),
-        },
-        _ => Err(D::Error::custom("tee_mode must be string or bool")),
-    }
-}
-
-fn default_theme() -> String {
-    "default".to_string()
 }
 
 /// Controls autonomous background behaviors (preload, dedup, consolidation).
@@ -672,11 +495,11 @@ impl Default for Config {
             passthrough_urls: Vec::new(),
             custom_aliases: Vec::new(),
             slow_command_threshold_ms: 5000,
-            theme: default_theme(),
+            theme: serde_defaults::default_theme(),
             cloud: CloudConfig::default(),
             autonomy: AutonomyConfig::default(),
             proxy: ProxyConfig::default(),
-            buddy_enabled: default_buddy_enabled(),
+            buddy_enabled: serde_defaults::default_buddy_enabled(),
             redirect_exclude: Vec::new(),
             disabled_tools: Vec::new(),
             loop_detection: LoopDetectionConfig::default(),
@@ -691,7 +514,7 @@ impl Default for Config {
             minimal_overhead: false,
             shell_hook_disabled: false,
             update_check_disabled: false,
-            bm25_max_cache_mb: default_bm25_max_cache_mb(),
+            bm25_max_cache_mb: serde_defaults::default_bm25_max_cache_mb(),
             memory_profile: MemoryProfile::default(),
             memory_cleanup: MemoryCleanup::default(),
         }

@@ -41,10 +41,31 @@ fn append_compressed_hint(output: &str, file_path: &str) -> String {
 }
 
 /// Reads a file as UTF-8 with lossy fallback, enforcing binary detection and max read size limit.
+/// Defense-in-depth: verifies that the canonical path stays within the process's project root
+/// (if determinable) even though callers SHOULD have already jail-checked the path.
 pub fn read_file_lossy(path: &str) -> Result<String, std::io::Error> {
     if crate::core::binary_detect::is_binary_file(path) {
         let msg = crate::core::binary_detect::binary_file_message(path);
         return Err(std::io::Error::other(msg));
+    }
+
+    if let Ok(canonical) = std::path::Path::new(path).canonicalize() {
+        if let Ok(cwd) = std::env::current_dir() {
+            let root = crate::core::pathjail::canonicalize_or_self(&cwd);
+            if !canonical.starts_with(&root) {
+                let allow = crate::core::pathjail::allow_paths_from_env_and_config();
+                let data_dir_ok = crate::core::data_dir::lean_ctx_data_dir()
+                    .ok()
+                    .is_some_and(|d| canonical.starts_with(d));
+                let tmp_ok = canonical.starts_with(std::env::temp_dir());
+                if !allow.iter().any(|a| canonical.starts_with(a)) && !data_dir_ok && !tmp_ok {
+                    tracing::warn!(
+                        "defense-in-depth: path may escape project root: {}",
+                        canonical.display()
+                    );
+                }
+            }
+        }
     }
 
     let cap = crate::core::limits::max_read_bytes();

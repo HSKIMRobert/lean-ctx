@@ -40,6 +40,40 @@ pub fn strip_verbatim_str(path: &str) -> Option<String> {
     }
 }
 
+/// Normalize paths from any client format to a consistent OS-native form.
+/// Handles MSYS2/Git Bash (`/c/Users/...` -> `C:/Users/...`), mixed separators,
+/// double slashes, and trailing slashes. Uses forward slashes for consistency.
+pub fn normalize_tool_path(path: &str) -> String {
+    let mut p = match strip_verbatim_str(path) {
+        Some(stripped) => stripped,
+        None => path.to_string(),
+    };
+
+    // MSYS2/Git Bash: /c/Users/... -> C:/Users/...
+    if p.len() >= 3
+        && p.starts_with('/')
+        && p.as_bytes()[1].is_ascii_alphabetic()
+        && p.as_bytes()[2] == b'/'
+    {
+        let drive = p.as_bytes()[1].to_ascii_uppercase() as char;
+        p = format!("{drive}:{}", &p[2..]);
+    }
+
+    p = p.replace('\\', "/");
+
+    // Collapse double slashes (preserve UNC paths starting with //)
+    while p.contains("//") && !p.starts_with("//") {
+        p = p.replace("//", "/");
+    }
+
+    // Remove trailing slash (unless root like "/" or "C:/")
+    if p.len() > 1 && p.ends_with('/') && !p.ends_with(":/") {
+        p.pop();
+    }
+
+    p
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

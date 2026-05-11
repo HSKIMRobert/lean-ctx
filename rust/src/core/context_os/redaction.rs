@@ -54,6 +54,15 @@ fn redact_to_refs_only(payload: &mut Value) {
     *payload = Value::Object(redacted);
 }
 
+/// Redact a standalone payload Value (without full ContextEventV1).
+pub fn redact_payload_value(payload: &mut Value, scope: RedactionLevel) {
+    match scope {
+        RedactionLevel::Full => {}
+        RedactionLevel::Summary => redact_to_summary(payload),
+        RedactionLevel::RefsOnly => redact_to_refs_only(payload),
+    }
+}
+
 /// Strip full content but keep tool names and basic metadata.
 fn redact_to_summary(payload: &mut Value) {
     let Some(obj) = payload.as_object() else {

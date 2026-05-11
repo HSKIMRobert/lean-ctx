@@ -206,6 +206,12 @@ impl LeanCtxServer {
                 let message = get_str(args, "message");
 
                 let from_agent = self.agent_id.read().await.clone();
+                let session = self.session.read().await;
+                let project_root = session.project_root.clone().unwrap_or_else(|| {
+                    std::env::current_dir()
+                        .map_or_else(|_| ".".to_string(), |p| p.to_string_lossy().to_string())
+                });
+                drop(session);
                 let cache = self.cache.read().await;
                 let result = crate::tools::ctx_share::handle(
                     &action,
@@ -214,6 +220,7 @@ impl LeanCtxServer {
                     paths.as_deref(),
                     message.as_deref(),
                     &cache,
+                    &project_root,
                 );
                 drop(cache);
 
@@ -280,25 +287,29 @@ impl LeanCtxServer {
                         let curated_paths = get_str_array(args, "paths").unwrap_or_default();
                         let mut curated_refs: Vec<(String, String)> = Vec::new();
                         if !curated_paths.is_empty() {
-                            let mut cache = self.cache.write().await;
+                            let mut resolved: Vec<String> = Vec::new();
                             for p in curated_paths.into_iter().take(20) {
                                 let abs = self
                                     .resolve_path(&p)
                                     .await
                                     .map_err(|e| ErrorData::invalid_params(e, None))?;
-                                let mode = if crate::tools::ctx_read::is_instruction_file(&abs) {
+                                resolved.push(abs);
+                            }
+                            let mut cache = self.cache.write().await;
+                            for abs in &resolved {
+                                let mode = if crate::tools::ctx_read::is_instruction_file(abs) {
                                     "full"
                                 } else {
                                     "signatures"
                                 };
                                 let text = crate::tools::ctx_read::handle_with_task(
                                     &mut cache,
-                                    &abs,
+                                    abs,
                                     mode,
                                     crate::tools::CrpMode::effective(),
                                     None,
                                 );
-                                curated_refs.push((abs, text));
+                                curated_refs.push((abs.clone(), text));
                             }
                         }
 
@@ -351,25 +362,29 @@ impl LeanCtxServer {
                         let curated_paths = get_str_array(args, "paths").unwrap_or_default();
                         let mut curated_refs: Vec<(String, String)> = Vec::new();
                         if !curated_paths.is_empty() {
-                            let mut cache = self.cache.write().await;
+                            let mut resolved: Vec<String> = Vec::new();
                             for p in curated_paths.into_iter().take(20) {
                                 let abs = self
                                     .resolve_path(&p)
                                     .await
                                     .map_err(|e| ErrorData::invalid_params(e, None))?;
-                                let mode = if crate::tools::ctx_read::is_instruction_file(&abs) {
+                                resolved.push(abs);
+                            }
+                            let mut cache = self.cache.write().await;
+                            for abs in &resolved {
+                                let mode = if crate::tools::ctx_read::is_instruction_file(abs) {
                                     "full"
                                 } else {
                                     "signatures"
                                 };
                                 let text = crate::tools::ctx_read::handle_with_task(
                                     &mut cache,
-                                    &abs,
+                                    abs,
                                     mode,
                                     crate::tools::CrpMode::effective(),
                                     None,
                                 );
-                                curated_refs.push((abs, text));
+                                curated_refs.push((abs.clone(), text));
                             }
                         }
 

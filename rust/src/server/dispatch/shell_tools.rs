@@ -203,7 +203,7 @@ impl LeanCtxServer {
                 let pattern_for_task = pattern.clone();
                 let path_for_task = path.clone();
                 let ext = get_str(args, "ext");
-                let max = get_int(args, "max_results").unwrap_or(20) as usize;
+                let max = (get_int(args, "max_results").unwrap_or(20) as usize).min(500);
                 let no_gitignore = get_bool(args, "ignore_gitignore").unwrap_or(false);
                 if no_gitignore {
                     if let Err(e) =
@@ -348,7 +348,7 @@ impl LeanCtxServer {
                 };
 
                 self.record_call("ctx_execute", 0, 0, Some(action)).await;
-                result
+                crate::core::redaction::redact_text_if_enabled(&result)
             }
             _ => unreachable!("dispatch_shell_tools called with unknown tool: {name}"),
         })

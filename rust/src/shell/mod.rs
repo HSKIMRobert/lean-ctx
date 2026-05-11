@@ -1,4 +1,4 @@
-mod compress;
+pub mod compress;
 mod exec;
 mod interactive;
 mod platform;

@@ -66,6 +66,29 @@ pub fn remove_content(content: &str, start: &str, end: &str) -> String {
     }
 }
 
+/// Replace the region between `start` and `end` markers with `replacement`
+/// (trim-aware newlines). If markers are missing or invalid, returns `content` unchanged.
+pub fn replace_marked_block(content: &str, start: &str, end: &str, replacement: &str) -> String {
+    let s = content.find(start);
+    let e = content.find(end);
+    match (s, e) {
+        (Some(si), Some(ei)) if ei >= si => {
+            let after_end = ei + end.len();
+            let before = &content[..si];
+            let after = &content[after_end..];
+            let mut out = String::new();
+            out.push_str(before.trim_end_matches('\n'));
+            out.push('\n');
+            out.push('\n');
+            out.push_str(replacement.trim_end_matches('\n'));
+            out.push('\n');
+            out.push_str(after.trim_start_matches('\n'));
+            out
+        }
+        _ => content.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -45,6 +45,18 @@ fn read_stdin_with_timeout(timeout: Duration) -> Option<String> {
     }
 }
 
+fn build_dual_deny_output(reason: &str) -> String {
+    serde_json::json!({
+        "permission": "deny",
+        "reason": reason,
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+        }
+    })
+    .to_string()
+}
+
 fn build_dual_allow_output() -> String {
     serde_json::json!({
         "permission": "allow",
@@ -93,9 +105,11 @@ pub fn handle_rewrite() {
         return;
     };
 
-    let v: serde_json::Value = match serde_json::from_str(&input) {
-        Ok(v) => v,
-        Err(_) => return,
+    let v: serde_json::Value = if let Ok(v) = serde_json::from_str(&input) {
+        v
+    } else {
+        print!("{}", build_dual_deny_output("invalid JSON hook payload"));
+        return;
     };
 
     let tool = v.get("tool_name").and_then(|t| t.as_str());
@@ -256,7 +270,7 @@ pub fn handle_redirect() {
     };
 
     let Ok(v) = serde_json::from_str::<serde_json::Value>(&input) else {
-        print!("{}", build_dual_allow_output());
+        print!("{}", build_dual_deny_output("invalid JSON hook payload"));
         return;
     };
 
@@ -378,10 +392,16 @@ fn redirect_temp_path(key: &str) -> std::path::PathBuf {
 
     let mut hasher = DefaultHasher::new();
     key.hash(&mut hasher);
+    std::process::id().hash(&mut hasher);
     let hash = hasher.finish();
 
     let temp_dir = std::env::temp_dir().join("lean-ctx-hook");
     let _ = std::fs::create_dir_all(&temp_dir);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&temp_dir, std::fs::Permissions::from_mode(0o700));
+    }
     temp_dir.join(format!("{hash:016x}.lctx"))
 }
 

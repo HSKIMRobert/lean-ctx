@@ -109,6 +109,12 @@ pub fn run(dry_run: bool) {
     removed_any |= remove_hook_files(&home, dry_run);
     removed_any |= remove_project_agent_files(dry_run);
 
+    if dry_run {
+        println!("  Would remove proxy autostart (LaunchAgent/systemd)");
+    } else {
+        crate::proxy_autostart::uninstall(true);
+    }
+
     if !dry_run {
         cleanup_bak_files(&home);
     }

@@ -156,7 +156,7 @@ pub fn handle(command: &str, output: &str, crp_mode: CrpMode) -> String {
 
     let raw_compressed = match patterns::compress_output(command, output) {
         Some(c) if is_search_command(command) => {
-            if c.len() <= output.len() {
+            if count_tokens(&c) <= count_tokens(output) {
                 c
             } else {
                 output.to_string()

@@ -111,8 +111,16 @@ fn get_cached_query(file_ext: &str) -> Option<&'static Query> {
     cache.get(file_ext)
 }
 
+/// Visit each structural chunk root (`@chunk` capture) once per tree-sitter query match.
+///
+/// `start_line` / `end_line` are **1-based** inclusive line numbers (matching [`CodeChunk`]).
+/// Returns `None` if the extension is unsupported or parsing fails.
 #[cfg(feature = "tree-sitter")]
-pub fn extract_chunks_ts(file_path: &str, content: &str, file_ext: &str) -> Option<Vec<CodeChunk>> {
+pub(crate) fn for_each_chunk_node(
+    content: &str,
+    file_ext: &str,
+    mut visitor: impl FnMut(Node, &str, ChunkKind, usize, usize),
+) -> Option<()> {
     let language = get_language(file_ext)?;
 
     thread_local! {
@@ -130,8 +138,6 @@ pub fn extract_chunks_ts(file_path: &str, content: &str, file_ext: &str) -> Opti
     let name_idx = find_capture_index(query, "name")?;
 
     let source = content.as_bytes();
-    let lines: Vec<&str> = content.lines().collect();
-    let mut chunks = Vec::new();
     let mut cursor = QueryCursor::new();
     let mut matches = cursor.matches(query, tree.root_node(), source);
     let mut seen_ranges = Vec::new();
@@ -155,37 +161,54 @@ pub fn extract_chunks_ts(file_path: &str, content: &str, file_ext: &str) -> Opti
                 continue;
             }
 
-            let start_line = node.start_position().row;
-            let end_line = node.end_position().row;
+            let start_row0 = node.start_position().row;
+            let end_row0 = node.end_position().row;
 
-            let range = (start_line, end_line);
+            let range = (start_row0, end_row0);
             if seen_ranges
                 .iter()
-                .any(|&(s, e)| s <= start_line && end_line <= e && range != (s, e))
+                .any(|&(s, e)| s <= start_row0 && end_row0 <= e && range != (s, e))
             {
                 continue;
             }
             seen_ranges.push(range);
 
-            let block: String = lines[start_line..=end_line.min(lines.len() - 1)]
+            let kind = node_kind_to_chunk_kind(node.kind());
+            visitor(node, name_text.as_str(), kind, start_row0 + 1, end_row0 + 1);
+        }
+    }
+
+    Some(())
+}
+
+#[cfg(feature = "tree-sitter")]
+pub fn extract_chunks_ts(file_path: &str, content: &str, file_ext: &str) -> Option<Vec<CodeChunk>> {
+    let lines: Vec<&str> = content.lines().collect();
+    let mut chunks = Vec::new();
+
+    for_each_chunk_node(
+        content,
+        file_ext,
+        |node, name_text, kind, start_line, end_line| {
+            let start_row0 = node.start_position().row;
+            let end_row0 = node.end_position().row;
+            let block: String = lines[start_row0..=end_row0.min(lines.len().saturating_sub(1))]
                 .to_vec()
                 .join("\n");
-
-            let kind = node_kind_to_chunk_kind(node.kind());
             let token_count = super::bm25_index::tokenize_for_index(&block).len();
 
             chunks.push(CodeChunk {
                 file_path: file_path.to_string(),
-                symbol_name: name_text,
+                symbol_name: name_text.to_string(),
                 kind,
-                start_line: start_line + 1,
-                end_line: end_line + 1,
+                start_line,
+                end_line,
                 content: block,
                 tokens: Vec::new(),
                 token_count,
             });
-        }
-    }
+        },
+    )?;
 
     if chunks.is_empty() {
         return None;

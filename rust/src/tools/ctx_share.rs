@@ -18,11 +18,13 @@ struct SharedFile {
     tokens: usize,
 }
 
-fn shared_dir() -> PathBuf {
+fn shared_dir(project_root: &str) -> PathBuf {
+    let hash = crate::core::project_hash::hash_project_root(project_root);
     crate::core::data_dir::lean_ctx_data_dir()
         .unwrap_or_else(|_| PathBuf::from("."))
         .join("agents")
         .join("shared")
+        .join(hash)
 }
 
 pub fn handle(
@@ -32,12 +34,13 @@ pub fn handle(
     paths: Option<&str>,
     message: Option<&str>,
     cache: &crate::core::cache::SessionCache,
+    project_root: &str,
 ) -> String {
     match action {
-        "push" => handle_push(from_agent, to_agent, paths, message, cache),
-        "pull" => handle_pull(from_agent),
-        "list" => handle_list(),
-        "clear" => handle_clear(from_agent),
+        "push" => handle_push(from_agent, to_agent, paths, message, cache, project_root),
+        "pull" => handle_pull(from_agent, project_root),
+        "list" => handle_list(project_root),
+        "clear" => handle_clear(from_agent, project_root),
         _ => format!("Unknown action: {action}. Use: push, pull, list, clear"),
     }
 }
@@ -48,6 +51,7 @@ fn handle_push(
     paths: Option<&str>,
     message: Option<&str>,
     cache: &crate::core::cache::SessionCache,
+    project_root: &str,
 ) -> String {
     let Some(from) = from_agent else {
         return "Error: from_agent is required (register first via ctx_agent)".to_string();
@@ -89,7 +93,7 @@ fn handle_push(
         timestamp: chrono::Utc::now().to_rfc3339(),
     };
 
-    let dir = shared_dir();
+    let dir = shared_dir(project_root);
     let _ = std::fs::create_dir_all(&dir);
 
     let filename = format!(
@@ -131,8 +135,8 @@ fn handle_push(
     result
 }
 
-fn handle_pull(agent_id: Option<&str>) -> String {
-    let dir = shared_dir();
+fn handle_pull(agent_id: Option<&str>, project_root: &str) -> String {
+    let dir = shared_dir(project_root);
     if !dir.exists() {
         return "No shared contexts available.".to_string();
     }
@@ -189,8 +193,8 @@ fn handle_pull(agent_id: Option<&str>) -> String {
     out
 }
 
-fn handle_list() -> String {
-    let dir = shared_dir();
+fn handle_list(project_root: &str) -> String {
+    let dir = shared_dir(project_root);
     if !dir.exists() {
         return "No shared contexts.".to_string();
     }
@@ -226,8 +230,8 @@ fn handle_list() -> String {
     out
 }
 
-fn handle_clear(agent_id: Option<&str>) -> String {
-    let dir = shared_dir();
+fn handle_clear(agent_id: Option<&str>, project_root: &str) -> String {
+    let dir = shared_dir(project_root);
     if !dir.exists() {
         return "Nothing to clear.".to_string();
     }

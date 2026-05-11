@@ -94,12 +94,13 @@ pub fn should_keep_line(trimmed: &str, entropy_threshold: f64) -> bool {
         return true;
     }
 
-    let h = super::entropy::token_entropy(trimmed);
+    let tokens = encode_tokens(trimmed);
+    let h = super::entropy::token_entropy_from_ids(&tokens);
     if h >= entropy_threshold {
         return true;
     }
 
-    let h_norm = super::entropy::normalized_token_entropy(trimmed);
+    let h_norm = super::entropy::normalized_token_entropy_from_ids(&tokens);
     if h_norm >= 0.3 {
         return true;
     }

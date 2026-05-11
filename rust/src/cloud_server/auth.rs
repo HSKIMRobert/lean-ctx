@@ -689,16 +689,39 @@ async fn consume_password_reset(pool: &Pool, token_sha: &str) -> Result<Uuid, Co
     consume_email_verification(pool, token_sha).await
 }
 
-// ─── Password hashing (salted SHA256) ─────────────────────────
+// ─── Password hashing (Argon2id) ──────────────────────────────
 
 fn hash_password(password: &str) -> String {
-    let salt: [u8; 16] = rand::random();
-    let salt_hex = hex::encode(salt);
-    let digest = sha256_hex(&format!("{salt_hex}:{password}"));
-    format!("{salt_hex}:{digest}")
+    use argon2::{
+        password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
+        Argon2,
+    };
+    let salt = SaltString::generate(&mut OsRng);
+    let argon2 = Argon2::default();
+    argon2
+        .hash_password(password.as_bytes(), &salt)
+        .expect("Argon2 hashing failed")
+        .to_string()
 }
 
 fn verify_password(password: &str, stored: &str) -> bool {
+    if stored.starts_with("$argon2") {
+        use argon2::{
+            password_hash::{PasswordHash, PasswordVerifier},
+            Argon2,
+        };
+        let Ok(parsed) = PasswordHash::new(stored) else {
+            return false;
+        };
+        Argon2::default()
+            .verify_password(password.as_bytes(), &parsed)
+            .is_ok()
+    } else {
+        verify_password_legacy_sha256(password, stored)
+    }
+}
+
+fn verify_password_legacy_sha256(password: &str, stored: &str) -> bool {
     let parts: Vec<&str> = stored.splitn(2, ':').collect();
     if parts.len() != 2 {
         return false;

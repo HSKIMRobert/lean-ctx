@@ -173,6 +173,33 @@ fn resolve_runtime(language: &str) -> Option<RuntimeConfig> {
     }
 }
 
+const SANDBOX_ENV_ALLOWLIST: &[&str] = &[
+    "PATH",
+    "HOME",
+    "USER",
+    "LANG",
+    "LC_ALL",
+    "TERM",
+    "TMPDIR",
+    "TMP",
+    "TEMP",
+    "SYSTEMROOT",
+    "WINDIR",
+];
+
+fn apply_sandbox_env(cmd: &mut Command, runtime: &RuntimeConfig) {
+    cmd.env_clear();
+    for key in SANDBOX_ENV_ALLOWLIST {
+        if let Ok(val) = std::env::var(key) {
+            cmd.env(key, val);
+        }
+    }
+    for (k, v) in &runtime.env {
+        cmd.env(k, v);
+    }
+    cmd.env("LEAN_CTX_SANDBOX", "1");
+}
+
 fn execute_with_stdin(
     runtime: &RuntimeConfig,
     code: &str,
@@ -183,12 +210,7 @@ fn execute_with_stdin(
         cmd.arg(arg);
     }
     cmd.arg(code);
-
-    for (k, v) in &runtime.env {
-        cmd.env(k, v);
-    }
-
-    cmd.env("LEAN_CTX_SANDBOX", "1");
+    apply_sandbox_env(&mut cmd, runtime);
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
 
@@ -232,10 +254,7 @@ fn execute_with_file(
             cmd.arg(arg);
         }
         cmd.arg(&file_path);
-        for (k, v) in &runtime.env {
-            cmd.env(k, v);
-        }
-        cmd.env("LEAN_CTX_SANDBOX", "1");
+        apply_sandbox_env(&mut cmd, runtime);
         cmd.stdout(std::process::Stdio::piped());
         cmd.stderr(std::process::Stdio::piped());
 
@@ -260,10 +279,17 @@ fn execute_rust(
 ) -> Result<(String, String, i32), String> {
     let binary_path = source_path.with_extension("");
 
-    let compile = Command::new("rustc")
-        .arg(source_path)
-        .arg("-o")
-        .arg(&binary_path)
+    let mut compile_cmd = Command::new("rustc");
+    compile_cmd.arg(source_path).arg("-o").arg(&binary_path);
+    compile_cmd.env_clear();
+    for key in SANDBOX_ENV_ALLOWLIST {
+        if let Ok(val) = std::env::var(key) {
+            compile_cmd.env(key, val);
+        }
+    }
+    compile_cmd.env("LEAN_CTX_SANDBOX", "1");
+
+    let compile = compile_cmd
         .output()
         .map_err(|e| format!("rustc not found: {e}"))?;
 
@@ -273,10 +299,18 @@ fn execute_rust(
         return Ok((String::new(), stderr, compile.status.code().unwrap_or(1)));
     }
 
-    let child = Command::new(&binary_path)
-        .env("LEAN_CTX_SANDBOX", "1")
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+    let mut run_cmd = Command::new(&binary_path);
+    run_cmd.env_clear();
+    for key in SANDBOX_ENV_ALLOWLIST {
+        if let Ok(val) = std::env::var(key) {
+            run_cmd.env(key, val);
+        }
+    }
+    run_cmd.env("LEAN_CTX_SANDBOX", "1");
+    run_cmd.stdout(std::process::Stdio::piped());
+    run_cmd.stderr(std::process::Stdio::piped());
+
+    let child = run_cmd
         .spawn()
         .map_err(|e| format!("Failed to run compiled binary: {e}"))?;
 

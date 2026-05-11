@@ -128,15 +128,28 @@ fn exec_buffered(command: &str, shell: &str, shell_flag: &str, cfg: &config::Con
     cmd.arg(shell_flag);
 
     #[cfg(windows)]
+    let ps_tmp_path: Option<std::path::PathBuf>;
+    #[cfg(windows)]
     {
         let is_powershell =
             shell.to_lowercase().contains("powershell") || shell.to_lowercase().contains("pwsh");
         if is_powershell {
-            cmd.arg(format!(
-                "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; {command}"
-            ));
+            let ps_script = format!(
+                "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; {}",
+                command
+            );
+            let tmp = std::env::temp_dir().join(format!("lean-ctx-ps-{}.ps1", std::process::id()));
+            let _ = std::fs::write(&tmp, &ps_script);
+            cmd.args([
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                &tmp.to_string_lossy(),
+            ]);
+            ps_tmp_path = Some(tmp);
         } else {
             cmd.arg(command);
+            ps_tmp_path = None;
         }
     }
     #[cfg(not(windows))]
@@ -152,6 +165,10 @@ fn exec_buffered(command: &str, shell: &str, shell_flag: &str, cfg: &config::Con
         Ok(c) => c,
         Err(e) => {
             tracing::error!("lean-ctx: failed to execute: {e}");
+            #[cfg(windows)]
+            if let Some(ref tmp) = ps_tmp_path {
+                let _ = std::fs::remove_file(tmp);
+            }
             return 127;
         }
     };
@@ -160,6 +177,10 @@ fn exec_buffered(command: &str, shell: &str, shell_flag: &str, cfg: &config::Con
         Ok(o) => o,
         Err(e) => {
             tracing::error!("lean-ctx: failed to wait: {e}");
+            #[cfg(windows)]
+            if let Some(ref tmp) = ps_tmp_path {
+                let _ = std::fs::remove_file(tmp);
+            }
             return 127;
         }
     };
@@ -197,6 +218,11 @@ fn exec_buffered(command: &str, shell: &str, shell_flag: &str, cfg: &config::Con
     let threshold = cfg.slow_command_threshold_ms;
     if threshold > 0 && duration_ms >= threshold as u128 {
         slow_log::record(command, duration_ms, exit_code);
+    }
+
+    #[cfg(windows)]
+    if let Some(ref tmp) = ps_tmp_path {
+        let _ = std::fs::remove_file(tmp);
     }
 
     exit_code

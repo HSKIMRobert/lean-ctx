@@ -187,37 +187,9 @@ pub fn to_bash_compatible_path(path: &str) -> String {
 }
 
 /// Normalize paths from any client format to a consistent OS-native form.
-/// Handles MSYS2/Git Bash (`/c/Users/...` -> `C:/Users/...`), mixed separators,
-/// double slashes, and trailing slashes. Always uses forward slashes for consistency.
+/// Delegates to `core::pathutil` so `core` crates do not depend on `hooks`.
 pub fn normalize_tool_path(path: &str) -> String {
-    let mut p = match crate::core::pathutil::strip_verbatim_str(path) {
-        Some(stripped) => stripped,
-        None => path.to_string(),
-    };
-
-    // MSYS2/Git Bash: /c/Users/... -> C:/Users/...
-    if p.len() >= 3
-        && p.starts_with('/')
-        && p.as_bytes()[1].is_ascii_alphabetic()
-        && p.as_bytes()[2] == b'/'
-    {
-        let drive = p.as_bytes()[1].to_ascii_uppercase() as char;
-        p = format!("{drive}:{}", &p[2..]);
-    }
-
-    p = p.replace('\\', "/");
-
-    // Collapse double slashes (preserve UNC paths starting with //)
-    while p.contains("//") && !p.starts_with("//") {
-        p = p.replace("//", "/");
-    }
-
-    // Remove trailing slash (unless root like "/" or "C:/")
-    if p.len() > 1 && p.ends_with('/') && !p.ends_with(":/") {
-        p.pop();
-    }
-
-    p
+    crate::core::pathutil::normalize_tool_path(path)
 }
 
 pub fn generate_rewrite_script(binary: &str) -> String {
@@ -502,7 +474,12 @@ Full rules: @{PROJECT_LEAN_CTX_MD}\n\
     }
 
     if existing.contains(AGENTS_BLOCK_START) {
-        let updated = replace_marked_block(&existing, AGENTS_BLOCK_START, AGENTS_BLOCK_END, &block);
+        let updated = crate::marked_block::replace_marked_block(
+            &existing,
+            AGENTS_BLOCK_START,
+            AGENTS_BLOCK_END,
+            &block,
+        );
         if updated != existing {
             write_file(&agents_md, &updated);
         }
@@ -522,32 +499,6 @@ Full rules: @{PROJECT_LEAN_CTX_MD}\n\
     write_file(&agents_md, &out);
     if !mcp_server_quiet_mode() {
         eprintln!("Updated AGENTS.md (added lean-ctx reference block).");
-    }
-}
-
-pub(crate) fn replace_marked_block(
-    content: &str,
-    start: &str,
-    end: &str,
-    replacement: &str,
-) -> String {
-    let s = content.find(start);
-    let e = content.find(end);
-    match (s, e) {
-        (Some(si), Some(ei)) if ei >= si => {
-            let after_end = ei + end.len();
-            let before = &content[..si];
-            let after = &content[after_end..];
-            let mut out = String::new();
-            out.push_str(before.trim_end_matches('\n'));
-            out.push('\n');
-            out.push('\n');
-            out.push_str(replacement.trim_end_matches('\n'));
-            out.push('\n');
-            out.push_str(after.trim_start_matches('\n'));
-            out
-        }
-        _ => content.to_string(),
     }
 }
 

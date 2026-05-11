@@ -5,6 +5,66 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.5.16] — 2026-05-11
+
+### Security
+
+- **[Critical] Path traversal in `tee show`** — The `lean-ctx tee show <filename>` CLI command accepted path separators and `..` in the filename argument, allowing reads of arbitrary files outside the tee log directory. Now enforces strict basename-only validation.
+- **[Critical] Python/Shell injection via `intent` parameter** — The `ctx_execute` tool interpolated the `intent` parameter raw into generated Python and shell scripts, allowing code injection through crafted intent strings. Now sanitized to alphanumeric characters only (max 200 chars).
+- **[Critical] CSPRNG failure silently ignored** — Two `getrandom::fill` calls (token generation + CSP nonce) silently discarded errors, which could result in predictable all-zero tokens/nonces. Now panics on CSPRNG failure to guarantee cryptographic safety.
+- **[Critical] Dashboard path traversal bypass** — The `/api/compression-demo` endpoint allowed absolute paths to bypass `pathjail` filesystem jail. All paths now go through `jail_path` unconditionally.
+- **[Critical] MCP stdio integer overflow** — Malicious `Content-Length` headers could cause integer overflow in frame length calculation, leading to unbounded memory allocation. Now uses `checked_add` with strict size cap.
+- **[High] Token exposure on loopback** — Anonymous loopback GET requests to the dashboard received the auth token injected into HTML, allowing any local process to steal it. Now requires explicit `?token=` query parameter.
+- **[High] Nonce-based CSP replaces `unsafe-inline`** — Dashboard Content-Security-Policy upgraded from `script-src 'unsafe-inline'` to per-response cryptographic nonce, eliminating XSS via inline script injection.
+- **[High] Panic payloads leaked to MCP clients** — Tool panics returned full panic messages (potentially containing secrets/paths) to clients. Now returns generic error; details logged server-side only.
+- **[High] `ctx_execute` output not redacted** — Output from `ctx_execute` bypassed the redaction engine, potentially leaking secrets. Now applies `redact_text_if_enabled` like `ctx_shell`.
+- **[High] Cross-project data access via `ctx_share`** — Shared agent data was stored in a flat directory, allowing agents from different projects to read each other's data. Now scoped under `project_hash` subdirectory.
+- **[High] PowerShell command interpolation** — On Windows, PowerShell commands were interpolated into script strings. Now writes to temp file and executes via `-File`.
+- **[High] Cloud server error information leak** — `internal_error` helper returned raw database/OS error strings to HTTP clients. Now returns generic `{"error":"internal_error"}`.
+- **[High] SSE subscriber cap enforced** — The 64-subscriber-per-channel cap previously only logged a warning but still allowed new subscriptions. Now returns `None` and falls back to dead channel, preventing resource exhaustion.
+- **[High] Rust sandbox inherited full environment** — The `execute_rust` function (rustc + compiled binary) did not strip inherited environment variables, exposing secrets and enabling `LD_PRELOAD`-style attacks. Now applies the same `env_clear()` + allowlist as other sandbox runtimes.
+- **[Medium] Argon2id password hashing** — Cloud server passwords migrated from salted SHA-256 to Argon2id with legacy fallback for existing hashes.
+- **[Medium] SQLite busy_timeout** — Added 5-second busy_timeout to all SQLite connections to prevent `SQLITE_BUSY` errors under contention.
+- **[Medium] ReDoS mitigation for filter rules** — Both runtime and validation paths for user-authored filter TOML patterns now use `RegexBuilder` with 1 MiB DFA size limit.
+- **[Medium] Context summary redaction** — `/v1/context/summary` endpoint now redacts events at `Summary` level before aggregation, preventing leakage of sensitive knowledge keys/categories.
+- **[Medium] A2A handoff error sanitization** — Parse and write errors no longer include OS-level details or filesystem paths in HTTP responses.
+- **[Medium] `ctx_search` and `ctx_tree` parameter clamping** — `max_results` capped at 500, `depth` capped at 10 to prevent resource exhaustion.
+- **[Medium] `ctx_shell` cwd fail-closed** — Invalid working directory now returns error instead of silently falling back to process cwd.
+- **[Medium] Community detection graceful degradation** — All SQLite `unwrap()` calls in `community.rs` replaced with proper error handling returning empty graphs instead of panicking.
+- **[Medium] Defense-in-depth path canonicalization** — `read_file_lossy` now verifies canonical paths stay within project root (warning-only layer behind primary `jail_path` enforcement).
+- **[Medium] Sandbox environment isolation** — `ctx_execute` subprocesses now start with `env_clear()` + explicit allowlist (PATH, HOME, LANG, TERM, TMPDIR) instead of inheriting all parent environment variables.
+- **[Medium] Hook temp file hardening** — Temp directory for hook redirects now has `chmod 700` (Unix), and filenames include PID scoping to prevent symlink races.
+- **[Medium] PowerShell temp file cleanup** — `.ps1` temp files are now deleted on all exit paths (success, spawn error, wait error).
+- **[Medium] `ctx_execute` temp file lifecycle** — `.dat` temp files are now cleaned up by Rust after sandbox execution (regardless of script success), with file size validation before processing.
+- **[Medium] `/health` rate limiting** — Health endpoint no longer bypasses rate limiter and concurrency semaphore, preventing use as amplification oracle.
+- **[Low] `validate_filter_file` regex bounds** — Validation path now uses bounded `RegexBuilder` matching runtime behavior.
+- **[Low] Corrected `check_secret_path_for_tool` tool name** — Changed hardcoded `"ctx_read"` to `"resolve_path"` for accurate policy logging.
+
+### Fixed
+
+- **Structural output protection** — `git diff`, `git show`, `git blame`, `git log -p`, `git stash show`, `diff`, `colordiff`, `icdiff`, and `delta` output was being mangled by up to three compression layers (pattern compression + terse pipeline + generic compressors like log_dedup/truncation). These commands now get a dedicated fast path: only the specific pattern compressor runs (light cleanup: strip `index` headers, limit context lines), all other compression stages are bypassed. Every `+`/`-` line, hunk header, and blame annotation is preserved verbatim. Also protected in the MCP server path (`ctx_shell`).
+
+### Added
+
+- **Roadmap: Context Runtime research modules** — 13 new core modules implementing research from information theory, graph theory, and cognitive science:
+  - `adaptive_chunking` — Content-defined chunking with Rabin-Karp fingerprinting and entropy-aware split points
+  - `attention_placement` — Attention allocation scoring based on recency, frequency, and structural importance
+  - `cognitive_load` — Cognitive load estimation using Halstead metrics and cyclomatic complexity
+  - `cyclomatic` — Cyclomatic complexity analysis via control-flow graph extraction
+  - `gamma_cover` — Gamma cover set selection for minimal representative context subsets
+  - `graph_features` — Property graph feature extraction (betweenness, clustering coefficient, community bridge detection)
+  - `information_bottleneck` — Information bottleneck compression with iterative Blahut-Arimoto
+  - `mdl_selector` — Minimum Description Length model selection for compression strategy
+  - `memory_consolidation` — Memory consolidation with exponential decay and importance-weighted retention
+  - `progressive_compression` — Multi-level progressive compression with quality gates
+  - `splade_retrieval` — Sparse Lexical and Expansion retrieval for context-aware search
+  - `structural_diff` — AST-level structural diff for semantic change detection
+  - `structural_tokenizer` — Language-aware tokenization using tree-sitter AST for 18 languages
+- **Louvain community detection O(m)** — Rewrote `community.rs` from O(n²) adjacency scan to edge-list-based Louvain with modularity optimization, supporting weighted edges and hierarchical communities.
+- **Enhanced PageRank** — Damped PageRank with configurable alpha, convergence detection, and seed biasing for context-aware node ranking.
+- **SPLADE-enhanced BM25** — BM25 index now supports sparse expansion terms for improved recall on semantically related queries.
+- **Config module restructured** — Split monolithic `config.rs` into `config/mod.rs`, `config/memory.rs`, `config/proxy.rs`, `config/serde_defaults.rs` for maintainability.
+
 ## [3.5.15] — 2026-05-11
 
 ### Fixed

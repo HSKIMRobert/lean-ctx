@@ -110,7 +110,7 @@ pub(super) fn install_codex_instruction_docs(codex_dir: &Path) -> bool {
     let existing = std::fs::read_to_string(&agents_path).unwrap_or_default();
 
     if existing.contains(CODEX_AGENTS_BLOCK_START) {
-        let updated = super::replace_marked_block(
+        let updated = crate::marked_block::replace_marked_block(
             &existing,
             CODEX_AGENTS_BLOCK_START,
             CODEX_AGENTS_BLOCK_END,

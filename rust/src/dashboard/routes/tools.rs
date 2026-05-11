@@ -80,13 +80,8 @@ pub fn handle(
 
                     for p in attempts {
                         tried_paths.push(p.to_string_lossy().to_string());
-                        let p = if candidate.is_absolute() {
-                            p
-                        } else {
-                            match crate::core::pathjail::jail_path(&p, root_pb) {
-                                Ok(j) => j,
-                                Err(_) => continue,
-                            }
+                        let Ok(p) = crate::core::pathjail::jail_path(&p, root_pb) else {
+                            continue;
                         };
 
                         if let Ok(c) = std::fs::read_to_string(&p) {

@@ -62,7 +62,7 @@ fn lazy_description(name: &str, desc: &str) -> String {
     } else {
         first_line.to_string()
     };
-    format!("{summary} (use ctx_tool_info for full docs)")
+    format!("{summary} (use ctx_discover_tools for full docs)")
 }
 
 /// Estimates token savings from compressing all tool descriptions.
@@ -109,8 +109,8 @@ mod tests {
         let desc = "Read a file from disk with intelligent caching and compression modes.\nSupports 10 different read modes for optimal token efficiency.";
         let result = compress_description("ctx_read", desc, DescriptionMode::Lazy);
         assert!(
-            result.contains("ctx_tool_info"),
-            "lazy should reference ctx_tool_info"
+            result.contains("ctx_discover_tools"),
+            "lazy should reference ctx_discover_tools"
         );
         assert!(result.lines().count() == 1, "lazy should be 1 line");
     }

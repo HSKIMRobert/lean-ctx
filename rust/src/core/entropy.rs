@@ -47,16 +47,14 @@ pub fn shannon_entropy(text: &str) -> f64 {
     })
 }
 
-/// Shannon entropy over BPE token IDs (o200k_base).
-/// More LLM-relevant than character entropy since LLMs process BPE tokens.
-pub fn token_entropy(text: &str) -> f64 {
-    let tokens = encode_tokens(text);
+/// Shannon entropy over already-encoded BPE token IDs (o200k_base).
+pub fn token_entropy_from_ids(tokens: &[u32]) -> f64 {
     if tokens.is_empty() {
         return 0.0;
     }
     let total = tokens.len();
     let mut freq: HashMap<u32, usize> = HashMap::new();
-    for &t in &tokens {
+    for &t in tokens {
         *freq.entry(t).or_default() += 1;
     }
     freq.values().fold(0.0_f64, |acc, &count| {
@@ -65,17 +63,21 @@ pub fn token_entropy(text: &str) -> f64 {
     })
 }
 
-/// Normalized Shannon entropy: H(X) / log₂(n) where n = number of unique symbols.
-/// Returns a value in [0, 1] where 0 = perfectly predictable, 1 = maximum entropy.
-/// This makes thresholds comparable across different alphabet sizes.
-pub fn normalized_token_entropy(text: &str) -> f64 {
+/// Shannon entropy over BPE token IDs (o200k_base).
+/// More LLM-relevant than character entropy since LLMs process BPE tokens.
+pub fn token_entropy(text: &str) -> f64 {
     let tokens = encode_tokens(text);
+    token_entropy_from_ids(&tokens)
+}
+
+/// Normalized Shannon entropy over encoded token IDs: H(X) / log₂(n), n = unique token count.
+pub fn normalized_token_entropy_from_ids(tokens: &[u32]) -> f64 {
     if tokens.is_empty() {
         return 0.0;
     }
     let total = tokens.len();
     let mut freq: HashMap<u32, usize> = HashMap::new();
-    for &t in &tokens {
+    for &t in tokens {
         *freq.entry(t).or_default() += 1;
     }
     let n_unique = freq.len();
@@ -88,6 +90,14 @@ pub fn normalized_token_entropy(text: &str) -> f64 {
     });
     let h_max = (n_unique as f64).log2();
     h / h_max
+}
+
+/// Normalized Shannon entropy: H(X) / log₂(n) where n = number of unique symbols.
+/// Returns a value in [0, 1] where 0 = perfectly predictable, 1 = maximum entropy.
+/// This makes thresholds comparable across different alphabet sizes.
+pub fn normalized_token_entropy(text: &str) -> f64 {
+    let tokens = encode_tokens(text);
+    normalized_token_entropy_from_ids(&tokens)
 }
 
 /// Computes word-set Jaccard similarity between two strings (0.0–1.0).

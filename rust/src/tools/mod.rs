@@ -342,7 +342,7 @@ impl LeanCtxServer {
     /// Absolute paths and "." are returned as-is. Relative paths like "src/main.rs"
     /// are joined with project_root so tools work regardless of the server's cwd.
     pub async fn resolve_path(&self, path: &str) -> Result<String, String> {
-        let normalized = crate::hooks::normalize_tool_path(path);
+        let normalized = crate::core::pathutil::normalize_tool_path(path);
         if normalized.is_empty() || normalized == "." {
             return Ok(normalized);
         }
@@ -418,9 +418,9 @@ impl LeanCtxServer {
             }
         };
 
-        crate::core::io_boundary::check_secret_path_for_tool("ctx_read", &jailed)?;
+        crate::core::io_boundary::check_secret_path_for_tool("resolve_path", &jailed)?;
 
-        Ok(crate::hooks::normalize_tool_path(
+        Ok(crate::core::pathutil::normalize_tool_path(
             &jailed.to_string_lossy().replace('\\', "/"),
         ))
     }
@@ -653,7 +653,15 @@ impl LeanCtxServer {
                 .collect();
             let paths_csv = top_paths.join(",");
 
-            let _ = ctx_share::handle("push", Some(&my_id), None, Some(&paths_csv), None, &cache);
+            let _ = ctx_share::handle(
+                "push",
+                Some(&my_id),
+                None,
+                Some(&paths_csv),
+                None,
+                &cache,
+                root,
+            );
         }
         drop(cache);
 
