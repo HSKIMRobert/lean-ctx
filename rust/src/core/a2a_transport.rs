@@ -67,7 +67,7 @@ impl TransportEnvelopeV1 {
         use hmac::{Hmac, Mac};
         use sha2::Sha256;
 
-        let message = format!(
+        let header = format!(
             "{}:{}:{}:{}",
             self.format_version,
             self.sender.agent_id,
@@ -75,7 +75,9 @@ impl TransportEnvelopeV1 {
             self.payload_json.len()
         );
         let mut mac = Hmac::<Sha256>::new_from_slice(secret).expect("HMAC accepts any key length");
-        mac.update(message.as_bytes());
+        mac.update(header.as_bytes());
+        mac.update(b"\0");
+        mac.update(self.payload_json.as_bytes());
         let result = mac.finalize().into_bytes();
         let mut sig = String::with_capacity(result.len() * 2);
         for b in &result {
@@ -92,7 +94,7 @@ impl TransportEnvelopeV1 {
         use hmac::{Hmac, Mac};
         use sha2::Sha256;
 
-        let message = format!(
+        let header = format!(
             "{}:{}:{}:{}",
             self.format_version,
             self.sender.agent_id,
@@ -100,7 +102,9 @@ impl TransportEnvelopeV1 {
             self.payload_json.len()
         );
         let mut mac = Hmac::<Sha256>::new_from_slice(secret).expect("HMAC accepts any key length");
-        mac.update(message.as_bytes());
+        mac.update(header.as_bytes());
+        mac.update(b"\0");
+        mac.update(self.payload_json.as_bytes());
 
         let expected: Vec<u8> = (0..sig.len())
             .step_by(2)

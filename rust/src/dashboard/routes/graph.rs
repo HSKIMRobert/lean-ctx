@@ -1,5 +1,12 @@
 use super::helpers::{detect_project_root_for_dashboard, extract_query_param};
 
+fn project_basename(abs_root: &str) -> String {
+    std::path::Path::new(abs_root).file_name().map_or_else(
+        || "project".to_string(),
+        |n| n.to_string_lossy().to_string(),
+    )
+}
+
 pub fn handle(
     path: &str,
     query_str: &str,
@@ -16,7 +23,14 @@ pub fn handle(
         "/api/graph" => {
             let root = detect_project_root_for_dashboard();
             let index = crate::core::graph_index::load_or_build(&root);
-            let json = serde_json::to_string(&index).unwrap_or_else(|_| {
+            let mut val = serde_json::to_value(&index).unwrap_or_default();
+            if let Some(obj) = val.as_object_mut() {
+                obj.insert(
+                    "project_root".to_string(),
+                    serde_json::Value::String(project_basename(&root)),
+                );
+            }
+            let json = serde_json::to_string(&val).unwrap_or_else(|_| {
                 "{\"error\":\"failed to serialize project index\"}".to_string()
             });
             Some(("200 OK", "application/json", json))
@@ -39,10 +53,16 @@ pub fn handle(
                                 "total_edges": ec,
                             })
                         }
-                        Err(e) => serde_json::json!({"error": e.to_string()}),
+                        Err(e) => {
+                            tracing::warn!("graph enrich error: {e}");
+                            serde_json::json!({"error": "enrichment_failed"})
+                        }
                     }
                 }
-                Err(e) => serde_json::json!({"error": e.to_string()}),
+                Err(e) => {
+                    tracing::warn!("graph open error: {e}");
+                    serde_json::json!({"error": "graph_unavailable"})
+                }
             };
             let json = serde_json::to_string(&result).unwrap_or_else(|_| "{}".to_string());
             Some(("200 OK", "application/json", json))
@@ -54,15 +74,10 @@ pub fn handle(
                 let ec = open.provider.edge_count().unwrap_or(0);
                 match open.source {
                     crate::core::graph_provider::GraphProviderSource::PropertyGraph => {
-                        let project_path = std::path::Path::new(&root);
-                        let db_path = crate::core::property_graph::CodeGraph::open(project_path)
-                            .ok()
-                            .map(|g| g.db_path().display().to_string());
                         serde_json::json!({
                             "source": "property_graph",
                             "node_count": nc,
                             "edge_count": ec,
-                            "db_path": db_path,
                         })
                     }
                     crate::core::graph_provider::GraphProviderSource::GraphIndex => {
@@ -89,7 +104,7 @@ pub fn handle(
             let call_graph = crate::core::call_graph::CallGraph::load_or_build(&root, &index);
             let _ = call_graph.save();
             let payload = serde_json::json!({
-                "project_root": call_graph.project_root,
+                "project_root": project_basename(&call_graph.project_root),
                 "edges": call_graph.edges,
                 "file_hashes": call_graph.file_hashes,
                 "indexed_file_count": index.files.len(),

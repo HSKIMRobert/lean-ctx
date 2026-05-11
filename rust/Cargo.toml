@@ -131,6 +131,7 @@ ratatui = "0.30"
 crossterm = "0.28"
 rpassword = "7.4.0"
 getrandom = "0.3"
+tempfile = "3"
 reqwest = { version = "0.13.2", default-features = false, features = ["rustls", "stream", "json"], optional = true }
 bytecount = "0.6.9"
 libc = "0.2"

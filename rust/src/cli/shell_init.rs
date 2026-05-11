@@ -48,7 +48,14 @@ fn write_hook_file(filename: &str, content: &str) -> Option<std::path::PathBuf> 
     let _ = std::fs::create_dir_all(&dir);
     let path = dir.join(filename);
     match std::fs::write(&path, content) {
-        Ok(()) => Some(path),
+        Ok(()) => {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644));
+            }
+            Some(path)
+        }
         Err(e) => {
             tracing::error!("Error writing {}: {e}", path.display());
             None

@@ -234,15 +234,13 @@ fn execute_with_file(
     let tmp_dir = std::env::temp_dir().join("lean-ctx-sandbox");
     let _ = std::fs::create_dir_all(&tmp_dir);
 
-    let file_name = format!(
-        "exec_{}.{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos(),
-        runtime.file_extension
-    );
-    let file_path = tmp_dir.join(&file_name);
+    let suffix = format!(".{}", runtime.file_extension);
+    let tmp = tempfile::Builder::new()
+        .prefix("exec_")
+        .suffix(&suffix)
+        .tempfile_in(&tmp_dir)
+        .map_err(|e| format!("Failed to create temp file: {e}"))?;
+    let file_path = tmp.into_temp_path();
 
     std::fs::write(&file_path, code).map_err(|e| format!("Failed to write temp file: {e}"))?;
 

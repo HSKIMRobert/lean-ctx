@@ -350,7 +350,13 @@ pub async fn reset_password(
                 StatusCode::UNAUTHORIZED,
                 "Invalid or expired reset link".into(),
             ),
-            ConsumeError::Db(s) => (StatusCode::INTERNAL_SERVER_ERROR, s),
+            ConsumeError::Db(s) => {
+                tracing::error!("password reset DB error: {s}");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    r#"{"error":"internal_error"}"#.to_string(),
+                )
+            }
         })?;
 
     let new_hash = hash_password(&body.password);
@@ -391,7 +397,13 @@ pub async fn verify_email(
                 StatusCode::UNAUTHORIZED,
                 "Invalid or expired verification link".into(),
             ),
-            ConsumeError::Db(s) => (StatusCode::INTERNAL_SERVER_ERROR, s),
+            ConsumeError::Db(s) => {
+                tracing::error!("email verification DB error: {s}");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    r#"{"error":"internal_error"}"#.to_string(),
+                )
+            }
         })?;
 
     mark_email_verified(&state.pool, user_id)
@@ -694,12 +706,14 @@ async fn consume_password_reset(pool: &Pool, token_sha: &str) -> Result<Uuid, Co
 fn hash_password(password: &str) -> String {
     use argon2::{
         password_hash::{PasswordHasher, SaltString},
-        Argon2,
+        Algorithm, Argon2, Params, Version,
     };
     let mut raw = [0u8; 16];
     getrandom::fill(&mut raw).expect("CSPRNG unavailable");
     let salt = SaltString::encode_b64(&raw).expect("salt encoding failed");
-    let argon2 = Argon2::default();
+    // OWASP minimum: m_cost=19456 (19 MiB), t_cost=2, p_cost=1
+    let params = Params::new(19456, 2, 1, None).expect("valid Argon2 params");
+    let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
     argon2
         .hash_password(password.as_bytes(), &salt)
         .expect("Argon2 hashing failed")
@@ -715,6 +729,7 @@ fn verify_password(password: &str, stored: &str) -> bool {
         let Ok(parsed) = PasswordHash::new(stored) else {
             return false;
         };
+        // Verification reads params from the stored hash — Argon2::default() is correct here.
         Argon2::default()
             .verify_password(password.as_bytes(), &parsed)
             .is_ok()
@@ -735,14 +750,11 @@ fn verify_password_legacy_sha256(password: &str, stored: &str) -> bool {
 }
 
 pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    use subtle::ConstantTimeEq;
     if a.len() != b.len() {
         return false;
     }
-    let mut diff = 0u8;
-    for (x, y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
-    }
-    diff == 0
+    bool::from(a.ct_eq(b))
 }
 
 // ─── Token/key generation ─────────────────────────────────────

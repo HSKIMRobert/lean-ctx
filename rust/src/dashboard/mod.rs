@@ -133,11 +133,24 @@ fn save_token(token: &str) {
     if let Ok(dir) = crate::core::data_dir::lean_ctx_data_dir() {
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("dashboard.token");
-        let _ = std::fs::write(&path, token);
         #[cfg(unix)]
         {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+            use std::io::Write;
+            use std::os::unix::fs::OpenOptionsExt;
+            let Ok(mut f) = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o600)
+                .open(&path)
+            else {
+                return;
+            };
+            let _ = f.write_all(token.as_bytes());
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = std::fs::write(&path, token);
         }
     }
 }
@@ -433,6 +446,10 @@ async fn handle_request(mut stream: tokio::net::TcpStream, token: Option<Arc<Str
 
     let cache_header = if content_type.starts_with("application/json") {
         "Cache-Control: no-cache, no-store, must-revalidate\r\nPragma: no-cache\r\n"
+    } else if content_type.starts_with("application/javascript")
+        || content_type.starts_with("text/css")
+    {
+        "Cache-Control: no-cache, must-revalidate\r\n"
     } else {
         ""
     };

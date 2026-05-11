@@ -335,8 +335,16 @@ impl LeanCtxServer {
                     let path = self.resolve_path(&raw_path).await.map_err(|e| {
                         ErrorData::invalid_params(format!("path rejected: {e}"), None)
                     })?;
+                    let project_root = {
+                        let session = self.session.read().await;
+                        session.project_root.clone()
+                    };
                     let intent = get_str(args, "intent");
-                    crate::tools::ctx_execute::handle_file(&path, intent.as_deref())
+                    crate::tools::ctx_execute::handle_file(
+                        &path,
+                        intent.as_deref(),
+                        project_root.as_deref(),
+                    )
                 } else {
                     let language = get_str(args, "language")
                         .ok_or_else(|| ErrorData::invalid_params("language is required", None))?;

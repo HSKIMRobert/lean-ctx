@@ -128,7 +128,7 @@ fn exec_buffered(command: &str, shell: &str, shell_flag: &str, cfg: &config::Con
     cmd.arg(shell_flag);
 
     #[cfg(windows)]
-    let ps_tmp_path: Option<std::path::PathBuf>;
+    let ps_tmp_path: Option<tempfile::TempPath>;
     #[cfg(windows)]
     {
         let is_powershell =
@@ -138,15 +138,20 @@ fn exec_buffered(command: &str, shell: &str, shell_flag: &str, cfg: &config::Con
                 "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; {}",
                 command
             );
-            let tmp = std::env::temp_dir().join(format!("lean-ctx-ps-{}.ps1", std::process::id()));
-            let _ = std::fs::write(&tmp, &ps_script);
+            let tmp = tempfile::Builder::new()
+                .prefix("lean-ctx-ps-")
+                .suffix(".ps1")
+                .tempfile()
+                .expect("failed to create temp file for PowerShell script");
+            let tmp_path = tmp.into_temp_path();
+            let _ = std::fs::write(&tmp_path, &ps_script);
             cmd.args([
                 "-ExecutionPolicy",
                 "Bypass",
                 "-File",
-                &tmp.to_string_lossy(),
+                &tmp_path.to_string_lossy(),
             ]);
-            ps_tmp_path = Some(tmp);
+            ps_tmp_path = Some(tmp_path);
         } else {
             cmd.arg(command);
             ps_tmp_path = None;

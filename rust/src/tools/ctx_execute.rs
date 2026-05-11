@@ -8,11 +8,25 @@ pub fn handle(language: &str, code: &str, intent: Option<&str>, timeout: Option<
 }
 
 /// Reads a file from disk, detects its language, and executes a processing script.
-pub fn handle_file(path: &str, intent: Option<&str>) -> String {
+///
+/// `project_root` is used for pathjail validation. If `None`, the current
+/// directory is used as the jail root.
+pub fn handle_file(path: &str, intent: Option<&str>, project_root: Option<&str>) -> String {
+    let jail_root = match project_root {
+        Some(r) => std::path::PathBuf::from(r),
+        None => std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
+    };
+    let candidate = std::path::Path::new(path);
+    let jailed = match crate::core::pathjail::jail_path(candidate, &jail_root) {
+        Ok(p) => p,
+        Err(e) => return format!("Path rejected: {e}"),
+    };
+    let path_str = jailed.to_string_lossy();
+
     let cap = crate::core::limits::max_read_bytes();
-    let meta = match std::fs::metadata(path) {
+    let meta = match std::fs::metadata(&*jailed) {
         Ok(m) => m,
-        Err(e) => return format!("Error reading {path}: {e}"),
+        Err(e) => return format!("Error reading {path_str}: {e}"),
     };
     if meta.len() > cap as u64 {
         return format!(
@@ -20,16 +34,14 @@ pub fn handle_file(path: &str, intent: Option<&str>) -> String {
             meta.len()
         );
     }
-    let content = match std::fs::read_to_string(path) {
+    let content = match std::fs::read_to_string(&*jailed) {
         Ok(c) => c,
-        Err(e) => return format!("Error reading {path}: {e}"),
+        Err(e) => return format!("Error reading {path_str}: {e}"),
     };
 
     let language = detect_language_from_extension(path);
     let code = build_file_processing_script(&language, &content, intent);
-    let tmp_dat = std::env::temp_dir().join(format!("lean-ctx-exec-{}.dat", std::process::id()));
     let result = sandbox::execute(&language, &code, None);
-    let _ = std::fs::remove_file(&tmp_dat);
     format_result(&result, intent)
 }
 
@@ -119,9 +131,14 @@ fn sanitize_intent(raw: &str) -> String {
 }
 
 fn build_file_processing_script(language: &str, content: &str, intent: Option<&str>) -> String {
-    let tmp = std::env::temp_dir().join(format!("lean-ctx-exec-{}.dat", std::process::id()));
-    let _ = std::fs::write(&tmp, content);
-    let tmp_path = tmp.to_string_lossy();
+    let tmp = tempfile::Builder::new()
+        .prefix("lean-ctx-exec-")
+        .suffix(".dat")
+        .tempfile()
+        .expect("failed to create temp file");
+    let _ = std::fs::write(tmp.path(), content);
+    let tmp_path = tmp.path().to_string_lossy().to_string();
+    let _keep = tmp.into_temp_path();
     let intent_str = sanitize_intent(intent.unwrap_or("summarize the content"));
 
     match language {

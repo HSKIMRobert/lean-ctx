@@ -238,13 +238,11 @@ async fn auth_middleware(
 }
 
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    use subtle::ConstantTimeEq;
     if a.len() != b.len() {
         return false;
     }
-    a.iter()
-        .zip(b.iter())
-        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
-        == 0
+    bool::from(a.ct_eq(b))
 }
 
 async fn rate_limit_middleware(
@@ -508,6 +506,9 @@ async fn v1_metrics(State(_state): State<AppState>) -> impl IntoResponse {
     )
 }
 
+const MAX_HANDOFF_PAYLOAD_BYTES: usize = 1_000_000;
+const MAX_HANDOFF_FILES: usize = 50;
+
 async fn v1_a2a_handoff(
     State(state): State<AppState>,
     Json(body): Json<Value>,
@@ -525,6 +526,17 @@ async fn v1_a2a_handoff(
         }
     };
 
+    if envelope.payload_json.len() > MAX_HANDOFF_PAYLOAD_BYTES {
+        tracing::warn!(
+            "a2a handoff payload too large: {} bytes (limit {MAX_HANDOFF_PAYLOAD_BYTES})",
+            envelope.payload_json.len()
+        );
+        return (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Json(serde_json::json!({"error": "payload_too_large"})),
+        );
+    }
+
     let rt = crate::core::context_os::runtime();
     rt.bus.append(
         &state.project_root,
@@ -541,11 +553,17 @@ async fn v1_a2a_handoff(
 
     match envelope.content_type {
         crate::core::a2a_transport::TransportContentType::ContextPackage => {
-            let tmp = std::env::temp_dir().join(format!(
-                "lean-ctx-a2a-{}.lctxpkg",
+            let dir = std::path::Path::new(&state.project_root)
+                .join(".lean-ctx")
+                .join("handoffs")
+                .join("packages");
+            let _ = std::fs::create_dir_all(&dir);
+            evict_oldest_files(&dir, MAX_HANDOFF_FILES);
+            let out = dir.join(format!(
+                "ctx-{}.lctxpkg",
                 chrono::Utc::now().format("%Y%m%d_%H%M%S")
             ));
-            if let Err(e) = std::fs::write(&tmp, &envelope.payload_json) {
+            if let Err(e) = std::fs::write(&out, &envelope.payload_json) {
                 tracing::error!("a2a handoff write failed: {e}");
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -565,6 +583,7 @@ async fn v1_a2a_handoff(
                 .join(".lean-ctx")
                 .join("handoffs");
             let _ = std::fs::create_dir_all(&dir);
+            evict_oldest_files(&dir, MAX_HANDOFF_FILES);
             let out = dir.join(format!(
                 "received-{}.json",
                 chrono::Utc::now().format("%Y%m%d_%H%M%S")
@@ -591,6 +610,32 @@ async fn v1_a2a_handoff(
                 "content_type": format!("{:?}", envelope.content_type),
             })),
         ),
+    }
+}
+
+fn evict_oldest_files(dir: &std::path::Path, max_files: usize) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let mut files: Vec<(std::time::SystemTime, std::path::PathBuf)> = entries
+        .filter_map(|e| {
+            let e = e.ok()?;
+            let meta = e.metadata().ok()?;
+            if meta.is_file() {
+                Some((meta.modified().unwrap_or(std::time::UNIX_EPOCH), e.path()))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if files.len() < max_files {
+        return;
+    }
+    files.sort_by_key(|(mtime, _)| *mtime);
+    let to_remove = files.len().saturating_sub(max_files.saturating_sub(1));
+    for (_, path) in files.into_iter().take(to_remove) {
+        let _ = std::fs::remove_file(path);
     }
 }
 
