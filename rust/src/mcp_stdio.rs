@@ -35,11 +35,17 @@ impl SharedProtocol {
     }
 
     fn get(&self) -> Option<WireProtocol> {
-        *self.0.lock().expect("protocol mutex poisoned")
+        *self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     fn set_if_unset(&self, protocol: WireProtocol) {
-        let mut guard = self.0.lock().expect("protocol mutex poisoned");
+        let mut guard = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if guard.is_none() {
             *guard = Some(protocol);
         }

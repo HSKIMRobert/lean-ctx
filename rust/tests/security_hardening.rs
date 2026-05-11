@@ -306,3 +306,66 @@ fn http_server_sanitizes_error_responses() {
         "L1: v1_tool_call must not return internal error details"
     );
 }
+
+// ---------------------------------------------------------------------------
+// CSP nonce injection for ALL inline scripts
+// ---------------------------------------------------------------------------
+#[test]
+fn csp_nonce_covers_all_inline_scripts() {
+    let src = include_str!("../src/dashboard/mod.rs");
+    assert!(
+        src.contains("add_nonce_to_inline_scripts"),
+        "dashboard must use add_nonce_to_inline_scripts for all inline scripts"
+    );
+    assert!(
+        !src.contains(r"<script>window.__LEAN_CTX_TOKEN__")
+            || src.contains("add_nonce_to_inline_scripts"),
+        "token script nonce must go through add_nonce_to_inline_scripts, not ad-hoc replace"
+    );
+}
+
+#[test]
+fn add_nonce_skips_external_scripts() {
+    let html = r#"<script src="foo.js"></script><script>inline()</script><script type="module">boot()</script>"#;
+    let result = lean_ctx::dashboard::add_nonce_to_inline_scripts(html, "abc123");
+    assert!(
+        result.contains(r#"<script src="foo.js">"#),
+        "external script must NOT get nonce: {result}"
+    );
+    assert!(
+        result.contains(r#"<script nonce="abc123">inline()"#),
+        "inline script must get nonce: {result}"
+    );
+    assert!(
+        result.contains(r#"<script nonce="abc123" type="module">boot()"#),
+        "inline module must get nonce: {result}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// raw=true bypasses ALL post-processing in call_tool
+// ---------------------------------------------------------------------------
+#[test]
+fn raw_shell_skips_all_postprocessing() {
+    let src = include_str!("../src/server/mod.rs");
+    assert!(
+        src.contains("let is_raw_shell = name == \"ctx_shell\""),
+        "call_tool must compute is_raw_shell flag"
+    );
+    assert!(
+        src.contains("if minimal || is_raw_shell {"),
+        "archive_hint must be skipped for raw shell"
+    );
+    assert!(
+        src.contains("is_raw_shell\n            || (name == \"ctx_shell\""),
+        "skip_terse must include is_raw_shell"
+    );
+    assert!(
+        src.contains("if !is_raw_shell {") && src.contains("verify_output"),
+        "output verification must be skipped for raw shell"
+    );
+    assert!(
+        src.contains("!is_raw_shell && name == \"ctx_shell\""),
+        "shell_efficiency_hint must be skipped for raw shell"
+    );
+}

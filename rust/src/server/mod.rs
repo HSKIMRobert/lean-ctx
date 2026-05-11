@@ -432,6 +432,15 @@ impl ServerHandler for LeanCtxServer {
             }
         };
 
+        let is_raw_shell = name == "ctx_shell" && {
+            let arg_raw = helpers::get_bool(args, "raw").unwrap_or(false);
+            let arg_bypass = helpers::get_bool(args, "bypass").unwrap_or(false);
+            arg_raw
+                || arg_bypass
+                || std::env::var("LEAN_CTX_DISABLED").is_ok()
+                || std::env::var("LEAN_CTX_RAW").is_ok()
+        };
+
         let pre_terse_len = result_text.len();
         let output_tokens = {
             let tokens = crate::core::tokens::count_tokens(&result_text) as u64;
@@ -482,7 +491,7 @@ impl ServerHandler for LeanCtxServer {
             }
         };
 
-        let archive_hint = if minimal {
+        let archive_hint = if minimal || is_raw_shell {
             None
         } else {
             use crate::core::archive;
@@ -511,9 +520,10 @@ impl ServerHandler for LeanCtxServer {
         };
 
         let pre_compression = result_text.clone();
-        let skip_terse = name == "ctx_shell"
-            && helpers::get_str(args, "command")
-                .is_some_and(|c| crate::shell::compress::has_structural_output(&c));
+        let skip_terse = is_raw_shell
+            || (name == "ctx_shell"
+                && helpers::get_str(args, "command")
+                    .is_some_and(|c| crate::shell::compress::has_structural_output(&c)));
         let compression = crate::core::config::CompressionLevel::effective(&config);
         if compression.is_active() && !skip_terse {
             let terse_result =
@@ -523,7 +533,7 @@ impl ServerHandler for LeanCtxServer {
             }
         }
 
-        {
+        if !is_raw_shell {
             let verify_cfg = crate::core::profiles::active_profile().verification;
             let vr = crate::core::output_verification::verify_output(
                 &pre_compression,
@@ -540,8 +550,10 @@ impl ServerHandler for LeanCtxServer {
             result_text = format!("{result_text}\n{hint}");
         }
 
-        if let Some(ctx) = auto_context {
-            result_text = format!("{ctx}\n\n{result_text}");
+        if !is_raw_shell {
+            if let Some(ctx) = auto_context {
+                result_text = format!("{ctx}\n\n{result_text}");
+            }
         }
 
         if let Some(warning) = throttle_warning {
@@ -600,7 +612,7 @@ impl ServerHandler for LeanCtxServer {
             }
         }
 
-        if !minimal && name == "ctx_shell" {
+        if !minimal && !is_raw_shell && name == "ctx_shell" {
             let cmd = helpers::get_str(args, "command").unwrap_or_default();
             let calls = self.tool_calls.read().await;
             let last_original = calls.last().map_or(0, |c| c.original_tokens);

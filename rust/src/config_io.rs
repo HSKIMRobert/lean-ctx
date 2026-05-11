@@ -2,11 +2,35 @@ use std::path::{Path, PathBuf};
 
 fn backup_path_for(path: &Path) -> Option<PathBuf> {
     let filename = path.file_name()?.to_string_lossy();
-    Some(path.with_file_name(format!("{filename}.lean-ctx.bak")))
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    Some(path.with_file_name(format!("{filename}.lean-ctx.{ts}.bak")))
+}
+
+pub fn snapshot_mtime(path: &Path) -> Option<std::time::SystemTime> {
+    std::fs::metadata(path).ok().and_then(|m| m.modified().ok())
 }
 
 pub fn write_atomic_with_backup(path: &Path, content: &str) -> Result<(), String> {
+    write_atomic_with_backup_checked(path, content, None)
+}
+
+pub fn write_atomic_with_backup_checked(
+    path: &Path,
+    content: &str,
+    expected_mtime: Option<std::time::SystemTime>,
+) -> Result<(), String> {
     if path.exists() {
+        if let Some(expected) = expected_mtime {
+            let current = snapshot_mtime(path);
+            if current != Some(expected) {
+                return Err(format!(
+                    "file was modified externally since last read: {}",
+                    path.display()
+                ));
+            }
+        }
         if let Some(bak) = backup_path_for(path) {
             let _ = std::fs::copy(path, &bak);
         }
@@ -16,6 +40,8 @@ pub fn write_atomic_with_backup(path: &Path, content: &str) -> Result<(), String
 }
 
 pub fn write_atomic(path: &Path, content: &str) -> Result<(), String> {
+    reject_symlink(path)?;
+
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -51,5 +77,30 @@ pub fn write_atomic(path: &Path, content: &str) -> Result<(), String> {
         )
     })?;
 
+    restrict_file_permissions(path);
+
     Ok(())
 }
+
+fn reject_symlink(path: &Path) -> Result<(), String> {
+    if path.exists()
+        && path
+            .symlink_metadata()
+            .is_ok_and(|m| m.file_type().is_symlink())
+    {
+        return Err(format!(
+            "refusing to write through symlink: {}",
+            path.display()
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn restrict_file_permissions(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+}
+
+#[cfg(not(unix))]
+fn restrict_file_permissions(_path: &Path) {}

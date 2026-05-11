@@ -70,7 +70,7 @@ pub fn load_package(
     };
 
     if let Some(ref kl) = content.knowledge {
-        merge_knowledge(kl, project_root, &mut report)?;
+        merge_knowledge(kl, project_root, manifest, &mut report)?;
     }
 
     if let Some(ref gl) = content.graph {
@@ -87,10 +87,12 @@ pub fn load_package(
 fn merge_knowledge(
     layer: &KnowledgeLayer,
     project_root: &str,
+    manifest: &PackageManifest,
     report: &mut LoadReport,
 ) -> Result<(), String> {
     let mut knowledge = ProjectKnowledge::load_or_create(project_root);
     let policy = MemoryPolicy::default();
+    let source_tag = format!("{}@{}", manifest.name, manifest.version);
 
     for fact in &layer.facts {
         let exists = knowledge
@@ -111,6 +113,9 @@ fn merge_knowledge(
             fact.confidence.min(0.8),
             &policy,
         );
+        if let Some(last) = knowledge.facts.last_mut() {
+            last.imported_from = Some(source_tag.clone());
+        }
         report.knowledge_facts_merged += 1;
     }
 

@@ -545,6 +545,42 @@ fn write_mcp_json(
     write_mcp_json_fresh(&target.config_path, &desired, None)
 }
 
+fn find_in_path(binary: &str) -> Option<std::path::PathBuf> {
+    let path_var = std::env::var("PATH").ok()?;
+    for dir in std::env::split_paths(&path_var) {
+        let candidate = dir.join(binary);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn validate_claude_binary() -> Result<std::path::PathBuf, String> {
+    let path = find_in_path("claude").ok_or("claude binary not found in PATH")?;
+
+    let canonical =
+        std::fs::canonicalize(&path).map_err(|e| format!("cannot resolve claude path: {e}"))?;
+
+    let canonical_str = canonical.to_string_lossy();
+    let is_trusted = canonical_str.contains("/.claude/")
+        || canonical_str.contains("\\AppData\\")
+        || canonical_str.contains("/usr/local/bin/")
+        || canonical_str.contains("/opt/homebrew/")
+        || canonical_str.contains("/nix/store/")
+        || canonical_str.contains("/.npm/")
+        || canonical_str.contains("/.nvm/")
+        || canonical_str.contains("/node_modules/.bin/")
+        || std::env::var("LEAN_CTX_TRUST_CLAUDE_PATH").is_ok();
+
+    if !is_trusted {
+        return Err(format!(
+            "claude binary resolved to untrusted path: {canonical_str} — set LEAN_CTX_TRUST_CLAUDE_PATH=1 to override"
+        ));
+    }
+    Ok(canonical)
+}
+
 fn try_claude_mcp_add(desired: &Value) -> Result<WriteResult, String> {
     use std::io::Write;
     use std::process::{Command, Stdio};
@@ -552,8 +588,6 @@ fn try_claude_mcp_add(desired: &Value) -> Result<WriteResult, String> {
 
     let server_json = serde_json::to_string(desired).map_err(|e| e.to_string())?;
 
-    // On Windows, `claude` may be a `.cmd` shim and cannot be executed directly
-    // via CreateProcess; route through `cmd /C` for reliable invocation.
     let mut cmd = if cfg!(windows) {
         let mut c = Command::new("cmd");
         c.args([
@@ -561,7 +595,8 @@ fn try_claude_mcp_add(desired: &Value) -> Result<WriteResult, String> {
         ]);
         c
     } else {
-        let mut c = Command::new("claude");
+        let claude_path = validate_claude_binary()?;
+        let mut c = Command::new(claude_path);
         c.args(["mcp", "add-json", "--scope", "user", "lean-ctx"]);
         c
     };

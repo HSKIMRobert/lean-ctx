@@ -44,6 +44,8 @@ pub struct KnowledgeFact {
     pub last_feedback: Option<DateTime<Utc>>,
     #[serde(default)]
     pub privacy: FactPrivacy,
+    #[serde(default)]
+    pub imported_from: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -213,6 +215,7 @@ impl ProjectKnowledge {
                     feedback_down: 0,
                     last_feedback: None,
                     privacy: FactPrivacy::default(),
+                    imported_from: None,
                 });
             }
         } else {
@@ -235,6 +238,7 @@ impl ProjectKnowledge {
                 feedback_down: 0,
                 last_feedback: None,
                 privacy: FactPrivacy::default(),
+                imported_from: None,
             });
         }
 
@@ -1143,6 +1147,7 @@ pub fn parse_import_data(data: &str) -> Result<Vec<KnowledgeFact>, String> {
                 feedback_down: 0,
                 last_feedback: None,
                 privacy: FactPrivacy::default(),
+                imported_from: None,
             })
             .collect();
         return Ok(facts);
@@ -1175,6 +1180,7 @@ pub fn parse_import_data(data: &str) -> Result<Vec<KnowledgeFact>, String> {
                 feedback_down: 0,
                 last_feedback: None,
                 privacy: FactPrivacy::default(),
+                imported_from: None,
             });
         } else {
             return Err(format!(
@@ -1210,6 +1216,7 @@ fn imported_fact(source: &KnowledgeFact, session_id: &str) -> KnowledgeFact {
         feedback_down: 0,
         last_feedback: None,
         privacy: source.privacy,
+        imported_from: source.imported_from.clone(),
     }
 }
 
@@ -1505,6 +1512,7 @@ mod tests {
             feedback_down: 0,
             last_feedback: None,
             privacy: FactPrivacy::default(),
+            imported_from: None,
         }];
 
         let result = k.import_facts(incoming, ImportMerge::SkipExisting, "imp-1", &policy);
@@ -1537,6 +1545,7 @@ mod tests {
             feedback_down: 0,
             last_feedback: None,
             privacy: FactPrivacy::default(),
+            imported_from: None,
         }];
 
         let result = k.import_facts(incoming, ImportMerge::Replace, "imp-1", &policy);
@@ -1570,6 +1579,7 @@ mod tests {
             feedback_down: 0,
             last_feedback: None,
             privacy: FactPrivacy::default(),
+            imported_from: None,
         }];
 
         let result = k.import_facts(incoming, ImportMerge::SkipExisting, "imp-1", &policy);

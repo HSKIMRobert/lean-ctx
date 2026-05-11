@@ -248,7 +248,7 @@ fn post_update_rewire() {
         non_interactive: true,
         yes: true,
         fix: true,
-        json: false,
+        ..Default::default()
     };
     if let Err(e) = crate::setup::run_setup_with_options(opts) {
         tracing::error!("Setup refresh error: {e}");

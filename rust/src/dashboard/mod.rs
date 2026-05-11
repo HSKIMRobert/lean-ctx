@@ -163,6 +163,27 @@ fn load_saved_token() -> Option<String> {
         .map(|s| s.trim().to_string())
 }
 
+/// Adds `nonce="..."` to all inline `<script>` tags (those without a `src=` attribute).
+/// External scripts (`<script src="...">`) are left untouched.
+pub fn add_nonce_to_inline_scripts(html: &str, nonce: &str) -> String {
+    let mut result = String::with_capacity(html.len() + 128);
+    let mut remaining = html;
+    while let Some(pos) = remaining.find("<script") {
+        result.push_str(&remaining[..pos]);
+        let tag_start = &remaining[pos..];
+        let tag_end = tag_start.find('>').unwrap_or(tag_start.len());
+        let tag = &tag_start[..=tag_end];
+        if tag.contains("src=") || tag.contains("nonce=") {
+            result.push_str(tag);
+        } else {
+            result.push_str(&tag.replacen("<script", &format!("<script nonce=\"{nonce}\""), 1));
+        }
+        remaining = &tag_start[tag_end + 1..];
+    }
+    result.push_str(remaining);
+    result
+}
+
 fn hex_lower(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut out = String::with_capacity(bytes.len() * 2);
@@ -459,11 +480,8 @@ async fn handle_request(mut stream: tokio::net::TcpStream, token: Option<Arc<Str
         getrandom::fill(&mut nb).expect("CSPRNG unavailable — cannot generate CSP nonce");
         hex_lower(&nb)
     };
-    if body.contains("<script>window.__LEAN_CTX_TOKEN__") {
-        body = body.replace(
-            "<script>window.__LEAN_CTX_TOKEN__",
-            &format!("<script nonce=\"{nonce}\">window.__LEAN_CTX_TOKEN__"),
-        );
+    if content_type.contains("text/html") {
+        body = add_nonce_to_inline_scripts(&body, &nonce);
     }
     let security_headers = format!(
         "X-Content-Type-Options: nosniff\r\n\

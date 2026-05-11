@@ -246,20 +246,58 @@ struct ExportBundle {
 
 fn verify_integrity(manifest: &PackageManifest, content: &PackageContent) -> Result<(), String> {
     let canonical = serde_json::to_string(content).map_err(|e| e.to_string())?;
-    let mut hasher = Sha256::new();
-    hasher.update(canonical.as_bytes());
-    let actual_hash = format!("{:x}", hasher.finalize());
+    let content_bytes = canonical.as_bytes();
 
-    if actual_hash != manifest.integrity.content_hash {
+    let mut h1 = Sha256::new();
+    h1.update(content_bytes);
+    let actual_content_hash = format!("{:x}", h1.finalize());
+
+    if actual_content_hash != manifest.integrity.content_hash {
         return Err(format!(
-            "integrity check failed: content_hash mismatch (expected {}, got {actual_hash})",
+            "integrity check failed: content_hash mismatch (expected {}, got {actual_content_hash})",
             manifest.integrity.content_hash
         ));
     }
+
+    let expected_sha256 = {
+        let composite = format!(
+            "{}:{}:{actual_content_hash}",
+            manifest.name, manifest.version
+        );
+        let mut h2 = Sha256::new();
+        h2.update(composite.as_bytes());
+        format!("{:x}", h2.finalize())
+    };
+
+    if manifest.integrity.sha256 != expected_sha256 {
+        return Err(format!(
+            "integrity check failed: sha256 mismatch (expected {expected_sha256}, got {})",
+            manifest.integrity.sha256
+        ));
+    }
+
+    if manifest.integrity.byte_size != content_bytes.len() as u64 {
+        return Err(format!(
+            "integrity check failed: byte_size mismatch (expected {}, got {})",
+            manifest.integrity.byte_size,
+            content_bytes.len()
+        ));
+    }
+
     Ok(())
 }
 
 fn atomic_write(path: &Path, data: &[u8]) -> Result<(), String> {
+    if path.exists()
+        && path
+            .symlink_metadata()
+            .is_ok_and(|m| m.file_type().is_symlink())
+    {
+        return Err(format!(
+            "refusing to write through symlink: {}",
+            path.display()
+        ));
+    }
     let parent = path.parent().ok_or_else(|| "invalid path".to_string())?;
     let tmp = parent.join(format!(
         ".{}.tmp",
@@ -293,16 +331,21 @@ mod tests {
             layers: vec![super::super::manifest::PackageLayer::Knowledge],
             dependencies: vec![],
             tags: vec!["rust".into()],
-            integrity: super::super::manifest::PackageIntegrity {
-                sha256: "a".repeat(64),
-                content_hash: {
-                    let c = PackageContent::default();
-                    let j = serde_json::to_string(&c).unwrap();
-                    let mut h = Sha256::new();
-                    h.update(j.as_bytes());
-                    format!("{:x}", h.finalize())
-                },
-                byte_size: 2,
+            integrity: {
+                let c = PackageContent::default();
+                let j = serde_json::to_string(&c).unwrap();
+                let mut h = Sha256::new();
+                h.update(j.as_bytes());
+                let ch = format!("{:x}", h.finalize());
+                let composite = format!("test-pkg:1.0.0:{ch}");
+                let mut h2 = Sha256::new();
+                h2.update(composite.as_bytes());
+                let sha = format!("{:x}", h2.finalize());
+                super::super::manifest::PackageIntegrity {
+                    sha256: sha,
+                    content_hash: ch,
+                    byte_size: j.len() as u64,
+                }
             },
             provenance: super::super::manifest::PackageProvenance {
                 tool: "lean-ctx".into(),
@@ -351,10 +394,15 @@ mod tests {
             layers: vec![super::super::manifest::PackageLayer::Knowledge],
             dependencies: vec![],
             tags: vec![],
-            integrity: super::super::manifest::PackageIntegrity {
-                sha256: "b".repeat(64),
-                content_hash,
-                byte_size: content_json.len() as u64,
+            integrity: {
+                let composite = format!("export-test:2.0.0:{content_hash}");
+                let mut h2 = Sha256::new();
+                h2.update(composite.as_bytes());
+                super::super::manifest::PackageIntegrity {
+                    sha256: format!("{:x}", h2.finalize()),
+                    content_hash,
+                    byte_size: content_json.len() as u64,
+                }
             },
             provenance: super::super::manifest::PackageProvenance {
                 tool: "lean-ctx".into(),

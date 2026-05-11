@@ -66,7 +66,7 @@ impl Mailer {
             .to(to)
             .subject("Verify your LeanCTX account")
             .body(format!(
-                "Welcome to LeanCTX!\n\nPlease verify your email address:\n\n{link}\n\nThis link expires in 24 hours."
+                "Welcome to LeanCTX!\n\nPlease verify your email address:\n\n{link}\n\nThis link expires in 2 hours."
             ))?;
         self.transport.send(email).await?;
         Ok(())
@@ -142,7 +142,10 @@ pub async fn register(
         if let Some(ref mailer) = state.mailer {
             let token = generate_token();
             let token_sha = sha256_hex(&token);
-            let expires_at = Utc::now() + Duration::hours(24);
+            let expires_at = Utc::now() + Duration::hours(2);
+            invalidate_pending_verifications(&state.pool, user_id)
+                .await
+                .map_err(internal_error)?;
             store_email_verification(&state.pool, &token_sha, user_id, expires_at)
                 .await
                 .map_err(internal_error)?;
@@ -179,7 +182,10 @@ pub async fn register(
     if let Some(ref mailer) = state.mailer {
         let token = generate_token();
         let token_sha = sha256_hex(&token);
-        let expires_at = Utc::now() + Duration::hours(24);
+        let expires_at = Utc::now() + Duration::hours(2);
+        invalidate_pending_verifications(&state.pool, user_id)
+            .await
+            .map_err(internal_error)?;
         store_email_verification(&state.pool, &token_sha, user_id, expires_at)
             .await
             .map_err(internal_error)?;
@@ -228,13 +234,17 @@ pub async fn login(
         ));
     }
 
-    let (user_id, stored_hash) = lookup_user_credentials(&state.pool, &email)
+    let credentials = lookup_user_credentials(&state.pool, &email)
         .await
-        .map_err(internal_error)?
-        .ok_or((StatusCode::UNAUTHORIZED, "Invalid email or password".into()))?;
+        .map_err(internal_error)?;
 
-    let stored_hash =
-        stored_hash.ok_or((StatusCode::UNAUTHORIZED, "Invalid email or password".into()))?;
+    let (user_id, stored_hash) = match credentials {
+        Some((uid, Some(hash))) => (uid, hash),
+        _ => {
+            let _ = dummy_verify(&body.password);
+            return Err((StatusCode::UNAUTHORIZED, "Invalid email or password".into()));
+        }
+    };
 
     if !verify_password(&body.password, &stored_hash) {
         return Err((StatusCode::UNAUTHORIZED, "Invalid email or password".into()));
@@ -245,11 +255,13 @@ pub async fn login(
         .map_err(internal_error)?;
 
     if !email_verified {
-        // Resend verification email on login attempt if not verified
         if let Some(ref mailer) = state.mailer {
             let token = generate_token();
             let token_sha = sha256_hex(&token);
-            let expires_at = Utc::now() + Duration::hours(24);
+            let expires_at = Utc::now() + Duration::hours(2);
+            invalidate_pending_verifications(&state.pool, user_id)
+                .await
+                .map_err(internal_error)?;
             store_email_verification(&state.pool, &token_sha, user_id, expires_at)
                 .await
                 .map_err(internal_error)?;
@@ -442,7 +454,10 @@ pub async fn resend_verification(
             if let Some(ref mailer) = state.mailer {
                 let token = generate_token();
                 let token_sha = sha256_hex(&token);
-                let expires_at = Utc::now() + Duration::hours(24);
+                let expires_at = Utc::now() + Duration::hours(2);
+                invalidate_pending_verifications(&state.pool, user_id)
+                    .await
+                    .map_err(internal_error)?;
                 store_email_verification(&state.pool, &token_sha, user_id, expires_at)
                     .await
                     .map_err(internal_error)?;
@@ -631,6 +646,17 @@ async fn lookup_api_key(pool: &Pool, api_key_sha: &str) -> anyhow::Result<Option
     Ok(None)
 }
 
+async fn invalidate_pending_verifications(pool: &Pool, user_id: Uuid) -> anyhow::Result<()> {
+    let client = pool.get().await?;
+    client
+        .execute(
+            "DELETE FROM email_verifications WHERE user_id = $1",
+            &[&user_id],
+        )
+        .await?;
+    Ok(())
+}
+
 async fn store_email_verification(
     pool: &Pool,
     token_sha: &str,
@@ -718,6 +744,11 @@ fn hash_password(password: &str) -> String {
         .hash_password(password.as_bytes(), &salt)
         .expect("Argon2 hashing failed")
         .to_string()
+}
+
+fn dummy_verify(password: &str) -> bool {
+    let dummy_hash = "$argon2id$v=19$m=19456,t=2,p=1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    verify_password(password, dummy_hash)
 }
 
 fn verify_password(password: &str, stored: &str) -> bool {

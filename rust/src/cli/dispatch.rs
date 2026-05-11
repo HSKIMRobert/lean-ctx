@@ -851,6 +851,7 @@ pub fn run() {
                 let yes = rest.iter().any(|a| a == "--yes" || a == "-y");
                 let fix = rest.iter().any(|a| a == "--fix");
                 let json = rest.iter().any(|a| a == "--json");
+                let no_auto_approve = rest.iter().any(|a| a == "--no-auto-approve");
 
                 if non_interactive || fix || json || yes {
                     let opts = setup::SetupOptions {
@@ -858,6 +859,7 @@ pub fn run() {
                         yes,
                         fix,
                         json,
+                        no_auto_approve,
                     };
                     match setup::run_setup_with_options(opts) {
                         Ok(report) => {
@@ -894,6 +896,7 @@ pub fn run() {
                     yes: true,
                     fix: true,
                     json,
+                    ..Default::default()
                 };
                 match setup::run_setup_with_options(opts) {
                     Ok(report) => {
@@ -922,6 +925,7 @@ pub fn run() {
                     yes: true,
                     fix: true,
                     json,
+                    ..Default::default()
                 };
                 match setup::run_setup_with_options(opts) {
                     Ok(report) => {

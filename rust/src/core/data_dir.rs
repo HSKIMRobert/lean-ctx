@@ -10,7 +10,9 @@ pub fn lean_ctx_data_dir() -> Result<PathBuf, String> {
     if let Ok(dir) = std::env::var("LEAN_CTX_DATA_DIR") {
         let trimmed = dir.trim();
         if !trimmed.is_empty() {
-            return Ok(PathBuf::from(trimmed));
+            let p = PathBuf::from(trimmed);
+            ensure_dir_permissions(&p);
+            return Ok(p);
         }
     }
 
@@ -18,6 +20,7 @@ pub fn lean_ctx_data_dir() -> Result<PathBuf, String> {
 
     let legacy = home.join(".lean-ctx");
     if legacy.exists() {
+        ensure_dir_permissions(&legacy);
         return Ok(legacy);
     }
 
@@ -26,8 +29,21 @@ pub fn lean_ctx_data_dir() -> Result<PathBuf, String> {
         .filter(|s| !s.trim().is_empty())
         .map_or_else(|| home.join(".config"), PathBuf::from);
 
-    Ok(xdg_config.join("lean-ctx"))
+    let dir = xdg_config.join("lean-ctx");
+    ensure_dir_permissions(&dir);
+    Ok(dir)
 }
+
+#[cfg(unix)]
+fn ensure_dir_permissions(path: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    if path.is_dir() {
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700));
+    }
+}
+
+#[cfg(not(unix))]
+fn ensure_dir_permissions(_path: &std::path::Path) {}
 
 pub fn test_env_lock() -> std::sync::MutexGuard<'static, ()> {
     use std::sync::{Mutex, OnceLock};

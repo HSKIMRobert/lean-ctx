@@ -131,6 +131,19 @@ impl PackageManifest {
         if self.version.is_empty() {
             errors.push("version must not be empty".into());
         }
+        if self.version.len() > 64 {
+            errors.push("version must be <= 64 characters".into());
+        }
+        if !self
+            .version
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '+')
+        {
+            errors.push("version must only contain [a-zA-Z0-9._+-]".into());
+        }
+        if self.version.starts_with('.') {
+            errors.push("version must not start with '.'".into());
+        }
         if self.layers.is_empty() {
             errors.push("at least one layer is required".into());
         }

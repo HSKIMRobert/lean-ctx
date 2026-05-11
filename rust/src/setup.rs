@@ -48,8 +48,7 @@ pub fn run_setup() {
         let opts = SetupOptions {
             non_interactive: true,
             yes: true,
-            fix: false,
-            json: false,
+            ..Default::default()
         };
         match run_setup_with_options(opts) {
             Ok(report) => {
@@ -320,6 +319,21 @@ pub fn run_setup() {
     }
     println!();
 
+    // Auto-approve transparency banner
+    {
+        let tools = crate::core::editor_registry::writers::auto_approve_tools();
+        println!();
+        println!(
+            "  \x1b[33m⚡ Auto-approved tools ({} total):\x1b[0m",
+            tools.len()
+        );
+        for chunk in tools.chunks(6) {
+            let names: Vec<_> = chunk.iter().map(|t| format!("\x1b[2m{t}\x1b[0m")).collect();
+            println!("    {}", names.join(", "));
+        }
+        println!("  \x1b[2mDisable with: lean-ctx setup --no-auto-approve\x1b[0m");
+    }
+
     // Summary
     println!();
     println!(
@@ -408,6 +422,7 @@ pub struct SetupOptions {
     pub yes: bool,
     pub fix: bool,
     pub json: bool,
+    pub no_auto_approve: bool,
 }
 
 pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String> {

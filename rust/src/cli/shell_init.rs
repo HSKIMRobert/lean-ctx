@@ -308,7 +308,7 @@ pub fn generate_hook_fish(binary: &str) -> String {
         \tend\n\
         \talias k '_lc kubectl'\n\
         \tset -gx LEAN_CTX_ENABLED 1\n\
-        \tisatty stdout; and echo 'lean-ctx: ON (track mode — full output, stats recorded)'\n\
+        \tisatty stdout; and echo 'lean-ctx: ON (track mode — output unchanged, token savings recorded)'\n\
         end\n\
         \n\
         function lean-ctx-off\n\
@@ -443,7 +443,7 @@ lean-ctx-on() {{
     done
     alias k='_lc kubectl'
     export LEAN_CTX_ENABLED=1
-    [ -t 1 ] && echo "lean-ctx: ON (track mode — full output, stats recorded)"
+    [ -t 1 ] && echo "lean-ctx: ON (track mode — output unchanged, token savings recorded)"
 }}
 
 lean-ctx-off() {{

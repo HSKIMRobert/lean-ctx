@@ -97,7 +97,8 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/api/global-stats", get(global_stats::get_global_stats))
         .route("/api/cloud/models", get(models::get_models))
         .with_state(state)
-        .layer(cors);
+        .layer(cors)
+        .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024));
 
     let listener = tokio::net::TcpListener::bind(cfg.bind_addr()).await?;
     axum::serve(listener, app).await?;

@@ -30,11 +30,18 @@ impl ProxyConfig {
                 "https://generativelanguage.googleapis.com",
             ),
         };
-        std::env::var(env_var)
+        let resolved = std::env::var(env_var)
             .ok()
             .and_then(|v| normalize_url_opt(&v))
             .or_else(|| config_val.and_then(normalize_url_opt))
-            .unwrap_or_else(|| normalize_url(default))
+            .unwrap_or_else(|| normalize_url(default));
+        match validate_upstream_url(&resolved) {
+            Ok(url) => url,
+            Err(e) => {
+                tracing::warn!("upstream validation failed, using default: {e}");
+                normalize_url(default)
+            }
+        }
     }
 }
 
@@ -55,6 +62,40 @@ pub fn normalize_url_opt(value: &str) -> Option<String> {
         None
     } else {
         Some(trimmed)
+    }
+}
+
+const ALLOWED_UPSTREAM_HOSTS: &[&str] = &[
+    "api.anthropic.com",
+    "api.openai.com",
+    "generativelanguage.googleapis.com",
+];
+
+pub fn validate_upstream_url(url: &str) -> Result<String, String> {
+    let normalized = normalize_url(url);
+    if is_local_proxy_url(&normalized) {
+        return Ok(normalized);
+    }
+    if !normalized.starts_with("https://") {
+        return Err(format!(
+            "upstream URL must use HTTPS: {normalized} (set LEAN_CTX_ALLOW_CUSTOM_UPSTREAM=1 to override)"
+        ));
+    }
+    let host = normalized
+        .strip_prefix("https://")
+        .unwrap_or(&normalized)
+        .split('/')
+        .next()
+        .unwrap_or("");
+    let host_no_port = host.split(':').next().unwrap_or(host);
+    if ALLOWED_UPSTREAM_HOSTS.contains(&host_no_port)
+        || std::env::var("LEAN_CTX_ALLOW_CUSTOM_UPSTREAM").is_ok()
+    {
+        Ok(normalized)
+    } else {
+        Err(format!(
+            "upstream host '{host_no_port}' not in allowlist {ALLOWED_UPSTREAM_HOSTS:?} (set LEAN_CTX_ALLOW_CUSTOM_UPSTREAM=1 to override)"
+        ))
     }
 }
 

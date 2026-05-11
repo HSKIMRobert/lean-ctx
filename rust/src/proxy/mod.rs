@@ -73,6 +73,10 @@ impl ProxyStats {
 }
 
 pub async fn start_proxy(port: u16) -> anyhow::Result<()> {
+    start_proxy_with_token(port, std::env::var("LEAN_CTX_PROXY_TOKEN").ok()).await
+}
+
+pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> anyhow::Result<()> {
     use crate::core::config::{Config, ProxyProvider};
 
     let client = reqwest::Client::builder()
@@ -93,16 +97,29 @@ pub async fn start_proxy(port: u16) -> anyhow::Result<()> {
         gemini_upstream: gemini_upstream.clone(),
     };
 
-    let app = Router::new()
+    let mut app = Router::new()
         .route("/health", get(health))
         .route("/status", get(status_handler))
         .route("/v1/messages", any(anthropic::handler))
         .route("/v1/chat/completions", any(openai::handler))
         .fallback(fallback_router)
+        .layer(axum::middleware::from_fn(host_guard))
         .with_state(state);
 
+    if let Some(ref token) = auth_token {
+        let expected = token.clone();
+        app = app.layer(axum::middleware::from_fn(move |req, next| {
+            let expected = expected.clone();
+            proxy_auth_guard(req, next, expected)
+        }));
+    }
+
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
-    println!("lean-ctx proxy listening on http://{addr}");
+    if auth_token.is_some() {
+        println!("lean-ctx proxy listening on http://{addr} (token auth enabled)");
+    } else {
+        println!("lean-ctx proxy listening on http://{addr} (no auth — set LEAN_CTX_PROXY_TOKEN to enable)");
+    }
     println!("  Anthropic: POST /v1/messages → {anthropic_upstream}");
     println!("  OpenAI:    POST /v1/chat/completions → {openai_upstream}");
     println!("  Gemini:    POST /v1beta/models/... → {gemini_upstream}");
@@ -131,6 +148,46 @@ async fn status_handler(State(state): State<ProxyState>) -> impl IntoResponse {
         "compression_ratio_pct": format!("{:.1}", s.compression_ratio()),
     });
     (StatusCode::OK, axum::Json(body))
+}
+
+async fn proxy_auth_guard(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+    expected_token: String,
+) -> Result<Response, StatusCode> {
+    let path = req.uri().path();
+    if path == "/health" || path == "/status" {
+        return Ok(next.run(req).await);
+    }
+
+    if let Some(auth) = req
+        .headers()
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+    {
+        if let Some(token) = auth.strip_prefix("Bearer ") {
+            if token == expected_token {
+                return Ok(next.run(req).await);
+            }
+        }
+    }
+
+    Err(StatusCode::UNAUTHORIZED)
+}
+
+async fn host_guard(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Result<Response, StatusCode> {
+    if let Some(host) = req.headers().get("host").and_then(|v| v.to_str().ok()) {
+        let h = host.split(':').next().unwrap_or(host);
+        if matches!(h, "127.0.0.1" | "localhost" | "[::1]") {
+            return Ok(next.run(req).await);
+        }
+    } else {
+        return Ok(next.run(req).await);
+    }
+    Err(StatusCode::FORBIDDEN)
 }
 
 async fn fallback_router(State(state): State<ProxyState>, req: Request<Body>) -> Response {

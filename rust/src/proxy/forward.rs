@@ -67,12 +67,25 @@ async fn send_upstream(
 ) -> Result<reqwest::Response, StatusCode> {
     let mut req = state.client.request(parts.method.clone(), url);
 
+    const ALLOWED_HEADERS: &[&str] = &[
+        "authorization",
+        "x-api-key",
+        "content-type",
+        "accept",
+        "user-agent",
+        "anthropic-version",
+        "anthropic-beta",
+        "anthropic-dangerous-direct-browser-access",
+        "openai-organization",
+        "openai-beta",
+        "x-goog-api-key",
+        "x-goog-api-client",
+    ];
     for (key, value) in &parts.headers {
         let k = key.as_str().to_lowercase();
-        if k == "host" || k == "content-length" || k == "transfer-encoding" {
-            continue;
+        if ALLOWED_HEADERS.contains(&k.as_str()) {
+            req = req.header(key.clone(), value.clone());
         }
-        req = req.header(key.clone(), value.clone());
     }
 
     req.body(body).send().await.map_err(|e| {

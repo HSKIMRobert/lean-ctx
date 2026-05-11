@@ -214,6 +214,32 @@ The `ctx_execute` tool provides **timeout enforcement** and **output capping** b
 
 **Recommendation for regulated environments:** Disable `ctx_execute` via role configuration (`denied: ["ctx_execute"]`) or run lean-ctx in a pre-existing container sandbox.
 
+### Shell Command Validation (REQ-57177)
+
+**Status:** Accepted risk — by design.
+
+`ctx_shell` executes commands requested by the user or their AI agent. lean-ctx does **not** validate or sanitize shell command content itself — that responsibility lies with the agent's permission model (e.g., Claude Code's allowlists, Cursor's approval dialogs). lean-ctx enforces CWD jail boundaries and output capping but does not attempt to parse or restrict shell syntax.
+
+**Rationale:** Any shell validation can be bypassed (encoding, quoting, aliases). The correct security boundary is the AI agent's permission model, not a regex-based shell filter.
+
+**Mitigation:** Use role-based `denied: ["ctx_shell"]` to disable shell access entirely in sensitive environments.
+
+### PathJail TOCTOU Race (REQ-57178)
+
+**Status:** Accepted residual risk.
+
+A race condition exists between `jail_path` validation and the subsequent file operation. The filesystem could change between the check and the operation (e.g., a symlink replaced after validation). Complete mitigation would require `openat`/`O_NOFOLLOW` at the syscall level, which is impractical across all supported platforms.
+
+**Mitigation:** Symlink-following canonicalization before access. For regulated environments: run lean-ctx inside a container where no untrusted processes can modify symlinks concurrently.
+
+### Cloud Server Database TLS (REQ-57188)
+
+**Status:** Accepted risk — localhost-only by default.
+
+The cloud server's PostgreSQL connection does not enforce TLS by default. This is acceptable because the cloud server is designed for localhost/loopback deployment where DB traffic does not traverse a network.
+
+**Mitigation for production:** Set `DATABASE_URL` with `?sslmode=require` or use a connection string that enforces TLS. When deployed behind a reverse proxy (nginx/Caddy), ensure TLS terminates before the DB.
+
 ### HuggingFace Model Downloads
 
 **Status:** Documented risk.
@@ -285,4 +311,4 @@ When running the team server (`lean-ctx team-server`):
 
 ---
 
-**Last updated**: 2026-05-08
+**Last updated**: 2026-05-11

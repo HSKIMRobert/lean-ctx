@@ -304,6 +304,7 @@ mod tests {
             feedback_down: 0,
             last_feedback: None,
             privacy: crate::core::memory_boundary::FactPrivacy::default(),
+            imported_from: None,
         }
     }
 
@@ -333,6 +334,7 @@ mod tests {
             feedback_down: 0,
             last_feedback: None,
             privacy: crate::core::memory_boundary::FactPrivacy::default(),
+            imported_from: None,
         }
     }
 

@@ -48,6 +48,7 @@ fn claude_mcp_add_json_used_when_available() {
     let old_path = std::env::var("PATH").unwrap_or_default();
     let new_path = format!("{}:{}", bin_dir.to_string_lossy(), old_path);
     std::env::set_var("PATH", new_path);
+    std::env::set_var("LEAN_CTX_TRUST_CLAUDE_PATH", "1");
 
     let targets = lean_ctx::core::editor_registry::detect::build_targets(&home);
     let claude_target = targets
@@ -72,6 +73,7 @@ fn claude_mcp_add_json_used_when_available() {
     assert!(v.get("command").is_some(), "must be server entry json");
 
     // Restore env
+    std::env::remove_var("LEAN_CTX_TRUST_CLAUDE_PATH");
     if let Some(h) = old_home {
         std::env::set_var("HOME", h);
     }

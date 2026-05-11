@@ -104,6 +104,7 @@ fn setup_bootstrap_doctor_status_json_smoke() {
     let sep = if cfg!(windows) { ";" } else { ":" };
     let new_path = format!("{}{sep}{}", bin_dir.to_string_lossy(), old_path);
     envs.push(("PATH", new_path.as_str()));
+    envs.push(("LEAN_CTX_TRUST_CLAUDE_PATH", "1"));
 
     // bootstrap --json returns clean JSON (SetupReport)
     let (code, out) = run_json(bin, &["bootstrap", "--json"], &envs);

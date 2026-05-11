@@ -395,10 +395,502 @@ fn is_search_output(command: &str) -> bool {
 /// compressors are skipped so diff hunks, blame annotations, etc. remain
 /// fully readable.
 pub fn has_structural_output(command: &str) -> bool {
+    if is_verbatim_output(command) {
+        return true;
+    }
     if is_standalone_diff_command(command) {
         return true;
     }
     is_structural_git_command(command)
+}
+
+/// Returns true for commands where the output IS the purpose of the command.
+/// These must never have their content transformed — only size-limited if huge.
+/// Checks both the full command AND the last pipe segment for comprehensive coverage.
+pub fn is_verbatim_output(command: &str) -> bool {
+    is_verbatim_single(command) || is_verbatim_pipe_tail(command)
+}
+
+fn is_verbatim_single(command: &str) -> bool {
+    is_http_client(command)
+        || is_file_viewer(command)
+        || is_data_format_tool(command)
+        || is_binary_viewer(command)
+        || is_infra_inspection(command)
+        || is_crypto_command(command)
+        || is_database_query(command)
+        || is_dns_network_inspection(command)
+        || is_language_one_liner(command)
+        || is_container_listing(command)
+        || is_file_listing(command)
+        || is_system_query(command)
+        || is_cloud_cli_query(command)
+        || is_package_manager_info(command)
+        || is_version_or_help(command)
+        || is_config_viewer(command)
+        || is_log_viewer(command)
+        || is_archive_listing(command)
+        || is_clipboard_tool(command)
+        || is_git_data_command(command)
+        || is_task_dry_run(command)
+        || is_env_dump(command)
+}
+
+/// For piped commands like `kubectl get pods -o json | jq '.items[]'`,
+/// check if the LAST command in the pipe is a verbatim tool.
+fn is_verbatim_pipe_tail(command: &str) -> bool {
+    if !command.contains('|') {
+        return false;
+    }
+    let last_segment = command.rsplit('|').next().unwrap_or("").trim();
+    if last_segment.is_empty() {
+        return false;
+    }
+    is_verbatim_single(last_segment)
+}
+
+fn is_http_client(command: &str) -> bool {
+    let first = first_binary(command);
+    matches!(
+        first,
+        "curl" | "wget" | "http" | "https" | "xh" | "curlie" | "grpcurl" | "grpc_cli"
+    )
+}
+
+fn is_file_viewer(command: &str) -> bool {
+    let first = first_binary(command);
+    match first {
+        "cat" | "bat" | "batcat" | "pygmentize" | "highlight" => true,
+        "head" | "tail" => !command.contains("-f") && !command.contains("--follow"),
+        _ => false,
+    }
+}
+
+fn is_data_format_tool(command: &str) -> bool {
+    let first = first_binary(command);
+    matches!(
+        first,
+        "jq" | "yq"
+            | "xq"
+            | "fx"
+            | "gron"
+            | "mlr"
+            | "miller"
+            | "dasel"
+            | "csvlook"
+            | "csvcut"
+            | "csvgrep"
+            | "csvjson"
+            | "in2csv"
+            | "sql2csv"
+    )
+}
+
+fn is_binary_viewer(command: &str) -> bool {
+    let first = first_binary(command);
+    matches!(first, "xxd" | "hexdump" | "od" | "strings" | "file")
+}
+
+fn is_infra_inspection(command: &str) -> bool {
+    let cl = command.trim().to_ascii_lowercase();
+    if cl.starts_with("terraform output")
+        || cl.starts_with("terraform show")
+        || cl.starts_with("terraform state show")
+        || cl.starts_with("terraform state list")
+        || cl.starts_with("terraform state pull")
+        || cl.starts_with("tofu output")
+        || cl.starts_with("tofu show")
+        || cl.starts_with("tofu state show")
+        || cl.starts_with("tofu state list")
+        || cl.starts_with("tofu state pull")
+        || cl.starts_with("pulumi stack output")
+        || cl.starts_with("pulumi stack export")
+    {
+        return true;
+    }
+    if cl.starts_with("docker inspect") || cl.starts_with("podman inspect") {
+        return true;
+    }
+    if (cl.starts_with("kubectl get") || cl.starts_with("k get"))
+        && (cl.contains("-o yaml")
+            || cl.contains("-o json")
+            || cl.contains("-oyaml")
+            || cl.contains("-ojson")
+            || cl.contains("--output yaml")
+            || cl.contains("--output json")
+            || cl.contains("--output=yaml")
+            || cl.contains("--output=json"))
+    {
+        return true;
+    }
+    if cl.starts_with("kubectl describe") || cl.starts_with("k describe") {
+        return true;
+    }
+    if cl.starts_with("helm get") || cl.starts_with("helm template") {
+        return true;
+    }
+    false
+}
+
+fn is_crypto_command(command: &str) -> bool {
+    let first = first_binary(command);
+    if first == "openssl" {
+        return true;
+    }
+    matches!(first, "gpg" | "age" | "ssh-keygen" | "certutil")
+}
+
+fn is_database_query(command: &str) -> bool {
+    let cl = command.to_ascii_lowercase();
+    if cl.starts_with("psql ") && (cl.contains(" -c ") || cl.contains("--command")) {
+        return true;
+    }
+    if cl.starts_with("mysql ") && (cl.contains(" -e ") || cl.contains("--execute")) {
+        return true;
+    }
+    if cl.starts_with("mariadb ") && (cl.contains(" -e ") || cl.contains("--execute")) {
+        return true;
+    }
+    if cl.starts_with("sqlite3 ") && cl.contains('"') {
+        return true;
+    }
+    if cl.starts_with("mongosh ") && cl.contains("--eval") {
+        return true;
+    }
+    false
+}
+
+fn is_dns_network_inspection(command: &str) -> bool {
+    let first = first_binary(command);
+    matches!(
+        first,
+        "dig" | "nslookup" | "host" | "whois" | "drill" | "resolvectl"
+    )
+}
+
+fn is_language_one_liner(command: &str) -> bool {
+    let cl = command.to_ascii_lowercase();
+    (cl.starts_with("python ") || cl.starts_with("python3 "))
+        && (cl.contains(" -c ") || cl.contains(" -c\"") || cl.contains(" -c'"))
+        || (cl.starts_with("node ") && (cl.contains(" -e ") || cl.contains(" --eval")))
+        || (cl.starts_with("ruby ") && cl.contains(" -e "))
+        || (cl.starts_with("perl ") && cl.contains(" -e "))
+        || (cl.starts_with("php ") && cl.contains(" -r "))
+}
+
+fn is_container_listing(command: &str) -> bool {
+    let cl = command.trim().to_ascii_lowercase();
+    if cl.starts_with("docker ps") || cl.starts_with("docker images") {
+        return true;
+    }
+    if cl.starts_with("podman ps") || cl.starts_with("podman images") {
+        return true;
+    }
+    if cl.starts_with("kubectl get") || cl.starts_with("k get") {
+        return true;
+    }
+    if cl.starts_with("helm list") || cl.starts_with("helm ls") {
+        return true;
+    }
+    if cl.starts_with("docker compose ps") || cl.starts_with("docker-compose ps") {
+        return true;
+    }
+    false
+}
+
+fn is_file_listing(command: &str) -> bool {
+    let first = first_binary(command);
+    matches!(
+        first,
+        "find" | "fd" | "fdfind" | "ls" | "exa" | "eza" | "lsd"
+    )
+}
+
+fn is_system_query(command: &str) -> bool {
+    let first = first_binary(command);
+    matches!(
+        first,
+        "stat"
+            | "wc"
+            | "du"
+            | "df"
+            | "free"
+            | "uname"
+            | "id"
+            | "whoami"
+            | "hostname"
+            | "uptime"
+            | "lscpu"
+            | "lsblk"
+            | "ip"
+            | "ifconfig"
+            | "route"
+            | "ss"
+            | "netstat"
+            | "base64"
+            | "sha256sum"
+            | "sha1sum"
+            | "md5sum"
+            | "cksum"
+            | "readlink"
+            | "realpath"
+            | "which"
+            | "type"
+            | "command"
+    )
+}
+
+fn is_cloud_cli_query(command: &str) -> bool {
+    let cl = command.trim().to_ascii_lowercase();
+    let cloud_query_verbs = [
+        "describe",
+        "get",
+        "list",
+        "show",
+        "export",
+        "inspect",
+        "info",
+        "status",
+        "whoami",
+        "caller-identity",
+        "account",
+    ];
+
+    let is_aws = cl.starts_with("aws ") && !cl.starts_with("aws configure");
+    let is_gcloud =
+        cl.starts_with("gcloud ") && !cl.starts_with("gcloud auth") && !cl.contains(" deploy");
+    let is_az = cl.starts_with("az ") && !cl.starts_with("az login");
+
+    if !(is_aws || is_gcloud || is_az) {
+        return false;
+    }
+
+    cloud_query_verbs
+        .iter()
+        .any(|verb| cl.contains(&format!(" {verb}")))
+}
+
+fn is_package_manager_info(command: &str) -> bool {
+    let cl = command.trim().to_ascii_lowercase();
+
+    if cl.starts_with("npm ") {
+        return cl.starts_with("npm list")
+            || cl.starts_with("npm ls")
+            || cl.starts_with("npm info")
+            || cl.starts_with("npm view")
+            || cl.starts_with("npm show")
+            || cl.starts_with("npm outdated")
+            || cl.starts_with("npm audit");
+    }
+    if cl.starts_with("yarn ") {
+        return cl.starts_with("yarn list")
+            || cl.starts_with("yarn info")
+            || cl.starts_with("yarn why")
+            || cl.starts_with("yarn outdated")
+            || cl.starts_with("yarn audit");
+    }
+    if cl.starts_with("pnpm ") {
+        return cl.starts_with("pnpm list")
+            || cl.starts_with("pnpm ls")
+            || cl.starts_with("pnpm why")
+            || cl.starts_with("pnpm outdated")
+            || cl.starts_with("pnpm audit");
+    }
+    if cl.starts_with("pip ") || cl.starts_with("pip3 ") {
+        return cl.contains(" list") || cl.contains(" show") || cl.contains(" freeze");
+    }
+    if cl.starts_with("gem ") {
+        return cl.starts_with("gem list")
+            || cl.starts_with("gem info")
+            || cl.starts_with("gem specification");
+    }
+    if cl.starts_with("cargo ") {
+        return cl.starts_with("cargo metadata")
+            || cl.starts_with("cargo tree")
+            || cl.starts_with("cargo pkgid");
+    }
+    if cl.starts_with("go ") {
+        return cl.starts_with("go list") || cl.starts_with("go version");
+    }
+    if cl.starts_with("composer ") {
+        return cl.starts_with("composer show")
+            || cl.starts_with("composer info")
+            || cl.starts_with("composer outdated");
+    }
+    if cl.starts_with("brew ") {
+        return cl.starts_with("brew list")
+            || cl.starts_with("brew info")
+            || cl.starts_with("brew deps")
+            || cl.starts_with("brew outdated");
+    }
+    if cl.starts_with("apt ") || cl.starts_with("dpkg ") {
+        return cl.starts_with("apt list")
+            || cl.starts_with("apt show")
+            || cl.starts_with("dpkg -l")
+            || cl.starts_with("dpkg --list")
+            || cl.starts_with("dpkg -s");
+    }
+    false
+}
+
+fn is_version_or_help(command: &str) -> bool {
+    let parts: Vec<&str> = command.split_whitespace().collect();
+    if parts.len() < 2 || parts.len() > 3 {
+        return false;
+    }
+    parts.iter().any(|p| {
+        *p == "--version"
+            || *p == "-V"
+            || p.eq_ignore_ascii_case("version")
+            || *p == "--help"
+            || *p == "-h"
+            || p.eq_ignore_ascii_case("help")
+    })
+}
+
+fn is_config_viewer(command: &str) -> bool {
+    let cl = command.trim().to_ascii_lowercase();
+    if cl.starts_with("git config") && !cl.contains("--set") && !cl.contains("--unset") {
+        return true;
+    }
+    if cl.starts_with("npm config list") || cl.starts_with("npm config get") {
+        return true;
+    }
+    if cl.starts_with("yarn config") && !cl.contains(" set") {
+        return true;
+    }
+    if cl.starts_with("pip config list") || cl.starts_with("pip3 config list") {
+        return true;
+    }
+    if cl.starts_with("rustup show") || cl.starts_with("rustup target list") {
+        return true;
+    }
+    if cl.starts_with("docker context ls") || cl.starts_with("docker context list") {
+        return true;
+    }
+    if cl.starts_with("kubectl config")
+        && (cl.contains("view") || cl.contains("get-contexts") || cl.contains("current-context"))
+    {
+        return true;
+    }
+    false
+}
+
+fn is_log_viewer(command: &str) -> bool {
+    let cl = command.trim().to_ascii_lowercase();
+    if cl.starts_with("journalctl") && !cl.contains("-f") && !cl.contains("--follow") {
+        return true;
+    }
+    if cl.starts_with("dmesg") && !cl.contains("-w") && !cl.contains("--follow") {
+        return true;
+    }
+    if cl.starts_with("docker logs") && !cl.contains("-f") && !cl.contains("--follow") {
+        return true;
+    }
+    if cl.starts_with("kubectl logs") && !cl.contains("-f") && !cl.contains("--follow") {
+        return true;
+    }
+    if cl.starts_with("docker compose logs") && !cl.contains("-f") && !cl.contains("--follow") {
+        return true;
+    }
+    false
+}
+
+fn is_archive_listing(command: &str) -> bool {
+    let cl = command.trim().to_ascii_lowercase();
+    if cl.starts_with("tar ") && (cl.contains(" -tf") || cl.contains(" -t") || cl.contains(" tf")) {
+        return true;
+    }
+    if cl.starts_with("unzip -l") || cl.starts_with("unzip -Z") {
+        return true;
+    }
+    let first = first_binary(command);
+    matches!(first, "zipinfo" | "lsar" | "7z" if cl.contains(" l ") || cl.contains(" l\t"))
+        || first == "zipinfo"
+        || first == "lsar"
+}
+
+fn is_clipboard_tool(command: &str) -> bool {
+    let first = first_binary(command);
+    if matches!(first, "pbpaste" | "wl-paste") {
+        return true;
+    }
+    let cl = command.trim().to_ascii_lowercase();
+    if cl.starts_with("xclip") && cl.contains("-o") {
+        return true;
+    }
+    if cl.starts_with("xsel") && (cl.contains("-o") || cl.contains("--output")) {
+        return true;
+    }
+    false
+}
+
+fn is_git_data_command(command: &str) -> bool {
+    let cl = command.trim().to_ascii_lowercase();
+    if !cl.contains("git") {
+        return false;
+    }
+    let exact_data_subs = [
+        "remote",
+        "rev-parse",
+        "rev-list",
+        "ls-files",
+        "ls-tree",
+        "ls-remote",
+        "shortlog",
+        "for-each-ref",
+        "cat-file",
+        "name-rev",
+        "describe",
+        "merge-base",
+    ];
+
+    let mut tokens = cl.split_whitespace();
+    while let Some(tok) = tokens.next() {
+        let base = tok.rsplit('/').next().unwrap_or(tok);
+        if base != "git" {
+            continue;
+        }
+        let mut skip_next = false;
+        for arg in tokens.by_ref() {
+            if skip_next {
+                skip_next = false;
+                continue;
+            }
+            if arg == "-c" || arg == "-C" || arg == "--git-dir" || arg == "--work-tree" {
+                skip_next = true;
+                continue;
+            }
+            if arg.starts_with('-') {
+                continue;
+            }
+            return exact_data_subs.contains(&arg);
+        }
+        return false;
+    }
+    false
+}
+
+fn is_task_dry_run(command: &str) -> bool {
+    let cl = command.trim().to_ascii_lowercase();
+    if cl.starts_with("make ") && (cl.contains(" -n") || cl.contains(" --dry-run")) {
+        return true;
+    }
+    if cl.starts_with("ansible") && (cl.contains("--check") || cl.contains("--diff")) {
+        return true;
+    }
+    false
+}
+
+fn is_env_dump(command: &str) -> bool {
+    let first = first_binary(command);
+    matches!(first, "env" | "printenv" | "set" | "export" | "locale")
+}
+
+/// Extracts the binary name (basename, no path) from the first token of a command.
+fn first_binary(command: &str) -> &str {
+    let first = command.split_whitespace().next().unwrap_or("");
+    first.rsplit('/').next().unwrap_or(first)
 }
 
 /// Non-git diff tools: `diff`, `colordiff`, `icdiff`, `delta`.
@@ -468,6 +960,10 @@ fn compress_if_beneficial(command: &str, output: &str) -> String {
     }
 
     let min_output_tokens = 5;
+
+    if is_verbatim_output(command) {
+        return truncate_verbatim(output, original_tokens);
+    }
 
     if has_structural_output(command) {
         let cl = command.to_ascii_lowercase();
@@ -570,6 +1066,40 @@ fn compress_if_beneficial(command: &str, output: &str) -> String {
     }
 
     output.to_string()
+}
+
+const MAX_VERBATIM_TOKENS: usize = 8000;
+
+/// For verbatim commands: never transform content, only head/tail truncate if huge.
+fn truncate_verbatim(output: &str, original_tokens: usize) -> String {
+    if original_tokens <= MAX_VERBATIM_TOKENS {
+        return output.to_string();
+    }
+    let lines: Vec<&str> = output.lines().collect();
+    let total = lines.len();
+    if total <= 60 {
+        return output.to_string();
+    }
+    let head = 30.min(total);
+    let tail = 20.min(total.saturating_sub(head));
+    let omitted = total - head - tail;
+    let mut result = String::with_capacity(output.len() / 2);
+    for line in &lines[..head] {
+        result.push_str(line);
+        result.push('\n');
+    }
+    result.push_str(&format!(
+        "\n[{omitted} lines omitted — output too large for context window]\n\n"
+    ));
+    for line in lines.iter().skip(total - tail) {
+        result.push_str(line);
+        result.push('\n');
+    }
+    let truncated_tokens = count_tokens(&result);
+    result.push_str(&format!(
+        "[lean-ctx: {original_tokens}→{truncated_tokens} tok, verbatim truncated]"
+    ));
+    result
 }
 
 fn truncate_with_safety_scan(lines: &[&str], original_tokens: usize) -> Option<String> {
@@ -996,6 +1526,592 @@ mod passthrough_tests {
 }
 
 #[cfg(test)]
+mod verbatim_output_tests {
+    use super::{compress_if_beneficial, is_verbatim_output};
+
+    #[test]
+    fn http_clients_are_verbatim() {
+        assert!(is_verbatim_output("curl https://api.example.com"));
+        assert!(is_verbatim_output(
+            "curl -s -H 'Accept: application/json' https://api.example.com/data"
+        ));
+        assert!(is_verbatim_output(
+            "curl -X POST -d '{\"key\":\"val\"}' https://api.example.com"
+        ));
+        assert!(is_verbatim_output("/usr/bin/curl https://example.com"));
+        assert!(is_verbatim_output("wget -qO- https://example.com"));
+        assert!(is_verbatim_output("wget https://example.com/file.json"));
+        assert!(is_verbatim_output("http GET https://api.example.com"));
+        assert!(is_verbatim_output("https PUT https://api.example.com/data"));
+        assert!(is_verbatim_output("xh https://api.example.com"));
+        assert!(is_verbatim_output("curlie https://api.example.com"));
+        assert!(is_verbatim_output(
+            "grpcurl -plaintext localhost:50051 list"
+        ));
+    }
+
+    #[test]
+    fn file_viewers_are_verbatim() {
+        assert!(is_verbatim_output("cat package.json"));
+        assert!(is_verbatim_output("cat /etc/hosts"));
+        assert!(is_verbatim_output("/bin/cat file.txt"));
+        assert!(is_verbatim_output("bat src/main.rs"));
+        assert!(is_verbatim_output("batcat README.md"));
+        assert!(is_verbatim_output("head -20 log.txt"));
+        assert!(is_verbatim_output("head -n 50 file.rs"));
+        assert!(is_verbatim_output("tail -100 server.log"));
+        assert!(is_verbatim_output("tail -n 20 file.txt"));
+    }
+
+    #[test]
+    fn tail_follow_not_verbatim() {
+        assert!(!is_verbatim_output("tail -f /var/log/syslog"));
+        assert!(!is_verbatim_output("tail --follow server.log"));
+    }
+
+    #[test]
+    fn data_format_tools_are_verbatim() {
+        assert!(is_verbatim_output("jq '.items' data.json"));
+        assert!(is_verbatim_output("jq -r '.name' package.json"));
+        assert!(is_verbatim_output("yq '.spec' deployment.yaml"));
+        assert!(is_verbatim_output("xq '.rss.channel.title' feed.xml"));
+        assert!(is_verbatim_output("fx data.json"));
+        assert!(is_verbatim_output("gron data.json"));
+        assert!(is_verbatim_output("mlr --csv head -n 5 data.csv"));
+        assert!(is_verbatim_output("miller --json head data.json"));
+        assert!(is_verbatim_output("dasel -f config.toml '.database.host'"));
+        assert!(is_verbatim_output("csvlook data.csv"));
+        assert!(is_verbatim_output("csvcut -c 1,3 data.csv"));
+        assert!(is_verbatim_output("csvjson data.csv"));
+    }
+
+    #[test]
+    fn binary_viewers_are_verbatim() {
+        assert!(is_verbatim_output("xxd binary.dat"));
+        assert!(is_verbatim_output("hexdump -C binary.dat"));
+        assert!(is_verbatim_output("od -A x -t x1z binary.dat"));
+        assert!(is_verbatim_output("strings /usr/bin/curl"));
+        assert!(is_verbatim_output("file unknown.bin"));
+    }
+
+    #[test]
+    fn infra_inspection_is_verbatim() {
+        assert!(is_verbatim_output("terraform output"));
+        assert!(is_verbatim_output("terraform show"));
+        assert!(is_verbatim_output("terraform state show aws_instance.web"));
+        assert!(is_verbatim_output("terraform state list"));
+        assert!(is_verbatim_output("terraform state pull"));
+        assert!(is_verbatim_output("tofu output"));
+        assert!(is_verbatim_output("tofu show"));
+        assert!(is_verbatim_output("pulumi stack output"));
+        assert!(is_verbatim_output("pulumi stack export"));
+        assert!(is_verbatim_output("docker inspect my-container"));
+        assert!(is_verbatim_output("podman inspect my-pod"));
+        assert!(is_verbatim_output("kubectl get pods -o yaml"));
+        assert!(is_verbatim_output("kubectl get deploy -ojson"));
+        assert!(is_verbatim_output("kubectl get svc --output yaml"));
+        assert!(is_verbatim_output("kubectl get pods --output=json"));
+        assert!(is_verbatim_output("k get pods -o yaml"));
+        assert!(is_verbatim_output("kubectl describe pod my-pod"));
+        assert!(is_verbatim_output("k describe deployment web"));
+        assert!(is_verbatim_output("helm get values my-release"));
+        assert!(is_verbatim_output("helm template my-chart"));
+    }
+
+    #[test]
+    fn terraform_plan_not_verbatim() {
+        assert!(!is_verbatim_output("terraform plan"));
+        assert!(!is_verbatim_output("terraform apply"));
+        assert!(!is_verbatim_output("terraform init"));
+    }
+
+    #[test]
+    fn kubectl_get_is_now_verbatim() {
+        assert!(is_verbatim_output("kubectl get pods"));
+        assert!(is_verbatim_output("kubectl get deployments"));
+    }
+
+    #[test]
+    fn crypto_commands_are_verbatim() {
+        assert!(is_verbatim_output("openssl x509 -in cert.pem -text"));
+        assert!(is_verbatim_output(
+            "openssl s_client -connect example.com:443"
+        ));
+        assert!(is_verbatim_output("openssl req -new -x509 -key key.pem"));
+        assert!(is_verbatim_output("gpg --list-keys"));
+        assert!(is_verbatim_output("ssh-keygen -l -f key.pub"));
+    }
+
+    #[test]
+    fn database_queries_are_verbatim() {
+        assert!(is_verbatim_output(r#"psql -c "SELECT * FROM users" mydb"#));
+        assert!(is_verbatim_output("psql --command 'SELECT 1' mydb"));
+        assert!(is_verbatim_output(r#"mysql -e "SELECT * FROM users" mydb"#));
+        assert!(is_verbatim_output("mysql --execute 'SHOW TABLES' mydb"));
+        assert!(is_verbatim_output(
+            r#"mariadb -e "SELECT * FROM users" mydb"#
+        ));
+        assert!(is_verbatim_output(
+            r#"sqlite3 data.db "SELECT * FROM users""#
+        ));
+        assert!(is_verbatim_output("mongosh --eval 'db.users.find()' mydb"));
+    }
+
+    #[test]
+    fn interactive_db_not_verbatim() {
+        assert!(!is_verbatim_output("psql mydb"));
+        assert!(!is_verbatim_output("mysql -u root mydb"));
+    }
+
+    #[test]
+    fn dns_network_inspection_is_verbatim() {
+        assert!(is_verbatim_output("dig example.com"));
+        assert!(is_verbatim_output("dig +short example.com A"));
+        assert!(is_verbatim_output("nslookup example.com"));
+        assert!(is_verbatim_output("host example.com"));
+        assert!(is_verbatim_output("whois example.com"));
+        assert!(is_verbatim_output("drill example.com"));
+    }
+
+    #[test]
+    fn language_one_liners_are_verbatim() {
+        assert!(is_verbatim_output(
+            "python -c 'import json; print(json.dumps({\"key\": \"value\"}))'"
+        ));
+        assert!(is_verbatim_output("python3 -c 'print(42)'"));
+        assert!(is_verbatim_output(
+            "node -e 'console.log(JSON.stringify({a:1}))'"
+        ));
+        assert!(is_verbatim_output("node --eval 'console.log(1)'"));
+        assert!(is_verbatim_output("ruby -e 'puts 42'"));
+        assert!(is_verbatim_output("perl -e 'print 42'"));
+        assert!(is_verbatim_output("php -r 'echo json_encode([1,2,3]);'"));
+    }
+
+    #[test]
+    fn language_scripts_not_verbatim() {
+        assert!(!is_verbatim_output("python script.py"));
+        assert!(!is_verbatim_output("node server.js"));
+        assert!(!is_verbatim_output("ruby app.rb"));
+    }
+
+    #[test]
+    fn container_listings_are_verbatim() {
+        assert!(is_verbatim_output("docker ps"));
+        assert!(is_verbatim_output("docker ps -a"));
+        assert!(is_verbatim_output("docker images"));
+        assert!(is_verbatim_output("docker images -a"));
+        assert!(is_verbatim_output("podman ps"));
+        assert!(is_verbatim_output("podman images"));
+        assert!(is_verbatim_output("kubectl get pods"));
+        assert!(is_verbatim_output("kubectl get deployments -A"));
+        assert!(is_verbatim_output("kubectl get svc --all-namespaces"));
+        assert!(is_verbatim_output("k get pods"));
+        assert!(is_verbatim_output("helm list"));
+        assert!(is_verbatim_output("helm ls --all-namespaces"));
+        assert!(is_verbatim_output("docker compose ps"));
+        assert!(is_verbatim_output("docker-compose ps"));
+    }
+
+    #[test]
+    fn file_listings_are_verbatim() {
+        assert!(is_verbatim_output("find . -name '*.rs'"));
+        assert!(is_verbatim_output("find /var/log -type f"));
+        assert!(is_verbatim_output("fd --extension rs"));
+        assert!(is_verbatim_output("fdfind .rs src/"));
+        assert!(is_verbatim_output("ls -la"));
+        assert!(is_verbatim_output("ls -lah /tmp"));
+        assert!(is_verbatim_output("exa -la"));
+        assert!(is_verbatim_output("eza --long"));
+    }
+
+    #[test]
+    fn system_queries_are_verbatim() {
+        assert!(is_verbatim_output("stat file.txt"));
+        assert!(is_verbatim_output("wc -l file.txt"));
+        assert!(is_verbatim_output("du -sh /var"));
+        assert!(is_verbatim_output("df -h"));
+        assert!(is_verbatim_output("free -m"));
+        assert!(is_verbatim_output("uname -a"));
+        assert!(is_verbatim_output("id"));
+        assert!(is_verbatim_output("whoami"));
+        assert!(is_verbatim_output("hostname"));
+        assert!(is_verbatim_output("which python3"));
+        assert!(is_verbatim_output("readlink -f ./link"));
+        assert!(is_verbatim_output("sha256sum file.tar.gz"));
+        assert!(is_verbatim_output("base64 file.bin"));
+        assert!(is_verbatim_output("ip addr show"));
+        assert!(is_verbatim_output("ss -tlnp"));
+    }
+
+    #[test]
+    fn pipe_tail_detection() {
+        assert!(
+            is_verbatim_output("kubectl get pods -o json | jq '.items[].metadata.name'"),
+            "piped to jq must be verbatim"
+        );
+        assert!(
+            is_verbatim_output("aws s3api list-objects --bucket x | jq '.Contents'"),
+            "piped to jq must be verbatim"
+        );
+        assert!(
+            is_verbatim_output("docker inspect web | head -50"),
+            "piped to head must be verbatim"
+        );
+        assert!(
+            is_verbatim_output("terraform state pull | jq '.resources'"),
+            "piped to jq must be verbatim"
+        );
+        assert!(
+            is_verbatim_output("echo hello | wc -l"),
+            "piped to wc (system query) should be verbatim"
+        );
+    }
+
+    #[test]
+    fn build_commands_not_verbatim() {
+        assert!(!is_verbatim_output("cargo build"));
+        assert!(!is_verbatim_output("npm run build"));
+        assert!(!is_verbatim_output("make"));
+        assert!(!is_verbatim_output("docker build ."));
+        assert!(!is_verbatim_output("go build ./..."));
+        assert!(!is_verbatim_output("cargo test"));
+        assert!(!is_verbatim_output("pytest"));
+        assert!(!is_verbatim_output("npm install"));
+        assert!(!is_verbatim_output("pip install requests"));
+        assert!(!is_verbatim_output("terraform plan"));
+        assert!(!is_verbatim_output("terraform apply"));
+    }
+
+    #[test]
+    fn cloud_cli_queries_are_verbatim() {
+        assert!(is_verbatim_output("aws sts get-caller-identity"));
+        assert!(is_verbatim_output("aws ec2 describe-instances"));
+        assert!(is_verbatim_output(
+            "aws s3api list-objects --bucket my-bucket"
+        ));
+        assert!(is_verbatim_output("aws iam list-users"));
+        assert!(is_verbatim_output("aws ecs describe-tasks --cluster x"));
+        assert!(is_verbatim_output("aws rds describe-db-instances"));
+        assert!(is_verbatim_output("gcloud compute instances list"));
+        assert!(is_verbatim_output("gcloud projects describe my-project"));
+        assert!(is_verbatim_output("gcloud iam roles list"));
+        assert!(is_verbatim_output("gcloud container clusters list"));
+        assert!(is_verbatim_output("az vm list"));
+        assert!(is_verbatim_output("az account show"));
+        assert!(is_verbatim_output("az network nsg list"));
+        assert!(is_verbatim_output("az aks show --name mycluster"));
+    }
+
+    #[test]
+    fn cloud_cli_mutations_not_verbatim() {
+        assert!(!is_verbatim_output("aws configure"));
+        assert!(!is_verbatim_output("gcloud auth login"));
+        assert!(!is_verbatim_output("az login"));
+        assert!(!is_verbatim_output("gcloud app deploy"));
+    }
+
+    #[test]
+    fn package_manager_info_is_verbatim() {
+        assert!(is_verbatim_output("npm list"));
+        assert!(is_verbatim_output("npm ls --all"));
+        assert!(is_verbatim_output("npm info react"));
+        assert!(is_verbatim_output("npm view react versions"));
+        assert!(is_verbatim_output("npm outdated"));
+        assert!(is_verbatim_output("npm audit"));
+        assert!(is_verbatim_output("yarn list"));
+        assert!(is_verbatim_output("yarn info react"));
+        assert!(is_verbatim_output("yarn why react"));
+        assert!(is_verbatim_output("yarn audit"));
+        assert!(is_verbatim_output("pnpm list"));
+        assert!(is_verbatim_output("pnpm why react"));
+        assert!(is_verbatim_output("pnpm outdated"));
+        assert!(is_verbatim_output("pip list"));
+        assert!(is_verbatim_output("pip show requests"));
+        assert!(is_verbatim_output("pip freeze"));
+        assert!(is_verbatim_output("pip3 list"));
+        assert!(is_verbatim_output("gem list"));
+        assert!(is_verbatim_output("gem info rails"));
+        assert!(is_verbatim_output("cargo metadata"));
+        assert!(is_verbatim_output("cargo tree"));
+        assert!(is_verbatim_output("go list ./..."));
+        assert!(is_verbatim_output("go version"));
+        assert!(is_verbatim_output("composer show"));
+        assert!(is_verbatim_output("composer outdated"));
+        assert!(is_verbatim_output("brew list"));
+        assert!(is_verbatim_output("brew info node"));
+        assert!(is_verbatim_output("brew deps node"));
+        assert!(is_verbatim_output("apt list --installed"));
+        assert!(is_verbatim_output("apt show nginx"));
+        assert!(is_verbatim_output("dpkg -l"));
+        assert!(is_verbatim_output("dpkg -s nginx"));
+    }
+
+    #[test]
+    fn package_manager_install_not_verbatim() {
+        assert!(!is_verbatim_output("npm install"));
+        assert!(!is_verbatim_output("yarn add react"));
+        assert!(!is_verbatim_output("pip install requests"));
+        assert!(!is_verbatim_output("cargo build"));
+        assert!(!is_verbatim_output("go build"));
+        assert!(!is_verbatim_output("brew install node"));
+        assert!(!is_verbatim_output("apt install nginx"));
+    }
+
+    #[test]
+    fn version_and_help_are_verbatim() {
+        assert!(is_verbatim_output("node --version"));
+        assert!(is_verbatim_output("python3 --version"));
+        assert!(is_verbatim_output("rustc -V"));
+        assert!(is_verbatim_output("docker version"));
+        assert!(is_verbatim_output("git --version"));
+        assert!(is_verbatim_output("cargo --help"));
+        assert!(is_verbatim_output("docker help"));
+        assert!(is_verbatim_output("git -h"));
+        assert!(is_verbatim_output("npm help install"));
+    }
+
+    #[test]
+    fn version_flag_needs_binary_context() {
+        assert!(!is_verbatim_output("--version"));
+        assert!(
+            !is_verbatim_output("some command with --version and other args too"),
+            "commands with 4+ tokens should not match version check"
+        );
+    }
+
+    #[test]
+    fn config_viewers_are_verbatim() {
+        assert!(is_verbatim_output("git config --list"));
+        assert!(is_verbatim_output("git config --global --list"));
+        assert!(is_verbatim_output("git config user.email"));
+        assert!(is_verbatim_output("npm config list"));
+        assert!(is_verbatim_output("npm config get registry"));
+        assert!(is_verbatim_output("yarn config list"));
+        assert!(is_verbatim_output("pip config list"));
+        assert!(is_verbatim_output("rustup show"));
+        assert!(is_verbatim_output("rustup target list"));
+        assert!(is_verbatim_output("docker context ls"));
+        assert!(is_verbatim_output("kubectl config view"));
+        assert!(is_verbatim_output("kubectl config get-contexts"));
+        assert!(is_verbatim_output("kubectl config current-context"));
+    }
+
+    #[test]
+    fn config_setters_not_verbatim() {
+        assert!(!is_verbatim_output("git config --set user.name foo"));
+        assert!(!is_verbatim_output("git config --unset user.name"));
+    }
+
+    #[test]
+    fn log_viewers_are_verbatim() {
+        assert!(is_verbatim_output("journalctl -u nginx"));
+        assert!(is_verbatim_output("journalctl --since '1 hour ago'"));
+        assert!(is_verbatim_output("dmesg"));
+        assert!(is_verbatim_output("dmesg --level=err"));
+        assert!(is_verbatim_output("docker logs mycontainer"));
+        assert!(is_verbatim_output("docker logs --tail 100 web"));
+        assert!(is_verbatim_output("kubectl logs pod/web"));
+        assert!(is_verbatim_output("docker compose logs web"));
+    }
+
+    #[test]
+    fn follow_logs_not_verbatim() {
+        assert!(!is_verbatim_output("journalctl -f"));
+        assert!(!is_verbatim_output("journalctl --follow -u nginx"));
+        assert!(!is_verbatim_output("dmesg -w"));
+        assert!(!is_verbatim_output("dmesg --follow"));
+        assert!(!is_verbatim_output("docker logs -f web"));
+        assert!(!is_verbatim_output("kubectl logs -f pod/web"));
+        assert!(!is_verbatim_output("docker compose logs -f"));
+    }
+
+    #[test]
+    fn archive_listings_are_verbatim() {
+        assert!(is_verbatim_output("tar -tf archive.tar.gz"));
+        assert!(is_verbatim_output("tar tf archive.tar"));
+        assert!(is_verbatim_output("unzip -l archive.zip"));
+        assert!(is_verbatim_output("zipinfo archive.zip"));
+        assert!(is_verbatim_output("lsar archive.7z"));
+    }
+
+    #[test]
+    fn clipboard_tools_are_verbatim() {
+        assert!(is_verbatim_output("pbpaste"));
+        assert!(is_verbatim_output("wl-paste"));
+        assert!(is_verbatim_output("xclip -o"));
+        assert!(is_verbatim_output("xclip -selection clipboard -o"));
+        assert!(is_verbatim_output("xsel -o"));
+        assert!(is_verbatim_output("xsel --output"));
+    }
+
+    #[test]
+    fn git_data_commands_are_verbatim() {
+        assert!(is_verbatim_output("git remote -v"));
+        assert!(is_verbatim_output("git remote show origin"));
+        assert!(is_verbatim_output("git config --list"));
+        assert!(is_verbatim_output("git rev-parse HEAD"));
+        assert!(is_verbatim_output("git rev-parse --show-toplevel"));
+        assert!(is_verbatim_output("git ls-files"));
+        assert!(is_verbatim_output("git ls-tree HEAD"));
+        assert!(is_verbatim_output("git ls-remote origin"));
+        assert!(is_verbatim_output("git shortlog -sn"));
+        assert!(is_verbatim_output("git for-each-ref --format='%(refname)'"));
+        assert!(is_verbatim_output("git cat-file -p HEAD"));
+        assert!(is_verbatim_output("git describe --tags"));
+        assert!(is_verbatim_output("git merge-base main feature"));
+    }
+
+    #[test]
+    fn git_mutations_not_verbatim_via_git_data() {
+        assert!(!super::is_git_data_command("git commit -m 'fix'"));
+        assert!(!super::is_git_data_command("git push"));
+        assert!(!super::is_git_data_command("git pull"));
+        assert!(!super::is_git_data_command("git fetch"));
+        assert!(!super::is_git_data_command("git add ."));
+        assert!(!super::is_git_data_command("git rebase main"));
+        assert!(!super::is_git_data_command("git cherry-pick abc123"));
+    }
+
+    #[test]
+    fn task_dry_run_is_verbatim() {
+        assert!(is_verbatim_output("make -n build"));
+        assert!(is_verbatim_output("make --dry-run"));
+        assert!(is_verbatim_output("ansible-playbook --check site.yml"));
+        assert!(is_verbatim_output(
+            "ansible-playbook --diff --check site.yml"
+        ));
+    }
+
+    #[test]
+    fn task_execution_not_verbatim() {
+        assert!(!is_verbatim_output("make build"));
+        assert!(!is_verbatim_output("make"));
+        assert!(!is_verbatim_output("ansible-playbook site.yml"));
+    }
+
+    #[test]
+    fn env_dump_is_verbatim() {
+        assert!(is_verbatim_output("env"));
+        assert!(is_verbatim_output("printenv"));
+        assert!(is_verbatim_output("printenv PATH"));
+        assert!(is_verbatim_output("locale"));
+    }
+
+    #[test]
+    fn curl_json_output_preserved() {
+        let json = r#"{"users":[{"id":1,"name":"Alice","email":"alice@example.com"},{"id":2,"name":"Bob","email":"bob@example.com"}],"total":2,"page":1}"#;
+        let result = compress_if_beneficial("curl https://api.example.com/users", json);
+        assert!(
+            result.contains("alice@example.com"),
+            "curl JSON data must be preserved verbatim, got: {result}"
+        );
+        assert!(
+            result.contains(r#""name":"Bob""#),
+            "curl JSON data must be preserved verbatim, got: {result}"
+        );
+    }
+
+    #[test]
+    fn curl_html_output_preserved() {
+        let html = "<!DOCTYPE html><html><head><title>Test Page</title></head><body><h1>Hello World</h1><p>Some important content here that should not be summarized.</p></body></html>";
+        let result = compress_if_beneficial("curl https://example.com", html);
+        assert!(
+            result.contains("Hello World"),
+            "curl HTML content must be preserved, got: {result}"
+        );
+        assert!(
+            result.contains("important content"),
+            "curl HTML content must be preserved, got: {result}"
+        );
+    }
+
+    #[test]
+    fn curl_headers_preserved() {
+        let headers = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nX-Request-Id: abc-123\r\nX-RateLimit-Remaining: 59\r\nContent-Length: 1234\r\nServer: nginx\r\nDate: Mon, 01 Jan 2024 00:00:00 GMT\r\n\r\n";
+        let result = compress_if_beneficial("curl -I https://api.example.com", headers);
+        assert!(
+            result.contains("X-Request-Id: abc-123"),
+            "curl headers must be preserved, got: {result}"
+        );
+        assert!(
+            result.contains("X-RateLimit-Remaining"),
+            "curl headers must be preserved, got: {result}"
+        );
+    }
+
+    #[test]
+    fn cat_output_preserved() {
+        let content = r#"{
+  "name": "lean-ctx",
+  "version": "3.5.16",
+  "description": "Context Runtime for AI Agents",
+  "main": "index.js",
+  "scripts": {
+    "build": "cargo build --release",
+    "test": "cargo test"
+  }
+}"#;
+        let result = compress_if_beneficial("cat package.json", content);
+        assert!(
+            result.contains(r#""version": "3.5.16""#),
+            "cat output must be preserved, got: {result}"
+        );
+    }
+
+    #[test]
+    fn jq_output_preserved() {
+        let json = r#"[
+  {"id": 1, "status": "active", "name": "Alice"},
+  {"id": 2, "status": "inactive", "name": "Bob"},
+  {"id": 3, "status": "active", "name": "Charlie"}
+]"#;
+        let result =
+            compress_if_beneficial("jq '.[] | select(.status==\"active\")' data.json", json);
+        assert!(
+            result.contains("Charlie"),
+            "jq output must be preserved, got: {result}"
+        );
+    }
+
+    #[test]
+    fn wget_output_preserved() {
+        let content = r#"{"key": "value", "data": [1, 2, 3]}"#;
+        let result = compress_if_beneficial("wget -qO- https://api.example.com/data", content);
+        assert!(
+            result.contains(r#""data": [1, 2, 3]"#),
+            "wget data output must be preserved, got: {result}"
+        );
+    }
+
+    #[test]
+    fn large_curl_output_gets_truncated_not_destroyed() {
+        let mut json = String::from("[");
+        for i in 0..500 {
+            if i > 0 {
+                json.push(',');
+            }
+            json.push_str(&format!(
+                r#"{{"id":{i},"name":"user_{i}","email":"user{i}@example.com","role":"admin"}}"#
+            ));
+        }
+        json.push(']');
+        let result = compress_if_beneficial("curl https://api.example.com/all-users", &json);
+        assert!(
+            result.contains("user_0"),
+            "first items must be preserved in truncated output, got len: {}",
+            result.len()
+        );
+        if result.contains("lines omitted") {
+            assert!(
+                result.contains("verbatim truncated"),
+                "must mark as verbatim truncated, got: {result}"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
 mod structural_output_tests {
     use super::has_structural_output;
 
@@ -1102,8 +2218,21 @@ mod structural_output_tests {
     fn non_git_commands() {
         assert!(!has_structural_output("cargo build"));
         assert!(!has_structural_output("npm run build"));
-        assert!(!has_structural_output("ls -la"));
-        assert!(!has_structural_output("docker ps"));
+    }
+
+    #[test]
+    fn verbatim_commands_are_also_structural() {
+        assert!(has_structural_output("ls -la"));
+        assert!(has_structural_output("docker ps"));
+        assert!(has_structural_output("curl https://api.example.com"));
+        assert!(has_structural_output("cat file.txt"));
+        assert!(has_structural_output("aws ec2 describe-instances"));
+        assert!(has_structural_output("npm list"));
+        assert!(has_structural_output("node --version"));
+        assert!(has_structural_output("journalctl -u nginx"));
+        assert!(has_structural_output("git remote -v"));
+        assert!(has_structural_output("pbpaste"));
+        assert!(has_structural_output("env"));
     }
 
     #[test]
