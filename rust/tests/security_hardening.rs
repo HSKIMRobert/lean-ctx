@@ -347,7 +347,7 @@ fn add_nonce_skips_external_scripts() {
 // ---------------------------------------------------------------------------
 #[test]
 fn raw_shell_skips_all_postprocessing() {
-    let src = include_str!("../src/server/mod.rs");
+    let src = include_str!("../src/server/mod.rs").replace("\r\n", "\n");
     assert!(
         src.contains("let is_raw_shell = name == \"ctx_shell\""),
         "call_tool must compute is_raw_shell flag"
