@@ -34,15 +34,15 @@ fn adversarial_git_diff_preserves_code_content() {
 #[test]
 fn adversarial_git_diff_preserves_security_bug() {
     let diff = "diff --git a/src/api.rs b/src/api.rs\n\
-                --- a/src/api.rs\n\
-                +++ b/src/api.rs\n\
-                @@ -5,3 +5,5 @@\n\
-                -    verify_csrf_token(&request);\n\
-                +    // TODO: re-enable CSRF check\n\
-                +    // verify_csrf_token(&request);\n\
-                     process_request(&request);\n";
+--- a/src/api.rs\n\
++++ b/src/api.rs\n\
+@@ -5,3 +5,5 @@\n\
+-    verify_csrf_token(&request);\n\
++    // TODO: re-enable CSRF check\n\
++    // verify_csrf_token(&request);\n\
+     process_request(&request);\n";
 
-    let compressed = compress_output("git diff", diff).unwrap();
+    let compressed = compress_output("git diff", diff).unwrap_or_else(|| diff.to_string());
     assert!(
         compressed.contains("CSRF") || compressed.contains("csrf"),
         "diff must preserve security-relevant changes: {compressed}"

@@ -43,6 +43,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ### Fixed
 
 - **Structural output protection** — `git diff`, `git show`, `git blame`, `git log -p`, `git stash show`, `diff`, `colordiff`, `icdiff`, and `delta` output was being mangled by up to three compression layers (pattern compression + terse pipeline + generic compressors like log_dedup/truncation). These commands now get a dedicated fast path: only the specific pattern compressor runs (light cleanup: strip `index` headers, limit context lines), all other compression stages are bypassed. Every `+`/`-` line, hunk header, and blame annotation is preserved verbatim. Also protected in the MCP server path (`ctx_shell`).
+- **zsh shell hook breaks command completion** — After sourcing the lean-ctx shell hook, tab completion for aliased commands (`git`, `cargo`, `docker`, etc.) stopped working. Added a zsh completion wrapper (`_lean_ctx_comp`) that delegates to the original command's completion function via `_normal`. Fixes [#193](https://github.com/yvgude/lean-ctx/issues/193).
 
 ### Added
 

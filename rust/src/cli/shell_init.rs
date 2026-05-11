@@ -438,6 +438,16 @@ lean-ctx-status() {{
     fi
 }}
 
+if [ -n "${{ZSH_VERSION:-}}" ]; then
+    _lean_ctx_comp() {{
+        shift words
+        (( CURRENT-- ))
+        _normal
+    }}
+    compdef _lean_ctx_comp _lc 2>/dev/null
+    compdef _lean_ctx_comp _lc_compress 2>/dev/null
+fi
+
 if [ -z "${{LEAN_CTX_ACTIVE:-}}" ] && [ -z "${{LEAN_CTX_DISABLED:-}}" ] && [ "${{LEAN_CTX_ENABLED:-1}}" != "0" ]; then
     command -v lean-ctx >/dev/null 2>&1 && lean-ctx-on
 fi

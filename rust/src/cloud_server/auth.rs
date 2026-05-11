@@ -693,10 +693,12 @@ async fn consume_password_reset(pool: &Pool, token_sha: &str) -> Result<Uuid, Co
 
 fn hash_password(password: &str) -> String {
     use argon2::{
-        password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
+        password_hash::{PasswordHasher, SaltString},
         Argon2,
     };
-    let salt = SaltString::generate(&mut OsRng);
+    let mut raw = [0u8; 16];
+    getrandom::fill(&mut raw).expect("CSPRNG unavailable");
+    let salt = SaltString::encode_b64(&raw).expect("salt encoding failed");
     let argon2 = Argon2::default();
     argon2
         .hash_password(password.as_bytes(), &salt)
