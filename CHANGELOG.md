@@ -5,6 +5,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.5.17] — 2026-05-12
+
+### Security
+
+- **[Critical] LLM Proxy bearer token auth** — The proxy server now supports optional bearer token authentication via `LEAN_CTX_PROXY_TOKEN` environment variable, preventing unauthorized access from other local processes.
+- **[Critical] Symlink hijack protection on all write paths** — `write_atomic()` and context package `atomic_write()` now reject writes through symlinks, preventing an attacker from redirecting config writes to arbitrary files.
+- **[Critical] Shell command validation — documented accepted risk** — Explicitly documented in SECURITY.md that shell command validation is delegated to the AI agent's permission model by design, with CWD jail and output capping as compensating controls.
+- **[High] Claude binary path validation** — `claude mcp add-json` now validates that the resolved `claude` binary comes from a trusted directory (`.claude/`, `/usr/local/bin/`, `/opt/homebrew/`, etc.), preventing PATH hijack attacks. Override with `LEAN_CTX_TRUST_CLAUDE_PATH=1`.
+- **[High] TOCTOU mitigation for config writes** — New `write_atomic_with_backup_checked()` validates file mtime between read and write, detecting concurrent external modifications.
+- **[High] Auto-approve transparency** — `lean-ctx setup` now displays a banner listing all auto-approved MCP tools with count. New `--no-auto-approve` flag disables auto-approve in editor configurations.
+- **[High] Full integrity verification for context packages** — `verify_integrity()` now validates `content_hash`, `sha256` (composite hash of name:version:content_hash), and `byte_size` — previously only `content_hash` was checked.
+- **[High] PathJail TOCTOU — documented accepted risk** — Documented in SECURITY.md that the race condition between `jail_path` check and file operation requires `openat`/`O_NOFOLLOW` at syscall level for complete mitigation.
+- **[High] Database TLS — documented accepted risk** — Cloud server DB connection is localhost-only by default. Production deployments should use `?sslmode=require` in `DATABASE_URL`.
+- **[Medium] Timestamped config backups** — Backup files now include Unix epoch timestamps (e.g., `.lean-ctx.1715464800.bak`) instead of overwriting a single `.lean-ctx.bak` file.
+- **[Medium] Email enumeration timing fix** — Login endpoint now performs a dummy Argon2id verification when the user doesn't exist, equalizing response time to prevent email existence oracle attacks.
+- **[Medium] Verification token TTL reduced** — Email verification tokens reduced from 24h to 2h. Old pending tokens are now invalidated before issuing new ones.
+- **[Medium] Knowledge fact provenance tracking** — `KnowledgeFact` struct now includes `imported_from: Option<String>` field, set to `name@version` when facts are imported from context packages.
+
+### Fixed
+
+- **Dependabot: mermaid security update** — Updated mermaid from 10.9.5 to 10.9.6 in cookbook examples (CSS injection fix).
+
 ## [3.5.16] — 2026-05-11
 
 ### Security
