@@ -18,6 +18,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - **Binary file detection** (`core::binary_detect`) — Detects 100+ binary file extensions (Parquet, SQLite, ONNX, ZIP, images, ML models, bytecode, archives, fonts, disk images) plus magic-byte NULL check on the first 8 KB. Returns human-readable file type labels (e.g. "columnar data file", "ML model file"). Used across `ctx_read`, `ctx_smart_read`, `ctx_multi_read`, and `ctx_prefetch`.
 - **Live Observatory event explanations** — Every event in the dashboard's Live Observatory now has a `?` help icon. Click to expand an inline explanation of what the event means and whether user action is needed. SLO violations ("violated · CompressionRatio") and compression events ("entropy_adaptive · 293 → 264 lines") are now clearly documented. Event type legend added to "How it works" section.
 - **3 new security hardening tests** — `dashboard_api_auth_never_bypassed_for_loopback`, `dashboard_probe_sends_bearer_token`, loopback injection signature validation.
+- **`memory_cleanup` setting** — New config/env option (`LEAN_CTX_MEMORY_CLEANUP`) with two modes: `aggressive` (default, 5 min idle TTL — best for single-IDE use) and `shared` (30 min TTL — best when multiple IDEs or models share lean-ctx context). Visible in `lean-ctx doctor` and `lean-ctx config`. Suggested by sb.
 
 ### Improved
 

@@ -947,7 +947,12 @@ pub fn run() {
     passed += 1;
     print_check(&mem_profile);
 
-    let mut effective_total = total + 6; // session_state + integrity + cache_safety + bm25_health + daemon + mem_profile
+    // 17) Memory cleanup
+    let mem_cleanup = memory_cleanup_outcome();
+    passed += 1;
+    print_check(&mem_cleanup);
+
+    let mut effective_total = total + 7; // session_state + integrity + cache_safety + bm25_health + daemon + mem_profile + mem_cleanup
     effective_total += docker_outcomes.len() as u32;
     if pi.is_some() {
         effective_total += 1;
@@ -1378,6 +1383,34 @@ fn memory_profile_outcome() -> Outcome {
         ok: true,
         line: format!(
             "{BOLD}Memory profile{RST}  {GREEN}{label}{RST}  {DIM}({source}: {detail}){RST}"
+        ),
+    }
+}
+
+fn memory_cleanup_outcome() -> Outcome {
+    let cfg = crate::core::config::Config::load();
+    let cleanup = crate::core::config::MemoryCleanup::effective(&cfg);
+    let (label, detail) = match cleanup {
+        crate::core::config::MemoryCleanup::Aggressive => (
+            "aggressive",
+            "cache cleared after 5 min idle, single-IDE optimized",
+        ),
+        crate::core::config::MemoryCleanup::Shared => (
+            "shared",
+            "cache retained 30 min, multi-IDE/multi-model optimized",
+        ),
+    };
+    let source = if crate::core::config::MemoryCleanup::from_env().is_some() {
+        "env"
+    } else if cfg.memory_cleanup != crate::core::config::MemoryCleanup::default() {
+        "config"
+    } else {
+        "default"
+    };
+    Outcome {
+        ok: true,
+        line: format!(
+            "{BOLD}Memory cleanup{RST}  {GREEN}{label}{RST}  {DIM}({source}: {detail}){RST}"
         ),
     }
 }

@@ -265,10 +265,7 @@ async fn read_http_message(stream: &mut tokio::net::TcpStream) -> Option<Vec<u8>
 }
 
 async fn handle_request(mut stream: tokio::net::TcpStream, token: Option<Arc<String>>) {
-    let is_loopback = stream
-        .peer_addr()
-        .map(|a| a.ip().is_loopback())
-        .unwrap_or(false);
+    let is_loopback = stream.peer_addr().is_ok_and(|a| a.ip().is_loopback());
 
     let Some(buf) = read_http_message(&mut stream).await else {
         return;

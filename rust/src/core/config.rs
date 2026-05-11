@@ -209,6 +209,52 @@ impl CompressionLevel {
     }
 }
 
+/// Controls how aggressively lean-ctx frees memory when idle.
+/// - `aggressive`: (Default) Cache cleared after short idle period (5 min). Best for single-IDE use.
+/// - `shared`: Cache retained longer (30 min). Best when multiple IDEs/models share lean-ctx context.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum MemoryCleanup {
+    #[default]
+    Aggressive,
+    Shared,
+}
+
+impl MemoryCleanup {
+    pub fn from_env() -> Option<Self> {
+        std::env::var("LEAN_CTX_MEMORY_CLEANUP").ok().and_then(|v| {
+            match v.trim().to_lowercase().as_str() {
+                "aggressive" => Some(Self::Aggressive),
+                "shared" => Some(Self::Shared),
+                _ => None,
+            }
+        })
+    }
+
+    pub fn effective(config: &Config) -> Self {
+        if let Some(env_val) = Self::from_env() {
+            return env_val;
+        }
+        config.memory_cleanup.clone()
+    }
+
+    /// Idle TTL in seconds before cache is auto-cleared.
+    pub fn idle_ttl_secs(&self) -> u64 {
+        match self {
+            Self::Aggressive => 300,
+            Self::Shared => 1800,
+        }
+    }
+
+    /// BM25 index eviction age multiplier (shared mode retains longer).
+    pub fn index_retention_multiplier(&self) -> f64 {
+        match self {
+            Self::Aggressive => 1.0,
+            Self::Shared => 3.0,
+        }
+    }
+}
+
 /// Controls RAM usage vs. feature richness trade-off.
 /// - `low`: Minimal RAM footprint, disables optional caches and embedding features
 /// - `balanced`: Default — moderate caches, single embedding engine
@@ -347,6 +393,11 @@ pub struct Config {
     /// Override via LEAN_CTX_MEMORY_PROFILE env var.
     #[serde(default)]
     pub memory_profile: MemoryProfile,
+    /// Controls how aggressively memory is freed when idle.
+    /// Values: "aggressive" (default, 5 min TTL), "shared" (30 min TTL for multi-IDE use).
+    /// Override via LEAN_CTX_MEMORY_CLEANUP env var.
+    #[serde(default)]
+    pub memory_cleanup: MemoryCleanup,
 }
 
 /// Settings for the zero-loss compression archive (large tool outputs saved to disk).
@@ -642,6 +693,7 @@ impl Default for Config {
             update_check_disabled: false,
             bm25_max_cache_mb: default_bm25_max_cache_mb(),
             memory_profile: MemoryProfile::default(),
+            memory_cleanup: MemoryCleanup::default(),
         }
     }
 }
@@ -1219,6 +1271,9 @@ impl Config {
         if local.memory_profile != MemoryProfile::default() {
             self.memory_profile = local.memory_profile;
         }
+        if local.memory_cleanup != MemoryCleanup::default() {
+            self.memory_cleanup = local.memory_cleanup;
+        }
     }
 
     /// Persists the current config to the global config file.
@@ -1402,5 +1457,55 @@ mod compression_level_tests {
                 assert!(tm);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod memory_cleanup_tests {
+    use super::*;
+
+    #[test]
+    fn default_is_aggressive() {
+        assert_eq!(MemoryCleanup::default(), MemoryCleanup::Aggressive);
+    }
+
+    #[test]
+    fn aggressive_ttl_is_300() {
+        assert_eq!(MemoryCleanup::Aggressive.idle_ttl_secs(), 300);
+    }
+
+    #[test]
+    fn shared_ttl_is_1800() {
+        assert_eq!(MemoryCleanup::Shared.idle_ttl_secs(), 1800);
+    }
+
+    #[test]
+    fn index_retention_multiplier_values() {
+        assert!(
+            (MemoryCleanup::Aggressive.index_retention_multiplier() - 1.0).abs() < f64::EPSILON
+        );
+        assert!((MemoryCleanup::Shared.index_retention_multiplier() - 3.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn deserialization_defaults_to_aggressive() {
+        let cfg: Config = toml::from_str("").unwrap();
+        assert_eq!(cfg.memory_cleanup, MemoryCleanup::Aggressive);
+    }
+
+    #[test]
+    fn deserialization_from_toml() {
+        let cfg: Config = toml::from_str(r#"memory_cleanup = "shared""#).unwrap();
+        assert_eq!(cfg.memory_cleanup, MemoryCleanup::Shared);
+    }
+
+    #[test]
+    fn effective_uses_config_when_no_env() {
+        let cfg = Config {
+            memory_cleanup: MemoryCleanup::Shared,
+            ..Default::default()
+        };
+        let eff = MemoryCleanup::effective(&cfg);
+        assert_eq!(eff, MemoryCleanup::Shared);
     }
 }

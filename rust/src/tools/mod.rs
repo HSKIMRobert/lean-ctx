@@ -70,8 +70,6 @@ pub mod ctx_wrapped;
 pub(crate) mod knowledge_shared;
 pub mod registered;
 
-const DEFAULT_CACHE_TTL_SECS: u64 = 300;
-
 struct CepComputedStats {
     cep_score: u32,
     cache_util: u32,
@@ -233,7 +231,10 @@ impl LeanCtxServer {
         let ttl = std::env::var("LEAN_CTX_CACHE_TTL")
             .ok()
             .and_then(|v| v.parse().ok())
-            .unwrap_or(DEFAULT_CACHE_TTL_SECS);
+            .unwrap_or_else(|| {
+                let cfg = crate::core::config::Config::load();
+                crate::core::config::MemoryCleanup::effective(&cfg).idle_ttl_secs()
+            });
 
         let startup = detect_startup_context(project_root, startup_cwd);
         let (session, context_os) = match session_mode {
