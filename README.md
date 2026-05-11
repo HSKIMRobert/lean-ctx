@@ -124,6 +124,8 @@ After `setup`, restart your shell and your editor/AI tool once so the MCP + hook
 
 - Disable immediately (current shell): `lean-ctx-off`
 - Run a single command uncompressed: `lean-ctx -c --raw "git status"`
+- Only activate in AI agent sessions: set `shell_activation = "agents-only"` in `~/.config/lean-ctx/config.toml`
+- Docker projects sharing `/workspace`: create `.lean-ctx-id` with a unique name to prevent context collisions
 - Update: `lean-ctx update`
 - Diagnose (shareable): `lean-ctx doctor --json`
 
@@ -163,6 +165,8 @@ lean-ctx is a standard **MCP server**, so it works with any MCP-compatible clien
 | Qwen | | ● | | `lean-ctx init --agent qwen` |
 | Trae | | ● | | `lean-ctx init --agent trae` |
 | Verdent | | ● | | `lean-ctx init --agent verdent` |
+| Aider | | ● | | `lean-ctx init --agent aider` |
+| Continue | | ● | | `lean-ctx init --agent continue` |
 | JetBrains IDEs | | | ● | `lean-ctx init --agent jetbrains` |
 | QoderWork | | | ● | `lean-ctx init --agent qoderwork` |
 | VS Code | | | ● | `lean-ctx init --agent vscode` |
@@ -232,6 +236,7 @@ lean-ctx benchmark report .
 - **No telemetry by default**
 - **Optional anonymous stats sharing** (opt-in during setup)
 - **Disableable update check** (config `update_check_disabled = true` or `LEAN_CTX_NO_UPDATE_CHECK=1`)
+- **40+ security hardening fixes** in v3.5.16 (path traversal, injection, CSPRNG, CSP, resource limits — [details](CHANGELOG.md))
 - Runs locally; your code never leaves your machine unless you explicitly enable cloud sync
 
 See [SECURITY.md](SECURITY.md).
