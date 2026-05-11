@@ -65,6 +65,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - **Enhanced PageRank** — Damped PageRank with configurable alpha, convergence detection, and seed biasing for context-aware node ranking.
 - **SPLADE-enhanced BM25** — BM25 index now supports sparse expansion terms for improved recall on semantically related queries.
 - **Config module restructured** — Split monolithic `config.rs` into `config/mod.rs`, `config/memory.rs`, `config/proxy.rs`, `config/serde_defaults.rs` for maintainability.
+- **`shell_activation` config option** — New `shell_activation` setting in `config.toml` with three modes: `always` (default, backward-compatible), `agents-only` (auto-activates only in AI agent sessions like Claude Code, Cursor, Windsurf), and `off` (fully manual). Controlled via config file or `LEAN_CTX_SHELL_ACTIVATION` environment variable. Addresses feedback that lean-ctx shell hooks were too invasive for users who only need it in specific AI agent contexts.
+- **`.lean-ctx-id` project identity file** — Projects can now declare a unique identity via a `.lean-ctx-id` file in the project root. This takes highest priority in composite project hashing, solving Docker environments where multiple projects share the same mount path (e.g. `/workspace`). Simply create a file with a unique name (e.g. `echo "my-project-alpha" > .lean-ctx-id`).
+- **Identity-aware storage for all caches** — `graph_index`, `semantic_cache`, `bandit`, and `embedding_index` now use composite project hashes (path + identity markers) instead of path-only hashes. Includes automatic migration from legacy storage locations. Fixes cross-project context bleed in Docker environments.
+- **Security hardening test strengthened** — Dashboard token embedding no longer falls back to loopback bypass; tests now verify the stricter `valid_query`-only gate.
 
 ## [3.5.15] — 2026-05-11
 

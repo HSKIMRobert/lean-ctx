@@ -140,8 +140,24 @@ impl EmbeddingIndex {
     }
 
     pub fn load(root: &Path) -> Option<Self> {
-        let path = index_dir(root).join("embeddings.json");
-        let data = std::fs::read_to_string(path).ok()?;
+        let dir = index_dir(root);
+        let path = dir.join("embeddings.json");
+        let data = std::fs::read_to_string(&path)
+            .or_else(|_| {
+                let legacy_dir = legacy_embedding_dir(root);
+                if legacy_dir == dir {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        "same path",
+                    ));
+                }
+                let legacy_path = legacy_dir.join("embeddings.json");
+                let content = std::fs::read_to_string(&legacy_path)?;
+                let _ = std::fs::create_dir_all(&dir);
+                let _ = std::fs::copy(&legacy_path, &path);
+                Ok(content)
+            })
+            .ok()?;
         let idx: Self = serde_json::from_str(&data).ok()?;
         if idx.version != CURRENT_VERSION {
             return None;
@@ -151,6 +167,10 @@ impl EmbeddingIndex {
 }
 
 fn index_dir(root: &Path) -> PathBuf {
+    crate::core::index_namespace::vectors_dir(root)
+}
+
+fn legacy_embedding_dir(root: &Path) -> PathBuf {
     let mut hasher = Md5::new();
     hasher.update(root.to_string_lossy().as_bytes());
     let hash = format!("{:x}", hasher.finalize());

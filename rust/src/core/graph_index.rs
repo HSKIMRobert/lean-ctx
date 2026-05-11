@@ -59,7 +59,8 @@ impl ProjectIndex {
     }
 
     pub fn index_dir(project_root: &str) -> Option<std::path::PathBuf> {
-        let hash = short_hash(&normalize_project_root(project_root));
+        let normalized = normalize_project_root(project_root);
+        let hash = crate::core::project_hash::hash_project_root(&normalized);
         crate::core::data_dir::lean_ctx_data_dir()
             .ok()
             .map(|d| d.join("graphs").join(hash))
@@ -68,7 +69,22 @@ impl ProjectIndex {
     pub fn load(project_root: &str) -> Option<Self> {
         let dir = Self::index_dir(project_root)?;
         let path = dir.join("index.json");
-        let content = std::fs::read_to_string(path).ok()?;
+
+        let content = std::fs::read_to_string(&path)
+            .or_else(|_| -> std::io::Result<String> {
+                let legacy_hash = short_hash(&normalize_project_root(project_root));
+                let legacy_dir = crate::core::data_dir::lean_ctx_data_dir()
+                    .map_err(|_| std::io::Error::new(std::io::ErrorKind::NotFound, "no data dir"))?
+                    .join("graphs")
+                    .join(legacy_hash);
+                let legacy_path = legacy_dir.join("index.json");
+                let data = std::fs::read_to_string(&legacy_path)?;
+                if let Err(e) = copy_dir_fallible(&legacy_dir, &dir) {
+                    tracing::debug!("graph index migration: {e}");
+                }
+                Ok(data)
+            })
+            .ok()?;
         let index: Self = serde_json::from_str(&content).ok()?;
         if index.version != INDEX_VERSION {
             return None;
@@ -579,6 +595,20 @@ fn short_hash(input: &str) -> String {
     let mut hasher = DefaultHasher::new();
     input.hash(&mut hasher);
     format!("{:08x}", hasher.finish() & 0xFFFF_FFFF)
+}
+
+fn copy_dir_fallible(src: &std::path::Path, dst: &std::path::Path) -> Result<(), std::io::Error> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)?.flatten() {
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        if from.is_dir() {
+            copy_dir_fallible(&from, &to)?;
+        } else {
+            std::fs::copy(&from, &to)?;
+        }
+    }
+    Ok(())
 }
 
 fn normalize_absolute_path(path: &str) -> String {

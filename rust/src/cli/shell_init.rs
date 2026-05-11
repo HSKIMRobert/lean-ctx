@@ -161,10 +161,28 @@ fn upsert_source_line(rc_path: &std::path::Path, source_line: &str) {
 }
 
 pub fn generate_hook_powershell(binary: &str) -> String {
+    let config = crate::core::config::Config::load();
+    let activation = config.shell_activation_effective();
+    let baked_default = match activation {
+        crate::core::config::ShellActivation::Always => "always",
+        crate::core::config::ShellActivation::AgentsOnly => "agents-only",
+        crate::core::config::ShellActivation::Off => "off",
+    };
     let binary_escaped = binary.replace('\\', "\\\\");
     format!(
         r#"# lean-ctx shell hook — transparent CLI compression (95+ patterns)
+$_leanCtxActivation = if ($env:LEAN_CTX_SHELL_ACTIVATION) {{ $env:LEAN_CTX_SHELL_ACTIVATION }} else {{ "{baked_default}" }}
+$_leanCtxShouldActivate = $false
 if (-not $env:LEAN_CTX_ACTIVE -and -not $env:LEAN_CTX_DISABLED -and -not $env:LEAN_CTX_NO_HOOK) {{
+  switch ($_leanCtxActivation) {{
+    {{ $_ -in 'off','none','manual' }} {{ $_leanCtxShouldActivate = $false }}
+    {{ $_ -in 'agents-only','agents_only','agentsonly' }} {{
+      $_leanCtxShouldActivate = $env:LEAN_CTX_AGENT -or $env:CLAUDECODE -or $env:CODEX_CLI_SESSION -or $env:GEMINI_SESSION
+    }}
+    default {{ $_leanCtxShouldActivate = $true }}
+  }}
+}}
+if ($_leanCtxShouldActivate) {{
   $LeanCtxBin = "{binary_escaped}"
   function _lc {{
     if ($env:LEAN_CTX_DISABLED -or $env:LEAN_CTX_NO_HOOK -or [Console]::IsOutputRedirected) {{ & @args; return }}
@@ -244,6 +262,13 @@ pub fn remove_lean_ctx_block_ps(content: &str) -> String {
 }
 
 pub fn generate_hook_fish(binary: &str) -> String {
+    let config = crate::core::config::Config::load();
+    let activation = config.shell_activation_effective();
+    let baked_default = match activation {
+        crate::core::config::ShellActivation::Always => "always",
+        crate::core::config::ShellActivation::AgentsOnly => "agents-only",
+        crate::core::config::ShellActivation::Off => "off",
+    };
     let alias_list = crate::rewrite_registry::shell_alias_list();
     format!(
         "# lean-ctx shell hook — smart shell mode (track-by-default)\n\
@@ -331,7 +356,25 @@ pub fn generate_hook_fish(binary: &str) -> String {
         \tend\n\
         end\n\
         \n\
-        if not set -q LEAN_CTX_ACTIVE; and not set -q LEAN_CTX_DISABLED; and test (set -q LEAN_CTX_ENABLED; and echo $LEAN_CTX_ENABLED; or echo 1) != '0'\n\
+        function _lean_ctx_should_activate\n\
+        \tif set -q LEAN_CTX_ACTIVE; or set -q LEAN_CTX_DISABLED; or test (set -q LEAN_CTX_ENABLED; and echo $LEAN_CTX_ENABLED; or echo 1) = '0'\n\
+        \t\treturn 1\n\
+        \tend\n\
+        \tset -l _lc_mode (set -q LEAN_CTX_SHELL_ACTIVATION; and echo $LEAN_CTX_SHELL_ACTIVATION; or echo '{baked_default}')\n\
+        \tswitch $_lc_mode\n\
+        \t\tcase off none manual\n\
+        \t\t\treturn 1\n\
+        \t\tcase 'agents-only' agents_only agentsonly\n\
+        \t\t\tif set -q LEAN_CTX_AGENT; or set -q CLAUDECODE; or set -q CODEX_CLI_SESSION; or set -q GEMINI_SESSION\n\
+        \t\t\t\treturn 0\n\
+        \t\t\tend\n\
+        \t\t\treturn 1\n\
+        \t\tcase '*'\n\
+        \t\t\treturn 0\n\
+        \tend\n\
+        end\n\
+        \n\
+        if _lean_ctx_should_activate\n\
         \tif command -q lean-ctx\n\
         \t\tlean-ctx-on\n\
         \tend\n\
@@ -353,6 +396,13 @@ pub fn init_fish(binary: &str) {
 }
 
 pub fn generate_hook_posix(binary: &str) -> String {
+    let config = crate::core::config::Config::load();
+    let activation = config.shell_activation_effective();
+    let baked_default = match activation {
+        crate::core::config::ShellActivation::Always => "always",
+        crate::core::config::ShellActivation::AgentsOnly => "agents-only",
+        crate::core::config::ShellActivation::Off => "off",
+    };
     let alias_list = crate::rewrite_registry::shell_alias_list();
     format!(
         r#"# lean-ctx shell hook — smart shell mode (track-by-default)
@@ -455,7 +505,17 @@ if [ -n "${{ZSH_VERSION:-}}" ]; then
     compdef _lean_ctx_comp _lc_compress 2>/dev/null
 fi
 
-if [ -z "${{LEAN_CTX_ACTIVE:-}}" ] && [ -z "${{LEAN_CTX_DISABLED:-}}" ] && [ "${{LEAN_CTX_ENABLED:-1}}" != "0" ]; then
+_lean_ctx_should_activate() {{
+    [ -z "${{LEAN_CTX_ACTIVE:-}}" ] && [ -z "${{LEAN_CTX_DISABLED:-}}" ] && [ "${{LEAN_CTX_ENABLED:-1}}" != "0" ] || return 1
+    case "${{LEAN_CTX_SHELL_ACTIVATION:-{baked_default}}}" in
+        off|none|manual) return 1 ;;
+        agents-only|agents_only|agentsonly)
+            [ -n "${{LEAN_CTX_AGENT:-}}" ] || [ -n "${{CLAUDECODE:-}}" ] || [ -n "${{CODEX_CLI_SESSION:-}}" ] || [ -n "${{GEMINI_SESSION:-}}" ] ;;
+        *) return 0 ;;
+    esac
+}}
+
+if _lean_ctx_should_activate; then
     command -v lean-ctx >/dev/null 2>&1 && lean-ctx-on
 fi
 "#

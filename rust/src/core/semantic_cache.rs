@@ -175,7 +175,20 @@ impl SemanticCacheIndex {
 
     pub fn load(project_root: &str) -> Option<Self> {
         let path = index_path(project_root);
-        let content = std::fs::read_to_string(path).ok()?;
+        let content = std::fs::read_to_string(&path)
+            .or_else(|_| {
+                let legacy = legacy_index_path(project_root);
+                if legacy == path {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        "same path",
+                    ));
+                }
+                let data = std::fs::read_to_string(&legacy)?;
+                let _ = std::fs::copy(&legacy, &path);
+                Ok(data)
+            })
+            .ok()?;
         let mut index: SemanticCacheIndex = serde_json::from_str(&content).ok()?;
         index.repair_after_deserialize();
         Some(index)
@@ -250,6 +263,14 @@ fn cosine_similarity(a: &HashMap<String, f64>, b: &HashMap<String, f64>) -> f64 
 }
 
 fn index_path(project_root: &str) -> PathBuf {
+    let hash = crate::core::project_hash::hash_project_root(project_root);
+    crate::core::data_dir::lean_ctx_data_dir()
+        .unwrap_or_default()
+        .join("semantic_cache")
+        .join(format!("{hash}.json"))
+}
+
+fn legacy_index_path(project_root: &str) -> PathBuf {
     use md5::{Digest, Md5};
     let mut hasher = Md5::new();
     hasher.update(project_root.as_bytes());

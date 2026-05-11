@@ -8,9 +8,11 @@ use super::memory_policy::MemoryPolicy;
 mod memory;
 mod proxy;
 mod serde_defaults;
+mod shell_activation;
 
 pub use memory::{MemoryCleanup, MemoryProfile};
 pub use proxy::{is_local_proxy_url, normalize_url, normalize_url_opt, ProxyConfig, ProxyProvider};
+pub use shell_activation::ShellActivation;
 
 /// Default BM25 cache cap from config (also used by `bm25_index` heuristics).
 pub fn default_bm25_max_cache_mb() -> u64 {
@@ -298,6 +300,14 @@ pub struct Config {
     /// Override via LEAN_CTX_NO_HOOK env var.
     #[serde(default)]
     pub shell_hook_disabled: bool,
+    /// Controls when the shell hook auto-activates aliases.
+    /// - `always`: (Default) Aliases active in every interactive shell.
+    /// - `agents-only`: Aliases only active when an AI agent env var is detected.
+    /// - `off`: Aliases never auto-activate (user must call `lean-ctx-on` manually).
+    ///
+    /// Override via `LEAN_CTX_SHELL_ACTIVATION` env var.
+    #[serde(default)]
+    pub shell_activation: ShellActivation,
     /// Disable the daily version check against leanctx.com/version.txt.
     /// Override via LEAN_CTX_NO_UPDATE_CHECK env var.
     #[serde(default)]
@@ -513,6 +523,7 @@ impl Default for Config {
             content_defined_chunking: false,
             minimal_overhead: false,
             shell_hook_disabled: false,
+            shell_activation: ShellActivation::default(),
             update_check_disabled: false,
             bm25_max_cache_mb: serde_defaults::default_bm25_max_cache_mb(),
             memory_profile: MemoryProfile::default(),
@@ -618,6 +629,11 @@ impl Config {
     /// Returns `true` if shell hook injection is disabled via env var or config.
     pub fn shell_hook_disabled_effective(&self) -> bool {
         std::env::var("LEAN_CTX_NO_HOOK").is_ok() || self.shell_hook_disabled
+    }
+
+    /// Returns the effective shell activation mode (env var > config > default).
+    pub fn shell_activation_effective(&self) -> ShellActivation {
+        ShellActivation::effective(self)
     }
 
     /// Returns `true` if the daily update check is disabled via env var or config.
@@ -1087,6 +1103,9 @@ impl Config {
         }
         if local.shell_hook_disabled {
             self.shell_hook_disabled = true;
+        }
+        if local.shell_activation != ShellActivation::default() {
+            self.shell_activation = local.shell_activation.clone();
         }
         if local.bm25_max_cache_mb != default_bm25_max_cache_mb() {
             self.bm25_max_cache_mb = local.bm25_max_cache_mb;

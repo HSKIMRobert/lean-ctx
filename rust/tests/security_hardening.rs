@@ -13,12 +13,16 @@ fn dashboard_route_response_omits_token_without_valid_query() {
         "C1: dashboard must use constant_time_eq via is_some_and for query token validation"
     );
     assert!(
-        src.contains("if valid_query || is_loopback"),
-        "C1: token embedding gated on valid_query OR loopback (seamless local access)"
+        src.contains("if valid_query"),
+        "C1: token embedding gated on valid_query (no loopback bypass)"
     );
     assert!(
-        src.contains("is_loopback: bool"),
-        "C1: route_response signature must accept is_loopback parameter"
+        !src.contains("if valid_query || is_loopback"),
+        "C1: loopback must NOT bypass token validation — removed for security"
+    );
+    assert!(
+        src.contains("_is_loopback: bool"),
+        "C1: route_response signature accepts _is_loopback (unused, kept for API compat)"
     );
 }
 

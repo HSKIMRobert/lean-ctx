@@ -207,12 +207,7 @@ impl BanditStore {
 }
 
 fn bandit_path(project_root: &str) -> std::path::PathBuf {
-    let hash = {
-        use std::hash::{Hash, Hasher};
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        project_root.hash(&mut hasher);
-        format!("{:x}", hasher.finish())
-    };
+    let hash = crate::core::project_hash::hash_project_root(project_root);
     crate::core::data_dir::lean_ctx_data_dir()
         .unwrap_or_else(|_| std::path::PathBuf::from("."))
         .join("projects")
@@ -321,13 +316,16 @@ mod tests {
 
     #[test]
     fn store_save_load_roundtrip() {
-        let dir = std::env::temp_dir().join("bandit-test");
-        let root = dir.to_string_lossy().to_string();
+        let _env = crate::core::data_dir::test_env_lock();
+        let data_dir = tempfile::tempdir().unwrap();
+        std::env::set_var("LEAN_CTX_DATA_DIR", data_dir.path());
+
+        let project = tempfile::tempdir().unwrap();
+        let root = project.path().to_string_lossy().to_string();
         let mut store = BanditStore::default();
         store.get_or_create("rs_medium");
         store.save(&root).unwrap();
         let loaded = BanditStore::load(&root);
         assert!(loaded.bandits.contains_key("rs_medium"));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }
