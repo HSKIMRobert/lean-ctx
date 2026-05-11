@@ -238,12 +238,9 @@ pub async fn login(
         .await
         .map_err(internal_error)?;
 
-    let (user_id, stored_hash) = match credentials {
-        Some((uid, Some(hash))) => (uid, hash),
-        _ => {
-            let _ = dummy_verify(&body.password);
-            return Err((StatusCode::UNAUTHORIZED, "Invalid email or password".into()));
-        }
+    let Some((user_id, Some(stored_hash))) = credentials else {
+        let _ = dummy_verify(&body.password);
+        return Err((StatusCode::UNAUTHORIZED, "Invalid email or password".into()));
     };
 
     if !verify_password(&body.password, &stored_hash) {
