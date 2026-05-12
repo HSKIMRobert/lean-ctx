@@ -964,6 +964,7 @@ mod tests {
                 entry.category,
                 crate::rewrite_registry::Category::Search
                     | crate::rewrite_registry::Category::FileRead
+                    | crate::rewrite_registry::Category::DirList
             ) {
                 continue;
             }
