@@ -318,7 +318,7 @@ command = \"lean-ctx\"
             result.contains("<!-- lean-ctx -->"),
             "lean-ctx block must be appended"
         );
-        let expected_ref = format!("{}/LEAN-CTX.md", tmp.display());
+        let expected_ref = tmp.join("LEAN-CTX.md").display().to_string();
         assert!(
             result.contains(&expected_ref),
             "lean-ctx reference must use codex_dir path"
@@ -348,7 +348,7 @@ command = \"lean-ctx\"
             result.contains("Other Section"),
             "user content after block preserved"
         );
-        let expected_ref = format!("{}/LEAN-CTX.md", tmp.display());
+        let expected_ref = tmp.join("LEAN-CTX.md").display().to_string();
         assert!(
             result.contains(&expected_ref),
             "block updated to current reference"
