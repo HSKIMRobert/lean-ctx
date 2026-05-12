@@ -2,6 +2,8 @@ use crate::core::patterns;
 use crate::core::tokens::count_tokens;
 
 const BUILTIN_PASSTHROUGH: &[&str] = &[
+    // lean-ctx itself — never compress our own output
+    "lean-ctx",
     // JS/TS dev servers & watchers
     "turbo",
     "nx serve",

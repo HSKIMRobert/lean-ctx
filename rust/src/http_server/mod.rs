@@ -1040,21 +1040,30 @@ mod tests {
         let resp = app.clone().oneshot(req).await.expect("call");
         assert_eq!(resp.status(), StatusCode::OK);
 
-        // Allow async event persistence to complete (CI disk IO can be slow).
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        // Poll with retry — CI runners have variable disk IO latency.
+        let mut msg = String::new();
+        for attempt in 0..5 {
+            tokio::time::sleep(Duration::from_secs(1)).await;
 
-        // Subscribe with replay semantics; read the first SSE message.
-        let req = Request::builder()
-            .method("GET")
-            .uri("/v1/events?workspaceId=ws1&channelId=ch1&since=0&limit=1")
-            .header("Host", "localhost")
-            .header("Accept", "text/event-stream")
-            .body(Body::empty())
-            .expect("req");
-        let resp = app.clone().oneshot(req).await.expect("events");
-        assert_eq!(resp.status(), StatusCode::OK);
+            let req = Request::builder()
+                .method("GET")
+                .uri("/v1/events?workspaceId=ws1&channelId=ch1&since=0&limit=1")
+                .header("Host", "localhost")
+                .header("Accept", "text/event-stream")
+                .body(Body::empty())
+                .expect("req");
+            let resp = app.clone().oneshot(req).await.expect("events");
+            assert_eq!(resp.status(), StatusCode::OK);
 
-        let msg = read_first_sse_message(resp.into_body()).await;
+            msg = read_first_sse_message(resp.into_body()).await;
+            if msg.contains("event: tool_call_recorded") {
+                break;
+            }
+            assert!(
+                attempt < 4,
+                "SSE replay not available after 5 attempts, msg={msg:?}"
+            );
+        }
         assert!(msg.contains("event: tool_call_recorded"), "msg={msg:?}");
         assert!(msg.contains("\"workspaceId\":\"ws1\""), "msg={msg:?}");
         assert!(msg.contains("\"channelId\":\"ch1\""), "msg={msg:?}");

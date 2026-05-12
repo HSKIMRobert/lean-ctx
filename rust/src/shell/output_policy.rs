@@ -249,6 +249,18 @@ mod tests {
     }
 
     #[test]
+    fn lean_ctx_is_passthrough() {
+        assert_eq!(
+            classify("lean-ctx init powershell", &[]),
+            OutputPolicy::Passthrough
+        );
+        assert_eq!(
+            classify("lean-ctx overview", &[]),
+            OutputPolicy::Passthrough
+        );
+    }
+
+    #[test]
     fn stripe_list_is_verbatim() {
         assert_eq!(classify("stripe charges list", &[]), OutputPolicy::Verbatim);
     }
