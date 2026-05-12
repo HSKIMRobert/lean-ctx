@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! End-to-end coverage for `shell_hook::install_all_with_style`.
 //!
 //! The unit tests inside `shell_hook.rs` exercise each per-shell install
