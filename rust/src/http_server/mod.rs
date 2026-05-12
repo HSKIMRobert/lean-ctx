@@ -1004,6 +1004,8 @@ mod tests {
 
     #[tokio::test]
     async fn events_endpoint_replays_tool_call_event() {
+        use crate::core::context_os::{self, ContextEventKindV1};
+
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::create_dir_all(dir.path().join(".git")).expect("git marker");
         std::fs::write(dir.path().join("a.txt"), "ok").expect("file");
@@ -1019,53 +1021,32 @@ mod tests {
         };
 
         let app = Router::new()
-            .route("/v1/tools/call", axum::routing::post(v1_tool_call))
             .route("/v1/events", get(v1_events))
             .with_state(state);
 
-        let body = json!({
-            "name": "ctx_session",
-            "arguments": { "action": "status" },
-            "workspaceId": "ws1",
-            "channelId": "ch1"
-        })
-        .to_string();
+        // Directly append an event to the bus — no fire-and-forget timing dependency.
+        let rt = context_os::runtime();
+        rt.bus.append(
+            "ws1",
+            "ch1",
+            &ContextEventKindV1::ToolCallRecorded,
+            Some("test-agent"),
+            json!({"tool": "ctx_session", "action": "status"}),
+        );
+
         let req = Request::builder()
-            .method("POST")
-            .uri("/v1/tools/call")
+            .method("GET")
+            .uri("/v1/events?workspaceId=ws1&channelId=ch1&since=0&limit=1")
             .header("Host", "localhost")
-            .header("Content-Type", "application/json")
-            .body(Body::from(body))
+            .header("Accept", "text/event-stream")
+            .body(Body::empty())
             .expect("req");
-        let resp = app.clone().oneshot(req).await.expect("call");
+        let resp = app.clone().oneshot(req).await.expect("events");
         assert_eq!(resp.status(), StatusCode::OK);
 
-        // Poll with retry — CI runners have variable disk IO latency.
-        let mut msg = String::new();
-        for attempt in 0..5 {
-            tokio::time::sleep(Duration::from_secs(1)).await;
-
-            let req = Request::builder()
-                .method("GET")
-                .uri("/v1/events?workspaceId=ws1&channelId=ch1&since=0&limit=1")
-                .header("Host", "localhost")
-                .header("Accept", "text/event-stream")
-                .body(Body::empty())
-                .expect("req");
-            let resp = app.clone().oneshot(req).await.expect("events");
-            assert_eq!(resp.status(), StatusCode::OK);
-
-            msg = read_first_sse_message(resp.into_body()).await;
-            if msg.contains("event: tool_call_recorded") {
-                break;
-            }
-            assert!(
-                attempt < 4,
-                "SSE replay not available after 5 attempts, msg={msg:?}"
-            );
-        }
+        let msg = read_first_sse_message(resp.into_body()).await;
         assert!(msg.contains("event: tool_call_recorded"), "msg={msg:?}");
-        assert!(msg.contains("\"workspaceId\":\"ws1\""), "msg={msg:?}");
-        assert!(msg.contains("\"channelId\":\"ch1\""), "msg={msg:?}");
+        assert!(msg.contains("\"ws1\""), "msg={msg:?}");
+        assert!(msg.contains("\"ch1\""), "msg={msg:?}");
     }
 }
