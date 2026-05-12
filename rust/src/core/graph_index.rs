@@ -291,7 +291,7 @@ pub fn scan(project_root: &str) -> ProjectIndex {
 
     let mut scanned = 0usize;
     let mut reused = 0usize;
-    let max_files = 2000;
+    let max_files = cfg.graph_index_max_files as usize;
 
     for entry in walker.filter_map(std::result::Result::ok) {
         if !entry.file_type().is_some_and(|ft| ft.is_file()) {
@@ -313,6 +313,10 @@ pub fn scan(project_root: &str) -> ProjectIndex {
         }
 
         if index.files.len() >= max_files {
+            tracing::warn!(
+                "Graph index capped at {} files. Increase graph_index_max_files in config.toml for full coverage.",
+                max_files
+            );
             break;
         }
 

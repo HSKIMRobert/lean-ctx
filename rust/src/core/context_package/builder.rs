@@ -1,6 +1,5 @@
 use chrono::Utc;
 use sha2::{Digest, Sha256};
-use std::path::Path;
 
 use super::content::{
     GotchaExport, GotchasLayer, GraphEdgeExport, GraphLayer, GraphNodeExport, KnowledgeLayer,
@@ -104,8 +103,7 @@ impl PackageBuilder {
     }
 
     pub fn add_graph_from_project(mut self, project_root: &str) -> Self {
-        let project_path = Path::new(project_root);
-        let Ok(graph) = crate::core::property_graph::CodeGraph::open(project_path) else {
+        let Ok(graph) = crate::core::property_graph::CodeGraph::open(project_root) else {
             return self;
         };
 

@@ -8,7 +8,7 @@ Make graph-driven tooling **reproducible** (CI/proofs), **deterministic** (stabl
 
 This contract covers:
 
-- Property graph storage under `.lean-ctx/graph.db`
+- Property graph storage under `$LEAN_CTX_DATA_DIR/graphs/<project_hash>/graph.db`
 - Graph build + freshness semantics (`ctx_impact action=build|status`)
 - Deterministic exports from `ctx_impact` and `ctx_architecture` (incl. `format=json`)
 - Architecture proof artifacts exported via `ctx_proof`
@@ -30,8 +30,8 @@ This contract covers:
 ### Explicit rebuild
 
 - `ctx_impact action=build` is the authoritative rebuild:
-  - Clears and rebuilds `.lean-ctx/graph.db`
-  - Writes `.lean-ctx/graph.meta.json` (build metadata)
+  - Clears and rebuilds `graph.db` (in `$LEAN_CTX_DATA_DIR/graphs/<project_hash>/`)
+  - Writes `graph.meta.json` alongside the database
 
 ### Freshness check
 

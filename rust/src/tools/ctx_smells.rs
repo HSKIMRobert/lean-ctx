@@ -3,8 +3,6 @@
 //! Scans the Property Graph for structural issues: dead code, god files,
 //! long functions, fan-out skew, duplicate definitions, and more.
 
-use std::path::Path;
-
 use crate::core::property_graph::CodeGraph;
 use crate::core::smells::{self, Severity, SmellConfig, SmellFinding};
 use crate::core::tokens::count_tokens;
@@ -47,11 +45,11 @@ fn parse_format(format: Option<&str>) -> Result<OutputFormat, String> {
 }
 
 fn open_graph(root: &str) -> Result<CodeGraph, String> {
-    CodeGraph::open(Path::new(root)).map_err(|e| format!("Failed to open graph: {e}"))
+    CodeGraph::open(root).map_err(|e| format!("Failed to open graph: {e}"))
 }
 
 fn ensure_graph_built(root: &str) {
-    let Ok(graph) = CodeGraph::open(Path::new(root)) else {
+    let Ok(graph) = CodeGraph::open(root) else {
         return;
     };
     if graph.node_count().unwrap_or(0) == 0 {

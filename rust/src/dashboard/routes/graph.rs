@@ -38,7 +38,7 @@ pub(super) fn handle(
         "/api/graph/enrich" => {
             let root = detect_project_root_for_dashboard();
             let project_path = std::path::Path::new(&root);
-            let result = match crate::core::property_graph::CodeGraph::open(project_path) {
+            let result = match crate::core::property_graph::CodeGraph::open(&root) {
                 Ok(graph) => {
                     match crate::core::graph_enricher::enrich_graph(&graph, project_path, 500) {
                         Ok(stats) => {

@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.5.21] — 2026-05-12
+
+### Fixed
+
+- **graph.db and graph.meta.json now honor LEAN_CTX_DATA_DIR** — Property graph files are stored in `$DATA_DIR/graphs/<project_hash>/` (consistent with the JSON graph index). Transparent migration moves existing files from `<project>/.lean-ctx/` on first access. `CodeGraph::open()` signature changed from `&Path` to `&str`. All 12+ call sites updated. Hardcoded `.lean-ctx/graph.db` strings in `ctx_impact` and `ctx_architecture` replaced with actual resolved paths. Fixes [#205](https://github.com/yvgude/lean-ctx/issues/205).
+- **Graph index UX: correct labels and configurable cap** — `lean-ctx gain` now shows "files" instead of misleading "nodes" when using the JSON graph index fallback. A "(capped)" suffix appears when the file scan limit is reached. New config key `graph_index_max_files` (default: 5000, up from hardcoded 2000). Warning emitted when cap is hit. Fixes [#206](https://github.com/yvgude/lean-ctx/issues/206).
+- **Config documentation accuracy** — Removed phantom `[compaction]` section and non-existent `[archive]` fields from website docs. Corrected wrong defaults (`compression_level`: "off" not "standard", `buddy_enabled`: true not false, `custom_aliases` fields: `command`/`alias` not `name`/`command`, `loop_detection.blocked_threshold`: 0 not 6, `autonomy.consolidate_cooldown_secs`: 120 not 300). Added missing sections (`[cloud]`, `[proxy]`, `[memory.*]`, etc.). Fixes [#208](https://github.com/yvgude/lean-ctx/issues/208).
+
+### Added
+
+- **Dashboard expandable event details** — Event cards in the Live Observatory are now clickable with an accordion pattern. Expanded panels show all available metrics: token savings bar, compression strategy, before/after lines, mode, path, duration. New `/api/events/:id` endpoint for lazy-loading full event details. Implements [#207](https://github.com/yvgude/lean-ctx/issues/207).
+- **`lean-ctx config schema`** — New CLI command that outputs a complete JSON schema of all configuration keys, types, defaults, descriptions, and env var overrides. Single source of truth for config documentation.
+- **`lean-ctx config validate`** — New CLI command that validates `config.toml` against the schema. Warns about unknown keys with Levenshtein-distance "did you mean?" suggestions. Exit code 1 on errors (CI-friendly).
+- **Graph property graph tests** — 6 new tests covering `graph_dir()` with/without `LEAN_CTX_DATA_DIR`, transparent migration (move and skip-when-exists), `meta_path()` integration, and `CodeGraph::open()` with custom data directory.
+
 ## [3.5.20] — 2026-05-12
 
 ### Fixed

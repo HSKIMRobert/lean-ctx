@@ -21,15 +21,51 @@ pub use queries::{
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 
+/// Resolve the directory for graph.db and graph.meta.json.
+///
+/// Uses `$LEAN_CTX_DATA_DIR/graphs/<project_hash>/` (consistent with
+/// `ProjectIndex::index_dir`).  Falls back to `<project>/.lean-ctx/`
+/// only when the global data directory cannot be resolved.
+pub fn graph_dir(project_root: &str) -> PathBuf {
+    if let Ok(data_dir) = crate::core::data_dir::lean_ctx_data_dir() {
+        let normalized = crate::core::graph_index::normalize_project_root(project_root);
+        let hash = crate::core::project_hash::hash_project_root(&normalized);
+        data_dir.join("graphs").join(hash)
+    } else {
+        Path::new(project_root).join(".lean-ctx")
+    }
+}
+
+/// Transparently migrate graph.db and graph.meta.json from the old
+/// per-project `.lean-ctx/` directory to the new `$DATA_DIR/graphs/` path.
+fn migrate_if_needed(project_root: &str, new_dir: &Path) {
+    let old_dir = Path::new(project_root).join(".lean-ctx");
+    if old_dir == new_dir {
+        return;
+    }
+    for file in &["graph.db", "graph.meta.json"] {
+        let old = old_dir.join(file);
+        let new = new_dir.join(file);
+        if old.exists()
+            && !new.exists()
+            && std::fs::rename(&old, &new).is_err()
+            && std::fs::copy(&old, &new).is_ok()
+        {
+            let _ = std::fs::remove_file(&old);
+        }
+    }
+}
+
 pub struct CodeGraph {
     conn: Connection,
     db_path: PathBuf,
 }
 
 impl CodeGraph {
-    pub fn open(project_root: &Path) -> anyhow::Result<Self> {
-        let db_dir = project_root.join(".lean-ctx");
+    pub fn open(project_root: &str) -> anyhow::Result<Self> {
+        let db_dir = graph_dir(project_root);
         std::fs::create_dir_all(&db_dir)?;
+        migrate_if_needed(project_root, &db_dir);
         let db_path = db_dir.join("graph.db");
         let conn = Connection::open(&db_path)?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
@@ -346,5 +382,133 @@ mod tests {
             b_score > c_score,
             "b.rs has imports+calls, should rank higher than c.rs with type_ref"
         );
+    }
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        LOCK.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    #[test]
+    fn graph_dir_uses_data_dir_when_set() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project = tmp.path().join("myproject");
+        std::fs::create_dir_all(&project).unwrap();
+
+        let data_dir = tmp.path().join("data");
+        std::fs::create_dir_all(&data_dir).unwrap();
+
+        let _guard = env_lock();
+        std::env::set_var("LEAN_CTX_DATA_DIR", data_dir.to_str().unwrap());
+
+        let dir = graph_dir(project.to_str().unwrap());
+        assert!(dir.starts_with(&data_dir));
+        assert!(dir.to_string_lossy().contains("graphs"));
+
+        std::env::remove_var("LEAN_CTX_DATA_DIR");
+    }
+
+    #[test]
+    fn graph_dir_returns_consistent_hash_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project = tmp.path().join("hash_project");
+        std::fs::create_dir_all(&project).unwrap();
+
+        let data_dir = tmp.path().join("data2");
+        std::fs::create_dir_all(&data_dir).unwrap();
+
+        let _guard = env_lock();
+        std::env::set_var("LEAN_CTX_DATA_DIR", data_dir.to_str().unwrap());
+
+        let dir1 = graph_dir(project.to_str().unwrap());
+        let dir2 = graph_dir(project.to_str().unwrap());
+        assert_eq!(dir1, dir2, "graph_dir should be deterministic");
+        assert!(dir1.to_string_lossy().contains("graphs"));
+
+        std::env::remove_var("LEAN_CTX_DATA_DIR");
+    }
+
+    #[test]
+    fn migration_moves_old_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project = tmp.path().join("migtest");
+        let old_dir = project.join(".lean-ctx");
+        std::fs::create_dir_all(&old_dir).unwrap();
+        std::fs::write(old_dir.join("graph.db"), b"old-db-content").unwrap();
+        std::fs::write(old_dir.join("graph.meta.json"), b"old-meta").unwrap();
+
+        let new_dir = tmp.path().join("newloc");
+        std::fs::create_dir_all(&new_dir).unwrap();
+
+        migrate_if_needed(project.to_str().unwrap(), &new_dir);
+
+        assert!(new_dir.join("graph.db").exists());
+        assert!(new_dir.join("graph.meta.json").exists());
+        assert!(!old_dir.join("graph.db").exists());
+        assert!(!old_dir.join("graph.meta.json").exists());
+        assert_eq!(
+            std::fs::read_to_string(new_dir.join("graph.db")).unwrap(),
+            "old-db-content"
+        );
+    }
+
+    #[test]
+    fn migration_skips_when_new_exists() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project = tmp.path().join("skiptest");
+        let old_dir = project.join(".lean-ctx");
+        std::fs::create_dir_all(&old_dir).unwrap();
+        std::fs::write(old_dir.join("graph.db"), b"old").unwrap();
+
+        let new_dir = tmp.path().join("newloc2");
+        std::fs::create_dir_all(&new_dir).unwrap();
+        std::fs::write(new_dir.join("graph.db"), b"already-there").unwrap();
+
+        migrate_if_needed(project.to_str().unwrap(), &new_dir);
+
+        assert_eq!(
+            std::fs::read_to_string(new_dir.join("graph.db")).unwrap(),
+            "already-there"
+        );
+        assert!(old_dir.join("graph.db").exists());
+    }
+
+    #[test]
+    fn open_with_data_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project = tmp.path().join("opentest");
+        std::fs::create_dir_all(&project).unwrap();
+
+        let data_dir = tmp.path().join("xdata");
+        std::fs::create_dir_all(&data_dir).unwrap();
+
+        let _guard = env_lock();
+        std::env::set_var("LEAN_CTX_DATA_DIR", data_dir.to_str().unwrap());
+
+        let g = CodeGraph::open(project.to_str().unwrap()).unwrap();
+        assert!(g.db_path().starts_with(&data_dir));
+        assert!(g.db_path().to_string_lossy().contains("graph.db"));
+
+        std::env::remove_var("LEAN_CTX_DATA_DIR");
+    }
+
+    #[test]
+    fn meta_path_uses_graph_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project = tmp.path().join("metatest");
+        std::fs::create_dir_all(&project).unwrap();
+
+        let data_dir = tmp.path().join("mdata");
+        std::fs::create_dir_all(&data_dir).unwrap();
+
+        let _guard = env_lock();
+        std::env::set_var("LEAN_CTX_DATA_DIR", data_dir.to_str().unwrap());
+
+        let mp = meta::meta_path(project.to_str().unwrap());
+        assert!(mp.starts_with(&data_dir));
+        assert!(mp.to_string_lossy().contains("graph.meta.json"));
+
+        std::env::remove_var("LEAN_CTX_DATA_DIR");
     }
 }

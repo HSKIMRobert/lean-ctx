@@ -277,8 +277,7 @@ fn graph_hotspot_rows(
     project_root: &str,
     index: &crate::core::graph_index::ProjectIndex,
 ) -> Vec<(String, usize, usize)> {
-    let root = std::path::Path::new(project_root);
-    if let Ok(graph) = crate::core::property_graph::CodeGraph::open(root) {
+    if let Ok(graph) = crate::core::property_graph::CodeGraph::open(project_root) {
         let sql = "
             WITH edge_files AS (
               SELECT e.kind AS kind, ns.file_path AS fp

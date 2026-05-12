@@ -34,3 +34,7 @@ pub(super) fn default_buddy_enabled() -> bool {
 pub(super) fn default_bm25_max_cache_mb() -> u64 {
     128
 }
+
+pub(super) fn default_graph_index_max_files() -> u64 {
+    5000
+}

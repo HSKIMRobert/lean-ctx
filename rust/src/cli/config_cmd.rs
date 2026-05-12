@@ -99,11 +99,165 @@ pub fn cmd_config(args: &[String]) {
                 Err(e) => eprintln!("Error saving config: {e}"),
             }
         }
+        "schema" => {
+            let schema = config::schema::ConfigSchema::generate();
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&schema).unwrap_or_else(|_| "{}".to_string())
+            );
+        }
+        "validate" => {
+            cmd_validate();
+        }
         _ => {
-            eprintln!("Usage: lean-ctx config [init|set <key> <value>]");
+            eprintln!("Usage: lean-ctx config [init|set|schema|validate]");
             std::process::exit(1);
         }
     }
+}
+
+fn cmd_validate() {
+    let schema = config::schema::ConfigSchema::generate();
+    let known = schema.known_keys();
+
+    let path = match config::Config::path() {
+        Some(p) if p.exists() => p,
+        _ => {
+            println!("[OK] No config.toml found — using defaults.");
+            return;
+        }
+    };
+
+    let raw = match std::fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("[ERROR] Cannot read {}: {e}", path.display());
+            std::process::exit(1);
+        }
+    };
+
+    let table: toml::Table = match raw.parse() {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("[ERROR] Invalid TOML: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    let mut warnings = 0u32;
+    let mut validated = 0u32;
+
+    fn collect_keys(table: &toml::Table, prefix: &str, out: &mut Vec<String>) {
+        for (k, v) in table {
+            let full = if prefix.is_empty() {
+                k.clone()
+            } else {
+                format!("{prefix}.{k}")
+            };
+            match v {
+                toml::Value::Table(sub) => collect_keys(sub, &full, out),
+                toml::Value::Array(arr) => {
+                    out.push(full.clone());
+                    for item in arr {
+                        if let toml::Value::Table(sub) = item {
+                            for sk in sub.keys() {
+                                out.push(format!("{full}[].{sk}"));
+                            }
+                        }
+                    }
+                }
+                _ => out.push(full),
+            }
+        }
+    }
+
+    let mut user_keys = Vec::new();
+    collect_keys(&table, "", &mut user_keys);
+
+    for uk in &user_keys {
+        let base = uk.split("[].").next().unwrap_or(uk);
+        let field = uk.rsplit("[].").next().unwrap_or("");
+        let check_key = if uk.contains("[].") {
+            format!("{base}.{field}")
+        } else {
+            uk.clone()
+        };
+
+        if known.contains(&check_key)
+            || known
+                .iter()
+                .any(|k| check_key.starts_with(&format!("{k}.")))
+        {
+            validated += 1;
+        } else {
+            warnings += 1;
+            let suggestion = find_closest(&check_key, &known);
+            if let Some(sug) = suggestion {
+                eprintln!("[WARN] Unknown key '{uk}' -- did you mean '{sug}'?");
+            } else {
+                eprintln!("[WARN] Unknown key '{uk}' -- this field does not exist");
+            }
+        }
+    }
+
+    let total = validated + warnings;
+    if warnings == 0 {
+        println!(
+            "[OK] All {total} keys validated successfully ({}).",
+            path.display()
+        );
+    } else {
+        println!(
+            "[RESULT] {validated} of {total} keys validated, {warnings} unknown ({}).",
+            path.display()
+        );
+        std::process::exit(1);
+    }
+}
+
+fn find_closest(needle: &str, haystack: &[String]) -> Option<String> {
+    let mut best: Option<(usize, &str)> = None;
+    for candidate in haystack {
+        let d = levenshtein(needle, candidate);
+        if d <= 3 && (best.is_none() || d < best.unwrap().0) {
+            best = Some((d, candidate));
+        }
+    }
+    if best.is_some() {
+        return best.map(|(_, s)| s.to_string());
+    }
+    let leaf = needle.rsplit('.').next().unwrap_or(needle);
+    let mut leaf_best: Option<(usize, &str)> = None;
+    for candidate in haystack {
+        let cand_leaf = candidate.rsplit('.').next().unwrap_or(candidate);
+        let d = levenshtein(leaf, cand_leaf);
+        if d <= 2 && (leaf_best.is_none() || d < leaf_best.unwrap().0) {
+            leaf_best = Some((d, candidate));
+        }
+    }
+    leaf_best.map(|(_, s)| s.to_string())
+}
+
+fn levenshtein(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let (m, n) = (a.len(), b.len());
+    let mut dp = vec![vec![0usize; n + 1]; m + 1];
+    for (i, row) in dp.iter_mut().enumerate().take(m + 1) {
+        row[0] = i;
+    }
+    for (j, val) in dp[0].iter_mut().enumerate().take(n + 1) {
+        *val = j;
+    }
+    for i in 1..=m {
+        for j in 1..=n {
+            let cost = usize::from(a[i - 1] != b[j - 1]);
+            dp[i][j] = (dp[i - 1][j] + 1)
+                .min(dp[i][j - 1] + 1)
+                .min(dp[i - 1][j - 1] + cost);
+        }
+    }
+    dp[m][n]
 }
 
 fn normalize_optional_upstream(value: &str) -> Option<String> {

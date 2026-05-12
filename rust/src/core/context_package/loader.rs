@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use crate::core::knowledge::ProjectKnowledge;
 use crate::core::memory_policy::MemoryPolicy;
 use crate::core::property_graph::{CodeGraph, Edge, EdgeKind, Node, NodeKind};
@@ -139,8 +137,7 @@ fn import_graph(
     project_root: &str,
     report: &mut LoadReport,
 ) -> Result<(), String> {
-    let project_path = Path::new(project_root);
-    let graph = CodeGraph::open(project_path).map_err(|e| format!("graph open: {e}"))?;
+    let graph = CodeGraph::open(project_root).map_err(|e| format!("graph open: {e}"))?;
 
     for node_export in &layer.nodes {
         let node = Node {

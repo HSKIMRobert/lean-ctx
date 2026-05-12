@@ -166,7 +166,8 @@ fn build_deps_graph(
 }
 
 fn property_graph_summary(project_root: &Path) -> PropertyGraphSummary {
-    let db_path = project_root.join(".lean-ctx").join("graph.db");
+    let root_str = project_root.to_string_lossy();
+    let db_path = crate::core::property_graph::graph_dir(&root_str).join("graph.db");
     let db_path_s = db_path.to_string_lossy().to_string();
     if !db_path.exists() {
         return PropertyGraphSummary {
@@ -177,7 +178,7 @@ fn property_graph_summary(project_root: &Path) -> PropertyGraphSummary {
         };
     }
 
-    match crate::core::property_graph::CodeGraph::open(project_root) {
+    match crate::core::property_graph::CodeGraph::open(&root_str) {
         Ok(g) => PropertyGraphSummary {
             exists: true,
             db_path: g.db_path().to_string_lossy().to_string(),

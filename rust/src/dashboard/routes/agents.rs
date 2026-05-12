@@ -20,6 +20,28 @@ pub(super) fn handle(
             let json = serde_json::to_string(&evs).unwrap_or_else(|_| "[]".to_string());
             Some(("200 OK", "application/json", json))
         }
+        p if p.starts_with("/api/events/") => {
+            let id_str = &p["/api/events/".len()..];
+            if let Ok(id) = id_str.parse::<u64>() {
+                let evs = crate::core::events::load_events_from_file(500);
+                if let Some(ev) = evs.iter().find(|e| e.id == id) {
+                    let json = serde_json::to_string(ev).unwrap_or_else(|_| "{}".to_string());
+                    Some(("200 OK", "application/json", json))
+                } else {
+                    Some((
+                        "404 Not Found",
+                        "application/json",
+                        "{\"error\":\"event not found\"}".to_string(),
+                    ))
+                }
+            } else {
+                Some((
+                    "400 Bad Request",
+                    "application/json",
+                    "{\"error\":\"invalid event id\"}".to_string(),
+                ))
+            }
+        }
         _ => None,
     }
 }

@@ -51,7 +51,7 @@ pub fn handle(
 }
 
 fn open_graph(root: &str) -> Result<CodeGraph, String> {
-    CodeGraph::open(Path::new(root)).map_err(|e| format!("Failed to open graph: {e}"))
+    CodeGraph::open(root).map_err(|e| format!("Failed to open graph: {e}"))
 }
 
 fn handle_analyze(path: Option<&str>, root: &str, max_depth: usize, fmt: OutputFormat) -> String {
@@ -109,14 +109,13 @@ fn format_impact(impact: &ImpactResult, target: &str, root: &str, fmt: OutputFor
 
     match fmt {
         OutputFormat::Json => {
-            let root_path = Path::new(root);
             let v = json!({
                 "schema_version": crate::core::contracts::GRAPH_REPRODUCIBILITY_V1_SCHEMA_VERSION,
                 "tool": "ctx_impact",
                 "action": "analyze",
                 "project": project_meta(root),
-                "graph": graph_summary(root_path),
-                "graph_meta": crate::core::property_graph::load_meta(root_path),
+                "graph": graph_summary(root),
+                "graph_meta": crate::core::property_graph::load_meta(root),
                 "target": target,
                 "max_depth_reached": impact.max_depth_reached,
                 "edges_traversed": impact.edges_traversed,
@@ -354,14 +353,13 @@ fn handle_chain(path: Option<&str>, root: &str, fmt: OutputFormat) -> String {
         Ok(Some(chain)) => format_chain(&chain, root, fmt),
         Ok(None) => match fmt {
             OutputFormat::Json => {
-                let root_path = Path::new(root);
                 let v = json!({
                     "schema_version": crate::core::contracts::GRAPH_REPRODUCIBILITY_V1_SCHEMA_VERSION,
                     "tool": "ctx_impact",
                     "action": "chain",
                     "project": project_meta(root),
-                    "graph": graph_summary(root_path),
-                    "graph_meta": crate::core::property_graph::load_meta(root_path),
+                    "graph": graph_summary(root),
+                    "graph_meta": crate::core::property_graph::load_meta(root),
                     "from": rel_from,
                     "to": rel_to,
                     "found": false
@@ -381,14 +379,13 @@ fn handle_chain(path: Option<&str>, root: &str, fmt: OutputFormat) -> String {
 fn format_chain(chain: &DependencyChain, root: &str, fmt: OutputFormat) -> String {
     match fmt {
         OutputFormat::Json => {
-            let root_path = Path::new(root);
             let v = json!({
                 "schema_version": crate::core::contracts::GRAPH_REPRODUCIBILITY_V1_SCHEMA_VERSION,
                 "tool": "ctx_impact",
                 "action": "chain",
                 "project": project_meta(root),
-                "graph": graph_summary(root_path),
-                "graph_meta": crate::core::property_graph::load_meta(root_path),
+                "graph": graph_summary(root),
+                "graph_meta": crate::core::property_graph::load_meta(root),
                 "found": true,
                 "depth": chain.depth,
                 "path": chain.path
@@ -716,7 +713,7 @@ fn handle_build(root: &str, fmt: OutputFormat) -> String {
 
     let incremental_hint: Option<&'static str> = {
         let nodes_ok = graph.node_count().unwrap_or(0) > 0;
-        let has_head = crate::core::property_graph::load_meta(root_path)
+        let has_head = crate::core::property_graph::load_meta(root)
             .and_then(|m| m.git_head)
             .is_some_and(|s| !s.is_empty());
         if nodes_ok && has_head {
@@ -799,9 +796,10 @@ fn handle_build(root: &str, fmt: OutputFormat) -> String {
 
     let build_time_ms = t0.elapsed().as_millis() as u64;
 
+    let db_display = graph.db_path().display();
     let mut result = format!(
         "Graph built: {total_nodes} nodes, {total_edges} edges from {} files\n\
-         Stored at: .lean-ctx/graph.db\n\
+         Stored at: {db_display}\n\
          Build time: {build_time_ms}ms",
         file_contents.len(),
     );
@@ -811,7 +809,7 @@ fn handle_build(root: &str, fmt: OutputFormat) -> String {
     }
 
     let _ = crate::core::property_graph::write_meta(
-        root_path,
+        root,
         &crate::core::property_graph::PropertyGraphMetaV1 {
             schema_version: 1,
             built_at: chrono::Utc::now().to_rfc3339(),
@@ -832,13 +830,13 @@ fn handle_build(root: &str, fmt: OutputFormat) -> String {
                 "tool": "ctx_impact",
                 "action": "build",
                 "project": project_meta(root),
-                "graph": graph_summary(root_path),
-                "graph_meta": crate::core::property_graph::load_meta(root_path),
+                "graph": graph_summary(root),
+                "graph_meta": crate::core::property_graph::load_meta(root),
                 "indexed_files": file_contents.len(),
                 "nodes": total_nodes,
                 "edges": total_edges,
                 "build_time_ms": build_time_ms,
-                "db_path": ".lean-ctx/graph.db"
+                "db_path": graph.db_path().display().to_string()
             });
             if let Some(h) = incremental_hint {
                 v.as_object_mut()
@@ -863,7 +861,7 @@ fn handle_update(root: &str, fmt: OutputFormat) -> String {
         return handle_build(root, fmt);
     }
 
-    let Some(meta) = crate::core::property_graph::load_meta(root_path) else {
+    let Some(meta) = crate::core::property_graph::load_meta(root) else {
         return handle_build(root, fmt);
     };
 
@@ -971,7 +969,7 @@ fn handle_update(root: &str, fmt: OutputFormat) -> String {
     let elapsed_ms = t0.elapsed().as_millis() as u64;
 
     let _ = crate::core::property_graph::write_meta(
-        root_path,
+        root,
         &crate::core::property_graph::PropertyGraphMetaV1 {
             schema_version: 1,
             built_at: chrono::Utc::now().to_rfc3339(),
@@ -996,14 +994,14 @@ fn handle_update(root: &str, fmt: OutputFormat) -> String {
                 "tool": "ctx_impact",
                 "action": "update",
                 "project": project_meta(root),
-                "graph": graph_summary(root_path),
-                "graph_meta": crate::core::property_graph::load_meta(root_path),
+                "graph": graph_summary(root),
+                "graph_meta": crate::core::property_graph::load_meta(root),
                 "git_range_from": last_git_head,
                 "files_changed_reported": changed_count,
                 "nodes_added": total_nodes,
                 "edges_added": total_edges,
                 "update_time_ms": elapsed_ms,
-                "db_path": ".lean-ctx/graph.db"
+                "db_path": graph.db_path().display().to_string()
             });
             serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".to_string())
         }
@@ -1028,12 +1026,7 @@ fn handle_status(root: &str, fmt: OutputFormat) -> String {
                     "tool": "ctx_impact",
                     "action": "status",
                     "project": project_meta(root),
-                    "graph": {
-                        "exists": false,
-                        "db_path": ".lean-ctx/graph.db",
-                        "nodes": 0,
-                        "edges": 0
-                    },
+                    "graph": graph_summary(root),
                     "freshness": "empty",
                     "hint": "Run ctx_impact action='build' to index."
                 });
@@ -1046,7 +1039,7 @@ fn handle_status(root: &str, fmt: OutputFormat) -> String {
     }
 
     let root_path = Path::new(root);
-    let meta = crate::core::property_graph::load_meta(root_path);
+    let meta = crate::core::property_graph::load_meta(root);
     let current_head = git_out(root_path, &["rev-parse", "--short", "HEAD"]);
     let current_dirty = git_dirty(root_path);
     let stale = meta.as_ref().is_some_and(|m| {
@@ -1069,15 +1062,16 @@ fn handle_status(root: &str, fmt: OutputFormat) -> String {
                 "tool": "ctx_impact",
                 "action": "status",
                 "project": project_meta(root),
-                "graph": graph_summary(root_path),
+                "graph": graph_summary(root),
                 "freshness": freshness,
                 "meta": meta
             });
             serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".to_string())
         }
         OutputFormat::Text => {
+            let db_display = graph.db_path().display();
             let mut out =
-                format!("Property Graph: {nodes} nodes, {edges} edges\nStored: .lean-ctx/graph.db");
+                format!("Property Graph: {nodes} nodes, {edges} edges\nStored: {db_display}");
             if stale {
                 out.push_str("\nWARNING: graph looks stale (git HEAD / dirty mismatch). Run ctx_impact action='build' to refresh.");
             }
@@ -1104,12 +1098,14 @@ fn project_meta(root: &str) -> Value {
     })
 }
 
-fn graph_summary(project_root: &Path) -> Value {
-    let db_path = project_root.join(".lean-ctx").join("graph.db");
+fn graph_summary(project_root: &str) -> Value {
+    let graph_dir = crate::core::property_graph::graph_dir(project_root);
+    let db_path = graph_dir.join("graph.db");
+    let db_path_display = db_path.display().to_string();
     if !db_path.exists() {
         return json!({
             "exists": false,
-            "db_path": ".lean-ctx/graph.db",
+            "db_path": db_path_display,
             "nodes": null,
             "edges": null
         });
@@ -1117,13 +1113,13 @@ fn graph_summary(project_root: &Path) -> Value {
     match crate::core::property_graph::CodeGraph::open(project_root) {
         Ok(g) => json!({
             "exists": true,
-            "db_path": ".lean-ctx/graph.db",
+            "db_path": g.db_path().display().to_string(),
             "nodes": g.node_count().ok(),
             "edges": g.edge_count().ok()
         }),
         Err(_) => json!({
             "exists": true,
-            "db_path": ".lean-ctx/graph.db",
+            "db_path": db_path_display,
             "nodes": null,
             "edges": null
         }),

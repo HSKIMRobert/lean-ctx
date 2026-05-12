@@ -48,7 +48,7 @@ pub fn handle(action: &str, path: Option<&str>, root: &str, format: Option<&str>
 }
 
 fn open_graph(root: &str) -> Result<CodeGraph, String> {
-    CodeGraph::open(Path::new(root)).map_err(|e| format!("Failed to open graph: {e}"))
+    CodeGraph::open(root).map_err(|e| format!("Failed to open graph: {e}"))
 }
 
 struct GraphData {
@@ -58,7 +58,7 @@ struct GraphData {
 }
 
 fn ensure_graph_built(root: &str) {
-    let Ok(graph) = CodeGraph::open(Path::new(root)) else {
+    let Ok(graph) = CodeGraph::open(root) else {
         return;
     };
     if graph.node_count().unwrap_or(0) == 0 {
@@ -220,7 +220,7 @@ fn handle_overview(root: &str, fmt: OutputFormat) -> String {
                 "action": "overview",
                 "project": project_meta(root),
                 "graph": graph_summary(root_path),
-                "graph_meta": crate::core::property_graph::load_meta(root_path),
+                "graph_meta": crate::core::property_graph::load_meta(root),
                 "files_total": files_total,
                 "import_edges": import_edges,
                 "clusters_total": clusters_total,
@@ -344,7 +344,7 @@ fn handle_clusters(root: &str, fmt: OutputFormat) -> String {
                 "action": "clusters",
                 "project": project_meta(root),
                 "graph": graph_summary(root_path),
-                "graph_meta": crate::core::property_graph::load_meta(root_path),
+                "graph_meta": crate::core::property_graph::load_meta(root),
                 "clusters_total": total,
                 "clusters": items,
                 "truncated": truncated
@@ -503,7 +503,7 @@ fn handle_layers(root: &str, fmt: OutputFormat) -> String {
                 "action": "layers",
                 "project": project_meta(root),
                 "graph": graph_summary(root_path),
-                "graph_meta": crate::core::property_graph::load_meta(root_path),
+                "graph_meta": crate::core::property_graph::load_meta(root),
                 "layers_total": total,
                 "layers": items,
                 "truncated": truncated
@@ -559,7 +559,7 @@ fn handle_cycles(root: &str, fmt: OutputFormat) -> String {
                     "action": "cycles",
                     "project": project_meta(root),
                     "graph": graph_summary(root_path),
-                    "graph_meta": crate::core::property_graph::load_meta(root_path),
+                    "graph_meta": crate::core::property_graph::load_meta(root),
                     "cycles_total": 0,
                     "cycles": []
                 });
@@ -587,7 +587,7 @@ fn handle_cycles(root: &str, fmt: OutputFormat) -> String {
                 "action": "cycles",
                 "project": project_meta(root),
                 "graph": graph_summary(root_path),
-                "graph_meta": crate::core::property_graph::load_meta(root_path),
+                "graph_meta": crate::core::property_graph::load_meta(root),
                 "cycles_total": total,
                 "cycles": items,
                 "truncated": truncated
@@ -643,7 +643,7 @@ fn handle_entrypoints(root: &str, fmt: OutputFormat) -> String {
                 "action": "entrypoints",
                 "project": project_meta(root),
                 "graph": graph_summary(root_path),
-                "graph_meta": crate::core::property_graph::load_meta(root_path),
+                "graph_meta": crate::core::property_graph::load_meta(root),
                 "entrypoints_total": total,
                 "entrypoints": items,
                 "truncated": truncated
@@ -1000,7 +1000,7 @@ fn handle_module(path: Option<&str>, root: &str, fmt: OutputFormat) -> String {
                 "action": "module",
                 "project": project_meta(root),
                 "graph": graph_summary(root_path),
-                "graph_meta": crate::core::property_graph::load_meta(root_path),
+                "graph_meta": crate::core::property_graph::load_meta(root),
                 "module_prefix": prefix,
                 "file_count": files_total,
                 "internal_edges": internal_edges,
@@ -1289,25 +1289,28 @@ fn project_meta(root: &str) -> Value {
 }
 
 fn graph_summary(project_root: &Path) -> Value {
-    let db_path = project_root.join(".lean-ctx").join("graph.db");
+    let root_str = project_root.to_string_lossy();
+    let graph_dir = crate::core::property_graph::graph_dir(&root_str);
+    let db_path = graph_dir.join("graph.db");
+    let db_path_display = db_path.display().to_string();
     if !db_path.exists() {
         return json!({
             "exists": false,
-            "db_path": ".lean-ctx/graph.db",
+            "db_path": db_path_display,
             "nodes": null,
             "edges": null
         });
     }
-    match CodeGraph::open(project_root) {
+    match CodeGraph::open(&root_str) {
         Ok(g) => json!({
             "exists": true,
-            "db_path": ".lean-ctx/graph.db",
+            "db_path": g.db_path().display().to_string(),
             "nodes": g.node_count().ok(),
             "edges": g.edge_count().ok()
         }),
         Err(_) => json!({
             "exists": true,
-            "db_path": ".lean-ctx/graph.db",
+            "db_path": db_path_display,
             "nodes": null,
             "edges": null
         }),

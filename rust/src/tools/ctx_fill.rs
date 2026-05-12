@@ -225,7 +225,7 @@ fn load_pagerank_scores(paths: &[String]) -> std::collections::HashMap<String, f
         return std::collections::HashMap::new();
     };
 
-    let Ok(graph) = crate::core::property_graph::CodeGraph::open(Path::new(&root)) else {
+    let Ok(graph) = crate::core::property_graph::CodeGraph::open(&root) else {
         return std::collections::HashMap::new();
     };
 

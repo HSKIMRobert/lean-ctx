@@ -76,18 +76,22 @@ function flattenEvent(ev) {
   var kind = ev.kind || {};
   var t = kind.type || '';
   var ts = ev.timestamp || '';
+  var evId = ev.id || 0;
 
   switch (t) {
     case 'ToolCall': {
       var cat = classifyTool(kind.tool);
       return {
         type: t,
+        id: evId,
         category: cat,
         color: EVENT_COLORS[cat] || EVENT_COLORS.other,
         icon: EVENT_ICONS[cat] || EVENT_ICONS.other,
         title: kind.tool || 'tool call',
         saved: kind.tokens_saved || 0,
+        original: kind.tokens_original || 0,
         detail: buildToolDetail(kind),
+        expandedDetail: buildExpandedToolDetail(kind),
         explanation: eventExplanation(t),
         ts: ts,
       };
@@ -95,24 +99,30 @@ function flattenEvent(ev) {
     case 'CacheHit':
       return {
         type: t,
+        id: evId,
         category: 'cache',
         color: EVENT_COLORS.cache,
         icon: EVENT_ICONS.cache,
         title: 'cache hit',
         saved: kind.saved_tokens || 0,
+        original: 0,
         detail: kind.path ? String(kind.path) : '',
+        expandedDetail: buildExpandedCacheDetail(kind),
         explanation: eventExplanation(t),
         ts: ts,
       };
     case 'Compression':
       return {
         type: t,
+        id: evId,
         category: 'compression',
         color: EVENT_COLORS.compression,
         icon: EVENT_ICONS.compression,
         title: kind.strategy || 'compression',
         saved: 0,
+        original: 0,
         detail: buildCompressionDetail(kind),
+        expandedDetail: buildExpandedCompressionDetail(kind),
         explanation: eventExplanation(t),
         ts: ts,
       };
@@ -254,6 +264,38 @@ function buildSloDetail(kind) {
   }
   if (kind.detail) parts.push(String(kind.detail));
   return parts.join(' · ');
+}
+
+function buildExpandedToolDetail(kind) {
+  var rows = [];
+  if (kind.tokens_original) rows.push(['Original Tokens', String(kind.tokens_original)]);
+  if (kind.tokens_saved != null) rows.push(['Tokens Saved', String(kind.tokens_saved)]);
+  if (kind.tokens_original && kind.tokens_saved) {
+    var pct = Math.round((kind.tokens_saved / kind.tokens_original) * 100);
+    rows.push(['Savings Rate', pct + '%']);
+  }
+  if (kind.mode) rows.push(['Mode', String(kind.mode)]);
+  if (kind.path) rows.push(['Path', String(kind.path)]);
+  if (kind.duration_ms != null) rows.push(['Duration', kind.duration_ms + 'ms']);
+  return rows;
+}
+
+function buildExpandedCacheDetail(kind) {
+  var rows = [];
+  if (kind.path) rows.push(['Path', String(kind.path)]);
+  if (kind.saved_tokens) rows.push(['Tokens Saved', String(kind.saved_tokens)]);
+  return rows;
+}
+
+function buildExpandedCompressionDetail(kind) {
+  var rows = [];
+  if (kind.strategy) rows.push(['Strategy', String(kind.strategy)]);
+  if (kind.path) rows.push(['Path', String(kind.path)]);
+  if (kind.before_lines != null) rows.push(['Lines Before', String(kind.before_lines)]);
+  if (kind.after_lines != null) rows.push(['Lines After', String(kind.after_lines)]);
+  if (kind.removed_line_count != null) rows.push(['Lines Removed', String(kind.removed_line_count)]);
+  if (kind.kept_line_count != null) rows.push(['Lines Kept', String(kind.kept_line_count)]);
+  return rows;
 }
 
 function buildThresholdDetail(kind) {
@@ -662,8 +704,45 @@ class CockpitLive extends HTMLElement {
         '</span>';
     }
 
+    var hasExpanded = flat.expandedDetail && flat.expandedDetail.length > 0;
+    var chevron = hasExpanded
+      ? '<svg class="event-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="transition:transform .2s;flex-shrink:0;opacity:0.4"><polyline points="6 9 12 15 18 9"/></svg>'
+      : '';
+
+    var expandedPanel = '';
+    if (hasExpanded) {
+      var rows = flat.expandedDetail;
+      var savingsBar = '';
+      if (flat.original > 0 && flat.saved > 0) {
+        var pct = Math.round((flat.saved / flat.original) * 100);
+        var barWidth = Math.min(pct, 100);
+        savingsBar =
+          '<div style="margin-bottom:8px">' +
+          '<div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:3px">' +
+          '<span style="color:var(--muted)">Token Savings</span>' +
+          '<span style="color:var(--green);font-weight:600">' + pct + '%</span>' +
+          '</div>' +
+          '<div style="height:6px;background:var(--surface-2);border-radius:3px;overflow:hidden">' +
+          '<div style="width:' + barWidth + '%;height:100%;background:var(--green);border-radius:3px;transition:width .3s"></div>' +
+          '</div></div>';
+      }
+      var table = '';
+      for (var r = 0; r < rows.length; r++) {
+        table +=
+          '<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--surface-2)">' +
+          '<span style="color:var(--muted);font-size:11px">' + esc(rows[r][0]) + '</span>' +
+          '<span style="font-size:11px;font-family:var(--mono);color:var(--fg)">' + esc(rows[r][1]) + '</span>' +
+          '</div>';
+      }
+      expandedPanel =
+        '<div class="event-expanded" style="display:none;margin-top:8px;padding:10px 12px;background:var(--surface-2);border-radius:6px;border-left:2px solid var(--event-accent,var(--border))">' +
+        savingsBar + table + '</div>';
+    }
+
     return (
-      '<div class="event-card" style="--event-accent:' + flat.color + '">' +
+      '<div class="event-card' + (hasExpanded ? ' expandable' : '') + '" ' +
+      'style="--event-accent:' + flat.color + (hasExpanded ? ';cursor:pointer' : '') + '" ' +
+      (hasExpanded ? 'data-event-expand="1" aria-expanded="false"' : '') + '>' +
       '<div class="event-icon" style="background:' + iconBg + '">' +
       flat.icon +
       '</div>' +
@@ -676,9 +755,11 @@ class CockpitLive extends HTMLElement {
       (flat.detail
         ? '<div class="event-detail">' + esc(flat.detail) + '</div>'
         : '') +
+      expandedPanel +
       '</div>' +
-      '<div class="event-time">' +
+      '<div class="event-time" style="display:flex;align-items:center;gap:6px">' +
       esc(formatTimestamp(flat.ts)) +
+      chevron +
       '</div>' +
       '</div>'
     );
@@ -745,6 +826,26 @@ class CockpitLive extends HTMLElement {
         var body = card.querySelector('.event-body');
         if (body) body.appendChild(el);
         icon.style.opacity = '0.8';
+      });
+    });
+
+    var expandCards = this.querySelectorAll('[data-event-expand]');
+    expandCards.forEach(function (card) {
+      card.addEventListener('click', function (e) {
+        if (e.target.closest('.event-help-icon')) return;
+        var panel = card.querySelector('.event-expanded');
+        var chevron = card.querySelector('.event-chevron');
+        if (!panel) return;
+        var isOpen = card.getAttribute('aria-expanded') === 'true';
+        if (isOpen) {
+          panel.style.display = 'none';
+          card.setAttribute('aria-expanded', 'false');
+          if (chevron) chevron.style.transform = '';
+        } else {
+          panel.style.display = 'block';
+          card.setAttribute('aria-expanded', 'true');
+          if (chevron) chevron.style.transform = 'rotate(180deg)';
+        }
       });
     });
 

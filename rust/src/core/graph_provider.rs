@@ -96,11 +96,9 @@ impl GraphProvider {
 }
 
 pub fn open_best_effort(project_root: &str) -> Option<OpenGraphProvider> {
-    let root = Path::new(project_root);
-
     let mut pg_provider = None;
     let mut pg_populated = false;
-    if let Ok(pg) = CodeGraph::open(root) {
+    if let Ok(pg) = CodeGraph::open(project_root) {
         let nodes = pg.node_count().unwrap_or(0);
         let edges = pg.edge_count().unwrap_or(0);
         pg_populated = nodes > 0 && edges > 0;

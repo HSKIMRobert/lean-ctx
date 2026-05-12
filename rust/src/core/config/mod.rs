@@ -7,6 +7,7 @@ use super::memory_policy::MemoryPolicy;
 
 mod memory;
 mod proxy;
+pub mod schema;
 mod serde_defaults;
 mod shell_activation;
 
@@ -316,6 +317,10 @@ pub struct Config {
     /// and refused on save. Override via LEAN_CTX_BM25_MAX_CACHE_MB env var.
     #[serde(default = "serde_defaults::default_bm25_max_cache_mb")]
     pub bm25_max_cache_mb: u64,
+    /// Maximum number of files scanned by the lightweight JSON graph index.
+    /// Increase for large monorepos. Default: 5000.
+    #[serde(default = "serde_defaults::default_graph_index_max_files")]
+    pub graph_index_max_files: u64,
     /// Controls RAM vs feature trade-off. Values: "low", "balanced" (default), "performance".
     /// Override via LEAN_CTX_MEMORY_PROFILE env var.
     #[serde(default)]
@@ -525,6 +530,7 @@ impl Default for Config {
             shell_hook_disabled: false,
             shell_activation: ShellActivation::default(),
             update_check_disabled: false,
+            graph_index_max_files: serde_defaults::default_graph_index_max_files(),
             bm25_max_cache_mb: serde_defaults::default_bm25_max_cache_mb(),
             memory_profile: MemoryProfile::default(),
             memory_cleanup: MemoryCleanup::default(),

@@ -398,13 +398,12 @@ fn resolve_node_name(graph: &crate::core::property_graph::CodeGraph, node_id: i6
 }
 
 fn handle_enrich(root: &str) -> String {
-    let project_root = Path::new(root);
-    let graph = match crate::core::property_graph::CodeGraph::open(project_root) {
+    let graph = match crate::core::property_graph::CodeGraph::open(root) {
         Ok(g) => g,
         Err(e) => return format!("Failed to open graph: {e}"),
     };
 
-    match crate::core::graph_enricher::enrich_graph(&graph, project_root, 500) {
+    match crate::core::graph_enricher::enrich_graph(&graph, Path::new(root), 500) {
         Ok(stats) => {
             let node_count = graph.node_count().unwrap_or(0);
             let edge_count = graph.edge_count().unwrap_or(0);
@@ -422,8 +421,7 @@ fn handle_context_query(query: Option<&str>, root: &str) -> String {
         return "Usage: ctx_graph action=context path=\"<query or file path>\"".to_string();
     };
 
-    let project_root = Path::new(root);
-    let graph = match crate::core::property_graph::CodeGraph::open(project_root) {
+    let graph = match crate::core::property_graph::CodeGraph::open(root) {
         Ok(g) => g,
         Err(e) => return format!("Failed to open graph: {e}"),
     };

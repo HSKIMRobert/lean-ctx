@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -36,11 +36,11 @@ impl Default for PropertyGraphMetaV1 {
     }
 }
 
-pub fn meta_path(project_root: &Path) -> PathBuf {
-    project_root.join(".lean-ctx").join("graph.meta.json")
+pub fn meta_path(project_root: &str) -> PathBuf {
+    super::graph_dir(project_root).join("graph.meta.json")
 }
 
-pub fn load_meta(project_root: &Path) -> Option<PropertyGraphMetaV1> {
+pub fn load_meta(project_root: &str) -> Option<PropertyGraphMetaV1> {
     let path = meta_path(project_root);
     let s = std::fs::read_to_string(path).ok()?;
     let meta: PropertyGraphMetaV1 = serde_json::from_str(&s).ok()?;
@@ -50,7 +50,7 @@ pub fn load_meta(project_root: &Path) -> Option<PropertyGraphMetaV1> {
     Some(meta)
 }
 
-pub fn write_meta(project_root: &Path, meta: &PropertyGraphMetaV1) -> Result<PathBuf, String> {
+pub fn write_meta(project_root: &str, meta: &PropertyGraphMetaV1) -> Result<PathBuf, String> {
     let path = meta_path(project_root);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;

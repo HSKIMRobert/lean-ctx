@@ -797,12 +797,22 @@ pub fn format_gain_themed_at(t: &Theme, tick: Option<u64>) -> String {
             let nc = open.provider.node_count().unwrap_or(0);
             let ec = open.provider.edge_count().unwrap_or(0);
             if nc > 0 {
-                let suffix = match open.source {
-                    crate::core::graph_provider::GraphProviderSource::PropertyGraph => "",
-                    crate::core::graph_provider::GraphProviderSource::GraphIndex => " (index)",
+                let (unit, suffix) = match open.source {
+                    crate::core::graph_provider::GraphProviderSource::PropertyGraph => {
+                        ("nodes", "")
+                    }
+                    crate::core::graph_provider::GraphProviderSource::GraphIndex => {
+                        let max =
+                            crate::core::config::Config::load().graph_index_max_files as usize;
+                        if nc >= max {
+                            ("files", " (capped)")
+                        } else {
+                            ("files", "")
+                        }
+                    }
                 };
                 ctx_items.push(format!(
-                    "   Graph: {bold}{nc}{rst} nodes  {bold}{ec}{rst} edges{suffix}",
+                    "   Graph: {bold}{nc}{rst} {unit}  {bold}{ec}{rst} edges{suffix}",
                 ));
             }
         }
