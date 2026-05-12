@@ -274,8 +274,16 @@ pub fn generate_hook_fish(binary: &str) -> String {
         "# lean-ctx shell hook — smart shell mode (track-by-default)\n\
         set -g _lean_ctx_cmds {alias_list}\n\
         \n\
+        function _lc_is_agent\n\
+        \tset -q LEAN_CTX_AGENT; or set -q CODEX_CLI_SESSION; or set -q CLAUDECODE; or set -q GEMINI_SESSION\n\
+        end\n\
+        \n\
         function _lc\n\
-        \tif set -q LEAN_CTX_DISABLED; or set -q LEAN_CTX_NO_HOOK; or not isatty stdout\n\
+        \tif set -q LEAN_CTX_DISABLED; or set -q LEAN_CTX_NO_HOOK\n\
+        \t\tcommand $argv\n\
+        \t\treturn\n\
+        \tend\n\
+        \tif not isatty stdout; and not _lc_is_agent\n\
         \t\tcommand $argv\n\
         \t\treturn\n\
         \tend\n\
@@ -289,7 +297,11 @@ pub fn generate_hook_fish(binary: &str) -> String {
         end\n\
         \n\
         function _lc_compress\n\
-        \tif set -q LEAN_CTX_DISABLED; or set -q LEAN_CTX_NO_HOOK; or not isatty stdout\n\
+        \tif set -q LEAN_CTX_DISABLED; or set -q LEAN_CTX_NO_HOOK\n\
+        \t\tcommand $argv\n\
+        \t\treturn\n\
+        \tend\n\
+        \tif not isatty stdout; and not _lc_is_agent\n\
         \t\tcommand $argv\n\
         \t\treturn\n\
         \tend\n\
@@ -408,8 +420,16 @@ pub fn generate_hook_posix(binary: &str) -> String {
         r#"# lean-ctx shell hook — smart shell mode (track-by-default)
 _lean_ctx_cmds=({alias_list})
 
+_lc_is_agent() {{
+    [ -n "${{LEAN_CTX_AGENT:-}}" ] || [ -n "${{CODEX_CLI_SESSION:-}}" ] || [ -n "${{CLAUDECODE:-}}" ] || [ -n "${{GEMINI_SESSION:-}}" ]
+}}
+
 _lc() {{
-    if [ -n "${{LEAN_CTX_DISABLED:-}}" ] || [ -n "${{LEAN_CTX_NO_HOOK:-}}" ] || [ ! -t 1 ]; then
+    if [ -n "${{LEAN_CTX_DISABLED:-}}" ] || [ -n "${{LEAN_CTX_NO_HOOK:-}}" ]; then
+        command "$@"
+        return
+    fi
+    if [ ! -t 1 ] && ! _lc_is_agent; then
         command "$@"
         return
     fi
@@ -423,7 +443,11 @@ _lc() {{
 }}
 
 _lc_compress() {{
-    if [ -n "${{LEAN_CTX_DISABLED:-}}" ] || [ -n "${{LEAN_CTX_NO_HOOK:-}}" ] || [ ! -t 1 ]; then
+    if [ -n "${{LEAN_CTX_DISABLED:-}}" ] || [ -n "${{LEAN_CTX_NO_HOOK:-}}" ]; then
+        command "$@"
+        return
+    fi
+    if [ ! -t 1 ] && ! _lc_is_agent; then
         command "$@"
         return
     fi
@@ -735,24 +759,19 @@ export EDITOR=vim
     }
 
     #[test]
-    fn test_bash_hook_contains_pipe_guard() {
-        let binary = "/usr/local/bin/lean-ctx";
-        let hook = format!(
-            r#"_lc() {{
-    if [ -n "${{LEAN_CTX_DISABLED:-}}" ] || [ ! -t 1 ]; then
-        command "$@"
-        return
-    fi
-    '{binary}' -t "$@"
-}}"#
-        );
+    fn test_bash_hook_contains_pipe_guard_and_agent_bypass() {
+        let output = generate_hook_posix("/usr/local/bin/lean-ctx");
         assert!(
-            hook.contains("! -t 1"),
+            output.contains("! -t 1"),
             "bash/zsh hook must contain pipe guard [ ! -t 1 ]"
         );
         assert!(
-            hook.contains("LEAN_CTX_DISABLED") && hook.contains("! -t 1"),
-            "pipe guard must be in the same conditional as LEAN_CTX_DISABLED"
+            output.contains("_lc_is_agent"),
+            "bash/zsh hook must have agent-aware bypass"
+        );
+        assert!(
+            output.contains("CODEX_CLI_SESSION"),
+            "agent check must include CODEX_CLI_SESSION"
         );
     }
 
@@ -805,11 +824,15 @@ lean-ctx-mode() {{
     }
 
     #[test]
-    fn test_fish_hook_contains_pipe_guard() {
-        let hook = "function _lc\n\tif set -q LEAN_CTX_DISABLED; or not isatty stdout\n\t\tcommand $argv\n\t\treturn\n\tend\nend";
+    fn test_fish_hook_contains_pipe_guard_and_agent_bypass() {
+        let output = generate_hook_fish("/usr/local/bin/lean-ctx");
         assert!(
-            hook.contains("isatty stdout"),
+            output.contains("isatty stdout"),
             "fish hook must contain pipe guard (isatty stdout)"
+        );
+        assert!(
+            output.contains("_lc_is_agent"),
+            "fish hook must have agent-aware bypass"
         );
     }
 

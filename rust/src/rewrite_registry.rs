@@ -60,6 +60,9 @@ pub const REWRITE_COMMANDS: &[RewriteEntry] = &[
     re("cat", Category::FileRead),
     re("head", Category::FileRead),
     re("tail", Category::FileRead),
+    // Directory listing (shell alias only, like FileRead)
+    re("ls", Category::DirList),
+    re("find", Category::DirList),
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -72,6 +75,7 @@ pub enum Category {
     Http,
     Search,
     FileRead,
+    DirList,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -89,7 +93,12 @@ const fn re(command: &'static str, category: Category) -> RewriteEntry {
 pub fn hook_prefixes() -> Vec<String> {
     REWRITE_COMMANDS
         .iter()
-        .filter(|e| !matches!(e.category, Category::Search | Category::FileRead))
+        .filter(|e| {
+            !matches!(
+                e.category,
+                Category::Search | Category::FileRead | Category::DirList
+            )
+        })
         .map(|e| format!("{} ", e.command))
         .collect()
 }
@@ -99,7 +108,12 @@ pub fn hook_prefixes() -> Vec<String> {
 pub fn hook_bare_commands() -> Vec<&'static str> {
     REWRITE_COMMANDS
         .iter()
-        .filter(|e| !matches!(e.category, Category::Search | Category::FileRead))
+        .filter(|e| {
+            !matches!(
+                e.category,
+                Category::Search | Category::FileRead | Category::DirList
+            )
+        })
         .map(|e| e.command)
         .collect()
 }
@@ -126,7 +140,12 @@ pub fn shell_alias_commands() -> Vec<&'static str> {
 pub fn bash_case_pattern() -> String {
     REWRITE_COMMANDS
         .iter()
-        .filter(|e| !matches!(e.category, Category::Search | Category::FileRead))
+        .filter(|e| {
+            !matches!(
+                e.category,
+                Category::Search | Category::FileRead | Category::DirList
+            )
+        })
         .map(|e| {
             if e.command.contains('-') {
                 format!("{}*", e.command.replace('-', r"\-"))
@@ -144,10 +163,13 @@ pub fn shell_alias_list() -> String {
 }
 
 /// Check if a command string matches a rewritable prefix (for hook handlers).
-/// Excludes Search and FileRead (both have dedicated rewrite paths).
+/// Excludes Search, FileRead, and DirList (all have dedicated rewrite paths).
 pub fn is_rewritable_command(cmd: &str) -> bool {
     for entry in REWRITE_COMMANDS {
-        if matches!(entry.category, Category::Search | Category::FileRead) {
+        if matches!(
+            entry.category,
+            Category::Search | Category::FileRead | Category::DirList
+        ) {
             continue;
         }
         let prefix = format!("{} ", entry.command);
@@ -175,12 +197,14 @@ mod tests {
     }
 
     #[test]
-    fn hook_prefixes_exclude_search_and_fileread() {
+    fn hook_prefixes_exclude_search_fileread_dirlist() {
         let prefixes = hook_prefixes();
         assert!(!prefixes.contains(&"rg ".to_string()));
         assert!(!prefixes.contains(&"cat ".to_string()));
         assert!(!prefixes.contains(&"head ".to_string()));
         assert!(!prefixes.contains(&"tail ".to_string()));
+        assert!(!prefixes.contains(&"ls ".to_string()));
+        assert!(!prefixes.contains(&"find ".to_string()));
         assert!(prefixes.contains(&"git ".to_string()));
         assert!(prefixes.contains(&"cargo ".to_string()));
     }
@@ -208,6 +232,8 @@ mod tests {
         assert!(!is_rewritable_command("rg pattern"));
         assert!(!is_rewritable_command("cat file.rs"));
         assert!(!is_rewritable_command("head -20 file.rs"));
+        assert!(!is_rewritable_command("ls /tmp"));
+        assert!(!is_rewritable_command("find . -name '*.rs'"));
     }
 
     #[test]
@@ -226,6 +252,8 @@ mod tests {
         assert!(list.contains("cargo"));
         assert!(list.contains("docker-compose"));
         assert!(list.contains("rg"));
+        assert!(list.contains(" ls ") || list.ends_with(" ls"));
+        assert!(list.contains("find"));
     }
 
     #[test]
@@ -236,6 +264,10 @@ mod tests {
         assert!(
             !pattern.contains(r"rg\ *"),
             "rg should not be in hook case pattern"
+        );
+        assert!(
+            !pattern.contains(r"ls\ *"),
+            "ls should not be in hook case pattern"
         );
     }
 
@@ -253,6 +285,10 @@ mod tests {
         assert!(
             !bare.contains(&"cat"),
             "FileRead commands must not be in hook_bare_commands"
+        );
+        assert!(
+            !bare.contains(&"ls"),
+            "DirList commands must not be in hook_bare_commands"
         );
     }
 
@@ -279,21 +315,21 @@ mod tests {
         assert!(categories.contains(&Category::Infra));
         assert!(categories.contains(&Category::Http));
         assert!(categories.contains(&Category::Search));
+        assert!(categories.contains(&Category::DirList));
     }
 
     #[test]
-    fn every_command_rewritable_except_search_and_fileread() {
+    fn every_command_rewritable_except_search_fileread_dirlist() {
         for entry in REWRITE_COMMANDS {
             let cmd = format!("{} --version", entry.command);
-            if matches!(entry.category, Category::Search | Category::FileRead) {
+            if matches!(
+                entry.category,
+                Category::Search | Category::FileRead | Category::DirList
+            ) {
                 assert!(
                     !is_rewritable_command(&cmd),
-                    "{} command '{}' should NOT be rewritable via -c wrap",
-                    if entry.category == Category::Search {
-                        "search"
-                    } else {
-                        "file-read"
-                    },
+                    "{:?} command '{}' should NOT be rewritable via -c wrap",
+                    entry.category,
                     entry.command
                 );
             } else {
@@ -307,10 +343,13 @@ mod tests {
     }
 
     #[test]
-    fn bash_pattern_has_entry_for_every_non_search_non_fileread_command() {
+    fn bash_pattern_has_entry_for_every_hookable_command() {
         let pattern = bash_case_pattern();
         for entry in REWRITE_COMMANDS {
-            if matches!(entry.category, Category::Search | Category::FileRead) {
+            if matches!(
+                entry.category,
+                Category::Search | Category::FileRead | Category::DirList
+            ) {
                 continue;
             }
             let escaped = if entry.command.contains('-') {
