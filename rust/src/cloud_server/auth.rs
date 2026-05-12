@@ -13,19 +13,19 @@ use uuid::Uuid;
 use super::config::Config;
 use super::helpers::internal_error;
 
-pub async fn health() -> impl IntoResponse {
+pub(super) async fn health() -> impl IntoResponse {
     (StatusCode::OK, "ok")
 }
 
 #[derive(Clone)]
-pub struct AppState {
+pub(super) struct AppState {
     pub pool: Pool,
     pub cfg: Config,
     pub mailer: Option<Mailer>,
 }
 
 impl AppState {
-    pub fn new(pool: Pool, cfg: Config, mailer: Option<Mailer>) -> Self {
+    pub(super) fn new(pool: Pool, cfg: Config, mailer: Option<Mailer>) -> Self {
         Self { pool, cfg, mailer }
     }
 }
@@ -33,13 +33,13 @@ impl AppState {
 // ─── Mailer ───────────────────────────────────────────────────
 
 #[derive(Clone)]
-pub struct Mailer {
+pub(super) struct Mailer {
     transport: AsyncSmtpTransport<Tokio1Executor>,
     from: Mailbox,
 }
 
 impl Mailer {
-    pub fn new(cfg: &Config) -> anyhow::Result<Self> {
+    pub(super) fn new(cfg: &Config) -> anyhow::Result<Self> {
         let host = cfg.smtp_host.as_deref().unwrap_or("");
         let port = cfg.smtp_port.unwrap_or(587);
         let username = cfg.smtp_username.as_deref().unwrap_or("");
@@ -59,7 +59,7 @@ impl Mailer {
         Ok(Self { transport, from })
     }
 
-    pub async fn send_verification(&self, to_email: &str, link: &str) -> anyhow::Result<()> {
+    pub(super) async fn send_verification(&self, to_email: &str, link: &str) -> anyhow::Result<()> {
         let to: Mailbox = to_email.parse()?;
         let email = Message::builder()
             .from(self.from.clone())
@@ -72,7 +72,11 @@ impl Mailer {
         Ok(())
     }
 
-    pub async fn send_password_reset(&self, to_email: &str, link: &str) -> anyhow::Result<()> {
+    pub(super) async fn send_password_reset(
+        &self,
+        to_email: &str,
+        link: &str,
+    ) -> anyhow::Result<()> {
         let to: Mailbox = to_email.parse()?;
         let email = Message::builder()
             .from(self.from.clone())
@@ -89,20 +93,20 @@ impl Mailer {
 // ─── POST /api/auth/register ──────────────────────────────────
 
 #[derive(Deserialize)]
-pub struct RegisterBody {
+pub(super) struct RegisterBody {
     pub email: String,
     pub password: String,
 }
 
 #[derive(Serialize)]
-pub struct RegisterResponse {
+pub(super) struct RegisterResponse {
     pub api_key: String,
     pub user_id: String,
     pub email_verified: bool,
     pub verification_sent: bool,
 }
 
-pub async fn register(
+pub(super) async fn register(
     State(state): State<AppState>,
     Json(body): Json<RegisterBody>,
 ) -> Result<Json<RegisterResponse>, (StatusCode, String)> {
@@ -210,19 +214,19 @@ pub async fn register(
 // ─── POST /api/auth/login ─────────────────────────────────────
 
 #[derive(Deserialize)]
-pub struct LoginBody {
+pub(super) struct LoginBody {
     pub email: String,
     pub password: String,
 }
 
 #[derive(Serialize)]
-pub struct LoginResponse {
+pub(super) struct LoginResponse {
     pub api_key: String,
     pub user_id: String,
     pub email_verified: bool,
 }
 
-pub async fn login(
+pub(super) async fn login(
     State(state): State<AppState>,
     Json(body): Json<LoginBody>,
 ) -> Result<Json<LoginResponse>, (StatusCode, String)> {
@@ -292,11 +296,11 @@ pub async fn login(
 // ─── POST /api/auth/forgot-password ───────────────────────────
 
 #[derive(Deserialize)]
-pub struct ForgotPasswordBody {
+pub(super) struct ForgotPasswordBody {
     pub email: String,
 }
 
-pub async fn forgot_password(
+pub(super) async fn forgot_password(
     State(state): State<AppState>,
     Json(body): Json<ForgotPasswordBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
@@ -335,12 +339,12 @@ pub async fn forgot_password(
 // ─── POST /api/auth/reset-password ────────────────────────────
 
 #[derive(Deserialize)]
-pub struct ResetPasswordBody {
+pub(super) struct ResetPasswordBody {
     pub token: String,
     pub password: String,
 }
 
-pub async fn reset_password(
+pub(super) async fn reset_password(
     State(state): State<AppState>,
     Json(body): Json<ResetPasswordBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
@@ -386,11 +390,11 @@ pub async fn reset_password(
 // ─── GET /api/auth/verify-email ───────────────────────────────
 
 #[derive(Deserialize)]
-pub struct VerifyEmailQuery {
+pub(super) struct VerifyEmailQuery {
     pub token: String,
 }
 
-pub async fn verify_email(
+pub(super) async fn verify_email(
     State(state): State<AppState>,
     Query(q): Query<VerifyEmailQuery>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
@@ -430,11 +434,11 @@ pub async fn verify_email(
 // ─── POST /api/auth/resend-verification ───────────────────────
 
 #[derive(Deserialize)]
-pub struct ResendVerificationBody {
+pub(super) struct ResendVerificationBody {
     pub email: String,
 }
 
-pub async fn resend_verification(
+pub(super) async fn resend_verification(
     State(state): State<AppState>,
     Json(body): Json<ResendVerificationBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
@@ -476,14 +480,14 @@ pub async fn resend_verification(
 // ─── GET /api/auth/me ─────────────────────────────────────────
 
 #[derive(Serialize)]
-pub struct MeResponse {
+pub(super) struct MeResponse {
     pub user_id: String,
     pub email: String,
     pub plan: String,
     pub email_verified: bool,
 }
 
-pub async fn me(
+pub(super) async fn me(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<MeResponse>, (StatusCode, String)> {
@@ -503,7 +507,7 @@ pub async fn me(
 
 // ─── Auth middleware ──────────────────────────────────────────
 
-pub async fn auth_user(
+pub(super) async fn auth_user(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<(Uuid, String), (StatusCode, String)> {

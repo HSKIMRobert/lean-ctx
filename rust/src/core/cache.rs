@@ -243,6 +243,14 @@ impl SessionCache {
         self.entries.get(&normalize_key(path))
     }
 
+    /// Retrieves the full (uncompressed) content for a file path, if cached.
+    /// Used by the CCR (Compress-Cache-Retrieve) mechanism.
+    pub fn get_full_content(&self, path: &str) -> Option<String> {
+        self.entries
+            .get(&normalize_key(path))
+            .map(|e| e.content.clone())
+    }
+
     /// Records a cache hit, updates access stats, and emits a cache-hit event.
     pub fn record_cache_hit(&mut self, path: &str) -> Option<&CacheEntry> {
         let key = normalize_key(path);

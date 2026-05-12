@@ -77,7 +77,7 @@ impl Edge {
     }
 }
 
-pub fn upsert(conn: &Connection, edge: &Edge) -> anyhow::Result<()> {
+pub(super) fn upsert(conn: &Connection, edge: &Edge) -> anyhow::Result<()> {
     conn.execute(
         "INSERT INTO edges (source_id, target_id, kind, metadata)
          VALUES (?1, ?2, ?3, ?4)
@@ -93,7 +93,7 @@ pub fn upsert(conn: &Connection, edge: &Edge) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn from_node(conn: &Connection, node_id: i64) -> anyhow::Result<Vec<Edge>> {
+pub(super) fn from_node(conn: &Connection, node_id: i64) -> anyhow::Result<Vec<Edge>> {
     let mut stmt = conn.prepare(
         "SELECT id, source_id, target_id, kind, metadata
          FROM edges WHERE source_id = ?1",
@@ -113,7 +113,7 @@ pub fn from_node(conn: &Connection, node_id: i64) -> anyhow::Result<Vec<Edge>> {
     Ok(edges)
 }
 
-pub fn to_node(conn: &Connection, node_id: i64) -> anyhow::Result<Vec<Edge>> {
+pub(super) fn to_node(conn: &Connection, node_id: i64) -> anyhow::Result<Vec<Edge>> {
     let mut stmt = conn.prepare(
         "SELECT id, source_id, target_id, kind, metadata
          FROM edges WHERE target_id = ?1",
@@ -133,7 +133,7 @@ pub fn to_node(conn: &Connection, node_id: i64) -> anyhow::Result<Vec<Edge>> {
     Ok(edges)
 }
 
-pub fn count(conn: &Connection) -> anyhow::Result<usize> {
+pub(super) fn count(conn: &Connection) -> anyhow::Result<usize> {
     let c: i64 = conn.query_row("SELECT COUNT(*) FROM edges", [], |row| row.get(0))?;
     Ok(c as usize)
 }

@@ -1,12 +1,14 @@
 pub mod compress;
 mod exec;
 mod interactive;
+pub mod output_policy;
 mod platform;
 mod redact;
 
 pub use compress::compress_if_beneficial_pub;
 pub use exec::{exec, exec_argv};
 pub use interactive::interactive;
+pub use output_policy::{classify as classify_output, OutputPolicy};
 pub use platform::{
     decode_output, is_container, is_non_interactive, join_command, shell_and_flag, shell_name,
 };

@@ -207,7 +207,6 @@ impl ContextLedger {
 
     pub fn pressure(&self) -> ContextPressure {
         let utilization = self.total_tokens_sent as f64 / self.window_size as f64;
-        let remaining = self.window_size.saturating_sub(self.total_tokens_sent);
 
         let pinned_count = self
             .entries
@@ -222,6 +221,9 @@ impl ContextLedger {
         let pinned_pressure = pinned_count as f64 * 0.02;
         let stale_penalty = stale_count as f64 * 0.01;
         let effective_utilization = (utilization + pinned_pressure + stale_penalty).min(1.0);
+
+        let effective_used = (effective_utilization * self.window_size as f64).round() as usize;
+        let remaining = self.window_size.saturating_sub(effective_used);
 
         let recommendation = if effective_utilization > 0.9 {
             PressureAction::EvictLeastRelevant

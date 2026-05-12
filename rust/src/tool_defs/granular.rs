@@ -162,6 +162,25 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
             }),
         ),
         tool_def(
+            "ctx_retrieve",
+            "Retrieve original uncompressed content from the session cache (CCR). \
+             Use when a compressed ctx_read output is insufficient.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "File path whose original content to retrieve"
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Optional: search within cached content"
+                    }
+                },
+                "required": ["path"]
+            }),
+        ),
+        tool_def(
             "ctx_discover",
             "Find missed compression opportunities in shell history.",
             json!({
@@ -1201,6 +1220,7 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
         ("ctx_metrics", "Session token stats, cache rates, per-tool savings.", json!({"type": "object", "properties": {}})),
         ("ctx_analyze", "Entropy analysis — recommends optimal compression mode for a file.", json!({"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]})),
         ("ctx_cache", "Cache ops: status|clear|invalidate.", json!({"type": "object", "properties": {"action": {"type": "string"}, "path": {"type": "string"}}, "required": ["action"]})),
+        ("ctx_retrieve", "Retrieve original uncompressed content from cache (CCR).", json!({"type": "object", "properties": {"path": {"type": "string"}, "query": {"type": "string"}}, "required": ["path"]})),
         ("ctx_discover", "Find missed compression opportunities in shell history.", json!({"type": "object", "properties": {"limit": {"type": "integer"}}})),
         ("ctx_smart_read", "Auto-select optimal read mode for a file.", json!({"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]})),
         ("ctx_delta", "Incremental diff — sends only changed lines since last read.", json!({"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]})),

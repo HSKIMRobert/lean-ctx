@@ -10,12 +10,12 @@ use super::auth::{auth_user, AppState};
 use super::helpers::internal_error;
 
 #[derive(Deserialize)]
-pub struct KnowledgeEnvelope {
+pub(super) struct KnowledgeEnvelope {
     pub entries: Vec<IncomingEntry>,
 }
 
 #[derive(Deserialize)]
-pub struct IncomingEntry {
+pub(super) struct IncomingEntry {
     pub category: String,
     pub key: String,
     pub value: String,
@@ -26,7 +26,7 @@ pub struct IncomingEntry {
 }
 
 #[derive(Serialize)]
-pub struct OutEntry {
+pub(super) struct OutEntry {
     pub category: String,
     pub key: String,
     pub value: String,
@@ -34,7 +34,7 @@ pub struct OutEntry {
     pub updated_at: String,
 }
 
-pub async fn post_knowledge(
+pub(super) async fn post_knowledge(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(env): Json<KnowledgeEnvelope>,
@@ -53,7 +53,7 @@ pub async fn post_knowledge(
     ))
 }
 
-pub async fn get_knowledge(
+pub(super) async fn get_knowledge(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<OutEntry>>, (StatusCode, String)> {

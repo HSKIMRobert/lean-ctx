@@ -1,9 +1,9 @@
 use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
 use tokio_postgres::NoTls;
 
-pub type DbPool = Pool;
+pub(super) type DbPool = Pool;
 
-pub fn pool_from_database_url(database_url: &str) -> anyhow::Result<DbPool> {
+pub(super) fn pool_from_database_url(database_url: &str) -> anyhow::Result<DbPool> {
     let pg_cfg: tokio_postgres::Config = database_url.parse()?;
     let mgr_config = ManagerConfig {
         recycling_method: RecyclingMethod::Fast,
@@ -12,7 +12,7 @@ pub fn pool_from_database_url(database_url: &str) -> anyhow::Result<DbPool> {
     Ok(Pool::builder(mgr).max_size(16).build()?)
 }
 
-pub async fn init_schema(pool: &DbPool) -> anyhow::Result<()> {
+pub(super) async fn init_schema(pool: &DbPool) -> anyhow::Result<()> {
     let client = pool.get().await?;
 
     client

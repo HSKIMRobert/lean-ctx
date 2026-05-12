@@ -1,4 +1,4 @@
-pub fn cmd_proof(args: &[String]) {
+pub(crate) fn cmd_proof(args: &[String]) {
     let project_root = super::common::detect_project_root(args);
 
     let mut format: Option<String> = None;

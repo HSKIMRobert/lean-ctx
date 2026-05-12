@@ -1361,7 +1361,7 @@ mod tests {
         let state = TeamAppState {
             concurrency: Arc::new(tokio::sync::Semaphore::new(4)),
             rate: Arc::new(RateLimiter::new(100, 100)),
-            timeout: Duration::from_millis(30_000),
+            timeout: Duration::from_secs(30),
             team,
             max_body_bytes: 2 * 1024 * 1024,
         };

@@ -1,4 +1,5 @@
 mod detect;
+pub mod learn;
 mod model;
 mod persist;
 

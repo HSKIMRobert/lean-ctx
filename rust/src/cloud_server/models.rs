@@ -8,19 +8,19 @@ use super::auth::{auth_user, AppState};
 use super::helpers::internal_error;
 
 #[derive(Serialize)]
-pub struct ModelsResponse {
+pub(super) struct ModelsResponse {
     pub models: Vec<ModelRec>,
 }
 
 #[derive(Serialize)]
-pub struct ModelRec {
+pub(super) struct ModelRec {
     pub file_ext: String,
     pub size_bucket: String,
     pub recommended_mode: String,
     pub confidence: f64,
 }
 
-pub async fn get_models(
+pub(super) async fn get_models(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<ModelsResponse>, (StatusCode, String)> {

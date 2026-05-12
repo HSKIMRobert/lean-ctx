@@ -425,6 +425,7 @@ fn is_verbatim_single(command: &str) -> bool {
         || is_file_listing(command)
         || is_system_query(command)
         || is_cloud_cli_query(command)
+        || is_cli_api_data_command(command)
         || is_package_manager_info(command)
         || is_version_or_help(command)
         || is_config_viewer(command)
@@ -434,6 +435,81 @@ fn is_verbatim_single(command: &str) -> bool {
         || is_git_data_command(command)
         || is_task_dry_run(command)
         || is_env_dump(command)
+}
+
+/// CLI tools that fetch or output raw API/structured data.
+/// These MUST never be compressed -- compression destroys the payload.
+fn is_cli_api_data_command(command: &str) -> bool {
+    let cl = command.trim().to_ascii_lowercase();
+
+    // gh (GitHub CLI) -- api, run view --log, search, release view, gist view
+    if cl.starts_with("gh ")
+        && (cl.starts_with("gh api ")
+            || cl.starts_with("gh api\t")
+            || cl.contains(" --json")
+            || cl.contains(" --jq ")
+            || cl.contains(" --template ")
+            || (cl.contains("run view") && (cl.contains("--log") || cl.contains("log-failed")))
+            || cl.starts_with("gh search ")
+            || cl.starts_with("gh release view")
+            || cl.starts_with("gh gist view")
+            || cl.starts_with("gh gist list"))
+    {
+        return true;
+    }
+
+    // GitLab CLI (glab)
+    if cl.starts_with("glab ") && cl.starts_with("glab api ") {
+        return true;
+    }
+
+    // Jira CLI
+    if cl.starts_with("jira ") && (cl.contains(" view") || cl.contains(" list")) {
+        return true;
+    }
+
+    // Linear CLI
+    if cl.starts_with("linear ") {
+        return true;
+    }
+
+    // Stripe, Twilio, Vercel, Netlify, Fly, Railway, Supabase CLIs
+    let first = first_binary(command);
+    if matches!(
+        first,
+        "stripe" | "twilio" | "vercel" | "netlify" | "flyctl" | "fly" | "railway" | "supabase"
+    ) && (cl.contains(" list")
+        || cl.contains(" get")
+        || cl.contains(" show")
+        || cl.contains(" status")
+        || cl.contains(" info")
+        || cl.contains(" logs")
+        || cl.contains(" inspect")
+        || cl.contains(" export")
+        || cl.contains(" describe"))
+    {
+        return true;
+    }
+
+    // Cloudflare (wrangler)
+    if cl.starts_with("wrangler ")
+        && !cl.starts_with("wrangler dev")
+        && (cl.contains(" tail") || cl.contains(" secret list") || cl.contains(" kv "))
+    {
+        return true;
+    }
+
+    // Heroku
+    if cl.starts_with("heroku ")
+        && (cl.contains(" config")
+            || cl.contains(" logs")
+            || cl.contains(" ps")
+            || cl.contains(" info"))
+    {
+        return true;
+    }
+
+    false
 }
 
 /// For piped commands like `kubectl get pods -o json | jq '.items[]'`,
@@ -960,6 +1036,17 @@ fn compress_if_beneficial(command: &str, output: &str) -> String {
     }
 
     let min_output_tokens = 5;
+
+    // OutputPolicy gate: if the command is classified as Verbatim,
+    // only apply size-cap truncation — NEVER pattern compress or
+    // run through the fallback chain (terse, cleanup, safety_scan).
+    let cfg = crate::core::config::Config::load();
+    let policy = super::output_policy::classify(command, &cfg.excluded_commands);
+    if policy == super::output_policy::OutputPolicy::Verbatim
+        || policy == super::output_policy::OutputPolicy::Passthrough
+    {
+        return truncate_verbatim(output, original_tokens);
+    }
 
     if is_verbatim_output(command) {
         return truncate_verbatim(output, original_tokens);
@@ -2108,6 +2195,77 @@ mod verbatim_output_tests {
                 "must mark as verbatim truncated, got: {result}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod cli_api_data_tests {
+    use super::is_verbatim_output;
+
+    #[test]
+    fn gh_api_is_verbatim() {
+        assert!(is_verbatim_output("gh api repos/owner/repo/issues/198"));
+        assert!(is_verbatim_output("gh api repos/owner/repo/pulls/42"));
+        assert!(is_verbatim_output(
+            "gh api repos/owner/repo/issues/198 --jq '.body'"
+        ));
+    }
+
+    #[test]
+    fn gh_json_and_jq_flags_are_verbatim() {
+        assert!(is_verbatim_output("gh pr list --json number,title"));
+        assert!(is_verbatim_output("gh issue list --jq '.[]'"));
+        assert!(is_verbatim_output("gh pr view 42 --json body --jq '.body'"));
+        assert!(is_verbatim_output("gh pr view 5 --template '{{.body}}'"));
+    }
+
+    #[test]
+    fn gh_search_and_release_verbatim() {
+        assert!(is_verbatim_output("gh search repos lean-ctx"));
+        assert!(is_verbatim_output("gh release view v3.5.18"));
+        assert!(is_verbatim_output("gh gist view abc123"));
+        assert!(is_verbatim_output("gh gist list"));
+    }
+
+    #[test]
+    fn gh_run_log_verbatim() {
+        assert!(is_verbatim_output("gh run view 12345 --log"));
+        assert!(is_verbatim_output("gh run view 12345 --log-failed"));
+    }
+
+    #[test]
+    fn glab_api_is_verbatim() {
+        assert!(is_verbatim_output("glab api projects/123/issues"));
+    }
+
+    #[test]
+    fn jira_linear_verbatim() {
+        assert!(is_verbatim_output("jira issue view PROJ-42"));
+        assert!(is_verbatim_output("jira issue list"));
+        assert!(is_verbatim_output("linear issue list"));
+    }
+
+    #[test]
+    fn saas_cli_data_commands_verbatim() {
+        assert!(is_verbatim_output("stripe charges list"));
+        assert!(is_verbatim_output("vercel logs my-deploy"));
+        assert!(is_verbatim_output("fly status"));
+        assert!(is_verbatim_output("railway logs"));
+        assert!(is_verbatim_output("heroku logs --tail"));
+        assert!(is_verbatim_output("heroku config"));
+    }
+
+    #[test]
+    fn gh_pr_create_not_verbatim() {
+        assert!(!is_verbatim_output("gh pr create --title 'Fix bug'"));
+        assert!(!is_verbatim_output("gh issue create --body 'desc'"));
+    }
+
+    #[test]
+    fn gh_api_pipe_is_verbatim() {
+        assert!(is_verbatim_output(
+            "gh api repos/owner/repo/pulls/42 | jq '.body'"
+        ));
     }
 }
 

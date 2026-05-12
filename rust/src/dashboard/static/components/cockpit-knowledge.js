@@ -70,6 +70,7 @@ class CockpitKnowledge extends HTMLElement {
     this._error = null;
     this._loading = true;
     this._onRefresh = this._onRefresh.bind(this);
+    this._onViewChange = this._onViewChange.bind(this);
   }
 
   connectedCallback() {
@@ -77,13 +78,26 @@ class CockpitKnowledge extends HTMLElement {
     this._ready = true;
     this.style.display = 'block';
     document.addEventListener('lctx:refresh', this._onRefresh);
+    document.addEventListener('lctx:view', this._onViewChange);
     this.render();
     this.loadData();
   }
 
   disconnectedCallback() {
     document.removeEventListener('lctx:refresh', this._onRefresh);
+    document.removeEventListener('lctx:view', this._onViewChange);
     this._destroySimulation();
+  }
+
+  _onViewChange(e) {
+    var viewId = e && e.detail && e.detail.viewId;
+    if (viewId === 'knowledge') {
+      if (this._simulation) this._simulation.alpha(0.1).restart();
+      if (!this._minimapTimer) this._startMinimap();
+    } else {
+      if (this._simulation) this._simulation.stop();
+      if (this._minimapTimer) { clearInterval(this._minimapTimer); this._minimapTimer = null; }
+    }
   }
 
   _onRefresh() {

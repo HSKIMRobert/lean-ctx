@@ -1,6 +1,6 @@
 use crate::core::client_constraints;
 use crate::core::profiles;
-use crate::tools::CrpMode;
+use crate::core::protocol::CrpMode;
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]

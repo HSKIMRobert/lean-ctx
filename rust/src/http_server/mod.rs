@@ -160,6 +160,7 @@ struct AppState {
     rate: Arc<RateLimiter>,
     project_root: String,
     timeout: Duration,
+    server: LeanCtxServer,
 }
 
 #[derive(Debug)]
@@ -275,6 +276,7 @@ async fn health() -> impl IntoResponse {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 struct ToolCallBody {
     name: String,
     #[serde(default)]
@@ -347,12 +349,7 @@ async fn v1_tool_call(
     State(state): State<AppState>,
     Json(body): Json<ToolCallBody>,
 ) -> impl IntoResponse {
-    let ws = sanitize_id(body.workspace_id.as_deref().unwrap_or("default"));
-    let ch = sanitize_id(body.channel_id.as_deref().unwrap_or("default"));
-    let ws = ws.as_str();
-    let ch = ch.as_str();
-    let server = LeanCtxServer::new_shared_with_context(&state.project_root, ws, ch);
-    let engine = ContextEngine::from_server(server);
+    let engine = ContextEngine::from_server(state.server.clone());
     match tokio::time::timeout(
         state.timeout,
         engine.call_tool_value(&body.name, body.arguments),
@@ -676,8 +673,7 @@ pub async fn serve(cfg: HttpServerConfig) -> Result<()> {
         .context("invalid host/port")?;
 
     let project_root = cfg.project_root.to_string_lossy().to_string();
-    // IMPORTANT: Create a fresh server per MCP session in *shared* mode.
-    // This avoids per-client state clobbering while still sharing the Context OS store.
+    // MCP sessions still get a fresh server each (per-client state isolation).
     let service_project_root = project_root.clone();
     let service_factory = move || -> Result<LeanCtxServer, std::io::Error> {
         Ok(LeanCtxServer::new_shared_with_context(
@@ -694,12 +690,15 @@ pub async fn serve(cfg: HttpServerConfig) -> Result<()> {
         cfg.mcp_http_config(),
     );
 
+    let rest_server = LeanCtxServer::new_shared_with_context(&project_root, "default", "default");
+
     let state = AppState {
         token: cfg.auth_token.clone().filter(|t| !t.is_empty()),
         concurrency: Arc::new(tokio::sync::Semaphore::new(cfg.max_concurrency.max(1))),
         rate: Arc::new(RateLimiter::new(cfg.max_rps, cfg.rate_burst)),
         project_root: project_root.clone(),
         timeout: Duration::from_millis(cfg.request_timeout_ms.max(1)),
+        server: rest_server,
     };
 
     let app = Router::new()
@@ -779,12 +778,15 @@ pub async fn serve_uds(cfg: HttpServerConfig, socket_path: PathBuf) -> Result<()
         cfg.mcp_http_config(),
     );
 
+    let rest_server = LeanCtxServer::new_shared_with_context(&project_root, "default", "default");
+
     let state = AppState {
         token: cfg.auth_token.clone().filter(|t| !t.is_empty()),
         concurrency: Arc::new(tokio::sync::Semaphore::new(cfg.max_concurrency.max(1))),
         rate: Arc::new(RateLimiter::new(cfg.max_rps, cfg.rate_burst)),
         project_root: project_root.clone(),
         timeout: Duration::from_millis(cfg.request_timeout_ms.max(1)),
+        server: rest_server,
     };
 
     let app = Router::new()
@@ -900,7 +902,8 @@ mod tests {
             concurrency: Arc::new(tokio::sync::Semaphore::new(4)),
             rate: Arc::new(RateLimiter::new(50, 100)),
             project_root: root_str.clone(),
-            timeout: Duration::from_millis(30_000),
+            timeout: Duration::from_secs(30),
+            server: LeanCtxServer::new_shared_with_context(&root_str, "default", "default"),
         };
 
         let app = Router::new()
@@ -968,7 +971,8 @@ mod tests {
             concurrency: Arc::new(tokio::sync::Semaphore::new(16)),
             rate: Arc::new(RateLimiter::new(1, 1)),
             project_root: ".".to_string(),
-            timeout: Duration::from_millis(30_000),
+            timeout: Duration::from_secs(30),
+            server: LeanCtxServer::new_shared_with_context(".", "default", "default"),
         };
 
         let app = Router::new()
@@ -1010,7 +1014,8 @@ mod tests {
             concurrency: Arc::new(tokio::sync::Semaphore::new(16)),
             rate: Arc::new(RateLimiter::new(50, 100)),
             project_root: root_str.clone(),
-            timeout: Duration::from_millis(30_000),
+            timeout: Duration::from_secs(30),
+            server: LeanCtxServer::new_shared_with_context(&root_str, "default", "default"),
         };
 
         let app = Router::new()

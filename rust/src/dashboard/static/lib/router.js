@@ -29,7 +29,7 @@ const KNOWN_ROUTES = [
 
 const ROUTE_LABELS = {
   overview: 'Overview',
-  context: 'Context',
+  context: 'Context Manager',
   live: 'Live Observatory',
   knowledge: 'Knowledge Graph',
   deps: 'Dependency Map',

@@ -71,7 +71,7 @@ const ALLOWED_UPSTREAM_HOSTS: &[&str] = &[
     "generativelanguage.googleapis.com",
 ];
 
-pub fn validate_upstream_url(url: &str) -> Result<String, String> {
+pub(super) fn validate_upstream_url(url: &str) -> Result<String, String> {
     let normalized = normalize_url(url);
     if is_local_proxy_url(&normalized) {
         return Ok(normalized);

@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_mins(2);
 const READER_RESULT_TIMEOUT: Duration = Duration::from_secs(2);
 
-pub fn execute_command_in(command: &str, cwd: &str) -> (String, i32) {
+pub(super) fn execute_command_in(command: &str, cwd: &str) -> (String, i32) {
     let (shell, flag) = crate::shell::shell_and_flag();
     let normalized_cmd = crate::tools::ctx_shell::normalize_command_for_shell(command);
     let dir = std::path::Path::new(cwd);

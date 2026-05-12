@@ -21,8 +21,9 @@ pub fn exec_argv(args: &[String]) -> i32 {
 
     let joined = super::platform::join_command(args);
     let cfg = config::Config::load();
+    let policy = super::output_policy::classify(&joined, &cfg.excluded_commands);
 
-    if super::compress::is_excluded_command(&joined, &cfg.excluded_commands) {
+    if policy.is_protected() {
         let code = exec_direct(args);
         crate::core::tool_lifecycle::record_shell_command(0, 0);
         return code;
@@ -64,10 +65,21 @@ pub fn exec(command: &str) -> i32 {
     let force_compress = std::env::var("LEAN_CTX_COMPRESS").is_ok();
     let raw_mode = std::env::var("LEAN_CTX_RAW").is_ok();
 
-    if raw_mode
-        || (!force_compress
-            && super::compress::is_excluded_command(command, &cfg.excluded_commands))
-    {
+    if raw_mode {
+        return exec_inherit_tracked(command, &shell, &shell_flag);
+    }
+
+    let policy = super::output_policy::classify(command, &cfg.excluded_commands);
+
+    // Passthrough: ALWAYS bypass compression, even with force_compress.
+    if policy == super::output_policy::OutputPolicy::Passthrough {
+        return exec_inherit_tracked(command, &shell, &shell_flag);
+    }
+
+    // Verbatim: bypass compression unless force_compress is set,
+    // in which case use buffered path (compress_if_beneficial will
+    // respect the verbatim classification and only size-cap).
+    if policy == super::output_policy::OutputPolicy::Verbatim && !force_compress {
         return exec_inherit_tracked(command, &shell, &shell_flag);
     }
 
@@ -125,7 +137,6 @@ fn exec_buffered(command: &str, shell: &str, shell_flag: &str, cfg: &config::Con
     let start = std::time::Instant::now();
 
     let mut cmd = Command::new(shell);
-    cmd.arg(shell_flag);
 
     #[cfg(windows)]
     let ps_tmp_path: Option<tempfile::TempPath>;
@@ -146,6 +157,7 @@ fn exec_buffered(command: &str, shell: &str, shell_flag: &str, cfg: &config::Con
             let tmp_path = tmp.into_temp_path();
             let _ = std::fs::write(&tmp_path, &ps_script);
             cmd.args([
+                "-NoProfile",
                 "-ExecutionPolicy",
                 "Bypass",
                 "-File",
@@ -153,12 +165,16 @@ fn exec_buffered(command: &str, shell: &str, shell_flag: &str, cfg: &config::Con
             ]);
             ps_tmp_path = Some(tmp_path);
         } else {
+            cmd.arg(shell_flag);
             cmd.arg(command);
             ps_tmp_path = None;
         }
     }
     #[cfg(not(windows))]
-    cmd.arg(command);
+    {
+        cmd.arg(shell_flag);
+        cmd.arg(command);
+    }
 
     let child = cmd
         .env("LEAN_CTX_ACTIVE", "1")

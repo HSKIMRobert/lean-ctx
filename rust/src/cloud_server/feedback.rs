@@ -7,7 +7,7 @@ use super::auth::{auth_user, AppState};
 use super::helpers::internal_error;
 
 #[derive(Deserialize)]
-pub struct FeedbackEntry {
+pub(super) struct FeedbackEntry {
     pub language: String,
     pub entropy: f64,
     pub jaccard: f64,
@@ -18,7 +18,7 @@ pub struct FeedbackEntry {
 }
 
 #[derive(Serialize)]
-pub struct FeedbackOut {
+pub(super) struct FeedbackOut {
     pub language: String,
     pub entropy: f64,
     pub jaccard: f64,
@@ -26,7 +26,7 @@ pub struct FeedbackOut {
     pub avg_efficiency: f64,
 }
 
-pub async fn post_feedback(
+pub(super) async fn post_feedback(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(body): Json<Vec<FeedbackEntry>>,
@@ -63,7 +63,7 @@ pub async fn post_feedback(
     Ok(Json(serde_json::json!({"synced": count})))
 }
 
-pub async fn get_feedback(
+pub(super) async fn get_feedback(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<FeedbackOut>>, (StatusCode, String)> {

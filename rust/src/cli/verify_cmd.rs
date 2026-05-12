@@ -1,4 +1,4 @@
-pub fn cmd_verify(args: &[String]) {
+pub(crate) fn cmd_verify(args: &[String]) {
     let mut format: Option<String> = None;
 
     let mut it = args.iter().peekable();

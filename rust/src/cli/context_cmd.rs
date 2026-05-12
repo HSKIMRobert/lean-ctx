@@ -5,7 +5,7 @@ use crate::core::context_ledger::ContextLedger;
 use crate::core::context_overlay::OverlayStore;
 use crate::core::context_policies::PolicySet;
 
-pub fn cmd_control(args: &[String]) {
+pub(crate) fn cmd_control(args: &[String]) {
     if args.is_empty() {
         eprintln!(
             "Usage: lean-ctx control <action> [target] [--scope session|project|call] \
@@ -63,7 +63,7 @@ pub fn cmd_control(args: &[String]) {
     println!("{result}");
 }
 
-pub fn cmd_plan(args: &[String]) {
+pub(crate) fn cmd_plan(args: &[String]) {
     let task = if args.is_empty() || args[0].starts_with('-') {
         "general".to_string()
     } else {
@@ -98,7 +98,7 @@ pub fn cmd_plan(args: &[String]) {
     println!("{result}");
 }
 
-pub fn cmd_compile(args: &[String]) {
+pub(crate) fn cmd_compile(args: &[String]) {
     let mode = flag_value(args, "--mode").unwrap_or_else(|| "handles".to_string());
     let budget = flag_value(args, "--budget");
 

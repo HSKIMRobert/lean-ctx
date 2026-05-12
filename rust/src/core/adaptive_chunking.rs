@@ -169,9 +169,11 @@ pub fn adaptive_chunk(content: &str, budget_tokens: usize, total_items: usize) -
             });
         }
         results.sort_by(|a, b| {
-            a.start_line
-                .cmp(&b.start_line)
-                .then_with(|| b.priority.partial_cmp(&a.priority).unwrap())
+            a.start_line.cmp(&b.start_line).then_with(|| {
+                b.priority
+                    .partial_cmp(&a.priority)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
         });
         return results;
     }

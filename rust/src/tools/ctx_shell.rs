@@ -147,6 +147,13 @@ pub fn normalize_command_for_shell(command: &str) -> String {
 pub fn handle(command: &str, output: &str, crp_mode: CrpMode) -> String {
     let original_tokens = count_tokens(output);
 
+    // OutputPolicy gate: protected commands bypass ALL compression.
+    let policy = crate::shell::output_policy::classify(command, &[]);
+    if policy.is_protected() {
+        let savings = protocol::format_savings(original_tokens, original_tokens);
+        return format!("{output}\n{savings}");
+    }
+
     if !is_search_command(command) && contains_auth_flow(output) {
         let savings = protocol::format_savings(original_tokens, original_tokens);
         return format!(
@@ -508,13 +515,10 @@ mod tests {
     #[test]
     fn handle_preserves_auth_flow_output_fully() {
         let output = "To sign in, use a web browser to open the page https://microsoft.com/devicelogin and enter the code ABCD1234 to authenticate.\nWaiting for you...\nLine 3\nLine 4\nLine 5\nLine 6\nLine 7\nLine 8\nLine 9\nLine 10\nLine 11\nLine 12\nLine 13";
+        // az login is Passthrough via OutputPolicy, so all content is preserved
         let result = handle("az login --use-device-code", output, CrpMode::Off);
         assert!(result.contains("ABCD1234"), "auth code must be preserved");
         assert!(result.contains("devicelogin"), "URL must be preserved");
-        assert!(
-            result.contains("auth/device-code flow detected"),
-            "detection note must be present"
-        );
         assert!(
             result.contains("Line 13"),
             "all lines must be preserved (no truncation)"

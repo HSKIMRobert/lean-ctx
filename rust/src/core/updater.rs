@@ -49,8 +49,7 @@ pub fn run(args: &[String]) {
     println!("  \x1b[2mDownloading {asset_name} …\x1b[0m");
 
     let Some(download_url) = find_asset_url(&release, &asset_name) else {
-        tracing::error!("No binary found for this platform ({asset_name}).");
-        eprintln!("Download manually: https://github.com/yvgude/lean-ctx/releases/latest");
+        tracing::error!("No binary found for this platform ({asset_name}). Download manually: https://github.com/yvgude/lean-ctx/releases/latest");
         std::process::exit(1);
     };
 
@@ -64,14 +63,11 @@ pub fn run(args: &[String]) {
 
     if let Err(e) = verify_download_integrity(&release, &asset_name, &bytes) {
         if insecure {
-            eprintln!("  \x1b[33m⚠\x1b[0m Integrity verification failed: {e}");
-            eprintln!("  \x1b[33m⚠\x1b[0m Proceeding due to --insecure.");
+            tracing::warn!("Integrity verification failed: {e}");
+            tracing::warn!("Proceeding due to --insecure");
         } else {
             tracing::error!("Integrity verification failed: {e}");
-            eprintln!();
-            eprintln!("Refusing to install an unverifiable binary.");
-            eprintln!("If you trust this network and want to proceed anyway, re-run with: \x1b[1mlean-ctx update --insecure\x1b[0m");
-            eprintln!("Or download manually: https://github.com/yvgude/lean-ctx/releases/latest");
+            tracing::error!("Refusing to install an unverifiable binary. Re-run with `lean-ctx update --insecure` or download manually: https://github.com/yvgude/lean-ctx/releases/latest");
             std::process::exit(1);
         }
     }
@@ -86,8 +82,7 @@ pub fn run(args: &[String]) {
 
     if let Err(e) = replace_binary(&bytes, &asset_name, &current_exe) {
         tracing::error!("Failed to replace binary: {e}");
-        eprintln!();
-        eprintln!("Continuing with a setup refresh so your wiring stays correct.");
+        tracing::warn!("Continuing with a setup refresh so your wiring stays correct");
         post_update_rewire();
         std::process::exit(1);
     }

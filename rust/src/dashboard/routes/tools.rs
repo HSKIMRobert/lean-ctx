@@ -5,7 +5,7 @@ use super::helpers::{
     detect_project_root_for_dashboard, extract_query_param, normalize_dashboard_demo_path,
 };
 
-pub fn handle(
+pub(super) fn handle(
     path: &str,
     query_str: &str,
     _method: &str,

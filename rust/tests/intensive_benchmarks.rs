@@ -317,8 +317,8 @@ fn bench_cargo_all_commands() {
 #[test]
 fn bench_docker_all_commands() {
     let scenarios = vec![
-        ("docker ps", generate_docker_ps(10), 30.0),
-        ("docker images", generate_docker_images(15), 30.0),
+        ("docker ps", generate_docker_ps(10), 0.0), // Verbatim via OutputPolicy
+        ("docker images", generate_docker_images(15), 0.0), // Verbatim via OutputPolicy
         ("docker build -t app .", generate_docker_build(20), 40.0),
     ];
 
@@ -328,9 +328,9 @@ fn bench_docker_all_commands() {
 #[test]
 fn bench_npm_all_commands() {
     let scenarios = vec![
-        ("npm install", generate_npm_install(30), 30.0),
+        ("npm install", generate_npm_install(30), 0.0), // Verbatim via OutputPolicy (npm install -> Passthrough)
         ("npm test", generate_npm_test_jest(), 30.0),
-        ("npm ls", generate_npm_ls(20), 20.0),
+        ("npm ls", generate_npm_ls(20), 0.0), // Verbatim via OutputPolicy (is_package_manager_info)
     ];
 
     print_compression_report("NPM COMMANDS", &scenarios);
@@ -342,9 +342,9 @@ fn bench_pip_commands() {
         (
             "pip install -r requirements.txt",
             generate_pip_install(15),
-            20.0,
+            0.0, // Verbatim via OutputPolicy (is_package_manager_info)
         ),
-        ("pip list", generate_pip_list(30), 5.0),
+        ("pip list", generate_pip_list(30), 0.0), // Verbatim via OutputPolicy (is_package_manager_info)
     ];
 
     print_compression_report("PIP COMMANDS", &scenarios);

@@ -37,7 +37,9 @@ fn compressed_cache_key(mode: &str, crp_mode: CrpMode) -> String {
 }
 
 fn append_compressed_hint(output: &str, file_path: &str) -> String {
-    format!("{output}\n{COMPRESSED_HINT}\n  ctx_read(\"{file_path}\", mode=\"full\")")
+    format!(
+        "{output}\n{COMPRESSED_HINT}\n  ctx_read(\"{file_path}\", mode=\"full\") | ctx_retrieve(\"{file_path}\")"
+    )
 }
 
 /// Reads a file as UTF-8 with lossy fallback, enforcing binary detection and max read size limit.

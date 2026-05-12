@@ -35,7 +35,12 @@ fn ensure_pretooluse_hook(
 }
 
 fn merge_cursor_hooks(existing: &mut serde_json::Value, rewrite_cmd: &str, redirect_cmd: &str) {
-    let root = existing.as_object_mut().unwrap();
+    if !existing.is_object() {
+        *existing = serde_json::json!({});
+    }
+    let Some(root) = existing.as_object_mut() else {
+        return;
+    };
     root.insert("version".to_string(), serde_json::json!(1));
 
     let hooks = root
@@ -44,7 +49,9 @@ fn merge_cursor_hooks(existing: &mut serde_json::Value, rewrite_cmd: &str, redir
     if !hooks.is_object() {
         *hooks = serde_json::json!({});
     }
-    let hooks_obj = hooks.as_object_mut().unwrap();
+    let Some(hooks_obj) = hooks.as_object_mut() else {
+        return;
+    };
 
     let pre = hooks_obj
         .entry("preToolUse".to_string())
@@ -52,7 +59,9 @@ fn merge_cursor_hooks(existing: &mut serde_json::Value, rewrite_cmd: &str, redir
     if !pre.is_array() {
         *pre = serde_json::json!([]);
     }
-    let pre_arr = pre.as_array_mut().unwrap();
+    let Some(pre_arr) = pre.as_array_mut() else {
+        return;
+    };
 
     ensure_pretooluse_hook(pre_arr, &["Shell"], "Shell", rewrite_cmd);
     ensure_pretooluse_hook(

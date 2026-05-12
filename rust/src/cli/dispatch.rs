@@ -1218,6 +1218,10 @@ pub fn run() {
                 super::cloud::cmd_gotchas(&rest);
                 return;
             }
+            "learn" => {
+                super::cmd_learn(&rest);
+                return;
+            }
             "buddy" | "pet" => {
                 super::cloud::cmd_buddy(&rest);
                 return;
@@ -1424,7 +1428,7 @@ fn print_help() {
     println!(
         "lean-ctx {version} — Context Runtime for AI Agents
 
-95+ compression patterns | 58 MCP tools | Context Continuity Protocol
+95+ compression patterns | 59 MCP tools | Context Continuity Protocol
 
 USAGE:
     lean-ctx                       Start MCP server (stdio)

@@ -7,7 +7,7 @@ use super::auth::{auth_user, AppState};
 use super::helpers::internal_error;
 
 #[derive(Deserialize)]
-pub struct GotchaEntry {
+pub(super) struct GotchaEntry {
     pub pattern: String,
     pub fix: String,
     #[serde(default)]
@@ -23,12 +23,12 @@ pub struct GotchaEntry {
 }
 
 #[derive(Deserialize)]
-pub struct GotchasEnvelope {
+pub(super) struct GotchasEnvelope {
     pub gotchas: Vec<GotchaEntry>,
 }
 
 #[derive(Serialize)]
-pub struct GotchaRow {
+pub(super) struct GotchaRow {
     pub pattern: String,
     pub fix: String,
     pub severity: Option<String>,
@@ -38,7 +38,7 @@ pub struct GotchaRow {
     pub confidence: Option<f64>,
 }
 
-pub async fn post_gotchas(
+pub(super) async fn post_gotchas(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(body): Json<GotchasEnvelope>,
@@ -81,7 +81,7 @@ pub async fn post_gotchas(
     Ok(Json(serde_json::json!({"synced": body.gotchas.len()})))
 }
 
-pub async fn get_gotchas(
+pub(super) async fn get_gotchas(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<GotchaRow>>, (StatusCode, String)> {

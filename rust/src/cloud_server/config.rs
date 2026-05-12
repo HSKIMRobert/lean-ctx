@@ -1,5 +1,5 @@
 #[derive(Clone, Debug)]
-pub struct Config {
+pub(super) struct Config {
     pub bind_host: String,
     pub bind_port: u16,
     pub public_base_url: String,
@@ -13,7 +13,7 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn from_env() -> anyhow::Result<Self> {
+    pub(super) fn from_env() -> anyhow::Result<Self> {
         let bind_host =
             std::env::var("LEANCTX_CLOUD_BIND_HOST").unwrap_or_else(|_| "0.0.0.0".into());
         let bind_port = std::env::var("LEANCTX_CLOUD_BIND_PORT")
@@ -51,11 +51,11 @@ impl Config {
         })
     }
 
-    pub fn bind_addr(&self) -> String {
+    pub(super) fn bind_addr(&self) -> String {
         format!("{}:{}", self.bind_host, self.bind_port)
     }
 
-    pub fn smtp_enabled(&self) -> bool {
+    pub(super) fn smtp_enabled(&self) -> bool {
         self.smtp_host.is_some()
             && self.smtp_port.is_some()
             && self.smtp_username.is_some()

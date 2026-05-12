@@ -53,6 +53,7 @@ class CockpitGraph extends HTMLElement {
     this._zoom = null;
     this._svg = null;
     this._onRefresh = this._onRefresh.bind(this);
+    this._onViewChange = this._onViewChange.bind(this);
   }
 
   connectedCallback() {
@@ -60,6 +61,7 @@ class CockpitGraph extends HTMLElement {
     this._ready = true;
     this.style.display = 'block';
     document.addEventListener('lctx:refresh', this._onRefresh);
+    document.addEventListener('lctx:view', this._onViewChange);
     var initTab = this.getAttribute('data-tab') || this.getAttribute('initial-tab');
     if (initTab) this._tab = initTab;
     this.render();
@@ -68,7 +70,18 @@ class CockpitGraph extends HTMLElement {
 
   disconnectedCallback() {
     document.removeEventListener('lctx:refresh', this._onRefresh);
+    document.removeEventListener('lctx:view', this._onViewChange);
     this._stopSimulation();
+  }
+
+  _onViewChange(e) {
+    var viewId = e && e.detail && e.detail.viewId;
+    var graphViews = ['deps', 'callgraph', 'symbols'];
+    if (graphViews.indexOf(viewId) >= 0) {
+      if (this._simulation) this._simulation.alpha(0.1).restart();
+    } else {
+      this._stopSimulation();
+    }
   }
 
   _onRefresh() {
@@ -212,8 +225,7 @@ class CockpitGraph extends HTMLElement {
       '<span>' + esc(ff(edges.length)) + '</span> edges</div>' +
       this._toolbarHtml('ckg-deps') +
       this._legendHtml(files) +
-      '<div class="graph-minimap" id="ckg-deps-minimap">' +
-      '<canvas width="160" height="100"></canvas></div>' +
+      '</div>' +
       '</div>';
 
     this._bindToolbar();
@@ -302,7 +314,7 @@ class CockpitGraph extends HTMLElement {
         '<div class="nt-row"><span class="nt-label">Language</span>' +
         '<span class="nt-value">' + esc2(d.language || '\u2014') + '</span></div>' +
         '<div class="nt-row"><span class="nt-label">Size</span>' +
-        '<span class="nt-value">' + esc2(String(d.size)) + ' B</span></div>' +
+        '<span class="nt-value">' + esc2(String(d.data.size_bytes != null ? d.data.size_bytes + ' B' : d.data.token_count != null ? d.data.token_count + ' tok' : d.data.line_count != null ? d.data.line_count + ' lines' : d.size)) + '</span></div>' +
         '<div class="nt-row"><span class="nt-label">Imports</span>' +
         '<span class="nt-value">' + esc2(String((d.data.imports || []).length)) + '</span></div>' +
         '<div class="nt-row"><span class="nt-label">Exports</span>' +
@@ -401,8 +413,7 @@ class CockpitGraph extends HTMLElement {
       '<span>' + esc(ff(totalNodes)) + '</span> functions ' +
       '<span>' + esc(ff(totalEdges)) + '</span> calls' + truncated + '</div>' +
       this._toolbarHtml('ckg-cg') +
-      '<div class="graph-minimap" id="ckg-cg-minimap">' +
-      '<canvas width="160" height="100"></canvas></div>' +
+      '</div>' +
       '</div>';
 
     this._bindToolbar();

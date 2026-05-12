@@ -497,7 +497,13 @@ export default async function (pi: ExtensionAPI) {
       if (params.limit && params.limit > 0) searchArgs.push("-m", String(params.limit));
       searchArgs.push(params.pattern, absolutePath);
 
-      const output = await execLeanCtx(pi, ["-c", ...searchArgs]);
+      const bin = resolveBinary();
+      const result = await pi.exec(bin, ["-c", ...searchArgs], { env: { ...process.env, LEAN_CTX_COMPRESS: "1" } });
+      if (result.code >= 2) {
+        const msg = (result.stderr || result.stdout || `lean-ctx grep failed: ${params.pattern}`).trim();
+        throw new Error(msg);
+      }
+      const output = result.code === 1 ? "(no matches)" : result.stdout;
       const decorated = withFooter(output, { always: true });
       return {
         content: [{ type: "text", text: decorated.text }],

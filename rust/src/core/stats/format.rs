@@ -923,7 +923,7 @@ pub fn gain_live() {
     let dim = theme::dim();
     let rst = theme::rst();
 
-    eprintln!("  {dim}▸ Live mode (1s refresh) · Ctrl+C to exit{rst}");
+    tracing::info!("Live mode (1s refresh) · Ctrl+C to exit");
 
     loop {
         if line_count > 0 {

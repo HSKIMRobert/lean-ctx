@@ -1,6 +1,6 @@
 use crate::core::memory_policy::MemoryPolicy;
 
-pub fn load_policy_or_error() -> Result<MemoryPolicy, String> {
+pub(crate) fn load_policy_or_error() -> Result<MemoryPolicy, String> {
     let cfg = crate::core::config::Config::load();
     let path = crate::core::config::Config::path().map_or_else(
         || "~/.lean-ctx/config.toml".to_string(),

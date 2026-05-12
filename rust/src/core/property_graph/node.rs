@@ -138,7 +138,7 @@ impl Node {
     }
 }
 
-pub fn upsert(conn: &Connection, node: &Node) -> anyhow::Result<i64> {
+pub(super) fn upsert(conn: &Connection, node: &Node) -> anyhow::Result<i64> {
     conn.execute(
         "INSERT INTO nodes (kind, name, file_path, line_start, line_end, metadata)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)
@@ -165,7 +165,7 @@ pub fn upsert(conn: &Connection, node: &Node) -> anyhow::Result<i64> {
     Ok(id)
 }
 
-pub fn get_by_path(conn: &Connection, file_path: &str) -> anyhow::Result<Option<Node>> {
+pub(super) fn get_by_path(conn: &Connection, file_path: &str) -> anyhow::Result<Option<Node>> {
     let result = conn
         .query_row(
             "SELECT id, kind, name, file_path, line_start, line_end, metadata
@@ -187,7 +187,7 @@ pub fn get_by_path(conn: &Connection, file_path: &str) -> anyhow::Result<Option<
     Ok(result)
 }
 
-pub fn get_by_symbol(
+pub(super) fn get_by_symbol(
     conn: &Connection,
     name: &str,
     file_path: &str,
@@ -213,7 +213,7 @@ pub fn get_by_symbol(
     Ok(result)
 }
 
-pub fn remove_by_file(conn: &Connection, file_path: &str) -> anyhow::Result<()> {
+pub(super) fn remove_by_file(conn: &Connection, file_path: &str) -> anyhow::Result<()> {
     conn.execute(
         "DELETE FROM edges WHERE source_id IN (SELECT id FROM nodes WHERE file_path = ?1)
          OR target_id IN (SELECT id FROM nodes WHERE file_path = ?1)",
@@ -223,7 +223,7 @@ pub fn remove_by_file(conn: &Connection, file_path: &str) -> anyhow::Result<()> 
     Ok(())
 }
 
-pub fn count(conn: &Connection) -> anyhow::Result<usize> {
+pub(super) fn count(conn: &Connection) -> anyhow::Result<usize> {
     let c: i64 = conn.query_row("SELECT COUNT(*) FROM nodes", [], |row| row.get(0))?;
     Ok(c as usize)
 }

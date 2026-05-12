@@ -7,7 +7,7 @@ use super::auth::AppState;
 use super::helpers::internal_error;
 
 #[derive(Serialize)]
-pub struct GlobalStatsResponse {
+pub(super) struct GlobalStatsResponse {
     #[serde(rename = "total_tokens_saved")]
     pub tokens_saved: i64,
     #[serde(rename = "total_users")]
@@ -18,7 +18,7 @@ pub struct GlobalStatsResponse {
     pub teams: i64,
 }
 
-pub async fn get_global_stats(
+pub(super) async fn get_global_stats(
     State(state): State<AppState>,
 ) -> Result<Json<GlobalStatsResponse>, (StatusCode, String)> {
     let client = state.pool.get().await.map_err(internal_error)?;

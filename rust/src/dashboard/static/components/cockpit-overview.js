@@ -62,6 +62,7 @@ class CockpitOverview extends HTMLElement {
     this._animTimer = null;
     this._animFrame = 0;
     this._onRefresh = this._onRefresh.bind(this);
+    this._onViewChange = this._onViewChange.bind(this);
     this._data = null;
     this._error = null;
     this._loading = true;
@@ -72,14 +73,21 @@ class CockpitOverview extends HTMLElement {
     this._ready = true;
     this.style.display = 'block';
     document.addEventListener('lctx:refresh', this._onRefresh);
+    document.addEventListener('lctx:view', this._onViewChange);
     this.render();
     this.loadData();
   }
 
   disconnectedCallback() {
     document.removeEventListener('lctx:refresh', this._onRefresh);
+    document.removeEventListener('lctx:view', this._onViewChange);
     this._stopAnim();
     this._destroyCharts();
+  }
+
+  _onViewChange(e) {
+    var viewId = e && e.detail && e.detail.viewId;
+    if (viewId !== 'overview') this._stopAnim();
   }
 
   _onRefresh() {
@@ -118,7 +126,6 @@ class CockpitOverview extends HTMLElement {
       '/api/stats',
       '/api/gain',
       '/api/buddy',
-      '/api/gotchas',
       '/api/session',
       '/api/slos',
       '/api/verification',
@@ -148,11 +155,10 @@ class CockpitOverview extends HTMLElement {
       stats: ok(results[0]),
       gain: ok(results[1]),
       buddy: ok(results[2]),
-      gotchas: ok(results[3]),
-      session: ok(results[4]),
-      slos: ok(results[5]),
-      verification: ok(results[6]),
-      graphStats: ok(results[7]),
+      session: ok(results[3]),
+      slos: ok(results[4]),
+      verification: ok(results[5]),
+      graphStats: ok(results[6]),
     };
 
     this._loading = false;
@@ -347,7 +353,7 @@ class CockpitOverview extends HTMLElement {
       '<span>Lv.' + (b.level || 1) + tip('buddy_level') + '</span>' +
       '<span class="mood-dot mood-' + esc(mood) + '"></span>' +
       '<span>' + esc(mood) + tip('buddy_mood') + '</span>' +
-      (b.streak_days
+      (b.streak_days != null
         ? '<span>' + b.streak_days + 'd streak' + tip('buddy_streak') + '</span>'
         : '') +
       '</div>' +
@@ -449,16 +455,17 @@ class CockpitOverview extends HTMLElement {
       ? session.files_touched.length : 0;
 
     var sloSnap = slos && slos.snapshot ? slos.snapshot : null;
-    var sloPassed = sloSnap ? sloSnap.passed || 0 : 0;
-    var sloTotal = sloSnap ? sloSnap.total || 0 : 0;
+    var sloArr = sloSnap && Array.isArray(sloSnap.slos) ? sloSnap.slos : [];
+    var sloTotal = sloArr.length;
+    var sloPassed = sloArr.filter(function (s) { return !s.violated; }).length;
     var sloPct = sloTotal > 0
       ? Math.round((sloPassed / sloTotal) * 100) : 0;
     var sloCol = sloPct >= 80
       ? 'var(--green)' : sloPct >= 50
         ? 'var(--yellow)' : 'var(--red)';
 
-    var vTotal = verif ? verif.total_checks || 0 : 0;
-    var vPassed = verif ? verif.passed_checks || 0 : 0;
+    var vTotal = verif ? verif.total || 0 : 0;
+    var vPassed = verif ? verif.pass || 0 : 0;
     var vPct = vTotal > 0 ? Math.round((vPassed / vTotal) * 100) : 0;
     var vCol = vPct >= 80
       ? 'var(--green)' : vPct >= 50

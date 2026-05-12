@@ -17,7 +17,7 @@
     const F = window.LctxFmt;
     if (F && typeof F.fmt === 'function') return F.fmt(n);
     if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
-    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
     return String(n);
   }
 
@@ -365,7 +365,7 @@
     active_intent: 'Auto-detected task type and target files based on recent tool activity.',
     overlay_history: 'Chronological log of all manual overlay operations in this project.',
     total_tokens_saved: 'Lifetime total of tokens saved through all compression modes since installation.',
-    cost_saved: 'Estimated dollar savings based on average LLM token pricing ($3/1M input tokens).',
+    cost_saved: 'Estimated dollar savings based on average LLM token pricing ($2.50/1M input tokens).',
     compression_rate: 'Average compression ratio across all file reads in this session.',
     gain_score: 'Overall efficiency score combining compression rate, cache hits, and mode diversity.',
     total_calls: 'Total number of tool calls (reads, searches, commands) processed by LeanCTX.',

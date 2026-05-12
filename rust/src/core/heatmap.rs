@@ -192,7 +192,9 @@ pub fn reset() {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     *guard = Some(HeatMap::default());
-    let _ = save_to_disk(guard.as_ref().unwrap());
+    if let Some(hm) = guard.as_ref() {
+        let _ = save_to_disk(hm);
+    }
 }
 
 pub fn format_heatmap_status(heatmap: &HeatMap, limit: usize) -> String {

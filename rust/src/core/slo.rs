@@ -150,7 +150,7 @@ fn load_slos_from_disk() -> Vec<SloDefinition> {
             match toml::from_str::<SloConfig>(&content) {
                 Ok(cfg) => return cfg.slo,
                 Err(e) => {
-                    eprintln!("[lean-ctx] slo: parse error in {}: {e}", path.display());
+                    tracing::warn!("slo: parse error in {}: {e}", path.display());
                 }
             }
         }

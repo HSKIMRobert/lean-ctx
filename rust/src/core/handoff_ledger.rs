@@ -5,9 +5,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::core::knowledge::ProjectKnowledge;
+use crate::core::protocol::ToolCallRecord;
 use crate::core::session::SessionState;
 use crate::core::workflow::WorkflowRun;
-use crate::tools::ToolCallRecord;
 
 pub const SCHEMA_VERSION: u32 = crate::core::contracts::HANDOFF_LEDGER_V1_SCHEMA_VERSION;
 const MAX_KNOWLEDGE_FACTS: usize = 50;

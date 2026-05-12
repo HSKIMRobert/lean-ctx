@@ -7,7 +7,7 @@ fn project_basename(abs_root: &str) -> String {
     )
 }
 
-pub fn handle(
+pub(super) fn handle(
     path: &str,
     query_str: &str,
     _method: &str,

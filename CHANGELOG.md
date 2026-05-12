@@ -5,6 +5,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.5.19] — 2026-05-12
+
+### Added
+
+- **Shell hook drop-in install** — Users with `.d/`-style dotfiles (chezmoi, yadm, stow, oh-my-zsh `custom/`) now get hook fragments installed as numbered drop-in files (e.g. `~/.zshenv.d/00-lean-ctx.zsh`) instead of inline fenced blocks. Detection is automatic (`Style::Auto`); override with `--style=inline` or `--style=dropin`. Transparent migration between styles preserves hand-edits via timestamped backups (`.lean-ctx-<UTC>.bak`). (#196)
+- **Output policy classification** — New `OutputPolicy` enum (`Passthrough`, `Verbatim`, `Compressible`) provides centralized command classification for the compression pipeline. Commands like `gh api`, `az login`, `docker ps`, `kubectl get pods` are now correctly classified and never compressed.
+
+### Fixed
+
+- **Dashboard: 7 frontend data mismatch bugs** — Complete attribute-by-attribute audit of all 17 dashboard pages revealed field name mismatches between frontend components and backend API responses:
+  - `cockpit-overview.js` — SLO compliance now calculated from `slo.snapshot.slos` array; Verification card uses `verif.total`/`verif.pass`; `streak_days === 0` no longer hidden by falsy check
+  - `cockpit-health.js` — SLOs render from `.slos` (not `.results`); Anomalies handle direct array response; Verification uses correct `total`/`pass`/`warn_runs` fields; Bug Memory (Gotchas) uses `trigger`/`resolution`/`occurrences`/`first_seen` and handles enum `severity`/`category`
+  - `cockpit-agents.js` — Swimlanes use actual API fields (`id`, `role`, `status`, `status_message`, `last_active_minutes_ago`, `pid`) instead of expected-but-absent `name`/`model`/`tool_calls`
+  - `cockpit-memory.js` — Episodes use `actions.length` for tool count, `tokens_used` for token display, and parse tagged `Outcome` enum correctly
+  - `cockpit-live.js` — `tokens_saved === 0` no longer hidden by falsy check in `buildToolDetail`
+  - `cockpit-compression.js` — Removed unsupported `diff` mode from UI
+  - `cockpit-graph.js` — Tooltip dynamically shows "B", "tok", or "lines" based on available size metric
+- **Token Pressure accuracy** — Context field `temperature` now uses `pressure.utilization` (weighted decay) instead of raw `total_tokens_sent / window_size`, and `budget_remaining` uses `pressure.remaining_tokens` for consistency with the Token Pressure card
+- **Truncation bug causing increased token usage** — Removed aggressive 8000-byte fallback truncation in `patterns::compress_output` that produced `[… N lines omitted …]` markers, causing AI models to retry commands. Large outputs now flow through the safety-aware `compress_if_beneficial` pipeline instead. Fixes [#199](https://github.com/yvgude/lean-ctx/issues/199).
+- **Dashboard format utilities** — `pc()` NaN guard for percentage formatting; `fu()` type guard for unit formatting; `fmtNum` normalized to consistent 'K' suffix
+- **Dashboard route visibility** — All dashboard route handlers narrowed from `pub fn` to `pub(super) fn`
+- **Clippy `duration_suboptimal_units`** — `Duration::from_millis(30_000)` → `Duration::from_secs(30)` in 4 locations
+
 ## [3.5.18] — 2026-05-12
 
 ### Fixed

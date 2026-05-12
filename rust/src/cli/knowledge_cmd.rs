@@ -1,6 +1,6 @@
 use crate::tools::ctx_knowledge;
 
-pub fn cmd_knowledge(args: &[String]) {
+pub(crate) fn cmd_knowledge(args: &[String]) {
     let project_root = super::common::detect_project_root(args);
     let action = args
         .iter()

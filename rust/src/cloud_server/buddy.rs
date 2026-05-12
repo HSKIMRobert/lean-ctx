@@ -5,7 +5,7 @@ use axum::Json;
 use super::auth::{auth_user, AppState};
 use super::helpers::internal_error;
 
-pub async fn post_buddy(
+pub(super) async fn post_buddy(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
@@ -53,7 +53,7 @@ pub async fn post_buddy(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
-pub async fn get_buddy(
+pub(super) async fn get_buddy(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {

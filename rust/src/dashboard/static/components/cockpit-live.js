@@ -229,7 +229,7 @@ function buildToolDetail(kind) {
   var parts = [];
   if (kind.mode) parts.push(kind.mode);
   if (kind.path) parts.push(String(kind.path));
-  if (kind.tokens_saved) parts.push('saved ' + String(kind.tokens_saved));
+  if (kind.tokens_saved != null) parts.push('saved ' + String(kind.tokens_saved));
   if (kind.tokens_original) parts.push('of ' + String(kind.tokens_original));
   return parts.join(' · ');
 }
@@ -400,7 +400,6 @@ class CockpitLive extends HTMLElement {
 
     this._data = {
       events: newEvents,
-      mcp: null,
       stats: stats && !stats.__error ? stats : (this._data ? this._data.stats : null),
     };
 
@@ -449,13 +448,10 @@ class CockpitLive extends HTMLElement {
 
   _renderHeroCounters(F, esc, ff, fmt) {
     var events = this._data.events;
-    var mcp = this._data.mcp;
     var stats = this._data.stats;
 
-    var sessionSaved = mcp && mcp.tokens_saved > 0
-      ? mcp.tokens_saved
-      : computeSessionFromEvents(events);
-    var sessionOrig = mcp && mcp.tokens_original > 0 ? mcp.tokens_original : 0;
+    var sessionSaved = computeSessionFromEvents(events);
+    var sessionOrig = 0;
 
     var allTimeSaved = 0;
     if (stats) {

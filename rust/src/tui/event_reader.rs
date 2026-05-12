@@ -2,13 +2,13 @@ use crate::core::events::LeanCtxEvent;
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::PathBuf;
 
-pub struct EventTail {
+pub(super) struct EventTail {
     path: PathBuf,
     offset: u64,
 }
 
 impl EventTail {
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         let base = crate::core::data_dir::lean_ctx_data_dir()
             .unwrap_or_else(|_| dirs::home_dir().unwrap_or_default().join(".lean-ctx"));
         let path = base.join("events.jsonl");
@@ -16,7 +16,7 @@ impl EventTail {
         Self { path, offset }
     }
 
-    pub fn poll(&mut self) -> Vec<LeanCtxEvent> {
+    pub(super) fn poll(&mut self) -> Vec<LeanCtxEvent> {
         let Ok(mut file) = std::fs::File::open(&self.path) else {
             return Vec::new();
         };

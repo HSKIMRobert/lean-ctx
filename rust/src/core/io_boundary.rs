@@ -2,6 +2,17 @@ use std::path::{Path, PathBuf};
 
 use crate::core::{events, pathjail, roles};
 
+/// Reads a file as lossy UTF-8, rejecting binary files.
+/// Moved here from tools::ctx_read to break reverse-dependency.
+pub fn read_file_lossy(path: &str) -> Result<String, std::io::Error> {
+    if crate::core::binary_detect::is_binary_file(path) {
+        let msg = crate::core::binary_detect::binary_file_message(path);
+        return Err(std::io::Error::other(msg));
+    }
+    let bytes = std::fs::read(path)?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BoundaryMode {
     Warn,

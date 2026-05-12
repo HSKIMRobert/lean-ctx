@@ -60,18 +60,11 @@ fn adversarial_docker_ps_preserves_unhealthy() {
                      789ghi012jkl   redis:7        \"redis-se…\"   3 hours ago   Up 3 hours (healthy)       6379/tcp  cache-prod\n\
                      345mno678pqr   postgres:16    \"docker-e…\"   5 hours ago   Exited (1) 30 minutes ago            db-prod";
 
-    let compressed = compress_output("docker ps", ps_output).unwrap();
+    // docker ps is Verbatim via OutputPolicy — compress_output returns None,
+    // meaning output is preserved unmodified. This is the safest outcome.
     assert!(
-        compressed.contains("unhealthy"),
-        "docker ps must preserve unhealthy status: {compressed}"
-    );
-    assert!(
-        compressed.contains("Exited"),
-        "docker ps must preserve Exited status: {compressed}"
-    );
-    assert!(
-        compressed.contains("web-prod"),
-        "docker ps must preserve container names: {compressed}"
+        compress_output("docker ps", ps_output).is_none(),
+        "docker ps must be Verbatim (no compression)"
     );
 }
 
@@ -212,14 +205,11 @@ fn adversarial_npm_audit_preserves_cve_ids() {
                  \n\
                  2 vulnerabilities (1 high, 1 critical)\n";
 
-    let compressed = compress_output("npm audit", audit).unwrap();
+    // npm audit is Verbatim via OutputPolicy (is_package_manager_info),
+    // so compress_output returns None — output preserved fully.
     assert!(
-        compressed.contains("CVE-2024-12345"),
-        "npm audit must preserve CVE IDs: {compressed}"
-    );
-    assert!(
-        compressed.contains("critical"),
-        "npm audit must preserve severity levels: {compressed}"
+        compress_output("npm audit", audit).is_none(),
+        "npm audit must be Verbatim (no compression)"
     );
 }
 
@@ -241,10 +231,11 @@ fn adversarial_docker_logs_preserves_critical() {
     );
     let output = log.join("\n");
 
-    let compressed = compress_output("docker logs mycontainer", &output).unwrap();
+    // docker logs is Verbatim via OutputPolicy (is_log_viewer),
+    // so output is preserved in full — no compression at all.
     assert!(
-        compressed.contains("FATAL") || compressed.contains("out of memory"),
-        "docker logs must preserve FATAL lines: {compressed}"
+        compress_output("docker logs mycontainer", &output).is_none(),
+        "docker logs must be Verbatim (no compression)"
     );
 }
 
@@ -700,14 +691,11 @@ web-deploy-def456-uvw         0/1     CrashLoopBackOff   15 (2m ago)   1h
 worker-deploy-ghi789-rst      1/1     Running            0             3d
 db-migrate-job-abc            0/1     Error              0             30m";
 
-    let compressed = compress_output("kubectl get pods", output).unwrap();
+    // kubectl get pods is Verbatim via OutputPolicy (is_container_listing),
+    // so output is preserved in full.
     assert!(
-        compressed.contains("CrashLoopBackOff"),
-        "kubectl get pods must preserve CrashLoopBackOff: {compressed}"
-    );
-    assert!(
-        compressed.contains("Error"),
-        "kubectl get pods must preserve Error status: {compressed}"
+        compress_output("kubectl get pods", output).is_none(),
+        "kubectl get pods must be Verbatim (no compression)"
     );
 }
 
@@ -807,20 +795,15 @@ diff --git a/src/auth.rs b/src/auth.rs
 
 #[test]
 fn adversarial_docker_ps_unhealthy_narrow_columns() {
-    // Simulate narrow STATUS column where (unhealthy) bleeds into PORTS area
     let output = "\
 CONTAINER ID   IMAGE          COMMAND    CREATED      STATUS                    PORTS     NAMES
 abc123def456   nginx:latest   \"nginx\"    2 hours ago  Up 2 hours (unhealthy)    80/tcp    web
 789ghi012jkl   redis:7        \"redis\"    3 hours ago  Up 3 hours                6379/tcp  cache";
 
-    let compressed = compress_output("docker ps", output).unwrap();
+    // docker ps is Verbatim — output preserved unmodified.
     assert!(
-        compressed.contains("unhealthy"),
-        "docker ps must preserve (unhealthy) even with tight column layout: {compressed}"
-    );
-    assert!(
-        compressed.contains("web"),
-        "docker ps must preserve container names: {compressed}"
+        compress_output("docker ps", output).is_none(),
+        "docker ps must be Verbatim (no compression)"
     );
 }
 
@@ -831,18 +814,10 @@ CONTAINER ID   IMAGE          COMMAND    CREATED      STATUS                    
 abc123def456   nginx:latest   \"nginx\"    2 hours ago  Exited (1) 30 minutes ago               web-crashed
 789ghi012jkl   redis:7        \"redis\"    3 hours ago  Up 3 hours (healthy)          6379/tcp  cache";
 
-    let compressed = compress_output("docker ps -a", output).unwrap();
+    // docker ps -a is Verbatim — output preserved unmodified.
     assert!(
-        compressed.contains("Exited"),
-        "docker ps -a must preserve Exited status: {compressed}"
-    );
-    assert!(
-        compressed.contains("healthy"),
-        "docker ps -a must preserve (healthy) annotation: {compressed}"
-    );
-    assert!(
-        compressed.contains("web-crashed"),
-        "docker ps -a must show crashed containers: {compressed}"
+        compress_output("docker ps -a", output).is_none(),
+        "docker ps -a must be Verbatim (no compression)"
     );
 }
 

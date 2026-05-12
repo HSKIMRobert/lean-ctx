@@ -1,7 +1,7 @@
 /**
  * Compression Lab — live compression mode comparison with split-pane preview.
  */
-var CKC_MODES = ['full', 'map', 'signatures', 'aggressive', 'entropy', 'diff'];
+var CKC_MODES = ['full', 'map', 'signatures', 'aggressive', 'entropy'];
 
 function ckcApi() {
   return window.LctxApi && window.LctxApi.apiFetch ? window.LctxApi.apiFetch : null;
@@ -301,9 +301,7 @@ class CockpitCompression extends HTMLElement {
       '<p><strong>aggressive</strong> \u2014 strips comments, blank lines, redundant syntax. ' +
       'Retains logic.</p>' +
       '<p><strong>entropy</strong> \u2014 Shannon entropy + Jaccard similarity filtering. ' +
-      'Keeps only high-information lines.</p>' +
-      '<p><strong>diff</strong> \u2014 shows only changed lines since last read. ' +
-      'Ideal after edits.</p>'
+      'Keeps only high-information lines.</p>'
     );
   }
 

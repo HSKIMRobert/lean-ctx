@@ -54,3 +54,4 @@ test-results/
 # ── Generated / worktrees (local) ──
 website/generated/
 worktrees/website/generated/
+AGENTS.md.lean-ctx.*.bak

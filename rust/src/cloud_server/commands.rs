@@ -7,7 +7,7 @@ use super::auth::{auth_user, AppState};
 use super::helpers::internal_error;
 
 #[derive(Deserialize)]
-pub struct CommandEntry {
+pub(super) struct CommandEntry {
     pub command: String,
     #[serde(default)]
     pub source: String,
@@ -22,12 +22,12 @@ pub struct CommandEntry {
 }
 
 #[derive(Deserialize)]
-pub struct CommandsEnvelope {
+pub(super) struct CommandsEnvelope {
     pub commands: Vec<CommandEntry>,
 }
 
 #[derive(Serialize)]
-pub struct CommandRow {
+pub(super) struct CommandRow {
     pub command: String,
     pub source: String,
     pub count: i64,
@@ -36,7 +36,7 @@ pub struct CommandRow {
     pub tokens_saved: i64,
 }
 
-pub async fn post_commands(
+pub(super) async fn post_commands(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(body): Json<CommandsEnvelope>,
@@ -82,7 +82,7 @@ pub async fn post_commands(
     Ok(Json(serde_json::json!({"synced": body.commands.len()})))
 }
 
-pub async fn get_commands(
+pub(super) async fn get_commands(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<CommandRow>>, (StatusCode, String)> {

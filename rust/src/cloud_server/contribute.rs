@@ -8,19 +8,19 @@ use super::auth::AppState;
 use super::helpers::internal_error;
 
 #[derive(Deserialize)]
-pub struct ContributeEnvelope {
+pub(super) struct ContributeEnvelope {
     pub entries: Vec<Entry>,
 }
 
 #[derive(Deserialize)]
-pub struct Entry {
+pub(super) struct Entry {
     pub file_ext: String,
     pub size_bucket: String,
     pub best_mode: String,
     pub compression_ratio: f64,
 }
 
-pub async fn post_contribute(
+pub(super) async fn post_contribute(
     State(state): State<AppState>,
     Json(env): Json<ContributeEnvelope>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {

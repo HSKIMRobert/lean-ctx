@@ -162,6 +162,8 @@ fn trigger_lazy_graph_build(project_root: &str) {
     }
     let root_owned = project_root.to_string();
     std::thread::spawn(move || {
+        // TODO(arch): calls into tools::ctx_impact -- should use a trait/callback
+        // to decouple core from tools layer.
         let _ = crate::tools::ctx_impact::handle("build", None, &root_owned, None, None);
     });
 }

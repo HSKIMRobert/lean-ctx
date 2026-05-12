@@ -1,6 +1,6 @@
 [package]
 name = "lean-ctx"
-version = "3.5.18"
+version = "3.5.19"
 edition = "2021"
 description = "Context Runtime for AI Agents with CCP. 63 MCP tools, 10 read modes, 95+ compression patterns, cross-session memory (CCP), persistent AI knowledge with temporal facts + contradiction detection, multi-agent context sharing + diaries, LITM-aware positioning, AAAK compact format, adaptive compression with Thompson Sampling bandits. Supports 24 AI tools. Reduces LLM token consumption by up to 99%."
 license = "Apache-2.0"
@@ -141,6 +141,7 @@ moka = { version = "0.12.15", features = ["sync"] }
 bincode = { version = "2", features = ["serde"] }
 
 [lints.rust]
+unreachable_pub = "warn"
 # CI coverage (cargo-tarpaulin) injects `--cfg tarpaulin`; declare it to avoid
 # `-D unexpected_cfgs` failures when using `cfg_attr(tarpaulin, ...)`.
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(tarpaulin)"] }

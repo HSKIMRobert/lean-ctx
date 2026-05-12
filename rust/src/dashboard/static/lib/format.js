@@ -21,9 +21,11 @@
     return n.toLocaleString('en-US');
   };
   const pc = function (a, b) {
-    return b > 0 ? Math.round((a / b) * 100) : 0;
+    if (!Number.isFinite(a) || !Number.isFinite(b) || b <= 0) return 0;
+    return Math.round((a / b) * 100);
   };
   const fu = function (a) {
+    if (typeof a !== 'number' || !Number.isFinite(a)) return '$0.00';
     return '$' + a.toFixed(2);
   };
   const esc = function (s) {

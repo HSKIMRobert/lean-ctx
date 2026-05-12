@@ -1,4 +1,4 @@
-pub fn handle(
+pub(super) fn handle(
     path: &str,
     _query_str: &str,
     _method: &str,

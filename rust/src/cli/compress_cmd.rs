@@ -1,7 +1,7 @@
 use crate::core::cache::SessionCache;
 use crate::tools::{ctx_compress, CrpMode};
 
-pub fn cmd_compress(args: &[String]) {
+pub(crate) fn cmd_compress(args: &[String]) {
     let signatures = args.iter().any(|a| a == "--signatures" || a == "-s");
     let json = args.iter().any(|a| a == "--json");
 

@@ -62,19 +62,13 @@ pub mod zig;
 
 use crate::core::tokens::count_tokens;
 
-fn is_passthrough_command(cmd: &str) -> bool {
-    let c = cmd.to_ascii_lowercase();
-    if c.starts_with("gh api ") || c.starts_with("gh api\t") {
-        return true;
-    }
-    if (c.starts_with("gh ") && c.contains("--log")) || c.contains("log-failed") {
-        return true;
-    }
-    false
-}
-
 pub fn compress_output(command: &str, output: &str) -> Option<String> {
-    if is_passthrough_command(command) {
+    // Policy gate: protected commands (Passthrough + Verbatim) must
+    // never be pattern-compressed. The caller (compress_if_beneficial
+    // or ctx_shell::handle) should have already checked, but we
+    // defend in depth here.
+    let policy = crate::shell::output_policy::classify(command, &[]);
+    if policy.is_protected() {
         return None;
     }
 
@@ -115,10 +109,6 @@ pub fn compress_output(command: &str, output: &str) -> Option<String> {
         }
     }
 
-    if output.len() > 8000 {
-        return Some(truncate_large_output(command, output));
-    }
-
     None
 }
 
@@ -137,47 +127,6 @@ fn shorter_only(compressed: String, original: &str) -> Option<String> {
     } else {
         None
     }
-}
-
-fn truncate_large_output(command: &str, output: &str) -> String {
-    let lines: Vec<&str> = output.lines().collect();
-    let total = lines.len();
-    let size = output.len();
-    let head = 30.min(total);
-    let tail = 15.min(total.saturating_sub(head));
-
-    let mut result = String::with_capacity(4096);
-    let cmd_short = if command.len() > 60 {
-        &command[..60]
-    } else {
-        command
-    };
-    result.push_str(&format!("{cmd_short} ({size} bytes, {total} lines):\n"));
-    for line in lines.iter().take(head) {
-        if line.len() > 300 {
-            result.push_str(&line[..300]);
-            result.push_str("…\n");
-        } else {
-            result.push_str(line);
-            result.push('\n');
-        }
-    }
-    if total > head + tail {
-        result.push_str(&format!(
-            "\n[… {} lines omitted …]\n\n",
-            total - head - tail
-        ));
-        for line in lines.iter().skip(total - tail) {
-            if line.len() > 300 {
-                result.push_str(&line[..300]);
-                result.push_str("…\n");
-            } else {
-                result.push_str(line);
-                result.push('\n');
-            }
-        }
-    }
-    result
 }
 
 pub fn try_specific_pattern(cmd: &str, output: &str) -> Option<String> {
@@ -457,7 +406,12 @@ mod tests {
     #[test]
     fn routes_docker_commands() {
         let output = "CONTAINER ID   IMAGE     COMMAND   CREATED   STATUS    PORTS     NAMES";
-        assert!(compress_output("docker ps", output).is_some());
+        // docker ps is Verbatim (via is_container_listing), so compress_output
+        // correctly returns None (policy gate). docker build should still compress.
+        assert!(compress_output("docker ps", output).is_none());
+        let build_output =
+            "Step 1/5 : FROM node:18\n ---> abc123\nStep 2/5 : COPY . .\nSuccessfully built def456";
+        assert!(compress_output("docker build .", build_output).is_some());
     }
 
     #[test]

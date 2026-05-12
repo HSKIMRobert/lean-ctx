@@ -130,9 +130,8 @@ pub fn crash_loop_backoff(process_name: &str) {
         let restarts_over = recent.len() - CRASH_LOOP_THRESHOLD;
         let backoff_secs =
             (2u64.saturating_pow(restarts_over as u32)).min(CRASH_LOOP_MAX_BACKOFF_SECS);
-        eprintln!(
-            "lean-ctx: crash-loop detected ({} starts in {CRASH_LOOP_WINDOW_SECS}s), \
-             backing off {backoff_secs}s",
+        tracing::warn!(
+            "crash-loop detected ({} starts in {CRASH_LOOP_WINDOW_SECS}s), backing off {backoff_secs}s",
             recent.len()
         );
         std::thread::sleep(Duration::from_secs(backoff_secs));

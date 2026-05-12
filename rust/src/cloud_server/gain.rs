@@ -8,7 +8,7 @@ use super::auth::{auth_user, AppState};
 use super::helpers::internal_error;
 
 #[derive(Deserialize)]
-pub struct GainEntry {
+pub(super) struct GainEntry {
     pub recorded_at: String,
     pub total: f64,
     pub compression: f64,
@@ -26,12 +26,12 @@ pub struct GainEntry {
 }
 
 #[derive(Deserialize)]
-pub struct GainEnvelope {
+pub(super) struct GainEnvelope {
     pub scores: Vec<GainEntry>,
 }
 
 #[derive(Serialize)]
-pub struct GainRow {
+pub(super) struct GainRow {
     pub recorded_at: String,
     pub total: f64,
     pub compression: f64,
@@ -44,7 +44,7 @@ pub struct GainRow {
     pub model_key: Option<String>,
 }
 
-pub async fn post_gain(
+pub(super) async fn post_gain(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(body): Json<GainEnvelope>,
@@ -97,7 +97,7 @@ pub async fn post_gain(
     Ok(Json(serde_json::json!({ "synced": synced })))
 }
 
-pub async fn get_gain(
+pub(super) async fn get_gain(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<GainRow>>, (StatusCode, String)> {

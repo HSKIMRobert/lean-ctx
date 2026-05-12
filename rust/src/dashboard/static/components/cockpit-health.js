@@ -173,8 +173,9 @@ class CockpitHealth extends HTMLElement {
     var ff = F.ff || function (n) { return String(n); };
     var slo = this._sloData;
 
-    if (!slo || !slo.snapshot || !slo.snapshot.results ||
-        slo.snapshot.results.length === 0) {
+    var sloArr = slo && slo.snapshot && Array.isArray(slo.snapshot.slos)
+      ? slo.snapshot.slos : [];
+    if (sloArr.length === 0) {
       return (
         '<div class="card"><div class="empty-state">' +
         '<h2>No SLO Data</h2>' +
@@ -183,9 +184,8 @@ class CockpitHealth extends HTMLElement {
       );
     }
 
-    var results = slo.snapshot.results;
-    var passed = slo.snapshot.passed || 0;
-    var total = slo.snapshot.total || results.length;
+    var total = sloArr.length;
+    var passed = sloArr.filter(function (s) { return !s.violated; }).length;
     var failing = total - passed;
 
     var summary =
@@ -200,12 +200,13 @@ class CockpitHealth extends HTMLElement {
       esc(ff(failing)) + '</div></div></div>';
 
     var cards = '<div class="row r3">';
-    for (var i = 0; i < results.length; i++) {
-      var r = results[i];
-      var cls = r.passed ? 'tg' : 'td';
-      var label = r.passed ? 'PASS' : 'FAIL';
-      var val = r.value != null
-        ? (typeof r.value === 'number' ? r.value.toFixed(2) : String(r.value))
+    for (var i = 0; i < sloArr.length; i++) {
+      var r = sloArr[i];
+      var ok = !r.violated;
+      var cls = ok ? 'tg' : 'td';
+      var label = ok ? 'PASS' : 'FAIL';
+      var val = r.actual != null
+        ? (typeof r.actual === 'number' ? r.actual.toFixed(2) : String(r.actual))
         : '\u2014';
 
       cards +=
@@ -230,25 +231,29 @@ class CockpitHealth extends HTMLElement {
     var Ch = ckhCharts();
     if (!Ch.lineChart || typeof Chart === 'undefined') return;
     var slo = this._sloData;
-    if (!slo || !slo.history || !Array.isArray(slo.history)) return;
+    if (!slo) return;
 
-    var results = (slo.snapshot && slo.snapshot.results) || [];
-    for (var i = 0; i < results.length; i++) {
+    var sloArr = slo.snapshot && Array.isArray(slo.snapshot.slos)
+      ? slo.snapshot.slos : [];
+    var globalHistory = Array.isArray(slo.history) ? slo.history : [];
+    for (var i = 0; i < sloArr.length; i++) {
       var canvasId = 'ckh-slo-' + i;
       if (!document.getElementById(canvasId)) continue;
 
+      var hist = globalHistory;
+
       var labels = [];
       var values = [];
-      for (var j = 0; j < slo.history.length; j++) {
-        var h = slo.history[j];
+      for (var j = 0; j < hist.length; j++) {
+        var h = hist[j];
         labels.push(h.timestamp ? String(h.timestamp).slice(5, 10) : String(j));
-        values.push(h.violations != null ? h.violations : 0);
+        values.push(h.violations != null ? h.violations : (h.value != null ? h.value : 0));
       }
       if (labels.length === 0) continue;
 
-      var color = results[i].passed ? '#34d399' : '#f87171';
-      var fill = results[i].passed
-        ? 'rgba(52,211,153,.06)' : 'rgba(248,113,113,.06)';
+      var ok = !sloArr[i].violated;
+      var color = ok ? '#34d399' : '#f87171';
+      var fill = ok ? 'rgba(52,211,153,.06)' : 'rgba(248,113,113,.06)';
       try { Ch.lineChart(canvasId, labels, values, color, fill); } catch (_) {}
     }
   }
@@ -256,8 +261,8 @@ class CockpitHealth extends HTMLElement {
   /* ============ Anomalies ============ */
 
   _renderAnomalies(esc) {
-    var anomalies = this._anomalyData && this._anomalyData.anomalies;
-    if (!anomalies || anomalies.length === 0) {
+    var anomalies = Array.isArray(this._anomalyData) ? this._anomalyData : [];
+    if (anomalies.length === 0) {
       return (
         '<div class="card"><div class="empty-state">' +
         '<h2>No Anomalies</h2>' +
@@ -266,38 +271,27 @@ class CockpitHealth extends HTMLElement {
       );
     }
 
-    var sevTag = { critical: 'td', high: 'td', warning: 'ty', medium: 'ty', info: 'tb', low: 'tb' };
-    var sevBorder = { critical: 'var(--red)', high: 'var(--red)', warning: 'var(--yellow)', medium: 'var(--yellow)' };
-
     var html = '<div style="display:flex;flex-direction:column;gap:10px">';
     for (var i = 0; i < anomalies.length; i++) {
       var a = anomalies[i];
-      var sev = String(a.severity || '').toLowerCase();
-      var cls = sevTag[sev] || 'tb';
-      var border = sevBorder[sev] || 'var(--blue)';
-      var ts = a.timestamp
-        ? String(a.timestamp).replace('T', ' ').slice(0, 19)
-        : '\u2014';
-      var val = a.value != null
-        ? (typeof a.value === 'number' ? a.value.toFixed(2) : String(a.value))
-        : '\u2014';
-      var exp = a.expected != null
-        ? (typeof a.expected === 'number' ? a.expected.toFixed(2) : String(a.expected))
-        : '\u2014';
+      var stdDev = typeof a.std_dev === 'number' ? a.std_dev : 0;
+      var isHigh = stdDev > 0 && Math.abs(a.last_value - a.mean) > 2 * stdDev;
+      var border = isHigh ? 'var(--yellow)' : 'var(--blue)';
+      var cls = isHigh ? 'ty' : 'tb';
+      var statusLabel = isHigh ? 'outlier' : 'normal';
 
       html +=
         '<div class="card" style="border-left:3px solid ' + border + '">' +
-        '<div class="card-header"><h3>' + esc(a.metric || 'Anomaly') + '</h3>' +
-        '<span class="tag ' + cls + '">' + esc(a.severity || 'unknown') + '</span></div>' +
-        '<div class="sr"><span class="sl">Value</span>' +
-        '<span class="sv">' + esc(val) + '</span></div>' +
-        '<div class="sr"><span class="sl">Expected</span>' +
-        '<span class="sv">' + esc(exp) + '</span></div>' +
-        '<div class="sr"><span class="sl">Time</span>' +
-        '<span class="sv">' + esc(ts) + '</span></div>' +
-        (a.message
-          ? '<p class="hs" style="margin-top:10px">' + esc(a.message) + '</p>'
-          : '') +
+        '<div class="card-header"><h3>' + esc(a.metric || 'Metric') + '</h3>' +
+        '<span class="tag ' + cls + '">' + esc(statusLabel) + '</span></div>' +
+        '<div class="sr"><span class="sl">Last value</span>' +
+        '<span class="sv">' + esc(typeof a.last_value === 'number' ? a.last_value.toFixed(2) : '\u2014') + '</span></div>' +
+        '<div class="sr"><span class="sl">Mean</span>' +
+        '<span class="sv">' + esc(typeof a.mean === 'number' ? a.mean.toFixed(2) : '\u2014') + '</span></div>' +
+        '<div class="sr"><span class="sl">Std dev</span>' +
+        '<span class="sv">' + esc(stdDev.toFixed(2)) + '</span></div>' +
+        '<div class="sr"><span class="sl">Samples</span>' +
+        '<span class="sv">' + esc(String(a.count || 0)) + '</span></div>' +
         '</div>';
     }
     return html + '</div>';
@@ -310,7 +304,7 @@ class CockpitHealth extends HTMLElement {
     var ff = F.ff || function (n) { return String(n); };
     var v = this._verificationData;
 
-    if (!v || !v.checks || v.checks.length === 0) {
+    if (!v) {
       return (
         '<div class="card"><div class="empty-state">' +
         '<h2>No Verification Data</h2>' +
@@ -319,38 +313,57 @@ class CockpitHealth extends HTMLElement {
       );
     }
 
-    var total = v.total_checks || v.checks.length;
-    var passed = v.passed_checks != null
-      ? v.passed_checks
-      : (v.checks_passed != null ? v.checks_passed : 0);
-    var failing = total - passed;
+    var total = v.total || 0;
+    var passed = v.pass || 0;
+    var warnRuns = v.warn_runs || 0;
+    var warnItems = v.warn_items || 0;
+    var passRate = typeof v.pass_rate === 'number' ? Math.round(v.pass_rate * 100) : 0;
+    var avgInfoLoss = typeof v.avg_info_loss_score === 'number'
+      ? v.avg_info_loss_score.toFixed(3) : '0.000';
 
     var summary =
-      '<div class="hero r3 stagger" style="margin-bottom:16px">' +
-      '<div class="hc"><span class="hl">Total checks</span>' +
+      '<div class="hero r4 stagger" style="margin-bottom:16px">' +
+      '<div class="hc"><span class="hl">Total runs</span>' +
       '<div class="hv">' + esc(ff(total)) + '</div></div>' +
       '<div class="hc"><span class="hl">Passed</span>' +
       '<div class="hv" style="color:var(--green)">' + esc(ff(passed)) + '</div></div>' +
-      '<div class="hc"><span class="hl">Failed</span>' +
+      '<div class="hc"><span class="hl">Pass rate</span>' +
       '<div class="hv" style="color:' +
-      (failing > 0 ? 'var(--red)' : 'var(--muted)') + '">' +
-      esc(ff(failing)) + '</div></div></div>';
+      (passRate >= 80 ? 'var(--green)' : passRate >= 50 ? 'var(--yellow)' : 'var(--red)') +
+      '">' + passRate + '%</div></div>' +
+      '<div class="hc"><span class="hl">Avg info loss</span>' +
+      '<div class="hv">' + esc(avgInfoLoss) + '</div></div></div>';
+
+    var warnings = Array.isArray(v.recent_warnings) ? v.recent_warnings : [];
+    if (warnings.length === 0 && total === 0) {
+      return summary +
+        '<div class="card"><div class="empty-state">' +
+        '<p>No verification runs yet. Run <code>lean-ctx verify</code> to check output quality.</p>' +
+        '</div></div>';
+    }
+
+    if (warnings.length === 0) {
+      return summary +
+        '<div class="card"><p class="hs" style="text-align:center;padding:20px">' +
+        'All verification runs passed. No recent warnings.</p></div>';
+    }
 
     var rows = '';
-    for (var i = 0; i < v.checks.length; i++) {
-      var c = v.checks[i];
-      var cls = c.passed ? 'tg' : 'td';
-      var label = c.passed ? 'PASS' : 'FAIL';
+    for (var i = 0; i < warnings.length; i++) {
+      var w = warnings[i];
       rows +=
-        '<tr><td>' + esc(c.name || '\u2014') + '</td>' +
-        '<td><span class="tag ' + cls + '">' + label + '</span></td>' +
-        '<td>' + esc(c.message || '\u2014') + '</td></tr>';
+        '<tr><td>' + esc(w.command || '\u2014') + '</td>' +
+        '<td>' + esc(w.reason || '\u2014') + '</td>' +
+        '<td class="r">' + esc(typeof w.info_loss === 'number' ? w.info_loss.toFixed(3) : '\u2014') + '</td></tr>';
     }
 
     return (
       summary +
-      '<div class="card"><div class="table-scroll"><table>' +
-      '<thead><tr><th>Check</th><th>Status</th><th>Message</th></tr></thead>' +
+      '<div class="card">' +
+      '<div class="card-header"><h3>Recent warnings</h3>' +
+      '<span class="badge">' + esc(ff(warnItems)) + '</span></div>' +
+      '<div class="table-scroll"><table>' +
+      '<thead><tr><th>Command</th><th>Reason</th><th class="r">Info loss</th></tr></thead>' +
       '<tbody>' + rows + '</tbody></table></div></div>'
     );
   }
@@ -375,21 +388,23 @@ class CockpitHealth extends HTMLElement {
     var rows = '';
     for (var i = 0; i < gotchas.length; i++) {
       var g = gotchas[i];
-      var cls = sevTag[String(g.severity || '').toLowerCase()] || 'tb';
-      var shortPath = String(g.file_path || '\u2014');
-      if (shortPath.length > 35) shortPath = '\u2026' + shortPath.slice(-33);
-      var learnedAt = g.learned_at
-        ? String(g.learned_at).replace('T', ' ').slice(0, 19)
+      var sev = typeof g.severity === 'string' ? g.severity : (g.severity && g.severity.type ? g.severity.type : '\u2014');
+      var cls = sevTag[String(sev).toLowerCase()] || 'tb';
+      var cat = typeof g.category === 'string' ? g.category : (g.category && g.category.type ? g.category.type : '\u2014');
+      var patterns = Array.isArray(g.file_patterns) ? g.file_patterns.join(', ') : '\u2014';
+      if (patterns.length > 35) patterns = patterns.slice(0, 33) + '\u2026';
+      var firstSeen = g.first_seen
+        ? String(g.first_seen).replace('T', ' ').slice(0, 19)
         : '\u2014';
 
       rows +=
         '<tr>' +
-        '<td><span class="tag ' + cls + '">' + esc(g.severity || '\u2014') + '</span></td>' +
-        '<td>' + esc(g.summary || '\u2014') + '</td>' +
-        '<td>' + esc(g.category || '\u2014') + '</td>' +
-        '<td title="' + esc(g.file_path || '') + '">' + esc(shortPath) + '</td>' +
-        '<td class="r">' + esc(String(g.triggered_count != null ? g.triggered_count : '\u2014')) + '</td>' +
-        '<td>' + esc(learnedAt) + '</td></tr>';
+        '<td><span class="tag ' + cls + '">' + esc(sev) + '</span></td>' +
+        '<td>' + esc(g.trigger || '\u2014') + '</td>' +
+        '<td>' + esc(cat) + '</td>' +
+        '<td title="' + esc(g.resolution || '') + '">' + esc(g.resolution || '\u2014') + '</td>' +
+        '<td class="r">' + esc(String(g.occurrences != null ? g.occurrences : '\u2014')) + '</td>' +
+        '<td>' + esc(firstSeen) + '</td></tr>';
     }
 
     return (
@@ -397,8 +412,8 @@ class CockpitHealth extends HTMLElement {
       '<div class="card-header"><h3>Bug Memory / Gotchas' + tip('health_gotchas') + '</h3>' +
       '<span class="badge">' + esc(ff(gotchas.length)) + ' learned</span></div>' +
       '<div class="table-scroll"><table>' +
-      '<thead><tr><th>Severity</th><th>Summary</th><th>Category</th>' +
-      '<th>File</th><th class="r">Count</th><th>Learned</th></tr></thead>' +
+      '<thead><tr><th>Severity</th><th>Trigger</th><th>Category</th>' +
+      '<th>Resolution</th><th class="r">Occurrences</th><th>First Seen</th></tr></thead>' +
       '<tbody>' + rows + '</tbody></table></div></div>'
     );
   }

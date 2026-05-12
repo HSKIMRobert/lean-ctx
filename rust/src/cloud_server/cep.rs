@@ -8,7 +8,7 @@ use super::auth::{auth_user, AppState};
 use super::helpers::internal_error;
 
 #[derive(Deserialize)]
-pub struct CepEntry {
+pub(super) struct CepEntry {
     pub recorded_at: String,
     pub score: f64,
     #[serde(default)]
@@ -26,12 +26,12 @@ pub struct CepEntry {
 }
 
 #[derive(Deserialize)]
-pub struct CepEnvelope {
+pub(super) struct CepEnvelope {
     pub scores: Vec<CepEntry>,
 }
 
 #[derive(Serialize)]
-pub struct CepRow {
+pub(super) struct CepRow {
     pub recorded_at: String,
     pub score: f64,
     pub cache_hit_rate: Option<f64>,
@@ -42,7 +42,7 @@ pub struct CepRow {
     pub complexity: Option<f64>,
 }
 
-pub async fn post_cep(
+pub(super) async fn post_cep(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(body): Json<CepEnvelope>,
@@ -92,7 +92,7 @@ pub async fn post_cep(
     Ok(Json(serde_json::json!({"synced": synced})))
 }
 
-pub async fn get_cep(
+pub(super) async fn get_cep(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<CepRow>>, (StatusCode, String)> {

@@ -1,7 +1,7 @@
 use std::io::Read as _;
 use std::path::PathBuf;
 
-pub fn cmd_pack(args: &[String]) {
+pub(crate) fn cmd_pack(args: &[String]) {
     let project_root = super::common::detect_project_root(args);
 
     let subcommand = args
@@ -659,7 +659,10 @@ fn cmd_pack_auto_load(args: &[String]) {
         let parts: Vec<&str> = pkg_ref.splitn(2, '@').collect();
         (parts[0], parts[1].to_string())
     } else {
-        let registry = crate::core::context_package::LocalRegistry::open().unwrap();
+        let Ok(registry) = crate::core::context_package::LocalRegistry::open() else {
+            eprintln!("Failed to open package registry");
+            return;
+        };
         let ver = registry
             .list()
             .ok()

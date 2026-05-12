@@ -10,12 +10,12 @@ use super::auth::{auth_user, AppState};
 use super::helpers::internal_error;
 
 #[derive(Deserialize)]
-pub struct StatsEnvelope {
+pub(super) struct StatsEnvelope {
     pub stats: Vec<StatsEntry>,
 }
 
 #[derive(Deserialize)]
-pub struct StatsEntry {
+pub(super) struct StatsEntry {
     pub date: String,
     pub tokens_original: i64,
     pub tokens_compressed: i64,
@@ -26,7 +26,7 @@ pub struct StatsEntry {
 }
 
 #[derive(Serialize)]
-pub struct StatsRow {
+pub(super) struct StatsRow {
     pub date: String,
     pub tokens_original: i64,
     pub tokens_compressed: i64,
@@ -36,7 +36,7 @@ pub struct StatsRow {
     pub cache_misses: i64,
 }
 
-pub async fn get_stats(
+pub(super) async fn get_stats(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<StatsRow>>, (StatusCode, String)> {
@@ -69,7 +69,7 @@ pub async fn get_stats(
     Ok(Json(stats))
 }
 
-pub async fn post_stats(
+pub(super) async fn post_stats(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(env): Json<StatsEnvelope>,

@@ -3,7 +3,7 @@ use serde::Deserialize;
 
 use super::helpers::{detect_project_root_for_dashboard, extract_query_param, json_err, json_ok};
 
-pub fn handle(
+pub(super) fn handle(
     path: &str,
     query_str: &str,
     method: &str,

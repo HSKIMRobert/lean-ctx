@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
-pub fn cmd_index(args: &[String]) {
+pub(crate) fn cmd_index(args: &[String]) {
     let project_root = super::common::detect_project_root(args);
     let root = Path::new(&project_root);
 

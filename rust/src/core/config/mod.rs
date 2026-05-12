@@ -907,7 +907,13 @@ impl Config {
         }
 
         let mut cfg: Config = match std::fs::read_to_string(&path) {
-            Ok(content) => toml::from_str(&content).unwrap_or_default(),
+            Ok(content) => match toml::from_str(&content) {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::warn!("config parse error in {}: {e}", path.display());
+                    Self::default()
+                }
+            },
             Err(_) => Self::default(),
         };
 
@@ -927,7 +933,10 @@ impl Config {
     fn merge_local(&mut self, local_toml: &str) {
         let local: Config = match toml::from_str(local_toml) {
             Ok(c) => c,
-            Err(_) => return,
+            Err(e) => {
+                tracing::warn!("local config parse error: {e}");
+                return;
+            }
         };
         if local.ultra_compact {
             self.ultra_compact = true;

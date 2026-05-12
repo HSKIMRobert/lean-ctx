@@ -231,7 +231,9 @@ impl LeanCtxServer {
                         format!("Cache cleared — {count} file(s) removed. Next ctx_read will return full content.")
                     }
                     "invalidate" => {
-                        let path = invalidate_path.unwrap();
+                        let Some(path) = invalidate_path else {
+                            return Ok("Missing path for invalidate action.".to_string());
+                        };
                         if cache.invalidate(&path) {
                             format!(
                                 "Invalidated cache for {}. Next ctx_read will return full content.",
@@ -248,6 +250,31 @@ impl LeanCtxServer {
                 };
                 drop(cache);
                 self.record_call("ctx_cache", 0, 0, Some(action)).await;
+                result
+            }
+            "ctx_retrieve" => {
+                let path = get_str(args, "path")
+                    .ok_or_else(|| ErrorData::invalid_params("path is required", None))?;
+                let resolved = self
+                    .resolve_path(&path)
+                    .await
+                    .map_err(|e| ErrorData::invalid_params(e, None))?;
+                let query = get_str(args, "query");
+                let cache = self.cache.read().await;
+                let result = match cache.get_full_content(&resolved) {
+                    Some(full) => {
+                        if let Some(ref q) = query {
+                            ccr_search_within(&full, q)
+                        } else {
+                            full
+                        }
+                    }
+                    None => {
+                        format!("No cached content for \"{path}\". Use ctx_read(\"{path}\") first.")
+                    }
+                };
+                drop(cache);
+                self.record_call("ctx_retrieve", 0, 0, None).await;
                 result
             }
             "ctx_overview" => {
@@ -619,4 +646,34 @@ impl LeanCtxServer {
             }
         })
     }
+}
+
+fn ccr_search_within(content: &str, query: &str) -> String {
+    let query_lower = query.to_lowercase();
+    let terms: Vec<&str> = query_lower.split_whitespace().collect();
+    if terms.is_empty() {
+        return content.to_string();
+    }
+
+    let mut matches: Vec<(usize, &str)> = Vec::new();
+    for (i, line) in content.lines().enumerate() {
+        let lower = line.to_lowercase();
+        if terms.iter().any(|t| lower.contains(t)) {
+            matches.push((i + 1, line));
+        }
+    }
+
+    if matches.is_empty() {
+        return format!("No lines matching \"{query}\" in cached content.");
+    }
+
+    let total = content.lines().count();
+    let mut out = format!("# {}/{total} lines match \"{query}\"\n", matches.len());
+    for (lineno, line) in matches.iter().take(200) {
+        out.push_str(&format!("{lineno:>6}| {line}\n"));
+    }
+    if matches.len() > 200 {
+        out.push_str(&format!("... and {} more matches\n", matches.len() - 200));
+    }
+    out
 }

@@ -1,5 +1,49 @@
 use std::path::Path;
 
+// ── Shared types moved here from tools/ to break reverse-dependency ──
+
+/// Context Reduction Protocol mode controlling output verbosity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CrpMode {
+    Off,
+    Compact,
+    Tdd,
+}
+
+impl CrpMode {
+    pub fn from_env() -> Self {
+        match std::env::var("LEAN_CTX_CRP_MODE")
+            .unwrap_or_default()
+            .to_lowercase()
+            .as_str()
+        {
+            "off" => Self::Off,
+            "compact" => Self::Compact,
+            _ => Self::Tdd,
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_lowercase().as_str() {
+            "off" => Some(Self::Off),
+            "compact" => Some(Self::Compact),
+            "tdd" => Some(Self::Tdd),
+            _ => None,
+        }
+    }
+}
+
+/// Recorded metrics for a single MCP tool invocation.
+#[derive(Clone, Debug)]
+pub struct ToolCallRecord {
+    pub tool: String,
+    pub original_tokens: usize,
+    pub saved_tokens: usize,
+    pub mode: Option<String>,
+    pub duration_ms: u64,
+    pub timestamp: String,
+}
+
 /// Finds the outermost project root by walking up from `file_path`.
 /// For monorepos with nested `.git` dirs (e.g. `mono/backend/.git` + `mono/frontend/.git`),
 /// returns the outermost ancestor containing `.git`, a workspace marker, or a known

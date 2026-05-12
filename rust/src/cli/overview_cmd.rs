@@ -1,7 +1,7 @@
 use crate::core::cache::SessionCache;
 use crate::tools::{ctx_overview, CrpMode};
 
-pub fn cmd_overview(args: &[String]) {
+pub(crate) fn cmd_overview(args: &[String]) {
     let project_root = super::common::detect_project_root(args);
     let task = positional_value(args);
     let json = args.iter().any(|a| a == "--json");

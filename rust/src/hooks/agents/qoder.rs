@@ -36,7 +36,7 @@ pub(crate) fn install_qoder_hook_with_mode(mode: HookMode) {
     }
 }
 
-pub fn install_qoder_hook() {
+pub(super) fn install_qoder_hook() {
     let Some(home) = crate::core::home::resolve_home_dir() else {
         tracing::error!("Cannot resolve home directory");
         return;

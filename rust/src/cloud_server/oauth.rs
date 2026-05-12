@@ -10,12 +10,12 @@ use super::auth::{auth_user, constant_time_eq, generate_token, sha256_hex, AppSt
 use super::helpers::internal_error;
 
 #[derive(Debug, Deserialize)]
-pub struct RegisterClientBody {
+pub(super) struct RegisterClientBody {
     pub client_name: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
-pub struct RegisterClientResponse {
+pub(super) struct RegisterClientResponse {
     pub client_id: String,
     pub client_secret: String,
     pub token_endpoint: String,
@@ -23,7 +23,7 @@ pub struct RegisterClientResponse {
     pub token_endpoint_auth_method: String,
 }
 
-pub async fn register_client(
+pub(super) async fn register_client(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(body): Json<RegisterClientBody>,
@@ -62,14 +62,14 @@ pub async fn register_client(
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TokenRequestBody {
+pub(super) struct TokenRequestBody {
     pub grant_type: String,
     pub client_id: String,
     pub client_secret: String,
 }
 
 #[derive(Debug, Serialize)]
-pub struct TokenResponse {
+pub(super) struct TokenResponse {
     pub access_token: String,
     pub token_type: String,
     pub expires_in: i64,
@@ -82,7 +82,7 @@ fn access_token_ttl_secs() -> i64 {
         .map_or(3600, |n| n.clamp(60, 86_400))
 }
 
-pub async fn token(
+pub(super) async fn token(
     State(state): State<AppState>,
     Form(body): Form<TokenRequestBody>,
 ) -> Result<Json<TokenResponse>, (StatusCode, String)> {
@@ -147,7 +147,7 @@ pub async fn token(
     }))
 }
 
-pub async fn lookup_access_token(
+pub(super) async fn lookup_access_token(
     pool: &Pool,
     token_sha: &str,
 ) -> anyhow::Result<Option<(Uuid, String)>> {

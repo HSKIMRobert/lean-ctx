@@ -44,7 +44,7 @@ pub fn edge_weight(kind: &str) -> f64 {
 }
 
 /// Files that depend on `file_path` via structural edges (imports, calls, type_ref, etc.).
-pub fn dependents(conn: &Connection, file_path: &str) -> anyhow::Result<Vec<String>> {
+pub(super) fn dependents(conn: &Connection, file_path: &str) -> anyhow::Result<Vec<String>> {
     let sql = format!(
         "SELECT DISTINCT n_src.file_path
          FROM edges e
@@ -67,7 +67,7 @@ pub fn dependents(conn: &Connection, file_path: &str) -> anyhow::Result<Vec<Stri
 }
 
 /// Files that `file_path` depends on via structural edges.
-pub fn dependencies(conn: &Connection, file_path: &str) -> anyhow::Result<Vec<String>> {
+pub(super) fn dependencies(conn: &Connection, file_path: &str) -> anyhow::Result<Vec<String>> {
     let sql = format!(
         "SELECT DISTINCT n_tgt.file_path
          FROM edges e
@@ -92,7 +92,7 @@ pub fn dependencies(conn: &Connection, file_path: &str) -> anyhow::Result<Vec<St
 /// Weighted BFS from `file_path` following reverse structural edges up to `max_depth`.
 /// Edge weights attenuate propagation: calls edges carry less impact than imports.
 /// Nodes only propagate when cumulative weight exceeds the threshold (0.1).
-pub fn impact_analysis(
+pub(super) fn impact_analysis(
     conn: &Connection,
     file_path: &str,
     max_depth: usize,
@@ -142,7 +142,7 @@ pub fn impact_analysis(
 }
 
 /// BFS shortest path from `from` to `to` following structural edges.
-pub fn dependency_chain(
+pub(super) fn dependency_chain(
     conn: &Connection,
     from: &str,
     to: &str,

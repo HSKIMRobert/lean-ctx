@@ -2,7 +2,7 @@
 
 use rusqlite::Connection;
 
-pub fn initialize(conn: &Connection) -> anyhow::Result<()> {
+pub(super) fn initialize(conn: &Connection) -> anyhow::Result<()> {
     conn.execute_batch(
         "
         PRAGMA journal_mode = WAL;

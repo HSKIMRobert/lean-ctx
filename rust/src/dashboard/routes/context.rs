@@ -4,7 +4,7 @@ use super::helpers::{
     detect_project_root_for_dashboard, json_err, json_ok, normalize_dashboard_demo_path,
 };
 
-pub fn handle(
+pub(super) fn handle(
     path: &str,
     query_str: &str,
     method: &str,
@@ -67,9 +67,12 @@ fn get_routes(path: &str, _query_str: &str) -> Option<(&'static str, &'static st
         "/api/context-field" => {
             let ledger = crate::core::context_ledger::ContextLedger::load();
             let field = crate::core::context_field::ContextField::new();
+            let pressure = ledger.pressure();
+            let effective_used =
+                (pressure.utilization * ledger.window_size as f64).round() as usize;
             let budget = crate::core::context_field::TokenBudget {
                 total: ledger.window_size,
-                used: ledger.total_tokens_sent,
+                used: effective_used,
             };
             let items: Vec<serde_json::Value> = ledger
                 .entries
@@ -93,9 +96,9 @@ fn get_routes(path: &str, _query_str: &str) -> Option<(&'static str, &'static st
                 .collect();
             let payload = serde_json::json!({
                 "temperature": budget.temperature(),
-                "budget_total": budget.total,
-                "budget_used": budget.used,
-                "budget_remaining": budget.remaining(),
+                "budget_total": ledger.window_size,
+                "budget_used": effective_used,
+                "budget_remaining": pressure.remaining_tokens,
                 "items": items,
             });
             let json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());

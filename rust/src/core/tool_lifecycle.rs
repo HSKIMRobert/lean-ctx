@@ -100,6 +100,8 @@ pub fn record_shell_command(original_tokens: usize, output_tokens: usize) {
     }
 }
 
+// TODO(arch): crate::tools::autonomy is still referenced here. Move AutonomyState
+// and should_auto_consolidate to core::autonomy_drivers for a clean layer boundary.
 fn maybe_consolidate(project_root: Option<&str>, calls: u32) {
     let Some(root) = project_root else { return };
     let autonomy = crate::tools::autonomy::AutonomyState::new();

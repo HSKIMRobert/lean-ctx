@@ -33,9 +33,8 @@ but the default workflow is CLI-first.
 ## lean-ctx
 
 Prefer lean-ctx MCP tools over native equivalents for token savings.
-Full rules: LEAN-CTX.md (same directory)
+Full rules: @LEAN-CTX.md
 <!-- /lean-ctx -->
-
 <!-- lean-ctx-compression -->
 OUTPUT STYLE: dense
 - Each statement = one atomic fact line

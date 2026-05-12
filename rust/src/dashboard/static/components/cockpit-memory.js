@@ -28,10 +28,20 @@ function severityTag(sev) {
   return '<span class="tag tb">' + s + '</span>';
 }
 
-function successBadge(success) {
-  if (success === true) return '<span class="tag tg">success</span>';
-  if (success === false) return '<span class="tag td">failed</span>';
-  return '<span class="tag">—</span>';
+function outcomeLabel(outcome) {
+  if (!outcome) return { text: '\u2014', cls: '' };
+  if (typeof outcome === 'string') {
+    var s = outcome.toLowerCase();
+    if (s === 'success') return { text: 'success', cls: 'tg' };
+    if (s === 'failure') return { text: 'failed', cls: 'td' };
+    if (s === 'partial') return { text: 'partial', cls: 'ty' };
+    return { text: outcome, cls: '' };
+  }
+  if (outcome.Success) return { text: 'success', cls: 'tg' };
+  if (outcome.Failure) return { text: 'failed', cls: 'td' };
+  if (outcome.Partial) return { text: 'partial', cls: 'ty' };
+  if (outcome.Unknown !== undefined) return { text: 'unknown', cls: '' };
+  return { text: '\u2014', cls: '' };
 }
 
 function tip(k) {
@@ -192,21 +202,20 @@ class CockpitMemory extends HTMLElement {
     }
 
     var rows = list.map(function (e) {
-      var summary = esc(e.summary || '—');
-      var outcome = esc(e.outcome || '—');
+      var summary = esc(e.summary || '\u2014');
+      var oc = outcomeLabel(e.outcome);
       var duration = formatDuration(e.duration_secs);
-      var toolsUsed = e.tools_used != null ? String(e.tools_used) : '—';
-      var tokensSaved = e.tokens_saved != null ? fmt(e.tokens_saved) : '—';
-      var badge = successBadge(e.success);
+      var actionsCount = Array.isArray(e.actions) ? String(e.actions.length) : '\u2014';
+      var tokensUsed = e.tokens_used != null ? fmt(e.tokens_used) : '\u2014';
+      var badge = '<span class="tag ' + oc.cls + '">' + esc(oc.text) + '</span>';
 
       return (
         '<tr>' +
         '<td title="' + summary + '">' + summary + '</td>' +
-        '<td>' + outcome + '</td>' +
-        '<td class="r">' + esc(duration) + '</td>' +
-        '<td class="r">' + esc(toolsUsed) + '</td>' +
-        '<td class="r">' + esc(tokensSaved) + '</td>' +
         '<td>' + badge + '</td>' +
+        '<td class="r">' + esc(duration) + '</td>' +
+        '<td class="r">' + esc(actionsCount) + '</td>' +
+        '<td class="r">' + esc(tokensUsed) + '</td>' +
         '</tr>'
       );
     }).join('');
@@ -217,7 +226,7 @@ class CockpitMemory extends HTMLElement {
       '<div class="table-scroll"><table>' +
       '<thead><tr>' +
       '<th>Summary</th><th>Outcome</th><th class="r">Duration</th>' +
-      '<th class="r">Tools</th><th class="r">Tokens Saved</th><th>Status</th>' +
+      '<th class="r">Actions</th><th class="r">Tokens Used</th>' +
       '</tr></thead>' +
       '<tbody>' + rows + '</tbody>' +
       '</table></div></div>'
@@ -275,8 +284,10 @@ class CockpitMemory extends HTMLElement {
     }).join('');
 
     return (
+      taskHtml +
       '<div class="card">' +
-      '<div class="card-header"><h3>Procedures' + tip('procedures') + '</h3></div>' +
+      '<div class="card-header"><h3>Procedures' + tip('procedures') + '</h3>' +
+      '<span class="badge">' + esc(ff(totalProc)) + '</span></div>' +
       '<div class="ckm-procedure-grid">' + cards + '</div>' +
       '</div>'
     );

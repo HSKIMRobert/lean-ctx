@@ -111,7 +111,7 @@ impl HandleRegistry {
         };
 
         self.handles.push(handle);
-        self.handles.last().unwrap()
+        self.handles.last().expect("just pushed")
     }
 
     /// Look up a handle by its ref-label (e.g. "F1", "S3").

@@ -1,6 +1,6 @@
 use axum::http::StatusCode;
 
-pub fn internal_error(e: impl std::fmt::Display) -> (StatusCode, String) {
+pub(super) fn internal_error(e: impl std::fmt::Display) -> (StatusCode, String) {
     tracing::error!("internal server error: {e}");
     (
         StatusCode::INTERNAL_SERVER_ERROR,

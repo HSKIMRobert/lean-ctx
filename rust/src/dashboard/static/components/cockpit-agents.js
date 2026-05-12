@@ -185,23 +185,25 @@ class CockpitAgents extends HTMLElement {
 
     var cards = list.map(function (a) {
       var dot = statusDotHtml(a.status);
-      var name = esc(a.name || a.id || 'Unknown');
-      var model = esc(a.model || '—');
-      var calls = a.tool_calls != null ? fmt(a.tool_calls) : '0';
-      var saved = a.tokens_saved != null ? fmt(a.tokens_saved) : '0';
-      var lastAct = relativeTime(a.last_activity);
+      var name = esc(a.id || 'Unknown');
+      var role = esc(a.role || a.type || '\u2014');
+      var statusMsg = a.status_message ? esc(a.status_message) : '';
+      var lastActive = a.last_active_minutes_ago != null
+        ? (a.last_active_minutes_ago < 1 ? 'just now' : a.last_active_minutes_ago + 'm ago')
+        : '\u2014';
 
       return (
         '<div class="swimlane" data-agent-id="' + esc(a.id || '') + '">' +
         '<div class="swimlane-header">' +
         dot +
         '<strong>' + name + '</strong>' +
-        '<span class="tag tg" style="margin-left:auto">' + model + '</span>' +
+        '<span class="tag tg" style="margin-left:auto">' + role + '</span>' +
         '</div>' +
         '<div class="swimlane-body">' +
-        '<div class="sr"><span class="sl">Tool calls</span><span class="sv">' + esc(calls) + '</span></div>' +
-        '<div class="sr"><span class="sl">Tokens saved</span><span class="sv">' + esc(saved) + '</span></div>' +
-        '<div class="sr"><span class="sl">Last activity</span><span class="sv">' + esc(lastAct) + '</span></div>' +
+        '<div class="sr"><span class="sl">Status</span><span class="sv">' + esc(String(a.status || '\u2014')) + '</span></div>' +
+        (statusMsg ? '<div class="sr"><span class="sl">Message</span><span class="sv">' + statusMsg + '</span></div>' : '') +
+        '<div class="sr"><span class="sl">Last active</span><span class="sv">' + esc(lastActive) + '</span></div>' +
+        (a.pid ? '<div class="sr"><span class="sl">PID</span><span class="sv">' + esc(String(a.pid)) + '</span></div>' : '') +
         '</div>' +
         '</div>'
       );
@@ -235,7 +237,7 @@ class CockpitAgents extends HTMLElement {
       var name = typeof t === 'string' ? t : (t.name || t.id || '—');
       var desc = typeof t === 'object' && t.description ? t.description : '';
       var calls = typeof t === 'object' && t.call_count != null ? ff(t.call_count) : '—';
-      var saved = typeof t === 'object' && t.tokens_saved ? ff(t.tokens_saved) : '—';
+      var saved = typeof t === 'object' && t.tokens_saved != null ? ff(t.tokens_saved) : '—';
       var active = t.call_count > 0;
       return (
         '<tr' + (active ? '' : ' style="opacity:0.5"') + '>' +

@@ -54,6 +54,13 @@ impl ProjectBuild {
     }
 }
 
+// Lock ordering (see rust/LOCK_ORDERING.md):
+//   L1 = REGISTRY outer Mutex  (the HashMap guard)
+//   L2 = per-project Arc<Mutex<ProjectBuild>>  (inner guard)
+//
+// Invariant: L1 must NEVER be held while locking L2.
+// `entry_for()` enforces this by cloning the Arc and dropping L1 before
+// the caller acquires L2.
 static REGISTRY: OnceLock<Mutex<HashMap<String, Arc<Mutex<ProjectBuild>>>>> = OnceLock::new();
 
 fn registry() -> &'static Mutex<HashMap<String, Arc<Mutex<ProjectBuild>>>> {
