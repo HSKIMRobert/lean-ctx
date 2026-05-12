@@ -27,6 +27,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - **Dashboard format utilities** — `pc()` NaN guard for percentage formatting; `fu()` type guard for unit formatting; `fmtNum` normalized to consistent 'K' suffix
 - **Dashboard route visibility** — All dashboard route handlers narrowed from `pub fn` to `pub(super) fn`
 - **Clippy `duration_suboptimal_units`** — `Duration::from_millis(30_000)` → `Duration::from_secs(30)` in 4 locations
+- **Shell hook: `ls` and `find` missing from alias list** — Both commands are now included as `Category::DirList` in the generated shell hook, so `ls` and `find` output is tracked/compressed in hooked shells. Fixes [#200](https://github.com/yvgude/lean-ctx/issues/200).
+- **Shell hook: non-interactive agent commands not tracked** — The TTY guard (`[ ! -t 1 ]`) now has an agent-aware bypass: when `LEAN_CTX_AGENT`, `CODEX_CLI_SESSION`, `CLAUDECODE`, or `GEMINI_SESSION` env vars are present, commands are tracked even in non-interactive shells (Docker, Codex `bash -c`). Fixes [#200](https://github.com/yvgude/lean-ctx/issues/200).
+- **Flaky SSE replay test** — Rewrote `events_endpoint_replays_tool_call_event` to append directly to the event bus instead of depending on a fire-and-forget `spawn_blocking` task, eliminating CI timing failures on contended runners.
 
 ## [3.5.18] — 2026-05-12
 
