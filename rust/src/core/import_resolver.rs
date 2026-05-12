@@ -11,7 +11,7 @@
 //! - Ruby: require_relative (best-effort)
 //! - PHP: include/require (best-effort)
 //! - Bash: source/. (best-effort)
-//! - Dart: relative + package:<name>/ (best-effort)
+//! - Dart: relative + `package:<name>/` (best-effort)
 //! - Zig: @import("path.zig") (best-effort)
 
 use std::collections::HashMap;

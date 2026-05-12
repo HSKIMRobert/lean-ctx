@@ -8,7 +8,7 @@
 //! - Cache hit/miss rates
 //!
 //! Naming follows the OpenTelemetry GenAI Semantic Conventions:
-//! https://opentelemetry.io/docs/specs/semconv/gen-ai/
+//! <https://opentelemetry.io/docs/specs/semconv/gen-ai/>
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;

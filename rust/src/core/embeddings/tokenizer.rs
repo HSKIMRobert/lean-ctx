@@ -4,7 +4,7 @@
 //! 1. Lowercase + accent stripping
 //! 2. Whitespace + punctuation splitting
 //! 3. WordPiece subword tokenization
-//! 4. Special token insertion ([CLS], [SEP])
+//! 4. Special token insertion (`[CLS]`, `[SEP]`)
 //!
 //! Optimized for code search: handles camelCase, snake_case, and common
 //! programming punctuation correctly.
@@ -78,7 +78,7 @@ impl WordPieceTokenizer {
         })
     }
 
-    /// Encode text into token IDs with [CLS] prefix and [SEP] suffix.
+    /// Encode text into token IDs with `[CLS]` prefix and `[SEP]` suffix.
     pub fn encode(&self, text: &str, max_len: usize) -> TokenizedInput {
         let words = self.pre_tokenize(text);
         let mut ids = vec![self.cls_id];

@@ -1,11 +1,11 @@
 //! Pooling strategies for transformer hidden states.
 //!
-//! Converts per-token hidden states [seq_len × dim] into a single
-//! fixed-size embedding vector [dim].
+//! Converts per-token hidden states `[seq_len × dim]` into a single
+//! fixed-size embedding vector `[dim]`.
 
 /// Mean pooling over token positions, weighted by attention mask.
 ///
-/// Takes the raw hidden state output [1 × seq_len × dim] flattened to a Vec,
+/// Takes the raw hidden state output `[1 × seq_len × dim]` flattened to a Vec,
 /// and produces a single embedding by averaging across attended positions.
 pub fn mean_pool(
     hidden_states: &[f32],

@@ -5,7 +5,7 @@
 //! to BM25-only search when the feature or model is not available.
 //!
 //! Architecture:
-//!   WordPieceTokenizer → ONNX Model (rten) → Mean Pooling → L2 Normalize → Vec<f32>
+//!   WordPieceTokenizer → ONNX Model (rten) → Mean Pooling → L2 Normalize → `Vec<f32>`
 
 pub mod download;
 pub mod pooling;
