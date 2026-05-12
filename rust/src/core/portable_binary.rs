@@ -45,7 +45,12 @@ fn pick_best_binary_line(raw: &str) -> String {
 }
 
 fn sanitize_exe_path(path: &str) -> String {
-    path.trim_end_matches(" (deleted)").to_string()
+    let cleaned = path.trim_end_matches(" (deleted)");
+    if cfg!(windows) {
+        super::pathutil::normalize_tool_path(cleaned)
+    } else {
+        cleaned.to_string()
+    }
 }
 
 #[cfg(test)]
@@ -84,5 +89,32 @@ mod tests {
     fn whitespace_lines_are_filtered() {
         let raw = "  /usr/bin/lean-ctx  \n  \n  /usr/local/bin/lean-ctx  ";
         assert_eq!(pick_best_binary_line(raw), "/usr/bin/lean-ctx");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn sanitize_normalizes_msys_path_on_windows() {
+        assert_eq!(
+            sanitize_exe_path("/c/Users/ABC/.local/bin/lean-ctx"),
+            "C:/Users/ABC/.local/bin/lean-ctx"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn sanitize_keeps_native_windows_path() {
+        assert_eq!(
+            sanitize_exe_path(r"C:\Users\ABC\lean-ctx.exe"),
+            "C:/Users/ABC/lean-ctx.exe"
+        );
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn sanitize_unix_path_unchanged() {
+        assert_eq!(
+            sanitize_exe_path("/usr/local/bin/lean-ctx"),
+            "/usr/local/bin/lean-ctx"
+        );
     }
 }

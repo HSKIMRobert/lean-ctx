@@ -620,7 +620,8 @@ fn check_codex_toml(path: &std::path::Path, binary: &str) -> NamedCheck {
 }
 
 fn check_codex_hooks_enabled(home: &std::path::Path) -> NamedCheck {
-    let path = home.join(".codex").join("config.toml");
+    let codex_dir = crate::core::home::resolve_codex_dir().unwrap_or_else(|| home.join(".codex"));
+    let path = codex_dir.join("config.toml");
     if !path.exists() {
         return NamedCheck {
             name: "Codex hooks".to_string(),
@@ -637,11 +638,15 @@ fn check_codex_hooks_enabled(home: &std::path::Path) -> NamedCheck {
             detail: format!("invalid TOML ({})", path.display()),
         };
     };
-    let ok = v
-        .get("features")
-        .and_then(|t| t.get("codex_hooks"))
+    let features = v.get("features");
+    let ok = features
+        .and_then(|t| t.get("hooks"))
         .and_then(toml::Value::as_bool)
-        == Some(true);
+        == Some(true)
+        || features
+            .and_then(|t| t.get("codex_hooks"))
+            .and_then(toml::Value::as_bool)
+            == Some(true);
     NamedCheck {
         name: "Codex hooks".to_string(),
         ok,
@@ -654,7 +659,8 @@ fn check_codex_hooks_enabled(home: &std::path::Path) -> NamedCheck {
 }
 
 fn check_codex_hooks_json(home: &std::path::Path) -> NamedCheck {
-    let path = home.join(".codex").join("hooks.json");
+    let codex_dir = crate::core::home::resolve_codex_dir().unwrap_or_else(|| home.join(".codex"));
+    let path = codex_dir.join("hooks.json");
     if !path.exists() {
         return NamedCheck {
             name: "Codex hooks.json".to_string(),

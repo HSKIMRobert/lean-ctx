@@ -537,12 +537,13 @@ pub fn handle_copilot() {
 
 /// Inline rewrite: takes a command as CLI args, prints the rewritten command to stdout.
 /// Used by the OpenCode TS plugin where the command is passed as an argument,
-/// not via stdin JSON.
+/// not via stdin JSON. Uses native OS paths (not MSYS) because the calling
+/// shell may be PowerShell or cmd on Windows.
 pub fn handle_rewrite_inline() {
     if is_disabled() {
         return;
     }
-    let binary = resolve_binary();
+    let binary = resolve_binary_native();
     let args: Vec<String> = std::env::args().collect();
     // args: [binary, "hook", "rewrite-inline", ...command parts]
     if args.len() < 4 {
@@ -566,6 +567,10 @@ pub fn handle_rewrite_inline() {
 fn resolve_binary() -> String {
     let path = crate::core::portable_binary::resolve_portable_binary();
     crate::hooks::to_bash_compatible_path(&path)
+}
+
+fn resolve_binary_native() -> String {
+    crate::core::portable_binary::resolve_portable_binary()
 }
 
 fn extract_json_field(input: &str, field: &str) -> Option<String> {

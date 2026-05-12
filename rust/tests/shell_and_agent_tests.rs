@@ -326,7 +326,7 @@ fn agent_init_codex_installs_compatible_hooks_and_instructions() {
 
     let config = std::fs::read_to_string(codex_dir.join("config.toml")).unwrap_or_default();
     assert!(
-        config.contains("codex_hooks = true"),
+        config.contains("hooks = true"),
         "init should enable Codex hook support"
     );
 }

@@ -287,7 +287,12 @@ pub(super) fn remove_mcp_configs(home: &Path, dry_run: bool) -> bool {
             "Antigravity",
             home.join(".gemini/antigravity/mcp_config.json"),
         ),
-        ("Codex CLI", home.join(".codex/config.toml")),
+        (
+            "Codex CLI",
+            crate::core::home::resolve_codex_dir()
+                .unwrap_or_else(|| home.join(".codex"))
+                .join("config.toml"),
+        ),
         ("OpenCode", home.join(".config/opencode/opencode.json")),
         ("Qwen Code", home.join(".qwen/settings.json")),
         ("Qwen Code (legacy)", home.join(".qwen/mcp.json")),
@@ -394,7 +399,12 @@ pub(super) fn remove_rules_files(home: &Path, dry_run: bool) -> bool {
             "Gemini CLI (legacy)",
             home.join(".gemini/rules/lean-ctx.md"),
         ),
-        ("Codex CLI", home.join(".codex/LEAN-CTX.md")),
+        (
+            "Codex CLI",
+            crate::core::home::resolve_codex_dir()
+                .unwrap_or_else(|| home.join(".codex"))
+                .join("LEAN-CTX.md"),
+        ),
         ("Windsurf", home.join(".codeium/windsurf/rules/lean-ctx.md")),
         ("Zed", home.join(".config/zed/rules/lean-ctx.md")),
         ("Cline", home.join(".cline/rules/lean-ctx.md")),
@@ -428,7 +438,12 @@ pub(super) fn remove_rules_files(home: &Path, dry_run: bool) -> bool {
         ),
         ("Claude Code (legacy home)", home.join(".claude/CLAUDE.md")),
         ("Gemini CLI", home.join(".gemini/GEMINI.md")),
-        ("Codex CLI", home.join(".codex/instructions.md")),
+        (
+            "Codex CLI",
+            crate::core::home::resolve_codex_dir()
+                .unwrap_or_else(|| home.join(".codex"))
+                .join("instructions.md"),
+        ),
         ("VS Code / Copilot", copilot_instructions_path(home)),
     ];
 
@@ -580,7 +595,9 @@ pub(super) fn remove_hook_files(home: &Path, dry_run: bool) -> bool {
         home.join(".gemini/hooks/lean-ctx-rewrite-gemini.sh"),
         home.join(".gemini/hooks/lean-ctx-redirect-gemini.sh"),
         home.join(".gemini/hooks/lean-ctx-hook-gemini.sh"),
-        home.join(".codex/hooks/lean-ctx-rewrite-codex.sh"),
+        crate::core::home::resolve_codex_dir()
+            .unwrap_or_else(|| home.join(".codex"))
+            .join("hooks/lean-ctx-rewrite-codex.sh"),
     ];
 
     let mut removed = false;
@@ -602,7 +619,12 @@ pub(super) fn remove_hook_files(home: &Path, dry_run: bool) -> bool {
     // hooks.json: surgically remove lean-ctx entries instead of deleting
     for (label, hj_path) in [
         ("Cursor", home.join(".cursor/hooks.json")),
-        ("Codex", home.join(".codex/hooks.json")),
+        (
+            "Codex",
+            crate::core::home::resolve_codex_dir()
+                .unwrap_or_else(|| home.join(".codex"))
+                .join("hooks.json"),
+        ),
     ] {
         if !hj_path.exists() {
             continue;

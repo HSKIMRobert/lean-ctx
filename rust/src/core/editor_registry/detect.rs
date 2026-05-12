@@ -51,7 +51,9 @@ pub fn build_targets(home: &Path) -> Vec<EditorTarget> {
         EditorTarget {
             name: "Codex CLI",
             agent_key: "codex".to_string(),
-            config_path: home.join(".codex/config.toml"),
+            config_path: crate::core::home::resolve_codex_dir()
+                .unwrap_or_else(|| home.join(".codex"))
+                .join("config.toml"),
             detect_path: detect_codex_path(home),
             config_type: ConfigType::Codex,
         },
@@ -335,7 +337,7 @@ pub fn detect_claude_path() -> PathBuf {
 }
 
 pub fn detect_codex_path(home: &Path) -> PathBuf {
-    let codex_dir = home.join(".codex");
+    let codex_dir = crate::core::home::resolve_codex_dir().unwrap_or_else(|| home.join(".codex"));
     if codex_dir.exists() {
         return codex_dir;
     }

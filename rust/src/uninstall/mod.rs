@@ -205,7 +205,7 @@ fn cleanup_bak_files(home: &Path) {
         crate::core::editor_registry::claude_state_dir(home),
         home.join(".gemini"),
         home.join(".gemini/antigravity"),
-        home.join(".codex"),
+        crate::core::home::resolve_codex_dir().unwrap_or_else(|| home.join(".codex")),
         home.join(".codeium"),
         home.join(".codeium/windsurf"),
         home.join(".config/opencode"),

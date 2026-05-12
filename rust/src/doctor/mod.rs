@@ -271,8 +271,14 @@ fn mcp_config_locations(home: &std::path::Path) -> Vec<McpLocation> {
         },
         McpLocation {
             name: "Codex",
-            display: "~/.codex/config.toml".into(),
-            path: home.join(".codex").join("config.toml"),
+            display: {
+                let codex_dir =
+                    crate::core::home::resolve_codex_dir().unwrap_or_else(|| home.join(".codex"));
+                format!("{}/config.toml", codex_dir.display())
+            },
+            path: crate::core::home::resolve_codex_dir()
+                .unwrap_or_else(|| home.join(".codex"))
+                .join("config.toml"),
         },
         McpLocation {
             name: "Gemini CLI",
@@ -976,7 +982,12 @@ fn skill_files_outcome() -> Outcome {
     let candidates = [
         ("Claude Code", home.join(".claude/skills/lean-ctx/SKILL.md")),
         ("Cursor", home.join(".cursor/skills/lean-ctx/SKILL.md")),
-        ("Codex CLI", home.join(".codex/skills/lean-ctx/SKILL.md")),
+        (
+            "Codex CLI",
+            crate::core::home::resolve_codex_dir()
+                .unwrap_or_else(|| home.join(".codex"))
+                .join("skills/lean-ctx/SKILL.md"),
+        ),
         (
             "GitHub Copilot",
             home.join(".vscode/skills/lean-ctx/SKILL.md"),

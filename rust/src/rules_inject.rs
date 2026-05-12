@@ -394,7 +394,11 @@ fn is_tool_detected(target: &RulesTarget, home: &std::path::Path) -> bool {
             let state_dir = crate::core::editor_registry::claude_state_dir(home);
             crate::core::editor_registry::claude_mcp_json_path(home).exists() || state_dir.exists()
         }
-        "Codex CLI" => home.join(".codex").exists() || command_exists("codex"),
+        "Codex CLI" => {
+            let codex_dir =
+                crate::core::home::resolve_codex_dir().unwrap_or_else(|| home.join(".codex"));
+            codex_dir.exists() || command_exists("codex")
+        }
         "Cursor" => home.join(".cursor").exists(),
         "Windsurf" => home.join(".codeium/windsurf").exists(),
         "Gemini CLI" => home.join(".gemini").exists(),
@@ -681,7 +685,9 @@ fn build_skill_targets(home: &std::path::Path) -> Vec<SkillTarget> {
         SkillTarget {
             agent_key: "codex",
             display_name: "Codex CLI",
-            skill_dir: home.join(".codex/skills/lean-ctx"),
+            skill_dir: crate::core::home::resolve_codex_dir()
+                .unwrap_or_else(|| home.join(".codex"))
+                .join("skills/lean-ctx"),
         },
         SkillTarget {
             agent_key: "copilot",
@@ -699,7 +705,11 @@ fn is_skill_agent_detected(agent_key: &str, home: &std::path::Path) -> bool {
                 || crate::core::editor_registry::claude_state_dir(home).exists()
         }
         "cursor" => home.join(".cursor").exists(),
-        "codex" => home.join(".codex").exists() || command_exists("codex"),
+        "codex" => {
+            let codex_dir =
+                crate::core::home::resolve_codex_dir().unwrap_or_else(|| home.join(".codex"));
+            codex_dir.exists() || command_exists("codex")
+        }
         "copilot" => {
             home.join(".vscode").exists()
                 || crate::core::editor_registry::vscode_mcp_path().exists()

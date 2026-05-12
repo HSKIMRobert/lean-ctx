@@ -27,7 +27,8 @@ pub fn preview_proxy_cleanup(home: &Path) {
         }
     }
 
-    let codex_path = home.join(".codex").join("config.toml");
+    let codex_dir = crate::core::home::resolve_codex_dir().unwrap_or_else(|| home.join(".codex"));
+    let codex_path = codex_dir.join("config.toml");
     if let Ok(content) = std::fs::read_to_string(codex_path) {
         if content.contains("OPENAI_BASE_URL") {
             println!("  Would remove OPENAI_BASE_URL from Codex CLI config");
@@ -120,7 +121,8 @@ fn uninstall_claude_env(home: &Path, quiet: bool) {
 }
 
 fn uninstall_codex_env(home: &Path, quiet: bool) {
-    let config_path = home.join(".codex").join("config.toml");
+    let codex_dir = crate::core::home::resolve_codex_dir().unwrap_or_else(|| home.join(".codex"));
+    let config_path = codex_dir.join("config.toml");
     let existing = match std::fs::read_to_string(&config_path) {
         Ok(s) if !s.trim().is_empty() => s,
         _ => return,
@@ -246,7 +248,7 @@ fn install_codex_env(home: &Path, port: u16, quiet: bool) {
         return;
     }
 
-    let config_dir = home.join(".codex");
+    let config_dir = crate::core::home::resolve_codex_dir().unwrap_or_else(|| home.join(".codex"));
     let config_path = config_dir.join("config.toml");
 
     let existing = std::fs::read_to_string(&config_path).unwrap_or_default();

@@ -353,11 +353,34 @@ pub fn cmd_find(args: &[String]) {
 }
 
 pub fn cmd_ls(args: &[String]) {
-    let raw_path = args.first().map_or(".", std::string::String::as_str);
+    let mut raw_path = ".";
+    let mut depth = 3usize;
+    let mut show_hidden = false;
+    let mut i = 0;
+
+    while i < args.len() {
+        let arg = &args[i];
+        if arg == "--depth" {
+            i += 1;
+            if let Some(d) = args.get(i).and_then(|s| s.parse::<usize>().ok()) {
+                depth = d.min(10);
+            }
+        } else if arg == "--all" || arg == "-a" {
+            show_hidden = true;
+        } else if arg.starts_with('-') {
+            eprintln!("Error: lean-ctx ls does not support flag '{arg}'.\n");
+            eprintln!("lean-ctx ls is a compressed directory tree viewer for AI context, not a drop-in ls replacement.");
+            eprintln!("The shell hook (lean-ctx -t ls {arg} ...) passes flags to system ls transparently.\n");
+            eprintln!("Usage: lean-ctx ls [path] [--depth N] [--all]");
+            std::process::exit(1);
+        } else {
+            raw_path = arg;
+        }
+        i += 1;
+    }
+
     let abs_path = resolve_cli_path(raw_path);
     let path = abs_path.as_str();
-    let depth = 3usize;
-    let show_hidden = false;
 
     #[cfg(unix)]
     {

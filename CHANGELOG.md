@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.5.20] — 2026-05-12
+
+### Fixed
+
+- **Codex installer respects `CODEX_HOME`** — `lean-ctx init --agent codex` now reads the `CODEX_HOME` environment variable to determine the Codex config directory. Previously, all Codex files (`config.toml`, `hooks.json`, `AGENTS.md`, `LEAN-CTX.md`) were always written to `~/.codex`, even when `CODEX_HOME` pointed elsewhere. All 11 call sites updated to use `resolve_codex_dir()`. Fixes [#202](https://github.com/yvgude/lean-ctx/issues/202).
+- **Codex feature flag migrated from `codex_hooks` to `hooks`** — The installer now writes `hooks = true` (the current Codex feature flag) instead of the deprecated `codex_hooks = true`. Existing `codex_hooks = true` entries are automatically migrated to `hooks = true` during install. The uninstall parser also handles both variants. Fixes [#203](https://github.com/yvgude/lean-ctx/issues/203).
+- **`lean-ctx ls` rejects unsupported flags** — Flags like `-la`, `-l`, `-R` are now rejected with a clear error message and usage hint instead of being silently treated as path arguments. Supported flags: `--all`/`-a`, `--depth N`. The shell hook continues to pass `ls` flags transparently to the system `ls`. Fixes [#201](https://github.com/yvgude/lean-ctx/issues/201).
+- **Windows path format for inline rewrites** — `handle_rewrite_inline()` (used by the OpenCode plugin) now returns native OS paths instead of unconditionally converting to Unix/MSYS format (`/c/Users/...`). On Windows, `sanitize_exe_path()` normalizes MSYS paths via `normalize_tool_path()`. Bash shell hooks still use `to_bash_compatible_path()` as before. New `from_bash_to_native_path()` function provides the inverse conversion. Fixes [#204](https://github.com/yvgude/lean-ctx/issues/204).
+
+### Added
+
+- **Path normalization tests** — 11 new `normalize_tool_path()` tests covering MSYS drives, backslashes, double slashes, trailing slashes, and verbatim prefixes. 6 new `from_bash_to_native_path()` tests including Windows/Unix roundtrips. Platform-specific `sanitize_exe_path()` tests for Windows MSYS normalization.
+
 ## [3.5.19] — 2026-05-12
 
 ### Added

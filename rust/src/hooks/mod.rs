@@ -140,9 +140,10 @@ pub fn refresh_installed_hooks() {
         install_gemini_hook_config(&home);
     }
 
-    let codex_hooks = home.join(".codex/hooks/lean-ctx-rewrite-codex.sh").exists()
-        || home.join(".codex/hooks.json").exists()
-            && std::fs::read_to_string(home.join(".codex/hooks.json"))
+    let codex_dir = crate::core::home::resolve_codex_dir().unwrap_or_else(|| home.join(".codex"));
+    let codex_hooks = codex_dir.join("hooks/lean-ctx-rewrite-codex.sh").exists()
+        || codex_dir.join("hooks.json").exists()
+            && std::fs::read_to_string(codex_dir.join("hooks.json"))
                 .unwrap_or_default()
                 .contains("lean-ctx");
 
@@ -184,6 +185,12 @@ pub fn to_bash_compatible_path(path: &str) -> String {
     } else {
         path
     }
+}
+
+/// Convert a Unix/MSYS-style path (`/c/Users/...`) back to native Windows
+/// format (`C:/Users/...`). No-op for paths that don't match the pattern.
+pub fn from_bash_to_native_path(path: &str) -> String {
+    crate::core::pathutil::normalize_tool_path(path)
 }
 
 /// Normalize paths from any client format to a consistent OS-native form.
@@ -1011,5 +1018,52 @@ mod tests {
     #[test]
     fn unknown_agent_falls_back_to_mcp() {
         assert_eq!(recommend_hook_mode("unknown-agent"), HookMode::Mcp);
+    }
+
+    #[test]
+    fn from_bash_to_native_converts_msys_drive() {
+        assert_eq!(
+            from_bash_to_native_path("/c/Users/ABC/lean-ctx"),
+            "C:/Users/ABC/lean-ctx"
+        );
+    }
+
+    #[test]
+    fn from_bash_to_native_drive_d() {
+        assert_eq!(
+            from_bash_to_native_path("/d/Program Files/lean-ctx.exe"),
+            "D:/Program Files/lean-ctx.exe"
+        );
+    }
+
+    #[test]
+    fn from_bash_to_native_unix_path_unchanged() {
+        assert_eq!(
+            from_bash_to_native_path("/usr/local/bin/lean-ctx"),
+            "/usr/local/bin/lean-ctx"
+        );
+    }
+
+    #[test]
+    fn from_bash_to_native_bare_name() {
+        assert_eq!(from_bash_to_native_path("lean-ctx"), "lean-ctx");
+    }
+
+    #[test]
+    fn roundtrip_windows_path() {
+        let native = r"C:\Users\ABC\AppData\Local\lean-ctx\lean-ctx.exe";
+        let bash = to_bash_compatible_path(native);
+        assert_eq!(bash, "/c/Users/ABC/AppData/Local/lean-ctx/lean-ctx.exe");
+        let back = from_bash_to_native_path(&bash);
+        assert_eq!(back, "C:/Users/ABC/AppData/Local/lean-ctx/lean-ctx.exe");
+    }
+
+    #[test]
+    fn roundtrip_unix_path() {
+        let native = "/usr/local/bin/lean-ctx";
+        let bash = to_bash_compatible_path(native);
+        assert_eq!(bash, native);
+        let back = from_bash_to_native_path(&bash);
+        assert_eq!(back, native);
     }
 }

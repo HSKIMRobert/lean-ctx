@@ -5,15 +5,13 @@ use super::super::{
 };
 
 pub fn install_codex_hook() {
-    let Some(home) = crate::core::home::resolve_home_dir() else {
-        tracing::error!("Cannot resolve home directory");
+    let Some(codex_dir) = crate::core::home::resolve_codex_dir() else {
+        tracing::error!("Cannot resolve codex directory");
         return;
     };
-
-    let codex_dir = home.join(".codex");
     let _ = std::fs::create_dir_all(&codex_dir);
 
-    let hook_config_changed = install_codex_hook_config(&home);
+    let hook_config_changed = install_codex_hook_config(&codex_dir);
     let installed_docs = install_codex_instruction_docs(&codex_dir);
 
     if !mcp_server_quiet_mode() {
@@ -31,11 +29,10 @@ pub fn install_codex_hook() {
     }
 }
 
-fn install_codex_hook_config(home: &std::path::Path) -> bool {
+fn install_codex_hook_config(codex_dir: &std::path::Path) -> bool {
     let binary = resolve_binary_path();
     let session_start_cmd = format!("{binary} hook codex-session-start");
     let pre_tool_use_cmd = format!("{binary} hook codex-pretooluse");
-    let codex_dir = home.join(".codex");
     let hooks_json_path = codex_dir.join("hooks.json");
 
     let mut changed = false;
@@ -260,7 +257,7 @@ command = \"other\"
         let output =
             ensure_codex_hooks_enabled(input).expect("codex_hooks=false should be migrated");
 
-        assert!(output.contains("[features]\nother = true\ncodex_hooks = true\n"));
+        assert!(output.contains("[features]\nother = true\nhooks = true\n"));
         assert!(!output.contains("codex_hooks = false"));
     }
 
@@ -278,11 +275,9 @@ codex_hooks = true
         let output = ensure_codex_hooks_enabled(input)
             .expect("stray codex_hooks assignment should be normalized");
 
-        assert!(output.contains("[features]\nother = true\ncodex_hooks = true\n"));
-        assert_eq!(output.matches("codex_hooks = true").count(), 1);
-        assert!(
-            !output.contains("[mcp_servers.lean-ctx]\ncommand = \"lean-ctx\"\ncodex_hooks = true")
-        );
+        assert!(output.contains("[features]\nother = true\nhooks = true\n"));
+        assert_eq!(output.matches("hooks = true").count(), 1);
+        assert!(!output.contains("[mcp_servers.lean-ctx]\ncommand = \"lean-ctx\"\nhooks = true"));
     }
 
     #[test]
@@ -295,7 +290,7 @@ command = \"lean-ctx\"
         let output =
             ensure_codex_hooks_enabled(input).expect("missing features section should be added");
 
-        assert!(output.ends_with("\n[features]\ncodex_hooks = true\n"));
+        assert!(output.ends_with("\n[features]\nhooks = true\n"));
     }
 
     #[test]
@@ -323,9 +318,10 @@ command = \"lean-ctx\"
             result.contains("<!-- lean-ctx -->"),
             "lean-ctx block must be appended"
         );
+        let expected_ref = format!("{}/LEAN-CTX.md", tmp.display());
         assert!(
-            result.contains("~/.codex/LEAN-CTX.md"),
-            "lean-ctx reference must use absolute path"
+            result.contains(&expected_ref),
+            "lean-ctx reference must use codex_dir path"
         );
 
         let _ = std::fs::remove_dir_all(&tmp);
@@ -352,8 +348,9 @@ command = \"lean-ctx\"
             result.contains("Other Section"),
             "user content after block preserved"
         );
+        let expected_ref = format!("{}/LEAN-CTX.md", tmp.display());
         assert!(
-            result.contains("~/.codex/LEAN-CTX.md"),
+            result.contains(&expected_ref),
             "block updated to current reference"
         );
         assert!(

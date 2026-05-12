@@ -89,8 +89,10 @@ pub(super) fn install_codex_instruction_docs(codex_dir: &Path) -> bool {
     let lean_ctx_md = codex_dir.join("LEAN-CTX.md");
     let lean_ctx_content = codex_instruction_doc_content();
 
+    let rules_path = codex_dir.join("LEAN-CTX.md");
     let block = format!(
-        "{CODEX_AGENTS_BLOCK_START}\n## lean-ctx\n\nPrefer lean-ctx MCP tools over native equivalents for token savings.\nFull rules: `~/.codex/LEAN-CTX.md`\n{CODEX_AGENTS_BLOCK_END}\n"
+        "{CODEX_AGENTS_BLOCK_START}\n## lean-ctx\n\nPrefer lean-ctx MCP tools over native equivalents for token savings.\nFull rules: `{}`\n{CODEX_AGENTS_BLOCK_END}\n",
+        rules_path.display()
     );
 
     let mut changed = false;
@@ -279,7 +281,7 @@ fn clear_stray_codex_hooks_assignments(lines: &mut [String], indices: &[usize]) 
 fn insert_codex_hooks_assignment(lines: &mut Vec<String>, insert_index: Option<usize>) {
     if let Some(insert_index) = insert_index {
         let insert_at = trim_blank_lines_before(lines, insert_index);
-        lines.insert(insert_at, "codex_hooks = true".to_string());
+        lines.insert(insert_at, "hooks = true".to_string());
         return;
     }
 
@@ -287,7 +289,7 @@ fn insert_codex_hooks_assignment(lines: &mut Vec<String>, insert_index: Option<u
         lines.push(String::new());
     }
     lines.push("[features]".to_string());
-    lines.push("codex_hooks = true".to_string());
+    lines.push("hooks = true".to_string());
 }
 
 fn trim_blank_lines_before(lines: &[String], mut index: usize) -> usize {
@@ -335,9 +337,15 @@ fn parse_toml_section_name(trimmed_line: &str) -> Option<&str> {
 
 fn is_codex_hooks_assignment(trimmed_line: &str) -> bool {
     let without_comment = trimmed_line.split('#').next().unwrap_or("").trim();
-    without_comment
+    if without_comment
         .strip_prefix("codex_hooks")
         .is_some_and(|rest| rest.trim_start().starts_with('='))
+    {
+        return true;
+    }
+    without_comment
+        .strip_prefix("hooks")
+        .is_some_and(|rest| rest.trim_start().starts_with('=') && !rest.starts_with('_'))
 }
 
 fn rewrite_codex_hooks_line(line: &str) -> String {
@@ -349,8 +357,8 @@ fn rewrite_codex_hooks_line(line: &str) -> String {
         .filter(|comment| !comment.is_empty());
 
     match comment {
-        Some(comment) => format!("{indent}codex_hooks = true  {comment}"),
-        None => format!("{indent}codex_hooks = true"),
+        Some(comment) => format!("{indent}hooks = true  {comment}"),
+        None => format!("{indent}hooks = true"),
     }
 }
 

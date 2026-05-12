@@ -141,4 +141,72 @@ mod tests {
         let result = safe_canonicalize_or_self(p);
         assert_eq!(result, p.to_path_buf());
     }
+
+    #[test]
+    fn normalize_msys_path_to_native() {
+        assert_eq!(
+            normalize_tool_path("/c/Users/ABC/AppData/lean-ctx"),
+            "C:/Users/ABC/AppData/lean-ctx"
+        );
+    }
+
+    #[test]
+    fn normalize_msys_uppercase_drive() {
+        assert_eq!(
+            normalize_tool_path("/D/Program Files/lean-ctx.exe"),
+            "D:/Program Files/lean-ctx.exe"
+        );
+    }
+
+    #[test]
+    fn normalize_native_windows_path_unchanged() {
+        assert_eq!(
+            normalize_tool_path("C:/Users/ABC/lean-ctx.exe"),
+            "C:/Users/ABC/lean-ctx.exe"
+        );
+    }
+
+    #[test]
+    fn normalize_backslash_windows_path() {
+        assert_eq!(
+            normalize_tool_path(r"C:\Users\ABC\lean-ctx.exe"),
+            "C:/Users/ABC/lean-ctx.exe"
+        );
+    }
+
+    #[test]
+    fn normalize_unix_path_unchanged() {
+        assert_eq!(
+            normalize_tool_path("/usr/local/bin/lean-ctx"),
+            "/usr/local/bin/lean-ctx"
+        );
+    }
+
+    #[test]
+    fn normalize_double_slashes() {
+        assert_eq!(
+            normalize_tool_path("C:/Users//ABC//lean-ctx"),
+            "C:/Users/ABC/lean-ctx"
+        );
+    }
+
+    #[test]
+    fn normalize_trailing_slash_removed() {
+        assert_eq!(normalize_tool_path("/c/Users/ABC/"), "C:/Users/ABC");
+    }
+
+    #[test]
+    fn normalize_root_slash_preserved() {
+        assert_eq!(normalize_tool_path("/"), "/");
+    }
+
+    #[test]
+    fn normalize_drive_root_preserved() {
+        assert_eq!(normalize_tool_path("C:/"), "C:/");
+    }
+
+    #[test]
+    fn normalize_verbatim_with_msys() {
+        assert_eq!(normalize_tool_path(r"\\?\C:\Users\dev"), "C:/Users/dev");
+    }
 }

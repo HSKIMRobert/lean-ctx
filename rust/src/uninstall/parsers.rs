@@ -534,7 +534,13 @@ pub(super) fn remove_lean_ctx_from_toml(content: &str) -> String {
             continue;
         }
 
-        if trimmed.contains("codex_hooks") && trimmed.contains("true") {
+        let without_comment = trimmed.split('#').next().unwrap_or("").trim();
+        if (without_comment.contains("codex_hooks")
+            || without_comment
+                .strip_prefix("hooks")
+                .is_some_and(|rest| rest.trim_start().starts_with('=') && !rest.starts_with('_')))
+            && without_comment.contains("true")
+        {
             out.push_str(&line.replace("true", "false"));
             out.push('\n');
             continue;

@@ -29,3 +29,55 @@ pub fn resolve_home_dir() -> Option<PathBuf> {
 
     dirs::home_dir()
 }
+
+/// Resolve the Codex config directory.
+/// Respects `CODEX_HOME` env var (official Codex CLI feature).
+/// Falls back to `~/.codex` when unset or empty.
+pub fn resolve_codex_dir() -> Option<PathBuf> {
+    if let Ok(val) = std::env::var("CODEX_HOME") {
+        let trimmed = val.trim();
+        if !trimmed.is_empty() {
+            return Some(PathBuf::from(trimmed));
+        }
+    }
+    resolve_home_dir().map(|h| h.join(".codex"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_codex_dir_respects_env_var() {
+        let _guard = env_lock();
+        std::env::set_var("CODEX_HOME", "/tmp/custom-codex");
+        let result = resolve_codex_dir();
+        assert_eq!(result, Some(PathBuf::from("/tmp/custom-codex")));
+        std::env::remove_var("CODEX_HOME");
+    }
+
+    #[test]
+    fn resolve_codex_dir_ignores_empty_env() {
+        let _guard = env_lock();
+        std::env::set_var("CODEX_HOME", "  ");
+        let result = resolve_codex_dir();
+        assert!(result.is_some());
+        assert!(result.unwrap().ends_with(".codex"));
+        std::env::remove_var("CODEX_HOME");
+    }
+
+    #[test]
+    fn resolve_codex_dir_falls_back_to_home() {
+        let _guard = env_lock();
+        std::env::remove_var("CODEX_HOME");
+        let result = resolve_codex_dir();
+        assert!(result.is_some());
+        assert!(result.unwrap().ends_with(".codex"));
+    }
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        LOCK.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
