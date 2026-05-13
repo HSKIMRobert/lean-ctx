@@ -595,19 +595,20 @@ fn bench_rrf_eviction_vs_legacy() {
     let now = Instant::now();
     let keys: Vec<String> = (0..10).map(|i| format!("file_{i}.rs")).collect();
     let entries: Vec<lean_ctx::core::cache::CacheEntry> = (0..10)
-        .map(|i| lean_ctx::core::cache::CacheEntry {
-            content: format!("content_{i}"),
-            hash: format!("hash_{i}"),
-            line_count: i + 1,
-            original_tokens: (i + 1) * 100,
-            read_count: (10 - i) as u32,
-            path: format!("/file_{i}.rs"),
-            last_access: now
+        .map(|i| {
+            let mut e = lean_ctx::core::cache::CacheEntry::new(
+                &format!("content_{i}"),
+                format!("hash_{i}"),
+                i + 1,
+                (i + 1) * 100,
+                format!("/file_{i}.rs"),
+                None,
+            );
+            e.read_count = (10 - i) as u32;
+            e.last_access = now
                 .checked_sub(Duration::from_secs(i as u64))
-                .unwrap_or(now),
-            stored_mtime: None,
-            compressed_outputs: std::collections::HashMap::new(),
-            full_content_delivered: false,
+                .unwrap_or(now);
+            e
         })
         .collect();
 
@@ -659,18 +660,14 @@ fn bench_rrf_eviction_handles_single_entry() {
 
     let now = Instant::now();
     let key = "solo.rs".to_string();
-    let entry = lean_ctx::core::cache::CacheEntry {
-        content: "single".to_string(),
-        hash: "h".to_string(),
-        line_count: 1,
-        original_tokens: 50,
-        read_count: 1,
-        path: "/solo.rs".to_string(),
-        last_access: now,
-        stored_mtime: None,
-        compressed_outputs: std::collections::HashMap::new(),
-        full_content_delivered: false,
-    };
+    let entry = lean_ctx::core::cache::CacheEntry::new(
+        "single",
+        "h".to_string(),
+        1,
+        50,
+        "/solo.rs".to_string(),
+        None,
+    );
 
     let refs: Vec<(&String, &lean_ctx::core::cache::CacheEntry)> = vec![(&key, &entry)];
     let scores = lean_ctx::core::cache::eviction_scores_rrf(&refs, now);

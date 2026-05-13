@@ -23,7 +23,8 @@ fn apply_dedup(cache: &mut SessionCache) -> String {
 
     let mut block_occurrences: HashMap<String, Vec<(String, usize)>> = HashMap::new();
     for (path, entry) in &entries {
-        let lines: Vec<&str> = entry.content.lines().collect();
+        let full_content = entry.content();
+        let lines: Vec<&str> = full_content.lines().collect();
         for (idx, chunk) in lines.chunks(5).enumerate() {
             if chunk.len() == 5 {
                 let block = chunk.join("\n");
@@ -87,7 +88,8 @@ fn analyze(cache: &SessionCache) -> String {
     let mut boilerplate_blocks: HashMap<String, Vec<String>> = HashMap::new();
 
     for (path, entry) in &entries {
-        let lines: Vec<&str> = entry.content.lines().collect();
+        let full_content = entry.content();
+        let lines: Vec<&str> = full_content.lines().collect();
 
         let imports: Vec<&str> = lines
             .iter()
@@ -189,7 +191,7 @@ fn analyze(cache: &SessionCache) -> String {
     // TF-IDF cosine similarity analysis for semantic duplicates
     let file_pairs: Vec<(String, String)> = entries
         .iter()
-        .map(|(path, entry)| ((*path).clone(), entry.content.clone()))
+        .map(|(path, entry)| ((*path).clone(), entry.content()))
         .collect();
     let semantic_dups = codebook::find_semantic_duplicates(&file_pairs, 0.75);
     if !semantic_dups.is_empty() {

@@ -15,10 +15,10 @@ fn max_cache_tokens() -> usize {
         .unwrap_or(500_000)
 }
 
-/// A cached file read: content, hash, token count, and access metadata.
+/// A cached file read: zstd-compressed content, hash, token count, and access metadata.
 #[derive(Clone, Debug)]
 pub struct CacheEntry {
-    pub content: String,
+    compressed_content: Vec<u8>,
     pub hash: String,
     pub line_count: usize,
     pub original_tokens: usize,
@@ -31,6 +31,60 @@ pub struct CacheEntry {
     /// Whether full (uncompressed) content was already delivered for this hash.
     /// Prevents cache-stub loops when upgrading from compressed to full mode.
     pub full_content_delivered: bool,
+}
+
+const ZSTD_LEVEL: i32 = 3;
+
+fn zstd_compress(data: &str) -> Vec<u8> {
+    zstd::encode_all(data.as_bytes(), ZSTD_LEVEL).unwrap_or_else(|_| data.as_bytes().to_vec())
+}
+
+fn zstd_decompress(data: &[u8]) -> String {
+    zstd::decode_all(data)
+        .ok()
+        .and_then(|v| String::from_utf8(v).ok())
+        .unwrap_or_default()
+}
+
+impl CacheEntry {
+    /// Creates a new entry with zstd-compressed content.
+    pub fn new(
+        content: &str,
+        hash: String,
+        line_count: usize,
+        original_tokens: usize,
+        path: String,
+        stored_mtime: Option<SystemTime>,
+    ) -> Self {
+        let compressed_content = zstd_compress(content);
+        Self {
+            compressed_content,
+            hash,
+            line_count,
+            original_tokens,
+            read_count: 1,
+            path,
+            last_access: Instant::now(),
+            stored_mtime,
+            compressed_outputs: HashMap::new(),
+            full_content_delivered: false,
+        }
+    }
+
+    /// Decompresses and returns the full file content.
+    pub fn content(&self) -> String {
+        zstd_decompress(&self.compressed_content)
+    }
+
+    /// Replaces the stored content with new zstd-compressed data.
+    pub fn set_content(&mut self, content: &str) {
+        self.compressed_content = zstd_compress(content);
+    }
+
+    /// Approximate RAM usage of the compressed content in bytes.
+    pub fn compressed_size(&self) -> usize {
+        self.compressed_content.len()
+    }
 }
 
 /// Result of a cache store operation, indicating whether it was a hit or new entry.
@@ -248,7 +302,7 @@ impl SessionCache {
     pub fn get_full_content(&self, path: &str) -> Option<String> {
         self.entries
             .get(&normalize_key(path))
-            .map(|e| e.content.clone())
+            .map(CacheEntry::content)
     }
 
     /// Records a cache hit, updates access stats, and emits a cache-hit event.
@@ -278,11 +332,11 @@ impl SessionCache {
     }
 
     /// Stores file content in the cache; returns a hit if content hash matches.
-    pub fn store(&mut self, path: &str, content: String) -> StoreResult {
+    pub fn store(&mut self, path: &str, content: &str) -> StoreResult {
         let key = normalize_key(path);
-        let hash = compute_md5(&content);
+        let hash = compute_md5(content);
         let line_count = content.lines().count();
-        let original_tokens = count_tokens(&content);
+        let original_tokens = count_tokens(content);
         let stored_mtime = std::fs::metadata(path).and_then(|m| m.modified()).ok();
         let now = Instant::now();
 
@@ -313,7 +367,7 @@ impl SessionCache {
                 };
             }
             existing.compressed_outputs.clear();
-            existing.content = content;
+            existing.set_content(content);
             existing.hash = hash;
             existing.line_count = line_count;
             existing.original_tokens = original_tokens;
@@ -335,18 +389,14 @@ impl SessionCache {
         self.evict_if_needed(original_tokens);
         self.get_file_ref(&key);
 
-        let entry = CacheEntry {
+        let entry = CacheEntry::new(
             content,
             hash,
             line_count,
             original_tokens,
-            read_count: 1,
-            path: key.clone(),
-            last_access: now,
+            key.clone(),
             stored_mtime,
-            compressed_outputs: HashMap::new(),
-            full_content_delivered: false,
-        };
+        );
 
         self.entries.insert(key, entry);
         self.stats.files_tracked += 1;
@@ -528,7 +578,7 @@ mod tests {
     #[test]
     fn cache_stores_and_retrieves() {
         let mut cache = SessionCache::new();
-        let result = cache.store("/test/file.rs", "fn main() {}".to_string());
+        let result = cache.store("/test/file.rs", "fn main() {}");
         assert!(!result.was_hit);
         assert_eq!(result.line_count, 1);
         assert!(cache.get("/test/file.rs").is_some());
@@ -537,16 +587,16 @@ mod tests {
     #[test]
     fn cache_hit_on_same_content() {
         let mut cache = SessionCache::new();
-        cache.store("/test/file.rs", "content".to_string());
-        let result = cache.store("/test/file.rs", "content".to_string());
+        cache.store("/test/file.rs", "content");
+        let result = cache.store("/test/file.rs", "content");
         assert!(result.was_hit, "same content should be a cache hit");
     }
 
     #[test]
     fn cache_miss_on_changed_content() {
         let mut cache = SessionCache::new();
-        cache.store("/test/file.rs", "old content".to_string());
-        let result = cache.store("/test/file.rs", "new content".to_string());
+        cache.store("/test/file.rs", "old content");
+        let result = cache.store("/test/file.rs", "new content");
         assert!(!result.was_hit, "changed content should not be a cache hit");
     }
 
@@ -561,8 +611,8 @@ mod tests {
     #[test]
     fn cache_clear_resets_everything() {
         let mut cache = SessionCache::new();
-        cache.store("/a.rs", "a".to_string());
-        cache.store("/b.rs", "b".to_string());
+        cache.store("/a.rs", "a");
+        cache.store("/b.rs", "b");
         let count = cache.clear();
         assert_eq!(count, 2);
         assert!(cache.get("/a.rs").is_none());
@@ -572,7 +622,7 @@ mod tests {
     #[test]
     fn cache_invalidate_removes_entry() {
         let mut cache = SessionCache::new();
-        cache.store("/test.rs", "test".to_string());
+        cache.store("/test.rs", "test");
         assert!(cache.invalidate("/test.rs"));
         assert!(!cache.invalidate("/nonexistent.rs"));
     }
@@ -580,8 +630,8 @@ mod tests {
     #[test]
     fn cache_stats_track_correctly() {
         let mut cache = SessionCache::new();
-        cache.store("/a.rs", "hello".to_string());
-        cache.store("/a.rs", "hello".to_string()); // hit
+        cache.store("/a.rs", "hello");
+        cache.store("/a.rs", "hello"); // hit
         let stats = cache.get_stats();
         assert_eq!(stats.total_reads, 2);
         assert_eq!(stats.cache_hits, 1);
@@ -603,29 +653,11 @@ mod tests {
         let now = Instant::now();
         let key_a = "a.rs".to_string();
         let key_b = "b.rs".to_string();
-        let recent = CacheEntry {
-            content: "a".to_string(),
-            hash: "h1".to_string(),
-            line_count: 1,
-            original_tokens: 10,
-            read_count: 1,
-            path: "/a.rs".to_string(),
-            last_access: now,
-            stored_mtime: None,
-            compressed_outputs: HashMap::new(),
-            full_content_delivered: false,
-        };
-        let old = CacheEntry {
-            content: "b".to_string(),
-            hash: "h2".to_string(),
-            line_count: 1,
-            original_tokens: 10,
-            read_count: 1,
-            path: "/b.rs".to_string(),
-            last_access: base,
-            stored_mtime: None,
-            compressed_outputs: HashMap::new(),
-            full_content_delivered: false,
+        let recent = CacheEntry::new("a", "h1".to_string(), 1, 10, "/a.rs".to_string(), None);
+        let old = {
+            let mut e = CacheEntry::new("b", "h2".to_string(), 1, 10, "/b.rs".to_string(), None);
+            e.last_access = base;
+            e
         };
         let entries: Vec<(&String, &CacheEntry)> = vec![(&key_a, &recent), (&key_b, &old)];
         let scores = eviction_scores_rrf(&entries, now);
@@ -642,30 +674,12 @@ mod tests {
         let now = Instant::now();
         let key_a = "a.rs".to_string();
         let key_b = "b.rs".to_string();
-        let frequent = CacheEntry {
-            content: "a".to_string(),
-            hash: "h1".to_string(),
-            line_count: 1,
-            original_tokens: 10,
-            read_count: 20,
-            path: "/a.rs".to_string(),
-            last_access: now,
-            stored_mtime: None,
-            compressed_outputs: HashMap::new(),
-            full_content_delivered: false,
+        let frequent = {
+            let mut e = CacheEntry::new("a", "h1".to_string(), 1, 10, "/a.rs".to_string(), None);
+            e.read_count = 20;
+            e
         };
-        let rare = CacheEntry {
-            content: "b".to_string(),
-            hash: "h2".to_string(),
-            line_count: 1,
-            original_tokens: 10,
-            read_count: 1,
-            path: "/b.rs".to_string(),
-            last_access: now,
-            stored_mtime: None,
-            compressed_outputs: HashMap::new(),
-            full_content_delivered: false,
-        };
+        let rare = CacheEntry::new("b", "h2".to_string(), 1, 10, "/b.rs".to_string(), None);
         let entries: Vec<(&String, &CacheEntry)> = vec![(&key_a, &frequent), (&key_b, &rare)];
         let scores = eviction_scores_rrf(&entries, now);
         let score_a = scores.iter().find(|(p, _)| p == "a.rs").unwrap().1;
@@ -681,11 +695,11 @@ mod tests {
         std::env::set_var("LEAN_CTX_CACHE_MAX_TOKENS", "50");
         let mut cache = SessionCache::new();
         let big_content = "a]".repeat(30); // ~30 tokens
-        cache.store("/old.rs", big_content);
+        cache.store("/old.rs", &big_content);
         // /old.rs now in cache with ~30 tokens
 
         let new_content = "b ".repeat(30); // ~30 tokens incoming
-        cache.store("/new.rs", new_content);
+        cache.store("/new.rs", &new_content);
         // should have evicted /old.rs to make room
         // (total would be ~60 which exceeds 50)
 
@@ -705,7 +719,7 @@ mod tests {
 
         std::fs::write(&path, "one").unwrap();
         let mut cache = SessionCache::new();
-        cache.store(&p, "one".to_string());
+        cache.store(&p, "one");
 
         let entry = cache.get(&p).unwrap();
         assert!(!is_cache_entry_stale(&p, entry.stored_mtime));
@@ -721,7 +735,7 @@ mod tests {
     #[test]
     fn compressed_outputs_cached_and_retrieved() {
         let mut cache = SessionCache::new();
-        cache.store("/test.rs", "fn main() {}".to_string());
+        cache.store("/test.rs", "fn main() {}");
         cache.set_compressed("/test.rs", "map", "compressed map output".to_string());
         assert_eq!(
             cache.get_compressed("/test.rs", "map"),
@@ -733,21 +747,21 @@ mod tests {
     #[test]
     fn compressed_outputs_cleared_on_content_change() {
         let mut cache = SessionCache::new();
-        cache.store("/test.rs", "old content".to_string());
+        cache.store("/test.rs", "old content");
         cache.set_compressed("/test.rs", "map", "old map".to_string());
         assert!(cache.get_compressed("/test.rs", "map").is_some());
 
-        cache.store("/test.rs", "new content".to_string());
+        cache.store("/test.rs", "new content");
         assert_eq!(cache.get_compressed("/test.rs", "map"), None);
     }
 
     #[test]
     fn compressed_outputs_survive_same_content_store() {
         let mut cache = SessionCache::new();
-        cache.store("/test.rs", "content".to_string());
+        cache.store("/test.rs", "content");
         cache.set_compressed("/test.rs", "map", "cached map".to_string());
 
-        let result = cache.store("/test.rs", "content".to_string());
+        let result = cache.store("/test.rs", "content");
         assert!(result.was_hit);
         assert_eq!(
             cache.get_compressed("/test.rs", "map"),
@@ -758,7 +772,7 @@ mod tests {
     #[test]
     fn compressed_outputs_cleared_on_invalidate() {
         let mut cache = SessionCache::new();
-        cache.store("/test.rs", "content".to_string());
+        cache.store("/test.rs", "content");
         cache.set_compressed("/test.rs", "signatures", "cached sigs".to_string());
         cache.invalidate("/test.rs");
         assert_eq!(cache.get_compressed("/test.rs", "signatures"), None);
@@ -767,7 +781,7 @@ mod tests {
     #[test]
     fn compressed_outputs_cleared_on_clear() {
         let mut cache = SessionCache::new();
-        cache.store("/a.rs", "a".to_string());
+        cache.store("/a.rs", "a");
         cache.set_compressed("/a.rs", "map", "map_a".to_string());
         cache.clear();
         assert_eq!(cache.get_compressed("/a.rs", "map"), None);

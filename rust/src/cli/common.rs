@@ -1,9 +1,25 @@
 pub(crate) fn print_savings(original: usize, sent: usize) {
-    let saved = original.saturating_sub(sent);
-    if original > 0 && saved > 0 {
-        let pct = (saved as f64 / original as f64 * 100.0).round() as usize;
-        println!("[{saved} tok saved ({pct}%)]");
+    let footer = crate::core::protocol::format_savings(original, sent);
+    if !footer.is_empty() {
+        println!("{footer}");
     }
+}
+
+/// Strip savings footers from daemon output when the CLI client has footer suppressed.
+pub(crate) fn filter_daemon_output(text: &str) -> String {
+    if crate::core::protocol::savings_footer_visible() {
+        return text.to_string();
+    }
+    text.lines()
+        .filter(|l| {
+            let t = l.trim();
+            !(t.starts_with('[')
+                && t.contains("tok")
+                && t.ends_with(']')
+                && (t.contains("tok saved") || t.contains("lean-ctx:") || t.contains("vs native")))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 pub fn load_shell_history_pub() -> Vec<String> {

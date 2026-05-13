@@ -134,7 +134,11 @@ impl LeanCtxServer {
                 };
                 self.record_call("ctx_shell", original, saved, mode).await;
 
-                let savings_note = if !minimal && !raw && saved > 0 {
+                let savings_note = if !minimal
+                    && !raw
+                    && saved > 0
+                    && crate::core::protocol::savings_footer_visible()
+                {
                     format!("\n[saved {saved} tokens vs native Shell]")
                 } else {
                     String::new()
@@ -255,11 +259,12 @@ impl LeanCtxServer {
                 let sent = crate::core::tokens::count_tokens(&result);
                 let saved = original.saturating_sub(sent);
                 self.record_call("ctx_search", original, saved, None).await;
-                let savings_note = if !minimal && saved > 0 {
-                    format!("\n[saved {saved} tokens vs native Grep]")
-                } else {
-                    String::new()
-                };
+                let savings_note =
+                    if !minimal && saved > 0 && crate::core::protocol::savings_footer_visible() {
+                        format!("\n[saved {saved} tokens vs native Grep]")
+                    } else {
+                        String::new()
+                    };
                 let repeat_hint = self
                     .autonomy
                     .track_search(&pattern, &path)

@@ -69,7 +69,7 @@ fn handle_push(
         if let Some(entry) = cache.get(path) {
             shared_files.push(SharedFile {
                 path: entry.path.clone(),
-                content: entry.content.clone(),
+                content: entry.content(),
                 mode: "full".to_string(),
                 tokens: entry.original_tokens,
             });

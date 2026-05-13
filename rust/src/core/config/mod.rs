@@ -11,7 +11,7 @@ pub mod schema;
 mod serde_defaults;
 mod shell_activation;
 
-pub use memory::{MemoryCleanup, MemoryProfile};
+pub use memory::{MemoryCleanup, MemoryGuardConfig, MemoryProfile, SavingsFooter};
 pub use proxy::{is_local_proxy_url, normalize_url, normalize_url_opt, ProxyConfig, ProxyProvider};
 pub use shell_activation::ShellActivation;
 
@@ -330,6 +330,15 @@ pub struct Config {
     /// Override via LEAN_CTX_MEMORY_CLEANUP env var.
     #[serde(default)]
     pub memory_cleanup: MemoryCleanup,
+    /// Maximum percentage of system RAM that lean-ctx may use (default: 5).
+    /// Override via LEAN_CTX_MAX_RAM_PERCENT env var.
+    #[serde(default = "serde_defaults::default_max_ram_percent")]
+    pub max_ram_percent: u8,
+    /// Controls visibility of token savings footers in tool output.
+    /// Values: "auto" (default, suppress in MCP/show in CLI), "always", "never".
+    /// Override via LEAN_CTX_SAVINGS_FOOTER env var.
+    #[serde(default)]
+    pub savings_footer: SavingsFooter,
 }
 
 /// Settings for the zero-loss compression archive (large tool outputs saved to disk).
@@ -534,6 +543,8 @@ impl Default for Config {
             bm25_max_cache_mb: serde_defaults::default_bm25_max_cache_mb(),
             memory_profile: MemoryProfile::default(),
             memory_cleanup: MemoryCleanup::default(),
+            max_ram_percent: serde_defaults::default_max_ram_percent(),
+            savings_footer: SavingsFooter::default(),
         }
     }
 }

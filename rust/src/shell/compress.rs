@@ -1,5 +1,21 @@
 use crate::core::patterns;
+use crate::core::protocol;
 use crate::core::tokens::count_tokens;
+
+fn shell_savings_footer(output: &str, original: usize, compressed: usize) -> String {
+    if !protocol::savings_footer_visible() {
+        return output.to_string();
+    }
+    let saved = original.saturating_sub(compressed);
+    if original == 0 || saved == 0 {
+        return output.to_string();
+    }
+    let pct = (saved as f64 / original as f64 * 100.0).round() as usize;
+    if pct < 5 {
+        return output.to_string();
+    }
+    format!("{output}\n[lean-ctx: {original}→{compressed} tok, -{pct}%]")
+}
 
 const BUILTIN_PASSTHROUGH: &[&str] = &[
     // lean-ctx itself — never compress our own output
@@ -1060,14 +1076,7 @@ fn compress_if_beneficial(command: &str, output: &str) -> String {
             if !compressed.trim().is_empty() {
                 let compressed_tokens = count_tokens(&compressed);
                 if compressed_tokens >= min_output_tokens && compressed_tokens < original_tokens {
-                    let saved = original_tokens - compressed_tokens;
-                    let pct = (saved as f64 / original_tokens as f64 * 100.0).round() as usize;
-                    if pct >= 5 {
-                        return format!(
-                            "{compressed}\n[lean-ctx: {original_tokens}→{compressed_tokens} tok, -{pct}%]"
-                        );
-                    }
-                    return compressed;
+                    return shell_savings_footer(&compressed, original_tokens, compressed_tokens);
                 }
             }
         }
@@ -1093,14 +1102,7 @@ fn compress_if_beneficial(command: &str, output: &str) -> String {
                     tracing::warn!("compression removed >95% of small output, returning original");
                     return output.to_string();
                 }
-                let saved = original_tokens - compressed_tokens;
-                let pct = (saved as f64 / original_tokens as f64 * 100.0).round() as usize;
-                if pct >= 5 {
-                    return format!(
-                        "{compressed}\n[lean-ctx: {original_tokens}→{compressed_tokens} tok, -{pct}%]"
-                    );
-                }
-                return compressed;
+                return shell_savings_footer(&compressed, original_tokens, compressed_tokens);
             }
             if compressed_tokens < min_output_tokens {
                 return output.to_string();
@@ -1114,12 +1116,10 @@ fn compress_if_beneficial(command: &str, output: &str) -> String {
         if level.is_active() {
             let terse_result = crate::core::terse::pipeline::compress(output, &level, None);
             if terse_result.quality_passed && terse_result.savings_pct >= 3.0 {
-                let tok_before = terse_result.tokens_before;
-                let tok_after = terse_result.tokens_after;
-                let pct = terse_result.savings_pct.round() as usize;
-                return format!(
-                    "{}\n[lean-ctx: {tok_before}→{tok_after} tok, -{pct}%]",
-                    terse_result.output
+                return shell_savings_footer(
+                    &terse_result.output,
+                    terse_result.tokens_before as usize,
+                    terse_result.tokens_after as usize,
                 );
             }
         }
@@ -1136,14 +1136,7 @@ fn compress_if_beneficial(command: &str, output: &str) -> String {
             }
         }
         if cleaned_tokens < original_tokens {
-            let saved = original_tokens - cleaned_tokens;
-            let pct = (saved as f64 / original_tokens as f64 * 100.0).round() as usize;
-            if pct >= 5 {
-                return format!(
-                    "{cleaned}\n[lean-ctx: {original_tokens}→{cleaned_tokens} tok, -{pct}%]"
-                );
-            }
-            return cleaned;
+            return shell_savings_footer(&cleaned, original_tokens, cleaned_tokens);
         }
     }
 
@@ -1185,9 +1178,11 @@ fn truncate_verbatim(output: &str, original_tokens: usize) -> String {
         result.push('\n');
     }
     let truncated_tokens = count_tokens(&result);
-    result.push_str(&format!(
-        "[lean-ctx: {original_tokens}→{truncated_tokens} tok, verbatim truncated]"
-    ));
+    if protocol::savings_footer_visible() {
+        result.push_str(&format!(
+            "[lean-ctx: {original_tokens}→{truncated_tokens} tok, verbatim truncated]"
+        ));
+    }
     result
 }
 
@@ -1219,15 +1214,7 @@ fn truncate_with_safety_scan(lines: &[&str], original_tokens: usize) -> Option<S
     if ct >= original_tokens {
         return None;
     }
-    let saved = original_tokens - ct;
-    let pct = (saved as f64 / original_tokens as f64 * 100.0).round() as usize;
-    if pct >= 5 {
-        Some(format!(
-            "{compressed}\n[lean-ctx: {original_tokens}→{ct} tok, -{pct}%]"
-        ))
-    } else {
-        Some(compressed)
-    }
+    Some(shell_savings_footer(&compressed, original_tokens, ct))
 }
 
 /// Public wrapper for integration tests to exercise the compression pipeline.

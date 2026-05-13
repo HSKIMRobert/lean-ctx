@@ -15,12 +15,12 @@ pub fn handle(cache: &mut SessionCache, path: &str) -> String {
     let new_tokens = count_tokens(&content);
 
     let Some(cached_entry) = cache.get(path) else {
-        cache.store(path, content.clone());
+        cache.store(path, &content);
         return format!(
             "{short} [first read, {new_lines}L, {new_tokens} tok] — cached for future deltas"
         );
     };
-    let old_content = cached_entry.content.clone();
+    let old_content = cached_entry.content();
     let old_hash = cached_entry.hash.clone();
 
     let new_hash = compute_hash(&content);
@@ -65,7 +65,7 @@ pub fn handle(cache: &mut SessionCache, path: &str) -> String {
         }
     }
 
-    cache.store(path, content);
+    cache.store(path, &content);
 
     let delta_output = hunks.join("\n---\n");
     let delta_tokens = count_tokens(&delta_output);

@@ -131,6 +131,44 @@ impl BM25Index {
         }
     }
 
+    /// Approximate heap memory used by this index in bytes.
+    pub fn memory_usage_bytes(&self) -> usize {
+        let chunks_size: usize = self
+            .chunks
+            .iter()
+            .map(|c| {
+                c.content.len()
+                    + c.file_path.len()
+                    + c.symbol_name.len()
+                    + c.tokens.iter().map(String::len).sum::<usize>()
+                    + 64
+            })
+            .sum();
+        let inverted_size: usize = self
+            .inverted
+            .iter()
+            .map(|(k, v)| k.len() + v.len() * 16 + 32)
+            .sum();
+        let files_size: usize = self.files.keys().map(|k| k.len() + 24).sum();
+        let freqs_size: usize = self.doc_freqs.keys().map(|k| k.len() + 16).sum();
+        chunks_size + inverted_size + files_size + freqs_size
+    }
+
+    /// Drops all in-memory data, effectively freeing heap. Index can be re-loaded from disk.
+    pub fn unload(&mut self) {
+        let usage = self.memory_usage_bytes();
+        self.chunks = Vec::new();
+        self.inverted = HashMap::new();
+        self.doc_freqs = HashMap::new();
+        self.files = HashMap::new();
+        self.avg_doc_len = 0.0;
+        self.doc_count = 0;
+        tracing::info!(
+            "[bm25] unloaded index, freed ~{:.1}MB",
+            usage as f64 / 1_048_576.0
+        );
+    }
+
     /// Builds an index from explicit chunks (unit tests; avoids filesystem walking).
     #[cfg(test)]
     pub(crate) fn from_chunks_for_test(chunks: Vec<CodeChunk>) -> Self {

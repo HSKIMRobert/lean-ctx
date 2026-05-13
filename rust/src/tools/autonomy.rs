@@ -379,7 +379,7 @@ fn silent_preload_imports(
         if let Ok(content) = std::fs::read_to_string(&jailed) {
             let tokens = count_tokens(&content);
             if tokens < 5000 {
-                cache.store(&jailed_s, content);
+                cache.store(&jailed_s, &content);
             }
         }
     }

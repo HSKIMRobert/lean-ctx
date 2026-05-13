@@ -146,14 +146,53 @@ pub fn shorten_path(path: &str) -> String {
     path.to_string()
 }
 
+/// Whether savings footers should be suppressed in tool output.
+///
+/// In `auto` mode (default): suppressed when running as MCP server (agent context),
+/// shown when running as CLI (human context).
+static MCP_CONTEXT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Mark the current process as serving MCP tool calls (suppresses savings footers in `auto` mode).
+pub fn set_mcp_context(active: bool) {
+    MCP_CONTEXT.store(active, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Returns true if savings footers should be shown based on config + transport context.
+pub fn savings_footer_visible() -> bool {
+    let mode = super::config::SavingsFooter::effective();
+    match mode {
+        super::config::SavingsFooter::Always => true,
+        super::config::SavingsFooter::Never => false,
+        super::config::SavingsFooter::Auto => {
+            !MCP_CONTEXT.load(std::sync::atomic::Ordering::Relaxed)
+        }
+    }
+}
+
 /// Formats a token savings summary like `[42 tok saved (30%)]`.
+///
+/// Returns an empty string when savings footers are suppressed (MCP context in `auto` mode,
+/// or `savings_footer = "never"`).
 pub fn format_savings(original: usize, compressed: usize) -> String {
+    if !savings_footer_visible() {
+        return String::new();
+    }
     let saved = original.saturating_sub(compressed);
     if original == 0 {
         return "0 tok saved".to_string();
     }
     let pct = (saved as f64 / original as f64 * 100.0).round() as usize;
     format!("[{saved} tok saved ({pct}%)]")
+}
+
+/// Appends a savings footer to `output` with a newline separator, but only if the footer is non-empty.
+pub fn append_savings(output: &str, original: usize, compressed: usize) -> String {
+    let footer = format_savings(original, compressed);
+    if footer.is_empty() {
+        output.to_string()
+    } else {
+        format!("{output}\n{footer}")
+    }
 }
 
 /// A terse instruction code and its human-readable expansion.
@@ -339,5 +378,43 @@ mod tests {
             let encoded = encode_instructions(level);
             assert!(encoded.starts_with("MODE:"), "should start with MODE:");
         }
+    }
+
+    #[test]
+    fn format_savings_returns_bracket_when_always() {
+        super::MCP_CONTEXT.store(false, std::sync::atomic::Ordering::Relaxed);
+        std::env::set_var("LEAN_CTX_SAVINGS_FOOTER", "always");
+        let s = super::format_savings(100, 50);
+        assert!(
+            s.contains("50 tok saved"),
+            "expected savings bracket, got: {s}"
+        );
+        assert!(s.contains("50%"), "expected percentage, got: {s}");
+    }
+
+    #[test]
+    fn format_savings_returns_empty_when_never() {
+        std::env::set_var("LEAN_CTX_SAVINGS_FOOTER", "never");
+        let s = super::format_savings(100, 50);
+        assert!(
+            s.is_empty(),
+            "expected empty string with never mode, got: {s}"
+        );
+    }
+
+    #[test]
+    fn format_savings_suppressed_in_mcp_auto_mode() {
+        super::MCP_CONTEXT.store(true, std::sync::atomic::Ordering::Relaxed);
+        std::env::set_var("LEAN_CTX_SAVINGS_FOOTER", "auto");
+        let s = super::format_savings(100, 50);
+        assert!(s.is_empty(), "expected empty in MCP+auto, got: {s}");
+        super::MCP_CONTEXT.store(false, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    #[test]
+    fn append_savings_no_trailing_newline_when_suppressed() {
+        std::env::set_var("LEAN_CTX_SAVINGS_FOOTER", "never");
+        let result = super::append_savings("hello", 100, 50);
+        assert_eq!(result, "hello");
     }
 }

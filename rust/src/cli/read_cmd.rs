@@ -86,7 +86,7 @@ pub fn cmd_read(args: &[String]) {
                 "fresh": force_fresh,
             })),
         ) {
-            println!("{out}");
+            println!("{}", super::common::filter_daemon_output(&out));
             return;
         }
     }
@@ -281,6 +281,7 @@ pub fn cmd_grep(args: &[String]) {
                 "path": path,
             })),
         ) {
+            let out = super::common::filter_daemon_output(&out);
             println!("{out}");
             if out.trim_start().starts_with("0 matches") {
                 std::process::exit(1);
@@ -393,7 +394,7 @@ pub fn cmd_ls(args: &[String]) {
                 "show_hidden": show_hidden,
             })),
         ) {
-            println!("{out}");
+            println!("{}", super::common::filter_daemon_output(&out));
             return;
         }
     }

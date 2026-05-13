@@ -47,7 +47,7 @@ fn build_cli_cache() -> SessionCache {
     if let Some(session) = crate::core::session::SessionState::load_latest() {
         for ft in &session.files_touched {
             if let Ok(content) = std::fs::read_to_string(&ft.path) {
-                cache.store(&ft.path, content);
+                cache.store(&ft.path, &content);
             }
         }
     }

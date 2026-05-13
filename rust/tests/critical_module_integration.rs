@@ -160,7 +160,7 @@ fn cache_get_full_content_returns_stored_content() {
     use lean_ctx::core::cache::SessionCache;
 
     let mut cache = SessionCache::new();
-    cache.store("/test/file.rs", "fn main() {}".to_string());
+    cache.store("/test/file.rs", "fn main() {}");
     let content = cache.get_full_content("/test/file.rs");
     assert!(content.is_some());
     assert!(content.unwrap().contains("fn main"));

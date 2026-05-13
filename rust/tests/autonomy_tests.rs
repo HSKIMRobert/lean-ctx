@@ -148,7 +148,7 @@ fn auto_dedup_fires_at_threshold() {
     for i in 0..8 {
         let path = format!("test_file_{i}.rs");
         let content = format!("fn func_{i}() {{ println!(\"hello {i}\"); }}");
-        cache.store(&path, content);
+        cache.store(&path, &content);
     }
 
     maybe_auto_dedup(&state, &mut cache, "ctx_read");
@@ -165,7 +165,7 @@ fn auto_dedup_skips_below_threshold() {
 
     for i in 0..3 {
         let path = format!("test_file_{i}.rs");
-        cache.store(&path, format!("content {i}"));
+        cache.store(&path, &format!("content {i}"));
     }
 
     maybe_auto_dedup(&state, &mut cache, "ctx_read");
@@ -181,7 +181,7 @@ fn auto_dedup_disabled() {
     let mut cache = SessionCache::new();
 
     for i in 0..10 {
-        cache.store(&format!("f{i}.rs"), format!("c{i}"));
+        cache.store(&format!("f{i}.rs"), &format!("c{i}"));
     }
 
     maybe_auto_dedup(&state, &mut cache, "ctx_read");
@@ -240,7 +240,7 @@ fn config_defaults_all_enabled() {
 fn enrich_after_read_disabled() {
     let state = make_disabled_state();
     let mut cache = SessionCache::new();
-    cache.store("test.rs", "fn main() {}".to_string());
+    cache.store("test.rs", "fn main() {}");
 
     let result = enrich_after_read(
         &state,
@@ -258,7 +258,7 @@ fn enrich_after_read_disabled() {
 fn enrich_after_read_no_index() {
     let state = make_state();
     let mut cache = SessionCache::new();
-    cache.store("test.rs", "fn main() {}".to_string());
+    cache.store("test.rs", "fn main() {}");
 
     let result = enrich_after_read(
         &state,

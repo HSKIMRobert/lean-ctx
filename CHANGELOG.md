@@ -5,6 +5,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.5.23] — 2026-05-13
+
+### Added
+
+- **RAM Guardian — adaptive memory management** — New `memory_guard` module with RSS-based memory monitoring, peak tracking, and adaptive tiered eviction. Background guard task monitors memory pressure and triggers cache eviction at configurable thresholds (`max_ram_percent`, default 5%). Uses `jemalloc` as global allocator on Unix for aggressive memory return (`dirty_decay_ms:1000`, `muzzy_decay_ms:1000`). New `jemalloc_purge()` and `force_purge()` for explicit arena cleanup. Platform-specific RSS reading via `task_info()` (macOS) and `/proc/self/status` (Linux). New dependencies: `tikv-jemallocator`, `tikv-jemalloc-ctl`, `zstd`, `memmap2`.
+- **zstd-compressed session cache** — `CacheEntry` now stores content as zstd-compressed `Vec<u8>` instead of raw `String`, reducing in-memory cache footprint by ~60–80%. New `CacheEntry::new()`, `content()`, `set_content()` API. `SessionCache::store()` signature changed from `content: String` to `content: &str`.
+- **Memory estimation and unload for indexes** — `BM25Index::memory_usage_bytes()` / `unload()` and `EmbeddingIndex::memory_usage_bytes()` / `unload()` enable the RAM Guardian to reclaim index memory under pressure.
+- **Dashboard memory API** — New `/api/memory` endpoint exposing RSS, peak RSS, system RAM, pressure level, allocator type, and max sessions.
+- **`lean-ctx doctor` RAM Guardian diagnostics** — Doctor output now shows current RSS, system RAM, percentage, limit, and allocator type.
+- **Configurable savings footer suppression** — New `savings_footer` config option (`auto` | `always` | `never`) and `LEAN_CTX_SAVINGS_FOOTER` env var. In `auto` mode (default), token savings footers like `[42 tok saved (30%)]` are shown in CLI but suppressed in MCP/agent context to prevent context pollution. Addresses user feedback about footers being added to agent context.
+- **Explicit server shutdown** — `LeanCtxServer::shutdown()` clears cache, saves session, and triggers `force_purge()` on MCP client disconnect.
+- **Config schema: `max_ram_percent`, `savings_footer`** — Both new configuration keys exposed via `lean-ctx config schema` with types, defaults, descriptions, and env var overrides.
+
+### Fixed
+
+- **CLI savings footer bypass** — `cli/common.rs::print_savings()` was formatting footers independently of `protocol::format_savings()`, ignoring the `savings_footer` configuration. Now delegates to the central formatting function.
+- **Daemon-delegated output footer leakage** — When CLI commands (read, grep, ls) delegate to the daemon, the daemon's response could contain savings footers even when the CLI client has `LEAN_CTX_SAVINGS_FOOTER=never`. New `filter_daemon_output()` function strips footer lines client-side based on the client's own footer configuration.
+- **Shared session store cap** — Reduced `MAX_CACHED_SESSIONS` from 64 to 8 to prevent unbounded memory growth in multi-IDE setups.
+
+### Changed
+
+- **`CacheEntry` API** — Direct field access (`entry.content`) replaced with method call (`entry.content()`). All tools (`ctx_compress`, `ctx_delta`, `ctx_share`, `ctx_dedup`, `ctx_read`, `ctx_preload`) and tests updated.
+
 ## [3.5.22] — 2026-05-13
 
 ### Fixed

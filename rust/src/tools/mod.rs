@@ -420,6 +420,22 @@ impl LeanCtxServer {
         *self.last_call.write().await = Instant::now();
     }
 
+    /// Aggressive cleanup on connection drop: save session, clear all caches, purge allocator.
+    pub async fn shutdown(&self) {
+        {
+            let mut session = self.session.write().await;
+            let _ = session.save();
+        }
+        {
+            let mut cache = self.cache.write().await;
+            let count = cache.clear();
+            if count > 0 {
+                tracing::info!("[shutdown] cleared {count} cached file(s)");
+            }
+        }
+        crate::core::memory_guard::force_purge();
+    }
+
     /// Records a tool call's token savings without timing information.
     pub async fn record_call(
         &self,

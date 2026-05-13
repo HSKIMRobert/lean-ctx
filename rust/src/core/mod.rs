@@ -34,6 +34,7 @@ pub mod compression {
 pub mod episodic_memory;
 pub mod memory_boundary;
 pub mod memory_consolidation;
+pub mod memory_guard;
 pub mod memory_lifecycle;
 pub mod memory_policy;
 pub mod procedural_memory;

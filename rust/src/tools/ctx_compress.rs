@@ -30,7 +30,8 @@ pub fn handle(cache: &SessionCache, include_signatures: bool, crp_mode: CrpMode)
                 .extension()
                 .and_then(|e| e.to_str())
                 .unwrap_or("");
-            let sigs = signatures::extract_signatures(&entry.content, ext);
+            let content = entry.content();
+            let sigs = signatures::extract_signatures(&content, ext);
             let sig_names: Vec<String> = sigs
                 .iter()
                 .take(5)
@@ -69,9 +70,13 @@ pub fn handle(cache: &SessionCache, include_signatures: bool, crp_mode: CrpMode)
         stats.hit_rate()
     ));
 
-    let files_for_codebook: Vec<(&str, &str)> = entries
+    let contents: Vec<(String, String)> = entries
         .iter()
-        .map(|(p, e)| (p.as_str(), e.content.as_str()))
+        .map(|(p, e)| ((*p).clone(), e.content()))
+        .collect();
+    let files_for_codebook: Vec<(&str, &str)> = contents
+        .iter()
+        .map(|(p, c)| (p.as_str(), c.as_str()))
         .collect();
     let mut codebook = crate::core::codebook::Codebook::new();
     codebook.build_from_files(&files_for_codebook);

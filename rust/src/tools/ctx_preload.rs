@@ -158,7 +158,7 @@ pub fn handle(
         let line_count = content.lines().count();
         let file_tokens = count_tokens(&content);
 
-        let _ = cache.store(&jailed_s, content.clone());
+        let _ = cache.store(&jailed_s, &content);
 
         let mode = budget_to_mode(*token_budget, file_tokens);
 

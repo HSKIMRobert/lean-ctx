@@ -44,6 +44,38 @@ impl EmbeddingIndex {
         }
     }
 
+    /// Approximate heap memory used by this index in bytes.
+    pub fn memory_usage_bytes(&self) -> usize {
+        let entries_size: usize = self
+            .entries
+            .iter()
+            .map(|e| {
+                e.file_path.len()
+                    + e.symbol_name.len()
+                    + e.content_hash.len()
+                    + e.embedding.len() * 4
+                    + 48
+            })
+            .sum();
+        let hashes_size: usize = self
+            .file_hashes
+            .iter()
+            .map(|(k, v)| k.len() + v.len() + 32)
+            .sum();
+        entries_size + hashes_size
+    }
+
+    /// Drops all in-memory data to free heap. Index can be re-loaded from disk.
+    pub fn unload(&mut self) {
+        let usage = self.memory_usage_bytes();
+        self.entries = Vec::new();
+        self.file_hashes = HashMap::new();
+        tracing::info!(
+            "[embeddings] unloaded index, freed ~{:.1}MB",
+            usage as f64 / 1_048_576.0
+        );
+    }
+
     /// Load a previously saved index, or create a new empty one.
     pub fn load_or_new(root: &Path, dimensions: usize) -> Self {
         Self::load(root).unwrap_or_else(|| Self::new(dimensions))

@@ -110,6 +110,38 @@ fn get_routes(path: &str, query_str: &str) -> Option<(&'static str, &'static str
                 .unwrap_or_else(|_| "{\"error\":\"failed to serialize session\"}".to_string());
             Some(("200 OK", "application/json", json))
         }
+        "/api/memory" => {
+            let snap = crate::core::memory_guard::MemorySnapshot::capture();
+            let allocator = if cfg!(feature = "jemalloc") {
+                "jemalloc (dirty_decay: 1s)"
+            } else {
+                "system"
+            };
+            let payload = if let Some(s) = snap {
+                serde_json::json!({
+                    "rss_bytes": s.rss_bytes,
+                    "rss_mb": format!("{:.1}", s.rss_bytes as f64 / 1_048_576.0),
+                    "peak_rss_bytes": s.peak_rss_bytes,
+                    "peak_rss_mb": format!("{:.1}", s.peak_rss_bytes as f64 / 1_048_576.0),
+                    "system_ram_bytes": s.system_ram_bytes,
+                    "system_ram_gb": format!("{:.1}", s.system_ram_bytes as f64 / 1_073_741_824.0),
+                    "rss_limit_bytes": s.rss_limit_bytes,
+                    "rss_limit_mb": format!("{:.1}", s.rss_limit_bytes as f64 / 1_048_576.0),
+                    "rss_percent": format!("{:.2}", s.rss_percent),
+                    "pressure_level": s.pressure_level,
+                    "allocator": allocator,
+                    "max_sessions": crate::core::context_os::SharedSessionStore::max_sessions(),
+                })
+            } else {
+                serde_json::json!({
+                    "available": false,
+                    "reason": "RSS monitoring not supported on this platform",
+                    "allocator": allocator,
+                })
+            };
+            let json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+            Some(("200 OK", "application/json", json))
+        }
         "/api/intent" => {
             let session_path = crate::core::data_dir::lean_ctx_data_dir()
                 .ok()

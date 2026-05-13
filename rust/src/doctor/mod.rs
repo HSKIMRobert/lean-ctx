@@ -958,7 +958,14 @@ pub fn run() {
     passed += 1;
     print_check(&mem_cleanup);
 
-    let mut effective_total = total + 7; // session_state + integrity + cache_safety + bm25_health + daemon + mem_profile + mem_cleanup
+    // 18) RAM Guardian
+    let ram_outcome = ram_guardian_outcome();
+    if ram_outcome.ok {
+        passed += 1;
+    }
+    print_check(&ram_outcome);
+
+    let mut effective_total = total + 8; // session_state + integrity + cache_safety + bm25_health + daemon + mem_profile + mem_cleanup + ram_guardian
     effective_total += docker_outcomes.len() as u32;
     if pi.is_some() {
         effective_total += 1;
@@ -1422,6 +1429,34 @@ fn memory_cleanup_outcome() -> Outcome {
         ok: true,
         line: format!(
             "{BOLD}Memory cleanup{RST}  {GREEN}{label}{RST}  {DIM}({source}: {detail}){RST}"
+        ),
+    }
+}
+
+fn ram_guardian_outcome() -> Outcome {
+    let Some(snap) = crate::core::memory_guard::MemorySnapshot::capture() else {
+        return Outcome {
+            ok: true,
+            line: format!(
+                "{BOLD}RAM Guardian{RST}  {YELLOW}not available{RST}  {DIM}(platform unsupported){RST}"
+            ),
+        };
+    };
+    let allocator = if cfg!(feature = "jemalloc") {
+        "jemalloc"
+    } else {
+        "system"
+    };
+    let ok = snap.pressure_level == crate::core::memory_guard::PressureLevel::Normal;
+    let color = if ok { GREEN } else { RED };
+    Outcome {
+        ok,
+        line: format!(
+            "{BOLD}RAM Guardian{RST}  {color}{:.0} MB{RST} / {:.1} GB system ({:.1}%)  {DIM}limit: {:.0} MB ({allocator}){RST}",
+            snap.rss_bytes as f64 / 1_048_576.0,
+            snap.system_ram_bytes as f64 / 1_073_741_824.0,
+            snap.rss_percent,
+            snap.rss_limit_bytes as f64 / 1_048_576.0,
         ),
     }
 }

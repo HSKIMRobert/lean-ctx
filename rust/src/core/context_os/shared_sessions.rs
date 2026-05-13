@@ -8,7 +8,7 @@ use tokio::sync::RwLock;
 use crate::core::project_hash;
 use crate::core::session::SessionState;
 
-const MAX_CACHED_SESSIONS: usize = 64;
+const MAX_CACHED_SESSIONS: usize = 8;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SharedSessionKey {
@@ -113,6 +113,11 @@ impl SharedSessionStore {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .len()
+    }
+
+    /// Returns the max sessions limit for diagnostics.
+    pub fn max_sessions() -> usize {
+        MAX_CACHED_SESSIONS
     }
 
     pub fn persist_best_effort(

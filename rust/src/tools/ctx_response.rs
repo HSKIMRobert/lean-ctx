@@ -34,9 +34,13 @@ pub fn handle_with_context(
         return response.to_string();
     }
 
-    format!(
-        "{compressed}\n[response compressed: {original_tokens}→{compressed_tokens} tok, -{pct}%]"
-    )
+    if crate::core::protocol::savings_footer_visible() {
+        format!(
+            "{compressed}\n[response compressed: {original_tokens}→{compressed_tokens} tok, -{pct}%]"
+        )
+    } else {
+        compressed
+    }
 }
 
 fn compress_standard(text: &str, input_context: Option<&str>) -> String {

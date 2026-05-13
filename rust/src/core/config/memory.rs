@@ -98,3 +98,56 @@ impl MemoryProfile {
         !matches!(self, Self::Low)
     }
 }
+
+/// Controls visibility of token savings footers in tool output.
+///
+/// - `auto` (default): suppressed in MCP responses (agent context), shown in CLI (human context)
+/// - `always`: shown everywhere
+/// - `never`: suppressed everywhere
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum SavingsFooter {
+    #[default]
+    Auto,
+    Always,
+    Never,
+}
+
+impl SavingsFooter {
+    pub fn from_env() -> Option<Self> {
+        std::env::var("LEAN_CTX_SAVINGS_FOOTER").ok().and_then(|v| {
+            match v.trim().to_lowercase().as_str() {
+                "auto" => Some(Self::Auto),
+                "always" => Some(Self::Always),
+                "never" => Some(Self::Never),
+                _ => None,
+            }
+        })
+    }
+
+    pub fn effective() -> Self {
+        if let Some(env_val) = Self::from_env() {
+            return env_val;
+        }
+        let cfg = super::Config::load();
+        cfg.savings_footer.clone()
+    }
+}
+
+/// RSS-based memory guardian configuration.
+pub struct MemoryGuardConfig {
+    pub max_ram_percent: u8,
+}
+
+impl MemoryGuardConfig {
+    pub fn effective(config: &Config) -> Self {
+        let pct = std::env::var("LEAN_CTX_MAX_RAM_PERCENT")
+            .ok()
+            .and_then(|v| v.parse::<u8>().ok())
+            .unwrap_or(config.max_ram_percent)
+            .clamp(1, 50);
+        Self {
+            max_ram_percent: pct,
+        }
+    }
+}

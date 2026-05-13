@@ -220,7 +220,7 @@ fn handle_with_options_resolved(
                 output_tokens: sent,
             };
         }
-        let content = existing.content.clone();
+        let content = existing.content();
         let original_tokens = existing.original_tokens;
         let resolved_mode = if mode == "auto" {
             resolve_auto_mode(path, original_tokens, task)
@@ -278,7 +278,7 @@ fn handle_with_options_resolved(
     let similar_hint = find_similar_and_update_semantic_index(path, &content);
     let graph_hint = build_graph_related_hint(path);
 
-    let store_result = cache.store(path, content.clone());
+    let store_result = cache.store(path, &content);
 
     if mode == "full" {
         cache.mark_full_delivered(path);
@@ -500,9 +500,9 @@ fn handle_full_with_auto_delta(
 
     let old_content = cache
         .get(path)
-        .map(|e| e.content.clone())
+        .map(crate::core::cache::CacheEntry::content)
         .unwrap_or_default();
-    let store_result = cache.store(path, disk_content.clone());
+    let store_result = cache.store(path, &disk_content);
 
     if store_result.was_hit {
         if store_result.full_content_delivered {
@@ -936,7 +936,7 @@ fn extract_line_range(content: &str, range_str: &str) -> String {
 
 fn handle_diff(cache: &mut SessionCache, path: &str, file_ref: &str) -> (String, usize) {
     let short = protocol::shorten_path(path);
-    let old_content = cache.get(path).map(|e| e.content.clone());
+    let old_content = cache.get(path).map(crate::core::cache::CacheEntry::content);
 
     let new_content = match read_file_lossy(path) {
         Ok(c) => c,
@@ -955,7 +955,7 @@ fn handle_diff(cache: &mut SessionCache, path: &str, file_ref: &str) -> (String,
         format!("[first read]\n{new_content}")
     };
 
-    cache.store(path, new_content);
+    cache.store(path, &new_content);
 
     let sent = count_tokens(&diff_output);
     let savings = protocol::format_savings(original_tokens, sent);

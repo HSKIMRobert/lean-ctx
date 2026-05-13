@@ -1364,6 +1364,7 @@ fn run_mcp_server() -> Result<()> {
 
     rt.block_on(async {
         core::logging::init_mcp_logging();
+        core::protocol::set_mcp_context(true);
 
         tracing::info!(
             "lean-ctx v{} MCP server starting",
@@ -1372,6 +1373,7 @@ fn run_mcp_server() -> Result<()> {
 
         let transport =
             mcp_stdio::HybridStdioTransport::new_server(tokio::io::stdin(), tokio::io::stdout());
+        let server_handle = server.clone();
         let service = match server.serve(transport).await {
             Ok(s) => s,
             Err(e) => {
@@ -1402,6 +1404,8 @@ fn run_mcp_server() -> Result<()> {
                 }
             }
         }
+
+        server_handle.shutdown().await;
 
         core::stats::flush();
         core::heatmap::flush();

@@ -285,6 +285,24 @@ impl ConfigSchema {
                 "LEAN_CTX_MEMORY_CLEANUP",
             ),
         );
+        root.insert(
+            "savings_footer".into(),
+            key_enum_with_env(
+                &["auto", "always", "never"],
+                "auto",
+                "Controls visibility of token savings footers: auto (suppress in MCP, show in CLI), always, never",
+                "LEAN_CTX_SAVINGS_FOOTER",
+            ),
+        );
+        root.insert(
+            "max_ram_percent".into(),
+            key_with_env(
+                "u8",
+                serde_json::json!(cfg.max_ram_percent),
+                "Maximum percentage of system RAM that lean-ctx may use (1-50, default 5)",
+                "LEAN_CTX_MAX_RAM_PERCENT",
+            ),
+        );
         sections.insert(
             "root".into(),
             SectionSchema {

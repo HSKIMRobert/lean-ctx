@@ -738,6 +738,7 @@ fn build_app_router(cfg: &HttpServerConfig) -> Router {
 }
 
 pub async fn serve(cfg: HttpServerConfig) -> Result<()> {
+    crate::core::protocol::set_mcp_context(true);
     cfg.validate()?;
 
     let addr: SocketAddr = format!("{}:{}", cfg.host, cfg.port)
