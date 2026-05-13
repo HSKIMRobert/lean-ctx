@@ -95,7 +95,6 @@ Write, Delete, Glob → use normally. NEVER loop on Edit failures — switch to 
 // Rules for Cursor MDC format (dedicated file with frontmatter).
 // ---------------------------------------------------------------------------
 const RULES_CURSOR_MDC: &str = include_str!("templates/lean-ctx.mdc");
-const RULES_CURSOR_MDC_CLI_REDIRECT: &str = include_str!("templates/lean-ctx-cli-redirect.mdc");
 
 // ---------------------------------------------------------------------------
 
@@ -109,8 +108,6 @@ enum RulesFormat {
     SharedMarkdown,
     DedicatedMarkdown,
     CursorMdc,
-    DedicatedCliRedirect,
-    CursorMdcCliRedirect,
 }
 
 pub struct InjectResult {
@@ -270,8 +267,6 @@ fn rules_content(format: &RulesFormat) -> &'static str {
         RulesFormat::SharedMarkdown => RULES_SHARED,
         RulesFormat::DedicatedMarkdown => RULES_DEDICATED,
         RulesFormat::CursorMdc => RULES_CURSOR_MDC,
-        RulesFormat::DedicatedCliRedirect => crate::hooks::CLI_REDIRECT_RULES,
-        RulesFormat::CursorMdcCliRedirect => RULES_CURSOR_MDC_CLI_REDIRECT,
     }
 }
 
@@ -285,10 +280,7 @@ fn inject_rules(target: &RulesTarget) -> Result<RulesResult, String> {
             ensure_parent(&target.path)?;
             return match target.format {
                 RulesFormat::SharedMarkdown => replace_markdown_section(&target.path, &content),
-                RulesFormat::DedicatedMarkdown
-                | RulesFormat::DedicatedCliRedirect
-                | RulesFormat::CursorMdc
-                | RulesFormat::CursorMdcCliRedirect => {
+                RulesFormat::DedicatedMarkdown | RulesFormat::CursorMdc => {
                     write_dedicated(&target.path, rules_content(&target.format))
                 }
             };
@@ -299,10 +291,7 @@ fn inject_rules(target: &RulesTarget) -> Result<RulesResult, String> {
 
     match target.format {
         RulesFormat::SharedMarkdown => append_to_shared(&target.path),
-        RulesFormat::DedicatedMarkdown
-        | RulesFormat::DedicatedCliRedirect
-        | RulesFormat::CursorMdc
-        | RulesFormat::CursorMdcCliRedirect => {
+        RulesFormat::DedicatedMarkdown | RulesFormat::CursorMdc => {
             write_dedicated(&target.path, rules_content(&target.format))
         }
     }
@@ -512,21 +501,12 @@ fn detect_extension_installed(_home: &std::path::Path, extension_id: &str) -> bo
 // ---------------------------------------------------------------------------
 
 fn build_rules_targets(home: &std::path::Path) -> Vec<RulesTarget> {
-    let cursor_mode = crate::hooks::recommend_hook_mode("cursor");
-    let opencode_mode = crate::hooks::recommend_hook_mode("opencode");
-    let crush_mode = crate::hooks::recommend_hook_mode("crush");
-    let claude_mode = crate::hooks::recommend_hook_mode("claude");
-
     vec![
         // --- Shared config files (append-only) ---
         RulesTarget {
             name: "Claude Code",
             path: crate::core::editor_registry::claude_rules_dir(home).join("lean-ctx.md"),
-            format: if matches!(claude_mode, crate::hooks::HookMode::CliRedirect) {
-                RulesFormat::DedicatedCliRedirect
-            } else {
-                RulesFormat::DedicatedMarkdown
-            },
+            format: RulesFormat::DedicatedMarkdown,
         },
         RulesTarget {
             name: "Gemini CLI",
@@ -542,11 +522,7 @@ fn build_rules_targets(home: &std::path::Path) -> Vec<RulesTarget> {
         RulesTarget {
             name: "Cursor",
             path: home.join(".cursor/rules/lean-ctx.mdc"),
-            format: if matches!(cursor_mode, crate::hooks::HookMode::CliRedirect) {
-                RulesFormat::CursorMdcCliRedirect
-            } else {
-                RulesFormat::CursorMdc
-            },
+            format: RulesFormat::CursorMdc,
         },
         RulesTarget {
             name: "Windsurf",
@@ -571,11 +547,7 @@ fn build_rules_targets(home: &std::path::Path) -> Vec<RulesTarget> {
         RulesTarget {
             name: "OpenCode",
             path: home.join(".config/opencode/rules/lean-ctx.md"),
-            format: if matches!(opencode_mode, crate::hooks::HookMode::CliRedirect) {
-                RulesFormat::DedicatedCliRedirect
-            } else {
-                RulesFormat::DedicatedMarkdown
-            },
+            format: RulesFormat::DedicatedMarkdown,
         },
         RulesTarget {
             name: "Continue",
@@ -630,11 +602,7 @@ fn build_rules_targets(home: &std::path::Path) -> Vec<RulesTarget> {
         RulesTarget {
             name: "Crush",
             path: home.join(".config/crush/rules/lean-ctx.md"),
-            format: if matches!(crush_mode, crate::hooks::HookMode::CliRedirect) {
-                RulesFormat::DedicatedCliRedirect
-            } else {
-                RulesFormat::DedicatedMarkdown
-            },
+            format: RulesFormat::DedicatedMarkdown,
         },
     ]
 }

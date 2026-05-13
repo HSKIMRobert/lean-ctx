@@ -10,6 +10,10 @@ fn is_disabled() -> bool {
     std::env::var("LEAN_CTX_DISABLED").is_ok()
 }
 
+fn is_quiet() -> bool {
+    matches!(std::env::var("LEAN_CTX_QUIET"), Ok(v) if v.trim() == "1")
+}
+
 /// Mark this process as a hook child so the daemon-client never auto-starts
 /// the daemon from inside a hook (which would create zombie processes).
 pub fn mark_hook_environment() {
@@ -347,7 +351,7 @@ fn redirect_grep(tool_input: Option<&serde_json::Value>) {
     print!("{}", build_dual_allow_output());
 }
 
-const REDIRECT_SUBPROCESS_TIMEOUT: Duration = Duration::from_secs(3);
+const REDIRECT_SUBPROCESS_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Run a lean-ctx subprocess with a hard timeout. Returns stdout on success.
 /// Kills the child if it exceeds the timeout to prevent orphan processes.
@@ -490,12 +494,19 @@ pub fn handle_codex_pretooluse() {
     };
 
     if let Some(rewritten) = rewrite_candidate(&cmd, &binary) {
-        eprintln!("{}", codex_reroute_message(&rewritten));
+        if is_quiet() {
+            eprintln!("Re-run: {rewritten}");
+        } else {
+            eprintln!("{}", codex_reroute_message(&rewritten));
+        }
         std::process::exit(2);
     }
 }
 
 pub fn handle_codex_session_start() {
+    if is_quiet() {
+        return;
+    }
     println!(
         "For shell commands matched by lean-ctx compression rules, prefer `lean-ctx -c \"<command>\"`. If a Bash call is blocked, rerun it with the exact command suggested by the hook."
     );

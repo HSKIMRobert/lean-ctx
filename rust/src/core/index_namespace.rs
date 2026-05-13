@@ -91,7 +91,13 @@ fn migrate_dir_if_needed(old_dir: &Path, new_dir: &Path) {
 }
 
 fn verify_index_ownership(dir: &Path) -> bool {
-    let marker = dir.join("bm25_index.json");
+    let marker = if dir.join("bm25_index.bin.zst").exists() {
+        dir.join("bm25_index.bin.zst")
+    } else if dir.join("bm25_index.bin").exists() {
+        dir.join("bm25_index.bin")
+    } else {
+        dir.join("bm25_index.json")
+    };
     if !marker.exists() {
         return true;
     }

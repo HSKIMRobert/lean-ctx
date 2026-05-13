@@ -130,9 +130,21 @@ impl ProjectIndex {
 
     pub fn load(project_root: &str) -> Option<Self> {
         let dir = Self::index_dir(project_root)?;
-        let path = dir.join("index.json");
 
-        let content = std::fs::read_to_string(&path)
+        let zst_path = dir.join("index.json.zst");
+        if zst_path.exists() {
+            let compressed = std::fs::read(&zst_path).ok()?;
+            let data = zstd::decode_all(compressed.as_slice()).ok()?;
+            let content = String::from_utf8(data).ok()?;
+            let index: Self = serde_json::from_str(&content).ok()?;
+            if index.version != INDEX_VERSION {
+                return None;
+            }
+            return Some(index);
+        }
+
+        let json_path = dir.join("index.json");
+        let content = std::fs::read_to_string(&json_path)
             .or_else(|_| -> std::io::Result<String> {
                 let legacy_hash = short_hash(&normalize_project_root(project_root));
                 let legacy_dir = crate::core::data_dir::lean_ctx_data_dir()
@@ -151,6 +163,15 @@ impl ProjectIndex {
         if index.version != INDEX_VERSION {
             return None;
         }
+        // Auto-migrate: compress legacy JSON to zstd
+        if let Ok(compressed) = zstd::encode_all(content.as_bytes(), 9) {
+            let zst_tmp = zst_path.with_extension("zst.tmp");
+            if std::fs::write(&zst_tmp, &compressed).is_ok()
+                && std::fs::rename(&zst_tmp, &zst_path).is_ok()
+            {
+                let _ = std::fs::remove_file(&json_path);
+            }
+        }
         Some(index)
     }
 
@@ -159,7 +180,13 @@ impl ProjectIndex {
             .ok_or_else(|| "Cannot determine data directory".to_string())?;
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         let json = serde_json::to_string(self).map_err(|e| e.to_string())?;
-        std::fs::write(dir.join("index.json"), json).map_err(|e| e.to_string())
+        let compressed = zstd::encode_all(json.as_bytes(), 9).map_err(|e| format!("zstd: {e}"))?;
+        let target = dir.join("index.json.zst");
+        let tmp = target.with_extension("zst.tmp");
+        std::fs::write(&tmp, &compressed).map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, &target).map_err(|e| e.to_string())?;
+        let _ = std::fs::remove_file(dir.join("index.json"));
+        Ok(())
     }
 
     pub fn file_count(&self) -> usize {

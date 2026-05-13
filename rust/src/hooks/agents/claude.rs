@@ -90,19 +90,6 @@ Full rules: @rules/lean-ctx.md
 Verify setup: run `/mcp` to check lean-ctx is connected, `/memory` to confirm this file loaded.
 <!-- /lean-ctx -->";
 
-const CLAUDE_MD_BLOCK_CONTENT_CLI: &str = "\
-<!-- lean-ctx -->
-<!-- lean-ctx-claude-cli-v1 -->
-## lean-ctx — CLI-Redirect Mode
-
-Prefer lean-ctx CLI commands (no MCP schema overhead):
-- `lean-ctx read <path> [-m mode]` for cached reads (modes: full|map|signatures|diff|task|reference|aggressive|entropy|lines:N-M)
-- `lean-ctx -c \"<cmd>\"` for compressed shell output (95+ patterns)
-- `lean-ctx grep <pattern> <path>` / `lean-ctx ls <path>` / `lean-ctx find ...` / `lean-ctx diff ...`
-
-Native Edit/StrReplace stay unchanged. Write/Delete/Glob — use normally.
-<!-- /lean-ctx -->";
-
 fn install_claude_global_claude_md_for_mode(home: &std::path::Path, mode: HookMode) {
     let claude_dir = crate::core::editor_registry::claude_state_dir(home);
     let _ = std::fs::create_dir_all(&claude_dir);
@@ -110,11 +97,9 @@ fn install_claude_global_claude_md_for_mode(home: &std::path::Path, mode: HookMo
 
     let existing = std::fs::read_to_string(&claude_md_path).unwrap_or_default();
     let block = match mode {
-        HookMode::CliRedirect => CLAUDE_MD_BLOCK_CONTENT_CLI,
         HookMode::Mcp | HookMode::Hybrid => CLAUDE_MD_BLOCK_CONTENT_MCP,
     };
     let block_version = match mode {
-        HookMode::CliRedirect => "lean-ctx-claude-cli-v1",
         HookMode::Mcp | HookMode::Hybrid => CLAUDE_MD_BLOCK_VERSION,
     };
 
@@ -185,7 +170,6 @@ fn install_claude_rules_file_for_mode(home: &std::path::Path, mode: HookMode) {
     let rules_path = rules_dir.join("lean-ctx.md");
 
     let desired = match mode {
-        HookMode::CliRedirect => crate::hooks::CLI_REDIRECT_RULES,
         HookMode::Hybrid | HookMode::Mcp => crate::rules_inject::rules_dedicated_markdown(),
     };
     let existing = std::fs::read_to_string(&rules_path).unwrap_or_default();

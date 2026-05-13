@@ -6,15 +6,12 @@ mod support;
 /// Controls how hooks instruct agents to access lean-ctx functionality.
 ///
 /// * `Mcp` — MCP server only (extension/plugin-based agents without reliable shell).
-/// * `CliRedirect` — CLI-first; agent has reliable shell access, so bash
-///   commands are rewritten to `lean-ctx -c "…"`.
-/// * `Hybrid` — MCP server + CLI redirect (agent has shell, both paths active).
+/// * `Hybrid` — MCP server + shell hooks for command compression (best of both).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HookMode {
     #[default]
     Mcp,
-    CliRedirect,
     Hybrid,
 }
 
@@ -22,7 +19,6 @@ impl std::fmt::Display for HookMode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Mcp => write!(f, "MCP"),
-            Self::CliRedirect => write!(f, "CLI-redirect"),
             Self::Hybrid => write!(f, "Hybrid"),
         }
     }
@@ -32,7 +28,6 @@ impl HookMode {
     pub fn from_str_loose(s: &str) -> Option<Self> {
         match s.to_lowercase().replace('-', "").as_str() {
             "mcp" => Some(Self::Mcp),
-            "cliredirect" | "cli" => Some(Self::CliRedirect),
             "hybrid" => Some(Self::Hybrid),
             _ => None,
         }
@@ -41,10 +36,7 @@ impl HookMode {
     pub fn description(&self) -> &'static str {
         match self {
             Self::Mcp => "MCP server only (extension/plugin-based agents without reliable shell)",
-            Self::CliRedirect => {
-                "CLI-first (agent has shell access; commands rewritten to lean-ctx)"
-            }
-            Self::Hybrid => "MCP server + CLI redirect (agent has shell, both paths active)",
+            Self::Hybrid => "MCP server + shell hooks for command compression (best of both)",
         }
     }
 }
@@ -52,32 +44,20 @@ impl HookMode {
 /// Auto-detect the best hook mode for a given agent key based on its shell capabilities.
 ///
 /// Criteria (verified against provider docs May 2026):
-///   CliRedirect — agent has verified hooks for ALL tool types (bash + read + grep)
-///                 AND we can guarantee interception in every execution mode
-///   Hybrid      — MCP server (full Context OS) + CLI hooks where available
-///   Mcp         — agent has no reliable direct shell tool (e.g. IDE plugin only)
-///
-/// Hybrid is the safe default: it ensures graph, knowledge, sessions, and all
-/// background automations work (these require the MCP server). CLI-Redirect
-/// only for agents where hooks demonstrably intercept every tool call.
+///   Hybrid — MCP server (full Context OS) + shell hooks where available.
+///            Read/Search via MCP (reliable, cached). Shell via hooks (zero overhead).
+///   Mcp    — agent has no reliable direct shell tool (e.g. IDE plugin only)
 pub fn recommend_hook_mode(agent_key: &str) -> HookMode {
     match agent_key {
-        // CLI-Redirect: hooks verified to intercept ALL tool types (bash + read + grep)
-        // in every execution mode the agent offers.
-        // Cursor: hooks.json with Shell + Read|Grep matchers.
-        // Gemini CLI: BeforeTool for shell + read_file + grep + list_dir.
-        "cursor" | "gemini" => HookMode::CliRedirect,
-
-        // Hybrid: MCP for Context OS features + hooks/rules for shell compression.
-        // Codex: CLI variant has Bash hooks, but Desktop/Cloud variants need MCP.
-        //   Shared config (~/.codex/config.toml) → Hybrid covers all three.
-        // Claude Code: PreToolUse hooks don't fire in -p mode; needs MCP.
-        // CRUSH/Hermes: no hooks at all, rules only → need MCP as reliable path.
-        // OpenCode/Qoder: Bash hook only, no Read/Grep interception → need MCP.
-        // Pi: external package routing, can't verify → need MCP.
-        "codex" | "claude" | "claude-code" | "crush" | "hermes" | "opencode" | "pi" | "qoder"
-        | "windsurf" | "amp" | "cline" | "roo" | "copilot" | "kiro" | "qwen" | "trae"
-        | "antigravity" | "amazonq" | "verdent" => HookMode::Hybrid,
+        // Hybrid: MCP for reads/search + shell hooks for command compression.
+        // Cursor: hooks.json with Shell matcher + MCP for ctx_read/ctx_search.
+        // Gemini CLI: BeforeTool for shell + MCP for reads/search.
+        // Codex: CLI variant has Bash hooks, Desktop/Cloud variants use MCP.
+        // Claude Code: PreToolUse hooks for shell + MCP for reads/search.
+        // All other agents with shell access: shell hooks + MCP.
+        "cursor" | "gemini" | "codex" | "claude" | "claude-code" | "crush" | "hermes"
+        | "opencode" | "pi" | "qoder" | "windsurf" | "amp" | "cline" | "roo" | "copilot"
+        | "kiro" | "qwen" | "trae" | "antigravity" | "amazonq" | "verdent" => HookMode::Hybrid,
 
         // No reliable direct shell tool → MCP only
         _ => HookMode::Mcp,
@@ -268,38 +248,6 @@ exit 0
 const REDIRECT_SCRIPT_GENERIC: &str = r"#!/usr/bin/env bash
 # lean-ctx hook — all native tools pass through
 exit 0
-";
-
-pub(crate) const CLI_REDIRECT_RULES: &str = "\
-# lean-ctx — CLI-Redirect Mode
-
-PREFER lean-ctx CLI commands over MCP tools for token savings (no MCP schema overhead):
-
-| USE (via Shell/Bash) | INSTEAD OF (MCP) | Why |
-|---------------------|-------------------|-----|
-| `lean-ctx read <path>` | `ctx_read` | No MCP schema overhead, same caching |
-| `lean-ctx read <path> -m map` | `ctx_read(mode=\"map\")` | Compressed output via CLI |
-| `lean-ctx -c \"<cmd>\"` | `ctx_shell` | Pattern compression via CLI |
-| `lean-ctx grep <pattern> [path]` | `ctx_search` | Compact results via CLI |
-| `lean-ctx ls [path]` | `ctx_tree` | Directory maps via CLI |
-
-## Usage via Shell
-
-Run lean-ctx commands through your Shell/Bash tool:
-```
-lean-ctx read src/main.rs
-lean-ctx read src/main.rs -m signatures
-lean-ctx -c \"cargo test\"
-lean-ctx grep \"fn main\" src/
-lean-ctx ls src/
-```
-
-## Read modes (same as MCP):
-auto | full | map | signatures | diff | aggressive | entropy | task | reference | lines:N-M
-
-## File editing:
-Use native Edit/StrReplace — lean-ctx only handles READ operations.
-Write, Delete, Glob → use normally.
 ";
 
 pub(crate) const HYBRID_RULES: &str = "\
@@ -996,18 +944,18 @@ mod tests {
     }
 
     #[test]
-    fn codex_is_hybrid_not_cli_redirect() {
+    fn codex_is_hybrid() {
         assert_eq!(recommend_hook_mode("codex"), HookMode::Hybrid);
     }
 
     #[test]
-    fn cursor_remains_cli_redirect() {
-        assert_eq!(recommend_hook_mode("cursor"), HookMode::CliRedirect);
+    fn cursor_is_hybrid() {
+        assert_eq!(recommend_hook_mode("cursor"), HookMode::Hybrid);
     }
 
     #[test]
-    fn gemini_remains_cli_redirect() {
-        assert_eq!(recommend_hook_mode("gemini"), HookMode::CliRedirect);
+    fn gemini_is_hybrid() {
+        assert_eq!(recommend_hook_mode("gemini"), HookMode::Hybrid);
     }
 
     #[test]

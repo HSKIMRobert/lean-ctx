@@ -419,31 +419,6 @@ pub fn claude_code_instructions() -> String {
     build_claude_code_instructions()
 }
 
-pub fn build_cli_redirect_instructions() -> String {
-    let base = "\
-PREFER lean-ctx CLI commands over MCP tools (no schema overhead):\n\
-\n\
-Via Shell/Bash:\n\
-• lean-ctx read <path>                -> replaces ctx_read\n\
-• lean-ctx read <path> --mode map     -> replaces ctx_read(mode=\"map\")\n\
-• lean-ctx shell \"<cmd>\"              -> replaces ctx_shell\n\
-• lean-ctx search <pattern> <path>    -> replaces ctx_search\n\
-• lean-ctx tree <path>                -> replaces ctx_tree\n\
-\n\
-Edit files: native Edit/StrReplace. Write, Delete, Glob → use normally.\n\
-Read modes: auto|full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M";
-
-    let config = crate::core::config::Config::load();
-    let level = crate::core::config::CompressionLevel::effective(&config);
-    let terse_block = crate::core::terse::agent_prompts::build_prompt_block(&level);
-
-    if terse_block.is_empty() {
-        base.to_string()
-    } else {
-        format!("{base}\n\n{terse_block}")
-    }
-}
-
 pub fn build_hybrid_instructions() -> String {
     let base = "\
 Hybrid mode: MCP for reads (cache), CLI for everything else (no schema overhead):\n\

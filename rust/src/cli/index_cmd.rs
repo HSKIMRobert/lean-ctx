@@ -22,14 +22,30 @@ pub(crate) fn cmd_index(args: &[String]) {
             println!("started");
         }
         Some("build-full") => {
-            // Force rebuild by deleting existing on-disk indexes first.
-            let bm25 = crate::core::bm25_index::BM25Index::index_file_path(root);
-            let _ = std::fs::remove_file(&bm25);
+            let bm25_path = crate::core::bm25_index::BM25Index::index_file_path(root);
+            let _ = std::fs::remove_file(&bm25_path);
             if let Some(dir) = crate::core::graph_index::ProjectIndex::index_dir(&project_root) {
+                let _ = std::fs::remove_file(dir.join("index.json.zst"));
                 let _ = std::fs::remove_file(dir.join("index.json"));
             }
             crate::core::index_orchestrator::ensure_all_background(&project_root);
-            println!("started");
+
+            let started = std::time::Instant::now();
+            let timeout = Duration::from_mins(2);
+            eprint!("rebuilding indexes");
+            loop {
+                std::thread::sleep(Duration::from_millis(500));
+                let status = crate::core::index_orchestrator::status_json(&project_root);
+                if !status.contains("\"building\"") {
+                    break;
+                }
+                eprint!(".");
+                if started.elapsed() > timeout {
+                    eprintln!(" timeout (background build continues)");
+                    return;
+                }
+            }
+            eprintln!(" done");
         }
         Some("build-graph") => {
             let root_str = project_root.clone();

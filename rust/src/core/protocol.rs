@@ -158,7 +158,12 @@ pub fn set_mcp_context(active: bool) {
 }
 
 /// Returns true if savings footers should be shown based on config + transport context.
+///
+/// Suppressed when `LEAN_CTX_QUIET=1` (production use, e.g. Codex with minimal verbosity).
 pub fn savings_footer_visible() -> bool {
+    if matches!(std::env::var("LEAN_CTX_QUIET"), Ok(v) if v.trim() == "1") {
+        return false;
+    }
     let mode = super::config::SavingsFooter::effective();
     match mode {
         super::config::SavingsFooter::Always => true,

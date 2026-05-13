@@ -115,34 +115,6 @@ pub fn run_setup() {
             recommend_hook_mode(&target.agent_key)
         };
 
-        if mode == HookMode::CliRedirect {
-            match crate::core::editor_registry::remove_lean_ctx_server(
-                target,
-                WriteOptions {
-                    overwrite_invalid: false,
-                },
-            ) {
-                Ok(res) => {
-                    let status_msg = format!(
-                        "{:<20} \x1b[36m{mode}\x1b[0m  \x1b[2m{short_path} (mcp=disabled)\x1b[0m",
-                        target.name
-                    );
-                    if res.action == WriteAction::Already {
-                        terminal_ui::print_status_ok(&status_msg);
-                        already_configured.push(target.name);
-                    } else {
-                        terminal_ui::print_status_new(&status_msg);
-                        newly_configured.push(target.name);
-                    }
-                }
-                Err(e) => {
-                    terminal_ui::print_status_warn(&format!("{}: {e}", target.name));
-                    errors.push(target.name);
-                }
-            }
-            continue;
-        }
-
         match crate::core::editor_registry::write_config_with_options(
             target,
             &binary,
@@ -570,49 +542,6 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
         } else {
             recommend_hook_mode(&target.agent_key)
         };
-
-        // CLI-redirect means: do NOT configure MCP (avoid tool schema overhead).
-        // If lean-ctx was previously configured, proactively remove it from the editor config.
-        if mode == HookMode::CliRedirect {
-            let res = crate::core::editor_registry::remove_lean_ctx_server(
-                target,
-                WriteOptions {
-                    overwrite_invalid: opts.fix,
-                },
-            );
-            match res {
-                Ok(w) => {
-                    let note_parts: Vec<String> = [
-                        Some(format!("mode={mode}")),
-                        Some("mcp=disabled".to_string()),
-                        w.note,
-                    ]
-                    .into_iter()
-                    .flatten()
-                    .collect();
-                    editor_step.items.push(SetupItem {
-                        name: target.name.to_string(),
-                        status: match w.action {
-                            WriteAction::Created => "created".to_string(),
-                            WriteAction::Updated => "updated".to_string(),
-                            WriteAction::Already => "already".to_string(),
-                        },
-                        path: Some(short_path),
-                        note: Some(note_parts.join("; ")),
-                    });
-                }
-                Err(e) => {
-                    editor_step.ok = false;
-                    editor_step.items.push(SetupItem {
-                        name: target.name.to_string(),
-                        status: "error".to_string(),
-                        path: Some(short_path),
-                        note: Some(format!("mode={mode}; mcp=disable_failed; {e}")),
-                    });
-                }
-            }
-            continue;
-        }
 
         let res = crate::core::editor_registry::write_config_with_options(
             target,

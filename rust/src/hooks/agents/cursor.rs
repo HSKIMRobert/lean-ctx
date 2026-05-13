@@ -115,7 +115,7 @@ pub fn install_cursor_hook(global: bool) {
 pub(crate) fn install_cursor_hook_with_mode(global: bool, mode: HookMode) {
     match mode {
         HookMode::Mcp => install_cursor_hook(global),
-        HookMode::CliRedirect | HookMode::Hybrid => {
+        HookMode::Hybrid => {
             install_cursor_hook(global);
             install_cursor_rules_for_mode(global, mode);
         }
@@ -125,7 +125,6 @@ pub(crate) fn install_cursor_hook_with_mode(global: bool, mode: HookMode) {
 fn install_cursor_rules_for_mode(global: bool, mode: HookMode) {
     let content = cursor_mdc_for_mode(mode);
     let mode_name = match mode {
-        HookMode::CliRedirect => "cli-redirect",
         HookMode::Hybrid => "hybrid",
         HookMode::Mcp => "mcp",
     };
@@ -156,9 +155,6 @@ fn install_cursor_rules_for_mode(global: bool, mode: HookMode) {
 
 fn cursor_mdc_for_mode(mode: HookMode) -> String {
     match mode {
-        HookMode::CliRedirect => {
-            include_str!("../../templates/lean-ctx-cli-redirect.mdc").to_string()
-        }
         HookMode::Hybrid => include_str!("../../templates/lean-ctx-hybrid.mdc").to_string(),
         HookMode::Mcp => include_str!("../../templates/lean-ctx.mdc").to_string(),
     }

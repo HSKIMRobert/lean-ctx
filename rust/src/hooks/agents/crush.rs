@@ -1,4 +1,4 @@
-use super::super::{resolve_binary_path, write_file, HookMode, CLI_REDIRECT_RULES, HYBRID_RULES};
+use super::super::{resolve_binary_path, write_file, HookMode, HYBRID_RULES};
 
 pub(crate) fn install_crush_hook() {
     let binary = resolve_binary_path();
@@ -56,27 +56,9 @@ pub(crate) fn install_crush_hook() {
 
 pub(crate) fn install_crush_hook_with_mode(mode: HookMode) {
     match mode {
-        HookMode::CliRedirect => {
-            // CLI-first: avoid MCP schema overhead by removing MCP config if present.
-            let home = crate::core::home::resolve_home_dir().unwrap_or_default();
-            let target = crate::core::editor_registry::EditorTarget {
-                name: "Crush",
-                agent_key: "crush".to_string(),
-                config_path: home.join(".config/crush/crush.json"),
-                detect_path: home.join(".config/crush"),
-                config_type: crate::core::editor_registry::ConfigType::Crush,
-            };
-            let _ = crate::core::editor_registry::remove_lean_ctx_server(
-                &target,
-                crate::core::editor_registry::WriteOptions {
-                    overwrite_invalid: true,
-                },
-            );
-            install_crush_cli_redirect_rules(mode);
-        }
         HookMode::Hybrid => {
             install_crush_hook();
-            install_crush_cli_redirect_rules(mode);
+            install_crush_hybrid_rules(mode);
         }
         HookMode::Mcp => {
             install_crush_hook();
@@ -84,14 +66,13 @@ pub(crate) fn install_crush_hook_with_mode(mode: HookMode) {
     }
 }
 
-fn install_crush_cli_redirect_rules(mode: HookMode) {
+fn install_crush_hybrid_rules(mode: HookMode) {
     let home = crate::core::home::resolve_home_dir().unwrap_or_default();
     let rules_dir = home.join(".config/crush/rules");
     let _ = std::fs::create_dir_all(&rules_dir);
     let rules_path = rules_dir.join("lean-ctx.md");
 
     let content = match mode {
-        HookMode::CliRedirect => CLI_REDIRECT_RULES,
         HookMode::Hybrid => HYBRID_RULES,
         HookMode::Mcp => return,
     };
@@ -99,7 +80,6 @@ fn install_crush_cli_redirect_rules(mode: HookMode) {
     write_file(&rules_path, content);
 
     let mode_name = match mode {
-        HookMode::CliRedirect => "cli-redirect",
         HookMode::Hybrid => "hybrid",
         HookMode::Mcp => "mcp",
     };

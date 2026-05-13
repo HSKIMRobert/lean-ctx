@@ -232,7 +232,9 @@ fn exec_buffered(command: &str, shell: &str, shell_flag: &str, cfg: &config::Con
     };
     if should_tee {
         if let Some(path) = super::redact::save_tee(command, &full_output) {
-            eprintln!("[lean-ctx: full output -> {path} (redacted, 24h TTL)]");
+            if !matches!(std::env::var("LEAN_CTX_QUIET"), Ok(v) if v.trim() == "1") {
+                eprintln!("[lean-ctx: full output -> {path} (redacted, 24h TTL)]");
+            }
         }
     }
 

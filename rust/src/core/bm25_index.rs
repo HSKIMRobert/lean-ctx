@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 const MAX_BM25_FILES: usize = 5000;
 const CHUNK_COUNT_WARNING: usize = 50_000;
+const ZSTD_LEVEL: i32 = 9;
 
 const DEFAULT_BM25_IGNORES: &[&str] = &[
     "vendor/**",
@@ -49,7 +50,7 @@ pub struct CodeChunk {
     pub start_line: usize,
     pub end_line: usize,
     pub content: String,
-    #[serde(skip_serializing, default)]
+    #[serde(default)]
     pub tokens: Vec<String>,
     pub token_count: usize,
 }
@@ -376,22 +377,33 @@ impl BM25Index {
         let data = bincode::serde::encode_to_vec(self, bincode::config::standard())
             .map_err(|e| std::io::Error::other(e.to_string()))?;
 
+        let compressed = zstd::encode_all(data.as_slice(), ZSTD_LEVEL)
+            .map_err(|e| std::io::Error::other(format!("zstd compress: {e}")))?;
+
         let max_bytes = max_bm25_cache_bytes();
-        if data.len() as u64 > max_bytes {
+        if compressed.len() as u64 > max_bytes {
             tracing::warn!(
-                "[bm25] serialized index too large ({:.1} MB, limit {:.0} MB), refusing to persist: {}",
-                data.len() as f64 / 1_048_576.0,
+                "[bm25] compressed index too large ({:.1} MB, limit {:.0} MB), refusing to persist: {}",
+                compressed.len() as f64 / 1_048_576.0,
                 max_bytes / (1024 * 1024),
                 dir.display()
             );
             return Ok(());
         }
 
-        let target = dir.join("bm25_index.bin");
-        let tmp = dir.join("bm25_index.bin.tmp");
-        std::fs::write(&tmp, &data)?;
+        tracing::info!(
+            "[bm25] index: {:.1} MB bincode → {:.1} MB zstd ({:.0}% saved)",
+            data.len() as f64 / 1_048_576.0,
+            compressed.len() as f64 / 1_048_576.0,
+            (1.0 - compressed.len() as f64 / data.len().max(1) as f64) * 100.0
+        );
+
+        let target = dir.join("bm25_index.bin.zst");
+        let tmp = dir.join("bm25_index.bin.zst.tmp");
+        std::fs::write(&tmp, &compressed)?;
         std::fs::rename(&tmp, &target)?;
 
+        let _ = std::fs::remove_file(dir.join("bm25_index.bin"));
         let _ = std::fs::remove_file(dir.join("bm25_index.json"));
 
         let _ = std::fs::write(
@@ -405,6 +417,27 @@ impl BM25Index {
     pub fn load(root: &Path) -> Option<Self> {
         let dir = index_dir(root);
         let max_bytes = max_bm25_cache_bytes();
+
+        let zst_path = dir.join("bm25_index.bin.zst");
+        if zst_path.exists() {
+            let meta = std::fs::metadata(&zst_path).ok()?;
+            if meta.len() > max_bytes {
+                tracing::warn!(
+                    "[bm25] compressed index too large ({:.1} GB, limit {:.0} MB), quarantining: {}",
+                    meta.len() as f64 / 1_073_741_824.0,
+                    max_bytes / (1024 * 1024),
+                    zst_path.display()
+                );
+                let quarantined = zst_path.with_extension("zst.quarantined");
+                let _ = std::fs::rename(&zst_path, &quarantined);
+                return None;
+            }
+            let compressed = std::fs::read(&zst_path).ok()?;
+            let data = zstd::decode_all(compressed.as_slice()).ok()?;
+            let (idx, _): (Self, _) =
+                bincode::serde::decode_from_slice(&data, bincode::config::standard()).ok()?;
+            return Some(idx);
+        }
 
         let bin_path = dir.join("bm25_index.bin");
         if bin_path.exists() {
@@ -423,6 +456,20 @@ impl BM25Index {
             let data = std::fs::read(&bin_path).ok()?;
             let (idx, _): (Self, _) =
                 bincode::serde::decode_from_slice(&data, bincode::config::standard()).ok()?;
+            // Auto-migrate: compress legacy .bin to .bin.zst
+            if let Ok(compressed) = zstd::encode_all(data.as_slice(), ZSTD_LEVEL) {
+                let zst_tmp = zst_path.with_extension("zst.tmp");
+                if std::fs::write(&zst_tmp, &compressed).is_ok()
+                    && std::fs::rename(&zst_tmp, &zst_path).is_ok()
+                {
+                    tracing::info!(
+                        "[bm25] migrated {:.1} MB → {:.1} MB zstd",
+                        data.len() as f64 / 1_048_576.0,
+                        compressed.len() as f64 / 1_048_576.0
+                    );
+                    let _ = std::fs::remove_file(&bin_path);
+                }
+            }
             return Some(idx);
         }
 
@@ -472,6 +519,10 @@ impl BM25Index {
 
     pub fn index_file_path(root: &Path) -> PathBuf {
         let dir = index_dir(root);
+        let zst = dir.join("bm25_index.bin.zst");
+        if zst.exists() {
+            return zst;
+        }
         let bin = dir.join("bm25_index.bin");
         if bin.exists() {
             return bin;
@@ -1112,6 +1163,79 @@ mod tests {
         assert!(marker.exists(), "project_root.txt marker should exist");
         let content = std::fs::read_to_string(&marker).expect("read marker");
         assert_eq!(content, root.to_string_lossy());
+    }
+
+    #[test]
+    fn save_load_roundtrip_uses_zstd() {
+        let _env = crate::core::data_dir::test_env_lock();
+        let data_dir = tempdir().expect("data_dir");
+        std::env::set_var("LEAN_CTX_DATA_DIR", data_dir.path());
+        std::env::set_var("LEAN_CTX_BM25_MAX_CACHE_MB", "512");
+        let td = tempdir().expect("tempdir");
+        let root = td.path();
+
+        for i in 0..10 {
+            std::fs::write(
+                root.join(format!("mod{i}.rs")),
+                format!(
+                    "pub fn handler_{i}() {{\n    println!(\"hello\");\n}}\n\n\
+                     pub fn helper_{i}() {{\n    println!(\"world\");\n}}\n"
+                ),
+            )
+            .expect("write");
+        }
+
+        let index = BM25Index::build_from_directory(root);
+        assert!(index.doc_count > 0, "should have indexed chunks");
+        index.save(root).expect("save");
+
+        let dir = crate::core::index_namespace::vectors_dir(root);
+        let zst = dir.join("bm25_index.bin.zst");
+        assert!(zst.exists(), "should write .bin.zst");
+        assert!(
+            !dir.join("bm25_index.bin").exists(),
+            ".bin should be deleted"
+        );
+
+        let loaded = BM25Index::load(root).expect("load compressed index");
+        assert_eq!(loaded.doc_count, index.doc_count);
+        assert_eq!(loaded.chunks.len(), index.chunks.len());
+
+        std::env::remove_var("LEAN_CTX_BM25_MAX_CACHE_MB");
+        std::env::remove_var("LEAN_CTX_DATA_DIR");
+    }
+
+    #[test]
+    fn auto_migrate_bin_to_zst() {
+        let _env = crate::core::data_dir::test_env_lock();
+        let data_dir = tempdir().expect("data_dir");
+        std::env::set_var("LEAN_CTX_DATA_DIR", data_dir.path());
+        std::env::set_var("LEAN_CTX_BM25_MAX_CACHE_MB", "512");
+        let td = tempdir().expect("tempdir");
+        let root = td.path();
+
+        std::fs::write(root.join("a.rs"), "pub fn a() {}\n").expect("write");
+        let index = BM25Index::build_from_directory(root);
+
+        let dir = crate::core::index_namespace::vectors_dir(root);
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let data =
+            bincode::serde::encode_to_vec(&index, bincode::config::standard()).expect("encode");
+        std::fs::write(dir.join("bm25_index.bin"), &data).expect("write bin");
+
+        let loaded = BM25Index::load(root).expect("load should auto-migrate");
+        assert_eq!(loaded.doc_count, index.doc_count);
+        assert!(
+            dir.join("bm25_index.bin.zst").exists(),
+            ".bin.zst should be created"
+        );
+        assert!(
+            !dir.join("bm25_index.bin").exists(),
+            ".bin should be removed"
+        );
+
+        std::env::remove_var("LEAN_CTX_BM25_MAX_CACHE_MB");
+        std::env::remove_var("LEAN_CTX_DATA_DIR");
     }
 
     #[test]

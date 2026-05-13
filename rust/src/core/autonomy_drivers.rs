@@ -108,7 +108,7 @@ impl AutonomyDriversV1 {
         let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
         // Reports may end up in CI logs; always redact (even for admin).
         let json = crate::core::redaction::redact_text(&json);
-        crate::config_io::write_atomic_with_backup(&path, &json)?;
+        crate::config_io::write_atomic(&path, &json)?;
         Ok(())
     }
 

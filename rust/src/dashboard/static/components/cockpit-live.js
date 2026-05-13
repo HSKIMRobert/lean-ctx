@@ -94,6 +94,8 @@ function flattenEvent(ev) {
         expandedDetail: buildExpandedToolDetail(kind),
         explanation: eventExplanation(t),
         ts: ts,
+        path: kind.path || null,
+        mode: kind.mode || null,
       };
     }
     case 'CacheHit':
@@ -276,7 +278,14 @@ function buildExpandedToolDetail(kind) {
   }
   if (kind.mode) rows.push(['Mode', String(kind.mode)]);
   if (kind.path) rows.push(['Path', String(kind.path)]);
+  if (kind.command) rows.push(['Command', String(kind.command)]);
   if (kind.duration_ms != null) rows.push(['Duration', kind.duration_ms + 'ms']);
+
+  var cat = classifyTool(kind.tool);
+  if (cat === 'shell' && kind.tokens_saved > 0 && !kind.path) {
+    rows.push(['How', 'Shell output compressed via pattern matching (git/npm/cargo output patterns)']);
+  }
+
   return rows;
 }
 
@@ -666,6 +675,8 @@ class CockpitLive extends HTMLElement {
       '<div style="margin-bottom:14px">' +
       '<h3 style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.18em;font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:8px">' +
       'Event Feed <span class="badge">' + esc(String(count)) + '</span></h3>' +
+      '<p class="hs" style="margin:-4px 0 10px;font-size:11px;opacity:.7">' +
+      'Chronological log of all daemon activity. For file-level compression analysis, use Compression Lab.</p>' +
       '<div id="ckl-event-list" style="display:flex;flex-direction:column;gap:6px">' +
       rendered +
       '</div></div>'
@@ -734,9 +745,24 @@ class CockpitLive extends HTMLElement {
           '<span style="font-size:11px;font-family:var(--mono);color:var(--fg)">' + esc(rows[r][1]) + '</span>' +
           '</div>';
       }
+      var compareBtn = '';
+      if (flat.path && flat.saved > 0) {
+        compareBtn =
+          '<div style="margin-top:8px">' +
+          '<button class="ckl-compare-btn" data-compare-path="' + esc(flat.path) + '"' +
+          (flat.mode ? ' data-compare-mode="' + esc(flat.mode) + '"' : '') +
+          ' style="background:var(--surface-3,var(--border));color:var(--fg);border:1px solid var(--border);' +
+          'padding:5px 12px;border-radius:6px;font-size:11px;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:5px">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">' +
+          '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="3" x2="12" y2="21"/></svg>' +
+          'Compare original vs compressed</button>' +
+          '<div class="ckl-compare-result" data-compare-target="' + esc(flat.path) + '"></div>' +
+          '</div>';
+      }
+
       expandedPanel =
         '<div class="event-expanded" style="display:none;margin-top:8px;padding:10px 12px;background:var(--surface-2);border-radius:6px;border-left:2px solid var(--event-accent,var(--border))">' +
-        savingsBar + table + '</div>';
+        savingsBar + table + compareBtn + '</div>';
     }
 
     return (
@@ -833,6 +859,7 @@ class CockpitLive extends HTMLElement {
     expandCards.forEach(function (card) {
       card.addEventListener('click', function (e) {
         if (e.target.closest('.event-help-icon')) return;
+        if (e.target.closest('.ckl-compare-btn') || e.target.closest('.ckl-compare-result')) return;
         var panel = card.querySelector('.event-expanded');
         var chevron = card.querySelector('.event-chevron');
         if (!panel) return;
@@ -846,6 +873,62 @@ class CockpitLive extends HTMLElement {
           card.setAttribute('aria-expanded', 'true');
           if (chevron) chevron.style.transform = 'rotate(180deg)';
         }
+      });
+    });
+
+    var fetchJson = api();
+    this.querySelectorAll('.ckl-compare-btn').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var p = btn.getAttribute('data-compare-path');
+        var m = btn.getAttribute('data-compare-mode') || 'map';
+        var target = btn.parentElement.querySelector('.ckl-compare-result');
+        if (!target || !fetchJson || !p) return;
+        if (target.getAttribute('data-loaded')) return;
+        target.setAttribute('data-loaded', '1');
+        btn.disabled = true;
+        btn.textContent = 'Loading\u2026';
+        fetchJson('/api/compression-demo?path=' + encodeURIComponent(p), { timeoutMs: 15000 })
+          .then(function (data) {
+            btn.style.display = 'none';
+            var esc = (fmtLib().esc || function (s) { return String(s); });
+            var ff = (fmtLib().ff || function (n) { return String(n); });
+            var modes = data.modes || {};
+            var bestKey = m;
+            var bestData = modes[m];
+            if (!bestData || !bestData.output) {
+              var bestSavings = -1;
+              for (var k in modes) {
+                var md = modes[k];
+                if (md && md.output && md.output.length > 0 && (md.savings_pct || 0) > bestSavings) {
+                  bestSavings = md.savings_pct || 0;
+                  bestKey = k;
+                  bestData = md;
+                }
+              }
+            }
+            var origTok = data.original_tokens || 0;
+            var origText = String(data.original || '').slice(0, 2000);
+            var compTok = bestData ? (bestData.tokens || 0) : origTok;
+            var compText = bestData ? String(bestData.output || '').slice(0, 2000) : origText;
+            var pct = bestData ? (bestData.savings_pct || 0) : 0;
+            target.innerHTML =
+              '<div style="margin-top:10px">' +
+              '<div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:10px;color:var(--muted)">' +
+              '<span>Original \u00b7 ' + esc(ff(origTok)) + ' tokens</span>' +
+              '<span style="color:var(--green)">' + esc(bestKey) + ' \u00b7 ' + esc(ff(compTok)) + ' tokens (' + pct + '% saved)</span></div>' +
+              '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+              '<pre style="margin:0;padding:8px;background:var(--bg);border-radius:4px;font-size:10px;max-height:300px;overflow:auto;border:1px solid var(--border)">' +
+              esc(origText) + (origText.length >= 2000 ? '\n\u2026' : '') + '</pre>' +
+              '<pre style="margin:0;padding:8px;background:var(--bg);border-radius:4px;font-size:10px;max-height:300px;overflow:auto;border:1px solid var(--green)">' +
+              esc(compText) + (compText.length >= 2000 ? '\n\u2026' : '') + '</pre>' +
+              '</div></div>';
+          })
+          .catch(function () {
+            btn.textContent = 'Failed to load';
+            btn.disabled = false;
+            target.removeAttribute('data-loaded');
+          });
       });
     });
 

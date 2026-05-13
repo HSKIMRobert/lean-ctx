@@ -5,6 +5,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.5.24] — 2026-05-13
+
+### Changed
+
+- **Eliminate `CliRedirect` hook mode** — Removed the `HookMode::CliRedirect` variant entirely. All agents now use either `Hybrid` (MCP for reads/search + shell hooks for command compression) or `Mcp` (MCP only). Cursor and Gemini CLI, previously CliRedirect, are now Hybrid with full MCP support. This ensures reads and searches always go through the cached MCP path while shell commands are compressed via hooks — the best of both worlds.
+- **Cursor: automatic MCP installation** — `lean-ctx init --agent cursor` and `lean-ctx setup` now automatically install the lean-ctx MCP server config in `~/.cursor/mcp.json` with all 50+ tools auto-approved. Previously, CliRedirect mode actively prevented MCP installation, causing Cursor to miss cached reads and search compression.
+- **Gemini CLI: Hybrid mode with MCP** — Gemini CLI now gets MCP server config alongside its shell hooks, enabling cached reads via `ctx_read` while preserving shell compression via hooks.
+- **All agents default to Hybrid** — `recommend_hook_mode()` now returns `Hybrid` for all agents with shell access (Cursor, Gemini, Codex, Claude Code, OpenCode, Crush, Hermes, Pi, Qoder, Windsurf, Amp, Cline, Roo, Copilot, Kiro, Qwen, Trae, Antigravity, Amazon Q, Verdent). Only unknown agents without shell access fall back to `Mcp`.
+- **Hybrid rules template v2** — Updated `.cursor/rules/lean-ctx.mdc` template to clearly instruct agents to use `ctx_read` and `ctx_search` (MCP) for reads/search, and `lean-ctx -c` (CLI) for shell commands.
+- **SKILL.md updated** — Removed `--mode cli-redirect` examples, updated to show Hybrid as the default mode for all agents.
+
+### Added
+
+- **`LEAN_CTX_QUIET=1` production mode** — New environment variable that suppresses all informational output for production use: savings footers (`[lean-ctx: X→Y tok, -Z%]`), session-start hook messages, tee-log hints, and verbose reroute messages. Shell compression still runs — only the human-visible annotations are hidden. Codex users can set this in `~/.codex/config.toml` under `[mcp_servers.lean-ctx.env]` to match default Codex output verbosity.
+- **Redirect subprocess timeout increased** — `handle_redirect` timeout increased from 3s to 10s for more reliable operation on slow filesystems.
+
+### Removed
+
+- **`HookMode::CliRedirect`** — Enum variant, all match arms, `CLI_REDIRECT_RULES` constant, `build_cli_redirect_instructions()` function, and the `lean-ctx-cli-redirect.mdc` template file have been removed.
+- **`DedicatedCliRedirect` / `CursorMdcCliRedirect`** — Rules injection variants removed from `rules_inject.rs`.
+- **`disable_agent_mcp()` call path** — The `init_cmd.rs` code path that called `disable_agent_mcp()` for CliRedirect agents has been removed. All agents now call `configure_agent_mcp()`.
+
+### Fixed
+
+- **Cursor reads/search not using MCP** — Root cause: CliRedirect mode prevented MCP installation, and `.cursorrules` / rule files instructed CLI-first usage. Now all rule files consistently instruct Hybrid mode (MCP reads + CLI shell).
+- **Inconsistent rule files** — `.cursorrules`, `AGENTS.md`, project-level and global `.cursor/rules/lean-ctx.mdc` now all consistently instruct Hybrid mode instead of conflicting CLI-first vs MCP-first directives.
+
 ## [3.5.23] — 2026-05-13
 
 ### Added

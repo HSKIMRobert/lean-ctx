@@ -28,8 +28,8 @@ lean-ctx setup
 ```
 
 lean-ctx supports two integration styles:
-- **CLI-redirect (preferred when shell access exists)**: no MCP tool schema overhead.
-- **MCP (required for some IDE extensions)**: cached reads + tools via MCP.
+- **Hybrid (recommended)**: MCP for reads/search (cached, efficient) + shell hooks for command compression.
+- **MCP-only**: all operations via MCP server (for agents without shell access).
 
 ## When to use lean-ctx
 
@@ -77,19 +77,18 @@ Use `full` mode only when you will edit the file.
 
 ```bash
 lean-ctx init --global                             # Install shell aliases
-lean-ctx init --agent cursor --mode cli-redirect   # CLI-first (no MCP schema overhead)
-lean-ctx init --agent claude --mode cli-redirect   # CLI-first (Claude Code)
-lean-ctx init --agent codex --mode cli-redirect    # CLI-first (Codex)
-lean-ctx init --agent opencode --mode cli-redirect # CLI-first (OpenCode)
-
+lean-ctx init --agent cursor                       # Hybrid (MCP reads + shell hooks)
+lean-ctx init --agent claude                       # Hybrid (Claude Code)
+lean-ctx init --agent codex                        # Hybrid (Codex)
+lean-ctx init --agent opencode                     # Hybrid (OpenCode)
 lean-ctx init --agent copilot                      # MCP (VS Code / Copilot)
 lean-ctx init --agent jetbrains                    # MCP (JetBrains)
-lean-ctx init --agent windsurf                     # MCP/Hybrid (Windsurf)
+lean-ctx init --agent windsurf                     # Hybrid (Windsurf)
 ```
 
 ## Multi-Agent & Knowledge (v2.7.0+)
 
-CLI (works in CLI-redirect and MCP setups):
+CLI (works in all setups):
 
 ```bash
 lean-ctx knowledge remember "value" --category <c> --key <k>

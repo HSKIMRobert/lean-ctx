@@ -452,17 +452,29 @@ pub fn prune_bm25_caches() -> PruneResult {
         }
         result.scanned += 1;
 
-        let quarantined = dir.join("bm25_index.json.quarantined");
-        if quarantined.exists() {
-            if let Ok(meta) = std::fs::metadata(&quarantined) {
-                result.bytes_freed += meta.len();
+        for q_name in &[
+            "bm25_index.json.quarantined",
+            "bm25_index.bin.quarantined",
+            "bm25_index.bin.zst.quarantined",
+        ] {
+            let quarantined = dir.join(q_name);
+            if quarantined.exists() {
+                if let Ok(meta) = std::fs::metadata(&quarantined) {
+                    result.bytes_freed += meta.len();
+                }
+                let _ = std::fs::remove_file(&quarantined);
+                result.removed += 1;
+                println!("  Removed quarantined: {}", quarantined.display());
             }
-            let _ = std::fs::remove_file(&quarantined);
-            result.removed += 1;
-            println!("  Removed quarantined: {}", quarantined.display());
         }
 
-        let index_path = dir.join("bm25_index.json");
+        let index_path = if dir.join("bm25_index.bin.zst").exists() {
+            dir.join("bm25_index.bin.zst")
+        } else if dir.join("bm25_index.bin").exists() {
+            dir.join("bm25_index.bin")
+        } else {
+            dir.join("bm25_index.json")
+        };
         if let Ok(meta) = std::fs::metadata(&index_path) {
             if meta.len() > max_bytes {
                 result.bytes_freed += meta.len();

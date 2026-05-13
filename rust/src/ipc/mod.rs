@@ -4,6 +4,8 @@ pub mod process;
 mod unix;
 #[cfg(windows)]
 mod windows;
+#[cfg(windows)]
+pub use windows::NamedPipeListener;
 
 #[cfg(unix)]
 use std::path::PathBuf;
@@ -80,6 +82,14 @@ pub fn bind_listener(addr: &DaemonAddr) -> Result<tokio::net::UnixListener> {
 pub async fn connect(addr: &DaemonAddr) -> Result<tokio::net::UnixStream> {
     match addr {
         DaemonAddr::Unix(path) => unix::connect(path).await,
+    }
+}
+
+/// Bind a listener on the given Windows named pipe address.
+#[cfg(windows)]
+pub fn bind_listener(addr: &DaemonAddr) -> Result<NamedPipeListener> {
+    match addr {
+        DaemonAddr::NamedPipe(name) => NamedPipeListener::bind(name),
     }
 }
 

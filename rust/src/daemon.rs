@@ -50,6 +50,10 @@ pub fn start_daemon(args: &[String]) -> Result<()> {
 
     ipc::cleanup(&daemon_addr());
 
+    if let Ok(data_dir) = crate::core::data_dir::lean_ctx_data_dir() {
+        crate::config_io::cleanup_legacy_backups(&data_dir);
+    }
+
     let exe = std::env::current_exe().context("cannot determine own executable path")?;
 
     let mut cmd_args = vec!["serve".to_string()];
@@ -61,11 +65,26 @@ pub fn start_daemon(args: &[String]) -> Result<()> {
     }
     cmd_args.push("--_foreground-daemon".to_string());
 
+    let log_dir = data_dir();
+    let _ = fs::create_dir_all(&log_dir);
+    let stderr_log = log_dir.join("daemon-stderr.log");
+    let stderr_file = fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&stderr_log)
+        .ok();
+
+    let stderr_cfg = match stderr_file {
+        Some(f) => std::process::Stdio::from(f),
+        None => std::process::Stdio::null(),
+    };
+
     let child = Command::new(&exe)
         .args(&cmd_args)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stderr(stderr_cfg)
         .spawn()
         .with_context(|| format!("failed to spawn daemon: {}", exe.display()))?;
 
@@ -76,7 +95,12 @@ pub fn start_daemon(args: &[String]) -> Result<()> {
 
     if !ipc::process::is_alive(pid) {
         let _ = fs::remove_file(daemon_pid_path());
-        anyhow::bail!("Daemon process exited immediately. Check logs for errors.");
+        let stderr_content = fs::read_to_string(&stderr_log).unwrap_or_default();
+        let stderr_trimmed = stderr_content.trim();
+        if stderr_trimmed.is_empty() {
+            anyhow::bail!("Daemon process exited immediately. Check logs for errors.");
+        }
+        anyhow::bail!("Daemon process exited immediately:\n{stderr_trimmed}");
     }
 
     let addr = daemon_addr();

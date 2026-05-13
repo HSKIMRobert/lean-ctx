@@ -765,6 +765,28 @@ pub async fn serve(cfg: HttpServerConfig) -> Result<()> {
     Ok(())
 }
 
+#[cfg(windows)]
+impl axum::serve::Listener for crate::ipc::NamedPipeListener {
+    type Io = tokio::net::windows::named_pipe::NamedPipeServer;
+    type Addr = String;
+
+    async fn accept(&mut self) -> (Self::Io, Self::Addr) {
+        loop {
+            match self.accept_pipe().await {
+                Ok(pipe) => return (pipe, self.name().to_string()),
+                Err(e) => {
+                    tracing::error!("named pipe accept error: {e}");
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+            }
+        }
+    }
+
+    fn local_addr(&self) -> std::io::Result<Self::Addr> {
+        Ok(self.name().to_string())
+    }
+}
+
 /// Serve the daemon over a platform-independent IPC channel (UDS on Unix,
 /// Named Pipes on Windows).
 pub async fn serve_ipc(cfg: HttpServerConfig, addr: crate::ipc::DaemonAddr) -> Result<()> {
@@ -791,8 +813,23 @@ pub async fn serve_ipc(cfg: HttpServerConfig, addr: crate::ipc::DaemonAddr) -> R
             Ok(())
         }
         #[cfg(windows)]
-        crate::ipc::DaemonAddr::NamedPipe(ref _name) => {
-            anyhow::bail!("Named pipe server not yet supported — use TCP mode on Windows for now");
+        crate::ipc::DaemonAddr::NamedPipe(ref name) => {
+            let app = build_app_router(&cfg);
+            let listener = crate::ipc::bind_listener(&addr)?;
+
+            tracing::info!(
+                "lean-ctx daemon listening on {} (project_root={})",
+                name,
+                cfg.project_root.display()
+            );
+
+            axum::serve(listener, app.into_make_service())
+                .with_graceful_shutdown(async move {
+                    let _ = tokio::signal::ctrl_c().await;
+                })
+                .await
+                .context("ipc server")?;
+            Ok(())
         }
     }
 }

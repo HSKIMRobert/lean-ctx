@@ -231,7 +231,10 @@ class CockpitCompression extends HTMLElement {
         'Project <span class="ckc-file-count">' + this._graphFilesAll.length + '</span></div>' +
       '</div>';
 
-    if (!isRecent) {
+    if (isRecent) {
+      html += '<p class="hs" style="padding:4px 16px 8px;margin:0;font-size:11px;opacity:.7">' +
+        'Files from recent tool calls &amp; context ledger</p>';
+    } else {
       html += '<div class="ckc-search">' +
         '<input type="text" id="ckc-search-input" placeholder="Search files\u2026" ' +
         'value="' + esc(this._searchQuery) + '" />' +
@@ -240,10 +243,10 @@ class CockpitCompression extends HTMLElement {
 
     if (files.length === 0) {
       var emptyMsg = isRecent
-        ? 'No files read yet. Events appear as lean-ctx processes tool calls.'
+        ? 'No files read yet. Files appear here as lean-ctx processes tool calls (reads, searches, etc.).'
         : this._searchQuery
           ? 'No files match \u201c' + esc(this._searchQuery) + '\u201d'
-          : 'No files indexed. Run <code>lean-ctx graph build</code>.';
+          : 'No files indexed. Run <code>lean-ctx index build</code>.';
       html += '<p class="hs" style="padding:12px 16px">' + emptyMsg + '</p>';
     } else {
       html += '<div class="file-list" id="ckc-file-list">';

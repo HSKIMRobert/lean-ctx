@@ -21,22 +21,6 @@ pub(crate) fn install_opencode_hook_with_mode(mode: HookMode) {
     });
 
     match mode {
-        HookMode::CliRedirect => {
-            // CLI-first: avoid MCP tool schema overhead by removing MCP config if present.
-            let target = crate::core::editor_registry::EditorTarget {
-                name: "OpenCode",
-                agent_key: "opencode".to_string(),
-                config_path: config_path.clone(),
-                detect_path: home.join(".config/opencode"),
-                config_type: crate::core::editor_registry::ConfigType::OpenCode,
-            };
-            let _ = crate::core::editor_registry::remove_lean_ctx_server(
-                &target,
-                crate::core::editor_registry::WriteOptions {
-                    overwrite_invalid: true,
-                },
-            );
-        }
         HookMode::Mcp | HookMode::Hybrid => {
             if config_path.exists() {
                 let content = std::fs::read_to_string(&config_path).unwrap_or_default();

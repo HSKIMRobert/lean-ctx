@@ -2,10 +2,7 @@ use std::path::{Path, PathBuf};
 
 fn backup_path_for(path: &Path) -> Option<PathBuf> {
     let filename = path.file_name()?.to_string_lossy();
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs());
-    Some(path.with_file_name(format!("{filename}.lean-ctx.{ts}.bak")))
+    Some(path.with_file_name(format!("{filename}.bak")))
 }
 
 pub fn snapshot_mtime(path: &Path) -> Option<std::time::SystemTime> {
@@ -14,6 +11,21 @@ pub fn snapshot_mtime(path: &Path) -> Option<std::time::SystemTime> {
 
 pub fn write_atomic_with_backup(path: &Path, content: &str) -> Result<(), String> {
     write_atomic_with_backup_checked(path, content, None)
+}
+
+/// Remove stale timestamped `.bak` files left by the old backup scheme.
+/// Called once at startup to clean up the accumulated backups.
+pub fn cleanup_legacy_backups(data_dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(data_dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.contains(".lean-ctx.") && name.ends_with(".bak") {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
 }
 
 pub fn write_atomic_with_backup_checked(

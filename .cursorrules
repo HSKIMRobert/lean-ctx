@@ -1,16 +1,22 @@
 #
-# This repository is developed with CLI-first defaults to eliminate MCP tool-schema overhead.
-# If you are working in an IDE where MCP is required (e.g. JetBrains), prefer MCP tools there.
+# lean-ctx — Hybrid Mode
+# MCP for reads/search (cached, efficient). Shell hooks for command compression.
+#
 
-PREFER lean-ctx CLI commands over MCP tools for token savings (no MCP schema overhead):
+Use lean-ctx MCP tools for reads and search (cached, token-efficient):
 
-| USE (via Shell/Bash) | INSTEAD OF (MCP) | Why |
-|---------------------|-------------------|-----|
-| `lean-ctx read <path>` | `ctx_read` | No MCP schema overhead, same caching |
-| `lean-ctx read <path> -m map` | `ctx_read(mode="map")` | Mode-optimized compressed read |
-| `lean-ctx -c "<cmd>"` | `ctx_shell` | Pattern compression (95+ patterns) |
-| `lean-ctx grep <pattern> [path]` | `ctx_search` | Compact search results |
-| `lean-ctx ls [path]` | `ctx_tree` | Directory maps |
+| USE (MCP) | INSTEAD OF | Why |
+|-----------|------------|-----|
+| `ctx_read(path, mode)` | `Read` | Session cache, 10 modes, re-reads ~13 tok |
+| `ctx_search(pattern, path)` | `Grep` | Compact, token-efficient results |
+
+Use lean-ctx CLI for shell commands (no MCP schema overhead):
+
+| USE (via Shell) | INSTEAD OF (MCP) | Why |
+|-----------------|-------------------|-----|
+| `lean-ctx -c "<cmd>"` | `ctx_shell` | Zero MCP overhead for shell |
+| `lean-ctx grep <pattern> [path]` | `ctx_search` | Also works via CLI |
+| `lean-ctx ls [path]` | `ctx_tree` | Also works via CLI |
 
 File editing: use native Edit/StrReplace. Write, Delete, Glob → use normally.
 

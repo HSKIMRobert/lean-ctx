@@ -33,7 +33,7 @@ pub fn cmd_init(args: &[String]) {
             .windows(2)
             .find(|w| w[0] == "--mode")
             .map_or("?", |w| w[1].as_str());
-        eprintln!("Unknown hook mode: '{bad}'. Valid: mcp, cli-redirect, hybrid");
+        eprintln!("Unknown hook mode: '{bad}'. Valid: mcp, hybrid");
         std::process::exit(1);
     }
 
@@ -49,11 +49,7 @@ pub fn cmd_init(args: &[String]) {
             let mode =
                 explicit_mode.unwrap_or_else(|| crate::hooks::recommend_hook_mode(agent_name));
             crate::hooks::install_agent_hook_with_mode(agent_name, global, mode);
-            if matches!(mode, crate::hooks::HookMode::CliRedirect) {
-                if let Err(e) = crate::setup::disable_agent_mcp(agent_name, false) {
-                    eprintln!("MCP config for '{agent_name}' not disabled: {e}");
-                }
-            } else if let Err(e) = crate::setup::configure_agent_mcp(agent_name) {
+            if let Err(e) = crate::setup::configure_agent_mcp(agent_name) {
                 eprintln!("MCP config for '{agent_name}' not updated: {e}");
             }
             if project {
@@ -162,9 +158,7 @@ pub fn cmd_init(args: &[String]) {
     qprintln!("    continue, copilot, crush, cursor, emacs, gemini, hermes, jetbrains,");
     qprintln!("    kiro, neovim, opencode, pi, qoder, qoderwork, qwen, roo, sublime,");
     qprintln!("    trae, verdent, vscode, windsurf, zed");
-    qprintln!(
-        "  Modes: mcp, cli-redirect, hybrid  (auto-detected per agent, override with --mode)"
-    );
+    qprintln!("  Modes: mcp, hybrid  (auto-detected per agent, override with --mode)");
 }
 
 pub fn cmd_init_quiet(args: &[String]) {

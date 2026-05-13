@@ -1,4 +1,4 @@
-use super::super::{install_project_rules, resolve_binary_path, HookMode, CLI_REDIRECT_RULES};
+use super::super::{install_project_rules, resolve_binary_path, HookMode};
 
 pub(super) const HERMES_RULES_TEMPLATE: &str = "\
 # lean-ctx — Context Engineering Layer
@@ -39,14 +39,6 @@ pub(crate) fn install_hermes_hook_with_mode(global: bool, mode: HookMode) {
     };
 
     match mode {
-        HookMode::CliRedirect => {
-            let _ = crate::core::editor_registry::remove_lean_ctx_server(
-                &target,
-                crate::core::editor_registry::WriteOptions {
-                    overwrite_invalid: true,
-                },
-            );
-        }
         HookMode::Mcp | HookMode::Hybrid => {
             match crate::core::editor_registry::write_config_with_options(
                 &target,
@@ -104,7 +96,6 @@ pub(crate) fn install_hermes_hook_with_mode(global: bool, mode: HookMode) {
 fn install_hermes_rules(home: &std::path::Path, mode: HookMode) {
     let rules_path = home.join(".hermes/HERMES.md");
     let content = match mode {
-        HookMode::CliRedirect => CLI_REDIRECT_RULES,
         HookMode::Hybrid | HookMode::Mcp => HERMES_RULES_TEMPLATE,
     };
 
@@ -148,7 +139,6 @@ fn install_project_hermes_rules(mode: HookMode) {
         }
         updated.push('\n');
         updated.push_str(match mode {
-            HookMode::CliRedirect => CLI_REDIRECT_RULES,
             HookMode::Hybrid | HookMode::Mcp => HERMES_RULES_TEMPLATE,
         });
         let _ = std::fs::write(&rules_path, updated);
@@ -157,7 +147,6 @@ fn install_project_hermes_rules(mode: HookMode) {
         let _ = std::fs::write(
             &rules_path,
             match mode {
-                HookMode::CliRedirect => CLI_REDIRECT_RULES,
                 HookMode::Hybrid | HookMode::Mcp => HERMES_RULES_TEMPLATE,
             },
         );

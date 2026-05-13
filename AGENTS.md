@@ -1,33 +1,27 @@
-# lean-ctx — CLI-first Token Optimization for Pi
+# lean-ctx — Context Engineering Layer
 
-This project uses the **pi-lean-ctx** extension. It routes Pi’s built-in tools through **lean-ctx CLI**
-for strong token savings — **no MCP required**.
+lean-ctx optimizes LLM context by compressing file reads, shell output, and search results.
 
-## What to do (as Pi agent)
+## Integration Mode: Hybrid
 
-- Use Pi tools normally:
-  - `read` (never `cat/head/tail` via bash)
-  - `grep` / `find` / `ls`
-  - `bash` for commands with side effects (build/test/git/etc.)
-- The extension auto-routes these through `lean-ctx` and appends a savings footer where possible.
+- **Reads/Search** → MCP tools (`ctx_read`, `ctx_search`) for caching + compression
+- **Shell commands** → CLI hooks rewrite to `lean-ctx -c "…"` for pattern compression
+- **File editing** → native Edit/StrReplace (lean-ctx only handles READ operations)
 
-## Advanced lean-ctx commands (still CLI-only)
+## MCP tools (use for reads)
 
-Prefer the `lean_ctx` tool (installed by the extension) to run `lean-ctx` directly:
+| Tool | Purpose |
+|------|---------|
+| `ctx_read(path, mode)` | Cached, compressed file reads (10 modes) |
+| `ctx_search(pattern, path)` | Token-efficient code search |
 
-- `lean-ctx overview`
-- `lean-ctx session …`
-- `lean-ctx knowledge …`
-- `lean-ctx gain` / `lean-ctx stats`
-- `lean-ctx index …`
+## CLI commands (use for shell)
 
-If `lean_ctx` is not available, use Pi’s `bash` tool with `raw=true` to run `lean-ctx …` directly
-(avoid nesting `lean-ctx` inside its own compression wrapper).
-
-## Optional MCP (disabled by default)
-
-Some users enable MCP for additional tools. If MCP is enabled, it will show up in `/lean-ctx`,
-but the default workflow is CLI-first.
+```bash
+lean-ctx -c "git status"     # compressed shell output
+lean-ctx -c "cargo test"     # compressed test output
+lean-ctx ls src/              # directory map
+```
 
 <!-- lean-ctx -->
 ## lean-ctx

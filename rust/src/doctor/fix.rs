@@ -85,22 +85,13 @@ pub(super) fn run_fix(opts: &DoctorFixOptions) -> Result<i32, String> {
             crate::hooks::recommend_hook_mode(&t.agent_key)
         };
 
-        let res = if mode == crate::hooks::HookMode::CliRedirect {
-            crate::core::editor_registry::remove_lean_ctx_server(
-                t,
-                crate::core::editor_registry::WriteOptions {
-                    overwrite_invalid: true,
-                },
-            )
-        } else {
-            crate::core::editor_registry::write_config_with_options(
-                t,
-                &binary,
-                crate::core::editor_registry::WriteOptions {
-                    overwrite_invalid: true,
-                },
-            )
-        };
+        let res = crate::core::editor_registry::write_config_with_options(
+            t,
+            &binary,
+            crate::core::editor_registry::WriteOptions {
+                overwrite_invalid: true,
+            },
+        );
 
         match res {
             Ok(r) => {

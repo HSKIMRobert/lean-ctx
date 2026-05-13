@@ -36,9 +36,6 @@ pub(crate) fn install_pi_hook_with_mode(global: bool, mode: HookMode) {
 
     match mode {
         HookMode::Mcp | HookMode::Hybrid => write_pi_mcp_config(),
-        HookMode::CliRedirect => {
-            println!("  \x1b[2m○ CLI-first mode: skipping Pi MCP config (no MCP required)\x1b[0m");
-        }
     }
 
     let scope = crate::core::config::Config::load().rules_scope_effective();
@@ -68,10 +65,6 @@ pub(crate) fn install_pi_hook_with_mode(global: bool, mode: HookMode) {
     match mode {
         HookMode::Mcp | HookMode::Hybrid => {
             println!("MCP tools also available (optional). Use /lean-ctx in Pi to verify status.");
-        }
-        HookMode::CliRedirect => {
-            println!("MCP is disabled (CLI-first). If you really want MCP, rerun:");
-            println!("  lean-ctx init --agent pi --mode mcp");
         }
     }
 }

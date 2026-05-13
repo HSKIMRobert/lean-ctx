@@ -1,7 +1,7 @@
 //! Central compression pipeline — the single entry point for ALL integration modes.
 //!
-//! This ensures CLI-Redirect, Hybrid, and Full MCP all get identical compression
-//! behavior. The pipeline orchestrates Layer 1 + Layer 2 and produces a `TerseResult`
+//! This ensures Hybrid and Full MCP modes get identical compression behavior.
+//! The pipeline orchestrates Layer 1 + Layer 2 and produces a `TerseResult`
 //! with full attribution.
 
 use super::counter;
@@ -14,8 +14,7 @@ use crate::core::config::CompressionLevel;
 ///
 /// This is the **single entry point** for all integration modes:
 /// - Full MCP: called from `server/mod.rs` after tool execution
-/// - CLI-Redirect: called from `shell/compress.rs` and `cli/read_cmd.rs`
-/// - Hybrid: called from whichever path handles the output
+/// - Hybrid: MCP for reads + CLI for shell compression
 ///
 /// If a `command` is provided, pattern compression runs first (via `patterns::compress_output`),
 /// then terse compression runs on the residual.

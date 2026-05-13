@@ -106,7 +106,15 @@ fn ensure_codex_mcp_server(config_content: &str, binary: &str) -> Option<String>
     }
 
     let quoted = toml_quote_value(binary);
-    let section = format!("[mcp_servers.lean-ctx]\ncommand = {quoted}\nargs = []\n");
+    let data_dir = crate::core::data_dir::lean_ctx_data_dir()
+        .map(|d| d.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let section = format!(
+        "[mcp_servers.lean-ctx]\ncommand = {quoted}\nargs = []\n\n\
+         [mcp_servers.lean-ctx.env]\n\
+         LEAN_CTX_DATA_DIR = {data_dir_q}\n",
+        data_dir_q = toml_quote_value(&data_dir),
+    );
 
     if let Some(pos) = config_content.find("[mcp_servers.lean-ctx.") {
         let insert_at = config_content[..pos].rfind('\n').map_or(0, |nl| nl + 1);
