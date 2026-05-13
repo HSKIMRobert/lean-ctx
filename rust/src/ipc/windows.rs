@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 
-pub fn default_pipe_name() -> String {
+pub(super) fn default_pipe_name() -> String {
     let username = std::env::var("USERNAME").unwrap_or_else(|_| "default".to_string());
     let data_dir = dirs::data_local_dir()
         .unwrap_or_else(|| dirs::home_dir().unwrap_or_default().join("AppData/Local"))
@@ -11,12 +11,14 @@ pub fn default_pipe_name() -> String {
     format!(r"\\.\pipe\lean-ctx-{short}")
 }
 
-pub fn pipe_exists(name: &str) -> bool {
+pub(super) fn pipe_exists(name: &str) -> bool {
     use std::fs;
     fs::metadata(name).is_ok()
 }
 
-pub async fn connect(pipe_name: &str) -> Result<tokio::net::windows::named_pipe::NamedPipeClient> {
+pub(super) async fn connect(
+    pipe_name: &str,
+) -> Result<tokio::net::windows::named_pipe::NamedPipeClient> {
     use tokio::net::windows::named_pipe::ClientOptions;
 
     ClientOptions::new()
