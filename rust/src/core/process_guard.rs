@@ -95,6 +95,7 @@ mod tests {
         drop(guard);
     }
 
+    #[cfg(unix)]
     #[test]
     fn active_count_reflects_held_slots() {
         let g1 = acquire();

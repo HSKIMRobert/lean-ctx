@@ -152,7 +152,7 @@ impl LeanCtxServer {
                 call_count: Some(self.call_count.clone()),
                 autonomy: Some(self.autonomy.clone()),
             };
-            let output = tool.handle(args_map, &ctx)?;
+            let output = tokio::task::block_in_place(|| tool.handle(args_map, &ctx))?;
 
             if let Some(ref path) = output.path {
                 self.record_call_with_path(
