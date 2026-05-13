@@ -529,15 +529,14 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
                 });
             }
             Err(e) => {
-                daemon_step.ok = false;
                 daemon_step
                     .warnings
-                    .push(format!("daemon start failed: {e}"));
+                    .push(format!("daemon start failed (non-fatal): {e}"));
                 daemon_step.items.push(SetupItem {
                     name: "serve --daemon".to_string(),
-                    status: "error".to_string(),
-                    path: Some(crate::daemon::daemon_addr().display()),
-                    note: Some(e.to_string()),
+                    status: "skipped".to_string(),
+                    path: None,
+                    note: Some(format!("optional — {e}")),
                 });
             }
         }
