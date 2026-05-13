@@ -12,18 +12,23 @@ pub fn is_safe_scan_root_public(path: &str) -> bool {
     is_safe_scan_root(path)
 }
 
+fn is_filesystem_root(path: &str) -> bool {
+    let p = Path::new(path);
+    p.parent().is_none() || (cfg!(windows) && p.parent() == Some(Path::new("")))
+}
+
 fn is_safe_scan_root(path: &str) -> bool {
     let normalized = normalize_project_root(path);
     let p = Path::new(&normalized);
 
-    if normalized == "/" || normalized == "\\" {
+    if normalized == "/" || normalized == "\\" || is_filesystem_root(&normalized) {
         tracing::warn!("[graph_index: refusing to scan filesystem root]");
         return false;
     }
 
     if let Some(home) = dirs::home_dir() {
-        let home_str = home.to_string_lossy().to_string();
-        if normalized == home_str || normalized == format!("{home_str}/") {
+        let home_norm = normalize_project_root(&home.to_string_lossy());
+        if normalized == home_norm {
             tracing::warn!(
                 "[graph_index: refusing to scan home directory {normalized} — \
                  set LEAN_CTX_PROJECT_ROOT or run from inside a project]"
@@ -1006,14 +1011,21 @@ class UserService {
     fn safe_scan_root_rejects_fs_root() {
         assert!(!is_safe_scan_root("/"));
         assert!(!is_safe_scan_root("\\"));
+        #[cfg(windows)]
+        {
+            assert!(!is_safe_scan_root("C:\\"));
+            assert!(!is_safe_scan_root("D:\\"));
+        }
     }
 
     #[test]
     fn safe_scan_root_rejects_home() {
         if let Some(home) = dirs::home_dir() {
             let home_str = home.to_string_lossy().to_string();
-            assert!(!is_safe_scan_root(&home_str));
-            assert!(!is_safe_scan_root(&format!("{home_str}/")));
+            assert!(
+                !is_safe_scan_root(&home_str),
+                "home dir should be rejected: {home_str}"
+            );
         }
     }
 
