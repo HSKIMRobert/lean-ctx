@@ -1,68 +1,21 @@
-fn extract_arm_body<'a>(src: &'a str, tool: &str) -> Option<&'a str> {
-    let needle = format!("\"{tool}\" => {{");
-    let start = src.find(&needle)?;
-    let brace_start = src[start..].find('{')? + start;
-    let mut depth = 0u32;
-    for (i, ch) in src[brace_start..].char_indices() {
-        match ch {
-            '{' => depth += 1,
-            '}' => {
-                depth = depth.saturating_sub(1);
-                if depth == 0 {
-                    let end = brace_start + i + 1;
-                    return Some(&src[brace_start..end]);
-                }
-            }
-            _ => {}
-        }
-    }
-    None
-}
-
 #[test]
-fn server_fs_tools_use_resolve_path_chokepoint() {
-    let sources = [
-        include_str!("../src/server/dispatch/read_tools.rs"),
-        include_str!("../src/server/dispatch/shell_tools.rs"),
-        include_str!("../src/server/dispatch/session_tools.rs"),
-        include_str!("../src/server/dispatch/utility_tools.rs"),
-    ];
-    let src = sources.join("\n");
-
-    // Tools dispatched via the legacy match-cascade must call resolve_path
-    // directly in their arm body.
-    let legacy_tools = [
-        "ctx_read",
-        "ctx_multi_read",
-        "ctx_search",
-        "ctx_smart_read",
-        "ctx_delta",
-        "ctx_edit",
-        "ctx_fill",
-        "ctx_semantic_search",
-        "ctx_prefetch",
-        "ctx_cache",
-        "ctx_graph",
-        "ctx_handoff",
-        "ctx_execute",
-    ];
-    for t in legacy_tools {
-        let body = extract_arm_body(&src, t).unwrap_or_else(|| panic!("missing tool arm: {t}"));
-        assert!(
-            body.contains("resolve_path("),
-            "{t} arm must call resolve_path() for path arguments"
-        );
-    }
-
-    // Tools migrated to the ToolRegistry get resolve_path automatically
-    // via dispatch_inner's pre-resolution loop. Verify the loop exists.
+fn dispatch_inner_pre_resolves_paths() {
     let dispatch_mod = include_str!("../src/server/dispatch/mod.rs");
     assert!(
         dispatch_mod.contains("self.resolve_path(raw)"),
         "dispatch_inner must resolve paths for registry-dispatched tools"
     );
 
-    // Verify registry-migrated tools use resolved_path from ToolContext
+    for key in ["path", "project_root", "root"] {
+        assert!(
+            dispatch_mod.contains(&format!("\"{key}\"")),
+            "dispatch_inner must pre-resolve the '{key}' parameter"
+        );
+    }
+}
+
+#[test]
+fn registry_tools_use_resolved_path() {
     let registry_tools = [
         (
             "ctx_tree",

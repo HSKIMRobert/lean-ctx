@@ -1,6 +1,6 @@
 [package]
 name = "lean-ctx"
-version = "3.5.24"
+version = "3.5.25"
 edition = "2021"
 description = "Context Runtime for AI Agents with CCP. 63 MCP tools, 10 read modes, 95+ compression patterns, cross-session memory (CCP), persistent AI knowledge with temporal facts + contradiction detection, multi-agent context sharing + diaries, LITM-aware positioning, AAAK compact format, adaptive compression with Thompson Sampling bandits. Supports 24 AI tools. Reduces LLM token consumption by up to 99%."
 license = "Apache-2.0"
@@ -212,6 +212,7 @@ windows-sys = { version = "0.59", features = [
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
+proptest = "1"
 tempfile = "3.27.0"
 tower = "0.5"
 

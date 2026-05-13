@@ -17,10 +17,13 @@ pub struct LineScore {
     pub combined: f32,
 }
 
+const MAX_TRIGRAM_SET_SIZE: usize = 10_000;
+
 /// Scores all lines in the input text for information density.
 pub fn score_lines(text: &str) -> Vec<LineScore> {
     let lines: Vec<&str> = text.lines().collect();
     let mut seen_trigrams: HashSet<String> = HashSet::new();
+    let mut trigram_saturated = false;
     let mut scores = Vec::with_capacity(lines.len());
 
     for (idx, line) in lines.iter().enumerate() {
@@ -28,9 +31,18 @@ pub fn score_lines(text: &str) -> Vec<LineScore> {
 
         let entropy = char_entropy(trimmed);
         let has_marker = has_structural_marker(trimmed);
-        let rep_ratio = repetition_ratio(trimmed, &seen_trigrams);
+        let rep_ratio = if trigram_saturated {
+            0.0
+        } else {
+            repetition_ratio(trimmed, &seen_trigrams)
+        };
 
-        register_trigrams(trimmed, &mut seen_trigrams);
+        if !trigram_saturated {
+            register_trigrams(trimmed, &mut seen_trigrams);
+            if seen_trigrams.len() >= MAX_TRIGRAM_SET_SIZE {
+                trigram_saturated = true;
+            }
+        }
 
         let combined = compute_combined(entropy, has_marker, rep_ratio);
 

@@ -13,6 +13,10 @@ pub fn rules_dedicated_markdown() -> &'static str {
     RULES_DEDICATED
 }
 
+pub fn rules_shared_content() -> &'static str {
+    RULES_SHARED
+}
+
 // ---------------------------------------------------------------------------
 // Rules content for SHARED config files (appended to user's existing config).
 // LITM-optimized: critical instruction at START and END of block.
@@ -21,24 +25,24 @@ pub fn rules_dedicated_markdown() -> &'static str {
 const RULES_SHARED: &str = r"# lean-ctx — Context Engineering Layer
 <!-- lean-ctx-rules-v9 -->
 
-CRITICAL: ALWAYS use lean-ctx MCP tools instead of native equivalents. This is NOT optional.
+CRITICAL: ALWAYS use lean-ctx tools instead of native equivalents. This is NOT optional.
 
-| ALWAYS USE | NEVER USE | Why |
-|------------|-----------|-----|
+| MUST USE | NEVER USE | Why |
+|----------|-----------|-----|
 | `ctx_read(path, mode)` | `Read` / `cat` / `head` / `tail` | Cached, 10 read modes, re-reads ~13 tokens |
-| `ctx_shell(command)` | `Shell` / `bash` / terminal | Pattern compression for git/npm/cargo output |
 | `ctx_search(pattern, path)` | `Grep` / `rg` | Compact, token-efficient results |
+| `ctx_shell(command)` | `Shell` / `bash` / terminal | Pattern compression for git/npm/cargo output |
 | `ctx_tree(path, depth)` | `ls` / `find` | Compact directory maps |
 
 Mode selection: editing → `full` then `diff`; context only → `map` or `signatures`; unsure → `auto`.
-Anti-pattern: never use `full` for files you won't edit.
+Anti-pattern: NEVER use `full` for files you won't edit.
 
-Compatibility: ctx_read replaces READ operations only. Your native Edit/Write/StrReplace tools remain unchanged — keep using them for editing.
-
+File editing: use native Edit/Write/StrReplace — unchanged. ctx_read replaces READ only.
 If Edit requires native Read and Read is unavailable, use `ctx_edit(path, old_string, new_string)` instead.
 Write, Delete, Glob → use normally. NEVER loop on Edit failures — switch to ctx_edit immediately.
 
 Fallback only if a lean-ctx tool is unavailable: use native equivalents.
+REMINDER: You MUST use lean-ctx tools. NEVER use native Read, Grep, or Shell directly.
 <!-- /lean-ctx -->";
 
 // ---------------------------------------------------------------------------
@@ -49,14 +53,14 @@ Fallback only if a lean-ctx tool is unavailable: use native equivalents.
 const RULES_DEDICATED: &str = r"# lean-ctx — Context Engineering Layer
 <!-- lean-ctx-rules-v9 -->
 
-PREFER lean-ctx MCP tools over native equivalents for token savings:
+CRITICAL: ALWAYS use lean-ctx tools instead of native equivalents. This is NOT optional.
 
-## Tool preference:
-| PREFER | OVER | Why |
-|--------|------|-----|
-| `ctx_read(path, mode)` | `Read` / `cat` | Cached, 10 read modes, re-reads ~13 tokens |
-| `ctx_shell(command)` | `Shell` / `bash` | Pattern compression for git/npm/cargo output |
+## Tool Mapping
+| MUST USE | NEVER USE | Why |
+|----------|-----------|-----|
+| `ctx_read(path, mode)` | `Read` / `cat` / `head` / `tail` | Cached, 10 read modes, re-reads ~13 tokens |
 | `ctx_search(pattern, path)` | `Grep` / `rg` | Compact, token-efficient results |
+| `ctx_shell(command)` | `Shell` / `bash` / terminal | Pattern compression for git/npm/cargo output |
 | `ctx_tree(path, depth)` | `ls` / `find` | Compact directory maps |
 | `ctx_edit(path, old_string, new_string)` | `Edit` (when Read unavailable) | Search-and-replace without native Read |
 
@@ -80,7 +84,7 @@ PREFER lean-ctx MCP tools over native equivalents for token savings:
 5. Active task set? → `task`
 6. Unsure? → `auto` (system selects optimal mode)
 
-Anti-pattern: never use `full` for files you won't edit — use `map` or `signatures`.
+Anti-pattern: NEVER use `full` for files you won't edit — use `map` or `signatures`.
 
 ## File editing:
 Use native Edit/StrReplace if available. If Edit requires Read and Read is unavailable, use ctx_edit.
@@ -89,6 +93,9 @@ Write, Delete, Glob → use normally. NEVER loop on Edit failures — switch to 
 ## Proactive (use without being asked):
 - `ctx_overview(task)` at session start
 - `ctx_compress` when context grows large
+
+Fallback only if a lean-ctx tool is unavailable: use native equivalents.
+REMINDER: You MUST use lean-ctx tools. NEVER use native Read, Grep, or Shell directly.
 <!-- /lean-ctx -->";
 
 // ---------------------------------------------------------------------------
@@ -792,13 +799,13 @@ mod tests {
         let lines: Vec<&str> = RULES_SHARED.lines().collect();
         let first_5 = lines[..5.min(lines.len())].join("\n");
         assert!(
-            first_5.contains("PREFER") || first_5.contains("lean-ctx"),
-            "LITM: preference instruction must be near start"
+            first_5.contains("CRITICAL") || first_5.contains("MUST"),
+            "LITM: MUST instruction must be near start"
         );
         let last_5 = lines[lines.len().saturating_sub(5)..].join("\n");
         assert!(
-            last_5.contains("fallback") || last_5.contains("native"),
-            "LITM: fallback note must be near end"
+            last_5.contains("MUST") || last_5.contains("NEVER"),
+            "LITM: reinforcement must be near end"
         );
     }
 
@@ -821,13 +828,13 @@ mod tests {
         let lines: Vec<&str> = RULES_DEDICATED.lines().collect();
         let first_5 = lines[..5.min(lines.len())].join("\n");
         assert!(
-            first_5.contains("PREFER") || first_5.contains("lean-ctx"),
-            "LITM: preference instruction must be near start"
+            first_5.contains("CRITICAL") || first_5.contains("MUST"),
+            "LITM: MUST instruction must be near start"
         );
         let last_5 = lines[lines.len().saturating_sub(5)..].join("\n");
         assert!(
-            last_5.contains("fallback") || last_5.contains("ctx_compress"),
-            "LITM: practical note must be near end"
+            last_5.contains("MUST") || last_5.contains("NEVER"),
+            "LITM: reinforcement must be near end"
         );
     }
 
@@ -836,13 +843,13 @@ mod tests {
         let lines: Vec<&str> = RULES_CURSOR_MDC.lines().collect();
         let first_10 = lines[..10.min(lines.len())].join("\n");
         assert!(
-            first_10.contains("PREFER") || first_10.contains("lean-ctx"),
-            "LITM: preference instruction must be near start of MDC"
+            first_10.contains("CRITICAL") || first_10.contains("MUST"),
+            "LITM: MUST instruction must be near start of MDC"
         );
         let last_5 = lines[lines.len().saturating_sub(5)..].join("\n");
         assert!(
-            last_5.contains("fallback") || last_5.contains("native"),
-            "LITM: fallback note must be near end of MDC"
+            last_5.contains("MUST") || last_5.contains("NEVER"),
+            "LITM: reinforcement must be near end of MDC"
         );
     }
 

@@ -1,0 +1,97 @@
+use rmcp::model::Tool;
+use rmcp::ErrorData;
+use serde_json::{json, Map, Value};
+
+use crate::server::tool_trait::{
+    get_int, get_str, get_str_array, McpTool, ToolContext, ToolOutput,
+};
+use crate::tool_defs::tool_def;
+
+pub struct CtxFillTool;
+
+impl McpTool for CtxFillTool {
+    fn name(&self) -> &'static str {
+        "ctx_fill"
+    }
+
+    fn tool_def(&self) -> Tool {
+        tool_def(
+            "ctx_fill",
+            "Budget-aware context fill — auto-selects compression per file within token limit.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "paths": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "File paths to consider"
+                    },
+                    "budget": {
+                        "type": "integer",
+                        "description": "Maximum token budget to fill"
+                    },
+                    "task": {
+                        "type": "string",
+                        "description": "Optional task for POP intent-driven pruning"
+                    }
+                },
+                "required": ["paths", "budget"]
+            }),
+        )
+    }
+
+    fn handle(
+        &self,
+        args: &Map<String, Value>,
+        ctx: &ToolContext,
+    ) -> Result<ToolOutput, ErrorData> {
+        let raw_paths = get_str_array(args, "paths")
+            .ok_or_else(|| ErrorData::invalid_params("paths array is required", None))?;
+        let budget = get_int(args, "budget")
+            .ok_or_else(|| ErrorData::invalid_params("budget is required", None))?
+            as usize;
+        let task = get_str(args, "task");
+
+        tokio::task::block_in_place(|| {
+            let session_lock = ctx
+                .session
+                .as_ref()
+                .ok_or_else(|| ErrorData::internal_error("session not available", None))?;
+            let cache_lock = ctx
+                .cache
+                .as_ref()
+                .ok_or_else(|| ErrorData::internal_error("cache not available", None))?;
+
+            let mut paths = Vec::with_capacity(raw_paths.len());
+            {
+                let session = session_lock.blocking_read();
+                for p in &raw_paths {
+                    match super::resolve_path_sync(&session, p) {
+                        Ok(resolved) => paths.push(resolved),
+                        Err(e) => {
+                            return Err(ErrorData::invalid_params(e, None));
+                        }
+                    }
+                }
+            }
+
+            let mut cache = cache_lock.blocking_write();
+            let output = crate::tools::ctx_fill::handle(
+                &mut cache,
+                &paths,
+                budget,
+                ctx.crp_mode,
+                task.as_deref(),
+            );
+            drop(cache);
+
+            Ok(ToolOutput {
+                text: output,
+                original_tokens: 0,
+                saved_tokens: 0,
+                mode: Some(format!("budget:{budget}")),
+                path: None,
+            })
+        })
+    }
+}

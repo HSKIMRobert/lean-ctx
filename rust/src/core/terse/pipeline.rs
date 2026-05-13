@@ -10,18 +10,16 @@ use super::residual;
 use super::TerseResult;
 use crate::core::config::CompressionLevel;
 
+const MAX_TERSE_INPUT_BYTES: usize = 64_000;
+const TERSE_BUDGET_MS: u128 = 500;
+
 /// Runs the full compression pipeline on tool/command output.
 ///
 /// This is the **single entry point** for all integration modes:
 /// - Full MCP: called from `server/mod.rs` after tool execution
 /// - Hybrid: MCP for reads + CLI for shell compression
 ///
-/// If a `command` is provided, pattern compression runs first (via `patterns::compress_output`),
-/// then terse compression runs on the residual.
-///
-/// When `content_defined_chunking` is enabled in config, output is reordered at
-/// Rabin-Karp chunk boundaries so structurally stable sections appear first,
-/// maximizing prompt-cache hit rates.
+/// Safety: skips compression for inputs > 64KB and enforces a 500ms budget.
 pub fn compress(
     input: &str,
     level: &CompressionLevel,
@@ -32,13 +30,26 @@ pub fn compress(
         return TerseResult::passthrough(input.to_string(), tokens);
     }
 
+    if input.len() > MAX_TERSE_INPUT_BYTES {
+        let tokens = counter::count(input);
+        return TerseResult::passthrough(input.to_string(), tokens);
+    }
+
+    let deadline = std::time::Instant::now();
+
     let mut result = match pattern_compressed {
         Some(after_patterns) => compress_with_patterns(input, after_patterns, level),
         None => compress_direct(input, level),
     };
 
-    if crate::core::config::Config::load().content_defined_chunking {
-        result.output = reorder_cdc_stable(&result.output);
+    if deadline.elapsed().as_millis() < TERSE_BUDGET_MS {
+        use std::sync::OnceLock;
+        static CDC_ENABLED: OnceLock<bool> = OnceLock::new();
+        let cdc = *CDC_ENABLED
+            .get_or_init(|| crate::core::config::Config::load().content_defined_chunking);
+        if cdc {
+            result.output = reorder_cdc_stable(&result.output);
+        }
     }
 
     result

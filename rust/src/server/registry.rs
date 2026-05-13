@@ -97,6 +97,45 @@ pub fn build_registry() -> ToolRegistry {
     registry.register(Box::new(
         registered::ctx_compress_memory::CtxCompressMemoryTool,
     ));
+    registry.register(Box::new(registered::ctx_read::CtxReadTool));
+    registry.register(Box::new(registered::ctx_multi_read::CtxMultiReadTool));
+    registry.register(Box::new(registered::ctx_smart_read::CtxSmartReadTool));
+    registry.register(Box::new(registered::ctx_delta::CtxDeltaTool));
+    registry.register(Box::new(registered::ctx_edit::CtxEditTool));
+    registry.register(Box::new(registered::ctx_fill::CtxFillTool));
+    registry.register(Box::new(registered::ctx_shell::CtxShellTool));
+    registry.register(Box::new(registered::ctx_search::CtxSearchTool));
+    registry.register(Box::new(registered::ctx_execute::CtxExecuteTool));
+
+    // Utility tools (migrated from dispatch/utility_tools.rs)
+    registry.register(Box::new(registered::ctx_compress::CtxCompressTool));
+    registry.register(Box::new(registered::ctx_metrics::CtxMetricsTool));
+    registry.register(Box::new(registered::ctx_dedup::CtxDedupTool));
+    registry.register(Box::new(registered::ctx_intent::CtxIntentTool));
+    registry.register(Box::new(registered::ctx_context::CtxContextTool));
+    registry.register(Box::new(registered::ctx_graph::CtxGraphTool));
+    registry.register(Box::new(registered::ctx_proof::CtxProofTool));
+    registry.register(Box::new(registered::ctx_cache::CtxCacheTool));
+    registry.register(Box::new(registered::ctx_retrieve::CtxRetrieveTool));
+    registry.register(Box::new(registered::ctx_overview::CtxOverviewTool));
+    registry.register(Box::new(registered::ctx_preload::CtxPreloadTool));
+    registry.register(Box::new(registered::ctx_prefetch::CtxPrefetchTool));
+    registry.register(Box::new(
+        registered::ctx_semantic_search::CtxSemanticSearchTool,
+    ));
+    registry.register(Box::new(registered::ctx_feedback::CtxFeedbackTool));
+    registry.register(Box::new(registered::ctx_control::CtxControlTool));
+    registry.register(Box::new(registered::ctx_plan::CtxPlanTool));
+    registry.register(Box::new(registered::ctx_compile::CtxCompileTool));
+
+    // Session tools (migrated from legacy dispatch)
+    registry.register(Box::new(registered::ctx_session::CtxSessionTool));
+    registry.register(Box::new(registered::ctx_knowledge::CtxKnowledgeTool));
+    registry.register(Box::new(registered::ctx_agent::CtxAgentTool));
+    registry.register(Box::new(registered::ctx_share::CtxShareTool));
+    registry.register(Box::new(registered::ctx_task::CtxTaskTool));
+    registry.register(Box::new(registered::ctx_handoff::CtxHandoffTool));
+    registry.register(Box::new(registered::ctx_workflow::CtxWorkflowTool));
 
     registry
 }

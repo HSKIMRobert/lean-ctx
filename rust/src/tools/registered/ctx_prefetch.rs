@@ -1,0 +1,85 @@
+use rmcp::model::Tool;
+use rmcp::ErrorData;
+use serde_json::{json, Map, Value};
+
+use crate::server::tool_trait::{
+    get_int, get_str, get_str_array, McpTool, ToolContext, ToolOutput,
+};
+use crate::tool_defs::tool_def;
+
+pub struct CtxPrefetchTool;
+
+impl McpTool for CtxPrefetchTool {
+    fn name(&self) -> &'static str {
+        "ctx_prefetch"
+    }
+
+    fn tool_def(&self) -> Tool {
+        tool_def(
+            "ctx_prefetch",
+            "Predictive prefetch — prewarm cache for blast radius files (graph + task signals) within budgets.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "root": { "type": "string", "description": "Project root (default: .)" },
+                    "task": { "type": "string", "description": "Optional task for relevance scoring" },
+                    "changed_files": { "type": "array", "items": { "type": "string" }, "description": "Optional changed files (paths) to compute blast radius" },
+                    "budget_tokens": { "type": "integer", "description": "Soft budget hint for mode selection (default: 3000)" },
+                    "max_files": { "type": "integer", "description": "Max files to prefetch (default: 10)" }
+                }
+            }),
+        )
+    }
+
+    fn handle(
+        &self,
+        args: &Map<String, Value>,
+        ctx: &ToolContext,
+    ) -> Result<ToolOutput, ErrorData> {
+        let root = if get_str(args, "root").is_some() {
+            ctx.resolved_path("root")
+                .unwrap_or(&ctx.project_root)
+                .to_string()
+        } else if let Some(ref session) = ctx.session {
+            let guard = tokio::task::block_in_place(|| session.blocking_read());
+            guard
+                .project_root
+                .clone()
+                .unwrap_or_else(|| ".".to_string())
+        } else {
+            ".".to_string()
+        };
+
+        let task = get_str(args, "task");
+        let changed_files = get_str_array(args, "changed_files");
+        let budget_tokens = get_int(args, "budget_tokens").map_or(3000, |n| n.max(0) as usize);
+        let max_files = get_int(args, "max_files").map(|n| n.max(1) as usize);
+
+        let resolved_changed: Option<Vec<String>> = changed_files.map(|files| {
+            files
+                .iter()
+                .map(|p| ctx.resolve_path_sync(p).unwrap_or_else(|_| p.clone()))
+                .collect()
+        });
+
+        let cache = ctx.cache.as_ref().unwrap();
+        let mut guard = tokio::task::block_in_place(|| cache.blocking_write());
+        let result = crate::tools::ctx_prefetch::handle(
+            &mut guard,
+            &root,
+            task.as_deref(),
+            resolved_changed.as_deref(),
+            budget_tokens,
+            max_files,
+            ctx.crp_mode,
+        );
+
+        Ok(ToolOutput {
+            text: result,
+            original_tokens: 0,
+            saved_tokens: 0,
+            mode: Some("prefetch".to_string()),
+            path: None,
+        })
+    }
+}

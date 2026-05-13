@@ -585,13 +585,30 @@ pub fn write_env_sh_for_containers(aliases: &str) {
         r#"
 
 # lean-ctx docker self-heal: re-inject Claude MCP config if Claude overwrote ~/.claude.json
-# Guards: container-only + no recursion + no re-entry via BASH_ENV
+# Guards: container-only + no recursion + no re-entry via BASH_ENV + 60s cooldown + PID-lock
 if [ -f /.dockerenv ] || grep -qsE '/docker/|/lxc/' /proc/1/cgroup 2>/dev/null; then
   if [ -z "${LEAN_CTX_ACTIVE:-}" ] && [ -z "${_LEAN_CTX_HEAL:-}" ]; then
-    export _LEAN_CTX_HEAL=1
-    if command -v claude >/dev/null 2>&1 && command -v lean-ctx >/dev/null 2>&1; then
-      if ! claude mcp list 2>/dev/null | grep -q "lean-ctx"; then
-        LEAN_CTX_ACTIVE=1 LEAN_CTX_QUIET=1 lean-ctx init --agent claude >/dev/null 2>&1
+    _LEAN_CTX_HEAL_TS="${HOME}/.lean-ctx/.heal_ts"
+    _LEAN_CTX_HEAL_COOLDOWN=60
+    _lean_ctx_heal_needed=1
+    if [ -f "$_LEAN_CTX_HEAL_TS" ]; then
+      _last_heal=$(cat "$_LEAN_CTX_HEAL_TS" 2>/dev/null || echo 0)
+      _now=$(date +%s 2>/dev/null || echo 0)
+      if [ $(( _now - _last_heal )) -lt $_LEAN_CTX_HEAL_COOLDOWN ]; then
+        _lean_ctx_heal_needed=0
+      fi
+    fi
+    _lean_ctx_lock_count=0
+    for _lf in "${HOME}/.lean-ctx/locks"/slot-*.lock 2>/dev/null; do
+      [ -f "$_lf" ] && _lean_ctx_lock_count=$(( _lean_ctx_lock_count + 1 ))
+    done
+    if [ "$_lean_ctx_heal_needed" = "1" ] && [ "$_lean_ctx_lock_count" -lt 4 ]; then
+      export _LEAN_CTX_HEAL=1
+      if command -v claude >/dev/null 2>&1 && command -v lean-ctx >/dev/null 2>&1; then
+        if ! claude mcp list 2>/dev/null | grep -q "lean-ctx"; then
+          LEAN_CTX_ACTIVE=1 LEAN_CTX_QUIET=1 lean-ctx init --agent claude >/dev/null 2>&1
+          date +%s > "$_LEAN_CTX_HEAL_TS" 2>/dev/null
+        fi
       fi
     fi
   fi

@@ -5,6 +5,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.5.25] — 2026-05-13
+
+### Added
+
+- **Process concurrency guard** — New `process_guard` module limits concurrent `lean-ctx` processes to 4 via `flock`/`fcntl` slot locks, preventing CPU saturation when multiple agents trigger simultaneous operations.
+- **Terse pipeline input cap & timeout** — `compress()` now skips inputs >64KB and enforces a 500ms deadline with per-stage budget checks, preventing runaway CPU on large outputs (#210).
+- **Trigram set cap** — `scoring.rs` limits the `seen_trigrams` HashSet to 10,000 entries, preventing unbounded memory growth on large inputs.
+- **Property-based compression tests** — Added `proptest` dev-dependency with invariant tests: `safeguard_ratio` never inflates, `entropy_compress` never exceeds original tokens, `compress_output` never inflates, and entropy output is a subset of input lines.
+- **Canonical rules policy** — New `rules_canonical.rs` module provides a single source of truth for all rule generation (MUST USE / NEVER USE tables, MCP instructions) across Hybrid and MCP modes.
+- **Contract tests for rules consistency** — 11 cross-IDE contract tests verify generated rules contain MUST/NEVER language, no contradictions between Hybrid/MCP modes, and correct tool mappings.
+- **MCP JSON `instructions` field** — Editor MCP configs now include an `instructions` field (where clients support it) with the canonical lean-ctx tool policy, truncated per client constraints.
+
+### Changed
+
+- **Rules language strengthened** — All rule templates, `.cursorrules`, MDC files, and SKILL.md now use `CRITICAL: ALWAYS`, `MUST USE`, and `NEVER USE` instead of `PREFER` / `should`. Ensures agents treat lean-ctx tool usage as mandatory.
+- **Background index throttled** — `spawn_index_build_background` now runs with `nice -n 19` and `ionice -c 3` (Linux) to prevent CPU contention during setup.
+- **env.sh self-heal hardened** — Container self-heal logic now includes a 60-second cooldown and PID-lock check (max 4 concurrent), preventing heal loops in multi-shell environments.
+- **Dictionary optimization** — `apply_dictionaries` performs case-insensitive `contains()` check before `replace_whole_word`, reducing unnecessary string operations.
+- **Quality gate optimization** — `extract_identifiers` capped at 200 entries; identifier lookup in `check()` uses HashSet instead of linear `contains()`.
+- **Entropy compression safeguard** — `entropy_compress` now falls back to the original content when compression would inflate token count.
+
+### Fixed
+
+- **100% CPU on `terse` with large inputs** (#210) — Combination of input cap, timeout budget, trigram cap, and process guard eliminates all known CPU hotspot scenarios.
+- **Stale `include_str!` paths in integration tests** — `security_hardening.rs` and `security_resolve_path_guard.rs` updated to reference modularized file locations (`session/state.rs`, `tools/server_paths.rs`, registry-only dispatch).
+- **Clippy warnings** — Fixed `map().flatten()` → `and_then()`, needless borrows, trailing commas, raw string hashes, and `let...else` patterns across multiple files.
+
 ## [3.5.24] — 2026-05-13
 
 ### Changed

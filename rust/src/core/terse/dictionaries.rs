@@ -435,17 +435,20 @@ pub const NPM: &[Abbreviation] = &[
 ];
 
 /// Applies whole-word abbreviations from the given dictionaries to the text.
-/// Only replaces at word boundaries to avoid corrupting identifiers.
+/// Uses a single scan: first checks which patterns exist, then applies only matches.
 pub fn apply_dictionaries(text: &str, level: DictLevel) -> String {
     let dicts: Vec<&[Abbreviation]> = match level {
         DictLevel::General => vec![GENERAL],
         DictLevel::Full => vec![GENERAL, GIT, CARGO, NPM],
     };
 
+    let text_lower = text.to_lowercase();
     let mut result = text.to_string();
     for dict in dicts {
         for abbr in dict {
-            result = replace_whole_word(&result, abbr.long, abbr.short);
+            if text_lower.contains(&abbr.long.to_lowercase()) {
+                result = replace_whole_word(&result, abbr.long, abbr.short);
+            }
         }
     }
     result

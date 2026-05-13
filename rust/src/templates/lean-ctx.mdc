@@ -1,5 +1,5 @@
 ---
-description: "lean-ctx: prefer ctx_read/ctx_shell/ctx_search/ctx_tree over Read/Shell/Grep/ls for token savings"
+description: "lean-ctx: MUST use ctx_read/ctx_search over Read/Grep. Shell via lean-ctx -c. NEVER use native Read/Grep/Shell."
 globs: **/*
 alwaysApply: true
 ---
@@ -7,22 +7,22 @@ alwaysApply: true
 # lean-ctx — Context Engineering Layer
 <!-- lean-ctx-rules-v9 -->
 
-PREFER lean-ctx MCP tools over native equivalents for token savings:
+CRITICAL: ALWAYS use lean-ctx tools instead of native equivalents. This is NOT optional.
 
 ## Tool Mapping
 
-| PREFER | OVER | Why |
-|--------|------|-----|
-| `ctx_read` | `Read` | Session caching, 10 read modes, re-reads cost ~13 tokens |
-| `ctx_shell` | `Shell` | Pattern-based compression for git, npm, cargo, docker, tsc |
-| `ctx_search` | `Grep` | Compact context, token-efficient results |
-| `ctx_tree` | `ls`, `find` | Compact directory maps with file counts |
+| MUST USE | NEVER USE | Why |
+|----------|-----------|-----|
+| `ctx_read(path, mode)` | `Read` / `cat` / `head` / `tail` | Cached, 10 read modes, re-reads ~13 tokens |
+| `ctx_search(pattern, path)` | `Grep` / `rg` | Compact, token-efficient results |
+| `lean-ctx -c "<cmd>"` (via Shell) | `ctx_shell` / raw `Shell` | CLI compression, no MCP overhead |
+| `lean-ctx ls [path]` (via Shell) | `ctx_tree` / `ls` / `find` | Compact directory maps |
 
 ## ctx_read Modes
 
 - `auto` — auto-select optimal mode (recommended default)
-- `full` — default, cached read (use for files you will edit)
-- `map` — dependency graph + exports + key signatures (use for context-only files)
+- `full` — cached read (use for files you will edit)
+- `map` — dependency graph + exports + key signatures (context-only files)
 - `signatures` — API surface only
 - `diff` — changed lines only (use after edits)
 - `task` — task-relevant filtering
@@ -44,7 +44,7 @@ Set `fresh=true` on ctx_read to bypass cache when spawned as a subagent or after
 5. Active task set? → `task`
 6. Unsure? → `auto` (system selects optimal mode)
 
-Anti-pattern: never use `full` for files you won't edit — use `map` or `signatures`.
+Anti-pattern: NEVER use `full` for files you won't edit — use `map` or `signatures`.
 
 ## File Editing
 
@@ -119,4 +119,5 @@ Every token costs money. This applies to input, output, AND thinking tokens.
 - Multi-file refactors, architecture → default model
 
 Fallback only if a lean-ctx tool is unavailable: use native equivalents.
+REMINDER: You MUST use lean-ctx tools. NEVER use native Read, Grep, or Shell directly.
 <!-- /lean-ctx -->

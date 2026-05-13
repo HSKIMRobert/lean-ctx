@@ -1,5 +1,5 @@
 ---
-description: "lean-ctx hybrid: MCP for reads/search, CLI for shell commands"
+description: "lean-ctx hybrid: MUST use ctx_read/ctx_search (MCP) + lean-ctx -c (CLI). NEVER use native Read/Grep/Shell."
 alwaysApply: true
 ---
 
@@ -8,18 +8,21 @@ alwaysApply: true
 
 ## Mode: Hybrid (MCP reads + CLI shell)
 
+CRITICAL: ALWAYS use lean-ctx tools. This is NOT optional.
+
 Use MCP tools for file reads and search (cached, token-efficient):
 
-| USE (MCP) | INSTEAD OF | Why |
-|-----------|------------|-----|
-| `ctx_read(path, mode)` | `Read` | Session cache, 10 modes, re-reads ~13 tok |
-| `ctx_search(pattern, path)` | `Grep` | Compact, token-efficient results |
+| MUST USE (MCP) | NEVER USE | Why |
+|----------------|-----------|-----|
+| `ctx_read(path, mode)` | `Read` / `cat` / `head` / `tail` | Session cache, 10 modes, re-reads ~13 tok |
+| `ctx_search(pattern, path)` | `Grep` / `rg` | Compact, token-efficient results |
 
 Use lean-ctx CLI for shell commands (no MCP schema overhead):
 
-| USE (via Shell) | INSTEAD OF (MCP) |
-|-----------------|-------------------|
-| `lean-ctx -c "<cmd>"` | `ctx_shell` |
-| `lean-ctx ls [path]` | `ctx_tree` |
+| MUST USE (via Shell) | NEVER USE |
+|----------------------|-----------|
+| `lean-ctx -c "<cmd>"` | `ctx_shell` / raw `Shell` |
+| `lean-ctx ls [path]` | `ctx_tree` / `ls` / `find` |
 
 File editing: use native Edit/StrReplace. Write/Delete/Glob → use normally.
+REMINDER: You MUST use lean-ctx tools. NEVER use native Read, Grep, or Shell directly.

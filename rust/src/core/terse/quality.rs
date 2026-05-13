@@ -61,10 +61,14 @@ pub fn check(
         || (paths_found as f32 / orig_paths.len() as f32) >= config.min_path_preservation;
 
     let orig_idents = extract_identifiers(original, config.min_identifier_len);
-    let comp_text_lower = compressed.to_lowercase();
+    let comp_words: HashSet<String> = compressed
+        .split(|c: char| !c.is_alphanumeric() && c != '_')
+        .filter(|w| w.len() >= config.min_identifier_len)
+        .map(str::to_lowercase)
+        .collect();
     let idents_found = orig_idents
         .iter()
-        .filter(|id| comp_text_lower.contains(&id.to_lowercase()))
+        .filter(|id| comp_words.contains(&id.to_lowercase()))
         .count();
     let identifiers_preserved = orig_idents.is_empty()
         || (idents_found as f32 / orig_idents.len() as f32) >= config.min_identifier_preservation;
@@ -106,11 +110,16 @@ fn looks_like_path(s: &str) -> bool {
     has_separator || (has_extension && s.chars().filter(|c| *c == '.').count() <= 2)
 }
 
+const MAX_IDENTIFIERS: usize = 200;
+
 fn extract_identifiers(text: &str, min_len: usize) -> HashSet<String> {
     let mut idents = HashSet::new();
     for word in text.split(|c: char| !c.is_alphanumeric() && c != '_') {
         if word.len() >= min_len && word.chars().any(char::is_alphabetic) {
             idents.insert(word.to_string());
+            if idents.len() >= MAX_IDENTIFIERS {
+                break;
+            }
         }
     }
     idents

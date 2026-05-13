@@ -9,8 +9,10 @@ pub mod entropy;
 pub mod information_bottleneck;
 pub mod pop_pruning;
 pub mod preservation;
+pub mod process_guard;
 pub mod progressive_compression;
 pub mod rabin_karp;
+pub mod rules_canonical;
 pub mod structural_tokenizer;
 
 /// Convenience re-export: all compression-related modules.

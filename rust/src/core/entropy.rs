@@ -317,10 +317,21 @@ fn entropy_compress_with_thresholds(
     let output = collapsed.join("\n");
     let compressed_tokens = count_tokens(&output);
 
+    let final_output = if compressed_tokens > original_tokens {
+        content.to_string()
+    } else {
+        output
+    };
+    let final_tokens = if compressed_tokens > original_tokens {
+        original_tokens
+    } else {
+        compressed_tokens
+    };
+
     EntropyResult {
-        output,
+        output: final_output,
         original_tokens,
-        compressed_tokens,
+        compressed_tokens: final_tokens,
         techniques,
     }
 }

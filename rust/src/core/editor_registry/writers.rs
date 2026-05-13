@@ -466,6 +466,30 @@ fn lean_ctx_server_entry(binary: &str, data_dir: &str, include_auto_approve: boo
     entry
 }
 
+fn lean_ctx_server_entry_with_instructions(
+    binary: &str,
+    data_dir: &str,
+    include_auto_approve: bool,
+    agent_key: &str,
+) -> Value {
+    let mut entry = lean_ctx_server_entry(binary, data_dir, include_auto_approve);
+    let mode = crate::core::rules_canonical::Mode::from_hook_mode(
+        &crate::hooks::recommend_hook_mode(agent_key),
+    );
+    let instructions = crate::core::rules_canonical::mcp_instructions(mode);
+
+    let constraints = crate::core::client_constraints::by_client_id(agent_key);
+    if let Some(max_chars) = constraints.and_then(|c| c.mcp_instructions_max_chars) {
+        let truncated = if instructions.len() > max_chars {
+            &instructions[..max_chars]
+        } else {
+            instructions
+        };
+        entry["instructions"] = serde_json::json!(truncated);
+    }
+    entry
+}
+
 fn supports_auto_approve(target: &EditorTarget) -> bool {
     crate::core::client_constraints::by_editor_name(target.name)
         .is_some_and(|c| c.supports_auto_approve)
@@ -484,7 +508,11 @@ fn write_mcp_json(
 ) -> Result<WriteResult, String> {
     let data_dir = default_data_dir()?;
     let include_aa = supports_auto_approve(target);
-    let desired = lean_ctx_server_entry(binary, &data_dir, include_aa);
+    let desired = if target.agent_key.is_empty() {
+        lean_ctx_server_entry(binary, &data_dir, include_aa)
+    } else {
+        lean_ctx_server_entry_with_instructions(binary, &data_dir, include_aa, &target.agent_key)
+    };
 
     // Claude Code manages ~/.claude.json and may overwrite it on first start.
     // Prefer the official CLI integration when available.

@@ -1,8 +1,3 @@
-mod read_tools;
-mod session_tools;
-mod shell_tools;
-mod utility_tools;
-
 use rmcp::ErrorData;
 use serde_json::Value;
 
@@ -116,9 +111,7 @@ impl LeanCtxServer {
         }
     }
 
-    /// Dispatches a single tool to either the trait-based registry or
-    /// the legacy match-cascade. Tools are migrated incrementally;
-    /// once all tools live in the registry the legacy arms disappear.
+    /// Dispatches a single tool via the trait-based registry.
     async fn dispatch_inner(
         &self,
         name: &str,
@@ -142,10 +135,22 @@ impl LeanCtxServer {
                 }
             }
 
+            let crp_mode = crate::tools::CrpMode::effective();
             let ctx = crate::server::tool_trait::ToolContext {
                 project_root,
                 minimal,
                 resolved_paths,
+                crp_mode,
+                cache: Some(self.cache.clone()),
+                session: Some(self.session.clone()),
+                tool_calls: Some(self.tool_calls.clone()),
+                agent_id: Some(self.agent_id.clone()),
+                workflow: Some(self.workflow.clone()),
+                ledger: Some(self.ledger.clone()),
+                client_name: Some(self.client_name.clone()),
+                pipeline_stats: Some(self.pipeline_stats.clone()),
+                call_count: Some(self.call_count.clone()),
+                autonomy: Some(self.autonomy.clone()),
             };
             let output = tool.handle(args_map, &ctx)?;
 
@@ -170,20 +175,9 @@ impl LeanCtxServer {
             return Ok(output.text);
         }
 
-        match name {
-            "ctx_read" | "ctx_multi_read" | "ctx_smart_read" | "ctx_delta" | "ctx_edit"
-            | "ctx_fill" => self.dispatch_read_tools(name, args, minimal).await,
-
-            "ctx_shell" | "ctx_search" | "ctx_execute" => {
-                self.dispatch_shell_tools(name, args, minimal).await
-            }
-
-            "ctx_session" | "ctx_knowledge" | "ctx_agent" | "ctx_share" | "ctx_task"
-            | "ctx_handoff" | "ctx_workflow" => {
-                self.dispatch_session_tools(name, args, minimal).await
-            }
-
-            _ => self.dispatch_utility_tools(name, args, minimal).await,
-        }
+        Err(ErrorData::invalid_params(
+            format!("Unknown tool: {name}"),
+            None,
+        ))
     }
 }

@@ -753,13 +753,43 @@ fn spawn_index_build_background(root: &std::path::Path) {
         |_| resolve_portable_binary(),
         |p| p.to_string_lossy().to_string(),
     );
-    let _ = std::process::Command::new(&binary)
-        .args(["index", "build-graph", "--root"])
-        .arg(root)
+
+    #[cfg(unix)]
+    {
+        let mut cmd = std::process::Command::new("nice");
+        cmd.args(["-n", "19"]);
+        if which_ionice_available() {
+            cmd.arg("ionice").args(["-c", "3"]);
+        }
+        cmd.arg(&binary)
+            .args(["index", "build-graph", "--root"])
+            .arg(root)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .stdin(std::process::Stdio::null());
+        let _ = cmd.spawn();
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = std::process::Command::new(&binary)
+            .args(["index", "build-graph", "--root"])
+            .arg(root)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .stdin(std::process::Stdio::null())
+            .spawn();
+    }
+}
+
+#[cfg(unix)]
+fn which_ionice_available() -> bool {
+    std::process::Command::new("ionice")
+        .arg("--version")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        .stdin(std::process::Stdio::null())
-        .spawn();
+        .status()
+        .is_ok()
 }
 
 pub fn configure_agent_mcp(agent: &str) -> Result<(), String> {

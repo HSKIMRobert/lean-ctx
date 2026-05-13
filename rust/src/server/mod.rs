@@ -1,5 +1,5 @@
 mod dispatch;
-mod execute;
+pub(crate) mod execute;
 pub mod helpers;
 pub mod pipeline_stages;
 pub mod registry;

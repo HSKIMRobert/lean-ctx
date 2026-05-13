@@ -460,18 +460,17 @@ Full rules: @{PROJECT_LEAN_CTX_MD}\n\
 const CURSORRULES_TEMPLATE: &str = "\
 # lean-ctx — Context Engineering Layer
 
-PREFER lean-ctx MCP tools over native equivalents for token savings:
+CRITICAL: ALWAYS use lean-ctx tools instead of native equivalents. This is NOT optional.
 
-| PREFER | OVER | Why |
-|--------|------|-----|
-| `ctx_read(path)` | `Read` | Cached, 10 compression modes |
-| `ctx_shell(command)` | `Shell` | Pattern compression |
-| `ctx_search(pattern, path)` | `Grep` | Compact results |
-| `ctx_tree(path, depth)` | `ls` / `find` | Directory maps |
-| `ctx_edit(path, old_string, new_string)` | `Edit` (when Read unavailable) | Search-and-replace without native Read |
+| MUST USE | NEVER USE | Why |
+|----------|-----------|-----|
+| `ctx_read(path, mode)` | `Read` / `cat` / `head` / `tail` | Cached, 10 read modes, re-reads ~13 tokens |
+| `ctx_search(pattern, path)` | `Grep` / `rg` | Compact, token-efficient results |
+| `lean-ctx -c \"<cmd>\"` (via Shell) | `ctx_shell` / raw `Shell` | CLI compression, no MCP overhead |
 
-Edit files: use native Edit/StrReplace if available. If Edit requires Read and Read is unavailable, use ctx_edit.
-Write, Delete, Glob — use normally. NEVER loop on Edit failures — switch to ctx_edit immediately.
+File editing: use native Edit/StrReplace. Write, Delete, Glob → use normally.
+NEVER loop on Edit failures — switch to ctx_edit immediately.
+REMINDER: You MUST use lean-ctx tools. NEVER use native Read, Grep, or Shell directly.
 ";
 
 pub const KIRO_STEERING_TEMPLATE: &str = "\

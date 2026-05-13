@@ -110,7 +110,7 @@ fn lineage_filters_by_workspace() {
 // ---------------------------------------------------------------------------
 #[test]
 fn effective_cwd_calls_jail() {
-    let src = include_str!("../src/core/session.rs");
+    let src = include_str!("../src/core/session/state.rs");
 
     let ecwd_fn = src
         .find("fn effective_cwd(")
@@ -124,7 +124,7 @@ fn effective_cwd_calls_jail() {
 
 #[test]
 fn update_shell_cwd_calls_jail_path() {
-    let src = include_str!("../src/core/session.rs");
+    let src = include_str!("../src/core/session/state.rs");
 
     let uscwd_fn = src
         .find("fn update_shell_cwd(")
@@ -141,7 +141,7 @@ fn update_shell_cwd_calls_jail_path() {
 // ---------------------------------------------------------------------------
 #[test]
 fn resolve_path_includes_secret_check() {
-    let src = include_str!("../src/tools/mod.rs");
+    let src = include_str!("../src/tools/server_paths.rs");
 
     let resolve_fn = src.find("fn resolve_path(").expect("resolve_path missing");
     let resolve_body = &src[resolve_fn..];
