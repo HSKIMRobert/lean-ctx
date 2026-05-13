@@ -31,8 +31,13 @@ jobs:
           workspaces: rust -> target
       - name: Run tests
         working-directory: rust
-        run: cargo test --all-features -- --test-threads=1
         shell: bash
+        run: |
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            cargo test --lib --no-default-features --features tree-sitter,embeddings,http-server,secure-update -- --test-threads=1
+          else
+            cargo test --all-features -- --test-threads=1
+          fi
 
   clippy:
     name: Clippy

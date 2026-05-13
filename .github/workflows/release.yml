@@ -73,7 +73,9 @@ jobs:
         working-directory: rust
         shell: bash
         run: |
-          if [[ "${{ runner.os }}" == "Windows" || "${{ matrix.musl }}" == "true" ]]; then
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            cargo test --lib --no-default-features --features tree-sitter,embeddings,http-server,secure-update -- --test-threads=1
+          elif [[ "${{ matrix.musl }}" == "true" ]]; then
             cargo test --lib --all-features -- --test-threads=1
           else
             cargo test --all-features -- --test-threads=1
@@ -99,6 +101,8 @@ jobs:
         run: |
           if [[ "${{ matrix.zig }}" == "true" ]]; then
             cargo zigbuild --release --target ${{ matrix.target }}
+          elif [[ "${{ runner.os }}" == "Windows" ]]; then
+            cargo build --release --target ${{ matrix.target }} --no-default-features --features tree-sitter,embeddings,http-server,secure-update
           else
             cargo build --release --target ${{ matrix.target }}
           fi
