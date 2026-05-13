@@ -1,6 +1,6 @@
 use serde_json::json;
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn context_engine_call_tool_text_reads_file() {
     let dir = tempfile::tempdir().expect("tempdir");
     let file_path = dir.path().join("a.txt");
