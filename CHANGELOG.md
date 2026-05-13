@@ -7,6 +7,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [3.5.22] — 2026-05-13
 
+### Fixed
+
+- **read: overlay/FUSE stat() race** — `read_file_lossy` now opens the file first and uses `fstat()` on
+  the file descriptor instead of a separate `stat()` syscall. Fixes sporadic "No such file or directory"
+  errors in Docker overlay/FUSE filesystems (e.g. Codex sandboxes) where `stat()` can return ENOENT
+  for files that exist. Adds a single retry with 50 ms backoff on NotFound before giving up.
+
 ### Added
 
 - **Native Windows daemon support — IPC abstraction layer** — New `ipc/` module (`mod.rs`, `process.rs`, `unix.rs`, `windows.rs`) provides a platform-independent daemon transport layer. Unix uses UDS (unchanged behavior), Windows uses Named Pipes (`\\.\pipe\lean-ctx-{hash}`). All OS-specific code (`libc::kill`, `PermissionsExt`, `UnixStream`) is now isolated in `ipc/unix.rs` and `ipc/windows.rs` — no other module needs `#[cfg(unix)]` for daemon logic. `windows-sys` 0.59 added as target dependency. Implements [#209](https://github.com/yvgude/lean-ctx/issues/209).

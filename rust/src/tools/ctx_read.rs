@@ -71,9 +71,11 @@ pub fn read_file_lossy(path: &str) -> Result<String, std::io::Error> {
     }
 
     let cap = crate::core::limits::max_read_bytes();
-    let meta = std::fs::metadata(path).map_err(|e| {
-        std::io::Error::other(format!("cannot stat file (refusing unbounded read): {e}"))
-    })?;
+
+    let file = open_with_retry(path)?;
+    let meta = file
+        .metadata()
+        .map_err(|e| std::io::Error::other(format!("cannot stat open file descriptor: {e}")))?;
     if meta.len() > cap as u64 {
         return Err(std::io::Error::other(format!(
             "file too large ({} bytes, limit {} bytes via LCTX_MAX_READ_BYTES). \
@@ -83,10 +85,25 @@ pub fn read_file_lossy(path: &str) -> Result<String, std::io::Error> {
         )));
     }
 
-    let bytes = std::fs::read(path)?;
+    use std::io::Read;
+    let mut bytes = Vec::with_capacity(meta.len() as usize);
+    std::io::BufReader::new(file).read_to_end(&mut bytes)?;
     match String::from_utf8(bytes) {
         Ok(s) => Ok(s),
         Err(e) => Ok(String::from_utf8_lossy(e.as_bytes()).into_owned()),
+    }
+}
+
+/// Opens a file, retrying once after a brief pause on NotFound.
+/// Works around overlay/FUSE stat-cache races in container runtimes (Docker, Codex).
+fn open_with_retry(path: &str) -> Result<std::fs::File, std::io::Error> {
+    match std::fs::File::open(path) {
+        Ok(f) => Ok(f),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            std::fs::File::open(path)
+        }
+        Err(e) => Err(e),
     }
 }
 
