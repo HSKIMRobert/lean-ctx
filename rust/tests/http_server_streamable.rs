@@ -5,7 +5,7 @@ use axum::http::{Request, StatusCode};
 use rmcp::transport::{StreamableHttpServerConfig, StreamableHttpService};
 use serde_json::json;
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn streamable_http_stateless_json_tool_call_works() {
     let dir = tempfile::tempdir().expect("tempdir");
     let file_path = dir.path().join("a.txt");

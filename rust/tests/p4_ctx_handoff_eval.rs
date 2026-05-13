@@ -9,7 +9,7 @@ fn extract_path(s: &str) -> String {
     panic!("no path in output: {s}");
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[allow(clippy::await_holding_lock)]
 async fn ctx_handoff_create_show_list_pull_clear() {
     let _g = lean_ctx::core::data_dir::test_env_lock();

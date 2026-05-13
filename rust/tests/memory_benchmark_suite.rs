@@ -50,7 +50,7 @@ async fn call_tool_json(
 }
 
 #[allow(clippy::await_holding_lock)]
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn memory_benchmark_suite_persists_core_artifacts() {
     let _lock = lean_ctx::core::data_dir::test_env_lock();
     let data_dir = tempfile::tempdir().expect("data dir");

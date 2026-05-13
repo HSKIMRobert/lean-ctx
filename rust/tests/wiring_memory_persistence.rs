@@ -39,7 +39,7 @@ async fn call_tool(
 }
 
 #[allow(clippy::await_holding_lock)]
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn anomaly_detector_is_persisted_from_tool_call_pipeline() {
     let _lock = lean_ctx::core::data_dir::test_env_lock();
     let data_dir = tempfile::tempdir().expect("data dir");
@@ -83,7 +83,7 @@ async fn anomaly_detector_is_persisted_from_tool_call_pipeline() {
 }
 
 #[allow(clippy::await_holding_lock)]
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn episodic_and_procedural_memory_persist_via_ctx_session_actions() {
     let _lock = lean_ctx::core::data_dir::test_env_lock();
     let data_dir = tempfile::tempdir().expect("data dir");

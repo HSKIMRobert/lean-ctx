@@ -1,6 +1,6 @@
 use serde_json::json;
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[allow(clippy::await_holding_lock)]
 async fn ctx_feedback_updates_adaptive_mode_policy() {
     let _g = lean_ctx::core::data_dir::test_env_lock();
