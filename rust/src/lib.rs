@@ -6,9 +6,7 @@ pub mod cloud_sync;
 pub mod compound_lexer;
 pub mod config_io;
 pub mod core;
-#[cfg(unix)]
 pub mod daemon;
-#[cfg(unix)]
 pub mod daemon_client;
 pub mod dashboard;
 pub mod doctor;
@@ -20,6 +18,7 @@ pub mod hooks;
 #[cfg(feature = "http-server")]
 pub mod http_server;
 pub mod instructions;
+pub mod ipc;
 pub mod marked_block;
 pub mod mcp_stdio;
 #[cfg(feature = "http-server")]

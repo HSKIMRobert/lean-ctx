@@ -8,6 +8,63 @@ use crate::core::signatures;
 
 const INDEX_VERSION: u32 = 6;
 
+pub fn is_safe_scan_root_public(path: &str) -> bool {
+    is_safe_scan_root(path)
+}
+
+fn is_safe_scan_root(path: &str) -> bool {
+    let normalized = normalize_project_root(path);
+    let p = Path::new(&normalized);
+
+    if normalized == "/" || normalized == "\\" {
+        tracing::warn!("[graph_index: refusing to scan filesystem root]");
+        return false;
+    }
+
+    if let Some(home) = dirs::home_dir() {
+        let home_str = home.to_string_lossy().to_string();
+        if normalized == home_str || normalized == format!("{home_str}/") {
+            tracing::warn!(
+                "[graph_index: refusing to scan home directory {normalized} — \
+                 set LEAN_CTX_PROJECT_ROOT or run from inside a project]"
+            );
+            return false;
+        }
+    }
+
+    let breadth_markers = [
+        ".git",
+        "Cargo.toml",
+        "package.json",
+        "go.mod",
+        "pyproject.toml",
+        "setup.py",
+        "Makefile",
+        "CMakeLists.txt",
+        "pnpm-workspace.yaml",
+        ".projectile",
+        "BUILD.bazel",
+        "go.work",
+    ];
+
+    if !breadth_markers.iter().any(|m| p.join(m).exists()) {
+        let child_count = std::fs::read_dir(p).map_or(0, |rd| {
+            rd.filter_map(Result::ok)
+                .filter(|e| e.path().is_dir())
+                .count()
+        });
+        if child_count > 50 {
+            tracing::warn!(
+                "[graph_index: {normalized} has no project markers and {child_count} subdirectories — \
+                 skipping scan to avoid indexing broad directories]"
+            );
+            return false;
+        }
+    }
+
+    true
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProjectIndex {
     pub version: u32,
@@ -170,6 +227,10 @@ impl ProjectIndex {
 /// If no valid index exists, automatically scans the project to build one.
 /// This is the primary entry point — ensures zero-config usage.
 pub fn load_or_build(project_root: &str) -> ProjectIndex {
+    if std::env::var("LEAN_CTX_NO_INDEX").is_ok() {
+        return ProjectIndex::load(project_root).unwrap_or_else(|| ProjectIndex::new(project_root));
+    }
+
     // Prefer stable absolute roots. Using "." as a cache key is fragile because
     // it depends on the process cwd and can accidentally load the wrong project.
     let root_abs = if project_root.trim().is_empty() || project_root == "." {
@@ -180,6 +241,10 @@ pub fn load_or_build(project_root: &str) -> ProjectIndex {
     } else {
         normalize_project_root(project_root)
     };
+
+    if !is_safe_scan_root(&root_abs) {
+        return ProjectIndex::new(&root_abs);
+    }
 
     // Try the absolute/root-normalized path first.
     if let Some(idx) = ProjectIndex::load(&root_abs) {
@@ -252,7 +317,35 @@ fn index_looks_stale(index: &ProjectIndex, root_abs: &str) -> bool {
 }
 
 pub fn scan(project_root: &str) -> ProjectIndex {
+    if std::env::var("LEAN_CTX_NO_INDEX").is_ok() {
+        tracing::info!("[graph_index: LEAN_CTX_NO_INDEX set — skipping scan]");
+        return ProjectIndex::new(project_root);
+    }
+
     let project_root = normalize_project_root(project_root);
+
+    if !is_safe_scan_root(&project_root) {
+        tracing::warn!("[graph_index: scan aborted for unsafe root {project_root}]");
+        return ProjectIndex::new(&project_root);
+    }
+
+    let lock_name = format!(
+        "graph-idx-{}",
+        &crate::core::index_namespace::namespace_hash(Path::new(&project_root))[..8]
+    );
+    let _lock = crate::core::startup_guard::try_acquire_lock(
+        &lock_name,
+        std::time::Duration::from_millis(800),
+        std::time::Duration::from_mins(3),
+    );
+    if _lock.is_none() {
+        tracing::info!(
+            "[graph_index: another process is scanning {project_root} — returning cached or empty]"
+        );
+        return ProjectIndex::load(&project_root)
+            .unwrap_or_else(|| ProjectIndex::new(&project_root));
+    }
+
     let existing = ProjectIndex::load(&project_root);
     let mut index = ProjectIndex::new(&project_root);
 
@@ -291,9 +384,35 @@ pub fn scan(project_root: &str) -> ProjectIndex {
 
     let mut scanned = 0usize;
     let mut reused = 0usize;
+    let mut entries_visited = 0usize;
     let max_files = cfg.graph_index_max_files as usize;
+    const MAX_ENTRIES_VISITED: usize = 50_000;
+    let scan_deadline = std::time::Instant::now() + std::time::Duration::from_mins(2);
 
     for entry in walker.filter_map(std::result::Result::ok) {
+        entries_visited += 1;
+        if entries_visited > MAX_ENTRIES_VISITED {
+            tracing::warn!(
+                "[graph_index: walked {entries_visited} entries — aborting scan to prevent \
+                 runaway traversal. Indexed {} files so far.]",
+                index.files.len()
+            );
+            break;
+        }
+        if entries_visited.is_multiple_of(5000) {
+            if std::time::Instant::now() > scan_deadline {
+                tracing::warn!(
+                    "[graph_index: scan timeout (120s) after {entries_visited} entries — \
+                     saving partial index with {} files]",
+                    index.files.len()
+                );
+                break;
+            }
+            if let Some(ref g) = _lock {
+                g.touch();
+            }
+        }
+
         if !entry.file_type().is_some_and(|ft| ft.is_file()) {
             continue;
         }
@@ -881,5 +1000,55 @@ class UserService {
             kotlin_package_name(content).as_deref(),
             Some("com.example.feature")
         );
+    }
+
+    #[test]
+    fn safe_scan_root_rejects_fs_root() {
+        assert!(!is_safe_scan_root("/"));
+        assert!(!is_safe_scan_root("\\"));
+    }
+
+    #[test]
+    fn safe_scan_root_rejects_home() {
+        if let Some(home) = dirs::home_dir() {
+            let home_str = home.to_string_lossy().to_string();
+            assert!(!is_safe_scan_root(&home_str));
+            assert!(!is_safe_scan_root(&format!("{home_str}/")));
+        }
+    }
+
+    #[test]
+    fn safe_scan_root_accepts_project_dir() {
+        let tmp = tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join("Cargo.toml"),
+            "[package]\nname = \"test\"\n",
+        )
+        .unwrap();
+        let root = tmp.path().to_string_lossy().to_string();
+        assert!(is_safe_scan_root(&root));
+    }
+
+    #[test]
+    fn safe_scan_root_rejects_broad_dir() {
+        let tmp = tempdir().unwrap();
+        for i in 0..55 {
+            std::fs::create_dir(tmp.path().join(format!("dir{i}"))).unwrap();
+        }
+        let root = tmp.path().to_string_lossy().to_string();
+        assert!(!is_safe_scan_root(&root));
+    }
+
+    #[test]
+    fn no_index_env_skips_scan() {
+        let _env = crate::core::data_dir::test_env_lock();
+        let tmp = tempdir().unwrap();
+        std::fs::write(tmp.path().join("Cargo.toml"), "").unwrap();
+        std::fs::write(tmp.path().join("main.rs"), "fn main() {}").unwrap();
+
+        std::env::set_var("LEAN_CTX_NO_INDEX", "1");
+        let idx = scan(&tmp.path().to_string_lossy());
+        std::env::remove_var("LEAN_CTX_NO_INDEX");
+        assert!(idx.files.is_empty(), "LEAN_CTX_NO_INDEX should skip scan");
     }
 }

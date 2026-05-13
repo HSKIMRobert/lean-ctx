@@ -100,19 +100,34 @@ pub(super) fn handle(
         }
         "/api/call-graph" => {
             let root = detect_project_root_for_dashboard();
-            let index = crate::core::graph_index::load_or_build(&root);
-            let call_graph = crate::core::call_graph::CallGraph::load_or_build(&root, &index);
-            let _ = call_graph.save();
-            let payload = serde_json::json!({
-                "project_root": project_basename(&call_graph.project_root),
-                "edges": call_graph.edges,
-                "file_hashes": call_graph.file_hashes,
-                "indexed_file_count": index.files.len(),
-                "indexed_symbol_count": index.symbols.len(),
-                "analyzed_file_count": call_graph.file_hashes.len(),
-            });
-            let json = serde_json::to_string(&payload)
-                .unwrap_or_else(|_| "{\"error\":\"failed to serialize call graph\"}".to_string());
+            let index = std::sync::Arc::new(crate::core::graph_index::load_or_build(&root));
+            match crate::core::call_graph::CallGraph::get_or_start_build(&root, index.clone()) {
+                Ok(graph) => {
+                    let payload = serde_json::json!({
+                        "status": "ready",
+                        "project_root": project_basename(&graph.project_root),
+                        "edges": graph.edges,
+                        "file_hashes": graph.file_hashes,
+                        "indexed_file_count": index.files.len(),
+                        "indexed_symbol_count": index.symbols.len(),
+                        "analyzed_file_count": graph.file_hashes.len(),
+                    });
+                    let json = serde_json::to_string(&payload).unwrap_or_else(|_| {
+                        "{\"error\":\"failed to serialize call graph\"}".to_string()
+                    });
+                    Some(("200 OK", "application/json", json))
+                }
+                Err(progress) => {
+                    let json = serde_json::to_string(&progress)
+                        .unwrap_or_else(|_| "{\"status\":\"building\"}".to_string());
+                    Some(("202 Accepted", "application/json", json))
+                }
+            }
+        }
+        "/api/call-graph/status" => {
+            let progress = crate::core::call_graph::CallGraph::build_status();
+            let json = serde_json::to_string(&progress)
+                .unwrap_or_else(|_| "{\"status\":\"idle\"}".to_string());
             Some(("200 OK", "application/json", json))
         }
         "/api/symbols" => {
@@ -140,6 +155,32 @@ pub(super) fn handle(
             let result =
                 crate::tools::ctx_architecture::handle("communities", None, &root, Some("json"));
             Some(("200 OK", "application/json", result))
+        }
+        "/api/graph-files" => {
+            let root = detect_project_root_for_dashboard();
+            let index = crate::core::graph_index::load_or_build(&root);
+            let mut files: Vec<serde_json::Value> = index
+                .files
+                .values()
+                .map(|f| {
+                    serde_json::json!({
+                        "path": f.path,
+                        "language": f.language,
+                        "token_count": f.token_count,
+                        "line_count": f.line_count,
+                    })
+                })
+                .collect();
+            files.sort_by(|a, b| {
+                b["token_count"]
+                    .as_u64()
+                    .unwrap_or(0)
+                    .cmp(&a["token_count"].as_u64().unwrap_or(0))
+            });
+            files.truncate(500);
+            let json = serde_json::json!({ "files": files });
+            let out = serde_json::to_string(&json).unwrap_or_else(|_| "{\"files\":[]}".to_string());
+            Some(("200 OK", "application/json", out))
         }
         "/api/smells" => {
             let root = detect_project_root_for_dashboard();

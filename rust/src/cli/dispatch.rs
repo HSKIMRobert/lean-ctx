@@ -681,53 +681,41 @@ pub fn run() {
                         i += 1;
                     }
 
-                    #[cfg(unix)]
-                    {
-                        if stop_mode {
-                            if let Err(e) = crate::daemon::stop_daemon() {
-                                eprintln!("Error: {e}");
-                                std::process::exit(1);
-                            }
-                            return;
-                        }
-
-                        if status_mode {
-                            println!("{}", crate::daemon::daemon_status());
-                            return;
-                        }
-
-                        if daemon_mode {
-                            if let Err(e) = crate::daemon::start_daemon(&rest) {
-                                eprintln!("Error: {e}");
-                                std::process::exit(1);
-                            }
-                            return;
-                        }
-
-                        if foreground_daemon {
-                            if let Err(e) = crate::daemon::init_foreground_daemon() {
-                                eprintln!("Error writing PID file: {e}");
-                                std::process::exit(1);
-                            }
-                            let socket_path = crate::daemon::daemon_socket_path();
-                            if let Err(e) =
-                                run_async(crate::http_server::serve_uds(cfg.clone(), socket_path))
-                            {
-                                tracing::error!("Daemon server error: {e}");
-                                crate::daemon::cleanup_daemon_files();
-                                std::process::exit(1);
-                            }
-                            crate::daemon::cleanup_daemon_files();
-                            return;
-                        }
-                    }
-
-                    #[cfg(not(unix))]
-                    {
-                        if stop_mode || status_mode || daemon_mode || foreground_daemon {
-                            eprintln!("Daemon mode is only supported on Unix systems.");
+                    if stop_mode {
+                        if let Err(e) = crate::daemon::stop_daemon() {
+                            eprintln!("Error: {e}");
                             std::process::exit(1);
                         }
+                        return;
+                    }
+
+                    if status_mode {
+                        println!("{}", crate::daemon::daemon_status());
+                        return;
+                    }
+
+                    if daemon_mode {
+                        if let Err(e) = crate::daemon::start_daemon(&rest) {
+                            eprintln!("Error: {e}");
+                            std::process::exit(1);
+                        }
+                        return;
+                    }
+
+                    if foreground_daemon {
+                        if let Err(e) = crate::daemon::init_foreground_daemon() {
+                            eprintln!("Error writing PID file: {e}");
+                            std::process::exit(1);
+                        }
+                        let addr = crate::daemon::daemon_addr();
+                        if let Err(e) = run_async(crate::http_server::serve_ipc(cfg.clone(), addr))
+                        {
+                            tracing::error!("Daemon server error: {e}");
+                            crate::daemon::cleanup_daemon_files();
+                            std::process::exit(1);
+                        }
+                        crate::daemon::cleanup_daemon_files();
+                        return;
                     }
 
                     if cfg.auth_token.is_none() {

@@ -276,19 +276,19 @@ fn mcp_stdio_has_bounded_max_length() {
 }
 
 // ---------------------------------------------------------------------------
-// M5 — UDS socket permissions
+// M5 — UDS socket permissions (now in ipc/unix.rs)
 // ---------------------------------------------------------------------------
 #[test]
 fn uds_socket_sets_permissions() {
-    let src = include_str!("../src/http_server/mod.rs");
+    let src = include_str!("../src/ipc/unix.rs");
 
     assert!(
         src.contains("PermissionsExt"),
-        "M5: http_server must import PermissionsExt"
+        "M5: ipc/unix.rs must import PermissionsExt"
     );
     assert!(
         src.contains("0o600"),
-        "M5: http_server must set socket permissions to 0o600"
+        "M5: ipc/unix.rs must set socket permissions to 0o600"
     );
 }
 

@@ -2705,7 +2705,7 @@ async function loadCallGraph() {
   if (!container) return;
   container.innerHTML = '<div style="color:var(--dim);padding:16px">Loading call graph…</div>';
   try {
-    const data = await apiFetch('/api/call-graph', { timeoutMs: 15000 });
+    const data = await apiFetch('/api/call-graph', { timeoutMs: 60000 });
     if (isBuildingData(data)) {
       showIndexing(container, 'Call graph is building in the background. This view will refresh automatically in a few seconds.', 'callgraph', loadCallGraph);
       return;

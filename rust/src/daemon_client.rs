@@ -1,10 +1,10 @@
 use anyhow::{Context, Result};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::UnixStream;
 
 use crate::daemon;
+use crate::ipc;
 
-/// Send an HTTP request to the daemon over the Unix Domain Socket.
+/// Send an HTTP request to the daemon over the IPC channel.
 /// Returns the response body as a string.
 pub async fn daemon_request(method: &str, path: &str, body: &str) -> Result<String> {
     use std::time::Duration;
@@ -13,37 +13,67 @@ pub async fn daemon_request(method: &str, path: &str, body: &str) -> Result<Stri
     const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
     const IO_TIMEOUT: Duration = Duration::from_secs(10);
 
-    let socket_path = daemon::daemon_socket_path();
-    if !socket_path.exists() {
+    let addr = daemon::daemon_addr();
+    if !addr.is_listening() {
         anyhow::bail!(
-            "Daemon socket not found at {}. Is the daemon running?",
-            socket_path.display()
+            "Daemon endpoint not found at {}. Is the daemon running?",
+            addr.display()
         );
     }
 
-    let mut stream = timeout(CONNECT_TIMEOUT, UnixStream::connect(&socket_path))
-        .await
-        .with_context(|| {
-            format!(
-                "connect to daemon timed out ({}s)",
-                CONNECT_TIMEOUT.as_secs()
-            )
-        })?
-        .with_context(|| format!("cannot connect to daemon at {}", socket_path.display()))?;
-
     let request = format_http_request(method, path, body);
-    timeout(IO_TIMEOUT, stream.write_all(request.as_bytes()))
-        .await
-        .context("write to daemon timed out")?
-        .context("failed to write request to daemon socket")?;
 
-    let mut response_buf = Vec::with_capacity(4096);
-    timeout(IO_TIMEOUT, stream.read_to_end(&mut response_buf))
-        .await
-        .context("read from daemon timed out")?
-        .context("failed to read response from daemon")?;
+    #[cfg(unix)]
+    {
+        let mut stream = timeout(CONNECT_TIMEOUT, ipc::connect(&addr))
+            .await
+            .with_context(|| {
+                format!(
+                    "connect to daemon timed out ({}s)",
+                    CONNECT_TIMEOUT.as_secs()
+                )
+            })?
+            .with_context(|| format!("cannot connect to daemon at {}", addr.display()))?;
 
-    parse_http_response(&response_buf)
+        timeout(IO_TIMEOUT, stream.write_all(request.as_bytes()))
+            .await
+            .context("write to daemon timed out")?
+            .context("failed to write request to daemon")?;
+
+        let mut response_buf = Vec::with_capacity(4096);
+        timeout(IO_TIMEOUT, stream.read_to_end(&mut response_buf))
+            .await
+            .context("read from daemon timed out")?
+            .context("failed to read response from daemon")?;
+
+        parse_http_response(&response_buf)
+    }
+
+    #[cfg(windows)]
+    {
+        let mut stream = timeout(CONNECT_TIMEOUT, ipc::connect(&addr))
+            .await
+            .with_context(|| {
+                format!(
+                    "connect to daemon timed out ({}s)",
+                    CONNECT_TIMEOUT.as_secs()
+                )
+            })?
+            .with_context(|| format!("cannot connect to daemon at {}", addr.display()))?;
+
+        timeout(IO_TIMEOUT, stream.write_all(request.as_bytes()))
+            .await
+            .context("write to daemon timed out")?
+            .context("failed to write request to daemon")?;
+
+        let mut response_buf = Vec::with_capacity(4096);
+        timeout(IO_TIMEOUT, stream.read_to_end(&mut response_buf))
+            .await
+            .context("read from daemon timed out")?
+            .context("failed to read response from daemon")?;
+
+        parse_http_response(&response_buf)
+    }
 }
 
 /// Check if the daemon is reachable by hitting /health.
@@ -108,7 +138,7 @@ pub async fn try_daemon_request(method: &str, path: &str, body: &str) -> Option<
 
 /// Blocking helper for CLI commands: calls a daemon tool if the daemon is running.
 /// Returns `None` if the daemon is not running or the call fails.
-/// On Unix, attempts to auto-start the daemon if it's not already running.
+/// Attempts to auto-start the daemon if it's not already running.
 #[allow(clippy::needless_pass_by_value)]
 pub fn try_daemon_tool_call_blocking(
     name: &str,
@@ -116,71 +146,53 @@ pub fn try_daemon_tool_call_blocking(
 ) -> Option<String> {
     use std::time::Duration;
 
-    // Always create the runtime once per CLI call. We also use it for
-    // best-effort health checks while a daemon may be starting.
     let rt = tokio::runtime::Runtime::new().ok()?;
 
-    let socket_path = daemon::daemon_socket_path();
-    let mut ready = socket_path.exists() && rt.block_on(async { daemon_health_check().await });
+    let addr = daemon::daemon_addr();
+    let mut ready = addr.is_listening() && rt.block_on(async { daemon_health_check().await });
 
     if !ready {
-        // SAFETY: Never auto-start the daemon from inside a hook subprocess.
-        // Hooks have a tight watchdog timeout; spawning a daemon would create
-        // orphan processes when the watchdog fires.
         if std::env::var("LEAN_CTX_HOOK_CHILD").is_ok() {
             return None;
         }
 
-        #[cfg(unix)]
-        {
-            // is_daemon_running() now cleans stale PID/socket files when the
-            // PID is dead, so subsequent connect attempts won't hang on a
-            // stale socket.
+        let lock = crate::core::startup_guard::try_acquire_lock(
+            "daemon-start",
+            Duration::from_millis(1200),
+            Duration::from_secs(5),
+        );
 
-            let lock = crate::core::startup_guard::try_acquire_lock(
-                "daemon-start",
-                Duration::from_millis(1200),
-                Duration::from_secs(5),
-            );
+        if let Some(g) = lock {
+            g.touch();
+            let mut did_start = false;
 
-            if let Some(g) = lock {
-                g.touch();
-                let mut did_start = false;
-
-                if !daemon::is_daemon_running() {
-                    if daemon::start_daemon(&[]).is_ok() {
-                        did_start = true;
-                    } else {
-                        return None;
-                    }
-                }
-
-                // Max 3s readiness wait (60 × 50ms) — keeps CLI snappy.
-                for _ in 0..60 {
-                    if socket_path.exists() && rt.block_on(async { daemon_health_check().await }) {
-                        ready = true;
-                        break;
-                    }
-                    std::thread::sleep(Duration::from_millis(50));
-                }
-
-                if ready && did_start {
-                    eprintln!("\x1b[2m▸ daemon auto-started\x1b[0m");
-                }
-            } else {
-                // Another process likely holds the start lock; wait briefly.
-                for _ in 0..60 {
-                    if socket_path.exists() && rt.block_on(async { daemon_health_check().await }) {
-                        ready = true;
-                        break;
-                    }
-                    std::thread::sleep(Duration::from_millis(50));
+            if !daemon::is_daemon_running() {
+                if daemon::start_daemon(&[]).is_ok() {
+                    did_start = true;
+                } else {
+                    return None;
                 }
             }
-        }
-        #[cfg(not(unix))]
-        {
-            return None;
+
+            for _ in 0..60 {
+                if addr.is_listening() && rt.block_on(async { daemon_health_check().await }) {
+                    ready = true;
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+
+            if ready && did_start {
+                eprintln!("\x1b[2m▸ daemon auto-started\x1b[0m");
+            }
+        } else {
+            for _ in 0..60 {
+                if addr.is_listening() && rt.block_on(async { daemon_health_check().await }) {
+                    ready = true;
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
         }
     }
 
@@ -193,7 +205,6 @@ pub fn try_daemon_tool_call_blocking(
         return Some(out);
     }
 
-    // Brief retry — the first request can lose a race even after /health succeeds.
     for _ in 0..5 {
         std::thread::sleep(Duration::from_millis(50));
         if let Some(out) =

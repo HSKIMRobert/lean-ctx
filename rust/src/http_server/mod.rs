@@ -274,6 +274,14 @@ async fn health() -> impl IntoResponse {
     (StatusCode::OK, "ok\n")
 }
 
+async fn v1_shutdown() -> impl IntoResponse {
+    tokio::spawn(async {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        std::process::exit(0);
+    });
+    (StatusCode::OK, "shutting down\n")
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
@@ -665,15 +673,8 @@ async fn v1_a2a_agent_card(State(state): State<AppState>) -> impl IntoResponse {
     )
 }
 
-pub async fn serve(cfg: HttpServerConfig) -> Result<()> {
-    cfg.validate()?;
-
-    let addr: SocketAddr = format!("{}:{}", cfg.host, cfg.port)
-        .parse()
-        .context("invalid host/port")?;
-
+fn build_app_router(cfg: &HttpServerConfig) -> Router {
     let project_root = cfg.project_root.to_string_lossy().to_string();
-    // MCP sessions still get a fresh server each (per-client state isolation).
     let service_project_root = project_root.clone();
     let service_factory = move || -> Result<LeanCtxServer, std::io::Error> {
         Ok(LeanCtxServer::new_shared_with_context(
@@ -696,13 +697,14 @@ pub async fn serve(cfg: HttpServerConfig) -> Result<()> {
         token: cfg.auth_token.clone().filter(|t| !t.is_empty()),
         concurrency: Arc::new(tokio::sync::Semaphore::new(cfg.max_concurrency.max(1))),
         rate: Arc::new(RateLimiter::new(cfg.max_rps, cfg.rate_burst)),
-        project_root: project_root.clone(),
+        project_root,
         timeout: Duration::from_millis(cfg.request_timeout_ms.max(1)),
         server: rest_server,
     };
 
-    let app = Router::new()
+    Router::new()
         .route("/health", get(health))
+        .route("/v1/shutdown", axum::routing::post(v1_shutdown))
         .route("/v1/manifest", get(v1_manifest))
         .route("/v1/tools", get(v1_tools))
         .route("/v1/tools/call", axum::routing::post(v1_tool_call))
@@ -732,7 +734,17 @@ pub async fn serve(cfg: HttpServerConfig) -> Result<()> {
             state.clone(),
             auth_middleware,
         ))
-        .with_state(state);
+        .with_state(state)
+}
+
+pub async fn serve(cfg: HttpServerConfig) -> Result<()> {
+    cfg.validate()?;
+
+    let addr: SocketAddr = format!("{}:{}", cfg.host, cfg.port)
+        .parse()
+        .context("invalid host/port")?;
+
+    let app = build_app_router(&cfg);
 
     let listener = tokio::net::TcpListener::bind(addr)
         .await
@@ -752,98 +764,37 @@ pub async fn serve(cfg: HttpServerConfig) -> Result<()> {
     Ok(())
 }
 
-#[cfg(unix)]
-pub async fn serve_uds(cfg: HttpServerConfig, socket_path: PathBuf) -> Result<()> {
+/// Serve the daemon over a platform-independent IPC channel (UDS on Unix,
+/// Named Pipes on Windows).
+pub async fn serve_ipc(cfg: HttpServerConfig, addr: crate::ipc::DaemonAddr) -> Result<()> {
     cfg.validate()?;
 
-    if socket_path.exists() {
-        std::fs::remove_file(&socket_path)
-            .with_context(|| format!("remove stale socket {}", socket_path.display()))?;
+    let app = build_app_router(&cfg);
+
+    match addr {
+        #[cfg(unix)]
+        crate::ipc::DaemonAddr::Unix(ref path) => {
+            let listener = crate::ipc::bind_listener(&addr)?;
+
+            tracing::info!(
+                "lean-ctx daemon listening on {} (project_root={})",
+                path.display(),
+                cfg.project_root.display()
+            );
+
+            axum::serve(listener, app.into_make_service())
+                .with_graceful_shutdown(async move {
+                    let _ = tokio::signal::ctrl_c().await;
+                })
+                .await
+                .context("ipc server")?;
+        }
+        #[cfg(windows)]
+        crate::ipc::DaemonAddr::NamedPipe(ref _name) => {
+            anyhow::bail!("Named pipe server not yet supported — use TCP mode on Windows for now");
+        }
     }
 
-    let project_root = cfg.project_root.to_string_lossy().to_string();
-    let service_project_root = project_root.clone();
-    let service_factory = move || -> Result<LeanCtxServer, std::io::Error> {
-        Ok(LeanCtxServer::new_shared_with_context(
-            &service_project_root,
-            "default",
-            "default",
-        ))
-    };
-    let mcp_http = StreamableHttpService::new(
-        service_factory,
-        Arc::new(
-            rmcp::transport::streamable_http_server::session::local::LocalSessionManager::default(),
-        ),
-        cfg.mcp_http_config(),
-    );
-
-    let rest_server = LeanCtxServer::new_shared_with_context(&project_root, "default", "default");
-
-    let state = AppState {
-        token: cfg.auth_token.clone().filter(|t| !t.is_empty()),
-        concurrency: Arc::new(tokio::sync::Semaphore::new(cfg.max_concurrency.max(1))),
-        rate: Arc::new(RateLimiter::new(cfg.max_rps, cfg.rate_burst)),
-        project_root: project_root.clone(),
-        timeout: Duration::from_millis(cfg.request_timeout_ms.max(1)),
-        server: rest_server,
-    };
-
-    let app = Router::new()
-        .route("/health", get(health))
-        .route("/v1/manifest", get(v1_manifest))
-        .route("/v1/tools", get(v1_tools))
-        .route("/v1/tools/call", axum::routing::post(v1_tool_call))
-        .route("/v1/events", get(v1_events))
-        .route(
-            "/v1/context/summary",
-            get(context_views::v1_context_summary),
-        )
-        .route("/v1/events/search", get(context_views::v1_events_search))
-        .route("/v1/events/lineage", get(context_views::v1_event_lineage))
-        .route("/v1/metrics", get(v1_metrics))
-        .route("/v1/a2a/handoff", axum::routing::post(v1_a2a_handoff))
-        .route("/v1/a2a/agent-card", get(v1_a2a_agent_card))
-        .route("/.well-known/agent.json", get(v1_a2a_agent_card))
-        .route("/a2a", axum::routing::post(a2a_jsonrpc))
-        .fallback_service(mcp_http)
-        .layer(axum::extract::DefaultBodyLimit::max(cfg.max_body_bytes))
-        .layer(middleware::from_fn_with_state(
-            state.clone(),
-            rate_limit_middleware,
-        ))
-        .layer(middleware::from_fn_with_state(
-            state.clone(),
-            concurrency_middleware,
-        ))
-        .layer(middleware::from_fn_with_state(
-            state.clone(),
-            auth_middleware,
-        ))
-        .with_state(state);
-
-    let listener = tokio::net::UnixListener::bind(&socket_path)
-        .with_context(|| format!("bind UDS {}", socket_path.display()))?;
-
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let perms = std::fs::Permissions::from_mode(0o600);
-        std::fs::set_permissions(&socket_path, perms)
-            .with_context(|| format!("chmod 600 UDS {}", socket_path.display()))?;
-    }
-
-    tracing::info!(
-        "lean-ctx daemon listening on {} (project_root={})",
-        socket_path.display(),
-        cfg.project_root.display()
-    );
-
-    axum::serve(listener, app.into_make_service())
-        .with_graceful_shutdown(async move {
-            let _ = tokio::signal::ctrl_c().await;
-        })
-        .await
-        .context("uds server")?;
     Ok(())
 }
 

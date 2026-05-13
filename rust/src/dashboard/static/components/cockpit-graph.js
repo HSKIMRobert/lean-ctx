@@ -72,6 +72,7 @@ class CockpitGraph extends HTMLElement {
     document.removeEventListener('lctx:refresh', this._onRefresh);
     document.removeEventListener('lctx:view', this._onViewChange);
     this._stopSimulation();
+    this._stopCallGraphPolling();
   }
 
   _onViewChange(e) {
@@ -117,13 +118,15 @@ class CockpitGraph extends HTMLElement {
     }
     this._loading = true;
     this._error = null;
+    this._callGraphBuilding = false;
+    this._callGraphProgress = null;
     this.render();
 
     var results = await Promise.all([
       fetchJson('/api/graph', { timeoutMs: 12000 }).catch(function (e) {
         return { __error: e && e.error ? e.error : String(e || 'error') };
       }),
-      fetchJson('/api/call-graph', { timeoutMs: 30000 }).catch(function (e) {
+      fetchJson('/api/call-graph', { timeoutMs: 60000 }).catch(function (e) {
         return { __error: e && e.error ? e.error : String(e || 'error') };
       }),
       fetchJson('/api/symbols', { timeoutMs: 12000 }).catch(function (e) {
@@ -132,16 +135,70 @@ class CockpitGraph extends HTMLElement {
     ]);
 
     this._graphData = results[0] && !results[0].__error ? results[0] : null;
-    this._callGraphData = results[1] && !results[1].__error ? results[1] : null;
     this._symbolsData = results[2] && !results[2].__error ? results[2] : null;
 
-    if (!this._graphData && !this._callGraphData && !this._symbolsData) {
+    var cgResult = results[1] && !results[1].__error ? results[1] : null;
+    if (cgResult && cgResult.status === 'ready') {
+      this._callGraphData = cgResult;
+      this._callGraphBuilding = false;
+    } else if (cgResult && (cgResult.status === 'building' || cgResult.status === 'idle')) {
+      this._callGraphData = null;
+      this._callGraphBuilding = true;
+      this._callGraphProgress = cgResult;
+      this._startCallGraphPolling();
+    } else {
+      this._callGraphData = cgResult;
+    }
+
+    if (!this._graphData && !this._callGraphData && !this._callGraphBuilding && !this._symbolsData) {
       this._error = 'Could not load graph data';
     }
 
     this._loading = false;
     this.render();
     this._renderActiveTab();
+  }
+
+  _startCallGraphPolling() {
+    if (this._pollTimer) return;
+    var self = this;
+    this._pollTimer = setInterval(async function () {
+      var fetchJson = ckgApi();
+      if (!fetchJson) return;
+      try {
+        var data = await fetchJson('/api/call-graph', { timeoutMs: 60000 });
+        if (data && data.status === 'ready') {
+          self._callGraphData = data;
+          self._callGraphBuilding = false;
+          self._callGraphProgress = null;
+          self._stopCallGraphPolling();
+          if (self._tab === 'callgraph') {
+            self.render();
+            self._renderActiveTab();
+          }
+        } else if (data && data.status === 'building') {
+          self._callGraphProgress = data;
+          if (self._tab === 'callgraph') self._updateProgressBar();
+        }
+      } catch (_) { /* keep polling */ }
+    }, 2000);
+  }
+
+  _stopCallGraphPolling() {
+    if (this._pollTimer) {
+      clearInterval(this._pollTimer);
+      this._pollTimer = null;
+    }
+  }
+
+  _updateProgressBar() {
+    var bar = this.querySelector('#ckg-cg-progress-fill');
+    var label = this.querySelector('#ckg-cg-progress-label');
+    if (!bar || !label || !this._callGraphProgress) return;
+    var p = this._callGraphProgress;
+    var pct = p.files_total > 0 ? Math.round((p.files_done / p.files_total) * 100) : 0;
+    bar.style.width = pct + '%';
+    label.textContent = p.files_done + ' / ' + p.files_total + ' files (' + p.edges_found + ' calls found)';
   }
 
   /* ---- chrome ---- */
@@ -361,11 +418,28 @@ class CockpitGraph extends HTMLElement {
     var esc = F.esc || function (s) { return String(s); };
     var ff = F.ff || function (n) { return String(n); };
 
+    if (this._callGraphBuilding) {
+      var p = this._callGraphProgress || {};
+      var pct = p.files_total > 0 ? Math.round((p.files_done / p.files_total) * 100) : 0;
+      var labelText = p.files_total > 0
+        ? (p.files_done + ' / ' + p.files_total + ' files (' + (p.edges_found || 0) + ' calls found)')
+        : 'Starting analysis\u2026';
+      container.innerHTML =
+        '<div class="card" style="padding:40px">' +
+        '<h3 style="margin-bottom:12px">Building Call Graph\u2026</h3>' +
+        '<div class="cg-progress-track">' +
+        '<div class="cg-progress-fill" id="ckg-cg-progress-fill" style="width:' + pct + '%"></div>' +
+        '</div>' +
+        '<p class="hs" id="ckg-cg-progress-label" style="margin-top:8px;color:var(--muted)">' +
+        esc(labelText) + '</p></div>';
+      return;
+    }
+
     var edges = this._callGraphData && this._callGraphData.edges ? this._callGraphData.edges : [];
     if (edges.length === 0) {
       container.innerHTML =
         '<div class="card" style="padding:40px"><div class="loading-state">' +
-        'Building call graph\u2026 this may take a moment on first load.</div></div>';
+        'No call graph data available. Try refreshing.</div></div>';
       return;
     }
 

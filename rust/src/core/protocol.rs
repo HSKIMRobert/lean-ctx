@@ -49,7 +49,12 @@ pub struct ToolCallRecord {
 /// returns the outermost ancestor containing `.git`, a workspace marker, or a known
 /// monorepo config file — so the whole monorepo is treated as one project.
 pub fn detect_project_root(file_path: &str) -> Option<String> {
-    let mut dir = Path::new(file_path).parent()?;
+    let start = Path::new(file_path);
+    let mut dir = if start.is_dir() {
+        start
+    } else {
+        start.parent()?
+    };
     let mut best: Option<String> = None;
 
     loop {
@@ -86,21 +91,50 @@ fn is_project_root_marker(dir: &Path) -> bool {
 }
 
 /// Returns the project root for `file_path`, falling back to cwd if none found.
+/// Logs a warning when the fallback is a broad directory (home, root).
 pub fn detect_project_root_or_cwd(file_path: &str) -> String {
-    detect_project_root(file_path).unwrap_or_else(|| {
+    if let Some(root) = detect_project_root(file_path) {
+        return root;
+    }
+
+    let fallback = {
         let p = Path::new(file_path);
         if p.exists() {
             if p.is_dir() {
-                return file_path.to_string();
+                file_path.to_string()
+            } else {
+                p.parent().map_or_else(
+                    || file_path.to_string(),
+                    |pp| pp.to_string_lossy().to_string(),
+                )
             }
-            if let Some(parent) = p.parent() {
-                return parent.to_string_lossy().to_string();
-            }
-            return file_path.to_string();
+        } else {
+            std::env::current_dir()
+                .map_or_else(|_| ".".to_string(), |p| p.to_string_lossy().to_string())
         }
-        std::env::current_dir()
-            .map_or_else(|_| ".".to_string(), |p| p.to_string_lossy().to_string())
-    })
+    };
+
+    if is_broad_directory(&fallback) {
+        tracing::warn!(
+            "[protocol: no project markers found — falling back to broad directory {fallback}. \
+             Set LEAN_CTX_PROJECT_ROOT to override]"
+        );
+    }
+
+    fallback
+}
+
+fn is_broad_directory(path: &str) -> bool {
+    if path == "/" || path == "\\" || path == "." {
+        return true;
+    }
+    if let Some(home) = dirs::home_dir() {
+        let home_str = home.to_string_lossy();
+        if path == home_str.as_ref() || path == format!("{home_str}/") {
+            return true;
+        }
+    }
+    false
 }
 
 /// Returns the file name component of a path for compact display.

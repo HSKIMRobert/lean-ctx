@@ -585,9 +585,15 @@ pub fn write_env_sh_for_containers(aliases: &str) {
         r#"
 
 # lean-ctx docker self-heal: re-inject Claude MCP config if Claude overwrote ~/.claude.json
-if command -v claude >/dev/null 2>&1 && command -v lean-ctx >/dev/null 2>&1; then
-  if ! claude mcp list 2>/dev/null | grep -q "lean-ctx"; then
-    LEAN_CTX_QUIET=1 lean-ctx init --agent claude >/dev/null 2>&1
+# Guards: container-only + no recursion + no re-entry via BASH_ENV
+if [ -f /.dockerenv ] || grep -qsE '/docker/|/lxc/' /proc/1/cgroup 2>/dev/null; then
+  if [ -z "${LEAN_CTX_ACTIVE:-}" ] && [ -z "${_LEAN_CTX_HEAL:-}" ]; then
+    export _LEAN_CTX_HEAL=1
+    if command -v claude >/dev/null 2>&1 && command -v lean-ctx >/dev/null 2>&1; then
+      if ! claude mcp list 2>/dev/null | grep -q "lean-ctx"; then
+        LEAN_CTX_ACTIVE=1 LEAN_CTX_QUIET=1 lean-ctx init --agent claude >/dev/null 2>&1
+      fi
+    fi
   fi
 fi
 "#,
@@ -898,6 +904,18 @@ export EDITOR=vim
         assert!(content.contains("lean-ctx docker self-heal"));
         assert!(content.contains("claude mcp list"));
         assert!(content.contains("lean-ctx init --agent claude"));
+        assert!(
+            content.contains("_LEAN_CTX_HEAL"),
+            "env.sh must guard against recursive self-heal"
+        );
+        assert!(
+            content.contains("LEAN_CTX_ACTIVE"),
+            "env.sh must check LEAN_CTX_ACTIVE to prevent re-entry"
+        );
+        assert!(
+            content.contains("/.dockerenv"),
+            "env.sh self-heal must be gated to container environments"
+        );
 
         std::env::remove_var("LEAN_CTX_DATA_DIR");
     }

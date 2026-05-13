@@ -5,6 +5,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.5.22] — 2026-05-13
+
+### Added
+
+- **Native Windows daemon support — IPC abstraction layer** — New `ipc/` module (`mod.rs`, `process.rs`, `unix.rs`, `windows.rs`) provides a platform-independent daemon transport layer. Unix uses UDS (unchanged behavior), Windows uses Named Pipes (`\\.\pipe\lean-ctx-{hash}`). All OS-specific code (`libc::kill`, `PermissionsExt`, `UnixStream`) is now isolated in `ipc/unix.rs` and `ipc/windows.rs` — no other module needs `#[cfg(unix)]` for daemon logic. `windows-sys` 0.59 added as target dependency. Implements [#209](https://github.com/yvgude/lean-ctx/issues/209).
+- **HTTP-based daemon shutdown** — New `POST /v1/shutdown` endpoint enables cross-platform graceful daemon shutdown. `stop_daemon()` now tries HTTP shutdown first, then `SIGTERM`/`TerminateProcess` as fallback, then force kill as last resort. No more direct `libc::kill(SIGTERM)` in `daemon.rs`.
+- **`build_app_router()` extraction** — Shared Axum router construction extracted from `serve()` and `serve_uds()`, eliminating ~70 lines of code duplication. Both TCP (`serve()`) and IPC (`serve_ipc()`) use the same router builder.
+- **Parallel call graph build with progress tracking** — `CallGraph::build_parallel()` uses rayon for concurrent file analysis. New `get_or_start_build()` returns cached results immediately or starts a background build with live progress (`BuildProgress` struct with `files_total`, `files_done`, `edges_found`). Dashboard polls via `/api/call-graph/status`.
+- **Dashboard: call graph progress bar** — `cockpit-graph.js` shows a live progress bar during call graph builds instead of a blank loading state. Auto-polls every 2s and renders the completed graph once ready.
+- **Dashboard: project file browser in Compression Lab** — `cockpit-compression.js` now has two tabs: "Recent" (context ledger/events) and "Project" (all indexed files from `/api/graph-files`). Project tab includes search, file count, and token count per file. New `/api/graph-files` API endpoint returns indexed files sorted by token count.
+- **Dashboard: improved compression lab layout** — Sidebar/main grid layout with responsive breakpoint at 900px. File list shows token counts, mode auto-switches when selecting recently read files, search input for project files.
+
+### Fixed
+
+- **100% CPU after `lean-ctx setup` on Ubuntu** — Two root causes fixed: (1) `env.sh` self-heal script could recursively spawn `lean-ctx init` via `BASH_ENV` outside containers. Now guarded with container detection (`/.dockerenv`), recursion guard (`_LEAN_CTX_HEAL`), and `LEAN_CTX_ACTIVE` propagation. (2) Graph index scanning could scan entire `$HOME` when `setup` was run outside a project. Now guarded with `is_safe_scan_root()` check, cross-process lock (`startup_guard`), 50k entry limit, and 2-minute timeout. `LEAN_CTX_NO_INDEX` env var skips indexing entirely. Fixes [#210](https://github.com/yvgude/lean-ctx/issues/210).
+- **`daemon.rs`/`daemon_client.rs` now platform-independent** — Removed all `#[cfg(unix)]` gates from `lib.rs`, `cli/dispatch.rs`, and `setup.rs` for daemon modules. `daemon_client.rs` auto-start works on all platforms (previously returned `None` on non-Unix).
+- **Dashboard call graph timeout** — Increased from 15s/30s to 60s to accommodate larger projects during initial build.
+
+### Changed
+
+- **`serve_uds()` replaced by `serve_ipc()`** — Takes a `DaemonAddr` enum instead of a `PathBuf`. Callers use `daemon::daemon_addr()` instead of `daemon::daemon_socket_path()`.
+- **`daemon_socket_path()` removed** — Replaced by `daemon::daemon_addr()` which returns a `DaemonAddr` enum. All call sites updated (`setup.rs`, `dispatch.rs`).
+- **Security hardening test updated** — `uds_socket_sets_permissions` now checks `ipc/unix.rs` instead of `http_server/mod.rs` (chmod 600 logic moved during IPC extraction).
+
 ## [3.5.21] — 2026-05-12
 
 ### Fixed

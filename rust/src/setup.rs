@@ -81,22 +81,15 @@ pub fn run_setup() {
 
     // Step 2: Daemon (optional acceleration for CLI routing)
     terminal_ui::print_step_header(2, 10, "Daemon");
-    #[cfg(unix)]
-    {
-        if crate::daemon::is_daemon_running() {
-            terminal_ui::print_status_ok("Daemon running — restarting with current binary…");
-            let _ = crate::daemon::stop_daemon();
-            std::thread::sleep(std::time::Duration::from_millis(500));
-            if let Err(e) = crate::daemon::start_daemon(&[]) {
-                terminal_ui::print_status_warn(&format!("Daemon restart failed: {e}"));
-            }
-        } else if let Err(e) = crate::daemon::start_daemon(&[]) {
-            terminal_ui::print_status_warn(&format!("Daemon start failed: {e}"));
+    if crate::daemon::is_daemon_running() {
+        terminal_ui::print_status_ok("Daemon running — restarting with current binary…");
+        let _ = crate::daemon::stop_daemon();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        if let Err(e) = crate::daemon::start_daemon(&[]) {
+            terminal_ui::print_status_warn(&format!("Daemon restart failed: {e}"));
         }
-    }
-    #[cfg(not(unix))]
-    {
-        terminal_ui::print_status_skip("Daemon supported on Unix only");
+    } else if let Err(e) = crate::daemon::start_daemon(&[]) {
+        terminal_ui::print_status_warn(&format!("Daemon start failed: {e}"));
     }
 
     // Step 3: Editor auto-detection + configuration
@@ -300,22 +293,38 @@ pub fn run_setup() {
     // Step 10: Code Intelligence — build graph in background
     terminal_ui::print_step_header(10, 10, "Code Intelligence");
     let cwd = std::env::current_dir().ok();
-    let is_project = cwd.as_ref().is_some_and(|d| {
-        d.join(".git").exists()
-            || d.join("Cargo.toml").exists()
-            || d.join("package.json").exists()
-            || d.join("go.mod").exists()
-    });
-    if is_project {
-        println!("  \x1b[2mBuilding code graph for graph-aware reads, impact analysis,\x1b[0m");
-        println!("  \x1b[2mand smart search fusion in the background...\x1b[0m");
-        if let Some(ref root) = cwd {
-            spawn_index_build_background(root);
-        }
-        terminal_ui::print_status_ok("Graph build started (background)");
+    let cwd_is_home = cwd
+        .as_ref()
+        .is_some_and(|d| dirs::home_dir().is_some_and(|h| d.as_path() == h.as_path()));
+    if cwd_is_home {
+        terminal_ui::print_status_warn(
+            "Running from $HOME — graph build skipped to avoid scanning your entire home directory.",
+        );
+        println!(
+            "  \x1b[2mRun `lean-ctx setup` from inside a project for code intelligence.\x1b[0m"
+        );
     } else {
-        println!("  \x1b[2mRun `lean-ctx impact build` inside any git project to enable\x1b[0m");
-        println!("  \x1b[2mgraph-aware reads, impact analysis, and smart search fusion.\x1b[0m");
+        let is_project = cwd.as_ref().is_some_and(|d| {
+            d.join(".git").exists()
+                || d.join("Cargo.toml").exists()
+                || d.join("package.json").exists()
+                || d.join("go.mod").exists()
+        });
+        if is_project {
+            println!("  \x1b[2mBuilding code graph for graph-aware reads, impact analysis,\x1b[0m");
+            println!("  \x1b[2mand smart search fusion in the background...\x1b[0m");
+            if let Some(ref root) = cwd {
+                spawn_index_build_background(root);
+            }
+            terminal_ui::print_status_ok("Graph build started (background)");
+        } else {
+            println!(
+                "  \x1b[2mRun `lean-ctx impact build` inside any git project to enable\x1b[0m"
+            );
+            println!(
+                "  \x1b[2mgraph-aware reads, impact analysis, and smart search fusion.\x1b[0m"
+            );
+        }
     }
     println!();
 
@@ -451,15 +460,23 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
         crate::shell_hook::install_all(opts.json);
         #[cfg(not(windows))]
         {
-            // Ensure Docker/CI shells can source lean-ctx hooks via BASH_ENV / CLAUDE_ENV_FILE.
             let hook_content = crate::cli::generate_hook_posix(&binary);
-            crate::cli::write_env_sh_for_containers(&hook_content);
-            shell_step.items.push(SetupItem {
-                name: "env_sh".to_string(),
-                status: "created".to_string(),
-                path: Some("~/.lean-ctx/env.sh".to_string()),
-                note: Some("Docker/CI helper (BASH_ENV / CLAUDE_ENV_FILE)".to_string()),
-            });
+            if crate::shell::is_container() {
+                crate::cli::write_env_sh_for_containers(&hook_content);
+                shell_step.items.push(SetupItem {
+                    name: "env_sh".to_string(),
+                    status: "created".to_string(),
+                    path: Some("~/.lean-ctx/env.sh".to_string()),
+                    note: Some("Docker/CI helper (BASH_ENV / CLAUDE_ENV_FILE)".to_string()),
+                });
+            } else {
+                shell_step.items.push(SetupItem {
+                    name: "env_sh".to_string(),
+                    status: "skipped".to_string(),
+                    path: None,
+                    note: Some("not a container environment".to_string()),
+                });
+            }
         }
         shell_step.items.push(SetupItem {
             name: "init --global".to_string(),
@@ -495,7 +512,6 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
         warnings: Vec::new(),
         errors: Vec::new(),
     };
-    #[cfg(unix)]
     {
         let was_running = crate::daemon::is_daemon_running();
         if was_running {
@@ -508,12 +524,8 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
                 daemon_step.items.push(SetupItem {
                     name: "serve --daemon".to_string(),
                     status: action.to_string(),
-                    path: Some(
-                        crate::daemon::daemon_socket_path()
-                            .to_string_lossy()
-                            .to_string(),
-                    ),
-                    note: Some("CLI commands can route via UDS when running".to_string()),
+                    path: Some(crate::daemon::daemon_addr().display()),
+                    note: Some("CLI commands can route via IPC when running".to_string()),
                 });
             }
             Err(e) => {
@@ -524,24 +536,11 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
                 daemon_step.items.push(SetupItem {
                     name: "serve --daemon".to_string(),
                     status: "error".to_string(),
-                    path: Some(
-                        crate::daemon::daemon_socket_path()
-                            .to_string_lossy()
-                            .to_string(),
-                    ),
+                    path: Some(crate::daemon::daemon_addr().display()),
                     note: Some(e.to_string()),
                 });
             }
         }
-    }
-    #[cfg(not(unix))]
-    {
-        daemon_step.items.push(SetupItem {
-            name: "serve --daemon".to_string(),
-            status: "skipped".to_string(),
-            path: None,
-            note: Some("daemon supported on Unix only".to_string()),
-        });
     }
     steps.push(daemon_step);
 
@@ -816,6 +815,12 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
 }
 
 fn spawn_index_build_background(root: &std::path::Path) {
+    let root_str = crate::core::graph_index::normalize_project_root(&root.to_string_lossy());
+    if !crate::core::graph_index::is_safe_scan_root_public(&root_str) {
+        tracing::info!("[setup: skipping background graph build for unsafe root {root_str}]");
+        return;
+    }
+
     let binary = std::env::current_exe().map_or_else(
         |_| resolve_portable_binary(),
         |p| p.to_string_lossy().to_string(),
