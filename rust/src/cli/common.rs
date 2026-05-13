@@ -6,6 +6,7 @@ pub(crate) fn print_savings(original: usize, sent: usize) {
 }
 
 /// Strip savings footers from daemon output when the CLI client has footer suppressed.
+#[cfg(unix)]
 pub(crate) fn filter_daemon_output(text: &str) -> String {
     if crate::core::protocol::savings_footer_visible() {
         return text.to_string();
