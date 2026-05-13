@@ -769,11 +769,10 @@ pub async fn serve(cfg: HttpServerConfig) -> Result<()> {
 pub async fn serve_ipc(cfg: HttpServerConfig, addr: crate::ipc::DaemonAddr) -> Result<()> {
     cfg.validate()?;
 
-    let app = build_app_router(&cfg);
-
     match addr {
         #[cfg(unix)]
         crate::ipc::DaemonAddr::Unix(ref path) => {
+            let app = build_app_router(&cfg);
             let listener = crate::ipc::bind_listener(&addr)?;
 
             tracing::info!(
@@ -788,14 +787,13 @@ pub async fn serve_ipc(cfg: HttpServerConfig, addr: crate::ipc::DaemonAddr) -> R
                 })
                 .await
                 .context("ipc server")?;
+            Ok(())
         }
         #[cfg(windows)]
         crate::ipc::DaemonAddr::NamedPipe(ref _name) => {
             anyhow::bail!("Named pipe server not yet supported — use TCP mode on Windows for now");
         }
     }
-
-    Ok(())
 }
 
 #[cfg(test)]

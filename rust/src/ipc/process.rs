@@ -26,7 +26,7 @@ pub fn is_alive(pid: u32) -> bool {
             let mut exit_code: u32 = 0;
             GetExitCodeProcess(handle, &mut exit_code);
             CloseHandle(handle);
-            exit_code == STILL_ACTIVE
+            exit_code == STILL_ACTIVE as u32
         }
     }
 }

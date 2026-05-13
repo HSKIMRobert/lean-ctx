@@ -5,6 +5,7 @@ mod unix;
 #[cfg(windows)]
 mod windows;
 
+#[cfg(unix)]
 use std::path::PathBuf;
 
 use anyhow::Result;
