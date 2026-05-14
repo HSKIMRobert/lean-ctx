@@ -205,6 +205,11 @@ fn append_radar_event(event: &ObserveEvent) {
         return;
     };
     let radar_path = data_dir.join("context_radar.jsonl");
+
+    if event.event_type == "session" {
+        let _ = std::fs::write(&radar_path, "");
+    }
+
     let Ok(line) = serde_json::to_string(event) else {
         return;
     };

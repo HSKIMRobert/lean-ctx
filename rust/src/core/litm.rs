@@ -142,6 +142,11 @@ pub fn position_optimize(session: &SessionState) -> PositionedOutput {
         end_lines.push(format!("Next: {}", session.next_steps.join(" → ")));
     }
 
+    end_lines.push(
+        "ctx_read>Read ctx_shell>Shell ctx_search>Grep ctx_tree>ls | Edit/Write/Glob=native"
+            .to_string(),
+    );
+
     PositionedOutput {
         begin_block: begin_lines.join("\n"),
         end_block: end_lines.join("\n"),
