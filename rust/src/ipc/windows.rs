@@ -24,6 +24,9 @@ pub(super) fn pipe_exists(name: &str) -> bool {
     unsafe { WaitNamedPipeW(wide.as_ptr(), 1) != 0 }
 }
 
+/// Retries indefinitely on `NotFound` / `ERROR_PIPE_BUSY` (transient
+/// conditions during named-pipe instance rotation). Callers should wrap
+/// with `tokio::time::timeout` to prevent unbounded waits.
 pub(super) async fn connect(
     pipe_name: &str,
 ) -> Result<tokio::net::windows::named_pipe::NamedPipeClient> {
@@ -104,14 +107,12 @@ mod tests {
     // mid-rotation race). Constructing this in a unit test is fragile; verify on
     // Windows manually or via integration test with concurrent clients.
 
-    /// connect() retries non-retryable-looking errors that map to NotFound.
-    /// Since a bare filename (without \\.\pipe\ prefix) also produces NotFound
-    /// on Windows via CreateFileW, it hits the retry loop, so we use a timeout
-    /// to prevent a hang.
+    /// connect() retries when an invalid pipe path produces NotFound on Windows.
+    /// A bare filename (without \\.\pipe\ prefix) triggers ERROR_FILE_NOT_FOUND
+    /// via CreateFileW, which maps to NotFound → hits the retry loop.
+    /// Timeout proves it doesn't succeed from a malformed path.
     #[tokio::test]
-    async fn connect_fails_on_hard_error() {
-        // A path without \\.\pipe\ prefix that will produce NotFound on Windows,
-        // which connect() retries. Timeout proves it doesn't succeed.
+    async fn connect_retries_notfound_on_invalid_format() {
         let result = tokio::time::timeout(
             Duration::from_millis(100),
             connect("invalid_pipe_format_no_backslash_prefix"),
