@@ -101,6 +101,9 @@ fn perf_radar_load_50k_events() {
 fn breakdown_mixed_event_types() {
     let mut radar = ContextRadar::new(200_000);
     radar.events = vec![
+        make_event("user_message", 100, None),
+        make_event("compaction", 0, None),
+        make_event("compaction", 0, None),
         make_event("user_message", 500, None),
         make_event("agent_response", 2000, None),
         make_event("mcp_call", 300, Some("ctx_read")),
@@ -108,12 +111,13 @@ fn breakdown_mixed_event_types() {
         make_event("shell", 400, None),
         make_event("native_tool", 250, None),
         make_event("thinking", 1000, None),
-        make_event("compaction", 0, None),
-        make_event("compaction", 0, None),
     ];
 
     let b = radar.budget_breakdown();
-    assert_eq!(b.user_message_tokens, 500);
+    assert_eq!(
+        b.user_message_tokens, 500,
+        "current window: only after last compaction"
+    );
     assert_eq!(b.agent_response_tokens, 2000);
     assert_eq!(b.lean_ctx_tool_tokens, 300);
     assert_eq!(b.other_mcp_tokens, 150);
@@ -123,6 +127,10 @@ fn breakdown_mixed_event_types() {
     assert_eq!(b.compaction_count, 2);
     assert_eq!(b.tracked_total, 500 + 2000 + 300 + 150 + 400 + 250);
     assert_eq!(b.available, 200_000 - b.tracked_total);
+    assert_eq!(
+        b.session_user_tokens, 600,
+        "session total includes pre-compaction"
+    );
 }
 
 #[test]
@@ -374,12 +382,13 @@ fn e2e_jsonl_roundtrip() {
     let radar_path = dir.path().join("context_radar.jsonl");
 
     let events = vec![
+        make_event("user_message", 999, None),
+        make_event("compaction", 0, None),
         make_event("user_message", 100, None),
         make_event("mcp_call", 50, Some("ctx_read")),
         make_event("mcp_call", 75, Some("oplane")),
         make_event("shell", 200, None),
         make_event("agent_response", 1500, None),
-        make_event("compaction", 0, None),
     ];
 
     {
@@ -395,10 +404,13 @@ fn e2e_jsonl_roundtrip() {
     }
 
     let radar = ContextRadar::load(dir.path(), 128_000);
-    assert_eq!(radar.events.len(), 6);
+    assert_eq!(radar.events.len(), 7);
 
     let b = radar.budget_breakdown();
-    assert_eq!(b.user_message_tokens, 100);
+    assert_eq!(
+        b.user_message_tokens, 100,
+        "current window after compaction"
+    );
     assert_eq!(b.lean_ctx_tool_tokens, 50);
     assert_eq!(b.other_mcp_tokens, 75);
     assert_eq!(b.shell_tokens, 200);
@@ -408,9 +420,13 @@ fn e2e_jsonl_roundtrip() {
     assert_eq!(
         b.tracked_total,
         event_total + b.system_prompt_tokens,
-        "tracked_total = events + rules tokens"
+        "tracked_total = current window events + rules tokens"
     );
     assert_eq!(b.window_size, 128_000);
+    assert_eq!(
+        b.session_user_tokens, 1099,
+        "session includes pre-compaction"
+    );
 }
 
 // ---------------------------------------------------------------------------
