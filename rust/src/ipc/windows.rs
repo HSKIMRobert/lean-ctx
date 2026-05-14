@@ -84,20 +84,19 @@ impl NamedPipeListener {
 #[cfg(all(test, windows))]
 mod tests {
     use super::*;
-    use tokio::net::windows::named_pipe::{ClientOptions, ServerOptions};
     use std::time::Duration;
+    use tokio::net::windows::named_pipe::{ClientOptions, ServerOptions};
 
     /// connect() retries NotFound, does not return a hard error before test timeout.
     #[tokio::test]
     async fn connect_retries_notfound() {
         let pipe_name = r"\\.\pipe\lean-ctx-test-notfound";
-        let result = tokio::time::timeout(
-            Duration::from_millis(150),
-            connect(pipe_name),
-        )
-        .await;
+        let result = tokio::time::timeout(Duration::from_millis(150), connect(pipe_name)).await;
         // Must time out (retries), NOT return a hard error.
-        assert!(result.is_err(), "should retry and be killed by timeout, not hard-error");
+        assert!(
+            result.is_err(),
+            "should retry and be killed by timeout, not hard-error"
+        );
     }
 
     // TODO: connect_retries_pipe_busy — needs reliable ERROR_PIPE_BUSY reproduction.
@@ -118,7 +117,10 @@ mod tests {
             connect("invalid_pipe_format_no_backslash_prefix"),
         )
         .await;
-        assert!(result.is_err(), "should not succeed (NotFound → retry → timeout)");
+        assert!(
+            result.is_err(),
+            "should not succeed (NotFound → retry → timeout)"
+        );
     }
 
     /// WaitNamedPipeW returns true for an existing pipe.
