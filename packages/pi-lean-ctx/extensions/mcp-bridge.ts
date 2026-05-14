@@ -12,6 +12,8 @@ const CLI_OVERRIDE_TOOLS = new Set([
   "ctx_tree",
 ]);
 
+// No additional prefix filter — CLI_OVERRIDE_TOOLS covers exactly the tools we overwrite
+
 const MAX_RECONNECT_ATTEMPTS = 3;
 const RECONNECT_DELAY_MS = 2000;
 const TOOL_CALL_TIMEOUT_MS = 120000;
