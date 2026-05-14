@@ -13,7 +13,7 @@ use crate::core::context_field::{
 use crate::core::context_ledger::ContextLedger;
 use crate::core::context_policies::PolicySet;
 
-const DEFAULT_BUDGET: usize = 12_000;
+const FALLBACK_BUDGET: usize = 12_000;
 
 pub fn handle(
     args: Option<&serde_json::Map<String, Value>>,
@@ -21,10 +21,19 @@ pub fn handle(
     policies: &PolicySet,
 ) -> String {
     let task = get_str(args, "task").unwrap_or_else(|| "general".to_string());
-    let budget_tokens: usize = args
+    let explicit_budget = args
         .and_then(|a| a.get("budget"))
-        .and_then(serde_json::Value::as_u64)
-        .map_or(DEFAULT_BUDGET, |b| b as usize);
+        .and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok()))
+        })
+        .map(|b| b as usize);
+    let default_budget = if ledger.window_size > 0 {
+        ledger.window_size
+    } else {
+        FALLBACK_BUDGET
+    };
+    let budget_tokens = explicit_budget.unwrap_or(default_budget);
     let profile = get_str(args, "profile").unwrap_or_else(|| "balanced".to_string());
 
     let field = ContextField::new();
@@ -137,6 +146,10 @@ pub fn handle(
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
+    if total_estimated > budget_tokens {
+        degrade_views(&mut plan_items, budget_tokens, &mut total_estimated);
+    }
+
     format_plan(&task, budget_tokens, total_estimated, &plan_items, &profile)
 }
 
@@ -224,9 +237,20 @@ fn format_plan(
     if !included.is_empty() {
         out.push_str("Planned items:\n");
         for item in &included {
+            let default_reason = format!("profile:{profile}");
+            let extra = if item.reason.is_empty() || item.reason == default_reason {
+                String::new()
+            } else {
+                format!(" {}", item.reason)
+            };
             out.push_str(&format!(
-                "  {} {} {}t phi={:.2} [{}]\n",
-                item.path, item.recommended_view, item.estimated_tokens, item.phi, item.state
+                "  {} {} {}t phi={:.2} [{}]{}\n",
+                item.path,
+                item.recommended_view,
+                item.estimated_tokens,
+                item.phi,
+                item.state,
+                extra
             ));
         }
     }
@@ -245,6 +269,45 @@ fn format_plan(
     }
 
     out
+}
+
+fn degrade_views(items: &mut [PlanItem], budget: usize, total: &mut usize) {
+    let degrade_order: &[(&str, &str, f64)] = &[
+        ("full", "map", 0.3),
+        ("map", "signatures", 0.5),
+        ("signatures", "signatures", 0.7),
+    ];
+
+    for &(from, to, ratio) in degrade_order {
+        if *total <= budget {
+            break;
+        }
+        let mut candidates: Vec<usize> = items
+            .iter()
+            .enumerate()
+            .filter(|(_, it)| {
+                it.recommended_view == from && it.state != "excluded" && it.state != "Pinned"
+            })
+            .map(|(i, _)| i)
+            .collect();
+        candidates.sort_by(|&a, &b| {
+            items[a]
+                .phi
+                .partial_cmp(&items[b].phi)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        for idx in candidates {
+            if *total <= budget {
+                break;
+            }
+            let old_tokens = items[idx].estimated_tokens;
+            let new_tokens = (old_tokens as f64 * ratio) as usize;
+            *total = total.saturating_sub(old_tokens) + new_tokens;
+            items[idx].estimated_tokens = new_tokens;
+            items[idx].recommended_view = to.to_string();
+            items[idx].reason = format!("degraded:{from}->{to}");
+        }
+    }
 }
 
 fn get_str(args: Option<&serde_json::Map<String, Value>>, key: &str) -> Option<String> {

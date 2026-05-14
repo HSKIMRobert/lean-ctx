@@ -44,7 +44,7 @@ pub enum OverlayOp {
     Unpin,
     Rewrite { content: String },
     SetView(ViewKind),
-    SetPriority(f64),
+    SetPriority { set_priority: f64 },
     MarkOutdated,
     Expire { after_secs: u64 },
 }
@@ -58,7 +58,7 @@ impl OverlayOp {
             Self::Unpin => "unpin",
             Self::Rewrite { .. } => "rewrite",
             Self::SetView(_) => "set_view",
-            Self::SetPriority(_) => "set_priority",
+            Self::SetPriority { .. } => "set_priority",
             Self::MarkOutdated => "mark_outdated",
             Self::Expire { .. } => "expire",
         }
@@ -307,7 +307,7 @@ mod tests {
     #[test]
     fn non_state_ops_preserve_current_state() {
         let mut store = OverlayStore::new();
-        store.add(make_overlay(OverlayOp::SetPriority(0.9)));
+        store.add(make_overlay(OverlayOp::SetPriority { set_priority: 0.9 }));
         let state = store.apply_to_state(&make_target(), ContextState::Included);
         assert_eq!(state, ContextState::Included);
     }
@@ -437,7 +437,7 @@ mod tests {
     fn different_ops_coexist_for_same_target() {
         let mut store = OverlayStore::new();
         store.add(make_overlay(OverlayOp::Include));
-        store.add(make_overlay(OverlayOp::SetPriority(0.8)));
+        store.add(make_overlay(OverlayOp::SetPriority { set_priority: 0.8 }));
         assert_eq!(store.overlays.len(), 2);
     }
 
@@ -450,7 +450,7 @@ mod tests {
         older.created_at = Utc::now() - chrono::Duration::seconds(60);
         store.overlays.push(older);
 
-        let newer = make_overlay(OverlayOp::SetPriority(0.5));
+        let newer = make_overlay(OverlayOp::SetPriority { set_priority: 0.5 });
         store.overlays.push(newer);
 
         let hist = store.history(&make_target());

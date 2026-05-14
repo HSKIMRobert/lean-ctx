@@ -77,7 +77,11 @@ impl ContextLedger {
     }
 
     pub fn record(&mut self, path: &str, mode: &str, original_tokens: usize, sent_tokens: usize) {
-        let item_id = ContextItemId::from_file(path);
+        let path = crate::core::pathutil::normalize_tool_path(path);
+        let item_id = ContextItemId::from_file(&path);
+
+        let phi = Self::compute_lightweight_phi(sent_tokens, self.window_size);
+
         if let Some(existing) = self.entries.iter_mut().find(|e| e.path == path) {
             self.total_tokens_sent -= existing.sent_tokens;
             self.total_tokens_saved -= existing
@@ -94,9 +98,12 @@ impl ContextLedger {
             if existing.state.is_none() || existing.state == Some(ContextState::Candidate) {
                 existing.state = Some(ContextState::Included);
             }
+            if existing.phi.is_none() {
+                existing.phi = Some(phi);
+            }
         } else {
             self.entries.push(LedgerEntry {
-                path: path.to_string(),
+                path: path.clone(),
                 mode: mode.to_string(),
                 original_tokens,
                 sent_tokens,
@@ -105,7 +112,7 @@ impl ContextLedger {
                 kind: Some(ContextKind::File),
                 source_hash: None,
                 state: Some(ContextState::Included),
-                phi: None,
+                phi: Some(phi),
                 view_costs: Some(ViewCosts::from_full_tokens(original_tokens)),
                 active_view: Some(ViewKind::parse(mode)),
                 provenance: None,
@@ -113,6 +120,24 @@ impl ContextLedger {
         }
         self.total_tokens_sent += sent_tokens;
         self.total_tokens_saved += original_tokens.saturating_sub(sent_tokens);
+    }
+
+    fn compute_lightweight_phi(sent_tokens: usize, window_size: usize) -> f64 {
+        use crate::core::context_field::{ContextField, FieldSignals};
+        let token_cost_norm = if window_size > 0 {
+            (sent_tokens as f64 / window_size as f64).min(1.0)
+        } else {
+            0.0
+        };
+        let signals = FieldSignals {
+            relevance: 1.0,
+            surprise: 0.5,
+            graph_proximity: 0.0,
+            history_signal: 0.0,
+            token_cost_norm,
+            redundancy: 0.0,
+        };
+        ContextField::new().compute_phi(&signals)
     }
 
     /// Record with full CFT metadata including source hash and provenance.
@@ -300,13 +325,71 @@ impl ContextLedger {
         }
     }
 
+    const MAX_LEDGER_ENTRIES: usize = 200;
+    const STALE_AGE_SECS: i64 = 7 * 24 * 3600;
+
+    pub fn prune(&mut self) -> usize {
+        let before = self.entries.len();
+        let now = chrono::Utc::now().timestamp();
+
+        for entry in &mut self.entries {
+            if let Some(phi) = entry.phi {
+                let hours_since = ((now - entry.timestamp) as f64 / 3600.0).max(0.0);
+                let decayed = phi * 0.95_f64.powf(hours_since);
+                entry.phi = Some(decayed.max(0.0));
+            }
+        }
+
+        self.entries
+            .retain(|e| !(e.mode == "error" && e.original_tokens == 0));
+
+        self.entries.retain(|e| {
+            let age = now - e.timestamp;
+            let phi = e.phi.unwrap_or(0.0);
+            !(age > Self::STALE_AGE_SECS && phi < 0.1)
+        });
+
+        let mut seen = std::collections::HashSet::new();
+        self.entries.sort_by_key(|e| std::cmp::Reverse(e.timestamp));
+        self.entries.retain(|e| {
+            let key = crate::core::pathutil::normalize_tool_path(&e.path);
+            seen.insert(key)
+        });
+
+        if self.entries.len() > Self::MAX_LEDGER_ENTRIES {
+            self.entries.sort_by(|a, b| {
+                let pa = a.phi.unwrap_or(0.0);
+                let pb = b.phi.unwrap_or(0.0);
+                pb.partial_cmp(&pa).unwrap_or(std::cmp::Ordering::Equal)
+            });
+            self.entries.truncate(Self::MAX_LEDGER_ENTRIES);
+        }
+
+        self.rebuild_totals();
+        before - self.entries.len()
+    }
+
+    fn rebuild_totals(&mut self) {
+        self.total_tokens_sent = self.entries.iter().map(|e| e.sent_tokens).sum();
+        self.total_tokens_saved = self
+            .entries
+            .iter()
+            .map(|e| e.original_tokens.saturating_sub(e.sent_tokens))
+            .sum();
+    }
+
     pub fn load() -> Self {
-        crate::core::data_dir::lean_ctx_data_dir()
+        let mut ledger: Self = crate::core::data_dir::lean_ctx_data_dir()
             .ok()
             .map(|d| d.join("context_ledger.json"))
             .and_then(|p| std::fs::read_to_string(p).ok())
             .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        let pruned = ledger.prune();
+        if pruned > 0 {
+            ledger.save();
+        }
+        ledger
     }
 
     pub fn format_summary(&self) -> String {
