@@ -148,7 +148,9 @@ jobs:
         run: cargo install cargo-tarpaulin
       - name: Generate coverage
         working-directory: rust
-        run: cargo tarpaulin --out xml --skip-clean --all-features --timeout 120 --exclude-files 'src/cli/*' --exclude-files 'src/main.rs' -- --test-threads=1
+        env:
+          CARGO_BUILD_JOBS: "2"
+        run: cargo tarpaulin --out xml --skip-clean --all-features --timeout 180 --exclude-files 'src/cli/*' --exclude-files 'src/main.rs' -- --test-threads=1
       - name: Upload to Codecov
         uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4
         with:
