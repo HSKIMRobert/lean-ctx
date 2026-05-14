@@ -95,7 +95,9 @@ jobs:
           if [[ "${{ matrix.musl }}" == "true" ]]; then
             cargo test --lib --all-features -- --test-threads=1
           elif [[ "${{ matrix.jemalloc }}" == "true" ]]; then
-            JEMALLOC_OVERRIDE="${{ steps.jemalloc.outputs.jemalloc-override }}" \n            CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS="-L ${{ steps.jemalloc.outputs.dummy-dir }}" \n            cargo test --lib --target x86_64-pc-windows-gnu --all-features -- --test-threads=1
+            JEMALLOC_OVERRIDE="${{ steps.jemalloc.outputs.jemalloc-override }}" \
+              CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS="-L ${{ steps.jemalloc.outputs.dummy-dir }}" \
+              cargo test --lib --target x86_64-pc-windows-gnu --all-features -- --test-threads=1
           else
             cargo test --all-features -- --test-threads=1
           fi
@@ -121,9 +123,11 @@ jobs:
           if [[ "${{ matrix.zig }}" == "true" ]]; then
             cargo zigbuild --release --target ${{ matrix.target }}
           elif [[ "${{ matrix.jemalloc }}" == "true" ]]; then
-            cargo build --release --target ${{ matrix.target }}
+            JEMALLOC_OVERRIDE="${{ steps.jemalloc.outputs.jemalloc-override }}" \
+              CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS="-L ${{ steps.jemalloc.outputs.dummy-dir }}" \
+              cargo build --release --target ${{ matrix.target }}
           else
-            JEMALLOC_OVERRIDE="${{ steps.jemalloc.outputs.jemalloc-override }}" \n            CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS="-L ${{ steps.jemalloc.outputs.dummy-dir }}" \n            cargo build --release --target ${{ matrix.target }}
+            cargo build --release --target ${{ matrix.target }}
           fi
 
       - name: Package (Unix)
