@@ -35,6 +35,9 @@ jobs:
             os: macos-latest
           - target: x86_64-pc-windows-msvc
             os: windows-latest
+          - target: x86_64-pc-windows-gnu
+            os: windows-latest
+            jemalloc: true
 
     steps:
       - uses: actions/checkout@v4 # v4
@@ -68,15 +71,31 @@ jobs:
           sudo apt-get install -y gcc-aarch64-linux-gnu
           echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
 
+      # ---- Windows jemalloc target: MSYS2 + pre-built jemalloc ------------
+      # See .github/actions/windows-jemalloc for the pitfall details.
+      - name: Setup MSYS2 and MinGW
+        if: matrix.jemalloc == true
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: base-devel mingw-w64-x86_64-toolchain
+          path-type: inherit
+
+      - name: Build jemalloc (Windows GNU target)
+        if: matrix.jemalloc == true
+        id: jemalloc
+        uses: ./.github/actions/windows-jemalloc
+
       - name: Run tests
         if: matrix.cross != true
         working-directory: rust
         shell: bash
         run: |
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            cargo test --lib --no-default-features --features tree-sitter,embeddings,http-server,secure-update -- --test-threads=1
-          elif [[ "${{ matrix.musl }}" == "true" ]]; then
+          if [[ "${{ matrix.musl }}" == "true" ]]; then
             cargo test --lib --all-features -- --test-threads=1
+          elif [[ "${{ matrix.jemalloc }}" == "true" ]]; then
+            JEMALLOC_OVERRIDE="${{ steps.jemalloc.outputs.jemalloc-override }}" \n            CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS="-L ${{ steps.jemalloc.outputs.dummy-dir }}" \n            cargo test --lib --target x86_64-pc-windows-gnu --all-features -- --test-threads=1
           else
             cargo test --all-features -- --test-threads=1
           fi
@@ -101,10 +120,10 @@ jobs:
         run: |
           if [[ "${{ matrix.zig }}" == "true" ]]; then
             cargo zigbuild --release --target ${{ matrix.target }}
-          elif [[ "${{ runner.os }}" == "Windows" ]]; then
-            cargo build --release --target ${{ matrix.target }} --no-default-features --features tree-sitter,embeddings,http-server,secure-update
-          else
+          elif [[ "${{ matrix.jemalloc }}" == "true" ]]; then
             cargo build --release --target ${{ matrix.target }}
+          else
+            JEMALLOC_OVERRIDE="${{ steps.jemalloc.outputs.jemalloc-override }}" \n            CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS="-L ${{ steps.jemalloc.outputs.dummy-dir }}" \n            cargo build --release --target ${{ matrix.target }}
           fi
 
       - name: Package (Unix)
@@ -272,4 +291,3 @@ jobs:
           git push
         env:
           HOMEBREW_TOKEN: ${{ secrets.HOMEBREW_GITHUB_TOKEN }}
-

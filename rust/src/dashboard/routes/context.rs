@@ -149,6 +149,92 @@ fn get_routes(path: &str, _query_str: &str) -> Option<(&'static str, &'static st
             let json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
             Some(("200 OK", "application/json", json))
         }
+        "/api/context-bounce" => {
+            let payload = if let Ok(bt) = crate::core::bounce_tracker::global().lock() {
+                serde_json::json!({
+                    "summary": bt.format_summary(),
+                    "total_bounces": bt.total_bounces(),
+                    "total_wasted_tokens": bt.total_wasted_tokens(),
+                })
+            } else {
+                serde_json::json!({ "error": "lock failed" })
+            };
+            let json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+            Some(("200 OK", "application/json", json))
+        }
+        "/api/context-client" => {
+            let caps = crate::core::client_capabilities::current();
+            let payload = serde_json::json!({
+                "client_id": caps.client_id,
+                "tier": caps.tier(),
+                "resources": caps.resources,
+                "prompts": caps.prompts,
+                "elicitation": caps.elicitation,
+                "sampling": caps.sampling,
+                "dynamic_tools": caps.dynamic_tools,
+                "max_tools": caps.max_tools,
+                "summary": caps.format_summary(),
+            });
+            let json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+            Some(("200 OK", "application/json", json))
+        }
+        "/api/context-pressure" => {
+            let ledger = crate::core::context_ledger::ContextLedger::load();
+            let pressure = ledger.pressure();
+            let adjusted_saved = ledger.adjusted_total_saved();
+            let eviction_candidates = ledger.eviction_candidates_by_phi(5);
+            let payload = serde_json::json!({
+                "utilization": pressure.utilization,
+                "remaining_tokens": pressure.remaining_tokens,
+                "recommendation": format!("{:?}", pressure.recommendation),
+                "total_sent": ledger.total_tokens_sent,
+                "total_saved_raw": ledger.total_tokens_saved,
+                "total_saved_adjusted": adjusted_saved,
+                "window_size": ledger.window_size,
+                "eviction_candidates": eviction_candidates,
+            });
+            let json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+            Some(("200 OK", "application/json", json))
+        }
+        "/api/context-dynamic-tools" => {
+            let payload = if let Ok(state) = crate::server::dynamic_tools::global().lock() {
+                serde_json::json!({
+                    "active_categories": state.active_categories(),
+                    "all_categories": crate::server::dynamic_tools::DynamicToolState::all_categories(),
+                    "supports_list_changed": state.supports_list_changed(),
+                })
+            } else {
+                serde_json::json!({ "error": "lock failed" })
+            };
+            let json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+            Some(("200 OK", "application/json", json))
+        }
+        "/api/context-radar" => {
+            let data_dir = crate::core::data_dir::lean_ctx_data_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from("."));
+            let window = crate::core::context_radar::default_window_for_client("cursor");
+            let radar = crate::core::context_radar::ContextRadar::load(&data_dir, window);
+            let breakdown = radar.budget_breakdown();
+            let recent_events: Vec<&crate::core::context_radar::RadarEvent> =
+                radar.events.iter().rev().take(100).collect();
+            let rules_files: Vec<serde_json::Value> = radar
+                .rules_tokens
+                .files
+                .iter()
+                .map(|(path, tokens)| serde_json::json!({ "path": path, "tokens": tokens }))
+                .collect();
+            let payload = serde_json::json!({
+                "breakdown": breakdown,
+                "rules": {
+                    "files": rules_files,
+                    "total_tokens": radar.rules_tokens.total,
+                },
+                "events_total": radar.events.len(),
+                "recent_events": recent_events,
+            });
+            let json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+            Some(("200 OK", "application/json", json))
+        }
         _ => None,
     }
 }

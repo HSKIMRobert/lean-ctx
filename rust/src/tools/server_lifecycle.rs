@@ -64,6 +64,9 @@ impl LeanCtxServer {
                 crate::core::config::MemoryCleanup::effective(&cfg).idle_ttl_secs()
             });
 
+        // Purge stale graph indices on startup to prevent serving outdated data
+        crate::core::graph_index::ProjectIndex::purge_stale_indices();
+
         let startup = detect_startup_context(project_root, startup_cwd);
         let (session, context_os) = match session_mode {
             SessionMode::Personal => {
@@ -125,7 +128,7 @@ impl LeanCtxServer {
                 crate::core::workflow::load_active().ok().flatten(),
             )),
             ledger: Arc::new(RwLock::new(
-                crate::core::context_ledger::ContextLedger::new(),
+                crate::core::context_ledger::ContextLedger::load(),
             )),
             pipeline_stats: Arc::new(RwLock::new(crate::core::pipeline::PipelineStats::new())),
             session_mode,

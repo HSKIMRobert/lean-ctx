@@ -802,10 +802,9 @@ pub fn format_gain_themed_at(t: &Theme, tick: Option<u64>) -> String {
                         ("nodes", "")
                     }
                     crate::core::graph_provider::GraphProviderSource::GraphIndex => {
-                        let max =
-                            crate::core::config::Config::load().graph_index_max_files as usize;
-                        if nc >= max {
-                            ("files", " (capped)")
+                        let max_cfg = crate::core::config::Config::load().graph_index_max_files;
+                        if max_cfg > 0 && nc >= max_cfg as usize {
+                            ("files", " (limit reached)")
                         } else {
                             ("files", "")
                         }

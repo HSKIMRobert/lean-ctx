@@ -15,7 +15,7 @@ fn tdd_schema_is_up_to_date() {
     assert_eq!(
         on_disk,
         expected,
-        "TDD schema out of date: {}\nRun: cargo run --bin gen_tdd_schema\n",
+        "TDD schema out of date: {}\nRun: cargo run --example gen_tdd_schema --features dev-tools\n",
         path.display()
     );
 }

@@ -342,7 +342,18 @@ stale_files: {}\n",
         "budget" => {
             use crate::core::budget_tracker::BudgetTracker;
             let snap = BudgetTracker::global().check();
-            snap.format_compact()
+            let mut out = snap.format_compact();
+
+            if let Ok(data_dir) = crate::core::data_dir::lean_ctx_data_dir() {
+                let window = crate::core::context_radar::default_window_for_client("cursor");
+                let radar = crate::core::context_radar::ContextRadar::load(&data_dir, window);
+                let radar_display = radar.format_display();
+                if !radar_display.is_empty() {
+                    out.push_str("\n\n");
+                    out.push_str(&radar_display);
+                }
+            }
+            out
         }
 
         "role" => {

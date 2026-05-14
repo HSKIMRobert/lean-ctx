@@ -21,8 +21,11 @@ This catalog is the single feature inventory for LeanCTX at release/runtime leve
 
 ## Runtime Surface (Current)
 
-- Granular MCP tools: **59**
+- Granular MCP tools: **60**
 - Unified MCP tools: **5**
+- MCP Resources: **5**
+- MCP Prompts: **5**
+- Dynamic Tool Categories: **6**
 - Shell pattern modules: **56** (fd, just, ninja, clang, extended cargo run/bench added in 3.4.x)
 - CLI commands: **80+** (knowledge, overview, compress, serve --daemon/--stop/--status, session, pack create/list/info/export/import/install/remove/auto-load subcommands added in 3.4.x)
 - Read modes: **10** (`auto`, `full`, `map`, `signatures`, `diff`, `aggressive`, `entropy`, `task`, `reference`, `lines:N-M`)
@@ -40,7 +43,7 @@ This catalog is the single feature inventory for LeanCTX at release/runtime leve
 
 ---
 
-## Granular MCP Tools (59)
+## Granular MCP Tools (60)
 
 ### A) Read / Search / IO Surface
 
@@ -121,6 +124,84 @@ Import supports three formats: native `ProjectKnowledge` JSON, simple `[{categor
 - `ctx_execute`
 - `ctx_benchmark`
 - `ctx_response`
+
+---
+
+## MCP Protocol Capabilities
+
+### MCP Resources (5)
+
+Subscribe-capable resources, gated by client capabilities:
+
+- `lean-ctx://context/summary`
+- `lean-ctx://context/pressure`
+- `lean-ctx://context/plan`
+- `lean-ctx://context/pinned`
+- `lean-ctx://context/bounce`
+
+### MCP Prompts (5)
+
+Appear as slash commands in supporting IDEs:
+
+- `/context-focus`
+- `/context-review`
+- `/context-reset`
+- `/context-pin`
+- `/context-budget`
+
+### Elicitation
+
+Rate-limited context decisions triggered by:
+
+- Pressure >90%
+- Large files >5k tok
+- Budget exhaustion
+
+Fallback hints emitted for non-supporting IDEs.
+
+### Dynamic Tool Categories (6)
+
+On-demand loading via `tools/list_changed`:
+
+- **core** (~27 tools, always loaded)
+- **arch**
+- **debug**
+- **memory**
+- **metrics**
+- **session**
+
+---
+
+## Intelligence Layer
+
+### Context Gate
+
+Pre-dispatch mode override:
+
+- Bounce-prevention
+- Intent-target
+- Graph-proximity
+- Knowledge-relevance
+
+Post-dispatch:
+
+- Ledger recording
+- Eviction/elicitation hints
+
+### Bounce Detection
+
+Tracks wasted tokens from compressed→full re-reads:
+
+- Per-extension bounce rates
+- Adjusts savings metrics to report honest numbers
+
+### Client Capability Detection
+
+Runtime detection of 9 IDE clients:
+
+- Cursor, Claude Code, Windsurf, Zed, VS Code Copilot, Kiro, Codex, Antigravity, Gemini CLI
+
+Tier 1–4 classification determines feature gating for resources, prompts, elicitation, and dynamic tools.
 
 ---
 

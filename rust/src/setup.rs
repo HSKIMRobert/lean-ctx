@@ -190,14 +190,13 @@ pub fn run_setup() {
         crate::hooks::install_agent_hook_with_mode(&target.agent_key, true, mode);
     }
 
-    // Step 5: API Proxy configuration
+    // Step 5: API Proxy (autostart + env configuration)
     terminal_ui::print_step_header(5, 10, "API Proxy");
-    crate::proxy_setup::install_proxy_env(&home, crate::proxy_setup::default_port(), false);
-    println!();
-    println!("  \x1b[2mStart proxy for maximum token savings:\x1b[0m");
-    println!("    \x1b[1mlean-ctx proxy start\x1b[0m");
-    println!("  \x1b[2mEnable autostart:\x1b[0m");
-    println!("    \x1b[1mlean-ctx proxy start --autostart\x1b[0m");
+    let proxy_port = crate::proxy_setup::default_port();
+    crate::proxy_autostart::install(proxy_port, false);
+    // Give the proxy a moment to start before configuring env vars
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    crate::proxy_setup::install_proxy_env(&home, proxy_port, false);
 
     // Step 6: SKILL.md installation
     terminal_ui::print_step_header(6, 10, "Skill Files");
@@ -667,15 +666,24 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
         steps.push(hooks_step);
     }
 
-    // Step: Proxy env vars
+    // Step: Proxy autostart + env vars
     let mut proxy_step = SetupStepReport {
-        name: "proxy_env".to_string(),
+        name: "proxy".to_string(),
         ok: true,
         items: Vec::new(),
         warnings: Vec::new(),
         errors: Vec::new(),
     };
-    crate::proxy_setup::install_proxy_env(&home, crate::proxy_setup::default_port(), opts.json);
+    let proxy_port = crate::proxy_setup::default_port();
+    crate::proxy_autostart::install(proxy_port, true);
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    crate::proxy_setup::install_proxy_env(&home, proxy_port, opts.json);
+    proxy_step.items.push(SetupItem {
+        name: "proxy_autostart".to_string(),
+        status: "installed".to_string(),
+        path: None,
+        note: Some("LaunchAgent/systemd auto-start on login".to_string()),
+    });
     proxy_step.items.push(SetupItem {
         name: "proxy_env".to_string(),
         status: "configured".to_string(),

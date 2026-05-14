@@ -132,6 +132,21 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
             }),
         ),
         tool_def(
+            "ctx_radar",
+            "Full context budget breakdown: system prompt, messages, tools, reads, shell — all tracked token usage.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "format": {
+                        "type": "string",
+                        "description": "Output format: 'display' (human-readable) or 'json' (structured)",
+                        "enum": ["display", "json"],
+                        "default": "display"
+                    }
+                }
+            }),
+        ),
+        tool_def(
             "ctx_analyze",
             "Entropy analysis — recommends optimal compression mode for a file.",
             json!({
@@ -1218,6 +1233,7 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
         ("ctx_compress", "Context checkpoint for long conversations.", json!({"type": "object", "properties": {"include_signatures": {"type": "boolean"}}})),
         ("ctx_benchmark", "Benchmark compression modes for a file or project.", json!({"type": "object", "properties": {"path": {"type": "string"}, "action": {"type": "string"}, "format": {"type": "string"}}, "required": ["path"]})),
         ("ctx_metrics", "Session token stats, cache rates, per-tool savings.", json!({"type": "object", "properties": {}})),
+        ("ctx_radar", "Full context budget breakdown: system prompt, messages, tools, reads, shell — all tracked token usage.", json!({"type": "object", "properties": {"format": {"type": "string", "description": "Output format: 'display' (human-readable) or 'json' (structured)", "enum": ["display", "json"]}}})),
         ("ctx_analyze", "Entropy analysis — recommends optimal compression mode for a file.", json!({"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]})),
         ("ctx_cache", "Cache ops: status|clear|invalidate.", json!({"type": "object", "properties": {"action": {"type": "string"}, "path": {"type": "string"}}, "required": ["action"]})),
         ("ctx_retrieve", "Retrieve original uncompressed content from cache (CCR).", json!({"type": "object", "properties": {"path": {"type": "string"}, "query": {"type": "string"}}, "required": ["path"]})),

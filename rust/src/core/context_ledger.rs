@@ -80,7 +80,7 @@ impl ContextLedger {
         let path = crate::core::pathutil::normalize_tool_path(path);
         let item_id = ContextItemId::from_file(&path);
 
-        let phi = Self::compute_lightweight_phi(sent_tokens, self.window_size);
+        let phi = Self::compute_real_phi(&path, sent_tokens, original_tokens, self.window_size);
 
         if let Some(existing) = self.entries.iter_mut().find(|e| e.path == path) {
             self.total_tokens_sent -= existing.sent_tokens;
@@ -120,6 +120,24 @@ impl ContextLedger {
         }
         self.total_tokens_sent += sent_tokens;
         self.total_tokens_saved += original_tokens.saturating_sub(sent_tokens);
+    }
+
+    fn compute_real_phi(
+        path: &str,
+        sent_tokens: usize,
+        original_tokens: usize,
+        window_size: usize,
+    ) -> f64 {
+        use crate::core::context_field::{compute_signals_for_path, ContextField};
+
+        let (signals, _costs) =
+            compute_signals_for_path(path, None, None, window_size, original_tokens);
+        let phi = ContextField::new().compute_phi(&signals);
+        if phi > 0.0 {
+            return phi;
+        }
+
+        Self::compute_lightweight_phi(sent_tokens, window_size)
     }
 
     fn compute_lightweight_phi(sent_tokens: usize, window_size: usize) -> f64 {
@@ -403,6 +421,14 @@ impl ContextLedger {
             self.compression_ratio(),
             pressure.recommendation,
         )
+    }
+
+    pub fn adjusted_total_saved(&self) -> isize {
+        if let Ok(bt) = crate::core::bounce_tracker::global().lock() {
+            bt.adjusted_savings(self.total_tokens_saved)
+        } else {
+            self.total_tokens_saved as isize
+        }
     }
 }
 

@@ -231,10 +231,19 @@ impl OverlayStore {
 
     pub fn load_project(project_root: &Path) -> Self {
         let path = project_root.join(OVERLAY_FILE);
-        std::fs::read_to_string(&path)
+        let mut store: Self = std::fs::read_to_string(&path)
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        let now = chrono::Utc::now();
+        let session_ttl = chrono::Duration::hours(24);
+        store.overlays.retain(|o| match &o.scope {
+            OverlayScope::Session | OverlayScope::Call => {
+                now.signed_duration_since(o.created_at) < session_ttl
+            }
+            _ => true,
+        });
+        store
     }
 }
 

@@ -50,7 +50,7 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
             .ok_or_else(|| ErrorData::invalid_params("path is required", None))?
             .to_string();
 
-        tokio::task::block_in_place(|| self.handle_inner(args, ctx, &path))
+        self.handle_inner(args, ctx, &path)
     }
 }
 
@@ -95,6 +95,16 @@ impl CtxReadTool {
             fresh = true;
         }
 
+        let gate_result = crate::server::context_gate::pre_dispatch_read(
+            path,
+            &mode,
+            task_ref,
+            Some(&ctx.project_root),
+        );
+        if let Some(overridden) = gate_result.overridden_mode {
+            mode = overridden;
+        }
+
         let mode = if crate::tools::ctx_read::is_instruction_file(path) {
             "full".to_string()
         } else {
@@ -126,42 +136,48 @@ impl CtxReadTool {
             }
         }
 
-        let mut cache = cache_lock.blocking_write();
-        let read_output = if fresh {
-            crate::tools::ctx_read::handle_fresh_with_task_resolved(
-                &mut cache,
-                path,
-                &effective_mode,
-                ctx.crp_mode,
-                task_ref,
-            )
-        } else {
-            crate::tools::ctx_read::handle_with_task_resolved(
-                &mut cache,
-                path,
-                &effective_mode,
-                ctx.crp_mode,
-                task_ref,
-            )
+        // Acquire cache write lock for minimal duration: read + extract, then drop
+        let (output, resolved_mode, original, is_cache_hit, file_ref, cache_stats) = {
+            let mut cache = cache_lock.blocking_write();
+            let read_output = if fresh {
+                crate::tools::ctx_read::handle_fresh_with_task_resolved(
+                    &mut cache,
+                    path,
+                    &effective_mode,
+                    ctx.crp_mode,
+                    task_ref,
+                )
+            } else {
+                crate::tools::ctx_read::handle_with_task_resolved(
+                    &mut cache,
+                    path,
+                    &effective_mode,
+                    ctx.crp_mode,
+                    task_ref,
+                )
+            };
+            let content = read_output.content;
+            let rmode = read_output.resolved_mode;
+            let orig = cache.get(path).map_or(0, |e| e.original_tokens);
+            let hit = content.contains(" cached ");
+            let fref = cache.file_ref_map().get(path).cloned();
+            let stats = cache.get_stats();
+            let stats_snapshot = (stats.total_reads, stats.cache_hits);
+            (content, rmode, orig, hit, fref, stats_snapshot)
         };
-        let output = read_output.content;
-        let resolved_mode = read_output.resolved_mode;
 
         let stale_note = if !ctx.minimal && effective_mode != mode {
             format!("[cache stale, {mode}→{effective_mode}]\n")
         } else {
             String::new()
         };
-        let original = cache.get(path).map_or(0, |e| e.original_tokens);
-        let is_cache_hit = output.contains(" cached ");
         let output = format!("{stale_note}{output}");
         let output_tokens = crate::core::tokens::count_tokens(&output);
         let saved = original.saturating_sub(output_tokens);
-        let file_ref = cache.file_ref_map().get(path).cloned();
-        drop(cache);
 
-        // Session updates
+        // Session updates (short lock)
         let mut ensured_root: Option<String> = None;
+        let project_root_snapshot;
         {
             let mut session = session_lock.blocking_write();
             session.touch_file(path, file_ref.as_deref(), &resolved_mode, original);
@@ -190,6 +206,10 @@ impl CtxReadTool {
                     ensured_root = Some(root);
                 }
             }
+            project_root_snapshot = session
+                .project_root
+                .clone()
+                .unwrap_or_else(|| ".".to_string());
         }
 
         if let Some(root) = ensured_root.as_deref() {
@@ -198,7 +218,7 @@ impl CtxReadTool {
 
         crate::core::heatmap::record_file_access(path, original, saved);
 
-        // Mode predictor + feedback (disk-based, no server state needed)
+        // Mode predictor + feedback — no locks needed, uses snapshots from above
         {
             let sig = crate::core::mode_predictor::FileSignature::from_path(path, original);
             let density = if output_tokens > 0 {
@@ -212,15 +232,8 @@ impl CtxReadTool {
                 tokens_out: output_tokens,
                 density: density.min(1.0),
             };
-            let project_root = {
-                let session = session_lock.blocking_read();
-                session
-                    .project_root
-                    .clone()
-                    .unwrap_or_else(|| ".".to_string())
-            };
             let mut predictor = crate::core::mode_predictor::ModePredictor::new();
-            predictor.set_project_root(&project_root);
+            predictor.set_project_root(&project_root_snapshot);
             predictor.record(sig, outcome);
             predictor.save();
 
@@ -230,24 +243,21 @@ impl CtxReadTool {
                 .unwrap_or("")
                 .to_string();
             let thresholds = crate::core::adaptive_thresholds::thresholds_for_path(path);
-            let cache = cache_lock.blocking_read();
-            let stats = cache.get_stats();
             let feedback_outcome = crate::core::feedback::CompressionOutcome {
                 session_id: format!("{}", std::process::id()),
                 language: ext,
                 entropy_threshold: thresholds.bpe_entropy,
                 jaccard_threshold: thresholds.jaccard,
-                total_turns: stats.total_reads as u32,
+                total_turns: cache_stats.0 as u32,
                 tokens_saved: saved as u64,
                 tokens_original: original as u64,
-                cache_hits: stats.cache_hits as u32,
-                total_reads: stats.total_reads as u32,
+                cache_hits: cache_stats.1 as u32,
+                total_reads: cache_stats.0 as u32,
                 task_completed: true,
                 timestamp: chrono::Local::now().to_rfc3339(),
             };
-            drop(cache);
             let mut store = crate::core::feedback::FeedbackStore::load();
-            store.project_root = Some(project_root);
+            store.project_root = Some(project_root_snapshot.clone());
             store.record_outcome(feedback_outcome);
         }
 

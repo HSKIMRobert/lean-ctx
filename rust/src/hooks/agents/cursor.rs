@@ -34,6 +34,30 @@ fn ensure_pretooluse_hook(
     }));
 }
 
+fn ensure_observe_hook(
+    hooks_obj: &mut serde_json::Map<String, serde_json::Value>,
+    event: &str,
+    observe_cmd: &str,
+) {
+    let arr = hooks_obj
+        .entry(event.to_string())
+        .or_insert_with(|| serde_json::json!([]));
+    if !arr.is_array() {
+        *arr = serde_json::json!([]);
+    }
+    let Some(entries) = arr.as_array_mut() else {
+        return;
+    };
+    let already = entries.iter().any(|e| {
+        e.get("command")
+            .and_then(|c| c.as_str())
+            .is_some_and(|c| c.contains("hook observe"))
+    });
+    if !already {
+        entries.push(serde_json::json!({ "command": observe_cmd }));
+    }
+}
+
 fn merge_cursor_hooks(existing: &mut serde_json::Value, rewrite_cmd: &str, redirect_cmd: &str) {
     if !existing.is_object() {
         *existing = serde_json::json!({});
@@ -53,6 +77,7 @@ fn merge_cursor_hooks(existing: &mut serde_json::Value, rewrite_cmd: &str, redir
         return;
     };
 
+    // PreToolUse hooks (rewrite + redirect)
     let pre = hooks_obj
         .entry("preToolUse".to_string())
         .or_insert_with(|| serde_json::json!([]));
@@ -70,6 +95,19 @@ fn merge_cursor_hooks(existing: &mut serde_json::Value, rewrite_cmd: &str, redir
         "Read|Grep",
         redirect_cmd,
     );
+
+    // Observe hooks for full context awareness
+    let observe_cmd = rewrite_cmd.replace("hook rewrite", "hook observe");
+    ensure_observe_hook(hooks_obj, "afterMCPExecution", &observe_cmd);
+    ensure_observe_hook(hooks_obj, "postToolUse", &observe_cmd);
+    ensure_observe_hook(hooks_obj, "afterShellExecution", &observe_cmd);
+    ensure_observe_hook(hooks_obj, "beforeReadFile", &observe_cmd);
+    ensure_observe_hook(hooks_obj, "afterAgentResponse", &observe_cmd);
+    ensure_observe_hook(hooks_obj, "afterAgentThought", &observe_cmd);
+    ensure_observe_hook(hooks_obj, "beforeSubmitPrompt", &observe_cmd);
+    ensure_observe_hook(hooks_obj, "preCompact", &observe_cmd);
+    ensure_observe_hook(hooks_obj, "sessionStart", &observe_cmd);
+    ensure_observe_hook(hooks_obj, "sessionEnd", &observe_cmd);
 }
 
 pub fn install_cursor_hook(global: bool) {

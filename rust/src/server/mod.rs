@@ -1,8 +1,13 @@
+pub mod context_gate;
 mod dispatch;
+pub mod dynamic_tools;
+pub mod elicitation;
 pub(crate) mod execute;
 pub mod helpers;
 pub mod pipeline_stages;
+pub mod prompts;
 pub mod registry;
+pub mod resources;
 pub mod role_guard;
 pub mod tool_trait;
 
@@ -18,7 +23,12 @@ use crate::tools::{CrpMode, LeanCtxServer};
 
 impl ServerHandler for LeanCtxServer {
     fn get_info(&self) -> ServerInfo {
-        let capabilities = ServerCapabilities::builder().enable_tools().build();
+        let capabilities = ServerCapabilities::builder()
+            .enable_tools()
+            .enable_resources()
+            .enable_resources_subscribe()
+            .enable_prompts()
+            .build();
 
         let config = crate::core::config::Config::load();
         let level = crate::core::config::CompressionLevel::effective(&config);
@@ -138,9 +148,47 @@ impl ServerHandler for LeanCtxServer {
             }
         });
 
+        let client_caps = crate::core::client_capabilities::ClientMcpCapabilities::detect(&name);
+        tracing::info!("Client capabilities: {}", client_caps.format_summary());
+
+        if client_caps.dynamic_tools {
+            if let Ok(mut dt) = dynamic_tools::global().lock() {
+                dt.set_supports_list_changed(true);
+            }
+        }
+        if let Some(max) = client_caps.max_tools {
+            if let Ok(mut dt) = dynamic_tools::global().lock() {
+                dt.set_supports_list_changed(true);
+                if max < 100 {
+                    dt.unload_category(dynamic_tools::ToolCategory::Debug);
+                    dt.unload_category(dynamic_tools::ToolCategory::Memory);
+                }
+            }
+        }
+
+        crate::core::client_capabilities::set_detected(client_caps.clone());
+
         let instructions =
             crate::instructions::build_instructions_with_client(CrpMode::effective(), &name);
-        let capabilities = ServerCapabilities::builder().enable_tools().build();
+
+        let capabilities = match (client_caps.resources, client_caps.prompts) {
+            (true, true) => ServerCapabilities::builder()
+                .enable_tools()
+                .enable_resources()
+                .enable_resources_subscribe()
+                .enable_prompts()
+                .build(),
+            (true, false) => ServerCapabilities::builder()
+                .enable_tools()
+                .enable_resources()
+                .enable_resources_subscribe()
+                .build(),
+            (false, true) => ServerCapabilities::builder()
+                .enable_tools()
+                .enable_prompts()
+                .build(),
+            (false, false) => ServerCapabilities::builder().enable_tools().build(),
+        };
 
         Ok(InitializeResult::new(capabilities)
             .with_server_info(Implementation::new("lean-ctx", env!("CARGO_PKG_VERSION")))
@@ -168,6 +216,18 @@ impl ServerHandler for LeanCtxServer {
                 .into_iter()
                 .filter(|t| !disabled.iter().any(|d| t.name.as_ref() == d.as_str()))
                 .collect()
+        };
+
+        let tools = {
+            let dyn_state = dynamic_tools::global().lock().unwrap();
+            if dyn_state.supports_list_changed() {
+                tools
+                    .into_iter()
+                    .filter(|t| dyn_state.is_tool_active(t.name.as_ref()))
+                    .collect()
+            } else {
+                tools
+            }
         };
 
         let tools = {
@@ -220,12 +280,63 @@ impl ServerHandler for LeanCtxServer {
         })
     }
 
+    async fn list_prompts(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<rmcp::model::ListPromptsResult, ErrorData> {
+        Ok(rmcp::model::ListPromptsResult::with_all_items(
+            prompts::list_prompts(),
+        ))
+    }
+
+    async fn get_prompt(
+        &self,
+        request: rmcp::model::GetPromptRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<rmcp::model::GetPromptResult, ErrorData> {
+        let ledger = self.ledger.read().await;
+        match prompts::get_prompt(&request, &ledger) {
+            Some(result) => Ok(result),
+            None => Err(ErrorData::invalid_params(
+                format!("Unknown prompt: {}", request.name),
+                None,
+            )),
+        }
+    }
+
+    async fn list_resources(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<rmcp::model::ListResourcesResult, rmcp::ErrorData> {
+        Ok(rmcp::model::ListResourcesResult::with_all_items(
+            resources::list_resources(),
+        ))
+    }
+
+    async fn read_resource(
+        &self,
+        request: rmcp::model::ReadResourceRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<rmcp::model::ReadResourceResult, rmcp::ErrorData> {
+        let ledger = self.ledger.read().await;
+        match resources::read_resource(&request.uri, &ledger) {
+            Some(contents) => Ok(rmcp::model::ReadResourceResult::new(contents)),
+            None => Err(rmcp::ErrorData::resource_not_found(
+                format!("Unknown resource: {}", request.uri),
+                None,
+            )),
+        }
+    }
+
     async fn call_tool(
         &self,
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
         self.check_idle_expiry().await;
+        elicitation::increment_call();
 
         let original_name = request.name.as_ref().to_string();
         let (resolved_name, resolved_args) = if original_name == "ctx" {
@@ -615,11 +726,42 @@ impl ServerHandler for LeanCtxServer {
                     result_text = format!("{result_text}\n{hint}");
                 }
                 crate::tools::autonomy::maybe_auto_dedup(&self.autonomy, &mut cache, name);
+
+                {
+                    let mut ledger = self.ledger.write().await;
+                    let overlay = crate::core::context_overlay::OverlayStore::load_project(
+                        &std::path::PathBuf::from(project_root.as_deref().unwrap_or(".")),
+                    );
+                    let mode_used =
+                        helpers::get_str(args, "mode").unwrap_or_else(|| "auto".to_string());
+                    let gate_result = context_gate::post_dispatch_record(
+                        &read_path,
+                        &mode_used,
+                        pre_terse_len,
+                        output_tokens as usize,
+                        &mut ledger,
+                        &overlay,
+                    );
+                    if let Some(hint) = gate_result.eviction_hint {
+                        result_text = format!("{result_text}\n{hint}");
+                    }
+                    if let Some(hint) = gate_result.elicitation_hint {
+                        result_text = format!("{result_text}\n{hint}");
+                    }
+                }
             }
         }
 
         if !minimal && !is_raw_shell && name == "ctx_shell" {
             let cmd = helpers::get_str(args, "command").unwrap_or_default();
+
+            if let Some(file_path) = extract_file_read_from_shell(&cmd) {
+                if let Ok(mut bt) = crate::core::bounce_tracker::global().lock() {
+                    bt.next_seq();
+                    bt.record_shell_file_access(&file_path);
+                }
+            }
+
             let calls = self.tool_calls.read().await;
             let last_original = calls.last().map_or(0, |c| c.original_tokens);
             drop(calls);
@@ -1068,6 +1210,22 @@ pub fn tool_schemas_json_for_test() -> String {
 
 fn is_shell_tool_name(name: &str) -> bool {
     matches!(name, "ctx_shell" | "ctx_execute")
+}
+
+fn extract_file_read_from_shell(cmd: &str) -> Option<String> {
+    let trimmed = cmd.trim();
+    let parts: Vec<&str> = trimmed.split_whitespace().collect();
+    if parts.len() < 2 {
+        return None;
+    }
+    let bin = parts[0].rsplit('/').next().unwrap_or(parts[0]);
+    match bin {
+        "cat" | "head" | "tail" | "less" | "more" | "bat" | "batcat" => {
+            let file_arg = parts.iter().skip(1).find(|a| !a.starts_with('-'))?;
+            Some(file_arg.to_string())
+        }
+        _ => None,
+    }
 }
 
 #[cfg(test)]

@@ -34,6 +34,7 @@ fn install_copilot_pretooluse_hook(global: bool) {
     let binary = resolve_binary_path();
     let rewrite_cmd = format!("{binary} hook rewrite");
     let redirect_cmd = format!("{binary} hook redirect");
+    let observe_cmd = format!("{binary} hook observe");
 
     let hook_config = serde_json::json!({
         "version": 1,
@@ -47,6 +48,13 @@ fn install_copilot_pretooluse_hook(global: bool) {
                 {
                     "type": "command",
                     "bash": redirect_cmd,
+                    "timeoutSec": 5
+                }
+            ],
+            "postToolUse": [
+                {
+                    "type": "command",
+                    "bash": observe_cmd,
                     "timeoutSec": 5
                 }
             ]
@@ -68,7 +76,9 @@ fn install_copilot_pretooluse_hook(global: bool) {
 
     let needs_write = if hook_path.exists() {
         let content = std::fs::read_to_string(&hook_path).unwrap_or_default();
-        !content.contains("hook rewrite") || content.contains("\"PreToolUse\"")
+        !content.contains("hook rewrite")
+            || content.contains("\"PreToolUse\"")
+            || !content.contains("hook observe")
     } else {
         true
     };

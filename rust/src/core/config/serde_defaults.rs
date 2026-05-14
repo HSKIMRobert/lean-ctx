@@ -36,7 +36,7 @@ pub(super) fn default_bm25_max_cache_mb() -> u64 {
 }
 
 pub(super) fn default_graph_index_max_files() -> u64 {
-    5000
+    0 // 0 = unlimited (safety enforced by scan timeout + entry visitor limit)
 }
 
 pub(super) fn default_max_ram_percent() -> u8 {

@@ -79,6 +79,33 @@ pub fn handle(cache: &SessionCache, tool_calls: &[ToolCallRecord], crp_mode: Crp
         ));
     }
 
+    if let Ok(bt) = crate::core::bounce_tracker::global().lock() {
+        let bounces = bt.total_bounces();
+        let wasted = bt.total_wasted_tokens();
+        if bounces > 0 {
+            let adjusted = bt.adjusted_savings(total_saved as usize);
+            out.push(String::new());
+            if crp_mode.is_tdd() {
+                out.push("§bounce".to_string());
+            } else {
+                out.push("Bounce Detection:".to_string());
+            }
+            out.push(format!(
+                "  bounces: {bounces} | wasted: {} tok",
+                format_tokens(wasted as u64)
+            ));
+            out.push(format!(
+                "  adjusted savings: {} tok ({:.1}%)",
+                format_tokens(adjusted.max(0) as u64),
+                if total_original > 0 {
+                    adjusted.max(0) as f64 / total_original as f64 * 100.0
+                } else {
+                    0.0
+                }
+            ));
+        }
+    }
+
     if !tool_calls.is_empty() {
         out.push(String::new());
 

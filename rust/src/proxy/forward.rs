@@ -27,6 +27,17 @@ pub async fn forward_request(
 
     state.stats.record_request();
 
+    // Introspect the request for context analysis
+    if let Ok(parsed) = serde_json::from_slice::<serde_json::Value>(&body_bytes) {
+        let provider = match provider_label {
+            "Anthropic" => super::introspect::Provider::Anthropic,
+            "OpenAI" => super::introspect::Provider::OpenAi,
+            _ => super::introspect::Provider::Gemini,
+        };
+        let breakdown = super::introspect::analyze_request(&parsed, provider);
+        state.introspect.record(breakdown);
+    }
+
     let (compressed_body, original_size, compressed_size) = compress_body(&body_bytes);
 
     if compressed_size < original_size {

@@ -213,6 +213,20 @@ It is used by:
 ```
 <!-- /leanctx-client-constraints-v1-json -->
 
+## MCP Capability Matrix
+
+| Client | Resources | Prompts | Elicitation | Sampling | Dynamic Tools | Max Tools | Tier |
+|--------|-----------|---------|-------------|----------|---------------|-----------|------|
+| Cursor | yes | yes | yes | no | yes | - | 1 |
+| Claude Code | yes | yes | yes | yes | yes | - | 1 |
+| Kiro | yes | yes | yes | no | yes | - | 1 |
+| VS Code Copilot | yes | yes | no | no | yes | - | 2 |
+| Zed | no | yes | no | no | yes | - | 2 |
+| Codex | yes | no | no | no | yes | - | 2 |
+| Windsurf | no | no | no | no | yes | 100 | 3 |
+| Antigravity | no | no | no | no | no | - | 4 |
+| Gemini CLI | no | no | no | no | no | - | 4 |
+
 ## Human‑readable notes
 
 - **Do not guess formats**: every entry must have at least one vendor doc source.

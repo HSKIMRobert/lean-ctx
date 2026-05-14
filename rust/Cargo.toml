@@ -12,6 +12,14 @@ keywords = ["mcp", "llm", "tokens", "compression", "ai"]
 categories = ["command-line-utilities", "development-tools"]
 exclude = ["examples/", "tests/"]
 
+[package.metadata.binstall]
+bin-dir = "{ bin }{ binary-ext }"
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }.tar.gz"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-fmt = "zip"
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }.zip"
+
 [lib]
 name = "lean_ctx"
 path = "src/lib.rs"
@@ -20,22 +28,22 @@ path = "src/lib.rs"
 name = "lean-ctx"
 path = "src/main.rs"
 
-[[bin]]
+[[example]]
 name = "lean-ctx-cloud-api"
 path = "src/cloud_server_main.rs"
 required-features = ["cloud-server"]
 
-[[bin]]
+[[example]]
 name = "gen_mcp_manifest"
 path = "src/bin/gen_mcp_manifest.rs"
 required-features = ["dev-tools"]
 
-[[bin]]
+[[example]]
 name = "gen_tdd_schema"
 path = "src/bin/gen_tdd_schema.rs"
 required-features = ["dev-tools"]
 
-[[bin]]
+[[example]]
 name = "seed_observatory"
 path = "src/bin/seed_observatory.rs"
 required-features = ["dev-tools"]

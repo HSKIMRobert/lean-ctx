@@ -264,7 +264,7 @@ impl ConfigSchema {
             key(
                 "u64",
                 serde_json::json!(cfg.graph_index_max_files),
-                "Maximum files scanned by the JSON graph index. Increase for large monorepos",
+                "Maximum files in graph index. 0 = unlimited (default). Set >0 to cap for constrained systems",
             ),
         );
         root.insert(

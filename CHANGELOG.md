@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **Bounce Detection** — New `bounce_tracker` module detects when compressed reads are immediately followed by full re-reads ("bounces"), tracks wasted tokens per file extension, and adjusts savings metrics to report honest numbers.
+- **Context Gate** — New `context_gate` module provides pre-dispatch mode override (bounce-prevention, intent-target, graph-proximity, knowledge-relevance) and post-dispatch recording with eviction/elicitation hints for every read operation.
+- **MCP Resources** — 5 subscribe-capable resources (`lean-ctx://context/summary`, `/pressure`, `/plan`, `/pinned`, `/bounce`) expose context state to supporting IDEs without tool-call overhead.
+- **MCP Prompts** — 5 slash commands (`/context-focus`, `/context-review`, `/context-reset`, `/context-pin`, `/context-budget`) for IDE-native context management.
+- **Elicitation** — Rate-limited context decision suggestions (max 1x per 20 tool calls) for pressure, large files, and budget exhaustion with graceful fallback hints.
+- **Dynamic Tools** — 6 tool categories (core, arch, debug, memory, metrics, session) with on-demand loading via `tools/list_changed` for clients that support it; Windsurf 100-tool limit handled automatically.
+- **Client Capability Detection** — Runtime detection of 9 IDE clients with Tier 1–4 classification; dynamically gates MCP resources, prompts, elicitation, and dynamic tools based on client support.
+- **Dashboard Control Plane** — 4 new API endpoints (`/api/context-bounce`, `/api/context-client`, `/api/context-pressure`, `/api/context-dynamic-tools`) with Runtime Control Plane panel showing IDE indicator, pressure gauge, bounce stats, and dynamic tool status.
+
 ## [3.5.25] — 2026-05-13
 
 ### Added

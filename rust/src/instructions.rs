@@ -99,7 +99,7 @@ fn build_full_instructions(crp_mode: CrpMode, client_name: &str) -> String {
         crate::core::session::SessionState::load_latest()
     };
 
-    let session_block = match loaded_session {
+    let (session_block, litm_end_block) = match loaded_session {
         Some(ref session) => {
             let positioned = crate::core::litm::position_optimize(session);
             let resume = if session.stats.total_tool_calls > 0 {
@@ -107,12 +107,21 @@ fn build_full_instructions(crp_mode: CrpMode, client_name: &str) -> String {
             } else {
                 String::new()
             };
-            format!(
+            let begin = format!(
                 "\n\n--- ACTIVE SESSION (LITM P1: begin position, profile: {}) ---\n{}{resume}\n---\n",
                 profile.name, positioned.begin_block
-            )
+            );
+            let end = if positioned.end_block.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "\n--- SESSION RESUME (post-compaction) ---\n{}\n---\n",
+                    positioned.end_block
+                )
+            };
+            (begin, end)
         }
-        None => String::new(),
+        None => (String::new(), String::new()),
     };
 
     let project_root_for_blocks = if minimal {
@@ -200,9 +209,11 @@ CEP v1: 1.ACT FIRST 2.DELTA ONLY (Fn refs) 3.STRUCTURED (+/-/~) 4.ONE LINE PER A
 {origin}\n\
 \n\
 --- TOOL PREFERENCE (LITM-END) ---\n\
-ctx_read>Read ctx_shell>Shell ctx_search>Grep ctx_tree>ls | Edit/Write/Glob=native",
+ctx_read>Read ctx_shell>Shell ctx_search>Grep ctx_tree>ls | Edit/Write/Glob=native\
+{litm_end_block}",
         decoder_block = crate::core::protocol::instruction_decoder_block(),
-        origin = crate::core::integrity::origin_line()
+        origin = crate::core::integrity::origin_line(),
+        litm_end_block = &litm_end_block
     );
 
     if should_use_unified(client_name) {
@@ -248,6 +259,7 @@ fn build_full_instructions_for_test(crp_mode: CrpMode, client_name: &str) -> Str
     let session_block = String::new();
     let knowledge_block = String::new();
     let gotcha_block = String::new();
+    let litm_end_block = String::new();
 
     let mut base = format!(
         "\
@@ -285,9 +297,11 @@ CEP v1: 1.ACT FIRST 2.DELTA ONLY (Fn refs) 3.STRUCTURED (+/-/~) 4.ONE LINE PER A
 {origin}\n\
 \n\
 --- TOOL PREFERENCE (LITM-END) ---\n\
-ctx_read>Read ctx_shell>Shell ctx_search>Grep ctx_tree>ls | Edit/Write/Glob=native",
+ctx_read>Read ctx_shell>Shell ctx_search>Grep ctx_tree>ls | Edit/Write/Glob=native\
+{litm_end_block}",
         decoder_block = crate::core::protocol::instruction_decoder_block(),
         origin = crate::core::integrity::origin_line(),
+        litm_end_block = &litm_end_block
     );
 
     if should_use_unified(client_name) {
@@ -336,6 +350,7 @@ fn build_full_instructions_for_compiler(
     let session_block = String::new();
     let knowledge_block = String::new();
     let gotcha_block = String::new();
+    let litm_end_block = String::new();
 
     let mut base = format!(
         "\
@@ -373,9 +388,11 @@ CEP v1: 1.ACT FIRST 2.DELTA ONLY (Fn refs) 3.STRUCTURED (+/-/~) 4.ONE LINE PER A
 {origin}\n\
 \n\
 --- TOOL PREFERENCE (LITM-END) ---\n\
-ctx_read>Read ctx_shell>Shell ctx_search>Grep ctx_tree>ls | Edit/Write/Glob=native",
+ctx_read>Read ctx_shell>Shell ctx_search>Grep ctx_tree>ls | Edit/Write/Glob=native\
+{litm_end_block}",
         decoder_block = crate::core::protocol::instruction_decoder_block(),
         origin = crate::core::integrity::origin_line(),
+        litm_end_block = &litm_end_block
     );
 
     if unified_tool_mode {

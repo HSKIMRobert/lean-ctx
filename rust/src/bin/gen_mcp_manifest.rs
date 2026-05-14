@@ -39,7 +39,7 @@ fn main() {
             serde_json::from_str(&on_disk).unwrap_or(serde_json::Value::Null);
         if on_disk != expected {
             eprintln!(
-                "Manifest out of date: {}\nRun: cargo run --bin gen_mcp_manifest\n",
+                "Manifest out of date: {}\nRun: cargo run --example gen_mcp_manifest --features dev-tools\n",
                 out_path.display()
             );
             std::process::exit(1);
@@ -80,6 +80,6 @@ fn write_if_changed(path: &Path, content: &str) -> Result<(), String> {
 
 fn print_help() {
     println!(
-        "gen_mcp_manifest\n\nUSAGE:\n  cargo run --bin gen_mcp_manifest [-- --out <path>] [--check] [--pretty|--compact]\n\nDEFAULT OUT:\n  <repo_root>/website/generated/mcp-tools.json"
+        "gen_mcp_manifest\n\nUSAGE:\n  cargo run --example gen_mcp_manifest --features dev-tools [-- --out <path>] [--check] [--pretty|--compact]\n\nDEFAULT OUT:\n  <repo_root>/website/generated/mcp-tools.json"
     );
 }

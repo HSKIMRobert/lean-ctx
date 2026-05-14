@@ -144,8 +144,26 @@ pub fn handle(
         }
     } else {
         // No task context: show project structure overview
+        let scan_age = chrono::NaiveDateTime::parse_from_str(&index.last_scan, "%Y-%m-%d %H:%M:%S")
+            .ok()
+            .map(|t| {
+                let elapsed = chrono::Local::now().naive_local().signed_duration_since(t);
+                if elapsed.num_hours() < 1 {
+                    format!("{}m ago", elapsed.num_minutes())
+                } else if elapsed.num_hours() < 24 {
+                    format!("{}h ago", elapsed.num_hours())
+                } else {
+                    format!("{}d ago", elapsed.num_days())
+                }
+            })
+            .unwrap_or_default();
+        let scan_info = if scan_age.is_empty() {
+            String::new()
+        } else {
+            format!("  scanned {scan_age}")
+        };
         output.push(format!(
-            "PROJECT OVERVIEW  {} files  {} edges",
+            "PROJECT OVERVIEW  {} files  {} edges{scan_info}",
             index.files.len(),
             index.edges.len()
         ));

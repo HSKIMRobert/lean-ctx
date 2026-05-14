@@ -497,6 +497,10 @@ fn do_replace(
 
     cache.invalidate(&params.path);
 
+    if let Ok(mut bt) = crate::core::bounce_tracker::global().lock() {
+        bt.record_edit(&params.path);
+    }
+
     let old_lines = args.content.lines().count();
     let new_lines = new_content.lines().count();
     let line_delta = new_lines as i64 - old_lines as i64;

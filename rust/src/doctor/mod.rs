@@ -144,18 +144,42 @@ fn hook_dirs() -> Vec<std::path::PathBuf> {
     dirs
 }
 
-fn is_active_shell_impl(rc_name: &str, shell: &str, is_windows: bool) -> bool {
+fn is_active_shell_impl(rc_name: &str, shell: &str, is_windows: bool, is_powershell: bool) -> bool {
     match rc_name {
         "~/.zshrc" => shell.contains("zsh"),
-        "~/.bashrc" => shell.contains("bash") || (!is_windows && shell.is_empty()),
+        "~/.bashrc" => {
+            // On Windows, .bashrc is only relevant when explicitly running
+            // inside Git Bash (not PowerShell, cmd, or other Windows shells).
+            // Git Bash sets $SHELL to bash.exe system-wide, which makes $SHELL
+            // unreliable on Windows. We also check that the user is NOT in
+            // PowerShell (PSModulePath) and NOT in plain cmd (PROMPT).
+            if is_windows {
+                if is_powershell {
+                    return false;
+                }
+                // Even without PSModulePath, $SHELL containing "bash" on Windows
+                // is unreliable (Git Bash sets it globally). Only flag if running
+                // from an actual bash interactive session (BASH_VERSION is set).
+                return std::env::var("BASH_VERSION").is_ok();
+            }
+            shell.contains("bash") || shell.is_empty()
+        }
         "~/.config/fish/config.fish" => shell.contains("fish"),
         _ => true,
     }
 }
 
+/// Detect whether we are running inside a PowerShell session on Windows.
+/// Git Bash may set `$SHELL` to bash.exe system-wide, so `$SHELL` alone
+/// is not sufficient — we also need to rule out PowerShell as the actual
+/// running host process.
+fn is_powershell_session() -> bool {
+    std::env::var("PSModulePath").is_ok()
+}
+
 fn is_active_shell(rc_name: &str) -> bool {
     let shell = std::env::var("SHELL").unwrap_or_default();
-    is_active_shell_impl(rc_name, &shell, cfg!(windows))
+    is_active_shell_impl(rc_name, &shell, cfg!(windows), is_powershell_session())
 }
 
 pub(super) fn shell_aliases_outcome() -> Outcome {
@@ -1480,21 +1504,74 @@ mod tests {
 
     #[test]
     fn bashrc_active_on_non_windows_when_shell_empty() {
-        assert!(is_active_shell_impl("~/.bashrc", "", false));
+        assert!(is_active_shell_impl("~/.bashrc", "", false, false));
     }
 
     #[test]
     fn bashrc_not_active_on_windows_when_shell_empty() {
-        assert!(!is_active_shell_impl("~/.bashrc", "", true));
+        assert!(!is_active_shell_impl("~/.bashrc", "", true, false));
     }
 
     #[test]
-    fn bashrc_active_when_shell_contains_bash() {
-        assert!(is_active_shell_impl("~/.bashrc", "/usr/bin/bash", false));
+    fn bashrc_active_when_shell_contains_bash_on_linux() {
         assert!(is_active_shell_impl(
             "~/.bashrc",
-            "C:\\\\Program Files\\\\Git\\\\bin\\\\bash.exe",
-            true
+            "/usr/bin/bash",
+            false,
+            false
         ));
+    }
+
+    #[test]
+    fn bashrc_not_active_on_windows_even_with_bash_in_shell_env() {
+        // Issue #214: On Windows, Git Bash sets $SHELL globally to bash.exe.
+        // .bashrc should NOT be flagged on Windows unless actually inside bash.
+        std::env::remove_var("BASH_VERSION");
+        assert!(!is_active_shell_impl(
+            "~/.bashrc",
+            "C:\\\\Program Files\\\\Git\\\\bin\\\\bash.exe",
+            true,
+            false,
+        ));
+    }
+
+    #[test]
+    fn bashrc_not_active_on_windows_powershell_even_with_bash_in_shell() {
+        assert!(!is_active_shell_impl(
+            "~/.bashrc",
+            "C:\\\\Program Files\\\\Git\\\\bin\\\\bash.exe",
+            true,
+            true,
+        ));
+    }
+
+    #[test]
+    fn bashrc_not_active_on_windows_powershell_with_empty_shell() {
+        assert!(!is_active_shell_impl("~/.bashrc", "", true, true));
+    }
+
+    #[test]
+    fn zshrc_unaffected_by_powershell_flag() {
+        assert!(is_active_shell_impl("~/.zshrc", "/bin/zsh", false, false));
+        assert!(is_active_shell_impl("~/.zshrc", "/bin/zsh", true, true));
+    }
+
+    #[test]
+    fn bashrc_not_active_on_windows_without_powershell_detection() {
+        // Windows + $SHELL=bash but NOT in actual bash session (no BASH_VERSION).
+        // This is the exact scenario from issue #214: Git Bash sets $SHELL globally.
+        std::env::remove_var("BASH_VERSION");
+        assert!(!is_active_shell_impl(
+            "~/.bashrc",
+            "/usr/bin/bash",
+            true,
+            false,
+        ));
+    }
+
+    #[test]
+    fn bashrc_active_on_linux() {
+        assert!(is_active_shell_impl("~/.bashrc", "/bin/bash", false, false));
+        assert!(is_active_shell_impl("~/.bashrc", "", false, false));
     }
 }

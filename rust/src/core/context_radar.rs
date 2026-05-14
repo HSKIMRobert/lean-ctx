@@ -1,0 +1,350 @@
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
+
+/// ContextRadar aggregates all context sources into a single budget model.
+/// Data flows in from: hooks (JSONL), proxy introspector, rules scanner, session cache.
+pub struct ContextRadar {
+    pub events: Vec<RadarEvent>,
+    pub rules_tokens: RulesTokens,
+    pub window_size: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RadarEvent {
+    pub ts: u64,
+    pub event_type: String,
+    pub tokens: usize,
+    #[serde(default)]
+    pub tool_name: Option<String>,
+    #[serde(default)]
+    pub detail: Option<String>,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct RulesTokens {
+    pub files: Vec<(String, usize)>,
+    pub total: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BudgetBreakdown {
+    pub window_size: usize,
+    pub system_prompt_tokens: usize,
+    pub user_message_tokens: usize,
+    pub agent_response_tokens: usize,
+    pub lean_ctx_tool_tokens: usize,
+    pub other_mcp_tokens: usize,
+    pub native_read_tokens: usize,
+    pub shell_tokens: usize,
+    pub thinking_tokens: usize,
+    pub tracked_total: usize,
+    pub available: usize,
+    pub compaction_count: usize,
+    pub source: String,
+}
+
+impl ContextRadar {
+    pub fn new(window_size: usize) -> Self {
+        Self {
+            events: Vec::new(),
+            rules_tokens: RulesTokens::default(),
+            window_size,
+        }
+    }
+
+    pub fn load(data_dir: &Path, window_size: usize) -> Self {
+        let mut radar = Self::new(window_size);
+        radar.load_events(data_dir);
+        radar.scan_rules();
+        radar
+    }
+
+    fn load_events(&mut self, data_dir: &Path) {
+        let radar_path = data_dir.join("context_radar.jsonl");
+        let Ok(content) = std::fs::read_to_string(&radar_path) else {
+            return;
+        };
+
+        self.events = content
+            .lines()
+            .filter_map(|line| serde_json::from_str::<RadarEvent>(line).ok())
+            .collect();
+    }
+
+    pub fn scan_rules(&mut self) {
+        let Some(home) = crate::core::home::resolve_home_dir() else {
+            return;
+        };
+
+        let cwd = std::env::current_dir().unwrap_or_default();
+        let mut files: Vec<(String, usize)> = Vec::new();
+
+        let paths_to_scan: Vec<PathBuf> = vec![
+            cwd.join(".cursorrules"),
+            cwd.join("AGENTS.md"),
+            cwd.join("CLAUDE.md"),
+            cwd.join("LEAN-CTX.md"),
+            home.join(".cursor").join("rules"),
+            home.join(".cursorrules"),
+            cwd.join(".cursor").join("rules"),
+        ];
+
+        for path in &paths_to_scan {
+            if path.is_file() {
+                if let Ok(content) = std::fs::read_to_string(path) {
+                    let tokens = content.len() / 4;
+                    if tokens > 0 {
+                        files.push((path.display().to_string(), tokens));
+                    }
+                }
+            } else if path.is_dir() {
+                if let Ok(entries) = std::fs::read_dir(path) {
+                    for entry in entries.flatten() {
+                        let p = entry.path();
+                        if p.is_file() {
+                            if let Ok(content) = std::fs::read_to_string(&p) {
+                                let tokens = content.len() / 4;
+                                if tokens > 0 {
+                                    files.push((p.display().to_string(), tokens));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let total = files.iter().map(|(_, t)| *t).sum();
+        self.rules_tokens = RulesTokens { files, total };
+    }
+
+    pub fn budget_breakdown(&self) -> BudgetBreakdown {
+        let mut user_message_tokens = 0;
+        let mut agent_response_tokens = 0;
+        let mut lean_ctx_tool_tokens = 0;
+        let mut other_mcp_tokens = 0;
+        let mut native_read_tokens = 0;
+        let mut shell_tokens = 0;
+        let mut thinking_tokens = 0;
+        let mut compaction_count = 0;
+
+        for event in &self.events {
+            match event.event_type.as_str() {
+                "user_message" => user_message_tokens += event.tokens,
+                "agent_response" => agent_response_tokens += event.tokens,
+                "mcp_call" => {
+                    let is_leanctx = event
+                        .detail
+                        .as_deref()
+                        .is_some_and(|d| d.contains("lean-ctx"))
+                        || event
+                            .tool_name
+                            .as_deref()
+                            .is_some_and(|t| t.starts_with("ctx_"));
+                    if is_leanctx {
+                        lean_ctx_tool_tokens += event.tokens;
+                    } else {
+                        other_mcp_tokens += event.tokens;
+                    }
+                }
+                "native_tool" | "file_read" => native_read_tokens += event.tokens,
+                "shell" => shell_tokens += event.tokens,
+                "thinking" => thinking_tokens += event.tokens,
+                "compaction" => compaction_count += 1,
+                _ => {}
+            }
+        }
+
+        let system_prompt_tokens = self.rules_tokens.total;
+        let tracked_total = system_prompt_tokens
+            + user_message_tokens
+            + agent_response_tokens
+            + lean_ctx_tool_tokens
+            + other_mcp_tokens
+            + native_read_tokens
+            + shell_tokens;
+
+        let available = self.window_size.saturating_sub(tracked_total);
+
+        BudgetBreakdown {
+            window_size: self.window_size,
+            system_prompt_tokens,
+            user_message_tokens,
+            agent_response_tokens,
+            lean_ctx_tool_tokens,
+            other_mcp_tokens,
+            native_read_tokens,
+            shell_tokens,
+            thinking_tokens,
+            tracked_total,
+            available,
+            compaction_count,
+            source: "hooks + rules-scan".to_string(),
+        }
+    }
+
+    pub fn format_display(&self) -> String {
+        let b = self.budget_breakdown();
+        let pct = |tokens: usize| -> f64 {
+            if b.window_size == 0 {
+                0.0
+            } else {
+                tokens as f64 / b.window_size as f64 * 100.0
+            }
+        };
+        let bar = |tokens: usize| -> String {
+            let width = (pct(tokens) / 2.0).min(40.0) as usize;
+            "█".repeat(width)
+        };
+
+        let mut out = String::new();
+        out.push_str(&format!(
+            "CONTEXT RADAR ({:.0}k window)\n",
+            b.window_size as f64 / 1000.0
+        ));
+        out.push_str(&format!(
+            "  System Prompt (est.): {:>8} tok {:>5.1}%  {}\n",
+            fmt_num(b.system_prompt_tokens),
+            pct(b.system_prompt_tokens),
+            bar(b.system_prompt_tokens)
+        ));
+        out.push_str(&format!(
+            "  User Messages:        {:>8} tok {:>5.1}%  {}\n",
+            fmt_num(b.user_message_tokens),
+            pct(b.user_message_tokens),
+            bar(b.user_message_tokens)
+        ));
+        out.push_str(&format!(
+            "  Agent Responses:      {:>8} tok {:>5.1}%  {}\n",
+            fmt_num(b.agent_response_tokens),
+            pct(b.agent_response_tokens),
+            bar(b.agent_response_tokens)
+        ));
+        out.push_str(&format!(
+            "  lean-ctx Tools:       {:>8} tok {:>5.1}%  {}\n",
+            fmt_num(b.lean_ctx_tool_tokens),
+            pct(b.lean_ctx_tool_tokens),
+            bar(b.lean_ctx_tool_tokens)
+        ));
+        out.push_str(&format!(
+            "  Other MCP:            {:>8} tok {:>5.1}%  {}\n",
+            fmt_num(b.other_mcp_tokens),
+            pct(b.other_mcp_tokens),
+            bar(b.other_mcp_tokens)
+        ));
+        out.push_str(&format!(
+            "  Native Reads:         {:>8} tok {:>5.1}%  {}\n",
+            fmt_num(b.native_read_tokens),
+            pct(b.native_read_tokens),
+            bar(b.native_read_tokens)
+        ));
+        out.push_str(&format!(
+            "  Shell Output:         {:>8} tok {:>5.1}%  {}\n",
+            fmt_num(b.shell_tokens),
+            pct(b.shell_tokens),
+            bar(b.shell_tokens)
+        ));
+        out.push_str("  ──────────────────────────────────────────\n");
+        out.push_str(&format!(
+            "  TRACKED:              {:>8} tok {:>5.1}%\n",
+            fmt_num(b.tracked_total),
+            pct(b.tracked_total)
+        ));
+        out.push_str(&format!(
+            "  Available:            {:>8} tok {:>5.1}%\n",
+            fmt_num(b.available),
+            pct(b.available)
+        ));
+        if b.compaction_count > 0 {
+            out.push_str(&format!("  Compactions:          {}\n", b.compaction_count));
+        }
+        if b.thinking_tokens > 0 {
+            out.push_str(&format!(
+                "  Thinking (not in window): {:>5} tok\n",
+                fmt_num(b.thinking_tokens)
+            ));
+        }
+        out.push_str(&format!("  Source: {}\n", b.source));
+        out
+    }
+}
+
+fn fmt_num(n: usize) -> String {
+    if n >= 1000 {
+        format!("{},{:03}", n / 1000, n % 1000)
+    } else {
+        n.to_string()
+    }
+}
+
+/// Default context window size based on client name.
+pub fn default_window_for_client(client: &str) -> usize {
+    match client.to_lowercase().as_str() {
+        "gemini" => 1_000_000,
+        "windsurf" | "zed" | "copilot" => 128_000,
+        // cursor, claude-code, claude, codex, and others
+        _ => 200_000,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn budget_breakdown_empty() {
+        let radar = ContextRadar::new(200_000);
+        let b = radar.budget_breakdown();
+        assert_eq!(b.window_size, 200_000);
+        assert_eq!(b.tracked_total, 0);
+        assert_eq!(b.available, 200_000);
+    }
+
+    #[test]
+    fn budget_breakdown_with_events() {
+        let mut radar = ContextRadar::new(200_000);
+        radar.events.push(RadarEvent {
+            ts: 1000,
+            event_type: "user_message".to_string(),
+            tokens: 500,
+            tool_name: None,
+            detail: None,
+        });
+        radar.events.push(RadarEvent {
+            ts: 1001,
+            event_type: "agent_response".to_string(),
+            tokens: 2000,
+            tool_name: None,
+            detail: None,
+        });
+        radar.events.push(RadarEvent {
+            ts: 1002,
+            event_type: "shell".to_string(),
+            tokens: 300,
+            tool_name: None,
+            detail: Some("git status".to_string()),
+        });
+        let b = radar.budget_breakdown();
+        assert_eq!(b.user_message_tokens, 500);
+        assert_eq!(b.agent_response_tokens, 2000);
+        assert_eq!(b.shell_tokens, 300);
+        assert_eq!(b.tracked_total, 2800);
+        assert_eq!(b.available, 200_000 - 2800);
+    }
+
+    #[test]
+    fn format_display_not_empty() {
+        let radar = ContextRadar::new(200_000);
+        let display = radar.format_display();
+        assert!(display.contains("CONTEXT RADAR"));
+        assert!(display.contains("200k window"));
+    }
+
+    #[test]
+    fn default_window_sizes() {
+        assert_eq!(default_window_for_client("cursor"), 200_000);
+        assert_eq!(default_window_for_client("gemini"), 1_000_000);
+        assert_eq!(default_window_for_client("windsurf"), 128_000);
+    }
+}

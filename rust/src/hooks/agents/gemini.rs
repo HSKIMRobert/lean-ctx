@@ -39,11 +39,13 @@ pub(crate) fn install_gemini_hook_config(home: &std::path::Path) {
     let has_old_hooks = settings_content.contains("lean-ctx-rewrite")
         || settings_content.contains("lean-ctx-redirect")
         || (settings_content.contains("hook rewrite") && !settings_content.contains("\"matcher\""));
+    let missing_observe = !settings_content.contains("hook observe");
 
-    if has_new_format && !has_old_hooks {
+    if has_new_format && !has_old_hooks && !missing_observe {
         return;
     }
 
+    let observe_cmd = format!("{binary} hook observe");
     let hook_config = serde_json::json!({
         "hooks": {
             "BeforeTool": [
@@ -59,6 +61,15 @@ pub(crate) fn install_gemini_hook_config(home: &std::path::Path) {
                     "hooks": [{
                         "type": "command",
                         "command": redirect_cmd
+                    }]
+                }
+            ],
+            "AfterTool": [
+                {
+                    "matcher": ".*",
+                    "hooks": [{
+                        "type": "command",
+                        "command": observe_cmd
                     }]
                 }
             ]

@@ -23,7 +23,8 @@ flowchart TB
         LoopDetect["Loop Detection — throttle/block repeated searches"]
         BudgetGate["Budget / SLO Gate — exhaustion blocking, throttling"]
         DegradationEval["Degradation Policy — evaluate_v1_for_tool"]
-        HybridDispatch["Hybrid Dispatch — Context Server (59 tools)"]
+        ContextGate["Context Gate — pre: bounce/intent/graph/knowledge; post: ledger, overlays, eviction, elicitation"]
+        HybridDispatch["Hybrid Dispatch — Context Server (60 tools)"]
         ToolRegistry["ToolRegistry — 27 trait-based tools (McpTool)"]
         DispatchRead["read_tools — ctx_read, ctx_multi_read, ctx_edit, ctx_fill, ctx_delta, ctx_smart_read"]
         DispatchShell["shell_tools — ctx_shell, ctx_search, ctx_execute"]
@@ -38,6 +39,7 @@ flowchart TB
         SearchEngine["Search — BM25, regex, semantic, hybrid"]
         GraphAwareRead["Graph-Aware Read — related files hint in every read"]
         EditSafety["Edit Safety — ctx_edit, TOCTOU guard, path jail"]
+        BounceTracker["Bounce Tracker — per-file read events, bounce detection, adjusted savings"]
         TreeSitter["Tree-sitter AST — 18 languages, signature extraction"]
         RegexSig["Regex Signatures — fallback for unsupported languages"]
     end
@@ -166,6 +168,7 @@ flowchart TB
         TokTranslDriver["Tokenizer Translation Driver — multi-family (O200k, Cl100k, Gemini, Llama)"]
         AttnLayoutDriver["Attention Layout Driver — line ordering for attention"]
         ClientConstraints["Client Constraints — per-IDE capability matrix"]
+        ClientCapabilities["Client Capabilities — 9 IDE runtime detection, Tier 1-4, MCP feature gates"]
         LITM["LITM — Lost-in-the-Middle positioning"]
         Adaptive["Adaptive Engine — task complexity, bandits, thresholds"]
         LLMFeedback["LLM Feedback — compression quality signals"]
@@ -191,13 +194,28 @@ flowchart TB
         DaemonMgr["Daemon Manager — PID, socket, start/stop/status"]
     end
 
+    subgraph mcpprotocol [MCP Protocol Layer]
+        MCPResources["MCP Resources — 5 URI resources, subscribe-capable notifications"]
+        MCPPrompts["MCP Prompts — 5 slash commands (/context-focus, -review, -reset, -pin, -budget)"]
+        MCPElicitation["Elicitation — rate-limited suggestions, pressure/size/budget triggers"]
+        DynamicToolMgr["Dynamic Tools — 6 categories, on-demand loading, tools/list_changed"]
+    end
+
+    subgraph dashboardpanel [Dashboard Control Plane]
+        DashBounce["/api/context-bounce — bounce statistics"]
+        DashClient["/api/context-client — IDE identification"]
+        DashPressure["/api/context-pressure — budget pressure gauge"]
+        DashDynTools["/api/context-dynamic-tools — tool category status"]
+    end
+
     delivery --> PrePipeline
     PrePipeline --> RoleGuard
     RoleGuard --> WorkflowGate
     WorkflowGate --> LoopDetect
     LoopDetect --> BudgetGate
     BudgetGate --> DegradationEval
-    DegradationEval --> HybridDispatch
+    DegradationEval --> ContextGate
+    ContextGate --> HybridDispatch
 
     HybridDispatch -->|"registry hit"| ToolRegistry
     HybridDispatch -->|"legacy fallback"| DispatchRead
@@ -343,6 +361,24 @@ flowchart TB
     EditorRegistry --> HookInstaller
     Doctor --> EditorRegistry
     Doctor --> StartupGuard
+
+    BounceTracker -.->|"bounce rates"| ContextGate
+    ContextGate -.->|"post-dispatch"| EvidenceLedger
+    ReadPipeline --> BounceTracker
+    ClientCapabilities --> DynamicToolMgr
+    ClientCapabilities --> MCPResources
+    ClientCapabilities --> MCPPrompts
+    ClientCapabilities --> MCPElicitation
+    MCPResources -.->|"state"| Session
+    MCPResources -.->|"stats"| BounceTracker
+    MCPElicitation -.->|"hints"| ContextGate
+    DynamicToolMgr --> ToolRegistry
+    delivery --> MCPResources
+    delivery --> MCPPrompts
+    DashBounce -.-> BounceTracker
+    DashClient -.-> ClientCapabilities
+    DashPressure -.-> BudgetGate
+    DashDynTools -.-> DynamicToolMgr
 ```
 
 ## Diagram 2: MCP `call_tool` Request Lifecycle
@@ -435,6 +471,28 @@ flowchart TD
     Checkpoint -->|no| SlowLog
     SlowLog --> Response
 ```
+
+## Context Gate Pipeline
+
+The Context Gate (`server/context_gate.rs`) wraps every tool dispatch with intelligent pre- and post-processing, integrated directly into the main `call_tool` flow between the degradation policy check and hybrid dispatch.
+
+### Pre-Dispatch Gates
+
+Before every `ctx_read` call, the Context Gate evaluates four gates in sequence:
+
+1. **Bounce Prevention** — Checks the Bounce Tracker for the target file's extension bounce rate. If it exceeds 30%, overrides compressed modes (map/signatures) to full to avoid wasted re-reads.
+2. **Intent-Target Match** — Validates whether the requested read mode aligns with the current intent (e.g., prevents `signatures` mode when the intent is editing).
+3. **Graph Proximity** — Consults the Property Graph to determine if the target file is structurally close to recent working files; high-proximity files get upgraded read modes.
+4. **Knowledge Relevance** — Checks the Knowledge Store for existing facts about the target file; if rich knowledge exists, may skip redundant full reads.
+
+### Post-Dispatch Processing
+
+After every read completes, the Context Gate performs:
+
+1. **Ledger Recording** — Records the read event to the Context Ledger with item ID, mode, tokens, and Φ score.
+2. **Overlay State Check** — Evaluates current overlays to determine if the read result should be modified (pinned, rewritten, or excluded).
+3. **Eviction Hints** — Based on budget pressure, suggests items for eviction from the active context.
+4. **Elicitation Hints** — When conditions trigger (high pressure, large files, budget exhaustion), appends suggestions to the tool result for supporting clients.
 
 ## Diagram 3: Data Flow
 
@@ -535,6 +593,11 @@ flowchart LR
 | `server/dispatch/shell_tools.rs` | ctx_shell, ctx_search, ctx_execute |
 | `server/dispatch/session_tools.rs` | ctx_session, ctx_knowledge, ctx_agent, ctx_handoff, ctx_workflow, ctx_task, ctx_share |
 | `server/dispatch/utility_tools.rs` | 16 async-state tools including CFT (ctx_control, ctx_plan, ctx_compile) |
+| `server/context_gate.rs` | Context Gate — pre/post dispatch: bounce prevention, intent-target, graph-proximity, knowledge-relevance gates, eviction/elicitation hints |
+| `server/resources.rs` | MCP Resources — 5 URI-addressable subscribe-capable resources (`lean-ctx://context/*`) |
+| `server/prompts.rs` | MCP Prompts — 5 slash commands for context manipulation |
+| `server/elicitation.rs` | Elicitation — rate-limited proactive suggestions (max 1 per 20 calls) |
+| `server/dynamic_tools.rs` | Dynamic Tool Manager — 6 categories (core, arch, debug, memory, metrics, session), on-demand loading |
 | `server/execute.rs` | Shell command execution within MCP context |
 | `server/helpers.rs` | Shared server utilities |
 | `server/role_guard.rs` | Role-based tool access policy |
@@ -575,6 +638,8 @@ flowchart LR
 | `core/import_resolver.rs` | Cross-file import resolution |
 | `core/import_resolver.rs` + `core/deps.rs` | Import/call/type extraction per language |
 | `core/heatmap.rs` | File access frequency tracking (atomic writes, flush/reset) |
+| `core/bounce_tracker.rs` | Bounce detection — per-file read events, per-extension bounce rate tracking (30% threshold), adjusted savings |
+| `core/client_capabilities.rs` | Client capability detection — 9 IDE runtime identification, Tier 1-4 classification, MCP feature gates |
 | `core/updater.rs` | `lean-ctx update` — binary update, daemon restart, hook re-wire |
 | `core/workspace_config.rs` | Workspace-level `.lean-ctx.toml` config parsing |
 | `core/wrapped.rs` | Session-wrapped reports (savings summary, compression rate) |
@@ -762,6 +827,8 @@ flowchart LR
 | `core/gain/` | Gain scoring, model pricing, task classification |
 | `core/heatmap.rs` | File access frequency tracking |
 | `dashboard/` | Web dashboard (localhost:3333) |
+| `dashboard/routes/context.rs` | Context Control Plane API — /api/context-bounce, /api/context-client, /api/context-pressure, /api/context-dynamic-tools |
+| `dashboard/static/components/cockpit-context.js` | Runtime Control Plane panel — IDE indicator, pressure gauge, bounce stats, dynamic tool status |
 | `tui/` | Terminal UI components |
 | `report.rs` | Export and reporting |
 
@@ -784,6 +851,133 @@ flowchart LR
 ### Discovery Tools (loaded on demand)
 
 ctx_compress, ctx_benchmark, ctx_metrics, ctx_analyze, ctx_cache, ctx_discover, ctx_smart_read, ctx_delta, ctx_pack, ctx_index, ctx_artifacts, ctx_dedup, ctx_fill, ctx_intent, ctx_response, ctx_context, ctx_proof, ctx_verify, ctx_graph, ctx_agent, ctx_share, ctx_overview, ctx_preload, ctx_prefetch, ctx_wrapped, ctx_cost, ctx_gain, ctx_feedback, ctx_handoff, ctx_heatmap, ctx_task, ctx_impact, ctx_architecture, ctx_workflow, ctx_semantic_search, ctx_execute, ctx_symbol, ctx_graph_diagram, ctx_routes, ctx_compress_memory, ctx_callers, ctx_callees, ctx_callgraph, ctx_outline, ctx_expand, ctx_review, ctx_provider
+
+## Bounce Detection
+
+The Bounce Tracker (`core/bounce_tracker.rs`) monitors read patterns to detect and prevent token waste from "bounces" — when an agent reads a file in a compressed mode and immediately re-reads it in full mode.
+
+### Mechanism
+
+- **Event Recording** — Every `ctx_read` call records a `ReadEvent` with file path, mode, token count, and sequence number.
+- **Bounce Detection** — A bounce is detected when a compressed read (map, signatures, aggressive) is followed by a full read of the same file within 3 tool calls. The tokens from the compressed read are marked as wasted.
+- **Per-Extension Tracking** — Bounce rates are tracked per file extension (e.g., `.rs`, `.ts`). Extensions exceeding a 30% bounce rate trigger automatic mode upgrades via the Context Gate.
+- **Adjusted Savings** — `adjusted_total_saved()` deducts wasted bounce tokens from the total savings metric, providing an honest measure of actual token savings.
+
+### Integration Points
+
+| Tool | Integration |
+|:-----|:------------|
+| `ctx_read` | Records read events, checks bounce prevention before mode selection |
+| `ctx_edit` | Records edit events (edits after compressed reads count as bounces) |
+| `ctx_shell` | Records shell events for cross-tool bounce analysis |
+| `ctx_metrics` | Exposes bounce statistics via `action="bounce"` |
+| MCP Resource | `lean-ctx://context/bounce` — subscribable bounce statistics |
+
+## MCP Protocol Layer
+
+lean-ctx implements three MCP protocol extensions beyond `tools/call`, all gated by client capability detection.
+
+### MCP Resources (`server/resources.rs`)
+
+Five URI-addressable resources provide live context state to supporting clients:
+
+| URI | Content |
+|:----|:--------|
+| `lean-ctx://context/summary` | Session summary — files, tokens, savings |
+| `lean-ctx://context/pressure` | Budget pressure gauge (0–100%) |
+| `lean-ctx://context/plan` | Current context plan from CFT compiler |
+| `lean-ctx://context/pinned` | List of pinned context items |
+| `lean-ctx://context/bounce` | Bounce detection statistics |
+
+Resources are **subscribe-capable** — clients supporting `notifications/resources/updated` receive push notifications on state changes. Resources are only advertised in `ServerCapabilities` when the connected client supports them.
+
+### MCP Prompts (`server/prompts.rs`)
+
+Five slash commands appear as IDE-native commands in supporting clients:
+
+| Command | Purpose |
+|:--------|:--------|
+| `/context-focus` | Set task focus — adjusts relevance scoring |
+| `/context-review` | Review current context composition |
+| `/context-reset` | Reset context state (overlays, pins, budget) |
+| `/context-pin` | Pin a file or knowledge item to context |
+| `/context-budget` | Adjust token budget parameters |
+
+Prompts are gated by client capabilities — only enabled for clients that expose MCP prompt support.
+
+### Elicitation (`server/elicitation.rs`)
+
+Rate-limited proactive suggestions to the agent, triggered by context pressure:
+
+- **Rate Limit** — Maximum 1 elicitation per 20 tool calls to avoid noise
+- **Triggers**:
+  - Budget pressure exceeds 90%
+  - File read exceeds 5000 tokens (suggests compressed mode)
+  - Token budget exhausted (suggests eviction or budget increase)
+- **Graceful Degradation** — For clients that don't support MCP elicitation, suggestions are appended as fallback hints in tool results
+
+## Client Capability Detection
+
+Runtime client identification (`core/client_capabilities.rs`) detects the connected IDE/agent during `initialize` and dynamically gates server features.
+
+### Detected Clients
+
+| Client | Tier | Key Capabilities |
+|:-------|:-----|:-----------------|
+| Cursor | 1 | All features — resources, prompts, elicitation, sampling, dynamic tools |
+| Claude Code | 1 | All features |
+| Windsurf | 2 | Resources, prompts, dynamic tools (100-tool limit) |
+| Zed | 2 | Resources, prompts |
+| VS Code Copilot | 2 | Resources, dynamic tools |
+| Kiro | 3 | Resources |
+| Codex | 3 | Dynamic tools |
+| Antigravity | 3 | Resources |
+| Gemini CLI | 4 | Basic MCP only |
+
+### Tier Classification
+
+- **Tier 1** — Full MCP feature support (resources, prompts, elicitation, sampling, dynamic tools)
+- **Tier 2** — Most features, some limitations (e.g., Windsurf 100-tool cap)
+- **Tier 3** — Partial support, specific features only
+- **Tier 4** — Basic `tools/call` only, no extensions
+
+### ServerCapabilities Gating
+
+The `initialize` handler dynamically builds `ServerCapabilities` based on the detected client. Each capability field (`resources`, `prompts`, `tools.listChanged`) is only present when the client supports it.
+
+## Dynamic Tool Categories
+
+The Dynamic Tool Manager (`server/dynamic_tools.rs`) organizes tools into 6 categories to manage tool count limits and reduce schema overhead.
+
+### Categories
+
+| Category | Count | Default | Description |
+|:---------|:------|:--------|:------------|
+| `core` | ~27 | Always | Essential read/write/search/session tools |
+| `arch` | ~8 | On-demand | Architecture tools (graph, impact, callers, callees) |
+| `debug` | ~5 | On-demand | Debug tools (proof, verify, anomaly) |
+| `memory` | ~6 | On-demand | Memory tools (knowledge, episodic, procedural) |
+| `metrics` | ~4 | On-demand | Metrics tools (cost, gain, benchmark, heatmap) |
+| `session` | ~5 | Always | Session lifecycle tools (session, workflow, task) |
+
+### Loading Strategy
+
+- **Dynamic clients** (supporting `tools/list_changed`): Only `core` + `session` loaded at startup. Other categories loaded on first use, with `notifications/tools/list_changed` sent to the client.
+- **Static clients** (no `tools/list_changed` support): All tools loaded at initialization, preserving backward compatibility.
+- **Windsurf** (100-tool limit): Category management ensures the limit is respected — core + session loaded first, remaining categories lazy-loaded, least-used categories evicted if the limit is reached.
+
+## Dashboard Control Plane
+
+The dashboard (`localhost:3333`) includes a Runtime Control Plane panel with 4 new API endpoints:
+
+| Endpoint | Content |
+|:---------|:--------|
+| `/api/context-bounce` | Bounce detection statistics — per-extension rates, wasted tokens |
+| `/api/context-client` | Connected client identification — name, tier, capabilities |
+| `/api/context-pressure` | Budget pressure gauge — current/max tokens, percentage |
+| `/api/context-dynamic-tools` | Dynamic tool status — loaded categories, tool counts |
+
+The frontend (`cockpit-context.js`) renders these as a unified control panel with IDE indicator badge, pressure gauge with color coding, bounce rate chart, and dynamic tool category toggles.
 
 ## Key Design Decisions
 
@@ -844,6 +1038,18 @@ ctx_compress, ctx_benchmark, ctx_metrics, ctx_analyze, ctx_cache, ctx_discover, 
 28. **Knowledge recall via inverted index** — Knowledge `recall()` builds a token index on load, reducing search from O(facts × terms × string_length) to O(terms × lookups). Category-grouped consolidation in `memory_lifecycle` reduces pairwise comparisons from O(n²) to O(n per category).
 
 29. **LRU session eviction** — `SharedSessionStore` caps cached sessions at 64, evicting the least-recently-used session (with disk persistence) when the limit is reached. Active workspace metrics auto-expire after 10 minutes of inactivity.
+
+30. **Context Gate pipeline** — Every `ctx_read` passes through a pre-dispatch gate (bounce prevention, intent-target match, graph proximity, knowledge relevance) and a post-dispatch gate (ledger recording, overlay check, eviction/elicitation hints). This prevents wasteful reads at the source rather than compensating downstream.
+
+31. **Bounce detection and adjusted savings** — The Bounce Tracker monitors read patterns for "bounces" (compressed read immediately followed by full read). Wasted tokens are deducted from savings metrics via `adjusted_total_saved()`, and per-extension bounce rates above 30% trigger automatic mode upgrades through the Context Gate.
+
+32. **MCP protocol extensions** — Resources (5 URIs), Prompts (5 slash commands), and Elicitation (rate-limited suggestions) extend the basic MCP `tools/call` surface. All extensions are gated by client capability detection — only advertised in `ServerCapabilities` when the connected client supports them.
+
+33. **Runtime client capability detection** — 9 IDE clients are identified during `initialize` and classified into Tiers 1-4 based on MCP feature support. `ServerCapabilities` is dynamically built per-client, ensuring no unsupported features are advertised.
+
+34. **Dynamic tool categories** — Tools are organized into 6 categories (core, arch, debug, memory, metrics, session). Clients supporting `tools/list_changed` get only core+session at startup; others are loaded on-demand. This reduces initial schema overhead and respects tool count limits (e.g., Windsurf's 100-tool cap).
+
+35. **Dashboard Control Plane** — 4 new API endpoints (/api/context-bounce, -client, -pressure, -dynamic-tools) expose runtime state. The frontend cockpit-context.js panel provides live visibility into IDE detection, budget pressure, bounce rates, and dynamic tool loading.
 
 ## Diagram 5: Context Field Theory (CFT) Architecture
 

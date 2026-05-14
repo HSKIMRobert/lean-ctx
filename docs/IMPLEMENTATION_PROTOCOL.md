@@ -30,7 +30,7 @@ This doc is only useful if it matches what users can actually invoke.
 **Ziel**: Tool-/Docs‑Drift eliminieren und die Website‑IA in Richtung „Context OS (5 Pillars)“ umbauen.
 
 - **SSOT Manifest Gate**:
-  - `cargo run --features dev-tools --bin gen_mcp_manifest` regeneriert `website/generated/mcp-tools.json`
+  - `cargo run --example gen_mcp_manifest --features dev-tools` regeneriert `website/generated/mcp-tools.json`
   - `rust/tests/mcp_manifest_up_to_date.rs` failt jetzt hart, wenn `website/` existiert aber `mcp-tools.json` fehlt (kein stilles Skip mehr)
 - **Docs Claim Drift Gate v1**:
   - Neues CI‑Gate `rust/tests/docs_tool_counts_up_to_date.rs` (Tool‑Count Claims ↔ Runtime SSOT)
@@ -117,7 +117,7 @@ This doc is only useful if it matches what users can actually invoke.
 **Evidence (lokal, minimal)**:
 - `cd rust && cargo test -q redaction`
 - `cd rust && cargo test -q --test secret_scan_artifacts`
-- `cd rust && cargo run -q --features dev-tools --bin gen_mcp_manifest`
+- `cd rust && cargo run -q --example gen_mcp_manifest --features dev-tools`
 - `cd worktrees/deploy-ctxos/website && npm run -s validate:manifest`
 
 **GitLab Tickets (Context‑OS)**:
@@ -151,7 +151,7 @@ This doc is only useful if it matches what users can actually invoke.
 **Evidence (lokal, minimal)**:
 - `cd rust && cargo test -q context_proof`
 - `cd rust && cargo run -q --bin lean-ctx -- proof --summary --no-write`
-- `cd rust && cargo run -q --features dev-tools --bin gen_mcp_manifest && cargo test -q --test mcp_manifest_up_to_date`
+- `cd rust && cargo run -q --example gen_mcp_manifest --features dev-tools && cargo test -q --test mcp_manifest_up_to_date`
 - `cd worktrees/deploy-ctxos/website && npm run -s generate:tools && npm run -s validate:manifest`
 
 **GitLab Tickets (Context‑OS)**:
@@ -168,7 +168,7 @@ This doc is only useful if it matches what users can actually invoke.
 **Evidence (lokal, minimal)**:
 - `cd rust && cargo fmt`
 - `cd rust && cargo clippy --all-features -- -D warnings`
-- `cd rust && cargo run -q --features dev-tools --bin gen_mcp_manifest && cargo test -q --test mcp_manifest_up_to_date`
+- `cd rust && cargo run -q --example gen_mcp_manifest --features dev-tools && cargo test -q --test mcp_manifest_up_to_date`
 - `cd rust && cargo test -q output_verification && cargo test -q context_proof`
 - `cd rust && cargo test -q --test secret_scan_artifacts`
 - `cd rust && cargo test -q --test savings_verification`
@@ -190,7 +190,7 @@ This doc is only useful if it matches what users can actually invoke.
 **Evidence (lokal, minimal)**:
 - `cd rust && cargo test -q verification_observability`
 - `cd rust && cargo run -q --bin lean-ctx -- verify --json`
-- `cd rust && cargo run -q --features dev-tools --bin gen_mcp_manifest && cargo test -q --test mcp_manifest_up_to_date`
+- `cd rust && cargo run -q --example gen_mcp_manifest --features dev-tools && cargo test -q --test mcp_manifest_up_to_date`
 - `cd worktrees/deploy-ctxos/website && npm run -s generate:tools && npm run -s validate:manifest && npm run -s validate:doc-claims`
 
 **GitLab Tickets (Context‑OS)**:
@@ -803,7 +803,7 @@ This doc is only useful if it matches what users can actually invoke.
 - **Tool Surface (`format=json`)**:
   - `ctx_impact`: `analyze|chain|build|status` + `format=text|json` (inkl. `project_identity_hash`, `graph_meta`, truncation markers)
   - `ctx_architecture`: `overview|clusters|layers|cycles|entrypoints|module` + `format=text|json`
-- Tool schemas: `rust/src/tool_defs/granular.rs` + Manifest SSOT regen (`cargo run --features dev-tools --bin gen_mcp_manifest`)
+- Tool schemas: `rust/src/tool_defs/granular.rs` + Manifest SSOT regen (`cargo run --example gen_mcp_manifest --features dev-tools`)
 - **Proof Artifacts (Architecture Overview)**:
   - `ctx_proof write=true` schreibt zusätzlich:
     - `.lean-ctx/proofs/architecture-overview-v1_<ts>.json`

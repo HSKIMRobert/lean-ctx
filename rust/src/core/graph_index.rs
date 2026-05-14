@@ -35,6 +35,37 @@ fn is_safe_scan_root(path: &str) -> bool {
             );
             return false;
         }
+        // Block common broad home subdirectories that are never valid project roots
+        let home_path = Path::new(&home_norm);
+        const BLOCKED_HOME_SUBDIRS: &[&str] = &[
+            "Desktop",
+            "Documents",
+            "Downloads",
+            "Pictures",
+            "Music",
+            "Videos",
+            "Movies",
+            "Library",
+            ".local",
+            ".cache",
+            ".config",
+            "snap",
+            "Applications",
+        ];
+        for blocked in BLOCKED_HOME_SUBDIRS {
+            let blocked_path = home_path.join(blocked);
+            let is_inside_blocked = p == blocked_path || p.starts_with(&blocked_path);
+            let has_project_marker = p.join(".git").exists()
+                || p.join("Cargo.toml").exists()
+                || p.join("package.json").exists();
+            if is_inside_blocked && !has_project_marker {
+                tracing::warn!(
+                    "[graph_index: refusing to scan {normalized} — \
+                     inside home/{blocked} without project markers]"
+                );
+                return false;
+            }
+        }
     }
 
     let breadth_markers = [
@@ -189,6 +220,50 @@ impl ProjectIndex {
         Ok(())
     }
 
+    /// Remove all cached graph indices that are older than max_age_hours.
+    /// Called on startup/update to prevent stale data from persisting.
+    pub fn purge_stale_indices() {
+        let Ok(data_dir) = crate::core::data_dir::lean_ctx_data_dir() else {
+            return;
+        };
+        let graphs_dir = data_dir.join("graphs");
+        let Ok(entries) = std::fs::read_dir(&graphs_dir) else {
+            return;
+        };
+        let cfg = crate::core::config::Config::load();
+        let max_age_secs = cfg.archive.max_age_hours * 3600;
+
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let zst = path.join("index.json.zst");
+            let json = path.join("index.json");
+            let index_file = if zst.exists() {
+                &zst
+            } else if json.exists() {
+                &json
+            } else {
+                continue;
+            };
+
+            let is_old = index_file
+                .metadata()
+                .and_then(|m| m.modified())
+                .is_ok_and(|mtime| {
+                    mtime
+                        .elapsed()
+                        .is_ok_and(|age| age.as_secs() > max_age_secs)
+                });
+
+            if is_old {
+                tracing::info!("[graph_index: purging stale index at {}]", path.display());
+                let _ = std::fs::remove_dir_all(&path);
+            }
+        }
+    }
+
     pub fn file_count(&self) -> usize {
         self.files.len()
     }
@@ -333,8 +408,53 @@ fn index_looks_stale(index: &ProjectIndex, root_abs: &str) -> bool {
         return true;
     }
 
+    // TTL check: rebuild if index is older than configured max_age_hours
+    if let Ok(scan_time) =
+        chrono::NaiveDateTime::parse_from_str(&index.last_scan, "%Y-%m-%d %H:%M:%S")
+    {
+        let cfg = crate::core::config::Config::load();
+        let max_age = chrono::Duration::hours(cfg.archive.max_age_hours as i64);
+        let now = chrono::Local::now().naive_local();
+        if now.signed_duration_since(scan_time) > max_age {
+            tracing::info!(
+                "[graph_index: index is older than {}h — marking stale]",
+                cfg.archive.max_age_hours
+            );
+            return true;
+        }
+    }
+
+    // Contamination check: if index contains paths from common user directories,
+    // it was built from a too-broad root and must be rebuilt
+    const CONTAMINATION_MARKERS: &[&str] = &[
+        "Desktop/",
+        "Documents/",
+        "Downloads/",
+        "Pictures/",
+        "Music/",
+        "Videos/",
+        "Movies/",
+        "Library/",
+        ".cache/",
+        "snap/",
+    ];
+    let contaminated = index.files.keys().take(200).any(|rel| {
+        CONTAMINATION_MARKERS
+            .iter()
+            .any(|m| rel.starts_with(m) || rel.contains(&format!("/{m}")))
+    });
+    if contaminated {
+        tracing::warn!(
+            "[graph_index: index contains files from user directories (Desktop/Documents/...) — \
+             marking stale to force clean rebuild]"
+        );
+        return true;
+    }
+
     let root_path = Path::new(root_abs);
-    for rel in index.files.keys() {
+    // Sample up to 20 files for existence check (avoid scanning all files in large indices)
+    let sample_size = index.files.len().min(20);
+    for rel in index.files.keys().take(sample_size) {
         let rel = rel.trim_start_matches(['/', '\\']);
         if rel.is_empty() {
             continue;
@@ -404,7 +524,7 @@ pub fn scan(project_root: &str) -> ProjectIndex {
         .git_ignore(true)
         .git_global(true)
         .git_exclude(true)
-        .max_depth(Some(10))
+        .max_depth(Some(20))
         .build();
 
     let cfg = crate::core::config::Config::load();
@@ -417,9 +537,13 @@ pub fn scan(project_root: &str) -> ProjectIndex {
     let mut scanned = 0usize;
     let mut reused = 0usize;
     let mut entries_visited = 0usize;
-    let max_files = cfg.graph_index_max_files as usize;
-    const MAX_ENTRIES_VISITED: usize = 50_000;
-    let scan_deadline = std::time::Instant::now() + std::time::Duration::from_mins(2);
+    let max_files = if cfg.graph_index_max_files == 0 {
+        usize::MAX // unlimited
+    } else {
+        cfg.graph_index_max_files as usize
+    };
+    const MAX_ENTRIES_VISITED: usize = 500_000;
+    let scan_deadline = std::time::Instant::now() + std::time::Duration::from_mins(5);
 
     for entry in walker.filter_map(std::result::Result::ok) {
         entries_visited += 1;
@@ -449,6 +573,12 @@ pub fn scan(project_root: &str) -> ProjectIndex {
             continue;
         }
         let file_path = normalize_absolute_path(&entry.path().to_string_lossy());
+
+        // Prevent indexing files that escaped the project root (symlinks, mount points)
+        if !file_path.starts_with(&project_root) {
+            continue;
+        }
+
         let ext = Path::new(&file_path)
             .extension()
             .and_then(|e| e.to_str())
@@ -463,9 +593,9 @@ pub fn scan(project_root: &str) -> ProjectIndex {
             continue;
         }
 
-        if index.files.len() >= max_files {
-            tracing::warn!(
-                "Graph index capped at {} files. Increase graph_index_max_files in config.toml for full coverage.",
+        if max_files != usize::MAX && index.files.len() >= max_files {
+            tracing::info!(
+                "[graph_index: reached configured limit of {} files. Set graph_index_max_files = 0 for unlimited.]",
                 max_files
             );
             break;
@@ -1089,5 +1219,59 @@ class UserService {
         let idx = scan(&tmp.path().to_string_lossy());
         std::env::remove_var("LEAN_CTX_NO_INDEX");
         assert!(idx.files.is_empty(), "LEAN_CTX_NO_INDEX should skip scan");
+    }
+
+    #[test]
+    fn stale_index_detected_by_contamination() {
+        let root_s = "/home/testuser/myproject";
+        let mut idx = ProjectIndex::new(root_s);
+        // Simulate a contaminated index with Desktop files
+        idx.files.insert(
+            "Desktop/random.py".to_string(),
+            fe("Desktop/random.py", "x = 1\n", "py"),
+        );
+        idx.files.insert(
+            "src/main.rs".to_string(),
+            fe("src/main.rs", "fn main() {}\n", "rs"),
+        );
+        assert!(
+            index_looks_stale(&idx, root_s),
+            "Index with Desktop/ files should be considered stale"
+        );
+    }
+
+    #[test]
+    fn stale_index_detected_by_age() {
+        let td = tempdir().expect("tempdir");
+        let root = td.path();
+        std::fs::write(root.join("a.rs"), "fn a() {}\n").unwrap();
+
+        let root_s = normalize_project_root(&root.to_string_lossy());
+        let mut idx = ProjectIndex::new(&root_s);
+        idx.files
+            .insert("a.rs".to_string(), fe("a.rs", "fn a() {}\n", "rs"));
+        // Set last_scan to 100 hours ago (default max_age_hours is 48)
+        let old_time = chrono::Local::now().naive_local() - chrono::Duration::hours(100);
+        idx.last_scan = old_time.format("%Y-%m-%d %H:%M:%S").to_string();
+
+        assert!(
+            index_looks_stale(&idx, &root_s),
+            "Index older than max_age_hours should be stale"
+        );
+    }
+
+    #[test]
+    fn safe_scan_root_rejects_home_downloads() {
+        if let Some(home) = dirs::home_dir() {
+            let downloads = home.join("Downloads");
+            // Only test if Downloads doesn't contain a .git (unlikely but possible)
+            if !downloads.join(".git").exists() {
+                let downloads_str = downloads.to_string_lossy().to_string();
+                assert!(
+                    !is_safe_scan_root(&downloads_str),
+                    "~/Downloads should be rejected without project markers"
+                );
+            }
+        }
     }
 }

@@ -6,6 +6,220 @@ use std::time::Duration;
 
 const HOOK_STDIN_TIMEOUT: Duration = Duration::from_secs(3);
 
+// ---------------------------------------------------------------------------
+// Observe handler — records ALL hook events for context awareness
+// ---------------------------------------------------------------------------
+
+/// Unified observe handler for all IDE hook events.
+/// Reads JSON from stdin, normalizes to `ObserveEvent`, counts tokens,
+/// appends to `context_radar.jsonl`, and exits immediately.
+pub fn handle_observe() {
+    if is_disabled() {
+        return;
+    }
+    let Some(input) = read_stdin_with_timeout(HOOK_STDIN_TIMEOUT) else {
+        return;
+    };
+    let Some(event) = parse_observe_event(&input) else {
+        return;
+    };
+    append_radar_event(&event);
+}
+
+#[derive(serde::Serialize)]
+struct ObserveEvent {
+    ts: u64,
+    event_type: &'static str,
+    tokens: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detail: Option<String>,
+}
+
+fn parse_observe_event(input: &str) -> Option<ObserveEvent> {
+    let v: serde_json::Value = serde_json::from_str(input).ok()?;
+
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    // Detect event type from payload shape (IDE-agnostic)
+    if let Some(result) = v.get("result_json").or_else(|| v.get("result")) {
+        let tool = v
+            .get("tool_name")
+            .and_then(|t| t.as_str())
+            .unwrap_or("unknown");
+        let tokens = estimate_tokens_json(result);
+        return Some(ObserveEvent {
+            ts,
+            event_type: "mcp_call",
+            tokens,
+            tool_name: Some(tool.to_string()),
+            detail: v
+                .get("server_name")
+                .and_then(|s| s.as_str())
+                .map(String::from),
+        });
+    }
+
+    if let Some(output) = v.get("output") {
+        let cmd = v
+            .get("command")
+            .and_then(|c| c.as_str())
+            .unwrap_or("")
+            .to_string();
+        let tokens = estimate_tokens_value(output);
+        return Some(ObserveEvent {
+            ts,
+            event_type: "shell",
+            tokens,
+            tool_name: None,
+            detail: Some(truncate_str(&cmd, 80)),
+        });
+    }
+
+    if v.get("content").is_some() && v.get("file_path").is_some() {
+        let path = v
+            .get("file_path")
+            .and_then(|p| p.as_str())
+            .unwrap_or("")
+            .to_string();
+        let tokens = v
+            .get("content")
+            .and_then(|c| c.as_str())
+            .map_or(0, |s| s.len() / 4);
+        return Some(ObserveEvent {
+            ts,
+            event_type: "file_read",
+            tokens,
+            tool_name: None,
+            detail: Some(truncate_str(&path, 120)),
+        });
+    }
+
+    if let Some(text) = v.get("text").and_then(|t| t.as_str()) {
+        let has_duration = v.get("duration_ms").is_some();
+        let event_type = if has_duration {
+            "thinking"
+        } else {
+            "agent_response"
+        };
+        let tokens = text.len() / 4;
+        return Some(ObserveEvent {
+            ts,
+            event_type,
+            tokens,
+            tool_name: None,
+            detail: None,
+        });
+    }
+
+    if let Some(prompt) = v.get("prompt").and_then(|p| p.as_str()) {
+        let tokens = prompt.len() / 4;
+        return Some(ObserveEvent {
+            ts,
+            event_type: "user_message",
+            tokens,
+            tool_name: None,
+            detail: v
+                .get("attachments")
+                .and_then(|a| a.as_array())
+                .map(|a| format!("{} attachments", a.len())),
+        });
+    }
+
+    if v.get("tool_name").is_some() || v.get("tool_input").is_some() {
+        let tool = v
+            .get("tool_name")
+            .and_then(|t| t.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+        let tokens = v.get("tool_input").map_or(0, estimate_tokens_json);
+        return Some(ObserveEvent {
+            ts,
+            event_type: "native_tool",
+            tokens,
+            tool_name: Some(tool),
+            detail: None,
+        });
+    }
+
+    if v.get("session_id").is_some() {
+        return Some(ObserveEvent {
+            ts,
+            event_type: "session",
+            tokens: 0,
+            tool_name: None,
+            detail: v
+                .get("session_id")
+                .and_then(|s| s.as_str())
+                .map(String::from),
+        });
+    }
+
+    // Compaction marker (preCompact hook or explicit)
+    let is_compaction = v.get("compaction").is_some()
+        || v.get("messages_count").is_some()
+        || v.get("event")
+            .and_then(|e| e.as_str())
+            .is_some_and(|e| e == "compaction" || e == "compact");
+    if is_compaction {
+        return Some(ObserveEvent {
+            ts,
+            event_type: "compaction",
+            tokens: 0,
+            tool_name: None,
+            detail: None,
+        });
+    }
+
+    None
+}
+
+fn estimate_tokens_json(v: &serde_json::Value) -> usize {
+    match v {
+        serde_json::Value::String(s) => s.len() / 4,
+        _ => v.to_string().len() / 4,
+    }
+}
+
+fn estimate_tokens_value(v: &serde_json::Value) -> usize {
+    match v {
+        serde_json::Value::String(s) => s.len() / 4,
+        _ => v.to_string().len() / 4,
+    }
+}
+
+fn truncate_str(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        s.to_string()
+    } else {
+        format!("{}...", &s[..max])
+    }
+}
+
+fn append_radar_event(event: &ObserveEvent) {
+    let Ok(data_dir) = crate::core::data_dir::lean_ctx_data_dir() else {
+        return;
+    };
+    let radar_path = data_dir.join("context_radar.jsonl");
+    let Ok(line) = serde_json::to_string(event) else {
+        return;
+    };
+
+    use std::fs::OpenOptions;
+    use std::io::Write;
+    if let Ok(mut f) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&radar_path)
+    {
+        let _ = writeln!(f, "{line}");
+    }
+}
+
 fn is_disabled() -> bool {
     std::env::var("LEAN_CTX_DISABLED").is_ok()
 }

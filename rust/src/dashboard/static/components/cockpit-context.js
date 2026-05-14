@@ -192,6 +192,11 @@ class CockpitContext extends HTMLElement {
       '/api/pipeline-stats',
       '/api/intent',
       '/api/session',
+      '/api/context-bounce',
+      '/api/context-client',
+      '/api/context-pressure',
+      '/api/context-dynamic-tools',
+      '/api/context-radar',
     ];
 
     const results = await Promise.all(
@@ -211,6 +216,11 @@ class CockpitContext extends HTMLElement {
       pipeline,
       intent,
       session,
+      bounce,
+      clientCaps,
+      pressure,
+      dynTools,
+      radar,
     ] = results;
 
     const err = [ledger, field, control, plan].find(function (x) {
@@ -229,6 +239,11 @@ class CockpitContext extends HTMLElement {
       pipeline: pipeline && !pipeline.__error ? pipeline : null,
       intent: intent && !intent.__error ? intent : null,
       session: session && !session.__error ? session : null,
+      bounce: bounce && !bounce.__error ? bounce : null,
+      clientCaps: clientCaps && !clientCaps.__error ? clientCaps : null,
+      pressure: pressure && !pressure.__error ? pressure : null,
+      dynTools: dynTools && !dynTools.__error ? dynTools : null,
+      radar: radar && !radar.__error ? radar : null,
     };
 
     if (this._data.history && !Array.isArray(this._data.history)) {
@@ -298,6 +313,8 @@ class CockpitContext extends HTMLElement {
 
     body += this._renderMetrics(ledger, field, F, esc, ff, pc, this._data.session);
     body += this._renderPressureRow(ledger, esc, ff);
+    body += this._renderRadarPanel(esc, ff);
+    body += this._renderRuntimePanel(esc, ff);
     body += this._renderTableShell(ledger, field, esc, ff, pc);
     body += this._renderOverlays(control, esc);
     body += this._renderPlanExtras(esc);
@@ -305,6 +322,157 @@ class CockpitContext extends HTMLElement {
 
     this.innerHTML = body;
     this._bindTable();
+  }
+
+  _renderRadarPanel(esc, ff) {
+    const radar = this._data.radar;
+    if (!radar) return '';
+
+    const b = radar.breakdown || {};
+    const rules = radar.rules || {};
+    const events = radar.recent_events || [];
+    const evTotal = radar.events_total || 0;
+    const win = b.window_size || 200000;
+
+    function pct(tok) { return win > 0 ? (tok / win * 100).toFixed(1) : '0.0'; }
+    function barW(tok) { return Math.min(100, tok / win * 100); }
+
+    const categories = [
+      { label: 'System Prompt (Rules)', tokens: b.system_prompt_tokens || 0, color: '#8b5cf6' },
+      { label: 'User Messages', tokens: b.user_message_tokens || 0, color: '#3b82f6' },
+      { label: 'Agent Responses', tokens: b.agent_response_tokens || 0, color: '#06b6d4' },
+      { label: 'lean-ctx Tools', tokens: b.lean_ctx_tool_tokens || 0, color: '#10b981' },
+      { label: 'Other MCP Tools', tokens: b.other_mcp_tokens || 0, color: '#f59e0b' },
+      { label: 'Native Reads', tokens: b.native_read_tokens || 0, color: '#ef4444' },
+      { label: 'Shell Output', tokens: b.shell_tokens || 0, color: '#ec4899' },
+    ];
+
+    let html = '<div class="card" style="margin-bottom:20px">';
+    html += '<div class="card-header"><h3>Context Radar — Full Budget Breakdown' + tip('context_radar') + '</h3>';
+    html += '<span class="badge">' + esc(ff(b.tracked_total || 0)) + ' / ' + esc(ff(win)) + ' tok</span></div>';
+
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">';
+
+    html += '<div>';
+    for (let i = 0; i < categories.length; i++) {
+      const c = categories[i];
+      if (c.tokens === 0) continue;
+      html += '<div style="margin-bottom:8px">';
+      html += '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px">';
+      html += '<span>' + esc(c.label) + '</span>';
+      html += '<span>' + esc(ff(c.tokens)) + ' tok (' + pct(c.tokens) + '%)</span></div>';
+      html += '<div style="height:8px;background:var(--bg-3,#1e1e2e);border-radius:4px;overflow:hidden">';
+      html += '<div style="width:' + barW(c.tokens) + '%;height:100%;background:' + c.color + ';border-radius:4px"></div>';
+      html += '</div></div>';
+    }
+
+    const avail = b.available || 0;
+    const availPct = pct(avail);
+    const availCol = parseFloat(availPct) > 40 ? 'var(--green)' : parseFloat(availPct) > 15 ? 'var(--yellow)' : 'var(--red)';
+    html += '<div style="margin-top:12px;padding:10px;background:var(--bg-2,#16161e);border-radius:8px">';
+    html += '<div style="display:flex;justify-content:space-between;font-size:13px;font-weight:600">';
+    html += '<span>Available</span><span style="color:' + availCol + '">' + esc(ff(avail)) + ' tok (' + availPct + '%)</span>';
+    html += '</div></div>';
+
+    if (b.compaction_count > 0) {
+      html += '<div class="hs" style="margin-top:8px">Compactions: ' + b.compaction_count + '</div>';
+    }
+    if (b.thinking_tokens > 0) {
+      html += '<div class="hs" style="margin-top:4px">Thinking (not in window): ' + esc(ff(b.thinking_tokens)) + ' tok</div>';
+    }
+    html += '</div>';
+
+    html += '<div>';
+    const ruleFiles = (rules.files || []);
+    if (ruleFiles.length > 0) {
+      html += '<div style="margin-bottom:16px">';
+      html += '<div style="font-size:13px;font-weight:600;margin-bottom:8px">Rules / System Prompt Files</div>';
+      html += '<table style="width:100%;font-size:12px"><thead><tr><th style="text-align:left">File</th><th style="text-align:right">Tokens</th></tr></thead><tbody>';
+      for (let i = 0; i < ruleFiles.length; i++) {
+        const rf = ruleFiles[i];
+        html += '<tr><td class="ctx-path-cell" title="' + esc(rf.path) + '">' + esc(shortenPath(rf.path)) + '</td>';
+        html += '<td style="text-align:right">' + esc(ff(rf.tokens)) + '</td></tr>';
+      }
+      html += '</tbody></table>';
+      html += '<div class="hs" style="margin-top:4px">Total: ' + esc(ff(rules.total_tokens || 0)) + ' tok</div>';
+      html += '</div>';
+    }
+
+    if (events.length > 0) {
+      html += '<div style="font-size:13px;font-weight:600;margin-bottom:8px">Recent Events (' + evTotal + ' total)</div>';
+      html += '<div style="max-height:240px;overflow-y:auto;font-size:11px;font-family:var(--mono,monospace)">';
+      for (let i = 0; i < Math.min(events.length, 30); i++) {
+        const ev = events[i];
+        const typeColors = {
+          'user_message': '#3b82f6', 'agent_response': '#06b6d4', 'mcp_call': '#10b981',
+          'shell': '#ec4899', 'native_tool': '#ef4444', 'file_read': '#ef4444',
+          'thinking': '#a78bfa', 'compaction': '#f59e0b',
+        };
+        const col = typeColors[ev.event_type] || 'var(--muted)';
+        const detail = ev.tool_name || ev.detail || '';
+        html += '<div style="display:flex;gap:8px;padding:2px 0;border-bottom:1px solid var(--bg-3,#2a2a3a)">';
+        html += '<span style="color:var(--muted);min-width:38px">' + esc(ff(ev.tokens)) + '</span>';
+        html += '<span style="color:' + col + ';min-width:80px">' + esc(ev.event_type) + '</span>';
+        if (detail) html += '<span style="color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(detail) + '</span>';
+        html += '</div>';
+      }
+      html += '</div>';
+    } else {
+      html += '<p class="hs">No observe events yet. Events are recorded via IDE hooks (lean-ctx hook observe).</p>';
+    }
+    html += '</div>';
+
+    html += '</div></div>';
+    return html;
+  }
+
+  _renderRuntimePanel(esc, ff) {
+    const bounce = this._data.bounce;
+    const caps = this._data.clientCaps;
+    const pressure = this._data.pressure;
+    const dyn = this._data.dynTools;
+    if (!bounce && !caps && !pressure && !dyn) return '';
+
+    let html = '<div class="card"><h3>Runtime Control Plane</h3><div class="grid-3">';
+
+    if (caps) {
+      const tier = caps.tier || '?';
+      const feats = ['resources', 'prompts', 'elicitation', 'sampling', 'dynamic_tools']
+        .filter(function (k) { return caps[k]; });
+      html += '<div class="stat-card"><div class="stat-label">IDE</div>' +
+        '<div class="stat-value">' + esc(caps.client_id || 'unknown') + '</div>' +
+        '<div class="hs">Tier ' + tier + ' · ' + feats.join(', ') +
+        (caps.max_tools ? ' · max ' + caps.max_tools + ' tools' : '') + '</div></div>';
+    }
+
+    if (pressure) {
+      const util = typeof pressure.utilization === 'number' ? pressure.utilization : 0;
+      const pct = Math.round(util * 100);
+      const color = pct < 60 ? 'var(--green)' : pct < 80 ? 'var(--yellow)' : 'var(--red)';
+      const adjSaved = pressure.total_saved_adjusted != null ? pressure.total_saved_adjusted : 0;
+      html += '<div class="stat-card"><div class="stat-label">Pressure</div>' +
+        '<div class="stat-value" style="color:' + color + '">' + pct + '%</div>' +
+        '<div class="hs">' + ff(pressure.remaining_tokens || 0) + ' tok remaining · ' +
+        ff(adjSaved) + ' adjusted saved</div></div>';
+    }
+
+    if (bounce) {
+      html += '<div class="stat-card"><div class="stat-label">Bounce Detection</div>' +
+        '<div class="stat-value">' + (bounce.total_bounces || 0) + '</div>' +
+        '<div class="hs">' + ff(bounce.total_wasted_tokens || 0) + ' wasted tokens</div></div>';
+    }
+
+    if (dyn) {
+      const active = dyn.active_categories || [];
+      const all = dyn.all_categories || [];
+      html += '<div class="stat-card"><div class="stat-label">Dynamic Tools</div>' +
+        '<div class="stat-value">' + active.length + '/' + all.length + '</div>' +
+        '<div class="hs">' + active.join(', ') +
+        (dyn.supports_list_changed ? ' · list_changed' : ' · static') + '</div></div>';
+    }
+
+    html += '</div></div>';
+    return html;
   }
 
   _renderMetrics(ledger, field, F, esc, ff, pc, session) {

@@ -54,6 +54,13 @@ fn install_codex_hook_config(codex_dir: &std::path::Path) -> bool {
     if upsert_lean_ctx_codex_hook_entries(&mut root, &session_start_cmd, &pre_tool_use_cmd) {
         changed = true;
     }
+
+    // Observe hooks for context awareness
+    let observe_cmd = format!("{binary} hook observe");
+    if ensure_codex_observe_hooks(&mut root, &observe_cmd) {
+        changed = true;
+    }
+
     if changed {
         write_file(
             &hooks_json_path,
@@ -90,6 +97,46 @@ fn install_codex_hook_config(codex_dir: &std::path::Path) -> bool {
     }
 
     changed
+}
+
+fn ensure_codex_observe_hooks(root: &mut serde_json::Value, observe_cmd: &str) -> bool {
+    let original = root.clone();
+    let Some(hooks_obj) = root
+        .as_object_mut()
+        .and_then(|r| r.get_mut("hooks"))
+        .and_then(|h| h.as_object_mut())
+    else {
+        return false;
+    };
+
+    let observe_events = ["PostToolUse", "SessionStart", "SessionEnd"];
+    for event in observe_events {
+        let arr = hooks_obj
+            .entry(event.to_string())
+            .or_insert_with(|| serde_json::json!([]));
+        let Some(entries) = arr.as_array_mut() else {
+            continue;
+        };
+        let already = entries.iter().any(|e| {
+            e.get("hooks")
+                .and_then(|h| h.as_array())
+                .is_some_and(|hooks| {
+                    hooks.iter().any(|hook| {
+                        hook.get("command")
+                            .and_then(|c| c.as_str())
+                            .is_some_and(|c| c.contains("hook observe"))
+                    })
+                })
+        });
+        if !already {
+            entries.push(serde_json::json!({
+                "matcher": ".*",
+                "hooks": [{ "type": "command", "command": observe_cmd, "timeout": 5 }]
+            }));
+        }
+    }
+
+    *root != original
 }
 
 fn toml_quote_value(value: &str) -> String {

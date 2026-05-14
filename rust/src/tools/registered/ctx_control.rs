@@ -38,8 +38,6 @@ impl McpTool for CtxControlTool {
         args: &Map<String, Value>,
         ctx: &ToolContext,
     ) -> Result<ToolOutput, ErrorData> {
-        let mut ledger = crate::core::context_ledger::ContextLedger::load();
-
         let root = if let Some(ref session_lock) = ctx.session {
             let session = tokio::task::block_in_place(|| session_lock.blocking_read());
             session.project_root.clone().unwrap_or_default()
@@ -51,8 +49,17 @@ impl McpTool for CtxControlTool {
             &std::path::PathBuf::from(&root),
         );
 
-        let result = crate::tools::ctx_control::handle(Some(args), &mut ledger, &mut overlays);
-        ledger.save();
+        let result = if let Some(ref ledger_lock) = ctx.ledger {
+            let mut ledger = tokio::task::block_in_place(|| ledger_lock.blocking_write());
+            let r = crate::tools::ctx_control::handle(Some(args), &mut ledger, &mut overlays);
+            ledger.save();
+            r
+        } else {
+            let mut ledger = crate::core::context_ledger::ContextLedger::load();
+            let r = crate::tools::ctx_control::handle(Some(args), &mut ledger, &mut overlays);
+            ledger.save();
+            r
+        };
         let _ = overlays.save_project(&std::path::PathBuf::from(&root));
 
         Ok(ToolOutput::simple(result))

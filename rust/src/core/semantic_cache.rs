@@ -103,6 +103,12 @@ impl SemanticCacheIndex {
     }
 
     pub fn find_similar(&mut self, content: &str, threshold: f64) -> Vec<(String, f64)> {
+        const MAX_ENTRIES_FOR_SEARCH: usize = 200;
+
+        if self.entries.len() > MAX_ENTRIES_FOR_SEARCH {
+            return Vec::new();
+        }
+
         self.ensure_idf_for_search();
 
         let query_tf = compute_tf(content);

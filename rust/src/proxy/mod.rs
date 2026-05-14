@@ -2,6 +2,7 @@ pub mod anthropic;
 pub mod compress;
 pub mod forward;
 pub mod google;
+pub mod introspect;
 pub mod openai;
 
 use std::net::SocketAddr;
@@ -22,6 +23,7 @@ pub struct ProxyState {
     pub client: reqwest::Client,
     pub port: u16,
     pub stats: Arc<ProxyStats>,
+    pub introspect: Arc<introspect::IntrospectState>,
     pub anthropic_upstream: String,
     pub openai_upstream: String,
     pub gemini_upstream: String,
@@ -92,6 +94,7 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
         client,
         port,
         stats: Arc::new(ProxyStats::default()),
+        introspect: Arc::new(introspect::IntrospectState::default()),
         anthropic_upstream: anthropic_upstream.clone(),
         openai_upstream: openai_upstream.clone(),
         gemini_upstream: gemini_upstream.clone(),
@@ -137,6 +140,15 @@ async fn health() -> impl IntoResponse {
 async fn status_handler(State(state): State<ProxyState>) -> impl IntoResponse {
     use std::sync::atomic::Ordering::Relaxed;
     let s = &state.stats;
+    let i = &state.introspect;
+
+    let last_breakdown = i
+        .last_breakdown
+        .lock()
+        .ok()
+        .and_then(|guard| guard.as_ref().map(|b| serde_json::to_value(b).ok()))
+        .flatten();
+
     let body = serde_json::json!({
         "status": "running",
         "port": state.port,
@@ -146,6 +158,11 @@ async fn status_handler(State(state): State<ProxyState>) -> impl IntoResponse {
         "bytes_original": s.bytes_original.load(Relaxed),
         "bytes_compressed": s.bytes_compressed.load(Relaxed),
         "compression_ratio_pct": format!("{:.1}", s.compression_ratio()),
+        "introspect": {
+            "total_requests_analyzed": i.total_requests.load(Relaxed),
+            "total_system_prompt_tokens": i.total_system_prompt_tokens.load(Relaxed),
+            "last_breakdown": last_breakdown,
+        }
     });
     (StatusCode::OK, axum::Json(body))
 }

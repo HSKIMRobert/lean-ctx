@@ -94,10 +94,13 @@ pub fn handle(
             } else {
                 let mut out = format!("[ctx_control] {} active overlays:\n", items.len());
                 for ov in items {
-                    let stale_tag = if ov.stale { " [STALE]" } else { "" };
+                    let stale_tag = if ov.stale { " [stale]" } else { "" };
                     out.push_str(&format!(
-                        "  {} -> {:?} ({:?}){}\n",
-                        ov.target, ov.operation, ov.scope, stale_tag
+                        "  {} → {} ({}){}\n",
+                        format_target(&ov.target),
+                        format_operation(&ov.operation),
+                        format_scope(&ov.scope),
+                        stale_tag,
                     ));
                 }
                 out
@@ -113,15 +116,40 @@ pub fn handle(
                     history.len()
                 );
                 for ov in history {
+                    let age = format_age(&ov.created_at);
                     out.push_str(&format!(
-                        "  {} {:?} at {} ({:?})\n",
-                        ov.id, ov.operation, ov.created_at, ov.scope
+                        "  {} ({}, {})\n",
+                        format_operation(&ov.operation),
+                        format_scope(&ov.scope),
+                        age,
                     ));
                 }
                 out
             }
         }
-        _ => format!("[ctx_control] unknown action: {action}. valid: exclude|include|pin|unpin|set_view|set_priority|mark_outdated|reset|list|history"),
+        "help" => {
+            "[ctx_control] available actions:\n\
+             \x20 pin <target>        — keep file in full mode (immune to eviction)\n\
+             \x20 unpin <target>      — remove pin, allow compression\n\
+             \x20 exclude <target>    — restrict to signatures only\n\
+             \x20 include <target>    — restore normal access\n\
+             \x20 set_view <target>   — force a specific read mode (value: full|map|signatures|...)\n\
+             \x20 set_priority <target> — set Phi priority (value: 0.0-1.0)\n\
+             \x20 mark_outdated <target> — flag as stale, forces re-read\n\
+             \x20 reset <target>      — clear all overlays for this file\n\
+             \x20 list               — show all active overlays\n\
+             \x20 history <target>   — show overlay history for a file"
+                .to_string()
+        }
+        _ => {
+            let suggestion = suggest_action(&action);
+            let base = format!("[ctx_control] unknown action: \"{action}\".");
+            if let Some(s) = suggestion {
+                format!("{base} Did you mean \"{s}\"?\nUse action=\"help\" for all available actions.")
+            } else {
+                format!("{base} Use action=\"help\" for all available actions.")
+            }
+        }
     }
 }
 
@@ -160,6 +188,109 @@ fn apply_overlay(
         stale: false,
     };
     overlays.add(overlay);
+}
+
+const VALID_ACTIONS: &[&str] = &[
+    "exclude",
+    "include",
+    "pin",
+    "unpin",
+    "set_view",
+    "set_priority",
+    "mark_outdated",
+    "reset",
+    "list",
+    "history",
+    "help",
+];
+
+fn suggest_action(input: &str) -> Option<&'static str> {
+    let input_lower = input.to_lowercase();
+    match input_lower.as_str() {
+        "evict" | "remove" => return Some("exclude"),
+        "compress" | "shrink" => return Some("set_view"),
+        "budget" => return Some("set_priority"),
+        _ => {}
+    }
+    VALID_ACTIONS
+        .iter()
+        .filter_map(|&action| {
+            let dist = levenshtein(&input_lower, action);
+            (dist <= 3).then_some((action, dist))
+        })
+        .min_by_key(|(_, dist)| *dist)
+        .map(|(a, _)| a)
+}
+
+fn levenshtein(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let (rows, cols) = (a.len() + 1, b.len() + 1);
+    let mut matrix = vec![vec![0usize; cols]; rows];
+    for (i, row) in matrix.iter_mut().enumerate() {
+        row[0] = i;
+    }
+    #[allow(clippy::needless_range_loop)]
+    for j in 0..cols {
+        matrix[0][j] = j;
+    }
+    for i in 1..rows {
+        for j in 1..cols {
+            let cost = usize::from(a[i - 1] != b[j - 1]);
+            matrix[i][j] = (matrix[i - 1][j] + 1)
+                .min(matrix[i][j - 1] + 1)
+                .min(matrix[i - 1][j - 1] + cost);
+        }
+    }
+    matrix[a.len()][b.len()]
+}
+
+fn format_target(id: &ContextItemId) -> String {
+    let s = id.0.as_str();
+    if let Some(path) = s.strip_prefix("file:") {
+        crate::core::protocol::shorten_path(path)
+    } else {
+        s.to_string()
+    }
+}
+
+fn format_operation(op: &OverlayOp) -> String {
+    match op {
+        OverlayOp::Include => "included".to_string(),
+        OverlayOp::Exclude { reason } if reason == "exclude" => "excluded".to_string(),
+        OverlayOp::Exclude { reason } => format!("excluded ({reason})"),
+        OverlayOp::Pin { verbatim: true } => "pinned (verbatim)".to_string(),
+        OverlayOp::Pin { verbatim: false } => "pinned".to_string(),
+        OverlayOp::Unpin => "unpinned".to_string(),
+        OverlayOp::Rewrite { .. } => "rewrite".to_string(),
+        OverlayOp::SetView(v) => format!("view: {}", v.as_str()),
+        OverlayOp::SetPriority { set_priority } => format!("priority: {set_priority:.2}"),
+        OverlayOp::MarkOutdated => "outdated".to_string(),
+        OverlayOp::Expire { after_secs } => format!("expires in {after_secs}s"),
+    }
+}
+
+fn format_scope(scope: &OverlayScope) -> &'static str {
+    match scope {
+        OverlayScope::Call => "this call",
+        OverlayScope::Session => "this session",
+        OverlayScope::Project => "persistent",
+        OverlayScope::Global => "global",
+        OverlayScope::Agent(_) => "agent",
+    }
+}
+
+fn format_age(created_at: &chrono::DateTime<chrono::Utc>) -> String {
+    let elapsed = chrono::Utc::now().signed_duration_since(*created_at);
+    if elapsed.num_seconds() < 60 {
+        "just now".to_string()
+    } else if elapsed.num_minutes() < 60 {
+        format!("{}m ago", elapsed.num_minutes())
+    } else if elapsed.num_hours() < 24 {
+        format!("{}h ago", elapsed.num_hours())
+    } else {
+        format!("{}d ago", elapsed.num_days())
+    }
 }
 
 fn get_str(args: Option<&serde_json::Map<String, Value>>, key: &str) -> Option<String> {

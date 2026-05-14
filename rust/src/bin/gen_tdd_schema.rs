@@ -39,7 +39,7 @@ fn main() {
             serde_json::from_str(&on_disk).unwrap_or(serde_json::Value::Null);
         if on_disk != expected {
             eprintln!(
-                "TDD schema out of date: {}\nRun: cargo run --bin gen_tdd_schema\n",
+                "TDD schema out of date: {}\nRun: cargo run --example gen_tdd_schema --features dev-tools\n",
                 out_path.display()
             );
             std::process::exit(1);
@@ -71,6 +71,6 @@ fn write_if_changed(path: &Path, content: &str) -> Result<(), String> {
 
 fn print_help() {
     println!(
-        "gen_tdd_schema\n\nUSAGE:\n  cargo run --bin gen_tdd_schema [-- --out <path>] [--check] [--pretty|--compact]\n\nDEFAULT OUT:\n  <repo_root>/website/generated/tdd-schema.json"
+        "gen_tdd_schema\n\nUSAGE:\n  cargo run --example gen_tdd_schema --features dev-tools [-- --out <path>] [--check] [--pretty|--compact]\n\nDEFAULT OUT:\n  <repo_root>/website/generated/tdd-schema.json"
     );
 }

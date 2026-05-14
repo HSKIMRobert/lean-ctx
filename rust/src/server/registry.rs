@@ -38,6 +38,20 @@ impl ToolRegistry {
         defs
     }
 
+    /// Returns tool definitions filtered by the dynamic tool state.
+    /// Only includes tools whose category is currently active.
+    pub fn active_tool_defs(&self) -> Vec<Tool> {
+        let state = super::dynamic_tools::global().lock().unwrap();
+        let mut defs: Vec<Tool> = self
+            .tools
+            .values()
+            .filter(|t| state.is_tool_active(t.name()))
+            .map(|t| t.tool_def())
+            .collect();
+        defs.sort_by(|a, b| a.name.as_ref().cmp(b.name.as_ref()));
+        defs
+    }
+
     pub fn len(&self) -> usize {
         self.tools.len()
     }
@@ -110,6 +124,7 @@ pub fn build_registry() -> ToolRegistry {
     // Utility tools (migrated from dispatch/utility_tools.rs)
     registry.register(Box::new(registered::ctx_compress::CtxCompressTool));
     registry.register(Box::new(registered::ctx_metrics::CtxMetricsTool));
+    registry.register(Box::new(registered::ctx_radar::CtxRadarTool));
     registry.register(Box::new(registered::ctx_dedup::CtxDedupTool));
     registry.register(Box::new(registered::ctx_intent::CtxIntentTool));
     registry.register(Box::new(registered::ctx_context::CtxContextTool));

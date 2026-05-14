@@ -180,6 +180,42 @@ fn handle_with_options_resolved(
     crp_mode: CrpMode,
     task: Option<&str>,
 ) -> ReadOutput {
+    if let Ok(mut bt) = crate::core::bounce_tracker::global().lock() {
+        bt.next_seq();
+    }
+    let mut result = handle_with_options_inner(cache, path, mode, fresh, crp_mode, task);
+
+    if result.resolved_mode != "full" && result.resolved_mode != "diff" {
+        if let Some(deduped) = cache.apply_dedup(path, &result.content) {
+            let new_tokens = count_tokens(&deduped);
+            if new_tokens < result.output_tokens {
+                result.content = deduped;
+                result.output_tokens = new_tokens;
+            }
+        }
+    }
+
+    if let Ok(mut bt) = crate::core::bounce_tracker::global().lock() {
+        let original_tokens = cache.get(path).map_or(0, |e| e.original_tokens);
+        bt.record_read(
+            path,
+            &result.resolved_mode,
+            result.output_tokens,
+            original_tokens,
+        );
+    }
+
+    result
+}
+
+fn handle_with_options_inner(
+    cache: &mut SessionCache,
+    path: &str,
+    mode: &str,
+    fresh: bool,
+    crp_mode: CrpMode,
+    task: Option<&str>,
+) -> ReadOutput {
     let file_ref = cache.get_file_ref(path);
     let short = protocol::shorten_path(path);
     let ext = Path::new(path)
@@ -368,8 +404,12 @@ fn resolve_auto_mode(file_path: &str, original_tokens: usize, task: Option<&str>
         return "full".to_string();
     }
 
-    // Priority 1: Intent Router with budget/pressure-aware degradation.
-    // Only fall through to Predictor/Bandit if the router returns "auto".
+    if let Ok(bt) = crate::core::bounce_tracker::global().lock() {
+        if bt.should_force_full(file_path) {
+            return "full".to_string();
+        }
+    }
+
     let intent_query = task.unwrap_or("read");
     let route = crate::core::intent_router::route_v1(intent_query);
     let intent_mode = &route.decision.effective_read_mode;
@@ -428,6 +468,12 @@ fn resolve_auto_mode(file_path: &str, original_tokens: usize, task: Option<&str>
 }
 
 fn find_similar_and_update_semantic_index(path: &str, content: &str) -> Option<String> {
+    const MAX_CONTENT_BYTES_FOR_SEMANTIC: usize = 32_768;
+
+    if content.len() > MAX_CONTENT_BYTES_FOR_SEMANTIC {
+        return None;
+    }
+
     let cfg = crate::core::config::Config::load();
     let profile = crate::core::config::MemoryProfile::effective(&cfg);
     if !profile.semantic_cache_enabled() {

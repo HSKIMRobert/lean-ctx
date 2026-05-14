@@ -99,6 +99,7 @@ pub mod context_package;
 pub mod context_policies;
 pub mod context_proof;
 pub mod context_proof_v2;
+pub mod context_radar;
 
 /// Convenience re-export: all context-related modules.
 pub mod context {
@@ -247,10 +248,12 @@ pub mod verification_observability;
 // Domain: Config & Infrastructure
 // ---------------------------------------------------------------------------
 pub mod binary_detect;
+pub mod bounce_tracker;
 pub mod budget_tracker;
 pub mod budgets;
 pub mod cache;
 pub mod cli_cache;
+pub mod client_capabilities;
 pub mod client_constraints;
 pub mod config;
 pub mod consolidation_engine;

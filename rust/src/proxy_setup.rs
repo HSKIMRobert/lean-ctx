@@ -44,6 +44,32 @@ pub fn uninstall_proxy_env(home: &Path, quiet: bool) {
         );
         marked_block::remove_from_file(rc, PROXY_ENV_START, PROXY_ENV_END, quiet, &label);
     }
+
+    let fish_config = home.join(".config/fish/config.fish");
+    if fish_config.exists() {
+        marked_block::remove_from_file(
+            &fish_config,
+            PROXY_ENV_START,
+            PROXY_ENV_END,
+            quiet,
+            "proxy env from ~/.config/fish/config.fish",
+        );
+    }
+
+    let ps_profile =
+        dirs::home_dir().map(|h| h.join("Documents/PowerShell/Microsoft.PowerShell_profile.ps1"));
+    if let Some(ref ps) = ps_profile {
+        if ps.exists() {
+            marked_block::remove_from_file(
+                ps,
+                PROXY_ENV_START,
+                PROXY_ENV_END,
+                quiet,
+                "proxy env from PowerShell profile",
+            );
+        }
+    }
+
     uninstall_claude_env(home, quiet);
     uninstall_codex_env(home, quiet);
 }
@@ -58,7 +84,7 @@ fn install_shell_exports(home: &Path, port: u16, quiet: bool) {
 
     let base = format!("http://127.0.0.1:{port}");
 
-    let block = format!(
+    let posix_block = format!(
         r#"{PROXY_ENV_START}
 export GEMINI_API_BASE_URL="{base}"
 {PROXY_ENV_END}"#
@@ -70,7 +96,51 @@ export GEMINI_API_BASE_URL="{base}"
                 "proxy env in ~/{}",
                 rc.file_name().unwrap_or_default().to_string_lossy()
             );
-            marked_block::upsert(rc, PROXY_ENV_START, PROXY_ENV_END, &block, quiet, &label);
+            marked_block::upsert(
+                rc,
+                PROXY_ENV_START,
+                PROXY_ENV_END,
+                &posix_block,
+                quiet,
+                &label,
+            );
+        }
+    }
+
+    let fish_config = home.join(".config/fish/config.fish");
+    if fish_config.exists() {
+        let fish_block = format!(
+            r#"{PROXY_ENV_START}
+set -gx GEMINI_API_BASE_URL "{base}"
+{PROXY_ENV_END}"#
+        );
+        marked_block::upsert(
+            &fish_config,
+            PROXY_ENV_START,
+            PROXY_ENV_END,
+            &fish_block,
+            quiet,
+            "proxy env in ~/.config/fish/config.fish",
+        );
+    }
+
+    let ps_profile =
+        dirs::home_dir().map(|h| h.join("Documents/PowerShell/Microsoft.PowerShell_profile.ps1"));
+    if let Some(ref ps) = ps_profile {
+        if ps.exists() {
+            let ps_block = format!(
+                r#"{PROXY_ENV_START}
+$env:GEMINI_API_BASE_URL = "{base}"
+{PROXY_ENV_END}"#
+            );
+            marked_block::upsert(
+                ps,
+                PROXY_ENV_START,
+                PROXY_ENV_END,
+                &ps_block,
+                quiet,
+                "proxy env in PowerShell profile",
+            );
         }
     }
 }
