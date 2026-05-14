@@ -72,7 +72,11 @@ jobs:
         working-directory: rust
         shell: bash
         run: |
-          CARGO="$(rustup which cargo 2>/dev/null || echo cargo)"
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            CARGO="$(rustup which cargo)"
+          else
+            CARGO="cargo"
+          fi
           if [[ "${{ runner.os }}" == "Windows" ]]; then
             JEMALLOC_OVERRIDE="${{ steps.jemalloc.outputs.jemalloc-override }}" \
             CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS="-L ${{ steps.jemalloc.outputs.dummy-dir }}" \
