@@ -69,7 +69,9 @@ pub fn handle(
                 .as_deref()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(0.5);
-            let op = OverlayOp::SetPriority(priority);
+            let op = OverlayOp::SetPriority {
+                set_priority: priority,
+            };
             apply_overlay(overlays, &item_id, op, scope);
             ledger.update_phi(&target, priority);
             format!("[ctx_control] set priority for {target} to {priority:.2}")

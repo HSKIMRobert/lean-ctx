@@ -180,86 +180,73 @@ fn post_context_overlay(body: &str) -> (&'static str, &'static str, String) {
             json_err("path is required"),
         );
     }
-    let target = crate::core::context_field::ContextItemId::from_file(&path_norm);
-    let op = match req.action.as_str() {
-        "pin" => {
-            let verbatim = req
-                .value
-                .as_ref()
-                .and_then(serde_json::Value::as_bool)
-                .unwrap_or(true);
-            crate::core::context_overlay::OverlayOp::Pin { verbatim }
-        }
-        "exclude" => crate::core::context_overlay::OverlayOp::Exclude {
-            reason: req
-                .value
-                .as_ref()
-                .and_then(|v| v.as_str().map(String::from))
-                .unwrap_or_else(|| "dashboard".to_string()),
-        },
-        "include" => crate::core::context_overlay::OverlayOp::Include,
-        "unpin" => crate::core::context_overlay::OverlayOp::Unpin,
-        "set_view" => {
-            let mode = req
-                .value
-                .as_ref()
-                .and_then(|v| v.as_str())
-                .unwrap_or("full");
-            crate::core::context_overlay::OverlayOp::SetView(
-                crate::core::context_field::ViewKind::parse(mode),
-            )
-        }
-        "priority" => {
-            let v = match &req.value {
-                Some(serde_json::Value::Number(n)) => n.as_f64(),
-                Some(serde_json::Value::String(s)) => s.parse().ok(),
-                _ => None,
-            };
-            let Some(p) = v else {
-                return (
-                    "400 Bad Request",
-                    "application/json",
-                    json_err("priority requires numeric value"),
-                );
-            };
-            crate::core::context_overlay::OverlayOp::SetPriority(p)
-        }
-        "mark_outdated" => crate::core::context_overlay::OverlayOp::MarkOutdated,
-        "expire" => {
-            let secs: Option<u64> = match &req.value {
-                Some(serde_json::Value::Number(n)) => n.as_u64(),
-                Some(serde_json::Value::String(s)) => s.parse().ok(),
-                _ => None,
-            };
-            let Some(after_secs) = secs else {
-                return (
-                    "400 Bad Request",
-                    "application/json",
-                    json_err("expire requires numeric seconds in value"),
-                );
-            };
-            crate::core::context_overlay::OverlayOp::Expire { after_secs }
-        }
-        _ => {
-            return (
-                "400 Bad Request",
-                "application/json",
-                json_err("unknown action"),
-            );
-        }
-    };
-
     let project_root = detect_project_root_for_dashboard();
     let root_path = std::path::PathBuf::from(&project_root);
-    let mut store = crate::core::context_overlay::OverlayStore::load_project(&root_path);
-    store.add(crate::core::context_overlay::ContextOverlay::new(
-        target,
-        op,
-        crate::core::context_overlay::OverlayScope::Project,
-        String::new(),
-        crate::core::context_overlay::OverlayAuthor::User,
-    ));
-    if let Err(e) = store.save_project(&root_path) {
+
+    let mut ledger = crate::core::context_ledger::ContextLedger::load();
+    let mut overlays = crate::core::context_overlay::OverlayStore::load_project(&root_path);
+
+    let action = match req.action.as_str() {
+        "priority" => "set_priority".to_string(),
+        other => other.to_string(),
+    };
+
+    if action == "expire" {
+        let root_path = std::path::PathBuf::from(&project_root);
+        let target = crate::core::context_field::ContextItemId::from_file(&path_norm);
+        let secs: u64 = req
+            .value
+            .as_ref()
+            .and_then(|v| {
+                v.as_u64()
+                    .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+            })
+            .unwrap_or(0);
+        let op = crate::core::context_overlay::OverlayOp::Expire { after_secs: secs };
+        let mut store = crate::core::context_overlay::OverlayStore::load_project(&root_path);
+        store.add(crate::core::context_overlay::ContextOverlay::new(
+            target,
+            op,
+            crate::core::context_overlay::OverlayScope::Project,
+            String::new(),
+            crate::core::context_overlay::OverlayAuthor::User,
+        ));
+        if let Err(e) = store.save_project(&root_path) {
+            return (
+                "500 Internal Server Error",
+                "application/json",
+                json_err(&e),
+            );
+        }
+        return ("200 OK", "application/json", json_ok());
+    }
+
+    let mut args = serde_json::Map::new();
+    args.insert("action".into(), serde_json::Value::String(action));
+    args.insert(
+        "target".into(),
+        serde_json::Value::String(path_norm.clone()),
+    );
+    args.insert("scope".into(), serde_json::Value::String("project".into()));
+    if let Some(v) = &req.value {
+        let val_str = match v {
+            serde_json::Value::String(s) => s.clone(),
+            serde_json::Value::Number(n) => n.to_string(),
+            serde_json::Value::Bool(b) => {
+                if *b {
+                    "verbatim".to_string()
+                } else {
+                    "false".to_string()
+                }
+            }
+            other => other.to_string(),
+        };
+        args.insert("value".into(), serde_json::Value::String(val_str));
+    }
+
+    let _result = crate::tools::ctx_control::handle(Some(&args), &mut ledger, &mut overlays);
+    ledger.save();
+    if let Err(e) = overlays.save_project(&root_path) {
         return (
             "500 Internal Server Error",
             "application/json",

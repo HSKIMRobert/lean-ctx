@@ -427,7 +427,7 @@ class CockpitContext extends HTMLElement {
     const rows = entries.map(function (e) {
       const orig = e.original_tokens != null ? e.original_tokens : 0;
       const sent = e.sent_tokens != null ? e.sent_tokens : 0;
-      const savedRow = orig > 0 ? pc(orig - sent, orig) : 0;
+      const savedRow = orig > 0 ? Math.max(0, pc(orig - sent, orig)) : 0;
       const phi =
         e.phi != null
           ? e.phi
@@ -697,6 +697,14 @@ class CockpitContext extends HTMLElement {
       planBlock = '<div class="card" style="margin-bottom:20px">';
       planBlock += '<div class="card-header"><h3>Context Plan' + tip('context_plan') + '</h3></div>';
       if (header) planBlock += '<p class="hs" style="margin-bottom:12px">' + esc(header) + '</p>';
+      var warningLine = lines.find(function(l) { return l.trim().startsWith('WARNING:'); });
+      if (warningLine) {
+        planBlock += '<div style="background:var(--yellow-dim,#fff3cd);color:var(--yellow,#856404);padding:8px 12px;border-radius:6px;margin-bottom:12px;font-size:13px">' + esc(warningLine.trim()) + '</div>';
+      }
+      var degradedItems = items.filter(function(l) { return l.indexOf('degraded:') > -1; });
+      if (degradedItems.length > 0) {
+        planBlock += '<div style="background:var(--blue-dim,#cce5ff);color:var(--blue,#004085);padding:8px 12px;border-radius:6px;margin-bottom:12px;font-size:13px">' + degradedItems.length + ' item(s) degraded to fit budget</div>';
+      }
       if (items.length > 0) {
         planBlock += '<table><thead><tr><th>Path</th><th>Mode</th><th class="r">Tokens</th><th>Status</th></tr></thead><tbody>';
         for (var pi = 0; pi < items.length; pi++) {
