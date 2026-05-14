@@ -6,7 +6,7 @@ use anyhow::Result;
 
 pub fn run() {
     let args: Vec<String> = std::env::args().collect();
-    let enters_mcp = args.get(1).is_some_and(|a| a == "serve" || a == "--stdio");
+    let enters_mcp = args.len() == 1 || args.get(1).is_some_and(|a| a == "mcp");
     if !enters_mcp {
         crate::core::logging::init_logging();
     }

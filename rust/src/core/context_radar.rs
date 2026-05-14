@@ -74,10 +74,16 @@ impl ContextRadar {
             return;
         };
 
-        self.events = content
+        const MAX_EVENTS: usize = 50_000;
+        let all: Vec<RadarEvent> = content
             .lines()
             .filter_map(|line| serde_json::from_str::<RadarEvent>(line).ok())
             .collect();
+        if all.len() > MAX_EVENTS {
+            self.events = all[all.len() - MAX_EVENTS..].to_vec();
+        } else {
+            self.events = all;
+        }
     }
 
     pub fn scan_rules(&mut self) {
