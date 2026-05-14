@@ -918,13 +918,15 @@ export EDITOR=vim
         write_env_sh_for_containers("alias git='lean-ctx -c git'\n");
         let env_sh = data_dir.join("env.sh");
         let content = std::fs::read_to_string(&env_sh).expect("env.sh exists");
-        if let Ok(mut bash) = std::process::Command::new("bash")
-            .arg("-n")
-            .arg(&env_sh)
-            .spawn()
-        {
-            let ok = bash.wait().is_ok_and(|s| s.success());
-            assert!(ok, "generated env.sh must be valid bash");
+        if !cfg!(windows) {
+            if let Ok(mut bash) = std::process::Command::new("bash")
+                .arg("-n")
+                .arg(&env_sh)
+                .spawn()
+            {
+                let ok = bash.wait().is_ok_and(|s| s.success());
+                assert!(ok, "generated env.sh must be valid bash");
+            }
         }
         assert!(content.contains("lean-ctx docker self-heal"));
         assert!(content.contains("claude mcp list"));

@@ -125,8 +125,8 @@ mod tests {
     }
 
     /// WaitNamedPipeW returns true for an existing pipe.
-    #[test]
-    fn pipe_exists_true() {
+    #[tokio::test]
+    async fn pipe_exists_true() {
         let pipe_name = r"\\.\pipe\lean-ctx-test-exists";
         let _server = ServerOptions::new()
             .first_pipe_instance(true)
