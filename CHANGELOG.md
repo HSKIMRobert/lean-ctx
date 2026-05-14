@@ -5,8 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.6.0] — 2026-05-14
+
 ### Added
 
+- **Context Radar** — Full budget breakdown showing system prompt (rules), user messages, agent responses, lean-ctx tools, other MCP tools, native reads, and shell output as percentage of context window. Compaction-aware: distinguishes current-window metrics from cumulative session totals. Exposed via `ctx_session budget`, dashboard API, and `ctx_radar` tool.
+- **Unified Context Intelligence** — IDE hooks across Cursor (10 observe events including afterMCPExecution, postToolUse, afterShellExecution, beforeReadFile, afterAgentResponse, afterAgentThought, beforeSubmitPrompt, preCompact, sessionStart, sessionEnd), Claude Code (PostToolUse, UserPromptSubmit, Stop, PreCompact, SessionStart/End), Windsurf (post_mcp_tool_use, post_run_command, post_cascade_response, pre_user_prompt), and Codex/Gemini. Captures ~90% of context traffic automatically — no user configuration needed.
+- **LLM Proxy Introspection** — Request analyzer (`introspect.rs`) for Anthropic, OpenAI, and Gemini APIs with `RequestBreakdown` struct providing exact system prompt tokens, message tokens, tool definition tokens, and image counts. Ground-truth token counts when proxy is active.
+- **Rules Scanner** — Scans `.cursorrules`, `.cursor/rules/*.mdc`, `AGENTS.md`, and global rules at MCP server start. Counts tokens per file and provides `RulesTokens` estimate for system prompt budget.
+- **Windows Named Pipe IPC** — Reliable daemon IPC using `WaitNamedPipeW` for proper pipe existence checks (replaces broken `fs::metadata`), retry loop with 50ms backoff on `ERROR_PIPE_BUSY` and `NotFound`, stderr fallback to `inherit()` instead of `null()` for visible errors. 5 new Windows-specific unit tests. (PR #219)
+- **Dashboard Context Cockpit** — Complete redesign with tab-based UI: Overview (KPIs, pressure gauge), Budget Radar (stacked bar chart with legends), Context Items (active files with compression stats), Runtime (control plane, dynamic tools, bounce detection), and Timeline (recent events). Each section includes user-friendly explanations.
 - **Bounce Detection** — New `bounce_tracker` module detects when compressed reads are immediately followed by full re-reads ("bounces"), tracks wasted tokens per file extension, and adjusts savings metrics to report honest numbers.
 - **Context Gate** — New `context_gate` module provides pre-dispatch mode override (bounce-prevention, intent-target, graph-proximity, knowledge-relevance) and post-dispatch recording with eviction/elicitation hints for every read operation.
 - **MCP Resources** — 5 subscribe-capable resources (`lean-ctx://context/summary`, `/pressure`, `/plan`, `/pinned`, `/bounce`) expose context state to supporting IDEs without tool-call overhead.
@@ -15,6 +23,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - **Dynamic Tools** — 6 tool categories (core, arch, debug, memory, metrics, session) with on-demand loading via `tools/list_changed` for clients that support it; Windsurf 100-tool limit handled automatically.
 - **Client Capability Detection** — Runtime detection of 9 IDE clients with Tier 1–4 classification; dynamically gates MCP resources, prompts, elicitation, and dynamic tools based on client support.
 - **Dashboard Control Plane** — 4 new API endpoints (`/api/context-bounce`, `/api/context-client`, `/api/context-pressure`, `/api/context-dynamic-tools`) with Runtime Control Plane panel showing IDE indicator, pressure gauge, bounce stats, and dynamic tool status.
+- **Hybrid Enforcement** — Automatic rewrite of `rg`, `ls`, and `find` commands to lean-ctx equivalents via shell hooks, ensuring all reads go through the cached MCP path.
+- **Silent-by-default** — All meta output (budget warnings, session hints, compression stats) gated behind `protocol::meta_visible()`, keeping tool results clean for programmatic consumers.
+- **Pi Extension improvements** — Builtin tool replacement: ctx_ versions automatically disable overlapping Pi builtins. MCP bridge cleanup removes redundant CLI tool prefix filter. (PR #216)
+
+### Fixed
+
+- **Budget not resetting on `/new`** — `BudgetTracker` and `context_radar.jsonl` now reset on MCP `initialize` (the real session boundary when IDE starts a new connection), not on task change. SharedSession mode correctly skips reset to avoid killing counters for other clients in daemon setups.
+- **Tool preference lost after compaction** — LITM `end_block` now includes tool-preference reinforcement line (`ctx_read>Read ctx_shell>Shell ...`) for sessions with 3+ tool calls, surviving IDE compaction.
+- **`ctx_read` hang in subagents** (#215) — Removed redundant `tokio::task::block_in_place` call and minimized `cache_lock.blocking_write()` scope to prevent async runtime contention.
+- **`ctx_read` 57s on large files** — Introduced 32KB content limit for semantic indexing and 200-entry cap for similarity search, reducing 64KB Cyrillic markdown from 57s to 0.59s.
+- **Windows `cargo-binstall` failures** (#213) — Development-only binaries (`gen_mcp_manifest`, `gen_tdd_schema`) moved from `[[bin]]` to `[[example]]` so `cargo install` and `cargo-binstall` skip them.
+- **Windows `doctor` bashrc false positive** (#214) — `is_active_shell_impl` now checks `BASH_VERSION` on Windows before flagging `.bashrc` as outdated.
+- **Windows `env.sh` bash validation** — Skip `bash -n` syntax check on Windows where backslash paths are invalid bash.
+- **Windows named pipe `pipe_exists_true` test** — Changed `#[test]` to `#[tokio::test]` since `ServerOptions::create()` requires a Tokio runtime context.
+- **macOS process hangs on update** — Atomic binary replacement prevents corruption during self-update.
+- **`env.sh` for-loop syntax error** (#212) — Removed `2>/dev/null` from `for _lf in` loop that broke POSIX shell parsing.
+- **JSONL audit trail lost on reset** — Session reset and new session events now rotate `context_radar.jsonl` to `.prev` instead of truncating.
+
+### Changed
+
+- **Logging defaults** — CLI default remains `warn` (clean output); daemon/MCP mode defaults to `info`. Early `init_logging()` in `run()` skips MCP entry paths so `init_mcp_logging()` can set its own level.
+- **Radar memory cap** — `load_events()` caps at 50,000 entries (keeps last N), preventing unbounded memory growth in extremely long sessions.
+- **LITM compaction threshold** — Tool-preference injection in `end_block` lowered from >10 to >3 tool calls, matching typical compaction timing in Claude Code (5–8 calls).
+- **`lettre` advisory ignored** — RUSTSEC-2026-0141 (Boring TLS hostname verification) added to `deny.toml` and `audit.toml` ignore lists; lean-ctx uses rustls, not Boring TLS.
 
 ## [3.5.25] — 2026-05-13
 
