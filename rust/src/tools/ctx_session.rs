@@ -211,7 +211,11 @@ stale_files: {}\n",
 
         "task" => {
             let desc = value.unwrap_or("(no description)");
+            let had_task = session.task.is_some();
             session.set_task(desc, None);
+            if had_task {
+                crate::core::budget_tracker::BudgetTracker::global().reset();
+            }
             format!("Task set: {desc}")
         }
 
@@ -233,6 +237,10 @@ stale_files: {}\n",
             let old_id = session.id.clone();
             *session = SessionState::new();
             crate::core::budget_tracker::BudgetTracker::global().reset();
+            if let Ok(data_dir) = crate::core::data_dir::lean_ctx_data_dir() {
+                let radar_path = data_dir.join("context_radar.jsonl");
+                let _ = std::fs::write(&radar_path, "");
+            }
             format!("Session reset. Previous: {old_id}. New: {}", session.id)
         }
 
