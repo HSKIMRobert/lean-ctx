@@ -80,3 +80,80 @@ impl NamedPipeListener {
         &self.name
     }
 }
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+    use tokio::net::windows::named_pipe::{ClientOptions, ServerOptions};
+    use std::time::Duration;
+
+    /// connect() retries NotFound, does not return a hard error before test timeout.
+    #[tokio::test]
+    async fn connect_retries_notfound() {
+        let pipe_name = r"\\.\pipe\lean-ctx-test-notfound";
+        let result = tokio::time::timeout(
+            Duration::from_millis(150),
+            connect(pipe_name),
+        )
+        .await;
+        // Must time out (retries), NOT return a hard error.
+        assert!(result.is_err(), "should retry and be killed by timeout, not hard-error");
+    }
+
+    // TODO: connect_retries_pipe_busy — needs reliable ERROR_PIPE_BUSY reproduction.
+    // PIPE_BUSY occurs when a pipe instance exists but all instances are busy (real
+    // mid-rotation race). Constructing this in a unit test is fragile; verify on
+    // Windows manually or via integration test with concurrent clients.
+
+    /// connect() bails immediately on non-retryable errors.
+    #[tokio::test]
+    async fn connect_fails_on_hard_error() {
+        // An invalid pipe name should fail immediately (not NotFound, not PIPE_BUSY).
+        let result = connect("invalid_pipe_format_no_backslash_prefix").await;
+        assert!(result.is_err());
+    }
+
+    /// WaitNamedPipeW returns true for an existing pipe.
+    #[test]
+    fn pipe_exists_true() {
+        let pipe_name = r"\\.\pipe\lean-ctx-test-exists";
+        let _server = ServerOptions::new()
+            .first_pipe_instance(true)
+            .create(pipe_name)
+            .expect("create test pipe");
+        assert!(pipe_exists(pipe_name));
+    }
+
+    /// WaitNamedPipeW returns false for a nonexistent pipe.
+    #[test]
+    fn pipe_exists_false() {
+        let pipe_name = r"\\.\pipe\lean-ctx-test-gone-bogus";
+        assert!(!pipe_exists(pipe_name));
+    }
+
+    /// accept_pipe() waits for current, creates next, returns connected server.
+    /// Two sequential client→accept→drop cycles verify instance rotation.
+    #[tokio::test]
+    async fn accept_pipe_rotates_after_connect() {
+        let pipe_name = r"\\.\pipe\lean-ctx-test-rotate";
+        let mut listener = NamedPipeListener::bind(pipe_name).expect("bind");
+
+        // Client 1
+        let c1 = tokio::spawn({
+            let n = pipe_name.to_string();
+            async move { ClientOptions::new().open(&n) }
+        });
+        let s1 = listener.accept_pipe().await.expect("accept 1");
+        let _c1 = c1.await.unwrap().expect("client 1 connect");
+        drop(s1);
+
+        // Client 2 — the rotated instance should be ready.
+        let c2 = tokio::spawn({
+            let n = pipe_name.to_string();
+            async move { ClientOptions::new().open(&n) }
+        });
+        let s2 = listener.accept_pipe().await.expect("accept 2");
+        let _c2 = c2.await.unwrap().expect("client 2 connect");
+        drop(s2);
+    }
+}
