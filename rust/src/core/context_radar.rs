@@ -41,6 +41,14 @@ pub struct BudgetBreakdown {
     pub tracked_total: usize,
     pub available: usize,
     pub compaction_count: usize,
+    pub session_total_tokens: usize,
+    pub session_user_tokens: usize,
+    pub session_agent_tokens: usize,
+    pub session_lctx_tokens: usize,
+    pub session_mcp_tokens: usize,
+    pub session_native_tokens: usize,
+    pub session_shell_tokens: usize,
+    pub session_thinking_tokens: usize,
     pub source: String,
 }
 
@@ -120,67 +128,124 @@ impl ContextRadar {
     }
 
     pub fn budget_breakdown(&self) -> BudgetBreakdown {
-        let mut user_message_tokens = 0;
-        let mut agent_response_tokens = 0;
-        let mut lean_ctx_tool_tokens = 0;
-        let mut other_mcp_tokens = 0;
-        let mut native_read_tokens = 0;
-        let mut shell_tokens = 0;
-        let mut thinking_tokens = 0;
         let mut compaction_count = 0;
+        let mut last_compaction_idx: Option<usize> = None;
+
+        for (i, event) in self.events.iter().enumerate() {
+            if event.event_type == "compaction" {
+                compaction_count += 1;
+                last_compaction_idx = Some(i);
+            }
+        }
+
+        let current_window_start = last_compaction_idx.map_or(0, |i| i + 1);
+        let current_events = &self.events[current_window_start..];
+
+        let (mut user_cur, mut agent_cur, mut lctx_cur, mut mcp_cur) = (0, 0, 0, 0);
+        let (mut native_cur, mut shell_cur, mut thinking_cur) = (0, 0, 0);
+        let (mut user_all, mut agent_all, mut lctx_all, mut mcp_all) = (0, 0, 0, 0);
+        let (mut native_all, mut shell_all, mut thinking_all) = (0, 0, 0);
 
         for event in &self.events {
-            match event.event_type.as_str() {
-                "user_message" => user_message_tokens += event.tokens,
-                "agent_response" => agent_response_tokens += event.tokens,
-                "mcp_call" => {
-                    let is_leanctx = event
-                        .detail
-                        .as_deref()
-                        .is_some_and(|d| d.contains("lean-ctx"))
-                        || event
-                            .tool_name
-                            .as_deref()
-                            .is_some_and(|t| t.starts_with("ctx_"));
-                    if is_leanctx {
-                        lean_ctx_tool_tokens += event.tokens;
-                    } else {
-                        other_mcp_tokens += event.tokens;
-                    }
-                }
-                "native_tool" | "file_read" => native_read_tokens += event.tokens,
-                "shell" => shell_tokens += event.tokens,
-                "thinking" => thinking_tokens += event.tokens,
-                "compaction" => compaction_count += 1,
-                _ => {}
-            }
+            Self::classify_event(
+                event,
+                &mut user_all,
+                &mut agent_all,
+                &mut lctx_all,
+                &mut mcp_all,
+                &mut native_all,
+                &mut shell_all,
+                &mut thinking_all,
+            );
+        }
+        for event in current_events {
+            Self::classify_event(
+                event,
+                &mut user_cur,
+                &mut agent_cur,
+                &mut lctx_cur,
+                &mut mcp_cur,
+                &mut native_cur,
+                &mut shell_cur,
+                &mut thinking_cur,
+            );
         }
 
         let system_prompt_tokens = self.rules_tokens.total;
         let tracked_total = system_prompt_tokens
-            + user_message_tokens
-            + agent_response_tokens
-            + lean_ctx_tool_tokens
-            + other_mcp_tokens
-            + native_read_tokens
-            + shell_tokens;
-
+            + user_cur
+            + agent_cur
+            + lctx_cur
+            + mcp_cur
+            + native_cur
+            + shell_cur;
         let available = self.window_size.saturating_sub(tracked_total);
+
+        let session_total = system_prompt_tokens
+            + user_all
+            + agent_all
+            + lctx_all
+            + mcp_all
+            + native_all
+            + shell_all;
 
         BudgetBreakdown {
             window_size: self.window_size,
             system_prompt_tokens,
-            user_message_tokens,
-            agent_response_tokens,
-            lean_ctx_tool_tokens,
-            other_mcp_tokens,
-            native_read_tokens,
-            shell_tokens,
-            thinking_tokens,
+            user_message_tokens: user_cur,
+            agent_response_tokens: agent_cur,
+            lean_ctx_tool_tokens: lctx_cur,
+            other_mcp_tokens: mcp_cur,
+            native_read_tokens: native_cur,
+            shell_tokens: shell_cur,
+            thinking_tokens: thinking_cur,
             tracked_total,
             available,
             compaction_count,
+            session_total_tokens: session_total,
+            session_user_tokens: user_all,
+            session_agent_tokens: agent_all,
+            session_lctx_tokens: lctx_all,
+            session_mcp_tokens: mcp_all,
+            session_native_tokens: native_all,
+            session_shell_tokens: shell_all,
+            session_thinking_tokens: thinking_all,
             source: "hooks + rules-scan".to_string(),
+        }
+    }
+
+    fn classify_event(
+        event: &RadarEvent,
+        user: &mut usize,
+        agent: &mut usize,
+        lctx: &mut usize,
+        mcp: &mut usize,
+        native: &mut usize,
+        shell: &mut usize,
+        thinking: &mut usize,
+    ) {
+        match event.event_type.as_str() {
+            "user_message" => *user += event.tokens,
+            "agent_response" => *agent += event.tokens,
+            "mcp_call" => {
+                let is_leanctx = event
+                    .detail
+                    .as_deref()
+                    .is_some_and(|d| d.contains("lean-ctx"))
+                    || event
+                        .tool_name
+                        .as_deref()
+                        .is_some_and(|t| t.starts_with("ctx_"));
+                if is_leanctx {
+                    *lctx += event.tokens;
+                } else {
+                    *mcp += event.tokens;
+                }
+            }
+            "native_tool" | "file_read" => *native += event.tokens,
+            "shell" => *shell += event.tokens,
+            "thinking" => *thinking += event.tokens,
+            _ => {}
         }
     }
 
@@ -190,7 +255,7 @@ impl ContextRadar {
             if b.window_size == 0 {
                 0.0
             } else {
-                tokens as f64 / b.window_size as f64 * 100.0
+                (tokens as f64 / b.window_size as f64 * 100.0).min(100.0)
             }
         };
         let bar = |tokens: usize| -> String {
@@ -200,9 +265,15 @@ impl ContextRadar {
 
         let mut out = String::new();
         out.push_str(&format!(
-            "CONTEXT RADAR ({:.0}k window)\n",
+            "CONTEXT RADAR — Current Window ({:.0}k)\n",
             b.window_size as f64 / 1000.0
         ));
+        if b.compaction_count > 0 {
+            out.push_str(&format!(
+                "  (after {} compaction(s) — showing current window only)\n",
+                b.compaction_count
+            ));
+        }
         out.push_str(&format!(
             "  System Prompt (est.): {:>8} tok {:>5.1}%  {}\n",
             fmt_num(b.system_prompt_tokens),
@@ -256,13 +327,17 @@ impl ContextRadar {
             fmt_num(b.available),
             pct(b.available)
         ));
-        if b.compaction_count > 0 {
-            out.push_str(&format!("  Compactions:          {}\n", b.compaction_count));
-        }
         if b.thinking_tokens > 0 {
             out.push_str(&format!(
                 "  Thinking (not in window): {:>5} tok\n",
                 fmt_num(b.thinking_tokens)
+            ));
+        }
+        if b.session_total_tokens > b.tracked_total {
+            out.push_str(&format!(
+                "\n  SESSION TOTAL:        {:>8} tok (across {} compaction(s))\n",
+                fmt_num(b.session_total_tokens),
+                b.compaction_count
             ));
         }
         out.push_str(&format!("  Source: {}\n", b.source));
@@ -334,11 +409,45 @@ mod tests {
     }
 
     #[test]
+    fn budget_breakdown_resets_after_compaction() {
+        let mut radar = ContextRadar::new(100_000);
+        radar.events.push(RadarEvent {
+            ts: 1,
+            event_type: "user_message".to_string(),
+            tokens: 50_000,
+            tool_name: None,
+            detail: None,
+        });
+        radar.events.push(RadarEvent {
+            ts: 2,
+            event_type: "compaction".to_string(),
+            tokens: 0,
+            tool_name: None,
+            detail: None,
+        });
+        radar.events.push(RadarEvent {
+            ts: 3,
+            event_type: "user_message".to_string(),
+            tokens: 10_000,
+            tool_name: None,
+            detail: None,
+        });
+        let b = radar.budget_breakdown();
+        assert_eq!(
+            b.user_message_tokens, 10_000,
+            "only counts since compaction"
+        );
+        assert_eq!(b.available, 90_000);
+        assert_eq!(b.compaction_count, 1);
+        assert_eq!(b.session_user_tokens, 60_000, "session total includes all");
+    }
+
+    #[test]
     fn format_display_not_empty() {
         let radar = ContextRadar::new(200_000);
         let display = radar.format_display();
         assert!(display.contains("CONTEXT RADAR"));
-        assert!(display.contains("200k window"));
+        assert!(display.contains("200k"));
     }
 
     #[test]
