@@ -12,6 +12,9 @@ const CLI_OVERRIDE_TOOLS = new Set([
   "ctx_tree",
 ]);
 
+// Extension-registered tool prefix — skip these to avoid double-registration
+const EXTENSION_TOOL_PREFIX = "ctx_";
+
 const MAX_RECONNECT_ATTEMPTS = 3;
 const RECONNECT_DELAY_MS = 2000;
 const TOOL_CALL_TIMEOUT_MS = 120000;
@@ -147,6 +150,7 @@ export class McpBridge {
 
     for (const tool of tools) {
       if (CLI_OVERRIDE_TOOLS.has(tool.name)) continue;
+      if (tool.name.startsWith(EXTENSION_TOOL_PREFIX)) continue;
       this.registerMcpTool(pi, tool);
     }
   }
