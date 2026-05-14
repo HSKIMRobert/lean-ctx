@@ -144,14 +144,18 @@ fn hook_dirs() -> Vec<std::path::PathBuf> {
     dirs
 }
 
-fn is_active_shell(rc_name: &str) -> bool {
-    let shell = std::env::var("SHELL").unwrap_or_default();
+fn is_active_shell_impl(rc_name: &str, shell: &str, is_windows: bool) -> bool {
     match rc_name {
         "~/.zshrc" => shell.contains("zsh"),
-        "~/.bashrc" => shell.contains("bash") || shell.is_empty(),
+        "~/.bashrc" => shell.contains("bash") || (!is_windows && shell.is_empty()),
         "~/.config/fish/config.fish" => shell.contains("fish"),
         _ => true,
     }
+}
+
+fn is_active_shell(rc_name: &str) -> bool {
+    let shell = std::env::var("SHELL").unwrap_or_default();
+    is_active_shell_impl(rc_name, &shell, cfg!(windows))
 }
 
 pub(super) fn shell_aliases_outcome() -> Outcome {
@@ -1451,7 +1455,7 @@ fn ram_guardian_outcome() -> Outcome {
             ),
         };
     };
-    let allocator = if cfg!(feature = "jemalloc") {
+    let allocator = if cfg!(all(feature = "jemalloc", not(windows))) {
         "jemalloc"
     } else {
         "system"
@@ -1467,5 +1471,30 @@ fn ram_guardian_outcome() -> Outcome {
             snap.rss_percent,
             snap.rss_limit_bytes as f64 / 1_048_576.0,
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_active_shell_impl;
+
+    #[test]
+    fn bashrc_active_on_non_windows_when_shell_empty() {
+        assert!(is_active_shell_impl("~/.bashrc", "", false));
+    }
+
+    #[test]
+    fn bashrc_not_active_on_windows_when_shell_empty() {
+        assert!(!is_active_shell_impl("~/.bashrc", "", true));
+    }
+
+    #[test]
+    fn bashrc_active_when_shell_contains_bash() {
+        assert!(is_active_shell_impl("~/.bashrc", "/usr/bin/bash", false));
+        assert!(is_active_shell_impl(
+            "~/.bashrc",
+            "C:\\\\Program Files\\\\Git\\\\bin\\\\bash.exe",
+            true
+        ));
     }
 }

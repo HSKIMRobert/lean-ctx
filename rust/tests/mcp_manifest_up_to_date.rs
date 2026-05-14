@@ -15,7 +15,7 @@ fn mcp_manifest_is_up_to_date() {
             // (We keep the skip for minimal checkouts that exclude `website/` entirely.)
             assert!(
                 !repo_root.join("website").exists(),
-                "missing manifest at {}: {e}\nRun:\n  cargo run --bin gen_mcp_manifest\n",
+                "missing manifest at {}: {e}\nRun:\n  cargo run --features dev-tools --bin gen_mcp_manifest\n",
                 path.display()
             );
             eprintln!(
@@ -32,7 +32,7 @@ fn mcp_manifest_is_up_to_date() {
     assert_eq!(
         on_disk,
         expected,
-        "manifest drift at {}.\nRegenerate via:\n  cargo run --bin gen_mcp_manifest\n",
+        "manifest drift at {}.\nRegenerate via:\n  cargo run --features dev-tools --bin gen_mcp_manifest\n",
         path.display()
     );
 }

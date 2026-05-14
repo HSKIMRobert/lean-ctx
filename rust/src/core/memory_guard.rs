@@ -114,7 +114,7 @@ impl MemorySnapshot {
 
 /// Force-purge all jemalloc arenas to return memory to the OS.
 pub fn jemalloc_purge() {
-    #[cfg(feature = "jemalloc")]
+    #[cfg(all(feature = "jemalloc", not(windows)))]
     {
         use tikv_jemalloc_ctl::raw;
         let purge_mib = b"arena.4096.purge\0";
