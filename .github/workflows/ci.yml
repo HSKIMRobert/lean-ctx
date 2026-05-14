@@ -73,7 +73,7 @@ jobs:
         shell: bash
         run: |
           if [[ "${{ runner.os }}" == "macOS" ]]; then
-            CARGO="$(rustup which cargo)"
+            CARGO="${CARGO_HOME}/bin/cargo"
           else
             CARGO="cargo"
           fi
