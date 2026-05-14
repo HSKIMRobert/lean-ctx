@@ -20,9 +20,23 @@ pub(super) fn pipe_exists(name: &str) -> bool {
 pub(super) async fn connect(
     pipe_name: &str,
 ) -> Result<tokio::net::windows::named_pipe::NamedPipeClient> {
-    ClientOptions::new()
-        .open(pipe_name)
-        .with_context(|| format!("connect to daemon pipe {pipe_name}"))
+    use std::time::Duration;
+    use windows_sys::Win32::Foundation::ERROR_PIPE_BUSY;
+
+    loop {
+        match ClientOptions::new().open(pipe_name) {
+            Ok(client) => return Ok(client),
+            Err(e)
+                if e.kind() == std::io::ErrorKind::NotFound
+                    || e.raw_os_error() == Some(ERROR_PIPE_BUSY as i32) =>
+            {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            Err(e) => {
+                anyhow::bail!("connect to daemon pipe {pipe_name}: {e}");
+            }
+        }
+    }
 }
 
 /// Server-side named-pipe listener, analogous to `UnixListener`.
