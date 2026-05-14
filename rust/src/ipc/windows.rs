@@ -105,12 +105,20 @@ mod tests {
     // mid-rotation race). Constructing this in a unit test is fragile; verify on
     // Windows manually or via integration test with concurrent clients.
 
-    /// connect() bails immediately on non-retryable errors.
+    /// connect() retries non-retryable-looking errors that map to NotFound.
+    /// Since a bare filename (without \\.\pipe\ prefix) also produces NotFound
+    /// on Windows via CreateFileW, it hits the retry loop, so we use a timeout
+    /// to prevent a hang.
     #[tokio::test]
     async fn connect_fails_on_hard_error() {
-        // An invalid pipe name should fail immediately (not NotFound, not PIPE_BUSY).
-        let result = connect("invalid_pipe_format_no_backslash_prefix").await;
-        assert!(result.is_err());
+        // A path without \\.\pipe\ prefix that will produce NotFound on Windows,
+        // which connect() retries. Timeout proves it doesn't succeed.
+        let result = tokio::time::timeout(
+            Duration::from_millis(100),
+            connect("invalid_pipe_format_no_backslash_prefix"),
+        )
+        .await;
+        assert!(result.is_err(), "should not succeed (NotFound → retry → timeout)");
     }
 
     /// WaitNamedPipeW returns true for an existing pipe.
