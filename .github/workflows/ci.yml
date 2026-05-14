@@ -165,7 +165,11 @@ jobs:
         working-directory: rust
         env:
           CARGO_BUILD_JOBS: "2"
-        run: cargo tarpaulin --out xml --skip-clean --all-features --timeout 180 --exclude-files 'src/cli/*' --exclude-files 'src/main.rs' -- --test-threads=1
+        run: |
+          cargo tarpaulin --out xml --skip-clean --all-features --lib --timeout 180 \
+            --exclude-files 'src/cli/*' --exclude-files 'src/main.rs' \
+            -- --test-threads=1
+          pkill -f 'target.*lean-ctx' 2>/dev/null || true
       - name: Upload to Codecov
         uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4
         with:
