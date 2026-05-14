@@ -50,6 +50,15 @@ impl ServerHandler for LeanCtxServer {
         tracing::info!("MCP client connected: {:?}", name);
         *self.client_name.write().await = name.clone();
 
+        crate::core::budget_tracker::BudgetTracker::global().reset();
+        if let Ok(data_dir) = crate::core::data_dir::lean_ctx_data_dir() {
+            let radar = data_dir.join("context_radar.jsonl");
+            if radar.exists() {
+                let prev = data_dir.join("context_radar.prev.jsonl");
+                let _ = std::fs::rename(&radar, &prev);
+            }
+        }
+
         let derived_root = derive_project_root_from_cwd();
         let cwd_str = std::env::current_dir()
             .ok()

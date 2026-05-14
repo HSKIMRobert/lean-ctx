@@ -5,8 +5,11 @@ use crate::{
 use anyhow::Result;
 
 pub fn run() {
-    crate::core::logging::init_logging();
     let args: Vec<String> = std::env::args().collect();
+    let enters_mcp = args.get(1).is_some_and(|a| a == "serve" || a == "--stdio");
+    if !enters_mcp {
+        crate::core::logging::init_logging();
+    }
 
     if args.len() > 1 {
         let rest = args[2..].to_vec();
