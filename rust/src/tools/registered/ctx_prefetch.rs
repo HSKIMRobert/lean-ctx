@@ -80,6 +80,7 @@ impl McpTool for CtxPrefetchTool {
             saved_tokens: 0,
             mode: Some("prefetch".to_string()),
             path: None,
+            changed: false,
         })
     }
 }

@@ -500,6 +500,9 @@ impl BM25Index {
     }
 
     pub fn load_or_build(root: &Path) -> Self {
+        if !is_safe_bm25_root(root) {
+            return Self::default();
+        }
         if let Some(idx) = Self::load(root) {
             if !bm25_index_looks_stale(&idx, root) {
                 return idx;
@@ -534,6 +537,27 @@ impl BM25Index {
         }
         dir.join("bm25_index.json")
     }
+}
+
+fn is_safe_bm25_root(root: &Path) -> bool {
+    let root_str = root.to_string_lossy();
+    if root_str == "/" || root_str == "\\" || root_str == "." {
+        tracing::warn!("[bm25_index: refusing to index filesystem root]");
+        return false;
+    }
+    if let Some(home) = dirs::home_dir() {
+        let home_str = home.to_string_lossy();
+        if root_str.as_ref() == home_str.as_ref()
+            || root_str.as_ref() == format!("{home_str}/").as_str()
+        {
+            tracing::warn!(
+                "[bm25_index: refusing to index home directory {root_str} — \
+                 run `lean-ctx dashboard` from inside a project, or set LEAN_CTX_PROJECT_ROOT]"
+            );
+            return false;
+        }
+    }
+    true
 }
 
 fn bm25_index_looks_stale(index: &BM25Index, root: &Path) -> bool {

@@ -21,12 +21,13 @@ fn set_legacy_terse(terse: &str) {
     std::env::remove_var("LEAN_CTX_COMPRESSION");
     std::env::set_var("LEAN_CTX_TERSE_AGENT", terse);
     std::env::remove_var("LEAN_CTX_OUTPUT_DENSITY");
-    isolate_config();
+    isolate_config_with_compression_off();
 }
 
-fn isolate_config() {
-    let tmp = std::env::temp_dir().join("lean_ctx_test_config_empty");
+fn isolate_config_with_compression_off() {
+    let tmp = std::env::temp_dir().join("lean_ctx_test_config_legacy");
     let _ = std::fs::create_dir_all(&tmp);
+    let _ = std::fs::write(tmp.join("config.toml"), "compression_level = \"off\"\n");
     std::env::set_var("LEAN_CTX_DATA_DIR", &tmp);
 }
 
@@ -209,8 +210,11 @@ fn compression_level_config_deserializes() {
 }
 
 #[test]
-fn compression_level_config_default_off() {
+fn compression_level_config_default_standard() {
     let toml = "";
     let config: Config = toml::from_str(toml).expect("empty toml should use defaults");
-    assert!(matches!(config.compression_level, CompressionLevel::Off));
+    assert!(matches!(
+        config.compression_level,
+        CompressionLevel::Standard
+    ));
 }

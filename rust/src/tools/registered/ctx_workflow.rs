@@ -57,6 +57,7 @@ impl McpTool for CtxWorkflowTool {
             saved_tokens: 0,
             mode: Some(action),
             path: None,
+            changed: false,
         })
     }
 }

@@ -87,6 +87,7 @@ impact (blast radius), status (stats), enrich (add commits+tests+knowledge), con
             saved_tokens: 0,
             mode: Some(action),
             path: None,
+            changed: false,
         })
     }
 }

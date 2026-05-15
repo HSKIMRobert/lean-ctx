@@ -21,7 +21,7 @@ This catalog is the single feature inventory for LeanCTX at release/runtime leve
 
 ## Runtime Surface (Current)
 
-- Granular MCP tools: **56**
+- Granular MCP tools: **51**
 - Unified MCP tools: **5**
 - MCP Resources: **5**
 - MCP Prompts: **5**
@@ -43,7 +43,7 @@ This catalog is the single feature inventory for LeanCTX at release/runtime leve
 
 ---
 
-## Granular MCP Tools (56)
+## Granular MCP Tools (51)
 
 ### A) Read / Search / IO Surface
 
@@ -158,7 +158,7 @@ Fallback hints emitted for non-supporting IDEs.
 
 ### Dynamic Tool Categories (6)
 
-On-demand loading via `tools/list_changed`:
+On-demand loading via `ctx_load_tools` + `notifications/tools/list_changed`:
 
 - **core** (~27 tools, always loaded)
 - **arch**
@@ -167,23 +167,29 @@ On-demand loading via `tools/list_changed`:
 - **metrics**
 - **session**
 
+`ctx_load_tools` _(actions: load, unload, list)_ — explicit category management at runtime. After each change, `notifications/tools/list_changed` is sent to subscribed clients.
+
 ---
 
 ## Intelligence Layer
 
-### Context Gate
+### Context Gate (Active)
 
 Pre-dispatch mode override:
 
+- **Overlay override** (pin/exclude/set_view)
+- **Pressure-based auto-downgrade** (ForceCompression: full→map, EvictLeastRelevant: map→signatures)
 - Bounce-prevention
-- Intent-target
+- Intent-target (with real task from SessionState)
 - Graph-proximity
 - Knowledge-relevance
 
 Post-dispatch:
 
-- Ledger recording
+- Ledger recording (with real task Φ computation)
+- Reinjection plan (downgrade existing "full" entries to "map" under pressure)
 - Eviction/elicitation hints
+- `notifications/resources/updated` on significant ledger changes
 
 ### Bounce Detection
 

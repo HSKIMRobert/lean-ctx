@@ -118,8 +118,9 @@ pub fn detect_project_root_or_cwd(file_path: &str) -> String {
         static WARN_ONCE: Once = Once::new();
         WARN_ONCE.call_once(|| {
             tracing::warn!(
-                "[protocol: no project markers found — falling back to broad directory {fallback}. \
-                 Set LEAN_CTX_PROJECT_ROOT to override]"
+                "[protocol: no project detected — current directory is {fallback} which is not a project root.\n  \
+                 To fix: run from inside a project (with .git, Cargo.toml, package.json, etc.)\n  \
+                 Or set: export LEAN_CTX_PROJECT_ROOT=/path/to/your/project]"
             );
         });
     }

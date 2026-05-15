@@ -10,6 +10,9 @@ pub struct ToolOutput {
     pub mode: Option<String>,
     /// Path associated with the tool call (for record_call_with_path).
     pub path: Option<String>,
+    /// True when the tool mutated state that clients should know about
+    /// (e.g. dynamic tool categories changed).
+    pub changed: bool,
 }
 
 impl ToolOutput {
@@ -20,6 +23,7 @@ impl ToolOutput {
             saved_tokens: 0,
             mode: None,
             path: None,
+            changed: false,
         }
     }
 
@@ -30,6 +34,7 @@ impl ToolOutput {
             saved_tokens: saved,
             mode: None,
             path: None,
+            changed: false,
         }
     }
 }
@@ -37,7 +42,7 @@ impl ToolOutput {
 /// Trait for a self-contained MCP tool. Each tool provides its own schema
 /// definition and handler, eliminating the possibility of schema/handler drift.
 ///
-/// Handlers are synchronous because all 47 existing tool handlers are sync.
+/// Handlers are synchronous because all existing tool handlers are sync.
 /// The async boundary (cache locks, session reads) is handled by the dispatch
 /// layer before calling `handle`.
 pub trait McpTool: Send + Sync {
@@ -89,6 +94,8 @@ pub struct ToolContext {
     pub call_count: Option<std::sync::Arc<std::sync::atomic::AtomicUsize>>,
     /// Autonomy state for search repeat detection.
     pub autonomy: Option<std::sync::Arc<crate::tools::autonomy::AutonomyState>>,
+    /// Pre-computed context pressure snapshot for synchronous gate decisions.
+    pub pressure_snapshot: Option<crate::core::context_ledger::ContextPressure>,
 }
 
 impl ToolContext {

@@ -78,6 +78,7 @@ pull (receive files shared by other agents), list (show all shared contexts), cl
             saved_tokens: 0,
             mode: Some(action),
             path: None,
+            changed: false,
         })
     }
 }

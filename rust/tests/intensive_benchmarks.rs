@@ -67,11 +67,10 @@ fn bench_system_instructions_token_count() {
         tok_tdd,
         instructions_tdd.len()
     );
-    eprintln!(
-        "  Compact overhead: +{} tokens vs Off",
-        tok_compact - tok_off
-    );
-    eprintln!("  TDD overhead:     +{} tokens vs Off", tok_tdd - tok_off);
+    let compact_overhead = (tok_compact as i64) - (tok_off as i64);
+    let tdd_overhead = (tok_tdd as i64) - (tok_off as i64);
+    eprintln!("  Compact overhead: {compact_overhead:+} tokens vs Off");
+    eprintln!("  TDD overhead:     {tdd_overhead:+} tokens vs Off");
     eprintln!("{}", "=".repeat(70));
 
     assert!(
@@ -96,12 +95,12 @@ fn bench_system_instructions_token_count() {
         "Claude Code instructions MUST be <=2048 chars, got {claude_chars}"
     );
     assert!(
-        tok_compact - tok_off < 300,
-        "Compact mode overhead should be <300 tokens"
+        compact_overhead.unsigned_abs() < 300,
+        "Compact mode overhead should be <300 tokens, got {compact_overhead}"
     );
     assert!(
-        tok_tdd - tok_off < 650,
-        "TDD mode overhead should be <650 tokens"
+        tdd_overhead.unsigned_abs() < 650,
+        "TDD mode overhead should be <650 tokens, got {tdd_overhead}"
     );
 }
 

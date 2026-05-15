@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 const MARKER: &str = "# lean-ctx — Context Engineering Layer";
 const END_MARKER: &str = "<!-- /lean-ctx -->";
-const RULES_VERSION: &str = "lean-ctx-rules-v9";
+const RULES_VERSION: &str = "lean-ctx-rules-v10";
 
 pub const RULES_MARKER: &str = MARKER;
 pub const RULES_VERSION_STR: &str = RULES_VERSION;
@@ -23,7 +23,7 @@ pub fn rules_shared_content() -> &'static str {
 // Used for: CLAUDE.md, instructions.md, GEMINI.md, copilot-instructions.md
 // ---------------------------------------------------------------------------
 const RULES_SHARED: &str = r"# lean-ctx — Context Engineering Layer
-<!-- lean-ctx-rules-v9 -->
+<!-- lean-ctx-rules-v10 -->
 
 CRITICAL: ALWAYS use lean-ctx tools instead of native equivalents. This is NOT optional.
 
@@ -51,7 +51,7 @@ REMINDER: You MUST use lean-ctx tools. NEVER use native Read, Grep, or Shell dir
 // Used for: Windsurf, Zed, Cline, Roo Code, OpenCode, Continue, Aider
 // ---------------------------------------------------------------------------
 const RULES_DEDICATED: &str = r"# lean-ctx — Context Engineering Layer
-<!-- lean-ctx-rules-v9 -->
+<!-- lean-ctx-rules-v10 -->
 
 CRITICAL: ALWAYS use lean-ctx tools instead of native equivalents. This is NOT optional.
 

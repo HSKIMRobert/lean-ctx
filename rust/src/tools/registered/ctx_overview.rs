@@ -63,6 +63,7 @@ impl McpTool for CtxOverviewTool {
             saved_tokens: 0,
             mode: Some("overview".to_string()),
             path: None,
+            changed: false,
         })
     }
 }

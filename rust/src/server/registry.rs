@@ -148,6 +148,7 @@ pub fn build_registry() -> ToolRegistry {
     registry.register(Box::new(registered::ctx_task::CtxTaskTool));
     registry.register(Box::new(registered::ctx_handoff::CtxHandoffTool));
     registry.register(Box::new(registered::ctx_workflow::CtxWorkflowTool));
+    registry.register(Box::new(registered::ctx_load_tools::CtxLoadToolsTool));
 
     registry
 }

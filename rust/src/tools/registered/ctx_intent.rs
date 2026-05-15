@@ -59,6 +59,7 @@ impl McpTool for CtxIntentTool {
             saved_tokens: 0,
             mode: Some("semantic".to_string()),
             path: None,
+            changed: false,
         })
     }
 }

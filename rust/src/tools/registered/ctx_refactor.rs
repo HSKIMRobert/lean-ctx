@@ -50,6 +50,7 @@ impl McpTool for CtxRefactorTool {
             saved_tokens: 0,
             mode: Some(action),
             path: get_str(args, "path"),
+            changed: false,
         })
     }
 }

@@ -138,6 +138,7 @@ impl McpTool for CtxShellTool {
                 saved_tokens: saved,
                 mode,
                 path: None,
+                changed: false,
             })
         })
     }

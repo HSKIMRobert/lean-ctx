@@ -300,9 +300,7 @@ pub fn enrich_after_read(
                 },
             });
             record_event(AutonomyPhaseV1::PostRead, "ctx_read", None, decisions);
-            if !summary.is_empty() {
-                result.prefetch_hint = Some(format!("[prefetch] {summary}"));
-            }
+            let _ = summary;
         }
     }
 
@@ -313,7 +311,6 @@ pub fn enrich_after_read(
 #[derive(Default)]
 pub struct EnrichResult {
     pub related_hint: Option<String>,
-    pub prefetch_hint: Option<String>,
 }
 
 fn build_related_hints(

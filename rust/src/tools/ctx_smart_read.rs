@@ -96,9 +96,7 @@ fn heuristic_mode(ext: &str, token_count: usize) -> String {
 }
 
 pub fn handle(cache: &mut SessionCache, path: &str, crp_mode: CrpMode) -> String {
-    let mode = select_mode(cache, path);
-    let result = crate::tools::ctx_read::handle(cache, path, &mode, crp_mode);
-    format!("[auto:{mode}] {result}")
+    crate::tools::ctx_read::handle(cache, path, "auto", crp_mode)
 }
 
 fn compute_hash(content: &str) -> String {

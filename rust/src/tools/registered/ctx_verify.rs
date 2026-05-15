@@ -43,6 +43,7 @@ impl McpTool for CtxVerifyTool {
                     saved_tokens: 0,
                     mode: Some(action),
                     path: None,
+                    changed: false,
                 })
             }
             "proof" | "v2" => {
@@ -54,6 +55,7 @@ impl McpTool for CtxVerifyTool {
                     saved_tokens: 0,
                     mode: Some(action),
                     path: None,
+                    changed: false,
                 })
             }
             _ => Err(ErrorData::invalid_params(

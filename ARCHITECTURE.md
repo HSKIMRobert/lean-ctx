@@ -24,7 +24,7 @@ flowchart TB
         BudgetGate["Budget / SLO Gate — exhaustion blocking, throttling"]
         DegradationEval["Degradation Policy — evaluate_v1_for_tool"]
         ContextGate["Context Gate — pre: bounce/intent/graph/knowledge; post: ledger, overlays, eviction, elicitation"]
-        HybridDispatch["Hybrid Dispatch — Context Server (56+ tools)"]
+        HybridDispatch["Hybrid Dispatch — Context Server (51 tools)"]
         ToolRegistry["ToolRegistry — 27 trait-based tools (McpTool)"]
         DispatchRead["read_tools — ctx_read, ctx_multi_read, ctx_edit, ctx_fill, ctx_delta, ctx_smart_read"]
         DispatchShell["shell_tools — ctx_shell, ctx_search, ctx_execute"]
@@ -478,21 +478,24 @@ The Context Gate (`server/context_gate.rs`) wraps every tool dispatch with intel
 
 ### Pre-Dispatch Gates
 
-Before every `ctx_read` call, the Context Gate evaluates four gates in sequence:
+Before every `ctx_read` call, the Context Gate evaluates five gates in sequence:
 
-1. **Bounce Prevention** — Checks the Bounce Tracker for the target file's extension bounce rate. If it exceeds 30%, overrides compressed modes (map/signatures) to full to avoid wasted re-reads.
-2. **Intent-Target Match** — Validates whether the requested read mode aligns with the current intent (e.g., prevents `signatures` mode when the intent is editing).
-3. **Graph Proximity** — Consults the Property Graph to determine if the target file is structurally close to recent working files; high-proximity files get upgraded read modes.
-4. **Knowledge Relevance** — Checks the Knowledge Store for existing facts about the target file; if rich knowledge exists, may skip redundant full reads.
+1. **Overlay Override** — Checks the Overlay Store for explicit mode overrides (Pin → full, Exclude → signatures, SetView → specified mode).
+2. **Pressure-Based Auto-Downgrade** — When context pressure exceeds 75% (ForceCompression), automatically downgrades read modes (full → map, map → signatures) to reduce token consumption. At >90% (EvictLeastRelevant), even more aggressive downgrading is applied.
+3. **Bounce Prevention** — Checks the Bounce Tracker for the target file's extension bounce rate. If it exceeds 30%, overrides compressed modes (map/signatures) to full to avoid wasted re-reads.
+4. **Intent-Target Match** — Validates whether the requested read mode aligns with the current intent (e.g., prevents `signatures` mode when the intent is editing).
+5. **Graph Proximity + Knowledge Relevance** — Consults the Property Graph and Knowledge Store for structural proximity and factual relevance.
 
 ### Post-Dispatch Processing
 
 After every read completes, the Context Gate performs:
 
-1. **Ledger Recording** — Records the read event to the Context Ledger with item ID, mode, tokens, and Φ score.
+1. **Ledger Recording** — Records the read event to the Context Ledger with item ID, mode, tokens, and Φ score computed with the active task context.
 2. **Overlay State Check** — Evaluates current overlays to determine if the read result should be modified (pinned, rewritten, or excluded).
-3. **Eviction Hints** — Based on budget pressure, suggests items for eviction from the active context.
-4. **Elicitation Hints** — When conditions trigger (high pressure, large files, budget exhaustion), appends suggestions to the tool result for supporting clients.
+3. **Reinjection Plan** — When pressure exceeds ForceCompression, retroactively marks existing "full" entries as "map" in the ledger to reduce effective context load.
+4. **Eviction Hints** — Based on budget pressure, suggests items for eviction from the active context.
+5. **Elicitation Hints** — When conditions trigger (high pressure, large files, budget exhaustion), appends suggestions to the tool result for supporting clients.
+6. **Resource Notification** — When the ledger state changes significantly (new entry, pressure threshold crossed), sends `notifications/resources/updated` to subscribed clients so they can re-fetch context state.
 
 ## Diagram 3: Data Flow
 
@@ -602,7 +605,7 @@ flowchart LR
 | `server/helpers.rs` | Shared server utilities |
 | `server/role_guard.rs` | Role-based tool access policy |
 | `tool_defs/` | Tool metadata, JSON schemas, granular vs unified mode |
-| `tools/` | 56 tool handlers + `LeanCtxServer` state struct |
+| `tools/` | 51 tool handlers + `LeanCtxServer` state struct |
 | `tools/registered/` | 27 self-contained `McpTool` implementations (schema + handler co-located) |
 
 ### Shell Layer
@@ -1007,9 +1010,21 @@ The Dynamic Tool Manager (`server/dynamic_tools.rs`) organizes tools into 6 cate
 
 ### Loading Strategy
 
-- **Dynamic clients** (supporting `tools/list_changed`): Only `core` + `session` loaded at startup. Other categories loaded on first use, with `notifications/tools/list_changed` sent to the client.
+- **Dynamic clients** (supporting `tools/list_changed`): Only `core` + `session` loaded at startup. Other categories loaded on demand via `ctx_load_tools`, with `notifications/tools/list_changed` sent to the client after every load/unload.
 - **Static clients** (no `tools/list_changed` support): All tools loaded at initialization, preserving backward compatibility.
 - **Windsurf** (100-tool limit): Category management ensures the limit is respected — core + session loaded first, remaining categories lazy-loaded, least-used categories evicted if the limit is reached.
+
+### `ctx_load_tools` Tool
+
+Agents can explicitly manage categories at runtime:
+
+```
+ctx_load_tools action=list          # show category status
+ctx_load_tools action=load category=arch   # load architecture tools
+ctx_load_tools action=unload category=debug  # unload debug tools
+```
+
+After each load/unload, `notifications/tools/list_changed` is sent to the client. The client then re-fetches the tool list via `tools/list`, which returns only tools from active categories.
 
 ## Dashboard Control Plane
 

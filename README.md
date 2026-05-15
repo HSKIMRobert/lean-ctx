@@ -12,7 +12,7 @@
 
 <p align="center">
   <strong>Reduce token waste in Cursor, Claude Code, Copilot, Windsurf, Codex, Gemini & more by 60–95% (up to 99% on cached reads)</strong><br/>
-  Shell Hook + MCP Server · 56+ tools · 10 read modes · 95+ patterns · Single Rust binary<br/>
+  Shell Hook + MCP Server · 51 tools · 10 read modes · 60+ patterns · Single Rust binary<br/>
   <strong>Context Intelligence:</strong> Bounce detection, context gate with graph/intent/knowledge-based mode routing, MCP resources &amp; prompts, dynamic tool categories, client capability detection across 9+ IDEs
 </p>
 
@@ -82,7 +82,7 @@
 
 | Replaces | With lean-ctx | How |
 |----------|--------------|-----|
-| Output compression tools | 4 compression levels + 95+ patterns | Shell hook + terse pipeline |
+| Output compression tools | 4 compression levels + 60+ patterns | Shell hook + terse pipeline |
 | Context window managers | 10 read modes + auto-archive | Adaptive mode selection per file |
 | Session memory tools | CCP + temporal knowledge graph | Facts with validity, cross-session recovery |
 | Code graph tools | Property Graph + hybrid search | BM25 + embeddings + graph proximity |
@@ -90,7 +90,7 @@
 **Core capabilities:**
 
 - **File reads (MCP)**: cached + mode-aware reads (`full`, `map`, `signatures`, `diff`, …) with graph-aware related files hints
-- **Shell output (hook)**: compresses noisy CLI output via 95+ patterns (git, npm, cargo, docker, …)
+- **Shell output (hook)**: compresses noisy CLI output via 60+ patterns (git, npm, cargo, docker, …)
 - **Graph-Powered Intelligence**: multi-edge Property Graph (imports, calls, exports, type_ref) with weighted impact analysis, hybrid search (BM25 + embeddings + graph proximity via RRF), and incremental git-diff updates
 - **LSP Refactoring** (`ctx_refactor`): language-server-powered rename, references, go-to-definition, and find-implementations via rust-analyzer, typescript-language-server, pylsp, gopls — with timeout-protected channel-based IO
 - **Archive Full-Text Search** (`ctx_expand search_all`): FTS5-powered cross-archive search over all previously archived tool outputs
@@ -153,7 +153,7 @@ lean-ctx is a standard **MCP server**, so it works with any MCP-compatible clien
 |---|---|---|
 | **CLI-Redirect** | Agent calls `lean-ctx` directly via shell — zero MCP schema overhead | Agents with shell access |
 | **Hybrid** | MCP for cached reads (13 tokens), CLI for shell + search | Mixed environments |
-| **Full MCP** | All 56+ tools via MCP protocol | Protocol-only agents |
+| **Full MCP** | All 51 tools via MCP protocol | Protocol-only agents |
 
 ### Agent compatibility matrix
 

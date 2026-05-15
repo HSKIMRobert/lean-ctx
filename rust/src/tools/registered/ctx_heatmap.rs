@@ -40,6 +40,7 @@ impl McpTool for CtxHeatmapTool {
             saved_tokens: 0,
             mode: Some(action),
             path: None,
+            changed: false,
         })
     }
 }

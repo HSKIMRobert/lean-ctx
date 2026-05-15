@@ -1433,7 +1433,7 @@ fn print_help() {
     println!(
         "lean-ctx {version} — Context Runtime for AI Agents
 
-95+ compression patterns | 60+ MCP tools | 10 read modes | Context Continuity Protocol
+60+ compression patterns | 51 MCP tools | 10 read modes | Context Continuity Protocol
 
 USAGE:
     lean-ctx                       Start MCP server (stdio)

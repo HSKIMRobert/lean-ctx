@@ -73,6 +73,7 @@ impl McpTool for CtxSmartReadTool {
                 saved_tokens: saved,
                 mode: Some("auto".to_string()),
                 path: Some(path),
+                changed: false,
             })
         })
     }

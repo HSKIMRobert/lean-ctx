@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **Active Context Gate** — Pressure-based auto-downgrade: when context utilization exceeds 75%, reads are automatically downgraded (full→map, map→signatures). Reinjection plan retroactively marks existing "full" entries as "map" under pressure. Φ scores now computed with real task context from SessionState.
+- **MCP Resource Notifications** — `notifications/resources/updated` sent to subscribed clients after significant ledger changes (new entries, pressure threshold crossings). Enables proactive context refresh in supporting IDEs.
+- **`ctx_load_tools`** — New tool for explicit category management (load/unload/list). After each change, `notifications/tools/list_changed` is sent to subscribed clients so they re-fetch the tool list.
+- **`notifications/tools/list_changed`** — Outbound notification sent after dynamic tool category load/unload via `ctx_load_tools`. Clients automatically re-fetch the tool list.
+- **MCP Peer Storage** — Server stores the rmcp `Peer<RoleServer>` from `initialize()` for bidirectional notification delivery.
+
 ## [3.6.0] — 2026-05-14
 
 ### Added

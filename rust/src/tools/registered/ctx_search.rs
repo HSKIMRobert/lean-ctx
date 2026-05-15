@@ -95,6 +95,7 @@ impl McpTool for CtxSearchTool {
             saved_tokens: saved,
             mode: None,
             path: Some(path),
+            changed: false,
         })
     }
 }

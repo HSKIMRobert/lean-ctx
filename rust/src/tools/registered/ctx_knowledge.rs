@@ -123,6 +123,7 @@ impl McpTool for CtxKnowledgeTool {
                     saved_tokens: 0,
                     mode: Some(action),
                     path: None,
+                    changed: false,
                 });
             }
 
@@ -145,6 +146,7 @@ impl McpTool for CtxKnowledgeTool {
                 saved_tokens: 0,
                 mode: Some(action),
                 path: None,
+                changed: false,
             });
         }
 
@@ -168,6 +170,7 @@ impl McpTool for CtxKnowledgeTool {
             saved_tokens: 0,
             mode: Some(action),
             path: None,
+            changed: false,
         })
     }
 }

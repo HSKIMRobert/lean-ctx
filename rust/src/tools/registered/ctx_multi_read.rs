@@ -113,6 +113,7 @@ impl McpTool for CtxMultiReadTool {
                 saved_tokens: total_original.saturating_sub(tokens),
                 mode: Some(mode),
                 path: None,
+                changed: false,
             })
         })
     }

@@ -94,11 +94,13 @@ impl CtxReadTool {
             fresh = true;
         }
 
+        let pressure_action = ctx.pressure_snapshot.as_ref().map(|p| &p.recommendation);
         let gate_result = crate::server::context_gate::pre_dispatch_read(
             path,
             &mode,
             task_ref,
             Some(&ctx.project_root),
+            pressure_action,
         );
         if let Some(overridden) = gate_result.overridden_mode {
             mode = overridden;
@@ -263,6 +265,7 @@ impl CtxReadTool {
             saved_tokens: saved,
             mode: Some(resolved_mode),
             path: Some(path.to_string()),
+            changed: false,
         })
     }
 }

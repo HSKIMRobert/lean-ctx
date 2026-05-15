@@ -33,8 +33,8 @@ fn is_safe_scan_root(path: &str) -> bool {
             static HOME_WARN: Once = Once::new();
             HOME_WARN.call_once(|| {
                 tracing::warn!(
-                    "[graph_index: refusing to scan home directory {normalized} — \
-                     set LEAN_CTX_PROJECT_ROOT or run from inside a project]"
+                    "[graph_index: skipping — cannot index home directory {normalized}.\n  \
+                     Run from inside a project, or set LEAN_CTX_PROJECT_ROOT=/path/to/project]"
                 );
             });
             return false;

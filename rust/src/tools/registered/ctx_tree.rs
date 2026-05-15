@@ -48,6 +48,7 @@ impl McpTool for CtxTreeTool {
             saved_tokens: saved,
             mode: None,
             path: Some(path),
+            changed: false,
         })
     }
 }

@@ -120,6 +120,7 @@ impl McpTool for CtxFeedbackTool {
             saved_tokens: 0,
             mode: Some(action),
             path: None,
+            changed: false,
         })
     }
 }

@@ -59,6 +59,7 @@ impl McpTool for CtxDeltaTool {
                 saved_tokens: saved,
                 mode: Some("delta".to_string()),
                 path: Some(path),
+                changed: false,
             })
         })
     }
