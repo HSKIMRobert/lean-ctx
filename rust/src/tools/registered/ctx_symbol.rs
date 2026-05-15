@@ -54,6 +54,7 @@ code block instead of the entire file. 90-97% fewer tokens than full file read."
             saved_tokens: saved,
             mode: kind,
             path: file,
+            changed: false,
         })
     }
 }

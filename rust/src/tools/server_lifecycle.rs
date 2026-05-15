@@ -151,6 +151,7 @@ impl LeanCtxServer {
             last_seen_event_id: Arc::new(std::sync::atomic::AtomicI64::new(0)),
             startup_project_root: startup.project_root,
             startup_shell_cwd: startup.shell_cwd,
+            peer: Arc::new(tokio::sync::RwLock::new(None)),
         }
     }
 

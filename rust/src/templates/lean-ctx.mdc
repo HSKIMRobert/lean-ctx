@@ -1,123 +1,26 @@
 ---
-description: "lean-ctx: MUST use ctx_read/ctx_search over Read/Grep. Shell via lean-ctx -c. NEVER use native Read/Grep/Shell."
+description: "lean-ctx: Use ctx_read/ctx_search/ctx_shell instead of native Read/Grep/Shell."
 globs: **/*
 alwaysApply: true
 ---
 
 # lean-ctx — Context Engineering Layer
-<!-- lean-ctx-rules-v9 -->
+<!-- lean-ctx-rules-v10 -->
 
-CRITICAL: ALWAYS use lean-ctx tools instead of native equivalents. This is NOT optional.
+CRITICAL: ALWAYS use lean-ctx MCP tools instead of native equivalents:
 
-## Tool Mapping
+| MUST USE | INSTEAD OF |
+|----------|------------|
+| `ctx_read(path, mode)` | `Read` / `cat` / `head` / `tail` |
+| `ctx_search(pattern, path)` | `Grep` / `rg` |
+| `lean-ctx -c "<cmd>"` (via Shell) | raw `Shell` |
+| `lean-ctx ls [path]` (via Shell) | `ls` / `find` |
 
-| MUST USE | NEVER USE | Why |
-|----------|-----------|-----|
-| `ctx_read(path, mode)` | `Read` / `cat` / `head` / `tail` | Cached, 10 read modes, re-reads ~13 tokens |
-| `ctx_search(pattern, path)` | `Grep` / `rg` | Compact, token-efficient results |
-| `lean-ctx -c "<cmd>"` (via Shell) | `ctx_shell` / raw `Shell` | CLI compression, no MCP overhead |
-| `lean-ctx ls [path]` (via Shell) | `ctx_tree` / `ls` / `find` | Compact directory maps |
+ctx_read modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M.
+Re-reads cost ~13 tokens. fresh=true bypasses cache.
 
-## ctx_read Modes
+File editing: use native Edit/StrReplace. Write/Delete/Glob → use normally.
+If Edit fails, use `ctx_edit(path, old_string, new_string)` immediately.
 
-- `auto` — auto-select optimal mode (recommended default)
-- `full` — cached read (use for files you will edit)
-- `map` — dependency graph + exports + key signatures (context-only files)
-- `signatures` — API surface only
-- `diff` — changed lines only (use after edits)
-- `task` — task-relevant filtering
-- `reference` — quote-friendly minimal excerpts
-- `aggressive` — syntax stripped
-- `entropy` — Shannon + Jaccard filtering
-- `lines:N-M` — specific range
-
-Re-reads cost ~13 tokens. File refs F1, F2.. persist across the session.
-
-Set `fresh=true` on ctx_read to bypass cache when spawned as a subagent or after context compaction.
-
-## Mode Selection
-
-1. Editing the file? → `full` first, then `diff` for re-reads
-2. Need API surface only? → `map` or `signatures`
-3. Large file, context only? → `entropy` or `aggressive`
-4. Specific lines? → `lines:N-M`
-5. Active task set? → `task`
-6. Unsure? → `auto` (system selects optimal mode)
-
-Anti-pattern: NEVER use `full` for files you won't edit — use `map` or `signatures`.
-
-## File Editing
-
-Use native Edit/StrReplace when available. If Edit requires native Read and Read is unavailable,
-use `ctx_edit(path, old_string, new_string)` — it reads, replaces, and writes in one MCP call.
-NEVER loop trying to make Edit work. If it fails, switch to ctx_edit immediately.
-
-## Session Management
-
-- `ctx_compress` at >10 turns — creates memory checkpoint
-- `ctx_metrics` — hard numbers on what was saved
-- `ctx_cost` — per-tool cost + savings breakdown
-- `ctx_heatmap` — file-level savings heatmap
-- `ctx_benchmark` — find optimal mode for a file
-- `ctx_session load` — on new chat, restore previous session
-- `ctx_session role` — list/switch agent roles (governance)
-- `ctx_session budget` — show budget status vs role limits
-- `ctx_session slo` — show SLO status/violations (value=reload|history|clear)
-- `ctx_session diff` — compare two sessions (value="<id_a> <id_b> [json]")
-- `ctx_session verify` — show output verification statistics
-- `ctx_session episodes` — episodic memory (value=record | "search <q>" | "file <path>" | "outcome <label>")
-- `ctx_session procedures` — procedural memory (value=detect | "suggest <task>")
-- `ctx_intent` — intent classification + model routing (dimension/tier/reasoning)
-- `ctx_graph build|related|symbol|impact|status` — unified code graph
-- `ctx_graph enrich` — add commits, tests, knowledge to graph
-- `ctx_graph context` — task-based graph query for relevant context
-- `ctx_workflow` — state machine + evidence + tool gating
-
-## Proactive Tools
-
-Use without being asked:
-- `ctx_compress` — when context grows large, create checkpoint
-- `ctx_metrics` — periodically verify token savings
- - `ctx_overview` — at session start (fast project orientation)
-
-## Write, Delete, Glob
-
-These have no lean-ctx equivalent — use them normally.
-
-## CRP v2 — Compact Response Protocol
-
-Every token costs money. This applies to input, output, AND thinking tokens.
-
-### Thinking Reduction (saves 30-60% thinking tokens)
-
-1. Parse task first, then act. Don't explore when you already know the answer.
-2. One hypothesis, test it. Don't enumerate 5 approaches — pick the most likely, try it.
-3. Stop thinking when you have the answer.
-4. Use structured context. lean-ctx headers tell you deps/exports — don't re-read files to find imports.
-5. File ref tracking: F1=auth.ts means F1 everywhere in this session.
-
-### Output Reduction (saves 50-80% output tokens)
-
-1. NO prose. Just code and results.
-2. NO echoing content that was just read.
-3. Summarize tool results: 1 line max.
-4. Show edits only — not surrounding unchanged code.
-5. Batch tool calls. One message, multiple calls.
-6. Never ask "shall I proceed?" — just do it.
-7. Bullets > paragraphs. Tables > lists.
-
-### Compact Notation
-
-- `F:path` — reading file
-- `+file` = created, `~file` = modified, `!file` = error
-- `->` for results: "Built -> 18 pages, 0 errors"
-
-## Model Selection
-
-- Grep/search/explore → `model: "fast"`
-- Simple edits (rename, add field, fix typo) → `model: "fast"`
-- Multi-file refactors, architecture → default model
-
-Fallback only if a lean-ctx tool is unavailable: use native equivalents.
 REMINDER: You MUST use lean-ctx tools. NEVER use native Read, Grep, or Shell directly.
 <!-- /lean-ctx -->

@@ -1,55 +1,59 @@
-use std::path::Path;
-
-use crate::core::protocol;
+use crate::core::cache::SessionCache;
 use crate::core::signatures::{extract_signatures, Signature};
 use crate::core::tokens::count_tokens;
 use crate::tools::CrpMode;
 
+/// Thin redirect: delegates to ctx_read mode=signatures with optional kind filter.
 pub fn handle(path: &str, kind_filter: Option<&str>) -> (String, usize) {
     let content = match std::fs::read_to_string(path) {
         Ok(c) => c,
         Err(e) => return (format!("ERROR: Cannot read {path}: {e}"), 0),
     };
-
-    let ext = Path::new(path)
+    let full_tokens = count_tokens(&content);
+    let ext = std::path::Path::new(path)
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("");
 
     let sigs = extract_signatures(&content, ext);
-
     if sigs.is_empty() {
         return (format!("No symbols found in {path}"), 0);
     }
 
     let filtered = filter_by_kind(&sigs, kind_filter);
-
     let crp = CrpMode::effective();
-    let outline = format_outline(&filtered, path, crp);
+    let outline: String = filtered
+        .iter()
+        .map(|s| {
+            if crp.is_tdd() {
+                s.to_tdd()
+            } else {
+                s.to_compact()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
 
-    let full_tokens = count_tokens(&content);
-    let outline_tokens = count_tokens(&outline);
-    let savings = protocol::format_savings(full_tokens, outline_tokens);
-
-    let filename = Path::new(path)
-        .file_name()
-        .and_then(|f| f.to_str())
-        .unwrap_or(path);
-
-    let line_count = content.lines().count();
-
-    let header = format!(
-        "{filename} ({line_count}L, {full_tokens} tok) — {} symbols{}",
-        filtered.len(),
-        kind_filter
-            .map(|k| format!(" [filter: {k}]"))
-            .unwrap_or_default()
-    );
-
-    (format!("{header}\n{outline}\n{savings}"), full_tokens)
+    let sent = count_tokens(&outline);
+    let savings = crate::core::protocol::format_savings(full_tokens, sent);
+    (format!("{outline}\n{savings}"), full_tokens)
 }
 
-fn filter_by_kind<'a>(sigs: &'a [Signature], kind: Option<&str>) -> Vec<&'a Signature> {
+/// Also available via ctx_read mode=signatures. This adapts to the SessionCache path.
+pub fn handle_via_read(
+    cache: &mut SessionCache,
+    path: &str,
+    kind_filter: Option<&str>,
+    crp_mode: CrpMode,
+) -> String {
+    if kind_filter.is_none() || kind_filter == Some("all") {
+        return crate::tools::ctx_read::handle(cache, path, "signatures", crp_mode);
+    }
+    let (result, _) = handle(path, kind_filter);
+    result
+}
+
+pub fn filter_by_kind<'a>(sigs: &'a [Signature], kind: Option<&str>) -> Vec<&'a Signature> {
     match kind {
         None | Some("all") => sigs.iter().collect(),
         Some(k) => {
@@ -59,19 +63,6 @@ fn filter_by_kind<'a>(sigs: &'a [Signature], kind: Option<&str>) -> Vec<&'a Sign
                 .collect()
         }
     }
-}
-
-fn format_outline(sigs: &[&Signature], _path: &str, crp: CrpMode) -> String {
-    sigs.iter()
-        .map(|s| {
-            if crp.is_tdd() {
-                s.to_tdd()
-            } else {
-                s.to_compact()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 #[cfg(test)]

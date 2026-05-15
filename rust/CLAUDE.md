@@ -4,7 +4,7 @@ PREFER lean-ctx MCP tools over native equivalents for token savings:
 
 | PREFER | OVER | Why |
 |--------|------|-----|
-| `ctx_read(path)` | Read / cat / head / tail | Session caching, 8 compression modes, re-reads cost ~13 tokens |
+| `ctx_read(path)` | Read / cat / head / tail | Session caching, 10 read modes, re-reads cost ~13 tokens |
 | `ctx_shell(command)` | Bash (shell commands) | Pattern-based compression for git, npm, cargo, docker, tsc |
 | `ctx_search(pattern, path)` | Grep / rg | Compact context, token-efficient results |
 | `ctx_tree(path, depth)` | ls / find | Compact directory maps with file counts |

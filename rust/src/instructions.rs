@@ -4,6 +4,10 @@ use crate::tools::CrpMode;
 /// Full instructions are installed as `~/.claude/rules/lean-ctx.md` instead.
 const CLAUDE_CODE_INSTRUCTION_CAP: usize = 2048;
 
+/// Universal instruction cap for all MCP clients.
+/// Prioritizes content blocks to fit within this limit.
+const INSTRUCTION_CAP: usize = 4096;
+
 pub fn build_instructions(crp_mode: CrpMode) -> String {
     build_instructions_with_client(crp_mode, "")
 }
@@ -102,13 +106,8 @@ fn build_full_instructions(crp_mode: CrpMode, client_name: &str) -> String {
     let (session_block, litm_end_block) = match loaded_session {
         Some(ref session) => {
             let positioned = crate::core::litm::position_optimize(session);
-            let resume = if session.stats.total_tool_calls > 0 {
-                format!("\n{}", session.build_resume_block())
-            } else {
-                String::new()
-            };
             let begin = format!(
-                "\n\n--- ACTIVE SESSION (LITM P1: begin position, profile: {}) ---\n{}{resume}\n---\n",
+                "\n\n--- ACTIVE SESSION (LITM P1: begin position, profile: {}) ---\n{}\n---\n",
                 profile.name, positioned.begin_block
             );
             let end = if positioned.end_block.is_empty() {
@@ -229,7 +228,7 @@ See the ctx() tool description for available sub-tools.\n",
     let terse_block = build_terse_agent_block(&crp_mode);
 
     let base = base;
-    match crp_mode {
+    let full = match crp_mode {
         CrpMode::Off => format!("{base}\n\n{terse_block}{intelligence_block}"),
         CrpMode::Compact => {
             format!(
@@ -251,6 +250,23 @@ BUDGET: <=150 tok. ZERO NARRATION. Trust tool outputs.\n\n\
 {terse_block}{intelligence_block}"
             )
         }
+    };
+
+    if full.len() > INSTRUCTION_CAP {
+        truncate_to_cap(&full, INSTRUCTION_CAP)
+    } else {
+        full
+    }
+}
+
+fn truncate_to_cap(s: &str, cap: usize) -> String {
+    if s.len() <= cap {
+        return s.to_string();
+    }
+    let safe_end = s.floor_char_boundary(cap);
+    match s[..safe_end].rfind('\n') {
+        Some(pos) => s[..pos].to_string(),
+        None => s[..safe_end].to_string(),
     }
 }
 

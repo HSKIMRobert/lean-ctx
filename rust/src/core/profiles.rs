@@ -48,6 +48,8 @@ pub struct Profile {
     pub degradation: DegradationConfig,
     #[serde(default)]
     pub autonomy: ProfileAutonomy,
+    #[serde(default)]
+    pub output_hints: OutputHints,
 }
 
 /// Profile identity and inheritance.
@@ -186,6 +188,52 @@ impl DegradationConfig {
 
     pub fn throttle_ms_effective(&self) -> u64 {
         self.throttle_ms.unwrap_or(250)
+    }
+}
+
+/// Controls which optional hints/footers are appended to tool output.
+/// All default to `false` for minimal output overhead.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OutputHints {
+    pub compressed_hint: Option<bool>,
+    pub archive_hint: Option<bool>,
+    pub verify_footer: Option<bool>,
+    pub related_hint: Option<bool>,
+    pub semantic_hint: Option<bool>,
+    pub elicitation_hint: Option<bool>,
+    pub checkpoint_in_output: Option<bool>,
+    pub graph_context_block: Option<bool>,
+    pub efficiency_hint: Option<bool>,
+}
+
+impl OutputHints {
+    pub fn compressed_hint(&self) -> bool {
+        self.compressed_hint.unwrap_or(false)
+    }
+    pub fn archive_hint(&self) -> bool {
+        self.archive_hint.unwrap_or(false)
+    }
+    pub fn verify_footer(&self) -> bool {
+        self.verify_footer.unwrap_or(false)
+    }
+    pub fn related_hint(&self) -> bool {
+        self.related_hint.unwrap_or(false)
+    }
+    pub fn semantic_hint(&self) -> bool {
+        self.semantic_hint.unwrap_or(false)
+    }
+    pub fn elicitation_hint(&self) -> bool {
+        self.elicitation_hint.unwrap_or(false)
+    }
+    pub fn checkpoint_in_output(&self) -> bool {
+        self.checkpoint_in_output.unwrap_or(false)
+    }
+    pub fn graph_context_block(&self) -> bool {
+        self.graph_context_block.unwrap_or(false)
+    }
+    pub fn efficiency_hint(&self) -> bool {
+        self.efficiency_hint.unwrap_or(false)
     }
 }
 
@@ -335,6 +383,7 @@ fn builtin_coder() -> Profile {
             checkpoint_interval: Some(10),
             ..ProfileAutonomy::default()
         },
+        output_hints: OutputHints::default(),
     }
 }
 
@@ -367,6 +416,11 @@ fn builtin_exploration() -> Profile {
         routing: RoutingConfig::default(),
         degradation: DegradationConfig::default(),
         autonomy: ProfileAutonomy::default(),
+        output_hints: OutputHints {
+            related_hint: Some(true),
+            compressed_hint: Some(true),
+            ..OutputHints::default()
+        },
     }
 }
 
@@ -406,6 +460,7 @@ fn builtin_bugfix() -> Profile {
             checkpoint_interval: Some(10),
             ..ProfileAutonomy::default()
         },
+        output_hints: OutputHints::default(),
     }
 }
 
@@ -445,6 +500,7 @@ fn builtin_hotfix() -> Profile {
             checkpoint_interval: Some(5),
             ..ProfileAutonomy::default()
         },
+        output_hints: OutputHints::default(),
     }
 }
 
@@ -480,6 +536,7 @@ fn builtin_ci_debug() -> Profile {
         },
         degradation: DegradationConfig::default(),
         autonomy: ProfileAutonomy::default(),
+        output_hints: OutputHints::default(),
     }
 }
 
@@ -518,6 +575,12 @@ fn builtin_review() -> Profile {
         },
         degradation: DegradationConfig::default(),
         autonomy: ProfileAutonomy::default(),
+        output_hints: OutputHints {
+            verify_footer: Some(true),
+            related_hint: Some(true),
+            compressed_hint: Some(true),
+            ..OutputHints::default()
+        },
     }
 }
 
@@ -810,6 +873,44 @@ fn merge_profiles(parent: Profile, child: Profile) -> Profile {
             .checkpoint_interval
             .or(parent.autonomy.checkpoint_interval),
     };
+    let output_hints = OutputHints {
+        compressed_hint: child
+            .output_hints
+            .compressed_hint
+            .or(parent.output_hints.compressed_hint),
+        archive_hint: child
+            .output_hints
+            .archive_hint
+            .or(parent.output_hints.archive_hint),
+        verify_footer: child
+            .output_hints
+            .verify_footer
+            .or(parent.output_hints.verify_footer),
+        related_hint: child
+            .output_hints
+            .related_hint
+            .or(parent.output_hints.related_hint),
+        semantic_hint: child
+            .output_hints
+            .semantic_hint
+            .or(parent.output_hints.semantic_hint),
+        elicitation_hint: child
+            .output_hints
+            .elicitation_hint
+            .or(parent.output_hints.elicitation_hint),
+        checkpoint_in_output: child
+            .output_hints
+            .checkpoint_in_output
+            .or(parent.output_hints.checkpoint_in_output),
+        graph_context_block: child
+            .output_hints
+            .graph_context_block
+            .or(parent.output_hints.graph_context_block),
+        efficiency_hint: child
+            .output_hints
+            .efficiency_hint
+            .or(parent.output_hints.efficiency_hint),
+    };
     Profile {
         profile: ProfileMeta {
             name: child.profile.name,
@@ -831,6 +932,7 @@ fn merge_profiles(parent: Profile, child: Profile) -> Profile {
         routing,
         degradation,
         autonomy,
+        output_hints,
     }
 }
 
@@ -952,7 +1054,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn builtin_profiles_has_five() {
+    fn builtin_profiles_count() {
         let builtins = builtin_profiles();
         assert_eq!(builtins.len(), 6);
         assert!(builtins.contains_key("coder"));
@@ -1016,6 +1118,7 @@ mod tests {
             routing: RoutingConfig::default(),
             degradation: DegradationConfig::default(),
             autonomy: ProfileAutonomy::default(),
+            output_hints: OutputHints::default(),
         };
 
         let merged = merge_profiles(parent, child);
@@ -1050,6 +1153,7 @@ mod tests {
             routing: RoutingConfig::default(),
             degradation: DegradationConfig::default(),
             autonomy: ProfileAutonomy::default(),
+            output_hints: OutputHints::default(),
         };
 
         let merged = merge_profiles(parent, child);
@@ -1131,6 +1235,7 @@ mod tests {
             routing: RoutingConfig::default(),
             degradation: DegradationConfig::default(),
             autonomy: ProfileAutonomy::default(),
+            output_hints: OutputHints::default(),
         };
         assert_eq!(p.read.default_mode_effective(), "auto");
         assert_eq!(p.compression.crp_mode_effective(), "tdd");

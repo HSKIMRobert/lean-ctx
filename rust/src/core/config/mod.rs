@@ -94,9 +94,9 @@ impl OutputDensity {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum CompressionLevel {
-    #[default]
     Off,
     Lite,
+    #[default]
     Standard,
     Max,
 }
@@ -1188,8 +1188,8 @@ mod compression_level_tests {
     use super::*;
 
     #[test]
-    fn default_is_off() {
-        assert_eq!(CompressionLevel::default(), CompressionLevel::Off);
+    fn default_is_standard() {
+        assert_eq!(CompressionLevel::default(), CompressionLevel::Standard);
     }
 
     #[test]
@@ -1297,9 +1297,9 @@ mod compression_level_tests {
     }
 
     #[test]
-    fn deserialization_defaults_to_off() {
+    fn deserialization_defaults_to_standard() {
         let cfg: Config = toml::from_str("").unwrap();
-        assert_eq!(cfg.compression_level, CompressionLevel::Off);
+        assert_eq!(cfg.compression_level, CompressionLevel::Standard);
     }
 
     #[test]

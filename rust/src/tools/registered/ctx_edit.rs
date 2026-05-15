@@ -95,6 +95,7 @@ impl McpTool for CtxEditTool {
                 saved_tokens: 0,
                 mode: None,
                 path: Some(path),
+                changed: false,
             })
         })
     }

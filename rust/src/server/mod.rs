@@ -4,6 +4,7 @@ pub mod dynamic_tools;
 pub mod elicitation;
 pub(crate) mod execute;
 pub mod helpers;
+pub mod notifications;
 pub mod prompts;
 pub mod registry;
 pub mod resources;
@@ -43,11 +44,12 @@ impl ServerHandler for LeanCtxServer {
     async fn initialize(
         &self,
         request: InitializeRequestParams,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<InitializeResult, ErrorData> {
         let name = request.client_info.name.clone();
         tracing::info!("MCP client connected: {:?}", name);
         *self.client_name.write().await = name.clone();
+        *self.peer.write().await = Some(context.peer.clone());
 
         if self.session_mode != crate::tools::SessionMode::Shared {
             crate::core::budget_tracker::BudgetTracker::global().reset();
@@ -667,7 +669,9 @@ impl ServerHandler for LeanCtxServer {
             }
         }
 
-        if !is_raw_shell {
+        let profile_hints = crate::core::profiles::active_profile().output_hints;
+
+        if !is_raw_shell && profile_hints.verify_footer() {
             let verify_cfg = crate::core::profiles::active_profile().verification;
             let vr = crate::core::output_verification::verify_output(
                 &pre_compression,
@@ -680,8 +684,10 @@ impl ServerHandler for LeanCtxServer {
             }
         }
 
-        if let Some(hint) = archive_hint {
-            result_text = format!("{result_text}\n{hint}");
+        if profile_hints.archive_hint() {
+            if let Some(hint) = archive_hint {
+                result_text = format!("{result_text}\n{hint}");
+            }
         }
 
         if !is_raw_shell {
@@ -741,31 +747,49 @@ impl ServerHandler for LeanCtxServer {
                     crate::tools::CrpMode::effective(),
                     false,
                 );
-                if let Some(hint) = enrich.related_hint {
-                    result_text = format!("{result_text}\n{hint}");
+                if profile_hints.related_hint() {
+                    if let Some(hint) = enrich.related_hint {
+                        result_text = format!("{result_text}\n{hint}");
+                    }
                 }
                 crate::tools::autonomy::maybe_auto_dedup(&self.autonomy, &mut cache, name);
 
                 {
+                    let active_task = {
+                        let session = self.session.read().await;
+                        session.task.as_ref().map(|t| t.description.clone())
+                    };
                     let mut ledger = self.ledger.write().await;
                     let overlay = crate::core::context_overlay::OverlayStore::load_project(
                         &std::path::PathBuf::from(project_root.as_deref().unwrap_or(".")),
                     );
                     let mode_used =
                         helpers::get_str(args, "mode").unwrap_or_else(|| "auto".to_string());
-                    let gate_result = context_gate::post_dispatch_record(
+                    let gate_result = context_gate::post_dispatch_record_with_task(
                         &read_path,
                         &mode_used,
                         pre_terse_len,
                         output_tokens as usize,
                         &mut ledger,
                         &overlay,
+                        active_task.as_deref(),
                     );
                     if let Some(hint) = gate_result.eviction_hint {
                         result_text = format!("{result_text}\n{hint}");
                     }
-                    if let Some(hint) = gate_result.elicitation_hint {
-                        result_text = format!("{result_text}\n{hint}");
+                    if profile_hints.elicitation_hint() {
+                        if let Some(hint) = gate_result.elicitation_hint {
+                            result_text = format!("{result_text}\n{hint}");
+                        }
+                    }
+                    if gate_result.resource_changed {
+                        if let Some(peer) = self.peer.read().await.as_ref() {
+                            notifications::send_resource_updated(
+                                peer,
+                                notifications::RESOURCE_URI_SUMMARY,
+                            )
+                            .await;
+                        }
                     }
                 }
             }
@@ -781,17 +805,19 @@ impl ServerHandler for LeanCtxServer {
                 }
             }
 
-            let calls = self.tool_calls.read().await;
-            let last_original = calls.last().map_or(0, |c| c.original_tokens);
-            drop(calls);
-            let pre_hint_tokens = crate::core::tokens::count_tokens(&result_text);
-            if let Some(hint) = crate::tools::autonomy::shell_efficiency_hint(
-                &self.autonomy,
-                &cmd,
-                last_original,
-                pre_hint_tokens,
-            ) {
-                result_text = format!("{result_text}\n{hint}");
+            if profile_hints.efficiency_hint() {
+                let calls = self.tool_calls.read().await;
+                let last_original = calls.last().map_or(0, |c| c.original_tokens);
+                drop(calls);
+                let pre_hint_tokens = crate::core::tokens::count_tokens(&result_text);
+                if let Some(hint) = crate::tools::autonomy::shell_efficiency_hint(
+                    &self.autonomy,
+                    &cmd,
+                    last_original,
+                    pre_hint_tokens,
+                ) {
+                    result_text = format!("{result_text}\n{hint}");
+                }
             }
         }
 
@@ -1066,7 +1092,8 @@ impl ServerHandler for LeanCtxServer {
         if !skip_checkpoint && self.increment_and_check() {
             if let Some(checkpoint) = self.auto_checkpoint().await {
                 let interval = LeanCtxServer::checkpoint_interval_effective();
-                if crate::core::protocol::meta_visible() {
+                let hints = crate::core::profiles::active_profile().output_hints;
+                if hints.checkpoint_in_output() && crate::core::protocol::meta_visible() {
                     let combined = format!(
                         "{result_text}\n\n--- AUTO CHECKPOINT (every {interval} calls) ---\n{checkpoint}"
                     );

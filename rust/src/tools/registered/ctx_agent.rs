@@ -132,6 +132,7 @@ list, info.",
                 saved_tokens: 0,
                 mode: Some(action),
                 path: None,
+                changed: false,
             });
         }
 
@@ -141,6 +142,7 @@ list, info.",
             saved_tokens: 0,
             mode: Some(action),
             path: None,
+            changed: false,
         })
     }
 }

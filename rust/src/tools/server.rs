@@ -5,6 +5,7 @@ use tokio::sync::RwLock;
 
 use crate::core::cache::SessionCache;
 use crate::core::session::SessionState;
+use rmcp::service::{Peer, RoleServer};
 
 pub(super) struct CepComputedStats {
     pub(super) cep_score: u32,
@@ -82,6 +83,7 @@ pub struct LeanCtxServer {
     pub(crate) last_seen_event_id: Arc<std::sync::atomic::AtomicI64>,
     pub(crate) startup_project_root: Option<String>,
     pub(crate) startup_shell_cwd: Option<String>,
+    pub(crate) peer: Arc<RwLock<Option<Peer<RoleServer>>>>,
 }
 
 pub use crate::core::protocol::ToolCallRecord;

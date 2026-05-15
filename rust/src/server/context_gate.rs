@@ -1,16 +1,19 @@
 use crate::core::context_field::{ContextItemId, ContextState};
+use crate::core::context_ledger::{ContextLedger, PressureAction};
 use crate::core::context_overlay::{OverlayOp, OverlayStore};
 
 #[derive(Debug, Clone)]
 pub struct PreDispatchResult {
     pub overridden_mode: Option<String>,
     pub reason: Option<&'static str>,
+    pub pressure_downgraded: bool,
 }
 
 #[derive(Debug, Clone)]
 pub struct PostDispatchResult {
     pub eviction_hint: Option<String>,
     pub elicitation_hint: Option<String>,
+    pub resource_changed: bool,
 }
 
 pub fn pre_dispatch_read(
@@ -18,12 +21,16 @@ pub fn pre_dispatch_read(
     requested_mode: &str,
     task: Option<&str>,
     project_root: Option<&str>,
+    pressure: Option<&PressureAction>,
 ) -> PreDispatchResult {
-    if requested_mode == "diff" {
-        return PreDispatchResult {
-            overridden_mode: None,
-            reason: None,
-        };
+    let no_change = PreDispatchResult {
+        overridden_mode: None,
+        reason: None,
+        pressure_downgraded: false,
+    };
+
+    if requested_mode == "diff" || requested_mode.starts_with("lines") {
+        return no_change;
     }
 
     if let Some(root) = project_root {
@@ -33,11 +40,18 @@ pub fn pre_dispatch_read(
         }
     }
 
+    if let Some(action) = pressure {
+        if let Some(downgraded) = pressure_downgrade(requested_mode, action) {
+            return PreDispatchResult {
+                overridden_mode: Some(downgraded),
+                reason: Some("pressure-auto-downgrade"),
+                pressure_downgraded: true,
+            };
+        }
+    }
+
     if requested_mode == "full" {
-        return PreDispatchResult {
-            overridden_mode: None,
-            reason: None,
-        };
+        return no_change;
     }
 
     if let Ok(bt) = crate::core::bounce_tracker::global().lock() {
@@ -45,6 +59,7 @@ pub fn pre_dispatch_read(
             return PreDispatchResult {
                 overridden_mode: Some("full".to_string()),
                 reason: Some("bounce-prevention"),
+                pressure_downgraded: false,
             };
         }
     }
@@ -60,6 +75,7 @@ pub fn pre_dispatch_read(
             return PreDispatchResult {
                 overridden_mode: Some("full".to_string()),
                 reason: Some("intent-target"),
+                pressure_downgraded: false,
             };
         }
     }
@@ -79,6 +95,7 @@ pub fn pre_dispatch_read(
                         return PreDispatchResult {
                             overridden_mode: Some("map".to_string()),
                             reason: Some("graph-direct-import"),
+                            pressure_downgraded: false,
                         };
                     }
                 }
@@ -89,6 +106,7 @@ pub fn pre_dispatch_read(
                     return PreDispatchResult {
                         overridden_mode: Some("map".to_string()),
                         reason: Some("graph-hub-file"),
+                        pressure_downgraded: false,
                     };
                 }
             }
@@ -107,14 +125,28 @@ pub fn pre_dispatch_read(
                 return PreDispatchResult {
                     overridden_mode: Some("map".to_string()),
                     reason: Some("knowledge-high-relevance"),
+                    pressure_downgraded: false,
                 };
             }
         }
     }
 
-    PreDispatchResult {
-        overridden_mode: None,
-        reason: None,
+    no_change
+}
+
+fn pressure_downgrade(requested_mode: &str, action: &PressureAction) -> Option<String> {
+    match action {
+        PressureAction::ForceCompression => match requested_mode {
+            "full" => Some("map".to_string()),
+            "map" => Some("signatures".to_string()),
+            _ => None,
+        },
+        PressureAction::EvictLeastRelevant => match requested_mode {
+            "full" => Some("map".to_string()),
+            "map" | "auto" => Some("signatures".to_string()),
+            _ => None,
+        },
+        PressureAction::NoAction | PressureAction::SuggestCompression => None,
     }
 }
 
@@ -134,6 +166,7 @@ fn check_overlay_mode_override(
                     return Some(PreDispatchResult {
                         overridden_mode: Some(mode_str.to_string()),
                         reason: Some("overlay-set-view"),
+                        pressure_downgraded: false,
                     });
                 }
             }
@@ -141,12 +174,14 @@ fn check_overlay_mode_override(
                 return Some(PreDispatchResult {
                     overridden_mode: Some("full".to_string()),
                     reason: Some("pinned"),
+                    pressure_downgraded: false,
                 });
             }
             OverlayOp::Exclude { .. } if requested_mode != "signatures" => {
                 return Some(PreDispatchResult {
                     overridden_mode: Some("signatures".to_string()),
                     reason: Some("excluded"),
+                    pressure_downgraded: false,
                 });
             }
             _ => {}
@@ -160,10 +195,33 @@ pub fn post_dispatch_record(
     mode: &str,
     original_tokens: usize,
     sent_tokens: usize,
-    ledger: &mut crate::core::context_ledger::ContextLedger,
-    overlay: &crate::core::context_overlay::OverlayStore,
+    ledger: &mut ContextLedger,
+    overlay: &OverlayStore,
 ) -> PostDispatchResult {
-    ledger.record(path, mode, original_tokens, sent_tokens);
+    post_dispatch_record_with_task(
+        path,
+        mode,
+        original_tokens,
+        sent_tokens,
+        ledger,
+        overlay,
+        None,
+    )
+}
+
+pub fn post_dispatch_record_with_task(
+    path: &str,
+    mode: &str,
+    original_tokens: usize,
+    sent_tokens: usize,
+    ledger: &mut ContextLedger,
+    overlay: &OverlayStore,
+    task: Option<&str>,
+) -> PostDispatchResult {
+    let prev_count = ledger.entries.len();
+    let prev_pressure = ledger.pressure().recommendation;
+
+    ledger.record_with_task(path, mode, original_tokens, sent_tokens, task);
 
     let item_id = ContextItemId::from_file(path);
     let state = overlay.apply_to_state(&item_id, ContextState::Included);
@@ -172,6 +230,7 @@ pub fn post_dispatch_record(
         return PostDispatchResult {
             eviction_hint: Some(format!("File '{path}' is excluded by overlay.")),
             elicitation_hint: None,
+            resource_changed: true,
         };
     }
 
@@ -180,6 +239,13 @@ pub fn post_dispatch_record(
             .map(|s| s.format_fallback_hint());
 
     let pressure = ledger.pressure();
+
+    apply_reinjection_plan(ledger, &pressure.recommendation);
+
+    let new_entry = ledger.entries.len() != prev_count;
+    let pressure_shifted = pressure.recommendation != prev_pressure;
+    let resource_changed = new_entry || pressure_shifted;
+
     if pressure.utilization > 0.9 {
         let candidates = ledger.eviction_candidates_by_phi(3);
         if !candidates.is_empty() {
@@ -195,6 +261,7 @@ pub fn post_dispatch_record(
                     names.join(", ")
                 )),
                 elicitation_hint: elicitation,
+                resource_changed,
             };
         }
     }
@@ -202,6 +269,19 @@ pub fn post_dispatch_record(
     PostDispatchResult {
         eviction_hint: None,
         elicitation_hint: elicitation,
+        resource_changed,
+    }
+}
+
+fn apply_reinjection_plan(ledger: &mut ContextLedger, action: &PressureAction) {
+    if *action != PressureAction::ForceCompression && *action != PressureAction::EvictLeastRelevant
+    {
+        return;
+    }
+    for entry in &mut ledger.entries {
+        if entry.mode == "full" {
+            entry.mode = "map".to_string();
+        }
     }
 }
 
@@ -215,19 +295,19 @@ mod tests {
 
     #[test]
     fn pre_dispatch_passthrough_for_full() {
-        let result = pre_dispatch_read("src/main.rs", "full", None, None);
+        let result = pre_dispatch_read("src/main.rs", "full", None, None, None);
         assert!(result.overridden_mode.is_none());
     }
 
     #[test]
     fn pre_dispatch_passthrough_for_diff() {
-        let result = pre_dispatch_read("src/main.rs", "diff", None, None);
+        let result = pre_dispatch_read("src/main.rs", "diff", None, None, None);
         assert!(result.overridden_mode.is_none());
     }
 
     #[test]
     fn pre_dispatch_no_override_without_signals() {
-        let result = pre_dispatch_read("src/unknown.rs", "auto", None, None);
+        let result = pre_dispatch_read("src/unknown.rs", "auto", None, None, None);
         assert!(result.overridden_mode.is_none());
     }
 
@@ -248,9 +328,55 @@ mod tests {
             bt.set_seq(6);
             bt.record_read("a3.yml", "full", 400, 400);
         }
-        let result = pre_dispatch_read("new.yml", "auto", None, None);
+        let result = pre_dispatch_read("new.yml", "auto", None, None, None);
         assert_eq!(result.overridden_mode, Some("full".to_string()));
         assert_eq!(result.reason, Some("bounce-prevention"));
+    }
+
+    #[test]
+    fn pressure_downgrade_full_to_map() {
+        let result = pre_dispatch_read(
+            "c.rs",
+            "full",
+            None,
+            None,
+            Some(&PressureAction::ForceCompression),
+        );
+        assert_eq!(result.overridden_mode, Some("map".to_string()));
+        assert_eq!(result.reason, Some("pressure-auto-downgrade"));
+        assert!(result.pressure_downgraded);
+    }
+
+    #[test]
+    fn pressure_downgrade_map_to_signatures_on_evict() {
+        let result = pre_dispatch_read(
+            "c.rs",
+            "map",
+            None,
+            None,
+            Some(&PressureAction::EvictLeastRelevant),
+        );
+        assert_eq!(result.overridden_mode, Some("signatures".to_string()));
+        assert!(result.pressure_downgraded);
+    }
+
+    #[test]
+    fn no_pressure_downgrade_when_low() {
+        let result = pre_dispatch_read("c.rs", "full", None, None, Some(&PressureAction::NoAction));
+        assert!(result.overridden_mode.is_none());
+        assert!(!result.pressure_downgraded);
+    }
+
+    #[test]
+    fn post_dispatch_reinjection_downgrades_entries() {
+        let mut ledger = ContextLedger::with_window_size(1000);
+        ledger.record("a.rs", "full", 400, 400);
+        ledger.record("b.rs", "full", 400, 400);
+        let overlay = OverlayStore::new();
+        let result = post_dispatch_record("c.rs", "full", 300, 300, &mut ledger, &overlay);
+        assert!(result.resource_changed);
+        let a_entry = ledger.entries.iter().find(|e| e.path == "a.rs").unwrap();
+        assert_eq!(a_entry.mode, "map");
     }
 
     #[test]
@@ -273,6 +399,7 @@ mod tests {
             "auto",
             None,
             Some(root.to_str().unwrap()),
+            None,
         );
         assert_eq!(result.overridden_mode, Some("full".to_string()));
         assert_eq!(result.reason, Some("pinned"));
@@ -295,7 +422,13 @@ mod tests {
         ));
         store.save_project(root).unwrap();
 
-        let result = pre_dispatch_read("src/noisy.rs", "auto", None, Some(root.to_str().unwrap()));
+        let result = pre_dispatch_read(
+            "src/noisy.rs",
+            "auto",
+            None,
+            Some(root.to_str().unwrap()),
+            None,
+        );
         assert_eq!(result.overridden_mode, Some("signatures".to_string()));
         assert_eq!(result.reason, Some("excluded"));
     }
@@ -315,7 +448,13 @@ mod tests {
         ));
         store.save_project(root).unwrap();
 
-        let result = pre_dispatch_read("src/big.rs", "auto", None, Some(root.to_str().unwrap()));
+        let result = pre_dispatch_read(
+            "src/big.rs",
+            "auto",
+            None,
+            Some(root.to_str().unwrap()),
+            None,
+        );
         assert_eq!(result.overridden_mode, Some("map".to_string()));
         assert_eq!(result.reason, Some("overlay-set-view"));
     }

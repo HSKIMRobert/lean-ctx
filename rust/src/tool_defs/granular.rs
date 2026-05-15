@@ -7,8 +7,7 @@ pub fn granular_tool_defs() -> Vec<Tool> {
     vec![
         tool_def(
             "ctx_read",
-            "Read file (cached, compressed). Cached re-reads can be ~13 tok when unchanged. Auto-selects optimal mode. \
-Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fresh=true forces a disk re-read.",
+            "Read file with intelligent compression and caching.",
             json!({
                 "type": "object",
                 "properties": {
@@ -30,27 +29,8 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
             }),
         ),
         tool_def(
-            "ctx_multi_read",
-            "Batch read files in one call. Same modes as ctx_read.",
-            json!({
-                "type": "object",
-                "properties": {
-                    "paths": {
-                        "type": "array",
-                        "items": { "type": "string" },
-                        "description": "Absolute file paths to read, in order"
-                    },
-                    "mode": {
-                        "type": "string",
-                        "description": "Compression mode (default: full). Same modes as ctx_read (auto, full, map, signatures, diff, aggressive, entropy, task, reference, lines:N-M)."
-                    }
-                },
-                "required": ["paths"]
-            }),
-        ),
-        tool_def(
             "ctx_call",
-            "Compatibility meta-tool: call any ctx_* tool by name using a stable schema. Useful for MCP clients that freeze tool registries at startup (static tools/list).",
+            "Invoke any lean-ctx tool by name.",
             json!({
                 "type": "object",
                 "properties": {
@@ -74,7 +54,7 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
         ),
         tool_def(
             "ctx_shell",
-            "Run shell command (compressed output, 95+ patterns). Use raw=true to skip compression. cwd sets working directory (persists across calls via cd tracking). Output redaction is on by default for non-admin roles (admin can disable).",
+            "Run shell command with compressed output.",
             json!({
                 "type": "object",
                 "properties": {
@@ -87,7 +67,7 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
         ),
         tool_def(
             "ctx_search",
-            "Regex code search (.gitignore aware, compact results). Deterministic ordering. Secret-like files (e.g. .env, *.pem) are skipped unless role allows. ignore_gitignore requires explicit policy.",
+            "Search code with compressed results.",
             json!({
                 "type": "object",
                 "properties": {
@@ -102,7 +82,7 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
         ),
         tool_def(
             "ctx_compress",
-            "Context checkpoint for long conversations.",
+            "Create context checkpoint for long conversations.",
             json!({
                 "type": "object",
                 "properties": {
@@ -112,7 +92,7 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
         ),
         tool_def(
             "ctx_benchmark",
-            "Benchmark compression modes for a file or project.",
+            "Benchmark compression modes for a file.",
             json!({
                 "type": "object",
                 "properties": {
@@ -178,8 +158,7 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
         ),
         tool_def(
             "ctx_retrieve",
-            "Retrieve original uncompressed content from the session cache (CCR). \
-             Use when a compressed ctx_read output is insufficient.",
+            "Retrieve original uncompressed content from cache.",
             json!({
                 "type": "object",
                 "properties": {
@@ -209,30 +188,8 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
             }),
         ),
         tool_def(
-            "ctx_smart_read",
-            "Auto-select optimal read mode for a file.",
-            json!({
-                "type": "object",
-                "properties": {
-                    "path": { "type": "string", "description": "Absolute file path to read" }
-                },
-                "required": ["path"]
-            }),
-        ),
-        tool_def(
-            "ctx_delta",
-            "Incremental diff — sends only changed lines since last read.",
-            json!({
-                "type": "object",
-                "properties": {
-                    "path": { "type": "string", "description": "Absolute file path" }
-                },
-                "required": ["path"]
-            }),
-        ),
-        tool_def(
             "ctx_pack",
-            "PR Context Pack. action=pr yields changed files, related tests, impact summary, and relevant context artifacts.",
+            "PR context pack with changed files and impact.",
             json!({
                 "type": "object",
                 "properties": {
@@ -248,7 +205,7 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
         ),
         tool_def(
             "ctx_index",
-            "Index orchestration. Actions: status|build|build-full.",
+            "Build and manage code index.",
             json!({
                 "type": "object",
                 "properties": {
@@ -260,7 +217,7 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
         ),
         tool_def(
             "ctx_artifacts",
-            "Context artifact registry + BM25 index. Actions: list|status|index|reindex|search|remove.",
+            "Context artifact registry with BM25 search.",
             json!({
                 "type": "object",
                 "properties": {
@@ -276,7 +233,7 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
         ),
         tool_def(
             "ctx_edit",
-            "Edit a file via search-and-replace. Works without native Read/Edit tools. Use this when the IDE's Edit tool requires Read but Read is unavailable.",
+            "Edit file via search-and-replace.",
             json!({
                 "type": "object",
                 "properties": {
@@ -291,7 +248,7 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
         ),
         tool_def(
             "ctx_dedup",
-            "Cross-file dedup: analyze or apply shared block references.",
+            "Cross-file deduplication analysis.",
             json!({
                 "type": "object",
                 "properties": {
@@ -305,7 +262,7 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
         ),
         tool_def(
             "ctx_fill",
-            "Budget-aware context fill — auto-selects compression per file within token limit.",
+            "Budget-aware context fill within token limit.",
             json!({
                 "type": "object",
                 "properties": {
@@ -328,7 +285,7 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
         ),
         tool_def(
             "ctx_intent",
-            "Structured intent input (optional) — submit compact JSON or short text; server also infers intents automatically from tool calls.",
+            "Structured intent input with routing policy.",
             json!({
                 "type": "object",
                 "properties": {
@@ -350,16 +307,8 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
             }),
         ),
         tool_def(
-            "ctx_context",
-            "Session context overview — cached files, seen files, session state.",
-            json!({
-                "type": "object",
-                "properties": {}
-            }),
-        ),
-        tool_def(
             "ctx_proof",
-            "Export a machine-readable ContextProofV1 (Verifier + SLO + Pipeline + Provenance). Writes to .lean-ctx/proofs/ by default.",
+            "Export machine-readable context proof.",
             json!({
                 "type": "object",
                 "properties": {
@@ -376,7 +325,7 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
         ),
         tool_def(
             "ctx_verify",
-            "Verification observability. Actions: stats (versioned JSON or compact summary), proof|v2 (ContextProofV2 claim-based verification with Lean4 theorems). format=json|summary.",
+            "Output verification stats and proofs.",
             json!({
                 "type": "object",
                 "properties": {
@@ -387,8 +336,7 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
         ),
         tool_def(
             "ctx_graph",
-            "Unified code graph. Actions: build (index), related (connected files), symbol (def/usages), \
-impact (blast radius), status (stats), enrich (add commits+tests+knowledge), context (task-based query), diagram (Mermaid deps/calls).",
+            "Query code relationships, dependencies, and impact.",
             json!({
                 "type": "object",
                 "properties": {
@@ -419,10 +367,7 @@ impact (blast radius), status (stats), enrich (add commits+tests+knowledge), con
         ),
         tool_def(
             "ctx_session",
-            "Cross-session memory (CCP). Actions: load (restore ~400 tok), save, status, task, \
-finding, decision, reset, list, cleanup, snapshot, restore, resume, profile (context profiles), \
-role (governance), budget (limits), slo (observability), diff (compare sessions), verify (output verification stats), \
-episodes (episodic memory), procedures (procedural memory).",
+            "Manage session state, persistence, and checkpoints.",
             json!({
                 "type": "object",
                 "properties": {
@@ -445,7 +390,7 @@ episodes (episodic memory), procedures (procedural memory).",
         ),
         tool_def(
             "ctx_knowledge",
-            "Persistent project knowledge across sessions (facts, patterns, history). Supports recall modes, embeddings, feedback, and typed relations.",
+            "Store and recall project knowledge across sessions.",
             json!({
                 "type": "object",
                 "properties": {
@@ -507,12 +452,7 @@ episodes (episodic memory), procedures (procedural memory).",
         ),
         tool_def(
             "ctx_agent",
-            "Multi-agent coordination (shared message bus + persistent diaries). Actions: register (join with agent_type+role), \
-post (broadcast or direct message with category), read (poll messages), status (update state: active|idle|finished), \
-handoff (transfer task to another agent with summary), sync (overview of all agents + pending messages + shared contexts), \
-diary (log discovery/decision/blocker/progress/insight — persisted across sessions), \
-recall_diary (read agent diary), diaries (list all agent diaries), \
-list, info.",
+            "Multi-agent coordination and message bus.",
             json!({
                 "type": "object",
                 "properties": {
@@ -920,22 +860,8 @@ Preserves code blocks, URLs, paths, headings, tables. Creates .original.md backu
             }),
         ),
         tool_def(
-            "ctx_outline",
-            "List all symbols in a file (functions, structs, classes, methods) with signatures. \
-Much fewer tokens than reading the full file.",
-            json!({
-                "type": "object",
-                "properties": {
-                    "path": { "type": "string", "description": "File path" },
-                    "kind": { "type": "string", "description": "Optional filter: fn|struct|class|all" }
-                },
-                "required": ["path"]
-            }),
-        ),
-        tool_def(
             "ctx_expand",
-            "Retrieve archived tool output (zero-loss). Large outputs are auto-archived; use this to retrieve full details. \
-Actions: retrieve (default), list, search_all (FTS5 cross-archive fulltext search).",
+            "Retrieve archived tool output (zero-loss).",
             json!({
                 "type": "object",
                 "properties": {
@@ -1177,12 +1103,10 @@ task (A2A tasks), workflow (state machine), expand (retrieve archived output).",
 
 pub fn list_all_tool_defs() -> Vec<(&'static str, &'static str, Value)> {
     vec![
-        ("ctx_read", "Read file (cached, compressed). Cached re-reads can be ~13 tok when unchanged. Auto-selects optimal mode. \
-Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fresh=true forces a disk re-read. Output is redacted by default for non-admin roles.", json!({"type": "object", "properties": {"path": {"type": "string"}, "mode": {"type": "string"}, "start_line": {"type": "integer"}, "fresh": {"type": "boolean"}}, "required": ["path"]})),
-        ("ctx_multi_read", "Batch read files in one call. Same modes as ctx_read.", json!({"type": "object", "properties": {"paths": {"type": "array", "items": {"type": "string"}}, "mode": {"type": "string"}}, "required": ["paths"]})),
+        ("ctx_read", "Read file with intelligent compression and caching.", json!({"type": "object", "properties": {"path": {"type": "string"}, "mode": {"type": "string"}, "start_line": {"type": "integer"}, "fresh": {"type": "boolean"}}, "required": ["path"]})),
         ("ctx_tree", "Directory listing with file counts.", json!({"type": "object", "properties": {"path": {"type": "string"}, "depth": {"type": "integer"}, "show_hidden": {"type": "boolean"}}})),
-        ("ctx_shell", "Run shell command (compressed output, 95+ patterns). cwd sets working directory. raw=true disables compression (still respects output caps). bypass=true is an alias for raw with mode tagging. LEAN_CTX_DISABLED or LEAN_CTX_RAW also disable compression. Output redaction is on by default for non-admin roles (admin can disable).", json!({"type": "object", "properties": {"command": {"type": "string"}, "cwd": {"type": "string", "description": "Working directory"}, "raw": {"type": "boolean", "description": "Disable compression and return uncompressed output (still capped). Redaction still applies by default for non-admin roles."}, "bypass": {"type": "boolean", "description": "Alias for raw=true (no compression). Also tagged as mode=bypass for observability."}}, "required": ["command"]})),
-        ("ctx_search", "Regex code search (.gitignore aware, compact results). Deterministic ordering: same query + same tree + same limits => identical output. Secret-like files are skipped unless role allows. ignore_gitignore requires explicit policy.", json!({"type": "object", "properties": {"pattern": {"type": "string"}, "path": {"type": "string", "description": "Root directory to search (default: .)"}, "ext": {"type": "string", "description": "Optional file extension filter (e.g. rs, ts, py)"}, "max_results": {"type": "integer", "description": "Max matches to return (default: 20)"}, "ignore_gitignore": {"type": "boolean", "description": "If true, ignores .gitignore/.gitexclude and searches everything. Requires role policy (e.g. admin)."}}, "required": ["pattern"]})),
+        ("ctx_shell", "Run shell command with compressed output.", json!({"type": "object", "properties": {"command": {"type": "string"}, "cwd": {"type": "string"}, "raw": {"type": "boolean"}, "bypass": {"type": "boolean"}}, "required": ["command"]})),
+        ("ctx_search", "Search code with compressed results.", json!({"type": "object", "properties": {"pattern": {"type": "string"}, "path": {"type": "string"}, "ext": {"type": "string"}, "max_results": {"type": "integer"}, "ignore_gitignore": {"type": "boolean"}}, "required": ["pattern"]})),
         ("ctx_compress", "Context checkpoint for long conversations.", json!({"type": "object", "properties": {"include_signatures": {"type": "boolean"}}})),
         ("ctx_benchmark", "Benchmark compression modes for a file or project.", json!({"type": "object", "properties": {"path": {"type": "string"}, "action": {"type": "string"}, "format": {"type": "string"}}, "required": ["path"]})),
         ("ctx_metrics", "Session token stats, cache rates, per-tool savings.", json!({"type": "object", "properties": {}})),
@@ -1191,8 +1115,6 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
         ("ctx_cache", "Cache ops: status|clear|invalidate.", json!({"type": "object", "properties": {"action": {"type": "string"}, "path": {"type": "string"}}, "required": ["action"]})),
         ("ctx_retrieve", "Retrieve original uncompressed content from cache (CCR).", json!({"type": "object", "properties": {"path": {"type": "string"}, "query": {"type": "string"}}, "required": ["path"]})),
         ("ctx_discover", "Find missed compression opportunities in shell history.", json!({"type": "object", "properties": {"limit": {"type": "integer"}}})),
-        ("ctx_smart_read", "Auto-select optimal read mode for a file.", json!({"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]})),
-        ("ctx_delta", "Incremental diff — sends only changed lines since last read.", json!({"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]})),
         ("ctx_pack", "PR Context Pack. action=pr yields changed files, related tests, impact summary, and relevant context artifacts.", json!({"type": "object", "properties": {"action": {"type": "string"}, "project_root": {"type": "string"}, "base": {"type": "string"}, "format": {"type": "string"}, "depth": {"type": "integer"}, "diff": {"type": "string"}}, "required": ["action"]})),
         ("ctx_index", "Index orchestration. Actions: status|build|build-full.", json!({"type": "object", "properties": {"action": {"type": "string"}, "project_root": {"type": "string"}}, "required": ["action"]})),
         ("ctx_artifacts", "Context artifact registry + BM25 index. Actions: list|status|index|reindex|search|remove.", json!({"type": "object", "properties": {"action": {"type": "string"}, "project_root": {"type": "string"}, "query": {"type": "string"}, "name": {"type": "string"}, "top_k": {"type": "integer"}, "format": {"type": "string"}}, "required": ["action"]})),
@@ -1223,7 +1145,6 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
         ("ctx_fill", "Budget-aware context fill — auto-selects compression per file within token limit.", json!({"type": "object", "properties": {"paths": {"type": "array", "items": {"type": "string"}}, "budget": {"type": "integer"}, "task": {"type": "string"}}, "required": ["paths", "budget"]})),
         ("ctx_intent", "Structured intent input with routing policy. Default returns a compact ack line. format=json returns IntentRouteV1 contract (dimension + model tier + read mode + reason) with budget/pressure degradation.", json!({"type": "object", "properties": {"query": {"type": "string"}, "project_root": {"type": "string"}, "format": {"type": "string", "description": "Output format: text|json (default: text)."}}, "required": ["query"]})),
         ("ctx_response", "Compress LLM response text (remove filler, apply TDD).", json!({"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]})),
-        ("ctx_context", "Session context overview — cached files, seen files, session state.", json!({"type": "object", "properties": {}})),
         ("ctx_proof", "Export a machine-readable ContextProofV1 (Verifier + SLO + Pipeline + Provenance). Writes to .lean-ctx/proofs/ by default.", json!({"type": "object", "properties": {"action": {"type": "string"}, "project_root": {"type": "string"}, "format": {"type": "string"}, "write": {"type": "boolean"}, "filename": {"type": "string"}, "max_evidence": {"type": "integer"}, "max_ledger_files": {"type": "integer"}}, "required": ["action"]})),
         ("ctx_verify", "Verification observability. Actions: stats (versioned JSON or compact summary), proof|v2 (ContextProofV2 claim-based verification with Lean4 theorems). format=json|summary.", json!({"type": "object", "properties": {"action": {"type": "string"}, "format": {"type": "string"}}, "required": []})),
         ("ctx_graph", "Unified code graph. Actions: build, related, symbol, impact, status, enrich, context, diagram.", json!({"type": "object", "properties": {"action": {"type": "string"}, "path": {"type": "string"}, "depth": {"type": "integer"}, "kind": {"type": "string"}, "project_root": {"type": "string"}}, "required": ["action"]})),
@@ -1248,7 +1169,6 @@ pull (receive shared files), list (show all shared contexts), clear (remove your
         ("ctx_semantic_search", "Semantic code search (BM25 + optional embeddings/hybrid). action=reindex to rebuild.", json!({"type": "object", "properties": {"query": {"type": "string"}, "path": {"type": "string"}, "top_k": {"type": "integer"}, "action": {"type": "string"}, "mode": {"type": "string", "enum": ["bm25","dense","hybrid"]}, "languages": {"type": "array", "items": {"type": "string"}}, "path_glob": {"type": "string"}}, "required": ["query"]})),
         ("ctx_execute", "Run code in sandbox (11 languages). Only stdout enters context. Languages: javascript, typescript, python, shell, ruby, go, rust, php, perl, r, elixir. Actions: batch (multiple scripts), file (process file in sandbox).", json!({"type": "object", "properties": {"language": {"type": "string"}, "code": {"type": "string"}, "intent": {"type": "string"}, "timeout": {"type": "integer"}, "action": {"type": "string"}, "items": {"type": "string"}, "path": {"type": "string"}}, "required": ["language", "code"]})),
         ("ctx_symbol", "Read a specific symbol (function, struct, class) by name. Returns only the symbol code block instead of the entire file. 90-97% fewer tokens than full file read.", json!({"type": "object", "properties": {"name": {"type": "string"}, "file": {"type": "string"}, "kind": {"type": "string"}}, "required": ["name"]})),
-        ("ctx_outline", "List all symbols in a file with signatures. Much fewer tokens than reading the full file.", json!({"type": "object", "properties": {"path": {"type": "string"}, "kind": {"type": "string"}}, "required": ["path"]})),
         ("ctx_compress_memory", "Compress a memory/config file (CLAUDE.md, .cursorrules) preserving code, URLs, paths. Creates .original.md backup.", json!({"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]})),
         ("ctx_callgraph", "Unified call graph query with direction=callers|callees.", json!({"type": "object", "properties": {"symbol": {"type": "string"}, "direction": {"type": "string"}, "file": {"type": "string"}}, "required": ["symbol"]})),
         ("ctx_refactor", "LSP-powered refactoring (rename, references, definition, implementations). Requires language server.", json!({"type": "object", "properties": {"action": {"type": "string", "enum": ["rename", "references", "definition", "implementations"]}, "path": {"type": "string"}, "line": {"type": "integer"}, "column": {"type": "integer"}, "new_name": {"type": "string"}}, "required": ["action", "path", "line"]})),

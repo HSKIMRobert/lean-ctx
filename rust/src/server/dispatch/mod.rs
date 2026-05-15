@@ -136,6 +136,10 @@ impl LeanCtxServer {
             }
 
             let crp_mode = crate::tools::CrpMode::effective();
+            let pressure_snapshot = {
+                let ledger = self.ledger.read().await;
+                Some(ledger.pressure())
+            };
             let ctx = crate::server::tool_trait::ToolContext {
                 project_root,
                 minimal,
@@ -151,8 +155,15 @@ impl LeanCtxServer {
                 pipeline_stats: Some(self.pipeline_stats.clone()),
                 call_count: Some(self.call_count.clone()),
                 autonomy: Some(self.autonomy.clone()),
+                pressure_snapshot,
             };
             let output = tokio::task::block_in_place(|| tool.handle(args_map, &ctx))?;
+
+            if output.changed {
+                if let Some(peer) = self.peer.read().await.as_ref() {
+                    super::notifications::send_tools_list_changed(peer).await;
+                }
+            }
 
             if let Some(ref path) = output.path {
                 self.record_call_with_path(

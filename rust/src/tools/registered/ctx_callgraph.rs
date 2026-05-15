@@ -51,6 +51,7 @@ impl McpTool for CtxCallgraphTool {
             saved_tokens: 0,
             mode: Some(direction),
             path: None,
+            changed: false,
         })
     }
 }

@@ -37,6 +37,12 @@ fn compressed_cache_key(mode: &str, crp_mode: CrpMode) -> String {
 }
 
 fn append_compressed_hint(output: &str, file_path: &str) -> String {
+    if !crate::core::profiles::active_profile()
+        .output_hints
+        .compressed_hint()
+    {
+        return output.to_string();
+    }
     format!(
         "{output}\n{COMPRESSED_HINT}\n  ctx_read(\"{file_path}\", mode=\"full\") | ctx_retrieve(\"{file_path}\")"
     )
@@ -344,8 +350,17 @@ fn handle_with_options_inner(
         }
     };
 
-    let similar_hint = find_similar_and_update_semantic_index(path, &content);
-    let graph_hint = build_graph_related_hint(path);
+    let hints = crate::core::profiles::active_profile().output_hints;
+    let similar_hint = if hints.semantic_hint() {
+        find_similar_and_update_semantic_index(path, &content)
+    } else {
+        None
+    };
+    let graph_hint = if hints.related_hint() {
+        build_graph_related_hint(path)
+    } else {
+        None
+    };
 
     let store_result = cache.store(path, &content);
 
@@ -951,14 +966,21 @@ fn process_mode(
             } else {
                 format!("{short} {line_count}L [task-filtered: {line_count}→{filtered_lines}]")
             };
-            let project_root = detect_project_root(file_path);
-            let graph_ctx = crate::core::graph_context::build_graph_context(
-                file_path,
-                &project_root,
-                Some(crate::core::graph_context::GraphContextOptions::default()),
-            )
-            .map(|c| crate::core::graph_context::format_graph_context(&c))
-            .unwrap_or_default();
+            let graph_ctx = if crate::core::profiles::active_profile()
+                .output_hints
+                .graph_context_block()
+            {
+                let project_root = detect_project_root(file_path);
+                crate::core::graph_context::build_graph_context(
+                    file_path,
+                    &project_root,
+                    Some(crate::core::graph_context::GraphContextOptions::default()),
+                )
+                .map(|c| crate::core::graph_context::format_graph_context(&c))
+                .unwrap_or_default()
+            } else {
+                String::new()
+            };
 
             let sent = count_tokens(&filtered) + count_tokens(&header) + count_tokens(&graph_ctx);
             let savings = protocol::format_savings(original_tokens, sent);

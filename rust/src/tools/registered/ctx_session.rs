@@ -86,6 +86,7 @@ episodes (episodic memory), procedures (procedural memory).",
             saved_tokens: 0,
             mode: Some(action),
             path: None,
+            changed: false,
         })
     }
 }

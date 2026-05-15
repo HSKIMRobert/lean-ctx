@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use rmcp::model::Tool;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value};
 
 mod granular;
 pub use granular::{granular_tool_defs, list_all_tool_defs, unified_tool_defs};
@@ -16,39 +16,22 @@ pub fn tool_def(name: &'static str, description: &'static str, schema_value: Val
 
 const CORE_TOOL_NAMES: &[&str] = &[
     "ctx_read",
-    "ctx_multi_read",
-    "ctx_call",
-    "ctx_shell",
     "ctx_search",
+    "ctx_shell",
     "ctx_tree",
     "ctx_edit",
     "ctx_session",
     "ctx_knowledge",
+    "ctx_overview",
+    "ctx_graph",
+    "ctx_call",
 ];
 
 pub fn lazy_tool_defs() -> Vec<Tool> {
     let all = granular_tool_defs();
-    let mut core: Vec<Tool> = all
-        .into_iter()
+    all.into_iter()
         .filter(|t| CORE_TOOL_NAMES.contains(&t.name.as_ref()))
-        .collect();
-
-    core.push(tool_def(
-        "ctx_discover_tools",
-        "Search available lean-ctx tools by keyword. Returns matching tool names + descriptions for on-demand loading.",
-        json!({
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Search keyword (e.g. 'graph', 'cost', 'workflow', 'dedup')"
-                }
-            },
-            "required": ["query"]
-        }),
-    ));
-
-    core
+        .collect()
 }
 
 pub fn discover_tools(query: &str) -> String {

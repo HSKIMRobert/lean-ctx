@@ -93,6 +93,7 @@ impl McpTool for CtxProofTool {
             saved_tokens: 0,
             mode: Some(action),
             path: Some(root),
+            changed: false,
         })
     }
 }

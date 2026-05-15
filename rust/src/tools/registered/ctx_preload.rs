@@ -125,6 +125,7 @@ impl McpTool for CtxPreloadTool {
             saved_tokens: 0,
             mode: Some("preload".to_string()),
             path: None,
+            changed: false,
         })
     }
 }
