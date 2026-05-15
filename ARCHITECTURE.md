@@ -24,7 +24,7 @@ flowchart TB
         BudgetGate["Budget / SLO Gate — exhaustion blocking, throttling"]
         DegradationEval["Degradation Policy — evaluate_v1_for_tool"]
         ContextGate["Context Gate — pre: bounce/intent/graph/knowledge; post: ledger, overlays, eviction, elicitation"]
-        HybridDispatch["Hybrid Dispatch — Context Server (56 tools)"]
+        HybridDispatch["Hybrid Dispatch — Context Server (56+ tools)"]
         ToolRegistry["ToolRegistry — 27 trait-based tools (McpTool)"]
         DispatchRead["read_tools — ctx_read, ctx_multi_read, ctx_edit, ctx_fill, ctx_delta, ctx_smart_read"]
         DispatchShell["shell_tools — ctx_shell, ctx_search, ctx_execute"]
@@ -851,6 +851,45 @@ flowchart LR
 ### Discovery Tools (loaded on demand)
 
 ctx_compress, ctx_benchmark, ctx_metrics, ctx_analyze, ctx_cache, ctx_discover, ctx_smart_read, ctx_delta, ctx_pack, ctx_index, ctx_artifacts, ctx_dedup, ctx_fill, ctx_intent, ctx_response, ctx_context, ctx_proof, ctx_verify, ctx_graph, ctx_agent, ctx_share, ctx_overview, ctx_preload, ctx_prefetch, ctx_cost, ctx_gain, ctx_feedback, ctx_handoff, ctx_heatmap, ctx_task, ctx_impact, ctx_architecture, ctx_workflow, ctx_semantic_search, ctx_execute, ctx_symbol, ctx_refactor, ctx_routes, ctx_compress_memory, ctx_callgraph, ctx_outline, ctx_expand, ctx_review, ctx_provider
+
+## LSP Integration (ctx_refactor)
+
+The LSP subsystem (`lsp/`) provides language-server-powered refactoring via `ctx_refactor`.
+
+```
+┌─────────────────┐     ┌──────────────┐     ┌───────────────────┐
+│  ctx_refactor   │────▶│   Router     │────▶│   LspClient       │
+│  (MCP tool)     │     │ (per-lang)   │     │ (channel-based)   │
+└─────────────────┘     └──────────────┘     └───────────────────┘
+                                                      │
+                                              ┌───────┴────────┐
+                                              │ Reader Thread   │
+                                              │ (mpsc channel)  │
+                                              └───────┬────────┘
+                                                      │ stdio
+                                              ┌───────▼────────┐
+                                              │ Language Server │
+                                              │ (subprocess)   │
+                                              └────────────────┘
+```
+
+Key design decisions:
+- **Channel-based IO**: A background thread reads LSP stdout via `mpsc::channel`, enabling timeout-protected reads without blocking the MCP server
+- **Timeouts**: 60s for initialization (language servers index on start), 30s for requests, 5s for shutdown
+- **Process health checks**: `check_alive()` before every request detects dead servers early
+- **Lazy client lifecycle**: Language servers are started on first use per language, kept alive for the session, shut down on `Drop`
+- **Router pattern**: `CLIENTS` static holds one `LspClient` per language; `with_client()` provides scoped mutable access
+
+Supported servers: rust-analyzer, typescript-language-server, pylsp, gopls (configured in `lsp/config.rs`).
+
+## Archive Full-Text Search (FTS5)
+
+The archive FTS subsystem (`core/archive_fts.rs`) enables cross-archive fulltext search using SQLite FTS5.
+
+- **Index hook**: Every `archive::store()` call indexes the content in the FTS5 virtual table
+- **Cleanup hook**: `archive::cleanup()` removes entries from the FTS index
+- **Search**: `ctx_expand action=search_all query="..."` searches all archived outputs
+- **Storage**: `~/.lean-ctx/archive_fts.db` (SQLite, created lazily on first use)
 
 ## Bounce Detection
 

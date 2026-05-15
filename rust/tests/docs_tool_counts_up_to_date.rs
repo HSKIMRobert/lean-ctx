@@ -21,8 +21,8 @@ fn docs_tool_counts_match_manifest() {
         (
             "rust/README.md",
             vec![
-                format!("{} MCP tools", expected_granular),
-                format!("## {} MCP Tools", expected_granular),
+                format!("{}+ MCP tools", expected_granular),
+                format!("## {}+ MCP Tools", expected_granular),
             ],
         ),
     ];

@@ -64,11 +64,9 @@ fn wait_for_lsp_ready(dir: &std::path::Path, root: &str) {
 }
 
 #[test]
+#[ignore = "requires rust-analyzer in PATH"]
 fn test_lsp_definition() {
-    if !has_rust_analyzer() {
-        eprintln!("SKIP: rust-analyzer not found");
-        return;
-    }
+    assert!(has_rust_analyzer(), "rust-analyzer not found in PATH");
 
     let dir = test_project_dir();
     let root = dir.to_string_lossy().to_string();
@@ -90,11 +88,9 @@ fn test_lsp_definition() {
 }
 
 #[test]
+#[ignore = "requires rust-analyzer in PATH"]
 fn test_lsp_references() {
-    if !has_rust_analyzer() {
-        eprintln!("SKIP: rust-analyzer not found");
-        return;
-    }
+    assert!(has_rust_analyzer(), "rust-analyzer not found in PATH");
 
     let dir = test_project_dir();
     let root = dir.to_string_lossy().to_string();
@@ -125,14 +121,12 @@ fn test_lsp_missing_path() {
 }
 
 #[test]
+#[ignore = "requires rust-analyzer in PATH"]
 fn test_lsp_unknown_action() {
+    assert!(has_rust_analyzer(), "rust-analyzer not found in PATH");
+
     let dir = test_project_dir();
     let path = dir.join("src/main.rs").to_string_lossy().to_string();
-
-    if !has_rust_analyzer() {
-        eprintln!("SKIP: rust-analyzer not found");
-        return;
-    }
 
     let result = call_refactor(
         &json!({"action": "foobar", "path": &path, "line": 1}),
@@ -169,11 +163,9 @@ fn test_lsp_unsupported_extension() {
 }
 
 #[test]
+#[ignore = "requires rust-analyzer in PATH"]
 fn test_lsp_timeout_not_triggered_on_valid_request() {
-    if !has_rust_analyzer() {
-        eprintln!("SKIP: rust-analyzer not found");
-        return;
-    }
+    assert!(has_rust_analyzer(), "rust-analyzer not found in PATH");
 
     let dir = test_project_dir();
     let root = dir.to_string_lossy().to_string();

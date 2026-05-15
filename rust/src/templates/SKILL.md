@@ -150,6 +150,8 @@ MCP tools for CCP:
 - `ctx_graph enrich` — add commits, tests, knowledge to graph
 - `ctx_graph context` — task-based graph query for relevant context
 - `ctx_gain action=wrapped` — generate savings report card in chat
+- `ctx_refactor` — LSP-powered rename, references, definition, implementations (requires language server)
+- `ctx_expand action=search_all query="..."` — FTS5 cross-archive fulltext search
 
 ## Analytics
 
