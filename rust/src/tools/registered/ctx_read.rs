@@ -1,9 +1,29 @@
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
 use rmcp::model::Tool;
 use rmcp::ErrorData;
 use serde_json::{json, Map, Value};
 
 use crate::server::tool_trait::{get_bool, get_int, get_str, McpTool, ToolContext, ToolOutput};
 use crate::tool_defs::tool_def;
+
+/// Per-file lock that serializes concurrent reads of the same path.
+///
+/// When multiple subagents read sequentially through a shared set of files,
+/// they tend to hit the same path at the same time. Without per-file locking
+/// they all contend on the global cache write lock while doing redundant I/O.
+/// This lock ensures only one thread reads a given file from disk; the others
+/// wait cheaply on the per-file mutex, then hit the warm cache.
+fn per_file_lock(path: &str) -> Arc<Mutex<()>> {
+    static FILE_LOCKS: std::sync::OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> =
+        std::sync::OnceLock::new();
+    let map = FILE_LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut map = map.lock().unwrap();
+    map.entry(path.to_string())
+        .or_insert_with(|| Arc::new(Mutex::new(())))
+        .clone()
+}
 
 pub struct CtxReadTool;
 
@@ -147,6 +167,11 @@ impl CtxReadTool {
             let path_owned = path.to_string();
             let (tx, rx) = std::sync::mpsc::sync_channel(1);
             std::thread::spawn(move || {
+                // Per-file lock: serialize concurrent reads of the same path so
+                // only one thread does I/O while the others wait on a cheap
+                // std::sync::Mutex, reducing contention on the global cache lock.
+                let file_lock = per_file_lock(&path_owned);
+                let _file_guard = file_lock.lock().unwrap();
                 let task_ref = task_owned.as_deref();
                 let mut cache = cache_lock.blocking_write();
                 let read_output = if fresh {
@@ -312,5 +337,80 @@ fn auto_degrade_read_mode(mode: &str) -> String {
             other => other.to_string(),
         },
         DegradationVerdictV1::Block => "signatures".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn per_file_lock_same_path_returns_same_mutex() {
+        let lock_a1 = per_file_lock("/tmp/test_same_path.txt");
+        let lock_a2 = per_file_lock("/tmp/test_same_path.txt");
+        assert!(Arc::ptr_eq(&lock_a1, &lock_a2));
+    }
+
+    #[test]
+    fn per_file_lock_different_paths_return_different_mutexes() {
+        let lock_a = per_file_lock("/tmp/test_path_a.txt");
+        let lock_b = per_file_lock("/tmp/test_path_b.txt");
+        assert!(!Arc::ptr_eq(&lock_a, &lock_b));
+    }
+
+    #[test]
+    fn per_file_lock_serializes_concurrent_access() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let max_concurrent = Arc::new(AtomicUsize::new(0));
+        let path = "/tmp/test_concurrent_serialization.txt";
+        let mut handles = Vec::new();
+
+        for _ in 0..5 {
+            let counter = counter.clone();
+            let max_concurrent = max_concurrent.clone();
+            let path = path.to_string();
+            handles.push(std::thread::spawn(move || {
+                let lock = per_file_lock(&path);
+                let _guard = lock.lock().unwrap();
+                let active = counter.fetch_add(1, Ordering::SeqCst) + 1;
+                max_concurrent.fetch_max(active, Ordering::SeqCst);
+                std::thread::sleep(std::time::Duration::from_millis(10));
+                counter.fetch_sub(1, Ordering::SeqCst);
+            }));
+        }
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        assert_eq!(max_concurrent.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn per_file_lock_allows_parallel_different_paths() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let max_concurrent = Arc::new(AtomicUsize::new(0));
+        let mut handles = Vec::new();
+
+        for i in 0..4 {
+            let counter = counter.clone();
+            let max_concurrent = max_concurrent.clone();
+            let path = format!("/tmp/test_parallel_{i}.txt");
+            handles.push(std::thread::spawn(move || {
+                let lock = per_file_lock(&path);
+                let _guard = lock.lock().unwrap();
+                let active = counter.fetch_add(1, Ordering::SeqCst) + 1;
+                max_concurrent.fetch_max(active, Ordering::SeqCst);
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                counter.fetch_sub(1, Ordering::SeqCst);
+            }));
+        }
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        assert!(max_concurrent.load(Ordering::SeqCst) > 1);
     }
 }
