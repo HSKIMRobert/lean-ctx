@@ -145,7 +145,7 @@ This doc is only useful if it matches what users can actually invoke.
     - **MCP**: `ctx_proof action=export ...` (dispatch via `rust/src/server/dispatch/utility_tools.rs`)
     - **CLI**: `lean-ctx proof ...` (`rust/src/cli/proof_cmd.rs`)
   - Writes: `.lean-ctx/proofs/context-proof-v1_*.json` (atomic write; proof output is always redacted)
-  - Website (deploy): tool pages + enrichments + manifest validation updated (56 tools)
+  - Website (deploy): tool pages + enrichments + manifest validation updated (56+ tools)
   - Relevant: `rust/src/core/context_proof.rs`, `rust/src/tools/ctx_proof.rs`, `rust/src/server/dispatch/utility_tools.rs`, `rust/src/tool_defs/granular.rs`, `rust/src/cli/proof_cmd.rs`, `worktrees/deploy-ctxos/website/generated/tool-enrichments.json`
 
 **Evidence (lokal, minimal)**:
@@ -184,7 +184,7 @@ This doc is only useful if it matches what users can actually invoke.
   - CLI: `lean-ctx verify --json`
   - Schema: `VerificationObservabilityV1` (`schema_version=1`) → verifier snapshot + SLO snapshot + budgets + proof counters + pipeline stats
   - Proof counters: `context_proof` tracked collected/written + last_written timestamp (count-only)
-  - Deploy website: tool pages + enrichments + docs updated (56 tools)
+  - Deploy website: tool pages + enrichments + docs updated (56+ tools)
   - Relevant: `rust/src/core/verification_observability.rs`, `rust/src/tools/ctx_verify.rs`, `rust/src/server/dispatch/utility_tools.rs`, `rust/src/tool_defs/granular.rs`, `rust/src/cli/verify_cmd.rs`
 
 **Evidence (lokal, minimal)**:

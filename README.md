@@ -92,6 +92,8 @@
 - **File reads (MCP)**: cached + mode-aware reads (`full`, `map`, `signatures`, `diff`, …) with graph-aware related files hints
 - **Shell output (hook)**: compresses noisy CLI output via 95+ patterns (git, npm, cargo, docker, …)
 - **Graph-Powered Intelligence**: multi-edge Property Graph (imports, calls, exports, type_ref) with weighted impact analysis, hybrid search (BM25 + embeddings + graph proximity via RRF), and incremental git-diff updates
+- **LSP Refactoring** (`ctx_refactor`): language-server-powered rename, references, go-to-definition, and find-implementations via rust-analyzer, typescript-language-server, pylsp, gopls — with timeout-protected channel-based IO
+- **Archive Full-Text Search** (`ctx_expand search_all`): FTS5-powered cross-archive search over all previously archived tool outputs
 - **PR Context Packs**: `lean-ctx pack --pr` builds a PR-ready context pack (changed files, related tests, impact, artifacts)
 - **Context Packages**: `lean-ctx pack create` bundles Knowledge + Graph + Session + Gotchas into portable `.lctxpkg` files — share context across projects/teams with SHA-256 integrity, auto-load on session start, and smart merge (dedup facts, overlay graph)
 - **Session memory (CCP)**: persist task/facts/decisions across chats with structured recovery queries surviving compaction
