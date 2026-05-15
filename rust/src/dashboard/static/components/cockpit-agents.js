@@ -22,12 +22,12 @@ function relativeTime(iso) {
 function statusDotHtml(status) {
   var s = String(status || '').toLowerCase();
   if (s === 'active' || s === 'running') {
-    return '<span class="status-dot active"></span>';
+    return '<span class="status-ascii" style="color:var(--green)">[*]</span>';
   }
   if (s === 'idle') {
-    return '<span class="status-dot warning"></span>';
+    return '<span class="status-ascii" style="color:var(--yellow)">[-]</span>';
   }
-  return '<span class="status-dot offline"></span>';
+  return '<span class="status-ascii" style="color:var(--muted)">[.]</span>';
 }
 
 function tip(k) {

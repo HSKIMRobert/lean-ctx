@@ -81,6 +81,16 @@ where
 }
 
 pub fn open_file(file_path: &str, project_root: &str) -> Result<Uri, String> {
+    let ext = Path::new(file_path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+    language_for_extension(ext).ok_or_else(|| {
+        format!(
+            "No LSP server configured for extension '.{ext}'. Supported: rs, ts, tsx, js, py, go"
+        )
+    })?;
+
     let content = std::fs::read_to_string(file_path)
         .map_err(|e| format!("Cannot read '{file_path}': {e}"))?;
 

@@ -8,12 +8,14 @@ setup-hooks: ## Configure git to use .githooks/ for hooks
 
 # ── Build & Install ──────────────────────────────────────
 
-install: ## Build release + install to ~/.cargo/bin
-	cd rust && cargo install --path .
+install: ## Build release + install to ~/.local/bin
+	cd rust && cargo install --path . --force --locked --root "$$HOME/.local"
 	@echo "Installed: $$(lean-ctx --version)"
 
-dev: ## Quick debug build + copy to ~/.cargo/bin
-	cd rust && cargo build && cp target/debug/lean-ctx ~/.cargo/bin/lean-ctx
+dev: ## Quick debug build + copy to ~/.local/bin
+	cd rust && cargo build
+	@mkdir -p "$$HOME/.local/bin"
+	cp rust/target/debug/lean-ctx "$$HOME/.local/bin/lean-ctx"
 	@echo "Dev installed: $$(lean-ctx --version)"
 
 test: ## Run all Rust tests + clippy

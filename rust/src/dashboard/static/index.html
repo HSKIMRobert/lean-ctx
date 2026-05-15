@@ -6,7 +6,7 @@
 <title>LeanCTX Context Cockpit</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/style.css">
 <style>
 /* Cockpit shell — works with tokens in style.css */
@@ -41,7 +41,7 @@
 .global-search{
   width:100%;padding:8px 52px 8px 14px;
   background:var(--bg);border:1px solid var(--border);
-  border-radius:999px;color:var(--text);font-family:var(--font);font-size:12px;
+  border-radius:4px;color:var(--text);font-family:var(--mono);font-size:12px;
   outline:none;transition:all .2s;
 }
 .global-search:focus{border-color:var(--green);box-shadow:0 0 0 3px rgba(52,211,153,0.08);background:var(--surface)}
@@ -51,16 +51,16 @@
 }
 .topbar-status{
   display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);
-  padding:5px 12px;background:var(--bg);border-radius:999px;border:1px solid var(--border);
+  padding:5px 12px;background:var(--bg);border-radius:4px;border:1px solid var(--border);
 }
 .topbar-status .ts-item{display:flex;align-items:center;gap:5px;white-space:nowrap}
-.topbar-status .ts-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
-.topbar-status .ts-dot.on{background:var(--green);box-shadow:0 0 6px rgba(52,211,153,0.5)}
-.topbar-status .ts-dot.off{background:var(--red);box-shadow:none;animation:none}
+.topbar-status .ts-ascii{font-family:var(--mono);font-size:9px;font-weight:700;flex-shrink:0}
+.topbar-status .ts-ascii.on{color:var(--green)}
+.topbar-status .ts-ascii.off{color:var(--red)}
 .topbar-status .agent-badge{
   font-size:10px;font-weight:600;font-family:var(--mono);
   background:var(--purple-dim);color:var(--purple);
-  padding:1px 7px;border-radius:999px;
+  padding:1px 7px;border-radius:4px;
 }
 .topbar-status .session-pill{
   max-width:140px;overflow:hidden;text-overflow:ellipsis;
@@ -69,7 +69,7 @@
 .topbar-status .ts-sep{width:1px;height:14px;background:var(--border);flex-shrink:0}
 .theme-toggle{
   display:flex;align-items:center;justify-content:center;
-  width:32px;height:32px;border-radius:999px;border:1px solid var(--border);
+  width:32px;height:32px;border-radius:4px;border:1px solid var(--border);
   background:var(--bg);color:var(--muted);cursor:pointer;transition:.15s;
 }
 .theme-toggle:hover{border-color:var(--green);color:var(--green)}
@@ -95,7 +95,7 @@
 }
 .cockpit-toast{
   pointer-events:auto;
-  padding:10px 14px;border-radius:10px;font-size:12px;line-height:1.4;
+  padding:10px 14px;border-radius:4px;font-size:12px;line-height:1.4;
   border:1px solid var(--border);background:var(--surface);
   color:var(--text);box-shadow:var(--shadow-md);
   opacity:0;transform:translateX(12px);transition:opacity .25s var(--ease-out), transform .25s var(--ease-out);
@@ -155,6 +155,32 @@
 <script type="module" src="/static/components/cockpit-remaining.js"></script>
 </head>
 <body class="cockpit-shell-styles">
+<div class="ascii-global-bg" aria-hidden="true"><pre id="asciiBgPre"></pre></div>
+<script>
+(function(){
+  const art = [
+    '                                    \u256D\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256E',
+    '                                    \u2502  >>>>>>>>>>>>>>>  ctx_read  >>>>>>>>>>>>  \u2502',
+    '         \u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510           \u2502  >>>>>>>>>>>>>>>  compress  >>>>>>>>>>>>  \u2502           \u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510',
+    '         \u2502  100K tokens \u2502 =========>\u2502  >>>  AST  >>>  cache  >>>  signal  >>> \u2502 =========> \u2502  ~5K tok \u2502',
+    '         \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518           \u2502  >>>>>>>>>>>>>>>  filter   >>>>>>>>>>>>  \u2502           \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518',
+    '                                    \u2502  >>>>>>>>>>>>>>>  dedupe   >>>>>>>>>>>>  \u2502',
+    '        \u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557            \u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256F           \u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557',
+    '        \u2551   raw input  \u2551     \u2500 \u2500 \u2500 \u2500 \u2500 \u2500 \u2500 \u2500  lean-ctx  \u2500 \u2500 \u2500 \u2500 \u2500 \u2500 \u2500 \u2500 \u2500 \u2500            \u2551  output  \u2551',
+    '        \u255A\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255D                                                                   \u255A\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255D',
+    '     \u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504\u2504',
+    '       \u250C\u2500\u2500\u2510  \u250C\u2500\u2500\u2510  \u250C\u2500\u2500\u2510  \u250C\u2500\u2500\u2510       \u250C\u2500\u2500\u2510  \u250C\u2500\u2500\u2510  \u250C\u2500\u2500\u2510       \u250C\u2500\u2500\u2510  \u250C\u2500\u2500\u2510  \u250C\u2500\u2500\u2510  \u250C\u2500\u2500\u2510  \u250C\u2500\u2500\u2510  \u250C\u2500\u2500\u2510',
+    '       \u2502\u2591\u2591\u2502  \u2502\u2591\u2591\u2502  \u2502\u2591\u2591\u2502  \u2502\u2591\u2591\u2502       \u2502\u2593\u2593\u2502  \u2502\u2593\u2593\u2502  \u2502\u2593\u2593\u2502       \u2502\u2591\u2591\u2502  \u2502\u2591\u2591\u2502  \u2502\u2591\u2591\u2502  \u2502\u2591\u2591\u2502  \u2502\u2591\u2591\u2502  \u2502\u2591\u2591\u2502',
+    '       \u2502\u2591\u2591\u2502  \u2502\u2591\u2591\u2502  \u2502\u2591\u2591\u2502  \u2502\u2591\u2591\u2502  \u2500\u2500\u2500> \u2502\u2593\u2593\u2502  \u2502\u2593\u2593\u2502  \u2502\u2593\u2593\u2502  \u2500\u2500\u2500> \u2502\u2591\u2591\u2502  \u2502\u2591\u2591\u2502  \u2502\u2591\u2591\u2502  \u2502\u2591\u2591\u2502  \u2502\u2591\u2591\u2502  \u2502\u2591\u2591\u2502',
+    '       \u2514\u2500\u2500\u2518  \u2514\u2500\u2500\u2518  \u2514\u2500\u2500\u2518  \u2514\u2500\u2500\u2518       \u2514\u2500\u2500\u2518  \u2514\u2500\u2500\u2518  \u2514\u2500\u2500\u2518       \u2514\u2500\u2500\u2518  \u2514\u2500\u2500\u2518  \u2514\u2500\u2500\u2518  \u2514\u2500\u2500\u2518  \u2514\u2500\u2500\u2518  \u2514\u2500\u2500\u2518',
+    '        file  file  file  file       read  cache  send       tok   tok   tok   tok   tok   tok'
+  ];
+  const maxLen = Math.max(...art.map(l => l.length));
+  const padded = art.map(l => l.padEnd(maxLen));
+  const tiled = padded.map(l => l + '  ' + l + '  ' + l).join('\n');
+  document.getElementById('asciiBgPre').textContent = Array(5).fill(tiled).join('\n');
+})();
+</script>
 <div class="app-layout">
   <cockpit-nav id="cockpitNav"></cockpit-nav>
 
@@ -177,7 +203,7 @@
       <div class="topbar-right-cluster">
         <div class="topbar-status" id="topbarStatus" aria-live="polite">
           <span class="ts-item" title="Daemon">
-            <span class="ts-dot on" id="daemonDotTop" aria-hidden="true"></span>
+            <span class="ts-ascii on" id="daemonDotTop" aria-hidden="true">[*]</span>
             <span id="daemonLabelTop">Daemon</span>
           </span>
           <span class="ts-sep"></span>
@@ -243,7 +269,7 @@
 
 <footer class="cockpit-status-bar" id="cockpitStatusBar" role="status" aria-live="polite">
   <div class="sb-l">
-    <span class="ts-dot on" id="daemonDotBar" aria-hidden="true"></span>
+    <span class="ts-ascii on" id="daemonDotBar" aria-hidden="true">[*]</span>
     <span id="sbDaemonText">Connected</span>
     <span class="sb-sep">·</span>
     <span id="sbVersion">v---</span>
@@ -418,6 +444,7 @@ function bootCockpit() {
       if (!d) return;
       d.classList.toggle('on', daemonUp);
       d.classList.toggle('off', !daemonUp);
+      d.textContent = daemonUp ? '[*]' : '[x]';
     });
     if (lblTop) lblTop.textContent = daemonUp ? 'Daemon' : 'Offline';
     if (sbTxt) sbTxt.textContent = daemonUp ? 'Connected' : 'Offline';

@@ -255,6 +255,8 @@ pub struct Config {
     pub proxy: ProxyConfig,
     #[serde(default = "serde_defaults::default_buddy_enabled")]
     pub buddy_enabled: bool,
+    #[serde(default = "serde_defaults::default_true")]
+    pub enable_wakeup_ctx: bool,
     #[serde(default)]
     pub redirect_exclude: Vec<String>,
     /// Tools to exclude from the MCP tool list returned by list_tools.
@@ -556,6 +558,7 @@ impl Default for Config {
             autonomy: AutonomyConfig::default(),
             proxy: ProxyConfig::default(),
             buddy_enabled: serde_defaults::default_buddy_enabled(),
+            enable_wakeup_ctx: true,
             redirect_exclude: Vec::new(),
             disabled_tools: Vec::new(),
             loop_detection: LoopDetectionConfig::default(),
@@ -1026,6 +1029,9 @@ impl Config {
         }
         if !local.buddy_enabled {
             self.buddy_enabled = false;
+        }
+        if !local.enable_wakeup_ctx {
+            self.enable_wakeup_ctx = false;
         }
         if !local.redirect_exclude.is_empty() {
             self.redirect_exclude.extend(local.redirect_exclude);

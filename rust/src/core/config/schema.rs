@@ -148,6 +148,14 @@ impl ConfigSchema {
             ),
         );
         root.insert(
+            "enable_wakeup_ctx".into(),
+            key(
+                "bool",
+                serde_json::json!(cfg.enable_wakeup_ctx),
+                "Append wakeup briefing (facts, session summary) to ctx_overview output. Set false to reduce context bloat when calling ctx_overview frequently.",
+            ),
+        );
+        root.insert(
             "redirect_exclude".into(),
             key(
                 "string[]",

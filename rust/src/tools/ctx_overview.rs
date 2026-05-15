@@ -208,10 +208,13 @@ pub fn handle(
     }
     append_graph_hotspots_section(&mut output, &index.project_root, &index);
 
-    let wakeup = build_wakeup_briefing(&project_root, task);
-    if !wakeup.is_empty() {
-        output.push(String::new());
-        output.push(wakeup);
+    let cfg = crate::core::config::Config::load();
+    if cfg.enable_wakeup_ctx {
+        let wakeup = build_wakeup_briefing(&project_root, task);
+        if !wakeup.is_empty() {
+            output.push(String::new());
+            output.push(wakeup);
+        }
     }
 
     if !auto_loaded.is_empty() {

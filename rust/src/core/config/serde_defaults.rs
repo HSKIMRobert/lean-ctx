@@ -31,6 +31,10 @@ pub(super) fn default_buddy_enabled() -> bool {
     true
 }
 
+pub(super) fn default_true() -> bool {
+    true
+}
+
 pub(super) fn default_bm25_max_cache_mb() -> u64 {
     128
 }

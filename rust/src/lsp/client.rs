@@ -16,14 +16,19 @@ const REQUEST_TIMEOUT_SECS: u64 = 30;
 const SHUTDOWN_TIMEOUT_SECS: u64 = 5;
 
 pub fn file_path_to_uri(path: &str) -> Result<Uri, String> {
-    let abs = if path.starts_with('/') {
+    let abs = if path.starts_with('/') || (path.len() >= 2 && path.as_bytes()[1] == b':') {
         path.to_string()
     } else {
         std::fs::canonicalize(path)
             .map(|p| p.to_string_lossy().to_string())
             .map_err(|e| format!("Cannot resolve path '{path}': {e}"))?
     };
-    let uri_str = format!("file://{abs}");
+    let normalized = abs.replace('\\', "/");
+    let uri_str = if normalized.starts_with('/') {
+        format!("file://{normalized}")
+    } else {
+        format!("file:///{normalized}")
+    };
     uri_str
         .parse::<Uri>()
         .map_err(|e| format!("Invalid URI: {e}"))

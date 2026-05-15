@@ -135,34 +135,58 @@ impl CtxReadTool {
             }
         }
 
-        // Acquire cache write lock for minimal duration: read + extract, then drop
+        // Acquire cache write lock with timeout guard to prevent infinite hangs.
+        // The read + tokenize + graph-hint pipeline has no internal timeouts,
+        // so we bound the entire block externally.
+        let read_timeout = std::time::Duration::from_secs(30);
         let (output, resolved_mode, original, is_cache_hit, file_ref, cache_stats) = {
-            let mut cache = cache_lock.blocking_write();
-            let read_output = if fresh {
-                crate::tools::ctx_read::handle_fresh_with_task_resolved(
-                    &mut cache,
-                    path,
-                    &mode,
-                    ctx.crp_mode,
-                    task_ref,
-                )
+            let cache_lock = cache_lock.clone();
+            let mode = mode.clone();
+            let crp_mode = ctx.crp_mode;
+            let task_owned = current_task.clone();
+            let path_owned = path.to_string();
+            let (tx, rx) = std::sync::mpsc::sync_channel(1);
+            std::thread::spawn(move || {
+                let task_ref = task_owned.as_deref();
+                let mut cache = cache_lock.blocking_write();
+                let read_output = if fresh {
+                    crate::tools::ctx_read::handle_fresh_with_task_resolved(
+                        &mut cache,
+                        &path_owned,
+                        &mode,
+                        crp_mode,
+                        task_ref,
+                    )
+                } else {
+                    crate::tools::ctx_read::handle_with_task_resolved(
+                        &mut cache,
+                        &path_owned,
+                        &mode,
+                        crp_mode,
+                        task_ref,
+                    )
+                };
+                let content = read_output.content;
+                let rmode = read_output.resolved_mode;
+                let orig = cache.get(&path_owned).map_or(0, |e| e.original_tokens);
+                let hit = content.contains(" cached ");
+                let fref = cache.file_ref_map().get(path_owned.as_str()).cloned();
+                let stats = cache.get_stats();
+                let stats_snapshot = (stats.total_reads, stats.cache_hits);
+                let _ = tx.send((content, rmode, orig, hit, fref, stats_snapshot));
+            });
+            if let Ok(result) = rx.recv_timeout(read_timeout) {
+                result
             } else {
-                crate::tools::ctx_read::handle_with_task_resolved(
-                    &mut cache,
-                    path,
-                    &mode,
-                    ctx.crp_mode,
-                    task_ref,
-                )
-            };
-            let content = read_output.content;
-            let rmode = read_output.resolved_mode;
-            let orig = cache.get(path).map_or(0, |e| e.original_tokens);
-            let hit = content.contains(" cached ");
-            let fref = cache.file_ref_map().get(path).cloned();
-            let stats = cache.get_stats();
-            let stats_snapshot = (stats.total_reads, stats.cache_hits);
-            (content, rmode, orig, hit, fref, stats_snapshot)
+                tracing::error!("ctx_read timed out after {read_timeout:?} for {path}");
+                let msg = format!(
+                    "ERROR: ctx_read timed out after {}s reading {path}. \
+                     The file may be very large or a blocking I/O issue occurred. \
+                     Try mode=\"lines:1-100\" for a partial read.",
+                    read_timeout.as_secs()
+                );
+                return Err(ErrorData::internal_error(msg, None));
+            }
         };
 
         let output_tokens = crate::core::tokens::count_tokens(&output);

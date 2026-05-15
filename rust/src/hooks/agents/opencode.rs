@@ -35,6 +35,8 @@ pub(crate) fn install_opencode_hook_with_mode(mode: HookMode) {
                             mcp_obj.insert("lean-ctx".to_string(), desired.clone());
                         }
                         if let Ok(formatted) = serde_json::to_string_pretty(&json) {
+                            let backup = config_path.with_extension("json.bak");
+                            let _ = std::fs::copy(&config_path, &backup);
                             let _ = std::fs::write(&config_path, formatted);
                             if !mcp_server_quiet_mode() {
                                 eprintln!(
