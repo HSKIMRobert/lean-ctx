@@ -91,8 +91,19 @@ fn is_project_root_marker(dir: &Path) -> bool {
 }
 
 /// Returns the project root for `file_path`, falling back to cwd if none found.
+/// Checks LEAN_CTX_PROJECT_ROOT env var and config.toml `project_root` first.
 /// Logs a warning when the fallback is a broad directory (home, root).
 pub fn detect_project_root_or_cwd(file_path: &str) -> String {
+    if let Ok(env_root) = std::env::var("LEAN_CTX_PROJECT_ROOT") {
+        if !env_root.is_empty() {
+            return env_root;
+        }
+    }
+    if let Some(ref cfg_root) = crate::core::config::Config::load().project_root {
+        if !cfg_root.is_empty() {
+            return cfg_root.clone();
+        }
+    }
     if let Some(root) = detect_project_root(file_path) {
         return root;
     }
@@ -115,10 +126,14 @@ pub fn detect_project_root_or_cwd(file_path: &str) -> String {
     };
 
     if is_broad_directory(&fallback) {
-        tracing::warn!(
-            "[protocol: no project markers found — falling back to broad directory {fallback}. \
-             Set LEAN_CTX_PROJECT_ROOT to override]"
-        );
+        use std::sync::Once;
+        static WARN_ONCE: Once = Once::new();
+        WARN_ONCE.call_once(|| {
+            tracing::warn!(
+                "[protocol: no project markers found — falling back to broad directory {fallback}. \
+                 Set LEAN_CTX_PROJECT_ROOT to override]"
+            );
+        });
     }
 
     fallback

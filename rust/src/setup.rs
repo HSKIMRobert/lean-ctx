@@ -271,9 +271,50 @@ pub fn run_setup() {
         terminal_ui::print_status_warn(
             "Running from $HOME — graph build skipped to avoid scanning your entire home directory.",
         );
-        println!(
-            "  \x1b[2mRun `lean-ctx setup` from inside a project for code intelligence.\x1b[0m"
-        );
+        println!();
+        println!("  \x1b[1mSet a default project root to avoid this:\x1b[0m");
+        println!("  \x1b[2mEnter your main project path (or press Enter to skip):\x1b[0m");
+        print!("  \x1b[1m>\x1b[0m ");
+        use std::io::Write;
+        std::io::stdout().flush().ok();
+        let mut root_input = String::new();
+        if std::io::stdin().read_line(&mut root_input).is_ok() {
+            let root_trimmed = root_input.trim();
+            if root_trimmed.is_empty() {
+                terminal_ui::print_status_skip("No project root set. Set later: lean-ctx config set project_root /path/to/project");
+            } else {
+                let root_path = std::path::Path::new(root_trimmed);
+                if root_path.exists() && root_path.is_dir() {
+                    let config_path = home.join(".lean-ctx").join("config.toml");
+                    let mut content = std::fs::read_to_string(&config_path).unwrap_or_default();
+                    if content.contains("project_root") {
+                        if let Ok(re) = regex::Regex::new(r#"(?m)^project_root\s*=\s*"[^"]*""#) {
+                            content = re
+                                .replace(&content, &format!("project_root = \"{root_trimmed}\""))
+                                .to_string();
+                        }
+                    } else {
+                        if !content.is_empty() && !content.ends_with('\n') {
+                            content.push('\n');
+                        }
+                        content.push_str(&format!("project_root = \"{root_trimmed}\"\n"));
+                    }
+                    let _ = std::fs::write(&config_path, &content);
+                    terminal_ui::print_status_ok(&format!("Project root set: {root_trimmed}"));
+                    if root_path.join(".git").exists()
+                        || root_path.join("Cargo.toml").exists()
+                        || root_path.join("package.json").exists()
+                    {
+                        spawn_index_build_background(root_path);
+                        terminal_ui::print_status_ok("Graph build started (background)");
+                    }
+                } else {
+                    terminal_ui::print_status_warn(&format!(
+                        "Path not found: {root_trimmed} — skipped"
+                    ));
+                }
+            }
+        }
     } else {
         let is_project = cwd.as_ref().is_some_and(|d| {
             d.join(".git").exists()
@@ -713,6 +754,42 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
         ));
     }
     steps.push(env_step);
+
+    // Project root validation: warn if no root is configured and cwd is broad
+    {
+        let has_env_root = std::env::var("LEAN_CTX_PROJECT_ROOT")
+            .ok()
+            .is_some_and(|v| !v.is_empty());
+        let cfg = crate::core::config::Config::load();
+        let has_cfg_root = cfg.project_root.as_ref().is_some_and(|v| !v.is_empty());
+        if !has_env_root && !has_cfg_root {
+            if let Ok(cwd) = std::env::current_dir() {
+                let is_home = dirs::home_dir().is_some_and(|h| cwd == h);
+                if is_home {
+                    let mut root_step = SetupStepReport {
+                        name: "project_root".to_string(),
+                        ok: true,
+                        items: Vec::new(),
+                        warnings: vec![
+                            "No project_root configured. Running from $HOME can cause excessive scanning. \
+                             Set via: lean-ctx config set project_root /path/to/project".to_string()
+                        ],
+                        errors: Vec::new(),
+                    };
+                    root_step.items.push(SetupItem {
+                        name: "project_root".to_string(),
+                        status: "unconfigured".to_string(),
+                        path: None,
+                        note: Some(
+                            "Set LEAN_CTX_PROJECT_ROOT or add project_root to config.toml"
+                                .to_string(),
+                        ),
+                    });
+                    steps.push(root_step);
+                }
+            }
+        }
+    }
 
     // Auto-build property graph if inside any recognized project
     if let Ok(cwd) = std::env::current_dir() {

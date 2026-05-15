@@ -185,6 +185,11 @@ impl BM25Index {
     }
 
     pub fn build_from_directory(root: &Path) -> Self {
+        let root_str = root.to_string_lossy();
+        if !super::graph_index::is_safe_scan_root_public(&root_str) {
+            tracing::warn!("[bm25: scan aborted for unsafe root {root_str}]");
+            return Self::new();
+        }
         let mut index = Self::new();
         let files = list_code_files(root);
         for rel in files {

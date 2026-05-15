@@ -1199,6 +1199,10 @@ pub fn run() {
                 core::updater::run(&rest);
                 return;
             }
+            "restart" => {
+                cmd_restart();
+                return;
+            }
             "doctor" => {
                 let code = doctor::run_cli(&rest);
                 if code != 0 {
@@ -1496,6 +1500,7 @@ COMMANDS:
     terse [off|lite|full|ultra]    Set agent output verbosity (saves 25-65% output tokens)
     slow-log [list|clear]          Show/clear slow command log (~/.lean-ctx/slow-commands.log)
     update [--check]               Self-update lean-ctx binary from GitHub Releases
+    restart                        Restart daemon (applies config.toml changes)
     gotchas [list|clear|export|stats] Bug Memory: view/manage auto-detected error patterns
     buddy [show|stats|ascii|json]  Token Guardian: your data-driven coding companion
     doctor integrations [--json]   Integration health checks (Cursor/Claude Code)
@@ -1610,4 +1615,25 @@ GITHUB:  https://github.com/yvgude/lean-ctx
 ",
         version = env!("CARGO_PKG_VERSION"),
     );
+}
+
+fn cmd_restart() {
+    use crate::daemon;
+
+    eprintln!("Restarting lean-ctx daemon…");
+
+    if daemon::is_daemon_running() {
+        if let Err(e) = daemon::stop_daemon() {
+            eprintln!("  Warning: stop failed: {e}");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+
+    match daemon::start_daemon(&[]) {
+        Ok(()) => eprintln!("  ✓ Daemon restarted. Config changes are now active."),
+        Err(e) => {
+            eprintln!("  ✗ Daemon start failed: {e}");
+            std::process::exit(1);
+        }
+    }
 }

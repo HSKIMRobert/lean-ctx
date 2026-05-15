@@ -220,14 +220,22 @@ impl ServerHandler for LeanCtxServer {
         };
 
         let disabled = crate::core::config::Config::load().disabled_tools_effective();
-        let tools = if disabled.is_empty() {
-            all_tools
-        } else {
-            all_tools
-                .into_iter()
-                .filter(|t| !disabled.iter().any(|d| t.name.as_ref() == d.as_str()))
-                .collect()
-        };
+        let client = self.client_name.read().await.clone();
+        let is_zed = !client.is_empty() && client.to_lowercase().contains("zed");
+
+        let tools: Vec<_> = all_tools
+            .into_iter()
+            .filter(|t| {
+                let name = t.name.as_ref();
+                if !disabled.is_empty() && disabled.iter().any(|d| d.as_str() == name) {
+                    return false;
+                }
+                if is_zed && name == "ctx_edit" {
+                    return false;
+                }
+                true
+            })
+            .collect();
 
         let tools = {
             let dyn_state = dynamic_tools::global().lock().unwrap();

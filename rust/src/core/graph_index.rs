@@ -29,10 +29,14 @@ fn is_safe_scan_root(path: &str) -> bool {
     if let Some(home) = dirs::home_dir() {
         let home_norm = normalize_project_root(&home.to_string_lossy());
         if normalized == home_norm {
-            tracing::warn!(
-                "[graph_index: refusing to scan home directory {normalized} — \
-                 set LEAN_CTX_PROJECT_ROOT or run from inside a project]"
-            );
+            use std::sync::Once;
+            static HOME_WARN: Once = Once::new();
+            HOME_WARN.call_once(|| {
+                tracing::warn!(
+                    "[graph_index: refusing to scan home directory {normalized} — \
+                     set LEAN_CTX_PROJECT_ROOT or run from inside a project]"
+                );
+            });
             return false;
         }
         // Block common broad home subdirectories that are never valid project roots

@@ -80,6 +80,14 @@ pub fn cmd_config(args: &[String]) {
                         std::process::exit(1);
                     }
                 },
+                "project_root" => {
+                    let path = std::path::Path::new(val.as_str());
+                    if !path.exists() || !path.is_dir() {
+                        eprintln!("Error: '{val}' is not an existing directory.");
+                        std::process::exit(1);
+                    }
+                    cfg.project_root = Some(val.clone());
+                }
                 "proxy.anthropic_upstream" => {
                     cfg.proxy.anthropic_upstream = normalize_optional_upstream(val);
                 }

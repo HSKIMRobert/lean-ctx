@@ -339,6 +339,11 @@ pub struct Config {
     /// Override via LEAN_CTX_SAVINGS_FOOTER env var.
     #[serde(default)]
     pub savings_footer: SavingsFooter,
+    /// Explicit project root override. When set, lean-ctx uses this instead of auto-detection.
+    /// This prevents accidental home-directory scans when running from $HOME.
+    /// Override via LEAN_CTX_PROJECT_ROOT env var.
+    #[serde(default)]
+    pub project_root: Option<String>,
 }
 
 /// Settings for the zero-loss compression archive (large tool outputs saved to disk).
@@ -545,6 +550,7 @@ impl Default for Config {
             memory_cleanup: MemoryCleanup::default(),
             max_ram_percent: serde_defaults::default_max_ram_percent(),
             savings_footer: SavingsFooter::default(),
+            project_root: None,
         }
     }
 }
@@ -853,6 +859,12 @@ impl Config {
     }
 
     fn find_project_root() -> Option<String> {
+        if let Ok(env_root) = std::env::var("LEAN_CTX_PROJECT_ROOT") {
+            if !env_root.is_empty() {
+                return Some(env_root);
+            }
+        }
+
         let cwd = std::env::current_dir().ok();
 
         if let Some(root) =
