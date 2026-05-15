@@ -465,7 +465,7 @@ class CockpitLive extends HTMLElement {
   render() {
     var F = fmtLib();
     var S = shared();
-    var esc = F.esc || function (s) { return String(s); };
+    var esc = F.esc || function (s) { var d = document.createElement('span'); d.textContent = s; return d.innerHTML; };
     var ff = F.ff || function (n) { return String(n); };
     var pc = F.pc || function (a, b) { return b > 0 ? Math.round((a / b) * 100) : 0; };
     var fmt = F.fmt || function (n) { return String(n); };
@@ -891,7 +891,7 @@ class CockpitLive extends HTMLElement {
         fetchJson('/api/compression-demo?path=' + encodeURIComponent(p), { timeoutMs: 15000 })
           .then(function (data) {
             btn.style.display = 'none';
-            var esc = (fmtLib().esc || function (s) { return String(s); });
+            var esc = (fmtLib().esc || function (s) { var d = document.createElement('span'); d.textContent = s; return d.innerHTML; });
             var ff = (fmtLib().ff || function (n) { return String(n); });
             var modes = data.modes || {};
             var bestKey = m;

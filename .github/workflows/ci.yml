@@ -44,7 +44,7 @@ jobs:
       # See .github/actions/windows-jemalloc for the gory details.
       - name: Setup MSYS2 and MinGW
         if: runner.os == 'Windows'
-        uses: msys2/setup-msys2@v2
+        uses: msys2/setup-msys2@e9898307ac31d1a803454791be09ab9973336e1c # v2
         with:
           msystem: MINGW64
           update: true

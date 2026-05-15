@@ -75,7 +75,7 @@ jobs:
       # See .github/actions/windows-jemalloc for the pitfall details.
       - name: Setup MSYS2 and MinGW
         if: matrix.jemalloc == true
-        uses: msys2/setup-msys2@v2
+        uses: msys2/setup-msys2@e9898307ac31d1a803454791be09ab9973336e1c # v2
         with:
           msystem: MINGW64
           update: true
