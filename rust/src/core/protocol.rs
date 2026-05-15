@@ -87,10 +87,14 @@ pub fn detect_project_root_or_cwd(file_path: &str) -> String {
             return env_root;
         }
     }
-    if let Some(ref cfg_root) = crate::core::config::Config::load().project_root {
+    let cfg = crate::core::config::Config::load();
+    if let Some(ref cfg_root) = cfg.project_root {
         if !cfg_root.is_empty() {
             return cfg_root.clone();
         }
+    }
+    if let Some(ide_root) = resolve_ide_path(&cfg, file_path) {
+        return ide_root;
     }
     if let Some(root) = detect_project_root(file_path) {
         return root;
@@ -139,6 +143,26 @@ fn is_broad_directory(path: &str) -> bool {
         }
     }
     false
+}
+
+/// Resolves per-IDE allowed paths from config. If the active agent has
+/// `ide_paths` configured, returns the first path that contains `file_path`.
+fn resolve_ide_path(cfg: &crate::core::config::Config, file_path: &str) -> Option<String> {
+    if cfg.ide_paths.is_empty() {
+        return None;
+    }
+    let agent = std::env::var("LEAN_CTX_AGENT").ok()?;
+    let agent_lower = agent.to_lowercase();
+    let paths = cfg.ide_paths.get(&agent_lower)?;
+    let fp = Path::new(file_path);
+    for allowed in paths {
+        let ap = Path::new(allowed.as_str());
+        if fp.starts_with(ap) {
+            return Some(allowed.clone());
+        }
+    }
+    // file_path is outside all allowed paths — return first allowed path as root
+    paths.first().cloned()
 }
 
 /// Returns the file name component of a path for compact display.

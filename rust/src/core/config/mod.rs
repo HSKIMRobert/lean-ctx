@@ -90,6 +90,32 @@ impl OutputDensity {
 /// Unified compression level that replaces the 4 separate legacy concepts:
 /// `terse_agent`, `output_density`, `terse_mode`, and `crp_mode`.
 ///
+/// Controls how much detail tool responses include.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ResponseVerbosity {
+    #[default]
+    Full,
+    HeadersOnly,
+}
+
+impl ResponseVerbosity {
+    pub fn effective() -> Self {
+        if let Ok(v) = std::env::var("LEAN_CTX_RESPONSE_VERBOSITY") {
+            match v.trim().to_lowercase().as_str() {
+                "headers_only" | "headers" | "minimal" => return Self::HeadersOnly,
+                "full" | "" => return Self::Full,
+                _ => {}
+            }
+        }
+        Config::load().response_verbosity
+    }
+
+    pub fn is_headers_only(&self) -> bool {
+        matches!(self, Self::HeadersOnly)
+    }
+}
+
 /// Each level maps to specific component settings via `to_components()`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -327,6 +353,19 @@ pub struct Config {
     /// Example: `[lsp]\nrust = "/opt/rust-analyzer"\npython = "~/.venvs/main/bin/pylsp"`
     #[serde(default)]
     pub lsp: std::collections::HashMap<String, String>,
+    /// Per-IDE allowed paths. Restricts which directories lean-ctx will scan/index for each IDE.
+    /// Example: `[ide_paths]\ncursor = ["/home/user/projects/app1"]\ncodex = ["/home/user/codex"]`
+    /// When set, only these paths are indexed for the matching agent. Global `allow_paths` still applies.
+    #[serde(default)]
+    pub ide_paths: HashMap<String, Vec<String>>,
+    /// Controls how much detail tool responses include.
+    ///
+    /// - `full` (default): complete compressed output
+    /// - `headers_only`: metadata line only (path, mode, token count)
+    ///
+    /// Override via `LEAN_CTX_RESPONSE_VERBOSITY` env var.
+    #[serde(default)]
+    pub response_verbosity: ResponseVerbosity,
 }
 
 /// Settings for the zero-loss compression archive (large tool outputs saved to disk).
@@ -540,6 +579,8 @@ impl Default for Config {
             savings_footer: SavingsFooter::default(),
             project_root: None,
             lsp: std::collections::HashMap::new(),
+            ide_paths: HashMap::new(),
+            response_verbosity: ResponseVerbosity::default(),
         }
     }
 }

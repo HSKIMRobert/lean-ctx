@@ -165,6 +165,14 @@ impl LeanCtxServer {
                 }
             }
 
+            let headers_only =
+                crate::core::config::ResponseVerbosity::effective().is_headers_only();
+            let header_line = if headers_only {
+                Some(output.to_header_line(name))
+            } else {
+                None
+            };
+
             if let Some(ref path) = output.path {
                 self.record_call_with_path(
                     name,
@@ -183,7 +191,7 @@ impl LeanCtxServer {
                 )
                 .await;
             }
-            return Ok(output.text);
+            return Ok(header_line.unwrap_or(output.text));
         }
 
         Err(ErrorData::invalid_params(

@@ -27,6 +27,19 @@ impl ToolOutput {
         }
     }
 
+    /// Compact one-line summary for headers_only response verbosity.
+    pub fn to_header_line(&self, tool_name: &str) -> String {
+        let path_str = self.path.as_deref().unwrap_or("—");
+        let mode_str = self.mode.as_deref().unwrap_or("—");
+        let sent = self.original_tokens.saturating_sub(self.saved_tokens);
+        let pct = if self.original_tokens > 0 {
+            (self.saved_tokens as f64 / self.original_tokens as f64 * 100.0) as u32
+        } else {
+            0
+        };
+        format!("[{tool_name}: {path_str}, mode={mode_str}, {sent} tok sent, -{pct}%]")
+    }
+
     pub fn with_savings(text: String, original: usize, saved: usize) -> Self {
         Self {
             text,
