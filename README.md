@@ -240,6 +240,7 @@ lean-ctx benchmark report .
 - Getting started: https://leanctx.com/docs/getting-started
 - Tools reference: https://leanctx.com/docs/tools/
 - CLI reference: https://leanctx.com/docs/cli-reference/
+- Comparison (vs RTK, Context+, MemGPT): https://leanctx.com/compare/
 - FAQ: [discord-faq.md](discord-faq.md)
 - Feature catalog (SSOT snapshot): [LEANCTX_FEATURE_CATALOG.md](LEANCTX_FEATURE_CATALOG.md)
 - Architecture: [ARCHITECTURE.md](ARCHITECTURE.md)

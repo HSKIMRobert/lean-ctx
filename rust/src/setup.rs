@@ -694,12 +694,16 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
         }
         let mode = recommend_hook_mode(&target.agent_key);
         crate::hooks::install_agent_hook_with_mode(&target.agent_key, true, mode);
+        let mcp_note = match configure_agent_mcp(&target.agent_key) {
+            Ok(()) => "; MCP config updated".to_string(),
+            Err(e) => format!("; MCP config skipped: {e}"),
+        };
         hooks_step.items.push(SetupItem {
             name: format!("{} hooks", target.name),
             status: "installed".to_string(),
             path: Some(target.detect_path.to_string_lossy().to_string()),
             note: Some(format!(
-                "mode={mode}; merge-based install/repair (preserves other hooks/plugins)"
+                "mode={mode}; merge-based install/repair (preserves other hooks/plugins){mcp_note}"
             )),
         });
     }
