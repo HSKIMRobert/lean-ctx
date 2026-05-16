@@ -12,8 +12,8 @@
 
 <p align="center">
   <strong>Reduce token waste in Cursor, Claude Code, Copilot, Windsurf, Codex, Gemini & more by 60–95% (up to 99% on cached reads)</strong><br/>
-  Shell Hook + MCP Server · 51 tools · 10 read modes · 60+ patterns · Single Rust binary<br/>
-  <strong>Context Intelligence:</strong> Bounce detection, context gate with graph/intent/knowledge-based mode routing, MCP resources &amp; prompts, dynamic tool categories, client capability detection across 9+ IDEs
+  Shell Hook + MCP Server · 51 tools · 10 read modes · 56 pattern modules + 270 passthrough rules · Tree-sitter AST for 21 languages · Single Rust binary<br/>
+  <strong>Context Intelligence:</strong> Bounce detection, context gate with graph/intent/knowledge-based mode routing, MCP resources &amp; prompts, dynamic tool categories, client capability detection across 29+ AI agents
 </p>
 
 <p align="center">
@@ -82,21 +82,29 @@
 
 | Replaces | With lean-ctx | How |
 |----------|--------------|-----|
-| Output compression tools | 4 compression levels + 60+ patterns | Shell hook + terse pipeline |
-| Context window managers | 10 read modes + auto-archive | Adaptive mode selection per file |
-| Session memory tools | CCP + temporal knowledge graph | Facts with validity, cross-session recovery |
+| Output compression tools | 4 compression levels + 56 pattern modules | Shell hook + terse pipeline + 270 passthrough rules |
+| Context window managers | 10 read modes + auto-archive | Adaptive mode selection per file, Tree-sitter AST for 21 languages |
+| Session memory tools | CCP + temporal knowledge graph | Facts with validity, cross-session recovery, episodic + procedural memory |
 | Code graph tools | Property Graph + hybrid search | BM25 + embeddings + graph proximity |
+| Context observability tools | Context Manager (dashboard) | Real-time token tracking, file ledger, compression stats |
+| Governance / quality tools | Profiles, roles, budgets, SLOs | Context proof, verification engine, quality gates |
 
 **Core capabilities:**
 
 - **File reads (MCP)**: cached + mode-aware reads (`full`, `map`, `signatures`, `diff`, …) with graph-aware related files hints
-- **Shell output (hook)**: compresses noisy CLI output via 60+ patterns (git, npm, cargo, docker, …)
+- **Shell output (hook)**: compresses noisy CLI output via 56 pattern modules + 270 passthrough rules (git, npm, cargo, docker, kubectl, terraform, …)
+- **Context Manager** (beta): browser-based dashboard (`lean-ctx dashboard`) with real-time context window visualization — file ledger with token counts, compression ratios, system prompt cost breakdown, conversation history weight, context utilization gauge, and compression stats
 - **Graph-Powered Intelligence**: multi-edge Property Graph (imports, calls, exports, type_ref) with weighted impact analysis, hybrid search (BM25 + embeddings + graph proximity via RRF), and incremental git-diff updates
+- **Governance**: profiles, roles, budgets, and SLOs — define how much context each agent uses, what tools they can access, and when to throttle
+- **Context Proof & Verification** (`ctx_proof`, `ctx_verify`): cryptographic context proofs with 4-layer verification engine and quality gates (levels 0–4)
 - **LSP Refactoring** (`ctx_refactor`): language-server-powered rename, references, go-to-definition, and find-implementations via rust-analyzer, typescript-language-server, pylsp, gopls — with timeout-protected channel-based IO
+- **Knowledge System**: temporal knowledge graph with facts, validity windows, cross-session recovery, episodic memory (task-level summaries), and procedural memory (learned workflows)
+- **Multi-Agent** (`ctx_agent`, `ctx_handoff`): agent handoff with context transfer bundles, diary system (discovery/decision/blocker/progress/insight), and synchronized shared state
 - **Archive Full-Text Search** (`ctx_expand search_all`): FTS5-powered cross-archive search over all previously archived tool outputs
 - **PR Context Packs**: `lean-ctx pack --pr` builds a PR-ready context pack (changed files, related tests, impact, artifacts)
 - **Context Packages**: `lean-ctx pack create` bundles Knowledge + Graph + Session + Gotchas into portable `.lctxpkg` files — share context across projects/teams with SHA-256 integrity, auto-load on session start, and smart merge (dedup facts, overlay graph)
 - **Session memory (CCP)**: persist task/facts/decisions across chats with structured recovery queries surviving compaction
+- **Observability**: `lean-ctx gain --live` for real-time savings, `lean-ctx wrapped` for weekly/monthly summaries, `lean-ctx watch` for TUI monitoring, heatmaps, and slow-log analysis
 - **HTTP mode**: `lean-ctx serve` for Streamable HTTP MCP + `/v1/tools/call` (used by the Cookbook + SDK)
 
 ## How it works (30 seconds)
@@ -109,6 +117,8 @@ AI tool  →  (MCP tools + shell commands)  →  lean-ctx  →  your repo + CLI
 - **Shell hook**: transparently compresses common commands so the LLM sees less noise
 - **Property Graph**: multi-edge code graph powers impact analysis, related file discovery, and search ranking
 - **CCP**: persists session state with structured recovery queries so long-running work doesn’t “cold start” every chat
+- **Context Manager**: browser dashboard for real-time visibility into what’s in your context window
+- **Governance**: profiles, budgets, SLOs, and verification proofs for enterprise-grade context control
 
 ## Get started (60 seconds)
 
@@ -139,6 +149,7 @@ After `setup`, restart your shell and your editor/AI tool once so the MCP + hook
 - Disable immediately (current shell): `lean-ctx-off`
 - Run a single command uncompressed: `lean-ctx -c --raw "git status"`
 - Only activate in AI agent sessions: set `shell_activation = "agents-only"` in `~/.config/lean-ctx/config.toml`
+- Per-project config override: create `.lean-ctx.toml` in your project root (auto-merged with global config)
 - Docker projects sharing `/workspace`: create `.lean-ctx-id` with a unique name to prevent context collisions
 - Update: `lean-ctx update`
 - Diagnose (shareable): `lean-ctx doctor --json`
@@ -147,47 +158,46 @@ After `setup`, restart your shell and your editor/AI tool once so the MCP + hook
 
 ## Supported IDEs & AI tools
 
-lean-ctx is a standard **MCP server**, so it works with any MCP-compatible client. Three integration modes are auto-selected per agent:
+lean-ctx is a standard **MCP server**, so it works with any MCP-compatible client. Two integration modes are auto-selected per agent:
 
 | Mode | How it works | Best for |
 |---|---|---|
-| **CLI-Redirect** | Agent calls `lean-ctx` directly via shell — zero MCP schema overhead | Agents with shell access |
-| **Hybrid** | MCP for cached reads (13 tokens), CLI for shell + search | Mixed environments |
-| **Full MCP** | All 51 tools via MCP protocol | Protocol-only agents |
+| **Hybrid** | MCP for cached reads (~13 tokens) + shell hooks for command compression | Agents with shell access (Cursor, Claude Code, Codex, …) |
+| **MCP** | All 51 tools via MCP protocol, no shell hooks | Protocol-only agents (JetBrains, VS Code, Zed, …) |
 
 ### Agent compatibility matrix
 
-| Agent | CLI | Hybrid | MCP | Setup |
-|---|:---:|:---:|:---:|---|
-| Cursor | ● | | | `lean-ctx init --agent cursor` |
-| Codex CLI | ● | | | `lean-ctx init --agent codex` |
-| Gemini CLI | ● | | | `lean-ctx init --agent gemini` |
-| Claude Code | | ● | | `lean-ctx init --agent claude` |
-| CRUSH | | ● | | `lean-ctx init --agent crush` |
-| Hermes | | ● | | `lean-ctx init --agent hermes` |
-| OpenCode | | ● | | `lean-ctx init --agent opencode` |
-| Pi | | ● | | `lean-ctx init --agent pi` |
-| Qoder | | ● | | `lean-ctx init --agent qoder` |
-| Windsurf | | ● | | `lean-ctx init --agent windsurf` |
-| GitHub Copilot | | ● | | `lean-ctx init --agent copilot` |
-| Amp | | ● | | `lean-ctx init --agent amp` |
-| Cline | | ● | | `lean-ctx init --agent cline` |
-| Roo Code | | ● | | `lean-ctx init --agent roo` |
-| Kiro | | ● | | `lean-ctx init --agent kiro` |
-| Antigravity | | ● | | `lean-ctx init --agent antigravity` |
-| Amazon Q | | ● | | `lean-ctx init --agent amazonq` |
-| Qwen | | ● | | `lean-ctx init --agent qwen` |
-| Trae | | ● | | `lean-ctx init --agent trae` |
-| Verdent | | ● | | `lean-ctx init --agent verdent` |
-| Aider | | ● | | `lean-ctx init --agent aider` |
-| Continue | | ● | | `lean-ctx init --agent continue` |
-| JetBrains IDEs | | | ● | `lean-ctx init --agent jetbrains` |
-| QoderWork | | | ● | `lean-ctx init --agent qoderwork` |
-| VS Code | | | ● | `lean-ctx init --agent vscode` |
-| Zed | | | ● | `lean-ctx init --agent zed` |
-| Neovim | | | ● | `lean-ctx init --agent neovim` |
-| Emacs | | | ● | `lean-ctx init --agent emacs` |
-| Sublime Text | | | ● | `lean-ctx init --agent sublime` |
+| Agent | Hybrid | MCP | Setup |
+|---|:---:|:---:|---|
+| Cursor | ● | | `lean-ctx init --agent cursor` |
+| Claude Code | ● | | `lean-ctx init --agent claude` |
+| Codex CLI | ● | | `lean-ctx init --agent codex` |
+| Gemini CLI | ● | | `lean-ctx init --agent gemini` |
+| Windsurf | ● | | `lean-ctx init --agent windsurf` |
+| GitHub Copilot | ● | | `lean-ctx init --agent copilot` |
+| CRUSH | ● | | `lean-ctx init --agent crush` |
+| Hermes | ● | | `lean-ctx init --agent hermes` |
+| OpenCode | ● | | `lean-ctx init --agent opencode` |
+| Pi | ● | | `lean-ctx init --agent pi` |
+| Qoder | ● | | `lean-ctx init --agent qoder` |
+| Amp | ● | | `lean-ctx init --agent amp` |
+| Cline | ● | | `lean-ctx init --agent cline` |
+| Roo Code | ● | | `lean-ctx init --agent roo` |
+| Kiro | ● | | `lean-ctx init --agent kiro` |
+| Antigravity | ● | | `lean-ctx init --agent antigravity` |
+| Amazon Q | ● | | `lean-ctx init --agent amazonq` |
+| Qwen | ● | | `lean-ctx init --agent qwen` |
+| Trae | ● | | `lean-ctx init --agent trae` |
+| Verdent | ● | | `lean-ctx init --agent verdent` |
+| Aider | | ● | `lean-ctx init --agent aider` |
+| Continue | | ● | `lean-ctx init --agent continue` |
+| JetBrains IDEs | | ● | `lean-ctx init --agent jetbrains` |
+| QoderWork | | ● | `lean-ctx init --agent qoderwork` |
+| VS Code | | ● | `lean-ctx init --agent vscode` |
+| Zed | | ● | `lean-ctx init --agent zed` |
+| Neovim | | ● | `lean-ctx init --agent neovim` |
+| Emacs | | ● | `lean-ctx init --agent emacs` |
+| Sublime Text | | ● | `lean-ctx init --agent sublime` |
 
 > **Any MCP-compatible client** works out of the box — the table above shows agents with first-class auto-setup.
 
@@ -212,6 +222,8 @@ Try these in any repo:
 lean-ctx read rust/src/server/mod.rs -m map
 lean-ctx -c "git log -n 5 --oneline"
 lean-ctx gain --live
+lean-ctx dashboard                              # Context Manager (browser)
+lean-ctx watch                                  # TUI monitor
 lean-ctx benchmark report .
 ```
 
