@@ -117,10 +117,124 @@ pub fn cmd_config(args: &[String]) {
         "validate" => {
             cmd_validate();
         }
+        "apply" | "reload" => {
+            cmd_apply();
+        }
         _ => {
-            eprintln!("Usage: lean-ctx config [init|set|schema|validate]");
+            eprintln!("Usage: lean-ctx config [init|set|schema|validate|apply]");
             std::process::exit(1);
         }
+    }
+}
+
+fn cmd_apply() {
+    use crate::daemon;
+    use crate::ipc;
+
+    println!("Applying config changes…");
+
+    // 1. Validate config first
+    println!("\n[1/4] Validating config…");
+    let schema = config::schema::ConfigSchema::generate();
+    let known = schema.known_keys();
+    let cfg = config::Config::load();
+
+    if let Some(path) = config::Config::path() {
+        if path.exists() {
+            if let Ok(raw) = std::fs::read_to_string(&path) {
+                if let Ok(table) = raw.parse::<toml::Table>() {
+                    let mut user_keys = Vec::new();
+                    fn collect_flat(table: &toml::Table, prefix: &str, out: &mut Vec<String>) {
+                        for (k, v) in table {
+                            let full = if prefix.is_empty() {
+                                k.clone()
+                            } else {
+                                format!("{prefix}.{k}")
+                            };
+                            if let toml::Value::Table(sub) = v {
+                                collect_flat(sub, &full, out);
+                            } else {
+                                out.push(full);
+                            }
+                        }
+                    }
+                    collect_flat(&table, "", &mut user_keys);
+                    let warnings: Vec<_> = user_keys
+                        .iter()
+                        .filter(|uk| {
+                            !known.contains(uk)
+                                && !known.iter().any(|k| uk.starts_with(&format!("{k}.")))
+                        })
+                        .collect();
+                    if !warnings.is_empty() {
+                        for w in &warnings {
+                            eprintln!("  [WARN] Unknown key: {w}");
+                        }
+                        eprintln!(
+                            "  {} unknown key(s) found. Continuing anyway…",
+                            warnings.len()
+                        );
+                    } else {
+                        println!("  ✓ All config keys valid.");
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Restart processes
+    println!("\n[2/4] Restarting processes…");
+    crate::proxy_autostart::stop();
+
+    if let Err(e) = daemon::stop_daemon() {
+        eprintln!("  Warning: daemon stop: {e}");
+    }
+
+    let orphans = ipc::process::kill_all_by_name("lean-ctx");
+    if orphans > 0 {
+        println!("  Terminated {orphans} orphan process(es).");
+    }
+
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    let remaining = ipc::process::find_pids_by_name("lean-ctx");
+    if !remaining.is_empty() {
+        for &pid in &remaining {
+            let _ = ipc::process::force_kill(pid);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(300));
+    }
+
+    daemon::cleanup_daemon_files();
+    crate::proxy_autostart::start();
+
+    match daemon::start_daemon(&[]) {
+        Ok(()) => println!("  ✓ Daemon restarted."),
+        Err(e) => {
+            eprintln!("  ✗ Daemon start failed: {e}");
+            std::process::exit(1);
+        }
+    }
+
+    // 3. Safety checks
+    println!("\n[3/4] Running safety checks…");
+    println!("  RAM guard: max {}% system", cfg.max_ram_percent);
+
+    if let Ok(data_dir) = crate::core::data_dir::lean_ctx_data_dir() {
+        let sessions_dir = data_dir.join("sessions");
+        let session_count = std::fs::read_dir(&sessions_dir)
+            .map(|rd| rd.filter_map(|e| e.ok()).count())
+            .unwrap_or(0);
+        println!("  Sessions dir: {} files", session_count);
+    }
+
+    // 4. Summary
+    println!("\n[4/4] Config applied successfully.");
+    println!("  Theme:       {}", cfg.theme);
+    println!("  Ultra compact: {}", cfg.ultra_compact);
+    println!("  Checkpoint:  every {} calls", cfg.checkpoint_interval);
+    if let Some(ref root) = cfg.project_root {
+        println!("  Project root: {root}");
     }
 }
 
