@@ -1356,6 +1356,8 @@ fn run_mcp_server() -> Result<()> {
     // Concurrency hardening:
     // - Smooths "thundering herd" MCP startups (multiple agent sessions).
     // - Limits Tokio worker/blocking threads to avoid host degradation.
+    // - LEAN_CTX_WORKER_THREADS overrides the default for environments
+    //   with many concurrent subagents (e.g. parallel review pipelines).
     let startup_lock = crate::core::startup_guard::try_acquire_lock(
         "mcp-startup",
         std::time::Duration::from_secs(3),
@@ -1363,7 +1365,7 @@ fn run_mcp_server() -> Result<()> {
     );
 
     let parallelism = std::thread::available_parallelism().map_or(2, std::num::NonZeroUsize::get);
-    let worker_threads = parallelism.clamp(1, 4);
+    let worker_threads = resolve_worker_threads(parallelism);
     let max_blocking_threads = (worker_threads * 4).clamp(8, 32);
 
     let rt = tokio::runtime::Builder::new_multi_thread()
@@ -1778,4 +1780,48 @@ fn resolve_install_path() -> std::path::PathBuf {
     }
 
     std::path::PathBuf::from("/usr/local/bin/lean-ctx")
+}
+
+fn resolve_worker_threads(parallelism: usize) -> usize {
+    std::env::var("LEAN_CTX_WORKER_THREADS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or_else(|| parallelism.clamp(1, 4))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn worker_threads_default_clamps_low() {
+        std::env::remove_var("LEAN_CTX_WORKER_THREADS");
+        assert_eq!(resolve_worker_threads(1), 1);
+    }
+
+    #[test]
+    fn worker_threads_default_clamps_high() {
+        std::env::remove_var("LEAN_CTX_WORKER_THREADS");
+        assert_eq!(resolve_worker_threads(32), 4);
+    }
+
+    #[test]
+    fn worker_threads_default_passthrough() {
+        std::env::remove_var("LEAN_CTX_WORKER_THREADS");
+        assert_eq!(resolve_worker_threads(3), 3);
+    }
+
+    #[test]
+    fn worker_threads_env_override() {
+        std::env::set_var("LEAN_CTX_WORKER_THREADS", "12");
+        assert_eq!(resolve_worker_threads(2), 12);
+        std::env::remove_var("LEAN_CTX_WORKER_THREADS");
+    }
+
+    #[test]
+    fn worker_threads_env_invalid_falls_back() {
+        std::env::set_var("LEAN_CTX_WORKER_THREADS", "not_a_number");
+        assert_eq!(resolve_worker_threads(3), 3);
+        std::env::remove_var("LEAN_CTX_WORKER_THREADS");
+    }
 }
