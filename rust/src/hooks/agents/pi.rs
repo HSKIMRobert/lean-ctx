@@ -12,7 +12,7 @@ pub(crate) fn install_pi_hook_with_mode(global: bool, mode: HookMode) {
 
     if !has_pi {
         println!("Pi Coding Agent not found in PATH.");
-        println!("Install Pi first: npm install -g @mariozechner/pi-coding-agent");
+        println!("Install Pi first: npm install -g @earendil-works/pi-coding-agent");
         println!();
     }
 
