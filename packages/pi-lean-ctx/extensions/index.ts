@@ -278,7 +278,7 @@ function isMcpAdapterConfigured(): boolean {
 
 async function execLeanCtx(pi: ExtensionAPI, args: string[]) {
   const bin = resolveBinary();
-  const result = await pi.exec(bin, args, { env: { ...process.env, LEAN_CTX_COMPRESS: "1" } });
+  const result = await pi.exec(bin, args, { env: { ...process.env, LEAN_CTX_COMPRESS: "1", LEAN_CTX_SAVINGS_FOOTER: "always" } });
   if (result.code !== 0) {
     const msg = (result.stderr || result.stdout || `lean-ctx failed: ${args.join(" ")}`).trim();
     throw new Error(msg);
@@ -298,9 +298,9 @@ export default async function (pi: ExtensionAPI) {
     spawnHook: ({ command, cwd, env }) => {
       const bin = resolveBinary();
       return {
-        command: `${shellQuote(bin)} -c sh -lc ${shellQuote(command)}`,
+        command: `${shellQuote(bin)} -c ${shellQuote(command)}`,
         cwd,
-        env: { ...env, LEAN_CTX_COMPRESS: "1" },
+        env: { ...env, LEAN_CTX_COMPRESS: "1", LEAN_CTX_SAVINGS_FOOTER: "always" },
       };
     },
   });
@@ -535,7 +535,7 @@ export default async function (pi: ExtensionAPI) {
       searchArgs.push(params.pattern, absolutePath);
 
       const bin = resolveBinary();
-      const result = await pi.exec(bin, ["-c", ...searchArgs], { env: { ...process.env, LEAN_CTX_COMPRESS: "1" } });
+      const result = await pi.exec(bin, ["-c", ...searchArgs], { env: { ...process.env, LEAN_CTX_COMPRESS: "1", LEAN_CTX_SAVINGS_FOOTER: "always" } });
       if (result.code >= 2) {
         const msg = (result.stderr || result.stdout || `lean-ctx grep failed: ${params.pattern}`).trim();
         throw new Error(msg);
