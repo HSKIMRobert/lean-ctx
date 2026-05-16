@@ -50,6 +50,10 @@ fn write_exe(path: &std::path::Path, content: &str) {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows handle inheritance causes subprocess hangs in CI"
+)]
 fn setup_bootstrap_doctor_status_json_smoke() {
     let bin = env!("CARGO_BIN_EXE_lean-ctx");
 
