@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use rmcp::model::Tool;
@@ -100,8 +101,17 @@ impl CtxReadTool {
         let mut mode = if let Some(m) = get_str(args, "mode") {
             m
         } else if profile.read.default_mode_effective() == "auto" {
-            let cache = cache_lock.blocking_read();
-            crate::tools::ctx_smart_read::select_mode_with_task(&cache, path, task_ref)
+            // Non-blocking: if the cache write-lock is held by a timed-out zombie
+            // thread, blocking_read() would hang with NO timeout protection.
+            if let Ok(cache) = cache_lock.try_read() {
+                crate::tools::ctx_smart_read::select_mode_with_task(&cache, path, task_ref)
+            } else {
+                tracing::debug!(
+                    "cache lock contested during auto-mode selection for {path}; \
+                     falling back to full"
+                );
+                "full".to_string()
+            }
         } else {
             profile.read.default_mode_effective().to_string()
         };
@@ -156,24 +166,68 @@ impl CtxReadTool {
         }
 
         // Acquire cache write lock with timeout guard to prevent infinite hangs.
-        // The read + tokenize + graph-hint pipeline has no internal timeouts,
-        // so we bound the entire block externally.
+        // All lock acquisitions (per-file mutex, cache RwLock) use bounded waits
+        // so a zombie thread from a previous timed-out call cannot block us forever.
         let read_timeout = std::time::Duration::from_secs(30);
+        let cancelled = Arc::new(AtomicBool::new(false));
         let (output, resolved_mode, original, is_cache_hit, file_ref, cache_stats) = {
             let cache_lock = cache_lock.clone();
             let mode = mode.clone();
             let crp_mode = ctx.crp_mode;
             let task_owned = current_task.clone();
             let path_owned = path.to_string();
+            let cancel_flag = cancelled.clone();
             let (tx, rx) = std::sync::mpsc::sync_channel(1);
             std::thread::spawn(move || {
-                // Per-file lock: serialize concurrent reads of the same path so
-                // only one thread does I/O while the others wait on a cheap
-                // std::sync::Mutex, reducing contention on the global cache lock.
                 let file_lock = per_file_lock(&path_owned);
-                let _file_guard = file_lock.lock().unwrap();
+
+                // Bounded per-file lock: if a zombie thread still holds it, don't
+                // wait forever. 25s keeps us inside the 30s recv_timeout.
+                let _file_guard = {
+                    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(25);
+                    loop {
+                        if cancel_flag.load(Ordering::Relaxed) {
+                            return;
+                        }
+                        if let Ok(guard) = file_lock.try_lock() {
+                            break guard;
+                        }
+                        if std::time::Instant::now() >= deadline {
+                            tracing::error!(
+                                "ctx_read: per-file lock timeout after 25s for {path_owned}"
+                            );
+                            return;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                    }
+                };
+
+                if cancel_flag.load(Ordering::Relaxed) {
+                    return;
+                }
+
+                // Bounded cache write-lock: avoids indefinite block when a zombie
+                // thread from a previous timed-out call still holds the lock.
+                let mut cache = {
+                    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(25);
+                    loop {
+                        if cancel_flag.load(Ordering::Relaxed) {
+                            return;
+                        }
+                        if let Ok(guard) = cache_lock.try_write() {
+                            break guard;
+                        }
+                        if std::time::Instant::now() >= deadline {
+                            tracing::error!(
+                                "ctx_read: cache write-lock timeout after 25s for {path_owned}"
+                            );
+                            return;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                    }
+                };
+
                 let task_ref = task_owned.as_deref();
-                let mut cache = cache_lock.blocking_write();
                 let read_output = if fresh {
                     crate::tools::ctx_read::handle_fresh_with_task_resolved(
                         &mut cache,
@@ -203,6 +257,7 @@ impl CtxReadTool {
             if let Ok(result) = rx.recv_timeout(read_timeout) {
                 result
             } else {
+                cancelled.store(true, Ordering::Relaxed);
                 tracing::error!("ctx_read timed out after {read_timeout:?} for {path}");
                 let msg = format!(
                     "ERROR: ctx_read timed out after {}s reading {path}. \
@@ -412,5 +467,55 @@ mod tests {
         }
 
         assert!(max_concurrent.load(Ordering::SeqCst) > 1);
+    }
+
+    /// Regression test for Issue #229: a zombie thread holding the cache write-lock
+    /// must not block subsequent reads indefinitely. The try_write() loop inside
+    /// the spawned thread should respect its 25s deadline and the cancellation flag.
+    #[test]
+    fn zombie_thread_does_not_block_subsequent_cache_access() {
+        let cache: Arc<tokio::sync::RwLock<u32>> = Arc::new(tokio::sync::RwLock::new(0));
+
+        // Simulate a zombie: hold the write-lock on a background thread for 2s.
+        let zombie_lock = cache.clone();
+        let _zombie = std::thread::spawn(move || {
+            let _guard = zombie_lock.blocking_write();
+            std::thread::sleep(std::time::Duration::from_secs(2));
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        // A try_read() must fail immediately (zombie holds write-lock).
+        assert!(cache.try_read().is_err());
+
+        // A try_write() loop with cancellation must exit promptly.
+        let cancel = Arc::new(AtomicBool::new(false));
+        let cancel2 = cancel.clone();
+        let lock2 = cache.clone();
+        let waiter = std::thread::spawn(move || {
+            let start = std::time::Instant::now();
+            loop {
+                if cancel2.load(Ordering::Relaxed) {
+                    return (false, start.elapsed());
+                }
+                if let Ok(_guard) = lock2.try_write() {
+                    return (true, start.elapsed());
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+        });
+
+        // Set cancellation after 200ms — the loop should exit quickly.
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        cancel.store(true, Ordering::Relaxed);
+
+        let (acquired, elapsed) = waiter.join().unwrap();
+        assert!(
+            !acquired,
+            "should not have acquired lock while zombie holds it"
+        );
+        assert!(
+            elapsed < std::time::Duration::from_secs(1),
+            "cancellation should have stopped the loop promptly"
+        );
     }
 }

@@ -96,11 +96,17 @@ global cache write lock per file. Threads reading different files proceed indepe
 This prevents the thundering-herd scenario where N concurrent subagents all requesting the same
 file simultaneously contend on the global cache lock, each holding it during disk I/O.
 
+**Bounded waits (Issue #229 fix):** All lock acquisitions inside the spawned thread use
+`try_lock()`/`try_write()` loops with 25s deadlines (inside the 30s `recv_timeout` guard).
+When the `recv_timeout` fires, a cancellation flag is set so the thread exits promptly
+instead of holding locks indefinitely. The auto-mode selection before the thread uses
+`try_read()` with a fallback to "full" mode, ensuring no unbounded blocking.
+
 ```
 thread::spawn {
     L17 outer (FILE_LOCKS map)       — held briefly to clone Arc, then dropped
-     └─► L17 inner (per-file Mutex)  — NEVER hold outer while locking inner
-          └─► cache (session RwLock) — per-file lock acquired BEFORE cache write lock
+     └─► L17 inner (per-file Mutex)  — try_lock() with 25s deadline
+          └─► cache (session RwLock) — try_write() with 25s deadline
 }
 ```
 
