@@ -444,6 +444,7 @@ pub(crate) fn install_claude_project_hooks(cwd: &std::path::Path) {
     let binary = resolve_binary_path();
     let rewrite_cmd = format!("{binary} hook rewrite");
     let redirect_cmd = format!("{binary} hook redirect");
+    let observe_cmd = format!("{binary} hook observe");
 
     let settings_path = cwd.join(".claude").join("settings.local.json");
     let _ = std::fs::create_dir_all(cwd.join(".claude"));
@@ -473,7 +474,10 @@ pub(crate) fn install_claude_project_hooks(cwd: &std::path::Path) {
     ]);
 
     if existing.is_empty() {
-        let hook_entry = serde_json::json!({ "hooks": { "PreToolUse": desired_pretooluse } });
+        let mut hook_map = serde_json::Map::new();
+        hook_map.insert("PreToolUse".to_string(), desired_pretooluse);
+        ensure_claude_project_observe_hooks(&mut hook_map, &observe_cmd);
+        let hook_entry = serde_json::json!({ "hooks": serde_json::Value::Object(hook_map) });
         write_file(
             &settings_path,
             &serde_json::to_string_pretty(&hook_entry).unwrap_or_default(),
@@ -495,6 +499,7 @@ pub(crate) fn install_claude_project_hooks(cwd: &std::path::Path) {
                         &redirect_cmd,
                     );
                 }
+                ensure_claude_project_observe_hooks(hooks_obj, &observe_cmd);
             }
             write_file(
                 &settings_path,
@@ -503,6 +508,49 @@ pub(crate) fn install_claude_project_hooks(cwd: &std::path::Path) {
         }
     }
     if !mcp_server_quiet_mode() {
-        eprintln!("Created .claude/settings.local.json (project-local PreToolUse hooks).");
+        eprintln!("Created .claude/settings.local.json (project-local hooks with observe).");
+    }
+}
+
+/// Project-level observe hooks — excludes SessionStart/SessionEnd (global-only).
+fn ensure_claude_project_observe_hooks(
+    hooks_obj: &mut serde_json::Map<String, serde_json::Value>,
+    observe_cmd: &str,
+) {
+    let project_events = ["PostToolUse", "UserPromptSubmit", "Stop", "PreCompact"];
+    for event in project_events {
+        let entry = hooks_obj
+            .entry(event.to_string())
+            .or_insert_with(|| serde_json::json!([]));
+
+        if let Some(arr) = entry.as_array() {
+            let already = arr.iter().any(|group| {
+                group
+                    .get("hooks")
+                    .and_then(|h| h.as_array())
+                    .is_some_and(|hooks| {
+                        hooks.iter().any(|hook| {
+                            hook.get("command")
+                                .and_then(|c| c.as_str())
+                                .is_some_and(|c| c.contains("hook observe"))
+                        })
+                    })
+            });
+            if already {
+                continue;
+            }
+        }
+
+        if let Some(arr) = entry.as_array_mut() {
+            arr.push(serde_json::json!({
+                "matcher": ".*",
+                "hooks": [{ "type": "command", "command": observe_cmd }]
+            }));
+        } else {
+            *entry = serde_json::json!([{
+                "matcher": ".*",
+                "hooks": [{ "type": "command", "command": observe_cmd }]
+            }]);
+        }
     }
 }

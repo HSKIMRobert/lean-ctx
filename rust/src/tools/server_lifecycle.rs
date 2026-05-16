@@ -67,6 +67,25 @@ impl LeanCtxServer {
         // Purge stale graph indices on startup to prevent serving outdated data
         crate::core::graph_index::ProjectIndex::purge_stale_indices();
 
+        // Start the RAM guardian — monitors RSS and triggers tiered eviction.
+        // At Critical pressure (>3x limit), performs emergency shutdown.
+        crate::core::memory_guard::start_guard(std::sync::Arc::new(|level| {
+            use crate::core::memory_guard::PressureLevel;
+            match level {
+                PressureLevel::Soft => {
+                    tracing::info!("[memory_guard] soft pressure — deferring new index builds");
+                }
+                PressureLevel::Medium | PressureLevel::Hard | PressureLevel::Critical => {
+                    tracing::warn!(
+                        "[memory_guard] {:?} pressure — purging jemalloc arenas",
+                        level,
+                    );
+                    crate::core::memory_guard::jemalloc_purge();
+                }
+                PressureLevel::Normal => {}
+            }
+        }));
+
         let startup = detect_startup_context(project_root, startup_cwd);
         let (session, context_os) = match session_mode {
             SessionMode::Personal => {

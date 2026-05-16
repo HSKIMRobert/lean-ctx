@@ -209,6 +209,14 @@ fn get_routes(path: &str, _query_str: &str) -> Option<(&'static str, &'static st
             let json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
             Some(("200 OK", "application/json", json))
         }
+        "/api/context-introspect" => {
+            let payload = match crate::proxy::introspect::load_persisted(300) {
+                Some(val) => val,
+                None => serde_json::json!({ "proxy_active": false }),
+            };
+            let json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+            Some(("200 OK", "application/json", json))
+        }
         "/api/context-radar" => {
             let data_dir = crate::core::data_dir::lean_ctx_data_dir()
                 .unwrap_or_else(|_| std::path::PathBuf::from("."));

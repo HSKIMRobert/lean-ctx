@@ -152,11 +152,12 @@ class CockpitContext extends HTMLElement {
       '/api/context-overlay-history', '/api/context-plan', '/api/pipeline-stats',
       '/api/intent', '/api/session', '/api/context-bounce', '/api/context-client',
       '/api/context-pressure', '/api/context-dynamic-tools', '/api/context-radar',
+      '/api/context-introspect',
     ];
     const results = await Promise.all(paths.map(p =>
       fetchJson(p, { timeoutMs: 12000 }).catch(e => ({ __error: e?.error || String(e), __path: p }))
     ));
-    const [ledger, field, control, history, plan, pipeline, intent, session, bounce, clientCaps, pressure, dynTools, radar] = results;
+    const [ledger, field, control, history, plan, pipeline, intent, session, bounce, clientCaps, pressure, dynTools, radar, introspect] = results;
 
     const err = [ledger, field, control].find(x => x?.__error);
     if (err) this._error = err.__path + ': ' + err.__error;
@@ -175,6 +176,7 @@ class CockpitContext extends HTMLElement {
       pressure: pressure?.__error ? null : pressure,
       dynTools: dynTools?.__error ? null : dynTools,
       radar: radar?.__error ? null : radar,
+      introspect: introspect?.__error ? null : introspect,
     };
     if (this._data.history && !Array.isArray(this._data.history)) this._data.history = [];
 
@@ -241,6 +243,7 @@ class CockpitContext extends HTMLElement {
     const field = this._data.field;
     const session = this._data.session;
     const radar = this._data.radar;
+    const introspect = this._data.introspect;
     const pressure = ledger?.pressure;
     const util = pressure?.utilization ?? 0;
     const win = ledger?.window_size ?? 128000;
@@ -286,8 +289,11 @@ class CockpitContext extends HTMLElement {
 
     h += '</div>';
 
+    // Data Source + IDE Tier
+    h += this._renderDataSource(esc, introspect);
+
     // Window Breakdown
-    h += this._renderBreakdown(esc, ff, radar, win);
+    h += this._renderBreakdown(esc, ff, radar, win, introspect);
 
     // Budget Status
     h += this._renderBudgetStatus(ledger, field, esc, ff);
@@ -295,26 +301,101 @@ class CockpitContext extends HTMLElement {
     return h;
   }
 
-  _renderBreakdown(esc, ff, radar, windowSize) {
+  _renderDataSource(esc, introspect) {
+    const caps = this._data.clientCaps;
+    const clientId = caps?.client_id || 'unknown';
+    const proxyActive = introspect?.proxy_active === true;
+
+    const HOOK_TIERS = {
+      cursor:    { tier: 1, label: 'Full', events: ['User Messages', 'Agent Responses', 'Thinking', 'MCP Tools', 'Native Tools', 'Shell', 'File Reads', 'Sessions', 'Compaction'] },
+      claude:    { tier: 2, label: 'Good', events: ['User Messages', 'MCP Tools', 'Native Tools', 'Sessions', 'Compaction'] },
+      windsurf:  { tier: 3, label: 'Partial', events: ['User Messages', 'Agent Responses', 'MCP Tools', 'Shell'] },
+      codex:     { tier: 4, label: 'Minimal', events: ['MCP Tools', 'Sessions'] },
+      copilot:   { tier: 4, label: 'Minimal', events: ['MCP Tools'] },
+      gemini:    { tier: 4, label: 'Minimal', events: ['MCP Tools'] },
+    };
+
+    const key = Object.keys(HOOK_TIERS).find(k => clientId.toLowerCase().includes(k));
+    const info = key ? HOOK_TIERS[key] : { tier: 5, label: 'MCP Only', events: [] };
+
+    let h = '<div class="card" style="margin-bottom:16px">';
+    h += '<div class="card-header"><h3>Data Sources</h3></div>';
+    h += '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px">';
+
+    if (proxyActive) {
+      h += '<span class="badge" style="background:#10b981;color:#fff;padding:6px 12px;font-size:13px">Proxy Active</span>';
+    }
+    h += '<span class="badge" style="padding:6px 12px;font-size:13px">MCP Server</span>';
+    h += '<span class="badge" style="padding:6px 12px;font-size:13px">Hooks: Tier ' + info.tier + ' (' + esc(info.label) + ')</span>';
+    h += '</div>';
+
+    if (!proxyActive && info.tier >= 3) {
+      h += '<div class="ctx-info-note" style="margin-top:10px">Limited hook data for ' + esc(clientId) + '. '
+        + 'Enable the <strong>lean-ctx proxy</strong> (<code>lean-ctx proxy</code>) for exact token breakdowns across all categories.</div>';
+    }
+
+    if (info.events.length > 0 && !proxyActive) {
+      const allCats = ['User Messages', 'Agent Responses', 'Thinking', 'MCP Tools', 'Native Tools', 'Shell', 'File Reads', 'Sessions', 'Compaction'];
+      h += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">';
+      for (const cat of allCats) {
+        const has = info.events.includes(cat);
+        const style = has ? 'background:var(--green);color:#fff' : 'background:var(--surface);color:var(--muted);text-decoration:line-through';
+        h += '<span class="badge" style="' + style + ';padding:3px 8px;font-size:11px">' + esc(cat) + '</span>';
+      }
+      h += '</div>';
+    }
+
+    h += '</div>';
+    return h;
+  }
+
+  _renderBreakdown(esc, ff, radar, windowSize, introspect) {
+    const proxyActive = introspect?.proxy_active === true;
+    const pb = introspect?.last_breakdown;
     const b = radar?.breakdown || {};
-    const win = b.window_size || windowSize || 200000;
+    const win = (proxyActive && pb) ? windowSize : (b.window_size || windowSize || 200000);
     const rules = radar?.rules || {};
 
-    const cats = [
-      { l: 'System Prompt', t: b.system_prompt_tokens || 0, c: '#8b5cf6', desc: 'IDE rules (.cursorrules, AGENTS.md, .mdc files)' },
-      { l: 'User Messages', t: b.user_message_tokens || 0, c: '#3b82f6', desc: 'Your messages to the AI agent' },
-      { l: 'Agent Responses', t: b.agent_response_tokens || 0, c: '#06b6d4', desc: 'AI responses in the conversation' },
-      { l: 'lean-ctx Tools', t: b.lean_ctx_tool_tokens || 0, c: '#10b981', desc: 'ctx_read, ctx_search, etc. (compressed)' },
-      { l: 'Other MCP', t: b.other_mcp_tokens || 0, c: '#f59e0b', desc: 'Third-party MCP tools (uncompressed)' },
-      { l: 'Native Reads', t: b.native_read_tokens || 0, c: '#ef4444', desc: 'Direct IDE file reads (not compressed)' },
-      { l: 'Shell Output', t: b.shell_tokens || 0, c: '#ec4899', desc: 'Terminal command output' },
-    ];
-    const tracked = b.tracked_total || 0;
-    const avail = b.available || 0;
+    let cats, tracked, avail, srcLabel;
+
+    if (proxyActive && pb) {
+      const toolTokens = (pb.tool_result_tokens || 0);
+      cats = [
+        { l: 'System Prompt', t: pb.system_prompt_tokens || 0, c: '#8b5cf6', desc: 'Full system prompt (rules, instructions, context)' },
+        { l: 'User Messages', t: pb.user_message_tokens || 0, c: '#3b82f6', desc: 'Your messages to the AI agent' },
+        { l: 'Agent Responses', t: pb.assistant_message_tokens || 0, c: '#06b6d4', desc: 'AI responses in the conversation' },
+        { l: 'Tool Definitions', t: pb.tool_definition_tokens || 0, c: '#a855f7', desc: pb.tool_definition_count + ' tools registered' },
+        { l: 'Tool Results', t: toolTokens, c: '#10b981', desc: 'All tool output (MCP + native)' },
+      ];
+      if (pb.image_count > 0) {
+        cats.push({ l: 'Images', t: 0, c: '#f97316', desc: pb.image_count + ' image(s) in context' });
+      }
+      tracked = pb.total_input_tokens || 0;
+      avail = Math.max(0, win - tracked);
+      srcLabel = 'Proxy (' + esc(pb.provider || 'unknown') + ' / ' + esc(pb.model || '?') + ')';
+    } else {
+      cats = [
+        { l: 'System Prompt', t: b.system_prompt_tokens || 0, c: '#8b5cf6', desc: 'IDE rules (.cursorrules, AGENTS.md, .mdc files)' },
+        { l: 'User Messages', t: b.user_message_tokens || 0, c: '#3b82f6', desc: 'Your messages to the AI agent' },
+        { l: 'Agent Responses', t: b.agent_response_tokens || 0, c: '#06b6d4', desc: 'AI responses in the conversation' },
+        { l: 'lean-ctx Tools', t: b.lean_ctx_tool_tokens || 0, c: '#10b981', desc: 'ctx_read, ctx_search, etc. (compressed)' },
+        { l: 'Other MCP', t: b.other_mcp_tokens || 0, c: '#f59e0b', desc: 'Third-party MCP tools (uncompressed)' },
+        { l: 'Native Reads', t: b.native_read_tokens || 0, c: '#ef4444', desc: 'Direct IDE file reads (not compressed)' },
+        { l: 'Shell Output', t: b.shell_tokens || 0, c: '#ec4899', desc: 'Terminal command output' },
+      ];
+      tracked = b.tracked_total || 0;
+      avail = b.available || 0;
+      srcLabel = 'hooks + rules-scan';
+    }
+
+    const srcBadge = proxyActive
+      ? '<span class="badge" style="background:#10b981;color:#fff;margin-left:8px">PROXY</span>'
+      : '<span class="badge" style="background:var(--muted);margin-left:8px">ESTIMATED</span>';
 
     let h = '<div class="card">';
     h += '<div class="card-header"><h3>Window Breakdown' + tip('context_radar') + '</h3>';
-    h += '<span class="badge">' + fmtTok(tracked) + ' / ' + fmtTok(win) + '</span></div>';
+    h += '<span class="badge">' + fmtTok(tracked) + ' / ' + fmtTok(win) + '</span>' + srcBadge + '</div>';
+    h += '<div class="ctx-explain" style="margin-bottom:12px">Source: ' + esc(srcLabel) + '</div>';
 
     // Stacked bar
     h += '<div class="ctx-stacked-bar">';
@@ -355,8 +436,11 @@ class CockpitContext extends HTMLElement {
     h += '<td></td></tr>';
     h += '</tbody></table>';
 
-    if (b.compaction_count > 0) {
+    if (!proxyActive && b.compaction_count > 0) {
       h += '<div class="ctx-info-note">' + b.compaction_count + ' compaction(s) occurred \u2014 only post-compaction content shown.</div>';
+    }
+    if (proxyActive && pb?.message_count) {
+      h += '<div class="ctx-info-note">' + pb.message_count + ' messages in conversation.</div>';
     }
     h += '</div>';
 
@@ -633,12 +717,19 @@ class CockpitContext extends HTMLElement {
     // IDE & Connection
     if (caps) {
       const feats = ['resources', 'prompts', 'elicitation', 'sampling', 'dynamic_tools'].filter(k => caps[k]);
+      const introspect = this._data.introspect;
+      const proxyActive = introspect?.proxy_active === true;
       h += '<div class="card"><div class="card-header"><h3>IDE &amp; Connection</h3></div>';
       h += '<div class="ctx-kpi-grid" style="margin-top:12px">';
       h += '<div class="ctx-kpi"><div class="ctx-kpi-value">' + esc(caps.client_id || 'unknown') + '</div><div class="ctx-kpi-label">Client</div></div>';
-      h += '<div class="ctx-kpi"><div class="ctx-kpi-value">Tier ' + (caps.tier || '?') + '</div><div class="ctx-kpi-label">Feature Tier</div></div>';
+      h += '<div class="ctx-kpi"><div class="ctx-kpi-value">Tier ' + (caps.tier || '?') + '</div><div class="ctx-kpi-label">MCP Tier</div></div>';
       h += '<div class="ctx-kpi"><div class="ctx-kpi-value">' + feats.length + '</div><div class="ctx-kpi-label">Features</div><div class="ctx-kpi-detail">' + (feats.join(', ') || 'none') + '</div></div>';
       if (caps.max_tools) h += '<div class="ctx-kpi"><div class="ctx-kpi-value">' + caps.max_tools + '</div><div class="ctx-kpi-label">Max Tools</div></div>';
+      h += '<div class="ctx-kpi"><div class="ctx-kpi-value" style="color:' + (proxyActive ? 'var(--green)' : 'var(--muted)') + '">' + (proxyActive ? 'Active' : 'Off') + '</div><div class="ctx-kpi-label">Proxy</div>';
+      if (proxyActive && introspect?.last_breakdown?.model) {
+        h += '<div class="ctx-kpi-detail">' + esc(introspect.last_breakdown.model) + '</div>';
+      }
+      h += '</div>';
       h += '</div></div>';
     }
 

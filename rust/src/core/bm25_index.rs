@@ -192,13 +192,30 @@ impl BM25Index {
         }
         let mut index = Self::new();
         let files = list_code_files(root);
-        for rel in files {
-            let abs = root.join(&rel);
+        const MAX_FILE_SIZE_BYTES: u64 = 2 * 1024 * 1024;
+
+        for (i, rel) in files.iter().enumerate() {
+            if i.is_multiple_of(500) && crate::core::memory_guard::is_under_pressure() {
+                tracing::warn!(
+                    "[bm25: stopping build at file {i}/{} due to memory pressure]",
+                    files.len()
+                );
+                break;
+            }
+            if crate::core::memory_guard::abort_requested() {
+                tracing::warn!("[bm25: aborting build due to critical memory pressure]");
+                break;
+            }
+
+            let abs = root.join(rel);
             let Some(state) = IndexedFileState::from_path(&abs) else {
                 continue;
             };
+            if state.size_bytes > MAX_FILE_SIZE_BYTES {
+                continue;
+            }
             if let Ok(content) = std::fs::read_to_string(&abs) {
-                let mut chunks = extract_chunks(&rel, &content);
+                let mut chunks = extract_chunks(rel, &content);
                 chunks.sort_by(|a, b| {
                     a.start_line
                         .cmp(&b.start_line)
@@ -208,7 +225,7 @@ impl BM25Index {
                 for chunk in chunks {
                     index.add_chunk(chunk);
                 }
-                index.files.insert(rel, state);
+                index.files.insert(rel.clone(), state);
             }
         }
 
@@ -235,27 +252,40 @@ impl BM25Index {
 
         let mut index = Self::new();
         let files = list_code_files(root);
-        for rel in files {
-            let abs = root.join(&rel);
+        const MAX_FILE_SIZE_BYTES: u64 = 2 * 1024 * 1024;
+
+        for (i, rel) in files.iter().enumerate() {
+            if i.is_multiple_of(500) && crate::core::memory_guard::is_under_pressure() {
+                tracing::warn!(
+                    "[bm25: stopping incremental rebuild at file {i}/{} due to memory pressure]",
+                    files.len()
+                );
+                break;
+            }
+
+            let abs = root.join(rel);
             let Some(state) = IndexedFileState::from_path(&abs) else {
                 continue;
             };
 
-            let unchanged = prev.files.get(&rel).is_some_and(|old| *old == state);
+            let unchanged = prev.files.get(rel).is_some_and(|old| *old == state);
             if unchanged {
-                if let Some(chunks) = old_by_file.get(&rel) {
+                if let Some(chunks) = old_by_file.get(rel) {
                     if chunks.first().is_some_and(|c| !c.content.is_empty()) {
                         for chunk in chunks {
                             index.add_chunk(chunk.clone());
                         }
-                        index.files.insert(rel, state);
+                        index.files.insert(rel.clone(), state);
                         continue;
                     }
                 }
             }
 
+            if state.size_bytes > MAX_FILE_SIZE_BYTES {
+                continue;
+            }
             if let Ok(content) = std::fs::read_to_string(&abs) {
-                let mut chunks = extract_chunks(&rel, &content);
+                let mut chunks = extract_chunks(rel, &content);
                 chunks.sort_by(|a, b| {
                     a.start_line
                         .cmp(&b.start_line)
@@ -265,7 +295,7 @@ impl BM25Index {
                 for chunk in chunks {
                     index.add_chunk(chunk);
                 }
-                index.files.insert(rel, state);
+                index.files.insert(rel.clone(), state);
             }
         }
 
@@ -540,24 +570,7 @@ impl BM25Index {
 }
 
 fn is_safe_bm25_root(root: &Path) -> bool {
-    let root_str = root.to_string_lossy();
-    if root_str == "/" || root_str == "\\" || root_str == "." {
-        tracing::warn!("[bm25_index: refusing to index filesystem root]");
-        return false;
-    }
-    if let Some(home) = dirs::home_dir() {
-        let home_str = home.to_string_lossy();
-        if root_str.as_ref() == home_str.as_ref()
-            || root_str.as_ref() == format!("{home_str}/").as_str()
-        {
-            tracing::warn!(
-                "[bm25_index: refusing to index home directory {root_str} — \
-                 run `lean-ctx dashboard` from inside a project, or set LEAN_CTX_PROJECT_ROOT]"
-            );
-            return false;
-        }
-    }
-    true
+    super::graph_index::is_safe_scan_root_public(&root.to_string_lossy())
 }
 
 fn bm25_index_looks_stale(index: &BM25Index, root: &Path) -> bool {
@@ -617,6 +630,7 @@ fn list_code_files(root: &Path) -> Vec<String> {
         .git_ignore(true)
         .git_global(true)
         .git_exclude(true)
+        .max_depth(Some(20))
         .build();
 
     let cfg = crate::core::config::Config::load();

@@ -1,6 +1,7 @@
 use serde::Serialize;
 use serde_json::Value;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -321,19 +322,20 @@ fn has_tool_results(content: Option<&Value>) -> bool {
     }
 }
 
-// Shared state for introspection data
 pub struct IntrospectState {
-    pub last_breakdown: std::sync::Mutex<Option<RequestBreakdown>>,
+    pub last_breakdown: Mutex<Option<RequestBreakdown>>,
     pub total_system_prompt_tokens: AtomicU64,
     pub total_requests: AtomicU64,
+    last_persist_epoch: AtomicU64,
 }
 
 impl Default for IntrospectState {
     fn default() -> Self {
         Self {
-            last_breakdown: std::sync::Mutex::new(None),
+            last_breakdown: Mutex::new(None),
             total_system_prompt_tokens: AtomicU64::new(0),
             total_requests: AtomicU64::new(0),
+            last_persist_epoch: AtomicU64::new(0),
         }
     }
 }
@@ -346,7 +348,78 @@ impl IntrospectState {
         if let Ok(mut last) = self.last_breakdown.lock() {
             *last = Some(breakdown);
         }
+        self.maybe_persist();
     }
+
+    fn maybe_persist(&self) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let prev = self.last_persist_epoch.load(Ordering::Relaxed);
+        if now <= prev {
+            return;
+        }
+        if self
+            .last_persist_epoch
+            .compare_exchange(prev, now, Ordering::AcqRel, Ordering::Relaxed)
+            .is_err()
+        {
+            return;
+        }
+        self.persist(now);
+    }
+
+    fn persist(&self, ts: u64) {
+        let Ok(data_dir) = crate::core::data_dir::lean_ctx_data_dir() else {
+            return;
+        };
+        let breakdown_val = self
+            .last_breakdown
+            .lock()
+            .ok()
+            .and_then(|guard| guard.as_ref().map(|b| serde_json::to_value(b).ok()))
+            .flatten();
+        let payload = serde_json::json!({
+            "ts": ts,
+            "proxy_active": true,
+            "last_breakdown": breakdown_val,
+            "cumulative": {
+                "total_requests": self.total_requests.load(Ordering::Relaxed),
+                "total_system_prompt_tokens": self.total_system_prompt_tokens.load(Ordering::Relaxed),
+            }
+        });
+
+        let target = data_dir.join("proxy-introspect.json");
+        let tmp = data_dir.join("proxy-introspect.json.tmp");
+        if let Ok(json) = serde_json::to_string_pretty(&payload) {
+            if std::fs::write(&tmp, &json).is_ok() {
+                let _ = std::fs::rename(&tmp, &target);
+            }
+        }
+    }
+}
+
+/// Load persisted proxy introspection data from disk.
+/// Returns `None` if the file doesn't exist or is stale (> `max_age_secs`).
+pub fn load_persisted(max_age_secs: u64) -> Option<serde_json::Value> {
+    let data_dir = crate::core::data_dir::lean_ctx_data_dir().ok()?;
+    let path = data_dir.join("proxy-introspect.json");
+    let content = std::fs::read_to_string(&path).ok()?;
+    let val: serde_json::Value = serde_json::from_str(&content).ok()?;
+
+    let ts = val
+        .get("ts")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    if now.saturating_sub(ts) > max_age_secs {
+        return None;
+    }
+    Some(val)
 }
 
 #[cfg(test)]

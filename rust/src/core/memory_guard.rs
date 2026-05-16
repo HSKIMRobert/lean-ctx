@@ -1,13 +1,15 @@
-//! Process-level RAM guardian with adaptive eviction.
+//! Process-level RAM guardian with adaptive eviction and hard OOM protection.
 //!
 //! Monitors RSS via platform-specific APIs and triggers tiered cache eviction
 //! when memory usage exceeds configurable thresholds (default: 5% of system RAM).
+//! At critical levels (>3x limit), performs emergency shutdown to prevent OS OOM kill.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 static PEAK_RSS: AtomicU64 = AtomicU64::new(0);
 static GUARD_RUNNING: AtomicBool = AtomicBool::new(false);
+static ABORT_REQUESTED: AtomicBool = AtomicBool::new(false);
 
 /// Current process RSS in bytes, or `None` if unavailable.
 pub fn get_rss_bytes() -> Option<u64> {
@@ -65,13 +67,14 @@ pub struct MemorySnapshot {
     pub pressure_level: PressureLevel,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PressureLevel {
     Normal,
     Soft,
     Medium,
     Hard,
+    Critical,
 }
 
 impl MemorySnapshot {
@@ -91,7 +94,9 @@ impl MemorySnapshot {
         let guard_cfg = super::config::MemoryGuardConfig::effective(&cfg);
         let base = f64::from(guard_cfg.max_ram_percent);
 
-        let level = if pct > base * 2.0 {
+        let level = if pct > base * 3.0 {
+            PressureLevel::Critical
+        } else if pct > base * 2.0 {
             PressureLevel::Hard
         } else if pct > base * 1.4 {
             PressureLevel::Medium
@@ -124,19 +129,65 @@ pub fn jemalloc_purge() {
     }
 }
 
+/// Returns `true` if the guardian has requested background tasks to abort.
+pub fn abort_requested() -> bool {
+    ABORT_REQUESTED.load(Ordering::Relaxed)
+}
+
+/// Quick, non-allocating memory pressure check for hot loops (scanners, indexers).
+/// Returns `true` if memory is at or above Soft pressure and work should be paused/stopped.
+pub fn is_under_pressure() -> bool {
+    let Some(snap) = MemorySnapshot::capture() else {
+        return false;
+    };
+    snap.pressure_level >= PressureLevel::Soft
+}
+
 /// Start the background memory guardian task (idempotent).
+/// Polls every 3s (normal) or 1s (under pressure). At Critical level, performs
+/// emergency shutdown to prevent OS OOM kill.
 pub fn start_guard(eviction_callback: Arc<dyn Fn(PressureLevel) + Send + Sync>) {
     if GUARD_RUNNING.swap(true, Ordering::SeqCst) {
         return;
     }
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
+        let mut poll_secs = 3u64;
         loop {
-            interval.tick().await;
+            tokio::time::sleep(std::time::Duration::from_secs(poll_secs)).await;
             let Some(snap) = MemorySnapshot::capture() else {
                 continue;
             };
-            if snap.pressure_level != PressureLevel::Normal {
+
+            if snap.pressure_level == PressureLevel::Critical {
+                tracing::error!(
+                    "[memory_guard] CRITICAL: RSS={:.0}MB ({:.1}% of {:.0}GB) — \
+                     emergency shutdown to prevent OS OOM kill",
+                    snap.rss_bytes as f64 / 1_048_576.0,
+                    snap.rss_percent,
+                    snap.system_ram_bytes as f64 / 1_073_741_824.0,
+                );
+                ABORT_REQUESTED.store(true, Ordering::SeqCst);
+                (eviction_callback)(PressureLevel::Critical);
+                jemalloc_purge();
+
+                // Give eviction 2s to take effect, then re-check
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                if let Some(recheck) = MemorySnapshot::capture() {
+                    if recheck.pressure_level >= PressureLevel::Hard {
+                        tracing::error!(
+                            "[memory_guard] still at {:?} after emergency eviction — \
+                             exiting process (RSS={:.0}MB)",
+                            recheck.pressure_level,
+                            recheck.rss_bytes as f64 / 1_048_576.0,
+                        );
+                        std::process::exit(137);
+                    }
+                }
+            }
+
+            if snap.pressure_level >= PressureLevel::Soft {
+                poll_secs = 1;
+                ABORT_REQUESTED.store(snap.pressure_level >= PressureLevel::Hard, Ordering::SeqCst);
                 tracing::warn!(
                     "[memory_guard] pressure={:?} RSS={:.0}MB limit={:.0}MB ({:.1}% of {:.0}GB)",
                     snap.pressure_level,
@@ -147,8 +198,14 @@ pub fn start_guard(eviction_callback: Arc<dyn Fn(PressureLevel) + Send + Sync>) 
                 );
                 (eviction_callback)(snap.pressure_level);
 
-                if snap.pressure_level == PressureLevel::Hard {
+                if snap.pressure_level >= PressureLevel::Hard {
                     jemalloc_purge();
+                }
+            } else {
+                poll_secs = 3;
+                if ABORT_REQUESTED.load(Ordering::Relaxed) {
+                    ABORT_REQUESTED.store(false, Ordering::SeqCst);
+                    tracing::info!("[memory_guard] pressure normalized, clearing abort flag");
                 }
             }
         }

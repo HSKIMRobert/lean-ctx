@@ -33,6 +33,8 @@ fn install_windsurf_hooks(home: &std::path::Path) {
     let hooks_json = home.join(".codeium").join("windsurf").join("hooks.json");
     let binary = resolve_binary_path();
     let observe_cmd = format!("{binary} hook observe");
+    let rewrite_cmd = format!("{binary} hook rewrite");
+    let redirect_cmd = format!("{binary} hook redirect");
 
     let existing_content = if hooks_json.exists() {
         std::fs::read_to_string(&hooks_json).unwrap_or_default()
@@ -64,6 +66,14 @@ fn install_windsurf_hooks(home: &std::path::Path) {
         return;
     };
 
+    ensure_windsurf_hook_entry(hooks_obj, "pre_mcp_tool_use", &rewrite_cmd, "hook rewrite");
+    ensure_windsurf_hook_entry(
+        hooks_obj,
+        "pre_mcp_tool_use",
+        &redirect_cmd,
+        "hook redirect",
+    );
+
     let observe_events = [
         "post_mcp_tool_use",
         "post_run_command",
@@ -72,23 +82,7 @@ fn install_windsurf_hooks(home: &std::path::Path) {
     ];
 
     for event in observe_events {
-        let arr = hooks_obj
-            .entry(event.to_string())
-            .or_insert_with(|| serde_json::json!([]));
-        if !arr.is_array() {
-            *arr = serde_json::json!([]);
-        }
-        let Some(entries) = arr.as_array_mut() else {
-            continue;
-        };
-        let already = entries.iter().any(|e| {
-            e.get("command")
-                .and_then(|c| c.as_str())
-                .is_some_and(|c| c.contains("hook observe"))
-        });
-        if !already {
-            entries.push(serde_json::json!({ "command": &observe_cmd }));
-        }
+        ensure_windsurf_hook_entry(hooks_obj, event, &observe_cmd, "hook observe");
     }
 
     let formatted = serde_json::to_string_pretty(&root).unwrap_or_default();
@@ -96,9 +90,31 @@ fn install_windsurf_hooks(home: &std::path::Path) {
     write_file(&hooks_json, &formatted);
 
     if !mcp_server_quiet_mode() {
-        eprintln!(
-            "Installed Windsurf observe hooks at {}",
-            hooks_json.display()
-        );
+        eprintln!("Installed Windsurf hooks at {}", hooks_json.display());
+    }
+}
+
+fn ensure_windsurf_hook_entry(
+    hooks_obj: &mut serde_json::Map<String, serde_json::Value>,
+    event: &str,
+    command: &str,
+    marker: &str,
+) {
+    let arr = hooks_obj
+        .entry(event.to_string())
+        .or_insert_with(|| serde_json::json!([]));
+    if !arr.is_array() {
+        *arr = serde_json::json!([]);
+    }
+    let Some(entries) = arr.as_array_mut() else {
+        return;
+    };
+    let already = entries.iter().any(|e| {
+        e.get("command")
+            .and_then(|c| c.as_str())
+            .is_some_and(|c| c.contains(marker))
+    });
+    if !already {
+        entries.push(serde_json::json!({ "command": command }));
     }
 }

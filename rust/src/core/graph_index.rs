@@ -26,6 +26,11 @@ fn is_safe_scan_root(path: &str) -> bool {
         return false;
     }
 
+    if normalized == "." || normalized.is_empty() {
+        tracing::warn!("[graph_index: refusing to scan relative/empty root]");
+        return false;
+    }
+
     if let Some(home) = dirs::home_dir() {
         let home_norm = normalize_project_root(&home.to_string_lossy());
         if normalized == home_norm {
@@ -66,6 +71,22 @@ fn is_safe_scan_root(path: &str) -> bool {
                 tracing::warn!(
                     "[graph_index: refusing to scan {normalized} — \
                      inside home/{blocked} without project markers]"
+                );
+                return false;
+            }
+        }
+
+        // Block directories that are direct children of home without project markers
+        if p.parent() == Some(home_path) {
+            let has_marker = p.join(".git").exists()
+                || p.join("Cargo.toml").exists()
+                || p.join("package.json").exists()
+                || p.join("go.mod").exists()
+                || p.join("pyproject.toml").exists();
+            if !has_marker {
+                tracing::warn!(
+                    "[graph_index: refusing to scan {normalized} — \
+                     direct child of home without project markers]"
                 );
                 return false;
             }
@@ -547,6 +568,7 @@ pub fn scan(project_root: &str) -> ProjectIndex {
         cfg.graph_index_max_files as usize
     };
     const MAX_ENTRIES_VISITED: usize = 500_000;
+    const MAX_FILE_SIZE_BYTES: u64 = 2 * 1024 * 1024; // 2 MB per file
     let scan_deadline = std::time::Instant::now() + std::time::Duration::from_mins(5);
 
     for entry in walker.filter_map(std::result::Result::ok) {
@@ -568,6 +590,22 @@ pub fn scan(project_root: &str) -> ProjectIndex {
                 );
                 break;
             }
+            if crate::core::memory_guard::abort_requested() {
+                tracing::warn!(
+                    "[graph_index: memory pressure abort after {entries_visited} entries — \
+                     saving partial index with {} files]",
+                    index.files.len()
+                );
+                break;
+            }
+            if crate::core::memory_guard::is_under_pressure() {
+                tracing::warn!(
+                    "[graph_index: memory pressure detected at {entries_visited} entries — \
+                     stopping scan with {} files]",
+                    index.files.len()
+                );
+                break;
+            }
             if let Some(ref g) = _lock {
                 g.touch();
             }
@@ -581,6 +619,21 @@ pub fn scan(project_root: &str) -> ProjectIndex {
         // Prevent indexing files that escaped the project root (symlinks, mount points)
         if !file_path.starts_with(&project_root) {
             continue;
+        }
+
+        // Skip special files (devices, FIFOs, sockets) that can stream infinite data
+        if let Ok(meta) = std::fs::metadata(&file_path) {
+            if !meta.is_file() {
+                continue;
+            }
+            if meta.len() > MAX_FILE_SIZE_BYTES {
+                tracing::debug!(
+                    "[graph_index: skipping {file_path} — {:.1}MB exceeds {}MB limit]",
+                    meta.len() as f64 / 1_048_576.0,
+                    MAX_FILE_SIZE_BYTES / (1024 * 1024),
+                );
+                continue;
+            }
         }
 
         let ext = Path::new(&file_path)
@@ -690,7 +743,16 @@ pub fn scan(project_root: &str) -> ProjectIndex {
 }
 
 fn build_edges(index: &mut ProjectIndex) {
+    build_edges_with_cache(index, &HashMap::new());
+}
+
+fn build_edges_with_cache(index: &mut ProjectIndex, content_cache: &HashMap<String, String>) {
     index.edges.clear();
+
+    if crate::core::memory_guard::abort_requested() {
+        tracing::warn!("[graph_index: skipping edge-building due to memory pressure]");
+        return;
+    }
 
     let root = normalize_project_root(&index.project_root);
     let root_path = Path::new(&root);
@@ -700,10 +762,30 @@ fn build_edges(index: &mut ProjectIndex) {
 
     let resolver_ctx = import_resolver::ResolverContext::new(root_path, file_paths.clone());
 
-    for rel_path in &file_paths {
-        let abs_path = root_path.join(rel_path.trim_start_matches(['/', '\\']));
-        let Ok(content) = std::fs::read_to_string(&abs_path) else {
-            continue;
+    const MAX_FILE_SIZE_FOR_EDGES: u64 = 2 * 1024 * 1024;
+
+    for (i, rel_path) in file_paths.iter().enumerate() {
+        if i.is_multiple_of(1000) && crate::core::memory_guard::is_under_pressure() {
+            tracing::warn!(
+                "[graph_index: stopping edge-building at file {i}/{} due to memory pressure]",
+                file_paths.len()
+            );
+            break;
+        }
+
+        let content = if let Some(cached) = content_cache.get(rel_path) {
+            std::borrow::Cow::Borrowed(cached.as_str())
+        } else {
+            let abs_path = root_path.join(rel_path.trim_start_matches(['/', '\\']));
+            if let Ok(meta) = abs_path.metadata() {
+                if meta.len() > MAX_FILE_SIZE_FOR_EDGES {
+                    continue;
+                }
+            }
+            match std::fs::read_to_string(&abs_path) {
+                Ok(c) => std::borrow::Cow::Owned(c),
+                Err(_) => continue,
+            }
         };
 
         let ext = Path::new(rel_path)

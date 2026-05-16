@@ -81,6 +81,7 @@ fn install_antigravity_gemini_hooks(home: &std::path::Path) {
     let binary = resolve_binary_path();
     let rewrite_cmd = format!("{binary} hook rewrite");
     let redirect_cmd = format!("{binary} hook redirect");
+    let observe_cmd = format!("{binary} hook observe");
 
     let settings_path = home.join(".gemini").join("settings.json");
     let settings_content = if settings_path.exists() {
@@ -92,8 +93,9 @@ fn install_antigravity_gemini_hooks(home: &std::path::Path) {
     let has_hooks = settings_content.contains("hook rewrite")
         && settings_content.contains("hook redirect")
         && settings_content.contains("\"matcher\"");
+    let has_observe = settings_content.contains("hook observe");
 
-    if has_hooks {
+    if has_hooks && has_observe {
         return;
     }
 
@@ -114,6 +116,15 @@ fn install_antigravity_gemini_hooks(home: &std::path::Path) {
                         "command": redirect_cmd
                     }]
                 }
+            ],
+            "AfterTool": [
+                {
+                    "matcher": ".*",
+                    "hooks": [{
+                        "type": "command",
+                        "command": observe_cmd
+                    }]
+                }
             ]
         }
     });
@@ -125,7 +136,19 @@ fn install_antigravity_gemini_hooks(home: &std::path::Path) {
         );
     } else if let Ok(mut existing) = crate::core::jsonc::parse_jsonc(&settings_content) {
         if let Some(obj) = existing.as_object_mut() {
-            obj.insert("hooks".to_string(), hook_config["hooks"].clone());
+            if has_hooks && !has_observe {
+                let hooks = obj
+                    .entry("hooks".to_string())
+                    .or_insert_with(|| serde_json::json!({}));
+                if let Some(hooks_obj) = hooks.as_object_mut() {
+                    hooks_obj.insert(
+                        "AfterTool".to_string(),
+                        hook_config["hooks"]["AfterTool"].clone(),
+                    );
+                }
+            } else {
+                obj.insert("hooks".to_string(), hook_config["hooks"].clone());
+            }
             write_file(
                 &settings_path,
                 &serde_json::to_string_pretty(&existing).unwrap_or_default(),
