@@ -309,7 +309,7 @@ fn get_routes(path: &str, _query_str: &str) -> Option<(&'static str, &'static st
                                                     .get("name")
                                                     .and_then(|n| n.as_str())
                                                     .unwrap_or("tool");
-                                                Some(format!("[Tool: {}]", name))
+                                                Some(format!("[Tool: {name}]"))
                                             } else if p.get("type").and_then(|t| t.as_str())
                                                 == Some("tool_result")
                                             {
@@ -385,7 +385,7 @@ fn get_routes(path: &str, _query_str: &str) -> Option<(&'static str, &'static st
                 "model": model,
                 "window_size": window,
                 "client_id": client,
-                "source": if model != "unknown" { "hook_detected" } else { "client_default" },
+                "source": if model == "unknown" { "client_default" } else { "hook_detected" },
             });
             let json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
             Some(("200 OK", "application/json", json))

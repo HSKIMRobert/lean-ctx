@@ -217,15 +217,14 @@ fn is_mcp_stdio_process(pid: u32) -> bool {
         }
         let cmd_part = parts.get(1..).map(|p| p.join(" ")).unwrap_or_default();
         // MCP stdio servers: bare `lean-ctx` with no subcommand (or just `mcp`)
-        if cmd_part.ends_with("/lean-ctx") || cmd_part == "lean-ctx" {
-            if !cmd_part.contains("proxy")
-                && !cmd_part.contains("dashboard")
-                && !cmd_part.contains("daemon")
-                && !cmd_part.contains("stop")
-                && !cmd_part.contains("hook")
-            {
-                return true;
-            }
+        if (cmd_part.ends_with("/lean-ctx") || cmd_part == "lean-ctx")
+            && !cmd_part.contains("proxy")
+            && !cmd_part.contains("dashboard")
+            && !cmd_part.contains("daemon")
+            && !cmd_part.contains("stop")
+            && !cmd_part.contains("hook")
+        {
+            return true;
         }
         // Hook observer/rewriter processes spawned by IDE
         if cmd_part.contains("hook observe")

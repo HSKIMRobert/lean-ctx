@@ -179,11 +179,11 @@ pub fn global() -> &'static Mutex<ClientMcpCapabilities> {
     GLOBAL.get_or_init(|| Mutex::new(ClientMcpCapabilities::default()))
 }
 
-pub fn set_detected(caps: ClientMcpCapabilities) {
+pub fn set_detected(caps: &ClientMcpCapabilities) {
     if let Ok(mut g) = global().lock() {
         *g = caps.clone();
     }
-    persist_to_disk(&caps);
+    persist_to_disk(caps);
 }
 
 pub fn current() -> ClientMcpCapabilities {

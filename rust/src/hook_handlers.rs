@@ -209,7 +209,7 @@ fn detect_event_type(v: &serde_json::Value, ts: u64) -> Option<ObserveEvent> {
         let tokens = v.get("tool_input").map_or(0, estimate_tokens_json);
         let input_str = v
             .get("tool_input")
-            .map(|ti| ti.to_string())
+            .map(std::string::ToString::to_string)
             .unwrap_or_default();
         return Some(ObserveEvent {
             ts,
@@ -314,30 +314,21 @@ fn persist_detected_model(model: &str) {
 
 pub fn model_context_window(model: &str) -> usize {
     let m = model.to_lowercase();
-    if m.contains("claude-opus-4") || m.contains("opus-4") {
+    if m.contains("claude")
+        || m.contains("opus-4")
+        || m.contains("o1")
+        || m.contains("o3")
+        || m.contains("o4")
+    {
         200_000
-    } else if m.contains("claude-4") || m.contains("claude-sonnet-4") {
-        200_000
-    } else if m.contains("claude-3.5") || m.contains("claude-3-5") {
-        200_000
-    } else if m.contains("claude-3") {
-        200_000
-    } else if m.contains("gpt-4o") {
+    } else if m.contains("gpt-4")
+        || m.contains("gpt-5")
+        || m.contains("codex")
+        || m.contains("deepseek")
+    {
         128_000
-    } else if m.contains("gpt-4-turbo") || m.contains("gpt-4.1") {
-        128_000
-    } else if m.contains("gpt-4") {
-        128_000
-    } else if m.contains("gpt-5") || m.contains("codex") {
-        128_000
-    } else if m.contains("o1") || m.contains("o3") || m.contains("o4") {
-        200_000
-    } else if m.contains("gemini-2") || m.contains("gemini-3") {
-        1_000_000
     } else if m.contains("gemini") {
         1_000_000
-    } else if m.contains("deepseek") {
-        128_000
     } else if m.contains("mistral") || m.contains("codestral") {
         256_000
     } else {

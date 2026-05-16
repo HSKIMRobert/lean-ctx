@@ -178,7 +178,7 @@ impl ServerHandler for LeanCtxServer {
             }
         }
 
-        crate::core::client_capabilities::set_detected(client_caps.clone());
+        crate::core::client_capabilities::set_detected(&client_caps);
 
         let instructions =
             crate::instructions::build_instructions_with_client(CrpMode::effective(), &name);

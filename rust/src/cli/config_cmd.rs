@@ -166,7 +166,9 @@ fn cmd_apply() {
                                 && !known.iter().any(|k| uk.starts_with(&format!("{k}.")))
                         })
                         .collect();
-                    if !warnings.is_empty() {
+                    if warnings.is_empty() {
+                        println!("  ✓ All config keys valid.");
+                    } else {
                         for w in &warnings {
                             eprintln!("  [WARN] Unknown key: {w}");
                         }
@@ -174,8 +176,6 @@ fn cmd_apply() {
                             "  {} unknown key(s) found. Continuing anyway…",
                             warnings.len()
                         );
-                    } else {
-                        println!("  ✓ All config keys valid.");
                     }
                 }
             }
@@ -223,9 +223,8 @@ fn cmd_apply() {
     if let Ok(data_dir) = crate::core::data_dir::lean_ctx_data_dir() {
         let sessions_dir = data_dir.join("sessions");
         let session_count = std::fs::read_dir(&sessions_dir)
-            .map(|rd| rd.filter_map(|e| e.ok()).count())
-            .unwrap_or(0);
-        println!("  Sessions dir: {} files", session_count);
+            .map_or(0, |rd| rd.filter_map(std::result::Result::ok).count());
+        println!("  Sessions dir: {session_count} files");
     }
 
     // 4. Summary

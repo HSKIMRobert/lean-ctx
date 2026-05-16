@@ -1906,9 +1906,10 @@ fn spawn_proxy_if_needed() {
         return;
     }
 
-    let binary = std::env::current_exe()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|_| "lean-ctx".to_string());
+    let binary = std::env::current_exe().map_or_else(
+        |_| "lean-ctx".to_string(),
+        |p| p.to_string_lossy().to_string(),
+    );
 
     match std::process::Command::new(&binary)
         .args(["proxy", "start", &format!("--port={port}")])
