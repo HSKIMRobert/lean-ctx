@@ -13,6 +13,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - **`notifications/tools/list_changed`** — Outbound notification sent after dynamic tool category load/unload via `ctx_load_tools`. Clients automatically re-fetch the tool list.
 - **MCP Peer Storage** — Server stores the rmcp `Peer<RoleServer>` from `initialize()` for bidirectional notification delivery.
 
+## [3.6.2] — 2026-05-16
+
+### Fixed
+
+- **Token Buddy broken ASCII art** — Buddy sprite displayed as comma-separated single line instead of multi-line ASCII art. Root cause: `ascii_art` (a JSON array) was passed directly to the HTML escaper without joining with newlines. Fixed in `cockpit-overview.js`.
+- **Context Ledger not recording MCP reads** — Files read via the MCP server path were not appearing in the "Files in Context" dashboard section. Root cause: the dispatch layer was checking the wrong data directory (`~/.lean-ctx` vs `~/.config/lean-ctx` set via `LEAN_CTX_DATA_DIR`). Ledger recording now correctly happens in `dispatch/mod.rs` after tool execution.
+- **Config schema validation rejecting `ide_paths` and `lsp` sections** — Users configuring per-IDE allowed paths or LSP binary overrides received "Unknown key" warnings. Added `ide_paths` (dynamic keys), `lsp` (with language-specific entries), and top-level `project_root` to the schema.
+
+### Changed
+
+- **Dashboard navigation icons** — Replaced ASCII-art navigation indicators (`[~]`, `[##]`, `[<>]`, etc.) with clean SVG outline icons (Feather-style). Each view now has a distinct, professional icon.
+- **"Index required" guidance** — Dependencies, Call Graph, and Symbols pages now show a clear empty state with instructions to run `lean-ctx index build` when no index data is available, instead of generic "loading" or error messages.
+
 ## [3.6.1] — 2026-05-16
 
 ### Added

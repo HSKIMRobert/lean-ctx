@@ -311,7 +311,7 @@ class CockpitOverview extends HTMLElement {
 
     var rarity = b.rarity || 'Common';
     var tier = lvlTier(b.level || 1);
-    var art = b.ascii_art || '';
+    var art = Array.isArray(b.ascii_art) ? b.ascii_art.join('\n') : (b.ascii_art || '');
     var xp = b.xp || 0;
     var xpNext = b.xp_next_level || 1;
     var xpPct = xpNext > 0 ? Math.min(100, Math.round((xp / xpNext) * 100)) : 0;

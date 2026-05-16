@@ -174,6 +174,22 @@ impl LeanCtxServer {
             };
 
             if let Some(ref path) = output.path {
+                {
+                    let sent_tokens = if output.original_tokens > 0 {
+                        output.original_tokens.saturating_sub(output.saved_tokens)
+                    } else {
+                        crate::core::tokens::count_tokens(&output.text)
+                    };
+                    let orig = if output.original_tokens > 0 {
+                        output.original_tokens
+                    } else {
+                        sent_tokens
+                    };
+                    let mode_str = output.mode.as_deref().unwrap_or("full");
+                    let mut ledger = self.ledger.write().await;
+                    ledger.record(path, mode_str, orig, sent_tokens);
+                    ledger.save();
+                }
                 self.record_call_with_path(
                     name,
                     output.original_tokens,

@@ -358,11 +358,6 @@ impl CtxReadTool {
             store.record_outcome(feedback_outcome);
         }
 
-        // NOTE: pipeline_stats, context_ir, and ledger updates are handled by the
-        // dispatch layer's record_call flow. Agent registration requires server.agent_id
-        // which is not available in ToolContext; it will be added when ToolContext is
-        // extended with the remaining server state fields.
-
         Ok(ToolOutput {
             text: output,
             original_tokens: original,

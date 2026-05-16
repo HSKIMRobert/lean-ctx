@@ -311,11 +311,70 @@ impl ConfigSchema {
                 "LEAN_CTX_MAX_RAM_PERCENT",
             ),
         );
+        root.insert(
+            "project_root".into(),
+            key_with_env(
+                "string?",
+                serde_json::json!(null),
+                "Explicit project root directory. Prevents accidental home-directory scans",
+                "LEAN_CTX_PROJECT_ROOT",
+            ),
+        );
         sections.insert(
             "root".into(),
             SectionSchema {
                 description: "Top-level configuration keys".into(),
                 keys: root,
+            },
+        );
+
+        sections.insert(
+            "ide_paths".into(),
+            SectionSchema {
+                description: "Per-IDE allowed paths. Keys are agent names (cursor, codex, opencode, antigravity, etc.), values are arrays of paths to index for that agent".into(),
+                keys: BTreeMap::new(),
+            },
+        );
+
+        let mut lsp_keys = BTreeMap::new();
+        lsp_keys.insert(
+            "rust".into(),
+            key(
+                "string?",
+                serde_json::json!(null),
+                "Custom path to rust-analyzer binary",
+            ),
+        );
+        lsp_keys.insert(
+            "typescript".into(),
+            key(
+                "string?",
+                serde_json::json!(null),
+                "Custom path to typescript-language-server binary",
+            ),
+        );
+        lsp_keys.insert(
+            "python".into(),
+            key(
+                "string?",
+                serde_json::json!(null),
+                "Custom path to pylsp binary",
+            ),
+        );
+        lsp_keys.insert(
+            "go".into(),
+            key(
+                "string?",
+                serde_json::json!(null),
+                "Custom path to gopls binary",
+            ),
+        );
+        sections.insert(
+            "lsp".into(),
+            SectionSchema {
+                description: "LSP server binary overrides. Map language name to custom binary path"
+                    .into(),
+                keys: lsp_keys,
             },
         );
 
@@ -823,10 +882,15 @@ impl ConfigSchema {
     pub fn known_keys(&self) -> Vec<String> {
         let mut keys = Vec::new();
         for (section, schema) in &self.sections {
-            for key_name in schema.keys.keys() {
-                if section == "root" {
+            if section == "root" {
+                for key_name in schema.keys.keys() {
                     keys.push(key_name.clone());
-                } else {
+                }
+            } else {
+                if schema.keys.is_empty() {
+                    keys.push(section.clone());
+                }
+                for key_name in schema.keys.keys() {
                     keys.push(format!("{section}.{key_name}"));
                 }
             }

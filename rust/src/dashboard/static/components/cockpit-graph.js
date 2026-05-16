@@ -214,8 +214,15 @@ class CockpitGraph extends HTMLElement {
     }
     if (this._error && !this._graphData && !this._callGraphData && !this._symbolsData) {
       this.innerHTML =
-        '<div class="card"><h3>Error</h3>' +
-        '<p class="hs" style="color:var(--red)">' + esc(String(this._error)) + '</p></div>';
+        '<div class="card" style="padding:40px;text-align:center">' +
+        '<div class="loading-state" style="margin-bottom:12px">' +
+        'No index data available.</div>' +
+        '<p class="hs" style="color:var(--muted);margin-bottom:16px">' +
+        'Build the project index to enable Code Intelligence features:</p>' +
+        '<pre style="background:var(--surface-2);padding:12px 20px;border-radius:8px;display:inline-block;font-size:13px;color:var(--green)">' +
+        'lean-ctx index build</pre>' +
+        '<p class="hs" style="color:var(--muted);margin-top:12px;font-size:12px">' +
+        'This generates the dependency graph, call graph, and symbol index for your project.</p></div>';
       return;
     }
 
@@ -268,8 +275,15 @@ class CockpitGraph extends HTMLElement {
 
     if (files.length === 0) {
       container.innerHTML =
-        '<div class="card" style="padding:40px"><div class="loading-state">' +
-        'Building dependency graph\u2026 this may take a moment on first load.</div></div>';
+        '<div class="card" style="padding:40px;text-align:center">' +
+        '<div class="loading-state" style="margin-bottom:12px">' +
+        'No dependency data found.</div>' +
+        '<p class="hs" style="color:var(--muted);margin-bottom:16px">' +
+        'Run the following command to build the index:</p>' +
+        '<pre style="background:var(--surface-2);padding:12px 20px;border-radius:8px;display:inline-block;font-size:13px;color:var(--green)">' +
+        'lean-ctx index build</pre>' +
+        '<p class="hs" style="color:var(--muted);margin-top:12px;font-size:12px">' +
+        'This scans your project and builds the dependency graph. Re-run after major changes.</p></div>';
       return;
     }
 
@@ -438,8 +452,15 @@ class CockpitGraph extends HTMLElement {
     var edges = this._callGraphData && this._callGraphData.edges ? this._callGraphData.edges : [];
     if (edges.length === 0) {
       container.innerHTML =
-        '<div class="card" style="padding:40px"><div class="loading-state">' +
-        'No call graph data available. Try refreshing.</div></div>';
+        '<div class="card" style="padding:40px;text-align:center">' +
+        '<div class="loading-state" style="margin-bottom:12px">' +
+        'No call graph data found.</div>' +
+        '<p class="hs" style="color:var(--muted);margin-bottom:16px">' +
+        'Run the following command to build the call graph index:</p>' +
+        '<pre style="background:var(--surface-2);padding:12px 20px;border-radius:8px;display:inline-block;font-size:13px;color:var(--green)">' +
+        'lean-ctx index build</pre>' +
+        '<p class="hs" style="color:var(--muted);margin-top:12px;font-size:12px">' +
+        'This analyzes function calls across your project. Re-run after significant code changes.</p></div>';
       return;
     }
 
@@ -617,8 +638,15 @@ class CockpitGraph extends HTMLElement {
 
     if (syms.length === 0) {
       container.innerHTML =
-        '<div class="card" style="padding:40px"><div class="loading-state">' +
-        'Building symbol index\u2026 this may take a moment on first load.</div></div>';
+        '<div class="card" style="padding:40px;text-align:center">' +
+        '<div class="loading-state" style="margin-bottom:12px">' +
+        'No symbol data found.</div>' +
+        '<p class="hs" style="color:var(--muted);margin-bottom:16px">' +
+        'Run the following command to build the symbol index:</p>' +
+        '<pre style="background:var(--surface-2);padding:12px 20px;border-radius:8px;display:inline-block;font-size:13px;color:var(--green)">' +
+        'lean-ctx index build</pre>' +
+        '<p class="hs" style="color:var(--muted);margin-top:12px;font-size:12px">' +
+        'This extracts symbols (functions, classes, types) from your codebase using tree-sitter.</p></div>';
       return;
     }
     var kindColors = {
