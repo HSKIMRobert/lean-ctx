@@ -27,6 +27,7 @@ All `std::sync::Mutex` unless noted otherwise.
 | L14 | `ACTIVE_ROLE_NAME` | `core/roles.rs:12` | `OnceLock<Mutex<String>>` | Currently active role name |
 | L15 | `PROVIDER_CACHE` | `core/providers/cache.rs:5` | `LazyLock<Mutex<ProviderCache>>` | Cached provider metadata |
 | L16 | `LAST_BANDIT_ARM` | `core/adaptive_thresholds.rs:337` | `Mutex<Option<(String, String, String)>>` | Last bandit arm selection for adaptive thresholds |
+| L17 | `FILE_LOCKS` | `tools/registered/ctx_read.rs` | `OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>>` | Per-file read serialization for concurrent subagents |
 
 ### Test / Environment Locks (serialise env-var mutations)
 
@@ -83,6 +84,32 @@ L1 (REGISTRY outer map)
 The `entry_for()` function in `index_orchestrator.rs` enforces this: it locks L1, clones the
 `Arc<Mutex<ProjectBuild>>`, **drops** L1, then the caller locks L2 independently. This avoids
 deadlock by ensuring L1 and L2 are never held simultaneously.
+
+### Per-file Read Lock (L17)
+
+L17 uses the same outer/inner pattern as L1/L2: the outer `Mutex<HashMap>` is held briefly to
+clone the per-path `Arc<Mutex<()>>`, then dropped before the per-file lock is acquired. The
+per-file lock is acquired inside the spawned OS thread (timeout guard), before `cache_lock.blocking_write()`.
+This serializes concurrent reads of the same path so only one thread at a time contends on the
+global cache write lock per file. Threads reading different files proceed independently.
+
+This prevents the thundering-herd scenario where N concurrent subagents all requesting the same
+file simultaneously contend on the global cache lock, each holding it during disk I/O.
+
+```
+thread::spawn {
+    L17 outer (FILE_LOCKS map)       — held briefly to clone Arc, then dropped
+     └─► L17 inner (per-file Mutex)  — NEVER hold outer while locking inner
+          └─► cache (session RwLock) — per-file lock acquired BEFORE cache write lock
+}
+```
+
+### Worker Thread Tuning
+
+The Tokio runtime worker thread count defaults to `available_parallelism().clamp(1, 4)`.
+Override via `LEAN_CTX_WORKER_THREADS` (positive integer) for environments with many
+concurrent subagents. Example: `LEAN_CTX_WORKER_THREADS=8`. The blocking thread pool
+is always `worker_threads * 4`, clamped to `[8, 32]`.
 
 ### Independent Static Locks (L3–L16)
 
