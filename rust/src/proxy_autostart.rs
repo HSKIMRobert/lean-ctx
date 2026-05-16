@@ -29,6 +29,44 @@ pub fn install(port: u16, quiet: bool) {
     }
 }
 
+pub fn stop() {
+    #[cfg(target_os = "macos")]
+    {
+        let plist_path = launchagent_path();
+        if plist_path.exists() {
+            let _ = std::process::Command::new("launchctl")
+                .args(["unload", &plist_path.to_string_lossy()])
+                .output();
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let _ = std::process::Command::new("systemctl")
+            .args(["--user", "stop", SYSTEMD_SERVICE])
+            .output();
+    }
+}
+
+pub fn start() {
+    #[cfg(target_os = "macos")]
+    {
+        let plist_path = launchagent_path();
+        if plist_path.exists() {
+            let _ = std::process::Command::new("launchctl")
+                .args(["load", &plist_path.to_string_lossy()])
+                .output();
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let _ = std::process::Command::new("systemctl")
+            .args(["--user", "start", SYSTEMD_SERVICE])
+            .output();
+    }
+}
+
 pub fn uninstall(_quiet: bool) {
     #[cfg(target_os = "macos")]
     uninstall_launchagent(_quiet);

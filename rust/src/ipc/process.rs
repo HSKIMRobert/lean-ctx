@@ -100,26 +100,32 @@ pub fn find_pids_by_name(name: &str) -> Vec<u32> {
 
     #[cfg(unix)]
     {
-        let Ok(output) = std::process::Command::new("pgrep")
+        // Exact name match first
+        if let Ok(output) = std::process::Command::new("pgrep")
             .arg("-x")
             .arg(name)
             .output()
-        else {
-            return pids;
-        };
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        for line in stdout.lines() {
-            if let Ok(pid) = line.trim().parse::<u32>() {
-                if pid != my_pid {
-                    pids.push(pid);
-                }
-            }
+        {
+            collect_pids(&output.stdout, my_pid, &mut pids);
         }
+
+        // Also find processes where the full command line contains the binary path
+        // (catches processes launched via absolute path, e.g. /Users/x/.local/bin/lean-ctx)
+        if let Ok(output) = std::process::Command::new("pgrep")
+            .arg("-f")
+            .arg(format!("/{name}(\\s|$)"))
+            .output()
+        {
+            collect_pids(&output.stdout, my_pid, &mut pids);
+        }
+
+        pids.sort_unstable();
+        pids.dedup();
     }
 
     #[cfg(windows)]
     {
-        let Ok(output) = std::process::Command::new("tasklist")
+        if let Ok(output) = std::process::Command::new("tasklist")
             .args([
                 "/FI",
                 &format!("IMAGENAME eq {name}.exe"),
@@ -128,17 +134,16 @@ pub fn find_pids_by_name(name: &str) -> Vec<u32> {
                 "/NH",
             ])
             .output()
-        else {
-            return pids;
-        };
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        for line in stdout.lines() {
-            let parts: Vec<&str> = line.split(',').collect();
-            if parts.len() >= 2 {
-                let pid_str = parts[1].trim().trim_matches('"');
-                if let Ok(pid) = pid_str.parse::<u32>() {
-                    if pid != my_pid {
-                        pids.push(pid);
+        {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for line in stdout.lines() {
+                let parts: Vec<&str> = line.split(',').collect();
+                if parts.len() >= 2 {
+                    let pid_str = parts[1].trim().trim_matches('"');
+                    if let Ok(pid) = pid_str.parse::<u32>() {
+                        if pid != my_pid {
+                            pids.push(pid);
+                        }
                     }
                 }
             }
@@ -146,6 +151,18 @@ pub fn find_pids_by_name(name: &str) -> Vec<u32> {
     }
 
     pids
+}
+
+#[cfg(unix)]
+fn collect_pids(stdout: &[u8], exclude_pid: u32, out: &mut Vec<u32>) {
+    let text = String::from_utf8_lossy(stdout);
+    for line in text.lines() {
+        if let Ok(pid) = line.trim().parse::<u32>() {
+            if pid != exclude_pid {
+                out.push(pid);
+            }
+        }
+    }
 }
 
 /// Kill ALL processes matching `name` (SIGTERM then SIGKILL).

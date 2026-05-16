@@ -778,20 +778,40 @@ pub fn run() {
                             }
                         }
                         "stop" => {
-                            match ureq::get(&format!(
-                                "http://127.0.0.1:{}/health",
-                                rest.iter()
-                                    .find_map(|p| p.strip_prefix("--port="))
-                                    .and_then(|p| p.parse::<u16>().ok())
-                                    .unwrap_or(4444)
-                            ))
-                            .call()
-                            {
-                                Ok(_) => {
-                                    println!("Proxy is running. Use Ctrl+C or kill the process.");
+                            let port: u16 = rest
+                                .iter()
+                                .find_map(|p| p.strip_prefix("--port="))
+                                .and_then(|p| p.parse().ok())
+                                .unwrap_or(4444);
+                            let health_url = format!("http://127.0.0.1:{port}/health");
+                            match ureq::get(&health_url).call() {
+                                Ok(resp) => {
+                                    if let Ok(body) = resp.into_body().read_to_string() {
+                                        if let Some(pid_str) = body
+                                            .split("pid\":")
+                                            .nth(1)
+                                            .and_then(|s| s.split([',', '}']).next())
+                                        {
+                                            if let Ok(pid) = pid_str.trim().parse::<u32>() {
+                                                let _ =
+                                                    crate::ipc::process::terminate_gracefully(pid);
+                                                std::thread::sleep(
+                                                    std::time::Duration::from_millis(500),
+                                                );
+                                                if crate::ipc::process::is_alive(pid) {
+                                                    let _ = crate::ipc::process::force_kill(pid);
+                                                }
+                                                println!(
+                                                    "Proxy on port {port} stopped (PID {pid})."
+                                                );
+                                                return;
+                                            }
+                                        }
+                                    }
+                                    println!("Proxy on port {port} running but could not parse PID. Use `lean-ctx stop` to kill all.");
                                 }
                                 Err(_) => {
-                                    println!("No proxy running on that port.");
+                                    println!("No proxy running on port {port}.");
                                 }
                             }
                         }
@@ -1203,6 +1223,10 @@ pub fn run() {
                 cmd_restart();
                 return;
             }
+            "stop" => {
+                cmd_stop();
+                return;
+            }
             "dev-install" => {
                 cmd_dev_install();
                 return;
@@ -1506,6 +1530,7 @@ COMMANDS:
     terse [off|lite|full|ultra]    Set agent output verbosity (saves 25-65% output tokens)
     slow-log [list|clear]          Show/clear slow command log (~/.lean-ctx/slow-commands.log)
     update [--check]               Self-update lean-ctx binary from GitHub Releases
+    stop                           Stop ALL lean-ctx processes (daemon, proxy, orphans)
     restart                        Restart daemon (applies config.toml changes)
     dev-install                    Build release + atomic install + restart (for development)
     gotchas [list|clear|export|stats] Bug Memory: view/manage auto-detected error patterns
@@ -1624,11 +1649,70 @@ GITHUB:  https://github.com/yvgude/lean-ctx
     );
 }
 
+fn cmd_stop() {
+    use crate::daemon;
+    use crate::ipc;
+
+    eprintln!("Stopping all lean-ctx processes…");
+
+    // 1. Unload LaunchAgent/systemd first to prevent respawning
+    crate::proxy_autostart::stop();
+    eprintln!("  Unloaded autostart (LaunchAgent/systemd).");
+
+    // 2. Stop daemon via IPC
+    if let Err(e) = daemon::stop_daemon() {
+        eprintln!("  Warning: daemon stop: {e}");
+    }
+
+    // 3. SIGTERM all remaining lean-ctx processes
+    let killed = ipc::process::kill_all_by_name("lean-ctx");
+    if killed > 0 {
+        eprintln!("  Sent SIGTERM to {killed} process(es).");
+    }
+
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    // 4. Force-kill stragglers
+    let remaining = ipc::process::find_pids_by_name("lean-ctx");
+    if !remaining.is_empty() {
+        eprintln!("  Force-killing {} stubborn process(es)…", remaining.len());
+        for &pid in &remaining {
+            let _ = ipc::process::force_kill(pid);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(300));
+    }
+
+    daemon::cleanup_daemon_files();
+
+    let final_check = ipc::process::find_pids_by_name("lean-ctx");
+    if final_check.is_empty() {
+        eprintln!("  ✓ All lean-ctx processes stopped.");
+    } else {
+        eprintln!(
+            "  ✗ {} process(es) could not be killed: {:?}",
+            final_check.len(),
+            final_check
+        );
+        eprintln!(
+            "    Try: sudo kill -9 {}",
+            final_check
+                .iter()
+                .map(std::string::ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+        std::process::exit(1);
+    }
+}
+
 fn cmd_restart() {
     use crate::daemon;
     use crate::ipc;
 
     eprintln!("Restarting lean-ctx…");
+
+    // Stop autostart first to prevent respawning during restart
+    crate::proxy_autostart::stop();
 
     if let Err(e) = daemon::stop_daemon() {
         eprintln!("  Warning: daemon stop: {e}");
@@ -1639,18 +1723,25 @@ fn cmd_restart() {
         eprintln!("  Terminated {orphans} orphan process(es).");
     }
 
-    std::thread::sleep(std::time::Duration::from_millis(300));
+    std::thread::sleep(std::time::Duration::from_millis(500));
 
     let remaining = ipc::process::find_pids_by_name("lean-ctx");
     if !remaining.is_empty() {
         eprintln!(
-            "  Warning: {} process(es) still alive: {:?}",
+            "  Force-killing {} stubborn process(es): {:?}",
             remaining.len(),
             remaining
         );
+        for &pid in &remaining {
+            let _ = ipc::process::force_kill(pid);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(300));
     }
 
     daemon::cleanup_daemon_files();
+
+    // Re-enable autostart
+    crate::proxy_autostart::start();
 
     match daemon::start_daemon(&[]) {
         Ok(()) => eprintln!("  ✓ Daemon restarted. Config changes are now active."),
@@ -1701,9 +1792,19 @@ fn cmd_dev_install() {
     eprintln!("Installing to {}…", install_path.display());
 
     eprintln!("  Stopping all lean-ctx processes…");
+    crate::proxy_autostart::stop();
     let _ = crate::daemon::stop_daemon();
     ipc::process::kill_all_by_name("lean-ctx");
-    std::thread::sleep(std::time::Duration::from_millis(300));
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    let remaining = ipc::process::find_pids_by_name("lean-ctx");
+    if !remaining.is_empty() {
+        eprintln!("  Force-killing {} stubborn process(es)…", remaining.len());
+        for &pid in &remaining {
+            let _ = ipc::process::force_kill(pid);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
 
     let old_path = install_path.with_extension("old");
     if install_path.exists() {
@@ -1733,12 +1834,6 @@ fn cmd_dev_install() {
         }
     }
 
-    eprintln!("  Starting daemon…");
-    match crate::daemon::start_daemon(&[]) {
-        Ok(()) => {}
-        Err(e) => eprintln!("  Warning: daemon start: {e} (will be started by editor)"),
-    }
-
     let version = std::process::Command::new(&install_path)
         .arg("--version")
         .output()
@@ -1748,6 +1843,15 @@ fn cmd_dev_install() {
         );
 
     eprintln!("  ✓ dev-install complete: {version}");
+
+    eprintln!("  Re-enabling autostart…");
+    crate::proxy_autostart::start();
+
+    eprintln!("  Starting daemon…");
+    match crate::daemon::start_daemon(&[]) {
+        Ok(()) => {}
+        Err(e) => eprintln!("  Warning: daemon start: {e} (will be started by editor)"),
+    }
 }
 
 fn find_cargo_project_root() -> Option<std::path::PathBuf> {

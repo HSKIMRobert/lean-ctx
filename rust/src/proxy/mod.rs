@@ -128,13 +128,41 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
     println!("  Gemini:    POST /v1beta/models/... → {gemini_upstream}");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
 
+    println!("lean-ctx proxy shut down cleanly.");
     Ok(())
 }
 
+async fn shutdown_signal() {
+    let ctrl_c = tokio::signal::ctrl_c();
+
+    #[cfg(unix)]
+    {
+        let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler");
+        tokio::select! {
+            _ = ctrl_c => {},
+            _ = sigterm.recv() => {},
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        ctrl_c.await.ok();
+    }
+
+    println!("lean-ctx proxy: received shutdown signal, draining…");
+}
+
 async fn health() -> impl IntoResponse {
-    (StatusCode::OK, "ok")
+    let body = serde_json::json!({
+        "status": "ok",
+        "pid": std::process::id(),
+    });
+    (StatusCode::OK, axum::Json(body))
 }
 
 async fn status_handler(State(state): State<ProxyState>) -> impl IntoResponse {
