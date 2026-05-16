@@ -13,6 +13,49 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - **`notifications/tools/list_changed`** — Outbound notification sent after dynamic tool category load/unload via `ctx_load_tools`. Clients automatically re-fetch the tool list.
 - **MCP Peer Storage** — Server stores the rmcp `Peer<RoleServer>` from `initialize()` for bidirectional notification delivery.
 
+## [3.6.1] — 2026-05-16
+
+### Added
+
+- **`lean-ctx config apply`** — New command to validate config, restart daemon/proxy, and run safety checks (RAM limits, session count). Alias: `config reload`. (#231)
+- **`ctx_multi_read fresh` parameter** — New `fresh: bool` argument to bypass cache and force full re-read for all paths. Essential for subagents that don't share the parent's cache. (#230)
+- **Per-IDE allowed paths** — Configure project-specific file access restrictions per IDE integration. (#221)
+- **Response verbosity control** — Configurable verbosity levels for tool responses. (#222)
+- **LSP graceful degradation** — LSP server now degrades gracefully when tree-sitter parsing fails, with `doctor` health check and `config.toml` configuration support.
+- **FTS5 archive search** — Full-text search over archived context entries using SQLite FTS5 for fast historical queries.
+- **Project root configuration** — Explicit `project_root` config option for multi-project workspaces.
+- **`lean-ctx restart` command** — Restart all lean-ctx processes cleanly without manual kill.
+- **Zed `ctx_edit` guard** — Prevents accidental edits in Zed when file is not in project scope.
+- **`LEAN_CTX_SAVINGS_FOOTER` env var** — Shows compression savings in shell output when enabled.
+- **`enable_wakeup_ctx` config option** — Control whether background context wakeup is active.
+
+### Fixed
+
+- **pi-lean-ctx disabling built-in tools** (#232) — Pi extension now runs in "additive" mode by default, preserving Pi's native tools (`read`, `bash`, `ls`, `find`, `grep`). Set `LEAN_CTX_PI_MODE=replace` for the old behavior that disables overlapping builtins.
+- **`ctx_multi_read` stale cache** (#230) — Subagents that inherit the parent's process but not its cache state can now use `fresh: true` to bypass stale entries.
+- **`ctx_read` deadlock with concurrent subagents** (#226, #229) — Reduced lock contention by minimizing `blocking_write()` scope and adding a timeout guard. Prevents async runtime contention when multiple agents read the same file simultaneously.
+- **Zombie process management** — Complete overhaul: `lean-ctx stop` now unloads macOS LaunchAgent/Linux systemd service before sending SIGTERM, distinguishes MCP server/hook child processes (which are not killed, as IDEs respawn them), and cleans up reliably without requiring a reboot.
+- **XSS in cockpit-live.js** — Sanitized user-controlled strings in dashboard output to prevent script injection.
+- **MCP config not updated after `lean-ctx update`** (#224) — `settings.json` / MCP config now auto-refreshes after binary update so IDEs pick up new tool versions immediately.
+- **`ctx_shell` missing compression info** (#225) — `renderCall`/`renderResult` properly delegated to `baseBashTool`; compression savings now visible in Pi agent output.
+- **Windsurf hooks installation** — `hooks.json` is now installed regardless of the `--global` flag, fixing cases where Windsurf-specific hooks were silently skipped.
+- **Windows LSP URI handling** — Correct `file:///C:/` URI format on Windows; prevents "file not found" errors in LSP diagnostics.
+- **Opencode backup integration** — Fixed configuration backup path resolution for opencode IDE.
+- **Dashboard "Context Handles" empty** — Frontend correctly maps API fields (`ref_label`, `source_path`, `pinned` as string→boolean).
+- **Chat messages/logs ordering** — Newest entries displayed first across all dashboard sections.
+- **CI stability** — Test timeout increased to 90 min for Windows cold-cache; `--lib` flag for macOS tests prevents daemon hangs; `msys2/setup-msys2` action pinned to prevent supply-chain attacks; background index build skipped when `LEAN_CTX_DISABLED` is set.
+
+### Changed
+
+- **Dashboard redesigned** — Three separate tabs (Live Context, Items, System) consolidated into a single vertically-scrolling page. Eliminates duplicate information, provides a unified view with stat grid (IDE, Context %, Files, Saved tokens, Tool Calls), estimated context window, context handles, chat history, and recent activity — all on one page.
+- **Proxy status simplified** — Removed confusing standalone "Proxy" cell. Status now integrated into the "IDE" cell showing hook tier (e.g., "Full (9/9)" for Cursor Tier 1). Cursor users no longer see misleading "Proxy: Idle" since Cursor does not route through external proxies.
+- **Model detection improved** — Background models (flash, mini, haiku, nano, small) are now ignored when persisting detected model, ensuring only the primary user-facing model is stored. Model detection staleness window extended from 1h to 24h.
+- **`model_context_window` consolidated** — Redundant branches merged: Claude/O-series → 200k, GPT/Codex/DeepSeek → 128k, Gemini → 1M, Mistral/Codestral → 256k.
+- **Pi extension dependencies** — Deprecated `@mariozechner` libraries replaced with `@earendil-works` packages. (#220)
+- **Clippy clean** — All warnings resolved across the entire codebase (`needless_pass_by_value`, `if_same_then_else`, `uninlined_format_args`, `redundant_closure`, `map_unwrap_or`, `collapsible_if`).
+- **Documentation** — Tool counts harmonized to 56+ across all docs; LSP and FTS5 features documented.
+- **Codebase streamlining** — UX hardening pass: clearer error messages, reduced log noise, faster startup.
+
 ## [3.6.0] — 2026-05-14
 
 ### Added

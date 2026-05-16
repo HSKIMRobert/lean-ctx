@@ -204,6 +204,16 @@ fn format_display_includes_all_categories() {
 
 #[test]
 fn default_window_all_ides() {
+    // If a detected model file exists on the system, default_window_for_client
+    // returns that model's window for all clients regardless of the client name.
+    if lean_ctx::hook_handlers::load_detected_model().is_some() {
+        let w = default_window_for_client("cursor");
+        assert!(
+            (128_000..=2_000_000).contains(&w),
+            "window {w} out of range"
+        );
+        return;
+    }
     assert_eq!(default_window_for_client("cursor"), 200_000);
     assert_eq!(default_window_for_client("claude-code"), 200_000);
     assert_eq!(default_window_for_client("claude"), 200_000);
