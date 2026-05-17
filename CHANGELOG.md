@@ -9,6 +9,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 - **Active Context Gate** — Pressure-based auto-downgrade: when context utilization exceeds 75%, reads are automatically downgraded (full→map, map→signatures). Reinjection plan retroactively marks existing "full" entries as "map" under pressure. Φ scores now computed with real task context from SessionState.
 
+## [3.6.6] — 2026-05-17
+
+### Added
+
+- **ABC-Inspired Agent Hardening** — 5-phase enforcement inspired by the Agentic Brownfield Coding project:
+  - **Bypass Hints** — Detects when agents use native Read/Grep instead of lean-ctx tools and emits a single-line reminder with cooldown logic. Configurable via `bypass_hints` config key or `LEAN_CTX_BYPASS_HINTS` env var (modes: `gentle`, `firm`, `off`).
+  - **Tool Description Enhancement** — All core tool descriptions now explicitly state "replaces native X" to guide AI agents directly from the MCP schema.
+  - **Rules Deduplication** — Removed redundant tool mapping tables from injected rules. Tool descriptions now carry the mapping, rules focus on mode selection, anti-patterns, and editing workflow.
+  - **`lean-ctx harden` CLI** — Activates strict enforcement mode (`LEAN_CTX_HARDEN=1` in MCP configs). Optionally denies Bash in Claude Code's `permissions.deny`.
+  - **`lean-ctx export-rules` CLI** — Exports high-confidence knowledge facts as editor-native rules (MDC for Cursor, `AGENTS.md`, `CLAUDE.md`).
+
+### Fixed
+
+- **`git status --porcelain` truncation** — Shell compression no longer truncates `git status` output when it doesn't match specific section parsing (e.g. `--porcelain`, `--short` flags). Developers now always see full status information.
+- **`init --agent` rules injection** — Global rules and skill file are now correctly injected. Fixed data dir split causing empty `gain` field in responses. (#238, #239)
+- **Integration test alignment** — `rules_consistency` and `rules_inject` tests updated to match new deduplicated rule content.
+
 ## [3.6.5] — 2026-05-17
 
 ### Fixed
