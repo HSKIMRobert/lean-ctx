@@ -111,7 +111,7 @@ mod landlock_sys {
         let fd = unsafe {
             libc::syscall(
                 LANDLOCK_CREATE_RULESET,
-                &attr as *const _,
+                &raw const attr,
                 std::mem::size_of::<LandlockRulesetAttr>(),
                 0u32,
             )
@@ -148,7 +148,7 @@ mod landlock_sys {
                 LANDLOCK_ADD_RULE,
                 ruleset_fd,
                 LANDLOCK_RULE_PATH_BENEATH,
-                &attr as *const _,
+                &raw const attr,
                 0u32,
             )
         };

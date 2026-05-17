@@ -334,6 +334,7 @@ fn install_linux_cron(
 }
 
 #[cfg(target_os = "linux")]
+#[allow(clippy::unnecessary_wraps)]
 fn remove_linux_scheduler() -> Result<(), String> {
     let dir = systemd_dir();
     let timer = dir.join("lean-ctx-autoupdate.timer");
