@@ -3,6 +3,7 @@
 
 use std::path::PathBuf;
 
+#[cfg(target_os = "macos")]
 const LABEL: &str = "com.leanctx.autoupdate";
 
 #[derive(Debug, Clone)]
@@ -37,10 +38,9 @@ impl std::fmt::Display for ScheduleInfo {
 
 pub fn install_schedule(interval_hours: u64) -> Result<ScheduleInfo, String> {
     let binary = std::env::current_exe().map_err(|e| format!("Cannot locate binary: {e}"))?;
-    let interval_secs = interval_hours * 3600;
 
     #[cfg(target_os = "macos")]
-    return install_macos_launchagent(&binary, interval_secs, interval_hours);
+    return install_macos_launchagent(&binary, interval_hours * 3600, interval_hours);
 
     #[cfg(target_os = "linux")]
     return install_linux_scheduler(&binary, interval_hours);
@@ -50,7 +50,7 @@ pub fn install_schedule(interval_hours: u64) -> Result<ScheduleInfo, String> {
 
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     {
-        let _ = (binary, interval_secs);
+        let _ = binary;
         Err("Auto-update scheduling not supported on this platform".to_string())
     }
 }
