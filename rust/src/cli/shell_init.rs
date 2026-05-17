@@ -206,7 +206,8 @@ if ($_leanCtxShouldActivate) {{
     function wget {{ _lc wget @args }}
     foreach ($c in @('npm','pnpm','yarn','eslint','prettier','tsc')) {{
       if (Get-Command $c -CommandType Application -ErrorAction SilentlyContinue) {{
-        New-Item -Path "function:$c" -Value ([scriptblock]::Create("_lc $c @args")) -Force | Out-Null
+        $body = "_lc $c `@args"
+        New-Item -Path "function:$c" -Value ([scriptblock]::Create($body)) -Force | Out-Null
       }}
     }}
   }}

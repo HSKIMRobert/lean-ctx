@@ -13,6 +13,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - **`notifications/tools/list_changed`** — Outbound notification sent after dynamic tool category load/unload via `ctx_load_tools`. Clients automatically re-fetch the tool list.
 - **MCP Peer Storage** — Server stores the rmcp `Peer<RoleServer>` from `initialize()` for bidirectional notification delivery.
 
+## [3.6.3] — 2026-05-17
+
+### Fixed
+
+- **Windows PowerShell `lean-ctx -c` quoting bug** — Dynamic aliases (npm, pnpm, etc.) failed on PowerShell 5 with `ObjectNotFound` error because `@args` inside double-quoted strings was splatted instead of treated literally. Fixed by extracting the script block body into a variable with backtick-escaped `@args`.
+- **`commit`→`cmt` string mangling** — The terse compression dictionary replaced "commit" inside compound words (`pre-commit`), quoted strings, and colon-delimited contexts. Fixed `replace_whole_word` to use a proper word-boundary function that treats hyphens, underscores, and quotes as word characters.
+- **Dashboard Live Observatory "0 tokens" display** — Non-file tools (e.g. `ctx_search`, `ctx_shell`) showed "Original · 0 tokens" when clicking "Compare". Now shows a token savings summary bar for non-file operations and reserves the full before/after text comparison for file reads (`ctx_read`, `ctx_multi_read`).
+
 ## [3.6.2] — 2026-05-16
 
 ### Fixed

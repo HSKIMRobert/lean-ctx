@@ -460,6 +460,10 @@ pub enum DictLevel {
     Full,
 }
 
+fn is_word_boundary(b: u8) -> bool {
+    !b.is_ascii_alphanumeric() && b != b'-' && b != b'_' && b != b'\'' && b != b'"'
+}
+
 fn replace_whole_word(text: &str, pattern: &str, replacement: &str) -> String {
     if pattern.is_empty() || !text.contains(pattern) {
         return text.to_string();
@@ -472,8 +476,8 @@ fn replace_whole_word(text: &str, pattern: &str, replacement: &str) -> String {
         let abs_pos = start + pos;
         let end_pos = abs_pos + pattern.len();
 
-        let before_ok = abs_pos == 0 || !text.as_bytes()[abs_pos - 1].is_ascii_alphanumeric();
-        let after_ok = end_pos >= text.len() || !text.as_bytes()[end_pos].is_ascii_alphanumeric();
+        let before_ok = abs_pos == 0 || is_word_boundary(text.as_bytes()[abs_pos - 1]);
+        let after_ok = end_pos >= text.len() || is_word_boundary(text.as_bytes()[end_pos]);
 
         result.push_str(&text[start..abs_pos]);
 

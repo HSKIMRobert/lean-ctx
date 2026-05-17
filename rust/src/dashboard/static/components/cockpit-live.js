@@ -746,16 +746,21 @@ class CockpitLive extends HTMLElement {
           '</div>';
       }
       var compareBtn = '';
+      var isFileRead = flat.title === 'ctx_read' || flat.title === 'ctx_multi_read';
       if (flat.path && flat.saved > 0) {
+        var btnLabel = isFileRead ? 'Compare original vs compressed' : 'Show compression details';
         compareBtn =
           '<div style="margin-top:8px">' +
           '<button class="ckl-compare-btn" data-compare-path="' + esc(flat.path) + '"' +
           (flat.mode ? ' data-compare-mode="' + esc(flat.mode) + '"' : '') +
+          ' data-compare-original="' + (flat.original || 0) + '"' +
+          ' data-compare-saved="' + (flat.saved || 0) + '"' +
+          ' data-compare-is-file="' + (isFileRead ? '1' : '0') + '"' +
           ' style="background:var(--surface-3,var(--border));color:var(--fg);border:1px solid var(--border);' +
           'padding:5px 12px;border-radius:6px;font-size:11px;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:5px">' +
           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">' +
           '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="3" x2="12" y2="21"/></svg>' +
-          'Compare original vs compressed</button>' +
+          btnLabel + '</button>' +
           '<div class="ckl-compare-result" data-compare-target="' + esc(flat.path) + '"></div>' +
           '</div>';
       }
@@ -882,17 +887,59 @@ class CockpitLive extends HTMLElement {
         e.stopPropagation();
         var p = btn.getAttribute('data-compare-path');
         var m = btn.getAttribute('data-compare-mode') || 'map';
+        var isFile = btn.getAttribute('data-compare-is-file') === '1';
+        var evOriginal = parseInt(btn.getAttribute('data-compare-original') || '0', 10);
+        var evSaved = parseInt(btn.getAttribute('data-compare-saved') || '0', 10);
         var target = btn.parentElement.querySelector('.ckl-compare-result');
-        if (!target || !fetchJson || !p) return;
+        if (!target || !p) return;
         if (target.getAttribute('data-loaded')) return;
         target.setAttribute('data-loaded', '1');
         btn.disabled = true;
         btn.textContent = 'Loading\u2026';
+
+        var esc = (fmtLib().esc || function (s) { var d = document.createElement('span'); d.textContent = s; return d.innerHTML; });
+        var ff = (fmtLib().ff || function (n) { return String(n); });
+
+        function renderComparison(origTok, origText, compTok, compText, modeKey, pct) {
+          btn.style.display = 'none';
+          target.innerHTML =
+            '<div style="margin-top:10px">' +
+            '<div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:10px;color:var(--muted)">' +
+            '<span>Original \u00b7 ' + esc(ff(origTok)) + ' tokens</span>' +
+            '<span style="color:var(--green)">' + esc(modeKey) + ' \u00b7 ' + esc(ff(compTok)) + ' tokens (' + pct + '% saved)</span></div>' +
+            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+            '<pre style="margin:0;padding:8px;background:var(--bg);border-radius:4px;font-size:10px;max-height:300px;overflow:auto;border:1px solid var(--border)">' +
+            esc(origText) + (origText.length >= 2000 ? '\n\u2026' : '') + '</pre>' +
+            '<pre style="margin:0;padding:8px;background:var(--bg);border-radius:4px;font-size:10px;max-height:300px;overflow:auto;border:1px solid var(--green)">' +
+            esc(compText) + (compText.length >= 2000 ? '\n\u2026' : '') + '</pre>' +
+            '</div></div>';
+        }
+
+        function renderSummaryBar(origTok, savedTok, modeKey) {
+          btn.style.display = 'none';
+          var sentTok = origTok - savedTok;
+          var pct = origTok > 0 ? Math.round((savedTok / origTok) * 100) : 0;
+          var barW = Math.max(2, 100 - pct);
+          target.innerHTML =
+            '<div style="margin-top:10px">' +
+            '<div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:10px;color:var(--muted)">' +
+            '<span>Original \u00b7 ' + esc(ff(origTok)) + ' tokens</span>' +
+            '<span style="color:var(--green)">' + esc(modeKey) + ' \u00b7 ' + esc(ff(sentTok)) + ' tokens (' + pct + '% saved)</span></div>' +
+            '<div style="height:8px;background:var(--surface-3);border-radius:4px;overflow:hidden;position:relative">' +
+            '<div style="position:absolute;left:0;top:0;height:100%;width:' + barW + '%;background:var(--green);border-radius:4px;transition:width .3s"></div>' +
+            '</div>' +
+            '<p style="margin:8px 0 0;font-size:10px;color:var(--muted);font-style:italic">' +
+            'Original/compressed text preview only available for file reads (ctx_read). Use Compression Lab for interactive comparison.</p>' +
+            '</div>';
+        }
+
+        if (!isFile || !fetchJson) {
+          renderSummaryBar(evOriginal, evSaved, m || 'compressed');
+          return;
+        }
+
         fetchJson('/api/compression-demo?path=' + encodeURIComponent(p), { timeoutMs: 15000 })
           .then(function (data) {
-            btn.style.display = 'none';
-            var esc = (fmtLib().esc || function (s) { var d = document.createElement('span'); d.textContent = s; return d.innerHTML; });
-            var ff = (fmtLib().ff || function (n) { return String(n); });
             var modes = data.modes || {};
             var bestKey = m;
             var bestData = modes[m];
@@ -912,22 +959,10 @@ class CockpitLive extends HTMLElement {
             var compTok = bestData ? (bestData.tokens || 0) : origTok;
             var compText = bestData ? String(bestData.output || '').slice(0, 2000) : origText;
             var pct = bestData ? (bestData.savings_pct || 0) : 0;
-            target.innerHTML =
-              '<div style="margin-top:10px">' +
-              '<div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:10px;color:var(--muted)">' +
-              '<span>Original \u00b7 ' + esc(ff(origTok)) + ' tokens</span>' +
-              '<span style="color:var(--green)">' + esc(bestKey) + ' \u00b7 ' + esc(ff(compTok)) + ' tokens (' + pct + '% saved)</span></div>' +
-              '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
-              '<pre style="margin:0;padding:8px;background:var(--bg);border-radius:4px;font-size:10px;max-height:300px;overflow:auto;border:1px solid var(--border)">' +
-              esc(origText) + (origText.length >= 2000 ? '\n\u2026' : '') + '</pre>' +
-              '<pre style="margin:0;padding:8px;background:var(--bg);border-radius:4px;font-size:10px;max-height:300px;overflow:auto;border:1px solid var(--green)">' +
-              esc(compText) + (compText.length >= 2000 ? '\n\u2026' : '') + '</pre>' +
-              '</div></div>';
+            renderComparison(origTok, origText, compTok, compText, bestKey, pct);
           })
           .catch(function () {
-            btn.textContent = 'Failed to load';
-            btn.disabled = false;
-            target.removeAttribute('data-loaded');
+            renderSummaryBar(evOriginal, evSaved, m || 'compressed');
           });
       });
     });
