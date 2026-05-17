@@ -812,27 +812,18 @@ mod tests {
     }
 
     #[test]
-    fn shared_rules_contain_tool_mapping() {
-        assert!(RULES_SHARED.contains("ctx_read"));
-        assert!(RULES_SHARED.contains("ctx_shell"));
-        assert!(RULES_SHARED.contains("ctx_search"));
-        assert!(RULES_SHARED.contains("ctx_tree"));
-        assert!(RULES_SHARED.contains("Write"));
+    fn shared_rules_contain_mode_selection() {
+        assert!(RULES_SHARED.contains("Mode Selection"));
+        assert!(RULES_SHARED.contains("full"));
+        assert!(RULES_SHARED.contains("map"));
+        assert!(RULES_SHARED.contains("signatures"));
+        assert!(RULES_SHARED.contains("NEVER"));
     }
 
     #[test]
-    fn shared_rules_litm_optimized() {
-        let lines: Vec<&str> = RULES_SHARED.lines().collect();
-        let first_5 = lines[..5.min(lines.len())].join("\n");
-        assert!(
-            first_5.contains("CRITICAL") || first_5.contains("MUST"),
-            "LITM: MUST instruction must be near start"
-        );
-        let last_5 = lines[lines.len().saturating_sub(5)..].join("\n");
-        assert!(
-            last_5.contains("MUST") || last_5.contains("NEVER"),
-            "LITM: reinforcement must be near end"
-        );
+    fn shared_rules_has_anti_pattern() {
+        assert!(RULES_SHARED.contains("Anti-pattern"));
+        assert!(RULES_SHARED.contains("NEVER use `full`"));
     }
 
     #[test]
@@ -841,42 +832,25 @@ mod tests {
         assert!(RULES_DEDICATED.contains("full"));
         assert!(RULES_DEDICATED.contains("map"));
         assert!(RULES_DEDICATED.contains("signatures"));
-        assert!(RULES_DEDICATED.contains("diff"));
-        assert!(RULES_DEDICATED.contains("aggressive"));
         assert!(RULES_DEDICATED.contains("entropy"));
+        assert!(RULES_DEDICATED.contains("aggressive"));
         assert!(RULES_DEDICATED.contains("task"));
-        assert!(RULES_DEDICATED.contains("reference"));
-        assert!(RULES_DEDICATED.contains("ctx_read"));
+        assert!(RULES_DEDICATED.contains("lines:N-M"));
     }
 
     #[test]
-    fn dedicated_rules_litm_optimized() {
-        let lines: Vec<&str> = RULES_DEDICATED.lines().collect();
-        let first_5 = lines[..5.min(lines.len())].join("\n");
-        assert!(
-            first_5.contains("CRITICAL") || first_5.contains("MUST"),
-            "LITM: MUST instruction must be near start"
-        );
-        let last_5 = lines[lines.len().saturating_sub(5)..].join("\n");
-        assert!(
-            last_5.contains("MUST") || last_5.contains("NEVER"),
-            "LITM: reinforcement must be near end"
-        );
+    fn dedicated_rules_has_proactive_section() {
+        assert!(RULES_DEDICATED.contains("Proactive"));
+        assert!(RULES_DEDICATED.contains("ctx_overview"));
+        assert!(RULES_DEDICATED.contains("ctx_compress"));
     }
 
     #[test]
-    fn cursor_mdc_litm_optimized() {
-        let lines: Vec<&str> = RULES_CURSOR_MDC.lines().collect();
-        let first_10 = lines[..10.min(lines.len())].join("\n");
-        assert!(
-            first_10.contains("CRITICAL") || first_10.contains("MUST"),
-            "LITM: MUST instruction must be near start of MDC"
-        );
-        let last_5 = lines[lines.len().saturating_sub(5)..].join("\n");
-        assert!(
-            last_5.contains("MUST") || last_5.contains("NEVER"),
-            "LITM: reinforcement must be near end of MDC"
-        );
+    fn cursor_mdc_contains_mode_selection() {
+        assert!(RULES_CURSOR_MDC.contains("Mode Selection"));
+        assert!(RULES_CURSOR_MDC.contains("ctx_read"));
+        assert!(RULES_CURSOR_MDC.contains("ctx_search"));
+        assert!(RULES_CURSOR_MDC.contains("lean-ctx -c"));
     }
 
     fn ensure_temp_dir() {
@@ -952,7 +926,7 @@ mod tests {
 
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains(MARKER));
-        assert!(content.contains("ctx_read modes"));
+        assert!(content.contains("Mode Selection"));
 
         std::fs::remove_file(&path).ok();
     }

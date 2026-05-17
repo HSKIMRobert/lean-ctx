@@ -5,7 +5,7 @@ alwaysApply: true
 ---
 
 # lean-ctx — Context Engineering Layer
-<!-- lean-ctx-rules-hybrid-v2 -->
+<!-- lean-ctx-rules-v10 -->
 
 ## Mode: Hybrid (MCP reads + CLI shell)
 
