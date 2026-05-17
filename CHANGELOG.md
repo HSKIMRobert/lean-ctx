@@ -8,6 +8,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ### Added
 
 - **Active Context Gate** — Pressure-based auto-downgrade: when context utilization exceeds 75%, reads are automatically downgraded (full→map, map→signatures). Reinjection plan retroactively marks existing "full" entries as "map" under pressure. Φ scores now computed with real task context from SessionState.
+
+## [3.6.5] — 2026-05-17
+
+### Fixed
+
+- **CLAUDE_CONFIG_DIR support** — MCP instructions and rules file paths now respect `CLAUDE_CONFIG_DIR` env var instead of hardcoding `~/.claude`. Absolute paths under `$HOME` are collapsed to tilde form for display. Includes integration tests. (#235, contributed by @cburgess)
+- **OpenCode rules location** — Rules are now written to `~/.config/opencode/AGENTS.md` (SharedMarkdown fenced section) instead of `~/.config/opencode/rules/lean-ctx.md` which OpenCode never loads. Doctor check and uninstall updated accordingly. (#237)
+- **Linux CI warnings** — Fixed `unreachable_pub` in Landlock module, `borrow_as_ptr` in syscall wrappers, `unnecessary_wraps` on `remove_linux_scheduler`, and `unused_variables`/`dead_code` for platform-gated items.
 - **MCP Resource Notifications** — `notifications/resources/updated` sent to subscribed clients after significant ledger changes (new entries, pressure threshold crossings). Enables proactive context refresh in supporting IDEs.
 - **`ctx_load_tools`** — New tool for explicit category management (load/unload/list). After each change, `notifications/tools/list_changed` is sent to subscribed clients so they re-fetch the tool list.
 - **`notifications/tools/list_changed`** — Outbound notification sent after dynamic tool category load/unload via `ctx_load_tools`. Clients automatically re-fetch the tool list.
