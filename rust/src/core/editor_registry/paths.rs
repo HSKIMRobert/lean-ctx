@@ -169,7 +169,6 @@ pub fn claude_rules_dir(home: &Path) -> PathBuf {
     claude_state_dir(home).join("rules")
 }
 
-
 #[cfg(all(test, target_os = "macos"))]
 mod tests {
     use super::*;
