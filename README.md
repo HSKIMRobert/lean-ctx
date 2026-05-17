@@ -1,3 +1,5 @@
+<div align="center">
+
 ```
   ██╗     ███████╗ █████╗ ███╗   ██╗     ██████╗████████╗██╗  ██╗
   ██║     ██╔════╝██╔══██╗████╗  ██║    ██╔════╝╚══██╔══╝╚██╗██╔╝
@@ -5,18 +7,25 @@
   ██║     ██╔══╝  ██╔══██║██║╚██╗██║    ██║        ██║    ██╔██╗ 
   ███████╗███████╗██║  ██║██║ ╚████║    ╚██████╗   ██║   ██╔╝ ██╗
   ╚══════╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝     ╚═════╝   ╚═╝   ╚═╝  ╚═╝
-             Context Runtime for AI Agents
 ```
 
-<h3 align="center">The context layer for AI coding agents</h3>
+**The context runtime for AI coding agents**
 
-<p align="center">
-  <strong>Reduce token waste in Cursor, Claude Code, Copilot, Windsurf, Codex, Gemini & more by 60–95% (up to 99% on cached reads)</strong><br/>
-  Shell Hook + MCP Server · 51 tools · 10 read modes · 56 pattern modules + 270 passthrough rules · Tree-sitter AST for 21 languages · Single Rust binary<br/>
-  <strong>Context Intelligence:</strong> Bounce detection, context gate with graph/intent/knowledge-based mode routing, MCP resources &amp; prompts, dynamic tool categories, client capability detection across 29+ AI agents
-</p>
+Cut 60–95% of wasted tokens. One Rust binary. Zero cloud dependency.
 
-<p align="center">
+---
+
+<table>
+<tr>
+<td width="33%" align="center"><strong>59 MCP tools</strong><br/><sub>10 read modes · graph · memory · multi-agent</sub></td>
+<td width="33%" align="center"><strong>95+ shell patterns</strong><br/><sub>56 modules · 270 passthrough rules</sub></td>
+<td width="33%" align="center"><strong>~13 tokens</strong><br/><sub>cached re-reads · tree-sitter AST · 21 langs</sub></td>
+</tr>
+</table>
+
+---
+
+<p>
   <a href="https://github.com/yvgude/lean-ctx/actions/workflows/ci.yml"><img src="https://github.com/yvgude/lean-ctx/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/yvgude/lean-ctx/actions/workflows/security-check.yml"><img src="https://github.com/yvgude/lean-ctx/actions/workflows/security-check.yml/badge.svg" alt="Security"></a>
   <a href="https://crates.io/crates/lean-ctx"><img src="https://img.shields.io/crates/v/lean-ctx?color=%23e6522c" alt="crates.io"></a>
@@ -30,21 +39,15 @@
   <img src="https://img.shields.io/badge/Telemetry-Opt--in%20Only-brightgreen?logo=shield&logoColor=white" alt="Opt-in Telemetry">
 </p>
 
-<p align="center">
-  <a href="https://leanctx.com">Website</a> ·
-  <a href="https://leanctx.com/docs/getting-started">Docs</a> ·
-  <a href="#get-started-60-seconds">Install</a> ·
-  <a href="#demo">Demo</a> ·
-  <a href="#benchmarks">Benchmarks</a> ·
-  <a href="cookbook/README.md">Cookbook</a> ·
-  <a href="SECURITY.md">Security</a> ·
-  <a href="CHANGELOG.md">Changelog</a> ·
-  <a href="https://discord.gg/pTHkG9Hew9">Discord</a>
+<p>
+  <a href="https://leanctx.com">Website</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://leanctx.com/docs/getting-started">Docs</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#get-started-60-seconds">Install</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#demo">Demo</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#benchmarks">Benchmarks</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="cookbook/README.md">Cookbook</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="SECURITY.md">Security</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="CHANGELOG.md">Changelog</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://discord.gg/pTHkG9Hew9">Discord</a>
 </p>
+
+</div>
 
 ---
 
-> **lean-ctx** is a local-first context runtime that compresses file reads + shell output before they reach the LLM. Cached re-reads drop to **~13 tokens**.
+> **lean-ctx** is a local-first context runtime that compresses file reads + shell output before they reach the LLM. It works with **Cursor, Claude Code, Copilot, Windsurf, Codex, Gemini** and 23+ other AI agents — no config needed.
 
 <p align="center"><strong>See it in action:</strong></p>
 
