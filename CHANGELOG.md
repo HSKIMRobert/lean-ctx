@@ -9,6 +9,39 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 - **Active Context Gate** — Pressure-based auto-downgrade: when context utilization exceeds 75%, reads are automatically downgraded (full→map, map→signatures). Reinjection plan retroactively marks existing "full" entries as "map" under pressure. Φ scores now computed with real task context from SessionState.
 
+## [3.6.7] — 2026-05-18
+
+### Added
+
+- **3-Layer Model Registry** (#242) — Replaced hardcoded substring matching for model context windows with a data-driven registry system:
+  - **Bundled registry** (`data/model_registry.json`) — compiled into binary, covers 40+ models
+  - **Local registry** (`~/.config/lean-ctx/model_registry.json`) — auto-updated via `lean-ctx update`
+  - **User overrides** (`[model_context_windows]` in config.toml) — highest priority
+  - Supports exact match, prefix match (e.g. `gpt-5.5-0513` matches `gpt-5.5`), and family fallback
+  - GPT-5.5: 1,048,576 | GPT-4.1: 1,047,576 | Gemini: 1,048,576 | Claude: 200,000
+
+- **ctx_shell `env` parameter** (#241) — New optional `env` object in tool schema lets LLMs explicitly pass environment variables to child processes. Useful for agent runtime vars (e.g. `CODEX_THREAD_ID`).
+
+- **Agent env auto-forwarding** (#241) — `CODEX_*`, `CLAUDE_*`, `OPENCODE_*`, `HERMES_*` prefixed environment variables from the parent MCP server process are automatically forwarded to child commands. Solves the problem of agent hosts starting MCP servers with a stripped environment.
+
+- **PathJail container bypass** (#240) — PathJail automatically disables in Docker/Podman containers via `is_container()` detection. Manual opt-out via `path_jail = false` in config.toml or `LEAN_CTX_NO_JAIL=1` env var.
+
+- **Copilot CLI support** (#243) — Dedicated `CopilotCli` config type that writes to `~/.copilot/mcp-config.json` with the correct format (`mcpServers` key, `"type": "local"`, `"tools": ["*"]`). Copilot CLI is now a separate target from VS Code.
+
+### Fixed
+
+- **Benchmark honesty** — Structural compression modes (`map`, `signatures`) are now excluded from "best mode" ranking for non-code file types (Markdown, JSON, CSS, HTML, YAML, XML). These modes extract code structures (functions, classes) and are not applicable to data/markup files. Previous reports showed misleading 100% savings for JSON and 99.9% for Markdown; corrected to 0.5% and 5.6% respectively.
+
+- **Copilot CLI MCP config** (#243) — `lean-ctx init --agent copilot` now writes to `~/.copilot/mcp-config.json` (not VS Code's Application Support path). Uses `"mcpServers"` container key, `"type": "local"`, and includes required `"tools": ["*"]` field per [GitHub docs](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-mcp-servers).
+
+- **PathJail CWD fallback** (#240) — Project root derivation now includes a guarded CWD fallback with `is_broad_or_unsafe_root()` protection. Differentiated error messages explain why a path was rejected and how to fix it.
+
+- **Invalid JSON config handling** — All IDE config writers now use text-based injection for invalid JSON files instead of destructive overwrites. Original files are preserved; users get clear instructions on how to fix syntax errors.
+
+### Changed
+
+- **VS Code / Copilot split** — The combined "VS Code / Copilot" target is now two separate targets: "VS Code" (`agent_key: vscode`) and "Copilot CLI" (`agent_key: copilot`). Existing VS Code configurations are not affected.
+
 ## [3.6.6] — 2026-05-17
 
 ### Added
