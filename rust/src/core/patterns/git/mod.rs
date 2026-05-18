@@ -223,6 +223,58 @@ mod tests {
     }
 
     #[test]
+    fn git_diff_stat_preserves_all_files() {
+        let output = " website/src/i18n/locales/en.json                   |   3 +-\n website/src/page-templates/DocsToolsCorePage.astro |  37 ++------\n .../page-templates/DocsToolsIntelligencePage.astro | 105 +++++----------------\n .../src/page-templates/DocsToolsMemoryPage.astro   |  29 ++----\n .../src/page-templates/DocsToolsSessionPage.astro  |  43 ++-------\n 5 files changed, 45 insertions(+), 172 deletions(-)\n";
+        let result = compress("git diff --stat", output).unwrap();
+        assert!(
+            result.contains("en.json"),
+            "must keep en.json, got: {result}"
+        );
+        assert!(
+            result.contains("DocsToolsCorePage"),
+            "must keep CorePage, got: {result}"
+        );
+        assert!(
+            result.contains("DocsToolsIntelligencePage"),
+            "must keep IntelligencePage, got: {result}"
+        );
+        assert!(
+            result.contains("DocsToolsMemoryPage"),
+            "must keep MemoryPage, got: {result}"
+        );
+        assert!(
+            result.contains("DocsToolsSessionPage"),
+            "must keep SessionPage, got: {result}"
+        );
+        assert!(
+            result.contains("5 files changed"),
+            "must keep summary line, got: {result}"
+        );
+    }
+
+    #[test]
+    fn git_diff_cached_stat_preserves_all_files() {
+        let output = " src/a.rs | 10 ++++------\n src/b.rs |  3 ++-\n src/c.rs |  7 +++----\n src/d.rs |  1 +\n 4 files changed, 9 insertions(+), 12 deletions(-)\n";
+        let result = compress("git diff --cached --stat", output).unwrap();
+        assert!(result.contains("a.rs"), "must keep a.rs, got: {result}");
+        assert!(result.contains("d.rs"), "must keep d.rs, got: {result}");
+        assert!(
+            result.contains("4 files changed"),
+            "must keep summary, got: {result}"
+        );
+    }
+
+    #[test]
+    fn git_diff_shortstat_preserved() {
+        let output = " 5 files changed, 45 insertions(+), 172 deletions(-)\n";
+        let result = compress("git diff --shortstat", output).unwrap();
+        assert!(
+            result.contains("5 files changed"),
+            "shortstat must pass through, got: {result}"
+        );
+    }
+
+    #[test]
     fn git_push_preserves_pipeline_url() {
         let output = "Enumerating objects: 5, done.\nCounting objects: 100% (5/5), done.\nDelta compression using up to 8 threads\nCompressing objects: 100% (3/3), done.\nWriting objects: 100% (3/3), 1.2 KiB | 1.2 MiB/s, done.\nTotal 3 (delta 2), reused 0 (delta 0)\nremote:\nremote: To create a merge request for main, visit:\nremote:   https://gitlab.com/user/repo/-/merge_requests/new?source=main\nremote:\nremote: View pipeline for this push:\nremote:   https://gitlab.com/user/repo/-/pipelines/12345\nremote:\nTo gitlab.com:user/repo.git\n   abc1234..def5678  main -> main\n";
         let result = compress("git push", output).unwrap();

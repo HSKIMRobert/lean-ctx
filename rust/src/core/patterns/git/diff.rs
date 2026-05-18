@@ -1,4 +1,32 @@
+fn is_stat_only_output(output: &str) -> bool {
+    let mut has_stat_line = false;
+    for line in output.lines() {
+        let t = line.trim();
+        if t.is_empty() {
+            continue;
+        }
+        if t.contains(" | ") && t.chars().any(|c| c == '+' || c == '-') {
+            has_stat_line = true;
+            continue;
+        }
+        if t.contains("file") && t.contains("changed") {
+            continue;
+        }
+        if t.contains("insertion") || t.contains("deletion") {
+            continue;
+        }
+        if t.starts_with("diff --git") || t.starts_with("@@") {
+            return false;
+        }
+    }
+    has_stat_line
+}
+
 pub(super) fn compress_diff(output: &str) -> String {
+    if is_stat_only_output(output) {
+        return output.to_string();
+    }
+
     let lines: Vec<&str> = output.lines().collect();
     if lines.len() <= 500 {
         return compress_diff_keep_hunks(output);
