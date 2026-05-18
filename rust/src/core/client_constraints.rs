@@ -147,7 +147,8 @@ pub fn by_editor_name(name: &str) -> Option<&'static ClientConstraints> {
     match name {
         "Cursor" => by_client_id("cursor"),
         "Claude Code" => by_client_id("claude-code"),
-        "VS Code / Copilot" => by_client_id("vscode-copilot"),
+        "VS Code" => by_client_id("vscode-copilot"),
+        "Copilot CLI" => by_client_id("copilot-cli"),
         "Windsurf" => by_client_id("windsurf"),
         "Zed" => by_client_id("zed"),
         "JetBrains IDEs" => by_client_id("jetbrains"),

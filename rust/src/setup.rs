@@ -1134,8 +1134,8 @@ fn agent_mcp_targets(agent: &str, home: &std::path::Path) -> Result<Vec<EditorTa
         ),
         "copilot" => push(
             &mut targets,
-            "VS Code / Copilot",
-            crate::core::editor_registry::vscode_mcp_path(),
+            "Copilot CLI",
+            home.join(".copilot/mcp-config.json"),
             ConfigType::VsCodeMcp,
         ),
         "crush" => push(
@@ -1346,8 +1346,8 @@ pub fn disable_agent_mcp(agent: &str, overwrite_invalid: bool) -> Result<(), Str
         ),
         "copilot" => push(
             &mut targets,
-            "VS Code / Copilot",
-            crate::core::editor_registry::vscode_mcp_path(),
+            "Copilot CLI",
+            home.join(".copilot/mcp-config.json"),
             ConfigType::VsCodeMcp,
         ),
         "crush" => push(

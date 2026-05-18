@@ -79,10 +79,17 @@ pub fn build_targets(home: &Path) -> Vec<EditorTarget> {
             config_type: ConfigType::Zed,
         },
         EditorTarget {
-            name: "VS Code / Copilot",
-            agent_key: "copilot".to_string(),
+            name: "VS Code",
+            agent_key: "vscode".to_string(),
             config_path: vscode_mcp_path(),
             detect_path: detect_vscode_path(),
+            config_type: ConfigType::VsCodeMcp,
+        },
+        EditorTarget {
+            name: "Copilot CLI",
+            agent_key: "copilot".to_string(),
+            config_path: home.join(".copilot/mcp-config.json"),
+            detect_path: home.join(".copilot"),
             config_type: ConfigType::VsCodeMcp,
         },
         EditorTarget {

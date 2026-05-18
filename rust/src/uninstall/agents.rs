@@ -447,7 +447,8 @@ pub(super) fn remove_rules_files(home: &Path, dry_run: bool) -> bool {
                 .unwrap_or_else(|| home.join(".codex"))
                 .join("instructions.md"),
         ),
-        ("VS Code / Copilot", copilot_instructions_path(home)),
+        ("VS Code", copilot_instructions_path(home)),
+        ("Copilot CLI", home.join(".copilot/instructions.md")),
         ("OpenCode", home.join(".config/opencode/AGENTS.md")),
     ];
 

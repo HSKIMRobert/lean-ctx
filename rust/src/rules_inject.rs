@@ -207,7 +207,7 @@ fn match_agent_name(cli_key: &str, target_name: &str) -> bool {
         || (needle == "continue" && tn.contains("continue"))
         || (needle == "qwen" && tn.contains("qwen"))
         || (needle == "antigravity" && tn.contains("antigravity"))
-        || (needle == "vscode" && tn.contains("copilot"))
+        || (needle == "vscode" && (tn.contains("vs code") || tn.contains("vscode")))
 }
 
 /// Check if the rules file for a given MCP client is up-to-date.
@@ -424,7 +424,8 @@ fn is_tool_detected(target: &RulesTarget, home: &std::path::Path) -> bool {
         "Cursor" => home.join(".cursor").exists(),
         "Windsurf" => home.join(".codeium/windsurf").exists(),
         "Gemini CLI" => home.join(".gemini").exists(),
-        "VS Code / Copilot" => detect_vscode_installed(home),
+        "VS Code" => detect_vscode_installed(home),
+        "Copilot CLI" => home.join(".copilot").exists() || command_exists("copilot"),
         "Zed" => home.join(".config/zed").exists(),
         "Cline" => detect_extension_installed(home, "saoudrizwan.claude-dev"),
         "Roo Code" => detect_extension_installed(home, "rooveterinaryinc.roo-cline"),
@@ -547,8 +548,13 @@ fn build_rules_targets(home: &std::path::Path) -> Vec<RulesTarget> {
             format: RulesFormat::SharedMarkdown,
         },
         RulesTarget {
-            name: "VS Code / Copilot",
+            name: "VS Code",
             path: copilot_instructions_path(home),
+            format: RulesFormat::SharedMarkdown,
+        },
+        RulesTarget {
+            name: "Copilot CLI",
+            path: home.join(".copilot/instructions.md"),
             format: RulesFormat::SharedMarkdown,
         },
         // --- Dedicated lean-ctx rule files ---
@@ -693,7 +699,7 @@ fn build_skill_targets(home: &std::path::Path) -> Vec<SkillTarget> {
         SkillTarget {
             agent_key: "copilot",
             display_name: "GitHub Copilot",
-            skill_dir: home.join(".vscode/skills/lean-ctx"),
+            skill_dir: home.join(".copilot/skills/lean-ctx"),
         },
     ]
 }
@@ -712,9 +718,9 @@ fn is_skill_agent_detected(agent_key: &str, home: &std::path::Path) -> bool {
             codex_dir.exists() || command_exists("codex")
         }
         "copilot" => {
-            home.join(".vscode").exists()
-                || crate::core::editor_registry::vscode_mcp_path().exists()
-                || command_exists("code")
+            home.join(".copilot").exists()
+                || home.join(".copilot/mcp-config.json").exists()
+                || command_exists("copilot")
         }
         _ => false,
     }
@@ -947,7 +953,7 @@ mod tests {
     fn target_count() {
         let home = std::path::PathBuf::from("/tmp/fake_home");
         let targets = build_rules_targets(&home);
-        assert_eq!(targets.len(), 20);
+        assert_eq!(targets.len(), 21);
     }
 
     #[test]
@@ -1011,8 +1017,8 @@ mod tests {
         assert!(match_agent_name("cursor", "Cursor"));
         assert!(match_agent_name("opencode", "OpenCode"));
         assert!(match_agent_name("claude", "Claude Code"));
-        assert!(match_agent_name("vscode", "VS Code / Copilot"));
-        assert!(match_agent_name("copilot", "VS Code / Copilot"));
+        assert!(match_agent_name("vscode", "VS Code"));
+        assert!(match_agent_name("copilot", "Copilot CLI"));
         assert!(match_agent_name("kiro", "AWS Kiro"));
         assert!(match_agent_name("pi", "Pi Coding Agent"));
         assert!(match_agent_name("crush", "Crush"));

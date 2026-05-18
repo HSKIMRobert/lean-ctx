@@ -407,7 +407,7 @@ fn mcp_config_locations(home: &std::path::Path) -> Vec<McpLocation> {
     {
         let vscode_mcp = home.join("Library/Application Support/Code/User/mcp.json");
         locations.push(McpLocation {
-            name: "VS Code / Copilot",
+            name: "VS Code",
             display: "~/Library/Application Support/Code/User/mcp.json".into(),
             path: vscode_mcp,
         });
@@ -416,7 +416,7 @@ fn mcp_config_locations(home: &std::path::Path) -> Vec<McpLocation> {
     {
         let vscode_mcp = home.join(".config/Code/User/mcp.json");
         locations.push(McpLocation {
-            name: "VS Code / Copilot",
+            name: "VS Code",
             display: "~/.config/Code/User/mcp.json".into(),
             path: vscode_mcp,
         });
@@ -426,12 +426,18 @@ fn mcp_config_locations(home: &std::path::Path) -> Vec<McpLocation> {
         if let Ok(appdata) = std::env::var("APPDATA") {
             let vscode_mcp = std::path::PathBuf::from(appdata).join("Code/User/mcp.json");
             locations.push(McpLocation {
-                name: "VS Code / Copilot",
+                name: "VS Code",
                 display: "%APPDATA%/Code/User/mcp.json".into(),
                 path: vscode_mcp,
             });
         }
     }
+
+    locations.push(McpLocation {
+        name: "Copilot CLI",
+        display: "~/.copilot/mcp-config.json".into(),
+        path: home.join(".copilot/mcp-config.json"),
+    });
 
     locations.push(McpLocation {
         name: "Hermes Agent",
