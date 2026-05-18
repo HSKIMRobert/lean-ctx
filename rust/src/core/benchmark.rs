@@ -317,6 +317,27 @@ fn measure_file(path: &Path, root: &str) -> Option<FileMeasurement> {
 
 // ── Aggregation ─────────────────────────────────────────────
 
+/// Structural modes (map, signatures) only produce meaningful output for
+/// programming languages with parseable code structures. For data/markup
+/// files, these modes return near-empty output that would be misleading
+/// as "compression". Only `aggressive` and `entropy` are honest for these.
+fn is_mode_applicable_for_ext(mode: &str, ext: &str, tokens: usize) -> bool {
+    if tokens == 0 {
+        return false;
+    }
+    let is_structural_mode = matches!(mode, "map" | "signatures");
+    if !is_structural_mode {
+        return true;
+    }
+    // Extensions with actual code structures (functions, classes, types)
+    let code_exts = [
+        "rs", "ts", "tsx", "js", "jsx", "py", "go", "java", "kt", "c", "cpp", "h", "hpp", "cs",
+        "rb", "swift", "scala", "zig", "lua", "php", "dart", "ex", "exs", "elm", "hs", "ml",
+        "svelte", "vue", "sh", "bash", "zsh",
+    ];
+    code_exts.contains(&ext)
+}
+
 fn aggregate_languages(files: &[FileMeasurement]) -> Vec<LanguageStats> {
     struct LangAccum {
         count: usize,
@@ -341,14 +362,11 @@ fn aggregate_languages(files: &[FileMeasurement]) -> Vec<LanguageStats> {
     let mut stats: Vec<LanguageStats> = map
         .into_iter()
         .map(|(ext, acc)| {
-            // A mode that returns 0 tokens means it cannot meaningfully process
-            // this file type (e.g. `map` on JSON returns empty). Exclude these
-            // from "best mode" selection — 0 output is data loss, not compression.
             let (best_mode, best_tokens) = acc
                 .mode_tokens
                 .iter()
                 .filter(|(m, _)| m.as_str() != "cache_hit")
-                .filter(|(_, t)| **t > 0)
+                .filter(|(m, t)| is_mode_applicable_for_ext(m, &ext, **t))
                 .min_by_key(|(_, t)| **t)
                 .map_or_else(
                     || ("full".to_string(), acc.total_tokens),
