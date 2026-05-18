@@ -17,18 +17,30 @@ impl McpTool for CtxSemanticSearchTool {
     fn tool_def(&self) -> Tool {
         tool_def(
             "ctx_semantic_search",
-            "Semantic code search (BM25 + optional embeddings/hybrid). action=reindex to rebuild.",
+            "Semantic code search (BM25 + embeddings/hybrid + reranking). action=reindex|find_related.",
             json!({
                 "type": "object",
                 "properties": {
-                    "query": { "type": "string", "description": "Natural language search query" },
+                    "query": { "type": "string", "description": "Natural language or symbol search query" },
                     "path": { "type": "string", "description": "Project root to search (default: .)" },
                     "top_k": { "type": "integer", "description": "Number of results (default: 10)" },
-                    "action": { "type": "string", "description": "reindex to rebuild index" },
+                    "action": {
+                        "type": "string",
+                        "enum": ["search", "reindex", "find_related"],
+                        "description": "search (default), reindex to rebuild, find_related for chunk-based similarity"
+                    },
                     "mode": {
                         "type": "string",
                         "enum": ["bm25", "dense", "hybrid"],
                         "description": "Search mode (default: hybrid)"
+                    },
+                    "file_path": {
+                        "type": "string",
+                        "description": "For find_related: source file path (relative to project root)"
+                    },
+                    "line": {
+                        "type": "integer",
+                        "description": "For find_related: line number in the source file"
                     },
                     "languages": {
                         "type": "array",
@@ -92,12 +104,31 @@ impl McpTool for CtxSemanticSearchTool {
             }
         }
 
+        let file_path_param = get_str(args, "file_path");
+        let line_param = get_int(args, "line");
+
         let result = if action == "reindex" {
             if artifacts {
                 crate::tools::ctx_semantic_search::handle_reindex_artifacts(&path, workspace)
             } else {
                 crate::tools::ctx_semantic_search::handle_reindex(&path)
             }
+        } else if action == "find_related" {
+            let fp = file_path_param.unwrap_or_default();
+            let line = line_param.unwrap_or(1) as usize;
+            if fp.is_empty() {
+                return Err(ErrorData::invalid_params(
+                    "find_related requires file_path and line parameters",
+                    None,
+                ));
+            }
+            crate::tools::ctx_semantic_search::handle_find_related(
+                &fp,
+                line,
+                &path,
+                top_k,
+                ctx.crp_mode,
+            )
         } else {
             crate::tools::ctx_semantic_search::handle(
                 &query,

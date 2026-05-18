@@ -315,7 +315,16 @@ fn handle_pull(args: &Map<String, Value>, ctx: &ToolContext) -> Result<String, E
 
     if apply_workflow {
         let mut wf = ctx.workflow.as_ref().unwrap().blocking_write();
-        wf.clone_from(&ledger.workflow);
+        // Never restore a terminal "done" workflow — it would block all tools
+        if ledger
+            .workflow
+            .as_ref()
+            .is_some_and(|r| r.current == "done")
+        {
+            *wf = None;
+        } else {
+            wf.clone_from(&ledger.workflow);
+        }
     }
 
     if apply_session {
@@ -421,7 +430,16 @@ fn handle_import(args: &Map<String, Value>, ctx: &ToolContext) -> Result<String,
 
     if apply_workflow {
         let mut wf = ctx.workflow.as_ref().unwrap().blocking_write();
-        wf.clone_from(&ledger.workflow);
+        // Never restore a terminal "done" workflow — it would block all tools
+        if ledger
+            .workflow
+            .as_ref()
+            .is_some_and(|r| r.current == "done")
+        {
+            *wf = None;
+        } else {
+            wf.clone_from(&ledger.workflow);
+        }
     }
 
     if apply_session {

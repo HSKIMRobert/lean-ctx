@@ -188,11 +188,13 @@ fn handle_complete(
             timestamp: Utc::now(),
         });
 
-    if let Err(e) = workflow::save_active(&run) {
-        return format!("Failed to save workflow: {e}");
+    // "done" is a terminal state — clear the active workflow file so the gate
+    // does not block subsequent tool calls in this or future sessions.
+    if let Err(e) = workflow::clear_active() {
+        return format!("Workflow completed but failed to clear: {e}");
     }
 
-    format!("Workflow completed: {from} → {done}")
+    format!("Workflow completed: {from} → done (workflow cleared)")
 }
 
 fn handle_evidence_add(

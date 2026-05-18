@@ -117,7 +117,7 @@ pub fn reciprocal_rank_fusion(
     results
 }
 
-/// Run hybrid search: BM25 + dense retrieval with RRF fusion.
+/// Run hybrid search: BM25 + dense retrieval with RRF fusion + post-RRF reranking.
 /// Falls back to BM25-only if embedding engine is not available.
 #[cfg(feature = "embeddings")]
 pub fn hybrid_search(
@@ -144,33 +144,49 @@ pub fn hybrid_search(
 
     let graph_enhances = graph_file_ranks.is_some_and(|m| !m.is_empty());
 
-    if dense_results.is_empty() {
-        if graph_enhances {
-            return reciprocal_rank_fusion(&bm25_results, &[], config, top_k, graph_file_ranks);
-        }
-        return bm25_results
-            .into_iter()
-            .take(top_k)
-            .map(HybridResult::from_bm25)
-            .collect();
-    }
+    // Over-fetch candidates for reranking (5x top_k, capped at available)
+    let candidate_count = (top_k * 5).min(config.bm25_candidates);
 
-    reciprocal_rank_fusion(
-        &bm25_results,
-        &dense_results,
-        config,
-        top_k,
-        graph_file_ranks,
-    )
+    let mut results = if dense_results.is_empty() {
+        if graph_enhances {
+            reciprocal_rank_fusion(
+                &bm25_results,
+                &[],
+                config,
+                candidate_count,
+                graph_file_ranks,
+            )
+        } else {
+            bm25_results
+                .into_iter()
+                .take(candidate_count)
+                .map(HybridResult::from_bm25)
+                .collect()
+        }
+    } else {
+        reciprocal_rank_fusion(
+            &bm25_results,
+            &dense_results,
+            config,
+            candidate_count,
+            graph_file_ranks,
+        )
+    };
+
+    super::search_reranking::rerank_pipeline(&mut results, query, top_k);
+    results
 }
 
 #[cfg(not(feature = "embeddings"))]
 pub fn hybrid_search(query: &str, index: &BM25Index, top_k: usize) -> Vec<HybridResult> {
-    index
-        .search(query, top_k)
+    let candidate_count = (top_k * 5).min(50);
+    let mut results: Vec<HybridResult> = index
+        .search(query, candidate_count)
         .into_iter()
         .map(HybridResult::from_bm25)
-        .collect()
+        .collect();
+    super::search_reranking::rerank_pipeline(&mut results, query, top_k);
+    results
 }
 
 /// Dense vector search over pre-computed chunk embeddings.

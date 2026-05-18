@@ -81,7 +81,11 @@ impl LeanCtxServer {
                 if inner != "ctx_workflow" {
                     let active = self.workflow.read().await.clone();
                     if let Some(run) = active {
-                        if let Some(state) = run.spec.state(&run.current) {
+                        if run.current == "done" {
+                            let mut wf = self.workflow.write().await;
+                            *wf = None;
+                            let _ = crate::core::workflow::clear_active();
+                        } else if let Some(state) = run.spec.state(&run.current) {
                             if let Some(allowed) = &state.allowed_tools {
                                 let ok = allowed.iter().any(|t| t == &inner) || inner == "ctx";
                                 if !ok {

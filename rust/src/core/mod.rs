@@ -150,6 +150,7 @@ pub mod embeddings;
 pub mod hybrid_search;
 #[cfg(feature = "qdrant")]
 pub mod qdrant_store;
+pub mod search_reranking;
 pub mod semantic_cache;
 pub mod semantic_chunks;
 pub mod splade_retrieval;
@@ -161,6 +162,7 @@ pub mod search {
     pub use super::embedding_index;
     pub use super::embeddings;
     pub use super::hybrid_search;
+    pub use super::search_reranking;
     pub use super::semantic_cache;
     pub use super::semantic_chunks;
     pub use super::splade_retrieval;

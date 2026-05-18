@@ -142,6 +142,79 @@ pub fn handle_reindex_artifacts(path: &str, workspace: bool) -> String {
     }
 }
 
+/// Find chunks semantically related to a given file location.
+///
+/// Marchionini (2006): Exploratory search navigates from known points.
+/// This enables "show me similar code" workflows.
+pub fn handle_find_related(
+    file_path: &str,
+    line: usize,
+    project_root: &str,
+    top_k: usize,
+    crp_mode: CrpMode,
+) -> String {
+    let root = Path::new(project_root);
+    if !root.exists() {
+        return format!("ERR: path does not exist: {project_root}");
+    }
+
+    let index = BM25Index::load_or_build(root);
+    if index.doc_count == 0 {
+        return "ERR: empty index. Try action=reindex first.".to_string();
+    }
+
+    let source_chunk = index
+        .chunks
+        .iter()
+        .find(|c| c.file_path == file_path && c.start_line <= line && c.end_line >= line);
+
+    let Some(source_chunk) = source_chunk else {
+        return format!(
+            "ERR: no indexed chunk found at {file_path}:{line}. Try action=reindex first."
+        );
+    };
+
+    let query_text = source_chunk.content.clone();
+    let source_file = source_chunk.file_path.clone();
+    let source_start = source_chunk.start_line;
+
+    let compact = crp_mode != CrpMode::Off;
+
+    let results = find_related_internal(&query_text, root, &index, top_k + 5, compact);
+
+    let mut lines: Vec<String> = results
+        .into_iter()
+        .filter(|l| !l.contains(&format!("{source_file}:{source_start}-")))
+        .take(top_k)
+        .collect();
+
+    let header = if compact {
+        format!(
+            "find_related({file_path}:{line}) → {} results\n",
+            lines.len()
+        )
+    } else {
+        format!("Find related to {file_path}:{line} (semantic similarity)\n")
+    };
+
+    lines.insert(0, header);
+    lines.join("")
+}
+
+fn find_related_internal(
+    query: &str,
+    root: &Path,
+    index: &BM25Index,
+    top_k: usize,
+    compact: bool,
+) -> Vec<String> {
+    let Ok(filter) = SearchFilter::new(None, None) else {
+        return vec!["ERR: filter init failed\n".to_string()];
+    };
+    let output = hybrid_search_mode(query, root, index, top_k, compact, &filter);
+    output.lines().map(|l| format!("{l}\n")).collect()
+}
+
 fn truncate_query(q: &str, max: usize) -> &str {
     if q.len() <= max {
         return q;

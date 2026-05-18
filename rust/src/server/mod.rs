@@ -255,19 +255,22 @@ impl ServerHandler for LeanCtxServer {
         let tools = {
             let active = self.workflow.read().await.clone();
             if let Some(run) = active {
-                if let Some(state) = run.spec.state(&run.current) {
-                    if let Some(allowed) = &state.allowed_tools {
-                        let mut allow: std::collections::HashSet<&str> =
-                            allowed.iter().map(std::string::String::as_str).collect();
-                        allow.insert("ctx");
-                        allow.insert("ctx_workflow");
-                        return Ok(ListToolsResult {
-                            tools: tools
-                                .into_iter()
-                                .filter(|t| allow.contains(t.name.as_ref()))
-                                .collect(),
-                            ..Default::default()
-                        });
+                // Terminal "done" state never restricts tool visibility
+                if run.current != "done" {
+                    if let Some(state) = run.spec.state(&run.current) {
+                        if let Some(allowed) = &state.allowed_tools {
+                            let mut allow: std::collections::HashSet<&str> =
+                                allowed.iter().map(std::string::String::as_str).collect();
+                            allow.insert("ctx");
+                            allow.insert("ctx_workflow");
+                            return Ok(ListToolsResult {
+                                tools: tools
+                                    .into_iter()
+                                    .filter(|t| allow.contains(t.name.as_ref()))
+                                    .collect(),
+                                ..Default::default()
+                            });
+                        }
                     }
                 }
             }
@@ -399,7 +402,12 @@ impl ServerHandler for LeanCtxServer {
         if name != "ctx_workflow" {
             let active = self.workflow.read().await.clone();
             if let Some(run) = active {
-                if let Some(state) = run.spec.state(&run.current) {
+                // Terminal state "done" should never block — auto-clear stale workflows
+                if run.current == "done" {
+                    let mut wf = self.workflow.write().await;
+                    *wf = None;
+                    let _ = crate::core::workflow::clear_active();
+                } else if let Some(state) = run.spec.state(&run.current) {
                     if let Some(allowed) = &state.allowed_tools {
                         let allowed_ok = allowed.iter().any(|t| t == name) || name == "ctx";
                         if !allowed_ok {

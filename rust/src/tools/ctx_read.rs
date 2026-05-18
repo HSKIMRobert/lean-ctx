@@ -353,13 +353,15 @@ fn handle_with_options_inner(
         }
     };
 
+    // Skip expensive hint computation for line-range reads (fast path)
+    let is_line_range = mode.starts_with("lines:");
     let hints = crate::core::profiles::active_profile().output_hints;
-    let similar_hint = if hints.semantic_hint() {
+    let similar_hint = if !is_line_range && hints.semantic_hint() {
         find_similar_and_update_semantic_index(path, &content)
     } else {
         None
     };
-    let graph_hint = if hints.related_hint() {
+    let graph_hint = if !is_line_range && hints.related_hint() {
         build_graph_related_hint(path)
     } else {
         None

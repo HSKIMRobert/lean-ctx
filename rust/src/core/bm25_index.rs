@@ -306,7 +306,8 @@ impl BM25Index {
     fn add_chunk(&mut self, chunk: CodeChunk) {
         let idx = self.chunks.len();
 
-        let tokens = tokenize(&chunk.content);
+        let enriched = enrich_for_bm25(&chunk);
+        let tokens = tokenize(&enriched);
         for token in &tokens {
             let lower = token.to_lowercase();
             let postings = self.inverted.entry(lower.clone()).or_default();
@@ -979,6 +980,28 @@ pub fn format_search_results(results: &[SearchResult], compact: bool) -> String 
         }
     }
     out
+}
+
+/// Enrich chunk content with file-path components for BM25 path-matching.
+///
+/// SACL (EMNLP 2025) shows that augmenting code with structural information
+/// improves retrieval by 7-12.8%. We append the file stem twice (for boost)
+/// and the immediate parent directory once, enabling queries like "auth handler"
+/// to match `src/auth/handler.rs`.
+fn enrich_for_bm25(chunk: &CodeChunk) -> String {
+    let path = Path::new(&chunk.file_path);
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+    let dir = path
+        .parent()
+        .and_then(|p| p.file_name())
+        .and_then(|d| d.to_str())
+        .unwrap_or("");
+
+    if stem.is_empty() {
+        return chunk.content.clone();
+    }
+
+    format!("{} {} {} {}", chunk.content, stem, stem, dir)
 }
 
 #[cfg(test)]
