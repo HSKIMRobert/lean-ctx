@@ -227,6 +227,7 @@ pub mod adaptive_mode_policy;
 pub mod adaptive_thresholds;
 pub mod bandit;
 pub mod mode_predictor;
+pub mod model_registry;
 pub mod task_relevance;
 
 // ---------------------------------------------------------------------------

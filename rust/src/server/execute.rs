@@ -6,7 +6,16 @@ use std::time::{Duration, Instant};
 const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_mins(2);
 const READER_RESULT_TIMEOUT: Duration = Duration::from_secs(2);
 
+#[cfg(test)]
 pub(crate) fn execute_command_in(command: &str, cwd: &str) -> (String, i32) {
+    execute_command_with_env(command, cwd, &std::collections::HashMap::new())
+}
+
+pub(crate) fn execute_command_with_env(
+    command: &str,
+    cwd: &str,
+    extra_env: &std::collections::HashMap<String, String>,
+) -> (String, i32) {
     let (shell, flag) = crate::shell::shell_and_flag();
     let normalized_cmd = crate::tools::ctx_shell::normalize_command_for_shell(command);
     let dir = std::path::Path::new(cwd);
@@ -18,6 +27,22 @@ pub(crate) fn execute_command_in(command: &str, cwd: &str) -> (String, i32) {
         .env("GIT_PAGER", "cat")
         .env("PAGER", "cat")
         .stdin(Stdio::null());
+
+    // Auto-forward agent runtime env vars from parent process
+    for (key, val) in std::env::vars() {
+        if key.starts_with("CODEX_")
+            || key.starts_with("CLAUDE_")
+            || key.starts_with("OPENCODE_")
+            || key.starts_with("HERMES_")
+        {
+            cmd.env(&key, &val);
+        }
+    }
+
+    // Explicit env vars from tool call (highest priority)
+    for (key, val) in extra_env {
+        cmd.env(key, val);
+    }
     if dir.is_dir() {
         cmd.current_dir(dir);
     } else {

@@ -1009,6 +1009,13 @@ pub fn run() {
     }
     print_check(&ram_outcome);
 
+    // 19) Proxy health
+    let proxy_health = proxy_health_outcome();
+    if proxy_health.ok {
+        passed += 1;
+    }
+    print_check(&proxy_health);
+
     // LSP servers (optional, informational)
     println!("\n  {BOLD}{WHITE}LSP (optional — for ctx_refactor):{RST}");
     let lsp_outcomes = lsp_server_outcomes();
@@ -1016,7 +1023,7 @@ pub fn run() {
         print_check(lsp_check);
     }
 
-    let mut effective_total = total + 8; // session_state + integrity + cache_safety + bm25_health + daemon + mem_profile + mem_cleanup + ram_guardian
+    let mut effective_total = total + 9; // session_state + integrity + cache_safety + bm25_health + daemon + mem_profile + mem_cleanup + ram_guardian + proxy_health
     effective_total += docker_outcomes.len() as u32;
     if pi.is_some() {
         effective_total += 1;
@@ -1075,6 +1082,61 @@ fn skill_files_outcome() -> Outcome {
                 found.join(", ")
             ),
         }
+    }
+}
+
+fn proxy_health_outcome() -> Outcome {
+    use crate::core::config::Config;
+
+    let cfg = Config::load();
+    let port = crate::proxy_setup::default_port();
+
+    match cfg.proxy_enabled {
+        Some(true) => {
+            let installed = crate::proxy_autostart::is_installed();
+            let reachable = std::net::TcpStream::connect_timeout(
+                &format!("127.0.0.1:{port}")
+                    .parse()
+                    .expect("BUG: invalid hardcoded address"),
+                std::time::Duration::from_millis(200),
+            )
+            .is_ok();
+
+            if installed && reachable {
+                Outcome {
+                    ok: true,
+                    line: format!(
+                        "{BOLD}Proxy{RST}  {GREEN}enabled, running on port {port}{RST}"
+                    ),
+                }
+            } else if installed && !reachable {
+                Outcome {
+                    ok: false,
+                    line: format!(
+                        "{BOLD}Proxy{RST}  {RED}enabled but not reachable on port {port}{RST}  {YELLOW}fix: lean-ctx proxy start{RST}"
+                    ),
+                }
+            } else {
+                Outcome {
+                    ok: false,
+                    line: format!(
+                        "{BOLD}Proxy{RST}  {RED}enabled but autostart not installed{RST}  {YELLOW}fix: lean-ctx proxy enable{RST}"
+                    ),
+                }
+            }
+        }
+        Some(false) => Outcome {
+            ok: true,
+            line: format!(
+                "{BOLD}Proxy{RST}  {DIM}disabled (optional feature){RST}  {DIM}enable: lean-ctx proxy enable{RST}"
+            ),
+        },
+        None => Outcome {
+            ok: true,
+            line: format!(
+                "{BOLD}Proxy{RST}  {DIM}not configured{RST}  {DIM}enable: lean-ctx proxy enable{RST}"
+            ),
+        },
     }
 }
 

@@ -52,10 +52,13 @@ impl McpTool for CtxSemanticSearchTool {
     ) -> Result<ToolOutput, ErrorData> {
         let query = get_str(args, "query")
             .ok_or_else(|| ErrorData::invalid_params("query is required", None))?;
-        let path = ctx
-            .resolved_path("path")
-            .unwrap_or(&ctx.project_root)
-            .to_string();
+        let path = if let Some(p) = ctx.resolved_path("path") {
+            p.to_string()
+        } else if let Some(err) = ctx.path_error("path") {
+            return Err(ErrorData::invalid_params(format!("path: {err}"), None));
+        } else {
+            ctx.project_root.clone()
+        };
         let top_k = get_int(args, "top_k").unwrap_or(10) as usize;
         let action = get_str(args, "action").unwrap_or_default();
         let mode = get_str(args, "mode");

@@ -37,7 +37,13 @@ impl McpTool for CtxSearchTool {
     ) -> Result<ToolOutput, ErrorData> {
         let pattern = get_str(args, "pattern")
             .ok_or_else(|| ErrorData::invalid_params("pattern is required", None))?;
-        let path = ctx.resolved_path("path").unwrap_or(".").to_string();
+        let path = if let Some(p) = ctx.resolved_path("path") {
+            p.to_string()
+        } else if let Some(err) = ctx.path_error("path") {
+            return Err(ErrorData::invalid_params(format!("path: {err}"), None));
+        } else {
+            ".".to_string()
+        };
         let ext = get_str(args, "ext");
         let max = (get_int(args, "max_results").unwrap_or(20) as usize).min(500);
         let no_gitignore = get_bool(args, "ignore_gitignore").unwrap_or(false);

@@ -75,6 +75,21 @@ fn canonicalize_existing_ancestor(path: &Path) -> Option<(PathBuf, Vec<std::ffi:
 }
 
 pub fn jail_path(candidate: &Path, jail_root: &Path) -> Result<PathBuf, String> {
+    // Bypass PathJail entirely when:
+    // 1. LEAN_CTX_NO_JAIL=1 env var is set (explicit opt-out)
+    // 2. path_jail = false in config.toml
+    // 3. Running inside a container (Docker/Podman) where paths are already isolated
+    if std::env::var("LEAN_CTX_NO_JAIL").is_ok_and(|v| v == "1" || v == "true") {
+        return Ok(canonicalize_or_self(candidate));
+    }
+    let cfg = crate::core::config::Config::load();
+    if cfg.path_jail == Some(false) {
+        return Ok(canonicalize_or_self(candidate));
+    }
+    if crate::shell::platform::is_container() {
+        return Ok(canonicalize_or_self(candidate));
+    }
+
     let root = canonicalize_or_self(jail_root);
     let allow = allow_paths_from_env_and_config();
 

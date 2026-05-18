@@ -341,13 +341,17 @@ fn aggregate_languages(files: &[FileMeasurement]) -> Vec<LanguageStats> {
     let mut stats: Vec<LanguageStats> = map
         .into_iter()
         .map(|(ext, acc)| {
+            // A mode that returns 0 tokens means it cannot meaningfully process
+            // this file type (e.g. `map` on JSON returns empty). Exclude these
+            // from "best mode" selection — 0 output is data loss, not compression.
             let (best_mode, best_tokens) = acc
                 .mode_tokens
                 .iter()
                 .filter(|(m, _)| m.as_str() != "cache_hit")
+                .filter(|(_, t)| **t > 0)
                 .min_by_key(|(_, t)| **t)
                 .map_or_else(
-                    || ("none".to_string(), acc.total_tokens),
+                    || ("full".to_string(), acc.total_tokens),
                     |(m, t)| (m.clone(), *t),
                 );
 

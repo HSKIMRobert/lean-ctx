@@ -41,7 +41,13 @@ impl McpTool for CtxRetrieveTool {
     ) -> Result<ToolOutput, ErrorData> {
         let path_raw = get_str(args, "path")
             .ok_or_else(|| ErrorData::invalid_params("path is required", None))?;
-        let resolved = ctx.resolved_path("path").unwrap_or(&path_raw).to_string();
+        let resolved = if let Some(p) = ctx.resolved_path("path") {
+            p.to_string()
+        } else if let Some(err) = ctx.path_error("path") {
+            return Err(ErrorData::invalid_params(format!("path: {err}"), None));
+        } else {
+            path_raw.clone()
+        };
         let query = get_str(args, "query");
 
         let cache = ctx.cache.as_ref().unwrap();

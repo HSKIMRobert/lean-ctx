@@ -127,13 +127,38 @@ impl LeanCtxServer {
             };
 
             let mut resolved_paths = std::collections::HashMap::new();
+            let mut path_errors: std::collections::HashMap<String, String> =
+                std::collections::HashMap::new();
             for key in PATH_LIKE_KEYS {
-                if let Some(raw) = args_map.get(*key).and_then(|v| v.as_str()) {
-                    if let Ok(resolved) = self.resolve_path(raw).await {
-                        if !["path", "project_root", "root"].contains(key) {
-                            tracing::trace!("[pathjail] resolved non-standard path key '{key}': {raw} -> {resolved}");
+                if let Some(val) = args_map.get(*key) {
+                    if let Some(raw) = val.as_str() {
+                        match self.resolve_path(raw).await {
+                            Ok(resolved) => {
+                                if !["path", "project_root", "root"].contains(key) {
+                                    tracing::trace!("[pathjail] resolved non-standard path key '{key}': {raw} -> {resolved}");
+                                }
+                                resolved_paths.insert(key.to_string(), resolved);
+                            }
+                            Err(e) => {
+                                tracing::debug!(
+                                    "[dispatch] path resolution failed for '{key}' = '{raw}': {e}"
+                                );
+                                path_errors.insert(key.to_string(), e);
+                            }
                         }
-                        resolved_paths.insert(key.to_string(), resolved);
+                    } else {
+                        let type_name = match val {
+                            serde_json::Value::Number(_) => "number",
+                            serde_json::Value::Bool(_) => "boolean",
+                            serde_json::Value::Array(_) => "array",
+                            serde_json::Value::Object(_) => "object",
+                            serde_json::Value::Null => "null",
+                            serde_json::Value::String(_) => unreachable!(),
+                        };
+                        path_errors.insert(
+                            key.to_string(),
+                            format!("{key} must be a string, got {type_name}"),
+                        );
                     }
                 }
             }
@@ -159,6 +184,7 @@ impl LeanCtxServer {
                 call_count: Some(self.call_count.clone()),
                 autonomy: Some(self.autonomy.clone()),
                 pressure_snapshot,
+                path_errors,
             };
             let output = tokio::task::block_in_place(|| tool.handle(args_map, &ctx))?;
 

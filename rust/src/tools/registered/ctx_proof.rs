@@ -46,10 +46,16 @@ impl McpTool for CtxProofTool {
             ));
         }
 
-        let root = ctx
-            .resolved_path("project_root")
-            .unwrap_or(&ctx.project_root)
-            .to_string();
+        let root = if let Some(p) = ctx.resolved_path("project_root") {
+            p.to_string()
+        } else if let Some(err) = ctx.path_error("project_root") {
+            return Err(ErrorData::invalid_params(
+                format!("project_root: {err}"),
+                None,
+            ));
+        } else {
+            ctx.project_root.clone()
+        };
         let format = get_str(args, "format");
         let write = get_bool(args, "write").unwrap_or(true);
         let filename = get_str(args, "filename");

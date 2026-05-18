@@ -54,10 +54,16 @@ impl McpTool for CtxSmellsTool {
         let rule = get_str(args, "rule");
         let path = get_str(args, "path");
         let format = get_str(args, "format");
-        let root = ctx
+        let root = if let Some(p) = ctx
             .resolved_path("root")
             .or(ctx.resolved_path("project_root"))
-            .unwrap_or(&ctx.project_root);
+        {
+            p
+        } else if let Some(err) = ctx.path_error("root").or(ctx.path_error("project_root")) {
+            return Err(ErrorData::invalid_params(format!("root: {err}"), None));
+        } else {
+            &ctx.project_root
+        };
 
         let result = crate::tools::ctx_smells::handle(
             &action,

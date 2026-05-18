@@ -32,7 +32,13 @@ impl McpTool for CtxTreeTool {
         args: &Map<String, Value>,
         ctx: &ToolContext,
     ) -> Result<ToolOutput, ErrorData> {
-        let path = ctx.resolved_path("path").unwrap_or(".").to_string();
+        let path = if let Some(p) = ctx.resolved_path("path") {
+            p.to_string()
+        } else if let Some(err) = ctx.path_error("path") {
+            return Err(ErrorData::invalid_params(format!("path: {err}"), None));
+        } else {
+            ".".to_string()
+        };
         let depth = (get_int(args, "depth").unwrap_or(3) as usize).min(10);
         let show_hidden = get_bool(args, "show_hidden").unwrap_or(false);
 

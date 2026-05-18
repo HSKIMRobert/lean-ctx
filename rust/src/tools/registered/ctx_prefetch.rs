@@ -37,9 +37,13 @@ impl McpTool for CtxPrefetchTool {
         ctx: &ToolContext,
     ) -> Result<ToolOutput, ErrorData> {
         let root = if get_str(args, "root").is_some() {
-            ctx.resolved_path("root")
-                .unwrap_or(&ctx.project_root)
-                .to_string()
+            if let Some(p) = ctx.resolved_path("root") {
+                p.to_string()
+            } else if let Some(err) = ctx.path_error("root") {
+                return Err(ErrorData::invalid_params(format!("root: {err}"), None));
+            } else {
+                ctx.project_root.clone()
+            }
         } else if let Some(ref session) = ctx.session {
             let guard = tokio::task::block_in_place(|| session.blocking_read());
             guard

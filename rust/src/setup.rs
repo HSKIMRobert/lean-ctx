@@ -190,13 +190,59 @@ pub fn run_setup() {
         crate::hooks::install_agent_hook_with_mode(&target.agent_key, true, mode);
     }
 
-    // Step 5: API Proxy (autostart + env configuration)
-    terminal_ui::print_step_header(5, 11, "API Proxy");
-    let proxy_port = crate::proxy_setup::default_port();
-    crate::proxy_autostart::install(proxy_port, false);
-    // Give the proxy a moment to start before configuring env vars
-    std::thread::sleep(std::time::Duration::from_millis(500));
-    crate::proxy_setup::install_proxy_env(&home, proxy_port, false);
+    // Step 5: API Proxy (opt-in)
+    terminal_ui::print_step_header(5, 11, "API Proxy (optional)");
+    {
+        let mut cfg = crate::core::config::Config::load();
+        let proxy_port = crate::proxy_setup::default_port();
+
+        match cfg.proxy_enabled {
+            Some(true) => {
+                crate::proxy_autostart::install(proxy_port, false);
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                crate::proxy_setup::install_proxy_env(&home, proxy_port, false);
+                terminal_ui::print_status_ok("Proxy active (opted in)");
+            }
+            Some(false) => {
+                terminal_ui::print_status_skip(
+                    "Proxy disabled (run `lean-ctx proxy enable` to change)",
+                );
+            }
+            None => {
+                println!(
+                    "  \x1b[2mThe API proxy routes LLM requests through lean-ctx for additional\x1b[0m"
+                );
+                println!(
+                    "  \x1b[2mtool-result compression and precise token analytics in the dashboard.\x1b[0m"
+                );
+                println!();
+                println!(
+                    "  \x1b[2mWithout it: MCP tools, shell hooks, gain tracking, and memory\x1b[0m"
+                );
+                println!(
+                    "  \x1b[2mall work normally. The proxy adds ~5-15% extra savings on top.\x1b[0m"
+                );
+                println!();
+                print!("  Enable the API proxy? [y/N] ");
+                let _ = std::io::Write::flush(&mut std::io::stdout());
+                let mut input = String::new();
+                let _ = std::io::stdin().read_line(&mut input);
+                let answer = matches!(input.trim().to_lowercase().as_str(), "y" | "yes");
+                cfg.proxy_enabled = Some(answer);
+                let _ = cfg.save();
+                if answer {
+                    crate::proxy_autostart::install(proxy_port, false);
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    crate::proxy_setup::install_proxy_env(&home, proxy_port, false);
+                    terminal_ui::print_status_new("Proxy enabled");
+                } else {
+                    terminal_ui::print_status_skip(
+                        "Proxy skipped (run `lean-ctx proxy enable` anytime)",
+                    );
+                }
+            }
+        }
+    }
 
     // Step 6: SKILL.md installation
     terminal_ui::print_step_header(6, 11, "Skill Files");
@@ -490,6 +536,7 @@ pub struct SetupOptions {
     pub fix: bool,
     pub json: bool,
     pub no_auto_approve: bool,
+    pub skip_proxy: bool,
 }
 
 pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String> {
@@ -757,7 +804,7 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
         steps.push(hooks_step);
     }
 
-    // Step: Proxy autostart + env vars
+    // Step: Proxy autostart + env vars (respects opt-in)
     let mut proxy_step = SetupStepReport {
         name: "proxy".to_string(),
         ok: true,
@@ -765,22 +812,31 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
         warnings: Vec::new(),
         errors: Vec::new(),
     };
-    let proxy_port = crate::proxy_setup::default_port();
-    crate::proxy_autostart::install(proxy_port, true);
-    std::thread::sleep(std::time::Duration::from_millis(500));
-    crate::proxy_setup::install_proxy_env(&home, proxy_port, opts.json);
-    proxy_step.items.push(SetupItem {
-        name: "proxy_autostart".to_string(),
-        status: "installed".to_string(),
-        path: None,
-        note: Some("LaunchAgent/systemd auto-start on login".to_string()),
-    });
-    proxy_step.items.push(SetupItem {
-        name: "proxy_env".to_string(),
-        status: "configured".to_string(),
-        path: None,
-        note: Some("ANTHROPIC_BASE_URL, OPENAI_BASE_URL, GEMINI_API_BASE_URL".to_string()),
-    });
+    if opts.skip_proxy {
+        proxy_step.items.push(SetupItem {
+            name: "proxy".to_string(),
+            status: "skipped".to_string(),
+            path: None,
+            note: Some("Proxy not enabled (run `lean-ctx proxy enable`)".to_string()),
+        });
+    } else {
+        let proxy_port = crate::proxy_setup::default_port();
+        crate::proxy_autostart::install(proxy_port, true);
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        crate::proxy_setup::install_proxy_env(&home, proxy_port, opts.json);
+        proxy_step.items.push(SetupItem {
+            name: "proxy_autostart".to_string(),
+            status: "installed".to_string(),
+            path: None,
+            note: Some("LaunchAgent/systemd auto-start on login".to_string()),
+        });
+        proxy_step.items.push(SetupItem {
+            name: "proxy_env".to_string(),
+            status: "configured".to_string(),
+            path: None,
+            note: Some("ANTHROPIC_BASE_URL, OPENAI_BASE_URL, GEMINI_API_BASE_URL".to_string()),
+        });
+    }
     steps.push(proxy_step);
 
     // Step: Environment / doctor (compact)
@@ -977,21 +1033,36 @@ pub fn configure_agent_mcp(agent: &str) -> Result<(), String> {
 
     let targets = agent_mcp_targets(agent, &home)?;
 
+    let mut errors = Vec::new();
     for t in &targets {
-        crate::core::editor_registry::write_config_with_options(
+        if let Err(e) = crate::core::editor_registry::write_config_with_options(
             t,
             &binary,
             WriteOptions {
                 overwrite_invalid: true,
             },
-        )?;
+        ) {
+            eprintln!(
+                "\x1b[33m⚠\x1b[0m  Could not configure {}: {}",
+                t.config_path.display(),
+                e
+            );
+            errors.push(e);
+        }
     }
 
     if agent == "kiro" {
         install_kiro_steering(&home);
     }
 
-    Ok(())
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "{} config(s) could not be written. See warnings above.",
+            errors.len()
+        ))
+    }
 }
 
 fn agent_mcp_targets(agent: &str, home: &std::path::Path) -> Result<Vec<EditorTarget>, String> {

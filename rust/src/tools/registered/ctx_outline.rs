@@ -2,7 +2,7 @@ use rmcp::model::Tool;
 use rmcp::ErrorData;
 use serde_json::{json, Map, Value};
 
-use crate::server::tool_trait::{get_str, McpTool, ToolContext, ToolOutput};
+use crate::server::tool_trait::{get_str, require_resolved_path, McpTool, ToolContext, ToolOutput};
 use crate::tool_defs::tool_def;
 
 pub struct CtxOutlineTool;
@@ -33,10 +33,7 @@ Much fewer tokens than reading the full file.",
         args: &Map<String, Value>,
         ctx: &ToolContext,
     ) -> Result<ToolOutput, ErrorData> {
-        let path = ctx
-            .resolved_path("path")
-            .ok_or_else(|| ErrorData::invalid_params("path is required", None))?
-            .to_string();
+        let path = require_resolved_path(ctx, args, "path")?;
         let kind = get_str(args, "kind");
 
         let (result, original) = crate::tools::ctx_outline::handle(&path, kind.as_deref());

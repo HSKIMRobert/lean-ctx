@@ -62,10 +62,19 @@ impl McpTool for CtxPackTool {
         let format = get_str(args, "format");
         let depth = get_int(args, "depth").map(|d| d as usize);
         let diff = get_str(args, "diff");
-        let project_root = ctx
+        let project_root = if let Some(p) = ctx
             .resolved_path("project_root")
             .or(ctx.resolved_path("root"))
-            .unwrap_or(&ctx.project_root);
+        {
+            p
+        } else if let Some(err) = ctx.path_error("project_root").or(ctx.path_error("root")) {
+            return Err(ErrorData::invalid_params(
+                format!("project_root: {err}"),
+                None,
+            ));
+        } else {
+            &ctx.project_root
+        };
 
         let result = crate::tools::ctx_pack::handle(
             &action,

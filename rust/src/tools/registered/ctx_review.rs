@@ -48,10 +48,19 @@ impl McpTool for CtxReviewTool {
             .ok_or_else(|| ErrorData::invalid_params("action is required", None))?;
         let path = get_str(args, "path");
         let depth = get_int(args, "depth").map(|d| d as usize);
-        let project_root = ctx
+        let project_root = if let Some(p) = ctx
             .resolved_path("project_root")
             .or(ctx.resolved_path("root"))
-            .unwrap_or(&ctx.project_root);
+        {
+            p
+        } else if let Some(err) = ctx.path_error("project_root").or(ctx.path_error("root")) {
+            return Err(ErrorData::invalid_params(
+                format!("project_root: {err}"),
+                None,
+            ));
+        } else {
+            &ctx.project_root
+        };
 
         let result =
             crate::tools::ctx_review::handle(&action, path.as_deref(), project_root, depth);

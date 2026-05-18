@@ -109,11 +109,19 @@ pub struct ToolContext {
     pub autonomy: Option<std::sync::Arc<crate::tools::autonomy::AutonomyState>>,
     /// Pre-computed context pressure snapshot for synchronous gate decisions.
     pub pressure_snapshot: Option<crate::core::context_ledger::ContextPressure>,
+    /// Errors from path resolution (PathJail rejection, secret path, etc.).
+    /// Keyed by argument name (e.g. "path" -> "path escapes project root: ...").
+    pub path_errors: std::collections::HashMap<String, String>,
 }
 
 impl ToolContext {
     pub fn resolved_path(&self, arg: &str) -> Option<&str> {
         self.resolved_paths.get(arg).map(String::as_str)
+    }
+
+    /// Returns the path resolution error for a given key, if any.
+    pub fn path_error(&self, key: &str) -> Option<&str> {
+        self.path_errors.get(key).map(String::as_str)
     }
 
     /// Sync path resolution using project_root. Simplified version
@@ -145,6 +153,41 @@ impl ToolContext {
 
 // ── Arg extraction helpers (mirror server/helpers.rs for standalone use) ──
 
+/// Extract a resolved path from context with differentiated error messages.
+/// Returns descriptive errors for: missing param, PathJail rejection, wrong type.
+pub fn require_resolved_path(
+    ctx: &ToolContext,
+    args: &Map<String, Value>,
+    key: &str,
+) -> Result<String, ErrorData> {
+    if let Some(path) = ctx.resolved_path(key) {
+        return Ok(path.to_string());
+    }
+    if let Some(err) = ctx.path_error(key) {
+        return Err(ErrorData::invalid_params(format!("{key}: {err}"), None));
+    }
+    if let Some(val) = args.get(key) {
+        if !val.is_string() {
+            let type_name = match val {
+                Value::Number(_) => "number",
+                Value::Bool(_) => "boolean",
+                Value::Array(_) => "array",
+                Value::Object(_) => "object",
+                Value::Null => "null",
+                Value::String(_) => unreachable!(),
+            };
+            return Err(ErrorData::invalid_params(
+                format!("{key} must be a string, got {type_name}"),
+                None,
+            ));
+        }
+    }
+    Err(ErrorData::invalid_params(
+        format!("{key} is required"),
+        None,
+    ))
+}
+
 pub fn get_str(args: &Map<String, Value>, key: &str) -> Option<String> {
     args.get(key).and_then(|v| v.as_str()).map(String::from)
 }
@@ -163,4 +206,79 @@ pub fn get_str_array(args: &Map<String, Value>, key: &str) -> Option<Vec<String>
             .filter_map(|v| v.as_str().map(String::from))
             .collect()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn empty_ctx() -> ToolContext {
+        ToolContext {
+            project_root: String::new(),
+            minimal: false,
+            resolved_paths: std::collections::HashMap::new(),
+            crp_mode: crate::tools::CrpMode::Off,
+            cache: None,
+            session: None,
+            tool_calls: None,
+            agent_id: None,
+            workflow: None,
+            ledger: None,
+            client_name: None,
+            pipeline_stats: None,
+            call_count: None,
+            autonomy: None,
+            pressure_snapshot: None,
+            path_errors: std::collections::HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn require_resolved_path_returns_resolved() {
+        let mut ctx = empty_ctx();
+        ctx.resolved_paths
+            .insert("path".to_string(), "/abs/file.rs".to_string());
+        let args: Map<String, Value> = Map::new();
+        let result = require_resolved_path(&ctx, &args, "path");
+        assert_eq!(result.unwrap(), "/abs/file.rs");
+    }
+
+    #[test]
+    fn require_resolved_path_surfaces_jail_error() {
+        let mut ctx = empty_ctx();
+        ctx.path_errors.insert(
+            "path".to_string(),
+            "path escapes project root /project".to_string(),
+        );
+        let args: Map<String, Value> = Map::new();
+        let result = require_resolved_path(&ctx, &args, "path");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(msg.contains("escapes project root"), "got: {msg}");
+    }
+
+    #[test]
+    fn require_resolved_path_detects_non_string() {
+        let ctx = empty_ctx();
+        let mut args: Map<String, Value> = Map::new();
+        args.insert("path".to_string(), json!(42));
+        let result = require_resolved_path(&ctx, &args, "path");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(msg.contains("must be a string, got number"), "got: {msg}");
+    }
+
+    #[test]
+    fn require_resolved_path_missing_param() {
+        let ctx = empty_ctx();
+        let args: Map<String, Value> = Map::new();
+        let result = require_resolved_path(&ctx, &args, "path");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(msg.contains("path is required"), "got: {msg}");
+    }
 }

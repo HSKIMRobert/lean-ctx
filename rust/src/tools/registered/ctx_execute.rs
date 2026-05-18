@@ -2,7 +2,9 @@ use rmcp::model::Tool;
 use rmcp::ErrorData;
 use serde_json::{json, Map, Value};
 
-use crate::server::tool_trait::{get_int, get_str, McpTool, ToolContext, ToolOutput};
+use crate::server::tool_trait::{
+    get_int, get_str, require_resolved_path, McpTool, ToolContext, ToolOutput,
+};
 use crate::tool_defs::tool_def;
 
 pub struct CtxExecuteTool;
@@ -74,10 +76,7 @@ impl McpTool for CtxExecuteTool {
                 .collect();
             crate::tools::ctx_execute::handle_batch(&batch)
         } else if action == "file" {
-            let path = ctx
-                .resolved_path("path")
-                .ok_or_else(|| ErrorData::invalid_params("path is required for action=file", None))?
-                .to_string();
+            let path = require_resolved_path(ctx, args, "path")?;
             let project_root = if ctx.project_root.is_empty() {
                 None
             } else {

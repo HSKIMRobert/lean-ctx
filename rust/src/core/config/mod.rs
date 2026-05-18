@@ -253,6 +253,12 @@ pub struct Config {
     pub autonomy: AutonomyConfig,
     #[serde(default)]
     pub proxy: ProxyConfig,
+    /// Whether the API proxy is enabled. Tri-state:
+    /// - None: undecided (fresh install, will prompt on interactive setup)
+    /// - Some(true): user opted in, proxy managed by lean-ctx
+    /// - Some(false): user opted out, never touch proxy or endpoints
+    #[serde(default)]
+    pub proxy_enabled: Option<bool>,
     #[serde(default = "serde_defaults::default_buddy_enabled")]
     pub buddy_enabled: bool,
     #[serde(default = "serde_defaults::default_true")]
@@ -362,6 +368,10 @@ pub struct Config {
     /// When set, only these paths are indexed for the matching agent. Global `allow_paths` still applies.
     #[serde(default)]
     pub ide_paths: HashMap<String, Vec<String>>,
+    /// Custom model context window overrides.
+    /// Example: `[model_context_windows]\n"my-custom-model" = 500000`
+    #[serde(default)]
+    pub model_context_windows: HashMap<String, usize>,
     /// Controls how much detail tool responses include.
     ///
     /// - `full` (default): complete compressed output
@@ -387,6 +397,10 @@ pub struct Config {
     /// Override via LEAN_CTX_ALLOW_REROOT env var.
     #[serde(default)]
     pub allow_auto_reroot: bool,
+    /// Disable PathJail entirely. Set to false to allow all paths.
+    /// Useful in container/Docker environments. Override via LEAN_CTX_NO_JAIL=1.
+    #[serde(default)]
+    pub path_jail: Option<bool>,
     /// Sandbox level for code execution (ctx_exec).
     /// 0 = subprocess only (current), 1 = OS-level restriction (Seatbelt/Landlock).
     /// Override via LEAN_CTX_SANDBOX_LEVEL env var.
@@ -687,6 +701,7 @@ impl Default for Config {
             cloud: CloudConfig::default(),
             autonomy: AutonomyConfig::default(),
             proxy: ProxyConfig::default(),
+            proxy_enabled: None,
             buddy_enabled: serde_defaults::default_buddy_enabled(),
             enable_wakeup_ctx: true,
             redirect_exclude: Vec::new(),
@@ -714,11 +729,13 @@ impl Default for Config {
             project_root: None,
             lsp: std::collections::HashMap::new(),
             ide_paths: HashMap::new(),
+            model_context_windows: HashMap::new(),
             response_verbosity: ResponseVerbosity::default(),
             bypass_hints: None,
             boundary_policy: crate::core::memory_boundary::BoundaryPolicy::default(),
             secret_detection: SecretDetectionConfig::default(),
             allow_auto_reroot: false,
+            path_jail: None,
             sandbox_level: 0,
             reference_results: false,
             agent_token_budget: 0,

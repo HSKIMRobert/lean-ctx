@@ -21,7 +21,8 @@ impl McpTool for CtxShellTool {
                 "properties": {
                     "command": { "type": "string", "description": "Shell command to execute" },
                     "raw": { "type": "boolean", "description": "Skip compression, return full uncompressed output. Redaction still applies by default for non-admin roles." },
-                    "cwd": { "type": "string", "description": "Working directory for the command. If omitted, uses last cd target or project root." }
+                    "cwd": { "type": "string", "description": "Working directory for the command. If omitted, uses last cd target or project root." },
+                    "env": { "type": "object", "description": "Additional environment variables to set for the command. Use to pass agent runtime vars (e.g. CODEX_THREAD_ID).", "additionalProperties": { "type": "string" } }
                 },
                 "required": ["command"]
             }),
@@ -84,8 +85,19 @@ impl McpTool for CtxShellTool {
             let cmd_clone = command.clone();
             let cwd_clone = effective_cwd;
 
-            let (output, _exit_code) =
-                crate::server::execute::execute_command_in(&cmd_clone, &cwd_clone);
+            let extra_env: std::collections::HashMap<String, String> = args
+                .get("env")
+                .and_then(|v| v.as_object())
+                .map(|obj| {
+                    obj.iter()
+                        .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            let (output, _exit_code) = crate::server::execute::execute_command_with_env(
+                &cmd_clone, &cwd_clone, &extra_env,
+            );
 
             let (result_out, original, saved, tee_hint) = if raw {
                 let tokens = crate::core::tokens::count_tokens(&output);

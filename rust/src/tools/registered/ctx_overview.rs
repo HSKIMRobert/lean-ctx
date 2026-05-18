@@ -40,7 +40,13 @@ impl McpTool for CtxOverviewTool {
         let task = get_str(args, "task");
 
         let resolved_path = if get_str(args, "path").is_some() {
-            ctx.resolved_path("path").map(String::from)
+            if let Some(p) = ctx.resolved_path("path") {
+                Some(p.to_string())
+            } else if let Some(err) = ctx.path_error("path") {
+                return Err(ErrorData::invalid_params(format!("path: {err}"), None));
+            } else {
+                None
+            }
         } else if let Some(ref session) = ctx.session {
             let guard = tokio::task::block_in_place(|| session.blocking_read());
             guard.project_root.clone()

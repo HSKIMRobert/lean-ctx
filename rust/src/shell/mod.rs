@@ -2,7 +2,7 @@ pub mod compress;
 mod exec;
 mod interactive;
 pub mod output_policy;
-mod platform;
+pub(crate) mod platform;
 mod redact;
 
 pub use compress::compress_if_beneficial_pub;

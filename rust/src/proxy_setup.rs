@@ -8,8 +8,27 @@ const PROXY_ENV_END: &str = "# <<< lean-ctx proxy env <<<";
 const DEFAULT_PROXY_PORT: u16 = 4444;
 
 pub fn install_proxy_env(home: &Path, port: u16, quiet: bool) {
+    let cfg = crate::core::config::Config::load();
+    if cfg.proxy_enabled != Some(true) {
+        if !quiet {
+            println!("  Proxy env skipped (not enabled in config)");
+        }
+        return;
+    }
     install_shell_exports(home, port, quiet);
     install_claude_env(home, port, quiet);
+    install_codex_env(home, port, quiet);
+}
+
+/// Install proxy env without config guard (used by `lean-ctx proxy enable` which has already set the flag).
+/// `force_endpoint`: if true, overrides even non-local custom endpoints.
+pub fn install_proxy_env_unchecked(home: &Path, port: u16, quiet: bool, force_endpoint: bool) {
+    install_shell_exports(home, port, quiet);
+    if force_endpoint {
+        install_claude_env_inner(home, port, quiet, true);
+    } else {
+        install_claude_env(home, port, quiet);
+    }
     install_codex_env(home, port, quiet);
 }
 
@@ -227,6 +246,10 @@ fn uninstall_codex_env(home: &Path, quiet: bool) {
 }
 
 fn install_claude_env(home: &Path, port: u16, quiet: bool) {
+    install_claude_env_inner(home, port, quiet, false);
+}
+
+fn install_claude_env_inner(home: &Path, port: u16, quiet: bool, force: bool) {
     use crate::core::config::{is_local_proxy_url, normalize_url_opt, Config};
 
     let base = format!("http://127.0.0.1:{port}");
@@ -256,16 +279,26 @@ fn install_claude_env(home: &Path, port: u16, quiet: bool) {
         return;
     }
 
+    // HARD GUARD: never overwrite non-local endpoints unless --force
     if let Some(upstream) = normalize_url_opt(current_url) {
         if !is_local_proxy_url(&upstream) {
             let mut cfg = Config::load();
             if cfg.proxy.anthropic_upstream.is_none() {
                 cfg.proxy.anthropic_upstream = Some(upstream.clone());
                 let _ = cfg.save();
+            }
+
+            if !force {
                 if !quiet {
-                    println!("  Preserved Claude Code upstream: {upstream}");
-                    println!("    → saved as proxy.anthropic_upstream in config");
+                    eprintln!("  \u{26a0} Custom endpoint detected: {upstream}");
+                    eprintln!(
+                        "    Skipping proxy URL write. Use `lean-ctx proxy enable --force` to override."
+                    );
                 }
+                return;
+            }
+            if !quiet {
+                println!("  Overriding custom endpoint (--force): {upstream}");
             }
         }
     }

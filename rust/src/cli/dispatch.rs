@@ -826,12 +826,20 @@ pub fn run() {
                                 .find_map(|p| p.strip_prefix("--port="))
                                 .and_then(|p| p.parse().ok())
                                 .unwrap_or(4444);
+                            let cfg = crate::core::config::Config::load();
+                            println!("lean-ctx proxy:");
+                            match cfg.proxy_enabled {
+                                Some(true) => println!("  Config:  enabled"),
+                                Some(false) => println!("  Config:  disabled"),
+                                None => println!("  Config:  undecided (not yet configured)"),
+                            }
+                            println!("  Port:    {port}");
                             if let Ok(resp) =
                                 ureq::get(&format!("http://127.0.0.1:{port}/status")).call()
                             {
                                 let body = resp.into_body().read_to_string().unwrap_or_default();
+                                println!("  Process: running");
                                 if let Ok(v) = serde_json::from_str::<serde_json::Value>(&body) {
-                                    println!("lean-ctx proxy status:");
                                     println!("  Requests:    {}", v["requests_total"]);
                                     println!("  Compressed:  {}", v["requests_compressed"]);
                                     println!("  Tokens saved: {}", v["tokens_saved"]);
@@ -839,16 +847,47 @@ pub fn run() {
                                         "  Compression: {}%",
                                         v["compression_ratio_pct"].as_str().unwrap_or("0.0")
                                     );
-                                } else {
-                                    println!("{body}");
                                 }
                             } else {
-                                println!("No proxy running on port {port}.");
-                                println!("Start with: lean-ctx proxy start");
+                                println!("  Process: not running");
+                            }
+                            if cfg.proxy_enabled == Some(false) || cfg.proxy_enabled.is_none() {
+                                println!();
+                                println!("  Enable: lean-ctx proxy enable");
                             }
                         }
+                        "enable" => {
+                            let force = rest.iter().any(|a| a == "--force");
+                            let mut cfg = crate::core::config::Config::load();
+                            cfg.proxy_enabled = Some(true);
+                            let _ = cfg.save();
+
+                            let port = crate::proxy_setup::default_port();
+                            crate::proxy_autostart::install(port, false);
+                            std::thread::sleep(std::time::Duration::from_millis(500));
+
+                            let home = dirs::home_dir().unwrap_or_default();
+                            crate::proxy_setup::install_proxy_env_unchecked(
+                                &home, port, false, force,
+                            );
+                            println!("\x1b[32m✓\x1b[0m Proxy enabled on port {port}. LLM requests will be compressed.");
+                        }
+                        "disable" => {
+                            let mut cfg = crate::core::config::Config::load();
+                            cfg.proxy_enabled = Some(false);
+                            let _ = cfg.save();
+
+                            crate::proxy_autostart::uninstall(false);
+                            let home = dirs::home_dir().unwrap_or_default();
+                            crate::proxy_setup::uninstall_proxy_env(&home, false);
+
+                            println!(
+                                "\x1b[32m✓\x1b[0m Proxy disabled. Original endpoint restored."
+                            );
+                            println!("  Re-enable anytime: lean-ctx proxy enable");
+                        }
                         _ => {
-                            println!("Usage: lean-ctx proxy <start|stop|status> [--port=4444]");
+                            println!("Usage: lean-ctx proxy <start|stop|status|enable|disable> [--port=4444]");
                         }
                     }
                     return;
@@ -877,6 +916,7 @@ pub fn run() {
                         fix,
                         json,
                         no_auto_approve,
+                        ..Default::default()
                     };
                     match setup::run_setup_with_options(opts) {
                         Ok(report) => {

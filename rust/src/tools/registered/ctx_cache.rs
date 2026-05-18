@@ -2,7 +2,7 @@ use rmcp::model::Tool;
 use rmcp::ErrorData;
 use serde_json::{json, Map, Value};
 
-use crate::server::tool_trait::{get_str, McpTool, ToolContext, ToolOutput};
+use crate::server::tool_trait::{get_str, require_resolved_path, McpTool, ToolContext, ToolOutput};
 use crate::tool_defs::tool_def;
 
 pub struct CtxCacheTool;
@@ -43,13 +43,7 @@ impl McpTool for CtxCacheTool {
             .ok_or_else(|| ErrorData::invalid_params("action is required", None))?;
 
         let invalidate_path = if action == "invalidate" {
-            Some(
-                ctx.resolved_path("path")
-                    .ok_or_else(|| {
-                        ErrorData::invalid_params("path is required for invalidate", None)
-                    })?
-                    .to_string(),
-            )
+            Some(require_resolved_path(ctx, args, "path")?)
         } else {
             None
         };

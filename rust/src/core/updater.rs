@@ -351,19 +351,33 @@ fn hex_lower(bytes: &[u8]) -> String {
 }
 
 fn post_update_rewire() {
-    // run_setup_with_options now handles daemon restart internally,
-    // so no separate restart_daemon_if_running() call needed.
+    let mut cfg = crate::core::config::Config::load();
+
+    // ONE-TIME migration: if proxy_enabled is None but autostart is already installed,
+    // grandfather the user in (they had proxy from a previous version).
+    if cfg.proxy_enabled.is_none() && crate::proxy_autostart::is_installed() {
+        cfg.proxy_enabled = Some(true);
+        let _ = cfg.save();
+        eprintln!("  \u{2139} Proxy was already active \u{2014} keeping enabled.");
+        eprintln!("    Disable anytime: lean-ctx proxy disable");
+    }
+
+    let skip_proxy = cfg.proxy_enabled != Some(true);
+
     let opts = crate::setup::SetupOptions {
         non_interactive: true,
         yes: true,
         fix: true,
+        skip_proxy,
         ..Default::default()
     };
     if let Err(e) = crate::setup::run_setup_with_options(opts) {
         tracing::error!("Setup refresh error: {e}");
     }
 
-    restart_proxy_if_running();
+    if cfg.proxy_enabled == Some(true) {
+        restart_proxy_if_running();
+    }
 }
 
 fn restart_proxy_if_running() {

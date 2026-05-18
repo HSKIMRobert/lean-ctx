@@ -6,7 +6,9 @@ use rmcp::model::Tool;
 use rmcp::ErrorData;
 use serde_json::{json, Map, Value};
 
-use crate::server::tool_trait::{get_bool, get_int, get_str, McpTool, ToolContext, ToolOutput};
+use crate::server::tool_trait::{
+    get_bool, get_int, get_str, require_resolved_path, McpTool, ToolContext, ToolOutput,
+};
 use crate::tool_defs::tool_def;
 
 /// Per-file lock that serializes concurrent reads of the same path.
@@ -71,10 +73,7 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
         args: &Map<String, Value>,
         ctx: &ToolContext,
     ) -> Result<ToolOutput, ErrorData> {
-        let path = ctx
-            .resolved_path("path")
-            .ok_or_else(|| ErrorData::invalid_params("path is required", None))?
-            .to_string();
+        let path = require_resolved_path(ctx, args, "path")?;
 
         self.handle_inner(args, ctx, &path)
     }

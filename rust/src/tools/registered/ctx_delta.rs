@@ -2,7 +2,7 @@ use rmcp::model::Tool;
 use rmcp::ErrorData;
 use serde_json::{json, Map, Value};
 
-use crate::server::tool_trait::{McpTool, ToolContext, ToolOutput};
+use crate::server::tool_trait::{require_resolved_path, McpTool, ToolContext, ToolOutput};
 use crate::tool_defs::tool_def;
 
 pub struct CtxDeltaTool;
@@ -28,13 +28,10 @@ impl McpTool for CtxDeltaTool {
 
     fn handle(
         &self,
-        _args: &Map<String, Value>,
+        args: &Map<String, Value>,
         ctx: &ToolContext,
     ) -> Result<ToolOutput, ErrorData> {
-        let path = ctx
-            .resolved_path("path")
-            .ok_or_else(|| ErrorData::invalid_params("path is required", None))?
-            .to_string();
+        let path = require_resolved_path(ctx, args, "path")?;
 
         tokio::task::block_in_place(|| {
             let cache_lock = ctx

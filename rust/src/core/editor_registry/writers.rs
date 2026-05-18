@@ -74,10 +74,13 @@ pub fn remove_lean_ctx_mcp_server(
             if !opts.overwrite_invalid {
                 return Err(e.to_string());
             }
-            backup_invalid_file(path)?;
+            eprintln!(
+                "\x1b[33m⚠\x1b[0m  {} has JSON syntax errors — skipping removal.",
+                path.display()
+            );
             return Ok(WriteResult {
-                action: WriteAction::Updated,
-                note: Some("backed up invalid JSON; did not modify".to_string()),
+                action: WriteAction::Already,
+                note: Some("invalid JSON — cannot safely remove lean-ctx entry".to_string()),
             });
         }
     };
@@ -151,10 +154,13 @@ fn remove_lean_ctx_vscode_server(
             if !opts.overwrite_invalid {
                 return Err(e.to_string());
             }
-            backup_invalid_file(path)?;
+            eprintln!(
+                "\x1b[33m⚠\x1b[0m  {} has JSON syntax errors — skipping removal.",
+                path.display()
+            );
             return Ok(WriteResult {
-                action: WriteAction::Updated,
-                note: Some("backed up invalid JSON; did not modify".to_string()),
+                action: WriteAction::Already,
+                note: Some("invalid JSON — cannot safely remove lean-ctx entry".to_string()),
             });
         }
     };
@@ -206,10 +212,13 @@ fn remove_lean_ctx_amp_server(
             if !opts.overwrite_invalid {
                 return Err(e.to_string());
             }
-            backup_invalid_file(path)?;
+            eprintln!(
+                "\x1b[33m⚠\x1b[0m  {} has JSON syntax errors — skipping removal.",
+                path.display()
+            );
             return Ok(WriteResult {
-                action: WriteAction::Updated,
-                note: Some("backed up invalid JSON; did not modify".to_string()),
+                action: WriteAction::Already,
+                note: Some("invalid JSON — cannot safely remove lean-ctx entry".to_string()),
             });
         }
     };
@@ -261,10 +270,13 @@ fn remove_lean_ctx_named_json_server(
             if !opts.overwrite_invalid {
                 return Err(e.to_string());
             }
-            backup_invalid_file(path)?;
+            eprintln!(
+                "\x1b[33m⚠\x1b[0m  {} has JSON syntax errors — skipping removal.",
+                path.display()
+            );
             return Ok(WriteResult {
-                action: WriteAction::Updated,
-                note: Some("backed up invalid JSON; did not modify".to_string()),
+                action: WriteAction::Already,
+                note: Some("invalid JSON — cannot safely remove lean-ctx entry".to_string()),
             });
         }
     };
@@ -548,15 +560,14 @@ fn write_mcp_json(
         let content = std::fs::read_to_string(&target.config_path).map_err(|e| e.to_string())?;
         let mut json = match crate::core::jsonc::parse_jsonc(&content) {
             Ok(v) => v,
-            Err(e) => {
-                if !opts.overwrite_invalid {
-                    return Err(e.to_string());
-                }
-                backup_invalid_file(&target.config_path)?;
-                return write_mcp_json_fresh(
+            Err(_e) => {
+                return handle_invalid_json_write(
                     &target.config_path,
+                    &content,
+                    "mcpServers",
+                    "lean-ctx",
                     &desired,
-                    Some("overwrote invalid JSON".to_string()),
+                    opts.overwrite_invalid,
                 );
             }
         };
@@ -720,15 +731,14 @@ fn write_zed_config(
         let content = std::fs::read_to_string(&target.config_path).map_err(|e| e.to_string())?;
         let mut json = match crate::core::jsonc::parse_jsonc(&content) {
             Ok(v) => v,
-            Err(e) => {
-                if !opts.overwrite_invalid {
-                    return Err(e.to_string());
-                }
-                backup_invalid_file(&target.config_path)?;
-                return write_zed_config_fresh(
+            Err(_e) => {
+                return handle_invalid_json_write(
                     &target.config_path,
+                    &content,
+                    "context_servers",
+                    "lean-ctx",
                     &desired,
-                    Some("overwrote invalid JSON".to_string()),
+                    opts.overwrite_invalid,
                 );
             }
         };
@@ -825,15 +835,14 @@ fn write_vscode_mcp(
         let content = std::fs::read_to_string(&target.config_path).map_err(|e| e.to_string())?;
         let mut json = match crate::core::jsonc::parse_jsonc(&content) {
             Ok(v) => v,
-            Err(e) => {
-                if !opts.overwrite_invalid {
-                    return Err(e.to_string());
-                }
-                backup_invalid_file(&target.config_path)?;
-                return write_vscode_mcp_fresh(
+            Err(_e) => {
+                return handle_invalid_json_write(
                     &target.config_path,
-                    binary,
-                    Some("overwrote invalid JSON".to_string()),
+                    &content,
+                    "servers",
+                    "lean-ctx",
+                    &desired,
+                    opts.overwrite_invalid,
                 );
             }
         };
@@ -910,15 +919,14 @@ fn write_opencode_config(
         let content = std::fs::read_to_string(&target.config_path).map_err(|e| e.to_string())?;
         let mut json = match crate::core::jsonc::parse_jsonc(&content) {
             Ok(v) => v,
-            Err(e) => {
-                if !opts.overwrite_invalid {
-                    return Err(e.to_string());
-                }
-                backup_invalid_file(&target.config_path)?;
-                return write_opencode_fresh(
+            Err(_e) => {
+                return handle_invalid_json_write(
                     &target.config_path,
-                    binary,
-                    Some("overwrote invalid JSON".to_string()),
+                    &content,
+                    "mcp",
+                    "lean-ctx",
+                    &desired,
+                    opts.overwrite_invalid,
                 );
             }
         };
@@ -995,21 +1003,15 @@ fn write_jetbrains_config(
         let content = std::fs::read_to_string(&target.config_path).map_err(|e| e.to_string())?;
         let mut json = match crate::core::jsonc::parse_jsonc(&content) {
             Ok(v) => v,
-            Err(e) => {
-                if !opts.overwrite_invalid {
-                    return Err(e.to_string());
-                }
-                backup_invalid_file(&target.config_path)?;
-                let fresh = serde_json::json!({ "mcpServers": { "lean-ctx": desired } });
-                let formatted = serde_json::to_string_pretty(&fresh).map_err(|e| e.to_string())?;
-                crate::config_io::write_atomic_with_backup(&target.config_path, &formatted)?;
-                return Ok(WriteResult {
-                    action: WriteAction::Updated,
-                    note: Some(
-                        "overwrote invalid JSON (paste this snippet into JetBrains MCP settings)"
-                            .to_string(),
-                    ),
-                });
+            Err(_e) => {
+                return handle_invalid_json_write(
+                    &target.config_path,
+                    &content,
+                    "mcpServers",
+                    "lean-ctx",
+                    &desired,
+                    opts.overwrite_invalid,
+                );
             }
         };
         let obj = json
@@ -1066,18 +1068,15 @@ fn write_amp_config(
         let content = std::fs::read_to_string(&target.config_path).map_err(|e| e.to_string())?;
         let mut json = match crate::core::jsonc::parse_jsonc(&content) {
             Ok(v) => v,
-            Err(e) => {
-                if !opts.overwrite_invalid {
-                    return Err(e.to_string());
-                }
-                backup_invalid_file(&target.config_path)?;
-                let fresh = serde_json::json!({ "amp.mcpServers": { "lean-ctx": entry } });
-                let formatted = serde_json::to_string_pretty(&fresh).map_err(|e| e.to_string())?;
-                crate::config_io::write_atomic_with_backup(&target.config_path, &formatted)?;
-                return Ok(WriteResult {
-                    action: WriteAction::Updated,
-                    note: Some("overwrote invalid JSON".to_string()),
-                });
+            Err(_e) => {
+                return handle_invalid_json_write(
+                    &target.config_path,
+                    &content,
+                    "amp.mcpServers",
+                    "lean-ctx",
+                    &entry,
+                    opts.overwrite_invalid,
+                );
             }
         };
         let obj = json
@@ -1134,15 +1133,14 @@ fn write_crush_config(
         let content = std::fs::read_to_string(&target.config_path).map_err(|e| e.to_string())?;
         let mut json = match crate::core::jsonc::parse_jsonc(&content) {
             Ok(v) => v,
-            Err(e) => {
-                if !opts.overwrite_invalid {
-                    return Err(e.to_string());
-                }
-                backup_invalid_file(&target.config_path)?;
-                return write_crush_fresh(
+            Err(_e) => {
+                return handle_invalid_json_write(
                     &target.config_path,
+                    &content,
+                    "mcp",
+                    "lean-ctx",
                     &desired,
-                    Some("overwrote invalid JSON".to_string()),
+                    opts.overwrite_invalid,
                 );
             }
         };
@@ -1294,18 +1292,15 @@ fn write_gemini_settings(
         let content = std::fs::read_to_string(&target.config_path).map_err(|e| e.to_string())?;
         let mut json = match crate::core::jsonc::parse_jsonc(&content) {
             Ok(v) => v,
-            Err(e) => {
-                if !opts.overwrite_invalid {
-                    return Err(e.to_string());
-                }
-                backup_invalid_file(&target.config_path)?;
-                let fresh = serde_json::json!({ "mcpServers": { "lean-ctx": entry } });
-                let formatted = serde_json::to_string_pretty(&fresh).map_err(|e| e.to_string())?;
-                crate::config_io::write_atomic_with_backup(&target.config_path, &formatted)?;
-                return Ok(WriteResult {
-                    action: WriteAction::Updated,
-                    note: Some("overwrote invalid JSON".to_string()),
-                });
+            Err(_e) => {
+                return handle_invalid_json_write(
+                    &target.config_path,
+                    &content,
+                    "mcpServers",
+                    "lean-ctx",
+                    &entry,
+                    opts.overwrite_invalid,
+                );
             }
         };
         let obj = json
@@ -1456,15 +1451,14 @@ fn write_qoder_settings(
         let content = std::fs::read_to_string(&target.config_path).map_err(|e| e.to_string())?;
         let mut json = match crate::core::jsonc::parse_jsonc(&content) {
             Ok(v) => v,
-            Err(e) => {
-                if !opts.overwrite_invalid {
-                    return Err(e.to_string());
-                }
-                backup_invalid_file(&target.config_path)?;
-                return write_mcp_json_fresh(
+            Err(_e) => {
+                return handle_invalid_json_write(
                     &target.config_path,
+                    &content,
+                    "mcpServers",
+                    "lean-ctx",
                     &desired,
-                    Some("overwrote invalid JSON".to_string()),
+                    opts.overwrite_invalid,
                 );
             }
         };
@@ -1498,9 +1492,9 @@ fn write_qoder_settings(
     write_mcp_json_fresh(&target.config_path, &desired, None)
 }
 
-fn backup_invalid_file(path: &std::path::Path) -> Result<(), String> {
+fn backup_invalid_file(path: &std::path::Path) -> Result<std::path::PathBuf, String> {
     if !path.exists() {
-        return Ok(());
+        return Ok(path.to_path_buf());
     }
     let parent = path
         .parent()
@@ -1514,8 +1508,155 @@ fn backup_invalid_file(path: &std::path::Path) -> Result<(), String> {
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());
     let bak = parent.join(format!("{filename}.lean-ctx.invalid.{pid}.{nanos}.bak"));
-    std::fs::rename(path, bak).map_err(|e| e.to_string())?;
-    Ok(())
+    std::fs::copy(path, &bak).map_err(|e| e.to_string())?;
+    Ok(bak)
+}
+
+/// Safe handler for invalid JSON config files. NEVER silently overwrites.
+/// Strategy:
+/// 1. If lean-ctx is already present in text → skip (no-op)
+/// 2. Try text-based injection into the container key
+/// 3. If injection fails → warn user with clear instructions, do NOT modify file
+fn handle_invalid_json_write(
+    path: &std::path::Path,
+    content: &str,
+    container_key: &str,
+    entry_key: &str,
+    value: &serde_json::Value,
+    allow_inject: bool,
+) -> Result<WriteResult, String> {
+    if content.contains(&format!("\"{entry_key}\"")) {
+        eprintln!(
+            "\x1b[33m⚠\x1b[0m  {} has JSON syntax errors but already contains \"{entry_key}\".",
+            path.display()
+        );
+        eprintln!("   Skipping — your config is untouched.");
+        return Ok(WriteResult {
+            action: WriteAction::Already,
+            note: Some(format!("invalid JSON, {entry_key} already present")),
+        });
+    }
+
+    if !allow_inject {
+        return Err(format!(
+            "{} contains invalid JSON. Fix the syntax and re-run lean-ctx setup.\n  Path: {}",
+            path.display(),
+            path.display()
+        ));
+    }
+
+    // Try text-based injection
+    if let Some(patched) = try_text_inject_mcp_entry(content, container_key, entry_key, value) {
+        let bak = backup_invalid_file(path)?;
+        crate::config_io::write_atomic_with_backup(path, &patched)?;
+        eprintln!(
+            "\x1b[32m✓\x1b[0m  Added {entry_key} to {} (text-based; file has syntax errors).",
+            path.display()
+        );
+        eprintln!("   \x1b[33mNote:\x1b[0m Your config has JSON syntax errors — please fix them.");
+        eprintln!("   Backup: {}", bak.display());
+        return Ok(WriteResult {
+            action: WriteAction::Updated,
+            note: Some(format!(
+                "text-injected into invalid JSON (backup: {})",
+                bak.display()
+            )),
+        });
+    }
+
+    // Cannot safely modify — inform user
+    eprintln!(
+        "\x1b[33m⚠\x1b[0m  {} contains invalid JSON that lean-ctx cannot safely modify.",
+        path.display()
+    );
+    eprintln!("   \x1b[1mYour config was NOT changed.\x1b[0m");
+    eprintln!("   To fix:");
+    eprintln!(
+        "     1. Open {} and correct the JSON syntax errors",
+        path.display()
+    );
+    eprintln!("     2. Re-run: lean-ctx setup");
+    eprintln!("   (Common issue: trailing commas, missing quotes, unmatched braces)");
+    Ok(WriteResult {
+        action: WriteAction::Already,
+        note: Some(format!(
+            "invalid JSON — user must fix manually: {}",
+            path.display()
+        )),
+    })
+}
+
+/// Attempt to inject an MCP entry into a JSON file using text manipulation.
+/// Preserves the original file content even if it has syntax errors.
+/// Returns None if text structure doesn't allow safe injection.
+fn try_text_inject_mcp_entry(
+    content: &str,
+    container_key: &str,
+    entry_key: &str,
+    value: &serde_json::Value,
+) -> Option<String> {
+    let entry = serde_json::to_string_pretty(value).ok()?;
+    let indented_entry = entry
+        .lines()
+        .enumerate()
+        .map(|(i, line)| {
+            if i == 0 {
+                format!("    \"{entry_key}\": {line}")
+            } else {
+                format!("    {line}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    // Strategy 1: find the target container key and inject after its opening brace.
+    // Prioritize the exact container_key, then fall back to common alternatives.
+    let quoted_container = format!("\"{container_key}\"");
+    let search_keys: Vec<&str> = std::iter::once(quoted_container.as_str())
+        .chain(
+            [
+                "\"mcp\"",
+                "\"mcpServers\"",
+                "\"servers\"",
+                "\"context_servers\"",
+            ]
+            .iter()
+            .filter(|k| **k != quoted_container.as_str())
+            .copied(),
+        )
+        .collect();
+
+    for container in &search_keys {
+        if let Some(pos) = content.find(container) {
+            let after = &content[pos..];
+            if let Some(brace_offset) = after.find('{') {
+                let insert_pos = pos + brace_offset + 1;
+                let before = &content[..insert_pos];
+                let rest = &content[insert_pos..];
+                let needs_comma = !rest.trim_start().starts_with('}');
+                let injection = if needs_comma {
+                    format!("\n{indented_entry},")
+                } else {
+                    format!("\n{indented_entry}\n  ")
+                };
+                return Some(format!("{before}{injection}{rest}"));
+            }
+        }
+    }
+
+    // Strategy 2: inject a new container block before the closing root brace
+    if let Some(last_brace) = content.rfind('}') {
+        let before = &content[..last_brace];
+        let after = &content[last_brace..];
+        let needs_comma = before.trim_end().ends_with('}')
+            || before.trim_end().ends_with('"')
+            || before.trim_end().ends_with(']');
+        let comma = if needs_comma { "," } else { "" };
+        let block = format!("{comma}\n  \"{container_key}\": {{\n{indented_entry}\n  }}\n");
+        return Some(format!("{before}{block}{after}"));
+    }
+
+    None
 }
 
 #[cfg(test)]
@@ -1936,5 +2077,119 @@ command = \"probe\"
         let input = "[other]\nx = 1\n";
         let result = remove_codex_toml_section(input, "[mcp_servers.lean-ctx]");
         assert_eq!(result, "[other]\nx = 1\n");
+    }
+
+    #[test]
+    fn text_inject_into_existing_mcp_object() {
+        let content = r#"{
+  "mcp": {}
+}"#;
+        let value = serde_json::json!({"type": "local", "command": ["lean-ctx"]});
+        let result = try_text_inject_mcp_entry(content, "mcp", "lean-ctx", &value);
+        assert!(result.is_some());
+        let patched = result.unwrap();
+        assert!(patched.contains("\"lean-ctx\""));
+        assert!(patched.contains("\"type\": \"local\""));
+    }
+
+    #[test]
+    fn text_inject_creates_container_when_missing() {
+        let content = r#"{
+  "some_other_key": "value"
+}"#;
+        let value = serde_json::json!({"command": "lean-ctx"});
+        // For mcpServers container
+        let result = try_text_inject_mcp_entry(content, "mcpServers", "lean-ctx", &value);
+        assert!(result.is_some());
+        let patched = result.unwrap();
+        assert!(patched.contains("\"mcpServers\""));
+        assert!(patched.contains("\"lean-ctx\""));
+
+        // For mcp container (OpenCode)
+        let result2 = try_text_inject_mcp_entry(content, "mcp", "lean-ctx", &value);
+        assert!(result2.is_some());
+        let patched2 = result2.unwrap();
+        assert!(patched2.contains("\"mcp\""));
+        assert!(patched2.contains("\"lean-ctx\""));
+
+        // For context_servers container (Zed)
+        let result3 = try_text_inject_mcp_entry(content, "context_servers", "lean-ctx", &value);
+        assert!(result3.is_some());
+        let patched3 = result3.unwrap();
+        assert!(patched3.contains("\"context_servers\""));
+        assert!(patched3.contains("\"lean-ctx\""));
+    }
+
+    #[test]
+    fn text_inject_into_populated_mcp_object() {
+        let content = r#"{
+  "mcp": {
+    "other-server": {"type": "local"}
+  }
+}"#;
+        let value = serde_json::json!({"type": "local", "command": ["lean-ctx"]});
+        let result = try_text_inject_mcp_entry(content, "mcp", "lean-ctx", &value);
+        assert!(result.is_some());
+        let patched = result.unwrap();
+        assert!(patched.contains("\"lean-ctx\""));
+        assert!(patched.contains("\"other-server\""));
+    }
+
+    #[test]
+    fn handle_invalid_json_skips_when_entry_already_present() {
+        let content = r#"{ invalid json "lean-ctx": stuff }"#;
+        let value = serde_json::json!({"type": "local"});
+        let result = handle_invalid_json_write(
+            std::path::Path::new("/tmp/test.json"),
+            content,
+            "mcp",
+            "lean-ctx",
+            &value,
+            true,
+        );
+        assert!(result.is_ok());
+        let r = result.unwrap();
+        assert_eq!(r.action, WriteAction::Already);
+    }
+
+    #[test]
+    fn handle_invalid_json_returns_error_when_inject_disabled() {
+        let content = r"{ invalid json without key }";
+        let value = serde_json::json!({"type": "local"});
+        let result = handle_invalid_json_write(
+            std::path::Path::new("/tmp/test.json"),
+            content,
+            "mcp",
+            "lean-ctx",
+            &value,
+            false,
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn handle_invalid_json_does_not_overwrite_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("opencode.json");
+        let invalid_content = r#"{ "mcp": { BROKEN "other": true } }"#;
+        std::fs::write(&path, invalid_content).unwrap();
+
+        let value = serde_json::json!({"type": "local", "command": ["lean-ctx"]});
+        let result =
+            handle_invalid_json_write(&path, invalid_content, "mcp", "lean-ctx", &value, true);
+        assert!(result.is_ok());
+        let r = result.unwrap();
+        assert_eq!(r.action, WriteAction::Updated);
+
+        // Original file should still exist (not deleted/renamed)
+        let final_content = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            final_content.contains("lean-ctx"),
+            "lean-ctx should be injected"
+        );
+        assert!(
+            final_content.contains("BROKEN"),
+            "original content preserved"
+        );
     }
 }

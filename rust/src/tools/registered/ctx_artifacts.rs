@@ -64,10 +64,16 @@ impl McpTool for CtxArtifactsTool {
         let query = get_str(args, "query");
         let name = get_str(args, "name");
         let top_k = get_int(args, "top_k").map(|d| d as usize);
-        let root = ctx
+        let root = if let Some(p) = ctx
             .resolved_path("project_root")
             .or(ctx.resolved_path("root"))
-            .unwrap_or(&ctx.project_root);
+        {
+            p
+        } else if let Some(err) = ctx.path_error("project_root").or(ctx.path_error("root")) {
+            return Err(ErrorData::invalid_params(format!("root: {err}"), None));
+        } else {
+            &ctx.project_root
+        };
 
         let result = crate::tools::ctx_artifacts::handle(
             &action,

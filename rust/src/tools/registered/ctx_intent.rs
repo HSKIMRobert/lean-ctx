@@ -34,7 +34,16 @@ impl McpTool for CtxIntentTool {
     ) -> Result<ToolOutput, ErrorData> {
         let query = get_str(args, "query")
             .ok_or_else(|| ErrorData::invalid_params("query is required", None))?;
-        let root = ctx.resolved_path("project_root").unwrap_or(".").to_string();
+        let root = if let Some(p) = ctx.resolved_path("project_root") {
+            p.to_string()
+        } else if let Some(err) = ctx.path_error("project_root") {
+            return Err(ErrorData::invalid_params(
+                format!("project_root: {err}"),
+                None,
+            ));
+        } else {
+            ".".to_string()
+        };
         let format = get_str(args, "format");
 
         let cache = ctx.cache.as_ref().unwrap();

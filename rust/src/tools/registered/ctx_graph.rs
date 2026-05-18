@@ -58,14 +58,27 @@ impact (blast radius), status (stats), enrich (add commits+tests+knowledge), con
         // For diagram action, pass the raw path; for others, use the resolved path.
         let path = if action == "diagram" {
             get_str(args, "path")
+        } else if let Some(p) = ctx.resolved_path("path") {
+            Some(p.to_string())
+        } else if ctx.path_error("path").is_some() && get_str(args, "path").is_some() {
+            return Err(ErrorData::invalid_params(
+                format!("path: {}", ctx.path_error("path").unwrap()),
+                None,
+            ));
         } else {
-            ctx.resolved_path("path").map(String::from)
+            None
         };
 
-        let root = ctx
-            .resolved_path("project_root")
-            .unwrap_or(&ctx.project_root)
-            .to_string();
+        let root = if let Some(p) = ctx.resolved_path("project_root") {
+            p.to_string()
+        } else if let Some(err) = ctx.path_error("project_root") {
+            return Err(ErrorData::invalid_params(
+                format!("project_root: {err}"),
+                None,
+            ));
+        } else {
+            ctx.project_root.clone()
+        };
         let depth = get_int(args, "depth").map(|d| d as usize);
         let kind = get_str(args, "kind");
 

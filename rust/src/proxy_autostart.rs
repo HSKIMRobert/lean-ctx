@@ -75,6 +75,22 @@ pub fn uninstall(_quiet: bool) {
     uninstall_systemd(_quiet);
 }
 
+/// Returns true if the proxy autostart is installed (plist/systemd service file exists).
+pub fn is_installed() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        launchagent_path().exists()
+    }
+    #[cfg(target_os = "linux")]
+    {
+        systemd_path().exists()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        false
+    }
+}
+
 pub fn status() {
     #[cfg(target_os = "macos")]
     {

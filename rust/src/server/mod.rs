@@ -1211,7 +1211,38 @@ pub fn derive_project_root_from_cwd() -> Option<String> {
         return Some(root);
     }
 
+    // Fallback: use CWD as project root if it's a specific, safe directory.
+    // This ensures bare directories (no .git, no markers) still work.
+    // Guard: reject home dir, filesystem root, and agent sandbox dirs.
+    if !is_broad_or_unsafe_root(&canonical) {
+        tracing::info!(
+            "No project markers found — using CWD as project root: {}",
+            canonical.display()
+        );
+        return Some(canonical.to_string_lossy().to_string());
+    }
+
     None
+}
+
+/// Returns true if a directory is too broad/unsafe to serve as a jail root.
+/// Rejects: home directory, filesystem root, agent sandbox dirs.
+/// Does NOT reject specific subdirectories like /tmp/my-project or /home/user/data.
+fn is_broad_or_unsafe_root(dir: &std::path::Path) -> bool {
+    if let Some(home) = dirs::home_dir() {
+        if dir == home {
+            return true;
+        }
+    }
+    let s = dir.to_string_lossy();
+    if s == "/" || s == "\\" || s == "." {
+        return true;
+    }
+    // Agent sandbox directories
+    s.ends_with("/.claude")
+        || s.ends_with("/.codex")
+        || s.contains("/.claude/")
+        || s.contains("/.codex/")
 }
 
 /// Detect a multi-root workspace: a directory that has no project markers
@@ -1400,6 +1431,73 @@ mod tests {
         assert!(
             result.is_none(),
             "should not detect workspace with only 1 child project"
+        );
+    }
+
+    #[test]
+    fn is_broad_or_unsafe_root_rejects_home() {
+        if let Some(home) = dirs::home_dir() {
+            assert!(is_broad_or_unsafe_root(&home));
+        }
+    }
+
+    #[test]
+    fn is_broad_or_unsafe_root_rejects_filesystem_root() {
+        assert!(is_broad_or_unsafe_root(std::path::Path::new("/")));
+    }
+
+    #[test]
+    fn is_broad_or_unsafe_root_rejects_agent_dirs() {
+        assert!(is_broad_or_unsafe_root(std::path::Path::new(
+            "/home/user/.claude"
+        )));
+        assert!(is_broad_or_unsafe_root(std::path::Path::new(
+            "/home/user/.codex"
+        )));
+    }
+
+    #[test]
+    fn is_broad_or_unsafe_root_allows_project_subdir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let subdir = tmp.path().join("my-project");
+        std::fs::create_dir_all(&subdir).unwrap();
+        assert!(!is_broad_or_unsafe_root(&subdir));
+    }
+
+    #[test]
+    fn is_broad_or_unsafe_root_allows_tmp_subdirs() {
+        assert!(!is_broad_or_unsafe_root(std::path::Path::new(
+            "/tmp/leanctx-test"
+        )));
+        assert!(!is_broad_or_unsafe_root(std::path::Path::new(
+            "/tmp/my-project"
+        )));
+    }
+
+    #[test]
+    fn is_broad_or_unsafe_root_allows_home_subdirs() {
+        if let Some(home) = dirs::home_dir() {
+            let subdir = home.join("projects").join("my-app");
+            assert!(!is_broad_or_unsafe_root(&subdir));
+        }
+    }
+
+    #[test]
+    fn derive_project_root_falls_back_to_bare_cwd() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bare = tmp.path().join("bare-dir");
+        std::fs::create_dir_all(&bare).unwrap();
+
+        let original = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&bare).unwrap();
+        let result = derive_project_root_from_cwd();
+        std::env::set_current_dir(original).unwrap();
+
+        assert!(result.is_some(), "bare dir should produce a project root");
+        let root = result.unwrap();
+        assert!(
+            root.contains("bare-dir"),
+            "fallback should use the bare dir path"
         );
     }
 }

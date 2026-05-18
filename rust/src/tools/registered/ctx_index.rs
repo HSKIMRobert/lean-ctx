@@ -43,10 +43,19 @@ impl McpTool for CtxIndexTool {
     ) -> Result<ToolOutput, ErrorData> {
         let action = get_str(args, "action")
             .ok_or_else(|| ErrorData::invalid_params("action is required", None))?;
-        let root = ctx
+        let root = if let Some(p) = ctx
             .resolved_path("project_root")
             .or(ctx.resolved_path("root"))
-            .unwrap_or(&ctx.project_root);
+        {
+            p
+        } else if let Some(err) = ctx.path_error("project_root").or(ctx.path_error("root")) {
+            return Err(ErrorData::invalid_params(
+                format!("project_root: {err}"),
+                None,
+            ));
+        } else {
+            &ctx.project_root
+        };
 
         let result = crate::tools::ctx_index::handle(&action, Path::new(root));
 
