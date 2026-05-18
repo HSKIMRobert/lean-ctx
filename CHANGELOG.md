@@ -9,6 +9,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 - **Active Context Gate** — Pressure-based auto-downgrade: when context utilization exceeds 75%, reads are automatically downgraded (full→map, map→signatures). Reinjection plan retroactively marks existing "full" entries as "map" under pressure. Φ scores now computed with real task context from SessionState.
 
+## [3.6.8] — 2026-05-18
+
+### Added
+
+- **Post-RRF Reranking Pipeline** — New `core/search_reranking.rs` module with 5 scientifically-grounded signals applied after Reciprocal Rank Fusion:
+  - **Query-Type Classifier** (SACL, EMNLP 2025) — Auto-detects Symbol / Natural Language / Architecture queries and adjusts BM25:Dense weight ratio (1.4:0.6 / 1.0:1.0 / 0.6:1.4)
+  - **Definition Boost** (CoRNStack, ICLR 2025) — Symbol queries boost defining chunks (struct/function/class) by 3x via ChunkKind + AST keyword matching
+  - **File Coherence Boost** (SweRank, 2025) — Files with multiple relevant chunks get a normalized 20% score boost
+  - **Noise Penalties** (CoRNStack) — Test files (0.3x), legacy/compat (0.3x), examples (0.3x), barrel/index (0.5x), type stubs (0.7x) are automatically down-ranked
+  - **MMR Diversity** (Carbonell & Goldstein, SIGIR 1998) — File-saturation decay prevents single-file dominance in top-k results via greedy reselection
+- **BM25 Path-Enrichment** (SACL, +7–12.8% recall) — File stem and parent directory are doubled into BM25 document content, enabling path-aware queries like "auth handler"
+- **`find_related` action** in `ctx_semantic_search` — Chunk-based similarity search: given a file path + line, finds semantically related code chunks across the project
+
+### Fixed
+
+- **Workflow "done" state blocks all tools permanently** — `handle_complete` now clears the workflow file (terminal state) instead of persisting it. Added safety nets: gate auto-clears stale "done" workflows, `list_tools` no longer restricts visibility in terminal state, and `ctx_handoff` pull/import refuses to restore "done" workflows
+- **`ctx_read` lines:N-M mode hangs on large files** — Line-range reads no longer trigger expensive `build_graph_related_hint` and `find_similar_and_update_semantic_index` computations (fast path bypasses all hint generation)
+
+### Tests
+
+- 15 new reranking scenario tests covering symbol boost, NL queries, test penalization, diversity, coherence, legacy/compat, type stubs, architecture classification, barrel files, qualified symbols, and multi-signal interaction
+- 10 new workflow scenario tests validating stop/clear/complete/handoff behavior with "done" state
+
 ## [3.6.7] — 2026-05-18
 
 ### Added
