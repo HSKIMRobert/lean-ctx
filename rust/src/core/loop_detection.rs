@@ -7,6 +7,19 @@ const SEARCH_TOOLS: &[&str] = &["ctx_search", "ctx_semantic_search"];
 
 const SEARCH_SHELL_PREFIXES: &[&str] = &["grep ", "rg ", "find ", "fd ", "ag ", "ack "];
 
+const CORRECTION_WINDOW: Duration = Duration::from_mins(2);
+const MODE_BOUNCE_WINDOW: Duration = Duration::from_secs(30);
+const SHELL_RERUN_WINDOW: Duration = Duration::from_mins(1);
+const COLD_START_CALLS: u32 = 3;
+
+/// Classification of why an agent re-requested data it already had.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CorrectionKind {
+    FreshReRead,
+    ShellReRun,
+    ModeBounce,
+}
+
 /// Tracks repeated tool calls within a time window to detect and throttle agent loops.
 #[derive(Debug, Clone)]
 pub struct LoopDetector {
@@ -21,6 +34,11 @@ pub struct LoopDetector {
     blocked_threshold: u32,
     window: Duration,
     search_group_limit: u32,
+    // Correction-loop tracking (Fix A)
+    correction_signals: Vec<(Instant, CorrectionKind)>,
+    recent_reads: HashMap<String, (Instant, String)>,
+    recent_commands: HashMap<String, Instant>,
+    total_calls: u32,
 }
 
 /// Severity of throttling applied to a repeated call: normal, reduced, or blocked.
@@ -70,6 +88,10 @@ impl LoopDetector {
             } else {
                 cfg.search_group_limit.max(3)
             },
+            correction_signals: Vec::new(),
+            recent_reads: HashMap::new(),
+            recent_commands: HashMap::new(),
+            total_calls: 0,
         }
     }
 
@@ -276,12 +298,103 @@ impl LoopDetector {
         entries
     }
 
+    /// Records a ctx_read call and detects correction signals:
+    /// - `fresh=true` re-read of a previously cached file
+    /// - Mode bounce: map/signatures followed by full within 30s
+    pub fn record_read_for_correction(&mut self, path: &str, mode: &str, fresh: bool) {
+        self.total_calls += 1;
+        let now = Instant::now();
+
+        if self.total_calls <= COLD_START_CALLS {
+            self.recent_reads
+                .insert(path.to_string(), (now, mode.to_string()));
+            return;
+        }
+
+        if fresh {
+            if let Some((prev_time, _)) = self.recent_reads.get(path) {
+                if now.duration_since(*prev_time) < CORRECTION_WINDOW {
+                    self.correction_signals
+                        .push((now, CorrectionKind::FreshReRead));
+                }
+            }
+        }
+
+        if mode == "full" {
+            if let Some((prev_time, prev_mode)) = self.recent_reads.get(path) {
+                let is_bounce = (prev_mode == "map" || prev_mode == "signatures")
+                    && now.duration_since(*prev_time) < MODE_BOUNCE_WINDOW;
+                if is_bounce {
+                    self.correction_signals
+                        .push((now, CorrectionKind::ModeBounce));
+                }
+            }
+        }
+
+        self.recent_reads
+            .insert(path.to_string(), (now, mode.to_string()));
+    }
+
+    /// Records a ctx_shell command and detects re-runs of the same command within 60s.
+    pub fn record_shell_for_correction(&mut self, command: &str) {
+        self.total_calls += 1;
+        let now = Instant::now();
+
+        if self.total_calls <= COLD_START_CALLS {
+            self.recent_commands.insert(command.to_string(), now);
+            return;
+        }
+
+        let key = normalize_shell_command(command);
+        if let Some(prev_time) = self.recent_commands.get(&key) {
+            if now.duration_since(*prev_time) < SHELL_RERUN_WINDOW {
+                self.correction_signals
+                    .push((now, CorrectionKind::ShellReRun));
+            }
+        }
+        self.recent_commands.insert(key, now);
+    }
+
+    /// Returns the number of correction signals in the sliding window.
+    pub fn correction_count(&self) -> u32 {
+        let now = Instant::now();
+        self.correction_signals
+            .iter()
+            .filter(|(t, _)| now.duration_since(*t) < CORRECTION_WINDOW)
+            .count() as u32
+    }
+
+    /// Returns the correction rate: signals per minute within the window.
+    pub fn correction_rate(&self) -> f64 {
+        let count = self.correction_count();
+        if count == 0 {
+            return 0.0;
+        }
+        let window_mins = CORRECTION_WINDOW.as_secs_f64() / 60.0;
+        f64::from(count) / window_mins
+    }
+
+    /// Prunes expired correction signals and stale read/command entries.
+    pub fn prune_corrections(&mut self) {
+        let now = Instant::now();
+        self.correction_signals
+            .retain(|(t, _)| now.duration_since(*t) < CORRECTION_WINDOW);
+        self.recent_reads
+            .retain(|_, (t, _)| now.duration_since(*t) < CORRECTION_WINDOW);
+        self.recent_commands
+            .retain(|_, t| now.duration_since(*t) < CORRECTION_WINDOW);
+    }
+
     /// Clears all tracking state (call history, search patterns, counters).
     pub fn reset(&mut self) {
         self.call_history.clear();
         self.duplicate_counts.clear();
         self.search_group_history.clear();
         self.recent_search_patterns.clear();
+        self.correction_signals.clear();
+        self.recent_reads.clear();
+        self.recent_commands.clear();
+        self.total_calls = 0;
     }
 
     fn prune_window(&mut self, now: Instant) {
@@ -344,6 +457,14 @@ impl LoopDetector {
             self.window.as_secs()
         )
     }
+}
+
+fn normalize_shell_command(cmd: &str) -> String {
+    cmd.split_whitespace()
+        .take(5)
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
 }
 
 fn extract_alpha_root(pattern: &str) -> String {
@@ -592,6 +713,75 @@ mod tests {
         assert!(LoopDetector::is_search_shell_command("find . -name '*.rs'"));
         assert!(!LoopDetector::is_search_shell_command("cargo build"));
         assert!(!LoopDetector::is_search_shell_command("git status"));
+    }
+
+    #[test]
+    fn correction_fresh_reread_detected() {
+        let mut detector = LoopDetector::new();
+        // First read (cold start period, skipped)
+        detector.record_read_for_correction("src/main.rs", "full", false);
+        detector.record_read_for_correction("src/lib.rs", "full", false);
+        detector.record_read_for_correction("src/util.rs", "full", false);
+        // 4th call: past cold start
+        detector.record_read_for_correction("src/main.rs", "full", false);
+        assert_eq!(detector.correction_count(), 0);
+        // fresh=true re-read of previously read file = correction signal
+        detector.record_read_for_correction("src/main.rs", "full", true);
+        assert_eq!(detector.correction_count(), 1);
+    }
+
+    #[test]
+    fn correction_mode_bounce_detected() {
+        let mut detector = LoopDetector::new();
+        // Cold start
+        for i in 0..COLD_START_CALLS {
+            detector.record_read_for_correction(&format!("f{i}.rs"), "full", false);
+        }
+        // Read with map mode
+        detector.record_read_for_correction("src/cache.rs", "map", false);
+        assert_eq!(detector.correction_count(), 0);
+        // Immediately bounce to full mode = correction
+        detector.record_read_for_correction("src/cache.rs", "full", false);
+        assert_eq!(detector.correction_count(), 1);
+    }
+
+    #[test]
+    fn correction_shell_rerun_detected() {
+        let mut detector = LoopDetector::new();
+        // Cold start
+        for i in 0..COLD_START_CALLS {
+            detector.record_shell_for_correction(&format!("echo {i}"));
+        }
+        // First run
+        detector.record_shell_for_correction("cargo test --lib");
+        assert_eq!(detector.correction_count(), 0);
+        // Same command again within 60s = correction
+        detector.record_shell_for_correction("cargo test --lib");
+        assert_eq!(detector.correction_count(), 1);
+    }
+
+    #[test]
+    fn correction_rate_calculation() {
+        let mut detector = LoopDetector::new();
+        for i in 0..COLD_START_CALLS {
+            detector.record_shell_for_correction(&format!("init{i}"));
+        }
+        detector.record_shell_for_correction("cargo check");
+        detector.record_shell_for_correction("cargo check");
+        detector.record_shell_for_correction("cargo check");
+        // 2 corrections (first run doesn't count)
+        assert_eq!(detector.correction_count(), 2);
+        assert!(detector.correction_rate() > 0.0);
+    }
+
+    #[test]
+    fn correction_cold_start_ignored() {
+        let mut detector = LoopDetector::new();
+        // During cold start, same-command re-runs are not counted
+        detector.record_shell_for_correction("cargo check");
+        detector.record_shell_for_correction("cargo check");
+        detector.record_shell_for_correction("cargo check");
+        assert_eq!(detector.correction_count(), 0);
     }
 
     #[test]

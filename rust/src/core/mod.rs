@@ -2,12 +2,15 @@
 // Domain: Compression
 // ---------------------------------------------------------------------------
 pub mod adaptive_chunking;
+pub mod attention_context;
 pub mod codebook;
 pub mod compression_safety;
 pub mod compressor;
 pub mod entropy;
 pub mod information_bottleneck;
 pub mod pop_pruning;
+pub mod predictive_coding;
+pub mod predictive_prefetch;
 pub mod preservation;
 pub mod process_guard;
 pub mod progressive_compression;
@@ -39,6 +42,7 @@ pub mod memory_consolidation;
 pub mod memory_guard;
 pub mod memory_lifecycle;
 pub mod memory_policy;
+pub mod multiscale_index;
 pub mod procedural_memory;
 pub mod prospective_memory;
 
@@ -278,7 +282,11 @@ pub mod gain;
 pub mod gotcha_tracker;
 pub mod hasher;
 pub mod heatmap;
+pub mod hebbian_cache;
+pub mod hnsw;
 pub mod home;
+pub mod homeostasis;
+
 pub mod import_resolver;
 pub mod index_namespace;
 pub mod index_orchestrator;
@@ -313,6 +321,7 @@ pub mod sandbox_landlock;
 pub mod sandbox_seatbelt;
 pub mod sanitize;
 pub mod secret_detection;
+pub mod session_token;
 pub mod shell_allowlist;
 pub mod startup_guard;
 pub mod stats;

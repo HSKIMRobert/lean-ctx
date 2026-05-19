@@ -98,11 +98,16 @@ pub fn handle(
         }
 
         if !medium.is_empty() {
+            let knowledge = crate::core::knowledge::ProjectKnowledge::load(&project_root);
             output.push("▸ CONTEXT (use ctx_read signatures/map):".to_string());
             for r in medium.iter().take(20) {
                 let line_count = file_line_count(&r.path);
+                let doc = extract_module_doc(&r.path)
+                    .or_else(|| knowledge_doc_for_file(knowledge.as_ref(), &r.path))
+                    .map(|d| format!(" — {d}"))
+                    .unwrap_or_default();
                 output.push(format!(
-                    "  {} {line_count}L  mode={}",
+                    "  {} {line_count}L  mode={}{doc}",
                     short_path(&r.path),
                     r.recommended_mode
                 ));
@@ -411,6 +416,92 @@ fn build_wakeup_briefing(project_root: &str, task: Option<&str>) -> String {
     }
 
     format!("WAKE-UP BRIEFING:\n{}", parts.join("\n"))
+}
+
+/// Extracts a 1-line module documentation from a file's first lines.
+/// Looks for Rust `//!`, Python `"""..."""` / `#`, JS/TS `/** ... */`, or generic `# description`.
+fn extract_module_doc(path: &str) -> Option<String> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let mut lines = content.lines();
+
+    // Skip shebang
+    let first = lines.next()?.trim();
+    let search_start = if first.starts_with("#!") {
+        lines.next()
+    } else {
+        Some(first)
+    };
+
+    let first_meaningful = search_start?;
+
+    // Rust: //! module doc
+    if first_meaningful.starts_with("//!") {
+        let doc = first_meaningful.trim_start_matches("//!").trim();
+        if !doc.is_empty() {
+            return Some(truncate_doc(doc));
+        }
+    }
+
+    // Python: """ or '''
+    if first_meaningful.starts_with("\"\"\"") || first_meaningful.starts_with("'''") {
+        let doc = first_meaningful
+            .trim_start_matches("\"\"\"")
+            .trim_start_matches("'''")
+            .trim();
+        let doc = doc
+            .trim_end_matches("\"\"\"")
+            .trim_end_matches("'''")
+            .trim();
+        if !doc.is_empty() {
+            return Some(truncate_doc(doc));
+        }
+    }
+
+    // JS/TS: /** ... */
+    if first_meaningful.starts_with("/**") {
+        let doc = first_meaningful
+            .trim_start_matches("/**")
+            .trim_end_matches("*/")
+            .trim_start_matches('*')
+            .trim();
+        if !doc.is_empty() {
+            return Some(truncate_doc(doc));
+        }
+    }
+
+    // Generic: first # comment (markdown, python, shell)
+    if first_meaningful.starts_with("# ") && !first_meaningful.starts_with("# !") {
+        let doc = first_meaningful.trim_start_matches('#').trim();
+        if !doc.is_empty() {
+            return Some(truncate_doc(doc));
+        }
+    }
+
+    None
+}
+
+/// Falls back to Knowledge-Facts for a file description if no source-level doc found.
+fn knowledge_doc_for_file(
+    knowledge: Option<&crate::core::knowledge::ProjectKnowledge>,
+    path: &str,
+) -> Option<String> {
+    let knowledge = knowledge?;
+    let filename = std::path::Path::new(path).file_name()?.to_str()?;
+    let hits = knowledge.recall(filename);
+    let fact = hits.first()?;
+    let val = fact.value.trim();
+    if val.is_empty() || val.len() < 5 {
+        return None;
+    }
+    Some(truncate_doc(val))
+}
+
+fn truncate_doc(doc: &str) -> String {
+    if doc.len() > 80 {
+        format!("{}...", &doc[..77])
+    } else {
+        doc.to_string()
+    }
 }
 
 fn short_path(path: &str) -> String {

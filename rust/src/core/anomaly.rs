@@ -251,6 +251,24 @@ pub fn save() {
     }
 }
 
+/// Debounced save: skips if less than 3s since last save.
+/// Use in hot paths (per-tool-call) to avoid excessive I/O.
+pub fn save_debounced() {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    static LAST_SAVE_MS: AtomicU64 = AtomicU64::new(0);
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64);
+    let prev = LAST_SAVE_MS.load(Ordering::Relaxed);
+    if prev != 0 && now_ms.saturating_sub(prev) < 3000 {
+        return;
+    }
+    LAST_SAVE_MS.store(now_ms, Ordering::Relaxed);
+    save();
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------

@@ -112,6 +112,21 @@ fn decide(
 
     let mut ladder: Vec<String> = Vec::new();
 
+    // Check correction-loop-induced degrade (Fix B: before budget/SLO checks)
+    if crate::core::config::CompressionLevel::session_degrade_level().is_some() {
+        ladder.push("compression_level=lite|off".to_string());
+        return DegradationDecisionV1 {
+            verdict: DegradationVerdictV1::Warn,
+            enforced: false,
+            throttle_ms: None,
+            reason_code: "correction_rate_high".to_string(),
+            reason:
+                "correction_rate_high: compression auto-degraded due to repeated correction signals"
+                    .to_string(),
+            ladder,
+        };
+    }
+
     if *budgets.worst_level() == BudgetLevel::Exhausted {
         ladder.push("block".to_string());
         return DegradationDecisionV1 {

@@ -5,12 +5,14 @@ use crate::server::helpers::get_str;
 use crate::tools::LeanCtxServer;
 
 impl LeanCtxServer {
+    /// Returns (output_text, saved_tokens). saved_tokens > 0 indicates the tool
+    /// already applied internal compression (shell engine, cache deltas, etc.).
     pub(super) async fn dispatch_tool(
         &self,
         name: &str,
         args: Option<&serde_json::Map<String, Value>>,
         minimal: bool,
-    ) -> Result<String, ErrorData> {
+    ) -> Result<(String, usize), ErrorData> {
         fn format_rate_limited(
             tool: &str,
             agent_id: &str,
@@ -41,7 +43,10 @@ impl LeanCtxServer {
             if let crate::core::a2a::rate_limiter::RateLimitResult::Limited { retry_after_ms } =
                 crate::core::a2a::rate_limiter::check_rate_limit(&agent_id, name)
             {
-                return Ok(format_rate_limited(name, &agent_id, retry_after_ms, args));
+                return Ok((
+                    format_rate_limited(name, &agent_id, retry_after_ms, args),
+                    0,
+                ));
             }
         }
 
@@ -70,11 +75,9 @@ impl LeanCtxServer {
                 if let crate::core::a2a::rate_limiter::RateLimitResult::Limited { retry_after_ms } =
                     crate::core::a2a::rate_limiter::check_rate_limit(&agent_id, &inner)
                 {
-                    return Ok(format_rate_limited(
-                        &inner,
-                        &agent_id,
-                        retry_after_ms,
-                        arg_map.as_ref(),
+                    return Ok((
+                        format_rate_limited(&inner, &agent_id, retry_after_ms, arg_map.as_ref()),
+                        0,
                     ));
                 }
 
@@ -92,13 +95,13 @@ impl LeanCtxServer {
                                     let mut shown = allowed.clone();
                                     shown.sort();
                                     shown.truncate(30);
-                                    return Ok(format!(
+                                    return Ok((format!(
                                         "Tool '{inner}' blocked by workflow '{}' (state: {}). Allowed ({} shown): {}",
                                         run.spec.name,
                                         run.current,
                                         shown.len(),
                                         shown.join(", ")
-                                    ));
+                                    ), 0));
                                 }
                             }
                         }
@@ -116,12 +119,13 @@ impl LeanCtxServer {
     }
 
     /// Dispatches a single tool via the trait-based registry.
+    /// Returns (output_text, saved_tokens).
     async fn dispatch_inner(
         &self,
         name: &str,
         args: Option<&serde_json::Map<String, Value>>,
         minimal: bool,
-    ) -> Result<String, ErrorData> {
+    ) -> Result<(String, usize), ErrorData> {
         if let Some(tool) = self.registry.as_ref().and_then(|r| r.get(name)) {
             let empty = serde_json::Map::new();
             let args_map = args.unwrap_or(&empty);
@@ -223,7 +227,7 @@ impl LeanCtxServer {
                     let mode_str = output.mode.as_deref().unwrap_or("full");
                     let mut ledger = self.ledger.write().await;
                     ledger.record(path, mode_str, orig, sent_tokens);
-                    ledger.save();
+                    ledger.save_debounced();
                 }
                 self.record_call_with_path(
                     name,
@@ -263,6 +267,7 @@ impl LeanCtxServer {
                 });
             }
 
+            let saved = output.saved_tokens;
             let final_text = header_line.unwrap_or(output.text);
 
             let reference_enabled = std::env::var("LEAN_CTX_REFERENCE_RESULTS").map_or_else(
@@ -279,10 +284,10 @@ impl LeanCtxServer {
                     final_text.len() / 4,
                     &final_text[..preview_end]
                 );
-                return Ok(summary);
+                return Ok((summary, saved));
             }
 
-            return Ok(final_text);
+            return Ok((final_text, saved));
         }
 
         Err(ErrorData::invalid_params(

@@ -95,7 +95,7 @@ impl McpTool for CtxShellTool {
                 })
                 .unwrap_or_default();
 
-            let (output, _exit_code) = crate::server::execute::execute_command_with_env(
+            let (output, exit_code) = crate::server::execute::execute_command_with_env(
                 &cmd_clone, &cwd_clone, &extra_env,
             );
 
@@ -109,6 +109,11 @@ impl McpTool for CtxShellTool {
                 let saved = original.saturating_sub(sent);
 
                 let cfg = crate::core::config::Config::load();
+                let savings_pct = if original > 0 {
+                    ((original.saturating_sub(sent)) as f64 / original as f64) * 100.0
+                } else {
+                    0.0
+                };
                 let tee_hint = match cfg.tee_mode {
                     crate::core::config::TeeMode::Always => {
                         crate::shell::save_tee(&cmd_clone, &output)
@@ -125,7 +130,25 @@ impl McpTool for CtxShellTool {
                             .map(|p| format!("\n[full output: {p}]"))
                             .unwrap_or_default()
                     }
-                    _ => String::new(),
+                    crate::core::config::TeeMode::HighCompression
+                        if savings_pct > 70.0 && original > 100 =>
+                    {
+                        crate::shell::save_tee(&cmd_clone, &output)
+                            .map(|p| format!("\n[compressed {savings_pct:.0}%: full output at {p} if needed]"))
+                            .unwrap_or_default()
+                    }
+                    _ => {
+                        if savings_pct > 70.0
+                            && original > 100
+                            && matches!(cfg.tee_mode, crate::core::config::TeeMode::Failures)
+                        {
+                            crate::shell::save_tee(&cmd_clone, &output)
+                                .map(|p| format!("\n[compressed {savings_pct:.0}%: full output at {p} if needed]"))
+                                .unwrap_or_default()
+                        } else {
+                            String::new()
+                        }
+                    }
                 };
 
                 (result, original, saved, tee_hint)
@@ -146,7 +169,12 @@ impl McpTool for CtxShellTool {
             };
 
             let result_out = crate::core::redaction::redact_text_if_enabled(&result_out);
-            let final_out = format!("{result_out}{tee_hint}{shell_mismatch}");
+            let exit_suffix = if exit_code != 0 {
+                format!("\n[exit:{exit_code}]")
+            } else {
+                String::new()
+            };
+            let final_out = format!("{result_out}{tee_hint}{shell_mismatch}{exit_suffix}");
 
             Ok(ToolOutput {
                 text: final_out,

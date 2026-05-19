@@ -36,6 +36,22 @@ fn compressed_cache_key(mode: &str, crp_mode: CrpMode) -> String {
     }
 }
 
+/// Extracts a short proof-line from file content to include in cache-hit stubs.
+/// Returns the first non-empty line (truncated to 60 chars) as evidence the cache is valid.
+/// Only shown after 2+ reads to avoid noise on early interactions.
+fn cache_hit_proof_line(content: &str, read_count: u32) -> Option<String> {
+    if read_count < 2 {
+        return None;
+    }
+    let first_line = content.lines().find(|l| !l.trim().is_empty())?;
+    let trimmed = first_line.trim();
+    if trimmed.len() > 60 {
+        Some(format!("{}...", &trimmed[..57]))
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
 fn append_compressed_hint(output: &str, file_path: &str) -> String {
     if !crate::core::profiles::active_profile()
         .output_hints
@@ -102,15 +118,49 @@ pub fn read_file_lossy(path: &str) -> Result<String, std::io::Error> {
 
 /// Opens a file, retrying once after a brief pause on NotFound.
 /// Works around overlay/FUSE stat-cache races in container runtimes (Docker, Codex).
+/// Uses O_NOFOLLOW on Unix for TOCTOU symlink protection.
 fn open_with_retry(path: &str) -> Result<std::fs::File, std::io::Error> {
-    match std::fs::File::open(path) {
+    match open_nofollow(path) {
         Ok(f) => Ok(f),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             std::thread::sleep(std::time::Duration::from_millis(50));
-            std::fs::File::open(path)
+            open_nofollow(path)
         }
         Err(e) => Err(e),
     }
+}
+
+#[cfg(unix)]
+fn open_nofollow(path: &str) -> Result<std::fs::File, std::io::Error> {
+    use std::os::unix::fs::OpenOptionsExt;
+    use std::path::Path;
+
+    let p = Path::new(path);
+    // Canonicalize the parent directory (resolving symlinks in the directory path)
+    // but apply O_NOFOLLOW only to the final file component. This prevents
+    // symlink-following attacks on the target file while allowing legitimate
+    // directory symlinks (e.g., /tmp → /private/tmp on macOS).
+    if let (Some(parent), Some(filename)) = (p.parent(), p.file_name()) {
+        if parent.exists() {
+            let canonical_parent = parent.canonicalize()?;
+            let canonical_path = canonical_parent.join(filename);
+            return std::fs::OpenOptions::new()
+                .read(true)
+                .custom_flags(libc::O_NOFOLLOW)
+                .open(&canonical_path);
+        }
+    }
+
+    // Fallback: direct open with O_NOFOLLOW
+    std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)
+}
+
+#[cfg(not(unix))]
+fn open_nofollow(path: &str) -> Result<std::fs::File, std::io::Error> {
+    std::fs::File::open(path)
 }
 
 /// Reads a file through the cache and applies the requested compression mode.
@@ -283,8 +333,56 @@ fn handle_with_options_inner(
         }
     }
 
-    if let Some(existing) = cache.get(path) {
+    // Extract immutable data from cache entry, then drop the borrow before
+    // any mutable operations (record_cache_hit, set_compressed, invalidate).
+    let cache_snapshot = cache.get(path).map(|existing| {
+        (
+            existing.stored_mtime,
+            existing.read_count,
+            existing.line_count,
+            existing.original_tokens,
+            existing.content(),
+        )
+    });
+
+    if let Some((cached_mtime, read_count, line_count, original_tokens, content_opt)) =
+        cache_snapshot
+    {
         if mode == "full" {
+            // Fast mtime check: if file unchanged on disk, skip re-reading entirely.
+            if !crate::core::cache::is_cache_entry_stale(path, cached_mtime) {
+                cache.record_cache_hit(path);
+                let out = if crate::core::protocol::meta_visible() {
+                    format!(
+                        "{file_ref}={short} cached {}t {}L\nFile content unchanged since last read (same hash). Already in your context window.",
+                        read_count + 1, line_count
+                    )
+                } else {
+                    let proof = content_opt
+                        .as_deref()
+                        .and_then(|c| cache_hit_proof_line(c, read_count));
+                    let reads_note = if read_count > 3 {
+                        format!(" (read {}x, unchanged)", read_count + 1)
+                    } else {
+                        String::new()
+                    };
+                    match proof {
+                        Some(p) => format!(
+                            "{file_ref}={short} (file unchanged since your last read, content is in your context{reads_note} | first: \"{p}\")"
+                        ),
+                        None => format!(
+                            "{file_ref}={short} (file unchanged since your last read, {line_count}L already in your context{reads_note})"
+                        ),
+                    }
+                };
+                let out = crate::core::redaction::redact_text_if_enabled(&out);
+                let sent = count_tokens(&out);
+                return ReadOutput {
+                    content: out,
+                    resolved_mode: "full".into(),
+                    output_tokens: sent,
+                };
+            }
             let (out, _) = handle_full_with_auto_delta(cache, path, &file_ref, &short, ext, task);
             let out = crate::core::redaction::redact_text_if_enabled(&out);
             let sent = count_tokens(&out);
@@ -294,26 +392,31 @@ fn handle_with_options_inner(
                 output_tokens: sent,
             };
         }
-        let original_tokens = existing.original_tokens;
-        let content_opt = existing.content();
-        if let Some(content) = content_opt {
-            let resolved_mode = if mode == "auto" {
-                resolve_auto_mode(path, original_tokens, task)
-            } else {
-                mode.to_string()
-            };
-            if is_cacheable_mode(&resolved_mode) {
-                let cache_key = compressed_cache_key(&resolved_mode, crp_mode);
-                if let Some(cached_output) = cache.get_compressed(path, &cache_key) {
-                    let out = crate::core::redaction::redact_text_if_enabled(cached_output);
-                    let sent = count_tokens(&out);
-                    return ReadOutput {
-                        content: out,
-                        resolved_mode,
-                        output_tokens: sent,
-                    };
-                }
+
+        // Resolve mode first so we can check compressed output cache BEFORE
+        // decompressing the full content (avoids ~2-5ms zstd overhead on hits).
+        let resolved_mode = if mode == "auto" {
+            resolve_auto_mode(path, original_tokens, task)
+        } else {
+            mode.to_string()
+        };
+
+        if is_cacheable_mode(&resolved_mode) {
+            let cache_key = compressed_cache_key(&resolved_mode, crp_mode);
+            let compressed_hit = cache.get_compressed(path, &cache_key).cloned();
+            if let Some(cached_output) = compressed_hit {
+                cache.record_cache_hit(path);
+                let out = crate::core::redaction::redact_text_if_enabled(&cached_output);
+                let sent = count_tokens(&out);
+                return ReadOutput {
+                    content: out,
+                    resolved_mode,
+                    output_tokens: sent,
+                };
             }
+        }
+
+        if let Some(content) = content_opt {
             let (out, _) = process_mode(
                 &content,
                 &resolved_mode,
@@ -353,21 +456,23 @@ fn handle_with_options_inner(
         }
     };
 
-    // Skip expensive hint computation for line-range reads (fast path)
+    let store_result = cache.store(path, &content);
+
+    // Skip expensive hint computation for line-range reads and first reads.
+    // Hints are only useful from the 2nd read onwards when the file is contextually relevant.
     let is_line_range = mode.starts_with("lines:");
     let hints = crate::core::profiles::active_profile().output_hints;
-    let similar_hint = if !is_line_range && hints.semantic_hint() {
+    let is_repeat_read = store_result.read_count > 1;
+    let similar_hint = if !is_line_range && is_repeat_read && hints.semantic_hint() {
         find_similar_and_update_semantic_index(path, &content)
     } else {
         None
     };
-    let graph_hint = if !is_line_range && hints.related_hint() {
+    let graph_hint = if !is_line_range && is_repeat_read && hints.related_hint() {
         build_graph_related_hint(path)
     } else {
         None
     };
-
-    let store_result = cache.store(path, &content);
 
     if mode == "full" {
         cache.mark_full_delivered(path);
@@ -633,10 +738,21 @@ fn handle_full_with_auto_delta(
                     store_result.read_count, store_result.line_count
                 )
             } else {
-                format!(
-                    "{file_ref}={short} [unchanged, {}L, use cached context]",
-                    store_result.line_count
-                )
+                let proof = cache_hit_proof_line(&disk_content, store_result.read_count);
+                let reads_note = if store_result.read_count > 3 {
+                    format!(" (read {}x, unchanged)", store_result.read_count)
+                } else {
+                    String::new()
+                };
+                match proof {
+                    Some(p) => format!(
+                        "{file_ref}={short} (file unchanged since your last read, content is in your context{reads_note} | first: \"{p}\")"
+                    ),
+                    None => format!(
+                        "{file_ref}={short} (file unchanged since your last read, {}L already in your context{reads_note})",
+                        store_result.line_count
+                    ),
+                }
             };
             let sent = count_tokens(&out);
             return (out, sent);
@@ -1081,7 +1197,14 @@ fn handle_diff(cache: &mut SessionCache, path: &str, file_ref: &str) -> (String,
     let diff_output = if let Some(old) = &old_content {
         compressor::diff_content(old, &new_content)
     } else {
-        format!("[first read]\n{new_content}")
+        // No previous version cached — store content for future diffs but
+        // return a short guidance message instead of dumping the full file.
+        cache.store(path, &new_content);
+        let msg = format!(
+            "{file_ref}={short} [no cached version for diff — use mode=full first, then diff on re-read]"
+        );
+        let sent = count_tokens(&msg);
+        return (msg, sent);
     };
 
     cache.store(path, &new_content);

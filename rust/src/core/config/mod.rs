@@ -1,8 +1,11 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicU8;
 use std::sync::Mutex;
 use std::time::SystemTime;
+
+static SESSION_DEGRADE_LEVEL: AtomicU8 = AtomicU8::new(0);
 
 use super::memory_policy::MemoryPolicy;
 
@@ -28,6 +31,7 @@ pub enum TeeMode {
     Never,
     #[default]
     Failures,
+    HighCompression,
     Always,
 }
 
@@ -164,12 +168,16 @@ impl CompressionLevel {
     }
 
     /// Returns the effective compression level with resolution order:
+    /// 0. Session-level degrade override (set by correction-loop feedback)
     /// 1. `LEAN_CTX_COMPRESSION` env var
     /// 2. `compression_level` in config
     /// 3. Legacy `ultra_compact` flag (maps to `Max`)
     /// 4. Legacy env vars (`LEAN_CTX_TERSE_AGENT`, `LEAN_CTX_OUTPUT_DENSITY`)
     /// 5. Legacy config fields (`terse_agent`, `output_density`)
     pub fn effective(config: &Config) -> Self {
+        if let Some(degraded) = Self::session_degrade_level() {
+            return degraded;
+        }
         if let Some(env_level) = Self::from_env() {
             return env_level;
         }
@@ -192,6 +200,31 @@ impl CompressionLevel {
             od_env
         };
         Self::from_legacy(&ta, &od)
+    }
+
+    /// Session-level degrade: correction loop detected, temporarily reduce compression.
+    /// 0 = no override, 1 = Off, 2 = Lite
+    pub fn session_degrade_level() -> Option<Self> {
+        match SESSION_DEGRADE_LEVEL.load(std::sync::atomic::Ordering::Relaxed) {
+            1 => Some(Self::Off),
+            2 => Some(Self::Lite),
+            _ => None,
+        }
+    }
+
+    /// Sets a session-level compression degrade (called by correction loop detection).
+    pub fn set_session_degrade(level: &Self) {
+        let val = match level {
+            Self::Off => 1u8,
+            Self::Lite => 2u8,
+            _ => 0u8,
+        };
+        SESSION_DEGRADE_LEVEL.store(val, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Clears the session-level degrade (recovery after correction rate drops).
+    pub fn clear_session_degrade() {
+        SESSION_DEGRADE_LEVEL.store(0, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn from_str_label(s: &str) -> Option<Self> {

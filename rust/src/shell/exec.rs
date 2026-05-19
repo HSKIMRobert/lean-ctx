@@ -228,6 +228,16 @@ fn exec_buffered(command: &str, shell: &str, shell_flag: &str, cfg: &config::Con
     let should_tee = match cfg.tee_mode {
         config::TeeMode::Always => !full_output.trim().is_empty(),
         config::TeeMode::Failures => exit_code != 0 && !full_output.trim().is_empty(),
+        config::TeeMode::HighCompression => {
+            let orig = full_output.len();
+            let after = compressed.len();
+            let pct = if orig > 0 {
+                ((orig.saturating_sub(after)) as f64 / orig as f64) * 100.0
+            } else {
+                0.0
+            };
+            pct > 70.0 && orig > 100
+        }
         config::TeeMode::Never => false,
     };
     if should_tee {

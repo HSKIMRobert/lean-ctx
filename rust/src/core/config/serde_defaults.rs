@@ -16,6 +16,7 @@ where
         serde_json::Value::String(s) => match s.as_str() {
             "never" => Ok(TeeMode::Never),
             "failures" => Ok(TeeMode::Failures),
+            "highcompression" | "high_compression" => Ok(TeeMode::HighCompression),
             "always" => Ok(TeeMode::Always),
             other => Err(D::Error::custom(format!("unknown tee_mode: {other}"))),
         },

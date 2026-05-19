@@ -33,6 +33,7 @@ fn try_pytest(output: &str) -> Option<String> {
     let mut warnings = 0u32;
     let mut time = String::new();
     let mut failures = Vec::new();
+    let mut passed_names = Vec::new();
 
     for line in output.lines() {
         let trimmed = line.trim();
@@ -75,6 +76,17 @@ fn try_pytest(output: &str) -> Option<String> {
                     .to_string(),
             );
         }
+        if trimmed.starts_with("PASSED ") || trimmed.ends_with(" PASSED") {
+            let name = trimmed
+                .strip_prefix("PASSED ")
+                .or_else(|| trimmed.strip_suffix(" PASSED"))
+                .unwrap_or(trimmed);
+            if name.len() <= 50 {
+                passed_names.push(name.to_string());
+            } else {
+                passed_names.push(format!("{}...", &name[..47]));
+            }
+        }
     }
 
     if passed == 0 && failed == 0 {
@@ -103,6 +115,17 @@ fn try_pytest(output: &str) -> Option<String> {
 
     for f in failures.iter().take(5) {
         result.push_str(&format!("\n  FAIL: {f}"));
+    }
+
+    if failures.is_empty() && !passed_names.is_empty() {
+        let total = passed_names.len();
+        let shown: Vec<_> = passed_names.into_iter().take(5).collect();
+        let suffix = if total > 5 {
+            format!(" ...+{} more", total - 5)
+        } else {
+            String::new()
+        };
+        result.push_str(&format!("\n  ran: {}{suffix}", shown.join(", ")));
     }
 
     Some(result)
@@ -161,12 +184,17 @@ fn try_go_test(output: &str) -> Option<String> {
     let mut passed = 0u32;
     let mut failed = 0u32;
     let mut failures = Vec::new();
+    let mut passed_names = Vec::new();
     let mut packages = Vec::new();
 
     for line in output.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with("--- PASS:") {
             passed += 1;
+            if let Some(name) = trimmed.strip_prefix("--- PASS: ") {
+                let name = name.split_whitespace().next().unwrap_or(name);
+                passed_names.push(name.to_string());
+            }
         } else if trimmed.starts_with("--- FAIL:") {
             failed += 1;
             failures.push(
@@ -195,6 +223,17 @@ fn try_go_test(output: &str) -> Option<String> {
 
     for f in failures.iter().take(5) {
         result.push_str(&format!("\n  FAIL: {f}"));
+    }
+
+    if failures.is_empty() && !passed_names.is_empty() {
+        let total = passed_names.len();
+        let shown: Vec<_> = passed_names.into_iter().take(5).collect();
+        let suffix = if total > 5 {
+            format!(" ...+{} more", total - 5)
+        } else {
+            String::new()
+        };
+        result.push_str(&format!("\n  ran: {}{suffix}", shown.join(", ")));
     }
 
     Some(result)

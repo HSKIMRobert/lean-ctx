@@ -550,14 +550,14 @@ impl ServerHandler for LeanCtxServer {
         }
 
         let tool_start = std::time::Instant::now();
-        let mut result_text = {
+        let (mut result_text, tool_saved_tokens) = {
             use futures::FutureExt;
             use std::panic::AssertUnwindSafe;
             match AssertUnwindSafe(self.dispatch_tool(name, args, minimal))
                 .catch_unwind()
                 .await
             {
-                Ok(Ok(text)) => text,
+                Ok(Ok(pair)) => pair,
                 Ok(Err(e)) => return Err(e),
                 Err(panic_payload) => {
                     let detail = if let Some(s) = panic_payload.downcast_ref::<&str>() {
@@ -568,8 +568,8 @@ impl ServerHandler for LeanCtxServer {
                         "unknown".to_string()
                     };
                     tracing::error!(tool = name, "Tool panicked: {detail}");
-                    format!("ERROR: lean-ctx internal error in tool '{name}'.\n\
-                             The MCP server is still running. Please retry or use a different approach.")
+                    (format!("ERROR: lean-ctx internal error in tool '{name}'.\n\
+                             The MCP server is still running. Please retry or use a different approach."), 0)
                 }
             }
         };
@@ -591,8 +591,40 @@ impl ServerHandler for LeanCtxServer {
         };
 
         crate::core::anomaly::record_metric("tokens_per_call", output_tokens as f64);
-        // Persist anomaly detector so dashboard state survives restarts.
-        crate::core::anomaly::save();
+
+        // Correction-loop detection: track re-reads and re-runs as quality signals.
+        {
+            let mut detector = self.loop_detector.write().await;
+            if name == "ctx_read" {
+                let path = helpers::get_str(args, "path").unwrap_or_default();
+                let mode = helpers::get_str(args, "mode").unwrap_or_else(|| "auto".into());
+                let fresh = helpers::get_bool(args, "fresh").unwrap_or(false);
+                detector.record_read_for_correction(&path, &mode, fresh);
+            } else if name == "ctx_shell" {
+                let cmd = helpers::get_str(args, "command").unwrap_or_default();
+                detector.record_shell_for_correction(&cmd);
+            }
+            let correction_count = detector.correction_count();
+            if correction_count > 0 {
+                crate::core::anomaly::record_metric(
+                    "correction_loop_rate",
+                    f64::from(correction_count),
+                );
+            }
+            // Auto-degrade: reduce compression when correction rate is high
+            use crate::core::config::CompressionLevel;
+            if correction_count >= 5 {
+                CompressionLevel::set_session_degrade(&CompressionLevel::Off);
+            } else if correction_count >= 3 {
+                CompressionLevel::set_session_degrade(&CompressionLevel::Lite);
+            } else if correction_count == 0 {
+                CompressionLevel::clear_session_degrade();
+            }
+            detector.prune_corrections();
+        }
+
+        // Persist anomaly detector — debounced to reduce I/O in burst sequences.
+        crate::core::anomaly::save_debounced();
 
         let budget_warning = {
             use crate::core::budget_tracker::{BudgetLevel, BudgetTracker};
@@ -667,6 +699,7 @@ impl ServerHandler for LeanCtxServer {
 
         let pre_compression = result_text.clone();
         let skip_terse = is_raw_shell
+            || tool_saved_tokens > 0
             || (name == "ctx_shell"
                 && helpers::get_str(args, "command")
                     .is_some_and(|c| crate::shell::compress::has_structural_output(&c)));
@@ -702,7 +735,8 @@ impl ServerHandler for LeanCtxServer {
 
         if !is_raw_shell {
             if let Some(ctx) = auto_context {
-                if crate::core::protocol::meta_visible() {
+                let ctx_tokens = crate::core::tokens::count_tokens(&ctx);
+                if ctx_tokens <= 400 {
                     result_text = format!("{ctx}\n\n{result_text}");
                 }
             }

@@ -357,8 +357,8 @@ fn raw_shell_skips_all_postprocessing() {
         "archive_hint must be skipped for raw shell"
     );
     assert!(
-        src.contains("is_raw_shell\n            || (name == \"ctx_shell\""),
-        "skip_terse must include is_raw_shell"
+        src.contains("is_raw_shell\n            || tool_saved_tokens > 0\n            || (name == \"ctx_shell\""),
+        "skip_terse must include is_raw_shell and double-compression guard"
     );
     assert!(
         src.contains("if !is_raw_shell {") && src.contains("verify_output"),

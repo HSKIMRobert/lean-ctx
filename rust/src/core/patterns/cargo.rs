@@ -104,6 +104,7 @@ fn compress_build(output: &str) -> String {
 fn compress_test(output: &str) -> String {
     let mut results = Vec::new();
     let mut failed_tests = Vec::new();
+    let mut passed_tests = Vec::new();
     let mut time = String::new();
 
     for line in output.lines() {
@@ -117,6 +118,15 @@ fn compress_test(output: &str) -> String {
             let name = line.split_whitespace().nth(1).unwrap_or("?");
             failed_tests.push(name.to_string());
         }
+        if line.starts_with("test ") && line.ends_with(" ... ok") {
+            if let Some(name) = line
+                .strip_prefix("test ")
+                .and_then(|s| s.strip_suffix(" ... ok"))
+            {
+                let short_name = if name.len() > 50 { &name[..50] } else { name };
+                passed_tests.push(short_name.to_string());
+            }
+        }
         if let Some(caps) = finished_re().captures(line) {
             time = caps[1].to_string();
         }
@@ -128,6 +138,16 @@ fn compress_test(output: &str) -> String {
     }
     if !failed_tests.is_empty() {
         parts.push(format!("failed: {}", failed_tests.join(", ")));
+    }
+    if !passed_tests.is_empty() {
+        let total = passed_tests.len();
+        let shown: Vec<_> = passed_tests.into_iter().take(5).collect();
+        let suffix = if total > 5 {
+            format!(" ...+{} more", total - 5)
+        } else {
+            String::new()
+        };
+        parts.push(format!("ran: {}{suffix}", shown.join(", ")));
     }
     if !time.is_empty() {
         parts.push(format!("({time})"));

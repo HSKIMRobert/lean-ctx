@@ -53,6 +53,7 @@ fn compress_test(output: &str) -> String {
 
     let mut results = Vec::new();
     let mut failed_tests = Vec::new();
+    let mut passed_tests = Vec::new();
 
     for line in trimmed.lines() {
         if let Some(caps) = go_test_result_re().captures(line) {
@@ -65,6 +66,14 @@ fn compress_test(output: &str) -> String {
             let name = line.replace("--- FAIL:", "").trim().to_string();
             failed_tests.push(name);
         }
+        if line.contains("--- PASS:") {
+            if let Some(name) = line.split("--- PASS:").nth(1) {
+                let name = name.split_whitespace().next().unwrap_or("");
+                if !name.is_empty() {
+                    passed_tests.push(name.to_string());
+                }
+            }
+        }
     }
 
     if results.is_empty() {
@@ -74,6 +83,16 @@ fn compress_test(output: &str) -> String {
     let mut parts = results;
     if !failed_tests.is_empty() {
         parts.push(format!("failed: {}", failed_tests.join(", ")));
+    }
+    if failed_tests.is_empty() && !passed_tests.is_empty() {
+        let total = passed_tests.len();
+        let shown: Vec<_> = passed_tests.into_iter().take(5).collect();
+        let suffix = if total > 5 {
+            format!(" ...+{} more", total - 5)
+        } else {
+            String::new()
+        };
+        parts.push(format!("ran: {}{suffix}", shown.join(", ")));
     }
     parts.join("\n")
 }

@@ -36,10 +36,13 @@ pub fn cmd_config(args: &[String]) {
                 "tee_on_error" | "tee_mode" => {
                     cfg.tee_mode = match val.as_str() {
                         "true" | "failures" => config::TeeMode::Failures,
+                        "highcompression" | "high_compression" => config::TeeMode::HighCompression,
                         "always" => config::TeeMode::Always,
                         "false" | "never" => config::TeeMode::Never,
                         _ => {
-                            eprintln!("Valid tee_mode values: always, failures, never");
+                            eprintln!(
+                                "Valid tee_mode values: always, highcompression, failures, never"
+                            );
                             std::process::exit(1);
                         }
                     };
