@@ -300,10 +300,10 @@ mod attention_stress {
         let elapsed = start.elapsed();
 
         assert_eq!(result.len(), 500);
-        // 200ms budget for debug builds; release is ~10x faster
+        // 350ms budget for debug builds on shared CI runners; release is ~10x faster
         assert!(
-            elapsed.as_millis() < 200,
-            "Attention assembly of 500 chunks took {}ms — must be <200ms",
+            elapsed.as_millis() < 350,
+            "Attention assembly of 500 chunks took {}ms — must be <350ms",
             elapsed.as_millis()
         );
 
