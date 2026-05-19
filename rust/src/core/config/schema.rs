@@ -320,6 +320,68 @@ impl ConfigSchema {
                 "LEAN_CTX_PROJECT_ROOT",
             ),
         );
+        root.insert(
+            "proxy_enabled".into(),
+            key(
+                "bool?",
+                serde_json::json!(null),
+                "Enable/disable the proxy layer. null = auto-detect, true = force on, false = force off",
+            ),
+        );
+        root.insert(
+            "response_verbosity".into(),
+            key_enum_with_env(
+                &["normal", "compact", "minimal"],
+                "normal",
+                "Controls how verbose tool responses are",
+                "LEAN_CTX_RESPONSE_VERBOSITY",
+            ),
+        );
+        root.insert(
+            "allow_auto_reroot".into(),
+            key_with_env(
+                "bool",
+                serde_json::json!(false),
+                "Allow automatic project-root re-rooting when absolute paths outside the jail are seen",
+                "LEAN_CTX_ALLOW_REROOT",
+            ),
+        );
+        root.insert(
+            "sandbox_level".into(),
+            key_with_env(
+                "u8",
+                serde_json::json!(0),
+                "Sandbox strictness level (0=default, 1=strict, 2=paranoid)",
+                "LEAN_CTX_SANDBOX_LEVEL",
+            ),
+        );
+        root.insert(
+            "reference_results".into(),
+            key_with_env(
+                "bool",
+                serde_json::json!(false),
+                "Store large tool outputs as references instead of inline content",
+                "LEAN_CTX_REFERENCE_RESULTS",
+            ),
+        );
+        root.insert(
+            "agent_token_budget".into(),
+            key(
+                "usize",
+                serde_json::json!(0),
+                "Default per-agent token budget. 0 = unlimited",
+            ),
+        );
+        root.insert(
+            "shell_allowlist".into(),
+            key_with_env(
+                "array",
+                serde_json::json!([]),
+                "Optional shell command allowlist. When non-empty, only listed binaries are permitted",
+                "LEAN_CTX_SHELL_ALLOWLIST",
+            ),
+        );
+
         sections.insert(
             "root".into(),
             SectionSchema {
@@ -540,12 +602,127 @@ impl ConfigSchema {
                 "Maximum unique searches within a loop window",
             ),
         );
+        loop_det.insert(
+            "tool_total_limits".into(),
+            key(
+                "table",
+                serde_json::json!({"ctx_read": 100, "ctx_search": 80, "ctx_shell": 50, "ctx_semantic_search": 60}),
+                "Per-tool total call limits within a session. Keys are tool names, values are max calls",
+            ),
+        );
         sections.insert(
             "loop_detection".into(),
             SectionSchema {
                 description: "Loop detection settings for preventing repeated identical tool calls"
                     .into(),
                 keys: loop_det,
+            },
+        );
+
+        let mut updates = BTreeMap::new();
+        updates.insert(
+            "auto_update".into(),
+            key(
+                "bool",
+                serde_json::json!(cfg.updates.auto_update),
+                "Enable automatic updates (requires explicit opt-in)",
+            ),
+        );
+        updates.insert(
+            "check_interval_hours".into(),
+            key(
+                "u64",
+                serde_json::json!(cfg.updates.check_interval_hours),
+                "How often to check for updates (hours)",
+            ),
+        );
+        updates.insert(
+            "notify_only".into(),
+            key(
+                "bool",
+                serde_json::json!(cfg.updates.notify_only),
+                "Only notify about updates, don't install automatically",
+            ),
+        );
+        sections.insert(
+            "updates".into(),
+            SectionSchema {
+                description: "Automatic update configuration".into(),
+                keys: updates,
+            },
+        );
+
+        let mut boundary = BTreeMap::new();
+        boundary.insert(
+            "cross_project_search".into(),
+            key(
+                "bool",
+                serde_json::json!(cfg.boundary_policy.cross_project_search),
+                "Allow searching across project boundaries",
+            ),
+        );
+        boundary.insert(
+            "cross_project_import".into(),
+            key(
+                "bool",
+                serde_json::json!(cfg.boundary_policy.cross_project_import),
+                "Allow importing knowledge from other projects",
+            ),
+        );
+        boundary.insert(
+            "audit_cross_access".into(),
+            key(
+                "bool",
+                serde_json::json!(cfg.boundary_policy.audit_cross_access),
+                "Log audit events when cross-project access occurs",
+            ),
+        );
+        boundary.insert(
+            "universal_gotchas_enabled".into(),
+            key(
+                "bool",
+                serde_json::json!(cfg.boundary_policy.universal_gotchas_enabled),
+                "Load universal (cross-project) gotchas",
+            ),
+        );
+        sections.insert(
+            "boundary_policy".into(),
+            SectionSchema {
+                description: "Cross-project boundary and access control policies".into(),
+                keys: boundary,
+            },
+        );
+
+        let mut secret_det = BTreeMap::new();
+        secret_det.insert(
+            "enabled".into(),
+            key(
+                "bool",
+                serde_json::json!(cfg.secret_detection.enabled),
+                "Enable secret/credential detection in tool outputs",
+            ),
+        );
+        secret_det.insert(
+            "redact".into(),
+            key(
+                "bool",
+                serde_json::json!(cfg.secret_detection.redact),
+                "Redact detected secrets from output",
+            ),
+        );
+        secret_det.insert(
+            "custom_patterns".into(),
+            key(
+                "array",
+                serde_json::json!(cfg.secret_detection.custom_patterns),
+                "Additional regex patterns to detect as secrets",
+            ),
+        );
+        sections.insert(
+            "secret_detection".into(),
+            SectionSchema {
+                description: "Secret/credential detection and redaction settings".into(),
+                keys: secret_det,
             },
         );
 
