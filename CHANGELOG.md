@@ -5,9 +5,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.6.9] — 2026-05-19
+
 ### Added
 
-- **Active Context Gate** — Pressure-based auto-downgrade: when context utilization exceeds 75%, reads are automatically downgraded (full→map, map→signatures). Reinjection plan retroactively marks existing "full" entries as "map" under pressure. Φ scores now computed with real task context from SessionState.
+- **Context IR hot-path lineage** — Every tool call now records source kind, tokens, duration, and content excerpt into the Context Intermediate Representation for full lineage tracking
+- **Plugin-ready traits** — Extracted `CompressionPattern` trait (patterns/) and `ContextProvider` trait (providers/) for future plugin extensibility
+- **Pytest verbose compression** — Dedicated pattern for `pytest -v` output: consolidates per-test lines, strips fixtures/collection/metadata, preserves tracebacks and test identifiers (#251, contributed by @sisyphusse1-ops)
+- **Active Context Gate** — Pressure-based auto-downgrade: when context utilization exceeds 75%, reads are automatically downgraded (full→map, map→signatures). Φ scores now computed with real task context from SessionState
+
+### Fixed
+
+- **Workflow persistence blocking reads after crash** — Workflows inactive >30 minutes are now auto-expired on load and at runtime. Read-only tools (`ctx_read`, `ctx_multi_read`, `ctx_smart_read`, `ctx_search`, `ctx_tree`, `ctx_session`) always pass through the workflow gate regardless of state
+- **Misleading cache-hit message** — Changed "Already in your context window" to neutral `[unchanged, use cached context]` with hint about `fresh=true` for forced re-read. Prevents confusion when server-scoped cache returns hits for files not seen by the current agent
+- **Unable to clear context pressure (#244)** — `ctx_ledger(action=reset)` now correctly clears all ledger state
+- **Windows CI CRLF assertion** — Normalized line endings in `include_str!` test assertions
+- **Flaky CI tests** — Serialized environment-variable tests (`serial_test`), fixed anomaly persistence debounce race, relaxed attention stress threshold for shared runners
+
+### Changed
+
+- **ARCHITECTURE.md** — Fixed documentation drift: updated tool counts, Context IR description, dispatch flow diagram, removed references to non-existent files
+- **CONTRACTS.md** — Restructured as "LeanCTX Protocol Family" with Extension Contracts section for future plugin interfaces
+- **README.md** — Conversion-optimized structure with better hero section, install commands, and social proof
+
+### Tests
+
+- 18 new scenario tests for workflow staleness + cache message fixes (`bazsi_reported_scenarios.rs`)
+- 4 new workflow staleness/passthrough tests (`workflow_done_scenarios.rs`)
+- Context IR hot-path recording tests, trait implementation tests, doc integrity tests (`hardening_ir_traits.rs`)
+- Adversarial safety tests for pytest xfail/xpass and test name preservation
 
 ## [3.6.8] — 2026-05-18
 
