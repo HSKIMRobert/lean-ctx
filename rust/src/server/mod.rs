@@ -592,6 +592,44 @@ impl ServerHandler for LeanCtxServer {
 
         crate::core::anomaly::record_metric("tokens_per_call", output_tokens as f64);
 
+        // Context IR: record lineage for every tool call.
+        if let Some(ref ir) = self.context_ir {
+            let tool_duration = tool_start.elapsed();
+            let source_kind = match name {
+                n if n.contains("read") || n.contains("multi_read") || n.contains("smart_read") => {
+                    crate::core::context_ir::ContextIrSourceKindV1::Read
+                }
+                "ctx_shell" => crate::core::context_ir::ContextIrSourceKindV1::Shell,
+                "ctx_search" | "ctx_semantic_search" => {
+                    crate::core::context_ir::ContextIrSourceKindV1::Search
+                }
+                "ctx_provider" => crate::core::context_ir::ContextIrSourceKindV1::Provider,
+                _ => crate::core::context_ir::ContextIrSourceKindV1::Other,
+            };
+            let ir_path = helpers::get_str(args, "path");
+            let ir_command = helpers::get_str(args, "command");
+            let ir_mode = helpers::get_str(args, "mode");
+            let excerpt = if result_text.len() > 200 {
+                &result_text[..200]
+            } else {
+                &result_text
+            };
+            let input = crate::core::context_ir::RecordIrInput {
+                kind: source_kind,
+                tool: name,
+                client_name: None,
+                agent_id: None,
+                path: ir_path.as_deref(),
+                command: ir_command.as_deref(),
+                pattern: ir_mode.as_deref(),
+                input_tokens: pre_terse_len / 4,
+                output_tokens: output_tokens as usize,
+                duration: tool_duration,
+                content_excerpt: excerpt,
+            };
+            ir.write().await.record(input);
+        }
+
         // Correction-loop detection: track re-reads and re-runs as quality signals.
         {
             let mut detector = self.loop_detector.write().await;
@@ -951,8 +989,14 @@ impl ServerHandler for LeanCtxServer {
             };
 
             if let Some(prepared) = pending_session_save {
+                let ir_clone = self.context_ir.clone();
                 tokio::task::spawn_blocking(move || {
                     let _ = prepared.write_to_disk();
+                    if let Some(ir) = ir_clone {
+                        if let Ok(ir_guard) = ir.try_read() {
+                            ir_guard.save();
+                        }
+                    }
                 });
             }
 

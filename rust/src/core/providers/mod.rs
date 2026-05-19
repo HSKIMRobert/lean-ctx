@@ -1,6 +1,9 @@
 pub mod cache;
 pub mod config;
 pub mod gitlab;
+pub mod provider_trait;
+
+pub use provider_trait::{ContextPacket, ContextProvider, ProviderParams};
 
 use serde::{Deserialize, Serialize};
 

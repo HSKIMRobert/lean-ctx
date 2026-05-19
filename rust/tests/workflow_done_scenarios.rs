@@ -8,6 +8,7 @@
 
 use lean_ctx::core::workflow::types::{StateSpec, TransitionSpec, WorkflowRun, WorkflowSpec};
 use lean_ctx::core::workflow::{clear_active, load_active, save_active};
+use serial_test::serial;
 
 fn test_spec() -> WorkflowSpec {
     WorkflowSpec {
@@ -51,6 +52,7 @@ fn test_spec() -> WorkflowSpec {
 
 fn setup_test_data_dir() {
     let dir = std::env::temp_dir().join("lean_ctx_workflow_test");
+    let _ = std::fs::remove_dir_all(&dir);
     let _ = std::fs::create_dir_all(&dir);
     unsafe { std::env::set_var("LEAN_CTX_DATA_DIR", dir.to_str().unwrap()) };
 }
@@ -66,6 +68,7 @@ fn cleanup_test_data_dir() {
 // ==========================================================================
 
 #[test]
+#[serial]
 fn scenario_stop_clears_workflow() {
     setup_test_data_dir();
 
@@ -89,6 +92,7 @@ fn scenario_stop_clears_workflow() {
 // ==========================================================================
 
 #[test]
+#[serial]
 fn scenario_save_load_roundtrip() {
     setup_test_data_dir();
 
@@ -108,6 +112,7 @@ fn scenario_save_load_roundtrip() {
 // ==========================================================================
 
 #[test]
+#[serial]
 fn scenario_clear_active_idempotent() {
     setup_test_data_dir();
     clear_active().unwrap();
@@ -160,6 +165,7 @@ fn scenario_done_state_gate_would_block() {
 // ==========================================================================
 
 #[test]
+#[serial]
 fn scenario_complete_clears_workflow_file() {
     setup_test_data_dir();
 
@@ -194,6 +200,7 @@ fn scenario_complete_clears_workflow_file() {
 // ==========================================================================
 
 #[test]
+#[serial]
 fn scenario_normal_transition_persists() {
     setup_test_data_dir();
 
@@ -217,6 +224,7 @@ fn scenario_normal_transition_persists() {
 // ==========================================================================
 
 #[test]
+#[serial]
 fn scenario_start_after_done() {
     setup_test_data_dir();
 

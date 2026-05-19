@@ -162,7 +162,9 @@ impl LeanCtxServer {
                 channel_id.trim().to_string()
             },
             context_os,
-            context_ir: None,
+            context_ir: Some(std::sync::Arc::new(tokio::sync::RwLock::new(
+                crate::core::context_ir::ContextIrV1::load(),
+            ))),
             registry: Some(std::sync::Arc::new(
                 crate::server::registry::build_registry(),
             )),

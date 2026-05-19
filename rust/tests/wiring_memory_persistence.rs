@@ -74,6 +74,10 @@ async fn anomaly_detector_is_persisted_from_tool_call_pipeline() {
     )
     .await;
 
+    // Force save (save_debounced may skip if another test in this binary
+    // triggered a save within the 3s debounce window).
+    lean_ctx::core::anomaly::save();
+
     assert!(
         data_dir.path().join("anomaly_detector.json").exists(),
         "expected anomaly_detector.json to be persisted"

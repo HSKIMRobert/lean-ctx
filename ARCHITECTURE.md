@@ -24,13 +24,10 @@ flowchart TB
         BudgetGate["Budget / SLO Gate — exhaustion blocking, throttling"]
         DegradationEval["Degradation Policy — evaluate_v1_for_tool"]
         ContextGate["Context Gate — pre: bounce/intent/graph/knowledge; post: ledger, overlays, eviction, elicitation"]
-        HybridDispatch["Hybrid Dispatch — Context Server (51 tools)"]
-        ToolRegistry["ToolRegistry — 27 trait-based tools (McpTool)"]
-        DispatchRead["read_tools — ctx_read, ctx_multi_read, ctx_edit, ctx_fill, ctx_delta, ctx_smart_read"]
-        DispatchShell["shell_tools — ctx_shell, ctx_search, ctx_execute"]
-        DispatchSession["session_tools — ctx_session, ctx_knowledge, ctx_agent, ctx_share, ctx_task, ctx_handoff, ctx_workflow"]
-        DispatchUtility["utility_tools — 16 async-state tools incl. CFT (ctx_control, ctx_plan, ctx_compile)"]
-        PostPipeline["Post-Pipeline — tokens, archive, density, translation, verify, enrich, auto-response, evidence, search throttle, sandbox routing"]
+        HybridDispatch["Hybrid Dispatch — Context Server (51+ unified tools)"]
+        ToolRegistry["ToolRegistry — 61 trait-based tools (McpTool), 7 legacy"]
+        DispatchRegistry["Registry dispatch — dispatch/mod.rs (majority of tools)"]
+        PostPipeline["Post-Pipeline — Context IR, tokens, archive, density, translation, verify, enrich, auto-response, evidence, sandbox routing"]
     end
 
     subgraph contextio [Context I/O]
@@ -87,7 +84,7 @@ flowchart TB
     end
 
     subgraph compression [Compression and IR]
-        ContextIR["Context IR v1 — source, provenance, safety, tokens, freshness"]
+        ContextIR["Context IR v1 — live lineage recording (hot-path), source, provenance, safety, tokens, freshness"]
         Compressor["Compressor — entropy, attention, TF-IDF codebook"]
         EntropyFilter["Entropy Filter — Shannon entropy per line"]
         AttentionModel["Attention Model — U-curve positional weighting"]
@@ -217,22 +214,16 @@ flowchart TB
     DegradationEval --> ContextGate
     ContextGate --> HybridDispatch
 
-    HybridDispatch -->|"registry hit"| ToolRegistry
-    HybridDispatch -->|"legacy fallback"| DispatchRead
-    HybridDispatch -->|"legacy fallback"| DispatchShell
-    HybridDispatch -->|"legacy fallback"| DispatchSession
-    HybridDispatch -->|"legacy fallback"| DispatchUtility
+    HybridDispatch -->|"registry (61 tools)"| ToolRegistry
+    HybridDispatch -->|"legacy (7 tools)"| DispatchRegistry
 
     ToolRegistry --> PostPipeline
-    DispatchRead --> PostPipeline
-    DispatchShell --> PostPipeline
-    DispatchSession --> PostPipeline
-    DispatchUtility --> PostPipeline
+    DispatchRegistry --> PostPipeline
 
-    DispatchRead --> ReadPipeline
-    DispatchRead --> EditSafety
-    DispatchShell --> ShellCompress
-    DispatchShell --> SearchEngine
+    DispatchRegistry --> ReadPipeline
+    DispatchRegistry --> EditSafety
+    DispatchRegistry --> ShellCompress
+    DispatchRegistry --> SearchEngine
 
     ShellCompress --> patterns
 
@@ -243,16 +234,14 @@ flowchart TB
     ReadPipeline --> PropertyGraph
     ReadPipeline --> GraphAwareRead
 
-    DispatchSession --> Session
-    DispatchSession --> KnowledgeStore
-    DispatchSession --> AgentRegistry
-    DispatchSession --> WorkflowEngine
+    ToolRegistry --> Session
+    ToolRegistry --> KnowledgeStore
+    ToolRegistry --> AgentRegistry
+    ToolRegistry --> WorkflowEngine
 
     ToolRegistry --> PropertyGraph
     ToolRegistry --> ContextProof
     ToolRegistry --> ArtifactIndex
-    DispatchUtility --> PropertyGraph
-    DispatchUtility --> ContextProof
 
     PostPipeline --> PrefixOrdering
     PrefixOrdering --> OutputDensity
@@ -264,7 +253,7 @@ flowchart TB
     AutoResponse --> SLOEvaluate
     SLOEvaluate --> EvidenceLedger
 
-    Session -.->|"task, project_root"| DispatchRead
+    Session -.->|"task, project_root"| DispatchRegistry
     Session -.->|"receipts, intents"| EvidenceLedger
     Session --> SurvivalEngine
 
@@ -292,7 +281,7 @@ flowchart TB
     Compressor --> EntropyFilter
     Compressor --> AttentionModel
     Compressor --> TokenOptimizer
-    DispatchUtility --> DedupEngine
+    ToolRegistry --> DedupEngine
 
     Profiles --> Budgets
     Profiles --> SLOs
@@ -403,8 +392,9 @@ flowchart TD
     SLOBlockMsg["Return: SLO BLOCK"]
     SLOThrottle["Sleep throttle_ms"]
     ShellBudget["BudgetTracker::record_shell if shell tool"]
-    DispatchCall["dispatch_inner — ToolRegistry (27) or legacy fallback (29)"]
+    DispatchCall["dispatch_inner — ToolRegistry (61) or legacy fallback (7)"]
     TokenCount["count_tokens + BudgetTracker::record_tokens"]
+    IRRecord["Context IR record — lineage, tokens, duration, compression ratio"]
     AnomalyRecord["anomaly::record_metric"]
     BudgetWarn{"Budget warning level?"}
     ArchiveCheck{"Output large enough to archive?"}
@@ -448,7 +438,7 @@ flowchart TD
     SLOCheck -->|ok| ShellBudget
     SLOThrottle --> ShellBudget
     ShellBudget --> DispatchCall
-    DispatchCall --> TokenCount --> AnomalyRecord
+    DispatchCall --> TokenCount --> IRRecord --> AnomalyRecord
     AnomalyRecord --> BudgetWarn
     BudgetWarn --> ArchiveCheck
     ArchiveCheck -->|yes| ArchiveOp
@@ -535,7 +525,7 @@ flowchart LR
         CompressedCtx["Compressed Context — to LLM"]
         ProofReport["Proof Artifacts — JSON + HTML"]
         GainMetrics["Gain Metrics — savings, costs"]
-        IRSnapshot["Context IR — provenance, safety"]
+        IRSnapshot["Context IR — live lineage (every tool call), provenance, safety"]
         PackBundle["PR Pack — diff context bundle"]
         Instructions["Instructions — per-client, per-profile"]
     end
@@ -587,16 +577,11 @@ flowchart LR
 
 | Module | Purpose |
 |:---|:---|
-| `server/mod.rs` | `LeanCtxServer` — MCP server state, initialization, `call_tool` pipeline (~85 lines, orchestrates pipeline stages) |
+| `server/mod.rs` | `LeanCtxServer` — MCP server state, `call_tool` pipeline (dispatch + post-processing + Context IR recording) |
 | `server/tool_trait.rs` | `McpTool` trait, `ToolOutput`, `ToolContext` — interface for self-contained tools |
-| `server/registry.rs` | `ToolRegistry` — HashMap-based tool lookup, `build_registry()` registers 27 trait-based tools |
-| `server/pipeline_stages.rs` | Pre/post-dispatch processing stages extracted from the former monolithic `call_tool` |
-| `server/dispatch/mod.rs` | Hybrid dispatch — `dispatch_inner` checks ToolRegistry first, falls back to legacy match |
-| `server/dispatch/read_tools.rs` | ctx_read, ctx_multi_read, ctx_edit, ctx_fill, ctx_delta, ctx_smart_read |
-| `server/dispatch/shell_tools.rs` | ctx_shell, ctx_search, ctx_execute |
-| `server/dispatch/session_tools.rs` | ctx_session, ctx_knowledge, ctx_agent, ctx_handoff, ctx_workflow, ctx_task, ctx_share |
-| `server/dispatch/utility_tools.rs` | 16 async-state tools including CFT (ctx_control, ctx_plan, ctx_compile) |
-| `server/context_gate.rs` | Context Gate — pre/post dispatch: bounce prevention, intent-target, graph-proximity, knowledge-relevance gates, eviction/elicitation hints |
+| `server/registry.rs` | `ToolRegistry` — HashMap-based tool lookup, `build_registry()` registers 61 trait-based tools |
+| `server/dispatch/mod.rs` | Hybrid dispatch — `dispatch_inner` checks ToolRegistry first (61 tools), falls back to legacy match (7 tools) |
+| `server/context_gate.rs` | Context Gate — post-dispatch for ctx_read: ledger recording, eviction/elicitation hints, pressure tracking |
 | `server/resources.rs` | MCP Resources — 5 URI-addressable subscribe-capable resources (`lean-ctx://context/*`) |
 | `server/prompts.rs` | MCP Prompts — 5 slash commands for context manipulation |
 | `server/elicitation.rs` | Elicitation — rate-limited proactive suggestions (max 1 per 20 calls) |
@@ -605,8 +590,8 @@ flowchart LR
 | `server/helpers.rs` | Shared server utilities |
 | `server/role_guard.rs` | Role-based tool access policy |
 | `tool_defs/` | Tool metadata, JSON schemas, granular vs unified mode |
-| `tools/` | 51 tool handlers + `LeanCtxServer` state struct |
-| `tools/registered/` | 27 self-contained `McpTool` implementations (schema + handler co-located) |
+| `tools/` | 51+ tools (granular mode) + `LeanCtxServer` state struct |
+| `tools/registered/` | 61 self-contained `McpTool` implementations (schema + handler co-located) |
 
 ### Shell Layer
 
@@ -1061,7 +1046,7 @@ The frontend (`cockpit-context.js`) renders these as a unified control panel wit
 
 10. **Contract-first governance** — 19 versioned contracts with CI drift gates ensure documentation, configuration, and runtime stay synchronized.
 
-11. **Hybrid dispatch architecture** — 27 tools are migrated to a trait-based `McpTool` registry (`tools/registered/`), co-locating schema definitions with handlers to eliminate schema-drift. 13 tools requiring mutable async state (cache.write, session.write) remain in the legacy match-cascade. The `dispatch_inner` function checks the `ToolRegistry` first and falls back to legacy dispatch. Pre/post-dispatch processing is extracted into named pipeline stages in `server/pipeline_stages.rs`, reducing the central `call_tool` orchestrator from ~700 to ~85 lines. CI drift-gate tests (`tool_registry_complete.rs`) prevent duplicate dispatch and ensure schema consistency.
+11. **Hybrid dispatch architecture** — 61 tools are migrated to a trait-based `McpTool` registry (`tools/registered/`), co-locating schema definitions with handlers to eliminate schema-drift. 7 tools requiring mutable async state (cache.write, session.write) remain in the legacy match-cascade in `server/dispatch/mod.rs`. The `dispatch_inner` function checks the `ToolRegistry` first and falls back to legacy dispatch. Post-dispatch processing (Context IR recording, terse compression, verification, enrichment) is handled inline in `server/mod.rs`. CI drift-gate tests (`tool_registry_complete.rs`) prevent duplicate dispatch and ensure schema consistency.
 
 12. **Daemon mode** — `lean-ctx serve --daemon` starts a background process with Unix Domain Socket for zero-overhead CLI-to-server IPC. PID file at `~/.local/share/lean-ctx/daemon.pid`, socket at `daemon.sock`.
 

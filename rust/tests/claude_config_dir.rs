@@ -1,9 +1,11 @@
 //! Tests for CLAUDE_CONFIG_DIR support in instructions and compiler output.
 //!
-//! These tests modify process-global env vars, so they run with `--test-threads=1`
-//! via `#[serial_test::serial]` or should be run in isolation.
+//! These tests modify process-global env vars — must run serialized.
+
+use serial_test::serial;
 
 #[test]
+#[serial]
 fn claude_code_instructions_default_path() {
     // Ensure CLAUDE_CONFIG_DIR is unset so we get the default.
     let prev = std::env::var("CLAUDE_CONFIG_DIR").ok();
@@ -22,6 +24,7 @@ fn claude_code_instructions_default_path() {
 }
 
 #[test]
+#[serial]
 fn claude_code_instructions_custom_config_dir() {
     let prev = std::env::var("CLAUDE_CONFIG_DIR").ok();
     unsafe { std::env::set_var("CLAUDE_CONFIG_DIR", "~/.arc/claude") };
@@ -44,6 +47,7 @@ fn claude_code_instructions_custom_config_dir() {
 }
 
 #[test]
+#[serial]
 fn claude_config_dir_display_resolves_home() {
     let prev = std::env::var("CLAUDE_CONFIG_DIR").ok();
 
@@ -65,6 +69,7 @@ fn claude_config_dir_display_resolves_home() {
 }
 
 #[test]
+#[serial]
 fn claude_config_dir_display_tilde_passthrough() {
     let prev = std::env::var("CLAUDE_CONFIG_DIR").ok();
     unsafe { std::env::set_var("CLAUDE_CONFIG_DIR", "~/.custom/claude") };

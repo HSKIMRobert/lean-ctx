@@ -55,6 +55,10 @@ impl ToolOutput {
 /// Trait for a self-contained MCP tool. Each tool provides its own schema
 /// definition and handler, eliminating the possibility of schema/handler drift.
 ///
+/// This trait is the plugin interface for LcpTools: any implementation can be
+/// registered at runtime via `ToolRegistry::register()`. Future plugin system
+/// will load implementations from shared libraries or subprocess bridges.
+///
 /// Handlers are synchronous because all existing tool handlers are sync.
 /// The async boundary (cache locks, session reads) is handled by the dispatch
 /// layer before calling `handle`.

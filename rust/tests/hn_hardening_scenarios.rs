@@ -419,8 +419,10 @@ mod confidence_signal {
 
 mod auto_degrade {
     use lean_ctx::core::config::CompressionLevel;
+    use serial_test::serial;
 
     #[test]
+    #[serial]
     fn scenario_set_degrade_to_off() {
         CompressionLevel::set_session_degrade(&CompressionLevel::Off);
         let level = CompressionLevel::session_degrade_level();
@@ -429,6 +431,7 @@ mod auto_degrade {
     }
 
     #[test]
+    #[serial]
     fn scenario_set_degrade_to_lite() {
         CompressionLevel::set_session_degrade(&CompressionLevel::Lite);
         let level = CompressionLevel::session_degrade_level();
@@ -437,6 +440,7 @@ mod auto_degrade {
     }
 
     #[test]
+    #[serial]
     fn scenario_clear_degrade_restores_none() {
         CompressionLevel::set_session_degrade(&CompressionLevel::Off);
         CompressionLevel::clear_session_degrade();
@@ -445,6 +449,7 @@ mod auto_degrade {
     }
 
     #[test]
+    #[serial]
     fn scenario_effective_uses_degrade_when_set() {
         let cfg = lean_ctx::core::config::Config::load();
         CompressionLevel::set_session_degrade(&CompressionLevel::Lite);

@@ -1989,26 +1989,31 @@ fn resolve_worker_threads(parallelism: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     #[test]
+    #[serial]
     fn worker_threads_default_clamps_low() {
         std::env::remove_var("LEAN_CTX_WORKER_THREADS");
         assert_eq!(resolve_worker_threads(1), 1);
     }
 
     #[test]
+    #[serial]
     fn worker_threads_default_clamps_high() {
         std::env::remove_var("LEAN_CTX_WORKER_THREADS");
         assert_eq!(resolve_worker_threads(32), 4);
     }
 
     #[test]
+    #[serial]
     fn worker_threads_default_passthrough() {
         std::env::remove_var("LEAN_CTX_WORKER_THREADS");
         assert_eq!(resolve_worker_threads(3), 3);
     }
 
     #[test]
+    #[serial]
     fn worker_threads_env_override() {
         std::env::set_var("LEAN_CTX_WORKER_THREADS", "12");
         assert_eq!(resolve_worker_threads(2), 12);
@@ -2016,6 +2021,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn worker_threads_env_invalid_falls_back() {
         std::env::set_var("LEAN_CTX_WORKER_THREADS", "not_a_number");
         assert_eq!(resolve_worker_threads(3), 3);
