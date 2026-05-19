@@ -283,3 +283,93 @@ fn scenario_handoff_active_workflow_restored() {
         "Handoff SHOULD restore an active (non-done) workflow"
     );
 }
+
+// ==========================================================================
+// Scenario: Stale workflow (>30min) auto-clears on load
+// ==========================================================================
+
+#[test]
+#[serial]
+fn scenario_stale_workflow_auto_cleared_on_load() {
+    setup_test_data_dir();
+
+    let spec = test_spec();
+    let mut run = WorkflowRun::new(spec);
+    run.current = "coding".to_string();
+    run.updated_at = chrono::Utc::now() - chrono::Duration::minutes(35);
+    save_active(&run).unwrap();
+
+    let loaded = load_active().unwrap();
+    assert!(
+        loaded.is_none(),
+        "Stale workflow (>30min) should be auto-cleared on load"
+    );
+
+    cleanup_test_data_dir();
+}
+
+// ==========================================================================
+// Scenario: Fresh workflow remains active on load
+// ==========================================================================
+
+#[test]
+#[serial]
+fn scenario_fresh_workflow_survives_load() {
+    setup_test_data_dir();
+
+    let spec = test_spec();
+    let mut run = WorkflowRun::new(spec);
+    run.current = "coding".to_string();
+    run.updated_at = chrono::Utc::now() - chrono::Duration::minutes(5);
+    save_active(&run).unwrap();
+
+    let loaded = load_active().unwrap();
+    assert!(
+        loaded.is_some(),
+        "Fresh workflow (<30min) should survive load"
+    );
+    assert_eq!(loaded.unwrap().current, "coding");
+
+    cleanup_test_data_dir();
+}
+
+// ==========================================================================
+// Scenario: Passthrough tools are never blocked by workflow gate
+// ==========================================================================
+
+#[test]
+fn scenario_passthrough_tools_never_blocked() {
+    use lean_ctx::server::WORKFLOW_PASSTHROUGH_TOOLS;
+
+    assert!(WORKFLOW_PASSTHROUGH_TOOLS.contains(&"ctx_read"));
+    assert!(WORKFLOW_PASSTHROUGH_TOOLS.contains(&"ctx_multi_read"));
+    assert!(WORKFLOW_PASSTHROUGH_TOOLS.contains(&"ctx_smart_read"));
+    assert!(WORKFLOW_PASSTHROUGH_TOOLS.contains(&"ctx_search"));
+    assert!(WORKFLOW_PASSTHROUGH_TOOLS.contains(&"ctx_tree"));
+    assert!(WORKFLOW_PASSTHROUGH_TOOLS.contains(&"ctx_session"));
+    assert!(WORKFLOW_PASSTHROUGH_TOOLS.contains(&"ctx"));
+    assert!(WORKFLOW_PASSTHROUGH_TOOLS.contains(&"ctx_workflow"));
+}
+
+// ==========================================================================
+// Scenario: is_workflow_stale correctly identifies stale workflows
+// ==========================================================================
+
+#[test]
+fn scenario_staleness_detection() {
+    let spec = test_spec();
+
+    let mut fresh_run = WorkflowRun::new(spec.clone());
+    fresh_run.updated_at = chrono::Utc::now() - chrono::Duration::minutes(10);
+    assert!(
+        !lean_ctx::server::is_workflow_stale(&fresh_run),
+        "10min old workflow should NOT be stale"
+    );
+
+    let mut stale_run = WorkflowRun::new(spec);
+    stale_run.updated_at = chrono::Utc::now() - chrono::Duration::minutes(31);
+    assert!(
+        lean_ctx::server::is_workflow_stale(&stale_run),
+        "31min old workflow SHOULD be stale"
+    );
+}

@@ -64,11 +64,17 @@ fn handle_status(session: &SessionState) -> String {
 
     let ledger = crate::core::evidence_ledger::EvidenceLedgerV1::load();
 
+    let elapsed_min = chrono::Utc::now()
+        .signed_duration_since(run.updated_at)
+        .num_minutes();
     let mut lines = vec![
         format!("Workflow: {}", run.spec.name),
         format!("  State: {}", run.current),
-        format!("  Updated: {}", run.updated_at),
+        format!("  Updated: {} ({elapsed_min}m ago)", run.updated_at),
     ];
+    if elapsed_min > 20 {
+        lines.push("  WARNING: Workflow inactive >20min, will auto-expire at 30min. Use action=stop to exit now.".to_string());
+    }
 
     if let Some(state) = run.spec.state(&run.current) {
         if let Some(ref tools) = state.allowed_tools {

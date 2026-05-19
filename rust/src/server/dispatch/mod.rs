@@ -81,25 +81,24 @@ impl LeanCtxServer {
                     ));
                 }
 
-                if inner != "ctx_workflow" {
+                if !super::WORKFLOW_PASSTHROUGH_TOOLS.contains(&inner.as_str()) {
                     let active = self.workflow.read().await.clone();
                     if let Some(run) = active {
-                        if run.current == "done" {
+                        if run.current == "done" || super::is_workflow_stale(&run) {
                             let mut wf = self.workflow.write().await;
                             *wf = None;
                             let _ = crate::core::workflow::clear_active();
                         } else if let Some(state) = run.spec.state(&run.current) {
                             if let Some(allowed) = &state.allowed_tools {
-                                let ok = allowed.iter().any(|t| t == &inner) || inner == "ctx";
+                                let ok = allowed.iter().any(|t| t == &inner);
                                 if !ok {
                                     let mut shown = allowed.clone();
                                     shown.sort();
                                     shown.truncate(30);
                                     return Ok((format!(
-                                        "Tool '{inner}' blocked by workflow '{}' (state: {}). Allowed ({} shown): {}",
+                                        "Tool '{inner}' blocked by workflow '{}' (state: {}). Allowed: {}. Use ctx_workflow(action=\"stop\") to exit.",
                                         run.spec.name,
                                         run.current,
-                                        shown.len(),
                                         shown.join(", ")
                                     ), 0));
                                 }

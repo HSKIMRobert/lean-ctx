@@ -354,9 +354,8 @@ fn handle_with_options_inner(
                 cache.record_cache_hit(path);
                 let out = if crate::core::protocol::meta_visible() {
                     format!(
-                        "{file_ref}={short} cached {}t {}L\nFile content unchanged since last read (same hash). Already in your context window.",
-                        read_count + 1, line_count
-                    )
+                        "{file_ref}={short} [unchanged, {line_count}L, use cached context]\nFile unchanged on disk (same hash). If you haven't seen this content, use fresh=true to force re-read.",
+                        )
                 } else {
                     let proof = content_opt
                         .as_deref()
@@ -368,10 +367,10 @@ fn handle_with_options_inner(
                     };
                     match proof {
                         Some(p) => format!(
-                            "{file_ref}={short} (file unchanged since your last read, content is in your context{reads_note} | first: \"{p}\")"
+                            "{file_ref}={short} [unchanged, {line_count}L, use cached context{reads_note} | first: \"{p}\"]"
                         ),
                         None => format!(
-                            "{file_ref}={short} (file unchanged since your last read, {line_count}L already in your context{reads_note})"
+                            "{file_ref}={short} [unchanged, {line_count}L, use cached context{reads_note}]"
                         ),
                     }
                 };
@@ -734,8 +733,8 @@ fn handle_full_with_auto_delta(
         if store_result.full_content_delivered {
             let out = if crate::core::protocol::meta_visible() {
                 format!(
-                    "{file_ref}={short} cached {}t {}L\nFile content unchanged since last read (same hash). Already in your context window.",
-                    store_result.read_count, store_result.line_count
+                    "{file_ref}={short} [unchanged, {}L, use cached context]\nFile unchanged on disk (same hash). If you haven't seen this content, use fresh=true to force re-read.",
+                    store_result.line_count
                 )
             } else {
                 let proof = cache_hit_proof_line(&disk_content, store_result.read_count);
@@ -746,10 +745,11 @@ fn handle_full_with_auto_delta(
                 };
                 match proof {
                     Some(p) => format!(
-                        "{file_ref}={short} (file unchanged since your last read, content is in your context{reads_note} | first: \"{p}\")"
+                        "{file_ref}={short} [unchanged, {}L, use cached context{reads_note} | first: \"{p}\"]",
+                        store_result.line_count
                     ),
                     None => format!(
-                        "{file_ref}={short} (file unchanged since your last read, {}L already in your context{reads_note})",
+                        "{file_ref}={short} [unchanged, {}L, use cached context{reads_note}]",
                         store_result.line_count
                     ),
                 }

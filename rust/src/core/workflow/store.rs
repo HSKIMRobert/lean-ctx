@@ -7,6 +7,9 @@ fn active_workflow_path() -> Option<PathBuf> {
         .map(|d| d.join("workflows").join("active.json"))
 }
 
+/// Stale threshold: workflows inactive for over 30 minutes are auto-cleared on load.
+const STALE_MINUTES: i64 = 30;
+
 pub fn load_active() -> Result<Option<WorkflowRun>, String> {
     let Some(path) = active_workflow_path() else {
         return Ok(None);
@@ -18,6 +21,14 @@ pub fn load_active() -> Result<Option<WorkflowRun>, String> {
     };
     let run: WorkflowRun =
         serde_json::from_str(&content).map_err(|e| format!("Invalid workflow JSON: {e}"))?;
+
+    let elapsed = chrono::Utc::now()
+        .signed_duration_since(run.updated_at)
+        .num_minutes();
+    if elapsed > STALE_MINUTES || run.current == "done" {
+        let _ = std::fs::remove_file(&path);
+        return Ok(None);
+    }
     Ok(Some(run))
 }
 

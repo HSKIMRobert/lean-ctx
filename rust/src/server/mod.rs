@@ -255,22 +255,24 @@ impl ServerHandler for LeanCtxServer {
         let tools = {
             let active = self.workflow.read().await.clone();
             if let Some(run) = active {
-                // Terminal "done" state never restricts tool visibility
-                if run.current != "done" {
-                    if let Some(state) = run.spec.state(&run.current) {
-                        if let Some(allowed) = &state.allowed_tools {
-                            let mut allow: std::collections::HashSet<&str> =
-                                allowed.iter().map(std::string::String::as_str).collect();
-                            allow.insert("ctx");
-                            allow.insert("ctx_workflow");
-                            return Ok(ListToolsResult {
-                                tools: tools
-                                    .into_iter()
-                                    .filter(|t| allow.contains(t.name.as_ref()))
-                                    .collect(),
-                                ..Default::default()
-                            });
+                if run.current == "done" || is_workflow_stale(&run) {
+                    let mut wf = self.workflow.write().await;
+                    *wf = None;
+                    let _ = crate::core::workflow::clear_active();
+                } else if let Some(state) = run.spec.state(&run.current) {
+                    if let Some(allowed) = &state.allowed_tools {
+                        let mut allow: std::collections::HashSet<&str> =
+                            allowed.iter().map(std::string::String::as_str).collect();
+                        for passthrough in WORKFLOW_PASSTHROUGH_TOOLS {
+                            allow.insert(passthrough);
                         }
+                        return Ok(ListToolsResult {
+                            tools: tools
+                                .into_iter()
+                                .filter(|t| allow.contains(t.name.as_ref()))
+                                .collect(),
+                            ..Default::default()
+                        });
                     }
                 }
             }
@@ -402,25 +404,25 @@ impl ServerHandler for LeanCtxServer {
         if name != "ctx_workflow" {
             let active = self.workflow.read().await.clone();
             if let Some(run) = active {
-                // Terminal state "done" should never block — auto-clear stale workflows
-                if run.current == "done" {
+                if run.current == "done" || is_workflow_stale(&run) {
                     let mut wf = self.workflow.write().await;
                     *wf = None;
                     let _ = crate::core::workflow::clear_active();
-                } else if let Some(state) = run.spec.state(&run.current) {
-                    if let Some(allowed) = &state.allowed_tools {
-                        let allowed_ok = allowed.iter().any(|t| t == name) || name == "ctx";
-                        if !allowed_ok {
-                            let mut shown = allowed.clone();
-                            shown.sort();
-                            shown.truncate(30);
-                            return Ok(CallToolResult::success(vec![Content::text(format!(
-                                "Tool '{name}' blocked by workflow '{}' (state: {}). Allowed ({} shown): {}",
-                                run.spec.name,
-                                run.current,
-                                shown.len(),
-                                shown.join(", ")
-                            ))]));
+                } else if !WORKFLOW_PASSTHROUGH_TOOLS.contains(&name) {
+                    if let Some(state) = run.spec.state(&run.current) {
+                        if let Some(allowed) = &state.allowed_tools {
+                            let allowed_ok = allowed.iter().any(|t| t == name);
+                            if !allowed_ok {
+                                let mut shown = allowed.clone();
+                                shown.sort();
+                                shown.truncate(30);
+                                return Ok(CallToolResult::success(vec![Content::text(format!(
+                                    "Tool '{name}' blocked by workflow '{}' (state: {}). Allowed: {}. Use ctx_workflow(action=\"stop\") to exit.",
+                                    run.spec.name,
+                                    run.current,
+                                    shown.join(", ")
+                                ))]));
+                            }
                         }
                     }
                 }
@@ -1380,6 +1382,30 @@ pub fn tool_schemas_json_for_test() -> String {
         .map(|(name, _, schema)| format!("{name}: {schema}"))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Tools that always pass through the workflow gate regardless of state.
+/// Read-only tools should never be blocked — agents need them for context
+/// recovery after crashes or session transitions.
+pub const WORKFLOW_PASSTHROUGH_TOOLS: &[&str] = &[
+    "ctx",
+    "ctx_workflow",
+    "ctx_read",
+    "ctx_multi_read",
+    "ctx_smart_read",
+    "ctx_search",
+    "ctx_tree",
+    "ctx_session",
+    "ctx_ledger",
+];
+
+/// A workflow is stale if it hasn't been updated in 30 minutes.
+/// This prevents dead workflows from blocking tools across sessions.
+pub fn is_workflow_stale(run: &crate::core::workflow::types::WorkflowRun) -> bool {
+    let elapsed = chrono::Utc::now()
+        .signed_duration_since(run.updated_at)
+        .num_minutes();
+    elapsed > 30
 }
 
 fn is_shell_tool_name(name: &str) -> bool {
