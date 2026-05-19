@@ -11,22 +11,22 @@
 
 **The Context Layer for AI Development**
 
-Know what's in your context. Control what reaches the model.
-One Rust binary. Zero cloud dependency.
+Your AI coding agent wastes thousands of tokens rereading files,
+parsing noisy shell output, and losing context between sessions.
 
----
+**LeanCTX fixes that.** One binary. Zero config. Local-first.
 
-<table>
-<tr>
-<td width="33%" align="center"><strong>59 MCP tools</strong><br/><sub>10 read modes · graph · memory · multi-agent</sub></td>
-<td width="33%" align="center"><strong>95+ shell patterns</strong><br/><sub>56 modules · 270 passthrough rules</sub></td>
-<td width="33%" align="center"><strong>~13 tokens</strong><br/><sub>cached re-reads · tree-sitter AST · 21 langs</sub></td>
-</tr>
-</table>
+| Problem | With LeanCTX |
+|---------|-------------|
+| Repeated file reads: ~2000 tokens each | Cached re-reads: **~13 tokens** |
+| Raw `git status`: ~800 tokens | Compressed: **~120 tokens** |
+| Context resets every chat | Session memory persists across chats |
+| No visibility into context usage | Real-time dashboard + budget control |
 
 ---
 
 <p>
+  <a href="https://github.com/yvgude/lean-ctx/stargazers"><img src="https://img.shields.io/github/stars/yvgude/lean-ctx?style=social" alt="GitHub Stars"></a>&nbsp;&nbsp;
   <a href="https://github.com/yvgude/lean-ctx/actions/workflows/ci.yml"><img src="https://github.com/yvgude/lean-ctx/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/yvgude/lean-ctx/actions/workflows/security-check.yml"><img src="https://github.com/yvgude/lean-ctx/actions/workflows/security-check.yml/badge.svg" alt="Security"></a>
   <a href="https://crates.io/crates/lean-ctx"><img src="https://img.shields.io/crates/v/lean-ctx?color=%23e6522c" alt="crates.io"></a>
@@ -80,36 +80,63 @@ One Rust binary. Zero cloud dependency.
 
 <p align="center"><sub>All GIFs are generated from reproducible VHS tapes in <code>demo/</code>.</sub></p>
 
+## Why developers use LeanCTX
+
+- **Longer useful coding sessions** — less context waste = more room for actual code reasoning
+- **Lower API costs** — 60-99% compression on shell output, cached reads cost ~13 tokens
+- **No more "I already showed you this file"** — session memory persists across chats
+- **Works with your existing setup** — one `lean-ctx setup` command, no config changes needed
+- **Full visibility** — see exactly where your context window budget goes
+
+---
+
+<p align="center">
+  <strong>Saves you tokens?</strong> <a href="https://github.com/yvgude/lean-ctx">Give it a star</a> — it helps others discover LeanCTX.
+</p>
+
+---
+
 ## What it does
 
-**One binary replaces your entire context stack:**
+**One binary. Three layers of value:**
 
-| Replaces | With lean-ctx | How |
-|----------|--------------|-----|
-| Output compression tools | 4 compression levels + 56 pattern modules | Shell hook + terse pipeline + 270 passthrough rules |
-| Context window managers | 10 read modes + auto-archive | Adaptive mode selection per file, Tree-sitter AST for 21 languages |
-| Session memory tools | CCP + temporal knowledge graph | Facts with validity, cross-session recovery, episodic + procedural memory |
-| Code graph tools | Property Graph + hybrid search | BM25 + embeddings + graph proximity |
-| Context observability tools | Context Manager (dashboard) | Real-time token tracking, file ledger, compression stats |
-| Governance / quality tools | Profiles, roles, budgets, SLOs | Context proof, verification engine, quality gates |
+### Layer 1: Compression (instant value)
 
-**Core capabilities:**
+Your AI agent reads files and runs commands. LeanCTX compresses both automatically.
 
-- **File reads (MCP)**: cached + mode-aware reads (`full`, `map`, `signatures`, `diff`, …) with graph-aware related files hints
-- **Shell output (hook)**: compresses noisy CLI output via 56 pattern modules + 270 passthrough rules (git, npm, cargo, docker, kubectl, terraform, …)
-- **Context Manager** (beta): browser-based dashboard (`lean-ctx dashboard`) with real-time context window visualization — file ledger with token counts, compression ratios, system prompt cost breakdown, conversation history weight, context utilization gauge, and compression stats
-- **Graph-Powered Intelligence**: multi-edge Property Graph (imports, calls, exports, type_ref) with weighted impact analysis, hybrid search (BM25 + embeddings + graph proximity via RRF), and incremental git-diff updates
-- **Governance**: profiles, roles, budgets, and SLOs — define how much context each agent uses, what tools they can access, and when to throttle
-- **Context Proof & Verification** (`ctx_proof`, `ctx_verify`): cryptographic context proofs with 4-layer verification engine and quality gates (levels 0–4)
-- **LSP Refactoring** (`ctx_refactor`): language-server-powered rename, references, go-to-definition, and find-implementations via rust-analyzer, typescript-language-server, pylsp, gopls — with timeout-protected channel-based IO
-- **Knowledge System**: temporal knowledge graph with facts, validity windows, cross-session recovery, episodic memory (task-level summaries), and procedural memory (learned workflows)
-- **Multi-Agent** (`ctx_agent`, `ctx_handoff`): agent handoff with context transfer bundles, diary system (discovery/decision/blocker/progress/insight), and synchronized shared state
+- **File reads**: 10 modes (`full`, `map`, `signatures`, `diff`, `lines:N-M`) — cached re-reads cost ~13 tokens
+- **Shell output**: 56 pattern modules compress git, npm, cargo, docker, kubectl, terraform and more (270 passthrough rules)
+- **Tree-sitter AST**: structural understanding for 21 languages — not just text compression
+
+### Layer 2: Memory (sticky value)
+
+Context doesn't disappear between chats anymore.
+
+- **Session memory (CCP)**: persist task/facts/decisions across chats — structured recovery queries survive compaction
+- **Knowledge graph**: temporal facts with validity windows, episodic + procedural memory
+- **Property Graph**: multi-edge code graph (imports, calls, exports, type_ref) powers impact analysis and search ranking
+
+### Layer 3: Governance & Observability (enterprise value)
+
+Know exactly where your context budget goes. Control it.
+
+- **Context Manager**: browser dashboard with real-time token tracking, compression stats, utilization gauge
+- **Budgets & SLOs**: profiles, roles, per-agent budgets, and throttling policies
+- **Context Proof** (`ctx_proof`, `ctx_verify`): cryptographic proofs with 4-layer verification engine
+
+<details>
+<summary><strong>Full feature list (59 MCP tools)</strong></summary>
+
+- **Graph-Powered Intelligence**: hybrid search (BM25 + embeddings + graph proximity via RRF), incremental git-diff updates
+- **LSP Refactoring** (`ctx_refactor`): language-server-powered rename, references, go-to-definition via rust-analyzer, typescript-language-server, pylsp, gopls
+- **Multi-Agent** (`ctx_agent`, `ctx_handoff`): agent handoff with context transfer bundles, diary system, synchronized shared state
 - **Archive Full-Text Search** (`ctx_expand search_all`): FTS5-powered cross-archive search over all previously archived tool outputs
 - **PR Context Packs**: `lean-ctx pack --pr` builds a PR-ready context pack (changed files, related tests, impact, artifacts)
-- **Context Packages**: `lean-ctx pack create` bundles Knowledge + Graph + Session + Gotchas into portable `.lctxpkg` files — share context across projects/teams with SHA-256 integrity, auto-load on session start, and smart merge (dedup facts, overlay graph)
-- **Session memory (CCP)**: persist task/facts/decisions across chats with structured recovery queries surviving compaction
-- **Observability**: `lean-ctx gain --live` for real-time savings, `lean-ctx wrapped` for weekly/monthly summaries, `lean-ctx watch` for TUI monitoring, heatmaps, and slow-log analysis
+- **Context Packages**: `lean-ctx pack create` bundles Knowledge + Graph + Session into portable `.lctxpkg` files with SHA-256 integrity
+- **Observability**: `lean-ctx gain --live` for real-time savings, `lean-ctx wrapped` for weekly/monthly summaries, `lean-ctx watch` for TUI monitoring
 - **HTTP mode**: `lean-ctx serve` for Streamable HTTP MCP + `/v1/tools/call` (used by the Cookbook + SDK)
+
+</details>
 
 ## How it works (30 seconds)
 
@@ -120,9 +147,8 @@ AI tool  →  (MCP tools + shell commands)  →  lean-ctx  →  your repo + CLI
 - **MCP server**: exposes `ctx_*` tools (read modes, caching, deltas, search, memory, multi-agent)
 - **Shell hook**: transparently compresses common commands so the LLM sees less noise
 - **Property Graph**: multi-edge code graph powers impact analysis, related file discovery, and search ranking
-- **CCP**: persists session state with structured recovery queries so long-running work doesn’t “cold start” every chat
-- **Context Manager**: browser dashboard for real-time visibility into what’s in your context window
-- **Governance**: profiles, budgets, SLOs, and verification proofs for enterprise-grade context control
+- **Session memory**: persists state with structured recovery so long-running work never "cold starts"
+- **Context Manager**: browser dashboard for real-time visibility into what's in your context window
 
 ## Get started (60 seconds)
 
@@ -166,8 +192,8 @@ lean-ctx is a standard **MCP server**, so it works with any MCP-compatible clien
 
 | Mode | How it works | Best for |
 |---|---|---|
-| **Hybrid** | MCP for cached reads (~13 tokens) + shell hooks for command compression | Agents with shell access (Cursor, Claude Code, Codex, …) |
-| **MCP** | All 51 tools via MCP protocol, no shell hooks | Protocol-only agents (JetBrains, VS Code, Zed, …) |
+| **Hybrid** | MCP for cached reads (~13 tokens) + shell hooks for command compression | Agents with shell access (Cursor, Claude Code, Codex, ...) |
+| **MCP** | All 59 tools via MCP protocol, no shell hooks | Protocol-only agents (JetBrains, VS Code, Zed, ...) |
 
 ### Agent compatibility matrix
 
@@ -207,12 +233,12 @@ lean-ctx is a standard **MCP server**, so it works with any MCP-compatible clien
 
 ### When to use (and when not to)
 
-**Great fit if you…**
+**Great fit if you...**
 - use AI coding tools daily and your sessions are shell-heavy (git/tests/builds)
 - work in medium/large repos (50+ files / monorepos)
 - want a local-first layer with **no telemetry by default**
 
-**Skip it if you…**
+**Skip it if you...**
 - mostly work in tiny repos and rarely call the shell from your AI tool
 - always need raw/unfiltered logs (you can still use `--raw`, but ROI is lower)
 
@@ -251,6 +277,15 @@ vhs demo/benchmark.tape
 lean-ctx benchmark report .
 ```
 
+## By the numbers
+
+- **1,800+ GitHub stars** in 4 months
+- **190+ forks** — active community contributions
+- **181 releases** — shipped daily since launch
+- **28 supported AI coding agents** — broadest MCP compatibility
+- **59 MCP tools** — from simple file reads to multi-agent orchestration
+- Used in production by teams running Claude Code, Cursor, and Codex daily
+
 ## Docs
 
 - Getting started: https://leanctx.com/docs/getting-started
@@ -284,6 +319,16 @@ npm uninstall -g lean-ctx-bin
 cargo uninstall lean-ctx
 pi uninstall npm:pi-lean-ctx                        # Pi Coding Agent
 ```
+
+## Star History
+
+<a href="https://star-history.com/#yvgude/lean-ctx&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=yvgude/lean-ctx&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=yvgude/lean-ctx&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=yvgude/lean-ctx&type=Date" />
+  </picture>
+</a>
 
 ## Contributing
 
