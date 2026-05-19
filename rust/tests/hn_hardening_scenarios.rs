@@ -518,8 +518,9 @@ mod first_contact {
     #[test]
     fn scenario_raw_shell_still_skips_auto_context() {
         let src = include_str!("../src/server/mod.rs");
+        let normalized = src.replace("\r\n", "\n");
         assert!(
-            src.contains("if !is_raw_shell {\n            if let Some(ctx) = auto_context"),
+            normalized.contains("if !is_raw_shell {\n            if let Some(ctx) = auto_context"),
             "auto_context must still be skipped for raw shell"
         );
     }
