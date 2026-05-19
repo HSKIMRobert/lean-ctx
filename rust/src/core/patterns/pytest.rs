@@ -234,6 +234,13 @@ pub fn compress(command: &str, output: &str) -> Option<String> {
         result.push_str(&format!(" in {duration}"));
     }
 
+    // Show passed test names when count is small (preserves identifiers for debugging)
+    let named_passed: Vec<&String> = passed.iter().filter(|s| !s.is_empty()).collect();
+    if !named_passed.is_empty() && named_passed.len() <= 10 {
+        let names: Vec<&str> = named_passed.iter().map(|s| s.as_str()).collect();
+        result.push_str(&format!("\n  ran: {}", names.join(", ")));
+    }
+
     // Show failed test names (up to 5)
     let named_failures: Vec<&String> = failed.iter().filter(|s| !s.is_empty()).collect();
     if !named_failures.is_empty() {
