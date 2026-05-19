@@ -9,7 +9,7 @@
 ╚══════╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝     ╚═════╝   ╚═╝   ╚═╝  ╚═╝
 </pre>
 
-**The Context Layer for AI Development**
+**The Cognitive Context Layer for Agentic Systems**
 
 Your AI coding agent wastes thousands of tokens rereading files,
 parsing noisy shell output, and losing context between sessions.
@@ -48,7 +48,9 @@ parsing noisy shell output, and losing context between sessions.
 
 ---
 
-> **lean-ctx** is the Context Layer for AI coding. It compresses, tracks, and governs every token between your code and the AI — so you make better decisions, not just cheaper ones. Works with **Cursor, Claude Code, Copilot, Windsurf, Codex, Gemini** and 23+ other agents — no config needed.
+> **LeanCTX** stands for **Lean Cortex**: a lightweight cognitive layer that helps AI agents perceive, compress, remember, route, and reuse context across workflows.
+
+> It governs every token between your code and the AI — so you make better decisions, not just cheaper ones. Works with **Cursor, Claude Code, Copilot, Windsurf, Codex, Gemini** and 23+ other agents — no config needed.
 
 <p align="center"><strong>See it in action:</strong></p>
 
