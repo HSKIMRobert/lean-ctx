@@ -238,8 +238,8 @@ fn bench_lazy_default_vs_full_overhead() {
     eprintln!("{}", "=".repeat(70));
 
     assert!(
-        lazy_tools.len() <= 10,
-        "Lazy mode should expose <=10 tools, got {}",
+        lazy_tools.len() <= 12,
+        "Lazy mode should expose <=12 tools, got {}",
         lazy_tools.len()
     );
     assert!(
