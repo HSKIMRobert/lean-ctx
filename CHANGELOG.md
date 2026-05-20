@@ -5,6 +5,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.6.11] — 2026-05-20
+
+### Fixed
+
+- **Linux proxy restart loop (11258+ restarts)** — When the lean-ctx binary is replaced during runtime (e.g. upgrade), Linux marks `/proc/self/exe` with `(deleted)` suffix. `find_binary()` in the systemd unit generator would write this corrupted path into `ExecStart`, causing systemd to pass `(deleted)` as a CLI argument on every restart. Now uses `resolve_portable_binary()` which strips the suffix. Additionally, the CLI dispatch defensively removes `(deleted)` from args if already present in existing units (webut report)
+- **Windows ctx_read hangs** — Session lock acquire and path canonicalization now have bounded timeouts (5s for RwLock, 2s for `canonicalize()`) preventing indefinite hangs on Windows reparse points and network paths (Butetengoy report)
+- **Manifest generator uses stale tool_defs** — `gen_mcp_manifest` now reads from `ToolRegistry` (61 tools) instead of static `granular_tool_defs()` (56 tools), ensuring the website manifest always reflects the actual registered tool count
+
+### Changed
+
+- **Context budget auto-escalation** — `pressure_downgrade()` now applies more aggressive mode downgrades based on `ContextPressure`: SuggestCompression downgrades `auto`→`map`, ForceCompression downgrades `full`→`map` and `auto|map`→`signatures`
+- **Cache-stable LITM output** — Dynamic session statistics (`ACTIVE SESSION v…`) moved from output prefix to suffix, preserving a stable prefix for LLM prefix-caching compatibility
+- **ToolRegistry as SSOT for list_tools** — `list_tools` handler now reads tool definitions from the registry instead of static `tool_defs/`, eliminating schema drift between exposed schemas and handler implementations
+- **OnceLock for project root** — `find_project_root()` result cached via `std::sync::OnceLock`, eliminating repeated `git rev-parse` subprocess calls
+- **Compaction sync tail-seek** — `find_latest_compaction()` reads only the last 4KB of `context_radar.jsonl` instead of the entire file, bounding I/O for large radar logs
+
+### Removed
+
+- Dead code cleanup: removed unused functions, `#[allow(dead_code)]` attributes replaced with `_` prefixes or deleted across 8 files
+
 ## [3.6.10] — 2026-05-20
 
 ### Fixed
