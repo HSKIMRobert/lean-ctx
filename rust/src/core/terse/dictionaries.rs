@@ -283,30 +283,6 @@ pub const GIT: &[Abbreviation] = &[
         short: "-",
     },
     Abbreviation {
-        long: "commit",
-        short: "cmt",
-    },
-    Abbreviation {
-        long: "branch",
-        short: "br",
-    },
-    Abbreviation {
-        long: "rebase",
-        short: "rb",
-    },
-    Abbreviation {
-        long: "merge",
-        short: "mrg",
-    },
-    Abbreviation {
-        long: "checkout",
-        short: "co",
-    },
-    Abbreviation {
-        long: "stash",
-        short: "st",
-    },
-    Abbreviation {
         long: "upstream",
         short: "u/",
     },
@@ -555,9 +531,46 @@ mod tests {
     #[test]
     fn dict_count_git() {
         assert!(
-            GIT.len() >= 15,
-            "should have 15+ git abbreviations, got {}",
+            GIT.len() >= 9,
+            "should have 9+ git abbreviations, got {}",
             GIT.len()
+        );
+    }
+
+    #[test]
+    fn git_dict_never_abbreviates_subcommands() {
+        let git_subcommands = [
+            "commit", "branch", "checkout", "merge", "stash", "rebase", "push", "pull", "fetch",
+            "clone", "tag", "reset", "bisect", "log", "diff", "show", "status", "add",
+        ];
+        for abbr in GIT {
+            assert!(
+                !git_subcommands.contains(&abbr.long),
+                "GIT dictionary must NOT abbreviate git subcommand '{}' (→ '{}'). \
+                 Agents will misinterpret abbreviated output as valid commands.",
+                abbr.long,
+                abbr.short
+            );
+        }
+    }
+
+    #[test]
+    fn commit_word_survives_full_dict() {
+        let text = "commit abc1234 on branch main";
+        let result = apply_dictionaries(text, DictLevel::Full);
+        assert!(
+            result.contains("commit"),
+            "word 'commit' must not be abbreviated in output: {result}"
+        );
+    }
+
+    #[test]
+    fn branch_word_survives_full_dict() {
+        let text = "Your branch is ahead of 'origin/main' by 2 commits";
+        let result = apply_dictionaries(text, DictLevel::Full);
+        assert!(
+            result.contains("branch"),
+            "word 'branch' must not be abbreviated in output: {result}"
         );
     }
 }

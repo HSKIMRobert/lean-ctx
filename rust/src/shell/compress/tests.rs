@@ -1137,12 +1137,20 @@ mod structural_output_tests {
     #[test]
     fn non_structural_git_commands() {
         assert!(!has_structural_output("git status"));
-        assert!(!has_structural_output("git commit -m 'fix'"));
-        assert!(!has_structural_output("git push"));
-        assert!(!has_structural_output("git pull"));
-        assert!(!has_structural_output("git branch"));
         assert!(!has_structural_output("git fetch"));
         assert!(!has_structural_output("git add ."));
+    }
+
+    #[test]
+    fn git_write_commands_are_verbatim() {
+        assert!(has_structural_output("git commit -m 'fix'"));
+        assert!(has_structural_output("git push"));
+        assert!(has_structural_output("git pull"));
+        assert!(has_structural_output("git merge feature"));
+        assert!(has_structural_output("git rebase main"));
+        assert!(has_structural_output("git cherry-pick abc1234"));
+        assert!(has_structural_output("git tag v1.0"));
+        assert!(has_structural_output("git reset --hard HEAD~1"));
     }
 
     #[test]
