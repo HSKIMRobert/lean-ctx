@@ -209,12 +209,11 @@ fn canonicalize_bounded_handles_nonexistent_path() {
 
 #[test]
 fn canonicalize_bounded_resolves_existing_path() {
-    let path = std::path::Path::new("/tmp");
+    let tmp = std::env::temp_dir();
     let start = Instant::now();
-    let result = lean_ctx::core::pathutil::safe_canonicalize_bounded(path, 2000);
+    let result = lean_ctx::core::pathutil::safe_canonicalize_bounded(&tmp, 2000);
     let elapsed = start.elapsed();
 
-    // /tmp should resolve to something (on macOS: /private/tmp)
     assert!(result.exists(), "resolved path should exist: {result:?}");
     assert!(
         elapsed < Duration::from_secs(2),
