@@ -62,12 +62,10 @@ pub fn is_wsl() -> bool {
     {
         static IS_WSL: OnceLock<bool> = OnceLock::new();
         *IS_WSL.get_or_init(|| {
-            std::fs::read_to_string("/proc/version")
-                .map(|v| {
-                    let lower = v.to_lowercase();
-                    lower.contains("microsoft") || lower.contains("wsl")
-                })
-                .unwrap_or(false)
+            std::fs::read_to_string("/proc/version").is_ok_and(|v| {
+                let lower = v.to_lowercase();
+                lower.contains("microsoft") || lower.contains("wsl")
+            })
         })
     }
     #[cfg(not(target_os = "linux"))]
