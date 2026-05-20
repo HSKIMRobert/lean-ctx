@@ -204,6 +204,17 @@ fn embeddings_auto_download_allowed() -> bool {
 
 #[cfg(feature = "embeddings")]
 fn embedding_engine() -> Option<&'static EmbeddingEngine> {
+    embedding_engine_impl(false)
+}
+
+/// Non-blocking: returns engine only if already loaded. Never triggers model load.
+#[cfg(feature = "embeddings")]
+fn embedding_engine_nonblocking() -> Option<&'static EmbeddingEngine> {
+    embedding_engine_impl(true)
+}
+
+#[cfg(feature = "embeddings")]
+fn embedding_engine_impl(nonblocking: bool) -> Option<&'static EmbeddingEngine> {
     let cfg = crate::core::config::Config::load();
     let profile = crate::core::config::MemoryProfile::effective(&cfg);
     if !profile.embeddings_enabled() {
@@ -212,7 +223,11 @@ fn embedding_engine() -> Option<&'static EmbeddingEngine> {
     if !EmbeddingEngine::is_available() && !embeddings_auto_download_allowed() {
         return None;
     }
-    crate::core::embeddings::shared_engine()
+    if nonblocking {
+        crate::core::embeddings::try_shared_engine()
+    } else {
+        crate::core::embeddings::shared_engine()
+    }
 }
 
 fn handle_embeddings_status(project_root: &str) -> String {
@@ -423,23 +438,15 @@ fn handle_recall(
             if rehydrated {
                 let (facts2, total2) = knowledge.recall_by_category_for_output(cat, limit);
                 if !facts2.is_empty() && total2 > 0 {
-                    let mut out2 = format_facts(&facts2, total2, Some(cat));
-                    if let Err(e) = knowledge.save() {
-                        out2.push_str(&format!(
-                            "\n(warn: failed to persist retrieval signals: {e})"
-                        ));
-                    }
+                    let out2 = format_facts(&facts2, total2, Some(cat));
+                    save_knowledge_deferred(knowledge);
                     return out2;
                 }
             }
             return format!("No facts in category '{cat}'.");
         }
-        let mut out = format_facts(&facts, total, Some(cat));
-        if let Err(e) = knowledge.save() {
-            out.push_str(&format!(
-                "\n(warn: failed to persist retrieval signals: {e})"
-            ));
-        }
+        let out = format_facts(&facts, total, Some(cat));
+        save_knowledge_deferred(knowledge);
         return out;
     }
 
@@ -447,7 +454,14 @@ fn handle_recall(
         let mode = mode.unwrap_or("auto").trim().to_lowercase();
         #[cfg(feature = "embeddings")]
         {
-            if let Some(engine) = embedding_engine() {
+            // Use non-blocking engine access for auto/hybrid: never block recall
+            // waiting for model load. Only explicit "semantic" mode may block.
+            let engine_opt = if mode == "semantic" {
+                embedding_engine()
+            } else {
+                embedding_engine_nonblocking()
+            };
+            if let Some(engine) = engine_opt {
                 if let Some(idx) = crate::core::knowledge_embedding::KnowledgeEmbeddingIndex::load(
                     &knowledge.project_hash,
                 ) {
@@ -472,12 +486,8 @@ fn handle_recall(
                             })
                             .collect();
                         apply_retrieval_signals_from_hits(&mut knowledge, &hits);
-                        let mut out = format_semantic_facts(&format!("{q} (mode=semantic)"), &hits);
-                        if let Err(e) = knowledge.save() {
-                            out.push_str(&format!(
-                                "\n(warn: failed to persist retrieval signals: {e})"
-                            ));
-                        }
+                        let out = format_semantic_facts(&format!("{q} (mode=semantic)"), &hits);
+                        save_knowledge_deferred(knowledge);
                         return out;
                     }
 
@@ -498,13 +508,8 @@ fn handle_recall(
                                 })
                                 .collect();
                             apply_retrieval_signals_from_hits(&mut knowledge, &hits);
-                            let mut out =
-                                format_semantic_facts(&format!("{q} (mode=hybrid)"), &hits);
-                            if let Err(e) = knowledge.save() {
-                                out.push_str(&format!(
-                                    "\n(warn: failed to persist retrieval signals: {e})"
-                                ));
-                            }
+                            let out = format_semantic_facts(&format!("{q} (mode=hybrid)"), &hits);
+                            save_knowledge_deferred(knowledge);
                             return out;
                         }
                     }
@@ -525,27 +530,31 @@ fn handle_recall(
             if rehydrated {
                 let (facts2, total2) = knowledge.recall_for_output(q, limit);
                 if !facts2.is_empty() && total2 > 0 {
-                    let mut out2 = format_facts(&facts2, total2, None);
-                    if let Err(e) = knowledge.save() {
-                        out2.push_str(&format!(
-                            "\n(warn: failed to persist retrieval signals: {e})"
-                        ));
-                    }
+                    let out2 = format_facts(&facts2, total2, None);
+                    save_knowledge_deferred(knowledge);
                     return out2;
                 }
             }
             return format!("No facts matching '{q}'.");
         }
-        let mut out = format_facts(&facts, total, None);
-        if let Err(e) = knowledge.save() {
-            out.push_str(&format!(
-                "\n(warn: failed to persist retrieval signals: {e})"
-            ));
-        }
+        let out = format_facts(&facts, total, None);
+        save_knowledge_deferred(knowledge);
         return out;
     }
 
     "Error: provide query or category for recall".to_string()
+}
+
+/// Persist knowledge to disk on a background thread so recall returns immediately.
+/// Retrieval signals (retrieval_count, last_retrieved) are best-effort metadata;
+/// losing them on crash is acceptable.
+fn save_knowledge_deferred(knowledge: ProjectKnowledge) {
+    std::thread::Builder::new()
+        .name("knowledge-save".into())
+        .spawn(move || {
+            let _ = knowledge.save();
+        })
+        .ok();
 }
 
 fn rehydrate_from_archives(

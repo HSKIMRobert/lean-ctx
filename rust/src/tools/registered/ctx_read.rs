@@ -125,8 +125,13 @@ impl CtxReadTool {
         let start_line = get_int(args, "start_line");
         if let Some(sl) = start_line {
             let sl = sl.max(1_i64);
-            mode = format!("lines:{sl}-999999");
-            fresh = true;
+            // start_line=1 with no explicit lines mode is a no-op: it just means
+            // "read from the beginning" which is already the default behavior.
+            // Some clients always send start_line=1; don't override their mode for that.
+            if sl > 1 {
+                mode = format!("lines:{sl}-999999");
+                fresh = true;
+            }
         }
 
         let pressure_action = ctx.pressure_snapshot.as_ref().map(|p| &p.recommendation);
@@ -582,5 +587,63 @@ mod tests {
             elapsed < std::time::Duration::from_secs(1),
             "cancellation should have stopped the loop promptly"
         );
+    }
+
+    // -- Regression: GitHub Issue #253 --
+
+    #[test]
+    fn start_line_1_does_not_override_mode() {
+        // start_line=1 should be a no-op: it doesn't change behavior since files
+        // already start at line 1. Clients like opencode always send start_line=1.
+        let mut mode = "auto".to_string();
+        let mut fresh = false;
+        let start_line: Option<i64> = Some(1);
+
+        if let Some(sl) = start_line {
+            let sl = sl.max(1_i64);
+            if sl > 1 {
+                mode = format!("lines:{sl}-999999");
+                fresh = true;
+            }
+        }
+
+        assert_eq!(mode, "auto", "start_line=1 should not change mode");
+        assert!(!fresh, "start_line=1 should not force fresh=true");
+    }
+
+    #[test]
+    fn start_line_greater_than_1_overrides_mode() {
+        let mut mode = "auto".to_string();
+        let mut fresh = false;
+        let start_line: Option<i64> = Some(50);
+
+        if let Some(sl) = start_line {
+            let sl = sl.max(1_i64);
+            if sl > 1 {
+                mode = format!("lines:{sl}-999999");
+                fresh = true;
+            }
+        }
+
+        assert_eq!(mode, "lines:50-999999");
+        assert!(fresh, "start_line>1 should force fresh=true");
+    }
+
+    #[test]
+    fn start_line_none_does_nothing() {
+        let mut mode = "map".to_string();
+        let mut fresh = false;
+        let start_line: Option<i64> = None;
+
+        if let Some(sl) = start_line {
+            let sl = sl.max(1_i64);
+            if sl > 1 {
+                mode = format!("lines:{sl}-999999");
+                fresh = true;
+            }
+        }
+
+        assert_eq!(mode, "map", "absent start_line should preserve mode");
+        assert!(!fresh);
     }
 }

@@ -231,16 +231,27 @@ pub fn cosine_similarity_raw(a: &[f32], b: &[f32]) -> f32 {
     dot / (norm_a * norm_b)
 }
 
+#[cfg(feature = "embeddings")]
+static SHARED_ENGINE: std::sync::OnceLock<anyhow::Result<EmbeddingEngine>> =
+    std::sync::OnceLock::new();
+
 /// Global singleton embedding engine. Loaded once, shared across all consumers.
 /// Returns None if the embeddings feature is disabled or the model fails to load.
+/// NOTE: This function BLOCKS on first call while loading the ONNX model (~25MB).
+/// For non-blocking access, use `try_shared_engine()` instead.
 #[cfg(feature = "embeddings")]
 pub fn shared_engine() -> Option<&'static EmbeddingEngine> {
-    use std::sync::OnceLock;
-    static ENGINE: OnceLock<anyhow::Result<EmbeddingEngine>> = OnceLock::new();
-    ENGINE
+    SHARED_ENGINE
         .get_or_init(EmbeddingEngine::load_default)
         .as_ref()
         .ok()
+}
+
+/// Non-blocking variant: returns the engine ONLY if already loaded.
+/// Never triggers model loading or download. Safe to call on hot paths.
+#[cfg(feature = "embeddings")]
+pub fn try_shared_engine() -> Option<&'static EmbeddingEngine> {
+    SHARED_ENGINE.get()?.as_ref().ok()
 }
 
 #[cfg(test)]
@@ -290,5 +301,20 @@ mod tests {
         assert_eq!(dir.to_string_lossy(), unique);
         assert!(!EmbeddingEngine::is_available());
         std::env::remove_var("LEAN_CTX_MODELS_DIR");
+    }
+
+    #[test]
+    #[cfg(feature = "embeddings")]
+    fn try_shared_engine_returns_none_when_not_initialized() {
+        // try_shared_engine must never block and should return None
+        // if the engine hasn't been loaded yet (no model files available).
+        // This test runs in an env where model.onnx is absent.
+        let result = try_shared_engine();
+        // The engine should NOT have been initialized in the test environment
+        // (no model files), so this should return None without blocking.
+        assert!(
+            result.is_none(),
+            "try_shared_engine should return None without triggering load"
+        );
     }
 }
