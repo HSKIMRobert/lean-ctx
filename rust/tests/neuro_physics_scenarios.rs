@@ -112,8 +112,9 @@ mod shell_security {
     #[test]
     #[serial_test::serial]
     fn scenario_empty_allowlist_passes_everything() {
-        std::env::remove_var("LEAN_CTX_SHELL_ALLOWLIST");
+        std::env::set_var("LEAN_CTX_SHELL_ALLOWLIST", "");
         assert!(check_shell_allowlist("anything goes here").is_ok());
+        std::env::remove_var("LEAN_CTX_SHELL_ALLOWLIST");
     }
 }
 
