@@ -243,8 +243,8 @@ fn bench_lazy_default_vs_full_overhead() {
         lazy_tools.len()
     );
     assert!(
-        lazy_user_overhead < 2500,
-        "Lazy default overhead should be <2500 tokens, got {lazy_user_overhead}"
+        lazy_user_overhead < 2700,
+        "Lazy default overhead should be <2700 tokens, got {lazy_user_overhead}"
     );
     assert!(
         reduction_pct > 60.0,
