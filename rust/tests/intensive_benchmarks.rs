@@ -293,9 +293,9 @@ fn bench_git_all_commands() {
         (
             "git commit -m 'feat'",
             generate_git_commit_with_hooks(30),
-            50.0,
+            0.0, // verbatim: git write-commands are never compressed (daviddatu_ fix)
         ),
-        ("git push origin main", generate_git_push(), 20.0),
+        ("git push origin main", generate_git_push(), 0.0), // verbatim
     ];
 
     print_compression_report("GIT COMMANDS", &scenarios);

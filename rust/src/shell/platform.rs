@@ -245,7 +245,7 @@ pub fn join_command(args: &[String]) -> String {
     join_command_for(args, &flag)
 }
 
-fn join_command_for(args: &[String], shell_flag: &str) -> String {
+pub fn join_command_for(args: &[String], shell_flag: &str) -> String {
     match shell_flag {
         "-Command" => join_powershell(args),
         "/C" => join_cmd(args),
@@ -261,6 +261,9 @@ fn join_posix(args: &[String]) -> String {
 }
 
 fn join_powershell(args: &[String]) -> String {
+    if args.len() == 1 && args[0].contains(' ') {
+        return args[0].clone();
+    }
     let quoted: Vec<String> = args.iter().map(|a| quote_powershell(a)).collect();
     format!("& {}", quoted.join(" "))
 }
@@ -391,6 +394,23 @@ mod join_command_tests {
     fn unknown_flag_uses_posix() {
         let args: Vec<String> = vec!["ls".into(), "-la".into()];
         assert_eq!(join_command_for(&args, "--exec"), "ls -la");
+    }
+
+    #[test]
+    fn powershell_single_full_command_not_quoted() {
+        let args: Vec<String> = vec!["git commit -m \"feat: add feature\"".into()];
+        let result = join_command_for(&args, "-Command");
+        assert_eq!(result, "git commit -m \"feat: add feature\"");
+        assert!(
+            !result.starts_with("& '"),
+            "must not wrap full command in & '...'"
+        );
+    }
+
+    #[test]
+    fn powershell_single_no_spaces_still_uses_call_operator() {
+        let args: Vec<String> = vec!["git".into()];
+        assert_eq!(join_command_for(&args, "-Command"), "& git");
     }
 }
 

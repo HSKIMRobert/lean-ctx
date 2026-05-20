@@ -106,6 +106,7 @@ fn is_verbatim_single(command: &str) -> bool {
         || is_archive_listing(command)
         || is_clipboard_tool(command)
         || is_git_data_command(command)
+        || is_git_write_command(command)
         || is_task_dry_run(command)
         || is_env_dump(command)
 }
@@ -570,6 +571,42 @@ fn is_clipboard_tool(command: &str) -> bool {
     }
     if cl.starts_with("xsel") && (cl.contains("-o") || cl.contains("--output")) {
         return true;
+    }
+    false
+}
+
+/// Git write-commands produce minimal output that agents must see verbatim.
+/// Compressing these risks abbreviating subcommand names (e.g. "commit" → "cmt")
+/// which agents then misinterpret as valid commands.
+fn is_git_write_command(command: &str) -> bool {
+    let cl = command.trim().to_ascii_lowercase();
+    if !cl.starts_with("git ") {
+        return false;
+    }
+    let git_write_subs = [
+        "commit",
+        "push",
+        "pull",
+        "merge",
+        "rebase",
+        "cherry-pick",
+        "tag",
+        "reset",
+    ];
+    let mut skip_next = false;
+    for arg in cl.split_whitespace().skip(1) {
+        if skip_next {
+            skip_next = false;
+            continue;
+        }
+        if arg == "-c" || arg == "-C" || arg == "--git-dir" || arg == "--work-tree" {
+            skip_next = true;
+            continue;
+        }
+        if arg.starts_with('-') {
+            continue;
+        }
+        return git_write_subs.contains(&arg);
     }
     false
 }

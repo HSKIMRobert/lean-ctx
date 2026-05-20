@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.6.10] — 2026-05-20
+
+### Fixed
+
+- **Knowledge recall blocks all agents for 58s** — Embedding engine loading (ONNX model ~25MB) no longer blocks recall. New `try_shared_engine()` returns instantly if model isn't loaded yet; auto/hybrid mode uses non-blocking path. Only explicit `mode=semantic` may trigger model load. Retrieval signal persistence moved to background thread (`save_knowledge_deferred`) so 436KB+ JSON writes don't stall the MCP thread (#ReDev1L report)
+- **`start_line=1` forces unnecessary disk re-reads** (#253) — Clients like opencode that always send `start_line=1` no longer trigger mode override to `lines:1-999999` + `fresh=true`. `start_line=1` is now correctly treated as a no-op since line 1 is the default. Only `start_line > 1` activates the lines-mode override
+- **Git write-commands incorrectly compressed** — `git commit`, `git push`, `git pull`, `git merge`, `git rebase`, `git cherry-pick`, `git tag`, `git reset` are now classified as verbatim (zero compression). Prevents terse engine from abbreviating subcommands in output that AI agents may re-use (daviddatu\_ report)
+- **PowerShell command wrapping** — Single full-command strings (e.g. `git commit -m "..."`) are no longer incorrectly wrapped in `& '...'` quotes on PowerShell, which caused "executable not found" errors
+- **Terse dictionary safety** — Removed git subcommand abbreviations (`commit→cmt`, `branch→br`, `checkout→co`, `merge→mrg`, `rebase→rb`, `stash→st`) from the GIT dictionary to prevent output corruption
+
 ## [3.6.9] — 2026-05-19
 
 ### Added

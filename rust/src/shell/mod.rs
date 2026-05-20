@@ -10,6 +10,7 @@ pub use exec::{exec, exec_argv};
 pub use interactive::interactive;
 pub use output_policy::{classify as classify_output, OutputPolicy};
 pub use platform::{
-    decode_output, is_container, is_non_interactive, join_command, shell_and_flag, shell_name,
+    decode_output, is_container, is_non_interactive, join_command, join_command_for,
+    shell_and_flag, shell_name,
 };
 pub use redact::save_tee;

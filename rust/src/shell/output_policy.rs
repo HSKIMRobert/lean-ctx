@@ -264,4 +264,66 @@ mod tests {
     fn stripe_list_is_verbatim() {
         assert_eq!(classify("stripe charges list", &[]), OutputPolicy::Verbatim);
     }
+
+    // --- Regression: daviddatu_ git command rewriting bug ---
+
+    #[test]
+    fn git_commit_is_verbatim() {
+        assert_eq!(
+            classify("git commit -m \"feat: add feature\"", &[]),
+            OutputPolicy::Verbatim
+        );
+    }
+
+    #[test]
+    fn git_push_is_verbatim() {
+        assert_eq!(
+            classify("git push origin main", &[]),
+            OutputPolicy::Verbatim
+        );
+    }
+
+    #[test]
+    fn git_pull_is_verbatim() {
+        assert_eq!(classify("git pull --rebase", &[]), OutputPolicy::Verbatim);
+    }
+
+    #[test]
+    fn git_merge_is_verbatim() {
+        assert_eq!(
+            classify("git merge feature-branch", &[]),
+            OutputPolicy::Verbatim
+        );
+    }
+
+    #[test]
+    fn git_rebase_is_verbatim() {
+        assert_eq!(classify("git rebase main", &[]), OutputPolicy::Verbatim);
+    }
+
+    #[test]
+    fn git_cherry_pick_is_verbatim() {
+        assert_eq!(
+            classify("git cherry-pick abc1234", &[]),
+            OutputPolicy::Verbatim
+        );
+    }
+
+    #[test]
+    fn git_tag_is_verbatim() {
+        assert_eq!(classify("git tag v1.0.0", &[]), OutputPolicy::Verbatim);
+    }
+
+    #[test]
+    fn git_status_still_compressible() {
+        assert_eq!(classify("git status", &[]), OutputPolicy::Compressible);
+    }
+
+    #[test]
+    fn git_log_still_compressible() {
+        assert_eq!(
+            classify("git log --oneline", &[]),
+            OutputPolicy::Compressible
+        );
+    }
 }
