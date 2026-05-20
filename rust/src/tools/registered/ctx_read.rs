@@ -466,10 +466,28 @@ impl CtxReadTool {
             crate::core::agent_budget::record_consumption(aid, output_tokens);
         }
 
+        // Cross-source hints: if a graph index exists and has cross-source edges
+        // pointing to this file, append compact hints so the agent knows about
+        // related issues/PRs/schemas without a separate tool call.
+        let hints_suffix = {
+            if let Some(index) = crate::core::graph_index::ProjectIndex::load(&ctx.project_root) {
+                let hints = crate::core::cross_source_hints::hints_for_file(path, &index.edges);
+                if hints.is_empty() {
+                    String::new()
+                } else {
+                    crate::core::cross_source_hints::format_hints(&hints)
+                }
+            } else {
+                String::new()
+            }
+        };
+
         let final_output = if let Some(ref warning) = budget_warning {
-            format!("{output}\n\n{warning}")
-        } else {
+            format!("{output}{hints_suffix}\n\n{warning}")
+        } else if hints_suffix.is_empty() {
             output
+        } else {
+            format!("{output}{hints_suffix}")
         };
 
         Ok(ToolOutput {

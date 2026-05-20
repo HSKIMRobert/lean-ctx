@@ -91,6 +91,7 @@ pub mod graph {
 // Domain: Context
 // ---------------------------------------------------------------------------
 pub mod context_artifacts;
+pub mod context_column;
 pub mod context_compiler;
 pub mod context_deficit;
 pub mod context_field;
@@ -104,10 +105,13 @@ pub mod context_policies;
 pub mod context_proof;
 pub mod context_proof_v2;
 pub mod context_radar;
+pub mod cross_source_edges;
+pub mod cross_source_hints;
 
 /// Convenience re-export: all context-related modules.
 pub mod context {
     pub use super::context_artifacts;
+    pub use super::context_column;
     pub use super::context_compiler;
     pub use super::context_deficit;
     pub use super::context_field;
@@ -131,6 +135,7 @@ pub mod knowledge;
 pub mod knowledge_bootstrap;
 pub mod knowledge_bridge;
 pub mod knowledge_embedding;
+pub mod knowledge_provider_extract;
 pub mod knowledge_relations;
 
 /// Convenience re-export: all knowledge-related modules.
@@ -148,6 +153,7 @@ pub mod knowledge_domain {
 // Domain: Search & Retrieval
 // ---------------------------------------------------------------------------
 pub mod bm25_index;
+pub mod content_chunk;
 pub mod dense_backend;
 pub mod embedding_index;
 pub mod embeddings;
@@ -162,6 +168,7 @@ pub mod splade_retrieval;
 /// Convenience re-export: all search-related modules.
 pub mod search {
     pub use super::bm25_index;
+    pub use super::content_chunk;
     pub use super::dense_backend;
     pub use super::embedding_index;
     pub use super::embeddings;
@@ -259,6 +266,7 @@ pub mod verification_observability;
 // ---------------------------------------------------------------------------
 // Domain: Config & Infrastructure
 // ---------------------------------------------------------------------------
+pub mod active_inference;
 pub mod agent_budget;
 pub mod audit_trail;
 pub mod binary_detect;
@@ -271,6 +279,7 @@ pub mod cli_cache;
 pub mod client_capabilities;
 pub mod client_constraints;
 pub mod config;
+pub mod consolidation;
 pub mod consolidation_engine;
 pub mod data_dir;
 pub mod error;
@@ -278,7 +287,9 @@ pub mod events;
 pub mod evidence_ledger;
 pub mod feedback;
 pub mod filters;
+pub mod free_energy_budget;
 pub mod gain;
+pub mod git_cache;
 pub mod gotcha_tracker;
 pub mod hasher;
 pub mod heatmap;
@@ -296,6 +307,7 @@ pub mod intent_engine;
 pub mod intent_protocol;
 pub mod intent_router;
 pub mod io_boundary;
+pub mod io_health;
 pub mod jsonc;
 pub mod language_capabilities;
 pub mod limits;
@@ -310,11 +322,13 @@ pub mod portable_binary;
 pub mod profiles;
 pub mod project_hash;
 pub mod protocol;
+pub mod provider_bandit;
 pub mod provider_cache;
 pub mod providers;
 pub mod redaction;
 pub mod roles;
 pub mod route_extractor;
+pub mod saliency;
 pub mod sandbox;
 #[cfg(target_os = "linux")]
 pub mod sandbox_landlock;

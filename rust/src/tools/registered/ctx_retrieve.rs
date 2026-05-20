@@ -51,7 +51,11 @@ impl McpTool for CtxRetrieveTool {
         let query = get_str(args, "query");
 
         let cache = ctx.cache.as_ref().unwrap();
-        let guard = tokio::task::block_in_place(|| cache.blocking_read());
+        let Some(guard) = crate::server::bounded_lock::read(cache, "ctx_retrieve") else {
+            return Ok(ToolOutput::simple(
+                "[retrieve unavailable — cache busy, retry]".to_string(),
+            ));
+        };
         let result = match guard.get_full_content(&resolved) {
             Some(full) => {
                 if let Some(ref q) = query {

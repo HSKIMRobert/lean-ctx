@@ -581,7 +581,16 @@ pub fn write_env_sh_for_containers(aliases: &str) {
         let _ = std::fs::create_dir_all(parent);
     }
     let sanitized_aliases = crate::core::sanitize::neutralize_shell_content(aliases);
-    let mut content = sanitized_aliases;
+    let mut content = String::from(
+        r#"# lean-ctx: passthrough stubs for non-interactive subshells (fixes #255).
+# These ensure _lc/_lc_compress exist so inherited aliases don't break.
+# The full hook definitions override these when the interactive shell loads.
+_lc()          { command "$@"; }
+_lc_compress() { command "$@"; }
+
+"#,
+    );
+    content.push_str(&sanitized_aliases);
     content.push_str(
         r#"
 
@@ -929,6 +938,14 @@ export EDITOR=vim
                 assert!(ok, "generated env.sh must be valid bash");
             }
         }
+        assert!(
+            content.contains(r#"_lc()          { command "$@"; }"#),
+            "env.sh must contain _lc passthrough stub for non-interactive shells"
+        );
+        assert!(
+            content.contains(r#"_lc_compress() { command "$@"; }"#),
+            "env.sh must contain _lc_compress passthrough stub"
+        );
         assert!(content.contains("lean-ctx docker self-heal"));
         assert!(content.contains("claude mcp list"));
         assert!(content.contains("lean-ctx init --agent claude"));

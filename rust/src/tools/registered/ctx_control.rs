@@ -39,8 +39,10 @@ impl McpTool for CtxControlTool {
         ctx: &ToolContext,
     ) -> Result<ToolOutput, ErrorData> {
         let root = if let Some(ref session_lock) = ctx.session {
-            let session = tokio::task::block_in_place(|| session_lock.blocking_read());
-            session.project_root.clone().unwrap_or_default()
+            crate::server::bounded_lock::read(session_lock, "ctx_control:session")
+                .as_ref()
+                .and_then(|s| s.project_root.clone())
+                .unwrap_or_else(|| ctx.project_root.clone())
         } else {
             ctx.project_root.clone()
         };
@@ -50,7 +52,13 @@ impl McpTool for CtxControlTool {
         );
 
         let result = if let Some(ref ledger_lock) = ctx.ledger {
-            let mut ledger = tokio::task::block_in_place(|| ledger_lock.blocking_write());
+            let Some(mut ledger) =
+                crate::server::bounded_lock::write(ledger_lock, "ctx_control:ledger")
+            else {
+                return Ok(ToolOutput::simple(
+                    "[control unavailable — ledger busy, retry]".to_string(),
+                ));
+            };
             let r = crate::tools::ctx_control::handle(Some(args), &mut ledger, &mut overlays);
             ledger.save();
             r

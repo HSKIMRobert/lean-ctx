@@ -52,6 +52,9 @@ finish() {
   esac
   echo ""
   echo "Done! Verify with: lean-ctx --version"
+  echo ""
+  echo "Next step: Run 'lean-ctx setup' to configure your IDE integration."
+  echo "  This sets up MCP tools, shell hooks, and editor rules."
 }
 
 detect_target() {

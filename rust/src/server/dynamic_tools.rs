@@ -76,8 +76,12 @@ pub fn categorize_tool(name: &str) -> ToolCategory {
         "ctx_benchmark" | "ctx_verify" | "ctx_analyze" | "ctx_profile" | "ctx_proof"
         | "ctx_review" => ToolCategory::Debug,
 
-        // Memory: on-demand semantic + provider tools
-        "ctx_semantic_search" | "ctx_provider" | "ctx_artifacts" => ToolCategory::Memory,
+        // Provider is Core: ctx_provider is the gateway to external context
+        // (GitHub issues, Jira, Postgres, etc.) and must always be available.
+        "ctx_provider" => ToolCategory::Core,
+
+        // Memory: on-demand semantic tools
+        "ctx_semantic_search" | "ctx_artifacts" => ToolCategory::Memory,
 
         // Batch: on-demand batch/PR/sandbox tools
         "ctx_fill" | "ctx_execute" | "ctx_expand" | "ctx_pack" | "ctx_plan" | "ctx_control"

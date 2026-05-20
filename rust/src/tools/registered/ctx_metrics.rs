@@ -29,16 +29,28 @@ impl McpTool for CtxMetricsTool {
         ctx: &ToolContext,
     ) -> Result<ToolOutput, ErrorData> {
         let cache = ctx.cache.as_ref().unwrap();
-        let cache_guard = tokio::task::block_in_place(|| cache.blocking_read());
+        let Some(cache_guard) = crate::server::bounded_lock::read(cache, "ctx_metrics:cache")
+        else {
+            return Ok(ToolOutput::simple(
+                "[metrics unavailable — cache busy, retry]".to_string(),
+            ));
+        };
         let calls = ctx.tool_calls.as_ref().unwrap();
-        let calls_guard = tokio::task::block_in_place(|| calls.blocking_read());
+        let Some(calls_guard) = crate::server::bounded_lock::read(calls, "ctx_metrics:calls")
+        else {
+            return Ok(ToolOutput::simple(
+                "[metrics unavailable — calls lock busy, retry]".to_string(),
+            ));
+        };
         let mut result =
             crate::tools::ctx_metrics::handle(&cache_guard, &calls_guard, ctx.crp_mode);
         drop(cache_guard);
         drop(calls_guard);
 
         if let Some(ref ps) = ctx.pipeline_stats {
-            let stats = tokio::task::block_in_place(|| ps.blocking_read());
+            let Some(stats) = crate::server::bounded_lock::read(ps, "ctx_metrics:pipeline") else {
+                return Ok(ToolOutput::simple(result));
+            };
             if stats.runs > 0 {
                 result.push_str("\n\n--- PIPELINE METRICS ---\n");
                 result.push_str(&stats.format_summary());

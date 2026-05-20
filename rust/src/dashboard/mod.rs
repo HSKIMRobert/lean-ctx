@@ -67,13 +67,18 @@ pub async fn start(port: Option<u16>, host: Option<String>) {
     let token = Some(Arc::new(t));
 
     if let Some(t) = token.as_ref() {
+        let masked = if t.len() > 12 {
+            format!("{}…{}", &t[..8], &t[t.len() - 4..])
+        } else {
+            t.to_string()
+        };
         if is_local {
             println!("  Auth: enabled (local)");
             println!("  Browser URL:  http://localhost:{port}/?token={t}");
         } else {
             eprintln!(
                 "  \x1b[33m⚠\x1b[0m Binding to {host} — authentication enabled.\n  \
-                 Bearer token: \x1b[1;32m{t}\x1b[0m\n  \
+                 Bearer token: \x1b[1;32m{masked}\x1b[0m\n  \
                  Browser URL:  http://<your-ip>:{port}/?token={t}"
             );
         }

@@ -47,7 +47,12 @@ impl McpTool for CtxIntentTool {
         let format = get_str(args, "format");
 
         let cache = ctx.cache.as_ref().unwrap();
-        let mut cache_guard = tokio::task::block_in_place(|| cache.blocking_write());
+        let Some(mut cache_guard) = crate::server::bounded_lock::write(cache, "ctx_intent:cache")
+        else {
+            return Ok(ToolOutput::simple(
+                "[intent unavailable — cache busy, retry]".to_string(),
+            ));
+        };
         let output = crate::tools::ctx_intent::handle(
             &mut cache_guard,
             &query,
@@ -58,8 +63,11 @@ impl McpTool for CtxIntentTool {
         drop(cache_guard);
 
         if let Some(ref session) = ctx.session {
-            let mut session_guard = tokio::task::block_in_place(|| session.blocking_write());
-            session_guard.set_task(&query, Some("intent"));
+            if let Some(mut session_guard) =
+                crate::server::bounded_lock::write(session, "ctx_intent:session")
+            {
+                session_guard.set_task(&query, Some("intent"));
+            }
         }
 
         Ok(ToolOutput {

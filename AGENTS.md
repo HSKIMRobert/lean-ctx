@@ -24,6 +24,26 @@ lean-ctx -c "cargo test"     # compressed test output
 lean-ctx ls src/              # directory map
 ```
 
+## Development Workflow
+
+When working on lean-ctx itself:
+
+1. **Before building**: `lean-ctx stop` (LaunchAgent respawns otherwise)
+2. **Build**: `cd rust && cargo build --release`
+3. **Test**: `cargo test --lib` + `cargo clippy -- -W clippy::all`
+4. **Install**: `lean-ctx dev-install` (atomic stop→build→install→restart)
+
+## Session Continuity
+
+Read `memory-bank/activeContext.md` at session start for current state.
+Append to `memory-bank/decisions.md` when making architecture decisions.
+
+## Quality Bar
+
+- Zero clippy warnings, all tests pass
+- Security: PathJail, Shell Allowlist, bounded_lock, no hardcoded secrets
+- No mock data, no placeholders, no stubs
+
 <!-- lean-ctx -->
 ## lean-ctx
 

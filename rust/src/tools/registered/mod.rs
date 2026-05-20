@@ -4,6 +4,7 @@ pub mod ctx_architecture;
 pub mod ctx_artifacts;
 pub mod ctx_benchmark;
 pub mod ctx_cache;
+pub mod ctx_call;
 pub mod ctx_callgraph;
 pub mod ctx_compile;
 pub mod ctx_compress;

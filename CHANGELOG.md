@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.6.12] — 2026-05-20
+
+### Fixed
+
+- **Random freezes on WSL2/NFS/FUSE** — Self-healing I/O protection layer: `safe_canonicalize_bounded()` now applies timeout on ALL platforms (was Windows-only); 12 registered tools use `bounded_lock` helpers with adaptive timeouts instead of bare `blocking_read()`/`blocking_write()`. System auto-detects slow environments (WSL2 DrvFS, NFS, FUSE, sshfs) and adapts: 3+ freezes in 60s → degraded mode with tighter timeouts and cache bypass (ReDev1L report)
+- **Proxy auto-starts without explicit enable** — `spawn_proxy_if_needed()` now checks `proxy_enabled == Some(true)` before spawning; users who never enabled the proxy are no longer affected (webut report)
+- **Multi-user port conflict** — Proxy port is now deterministic per-user via UID-based assignment (`4444 + (uid - 1000) % 1000`). Supports three override levels: `LEAN_CTX_PROXY_PORT` env var → `proxy_port` config key → UID-based auto-port. uid 1000 → 4444, uid 1001 → 4445, etc. (webut report)
+- **Hardcoded port 4444 fallbacks in CLI** — All `proxy start/stop/status` subcommands now use `default_port()` instead of hardcoded 4444, respecting user config and multi-user port assignment
+- **BM25 stale-index noise** — Downgraded "stale index detected" log from WARN to DEBUG; users no longer see spurious warnings during normal index maintenance
+
+### Added
+
+- **`core/io_health` module** — Environment detection (WSL2, NFS, FUSE, sshfs), freeze counter with 60s decay window, adaptive timeout calculation (Fast/SlowFs/Degraded escalation levels)
+- **`server/bounded_lock` module** — Self-healing lock acquisition helpers for all MCP tools; returns `None` on timeout allowing graceful degradation instead of indefinite hangs
+
 ## [3.6.11] — 2026-05-20
 
 ### Fixed

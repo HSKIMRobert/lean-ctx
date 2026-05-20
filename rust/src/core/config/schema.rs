@@ -329,6 +329,14 @@ impl ConfigSchema {
             ),
         );
         root.insert(
+            "proxy_port".into(),
+            key(
+                "u16?",
+                serde_json::json!(null),
+                "Custom proxy port (default: 4444). Useful for multi-user systems. Env: LEAN_CTX_PROXY_PORT",
+            ),
+        );
+        root.insert(
             "response_verbosity".into(),
             key_enum_with_env(
                 &["normal", "compact", "minimal"],
@@ -558,6 +566,73 @@ impl ConfigSchema {
                     "Controls autonomous background behaviors (preload, dedup, consolidation)"
                         .into(),
                 keys: autonomy,
+            },
+        );
+
+        let mut providers = BTreeMap::new();
+        providers.insert(
+            "enabled".into(),
+            key(
+                "bool",
+                serde_json::json!(cfg.providers.enabled),
+                "Master switch for the provider subsystem (GitHub, GitLab, etc.)",
+            ),
+        );
+        providers.insert(
+            "auto_index".into(),
+            key(
+                "bool",
+                serde_json::json!(cfg.providers.auto_index),
+                "Auto-ingest provider results into BM25/embedding indexes",
+            ),
+        );
+        providers.insert(
+            "cache_ttl_secs".into(),
+            key(
+                "u64",
+                serde_json::json!(cfg.providers.cache_ttl_secs),
+                "Default cache TTL for provider results (seconds)",
+            ),
+        );
+        providers.insert(
+            "github.enabled".into(),
+            key(
+                "bool",
+                serde_json::json!(cfg.providers.github.enabled),
+                "Enable/disable GitHub provider",
+            ),
+        );
+        providers.insert(
+            "github.api_url".into(),
+            key(
+                "string",
+                serde_json::json!(cfg.providers.github.api_url),
+                "GitHub API base URL (for GitHub Enterprise)",
+            ),
+        );
+        providers.insert(
+            "gitlab.enabled".into(),
+            key(
+                "bool",
+                serde_json::json!(cfg.providers.gitlab.enabled),
+                "Enable/disable GitLab provider",
+            ),
+        );
+        providers.insert(
+            "gitlab.api_url".into(),
+            key(
+                "string",
+                serde_json::json!(cfg.providers.gitlab.api_url),
+                "GitLab API base URL (for self-hosted instances)",
+            ),
+        );
+        sections.insert(
+            "providers".into(),
+            SectionSchema {
+                description:
+                    "External context providers (GitHub, GitLab, Jira, etc.). Set tokens via env vars (GITHUB_TOKEN, GITLAB_TOKEN)."
+                        .into(),
+                keys: providers,
             },
         );
 

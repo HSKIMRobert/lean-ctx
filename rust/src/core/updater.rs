@@ -516,7 +516,8 @@ fn replace_binary(
 
     // On Windows, a running executable can be renamed but not overwritten.
     // Move the current binary out of the way first, then move the new one in.
-    // If the file is locked (MCP server running), schedule a deferred update.
+    // If the file is locked (MCP server running), try stopping managed processes
+    // first, then schedule a deferred update as last resort.
     #[cfg(windows)]
     {
         let old_path = current_exe.with_extension("old.exe");
@@ -533,7 +534,31 @@ fn replace_binary(
                 return Ok(());
             }
             Err(_) => {
-                return deferred_windows_update(&tmp_path, current_exe);
+                // Binary is locked. Try to stop managed processes first.
+                eprintln!("\nBinary is locked. Stopping managed lean-ctx processes...");
+                stop_managed_windows_processes();
+
+                // Brief wait for processes to release file handles.
+                std::thread::sleep(std::time::Duration::from_millis(1500));
+
+                // Retry after stopping.
+                let _ = std::fs::remove_file(&old_path);
+                match std::fs::rename(current_exe, &old_path) {
+                    Ok(()) => {
+                        if let Err(e) = std::fs::rename(&tmp_path, current_exe) {
+                            let _ = std::fs::rename(&old_path, current_exe);
+                            let _ = std::fs::remove_file(&tmp_path);
+                            return Err(format!("Cannot place new binary: {e}"));
+                        }
+                        let _ = std::fs::remove_file(&old_path);
+                        return Ok(());
+                    }
+                    Err(_) => {
+                        // Still locked (likely MCP server held by editor).
+                        print_blocking_processes(current_exe);
+                        return deferred_windows_update(&tmp_path, current_exe);
+                    }
+                }
             }
         }
     }
@@ -565,9 +590,75 @@ fn replace_binary(
     }
 }
 
+/// Try to stop managed lean-ctx processes (proxy, serve, daemon) on Windows
+/// before attempting a deferred update.
+#[cfg(windows)]
+fn stop_managed_windows_processes() {
+    // Try `lean-ctx stop` first — it's the cleanest shutdown path.
+    let stop_result = std::process::Command::new("lean-ctx").arg("stop").output();
+
+    match stop_result {
+        Ok(out) if out.status.success() => {
+            eprintln!("  Managed processes stopped.");
+        }
+        _ => {
+            // Fallback: taskkill for known process types (proxy, serve).
+            // MCP servers managed by editors can't be killed safely.
+            for pattern in &["proxy start", "serve "] {
+                let _ = std::process::Command::new("taskkill")
+                    .args([
+                        "/F",
+                        "/FI",
+                        &format!("WINDOWTITLE eq *{pattern}*"),
+                        "/IM",
+                        "lean-ctx.exe",
+                    ])
+                    .output();
+            }
+            eprintln!("  Attempted to stop lean-ctx processes via taskkill.");
+        }
+    }
+}
+
+/// Print which lean-ctx.exe processes are blocking the update on Windows.
+#[cfg(windows)]
+fn print_blocking_processes(target_exe: &std::path::Path) {
+    let target_name = target_exe
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("lean-ctx.exe");
+
+    let output = std::process::Command::new("tasklist")
+        .args([
+            "/FI",
+            &format!("IMAGENAME eq {target_name}"),
+            "/V",
+            "/FO",
+            "CSV",
+        ])
+        .output();
+
+    if let Ok(out) = output {
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let lines: Vec<&str> = stdout.lines().skip(1).collect(); // skip CSV header
+        if !lines.is_empty() {
+            eprintln!("\n  Blocking lean-ctx processes:");
+            for line in &lines {
+                // CSV: "Image Name","PID","Session Name","Session#","Mem Usage","Status","User Name","CPU Time","Window Title"
+                let fields: Vec<&str> = line.split(',').collect();
+                if fields.len() >= 2 {
+                    let pid = fields[1].trim_matches('"');
+                    eprintln!("    PID {pid}");
+                }
+            }
+            eprintln!("\n  To stop manually: taskkill /F /PID <pid>  (or close your editor)");
+        }
+    }
+}
+
 /// On Windows, when the binary is locked by an MCP server, we can't rename it.
 /// Instead, stage the new binary and spawn a background cmd process that waits
-/// for the lock to be released, then performs the swap.
+/// for the lock to be released (with a timeout), then performs the swap.
 #[cfg(windows)]
 fn deferred_windows_update(
     staged_path: &std::path::Path,
@@ -582,29 +673,9 @@ fn deferred_windows_update(
     let target_str = target_exe.display().to_string();
     let pending_str = pending_path.display().to_string();
     let old_str = target_exe.with_extension("old.exe").display().to_string();
+    let max_retries = 60;
 
-    let script = format!(
-        r#"@echo off
-echo Waiting for lean-ctx to be released...
-:retry
-timeout /t 1 /nobreak >nul
-move /Y "{target}" "{old}" >nul 2>&1
-if errorlevel 1 goto retry
-move /Y "{pending}" "{target}" >nul 2>&1
-if errorlevel 1 (
-    move /Y "{old}" "{target}" >nul 2>&1
-    echo Update failed. Please close all editors and run: lean-ctx update
-    pause
-    exit /b 1
-)
-del /f "{old}" >nul 2>&1
-echo Updated successfully!
-del "%~f0" >nul 2>&1
-"#,
-        target = target_str,
-        pending = pending_str,
-        old = old_str,
-    );
+    let script = generate_deferred_bat_script(&target_str, &pending_str, &old_str, max_retries);
 
     let script_path = target_exe.with_file_name("lean-ctx-update.bat");
     std::fs::write(&script_path, &script)
@@ -614,12 +685,11 @@ del "%~f0" >nul 2>&1
         .args(["/C", "start", "/MIN", &script_path.display().to_string()])
         .spawn();
 
-    println!("\nThe binary is currently in use by your AI editor's MCP server.");
-    println!("A background update has been scheduled.");
-    println!(
-        "Close your editor (Cursor, VS Code, etc.) and the update will complete automatically."
-    );
-    println!("Or run the script manually: {}", script_path.display());
+    println!("\nThe binary is still in use (likely by your editor's MCP server).");
+    println!("A background update has been scheduled (timeout: {max_retries}s).");
+    println!("Close your editor and the update will complete automatically.");
+    println!("\nIf it times out, run: lean-ctx update");
+    println!("Update script: {}", script_path.display());
 
     Ok(())
 }
@@ -660,6 +730,75 @@ fn extract_from_zip(data: &[u8]) -> Result<Vec<u8>, String> {
         }
     }
     Err("lean-ctx binary not found inside zip archive".to_string())
+}
+
+/// Generate the deferred update batch script content (extracted for testability).
+#[cfg(any(windows, test))]
+fn generate_deferred_bat_script(
+    target: &str,
+    pending: &str,
+    old: &str,
+    max_retries: u32,
+) -> String {
+    format!(
+        r#"@echo off
+setlocal
+set "RETRIES=0"
+set "MAX_RETRIES={max_retries}"
+
+echo lean-ctx update: waiting for binary to be released (timeout: %MAX_RETRIES%s)...
+echo.
+echo Blocking processes:
+tasklist /FI "IMAGENAME eq lean-ctx.exe" /V /NH 2>nul
+echo.
+echo Close your editor (Cursor, VS Code, etc.) to release the binary,
+echo or stop manually:  lean-ctx stop
+echo.
+
+:retry
+if %RETRIES% GEQ %MAX_RETRIES% goto timeout
+set /a RETRIES+=1
+timeout /t 1 /nobreak >nul
+move /Y "{target}" "{old}" >nul 2>&1
+if errorlevel 1 (
+    if %RETRIES% EQU 10 echo   Still waiting... (%RETRIES%/%MAX_RETRIES%s)
+    if %RETRIES% EQU 30 echo   Still waiting... (%RETRIES%/%MAX_RETRIES%s) — try closing your editor
+    if %RETRIES% EQU 50 echo   Still waiting... (%RETRIES%/%MAX_RETRIES%s) — timeout approaching
+    goto retry
+)
+
+move /Y "{pending}" "{target}" >nul 2>&1
+if errorlevel 1 (
+    move /Y "{old}" "{target}" >nul 2>&1
+    echo.
+    echo Update failed: could not place new binary.
+    echo Please close all editors and run: lean-ctx update
+    pause
+    exit /b 1
+)
+del /f "{old}" >nul 2>&1
+echo.
+echo Updated successfully!
+goto cleanup
+
+:timeout
+echo.
+echo Update timed out after %MAX_RETRIES% seconds.
+echo The new binary is staged at: {pending}
+echo.
+echo To complete the update manually:
+echo   1. Close your editor (Cursor, VS Code, etc.)
+echo   2. Run: move /Y "{pending}" "{target}"
+echo.
+echo Or run: lean-ctx update --force
+echo.
+pause
+exit /b 1
+
+:cleanup
+del "%~f0" >nul 2>&1
+"#
+    )
 }
 
 fn detect_linux_libc() -> &'static str {
@@ -710,5 +849,72 @@ fn platform_asset_name() -> String {
         format!("lean-ctx-{target}.zip")
     } else {
         format!("lean-ctx-{target}.tar.gz")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bat_script_has_timeout_guard() {
+        let script = generate_deferred_bat_script(
+            r"C:\bin\lean-ctx.exe",
+            r"C:\bin\lean-ctx-pending.exe",
+            r"C:\bin\lean-ctx.old.exe",
+            60,
+        );
+        assert!(script.contains("set \"MAX_RETRIES=60\""));
+        assert!(script.contains(":timeout"), "must have timeout label");
+        assert!(
+            script.contains("timed out after"),
+            "must show timeout message"
+        );
+    }
+
+    #[test]
+    fn bat_script_shows_blocking_processes() {
+        let script = generate_deferred_bat_script("t", "p", "o", 30);
+        assert!(script.contains("tasklist"), "must list blocking processes");
+        assert!(
+            script.contains("lean-ctx stop"),
+            "must suggest lean-ctx stop"
+        );
+    }
+
+    #[test]
+    fn bat_script_has_progress_indicators() {
+        let script = generate_deferred_bat_script("t", "p", "o", 60);
+        assert!(script.contains("Still waiting"));
+        assert!(script.contains("RETRIES"));
+    }
+
+    #[test]
+    fn bat_script_provides_manual_recovery() {
+        let script = generate_deferred_bat_script(
+            r"C:\bin\lean-ctx.exe",
+            r"C:\bin\lean-ctx-pending.exe",
+            r"C:\bin\lean-ctx.old.exe",
+            60,
+        );
+        assert!(script.contains(r"move /Y"));
+        assert!(
+            script.contains("lean-ctx-pending.exe"),
+            "must show where the pending binary is"
+        );
+        assert!(
+            script.contains("lean-ctx update"),
+            "must suggest re-running update"
+        );
+    }
+
+    #[test]
+    fn bat_script_no_infinite_loop() {
+        let script = generate_deferred_bat_script("t", "p", "o", 10);
+        assert!(script.contains("if %RETRIES% GEQ %MAX_RETRIES% goto timeout"));
+        assert!(
+            !script.contains(":retry\ntimeout"),
+            "must not be an infinite loop"
+        );
     }
 }

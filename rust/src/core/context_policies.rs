@@ -204,6 +204,9 @@ impl PolicySet {
 
     /// Load policies from a project's .lean-ctx/policies.json file.
     pub fn load_project(project_root: &std::path::Path) -> Self {
+        if crate::core::pathutil::is_data_dir_collision(project_root) {
+            return Self::defaults();
+        }
         let path = project_root.join(".lean-ctx").join("policies.json");
         std::fs::read_to_string(&path)
             .ok()
@@ -213,7 +216,7 @@ impl PolicySet {
 
     /// Save policies to a project's .lean-ctx/policies.json file.
     pub fn save_project(&self, project_root: &std::path::Path) -> Result<(), String> {
-        let dir = project_root.join(".lean-ctx");
+        let dir = crate::core::pathutil::safe_project_data_dir(project_root)?;
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         let path = dir.join("policies.json");
         let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;

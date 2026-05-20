@@ -285,6 +285,8 @@ pub struct Config {
     #[serde(default)]
     pub autonomy: AutonomyConfig,
     #[serde(default)]
+    pub providers: ProvidersConfig,
+    #[serde(default)]
     pub proxy: ProxyConfig,
     /// Whether the API proxy is enabled. Tri-state:
     /// - None: undecided (fresh install, will prompt on interactive setup)
@@ -292,6 +294,8 @@ pub struct Config {
     /// - Some(false): user opted out, never touch proxy or endpoints
     #[serde(default)]
     pub proxy_enabled: Option<bool>,
+    #[serde(default)]
+    pub proxy_port: Option<u16>,
     #[serde(default = "serde_defaults::default_buddy_enabled")]
     pub buddy_enabled: bool,
     #[serde(default = "serde_defaults::default_true")]
@@ -455,10 +459,10 @@ pub struct Config {
     #[serde(default)]
     pub agent_token_budget: usize,
     /// Optional shell command allowlist. When non-empty, only commands whose base binary
-    /// is in this list are permitted by ctx_shell. Empty = no allowlist (blocklist only).
-    /// Example: `shell_allowlist = ["git", "cargo", "npm", "ls", "cat", "grep", "find", "echo"]`
+    /// is in this list are permitted by ctx_shell. Empty = disable allowlist (allow all).
+    /// Default includes common dev tools. Set to `[]` to disable.
     /// Override via LEAN_CTX_SHELL_ALLOWLIST env var (comma-separated).
-    #[serde(default)]
+    #[serde(default = "default_shell_allowlist")]
     pub shell_allowlist: Vec<String>,
 }
 
@@ -497,6 +501,61 @@ impl Default for ArchiveConfig {
             threshold_chars: 4096,
             max_age_hours: 48,
             max_disk_mb: 500,
+        }
+    }
+}
+
+/// Configuration for external context providers (GitHub, GitLab, Jira, etc.).
+/// Each provider can be enabled/disabled and configured with auth tokens.
+/// Override individual tokens via env vars (GITHUB_TOKEN, GITLAB_TOKEN, etc.).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ProvidersConfig {
+    /// Master switch for the provider subsystem.
+    pub enabled: bool,
+    /// GitHub provider configuration.
+    pub github: ProviderEntryConfig,
+    /// GitLab provider configuration.
+    pub gitlab: ProviderEntryConfig,
+    /// Auto-ingest provider results into BM25/embedding indexes.
+    pub auto_index: bool,
+    /// Default cache TTL for provider results (seconds).
+    pub cache_ttl_secs: u64,
+}
+
+impl Default for ProvidersConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            github: ProviderEntryConfig::default(),
+            gitlab: ProviderEntryConfig::default(),
+            auto_index: false,
+            cache_ttl_secs: 120,
+        }
+    }
+}
+
+/// Per-provider configuration entry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ProviderEntryConfig {
+    /// Whether this specific provider is enabled.
+    pub enabled: bool,
+    /// Auth token (prefer env var; only use this for project-local overrides).
+    pub token: Option<String>,
+    /// API base URL override (for GitHub Enterprise, self-hosted GitLab, etc.).
+    pub api_url: Option<String>,
+    /// Default project/repo for this provider (auto-detected from git remote if empty).
+    pub project: Option<String>,
+}
+
+impl Default for ProviderEntryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            token: None,
+            api_url: None,
+            project: None,
         }
     }
 }
@@ -739,8 +798,10 @@ impl Default for Config {
             theme: serde_defaults::default_theme(),
             cloud: CloudConfig::default(),
             autonomy: AutonomyConfig::default(),
+            providers: ProvidersConfig::default(),
             proxy: ProxyConfig::default(),
             proxy_enabled: None,
+            proxy_port: None,
             buddy_enabled: serde_defaults::default_buddy_enabled(),
             enable_wakeup_ctx: true,
             redirect_exclude: Vec::new(),
@@ -779,9 +840,123 @@ impl Default for Config {
             sandbox_level: 0,
             reference_results: false,
             agent_token_budget: 0,
-            shell_allowlist: Vec::new(),
+            shell_allowlist: default_shell_allowlist(),
         }
     }
+}
+
+fn default_shell_allowlist() -> Vec<String> {
+    [
+        // VCS
+        "git",
+        "gh",
+        "svn",
+        // Build tools
+        "cargo",
+        "npm",
+        "npx",
+        "yarn",
+        "pnpm",
+        "bun",
+        "make",
+        "cmake",
+        "pip",
+        "pip3",
+        "poetry",
+        "uv",
+        "go",
+        "mvn",
+        "gradle",
+        "mix",
+        "dotnet",
+        "swift",
+        "zig",
+        "rustup",
+        "rustc",
+        // Common CLI
+        "ls",
+        "cat",
+        "head",
+        "tail",
+        "wc",
+        "sort",
+        "uniq",
+        "tr",
+        "cut",
+        "grep",
+        "rg",
+        "find",
+        "fd",
+        "ag",
+        "ack",
+        "sed",
+        "awk",
+        "echo",
+        "printf",
+        "true",
+        "false",
+        "test",
+        "expr",
+        "cd",
+        "pwd",
+        "basename",
+        "dirname",
+        "realpath",
+        "readlink",
+        "cp",
+        "mv",
+        "mkdir",
+        "rm",
+        "rmdir",
+        "touch",
+        "ln",
+        "chmod",
+        "diff",
+        "patch",
+        "tar",
+        "zip",
+        "unzip",
+        "gzip",
+        "gunzip",
+        "zstd",
+        "curl",
+        "wget",
+        // Dev tools
+        "docker",
+        "docker-compose",
+        "podman",
+        "node",
+        "python",
+        "python3",
+        "ruby",
+        "perl",
+        "java",
+        "javac",
+        "tsc",
+        "eslint",
+        "prettier",
+        "black",
+        "ruff",
+        "clippy",
+        "jq",
+        "yq",
+        "xargs",
+        "env",
+        "which",
+        "type",
+        "file",
+        "stat",
+        "date",
+        "sleep",
+        "timeout",
+        "nice",
+        "ionice",
+        // lean-ctx itself
+        "lean-ctx",
+    ]
+    .iter()
+    .map(|s| (*s).to_string())
+    .collect()
 }
 
 /// Where agent rule files are installed: global home dir, project-local, or both.
@@ -1140,7 +1315,9 @@ impl Config {
             if let Some(root) = git_root {
                 return Some(root);
             }
-            return Some(cwd.to_string_lossy().to_string());
+            if !crate::core::pathutil::is_broad_or_unsafe_root(cwd) {
+                return Some(cwd.to_string_lossy().to_string());
+            }
         }
         None
     }
@@ -1176,6 +1353,11 @@ impl Config {
                 Ok(c) => c,
                 Err(e) => {
                     tracing::warn!("config parse error in {}: {e}", path.display());
+                    eprintln!(
+                        "\x1b[33m[lean-ctx] WARNING: config parse error in {}: {e}\n  \
+                         Using defaults. Run `lean-ctx doctor --fix` to repair.\x1b[0m",
+                        path.display()
+                    );
                     Self::default()
                 }
             },
@@ -1200,6 +1382,10 @@ impl Config {
             Ok(c) => c,
             Err(e) => {
                 tracing::warn!("local config parse error: {e}");
+                eprintln!(
+                    "\x1b[33m[lean-ctx] WARNING: local .lean-ctx.toml parse error: {e}\n  \
+                     Local overrides skipped.\x1b[0m"
+                );
                 return;
             }
         };

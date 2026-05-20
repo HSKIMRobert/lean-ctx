@@ -15,37 +15,61 @@ impl McpTool for CtxProviderTool {
     fn tool_def(&self) -> Tool {
         tool_def(
             "ctx_provider",
-            "External context provider (GitLab-first). Actions: gitlab_issues (list), gitlab_issue (show by iid), gitlab_mrs (list MRs), gitlab_pipelines (list pipelines). \
-             Requires GITLAB_TOKEN or LEAN_CTX_GITLAB_TOKEN.",
+            "External context providers (GitHub, GitLab, more). \
+             Use action=discover to list available providers. \
+             Use action=query with provider+resource for registry-based access. \
+             Legacy GitLab actions still supported. \
+             Set GITHUB_TOKEN or GITLAB_TOKEN to enable providers.",
             json!({
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["gitlab_issues", "gitlab_issue", "gitlab_mrs", "gitlab_pipelines"],
-                        "description": "Provider action"
+                        "enum": [
+                            "discover",
+                            "query",
+                            "gitlab_issues",
+                            "gitlab_issue",
+                            "gitlab_mrs",
+                            "gitlab_pipelines"
+                        ],
+                        "description": "Provider action. 'discover' lists all providers. 'query' uses registry routing (requires provider+resource)."
+                    },
+                    "provider": {
+                        "type": "string",
+                        "description": "Provider ID for action=query (e.g. 'github', 'gitlab')"
+                    },
+                    "resource": {
+                        "type": "string",
+                        "description": "Resource type for action=query (e.g. 'issues', 'pull_requests', 'actions')"
+                    },
+                    "mode": {
+                        "type": "string",
+                        "enum": ["compact", "chunks"],
+                        "description": "Output mode for action=query. 'compact' (default) returns formatted text. 'chunks' returns ContentChunk metadata for BM25/embedding ingest."
                     },
                     "state": {
                         "type": "string",
-                        "description": "Filter by state (opened, closed, merged, all)"
+                        "description": "Filter by state (open, closed, merged, all)"
                     },
                     "labels": {
                         "type": "string",
-                        "description": "Comma-separated labels filter"
+                        "description": "Comma-separated labels filter (GitLab)"
                     },
                     "iid": {
                         "type": "integer",
-                        "description": "Issue/MR IID for single-item lookup"
+                        "description": "Issue/MR IID for single-item lookup (GitLab)"
                     },
                     "status": {
                         "type": "string",
-                        "description": "Pipeline status filter (running, success, failed)"
+                        "description": "Pipeline/Actions status filter (running, success, failed)"
                     },
                     "limit": {
                         "type": "integer",
                         "description": "Max results (default 20, max 100)"
                     }
-                }
+                },
+                "required": ["action"]
             }),
         )
     }
@@ -53,9 +77,9 @@ impl McpTool for CtxProviderTool {
     fn handle(
         &self,
         args: &Map<String, Value>,
-        _ctx: &ToolContext,
+        ctx: &ToolContext,
     ) -> Result<ToolOutput, ErrorData> {
-        let result = crate::tools::ctx_provider::handle(args);
+        let result = crate::tools::ctx_provider::handle(args, ctx);
         Ok(ToolOutput::simple(result))
     }
 }

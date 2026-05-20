@@ -37,10 +37,19 @@ impl McpTool for CtxDedupTool {
         let action = get_str(args, "action").unwrap_or_default();
         let cache = ctx.cache.as_ref().unwrap();
         let result = if action == "apply" {
-            let mut guard = tokio::task::block_in_place(|| cache.blocking_write());
+            let Some(mut guard) = crate::server::bounded_lock::write(cache, "ctx_dedup:apply")
+            else {
+                return Ok(ToolOutput::simple(
+                    "[dedup unavailable — cache busy, retry]".to_string(),
+                ));
+            };
             crate::tools::ctx_dedup::handle_action(&mut guard, &action)
         } else {
-            let guard = tokio::task::block_in_place(|| cache.blocking_read());
+            let Some(guard) = crate::server::bounded_lock::read(cache, "ctx_dedup:status") else {
+                return Ok(ToolOutput::simple(
+                    "[dedup status unavailable — cache busy, retry]".to_string(),
+                ));
+            };
             crate::tools::ctx_dedup::handle(&guard)
         };
         Ok(ToolOutput::simple(result))

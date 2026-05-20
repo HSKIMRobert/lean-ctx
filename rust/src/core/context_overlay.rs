@@ -223,13 +223,21 @@ impl OverlayStore {
     }
 
     pub fn save_project(&self, project_root: &Path) -> Result<(), String> {
-        let path = project_root.join(OVERLAY_FILE);
+        let project_dir = crate::core::pathutil::safe_project_data_dir(project_root)?;
+        let path = project_dir.join("overlays.json");
         let json =
             serde_json::to_string_pretty(self).map_err(|e| format!("serialize overlays: {e}"))?;
         crate::config_io::write_atomic(&path, &json)
     }
 
     pub fn load_project(project_root: &Path) -> Self {
+        if crate::core::pathutil::is_data_dir_collision(project_root) {
+            tracing::debug!(
+                "Skipping overlay load: project root {} collides with data directory",
+                project_root.display()
+            );
+            return Self::default();
+        }
         let path = project_root.join(OVERLAY_FILE);
         let mut store: Self = std::fs::read_to_string(&path)
             .ok()

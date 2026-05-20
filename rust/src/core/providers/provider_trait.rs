@@ -11,10 +11,10 @@ use super::{ProviderItem, ProviderResult};
 /// framework contract.
 pub trait ContextProvider: Send + Sync {
     /// Unique identifier for this provider (e.g. "gitlab", "github", "jira").
-    fn id(&self) -> &str;
+    fn id(&self) -> &'static str;
 
     /// Human-readable display name.
-    fn display_name(&self) -> &str;
+    fn display_name(&self) -> &'static str;
 
     /// Returns the actions this provider supports (e.g. "issues", "mrs", "pipelines").
     fn supported_actions(&self) -> &[&str];

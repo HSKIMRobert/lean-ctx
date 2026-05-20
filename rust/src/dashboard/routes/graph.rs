@@ -23,12 +23,40 @@ pub(super) fn handle(
         "/api/graph" => {
             let root = detect_project_root_for_dashboard();
             let index = crate::core::graph_index::load_or_build(&root);
+
+            let mut edge_stats: std::collections::HashMap<&str, usize> =
+                std::collections::HashMap::new();
+            for edge in &index.edges {
+                *edge_stats.entry(edge.kind.as_str()).or_default() += 1;
+            }
+            let connected: std::collections::HashSet<&str> = index
+                .edges
+                .iter()
+                .flat_map(|e| [e.from.as_str(), e.to.as_str()])
+                .collect();
+            let isolated_count = index.files.len() - connected.len().min(index.files.len());
+
             let mut val = serde_json::to_value(&index).unwrap_or_default();
             if let Some(obj) = val.as_object_mut() {
                 obj.insert(
                     "project_root".to_string(),
                     serde_json::Value::String(project_basename(&root)),
                 );
+                obj.insert(
+                    "edge_stats".to_string(),
+                    serde_json::to_value(&edge_stats).unwrap_or_default(),
+                );
+                obj.insert(
+                    "isolated_node_count".to_string(),
+                    serde_json::Value::Number(isolated_count.into()),
+                );
+                let total = index.files.len();
+                let orphan_rate = if total > 0 {
+                    (isolated_count as f64 / total as f64 * 100.0).round() / 100.0
+                } else {
+                    0.0
+                };
+                obj.insert("orphan_rate".to_string(), serde_json::json!(orphan_rate));
             }
             let json = serde_json::to_string(&val).unwrap_or_else(|_| {
                 "{\"error\":\"failed to serialize project index\"}".to_string()

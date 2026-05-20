@@ -53,12 +53,35 @@ impl McpTool for CtxShellTool {
 
             let explicit_cwd = get_str(args, "cwd");
             let effective_cwd = {
-                let session = session_lock.blocking_read();
-                session.effective_cwd(explicit_cwd.as_deref())
+                let guard = crate::server::bounded_lock::read(session_lock, "ctx_shell_cwd");
+                match guard {
+                    Some(session) => session.effective_cwd(explicit_cwd.as_deref()),
+                    None => explicit_cwd.unwrap_or_else(|| ".".to_string()),
+                }
             };
 
             {
-                let mut session = session_lock.blocking_write();
+                let Some(mut session) =
+                    crate::server::bounded_lock::write(session_lock, "ctx_shell_write")
+                else {
+                    tracing::debug!("[ctx_shell: session lock timeout, proceeding without update]");
+                    let cmd_clone = command.clone();
+                    let cwd_clone = effective_cwd.clone();
+                    let extra_env: std::collections::HashMap<String, String> = args
+                        .get("env")
+                        .and_then(|v| v.as_object())
+                        .map(|obj| {
+                            obj.iter()
+                                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                                .filter(|(k, _)| !is_dangerous_env_key(k))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let (output, _exit_code) = crate::server::execute::execute_command_with_env(
+                        &cmd_clone, &cwd_clone, &extra_env,
+                    );
+                    return Ok(ToolOutput::simple(output));
+                };
                 session.update_shell_cwd(&command);
                 let root_missing = session
                     .project_root
@@ -91,6 +114,7 @@ impl McpTool for CtxShellTool {
                 .map(|obj| {
                     obj.iter()
                         .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                        .filter(|(k, _)| !is_dangerous_env_key(k))
                         .collect()
                 })
                 .unwrap_or_default();
@@ -233,4 +257,22 @@ fn shell_mismatch_hint(command: &str, output: &str) -> String {
     } else {
         String::new()
     }
+}
+
+fn is_dangerous_env_key(key: &str) -> bool {
+    const BLOCKED: &[&str] = &[
+        "LD_PRELOAD",
+        "LD_LIBRARY_PATH",
+        "DYLD_INSERT_LIBRARIES",
+        "DYLD_LIBRARY_PATH",
+        "DYLD_FRAMEWORK_PATH",
+        "BASH_ENV",
+        "ENV",
+        "PROMPT_COMMAND",
+        "SHELL",
+        "IFS",
+        "CDPATH",
+    ];
+    let upper = key.to_uppercase();
+    BLOCKED.contains(&upper.as_str()) || upper.starts_with("LD_") && upper.ends_with("_PATH")
 }

@@ -83,7 +83,11 @@ impact (blast radius), status (stats), enrich (add commits+tests+knowledge), con
         let kind = get_str(args, "kind");
 
         let cache = ctx.cache.as_ref().unwrap();
-        let mut guard = tokio::task::block_in_place(|| cache.blocking_write());
+        let Some(mut guard) = crate::server::bounded_lock::write(cache, "ctx_graph") else {
+            return Ok(ToolOutput::simple(
+                "[graph cache temporarily unavailable — retry in a moment]".to_string(),
+            ));
+        };
         let result = crate::tools::ctx_graph::handle(
             &action,
             path.as_deref(),

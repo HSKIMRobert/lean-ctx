@@ -84,7 +84,7 @@ pub fn write_project_degradation_policy(
     policy: &DegradationPolicyV1,
     filename: Option<&str>,
 ) -> Result<PathBuf, String> {
-    let proofs_dir = project_root.join(".lean-ctx").join("proofs");
+    let proofs_dir = crate::core::pathutil::safe_project_data_dir(project_root)?.join("proofs");
     std::fs::create_dir_all(&proofs_dir).map_err(|e| e.to_string())?;
 
     let ts = chrono::Utc::now().format("%Y-%m-%d_%H%M%S");

@@ -15,7 +15,7 @@ pub(super) struct Config {
 impl Config {
     pub(super) fn from_env() -> anyhow::Result<Self> {
         let bind_host =
-            std::env::var("LEANCTX_CLOUD_BIND_HOST").unwrap_or_else(|_| "0.0.0.0".into());
+            std::env::var("LEANCTX_CLOUD_BIND_HOST").unwrap_or_else(|_| "127.0.0.1".into());
         let bind_port = std::env::var("LEANCTX_CLOUD_BIND_PORT")
             .ok()
             .and_then(|v| v.parse::<u16>().ok())

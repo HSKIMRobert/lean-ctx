@@ -15,36 +15,39 @@ pub fn safe_canonicalize_or_self(path: &Path) -> PathBuf {
     safe_canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
-/// Canonicalize with a timeout guard. On Windows, `std::fs::canonicalize` can hang
-/// indefinitely on cloud-synced paths, reparse points, or network drives.
+/// Canonicalize with a timeout guard. Protects against hangs on WSL2 DrvFS,
+/// Windows reparse points, NFS, FUSE, sshfs, and other slow filesystems.
 /// Falls back to the original path if canonicalize doesn't complete within the timeout.
+/// Self-healing: after a timeout, subsequent calls to slow mounts skip the thread entirely.
 pub fn safe_canonicalize_bounded(path: &Path, timeout_ms: u64) -> PathBuf {
-    #[cfg(windows)]
-    {
-        let path_owned = path.to_path_buf();
-        let (tx, rx) = std::sync::mpsc::channel();
-        let _ = std::thread::Builder::new()
-            .name("canonicalize-bounded".into())
-            .spawn(move || {
-                let result = safe_canonicalize(&path_owned).unwrap_or_else(|_| path_owned);
-                let _ = tx.send(result);
-            });
-        match rx.recv_timeout(std::time::Duration::from_millis(timeout_ms)) {
-            Ok(canonical) => canonical,
-            Err(_) => {
-                tracing::debug!(
-                    "canonicalize timed out ({}ms) for {}; using original path",
-                    timeout_ms,
-                    path.display()
-                );
-                path.to_path_buf()
-            }
-        }
+    use super::io_health;
+
+    let path_str = path.to_string_lossy();
+    if io_health::is_slow_mount(&path_str) && io_health::recent_freeze_count() > 0 {
+        return safe_canonicalize_or_self(path);
     }
-    #[cfg(not(windows))]
-    {
-        let _ = timeout_ms;
-        safe_canonicalize_or_self(path)
+
+    let effective_timeout =
+        io_health::adaptive_timeout(std::time::Duration::from_millis(timeout_ms));
+
+    let path_owned = path.to_path_buf();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let _ = std::thread::Builder::new()
+        .name("canonicalize-bounded".into())
+        .spawn(move || {
+            let result = safe_canonicalize(&path_owned).unwrap_or(path_owned);
+            let _ = tx.send(result);
+        });
+    if let Ok(canonical) = rx.recv_timeout(effective_timeout) {
+        canonical
+    } else {
+        io_health::record_freeze();
+        tracing::debug!(
+            "canonicalize timed out ({}ms) for {}; using original path",
+            effective_timeout.as_millis(),
+            path.display()
+        );
+        path.to_path_buf()
     }
 }
 
@@ -105,6 +108,55 @@ pub fn normalize_tool_path(path: &str) -> String {
     }
 
     p
+}
+
+/// Returns `true` if the directory is too broad to be a valid project root.
+/// Rejects home directory, filesystem root, `.` (bare CWD), and agent sandbox
+/// directories (`.claude`, `.codex`). Used to prevent writing project-scoped
+/// data (overlays, policies) into the global `~/.lean-ctx/` data directory.
+pub fn is_broad_or_unsafe_root(dir: &Path) -> bool {
+    if let Some(home) = dirs::home_dir() {
+        if dir == home {
+            return true;
+        }
+    }
+    let s = dir.to_string_lossy();
+    if s == "/" || s == "\\" || s == "." {
+        return true;
+    }
+    s.ends_with("/.claude")
+        || s.ends_with("/.codex")
+        || s.contains("/.claude/")
+        || s.contains("/.codex/")
+}
+
+/// Returns `true` if `project_root` collides with the lean-ctx data directory.
+/// This prevents project-scoped files (overlays.json, policies.json) from being
+/// written into `~/.lean-ctx/` or `~/.config/lean-ctx/`.
+pub fn is_data_dir_collision(project_root: &Path) -> bool {
+    if is_broad_or_unsafe_root(project_root) {
+        return true;
+    }
+    if let Ok(data_dir) = crate::core::data_dir::lean_ctx_data_dir() {
+        let project_lean_ctx = project_root.join(".lean-ctx");
+        if project_lean_ctx == data_dir || data_dir.starts_with(&project_lean_ctx) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Returns the project-scoped `.lean-ctx/` directory if the project root is safe.
+/// Returns `Err` if the project root collides with the global data directory.
+pub fn safe_project_data_dir(project_root: &Path) -> Result<PathBuf, String> {
+    if is_data_dir_collision(project_root) {
+        return Err(format!(
+            "project root {} collides with global data directory; \
+             skipping project-scoped write",
+            project_root.display()
+        ));
+    }
+    Ok(project_root.join(".lean-ctx"))
 }
 
 #[cfg(test)]
@@ -241,5 +293,59 @@ mod tests {
     #[test]
     fn normalize_verbatim_with_msys() {
         assert_eq!(normalize_tool_path(r"\\?\C:\Users\dev"), "C:/Users/dev");
+    }
+
+    #[test]
+    fn broad_root_rejects_home() {
+        if let Some(home) = dirs::home_dir() {
+            assert!(is_broad_or_unsafe_root(&home));
+        }
+    }
+
+    #[test]
+    fn broad_root_rejects_filesystem_root() {
+        assert!(is_broad_or_unsafe_root(Path::new("/")));
+    }
+
+    #[test]
+    fn broad_root_rejects_dot() {
+        assert!(is_broad_or_unsafe_root(Path::new(".")));
+    }
+
+    #[test]
+    fn broad_root_rejects_agent_dirs() {
+        assert!(is_broad_or_unsafe_root(Path::new("/home/user/.claude")));
+        assert!(is_broad_or_unsafe_root(Path::new("/home/user/.codex")));
+    }
+
+    #[test]
+    fn broad_root_allows_project_subdir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let subdir = tmp.path().join("my-project");
+        std::fs::create_dir_all(&subdir).unwrap();
+        assert!(!is_broad_or_unsafe_root(&subdir));
+    }
+
+    #[test]
+    fn broad_root_allows_home_subdirs() {
+        if let Some(home) = dirs::home_dir() {
+            let subdir = home.join("projects").join("my-app");
+            assert!(!is_broad_or_unsafe_root(&subdir));
+        }
+    }
+
+    #[test]
+    fn data_dir_collision_rejects_home() {
+        if let Some(home) = dirs::home_dir() {
+            assert!(is_data_dir_collision(&home));
+        }
+    }
+
+    #[test]
+    fn data_dir_collision_allows_normal_project() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project = tmp.path().join("my-project");
+        std::fs::create_dir_all(&project).unwrap();
+        assert!(!is_data_dir_collision(&project));
     }
 }

@@ -64,6 +64,14 @@ pub enum ChunkKind {
     Class,
     Method,
     Other,
+    // -- External source kinds (Context Cortex) --
+    Issue,
+    PullRequest,
+    WikiPage,
+    DbSchema,
+    ApiEndpoint,
+    Ticket,
+    ExternalOther,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -541,7 +549,7 @@ impl BM25Index {
             if !bm25_index_looks_stale(&idx, root) {
                 return idx;
             }
-            tracing::warn!(
+            tracing::debug!(
                 "[bm25_index: stale index detected for {}; rebuilding]",
                 root.display()
             );
@@ -570,6 +578,32 @@ impl BM25Index {
             return bin;
         }
         dir.join("bm25_index.json")
+    }
+
+    /// Ingest external `ContentChunk`s into the BM25 index.
+    /// Converts each chunk to a `CodeChunk` (backward-compatible) and
+    /// rebuilds the inverted index. Returns the number of chunks ingested.
+    pub fn ingest_content_chunks(
+        &mut self,
+        chunks: impl IntoIterator<Item = super::content_chunk::ContentChunk>,
+    ) -> usize {
+        let mut count = 0usize;
+        for cc in chunks {
+            self.add_chunk(cc.into());
+            count += 1;
+        }
+        if count > 0 {
+            self.finalize();
+        }
+        count
+    }
+
+    /// Number of chunks originating from external providers.
+    pub fn external_chunk_count(&self) -> usize {
+        self.chunks
+            .iter()
+            .filter(|c| c.file_path.contains("://"))
+            .count()
     }
 }
 

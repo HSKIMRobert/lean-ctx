@@ -29,7 +29,11 @@ impl McpTool for CtxContextTool {
         ctx: &ToolContext,
     ) -> Result<ToolOutput, ErrorData> {
         let cache = ctx.cache.as_ref().unwrap();
-        let guard = tokio::task::block_in_place(|| cache.blocking_read());
+        let Some(guard) = crate::server::bounded_lock::read(cache, "ctx_context") else {
+            return Ok(ToolOutput::simple(
+                "[context status temporarily unavailable — retry]".to_string(),
+            ));
+        };
         let turn = ctx
             .call_count
             .as_ref()

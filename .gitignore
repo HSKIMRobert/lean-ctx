@@ -48,8 +48,11 @@ lean-ctx-chrome-extension.zip
 /docs/_local/
 test-results/
 
-# ── IDE local config ──
+# ── IDE local config (may contain tokens/env) ──
 **/.cursor/
+.vscode/mcp.json
+.github/mcp.json
+*.mcp.json.bak
 
 # ── Generated / worktrees (local) ──
 website/generated/

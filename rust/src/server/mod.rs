@@ -1,3 +1,4 @@
+pub mod bounded_lock;
 pub mod bypass_hint;
 pub mod compaction_sync;
 pub mod context_gate;
@@ -1314,7 +1315,7 @@ pub fn derive_project_root_from_cwd() -> Option<String> {
     // Fallback: use CWD as project root if it's a specific, safe directory.
     // This ensures bare directories (no .git, no markers) still work.
     // Guard: reject home dir, filesystem root, and agent sandbox dirs.
-    if !is_broad_or_unsafe_root(&canonical) {
+    if !crate::core::pathutil::is_broad_or_unsafe_root(&canonical) {
         tracing::info!(
             "No project markers found — using CWD as project root: {}",
             canonical.display()
@@ -1325,25 +1326,9 @@ pub fn derive_project_root_from_cwd() -> Option<String> {
     None
 }
 
-/// Returns true if a directory is too broad/unsafe to serve as a jail root.
-/// Rejects: home directory, filesystem root, agent sandbox dirs.
-/// Does NOT reject specific subdirectories like /tmp/my-project or /home/user/data.
-fn is_broad_or_unsafe_root(dir: &std::path::Path) -> bool {
-    if let Some(home) = dirs::home_dir() {
-        if dir == home {
-            return true;
-        }
-    }
-    let s = dir.to_string_lossy();
-    if s == "/" || s == "\\" || s == "." {
-        return true;
-    }
-    // Agent sandbox directories
-    s.ends_with("/.claude")
-        || s.ends_with("/.codex")
-        || s.contains("/.claude/")
-        || s.contains("/.codex/")
-}
+// Delegated to crate::core::pathutil::is_broad_or_unsafe_root
+#[cfg(test)]
+use crate::core::pathutil::is_broad_or_unsafe_root;
 
 /// Detect a multi-root workspace: a directory that has no project markers
 /// itself, but contains child directories that do. In this case, use the
@@ -1488,7 +1473,7 @@ mod tests {
         let registry = crate::server::registry::build_registry();
         assert_eq!(
             registry.len(),
-            61,
+            62,
             "Registry tool count drift! Update this test AND all docs when adding/removing tools."
         );
     }

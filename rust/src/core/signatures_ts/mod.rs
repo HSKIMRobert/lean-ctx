@@ -5,7 +5,7 @@ mod extract;
 mod handlers;
 mod helpers;
 mod query_cache;
-mod sfc;
+pub(crate) mod sfc;
 
 pub use ast_prune::ast_prune;
 pub use extract::extract_signatures_ts;

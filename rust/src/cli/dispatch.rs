@@ -779,7 +779,7 @@ pub fn run() {
                                     p.strip_prefix("--port=").or_else(|| p.strip_prefix("-p="))
                                 })
                                 .and_then(|p| p.parse().ok())
-                                .unwrap_or(4444);
+                                .unwrap_or_else(crate::proxy_setup::default_port);
                             let autostart = rest.iter().any(|a| a == "--autostart");
                             if autostart {
                                 crate::proxy_autostart::install(port, false);
@@ -795,7 +795,7 @@ pub fn run() {
                                 .iter()
                                 .find_map(|p| p.strip_prefix("--port="))
                                 .and_then(|p| p.parse().ok())
-                                .unwrap_or(4444);
+                                .unwrap_or_else(crate::proxy_setup::default_port);
                             let health_url = format!("http://127.0.0.1:{port}/health");
                             match ureq::get(&health_url).call() {
                                 Ok(resp) => {
@@ -833,7 +833,7 @@ pub fn run() {
                                 .iter()
                                 .find_map(|p| p.strip_prefix("--port="))
                                 .and_then(|p| p.parse().ok())
-                                .unwrap_or(4444);
+                                .unwrap_or_else(crate::proxy_setup::default_port);
                             let cfg = crate::core::config::Config::load();
                             println!("lean-ctx proxy:");
                             match cfg.proxy_enabled {
@@ -1957,6 +1957,11 @@ fn resolve_install_path() -> std::path::PathBuf {
 fn spawn_proxy_if_needed() {
     use std::net::TcpStream;
     use std::time::Duration;
+
+    let cfg = core::config::Config::load();
+    if cfg.proxy_enabled != Some(true) {
+        return;
+    }
 
     let port = crate::proxy_setup::default_port();
     let already_running = TcpStream::connect_timeout(

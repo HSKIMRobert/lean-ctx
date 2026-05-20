@@ -321,6 +321,12 @@ fn install_zshenv(home: &Path, quiet: bool, style: Style, stamp: &BackupStamp) {
     let env_check = build_env_check();
     let hook = format!(
         r#"{MARKER_START}
+# Passthrough stubs: ensure _lc/_lc_compress exist in ALL zsh contexts
+# (non-interactive subshells, eval, agent harnesses) so aliases that
+# reference them degrade gracefully instead of "command not found".
+# The full shell-hook.zsh overrides these when loaded via .zshrc.
+_lc()          {{ command "$@"; }}
+_lc_compress() {{ command "$@"; }}
 if [[ -z "$LEAN_CTX_ACTIVE" && -n "$ZSH_EXECUTION_STRING" ]] && command -v lean-ctx &>/dev/null; then
   if {env_check}; then
     export LEAN_CTX_ACTIVE=1
@@ -340,6 +346,8 @@ fn install_bashenv(home: &Path, quiet: bool, style: Style, stamp: &BackupStamp) 
     let env_check = build_env_check();
     let hook = format!(
         r#"{MARKER_START}
+_lc()          {{ command "$@"; }}
+_lc_compress() {{ command "$@"; }}
 if [[ -z "$LEAN_CTX_ACTIVE" && -n "$BASH_EXECUTION_STRING" ]] && command -v lean-ctx &>/dev/null; then
   if {env_check}; then
     export LEAN_CTX_ACTIVE=1
@@ -796,5 +804,66 @@ mod tests {
         assert!(dropin_file.exists());
         let body = std::fs::read_to_string(&dropin_file).unwrap();
         assert!(body.contains("LEAN_CTX_AGENT=1"));
+    }
+
+    // --- #255: Passthrough stubs for non-interactive subshells ---
+
+    #[test]
+    fn zshenv_hook_contains_lc_passthrough_stubs() {
+        let tmp = tempfile::tempdir().unwrap();
+        install_zshenv(tmp.path(), true, Style::Inline, &test_stamp());
+        let body = std::fs::read_to_string(tmp.path().join(".zshenv")).unwrap();
+        assert!(
+            body.contains(r#"_lc()          { command "$@"; }"#),
+            "zshenv must contain _lc passthrough stub"
+        );
+        assert!(
+            body.contains(r#"_lc_compress() { command "$@"; }"#),
+            "zshenv must contain _lc_compress passthrough stub"
+        );
+    }
+
+    #[test]
+    fn bashenv_hook_contains_lc_passthrough_stubs() {
+        let tmp = tempfile::tempdir().unwrap();
+        install_bashenv(tmp.path(), true, Style::Inline, &test_stamp());
+        let body = std::fs::read_to_string(tmp.path().join(".bashenv")).unwrap();
+        assert!(
+            body.contains(r#"_lc()          { command "$@"; }"#),
+            "bashenv must contain _lc passthrough stub"
+        );
+        assert!(
+            body.contains(r#"_lc_compress() { command "$@"; }"#),
+            "bashenv must contain _lc_compress passthrough stub"
+        );
+    }
+
+    #[test]
+    fn stubs_appear_before_exec_guard() {
+        let tmp = tempfile::tempdir().unwrap();
+        install_zshenv(tmp.path(), true, Style::Inline, &test_stamp());
+        let body = std::fs::read_to_string(tmp.path().join(".zshenv")).unwrap();
+        let stub_pos = body.find("_lc()").expect("_lc stub must exist");
+        let exec_pos = body.find("exec lean-ctx").expect("exec guard must exist");
+        assert!(
+            stub_pos < exec_pos,
+            "stubs must be defined BEFORE the exec guard"
+        );
+    }
+
+    #[test]
+    fn dropin_zshenv_also_contains_stubs() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join(".zshenv.d")).unwrap();
+        std::fs::write(
+            tmp.path().join(".zshenv"),
+            "for f in $HOME/.zshenv.d/*.zsh; do source $f; done\n",
+        )
+        .unwrap();
+        install_zshenv(tmp.path(), true, Style::Auto, &test_stamp());
+
+        let dropin = tmp.path().join(".zshenv.d").join(DROPIN_ZSH);
+        let body = std::fs::read_to_string(&dropin).unwrap();
+        assert!(body.contains("_lc()"), "drop-in must also contain stubs");
     }
 }

@@ -20,6 +20,18 @@ Use lean-ctx CLI for shell commands (no MCP schema overhead):
 
 File editing: use native Edit/StrReplace. Write, Delete, Glob → use normally.
 
+## Session Continuity
+
+At session start: read `memory-bank/activeContext.md` for current state.
+After significant work: update activeContext.md + decisions.md.
+
+## Development (when working on lean-ctx itself)
+
+- `lean-ctx stop` before building (LaunchAgent respawns)
+- `cargo clippy -- -W clippy::all` must be clean
+- `cargo test --lib` must pass
+- Use `lean-ctx dev-install` for atomic build+install
+
 <!-- lean-ctx-compression -->
 OUTPUT STYLE: dense
 - Each statement = one atomic fact line

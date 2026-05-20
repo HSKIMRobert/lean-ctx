@@ -280,7 +280,10 @@ fn build_artifacts_excerpt_v1(project_root: &Path) -> ArtifactsExcerptV1 {
         .take(MAX_ARTIFACT_ITEMS)
         .collect();
 
-    let proofs_dir = project_root.join(".lean-ctx").join("proofs");
+    let proofs_dir = match crate::core::pathutil::safe_project_data_dir(project_root) {
+        Ok(d) => d.join("proofs"),
+        Err(_) => return out,
+    };
     if let Ok(rd) = std::fs::read_dir(&proofs_dir) {
         let mut files = Vec::new();
         for e in rd.flatten() {

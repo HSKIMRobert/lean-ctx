@@ -91,6 +91,7 @@ pub fn build_registry() -> ToolRegistry {
     registry.register(Box::new(registered::ctx_gain::CtxGainTool));
     registry.register(Box::new(registered::ctx_expand::CtxExpandTool));
     registry.register(Box::new(registered::ctx_routes::CtxRoutesTool));
+    registry.register(Box::new(registered::ctx_call::CtxCallTool));
     registry.register(Box::new(registered::ctx_callgraph::CtxCallgraphTool));
     registry.register(Box::new(registered::ctx_refactor::CtxRefactorTool));
     registry.register(Box::new(registered::ctx_symbol::CtxSymbolTool));

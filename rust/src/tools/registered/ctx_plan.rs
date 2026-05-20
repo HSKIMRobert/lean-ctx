@@ -36,8 +36,10 @@ impl McpTool for CtxPlanTool {
         let ledger = crate::core::context_ledger::ContextLedger::load();
 
         let root = if let Some(ref session_lock) = ctx.session {
-            let session = tokio::task::block_in_place(|| session_lock.blocking_read());
-            session.project_root.clone().unwrap_or_default()
+            crate::server::bounded_lock::read(session_lock, "ctx_plan:session")
+                .as_ref()
+                .and_then(|s| s.project_root.clone())
+                .unwrap_or_else(|| ctx.project_root.clone())
         } else {
             ctx.project_root.clone()
         };

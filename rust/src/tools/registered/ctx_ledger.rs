@@ -53,7 +53,13 @@ impl McpTool for CtxLedgerTool {
 
         let result = match action.as_str() {
             "status" => {
-                let ledger = tokio::task::block_in_place(|| ledger_arc.blocking_read());
+                let Some(ledger) =
+                    crate::server::bounded_lock::read(ledger_arc, "ctx_ledger:status")
+                else {
+                    return Ok(ToolOutput::simple(
+                        "[ledger status unavailable — busy, retry]".to_string(),
+                    ));
+                };
                 let pressure = ledger.pressure();
                 let top_files: Vec<String> = ledger
                     .files_by_token_cost()
@@ -86,7 +92,13 @@ impl McpTool for CtxLedgerTool {
             }
 
             "reset" => {
-                let mut ledger = tokio::task::block_in_place(|| ledger_arc.blocking_write());
+                let Some(mut ledger) =
+                    crate::server::bounded_lock::write(ledger_arc, "ctx_ledger:reset")
+                else {
+                    return Ok(ToolOutput::simple(
+                        "[ledger reset unavailable — busy, retry]".to_string(),
+                    ));
+                };
                 let prev_entries = ledger.entries.len();
                 let prev_tokens = ledger.total_tokens_sent;
                 ledger.reset();
@@ -111,7 +123,13 @@ impl McpTool for CtxLedgerTool {
                     ));
                 }
 
-                let mut ledger = tokio::task::block_in_place(|| ledger_arc.blocking_write());
+                let Some(mut ledger) =
+                    crate::server::bounded_lock::write(ledger_arc, "ctx_ledger:evict")
+                else {
+                    return Ok(ToolOutput::simple(
+                        "[ledger evict unavailable — busy, retry]".to_string(),
+                    ));
+                };
                 let removed = ledger.evict_paths(&targets);
 
                 // Add exclude overlays to prevent re-accumulation

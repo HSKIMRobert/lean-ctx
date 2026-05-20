@@ -48,14 +48,18 @@ impl McpTool for CtxOverviewTool {
                 None
             }
         } else if let Some(ref session) = ctx.session {
-            let guard = tokio::task::block_in_place(|| session.blocking_read());
-            guard.project_root.clone()
+            let guard = crate::server::bounded_lock::read(session, "ctx_overview:session");
+            guard.as_ref().and_then(|g| g.project_root.clone())
         } else {
             None
         };
 
         let cache = ctx.cache.as_ref().unwrap();
-        let guard = tokio::task::block_in_place(|| cache.blocking_read());
+        let Some(guard) = crate::server::bounded_lock::read(cache, "ctx_overview:cache") else {
+            return Ok(ToolOutput::simple(
+                "[overview temporarily unavailable — cache busy]".to_string(),
+            ));
+        };
         let result = crate::tools::ctx_overview::handle(
             &guard,
             task.as_deref(),

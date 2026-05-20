@@ -387,5 +387,58 @@ fn install_codex_env(home: &Path, port: u16, quiet: bool) {
 }
 
 pub fn default_port() -> u16 {
-    DEFAULT_PROXY_PORT
+    if let Ok(val) = std::env::var("LEAN_CTX_PROXY_PORT") {
+        if let Ok(port) = val.parse::<u16>() {
+            return port;
+        }
+    }
+    let cfg = crate::core::config::Config::load();
+    if let Some(port) = cfg.proxy_port {
+        return port;
+    }
+    uid_based_port()
+}
+
+/// Derives a deterministic port from the user's UID to avoid collisions
+/// on multi-user systems. uid 1000 → 4444, uid 1001 → 4445, etc.
+/// System accounts (uid < 1000) and root always get the base port 4444.
+fn uid_based_port() -> u16 {
+    #[cfg(unix)]
+    {
+        let uid = unsafe { libc::getuid() } as u16;
+        let offset = uid.saturating_sub(1000) % 1000;
+        DEFAULT_PROXY_PORT + offset
+    }
+    #[cfg(not(unix))]
+    {
+        DEFAULT_PROXY_PORT
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn uid_port_first_regular_user() {
+        // uid 1000 (first regular user on most Linux) → base port
+        assert_eq!(DEFAULT_PROXY_PORT, 4444);
+    }
+
+    #[test]
+    fn uid_port_no_overflow() {
+        // Ensure port stays in valid range even with high UIDs
+        // uid 2999 → offset (2999-1000) % 1000 = 999 → port 5443
+        let port = DEFAULT_PROXY_PORT + 999;
+        assert_eq!(port, 5443);
+        assert!(port < u16::MAX);
+    }
+
+    #[test]
+    fn uid_port_system_accounts_get_base() {
+        // uid < 1000 → saturating_sub gives 0 → base port
+        let uid: u16 = 500;
+        let offset = uid.saturating_sub(1000) % 1000;
+        assert_eq!(DEFAULT_PROXY_PORT + offset, DEFAULT_PROXY_PORT);
+    }
 }

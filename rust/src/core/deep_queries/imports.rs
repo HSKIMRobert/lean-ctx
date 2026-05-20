@@ -470,6 +470,39 @@ fn walk_for_dynamic_imports(node: Node, src: &str, imports: &mut Vec<ImportInfo>
                 }
             }
         }
+
+        // CommonJS require("...") / require.resolve("...")
+        if let Some(func_node) = find_child_by_kind(node, "identifier") {
+            if node_text(func_node, src) == "require" {
+                if let Some(args) = find_child_by_kind(node, "arguments") {
+                    if let Some(first_arg) = find_child_by_kind(args, "string") {
+                        imports.push(ImportInfo {
+                            source: unquote(node_text(first_arg, src)),
+                            names: Vec::new(),
+                            kind: ImportKind::Default,
+                            line: node.start_position().row + 1,
+                            is_type_only: false,
+                        });
+                    }
+                }
+            }
+        }
+        if let Some(member) = find_child_by_kind(node, "member_expression") {
+            let text = node_text(member, src);
+            if text.starts_with("require.resolve") {
+                if let Some(args) = find_child_by_kind(node, "arguments") {
+                    if let Some(first_arg) = find_child_by_kind(args, "string") {
+                        imports.push(ImportInfo {
+                            source: unquote(node_text(first_arg, src)),
+                            names: Vec::new(),
+                            kind: ImportKind::Dynamic,
+                            line: node.start_position().row + 1,
+                            is_type_only: false,
+                        });
+                    }
+                }
+            }
+        }
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {

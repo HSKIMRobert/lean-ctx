@@ -101,6 +101,10 @@ fn resolve_one(
         "dart" => resolve_dart(imp, file_path, ctx),
         "zig" => resolve_zig(imp, file_path, ctx),
         "kt" | "kts" => resolve_kotlin(imp, ctx),
+        "cs" => resolve_csharp(imp, ctx),
+        "swift" => resolve_swift(imp, file_path, ctx),
+        "scala" | "sc" => resolve_scala(imp, ctx),
+        "ex" | "exs" => resolve_elixir(imp, file_path, ctx),
         _ => (None, true),
     }
 }
@@ -238,12 +242,14 @@ fn resolve_rust(
     }
 
     let is_external = !source.starts_with("crate")
+        && !source.starts_with("super")
+        && !source.starts_with("self")
         && !ctx.file_paths.iter().any(|f| {
             let stem = Path::new(f)
                 .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("");
-            stem == parts[0]
+            stem == parts[0] || f.contains(&format!("/{}/", parts[0]))
         });
 
     if is_external {
@@ -445,14 +451,16 @@ fn resolve_go(imp: &ImportInfo, ctx: &ResolverContext) -> (Option<String>, bool)
 
 fn try_go_package(pkg_path: &str, ctx: &ResolverContext) -> Option<String> {
     for file in &ctx.file_paths {
-        if Path::new(file.as_str())
-            .extension()
-            .is_some_and(|e| e.eq_ignore_ascii_case("go"))
-        {
-            let dir = Path::new(file).parent()?.to_string_lossy();
-            if dir == pkg_path || dir.ends_with(pkg_path) {
-                return Some(dir.to_string());
-            }
+        let p = Path::new(file.as_str());
+        if p.extension().and_then(|e| e.to_str()) != Some("go") {
+            continue;
+        }
+        if file.ends_with("_test.go") {
+            continue;
+        }
+        let dir = p.parent()?.to_string_lossy();
+        if dir == pkg_path || dir.ends_with(pkg_path) {
+            return Some(file.clone());
         }
     }
     None
@@ -976,6 +984,146 @@ fn normalize_path(path: &Path) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// C#
+// ---------------------------------------------------------------------------
+
+fn resolve_csharp(imp: &ImportInfo, ctx: &ResolverContext) -> (Option<String>, bool) {
+    let source = &imp.source;
+
+    if source.starts_with("System.") || source.starts_with("Microsoft.") {
+        return (None, true);
+    }
+
+    let parts: Vec<&str> = source.rsplitn(2, '.').collect();
+    if parts.len() < 2 {
+        return (None, true);
+    }
+
+    let class_name = parts[0];
+    let namespace_path = parts[1].replace('.', "/");
+    let file_path = format!("{namespace_path}/{class_name}.cs");
+
+    if ctx.file_exists(&file_path) {
+        return (Some(file_path), false);
+    }
+    let flat = format!("{class_name}.cs");
+    if ctx.file_exists(&flat) {
+        return (Some(flat), false);
+    }
+    (None, false)
+}
+
+// ---------------------------------------------------------------------------
+// Swift
+// ---------------------------------------------------------------------------
+
+fn resolve_swift(
+    imp: &ImportInfo,
+    file_path: &str,
+    ctx: &ResolverContext,
+) -> (Option<String>, bool) {
+    let source = &imp.source;
+
+    if matches!(
+        source.as_str(),
+        "Foundation" | "UIKit" | "SwiftUI" | "Combine" | "CoreData" | "Darwin"
+    ) {
+        return (None, true);
+    }
+
+    let dir = Path::new(file_path)
+        .parent()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    let candidate = if dir.is_empty() {
+        format!("{source}.swift")
+    } else {
+        format!("{dir}/{source}.swift")
+    };
+    if ctx.file_exists(&candidate) {
+        return (Some(candidate), false);
+    }
+    (None, false)
+}
+
+// ---------------------------------------------------------------------------
+// Scala
+// ---------------------------------------------------------------------------
+
+fn resolve_scala(imp: &ImportInfo, ctx: &ResolverContext) -> (Option<String>, bool) {
+    let source = &imp.source;
+
+    if source.starts_with("scala.") || source.starts_with("java.") {
+        return (None, true);
+    }
+
+    let parts: Vec<&str> = source.rsplitn(2, '.').collect();
+    if parts.len() < 2 {
+        return (None, true);
+    }
+
+    let name = parts[0];
+    let package_path = parts[1].replace('.', "/");
+
+    for ext in ["scala", "sc"] {
+        let candidate = format!("{package_path}/{name}.{ext}");
+        if ctx.file_exists(&candidate) {
+            return (Some(candidate), false);
+        }
+    }
+    (None, false)
+}
+
+// ---------------------------------------------------------------------------
+// Elixir
+// ---------------------------------------------------------------------------
+
+fn resolve_elixir(
+    imp: &ImportInfo,
+    file_path: &str,
+    ctx: &ResolverContext,
+) -> (Option<String>, bool) {
+    let source = &imp.source;
+
+    if source.starts_with("Kernel") || source.starts_with("Enum") || source.starts_with("IO") {
+        return (None, true);
+    }
+
+    let snake =
+        source
+            .replace('.', "/")
+            .chars()
+            .enumerate()
+            .fold(String::new(), |mut acc, (i, c)| {
+                if c.is_uppercase() && i > 0 && !acc.ends_with('/') {
+                    acc.push('_');
+                }
+                acc.push(c.to_ascii_lowercase());
+                acc
+            });
+
+    let dir = Path::new(file_path)
+        .parent()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    for ext in ["ex", "exs"] {
+        let candidate = format!("lib/{snake}.{ext}");
+        if ctx.file_exists(&candidate) {
+            return (Some(candidate), false);
+        }
+        if !dir.is_empty() {
+            let local = format!("{dir}/{snake}.{ext}");
+            if ctx.file_exists(&local) {
+                return (Some(local), false);
+            }
+        }
+    }
+    (None, false)
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -1180,7 +1328,10 @@ mod tests {
         ctx.go_module = Some("github.com/org/project".to_string());
         let imp = make_import("github.com/org/project/internal/auth");
         let results = resolve_imports(&[imp], "cmd/server/main.go", "go", &ctx);
-        assert_eq!(results[0].resolved_path.as_deref(), Some("internal/auth"));
+        assert_eq!(
+            results[0].resolved_path.as_deref(),
+            Some("internal/auth/auth.go")
+        );
         assert!(!results[0].is_external);
     }
 

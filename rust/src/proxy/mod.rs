@@ -216,7 +216,7 @@ async fn proxy_auth_guard(
     expected_token: String,
 ) -> Result<Response, StatusCode> {
     let path = req.uri().path();
-    if path == "/health" || path == "/status" {
+    if path == "/health" {
         return Ok(next.run(req).await);
     }
 

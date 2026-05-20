@@ -1,9 +1,17 @@
 pub mod cache;
 pub mod config;
+pub mod config_provider;
+pub mod github;
 pub mod gitlab;
+pub mod init;
+pub mod jira;
+pub mod mcp_bridge;
+pub mod postgres;
 pub mod provider_trait;
+pub mod registry;
 
 pub use provider_trait::{ContextPacket, ContextProvider, ProviderParams};
+pub use registry::{global_registry, ProviderRegistry};
 
 use serde::{Deserialize, Serialize};
 

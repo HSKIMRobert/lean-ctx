@@ -32,7 +32,11 @@ impl McpTool for CtxCompressTool {
     ) -> Result<ToolOutput, ErrorData> {
         let include_sigs = get_bool(args, "include_signatures").unwrap_or(true);
         let cache = ctx.cache.as_ref().unwrap();
-        let guard = tokio::task::block_in_place(|| cache.blocking_read());
+        let Some(guard) = crate::server::bounded_lock::read(cache, "ctx_compress") else {
+            return Ok(ToolOutput::simple(
+                "[cache temporarily unavailable — retry in a moment]".to_string(),
+            ));
+        };
         let result = crate::tools::ctx_compress::handle(&guard, include_sigs, ctx.crp_mode);
         Ok(ToolOutput::simple(result))
     }
