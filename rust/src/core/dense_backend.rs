@@ -382,6 +382,13 @@ fn chunk_kind_str(kind: &ChunkKind) -> &'static str {
         ChunkKind::Module => "Module",
         ChunkKind::Class => "Class",
         ChunkKind::Method => "Method",
+        ChunkKind::Issue => "Issue",
+        ChunkKind::PullRequest => "PullRequest",
+        ChunkKind::WikiPage => "WikiPage",
+        ChunkKind::DbSchema => "DbSchema",
+        ChunkKind::ApiEndpoint => "ApiEndpoint",
+        ChunkKind::Ticket => "Ticket",
+        ChunkKind::ExternalOther => "ExternalOther",
         ChunkKind::Other => "Other",
     }
 }
@@ -395,6 +402,13 @@ pub(crate) fn kind_from_str(s: &str) -> ChunkKind {
         "Module" => ChunkKind::Module,
         "Class" => ChunkKind::Class,
         "Method" => ChunkKind::Method,
+        "Issue" => ChunkKind::Issue,
+        "PullRequest" => ChunkKind::PullRequest,
+        "WikiPage" => ChunkKind::WikiPage,
+        "DbSchema" => ChunkKind::DbSchema,
+        "ApiEndpoint" => ChunkKind::ApiEndpoint,
+        "Ticket" => ChunkKind::Ticket,
+        "ExternalOther" => ChunkKind::ExternalOther,
         _ => ChunkKind::Other,
     }
 }
