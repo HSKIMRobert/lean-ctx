@@ -5,9 +5,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.6.14] — 2026-05-22
+
 ### Added
 
-- **First-class support for the Augment AI coding agent** — `lean-ctx init --agent augment` now wires up both Augment configuration surfaces in a single invocation: the Auggie CLI (`~/.augment/settings.json`, standard `mcpServers` map) and the Augment VS Code extension (`globalStorage/augment.vscode-augment/augment-global-state/mcpServers.json`, top-level JSON array with stable UUID-keyed upserts that preserve sibling entries). User rules are injected at `~/.augment/rules/lean-ctx.md` (the documented User Rules folder, recursively scanned and always applied). `lean-ctx doctor` reports per-surface MCP drift, including a dedicated check that flags entries the user has toggled off via `"disabled": true`. `lean-ctx uninstall --agent augment` symmetrically removes all four surfaces. Cross-platform paths handled for Linux, macOS, and Windows. Brings Augment to parity with Cursor, Claude Code, Codex, Windsurf, and the other 30+ supported agents in the compatibility matrix.
+- **First-class Augment AI agent support** — `lean-ctx init --agent augment` wires up both Augment configuration surfaces: Auggie CLI (`~/.augment/settings.json`) and VS Code extension (`globalStorage/augment.vscode-augment/.../mcpServers.json`, JSON array with stable UUID-keyed upserts). Rules injected at `~/.augment/rules/lean-ctx.md`. `lean-ctx doctor` reports per-surface MCP drift including `"disabled": true` detection. Full cross-platform support (Linux, macOS, Windows). Contributed by @parker-brown-family (#264, #267)
+- **Context package system renamed to `.ctxpkg`** — Package format, CLI commands, transport envelopes, and documentation all use `.ctxpkg` extension. Legacy `.lctxpkg` files remain importable for backward compatibility
+- **`ctx_multi_read` server-side output cap** — Output capped at 512KB by default (configurable via `LCTX_MAX_MULTI_READ_BYTES`) to prevent MCP client-side truncation. When exceeded, remaining files are skipped with a clear warning (#263)
+- **Degradation policy warning** — `auto_degrade_read_mode()` now emits an explicit `⚠ Context pressure` warning when `mode=full` is downgraded to `mode=map` or `mode=signatures`, including the verdict and bypass hint (`start_line=1` or `ctx_compress`) (#262)
+- **28 new regression tests** — 14 UTF-8 boundary tests (Cyrillic, CJK, emoji, exact user scenario), 10 degradation verdict tests, 4 `ctx_multi_read` cap tests
+
+### Fixed
+
+- **UTF-8 character boundary panics** — 13 string truncation sites across the codebase now use `str::floor_char_boundary()` / `str::ceil_char_boundary()` instead of raw byte slicing, preventing panics on multi-byte characters like Cyrillic, CJK, or emoji. Affected: `hash_fast` (4096 byte prefix/suffix), curl/cargo/test/just pattern compression, codebook display, gotcha tracker, mcp_compress, ctx_edit preview, ctx_preload hints, dashboard context, tool_defs, stats format, dashboard token masking, cloud email masking. Report and initial PR by @cburgess (#265, #266)
+- **Context package system hardening** — Fixed critical `receive --apply` bug, Graph edge import (uses `get_node_by_symbol` instead of `get_node_by_path`), Session/Patterns/Insights import, auto-load caching (prevents re-application), registry validation, HMAC signing (signs all fields including metadata), CLI flag parsing (`--flag value` and `--flag=value`), memory leaks (`.leak()` removed), HTTP response status checking for `send`
+- **`lean-ctx update` proxy race condition** — `post_update_rewire()` now restarts the proxy and waits for health before writing `ANTHROPIC_BASE_URL` to Claude Code settings, preventing a connectivity gap (#234)
+
+### Changed
+
+- **Removed `PackageLayer::Artifacts`** — Dead enum variant removed; builder derives layers from actual content
+- **Manifest validation expanded** — Checks hex format of hashes, `byte_size > 0`, duplicate layers
+- **Import hardened** — File extension check (accepts `.ctxpkg` and `.lctxpkg`), size limit (`MAX_PACKAGE_FILE_BYTES`)
 
 ## [3.6.13] — 2026-05-21
 

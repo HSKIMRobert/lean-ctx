@@ -442,6 +442,7 @@ fn detect_extension_installed(home: &Path, extension_id: &str) -> bool {
                 return true;
             }
         }
+        let _ = home;
     }
     false
 }
