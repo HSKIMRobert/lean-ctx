@@ -5,20 +5,40 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
-## [3.6.12] — 2026-05-20
-
-### Fixed
-
-- **Random freezes on WSL2/NFS/FUSE** — Self-healing I/O protection layer: `safe_canonicalize_bounded()` now applies timeout on ALL platforms (was Windows-only); 12 registered tools use `bounded_lock` helpers with adaptive timeouts instead of bare `blocking_read()`/`blocking_write()`. System auto-detects slow environments (WSL2 DrvFS, NFS, FUSE, sshfs) and adapts: 3+ freezes in 60s → degraded mode with tighter timeouts and cache bypass (ReDev1L report)
-- **Proxy auto-starts without explicit enable** — `spawn_proxy_if_needed()` now checks `proxy_enabled == Some(true)` before spawning; users who never enabled the proxy are no longer affected (webut report)
-- **Multi-user port conflict** — Proxy port is now deterministic per-user via UID-based assignment (`4444 + (uid - 1000) % 1000`). Supports three override levels: `LEAN_CTX_PROXY_PORT` env var → `proxy_port` config key → UID-based auto-port. uid 1000 → 4444, uid 1001 → 4445, etc. (webut report)
-- **Hardcoded port 4444 fallbacks in CLI** — All `proxy start/stop/status` subcommands now use `default_port()` instead of hardcoded 4444, respecting user config and multi-user port assignment
-- **BM25 stale-index noise** — Downgraded "stale index detected" log from WARN to DEBUG; users no longer see spurious warnings during normal index maintenance
+## [3.6.12] — 2026-05-21
 
 ### Added
 
+- **Context Cortex architecture** — Cross-source intelligence engine that unifies file reads, shell output, and external data sources into a single context graph. Includes `ContentChunk` abstraction, `ProviderRegistry`, cross-source edge hints, provider bandit (Thompson sampling), and active inference prefetching
+- **Config-based data source providers** — Connect any REST API to lean-ctx without code. Drop a TOML/JSON file into `~/.config/lean-ctx/providers/` and lean-ctx auto-discovers it. Supports 6 auth methods (bearer, API key, basic, header, query param, none), dot-notation response extraction, and project-local providers
+- **Built-in providers** — GitHub (issues, PRs, actions), Jira (issues, sprints, projects), PostgreSQL (tables, schema, queries) activate automatically when their env vars are set
+- **`ctx_provider` tool** — MCP tool to query any registered data source: `ctx_provider(provider="github", resource="issues", params={...})`
 - **`core/io_health` module** — Environment detection (WSL2, NFS, FUSE, sshfs), freeze counter with 60s decay window, adaptive timeout calculation (Fast/SlowFs/Degraded escalation levels)
 - **`server/bounded_lock` module** — Self-healing lock acquisition helpers for all MCP tools; returns `None` on timeout allowing graceful degradation instead of indefinite hangs
+- **`core/output_sanitizer` module** — Last-pass output filter that detects and removes degenerate CJK runs, symbol floods, and garbled artifacts before output reaches the client
+- **`lean-ctx proxy cleanup` command** — Removes stale `ANTHROPIC_BASE_URL` entries from Claude Code/Codex settings when the proxy is disabled
+- **`lean-ctx doctor` stale proxy check** — New diagnostic that detects `ANTHROPIC_BASE_URL` pointing to local proxy when proxy is not enabled, with actionable fix instructions
+- **Website docs** — New pages: Context Control & Overlays (`/docs/context-control`), Budgets & SLOs (`/docs/budgets-and-slos`), Observatory (`/docs/observatory`)
+
+### Fixed
+
+- **Garbled Chinese characters in Cursor Thought panel** (#257, moshuying report) — Unicode-heavy compression symbols (`→`, `✓`, `✗`, `⚠`, `∴`) confused Cursor's lightweight Thought summarizer model, causing degenerate completion. Three-layer fix: (1) output sanitizer removes CJK artifact lines, (2) Cursor-aware ASCII-safe symbol substitution in compression prompts, (3) TDD shortcuts use ASCII-only replacements (`->`, `ok`, `FAIL`, `WARN`)
+- **Stale ANTHROPIC_BASE_URL after proxy disable** (#256) — Users who disabled the proxy were left with `ANTHROPIC_BASE_URL` pointing to `127.0.0.1:4444` in Claude Code settings, causing 401 errors. `doctor --fix` and `proxy cleanup` now auto-detect and remove stale URLs. Proxy 401 responses include actionable JSON error messages
+- **Random freezes on WSL2/NFS/FUSE** — Self-healing I/O protection layer: `safe_canonicalize_bounded()` now applies timeout on ALL platforms (was Windows-only); 12 registered tools use `bounded_lock` helpers with adaptive timeouts. System auto-detects slow environments and adapts: 3+ freezes in 60s → degraded mode (ReDev1L report)
+- **Proxy auto-starts without explicit enable** — `spawn_proxy_if_needed()` now checks `proxy_enabled == Some(true)` before spawning (webut report)
+- **Multi-user port conflict** — Proxy port is now deterministic per-user via UID-based assignment (`4444 + (uid - 1000) % 1000`). Supports three override levels: env var → config key → UID-based auto-port (webut report)
+- **Hardcoded port 4444 fallbacks** — All proxy subcommands now use `default_port()` instead of hardcoded 4444
+- **BM25 stale-index noise** — Downgraded "stale index detected" log from WARN to DEBUG
+- **Windows test failure** — `canonicalize_bounded` test now uses `std::env::temp_dir()` instead of hardcoded `/tmp`
+- **Shell allowlist test flake** — Empty allowlist test explicitly sets env var instead of removing it
+- **CI documentation check** — Updated MCP tool count 61→62 across all docs to match registry
+- **Bare URL rustdoc warnings** — Wrapped bare URLs in doc comments with angle brackets
+
+### Changed
+
+- **MCP tool count** — 61 → 62 (added `ctx_provider`)
+- **Compression symbols** — TDD shortcuts now use ASCII-safe symbols (`->` instead of `→`, `ok` instead of `✓`) for better downstream model compatibility
+- **Rules injection** — Cursor config files (`.cursorrules`, `.cursor/rules/`) now receive ASCII-safe compression prompts; other editors get full Unicode prompts
 
 ## [3.6.11] — 2026-05-20
 
