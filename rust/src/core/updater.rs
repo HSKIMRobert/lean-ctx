@@ -353,8 +353,6 @@ fn hex_lower(bytes: &[u8]) -> String {
 fn post_update_rewire() {
     let mut cfg = crate::core::config::Config::load();
 
-    // ONE-TIME migration: if proxy_enabled is None but autostart is already installed,
-    // grandfather the user in (they had proxy from a previous version).
     if cfg.proxy_enabled.is_none() && crate::proxy_autostart::is_installed() {
         cfg.proxy_enabled = Some(true);
         let _ = cfg.save();
@@ -362,22 +360,51 @@ fn post_update_rewire() {
         eprintln!("    Disable anytime: lean-ctx proxy disable");
     }
 
-    let skip_proxy = cfg.proxy_enabled != Some(true);
+    let proxy_active = cfg.proxy_enabled == Some(true);
 
+    // PHASE 1: Restart proxy BEFORE writing env vars.
+    // This eliminates the race window where ANTHROPIC_BASE_URL points to a
+    // proxy that hasn't started yet (reported by khhaliil in PR #234).
+    if proxy_active {
+        restart_proxy_if_running();
+        wait_for_proxy_health(crate::proxy_setup::default_port());
+    }
+
+    // PHASE 2: Now that the proxy is confirmed healthy (or timed out),
+    // run setup which writes ANTHROPIC_BASE_URL into Claude Code settings.
     let opts = crate::setup::SetupOptions {
         non_interactive: true,
         yes: true,
         fix: true,
-        skip_proxy,
+        skip_proxy: !proxy_active,
         ..Default::default()
     };
     if let Err(e) = crate::setup::run_setup_with_options(opts) {
         tracing::error!("Setup refresh error: {e}");
     }
+}
 
-    if cfg.proxy_enabled == Some(true) {
-        restart_proxy_if_running();
+fn wait_for_proxy_health(port: u16) {
+    let max_attempts = 20;
+    for i in 0..max_attempts {
+        if is_proxy_reachable(port) {
+            println!("  \x1b[32m✓\x1b[0m Proxy healthy on port {port}");
+            return;
+        }
+        if i == 0 {
+            print!("  \x1b[2mWaiting for proxy to become healthy");
+        }
+        print!(".");
+        use std::io::Write;
+        std::io::stdout().flush().ok();
+        std::thread::sleep(std::time::Duration::from_millis(500));
     }
+    println!();
+    eprintln!(
+        "  \x1b[33m⚠\x1b[0m Proxy did not respond within {}s — writing env vars anyway",
+        max_attempts / 2
+    );
+    eprintln!("    If Claude Code shows connection errors, run: lean-ctx proxy start");
 }
 
 fn restart_proxy_if_running() {
