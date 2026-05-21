@@ -212,14 +212,6 @@ fn is_running_in_msys_or_gitbash() -> bool {
 }
 
 #[cfg(windows)]
-fn is_running_in_powershell() -> bool {
-    if is_running_in_msys_or_gitbash() {
-        return false;
-    }
-    std::env::var("PSModulePath").is_ok()
-}
-
-#[cfg(windows)]
 fn which_powershell() -> Result<String, ()> {
     for candidate in &["pwsh.exe", "powershell.exe"] {
         if let Ok(output) = std::process::Command::new("where").arg(candidate).output() {
