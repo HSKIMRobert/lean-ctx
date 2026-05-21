@@ -607,6 +607,124 @@ fn pi_outcome() -> Option<Outcome> {
     }
 }
 
+fn provider_outcome() -> Outcome {
+    let registry = crate::core::providers::global_registry();
+    let ids = registry.available_provider_ids();
+    if ids.is_empty() {
+        return Outcome {
+            ok: true,
+            line: format!(
+                "{BOLD}Providers{RST}  {DIM}none configured (enable via [providers] in config.toml){RST}"
+            ),
+        };
+    }
+    let labels: Vec<String> = ids
+        .iter()
+        .map(|id| {
+            if let Some(p) = registry.get(id) {
+                if p.is_available() {
+                    format!("{GREEN}{id}{RST}")
+                } else {
+                    format!("{YELLOW}{id}(no auth){RST}")
+                }
+            } else {
+                format!("{RED}{id}(missing){RST}")
+            }
+        })
+        .collect();
+    Outcome {
+        ok: true,
+        line: format!("{BOLD}Providers{RST}  {}", labels.join(", ")),
+    }
+}
+
+fn mcp_bridge_outcomes() -> Vec<Outcome> {
+    let cfg = crate::core::config::Config::load();
+    let bridges = &cfg.providers.mcp_bridges;
+    if bridges.is_empty() {
+        return Vec::new();
+    }
+
+    let mut results = Vec::new();
+
+    let auto_idx = if cfg.providers.auto_index {
+        format!("{GREEN}auto_index=true{RST}")
+    } else {
+        format!("{YELLOW}auto_index=false (provider data won't be indexed into BM25/Graph/Knowledge){RST}")
+    };
+    results.push(Outcome {
+        ok: cfg.providers.auto_index,
+        line: format!("{BOLD}Provider indexing{RST}  {auto_idx}"),
+    });
+
+    for (name, entry) in bridges {
+        let url = entry.url.as_deref().unwrap_or("");
+        let cmd = entry.command.as_deref().unwrap_or("");
+        let source = if !url.is_empty() {
+            format!("url={url}")
+        } else if !cmd.is_empty() {
+            format!("cmd={cmd}")
+        } else {
+            "no url/command".to_string()
+        };
+
+        let ok = !url.is_empty() || !cmd.is_empty();
+        let status = if ok {
+            format!("{GREEN}configured{RST}")
+        } else {
+            format!("{RED}missing url/command{RST}")
+        };
+
+        results.push(Outcome {
+            ok,
+            line: format!("{BOLD}MCP Bridge{RST}  mcp:{name} ({source}) [{status}]"),
+        });
+    }
+
+    results
+}
+
+fn plan_mode_outcomes() -> Vec<Outcome> {
+    let status = crate::core::editor_registry::plan_mode::check_plan_mode_status();
+    let mut results = Vec::new();
+
+    if let Some(configured) = status.vscode_configured {
+        if configured {
+            results.push(Outcome {
+                ok: true,
+                line: format!(
+                    "{BOLD}Plan mode{RST}  VS Code  {GREEN}planAgent tools configured{RST}"
+                ),
+            });
+        } else {
+            results.push(Outcome {
+                ok: false,
+                line: format!(
+                    "{BOLD}Plan mode{RST}  VS Code  {YELLOW}not configured{RST}  {DIM}(run: lean-ctx setup){RST}"
+                ),
+            });
+        }
+    }
+
+    if let Some(configured) = status.claude_configured {
+        if configured {
+            results.push(Outcome {
+                ok: true,
+                line: format!("{BOLD}Plan mode{RST}  Claude Code  {GREEN}permissions present{RST}"),
+            });
+        } else {
+            results.push(Outcome {
+                ok: false,
+                line: format!(
+                    "{BOLD}Plan mode{RST}  Claude Code  {YELLOW}not configured{RST}  {DIM}(run: lean-ctx setup){RST}"
+                ),
+            });
+        }
+    }
+
+    results
+}
+
 fn session_state_outcome() -> Outcome {
     use crate::core::session::SessionState;
 
@@ -928,6 +1046,22 @@ pub fn run() {
     }
     print_check(&daemon_outcome);
 
+    // Providers
+    let provider_outcome = provider_outcome();
+    print_check(&provider_outcome);
+
+    // MCP Bridges
+    let bridge_outcomes = mcp_bridge_outcomes();
+    for bridge_check in &bridge_outcomes {
+        print_check(bridge_check);
+    }
+
+    // Plan mode
+    let plan_outcomes = plan_mode_outcomes();
+    for plan_check in &plan_outcomes {
+        print_check(plan_check);
+    }
+
     // 9) Session state (project_root + shell_cwd)
     let session_outcome = session_state_outcome();
     if session_outcome.ok {
@@ -1074,7 +1208,7 @@ fn skill_files_outcome() -> Outcome {
         ),
         (
             "GitHub Copilot",
-            home.join(".vscode/skills/lean-ctx/SKILL.md"),
+            home.join(".copilot/skills/lean-ctx/SKILL.md"),
         ),
     ];
 

@@ -96,6 +96,42 @@ pub fn categorize_tool(name: &str) -> ToolCategory {
     }
 }
 
+pub fn is_readonly_tool(name: &str) -> bool {
+    matches!(
+        name,
+        "ctx_read"
+            | "ctx_search"
+            | "ctx_tree"
+            | "ctx_overview"
+            | "ctx_plan"
+            | "ctx_metrics"
+            | "ctx_compress"
+            | "ctx_session"
+            | "ctx_knowledge"
+            | "ctx_graph"
+            | "ctx_retrieve"
+            | "ctx_provider"
+            | "ctx_multi_read"
+            | "ctx_smart_read"
+            | "ctx_delta"
+            | "ctx_outline"
+            | "ctx_context"
+            | "ctx_call"
+            | "ctx_architecture"
+            | "ctx_impact"
+            | "ctx_callgraph"
+            | "ctx_symbol"
+            | "ctx_routes"
+            | "ctx_smells"
+            | "ctx_index"
+            | "ctx_semantic_search"
+            | "ctx_artifacts"
+            | "ctx_cost"
+            | "ctx_gain"
+            | "ctx_heatmap"
+    )
+}
+
 #[derive(Debug)]
 pub struct DynamicToolState {
     active_categories: HashSet<ToolCategory>,
@@ -247,5 +283,30 @@ mod tests {
         assert_eq!(categorize_tool("ctx_semantic_search"), ToolCategory::Memory);
         assert_eq!(categorize_tool("ctx_metrics"), ToolCategory::Internal);
         assert_eq!(categorize_tool("ctx_workflow"), ToolCategory::Session);
+    }
+
+    #[test]
+    fn readonly_classification() {
+        assert!(is_readonly_tool("ctx_read"));
+        assert!(is_readonly_tool("ctx_search"));
+        assert!(is_readonly_tool("ctx_tree"));
+        assert!(is_readonly_tool("ctx_overview"));
+        assert!(is_readonly_tool("ctx_provider"));
+
+        assert!(!is_readonly_tool("ctx_edit"));
+        assert!(!is_readonly_tool("ctx_shell"));
+        assert!(!is_readonly_tool("ctx_compile"));
+        assert!(!is_readonly_tool("ctx_execute"));
+        assert!(!is_readonly_tool("ctx_cache"));
+    }
+
+    #[test]
+    fn plan_mode_tools_are_all_readonly() {
+        for tool in crate::core::editor_registry::plan_mode::plan_mode_tools() {
+            assert!(
+                is_readonly_tool(tool),
+                "{tool} is listed as plan mode tool but not marked readonly"
+            );
+        }
     }
 }

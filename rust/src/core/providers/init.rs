@@ -14,7 +14,9 @@ use std::sync::Arc;
 use super::config_provider::discovery::discover_configs;
 use super::config_provider::ConfigProvider;
 use super::github::GitHubProvider;
+use super::gitlab::GitLabProvider;
 use super::jira::JiraProvider;
+use super::mcp_bridge::McpBridgeProvider;
 use super::postgres::PostgresProvider;
 use super::provider_trait::ContextProvider;
 use super::registry::global_registry;
@@ -42,8 +44,33 @@ pub fn init_with_project_root(project_root: Option<&Path>) {
         registry.register(Arc::new(GitHubProvider::new()));
     }
 
+    if cfg.providers.gitlab.enabled {
+        registry.register(Arc::new(GitLabProvider::new()));
+    }
+
     registry.register(Arc::new(JiraProvider::new()));
     registry.register(Arc::new(PostgresProvider::new()));
+
+    // --- MCP Bridge providers (user-defined external MCP servers) ---
+    for (name, entry) in &cfg.providers.mcp_bridges {
+        if let Some(url) = &entry.url {
+            if !url.is_empty() {
+                registry.register(Arc::new(McpBridgeProvider::new(name, url)));
+                continue;
+            }
+        }
+        if let Some(command) = &entry.command {
+            if !command.is_empty() {
+                registry.register(Arc::new(McpBridgeProvider::new_stdio(
+                    name,
+                    command,
+                    &entry.args,
+                )));
+                continue;
+            }
+        }
+        tracing::warn!("[providers] MCP bridge '{name}' has neither url nor command — skipping");
+    }
 
     // --- Config-based providers (user-defined) ---
     let discovered = discover_configs(project_root);

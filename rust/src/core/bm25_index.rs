@@ -480,7 +480,8 @@ impl BM25Index {
                 return None;
             }
             let compressed = std::fs::read(&zst_path).ok()?;
-            let data = zstd::decode_all(compressed.as_slice()).ok()?;
+            let max_decompressed = max_bytes * 20; // allow 20x expansion ratio
+            let data = bounded_zstd_decode(&compressed, max_decompressed)?;
             let (idx, _): (Self, _) =
                 bincode::serde::decode_from_slice(&data, bincode::config::standard()).ok()?;
             return Some(idx);
@@ -656,6 +657,31 @@ fn bm25_index_looks_stale(index: &BM25Index, root: &Path) -> bool {
     }
 
     false
+}
+
+fn bounded_zstd_decode(compressed: &[u8], max_bytes: u64) -> Option<Vec<u8>> {
+    use std::io::Read;
+    let mut decoder = zstd::Decoder::new(compressed).ok()?;
+    let mut buf = Vec::new();
+    let mut chunk = vec![0u8; 65536];
+    let mut total = 0u64;
+    loop {
+        let n = decoder.read(&mut chunk).ok()?;
+        if n == 0 {
+            break;
+        }
+        total += n as u64;
+        if total > max_bytes {
+            tracing::warn!(
+                "[bm25] decompressed index exceeds limit ({:.0} MB > {:.0} MB), aborting load",
+                total as f64 / (1024.0 * 1024.0),
+                max_bytes as f64 / (1024.0 * 1024.0)
+            );
+            return None;
+        }
+        buf.extend_from_slice(&chunk[..n]);
+    }
+    Some(buf)
 }
 
 fn index_dir(root: &Path) -> PathBuf {
@@ -991,16 +1017,38 @@ pub fn format_search_results(results: &[SearchResult], compact: bool) -> String 
 
     let mut out = String::new();
     for (i, r) in results.iter().enumerate() {
+        let is_external = r.file_path.contains("://");
         if compact {
+            if is_external {
+                out.push_str(&format!(
+                    "{}. {:.2} [{:?}] {} — {}\n",
+                    i + 1,
+                    r.score,
+                    r.kind,
+                    r.file_path,
+                    r.symbol_name,
+                ));
+            } else {
+                out.push_str(&format!(
+                    "{}. {:.2} {}:{}-{} {:?} {}\n",
+                    i + 1,
+                    r.score,
+                    r.file_path,
+                    r.start_line,
+                    r.end_line,
+                    r.kind,
+                    r.symbol_name,
+                ));
+            }
+        } else if is_external {
             out.push_str(&format!(
-                "{}. {:.2} {}:{}-{} {:?} {}\n",
+                "\n--- Result {} (score: {:.2}) [{:?}] ---\n{} — {}\n{}\n",
                 i + 1,
                 r.score,
-                r.file_path,
-                r.start_line,
-                r.end_line,
                 r.kind,
+                r.file_path,
                 r.symbol_name,
+                r.snippet,
             ));
         } else {
             out.push_str(&format!(

@@ -106,6 +106,7 @@ pub fn handle(
     // Deterministic search: stable file ordering makes max_results truncation reproducible.
     files.sort_unstable_by(|a, b| a.as_os_str().cmp(b.as_os_str()));
 
+    let root_str = root.to_string_lossy();
     for path in &files {
         if matches.len() >= max_results {
             break;
@@ -120,7 +121,8 @@ pub fn handle(
 
         for (i, line) in content.lines().enumerate() {
             if re.is_match(line) {
-                let short_path = protocol::shorten_path(&path.to_string_lossy());
+                let short_path =
+                    protocol::shorten_path_relative(&path.to_string_lossy(), &root_str);
                 // Count raw tokens incrementally (avoids separate Vec + join)
                 raw_tokens_accum += count_tokens(line.trim()) + 2;
                 let shown = if redact {

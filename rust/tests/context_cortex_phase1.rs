@@ -782,7 +782,7 @@ fn providers_config_defaults_are_enabled() {
     assert!(cfg.enabled);
     assert!(cfg.github.enabled);
     assert!(cfg.gitlab.enabled);
-    assert!(!cfg.auto_index);
+    assert!(cfg.auto_index);
     assert_eq!(cfg.cache_ttl_secs, 120);
 }
 

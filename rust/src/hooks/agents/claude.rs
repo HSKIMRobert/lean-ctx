@@ -420,7 +420,12 @@ pub(crate) fn install_claude_hook_config(home: &std::path::Path) {
                     .entry("PreToolUse".to_string())
                     .or_insert_with(|| serde_json::json!([]));
                 if let Some(pre_arr) = pre.as_array_mut() {
-                    ensure_command_hook(pre_arr, "Bash|bash", &rewrite_cmd);
+                    let bash_matcher = if cfg!(windows) {
+                        "Bash|bash|PowerShell|powershell"
+                    } else {
+                        "Bash|bash"
+                    };
+                    ensure_command_hook(pre_arr, bash_matcher, &rewrite_cmd);
                     ensure_command_hook(
                         pre_arr,
                         "Read|read|ReadFile|read_file|View|view|Grep|grep|Search|search|ListFiles|list_files|ListDirectory|list_directory",

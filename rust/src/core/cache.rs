@@ -586,8 +586,7 @@ pub fn file_mtime(path: &str) -> Option<SystemTime> {
 pub fn is_cache_entry_stale(path: &str, cached_mtime: Option<SystemTime>) -> bool {
     let current = file_mtime(path);
     match (cached_mtime, current) {
-        (_, None) => false,
-        (None, Some(_)) => true,
+        (_, None) | (None, Some(_)) => true,
         (Some(cached), Some(current)) => current > cached,
     }
 }

@@ -31,9 +31,9 @@ async fn bounded_read_returns_none_when_write_held() {
         "should return None when write lock is held"
     );
     let elapsed = start.elapsed();
-    // Should timeout reasonably fast (adaptive_timeout may reduce from 10s)
+    // adaptive_timeout may increase base 10s up to 2x in degraded mode
     assert!(
-        elapsed < Duration::from_secs(15),
+        elapsed < Duration::from_secs(25),
         "should not hang indefinitely, elapsed: {elapsed:?}"
     );
 }
@@ -58,8 +58,9 @@ async fn bounded_write_returns_none_when_read_held() {
         "should return None when read lock is held"
     );
     let elapsed = start.elapsed();
+    // adaptive_timeout may increase base 10s up to 2x in degraded mode
     assert!(
-        elapsed < Duration::from_secs(15),
+        elapsed < Duration::from_secs(25),
         "should not hang, elapsed: {elapsed:?}"
     );
 }
@@ -118,10 +119,10 @@ fn freeze_counter_escalates_to_degraded() {
 
     let base = Duration::from_secs(10);
     let adapted = io_health::adaptive_timeout(base);
-    // In degraded mode, timeout should be significantly reduced
+    // In degraded mode, timeout should be LONGER to avoid a death spiral
     assert!(
-        adapted < base,
-        "adapted ({adapted:?}) should be less than base ({base:?})"
+        adapted > base,
+        "adapted ({adapted:?}) should be greater than base ({base:?}) in degraded mode"
     );
 }
 

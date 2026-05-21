@@ -56,7 +56,7 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
                     },
                     "start_line": {
                         "type": "integer",
-                        "description": "Read from this line number to end of file. Implies fresh=true (disk re-read) to avoid stale snippets."
+                        "description": "Start reading from this line (only used when no explicit mode is set, or with mode=lines). Does NOT override explicit modes like map/signatures."
                     },
                     "fresh": {
                         "type": "boolean",
@@ -97,29 +97,41 @@ impl CtxReadTool {
             .ok_or_else(|| ErrorData::internal_error("cache not available", None))?;
 
         let current_task = {
-            let Ok(session) = tokio::task::block_in_place(|| {
-                let rt = tokio::runtime::Handle::current();
-                rt.block_on(tokio::time::timeout(
-                    std::time::Duration::from_secs(5),
-                    session_lock.read(),
-                ))
-            }) else {
-                tracing::warn!("session read-lock timeout (5s) in ctx_read for {path}");
-                return Err(ErrorData::internal_error(
-                    "session lock timeout — another tool may be holding it. Retry in a moment.",
-                    None,
-                ));
-            };
-            session.task.as_ref().map(|t| t.description.clone())
+            let mut attempt = 0u32;
+            loop {
+                if let Ok(session) = tokio::task::block_in_place(|| {
+                    let rt = tokio::runtime::Handle::current();
+                    rt.block_on(tokio::time::timeout(
+                        std::time::Duration::from_secs(5),
+                        session_lock.read(),
+                    ))
+                }) {
+                    break session.task.as_ref().map(|t| t.description.clone());
+                }
+                attempt += 1;
+                if attempt >= 3 {
+                    tracing::warn!(
+                        "session read-lock timeout after {attempt} attempts in ctx_read for {path}"
+                    );
+                    return Err(ErrorData::internal_error(
+                        "session lock timeout — another tool may be holding it. Retry in a moment.",
+                        None,
+                    ));
+                }
+                tracing::debug!(
+                    "session read-lock attempt {attempt}/3 timed out for {path}, retrying"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(100 * u64::from(attempt)));
+            }
         };
         let task_ref = current_task.as_deref();
 
         let profile = crate::core::profiles::active_profile();
-        let mut mode = if let Some(m) = get_str(args, "mode") {
+        let explicit_mode_arg = get_str(args, "mode");
+        let explicit_mode = explicit_mode_arg.is_some();
+        let mut mode = if let Some(m) = explicit_mode_arg {
             m
         } else if profile.read.default_mode_effective() == "auto" {
-            // Non-blocking: if the cache write-lock is held by a timed-out zombie
-            // thread, blocking_read() would hang with NO timeout protection.
             if let Ok(cache) = cache_lock.try_read() {
                 crate::tools::ctx_smart_read::select_mode_with_task(&cache, path, task_ref)
             } else {
@@ -132,7 +144,6 @@ impl CtxReadTool {
         } else {
             profile.read.default_mode_effective().to_string()
         };
-
         let mut fresh = get_bool(args, "fresh").unwrap_or(false);
         let cache_policy = crate::server::compaction_sync::effective_cache_policy();
         if cache_policy == "off" {
@@ -141,12 +152,15 @@ impl CtxReadTool {
         let start_line = get_int(args, "start_line");
         if let Some(sl) = start_line {
             let sl = sl.max(1_i64);
-            // start_line=1 with no explicit lines mode is a no-op: it just means
-            // "read from the beginning" which is already the default behavior.
-            // Some clients always send start_line=1; don't override their mode for that.
             if sl > 1 {
-                mode = format!("lines:{sl}-999999");
                 fresh = true;
+                // Only override mode when no explicit mode was requested,
+                // or when the explicit mode is already a lines range.
+                // If the caller explicitly set mode=map/signatures/etc.,
+                // start_line must not clobber it (GitHub #259).
+                if !explicit_mode || mode.starts_with("lines") {
+                    mode = format!("lines:{sl}-999999");
+                }
             }
         }
 
@@ -280,6 +294,10 @@ impl CtxReadTool {
                                 tracing::error!(
                                     "ctx_read: per-file lock timeout after 25s for {path_owned}"
                                 );
+                                let _ = tx.send((
+                                    format!("per-file lock contention for {path_owned} — retry in a moment"),
+                                    "error".to_string(), 0, false, None, (0, 0),
+                                ));
                                 return;
                             }
                             std::thread::sleep(std::time::Duration::from_millis(50));
@@ -306,6 +324,10 @@ impl CtxReadTool {
                                 tracing::error!(
                                     "ctx_read: cache write-lock timeout after 25s for {path_owned}"
                                 );
+                                let _ = tx.send((
+                                    format!("cache lock contention for {path_owned} — retry in a moment"),
+                                    "error".to_string(), 0, false, None, (0, 0),
+                                ));
                                 return;
                             }
                             std::thread::sleep(std::time::Duration::from_millis(50));
@@ -363,14 +385,14 @@ impl CtxReadTool {
         let output_tokens = crate::core::tokens::count_tokens(&output);
         let saved = original.saturating_sub(output_tokens);
 
-        // Session updates (bounded lock — 5s timeout prevents deadlock on Windows)
+        // Session updates (bounded lock — 10s timeout, read already succeeded)
         let mut ensured_root: Option<String> = None;
         let project_root_snapshot;
         {
             let session_guard = tokio::task::block_in_place(|| {
                 let rt = tokio::runtime::Handle::current();
                 rt.block_on(tokio::time::timeout(
-                    std::time::Duration::from_secs(5),
+                    std::time::Duration::from_secs(10),
                     session_lock.write(),
                 ))
             });
@@ -646,61 +668,94 @@ mod tests {
         );
     }
 
-    // -- Regression: GitHub Issue #253 --
+    // -- Regression: GitHub Issue #253 + #259 --
+    // Helper that mirrors the runtime start_line logic.
+    fn apply_start_line(
+        mode: &mut String,
+        fresh: &mut bool,
+        explicit_mode: bool,
+        start_line: Option<i64>,
+    ) {
+        if let Some(sl) = start_line {
+            let sl = sl.max(1_i64);
+            if sl <= 1 {
+                return;
+            }
+            *fresh = true;
+            if !explicit_mode || mode.starts_with("lines") {
+                *mode = format!("lines:{sl}-999999");
+            }
+        }
+    }
 
     #[test]
     fn start_line_1_does_not_override_mode() {
-        // start_line=1 should be a no-op: it doesn't change behavior since files
-        // already start at line 1. Clients like opencode always send start_line=1.
         let mut mode = "auto".to_string();
         let mut fresh = false;
-        let start_line: Option<i64> = Some(1);
-
-        if let Some(sl) = start_line {
-            let sl = sl.max(1_i64);
-            if sl > 1 {
-                mode = format!("lines:{sl}-999999");
-                fresh = true;
-            }
-        }
-
+        apply_start_line(&mut mode, &mut fresh, false, Some(1));
         assert_eq!(mode, "auto", "start_line=1 should not change mode");
         assert!(!fresh, "start_line=1 should not force fresh=true");
     }
 
     #[test]
-    fn start_line_greater_than_1_overrides_mode() {
+    fn start_line_gt1_overrides_implicit_mode() {
         let mut mode = "auto".to_string();
         let mut fresh = false;
-        let start_line: Option<i64> = Some(50);
-
-        if let Some(sl) = start_line {
-            let sl = sl.max(1_i64);
-            if sl > 1 {
-                mode = format!("lines:{sl}-999999");
-                fresh = true;
-            }
-        }
-
+        apply_start_line(&mut mode, &mut fresh, false, Some(50));
         assert_eq!(mode, "lines:50-999999");
-        assert!(fresh, "start_line>1 should force fresh=true");
+        assert!(fresh);
+    }
+
+    #[test]
+    fn start_line_gt1_does_not_override_explicit_map() {
+        // GitHub #259: mode=map + start_line=50 → mode stays map
+        let mut mode = "map".to_string();
+        let mut fresh = false;
+        apply_start_line(&mut mode, &mut fresh, true, Some(50));
+        assert_eq!(
+            mode, "map",
+            "explicit mode=map must not be clobbered by start_line"
+        );
+        assert!(fresh, "start_line>1 should still force fresh");
+    }
+
+    #[test]
+    fn start_line_gt1_does_not_override_explicit_signatures() {
+        let mut mode = "signatures".to_string();
+        let mut fresh = false;
+        apply_start_line(&mut mode, &mut fresh, true, Some(100));
+        assert_eq!(mode, "signatures");
+        assert!(fresh);
+    }
+
+    #[test]
+    fn start_line_gt1_honors_explicit_lines_mode() {
+        let mut mode = "lines:1-50".to_string();
+        let mut fresh = false;
+        apply_start_line(&mut mode, &mut fresh, true, Some(30));
+        assert_eq!(
+            mode, "lines:30-999999",
+            "explicit lines mode should accept start_line override"
+        );
+        assert!(fresh);
     }
 
     #[test]
     fn start_line_none_does_nothing() {
         let mut mode = "map".to_string();
         let mut fresh = false;
-        let start_line: Option<i64> = None;
+        apply_start_line(&mut mode, &mut fresh, true, None);
+        assert_eq!(mode, "map");
+        assert!(!fresh);
+    }
 
-        if let Some(sl) = start_line {
-            let sl = sl.max(1_i64);
-            if sl > 1 {
-                mode = format!("lines:{sl}-999999");
-                fresh = true;
-            }
-        }
-
-        assert_eq!(mode, "map", "absent start_line should preserve mode");
+    #[test]
+    fn start_line_1_with_explicit_mode_preserves_it() {
+        // OpenCode sends start_line=1 + mode=map — both should be preserved
+        let mut mode = "map".to_string();
+        let mut fresh = false;
+        apply_start_line(&mut mode, &mut fresh, true, Some(1));
+        assert_eq!(mode, "map");
         assert!(!fresh);
     }
 }

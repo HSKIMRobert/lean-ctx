@@ -498,7 +498,11 @@ fn knowledge_doc_for_file(
 
 fn truncate_doc(doc: &str) -> String {
     if doc.len() > 80 {
-        format!("{}...", &doc[..77])
+        let mut end = 77;
+        while end > 0 && !doc.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}...", &doc[..end])
     } else {
         doc.to_string()
     }

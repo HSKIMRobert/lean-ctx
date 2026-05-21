@@ -593,7 +593,12 @@ fn rehydrate_from_archives(
 
     let mut cands: Vec<Cand> = Vec::new();
 
+    let rehydrate_deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     for p in &archives {
+        if std::time::Instant::now() >= rehydrate_deadline {
+            tracing::warn!("ctx_knowledge: rehydrate time budget (10s) exceeded, stopping early");
+            break;
+        }
         let p_str = p.to_string_lossy().to_string();
         let Ok(facts) = crate::core::memory_lifecycle::restore_archive(&p_str) else {
             continue;

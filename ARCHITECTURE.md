@@ -171,10 +171,16 @@ flowchart TB
         LLMFeedback["LLM Feedback — compression quality signals"]
     end
 
-    subgraph providers [External Providers]
-        ProviderFramework["Provider Framework — ctx_provider tool"]
-        GitLabProvider["GitLab Provider — issues, MRs, pipelines via API"]
+    subgraph providers [External Providers — Context Cortex]
+        ProviderFramework["Provider Framework — ctx_provider tool, ProviderRegistry"]
+        GitHubProvider["GitHub Provider — issues, PRs, actions"]
+        GitLabProvider["GitLab Provider — issues, MRs, pipelines"]
+        JiraProvider["Jira Provider — issues, sprints, projects"]
+        PostgresProvider["PostgreSQL Provider — tables, schema, queries"]
+        McpBridgeProvider["MCP Bridge Provider — mcp:name, HTTP+stdio"]
+        ConfigProvider["Config Provider — custom REST via TOML/JSON"]
         ProviderCache["Provider Cache — TTL-based result caching"]
+        Consolidation["Consolidation Pipeline — chunks→BM25+Graph+Knowledge+Cache"]
     end
 
     subgraph infra [Infrastructure]
@@ -292,8 +298,19 @@ flowchart TB
     PathJail --> IOBoundary
 
     ToolRegistry --> ProviderFramework
+    ProviderFramework --> GitHubProvider
     ProviderFramework --> GitLabProvider
+    ProviderFramework --> JiraProvider
+    ProviderFramework --> PostgresProvider
+    ProviderFramework --> McpBridgeProvider
+    ProviderFramework --> ConfigProvider
+    GitHubProvider --> ProviderCache
     GitLabProvider --> ProviderCache
+    ProviderCache --> Consolidation
+    Consolidation --> BM25Index
+    Consolidation --> GraphIndex
+    Consolidation --> KnowledgeStore
+    Consolidation --> Session
     ProviderFramework --> ContextIR
 
     BoundaryPolicy --> KnowledgeStore
@@ -579,7 +596,7 @@ flowchart LR
 |:---|:---|
 | `server/mod.rs` | `LeanCtxServer` — MCP server state, `call_tool` pipeline (dispatch + post-processing + Context IR recording) |
 | `server/tool_trait.rs` | `McpTool` trait, `ToolOutput`, `ToolContext` — interface for self-contained tools |
-| `server/registry.rs` | `ToolRegistry` — HashMap-based tool lookup, `build_registry()` registers 61 trait-based tools |
+| `server/registry.rs` | `ToolRegistry` — HashMap-based tool lookup, `build_registry()` registers 62 trait-based tools |
 | `server/dispatch/mod.rs` | Hybrid dispatch — `dispatch_inner` checks ToolRegistry first (62 tools), falls back to legacy match (6 tools) |
 | `server/context_gate.rs` | Context Gate — post-dispatch for ctx_read: ledger recording, eviction/elicitation hints, pressure tracking |
 | `server/resources.rs` | MCP Resources — 5 URI-addressable subscribe-capable resources (`lean-ctx://context/*`) |
@@ -657,7 +674,12 @@ flowchart LR
 | `core/integrity.rs` | Contract compliance verification |
 | `core/memory_boundary.rs` | Cross-project boundary policy, audit events |
 | `core/io_boundary.rs` | I/O boundary — secret-path checks, role-aware access |
-| `core/providers/` | External provider framework (GitLab API, caching) |
+| `core/providers/` | External provider framework (GitHub, GitLab, Jira, Postgres, MCP bridges, config-based REST) |
+| `core/consolidation.rs` | Provider consolidation: chunks → BM25 + Graph edges + Knowledge facts + Cache |
+| `core/cross_source_edges.rs` | Cross-source edge generation (issue → code file links) |
+| `core/cross_source_hints.rs` | Cross-source hints for `ctx_read` (related issues/PRs) |
+| `core/knowledge_provider_extract.rs` | Knowledge fact extraction from provider data |
+| `core/content_chunk.rs` | ContentChunk abstraction for external data |
 
 ### Policy and Governance
 
@@ -803,7 +825,7 @@ flowchart LR
 | `hooks/agents/` | Per-agent installers (20 agents: cursor, claude, codex, copilot, gemini, jetbrains, windsurf, cline, amp, kiro, opencode, crush, hermes, pi, ...) |
 | `rules_inject.rs` | Rule file injection into project/home directories |
 | `setup.rs` | SKILL installation, smart hook mode, all-agent coverage |
-| `doctor.rs` | 15-point diagnostics incl. SKILL check |
+| `doctor.rs` | Diagnostics incl. SKILL check, provider env vars, MCP bridge status |
 | `engine/` | `ContextEngine` — programmatic API for tool calls |
 | `instructions.rs` | MCP instruction builder |
 
@@ -820,7 +842,7 @@ flowchart LR
 | `tui/` | Terminal UI components |
 | `report.rs` | Export and reporting |
 
-## MCP Tools (56 granular + 5 unified)
+## MCP Tools (57 granular + 5 unified)
 
 ### Core Tools (loaded by default)
 
@@ -1163,6 +1185,6 @@ flowchart TB
 cd rust
 cargo build --release              # Full build with tree-sitter (~17 MB)
 cargo build --release --no-default-features  # Without tree-sitter (~5.7 MB)
-cargo test --all-features           # Run all ~1,500+ tests
+cargo test --all-features           # Run all ~2900+ tests
 cargo clippy --all-targets -- -D warnings
 ```

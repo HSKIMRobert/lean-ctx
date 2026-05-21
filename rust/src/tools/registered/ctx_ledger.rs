@@ -103,8 +103,23 @@ impl McpTool for CtxLedgerTool {
                 let prev_tokens = ledger.total_tokens_sent;
                 ledger.reset();
                 ledger.save();
+                let flags_cleared = if let Some(cache_lock) = ctx.cache.as_ref() {
+                    if let Ok(mut cache) = cache_lock.try_write() {
+                        cache.reset_delivery_flags();
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
+                let flag_note = if flags_cleared {
+                    " Cache delivery flags cleared."
+                } else {
+                    " Cache delivery flags: skipped (busy, use ctx_cache clear if stale)."
+                };
                 format!(
-                    "Ledger reset. Removed {prev_entries} entries, freed {prev_tokens} tracked tokens. Pressure: 0%."
+                    "Ledger reset. Removed {prev_entries} entries, freed {prev_tokens} tracked tokens.{flag_note} Pressure: 0%."
                 )
             }
 

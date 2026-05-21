@@ -18,7 +18,7 @@ pub fn granular_tool_defs() -> Vec<Tool> {
                     },
                     "start_line": {
                         "type": "integer",
-                        "description": "Read from this line number to end of file. Implies fresh=true (disk re-read) to avoid stale snippets."
+                        "description": "Start reading from this line (only used when no explicit mode is set, or with mode=lines). Does NOT override explicit modes like map/signatures."
                     },
                     "fresh": {
                         "type": "boolean",

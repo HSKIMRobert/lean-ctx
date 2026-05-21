@@ -7,7 +7,7 @@
 //! Scientific basis: Lateral connections in V1 cortex (Stettler et al., 2002)
 //! enable feature integration across cortical columns.
 
-use crate::core::graph_index::{IndexEdge, ProjectIndex};
+use crate::core::graph_index::IndexEdge;
 
 /// A hint about related data from another source.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -51,11 +51,6 @@ pub fn hints_for_file(file_path: &str, edges: &[IndexEdge]) -> Vec<CrossSourceHi
     hints.dedup_by(|a, b| a.source_uri == b.source_uri);
     hints.truncate(5);
     hints
-}
-
-/// Find cross-source hints using the full ProjectIndex.
-pub fn hints_from_index(file_path: &str, index: &ProjectIndex) -> Vec<CrossSourceHint> {
-    hints_for_file(file_path, &index.edges)
 }
 
 /// Format hints as a compact string for appending to ctx_read output.

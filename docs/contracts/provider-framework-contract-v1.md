@@ -6,13 +6,45 @@
 
 ## Purpose
 
-Provides structured access to external context sources (GitLab issues, MRs, pipelines) through the MCP tool interface, with caching, redaction, and Context IR tracking.
+Provides structured access to external context sources through the MCP tool interface.
+All provider data is a **first-class citizen**: it flows through the full consolidation pipeline
+into BM25 index, Graph index, Knowledge facts, and Session cache.
 
 ## Architecture
 
-Two-tiered approach:
-1. **MCP Provider Tool** (`ctx_provider`): REST API client for GitLab v4
-2. **Shell Compression** (`glab.rs`): Pattern-based compression for `glab` CLI output
+```
+ContextProvider::execute()
+    → ProviderResult
+    → consolidation::consolidate()
+    → ConsolidationArtifacts { bm25_chunks, edges, facts, cache_entries }
+    → apply_artifacts_to_stores() [background thread]
+        → BM25Index::ingest()       — searchable via ctx_semantic_search
+        → GraphIndex::merge_edges() — cross-source hints in ctx_read
+        → Knowledge::remember()     — recallable via ctx_knowledge
+        → SessionCache::set()       — fast re-reads
+```
+
+### Built-in Providers
+
+| Provider | Auto-activates when | Resources |
+|---|---|---|
+| GitHub | `GITHUB_TOKEN` set | issues, pull_requests, actions |
+| GitLab | `GITLAB_TOKEN` set | issues, merge_requests, pipelines |
+| Jira | `JIRA_TOKEN` set | issues, sprints, projects |
+| PostgreSQL | `DATABASE_URL` set | tables, schemas, queries |
+
+### Config-based Providers
+
+Custom REST APIs via TOML/JSON in `~/.config/lean-ctx/providers/` or `.lean-ctx/providers/`.
+Supports 6 auth methods (bearer, API key, basic, header, query param, none).
+
+### MCP Bridge Providers
+
+External MCP servers connected via `[providers.mcp_bridges.<name>]` config.
+Each bridge registers with unique ID `mcp:<name>`. Supports:
+- HTTP transport (`url = "http://..."`)
+- Stdio transport (`command = "npx"`, `args = ["-y", "@mcp/server"]`)
+- Actions: `resources` (list), `read_resource` (fetch single), `tools` (list)
 
 ## ctx_provider Actions
 
@@ -22,6 +54,7 @@ Two-tiered approach:
 | `gitlab_issue` | iid | Show single issue with description |
 | `gitlab_mrs` | state, limit | List merge requests |
 | `gitlab_pipelines` | status, limit | List pipelines |
+| `mcp_resources` | — | List all resources from configured MCP bridges |
 
 ## Configuration
 
@@ -63,30 +96,37 @@ struct ProviderItem {
 }
 ```
 
-## Caching
+## Caching & Indexing
 
-- TTL-based in-memory cache (120 seconds default)
-- Cache key includes: provider, resource type, project, filters
-- Cache entries auto-expire
+- **Session cache**: TTL-based in-memory cache (120 seconds default). Cache key includes provider, resource type, project, filters
+- **BM25 index**: External chunks indexed with `ChunkKind` metadata (Issue, PullRequest, DbSchema, etc.)
+- **Graph index**: Cross-source edges link external URIs to code files (e.g. issue → `src/auth.rs`)
+- **Knowledge facts**: Extracted categories: `known_bugs`, `known_features`, `recent_changes`, `data_model`, `documentation`, `file_mentions`
+- **`providers.auto_index`**: Controls background indexing (default: `true`)
 
 ## Security
 
 - All provider outputs pass through `redact_text_if_enabled`
 - CI job logs pass through secret scanner before delivery
 - Tokens never appear in tool output
+- MCP bridges: optional `auth_env` field for token injection from env vars
 
-## Shell Compression (`glab` CLI)
+## Shell Compression (`glab` / `gh` CLI)
 
-Patterns for `glab` CLI output:
-- `glab issue list` / `glab issue view`
-- `glab mr list` / `glab mr view`
-- `glab ci status` / `glab ci list` / `glab ci view`
-
-Compression follows the same structure as `gh.rs` patterns.
+Patterns for CLI output:
+- `glab`/`gh` issue list/view, MR/PR list/view, CI/actions status
+- Compression follows pattern-based structure
 
 ## Context IR Integration
 
 Provider outputs are tracked as `ContextIrSourceKindV1::Provider` in the evidence ledger, enabling:
-- Provenance tracking (which GitLab data informed a decision)
+- Provenance tracking (which provider data informed a decision)
 - Replay verification
 - Token attribution
+
+## Diagnostics
+
+`lean-ctx doctor` validates:
+- Provider env vars (GITHUB_TOKEN, GITLAB_TOKEN, etc.)
+- MCP bridge URLs (reachable, configured)
+- `auto_index` status (warns if `false`)

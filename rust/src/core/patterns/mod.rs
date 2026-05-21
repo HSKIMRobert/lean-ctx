@@ -76,38 +76,42 @@ pub fn compress_output(command: &str, output: &str) -> Option<String> {
         return None;
     }
 
-    let cleaned = crate::core::compressor::strip_ansi(output);
-    let output = if cleaned.len() < output.len() {
-        &cleaned
-    } else {
-        output
+    let stripped;
+    let clean_output = {
+        let s = crate::core::compressor::strip_ansi(output);
+        if s.len() < output.len() {
+            stripped = s;
+            &stripped
+        } else {
+            output
+        }
     };
 
     if let Some(engine) = crate::core::filters::FilterEngine::load() {
-        if let Some(filtered) = engine.apply(command, output) {
+        if let Some(filtered) = engine.apply(command, clean_output) {
             return shorter_only(filtered, output);
         }
     }
 
-    if let Some(compressed) = try_specific_pattern(command, output) {
+    if let Some(compressed) = try_specific_pattern(command, clean_output) {
         if let Some(r) = shorter_only(compressed, output) {
             return Some(r);
         }
     }
 
-    if let Some(r) = json_schema::compress(output) {
+    if let Some(r) = json_schema::compress(clean_output) {
         if let Some(r) = shorter_only(r, output) {
             return Some(r);
         }
     }
 
-    if let Some(r) = log_dedup::compress(output) {
+    if let Some(r) = log_dedup::compress(clean_output) {
         if let Some(r) = shorter_only(r, output) {
             return Some(r);
         }
     }
 
-    if let Some(r) = test::compress(output) {
+    if let Some(r) = test::compress(clean_output) {
         if let Some(r) = shorter_only(r, output) {
             return Some(r);
         }

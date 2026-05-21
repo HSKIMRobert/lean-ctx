@@ -24,21 +24,21 @@ pub fn split_compound(input: &str) -> Vec<Segment> {
         return vec![Segment::Command(input.to_string())];
     }
 
-    let bytes = input.as_bytes();
+    let chars: Vec<char> = input.chars().collect();
     let mut segments: Vec<Segment> = Vec::new();
     let mut current = String::new();
     let mut i = 0;
-    let len = bytes.len();
+    let len = chars.len();
 
     while i < len {
-        let ch = bytes[i] as char;
+        let ch = chars[i];
 
         match ch {
             '\'' => {
                 current.push(ch);
                 i += 1;
-                while i < len && bytes[i] != b'\'' {
-                    current.push(bytes[i] as char);
+                while i < len && chars[i] != '\'' {
+                    current.push(chars[i]);
                     i += 1;
                 }
                 if i < len {
@@ -49,14 +49,14 @@ pub fn split_compound(input: &str) -> Vec<Segment> {
             '"' => {
                 current.push(ch);
                 i += 1;
-                while i < len && bytes[i] != b'"' {
-                    if bytes[i] == b'\\' && i + 1 < len {
+                while i < len && chars[i] != '"' {
+                    if chars[i] == '\\' && i + 1 < len {
                         current.push('\\');
-                        current.push(bytes[i + 1] as char);
+                        current.push(chars[i + 1]);
                         i += 2;
                         continue;
                     }
-                    current.push(bytes[i] as char);
+                    current.push(chars[i]);
                     i += 1;
                 }
                 if i < len {
@@ -67,8 +67,8 @@ pub fn split_compound(input: &str) -> Vec<Segment> {
             '`' => {
                 current.push(ch);
                 i += 1;
-                while i < len && bytes[i] != b'`' {
-                    current.push(bytes[i] as char);
+                while i < len && chars[i] != '`' {
+                    current.push(chars[i]);
                     i += 1;
                 }
                 if i < len {
@@ -76,45 +76,44 @@ pub fn split_compound(input: &str) -> Vec<Segment> {
                     i += 1;
                 }
             }
-            '$' if i + 1 < len && bytes[i + 1] == b'(' => {
-                let start = i;
+            '$' if i + 1 < len && chars[i + 1] == '(' => {
+                current.push('$');
+                current.push('(');
                 i += 2;
                 let mut depth = 1;
                 while i < len && depth > 0 {
-                    if bytes[i] == b'(' {
+                    if chars[i] == '(' {
                         depth += 1;
-                    } else if bytes[i] == b')' {
+                    } else if chars[i] == ')' {
                         depth -= 1;
                     }
+                    current.push(chars[i]);
                     i += 1;
                 }
-                current.push_str(&input[start..i]);
             }
             '\\' if i + 1 < len => {
                 current.push('\\');
-                current.push(bytes[i + 1] as char);
+                current.push(chars[i + 1]);
                 i += 2;
             }
-            '&' if i + 1 < len && bytes[i + 1] == b'&' => {
+            '&' if i + 1 < len && chars[i + 1] == '&' => {
                 push_command(&mut segments, &current);
                 current.clear();
                 segments.push(Segment::Operator("&&".to_string()));
                 i += 2;
             }
-            '|' if i + 1 < len && bytes[i + 1] == b'|' => {
+            '|' if i + 1 < len && chars[i + 1] == '|' => {
                 push_command(&mut segments, &current);
                 current.clear();
                 segments.push(Segment::Operator("||".to_string()));
                 i += 2;
             }
             '|' => {
-                // Pipe: left side is a command, right side is NOT rewritten.
-                // We emit the left command, the pipe operator, and the entire
-                // rest of the input as a single opaque command segment.
                 push_command(&mut segments, &current);
                 current.clear();
                 segments.push(Segment::Operator("|".to_string()));
-                let rest = input[i + 1..].trim().to_string();
+                let rest: String = chars[i + 1..].iter().collect::<String>();
+                let rest = rest.trim().to_string();
                 if !rest.is_empty() {
                     segments.push(Segment::Command(rest));
                 }

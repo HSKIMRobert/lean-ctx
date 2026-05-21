@@ -57,7 +57,17 @@ impl McpTool for CtxSmartReadTool {
                 .cache
                 .as_ref()
                 .ok_or_else(|| ErrorData::internal_error("cache not available", None))?;
-            let mut cache = cache_lock.blocking_write();
+            let timeout_dur =
+                crate::core::io_health::adaptive_timeout(std::time::Duration::from_secs(10));
+            let Ok(mut cache) = tokio::runtime::Handle::current()
+                .block_on(tokio::time::timeout(timeout_dur, cache_lock.write()))
+            else {
+                crate::core::io_health::record_freeze();
+                return Err(ErrorData::internal_error(
+                    "cache busy (ctx_smart_read) — retry in a moment",
+                    None,
+                ));
+            };
             let output = crate::tools::ctx_smart_read::handle(&mut cache, &path, ctx.crp_mode);
             let original = cache.get(&path).map_or(0, |e| e.original_tokens);
             let tokens = crate::core::tokens::count_tokens(&output);

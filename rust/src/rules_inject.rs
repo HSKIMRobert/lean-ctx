@@ -353,7 +353,7 @@ fn append_to_shared(path: &std::path::Path) -> Result<RulesResult, String> {
     content.push_str(RULES_SHARED);
     content.push('\n');
 
-    std::fs::write(path, content).map_err(|e| e.to_string())?;
+    crate::config_io::write_atomic_with_backup(path, &content)?;
     Ok(RulesResult::Injected)
 }
 
@@ -384,7 +384,7 @@ fn replace_markdown_section(path: &std::path::Path, content: &str) -> Result<Rul
         _ => return Ok(RulesResult::AlreadyPresent),
     };
 
-    std::fs::write(path, new_content).map_err(|e| e.to_string())?;
+    crate::config_io::write_atomic_with_backup(path, &new_content)?;
     Ok(RulesResult::Updated)
 }
 
@@ -394,7 +394,7 @@ fn write_dedicated(path: &std::path::Path, content: &'static str) -> Result<Rule
         existing.contains(MARKER)
     };
 
-    std::fs::write(path, content).map_err(|e| e.to_string())?;
+    crate::config_io::write_atomic_with_backup(path, content)?;
 
     if is_update {
         Ok(RulesResult::Updated)
@@ -682,7 +682,7 @@ fn build_skill_targets(home: &std::path::Path) -> Vec<SkillTarget> {
         SkillTarget {
             agent_key: "claude",
             display_name: "Claude Code",
-            skill_dir: home.join(".claude/skills/lean-ctx"),
+            skill_dir: crate::setup::claude_config_dir(home).join("skills/lean-ctx"),
         },
         SkillTarget {
             agent_key: "cursor",
@@ -744,7 +744,7 @@ pub fn install_skill_for_agent(home: &std::path::Path, agent_key: &str) -> Resul
         }
     }
 
-    std::fs::write(&skill_path, SKILL_TEMPLATE).map_err(|e| e.to_string())?;
+    crate::config_io::write_atomic_with_backup(&skill_path, SKILL_TEMPLATE)?;
     Ok(skill_path)
 }
 
@@ -776,7 +776,7 @@ pub fn install_all_skills(home: &std::path::Path) -> Vec<(String, bool)> {
             continue;
         }
 
-        match std::fs::write(&skill_path, SKILL_TEMPLATE) {
+        match crate::config_io::write_atomic_with_backup(&skill_path, SKILL_TEMPLATE) {
             Ok(()) => results.push((target.display_name.to_string(), true)),
             Err(e) => {
                 tracing::warn!("Failed to write SKILL.md for {}: {e}", target.display_name);

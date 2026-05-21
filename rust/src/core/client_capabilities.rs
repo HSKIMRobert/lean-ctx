@@ -27,8 +27,16 @@ impl Default for ClientMcpCapabilities {
 
 impl ClientMcpCapabilities {
     pub fn detect(client_name: &str) -> Self {
-        let lower = client_name.to_lowercase();
-        let id = identify_client(&lower);
+        let hint = std::env::var("LEAN_CTX_CLIENT_HINT").ok();
+        Self::detect_with_hint(client_name, hint.as_deref())
+    }
+
+    fn detect_with_hint(client_name: &str, hint: Option<&str>) -> Self {
+        let effective = match hint {
+            Some(h) if !h.trim().is_empty() => h.trim().to_lowercase(),
+            _ => client_name.to_lowercase(),
+        };
+        let id = identify_client(&effective);
 
         match id.as_str() {
             "cursor" | "kiro" => Self {
@@ -158,7 +166,11 @@ fn identify_client(lower: &str) -> String {
         "windsurf".to_string()
     } else if lower.contains("zed") {
         "zed".to_string()
-    } else if lower.contains("copilot") || lower.contains("github") {
+    } else if lower.contains("copilot")
+        || lower.contains("github")
+        || lower.contains("visual studio code")
+        || lower.contains("vscode")
+    {
         "vscode-copilot".to_string()
     } else if lower.contains("kiro") {
         "kiro".to_string()
@@ -285,6 +297,54 @@ mod tests {
         let caps = ClientMcpCapabilities::detect("random-editor");
         assert_eq!(caps.client_id, "unknown");
         assert_eq!(caps.tier(), 4);
+    }
+
+    #[test]
+    fn copilot_detection() {
+        let caps = ClientMcpCapabilities::detect("GitHub Copilot");
+        assert_eq!(caps.client_id, "vscode-copilot");
+        assert!(caps.resources);
+        assert!(caps.prompts);
+        assert!(caps.dynamic_tools);
+        assert_eq!(caps.tier(), 2);
+    }
+
+    #[test]
+    fn vscode_plain_detection() {
+        let caps = ClientMcpCapabilities::detect("Visual Studio Code");
+        assert_eq!(caps.client_id, "vscode-copilot");
+        assert_eq!(caps.tier(), 2);
+    }
+
+    #[test]
+    fn vscode_lowercase_detection() {
+        let caps = ClientMcpCapabilities::detect("vscode");
+        assert_eq!(caps.client_id, "vscode-copilot");
+        assert_eq!(caps.tier(), 2);
+    }
+
+    #[test]
+    fn client_hint_override() {
+        let caps = ClientMcpCapabilities::detect_with_hint(
+            "random-unknown-editor",
+            Some("vscode-copilot"),
+        );
+        assert_eq!(caps.client_id, "vscode-copilot");
+        assert_eq!(caps.tier(), 2);
+    }
+
+    #[test]
+    fn client_hint_empty_falls_back() {
+        let caps = ClientMcpCapabilities::detect_with_hint("Cursor", Some(""));
+        assert_eq!(caps.client_id, "cursor");
+        assert_eq!(caps.tier(), 1);
+    }
+
+    #[test]
+    fn client_hint_none_falls_back() {
+        let caps = ClientMcpCapabilities::detect_with_hint("Cursor", None);
+        assert_eq!(caps.client_id, "cursor");
+        assert_eq!(caps.tier(), 1);
     }
 
     #[test]

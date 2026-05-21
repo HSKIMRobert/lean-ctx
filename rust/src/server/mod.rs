@@ -624,7 +624,11 @@ impl ServerHandler for LeanCtxServer {
             let ir_command = helpers::get_str(args, "command");
             let ir_mode = helpers::get_str(args, "mode");
             let excerpt = if result_text.len() > 200 {
-                &result_text[..200]
+                let mut end = 200;
+                while !result_text.is_char_boundary(end) && end > 0 {
+                    end -= 1;
+                }
+                &result_text[..end]
             } else {
                 &result_text
             };
@@ -821,8 +825,17 @@ impl ServerHandler for LeanCtxServer {
 
         if name == "ctx_read" {
             if minimal {
-                let mut cache = self.cache.write().await;
-                crate::tools::autonomy::maybe_auto_dedup(&self.autonomy, &mut cache, name);
+                let cache_clone = self.cache.clone();
+                let autonomy_clone = self.autonomy.clone();
+                let name_owned = name.to_string();
+                tokio::spawn(async move {
+                    let mut cache = cache_clone.write().await;
+                    crate::tools::autonomy::maybe_auto_dedup(
+                        &autonomy_clone,
+                        &mut cache,
+                        &name_owned,
+                    );
+                });
             } else {
                 let read_path = self
                     .resolve_path_or_passthrough(
@@ -833,54 +846,76 @@ impl ServerHandler for LeanCtxServer {
                     let session = self.session.read().await;
                     session.project_root.clone()
                 };
-                let mut cache = self.cache.write().await;
-                let enrich = crate::tools::autonomy::enrich_after_read(
-                    &self.autonomy,
-                    &mut cache,
-                    &read_path,
-                    project_root.as_deref(),
-                    None,
-                    crate::tools::CrpMode::effective(),
-                    false,
-                );
-                if profile_hints.related_hint() {
-                    if let Some(hint) = enrich.related_hint {
-                        result_text = format!("{result_text}\n{hint}");
-                    }
-                }
-                crate::tools::autonomy::maybe_auto_dedup(&self.autonomy, &mut cache, name);
 
-                {
+                // Bounded cache lock for enrichment — degrade gracefully under contention
+                let enrich_timeout =
+                    tokio::time::timeout(std::time::Duration::from_secs(3), self.cache.write())
+                        .await;
+                if let Ok(mut cache) = enrich_timeout {
+                    let enrich = crate::tools::autonomy::enrich_after_read(
+                        &self.autonomy,
+                        &mut cache,
+                        &read_path,
+                        project_root.as_deref(),
+                        None,
+                        crate::tools::CrpMode::effective(),
+                        false,
+                    );
+                    if profile_hints.related_hint() {
+                        if let Some(hint) = enrich.related_hint {
+                            result_text = format!("{result_text}\n{hint}");
+                        }
+                    }
+                    crate::tools::autonomy::maybe_auto_dedup(&self.autonomy, &mut cache, name);
+                } else {
+                    tracing::warn!(
+                        "post-dispatch cache lock timeout (3s) for {read_path}, skipping enrichment"
+                    );
+                }
+
+                // Ledger update — fire-and-forget to avoid blocking concurrent reads
+                let ledger_clone = self.ledger.clone();
+                let session_clone = self.session.clone();
+                let peer_clone = self.peer.clone();
+                let read_path_owned = read_path.clone();
+                let project_root_owned = project_root.clone();
+                let mode_used =
+                    helpers::get_str(args, "mode").unwrap_or_else(|| "auto".to_string());
+                let out_tok = output_tokens as usize;
+                let sent_tok = crate::core::tokens::count_tokens(&result_text);
+                let wants_eviction = true;
+                let wants_elicitation = profile_hints.elicitation_hint();
+                tokio::spawn(async move {
                     let active_task = {
-                        let session = self.session.read().await;
+                        let session = session_clone.read().await;
                         session.task.as_ref().map(|t| t.description.clone())
                     };
-                    let mut ledger = self.ledger.write().await;
+                    let mut ledger = ledger_clone.write().await;
                     let overlay = crate::core::context_overlay::OverlayStore::load_project(
-                        &std::path::PathBuf::from(project_root.as_deref().unwrap_or(".")),
+                        &std::path::PathBuf::from(project_root_owned.as_deref().unwrap_or(".")),
                     );
-                    let mode_used =
-                        helpers::get_str(args, "mode").unwrap_or_else(|| "auto".to_string());
-                    let sent_tokens_final = crate::core::tokens::count_tokens(&result_text);
                     let gate_result = context_gate::post_dispatch_record_with_task(
-                        &read_path,
+                        &read_path_owned,
                         &mode_used,
-                        output_tokens as usize,
-                        sent_tokens_final,
+                        out_tok,
+                        sent_tok,
                         &mut ledger,
                         &overlay,
                         active_task.as_deref(),
                     );
-                    if let Some(hint) = gate_result.eviction_hint {
-                        result_text = format!("{result_text}\n{hint}");
+                    drop(ledger);
+                    if wants_eviction {
+                        if let Some(hint) = &gate_result.eviction_hint {
+                            tracing::debug!("deferred eviction hint: {hint}");
+                        }
                     }
-                    if profile_hints.elicitation_hint() {
-                        if let Some(hint) = gate_result.elicitation_hint {
-                            result_text = format!("{result_text}\n{hint}");
+                    if wants_elicitation {
+                        if let Some(hint) = &gate_result.elicitation_hint {
+                            tracing::debug!("deferred elicitation hint: {hint}");
                         }
                     }
                     if gate_result.resource_changed {
-                        if let Some(peer) = self.peer.read().await.as_ref() {
+                        if let Some(peer) = peer_clone.read().await.as_ref() {
                             notifications::send_resource_updated(
                                 peer,
                                 notifications::RESOURCE_URI_SUMMARY,
@@ -888,7 +923,7 @@ impl ServerHandler for LeanCtxServer {
                             .await;
                         }
                     }
-                }
+                });
             }
         }
 

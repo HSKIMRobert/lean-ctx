@@ -137,9 +137,11 @@ fn integration_generic(
             checks.push(check_codex_hooks_enabled(home));
             checks.push(check_codex_hooks_json(home));
         }
-        crate::core::editor_registry::types::ConfigType::VsCodeMcp
-        | crate::core::editor_registry::types::ConfigType::CopilotCli => {
+        crate::core::editor_registry::types::ConfigType::VsCodeMcp => {
             checks.push(check_vscode_mcp(&target.config_path, binary, data_dir));
+        }
+        crate::core::editor_registry::types::ConfigType::CopilotCli => {
+            checks.push(check_copilot_cli_mcp(&target.config_path, binary, data_dir));
         }
         crate::core::editor_registry::types::ConfigType::OpenCode => {
             checks.push(check_opencode_config(&target.config_path, binary, data_dir));
@@ -437,6 +439,53 @@ fn check_vscode_mcp(path: &std::path::Path, binary: &str, data_dir: &str) -> Nam
     let ok = ty_ok && cmd_ok && env_ok;
     NamedCheck {
         name: "VS Code MCP".to_string(),
+        ok,
+        detail: if ok {
+            format!("ok ({})", path.display())
+        } else {
+            format!("drift ({})", path.display())
+        },
+    }
+}
+
+fn check_copilot_cli_mcp(path: &std::path::Path, binary: &str, data_dir: &str) -> NamedCheck {
+    if !path.exists() {
+        return NamedCheck {
+            name: "Copilot CLI MCP".to_string(),
+            ok: false,
+            detail: format!("missing ({})", path.display()),
+        };
+    }
+    let content = std::fs::read_to_string(path).unwrap_or_default();
+    let parsed = crate::core::jsonc::parse_jsonc(&content).ok();
+    let Some(v) = parsed else {
+        return NamedCheck {
+            name: "Copilot CLI MCP".to_string(),
+            ok: false,
+            detail: format!("invalid JSON ({})", path.display()),
+        };
+    };
+    let Some(e) = v.get("mcpServers").and_then(|m| m.get("lean-ctx")) else {
+        return NamedCheck {
+            name: "Copilot CLI MCP".to_string(),
+            ok: false,
+            detail: format!("lean-ctx missing in mcpServers ({})", path.display()),
+        };
+    };
+
+    let cmd_ok = e
+        .get("command")
+        .and_then(|c| c.as_str())
+        .is_some_and(|c| cmd_matches_expected(c, binary));
+    let env_ok = e
+        .get("env")
+        .and_then(|env| env.get("LEAN_CTX_DATA_DIR"))
+        .and_then(|d| d.as_str())
+        .is_some_and(|d| d.trim() == data_dir.trim());
+
+    let ok = cmd_ok && env_ok;
+    NamedCheck {
+        name: "Copilot CLI MCP".to_string(),
         ok,
         detail: if ok {
             format!("ok ({})", path.display())

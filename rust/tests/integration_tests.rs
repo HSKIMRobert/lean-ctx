@@ -268,6 +268,75 @@ rm -f {tmp_path}
     );
 }
 
+// ── Extended CLI Smoke Tests ────────────────────────────────
+
+#[test]
+fn binary_gain_json_returns_valid_json() {
+    let output = lean_ctx_bin()
+        .args(["gain", "--json"])
+        .output()
+        .expect("failed to run lean-ctx gain --json");
+    assert!(output.status.success(), "gain --json should succeed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: Result<serde_json::Value, _> = serde_json::from_str(stdout.trim());
+    assert!(
+        parsed.is_ok(),
+        "gain --json should return valid JSON, got: {stdout}"
+    );
+}
+
+#[test]
+fn binary_grep_finds_matches() {
+    let output = lean_ctx_bin()
+        .args(["grep", "fn main", "src/"])
+        .output()
+        .expect("failed to run lean-ctx grep");
+    assert!(
+        output.status.success(),
+        "grep should succeed (exit={})",
+        output.status.code().unwrap_or(-1)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("main") || stdout.contains("fn"),
+        "grep should find matches: {stdout}"
+    );
+}
+
+#[test]
+fn binary_ls_shows_tree() {
+    let output = lean_ctx_bin()
+        .args(["ls", "--depth", "2"])
+        .output()
+        .expect("failed to run lean-ctx ls");
+    assert!(
+        output.status.success(),
+        "ls should succeed (exit={})",
+        output.status.code().unwrap_or(-1)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("src") || stdout.contains("Cargo"),
+        "ls should show directory tree: {stdout}"
+    );
+}
+
+#[test]
+fn binary_doctor_runs_without_crash() {
+    let output = lean_ctx_bin()
+        .arg("doctor")
+        .output()
+        .expect("failed to run lean-ctx doctor");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("lean-ctx")
+            || stdout.contains("doctor")
+            || stdout.contains("✓")
+            || stdout.contains("check"),
+        "doctor should produce diagnostic output: {stdout}"
+    );
+}
+
 #[test]
 fn pipe_guard_rust_side_defense_in_depth() {
     if cfg!(windows) {

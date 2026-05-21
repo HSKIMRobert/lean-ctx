@@ -1,5 +1,6 @@
 use super::cache;
 use super::config::GitLabConfig;
+use super::provider_trait::{ContextProvider, ProviderParams};
 use super::{ProviderItem, ProviderResult};
 
 const DEFAULT_PER_PAGE: usize = 20;
@@ -163,6 +164,56 @@ pub fn list_pipelines(
             })
             .collect(),
     })
+}
+
+pub struct GitLabProvider {
+    config: Result<GitLabConfig, String>,
+}
+
+impl GitLabProvider {
+    pub fn new() -> Self {
+        Self {
+            config: GitLabConfig::from_env(),
+        }
+    }
+}
+
+impl Default for GitLabProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ContextProvider for GitLabProvider {
+    fn id(&self) -> &'static str {
+        "gitlab"
+    }
+
+    fn display_name(&self) -> &'static str {
+        "GitLab"
+    }
+
+    fn supported_actions(&self) -> &[&str] {
+        &["issues", "merge_requests", "pipelines"]
+    }
+
+    fn execute(&self, action: &str, params: &ProviderParams) -> Result<ProviderResult, String> {
+        let config = self.config.as_ref().map_err(std::clone::Clone::clone)?;
+        match action {
+            "issues" => list_issues(config, params.state.as_deref(), None, params.limit),
+            "merge_requests" | "mrs" => list_mrs(config, params.state.as_deref(), params.limit),
+            "pipelines" => list_pipelines(config, params.state.as_deref(), params.limit),
+            _ => Err(format!("Unknown GitLab action: {action}")),
+        }
+    }
+
+    fn cache_ttl_secs(&self) -> u64 {
+        CACHE_TTL_SECS
+    }
+
+    fn is_available(&self) -> bool {
+        self.config.is_ok()
+    }
 }
 
 fn api_get(config: &GitLabConfig, endpoint: &str) -> Result<String, String> {

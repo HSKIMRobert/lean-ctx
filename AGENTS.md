@@ -38,6 +38,18 @@ When working on lean-ctx itself:
 Read `memory-bank/activeContext.md` at session start for current state.
 Append to `memory-bank/decisions.md` when making architecture decisions.
 
+## Provider Pipeline (Context Cortex)
+
+External data sources (GitHub, GitLab, Jira, Postgres, MCP bridges, custom REST) are first-class citizens.
+All provider data flows through the same consolidation pipeline:
+
+1. `ContextProvider::execute()` → raw `ProviderResult`
+2. `consolidation::consolidate()` → `ConsolidationArtifacts` (BM25 chunks, graph edges, knowledge facts, cache entries)
+3. `apply_artifacts_to_stores()` → persists to BM25 index, Graph index, ProjectKnowledge, Session cache (background thread)
+
+This means `ctx_semantic_search` finds issues/PRs/tickets, `ctx_knowledge` recalls provider facts,
+and `ctx_read` shows cross-source hints (e.g. "Issue #42 references this file").
+
 ## Quality Bar
 
 - Zero clippy warnings, all tests pass

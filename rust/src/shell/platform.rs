@@ -20,6 +20,12 @@ pub fn decode_output(bytes: &[u8]) -> String {
 fn decode_windows_output(bytes: &[u8]) -> String {
     use std::os::windows::ffi::OsStringExt;
 
+    let lossy = String::from_utf8_lossy(bytes);
+    let replacement_count = lossy.chars().filter(|&c| c == '\u{FFFD}').count();
+    if replacement_count == 0 {
+        return lossy.into_owned();
+    }
+
     extern "system" {
         fn GetACP() -> u32;
         fn MultiByteToWideChar(
@@ -44,7 +50,7 @@ fn decode_windows_output(bytes: &[u8]) -> String {
         )
     };
     if wide_len <= 0 {
-        return String::from_utf8_lossy(bytes).into_owned();
+        return lossy.into_owned();
     }
     let mut wide: Vec<u16> = vec![0u16; wide_len as usize];
     unsafe {
@@ -191,10 +197,8 @@ fn find_real_shell() -> String {
             }
         }
     }
-    if is_running_in_powershell() {
-        if let Ok(pwsh) = which_powershell() {
-            return pwsh;
-        }
+    if let Ok(pwsh) = which_powershell() {
+        return pwsh;
     }
     if let Ok(comspec) = std::env::var("COMSPEC") {
         return comspec;

@@ -381,11 +381,8 @@ fn cap_content(s: &str) -> String {
     if s.len() <= MAX_CONTENT_CHARS {
         s.to_string()
     } else {
-        format!(
-            "{}…\n\n[truncated: {} total chars]",
-            &s[..MAX_CONTENT_CHARS],
-            s.len()
-        )
+        let truncated = safe_truncate(s, MAX_CONTENT_CHARS);
+        format!("{}…\n\n[truncated: {} total chars]", truncated, s.len())
     }
 }
 
@@ -393,8 +390,20 @@ fn truncate_str(s: &str, max: usize) -> String {
     if s.len() <= max {
         s.to_string()
     } else {
-        format!("{}...", &s[..max])
+        format!("{}...", safe_truncate(s, max))
     }
+}
+
+/// Truncate a string at a char boundary <= max bytes. Never panics on multi-byte UTF-8.
+fn safe_truncate(s: &str, max: usize) -> &str {
+    if max >= s.len() {
+        return s;
+    }
+    let mut end = max;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
 }
 
 fn append_radar_event(event: &ObserveEvent) {

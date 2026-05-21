@@ -61,7 +61,19 @@ impl McpTool for CtxMultiReadTool {
             let cap = crate::core::limits::max_read_bytes() as u64;
             let mut paths = Vec::with_capacity(raw_paths.len());
             {
-                let session = session_lock.blocking_read();
+                let session_guard = tokio::task::block_in_place(|| {
+                    let rt = tokio::runtime::Handle::current();
+                    rt.block_on(tokio::time::timeout(
+                        std::time::Duration::from_secs(5),
+                        session_lock.read(),
+                    ))
+                });
+                let Ok(session) = session_guard else {
+                    return Err(ErrorData::internal_error(
+                        "session read-lock timeout (5s) in ctx_multi_read",
+                        None,
+                    ));
+                };
                 for p in &raw_paths {
                     let resolved = super::resolve_path_sync(&session, p)
                         .map_err(|e| ErrorData::invalid_params(e, None))?;
@@ -93,12 +105,34 @@ impl McpTool for CtxMultiReadTool {
                 }
             });
             let current_task = {
-                let session = session_lock.blocking_read();
-                session.task.as_ref().map(|t| t.description.clone())
+                let guard = tokio::task::block_in_place(|| {
+                    let rt = tokio::runtime::Handle::current();
+                    rt.block_on(tokio::time::timeout(
+                        std::time::Duration::from_secs(5),
+                        session_lock.read(),
+                    ))
+                });
+                if let Ok(session) = guard {
+                    session.task.as_ref().map(|t| t.description.clone())
+                } else {
+                    None
+                }
             };
 
             let fresh = get_bool(args, "fresh").unwrap_or(false);
-            let mut cache = cache_lock.blocking_write();
+            let cache_guard = tokio::task::block_in_place(|| {
+                let rt = tokio::runtime::Handle::current();
+                rt.block_on(tokio::time::timeout(
+                    std::time::Duration::from_secs(15),
+                    cache_lock.write(),
+                ))
+            });
+            let Ok(mut cache) = cache_guard else {
+                return Err(ErrorData::internal_error(
+                    "cache write-lock timeout (15s) in ctx_multi_read — another tool may be holding it. Retry in a moment.",
+                    None,
+                ));
+            };
             let output = crate::tools::ctx_multi_read::handle_with_task_fresh(
                 &mut cache,
                 &paths,

@@ -174,6 +174,20 @@ pub fn shorten_path(path: &str) -> String {
     path.to_string()
 }
 
+/// Returns a path relative to `root` for disambiguated display.
+/// Falls back to basename if stripping fails.
+pub fn shorten_path_relative(path: &str, root: &str) -> String {
+    let p = Path::new(path);
+    let r = Path::new(root);
+    if let Ok(rel) = p.strip_prefix(r) {
+        let s = rel.to_string_lossy();
+        if !s.is_empty() {
+            return s.to_string();
+        }
+    }
+    shorten_path(path)
+}
+
 /// Whether savings footers should be suppressed in tool output.
 ///
 /// Default config is `never` to keep CLI output quiet; `auto` remains available for

@@ -111,7 +111,12 @@ fn resolve_curated_refs(
     }
 
     let cache_handle = ctx.cache.as_ref().unwrap();
-    let mut cache = cache_handle.blocking_write();
+    let Some(mut cache) = crate::server::bounded_lock::write(cache_handle, "ctx_handoff") else {
+        return Err(ErrorData::internal_error(
+            "cache busy (ctx_handoff) — retry in a moment",
+            None,
+        ));
+    };
     for abs in &resolved {
         let mode = if crate::tools::ctx_read::is_instruction_file(abs) {
             "full"

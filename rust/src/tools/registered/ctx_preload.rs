@@ -69,9 +69,7 @@ impl McpTool for CtxPreloadTool {
             ctx.crp_mode,
         );
 
-        // Active Inference: predict which provider data will be needed and
-        // prefetch it into the session cache for fast subsequent access.
-        let provider_hints = predict_and_prefetch(&task, &mut cache_guard);
+        let provider_hints = predict_and_prefetch(&task, &mut cache_guard, &ctx.project_root);
         if !provider_hints.is_empty() {
             result.push_str(&provider_hints);
         }
@@ -160,10 +158,15 @@ impl McpTool for CtxPreloadTool {
 }
 
 /// Use Active Inference to predict useful provider data and prefetch it.
-/// Returns a summary string to append to the preload output, or empty if
-/// no providers are available or predictions are empty.
-fn predict_and_prefetch(task: &str, cache: &mut crate::core::cache::SessionCache) -> String {
-    crate::core::providers::init::init_builtin_providers();
+/// Stores results in session cache (synchronous) and triggers deep
+/// indexing (BM25, Graph, Knowledge) in a background thread when
+/// `providers.auto_index` is enabled.
+fn predict_and_prefetch(
+    task: &str,
+    cache: &mut crate::core::cache::SessionCache,
+    project_root: &str,
+) -> String {
+    crate::core::providers::init::init_with_project_root(Some(std::path::Path::new(project_root)));
     let registry = crate::core::providers::registry::global_registry();
     let available = registry.available_provider_ids();
     if available.is_empty() {
@@ -177,6 +180,10 @@ fn predict_and_prefetch(task: &str, cache: &mut crate::core::cache::SessionCache
     if predictions.is_empty() {
         return String::new();
     }
+
+    let cfg = crate::core::config::Config::load();
+    let auto_index = cfg.providers.auto_index;
+    let mut all_artifacts = Vec::new();
 
     let mut out = String::from("\n\n--- PROVIDER PRELOAD ---");
     let mut prefetched = 0usize;
@@ -193,6 +200,9 @@ fn predict_and_prefetch(task: &str, cache: &mut crate::core::cache::SessionCache
                 for entry in &artifacts.cache_entries {
                     cache.store(&entry.uri, &entry.content);
                     prefetched += 1;
+                }
+                if auto_index && !artifacts.is_empty() {
+                    all_artifacts.push(artifacts);
                 }
                 out.push_str(&format!(
                     "\n  {} {} → {} items cached (confidence: {:.0}%)",
@@ -216,5 +226,26 @@ fn predict_and_prefetch(task: &str, cache: &mut crate::core::cache::SessionCache
         return String::new();
     }
 
+    if !all_artifacts.is_empty() {
+        let root = project_root.to_string();
+        std::thread::spawn(move || {
+            let merged = merge_preload_artifacts(&all_artifacts);
+            crate::tools::ctx_provider::apply_artifacts_to_stores(&merged, &root);
+        });
+    }
+
     out
+}
+
+fn merge_preload_artifacts(
+    all: &[crate::core::consolidation::ConsolidationArtifacts],
+) -> crate::core::consolidation::ConsolidationArtifacts {
+    let mut merged = crate::core::consolidation::ConsolidationArtifacts::default();
+    for a in all {
+        merged.bm25_chunks.extend(a.bm25_chunks.clone());
+        merged.edges.extend(a.edges.clone());
+        merged.facts.extend(a.facts.clone());
+        merged.cache_entries.extend(a.cache_entries.clone());
+    }
+    merged
 }

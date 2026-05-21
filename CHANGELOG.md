@@ -13,6 +13,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - **Config-based data source providers** — Connect any REST API to lean-ctx without code. Drop a TOML/JSON file into `~/.config/lean-ctx/providers/` and lean-ctx auto-discovers it. Supports 6 auth methods (bearer, API key, basic, header, query param, none), dot-notation response extraction, and project-local providers
 - **Built-in providers** — GitHub (issues, PRs, actions), Jira (issues, sprints, projects), PostgreSQL (tables, schema, queries) activate automatically when their env vars are set
 - **`ctx_provider` tool** — MCP tool to query any registered data source: `ctx_provider(provider="github", resource="issues", params={...})`
+- **MCP Bridge integration** — Connect external MCP servers as data sources via `[providers.mcp_bridges.<name>]` config. Supports HTTP (`url`) and stdio (`command`+`args`) transports. Each bridge gets a unique ID (`mcp:<name>`), supports `resources`, `read_resource`, and `tools` actions. New `mcp_resources` convenience action on `ctx_provider` lists all resources from configured bridges
+- **Full provider consolidation pipeline** — All provider data (GitHub, GitLab, Jira, Postgres, MCP bridges, custom REST) now flows through the complete consolidation pipeline into BM25 index, Graph index, Knowledge facts, AND session cache. Background thread applies artifacts to all stores without blocking tool responses
+- **`lean-ctx doctor` MCP bridge check** — New diagnostic section validates configured MCP bridges (URL reachability, config completeness, `auto_index` status)
 - **`core/io_health` module** — Environment detection (WSL2, NFS, FUSE, sshfs), freeze counter with 60s decay window, adaptive timeout calculation (Fast/SlowFs/Degraded escalation levels)
 - **`server/bounded_lock` module** — Self-healing lock acquisition helpers for all MCP tools; returns `None` on timeout allowing graceful degradation instead of indefinite hangs
 - **`core/output_sanitizer` module** — Last-pass output filter that detects and removes degenerate CJK runs, symbol floods, and garbled artifacts before output reaches the client
@@ -36,6 +39,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- **`providers.auto_index` default is now `true`** — New installations automatically index provider data into BM25/Graph/Knowledge. Previously defaulted to `false` (cache-only)
+- **`ctx_semantic_search` external result formatting** — Provider-sourced results now show clear attribution: `[Issue] github://issues/42 — Auth bug` instead of raw URIs
+- **MCP Bridge unique IDs** — Each configured MCP bridge registers with `mcp:<name>` instead of shared `mcp_bridge`, allowing multiple bridges to coexist
 - **MCP tool count** — 61 → 62 (added `ctx_provider`)
 - **Compression symbols** — TDD shortcuts now use ASCII-safe symbols (`->` instead of `→`, `ok` instead of `✓`) for better downstream model compatibility
 - **Rules injection** — Cursor config files (`.cursorrules`, `.cursor/rules/`) now receive ASCII-safe compression prompts; other editors get full Unicode prompts

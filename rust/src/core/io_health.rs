@@ -48,12 +48,13 @@ pub fn recent_freeze_count() -> u32 {
     FREEZE_COUNT.load(Ordering::Relaxed)
 }
 
-/// Returns an adaptive timeout: tighter in slow/degraded environments.
+/// Returns an adaptive timeout: longer in slow/degraded environments to avoid
+/// a death spiral where shorter timeouts cause more timeouts.
 pub fn adaptive_timeout(base: Duration) -> Duration {
     match environment() {
         IoEnvironment::Fast => base,
-        IoEnvironment::SlowFs => base.mul_f32(0.5),
-        IoEnvironment::Degraded => base.mul_f32(0.3),
+        IoEnvironment::SlowFs => base.mul_f32(1.5),
+        IoEnvironment::Degraded => base.mul_f32(2.0),
     }
 }
 
@@ -163,13 +164,16 @@ mod tests {
     }
 
     #[test]
-    fn adaptive_timeout_reduces_in_degraded() {
+    fn adaptive_timeout_increases_in_degraded() {
         let base = Duration::from_secs(10);
         for _ in 0..5 {
             record_freeze();
         }
         let adapted = adaptive_timeout(base);
-        assert!(adapted < base);
+        assert!(
+            adapted > base,
+            "degraded environment should get longer timeout, got {adapted:?} for base {base:?}"
+        );
     }
 
     #[test]

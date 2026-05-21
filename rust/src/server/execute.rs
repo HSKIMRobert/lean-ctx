@@ -24,9 +24,14 @@ pub(crate) fn execute_command_with_env(
         .arg(&normalized_cmd)
         .env("LEAN_CTX_ACTIVE", "1")
         .env("GIT_TERMINAL_PROMPT", "0")
-        .env("GIT_PAGER", "cat")
-        .env("PAGER", "cat")
         .stdin(Stdio::null());
+
+    if !extra_env.contains_key("GIT_PAGER") {
+        cmd.env("GIT_PAGER", "cat");
+    }
+    if !extra_env.contains_key("PAGER") {
+        cmd.env("PAGER", "cat");
+    }
 
     // Auto-forward agent runtime env vars from parent process
     for (key, val) in std::env::vars() {

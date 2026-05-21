@@ -281,7 +281,10 @@ impl LeanCtxServer {
 
             if reference_enabled && final_text.len() > REFERENCE_THRESHOLD {
                 let ref_id = super::reference_store::store(final_text.clone());
-                let preview_end = final_text.len().min(200);
+                let mut preview_end = final_text.len().min(200);
+                while preview_end > 0 && !final_text.is_char_boundary(preview_end) {
+                    preview_end -= 1;
+                }
                 let summary = format!(
                     "[Reference: {ref_id}] Output stored ({} chars, ~{} tokens). Resolve: /v1/references/{ref_id}\nPreview: {}...",
                     final_text.len(),

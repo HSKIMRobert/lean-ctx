@@ -831,7 +831,7 @@ fn write_vscode_mcp(
 ) -> Result<WriteResult, String> {
     let data_dir = crate::core::data_dir::lean_ctx_data_dir()
         .map(|d| d.to_string_lossy().to_string())
-        .unwrap_or_default();
+        .map_err(|_| "LEAN_CTX_DATA_DIR unavailable".to_string())?;
     let desired = serde_json::json!({ "type": "stdio", "command": binary, "args": [], "env": { "LEAN_CTX_DATA_DIR": data_dir } });
 
     if target.config_path.exists() {
@@ -887,7 +887,7 @@ fn write_vscode_mcp_fresh(
 ) -> Result<WriteResult, String> {
     let data_dir = crate::core::data_dir::lean_ctx_data_dir()
         .map(|d| d.to_string_lossy().to_string())
-        .unwrap_or_default();
+        .map_err(|_| "LEAN_CTX_DATA_DIR unavailable".to_string())?;
     let content = serde_json::to_string_pretty(&serde_json::json!({
         "servers": { "lean-ctx": { "type": "stdio", "command": binary, "args": [], "env": { "LEAN_CTX_DATA_DIR": data_dir } } }
     }))
@@ -910,7 +910,7 @@ fn write_copilot_cli(
 ) -> Result<WriteResult, String> {
     let data_dir = crate::core::data_dir::lean_ctx_data_dir()
         .map(|d| d.to_string_lossy().to_string())
-        .unwrap_or_default();
+        .map_err(|_| "LEAN_CTX_DATA_DIR unavailable".to_string())?;
     let desired = serde_json::json!({
         "type": "local",
         "command": binary,
@@ -992,7 +992,7 @@ fn write_opencode_config(
 ) -> Result<WriteResult, String> {
     let data_dir = crate::core::data_dir::lean_ctx_data_dir()
         .map(|d| d.to_string_lossy().to_string())
-        .unwrap_or_default();
+        .map_err(|_| "LEAN_CTX_DATA_DIR unavailable".to_string())?;
     let desired = serde_json::json!({
         "type": "local",
         "command": [binary],
@@ -1050,7 +1050,7 @@ fn write_opencode_fresh(
 ) -> Result<WriteResult, String> {
     let data_dir = crate::core::data_dir::lean_ctx_data_dir()
         .map(|d| d.to_string_lossy().to_string())
-        .unwrap_or_default();
+        .map_err(|_| "LEAN_CTX_DATA_DIR unavailable".to_string())?;
     let content = serde_json::to_string_pretty(&serde_json::json!({
         "$schema": "https://opencode.ai/config.json",
         "mcp": { "lean-ctx": { "type": "local", "command": [binary], "enabled": true, "environment": { "LEAN_CTX_DATA_DIR": data_dir } } }
@@ -1074,7 +1074,7 @@ fn write_jetbrains_config(
 ) -> Result<WriteResult, String> {
     let data_dir = crate::core::data_dir::lean_ctx_data_dir()
         .map(|d| d.to_string_lossy().to_string())
-        .unwrap_or_default();
+        .map_err(|_| "LEAN_CTX_DATA_DIR unavailable".to_string())?;
     // JetBrains AI Assistant expects an "mcpServers" mapping in the JSON snippet
     // you paste into Settings | Tools | AI Assistant | Model Context Protocol (MCP).
     // We write that snippet to a file for easy copy/paste.
@@ -1143,7 +1143,7 @@ fn write_amp_config(
 ) -> Result<WriteResult, String> {
     let data_dir = crate::core::data_dir::lean_ctx_data_dir()
         .map(|d| d.to_string_lossy().to_string())
-        .unwrap_or_default();
+        .map_err(|_| "LEAN_CTX_DATA_DIR unavailable".to_string())?;
     let entry = serde_json::json!({
         "command": binary,
         "env": { "LEAN_CTX_DATA_DIR": data_dir }
@@ -1207,7 +1207,7 @@ fn write_crush_config(
 ) -> Result<WriteResult, String> {
     let data_dir = crate::core::data_dir::lean_ctx_data_dir()
         .map(|d| d.to_string_lossy().to_string())
-        .unwrap_or_default();
+        .map_err(|_| "LEAN_CTX_DATA_DIR unavailable".to_string())?;
     let desired = serde_json::json!({
         "type": "stdio",
         "command": binary,
@@ -1366,7 +1366,7 @@ fn write_gemini_settings(
 ) -> Result<WriteResult, String> {
     let data_dir = crate::core::data_dir::lean_ctx_data_dir()
         .map(|d| d.to_string_lossy().to_string())
-        .unwrap_or_default();
+        .map_err(|_| "LEAN_CTX_DATA_DIR unavailable".to_string())?;
     let entry = serde_json::json!({
         "command": binary,
         "env": { "LEAN_CTX_DATA_DIR": data_dir },
@@ -1439,8 +1439,19 @@ fn write_hermes_yaml(
         let content = std::fs::read_to_string(&target.config_path).map_err(|e| e.to_string())?;
 
         if content.contains("lean-ctx") {
+            let has_correct_binary = content.contains(binary);
+            let has_correct_data_dir = content.contains(&data_dir);
+            if has_correct_binary && has_correct_data_dir {
+                return Ok(WriteResult {
+                    action: WriteAction::Already,
+                    note: None,
+                });
+            }
+            let cleaned = remove_hermes_yaml_lean_ctx_block(&content);
+            let updated = upsert_hermes_yaml_mcp(&cleaned, &lean_ctx_block);
+            crate::config_io::write_atomic_with_backup(&target.config_path, &updated)?;
             return Ok(WriteResult {
-                action: WriteAction::Already,
+                action: WriteAction::Updated,
                 note: None,
             });
         }
@@ -1514,6 +1525,30 @@ fn upsert_hermes_yaml_mcp(existing: &str, lean_ctx_block: &str) -> String {
         out.push('\n');
     }
 
+    out
+}
+
+fn remove_hermes_yaml_lean_ctx_block(content: &str) -> String {
+    let mut out = String::with_capacity(content.len());
+    let mut skip = false;
+    for line in content.lines() {
+        if line.trim_start().starts_with("lean-ctx:")
+            && (line.starts_with("  ") || line.starts_with('\t'))
+        {
+            skip = true;
+            continue;
+        }
+        if skip {
+            let indented = line.starts_with("    ") || line.starts_with("\t\t");
+            let empty = line.trim().is_empty();
+            if indented || empty {
+                continue;
+            }
+            skip = false;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
     out
 }
 
@@ -2073,9 +2108,12 @@ approval_mode = \"approve\"
     fn hermes_yaml_skips_if_already_present() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.yaml");
+        let data_dir = crate::core::data_dir::lean_ctx_data_dir()
+            .map(|d| d.to_string_lossy().to_string())
+            .unwrap_or_default();
         std::fs::write(
             &path,
-            "mcp_servers:\n  lean-ctx:\n    command: \"lean-ctx\"\n",
+            format!("mcp_servers:\n  lean-ctx:\n    command: \"lean-ctx\"\n    env:\n      LEAN_CTX_DATA_DIR: \"{data_dir}\"\n"),
         )
         .unwrap();
         let t = target("test", path.clone(), ConfigType::HermesYaml);

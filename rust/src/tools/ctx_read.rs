@@ -46,7 +46,11 @@ fn cache_hit_proof_line(content: &str, read_count: u32) -> Option<String> {
     let first_line = content.lines().find(|l| !l.trim().is_empty())?;
     let trimmed = first_line.trim();
     if trimmed.len() > 60 {
-        Some(format!("{}...", &trimmed[..57]))
+        let mut end = 57;
+        while end > 0 && !trimmed.is_char_boundary(end) {
+            end -= 1;
+        }
+        Some(format!("{}...", &trimmed[..end]))
     } else {
         Some(trimmed.to_string())
     }
@@ -126,7 +130,15 @@ fn open_with_retry(path: &str) -> Result<std::fs::File, std::io::Error> {
         Ok(f) => Ok(f),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             std::thread::sleep(std::time::Duration::from_millis(50));
-            open_nofollow(path)
+            open_nofollow(path).map_err(|e| {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    std::io::Error::other(format!(
+                        "file not found: {path} — verify the path with ctx_tree or ctx_search"
+                    ))
+                } else {
+                    e
+                }
+            })
         }
         Err(e) => Err(e),
     }

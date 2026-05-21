@@ -93,7 +93,16 @@ fn install_copilot_pretooluse_hook(global: bool) {
         ) {
             if let Some(obj) = existing.as_object_mut() {
                 obj.insert("version".to_string(), serde_json::json!(1));
-                obj.insert("hooks".to_string(), hook_config["hooks"].clone());
+                let hooks = obj
+                    .entry("hooks".to_string())
+                    .or_insert_with(|| serde_json::json!({}));
+                if let Some(hooks_obj) = hooks.as_object_mut() {
+                    if let Some(desired_hooks) = hook_config["hooks"].as_object() {
+                        for (event, entries) in desired_hooks {
+                            hooks_obj.insert(event.clone(), entries.clone());
+                        }
+                    }
+                }
                 write_file(
                     &hook_path,
                     &serde_json::to_string_pretty(&existing).unwrap_or_default(),

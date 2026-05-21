@@ -28,20 +28,21 @@ impl McpTool for CtxProviderTool {
                         "enum": [
                             "discover",
                             "query",
+                            "mcp_resources",
                             "gitlab_issues",
                             "gitlab_issue",
                             "gitlab_mrs",
                             "gitlab_pipelines"
                         ],
-                        "description": "Provider action. 'discover' lists all providers. 'query' uses registry routing (requires provider+resource)."
+                        "description": "Provider action. 'discover' lists all. 'query' uses registry routing. 'mcp_resources' lists MCP bridge resources."
                     },
                     "provider": {
                         "type": "string",
-                        "description": "Provider ID for action=query (e.g. 'github', 'gitlab')"
+                        "description": "Provider ID (e.g. 'github', 'mcp:my-kb'). For action=query requires provider+resource."
                     },
                     "resource": {
                         "type": "string",
-                        "description": "Resource type for action=query (e.g. 'issues', 'pull_requests', 'actions')"
+                        "description": "Resource type for action=query (e.g. 'issues', 'pull_requests', 'read_resource')"
                     },
                     "mode": {
                         "type": "string",

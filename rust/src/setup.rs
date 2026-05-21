@@ -158,6 +158,8 @@ pub fn run_setup() {
         );
     }
 
+    configure_plan_mode_settings(&newly_configured, &already_configured);
+
     // Step 4: Agent rules injection
     terminal_ui::print_step_header(4, 11, "Agent Rules");
     let rules_result = crate::rules_inject::inject_all_rules(&home);
@@ -1052,6 +1054,19 @@ pub fn configure_agent_mcp(agent: &str) -> Result<(), String> {
         install_kiro_steering(&home);
     }
 
+    if agent == "vscode" || agent == "copilot" {
+        if let Err(e) = crate::core::editor_registry::plan_mode::write_vscode_plan_settings() {
+            eprintln!("\x1b[33m⚠\x1b[0m  VS Code plan mode: {e}");
+        }
+    }
+    if agent == "claude" || agent == "claude-code" {
+        if let Err(e) =
+            crate::core::editor_registry::plan_mode::write_claude_code_plan_permissions()
+        {
+            eprintln!("\x1b[33m⚠\x1b[0m  Claude Code plan mode: {e}");
+        }
+    }
+
     if errors.is_empty() {
         Ok(())
     } else {
@@ -1512,6 +1527,59 @@ fn install_kiro_steering(home: &std::path::Path) {
     let _ = std::fs::create_dir_all(&steering_dir);
     let _ = std::fs::write(&steering_file, crate::hooks::KIRO_STEERING_TEMPLATE);
     println!("  \x1b[32m✓\x1b[0m Created .kiro/steering/lean-ctx.md (Kiro will now prefer lean-ctx tools)");
+}
+
+fn configure_plan_mode_settings(newly_configured: &[&str], already_configured: &[&str]) {
+    use crate::terminal_ui;
+
+    let all_configured: Vec<&str> = newly_configured
+        .iter()
+        .chain(already_configured.iter())
+        .copied()
+        .collect();
+
+    let has_vscode = all_configured.contains(&"VS Code");
+    let has_claude = all_configured.contains(&"Claude Code");
+
+    if !has_vscode && !has_claude {
+        return;
+    }
+
+    if has_vscode {
+        match crate::core::editor_registry::plan_mode::write_vscode_plan_settings() {
+            Ok(r) if r.action == WriteAction::Already => {
+                terminal_ui::print_status_ok(
+                    "VS Code            \x1b[2mplan mode already configured\x1b[0m",
+                );
+            }
+            Ok(_) => {
+                terminal_ui::print_status_new(
+                    "VS Code            \x1b[2mplan mode tools configured\x1b[0m",
+                );
+            }
+            Err(e) => {
+                terminal_ui::print_status_warn(&format!("VS Code plan mode: {e}"));
+            }
+        }
+    }
+
+    if has_claude {
+        match crate::core::editor_registry::plan_mode::write_claude_code_plan_permissions() {
+            Ok(r) if r.action == WriteAction::Already => {
+                terminal_ui::print_status_ok(
+                    "Claude Code        \x1b[2mplan mode permissions present\x1b[0m",
+                );
+            }
+            Ok(_) => {
+                terminal_ui::print_status_new(
+                    "Claude Code        \x1b[2mplan mode permissions added\x1b[0m",
+                );
+            }
+            Err(e) => {
+                terminal_ui::print_status_warn(&format!("Claude Code plan mode: {e}"));
+            }
+        }
+    }
 }
 
 fn shorten_path(path: &str, home: &str) -> String {

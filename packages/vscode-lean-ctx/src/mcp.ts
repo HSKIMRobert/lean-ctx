@@ -4,10 +4,18 @@ import * as path from "path";
 import { resolveBinaryPath } from "./binary";
 
 interface McpConfig {
-  servers?: Record<string, { command: string; args?: string[] }>;
+  servers?: Record<string, { type?: string; command: string; args?: string[] }>;
 }
 
-function getMcpConfigPath(): string | null {
+function getVscodeMcpPath(): string | null {
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!workspaceRoot) {
+    return null;
+  }
+  return path.join(workspaceRoot, ".vscode", "mcp.json");
+}
+
+function getLegacyMcpPath(): string | null {
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   if (!workspaceRoot) {
     return null;
@@ -20,7 +28,11 @@ function getCursorMcpPath(): string {
 }
 
 export function isMcpConfigured(): boolean {
-  const paths = [getMcpConfigPath(), getCursorMcpPath()].filter(Boolean);
+  const paths = [
+    getVscodeMcpPath(),
+    getLegacyMcpPath(),
+    getCursorMcpPath(),
+  ].filter(Boolean);
 
   for (const configPath of paths) {
     if (!configPath || !fs.existsSync(configPath)) {
@@ -48,7 +60,7 @@ export async function configureMcp(): Promise<void> {
     return;
   }
 
-  const configPath = getMcpConfigPath();
+  const configPath = getVscodeMcpPath();
   if (!configPath) {
     vscode.window.showErrorMessage("No workspace folder open.");
     return;
@@ -71,6 +83,7 @@ export async function configureMcp(): Promise<void> {
   }
 
   config.servers["lean-ctx"] = {
+    type: "stdio",
     command: binary,
   };
 
@@ -95,7 +108,7 @@ export async function offerMcpSetup(): Promise<void> {
   }
 
   const action = await vscode.window.showInformationMessage(
-    "lean-ctx detected but MCP not configured for Copilot. Configure now?",
+    "lean-ctx detected but MCP not configured. Configure now?",
     "Configure",
     "Later"
   );

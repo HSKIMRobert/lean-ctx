@@ -62,7 +62,19 @@ impl McpTool for CtxEditTool {
                 .cache
                 .as_ref()
                 .ok_or_else(|| ErrorData::internal_error("cache not available", None))?;
-            let mut cache = cache_lock.blocking_write();
+            let cache_guard = {
+                let rt = tokio::runtime::Handle::current();
+                rt.block_on(tokio::time::timeout(
+                    std::time::Duration::from_secs(10),
+                    cache_lock.write(),
+                ))
+            };
+            let Ok(mut cache) = cache_guard else {
+                return Err(ErrorData::internal_error(
+                    "cache write-lock timeout (10s) in ctx_edit — retry in a moment",
+                    None,
+                ));
+            };
             let output = crate::tools::ctx_edit::handle(
                 &mut cache,
                 &crate::tools::ctx_edit::EditParams {
@@ -84,8 +96,16 @@ impl McpTool for CtxEditTool {
             drop(cache);
 
             if let Some(session_lock) = ctx.session.as_ref() {
-                let mut session = session_lock.blocking_write();
-                session.mark_modified(&path);
+                let guard = {
+                    let rt = tokio::runtime::Handle::current();
+                    rt.block_on(tokio::time::timeout(
+                        std::time::Duration::from_secs(5),
+                        session_lock.write(),
+                    ))
+                };
+                if let Ok(mut session) = guard {
+                    session.mark_modified(&path);
+                }
             }
 
             Ok(ToolOutput {

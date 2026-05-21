@@ -521,6 +521,9 @@ pub struct ProvidersConfig {
     pub auto_index: bool,
     /// Default cache TTL for provider results (seconds).
     pub cache_ttl_secs: u64,
+    /// MCP Bridge providers: `{ "name" = { url = "...", description = "..." } }`.
+    #[serde(default)]
+    pub mcp_bridges: std::collections::HashMap<String, McpBridgeEntry>,
 }
 
 impl Default for ProvidersConfig {
@@ -529,10 +532,30 @@ impl Default for ProvidersConfig {
             enabled: true,
             github: ProviderEntryConfig::default(),
             gitlab: ProviderEntryConfig::default(),
-            auto_index: false,
+            auto_index: true,
             cache_ttl_secs: 120,
+            mcp_bridges: std::collections::HashMap::new(),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpBridgeEntry {
+    /// HTTP/SSE URL for remote MCP servers.
+    #[serde(default)]
+    pub url: Option<String>,
+    /// Command to spawn a local MCP server (stdio transport).
+    #[serde(default)]
+    pub command: Option<String>,
+    /// Arguments for the command.
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Human-readable description.
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Environment variable name containing an auth token.
+    #[serde(default)]
+    pub auth_env: Option<String>,
 }
 
 /// Per-provider configuration entry.

@@ -185,10 +185,14 @@ if (-not $env:LEAN_CTX_ACTIVE -and -not $env:LEAN_CTX_DISABLED -and -not $env:LE
 if ($_leanCtxShouldActivate) {{
   $LeanCtxBin = "{binary_escaped}"
   function _lc {{
-    if ($env:LEAN_CTX_DISABLED -or $env:LEAN_CTX_NO_HOOK -or [Console]::IsOutputRedirected) {{ & @args; return }}
+    $nativeCmd = Get-Command $args[0] -CommandType Application -ErrorAction SilentlyContinue
+    if ($env:LEAN_CTX_DISABLED -or $env:LEAN_CTX_NO_HOOK -or [Console]::IsOutputRedirected) {{
+      if ($nativeCmd) {{ & $nativeCmd.Source $args[1..$args.Length] }} else {{ Write-Error "Command not found: $($args[0])" }}
+      return
+    }}
     & $LeanCtxBin -c @args
     if ($LASTEXITCODE -eq 127 -or $LASTEXITCODE -eq 126) {{
-      & @args
+      if ($nativeCmd) {{ & $nativeCmd.Source $args[1..$args.Length] }} else {{ Write-Error "Command not found: $($args[0])" }}
     }}
   }}
   function lean-ctx-raw {{ $env:LEAN_CTX_RAW = '1'; & @args; Remove-Item Env:LEAN_CTX_RAW -ErrorAction SilentlyContinue }}
@@ -329,7 +333,7 @@ pub fn generate_hook_fish(binary: &str) -> String {
         \t\tfunctions --erase $_lc_cmd 2>/dev/null; true\n\
         \tend\n\
         \tfunctions --erase k 2>/dev/null; true\n\
-        \tset -e LEAN_CTX_ENABLED\n\
+        \tset -gx LEAN_CTX_ENABLED 0\n\
         \tisatty stdout; and echo 'lean-ctx: OFF'\n\
         end\n\
         \n\
@@ -476,7 +480,7 @@ lean-ctx-off() {{
         unalias "$_lc_cmd" 2>/dev/null || true
     done
     unalias k 2>/dev/null || true
-    unset LEAN_CTX_ENABLED
+    export LEAN_CTX_ENABLED=0
     [ -t 1 ] && echo "lean-ctx: OFF"
 }}
 
@@ -895,7 +899,7 @@ lean-ctx-on() {
 }
 
 lean-ctx-off() {
-    unset LEAN_CTX_ENABLED
+    export LEAN_CTX_ENABLED=0
     [ -t 1 ] && echo "lean-ctx: OFF"
 }
 

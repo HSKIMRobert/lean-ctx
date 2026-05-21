@@ -36,8 +36,8 @@ It is used by:
     {
       "id": "vscode-copilot",
       "displayName": "VS Code / GitHub Copilot",
-      "config": { "paths": [".vscode/mcp.json"], "rootKey": "servers" },
-      "hooks": { "supported": false, "paths": [], "events": [] },
+      "config": { "paths": [".vscode/mcp.json", "~/Library/Application Support/Code/User/mcp.json"], "rootKey": "servers" },
+      "hooks": { "supported": true, "paths": [".github/hooks/hooks.json", "~/.github/hooks/hooks.json"], "events": ["preToolUse", "postToolUse"] },
       "toolApproval": { "model": "prompted_or_policy", "key": null },
       "instructionLimits": { "mcpServerInstructionsMaxChars": null },
       "sources": [

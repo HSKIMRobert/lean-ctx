@@ -98,15 +98,23 @@ impl McpTool for CtxKnowledgeTool {
 
         let session_handle = ctx.session.as_ref().unwrap();
         let (session_id, project_root) = {
-            let session = session_handle.blocking_read();
-            let sid = session.id.clone();
-            let root = session.project_root.clone().unwrap_or_else(|| {
-                std::env::current_dir().map_or_else(
-                    |_| "unknown".to_string(),
-                    |p| p.to_string_lossy().to_string(),
-                )
+            let timeout_dur =
+                crate::core::io_health::adaptive_timeout(std::time::Duration::from_secs(10));
+            let read_result = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current()
+                    .block_on(tokio::time::timeout(timeout_dur, session_handle.read()))
             });
-            (sid, root)
+            if let Ok(session) = read_result {
+                let sid = session.id.clone();
+                let root = session
+                    .project_root
+                    .clone()
+                    .unwrap_or_else(|| ctx.project_root.clone());
+                (sid, root)
+            } else {
+                tracing::warn!("ctx_knowledge: session read-lock timeout, using fallback");
+                ("unknown".to_string(), ctx.project_root.clone())
+            }
         };
 
         if action == "gotcha" {

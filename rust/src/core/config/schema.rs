@@ -626,11 +626,43 @@ impl ConfigSchema {
                 "GitLab API base URL (for self-hosted instances)",
             ),
         );
+        providers.insert(
+            "mcp_bridges.<name>.url".into(),
+            key(
+                "string",
+                serde_json::json!(null),
+                "HTTP/SSE URL for a remote MCP server",
+            ),
+        );
+        providers.insert(
+            "mcp_bridges.<name>.command".into(),
+            key(
+                "string",
+                serde_json::json!(null),
+                "Command to spawn a local MCP server (stdio transport)",
+            ),
+        );
+        providers.insert(
+            "mcp_bridges.<name>.args".into(),
+            key(
+                "array",
+                serde_json::json!([]),
+                "Arguments for the MCP server command",
+            ),
+        );
+        providers.insert(
+            "mcp_bridges.<name>.auth_env".into(),
+            key(
+                "string",
+                serde_json::json!(null),
+                "Environment variable name containing auth token for MCP server",
+            ),
+        );
         sections.insert(
             "providers".into(),
             SectionSchema {
                 description:
-                    "External context providers (GitHub, GitLab, Jira, etc.). Set tokens via env vars (GITHUB_TOKEN, GITLAB_TOKEN)."
+                    "External context providers (GitHub, GitLab, Jira, MCP bridges, etc.). Set tokens via env vars (GITHUB_TOKEN, GITLAB_TOKEN). MCP bridges connect external MCP servers as context sources."
                         .into(),
                 keys: providers,
             },
