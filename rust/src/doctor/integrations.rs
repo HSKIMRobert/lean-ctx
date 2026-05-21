@@ -159,6 +159,13 @@ fn integration_generic(
             checks.push(check_mcp_json(&target.config_path, binary, data_dir));
             checks.push(check_gemini_trust_and_hooks(home, binary));
         }
+        crate::core::editor_registry::types::ConfigType::AugmentVsCode => {
+            checks.push(check_augment_vscode_mcp(
+                &target.config_path,
+                binary,
+                data_dir,
+            ));
+        }
     }
 
     if let Some(rules_path) = rules_path_for(target.name, home) {
@@ -439,6 +446,67 @@ fn check_vscode_mcp(path: &std::path::Path, binary: &str, data_dir: &str) -> Nam
     let ok = ty_ok && cmd_ok && env_ok;
     NamedCheck {
         name: "VS Code MCP".to_string(),
+        ok,
+        detail: if ok {
+            format!("ok ({})", path.display())
+        } else {
+            format!("drift ({})", path.display())
+        },
+    }
+}
+
+fn check_augment_vscode_mcp(
+    path: &std::path::Path,
+    binary: &str,
+    data_dir: &str,
+) -> NamedCheck {
+    if !path.exists() {
+        return NamedCheck {
+            name: "Augment VS Code MCP".to_string(),
+            ok: false,
+            detail: format!("missing ({})", path.display()),
+        };
+    }
+    let content = std::fs::read_to_string(path).unwrap_or_default();
+    let Some(v) = crate::core::jsonc::parse_jsonc(&content).ok() else {
+        return NamedCheck {
+            name: "Augment VS Code MCP".to_string(),
+            ok: false,
+            detail: format!("invalid JSON ({})", path.display()),
+        };
+    };
+    let Some(arr) = v.as_array() else {
+        return NamedCheck {
+            name: "Augment VS Code MCP".to_string(),
+            ok: false,
+            detail: format!("expected top-level array ({})", path.display()),
+        };
+    };
+    let Some(e) = arr
+        .iter()
+        .find(|e| e.get("name").and_then(|n| n.as_str()) == Some("lean-ctx"))
+    else {
+        return NamedCheck {
+            name: "Augment VS Code MCP".to_string(),
+            ok: false,
+            detail: format!("lean-ctx entry missing ({})", path.display()),
+        };
+    };
+
+    let ty_ok = e.get("type").and_then(|t| t.as_str()) == Some("stdio");
+    let cmd_ok = e
+        .get("command")
+        .and_then(|c| c.as_str())
+        .is_some_and(|c| cmd_matches_expected(c, binary));
+    let env_ok = e
+        .get("env")
+        .and_then(|env| env.get("LEAN_CTX_DATA_DIR"))
+        .and_then(|d| d.as_str())
+        .is_some_and(|d| d.trim() == data_dir.trim());
+
+    let ok = ty_ok && cmd_ok && env_ok;
+    NamedCheck {
+        name: "Augment VS Code MCP".to_string(),
         ok,
         detail: if ok {
             format!("ok ({})", path.display())

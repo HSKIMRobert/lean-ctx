@@ -413,3 +413,128 @@ fn init_claude_installs_dedicated_rules_file_without_claude_md() {
         "rules must contain marker"
     );
 }
+
+// End-to-end: `lean-ctx init --agent augment` must drive setup.rs's
+// `"augment" =>` match arm through configure_agent_mcp → the McpJson writer,
+// landing at ~/.augment/settings.json with the standard mcpServers shape.
+//
+// Same Unix-only caveat as init_claude_installs_dedicated_rules_file_without_claude_md:
+// on Windows `dirs::home_dir()` uses SHGetKnownFolderPath, not %USERPROFILE%,
+// so env-var overrides don't reach the subprocess's HOME resolution.
+#[test]
+#[cfg_attr(windows, ignore)]
+fn init_augment_installs_lean_ctx_mcp_into_dot_augment_settings() {
+    let bin = env!("CARGO_BIN_EXE_lean-ctx");
+
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let data_dir = tmp.path().join("data");
+    std::fs::create_dir_all(&data_dir).unwrap();
+    let project = tmp.path().join("project");
+    std::fs::create_dir_all(&project).unwrap();
+
+    let home_str = home.to_string_lossy().to_string();
+    let data_str = data_dir.to_string_lossy().to_string();
+
+    let envs = [
+        ("HOME", home_str.as_str()),
+        ("LEAN_CTX_DATA_DIR", data_str.as_str()),
+        ("LEAN_CTX_ACTIVE", "1"),
+        ("LEAN_CTX_DISABLED", "1"),
+        ("SHELL", "/bin/bash"),
+    ];
+
+    let out = Command::new(bin)
+        .args(["init", "--agent", "augment", "--global", "--mode", "mcp"])
+        .current_dir(&project)
+        .envs(envs.iter().copied())
+        .output()
+        .expect("init --agent augment --global --mode mcp");
+    assert!(
+        out.status.success(),
+        "init --agent augment exit; stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let settings_path = home.join(".augment/settings.json");
+    assert!(
+        settings_path.exists(),
+        "must create ~/.augment/settings.json"
+    );
+    let raw = std::fs::read_to_string(&settings_path).expect("settings.json readable");
+    let json: serde_json::Value = serde_json::from_str(&raw).expect("settings.json is JSON");
+    let lean_ctx = json
+        .get("mcpServers")
+        .and_then(|m| m.get("lean-ctx"))
+        .expect("mcpServers.lean-ctx must be present");
+    assert!(
+        lean_ctx.get("command").and_then(|c| c.as_str()).is_some(),
+        "lean-ctx entry must carry a command string"
+    );
+
+    // Rules injection (ticket #3): the per-agent rules file must land at
+    // ~/.augment/rules/lean-ctx.md so Auggie actually knows lean-ctx exists.
+    let rules_path = home.join(".augment/rules/lean-ctx.md");
+    assert!(
+        rules_path.exists(),
+        "must create ~/.augment/rules/lean-ctx.md"
+    );
+    let rules = std::fs::read_to_string(&rules_path).expect("rules readable");
+    assert!(
+        rules.contains("lean-ctx-rules-"),
+        "rules file must contain version marker"
+    );
+
+    // Ticket #2: the VS Code extension surface (augment.vscode-augment) keeps
+    // its MCP server list as a top-level JSON array in globalStorage. The
+    // exact path is OS-specific; we only assert on Linux/macOS here because
+    // those are the platforms this test runs on (Windows is #[ignore]'d).
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        let vscode_path = {
+            #[cfg(target_os = "linux")]
+            {
+                home.join(".config/Code/User/globalStorage/augment.vscode-augment/augment-global-state/mcpServers.json")
+            }
+            #[cfg(target_os = "macos")]
+            {
+                home.join("Library/Application Support/Code/User/globalStorage/augment.vscode-augment/augment-global-state/mcpServers.json")
+            }
+        };
+        assert!(
+            vscode_path.exists(),
+            "must create augment vscode mcpServers.json at {}",
+            vscode_path.display()
+        );
+        let raw = std::fs::read_to_string(&vscode_path).expect("vscode mcpServers.json readable");
+        let arr: serde_json::Value =
+            serde_json::from_str(&raw).expect("vscode mcpServers.json is JSON");
+        let entries = arr.as_array().expect("vscode mcpServers.json is an array");
+        let lean_ctx = entries
+            .iter()
+            .find(|e| e.get("name").and_then(|n| n.as_str()) == Some("lean-ctx"))
+            .expect("array must contain a lean-ctx entry");
+        assert_eq!(
+            lean_ctx.get("type").and_then(|t| t.as_str()),
+            Some("stdio"),
+            "augment vscode entry must declare stdio transport"
+        );
+        assert!(
+            lean_ctx.get("id").and_then(|i| i.as_str()).is_some(),
+            "augment vscode entry must carry a stable id"
+        );
+        assert!(
+            lean_ctx.get("command").and_then(|c| c.as_str()).is_some(),
+            "augment vscode entry must carry a command string"
+        );
+        assert!(
+            lean_ctx
+                .get("env")
+                .and_then(|e| e.get("LEAN_CTX_DATA_DIR"))
+                .and_then(|d| d.as_str())
+                .is_some(),
+            "augment vscode entry must wire LEAN_CTX_DATA_DIR"
+        );
+    }
+}

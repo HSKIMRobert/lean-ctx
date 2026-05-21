@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 
 use super::paths::{
-    claude_mcp_json_path, cline_mcp_path, qoder_all_mcp_paths, qoderwork_mcp_path, roo_mcp_path,
-    vscode_mcp_path, zed_config_dir, zed_settings_path,
+    augment_cli_settings_path, claude_mcp_json_path, cline_mcp_path, qoder_all_mcp_paths,
+    qoderwork_mcp_path, roo_mcp_path, vscode_mcp_path, zed_config_dir, zed_settings_path,
 };
 use super::types::{ConfigType, EditorTarget};
 
@@ -39,6 +39,13 @@ pub fn build_targets(home: &Path) -> Vec<EditorTarget> {
             agent_key: "claude".to_string(),
             config_path: claude_mcp_json_path(home),
             detect_path: detect_claude_path(),
+            config_type: ConfigType::McpJson,
+        },
+        EditorTarget {
+            name: "Augment CLI",
+            agent_key: "augment".to_string(),
+            config_path: augment_cli_settings_path(home),
+            detect_path: detect_augment_path(home),
             config_type: ConfigType::McpJson,
         },
         EditorTarget {
@@ -343,6 +350,20 @@ pub fn detect_claude_path() -> PathBuf {
     PathBuf::from("/nonexistent")
 }
 
+pub fn detect_augment_path(home: &Path) -> PathBuf {
+    let which_cmd = if cfg!(windows) { "where" } else { "which" };
+    if let Ok(output) = std::process::Command::new(which_cmd).arg("auggie").output() {
+        if output.status.success() {
+            return PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
+        }
+    }
+    let augment_dir = home.join(".augment");
+    if augment_dir.exists() {
+        return augment_dir;
+    }
+    PathBuf::from("/nonexistent")
+}
+
 pub fn detect_codex_path(home: &Path) -> PathBuf {
     let codex_dir = crate::core::home::resolve_codex_dir().unwrap_or_else(|| home.join(".codex"));
     if codex_dir.exists() {
@@ -497,6 +518,76 @@ pub fn detect_roo_path() -> PathBuf {
         }
     }
     PathBuf::from("/nonexistent")
+}
+
+#[cfg(test)]
+mod augment_tests {
+    use super::*;
+    use crate::core::editor_registry::writers::{
+        remove_lean_ctx_server, write_config_with_options, WriteAction, WriteOptions,
+    };
+
+    #[test]
+    fn build_targets_includes_augment_cli_entry() {
+        let home = Path::new("/home/tester");
+        let target = build_targets(home)
+            .into_iter()
+            .find(|t| t.agent_key == "augment")
+            .expect("augment target should be registered");
+        assert_eq!(target.name, "Augment CLI");
+        assert_eq!(target.config_path, home.join(".augment/settings.json"));
+        assert!(matches!(target.config_type, ConfigType::McpJson));
+    }
+
+    // Writer-layer round-trip: verifies the McpJson writer preserves unrelated
+    // entries when invoked against the Augment settings.json path. This does NOT
+    // exercise the `--agent augment` CLI flow or the setup.rs match arms — those
+    // are covered by the subprocess test in tests/setup_ci_smoke.rs.
+    #[test]
+    fn mcp_json_writer_round_trip_at_augment_settings_path_preserves_other_servers() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let cfg = tmp.path().join(".augment").join("settings.json");
+        std::fs::create_dir_all(cfg.parent().unwrap()).unwrap();
+        std::fs::write(
+            &cfg,
+            r#"{ "mcpServers": { "other": { "command": "other-bin", "args": [] } } }"#,
+        )
+        .unwrap();
+
+        let target = EditorTarget {
+            name: "Augment CLI",
+            agent_key: "augment".to_string(),
+            config_path: cfg.clone(),
+            detect_path: PathBuf::from("/nonexistent"),
+            config_type: ConfigType::McpJson,
+        };
+
+        let install = write_config_with_options(
+            &target,
+            "/usr/local/bin/lean-ctx",
+            WriteOptions::default(),
+        )
+        .expect("install");
+        assert!(matches!(
+            install.action,
+            WriteAction::Created | WriteAction::Updated
+        ));
+        let json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(json["mcpServers"]["other"]["command"], "other-bin");
+        assert_eq!(
+            json["mcpServers"]["lean-ctx"]["command"],
+            "/usr/local/bin/lean-ctx"
+        );
+
+        let uninstall =
+            remove_lean_ctx_server(&target, WriteOptions::default()).expect("uninstall");
+        assert!(matches!(uninstall.action, WriteAction::Updated));
+        let json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&cfg).unwrap()).unwrap();
+        assert!(json["mcpServers"].get("lean-ctx").is_none());
+        assert_eq!(json["mcpServers"]["other"]["command"], "other-bin");
+    }
 }
 
 #[cfg(all(test, target_os = "macos"))]

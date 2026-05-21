@@ -169,6 +169,77 @@ pub fn claude_rules_dir(home: &Path) -> PathBuf {
     claude_state_dir(home).join("rules")
 }
 
+pub fn augment_cli_settings_path(home: &Path) -> PathBuf {
+    home.join(".augment/settings.json")
+}
+
+/// MCP server list for the Augment VS Code extension.
+///
+/// The extension persists registered MCP servers as a top-level JSON array in
+/// its globalStorage directory. Confirmed empirically against
+/// `augment.vscode-augment` build shipped on 2026-05-21 (see PR description).
+///
+/// On Windows the User dir lives under `%APPDATA%/Code` rather than the
+/// user's home, so we honour that when the env var is set; we fall back to
+/// the home-relative path for tests and unusual setups.
+pub fn augment_vscode_mcp_path(home: &Path) -> PathBuf {
+    const TAIL: &str =
+        "globalStorage/augment.vscode-augment/augment-global-state/mcpServers.json";
+
+    #[cfg(target_os = "macos")]
+    {
+        return home
+            .join("Library/Application Support/Code/User")
+            .join(TAIL);
+    }
+    #[cfg(target_os = "linux")]
+    {
+        return home.join(".config/Code/User").join(TAIL);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            return PathBuf::from(appdata).join("Code/User").join(TAIL);
+        }
+    }
+    #[allow(unreachable_code)]
+    home.join(".config/Code/User").join(TAIL)
+}
+
+#[cfg(test)]
+mod augment_tests {
+    use super::*;
+
+    #[test]
+    fn augment_cli_settings_path_is_under_dot_augment() {
+        let home = Path::new("/home/tester");
+        assert_eq!(
+            augment_cli_settings_path(home),
+            home.join(".augment").join("settings.json")
+        );
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn augment_vscode_mcp_path_uses_linux_globalstorage() {
+        let home = Path::new("/home/tester");
+        assert_eq!(
+            augment_vscode_mcp_path(home),
+            home.join(".config/Code/User/globalStorage/augment.vscode-augment/augment-global-state/mcpServers.json")
+        );
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn augment_vscode_mcp_path_uses_macos_application_support() {
+        let home = Path::new("/Users/tester");
+        assert_eq!(
+            augment_vscode_mcp_path(home),
+            home.join("Library/Application Support/Code/User/globalStorage/augment.vscode-augment/augment-global-state/mcpServers.json")
+        );
+    }
+}
+
 #[cfg(all(test, target_os = "macos"))]
 mod tests {
     use super::*;

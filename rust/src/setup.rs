@@ -1108,6 +1108,20 @@ fn agent_mcp_targets(agent: &str, home: &std::path::Path) -> Result<Vec<EditorTa
             crate::core::editor_registry::claude_mcp_json_path(home),
             ConfigType::McpJson,
         ),
+        "augment" => {
+            push(
+                &mut targets,
+                "Augment CLI",
+                crate::core::editor_registry::augment_cli_settings_path(home),
+                ConfigType::McpJson,
+            );
+            push(
+                &mut targets,
+                "Augment (VS Code)",
+                crate::core::editor_registry::augment_vscode_mcp_path(home),
+                ConfigType::AugmentVsCode,
+            );
+        }
         "windsurf" => push(
             &mut targets,
             "Windsurf",
@@ -1320,6 +1334,20 @@ pub fn disable_agent_mcp(agent: &str, overwrite_invalid: bool) -> Result<(), Str
             crate::core::editor_registry::claude_mcp_json_path(&home),
             ConfigType::McpJson,
         ),
+        "augment" => {
+            push(
+                &mut targets,
+                "Augment CLI",
+                crate::core::editor_registry::augment_cli_settings_path(&home),
+                ConfigType::McpJson,
+            );
+            push(
+                &mut targets,
+                "Augment (VS Code)",
+                crate::core::editor_registry::augment_vscode_mcp_path(&home),
+                ConfigType::AugmentVsCode,
+            );
+        }
         "windsurf" => push(
             &mut targets,
             "Windsurf",

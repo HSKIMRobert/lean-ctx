@@ -23,4 +23,8 @@ pub enum ConfigType {
     HermesYaml,
     GeminiSettings,
     QoderSettings,
+    /// Augment VS Code extension: top-level JSON array of server entries
+    /// stored under augment.vscode-augment globalStorage. Each entry carries
+    /// `type`, `id`, `name`, `disabled`, `command`, `args`, `env`.
+    AugmentVsCode,
 }
