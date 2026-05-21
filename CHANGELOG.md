@@ -5,6 +5,44 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.6.13] — 2026-05-21
+
+### Added
+
+- **Plan mode support for VS Code, Claude Code, and Windsurf** — New `plan_mode.rs` module detects IDE plan/read-only contexts and exposes a curated subset of 12 read-only tools (`ctx_read`, `ctx_search`, `ctx_tree`, `ctx_overview`, `ctx_plan`, `ctx_metrics`, `ctx_compress`, `ctx_session`, `ctx_knowledge`, `ctx_graph`, `ctx_retrieve`, `ctx_provider`). `lean-ctx setup` auto-configures VS Code `planAgent.additionalTools` and Claude Code `permissions.allow` entries. Includes `lean-ctx doctor` plan mode status check
+- **MCP `readOnlyHint` tool annotations** — All read-only MCP tools now declare `readOnlyHint: true` in their tool definitions, enabling IDE plan agents to use them without explicit user approval. Write tools (`ctx_edit`, `ctx_fill`, `ctx_delta`, `ctx_handoff`, `ctx_ledger`, `ctx_multi_read`) correctly declare `readOnlyHint: false`
+- **Dynamic tool filtering** — New `server/dynamic_tools.rs` module filters exposed tools based on client capabilities. Plan-mode clients only see read-only tools; full-mode clients see all 62 tools
+- **GitLab provider** — Built-in GitLab data source provider (issues, merge requests, pipelines) activates automatically when `GITLAB_TOKEN` is set. Joins GitHub, Jira, and PostgreSQL as built-in providers
+- **Provider consolidation pipeline (production-wired)** — `apply_artifacts_to_stores()` now runs in a background thread from both `ctx_provider` and `ctx_preload`, indexing provider data into BM25, Graph, Knowledge, and Session Cache. Previously, provider data was only cached — now it's fully searchable, generates cross-source hints in `ctx_read`, and contributes knowledge facts
+- **MCP Bridge stdio transport support** — `[providers.mcp_bridges.<name>]` now accepts `command` + `args` for stdio-based MCP servers in addition to HTTP `url`. Bridges register with unique IDs (`mcp:<name>`) and support `resources`, `read_resource`, and `tools` actions
+- **Cross-source hints in `ctx_read`** — When reading a file, `ctx_read` now shows related issues, PRs, and external data linked via the graph index (e.g., "Related: [Issue] github://issues/42 — Auth bug")
+- **`ctx_semantic_search` external result attribution** — Search results from external providers now show clear type labels: `[Issue]`, `[PR]`, `[Ticket]`, `[Schema]`, `[Wiki]` with full provider URIs
+- **`lean-ctx doctor` MCP bridge diagnostics** — New diagnostic section validates configured MCP bridges (URL reachability, config completeness, `auto_index` status warning)
+- **`lean-ctx doctor` plan mode check** — Reports whether VS Code and Claude Code are configured for plan mode tool access
+- **13 wiring-proof integration tests** — New `provider_wiring_proof.rs` test suite proves every connection in the provider pipeline is functional (consolidation → BM25/Graph/Knowledge/Cache → search/hints/recall). Catches "functional silos" where code exists but isn't connected to runtime
+- **10 E2E provider pipeline scenarios** — New `provider_pipeline_e2e.rs` covers full pipeline, cross-source edges, knowledge extraction, MCP bridge registration, multi-source consolidation
+- **Plan mode scenario tests** — New `plan_mode_scenarios.rs` with 11 tests covering VS Code settings injection, Claude Code permissions, idempotency, merge behavior, and status detection
+- **Power user worksession test suite** — New `power_user_worksession.rs` with 12 end-to-end scenarios simulating a full coding session: initial read → edit → diff → search → knowledge → cache → overview → multi-read → compress → graph → context
+- **Lock contention hardening tests** — New `lock_contention_hardening.rs` with 14 scenarios testing bounded lock timeouts, concurrent access, I/O health escalation, and WSL2/NFS environment detection
+
+### Fixed
+
+- **PowerShell `@args` splatting fails on single commands** — `_lc` function now resolves the native command via `Get-Command -CommandType Application` before invocation, preventing "not recognized" errors when `@args` is used with compound argument strings
+- **Fish shell `lean-ctx-off` leaks env var** — `set -e LEAN_CTX_ENABLED` (which removes the var) changed to `set -gx LEAN_CTX_ENABLED 0` (which sets it to 0), matching Bash/Zsh behavior and preventing child shells from re-activating
+- **Bash/Zsh `lean-ctx-off` leaks env var** — `unset LEAN_CTX_ENABLED` changed to `export LEAN_CTX_ENABLED=0` for consistent disable semantics across shells
+- **Provider init ignores project root** — `ctx_provider` and `ctx_preload` now call `init_with_project_root(Some(root))` instead of `init_builtin_providers()`, enabling config-based provider discovery scoped to the actual project directory
+- **Windows CI failure: dead `is_running_in_powershell()`** — Removed unused `#[cfg(windows)]` function that triggered `-Dwarnings` failure on `windows-latest` CI
+
+### Changed
+
+- **`providers.auto_index` default is now `true`** — New installations automatically index provider data into BM25/Graph/Knowledge stores. Previously defaulted to `false` (cache-only)
+- **MCP tool count** — 61 → 62 (added `ctx_provider`)
+- **Tool descriptions** — Updated `pkgdesc` in AUR packages and `description` in Cargo.toml to reflect 62 tools
+
+### Removed
+
+- **Dead code cleanup** — Removed `Config::providers_mcp_bridges()` (unused after `init.rs` refactoring), `hints_from_index()` (unused wrapper), `is_running_in_powershell()` (Windows-only, never called), unused `ProjectIndex` import
+
 ## [3.6.12] — 2026-05-21
 
 ### Added
