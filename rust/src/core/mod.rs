@@ -8,6 +8,7 @@ pub mod compression_safety;
 pub mod compressor;
 pub mod entropy;
 pub mod information_bottleneck;
+pub mod output_sanitizer;
 pub mod pop_pruning;
 pub mod predictive_coding;
 pub mod predictive_prefetch;

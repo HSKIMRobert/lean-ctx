@@ -248,7 +248,7 @@ See the ctx() tool description for available sub-tools.\n",
     }
 
     let intelligence_block = build_intelligence_block();
-    let terse_block = build_terse_agent_block(&crp_mode);
+    let terse_block = build_terse_agent_block_for_client(&crp_mode, client_name);
 
     let base = base;
     let full = match crp_mode {
@@ -353,7 +353,7 @@ See the ctx() tool description for available sub-tools.\n",
     }
 
     let intelligence_block = build_intelligence_block();
-    let terse_block = build_terse_agent_block(&crp_mode);
+    let terse_block = build_terse_agent_block_for_client(&crp_mode, client_name);
 
     match crp_mode {
         CrpMode::Off => format!("{base}\n\n{terse_block}{intelligence_block}"),
@@ -503,12 +503,15 @@ pub fn full_instructions_for_rules_file(crp_mode: CrpMode) -> String {
     build_full_instructions(crp_mode, "")
 }
 
-fn build_terse_agent_block(_crp_mode: &CrpMode) -> String {
+fn build_terse_agent_block_for_client(_crp_mode: &CrpMode, client_name: &str) -> String {
     use crate::core::config::{CompressionLevel, Config};
     let cfg = Config::load();
     let compression = CompressionLevel::effective(&cfg);
     if compression.is_active() {
-        return crate::core::terse::agent_prompts::build_prompt_block(&compression);
+        return crate::core::terse::agent_prompts::build_prompt_block_for_client(
+            &compression,
+            client_name,
+        );
     }
     String::new()
 }

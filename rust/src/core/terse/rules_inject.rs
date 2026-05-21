@@ -14,19 +14,24 @@ const COMPRESSION_BLOCK_END: &str = "<!-- /lean-ctx-compression -->";
 /// Idempotent — safe to call repeatedly. Returns the number of files updated.
 pub fn inject(level: &CompressionLevel) -> usize {
     let prompt = super::agent_prompts::build_prompt_block(level);
-    let block = if prompt.is_empty() {
-        String::new()
-    } else {
-        format!("{COMPRESSION_BLOCK_START}\n{prompt}\n{COMPRESSION_BLOCK_END}")
+    let prompt_ascii = super::agent_prompts::build_prompt_block_for_client(level, "cursor");
+    let block = |p: &str| {
+        if p.is_empty() {
+            String::new()
+        } else {
+            format!("{COMPRESSION_BLOCK_START}\n{p}\n{COMPRESSION_BLOCK_END}")
+        }
     };
 
     let home = crate::core::home::resolve_home_dir().unwrap_or_default();
     let cwd = std::env::current_dir().unwrap_or_default();
     let mut updated = 0;
 
-    let paths: Vec<std::path::PathBuf> = vec![
+    let cursor_paths: Vec<std::path::PathBuf> = vec![
         home.join(".cursor/rules/lean-ctx.mdc"),
         cwd.join(".cursorrules"),
+    ];
+    let other_paths: Vec<std::path::PathBuf> = vec![
         cwd.join("AGENTS.md"),
         cwd.join(".claude/rules/lean-ctx.md"),
         cwd.join(".kiro/steering/lean-ctx.md"),
@@ -34,10 +39,22 @@ pub fn inject(level: &CompressionLevel) -> usize {
         home.join(".qoder/rules/lean-ctx.md"),
     ];
 
-    for path in paths {
+    for path in cursor_paths {
         if path.exists() {
             if let Ok(content) = std::fs::read_to_string(&path) {
-                let new_content = upsert_block(&content, &block);
+                let new_content = upsert_block(&content, &block(&prompt_ascii));
+                if new_content != content {
+                    let _ = std::fs::write(&path, &new_content);
+                    updated += 1;
+                }
+            }
+        }
+    }
+
+    for path in other_paths {
+        if path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                let new_content = upsert_block(&content, &block(&prompt));
                 if new_content != content {
                     let _ = std::fs::write(&path, &new_content);
                     updated += 1;

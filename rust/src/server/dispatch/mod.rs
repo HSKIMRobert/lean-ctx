@@ -271,7 +271,8 @@ impl LeanCtxServer {
             }
 
             let saved = output.saved_tokens;
-            let final_text = header_line.unwrap_or(output.text);
+            let raw_text = header_line.unwrap_or(output.text);
+            let final_text = crate::core::output_sanitizer::sanitize(&raw_text);
 
             let reference_enabled = std::env::var("LEAN_CTX_REFERENCE_RESULTS").map_or_else(
                 |_| crate::core::config::Config::load().reference_results,

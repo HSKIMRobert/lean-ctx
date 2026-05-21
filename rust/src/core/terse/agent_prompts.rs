@@ -11,12 +11,28 @@ use crate::core::config::CompressionLevel;
 
 /// Generates the agent prompt block for the given compression level.
 pub fn build_prompt_block(level: &CompressionLevel) -> String {
-    match level {
-        CompressionLevel::Off => String::new(),
+    build_prompt_block_for_client(level, "")
+}
+
+/// Generates the agent prompt block, optionally adjusting for downstream
+/// model compatibility (e.g. Cursor's Thought summarizer).
+pub fn build_prompt_block_for_client(level: &CompressionLevel, client_name: &str) -> String {
+    let raw = match level {
+        CompressionLevel::Off => return String::new(),
         CompressionLevel::Lite => LITE_PROMPT.to_string(),
         CompressionLevel::Standard => STANDARD_PROMPT.to_string(),
         CompressionLevel::Max => MAX_PROMPT.to_string(),
+    };
+    if is_cursor_client(client_name) {
+        crate::core::output_sanitizer::ascii_safe_symbols(&raw)
+    } else {
+        raw
     }
+}
+
+fn is_cursor_client(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    lower.contains("cursor")
 }
 
 const LITE_PROMPT: &str = "\

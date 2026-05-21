@@ -337,17 +337,17 @@ fn apply_tdd_shortcuts(line: &str) -> String {
         ("environment", "env"),
         ("description", "desc"),
         ("information", "info"),
-        // Symbols (1 token each, replaces 5-10 tokens of prose)
-        ("returns ", "→ "),
-        ("therefore", "∴"),
-        ("approximately", "≈"),
-        ("successfully", "✓"),
-        ("completed", "✓"),
-        ("failed", "✗"),
-        ("warning", "⚠"),
+        // Symbols (ASCII-safe to avoid downstream summarizer degeneration — GH#257)
+        ("returns ", "-> "),
+        ("therefore", ":."),
+        ("approximately", "~="),
+        ("successfully", "ok"),
+        ("completed", "ok"),
+        ("failed", "FAIL"),
+        ("warning", "WARN"),
         // Operators
-        (" is not ", " ≠ "),
-        (" does not ", " ≠ "),
+        (" is not ", " != "),
+        (" does not ", " != "),
         (" equals ", " = "),
         (" and ", " & "),
         ("error", "err"),
@@ -438,8 +438,8 @@ mod tests {
     fn test_tdd_shortcuts() {
         let result = apply_tdd_shortcuts("the function returns successfully");
         assert!(result.contains("fn"));
-        assert!(result.contains("→"));
-        assert!(result.contains("✓"));
+        assert!(result.contains("->"));
+        assert!(result.contains("ok"));
     }
 
     #[test]
@@ -447,7 +447,7 @@ mod tests {
         let result = apply_tdd_shortcuts("the application environment failed");
         assert!(result.contains("app"));
         assert!(result.contains("env"));
-        assert!(result.contains("✗"));
+        assert!(result.contains("FAIL"));
     }
 
     #[test]
