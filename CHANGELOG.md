@@ -24,6 +24,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - **Plan mode scenario tests** — New `plan_mode_scenarios.rs` with 11 tests covering VS Code settings injection, Claude Code permissions, idempotency, merge behavior, and status detection
 - **Power user worksession test suite** — New `power_user_worksession.rs` with 12 end-to-end scenarios simulating a full coding session: initial read → edit → diff → search → knowledge → cache → overview → multi-read → compress → graph → context
 - **Lock contention hardening tests** — New `lock_contention_hardening.rs` with 14 scenarios testing bounded lock timeouts, concurrent access, I/O health escalation, and WSL2/NFS environment detection
+- **`LEAN_CTX_CLIENT_HINT` env override** — Client capability detection can now be overridden for testing and edge-case environments
+- **`lean-ctx doctor` provider status** — Shows active providers and their auth status
+- **`lean-ctx doctor` Copilot CLI MCP check** — Separate diagnostic for Copilot CLI MCP configuration (distinct from VS Code MCP)
+- **VS Code Extension `.vscode/mcp.json` support** — New standard path with `type: "stdio"` transport
+- **`ctx_ledger reset` clears cache delivery flags** — Prevents stale "already delivered" states
+- **Knowledge.json size warning** — Warns when knowledge file exceeds 1 MB during load
+- **CLI smoke tests** — New integration tests for `gain --json`, `grep`, `ls`, `doctor` commands
 
 ### Fixed
 
@@ -32,16 +39,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - **Bash/Zsh `lean-ctx-off` leaks env var** — `unset LEAN_CTX_ENABLED` changed to `export LEAN_CTX_ENABLED=0` for consistent disable semantics across shells
 - **Provider init ignores project root** — `ctx_provider` and `ctx_preload` now call `init_with_project_root(Some(root))` instead of `init_builtin_providers()`, enabling config-based provider discovery scoped to the actual project directory
 - **Windows CI failure: dead `is_running_in_powershell()`** — Removed unused `#[cfg(windows)]` function that triggered `-Dwarnings` failure on `windows-latest` CI
+- **Lock contention in 12 MCP tools** — `ctx_read`, `ctx_edit`, `ctx_delta`, `ctx_fill`, `ctx_handoff`, `ctx_knowledge`, `ctx_multi_read`, `ctx_smart_read`, `ctx_prefetch`, `ctx_ledger`, `ctx_preload`, `ctx_provider` now use bounded lock acquisition with adaptive timeouts instead of indefinite waits
+- **Adaptive timeout death spiral** — SlowFs/Degraded environments now get *longer* timeouts (1.5×/2×), not shorter, preventing cascading failures
+- **UTF-8 safe truncation** — No more panics on multi-byte character boundaries in hook handlers, `ctx_read`, `ctx_overview`, and server dispatch
+- **Cache staleness for missing files** — A missing file is now correctly treated as stale (previously wasn't)
+- **`compound_lexer` Unicode** — Switched from byte-based to char-based parsing; fixed `$(…)` subshell detection
+- **Windows shell output decoding** — Tries UTF-8 first, then Active Code Page (ACP) as fallback
+- **`ctx_read` lock contention** — Returns actionable error message instead of hanging silently
+- **`ctx_read` not-found** — Provides actionable hint after retry failure
+- **BM25 zstd decompression bomb** — Bounded decode prevents memory exhaustion from malformed compressed index
+- **Copilot hooks merge** — No longer overwrites existing hooks during setup
+- **`ctx_knowledge` rehydrate time budget** — Capped at 10 seconds to prevent blocking
+- **`ctx_execute` respects `GIT_PAGER`/`PAGER`** — Only sets pager env vars when not already set by user
 
 ### Changed
 
 - **`providers.auto_index` default is now `true`** — New installations automatically index provider data into BM25/Graph/Knowledge stores. Previously defaulted to `false` (cache-only)
 - **MCP tool count** — 61 → 62 (added `ctx_provider`)
 - **Tool descriptions** — Updated `pkgdesc` in AUR packages and `description` in Cargo.toml to reflect 62 tools
+- **`ctx_read` post-dispatch** — Enrichment bounded to 3s; ledger/eviction/elicitation run async (no longer inline in output)
+- **VS Code/Copilot client detection** — Now also recognizes "Visual Studio Code" and "vscode" client identifiers
+- **Knowledge rehydrate limit** — Maximum archives reduced from 12 to 4 for faster startup
+- **Shell pattern pipeline** — ANSI-stripped output flows through all compressor stages
 
 ### Removed
 
 - **Dead code cleanup** — Removed `Config::providers_mcp_bridges()` (unused after `init.rs` refactoring), `hints_from_index()` (unused wrapper), `is_running_in_powershell()` (Windows-only, never called), unused `ProjectIndex` import
+- **Inline eviction/elicitation hints in `ctx_read` response** — Now only debug-logged, no longer appended to tool output
 
 ## [3.6.12] — 2026-05-21
 
