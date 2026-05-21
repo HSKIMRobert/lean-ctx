@@ -1022,6 +1022,15 @@ pub fn run() {
     }
     print_check(&proxy_health);
 
+    // 20) Stale proxy env (ANTHROPIC_BASE_URL pointing to local proxy while proxy is not enabled)
+    let stale_env = stale_proxy_env_outcome();
+    if let Some(ref check) = stale_env {
+        if check.ok {
+            passed += 1;
+        }
+        print_check(check);
+    }
+
     // LSP servers (optional, informational)
     println!("\n  {BOLD}{WHITE}LSP (optional — for ctx_refactor):{RST}");
     let lsp_outcomes = lsp_server_outcomes();
@@ -1035,6 +1044,9 @@ pub fn run() {
         effective_total += 1;
     }
     if claude_truncation.is_some() {
+        effective_total += 1;
+    }
+    if stale_env.is_some() {
         effective_total += 1;
     }
     println!();
@@ -1144,6 +1156,63 @@ fn proxy_health_outcome() -> Outcome {
             ),
         },
     }
+}
+
+/// Detects stale `ANTHROPIC_BASE_URL` in Claude Code settings pointing to the local
+/// lean-ctx proxy when the proxy is not enabled. Returns `None` when no mismatch exists
+/// (no check needed), `Some(Outcome)` when a stale URL is found.
+fn stale_proxy_env_outcome() -> Option<Outcome> {
+    use crate::core::config::Config;
+
+    let home = dirs::home_dir()?;
+    let cfg = Config::load();
+    let port = crate::proxy_setup::default_port();
+
+    if cfg.proxy_enabled == Some(true) {
+        return None;
+    }
+
+    let settings_dir = crate::core::editor_registry::claude_state_dir(&home);
+    let settings_path = settings_dir.join("settings.json");
+    let content = std::fs::read_to_string(&settings_path).ok()?;
+    let doc: serde_json::Value = serde_json::from_str(&content).ok()?;
+
+    let base_url = doc
+        .get("env")
+        .and_then(|e| e.get("ANTHROPIC_BASE_URL"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    if base_url.is_empty() {
+        return None;
+    }
+
+    let local_proxy = format!("http://127.0.0.1:{port}");
+    let is_local = base_url == local_proxy
+        || base_url == format!("http://localhost:{port}")
+        || base_url.starts_with("http://127.0.0.1:")
+        || base_url.starts_with("http://localhost:");
+
+    if !is_local {
+        return None;
+    }
+
+    let state = if cfg.proxy_enabled == Some(false) {
+        "disabled"
+    } else {
+        "not configured"
+    };
+
+    Some(Outcome {
+        ok: false,
+        line: format!(
+            "{BOLD}Proxy env{RST}  {RED}ANTHROPIC_BASE_URL → {base_url} but proxy is {state}{RST}\n\
+             {DIM}         Claude Code routes API traffic to lean-ctx, but lean-ctx proxy is {state}.{RST}\n\
+             {DIM}         This causes 401 auth failures. Fix:{RST}\n\
+             {YELLOW}           lean-ctx proxy cleanup    {DIM}(remove stale URL){RST}\n\
+             {YELLOW}           lean-ctx proxy enable     {DIM}(enable the proxy){RST}"
+        ),
+    })
 }
 
 fn proxy_upstream_outcome() -> Outcome {

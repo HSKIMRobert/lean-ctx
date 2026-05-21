@@ -55,6 +55,112 @@ pub fn preview_proxy_cleanup(home: &Path) {
     }
 }
 
+/// Removes stale proxy URLs from Claude Code / Codex settings when the proxy is not enabled.
+/// Returns the number of stale URLs cleaned up.
+pub fn cleanup_stale_proxy_env(home: &Path) -> usize {
+    let cfg = crate::core::config::Config::load();
+    if cfg.proxy_enabled == Some(true) {
+        return 0;
+    }
+
+    let mut cleaned = 0;
+
+    let settings_dir = crate::core::editor_registry::claude_state_dir(home);
+    let settings_path = settings_dir.join("settings.json");
+    if let Ok(content) = std::fs::read_to_string(&settings_path) {
+        if let Ok(mut doc) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(base_url) = doc
+                .get("env")
+                .and_then(|e| e.get("ANTHROPIC_BASE_URL"))
+                .and_then(|v| v.as_str())
+                .map(String::from)
+            {
+                if is_local_lean_ctx_url(&base_url) {
+                    if let Some(env_obj) = doc.get_mut("env").and_then(|e| e.as_object_mut()) {
+                        if let Some(ref upstream) = cfg.proxy.anthropic_upstream {
+                            env_obj.insert(
+                                "ANTHROPIC_BASE_URL".to_string(),
+                                serde_json::Value::String(upstream.clone()),
+                            );
+                            println!(
+                                "  ✓ Restored ANTHROPIC_BASE_URL → {upstream} in Claude Code settings"
+                            );
+                        } else {
+                            env_obj.remove("ANTHROPIC_BASE_URL");
+                            if env_obj.is_empty() {
+                                doc.as_object_mut().map(|o| o.remove("env"));
+                            }
+                            println!(
+                                "  ✓ Removed stale ANTHROPIC_BASE_URL from Claude Code settings"
+                            );
+                        }
+                        let out = serde_json::to_string_pretty(&doc).unwrap_or_default();
+                        let _ = std::fs::write(&settings_path, out + "\n");
+                        cleaned += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    let codex_dir = crate::core::home::resolve_codex_dir().unwrap_or_else(|| home.join(".codex"));
+    let codex_path = codex_dir.join("config.toml");
+    if let Ok(content) = std::fs::read_to_string(&codex_path) {
+        if content.contains("OPENAI_BASE_URL")
+            && (content.contains("127.0.0.1") || content.contains("localhost"))
+        {
+            let filtered: String = content
+                .lines()
+                .filter(|line| !line.trim().starts_with("OPENAI_BASE_URL"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let filtered = filtered
+                .replace("\n[env]\n\n", "\n")
+                .replace("[env]\n\n", "");
+            let filtered = if filtered.trim() == "[env]" {
+                String::new()
+            } else {
+                filtered
+            };
+            let _ = std::fs::write(&codex_path, &filtered);
+            println!("  ✓ Removed stale OPENAI_BASE_URL from Codex CLI config");
+            cleaned += 1;
+        }
+    }
+
+    cleaned
+}
+
+pub fn is_local_lean_ctx_url(url: &str) -> bool {
+    url.starts_with("http://127.0.0.1:") || url.starts_with("http://localhost:")
+}
+
+/// Returns true if Claude Code settings contain a local ANTHROPIC_BASE_URL
+/// while the proxy is not enabled (stale configuration).
+pub fn has_stale_proxy_url(home: &Path) -> bool {
+    let cfg = crate::core::config::Config::load();
+    if cfg.proxy_enabled == Some(true) {
+        return false;
+    }
+
+    let settings_dir = crate::core::editor_registry::claude_state_dir(home);
+    let settings_path = settings_dir.join("settings.json");
+    let Ok(content) = std::fs::read_to_string(&settings_path) else {
+        return false;
+    };
+    let Ok(doc) = serde_json::from_str::<serde_json::Value>(&content) else {
+        return false;
+    };
+
+    let base_url = doc
+        .get("env")
+        .and_then(|e| e.get("ANTHROPIC_BASE_URL"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    is_local_lean_ctx_url(base_url)
+}
+
 pub fn uninstall_proxy_env(home: &Path, quiet: bool) {
     for rc in &[home.join(".zshrc"), home.join(".bashrc")] {
         let label = format!(

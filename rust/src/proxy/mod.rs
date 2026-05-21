@@ -214,7 +214,7 @@ async fn proxy_auth_guard(
     req: axum::extract::Request,
     next: axum::middleware::Next,
     expected_token: String,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, Response> {
     let path = req.uri().path();
     if path == "/health" {
         return Ok(next.run(req).await);
@@ -232,7 +232,22 @@ async fn proxy_auth_guard(
         }
     }
 
-    Err(StatusCode::UNAUTHORIZED)
+    let cfg = crate::core::config::Config::load();
+    let hint = match cfg.proxy_enabled {
+        Some(true) => "lean-ctx proxy requires a Bearer token. Check LEAN_CTX_PROXY_TOKEN.",
+        Some(false) => "lean-ctx proxy is disabled but still running. Run: lean-ctx proxy cleanup",
+        None => "lean-ctx proxy is not configured. Your AI tool's ANTHROPIC_BASE_URL may be pointing here by mistake. Fix: lean-ctx proxy cleanup  OR  lean-ctx proxy enable",
+    };
+
+    let body = serde_json::json!({
+        "type": "error",
+        "error": {
+            "type": "authentication_error",
+            "message": format!("401 Unauthorized — {hint}")
+        }
+    });
+
+    Err((StatusCode::UNAUTHORIZED, axum::Json(body)).into_response())
 }
 
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {

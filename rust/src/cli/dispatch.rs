@@ -862,6 +862,15 @@ pub fn run() {
                             if cfg.proxy_enabled == Some(false) || cfg.proxy_enabled.is_none() {
                                 println!();
                                 println!("  Enable: lean-ctx proxy enable");
+
+                                let home = dirs::home_dir().unwrap_or_default();
+                                if crate::proxy_setup::has_stale_proxy_url(&home) {
+                                    println!();
+                                    println!("  \x1b[33m⚠ WARNING: Claude Code ANTHROPIC_BASE_URL points to the local proxy,\x1b[0m");
+                                    println!("  \x1b[33m  but proxy is not enabled. This causes 401 auth failures.\x1b[0m");
+                                    println!("  Fix:  lean-ctx proxy cleanup   (remove stale URL)");
+                                    println!("        lean-ctx proxy enable    (enable the proxy)");
+                                }
                             }
                         }
                         "enable" => {
@@ -894,8 +903,20 @@ pub fn run() {
                             );
                             println!("  Re-enable anytime: lean-ctx proxy enable");
                         }
+                        "cleanup" => {
+                            let home = dirs::home_dir().unwrap_or_default();
+                            let removed = crate::proxy_setup::cleanup_stale_proxy_env(&home);
+                            if removed > 0 {
+                                println!(
+                                    "\x1b[32m✓\x1b[0m Cleaned up {removed} stale proxy URL(s)."
+                                );
+                                println!("  Restart your AI tool for changes to take effect.");
+                            } else {
+                                println!("  No stale proxy URLs found. Nothing to clean up.");
+                            }
+                        }
                         _ => {
-                            println!("Usage: lean-ctx proxy <start|stop|status|enable|disable> [--port=4444]");
+                            println!("Usage: lean-ctx proxy <start|stop|status|enable|disable|cleanup> [--port=4444]");
                         }
                     }
                     return;

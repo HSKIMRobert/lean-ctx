@@ -242,6 +242,26 @@ pub(super) fn run_fix(opts: &DoctorFixOptions) -> Result<i32, String> {
     });
     steps.push(bm25_step);
 
+    let mut proxy_env_step = SetupStepReport {
+        name: "proxy_env".to_string(),
+        ok: true,
+        items: Vec::new(),
+        warnings: Vec::new(),
+        errors: Vec::new(),
+    };
+    let cleaned = crate::proxy_setup::cleanup_stale_proxy_env(&home);
+    proxy_env_step.items.push(SetupItem {
+        name: "stale_proxy_urls".to_string(),
+        status: if cleaned > 0 {
+            format!("cleaned {cleaned} stale URL(s)")
+        } else {
+            "no stale URLs".to_string()
+        },
+        path: None,
+        note: None,
+    });
+    steps.push(proxy_env_step);
+
     let mut verify_step = SetupStepReport {
         name: "verify".to_string(),
         ok: true,
