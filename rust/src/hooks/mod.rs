@@ -525,6 +525,11 @@ pub fn install_agent_hook_with_mode(agent: &str, global: bool, mode: HookMode) {
         "cursor" => install_cursor_hook_with_mode(global, mode),
         "gemini" => install_gemini_hook(),
         "antigravity" => install_antigravity_hook(),
+        "augment" => install_mcp_json_agent(
+            "Augment CLI",
+            "~/.augment/settings.json",
+            &crate::core::editor_registry::augment_cli_settings_path(&home),
+        ),
         "codex" => install_codex_hook(),
         "windsurf" => install_windsurf_rules(global),
         "cline" | "roo" => install_cline_rules(global),
@@ -589,10 +594,10 @@ pub fn install_agent_hook_with_mode(agent: &str, global: bool, mode: HookMode) {
         ),
         _ => {
             eprintln!("Unknown agent: {agent}");
-            eprintln!("  Supported: aider, amazonq, amp, antigravity, claude, cline, codex,");
-            eprintln!("    continue, copilot, crush, cursor, emacs, gemini, hermes, jetbrains,");
-            eprintln!("    kiro, neovim, opencode, pi, qoder, qoderwork, qwen, roo, sublime,");
-            eprintln!("    trae, verdent, vscode, windsurf, zed");
+            eprintln!("  Supported: aider, amazonq, amp, antigravity, augment, claude, cline,");
+            eprintln!("    codex, continue, copilot, crush, cursor, emacs, gemini, hermes,");
+            eprintln!("    jetbrains, kiro, neovim, opencode, pi, qoder, qoderwork, qwen, roo,");
+            eprintln!("    sublime, trae, verdent, vscode, windsurf, zed");
             std::process::exit(1);
         }
     }

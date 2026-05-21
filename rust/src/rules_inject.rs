@@ -441,6 +441,13 @@ fn is_tool_detected(target: &RulesTarget, home: &std::path::Path) -> bool {
         "AWS Kiro" => home.join(".kiro").exists(),
         "Crush" => home.join(".config/crush").exists() || command_exists("crush"),
         "Verdent" => home.join(".verdent").exists(),
+        // Augment ships as either the `auggie` CLI (writes to ~/.augment/) or
+        // the VS Code extension (`augment.vscode-augment` globalStorage).
+        "Augment" => {
+            command_exists("auggie")
+                || home.join(".augment").exists()
+                || detect_extension_installed(home, "augment.vscode-augment")
+        }
         _ => false,
     }
 }
@@ -641,6 +648,11 @@ fn build_rules_targets(home: &std::path::Path) -> Vec<RulesTarget> {
         RulesTarget {
             name: "Crush",
             path: home.join(".config/crush/rules/lean-ctx.md"),
+            format: RulesFormat::DedicatedMarkdown,
+        },
+        RulesTarget {
+            name: "Augment",
+            path: home.join(".augment/rules/lean-ctx.md"),
             format: RulesFormat::DedicatedMarkdown,
         },
     ]
@@ -953,7 +965,7 @@ mod tests {
     fn target_count() {
         let home = std::path::PathBuf::from("/tmp/fake_home");
         let targets = build_rules_targets(&home);
-        assert_eq!(targets.len(), 21);
+        assert_eq!(targets.len(), 22);
     }
 
     #[test]
