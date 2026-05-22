@@ -621,6 +621,45 @@ pub(super) fn remove_hook_files(home: &Path, dry_run: bool) -> bool {
         println!("  {verb} Hook scripts removed");
     }
 
+    // Claude Code global settings: surgically remove lean-ctx hook entries
+    // Both settings.json and settings.local.json can contain hooks
+    for claude_settings_name in ["settings.json", "settings.local.json"] {
+        let claude_settings =
+            crate::core::editor_registry::claude_state_dir(home).join(claude_settings_name);
+        if !claude_settings.exists() {
+            continue;
+        }
+        let Ok(content) = fs::read_to_string(&claude_settings) else {
+            continue;
+        };
+        if !content.contains("lean-ctx") {
+            continue;
+        }
+        backup_before_modify(&claude_settings, dry_run);
+        match remove_lean_ctx_from_hooks_json(&content) {
+            Some(cleaned) if !cleaned.trim().is_empty() => {
+                if let Err(e) = safe_write(&claude_settings, &cleaned, dry_run) {
+                    tracing::warn!("Failed to update Claude Code {claude_settings_name}: {e}");
+                } else {
+                    let verb = if dry_run { "Would clean" } else { "✓" };
+                    println!(
+                        "  {verb} Claude Code {claude_settings_name} cleaned (user settings preserved)"
+                    );
+                    removed = true;
+                }
+            }
+            _ => {
+                if let Err(e) = safe_remove(&claude_settings, dry_run) {
+                    tracing::warn!("Failed to remove Claude Code {claude_settings_name}: {e}");
+                } else {
+                    let verb = if dry_run { "Would remove" } else { "✓" };
+                    println!("  {verb} Claude Code {claude_settings_name} removed");
+                    removed = true;
+                }
+            }
+        }
+    }
+
     // hooks.json: surgically remove lean-ctx entries instead of deleting
     for (label, hj_path) in [
         ("Cursor", home.join(".cursor/hooks.json")),
