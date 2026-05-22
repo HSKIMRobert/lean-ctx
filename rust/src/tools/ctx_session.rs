@@ -709,11 +709,18 @@ stale_files: {}\n",
 }
 
 fn parse_finding_value(value: &str) -> (Option<String>, Option<u32>, &str) {
-    // Format: "file.rs:42 — summary text" or just "summary text"
-    if let Some(dash_pos) = value.find(" \u{2014} ").or_else(|| value.find(" - ")) {
-        let location = &value[..dash_pos];
-        let sep_len = 3;
-        let text = &value[dash_pos + sep_len..];
+    const EM_DASH_SEP: &str = " \u{2014} ";
+    const ASCII_SEP: &str = " - ";
+
+    let (dash_pos, sep) = if let Some(p) = value.find(EM_DASH_SEP) {
+        (Some(p), EM_DASH_SEP)
+    } else {
+        (value.find(ASCII_SEP), ASCII_SEP)
+    };
+
+    if let Some(pos) = dash_pos {
+        let location = &value[..pos];
+        let text = &value[pos + sep.len()..];
 
         if let Some(colon_pos) = location.rfind(':') {
             let file = &location[..colon_pos];
@@ -724,4 +731,59 @@ fn parse_finding_value(value: &str) -> (Option<String>, Option<u32>, &str) {
         return (Some(location.to_string()), None, text);
     }
     (None, None, value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_finding_value;
+
+    #[test]
+    fn finding_with_em_dash_and_file_line() {
+        let (file, line, text) =
+            parse_finding_value("auth.rs:42 \u{2014} missing token validation");
+        assert_eq!(file.as_deref(), Some("auth.rs"));
+        assert_eq!(line, Some(42));
+        assert_eq!(text, "missing token validation");
+    }
+
+    #[test]
+    fn finding_with_ascii_dash_and_file_line() {
+        let (file, line, text) = parse_finding_value("auth.rs:42 - missing token validation");
+        assert_eq!(file.as_deref(), Some("auth.rs"));
+        assert_eq!(line, Some(42));
+        assert_eq!(text, "missing token validation");
+    }
+
+    #[test]
+    fn finding_with_em_dash_no_line() {
+        let (file, line, text) = parse_finding_value("auth module \u{2014} needs refactoring");
+        assert_eq!(file.as_deref(), Some("auth module"));
+        assert_eq!(line, None);
+        assert_eq!(text, "needs refactoring");
+    }
+
+    #[test]
+    fn finding_plain_text() {
+        let (file, line, text) = parse_finding_value("plain text finding");
+        assert_eq!(file, None);
+        assert_eq!(line, None);
+        assert_eq!(text, "plain text finding");
+    }
+
+    #[test]
+    fn finding_cyrillic_with_em_dash_issue_272() {
+        let value = "ruff: pyproject.toml dev-group \u{2014} >=0.15.14,<0.16.0 (был 0.14.x)";
+        let (file, line, text) = parse_finding_value(value);
+        assert_eq!(file.as_deref(), Some("ruff: pyproject.toml dev-group"));
+        assert_eq!(line, None);
+        assert_eq!(text, ">=0.15.14,<0.16.0 (был 0.14.x)");
+    }
+
+    #[test]
+    fn finding_em_dash_at_start() {
+        let (file, line, text) = parse_finding_value("src/main.rs:1 \u{2014} entry point");
+        assert_eq!(file.as_deref(), Some("src/main.rs"));
+        assert_eq!(line, Some(1));
+        assert_eq!(text, "entry point");
+    }
 }

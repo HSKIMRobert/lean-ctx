@@ -594,8 +594,10 @@ impl ServerHandler for LeanCtxServer {
                         "unknown".to_string()
                     };
                     tracing::error!(tool = name, "Tool panicked: {detail}");
-                    (format!("ERROR: lean-ctx internal error in tool '{name}'.\n\
-                             The MCP server is still running. Please retry or use a different approach."), 0)
+                    return Ok(CallToolResult::error(vec![Content::text(format!(
+                        "ERROR: lean-ctx internal error in tool '{name}'.\n\
+                         The MCP server is still running. Please retry or use a different approach."
+                    ))]));
                 }
             }
         };
