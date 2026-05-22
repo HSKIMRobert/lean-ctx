@@ -430,9 +430,11 @@ class CockpitLive extends HTMLElement {
   async _fetchAndApply(fetchJson, forceRender) {
     this._fetching = true;
     var paths = ['/api/events', '/api/stats'];
+    var cached = window.LctxApi && window.LctxApi.cachedFetch ? window.LctxApi.cachedFetch : fetchJson;
     var results = await Promise.all(
       paths.map(function (p) {
-        return fetchJson(p, { timeoutMs: 8000 }).catch(function (e) {
+        var fn = p === '/api/stats' ? cached : fetchJson;
+        return fn(p, { timeoutMs: 8000 }).catch(function (e) {
           return { __error: e && e.error ? e.error : String(e || 'error'), __path: p };
         });
       })

@@ -6,6 +6,7 @@ mod graph;
 pub mod helpers;
 mod knowledge;
 mod memory;
+mod risk;
 mod stats;
 mod system;
 mod tools;
@@ -26,6 +27,7 @@ fn match_component_path(path: &str) -> Option<String> {
         "/static/components/cockpit-graph.js" => super::COCKPIT_COMPONENT_GRAPH_JS,
         "/static/components/cockpit-health.js" => super::COCKPIT_COMPONENT_HEALTH_JS,
         "/static/components/cockpit-remaining.js" => super::COCKPIT_COMPONENT_REMAINING_JS,
+        "/static/components/cockpit-commander.js" => super::COCKPIT_COMPONENT_COMMANDER_JS,
         _ => return None,
     };
     Some(content.to_string())
@@ -50,22 +52,6 @@ pub fn route_response(
             if valid_query {
                 let script = format!(
                     "<script>window.__LEAN_CTX_TOKEN__=\"{expected}\";try{{if(location.search.includes('token=')){{history.replaceState(null,'',location.pathname+location.hash);}}}}catch(e){{}}</script>"
-                );
-                html = html.replacen("<head>", &format!("<head>{script}"), 1);
-            }
-        }
-        return ("200 OK", "text/html; charset=utf-8", html);
-    }
-    if path == "/legacy" || path == "/legacy/" {
-        let mut html = super::DASHBOARD_HTML.to_string();
-        if let Some(t) = token {
-            let expected = t.as_str();
-            let valid_query = query_token
-                .as_ref()
-                .is_some_and(|q| super::constant_time_eq(q.as_bytes(), expected.as_bytes()));
-            if valid_query {
-                let script = format!(
-                    "<script>window.__LEAN_CTX_TOKEN__=\"{expected}\";try{{if(location.search.includes('token=')){{history.replaceState(null,'',location.pathname);}}}}catch(e){{}}</script>"
                 );
                 html = html.replacen("<head>", &format!("<head>{script}"), 1);
             }
@@ -123,6 +109,7 @@ pub fn route_response(
 
     stats::handle(path, query_str, method, body)
         .or_else(|| context::handle(path, query_str, method, body))
+        .or_else(|| risk::handle(path, query_str, method, body))
         .or_else(|| knowledge::handle(path, query_str, method, body))
         .or_else(|| memory::handle(path, query_str, method, body))
         .or_else(|| graph::handle(path, query_str, method, body))

@@ -5,8 +5,6 @@ use tokio::net::TcpListener;
 
 const DEFAULT_PORT: u16 = 3333;
 const DEFAULT_HOST: &str = "127.0.0.1";
-const DASHBOARD_HTML: &str = include_str!("dashboard.html");
-
 const COCKPIT_INDEX_HTML: &str = include_str!("static/index.html");
 const COCKPIT_STYLE_CSS: &str = include_str!("static/style.css");
 const COCKPIT_LIB_API_JS: &str = include_str!("static/lib/api.js");
@@ -27,6 +25,7 @@ const COCKPIT_COMPONENT_COMPRESSION_JS: &str =
 const COCKPIT_COMPONENT_GRAPH_JS: &str = include_str!("static/components/cockpit-graph.js");
 const COCKPIT_COMPONENT_HEALTH_JS: &str = include_str!("static/components/cockpit-health.js");
 const COCKPIT_COMPONENT_REMAINING_JS: &str = include_str!("static/components/cockpit-remaining.js");
+const COCKPIT_COMPONENT_COMMANDER_JS: &str = include_str!("static/components/cockpit-commander.js");
 
 pub mod routes;
 
@@ -134,7 +133,16 @@ pub async fn start(port: Option<u16>, host: Option<String>) {
 
 fn generate_token() -> String {
     let mut bytes = [0u8; 32];
-    getrandom::fill(&mut bytes).expect("CSPRNG unavailable — cannot generate secure token");
+    if getrandom::fill(&mut bytes).is_err() {
+        tracing::warn!("CSPRNG unavailable — falling back to time-based token");
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        for (i, b) in bytes.iter_mut().enumerate() {
+            *b = ((ts >> (i % 16 * 8)) & 0xFF) as u8;
+        }
+    }
     format!("lctx_{}", hex_lower(&bytes))
 }
 
@@ -486,7 +494,15 @@ async fn handle_request(mut stream: tokio::net::TcpStream, token: Option<Arc<Str
 
     let nonce = {
         let mut nb = [0u8; 16];
-        getrandom::fill(&mut nb).expect("CSPRNG unavailable — cannot generate CSP nonce");
+        if getrandom::fill(&mut nb).is_err() {
+            nb.iter_mut().enumerate().for_each(|(i, b)| {
+                *b = (std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .subsec_nanos()
+                    .wrapping_add(i as u32)) as u8;
+            });
+        }
         hex_lower(&nb)
     };
     if content_type.contains("text/html") {

@@ -93,6 +93,28 @@ async function apiFetch(path, opts) {
   }
 }
 
-window.LctxApi = { apiFetch, getAuthToken };
+var _cache = {};
+var DEFAULT_TTL_MS = 5000;
 
-export { apiFetch, getAuthToken };
+function cachedFetch(path, opts) {
+  var ttl = opts && opts.cacheTtlMs != null ? opts.cacheTtlMs : DEFAULT_TTL_MS;
+  if (ttl > 0) {
+    var entry = _cache[path];
+    if (entry && Date.now() - entry.ts < ttl) {
+      return Promise.resolve(entry.data);
+    }
+  }
+  return apiFetch(path, opts).then(function (data) {
+    if (ttl > 0) _cache[path] = { data: data, ts: Date.now() };
+    return data;
+  });
+}
+
+function invalidateCache(path) {
+  if (path) delete _cache[path];
+  else _cache = {};
+}
+
+window.LctxApi = { apiFetch, cachedFetch, invalidateCache, getAuthToken };
+
+export { apiFetch, cachedFetch, invalidateCache, getAuthToken };

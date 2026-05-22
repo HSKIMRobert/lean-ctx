@@ -163,7 +163,7 @@ pub fn start_guard(eviction_callback: Arc<dyn Fn(PressureLevel) + Send + Sync>) 
                 if snap.pressure_level == PressureLevel::Critical {
                     tracing::error!(
                         "[memory_guard] CRITICAL: RSS={:.0}MB ({:.1}% of {:.0}GB) — \
-                         emergency shutdown to prevent OS OOM kill",
+                         aggressive eviction to prevent OS OOM kill",
                         snap.rss_bytes as f64 / 1_048_576.0,
                         snap.rss_percent,
                         snap.system_ram_bytes as f64 / 1_073_741_824.0,
@@ -172,16 +172,26 @@ pub fn start_guard(eviction_callback: Arc<dyn Fn(PressureLevel) + Send + Sync>) 
                     (eviction_callback)(PressureLevel::Critical);
                     jemalloc_purge();
 
-                    std::thread::sleep(std::time::Duration::from_secs(2));
-                    if let Some(recheck) = MemorySnapshot::capture() {
-                        if recheck.pressure_level >= PressureLevel::Hard {
+                    for attempt in 1..=3 {
+                        std::thread::sleep(std::time::Duration::from_secs(2));
+                        (eviction_callback)(PressureLevel::Critical);
+                        jemalloc_purge();
+                        if let Some(recheck) = MemorySnapshot::capture() {
+                            if recheck.pressure_level < PressureLevel::Hard {
+                                tracing::info!(
+                                    "[memory_guard] eviction attempt {attempt} succeeded — \
+                                     RSS={:.0}MB, pressure={:?}",
+                                    recheck.rss_bytes as f64 / 1_048_576.0,
+                                    recheck.pressure_level,
+                                );
+                                break;
+                            }
                             tracing::error!(
-                                "[memory_guard] still at {:?} after emergency eviction — \
-                                 exiting process (RSS={:.0}MB)",
+                                "[memory_guard] eviction attempt {attempt}/3 — still {:?} \
+                                 (RSS={:.0}MB)",
                                 recheck.pressure_level,
                                 recheck.rss_bytes as f64 / 1_048_576.0,
                             );
-                            std::process::exit(137);
                         }
                     }
                 }

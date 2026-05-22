@@ -296,6 +296,10 @@ pub struct Config {
     pub proxy_enabled: Option<bool>,
     #[serde(default)]
     pub proxy_port: Option<u16>,
+    /// Proxy reachability timeout in milliseconds. Default: 200.
+    /// Override via LEAN_CTX_PROXY_TIMEOUT_MS env var.
+    #[serde(default)]
+    pub proxy_timeout_ms: Option<u64>,
     #[serde(default = "serde_defaults::default_buddy_enabled")]
     pub buddy_enabled: bool,
     #[serde(default = "serde_defaults::default_true")]
@@ -307,6 +311,18 @@ pub struct Config {
     /// Empty by default — all tools listed, no behaviour change.
     #[serde(default)]
     pub disabled_tools: Vec<String>,
+    /// Tool categories to activate by default for dynamic-tool-capable clients.
+    /// Values: "core" (always on), "arch", "debug", "memory", "metrics", "session".
+    /// Example: `default_tool_categories = ["core", "arch", "memory"]`
+    /// Override via LCTX_DEFAULT_CATEGORIES env var (comma-separated).
+    /// Empty = lean-ctx default (core + session).
+    #[serde(default)]
+    pub default_tool_categories: Vec<String>,
+    /// Disable all automatic read-mode degradation (auto_degrade + context_gate pressure).
+    /// When true, lean-ctx never downgrades requested read modes regardless of pressure.
+    /// Override via LCTX_NO_DEGRADE=1 env var.
+    #[serde(default)]
+    pub no_degrade: bool,
     #[serde(default)]
     pub loop_detection: LoopDetectionConfig,
     /// Controls where lean-ctx installs agent rule files.
@@ -825,10 +841,13 @@ impl Default for Config {
             proxy: ProxyConfig::default(),
             proxy_enabled: None,
             proxy_port: None,
+            proxy_timeout_ms: None,
             buddy_enabled: serde_defaults::default_buddy_enabled(),
             enable_wakeup_ctx: true,
             redirect_exclude: Vec::new(),
             disabled_tools: Vec::new(),
+            default_tool_categories: Vec::new(),
+            no_degrade: false,
             loop_detection: LoopDetectionConfig::default(),
             rules_scope: None,
             extra_ignore_patterns: Vec::new(),
@@ -1097,6 +1116,35 @@ impl Config {
         policy.validate()?;
         Ok(policy)
     }
+
+    /// Returns the effective set of default tool categories.
+    /// Priority: LCTX_DEFAULT_CATEGORIES env var > config.toml > hardcoded default.
+    pub fn default_tool_categories_effective(&self) -> Vec<String> {
+        if let Ok(val) = std::env::var("LCTX_DEFAULT_CATEGORIES") {
+            return val
+                .split(',')
+                .map(|s| s.trim().to_lowercase())
+                .filter(|s| !s.is_empty())
+                .collect();
+        }
+        if !self.default_tool_categories.is_empty() {
+            return self
+                .default_tool_categories
+                .iter()
+                .map(|s| s.to_lowercase())
+                .collect();
+        }
+        vec!["core".to_string(), "session".to_string()]
+    }
+
+    /// Returns `true` if all automatic read-mode degradation is disabled.
+    /// Checks LCTX_NO_DEGRADE env var first, then config.toml field.
+    pub fn no_degrade_effective(&self) -> bool {
+        if let Ok(val) = std::env::var("LCTX_NO_DEGRADE") {
+            return val == "1" || val.eq_ignore_ascii_case("true");
+        }
+        self.no_degrade
+    }
 }
 
 #[cfg(test)]
@@ -1159,6 +1207,231 @@ mod disabled_tools_tests {
     fn disabled_tools_deserialization_from_toml() {
         let cfg: Config = toml::from_str(r#"disabled_tools = ["ctx_graph", "ctx_agent"]"#).unwrap();
         assert_eq!(cfg.disabled_tools, vec!["ctx_graph", "ctx_agent"]);
+    }
+}
+
+#[cfg(test)]
+mod default_tool_categories_tests {
+    use super::*;
+
+    // --- Defaults ---
+
+    #[test]
+    fn default_returns_core_and_session() {
+        if std::env::var("LCTX_DEFAULT_CATEGORIES").is_ok() {
+            return;
+        }
+        let cfg = Config::default();
+        assert_eq!(
+            cfg.default_tool_categories_effective(),
+            vec!["core", "session"]
+        );
+    }
+
+    #[test]
+    fn default_struct_field_is_empty_vec() {
+        let cfg = Config::default();
+        assert!(cfg.default_tool_categories.is_empty());
+    }
+
+    // --- Config field overrides ---
+
+    #[test]
+    fn config_field_overrides_default() {
+        if std::env::var("LCTX_DEFAULT_CATEGORIES").is_ok() {
+            return;
+        }
+        let cfg = Config {
+            default_tool_categories: vec![
+                "core".to_string(),
+                "arch".to_string(),
+                "memory".to_string(),
+            ],
+            ..Default::default()
+        };
+        assert_eq!(
+            cfg.default_tool_categories_effective(),
+            vec!["core", "arch", "memory"]
+        );
+    }
+
+    #[test]
+    fn single_category_in_config() {
+        if std::env::var("LCTX_DEFAULT_CATEGORIES").is_ok() {
+            return;
+        }
+        let cfg = Config {
+            default_tool_categories: vec!["debug".to_string()],
+            ..Default::default()
+        };
+        assert_eq!(cfg.default_tool_categories_effective(), vec!["debug"]);
+    }
+
+    #[test]
+    fn all_six_categories_in_config() {
+        if std::env::var("LCTX_DEFAULT_CATEGORIES").is_ok() {
+            return;
+        }
+        let cfg = Config {
+            default_tool_categories: vec![
+                "core".to_string(),
+                "arch".to_string(),
+                "debug".to_string(),
+                "memory".to_string(),
+                "metrics".to_string(),
+                "session".to_string(),
+            ],
+            ..Default::default()
+        };
+        let effective = cfg.default_tool_categories_effective();
+        assert_eq!(effective.len(), 6);
+        assert!(effective.contains(&"core".to_string()));
+        assert!(effective.contains(&"metrics".to_string()));
+    }
+
+    // --- TOML deserialization ---
+
+    #[test]
+    fn deserialization_defaults_to_empty() {
+        let cfg: Config = toml::from_str("").unwrap();
+        assert!(cfg.default_tool_categories.is_empty());
+    }
+
+    #[test]
+    fn deserialization_from_toml() {
+        let cfg: Config =
+            toml::from_str(r#"default_tool_categories = ["core", "arch", "debug"]"#).unwrap();
+        assert_eq!(cfg.default_tool_categories, vec!["core", "arch", "debug"]);
+    }
+
+    #[test]
+    fn deserialization_empty_array() {
+        let cfg: Config = toml::from_str(r"default_tool_categories = []").unwrap();
+        assert!(cfg.default_tool_categories.is_empty());
+    }
+
+    #[test]
+    fn deserialization_single_entry() {
+        let cfg: Config = toml::from_str(r#"default_tool_categories = ["memory"]"#).unwrap();
+        assert_eq!(cfg.default_tool_categories, vec!["memory"]);
+    }
+
+    // --- Edge cases ---
+
+    #[test]
+    fn effective_normalizes_config_to_lowercase() {
+        if std::env::var("LCTX_DEFAULT_CATEGORIES").is_ok() {
+            return;
+        }
+        let cfg = Config {
+            default_tool_categories: vec!["ARCH".to_string(), "Debug".to_string()],
+            ..Default::default()
+        };
+        let effective = cfg.default_tool_categories_effective();
+        assert_eq!(effective, vec!["arch", "debug"]);
+    }
+}
+
+#[cfg(test)]
+mod no_degrade_tests {
+    use super::*;
+
+    // --- Defaults ---
+
+    #[test]
+    fn default_is_false() {
+        let cfg = Config::default();
+        assert!(!cfg.no_degrade);
+    }
+
+    #[test]
+    fn effective_false_when_unset() {
+        if std::env::var("LCTX_NO_DEGRADE").is_ok() {
+            return;
+        }
+        let cfg = Config::default();
+        assert!(!cfg.no_degrade_effective());
+    }
+
+    // --- Config field ---
+
+    #[test]
+    fn config_field_true_respected_when_no_env() {
+        if std::env::var("LCTX_NO_DEGRADE").is_ok() {
+            return;
+        }
+        let cfg = Config {
+            no_degrade: true,
+            ..Default::default()
+        };
+        assert!(cfg.no_degrade_effective());
+    }
+
+    #[test]
+    fn config_field_false_respected_when_no_env() {
+        if std::env::var("LCTX_NO_DEGRADE").is_ok() {
+            return;
+        }
+        let cfg = Config {
+            no_degrade: false,
+            ..Default::default()
+        };
+        assert!(!cfg.no_degrade_effective());
+    }
+
+    // --- TOML deserialization ---
+
+    #[test]
+    fn deserialization_true() {
+        let cfg: Config = toml::from_str("no_degrade = true").unwrap();
+        assert!(cfg.no_degrade);
+    }
+
+    #[test]
+    fn deserialization_false() {
+        let cfg: Config = toml::from_str("no_degrade = false").unwrap();
+        assert!(!cfg.no_degrade);
+    }
+
+    #[test]
+    fn deserialization_absent_defaults_false() {
+        let cfg: Config = toml::from_str("").unwrap();
+        assert!(!cfg.no_degrade);
+    }
+
+    // --- Coexistence with other config fields ---
+
+    #[test]
+    fn no_degrade_independent_of_disabled_tools() {
+        if std::env::var("LCTX_NO_DEGRADE").is_ok() {
+            return;
+        }
+        let cfg = Config {
+            no_degrade: true,
+            disabled_tools: vec!["ctx_graph".to_string()],
+            ..Default::default()
+        };
+        assert!(cfg.no_degrade_effective());
+        assert!(!cfg.disabled_tools.is_empty());
+    }
+
+    #[test]
+    fn no_degrade_independent_of_tool_categories() {
+        if std::env::var("LCTX_NO_DEGRADE").is_ok()
+            || std::env::var("LCTX_DEFAULT_CATEGORIES").is_ok()
+        {
+            return;
+        }
+        let cfg = Config {
+            no_degrade: true,
+            default_tool_categories: vec!["core".to_string(), "arch".to_string()],
+            ..Default::default()
+        };
+        assert!(cfg.no_degrade_effective());
+        assert_eq!(
+            cfg.default_tool_categories_effective(),
+            vec!["core", "arch"]
+        );
     }
 }
 
@@ -1618,6 +1891,15 @@ impl Config {
         }
         if !local.shell_allowlist.is_empty() {
             self.shell_allowlist = local.shell_allowlist;
+        }
+        if !local.default_tool_categories.is_empty() {
+            self.default_tool_categories = local.default_tool_categories;
+        }
+        if local.no_degrade {
+            self.no_degrade = true;
+        }
+        if local.proxy_timeout_ms.is_some() {
+            self.proxy_timeout_ms = local.proxy_timeout_ms;
         }
     }
 

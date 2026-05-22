@@ -111,14 +111,17 @@ fn pre_dispatch_inner(
     }
 
     if let Some(action) = pressure {
-        if let Some(downgraded) = pressure_downgrade(requested_mode, action) {
-            return PreDispatchResult {
-                overridden_mode: Some(downgraded),
-                reason: Some("pressure-auto-downgrade"),
-                pressure_downgraded: true,
-                budget_blocked: false,
-                budget_warning: None,
-            };
+        let no_degrade = crate::core::config::Config::load().no_degrade_effective();
+        if !no_degrade {
+            if let Some(downgraded) = pressure_downgrade(requested_mode, action) {
+                return PreDispatchResult {
+                    overridden_mode: Some(downgraded),
+                    reason: Some("pressure-auto-downgrade"),
+                    pressure_downgraded: true,
+                    budget_blocked: false,
+                    budget_warning: None,
+                };
+            }
         }
     }
 
@@ -576,6 +579,148 @@ mod tests {
         );
         assert_eq!(result.overridden_mode, Some("signatures".to_string()));
         assert_eq!(result.reason, Some("excluded"));
+    }
+
+    // --- pressure_downgrade unit tests (pure function) ---
+
+    #[test]
+    fn pressure_downgrade_suggest_auto_to_map() {
+        let result = pressure_downgrade("auto", &PressureAction::SuggestCompression);
+        assert_eq!(result, Some("map".to_string()));
+    }
+
+    #[test]
+    fn pressure_downgrade_suggest_does_not_touch_full() {
+        let result = pressure_downgrade("full", &PressureAction::SuggestCompression);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn pressure_downgrade_suggest_does_not_touch_signatures() {
+        let result = pressure_downgrade("signatures", &PressureAction::SuggestCompression);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn pressure_downgrade_suggest_does_not_touch_diff() {
+        let result = pressure_downgrade("diff", &PressureAction::SuggestCompression);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn pressure_downgrade_force_full_to_map() {
+        let result = pressure_downgrade("full", &PressureAction::ForceCompression);
+        assert_eq!(result, Some("map".to_string()));
+    }
+
+    #[test]
+    fn pressure_downgrade_force_auto_to_signatures() {
+        let result = pressure_downgrade("auto", &PressureAction::ForceCompression);
+        assert_eq!(result, Some("signatures".to_string()));
+    }
+
+    #[test]
+    fn pressure_downgrade_force_map_to_signatures() {
+        let result = pressure_downgrade("map", &PressureAction::ForceCompression);
+        assert_eq!(result, Some("signatures".to_string()));
+    }
+
+    #[test]
+    fn pressure_downgrade_force_does_not_touch_signatures() {
+        let result = pressure_downgrade("signatures", &PressureAction::ForceCompression);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn pressure_downgrade_force_does_not_touch_lines() {
+        let result = pressure_downgrade("lines:1-50", &PressureAction::ForceCompression);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn pressure_downgrade_evict_full_to_map() {
+        let result = pressure_downgrade("full", &PressureAction::EvictLeastRelevant);
+        assert_eq!(result, Some("map".to_string()));
+    }
+
+    #[test]
+    fn pressure_downgrade_evict_auto_to_signatures() {
+        let result = pressure_downgrade("auto", &PressureAction::EvictLeastRelevant);
+        assert_eq!(result, Some("signatures".to_string()));
+    }
+
+    #[test]
+    fn pressure_downgrade_evict_map_to_signatures() {
+        let result = pressure_downgrade("map", &PressureAction::EvictLeastRelevant);
+        assert_eq!(result, Some("signatures".to_string()));
+    }
+
+    #[test]
+    fn pressure_downgrade_noaction_returns_none() {
+        let result = pressure_downgrade("full", &PressureAction::NoAction);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn pressure_downgrade_noaction_auto_returns_none() {
+        let result = pressure_downgrade("auto", &PressureAction::NoAction);
+        assert!(result.is_none());
+    }
+
+    // --- pre_dispatch_inner: no_degrade integration ---
+    // When LCTX_NO_DEGRADE is NOT set (test default), pressure downgrade is active.
+
+    #[test]
+    fn pre_dispatch_downgrades_under_force_when_degrade_enabled() {
+        if std::env::var("LCTX_NO_DEGRADE").is_ok() {
+            return;
+        }
+        let result = pre_dispatch_read(
+            "nd_test.rs",
+            "full",
+            None,
+            None,
+            Some(&PressureAction::ForceCompression),
+        );
+        assert_eq!(result.overridden_mode, Some("map".to_string()));
+        assert!(result.pressure_downgraded);
+    }
+
+    #[test]
+    fn pre_dispatch_downgrades_auto_under_evict_when_degrade_enabled() {
+        if std::env::var("LCTX_NO_DEGRADE").is_ok() {
+            return;
+        }
+        let result = pre_dispatch_read(
+            "nd_test2.rs",
+            "auto",
+            None,
+            None,
+            Some(&PressureAction::EvictLeastRelevant),
+        );
+        assert_eq!(result.overridden_mode, Some("signatures".to_string()));
+        assert!(result.pressure_downgraded);
+    }
+
+    // --- estimate_read_tokens unit tests ---
+
+    #[test]
+    fn estimate_tokens_diff_mode_is_small() {
+        let tokens = estimate_read_tokens("nonexistent.rs", "diff");
+        assert!(tokens < 500, "diff mode should estimate low: got {tokens}");
+    }
+
+    #[test]
+    fn estimate_tokens_signatures_smaller_than_full() {
+        let sig = estimate_read_tokens("nonexistent.rs", "signatures");
+        let full = estimate_read_tokens("nonexistent.rs", "full");
+        assert!(sig < full, "signatures={sig} should be < full={full}");
+    }
+
+    #[test]
+    fn estimate_tokens_lines_range() {
+        let tokens = estimate_read_tokens("nonexistent.rs", "lines:1-10");
+        assert!(tokens <= 200, "lines:1-10 should be small: got {tokens}");
     }
 
     #[test]

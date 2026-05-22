@@ -56,23 +56,16 @@ function operationSummary(op) {
 }
 
 function gaugeColor(ratio) {
-  if (ratio > 0.85) return 'var(--red)';
-  if (ratio > 0.6) return 'var(--yellow)';
-  return 'var(--green)';
+  var S = window.LctxShared;
+  return S && S.gaugeColor ? S.gaugeColor(ratio) : ratio > 0.85 ? 'var(--red)' : ratio > 0.6 ? 'var(--yellow)' : 'var(--green)';
 }
-
 function shortenPath(p) {
-  if (!p) return '';
-  const parts = p.replace(/\\/g, '/').split('/');
-  if (parts.length <= 3) return parts.join('/');
-  return '\u2026/' + parts.slice(-3).join('/');
+  var S = window.LctxShared;
+  return S && S.shortenPath ? S.shortenPath(p) : (p || '');
 }
-
 function fmtTok(n) {
-  if (n == null) return '0';
-  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
-  if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
-  return String(n);
+  var S = window.LctxShared;
+  return S && S.fmtTokens ? S.fmtTokens(n) : String(n || 0);
 }
 
 const escFallback = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -101,41 +94,53 @@ class CockpitContext extends HTMLElement {
     this._error = null;
     this.render();
 
-    const paths = [
-      '/api/context-ledger', '/api/context-field', '/api/context-control',
-      '/api/context-overlay-history', '/api/context-plan', '/api/pipeline-stats',
-      '/api/intent', '/api/session', '/api/context-bounce', '/api/context-client',
-      '/api/context-pressure', '/api/context-dynamic-tools', '/api/context-radar',
-      '/api/context-introspect', '/api/context-handles', '/api/context-events', '/api/context-model',
-      '/api/context-transcript',
-    ];
-    const results = await Promise.all(paths.map(p =>
-      fetchJson(p, { timeoutMs: 12000 }).catch(e => ({ __error: e?.error || String(e), __path: p }))
-    ));
-    const [ledger, field, control, history, plan, pipeline, intent, session, bounce, clientCaps, pressure, dynTools, radar, introspect, handles, contextEvents, modelInfo, transcript] = results;
+    const fetch1 = p => fetchJson(p, { timeoutMs: 12000 }).catch(e => ({ __error: e?.error || String(e), __path: p }));
+    const ok = r => r && !r.__error;
 
-    const err = [ledger, field, control].find(x => x?.__error);
-    if (err) this._error = err.__path + ': ' + err.__error;
+    const [summary, capabilities, hist, control, overlayHist, plan, pipeline, intent, session, handles, transcript] = await Promise.all([
+      fetch1('/api/context-summary'),
+      fetch1('/api/context-capabilities'),
+      fetch1('/api/context-history'),
+      fetch1('/api/context-control'),
+      fetch1('/api/context-overlay-history'),
+      fetch1('/api/context-plan'),
+      fetch1('/api/pipeline-stats'),
+      fetch1('/api/intent'),
+      fetch1('/api/session'),
+      fetch1('/api/context-handles'),
+      fetch1('/api/context-transcript'),
+    ]);
+
+    if (!ok(summary)) this._error = 'context-summary: ' + (summary?.__error || 'failed');
+
+    const s = ok(summary) ? summary : {};
+    const c = ok(capabilities) ? capabilities : {};
+    const h = ok(hist) ? hist : {};
 
     this._data = {
-      ledger: ledger?.__error ? null : ledger,
-      field: field?.__error ? null : field,
-      control: control?.__error ? null : control,
-      history: Array.isArray(history) ? history : history?.__error ? [] : (history?.items || []),
-      plan: plan?.__error ? null : plan,
-      pipeline: pipeline?.__error ? null : pipeline,
-      intent: intent?.__error ? null : intent,
-      session: session?.__error ? null : session,
-      bounce: bounce?.__error ? null : bounce,
-      clientCaps: clientCaps?.__error ? null : clientCaps,
-      pressure: pressure?.__error ? null : pressure,
-      dynTools: dynTools?.__error ? null : dynTools,
-      radar: radar?.__error ? null : radar,
-      introspect: introspect?.__error ? null : introspect,
-      handles: handles?.__error ? null : handles,
-      contextEvents: contextEvents?.__error ? null : contextEvents,
-      modelInfo: modelInfo?.__error ? null : modelInfo,
-      transcript: transcript?.__error ? null : transcript,
+      ledger: s.ledger ? Object.assign({}, s.ledger, { entries: s.items || [] }) : null,
+      field: s.field || null,
+      control: ok(control) ? control : null,
+      history: Array.isArray(overlayHist) ? overlayHist : ok(overlayHist) ? (overlayHist.items || []) : [],
+      plan: ok(plan) ? plan : null,
+      pipeline: ok(pipeline) ? pipeline : null,
+      intent: ok(intent) ? intent : null,
+      session: ok(session) ? session : null,
+      bounce: h.bounce || null,
+      clientCaps: c.client || null,
+      pressure: s.pressure ? Object.assign({}, s.pressure, {
+        total_sent: s.ledger?.total_tokens_sent,
+        total_saved_raw: s.ledger?.total_tokens_saved,
+        total_saved_adjusted: s.ledger?.total_saved_adjusted,
+        window_size: s.ledger?.window_size,
+      }) : null,
+      dynTools: c.dynamic_tools || null,
+      radar: h.radar || null,
+      introspect: h.introspect || null,
+      handles: ok(handles) ? handles : null,
+      contextEvents: Array.isArray(h.events) ? h.events : null,
+      modelInfo: h.model || null,
+      transcript: ok(transcript) ? transcript : null,
     };
     if (this._data.history && !Array.isArray(this._data.history)) this._data.history = [];
 

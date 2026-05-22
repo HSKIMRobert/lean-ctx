@@ -1,0 +1,114 @@
+use crate::dashboard::routes::helpers::{detect_project_root_for_dashboard, extract_query_param};
+
+pub(super) fn get_route(
+    path: &str,
+    query_str: &str,
+) -> Option<(&'static str, &'static str, String)> {
+    match path {
+        "/api/call-graph" => Some(call_graph()),
+        "/api/call-graph/status" => Some(call_graph_status()),
+        "/api/symbols" => Some(symbols(query_str)),
+        _ => None,
+    }
+}
+
+fn call_graph() -> (&'static str, &'static str, String) {
+    let root = detect_project_root_for_dashboard();
+    let index = std::sync::Arc::new(crate::core::graph_index::load_or_build(&root));
+    match crate::core::call_graph::CallGraph::get_or_start_build(&root, index.clone()) {
+        Ok(graph) => {
+            let payload = serde_json::json!({
+                "status": "ready",
+                "project_root": super::project_basename(&graph.project_root),
+                "edges": graph.edges,
+                "file_hashes": graph.file_hashes,
+                "indexed_file_count": index.files.len(),
+                "indexed_symbol_count": index.symbols.len(),
+                "analyzed_file_count": graph.file_hashes.len(),
+            });
+            let json = serde_json::to_string(&payload)
+                .unwrap_or_else(|_| "{\"error\":\"failed to serialize call graph\"}".to_string());
+            ("200 OK", "application/json", json)
+        }
+        Err(progress) => {
+            let json = serde_json::to_string(&progress)
+                .unwrap_or_else(|_| "{\"status\":\"building\"}".to_string());
+            ("202 Accepted", "application/json", json)
+        }
+    }
+}
+
+fn call_graph_status() -> (&'static str, &'static str, String) {
+    let progress = crate::core::call_graph::CallGraph::build_status();
+    let json =
+        serde_json::to_string(&progress).unwrap_or_else(|_| "{\"status\":\"idle\"}".to_string());
+    ("200 OK", "application/json", json)
+}
+
+fn symbols(query_str: &str) -> (&'static str, &'static str, String) {
+    let root = detect_project_root_for_dashboard();
+    let index = crate::core::graph_index::load_or_build(&root);
+    let q = extract_query_param(query_str, "q");
+    let kind = extract_query_param(query_str, "kind");
+    let json = build_symbols_json(&index, q.as_deref(), kind.as_deref());
+    ("200 OK", "application/json", json)
+}
+
+fn build_symbols_json(
+    index: &crate::core::graph_index::ProjectIndex,
+    query: Option<&str>,
+    kind: Option<&str>,
+) -> String {
+    let query = query
+        .map(|q| q.trim().to_lowercase())
+        .filter(|q| !q.is_empty());
+    let kind = kind
+        .map(|k| k.trim().to_lowercase())
+        .filter(|k| !k.is_empty());
+
+    let mut symbols: Vec<&crate::core::graph_index::SymbolEntry> = index
+        .symbols
+        .values()
+        .filter(|sym| {
+            let kind_match = match kind.as_ref() {
+                Some(k) => sym.kind.eq_ignore_ascii_case(k),
+                None => true,
+            };
+            let query_match = match query.as_ref() {
+                Some(q) => {
+                    let name = sym.name.to_lowercase();
+                    let file = sym.file.to_lowercase();
+                    let symbol_kind = sym.kind.to_lowercase();
+                    name.contains(q) || file.contains(q) || symbol_kind.contains(q)
+                }
+                None => true,
+            };
+            kind_match && query_match
+        })
+        .collect();
+
+    symbols.sort_by(|a, b| {
+        a.file
+            .cmp(&b.file)
+            .then_with(|| a.start_line.cmp(&b.start_line))
+            .then_with(|| a.name.cmp(&b.name))
+    });
+    symbols.truncate(500);
+
+    serde_json::to_string(
+        &symbols
+            .into_iter()
+            .map(|sym| {
+                serde_json::json!({
+                    "name": sym.name,
+                    "kind": sym.kind,
+                    "file": sym.file,
+                    "start_line": sym.start_line,
+                    "end_line": sym.end_line,
+                    "is_exported": sym.is_exported,
+                })
+            })
+            .collect::<Vec<_>>(),
+    )
+    .unwrap_or_else(|_| "[]".to_string())
+}

@@ -153,6 +153,7 @@
 <script type="module" src="/static/components/cockpit-graph.js"></script>
 <script type="module" src="/static/components/cockpit-health.js"></script>
 <script type="module" src="/static/components/cockpit-remaining.js"></script>
+<script type="module" src="/static/components/cockpit-commander.js"></script>
 </head>
 <body class="cockpit-shell-styles">
 <div class="ascii-global-bg" aria-hidden="true"><pre id="asciiBgPre"></pre></div>
@@ -223,6 +224,9 @@
 
     <section id="view-overview" class="view active">
       <cockpit-overview id="overviewView"></cockpit-overview>
+    </section>
+    <section id="view-commander" class="view">
+      <cockpit-commander id="commanderView"></cockpit-commander>
     </section>
     <section id="view-context" class="view">
       <cockpit-context id="contextView"></cockpit-context>
@@ -537,14 +541,19 @@ function bootCockpit() {
     var stats = null;
     var agents = null;
     var sess = null;
+    var cached = window.LctxApi && window.LctxApi.cachedFetch ? window.LctxApi.cachedFetch : null;
     try {
-      stats = await fetch('/api/stats', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; });
+      stats = cached
+        ? await cached('/api/stats', { timeoutMs: 5000 })
+        : await fetch('/api/stats', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; });
     } catch (e) { stats = null; }
     try {
       agents = await fetch('/api/agents', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; });
     } catch (e) { agents = null; }
     try {
-      sess = await fetch('/api/session', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; });
+      sess = cached
+        ? await cached('/api/session', { timeoutMs: 5000 })
+        : await fetch('/api/session', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; });
     } catch (e) { sess = null; }
 
     if (!daemonUp) {
@@ -553,6 +562,9 @@ function bootCockpit() {
     applyStatsToStatusBar(stats);
     applyAgentsToTop(agents || {});
     applySessionUI(sess);
+
+    if (stats) document.dispatchEvent(new CustomEvent('lctx:stats-data', { detail: stats }));
+    if (sess) document.dispatchEvent(new CustomEvent('lctx:session-data', { detail: sess }));
   }
 
   async function pollCockpit() {

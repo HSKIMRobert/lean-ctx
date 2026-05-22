@@ -131,11 +131,13 @@ fn sanitize_intent(raw: &str) -> String {
 }
 
 fn build_file_processing_script(language: &str, content: &str, intent: Option<&str>) -> String {
-    let tmp = tempfile::Builder::new()
+    let Ok(tmp) = tempfile::Builder::new()
         .prefix("lean-ctx-exec-")
         .suffix(".dat")
         .tempfile()
-        .expect("failed to create temp file");
+    else {
+        return "echo 'lean-ctx: failed to create temp file'".to_string();
+    };
     let _ = std::fs::write(tmp.path(), content);
     let tmp_path = tmp.path().to_string_lossy().to_string();
     let _keep = tmp.into_temp_path();

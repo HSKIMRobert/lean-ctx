@@ -155,6 +155,21 @@ impl DynamicToolState {
         }
     }
 
+    /// Creates state with categories from config (env var > config.toml > default).
+    pub fn from_config(categories: &[String]) -> Self {
+        let mut active = HashSet::new();
+        active.insert(ToolCategory::Core);
+        for cat_str in categories {
+            if let Some(cat) = ToolCategory::parse(cat_str) {
+                active.insert(cat);
+            }
+        }
+        Self {
+            active_categories: active,
+            supports_list_changed: false,
+        }
+    }
+
     pub fn all_enabled() -> Self {
         let mut active = HashSet::new();
         active.insert(ToolCategory::Core);
@@ -224,6 +239,22 @@ pub fn init_all_enabled() {
     let _ = GLOBAL.set(Mutex::new(DynamicToolState::all_enabled()));
 }
 
+/// Initializes the global state from user config (env var > config.toml > default).
+/// Call once during server startup after config is loaded.
+/// If the global was already initialized (e.g. by a concurrent `global()` call),
+/// applies the categories to the existing state instead.
+pub fn init_from_config(categories: &[String]) {
+    if GLOBAL
+        .set(Mutex::new(DynamicToolState::from_config(categories)))
+        .is_err()
+    {
+        if let Ok(mut state) = global().lock() {
+            let desired = DynamicToolState::from_config(categories);
+            *state = desired;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -273,6 +304,176 @@ mod tests {
         assert!(!state.is_tool_active("ctx_cost"));
         assert!(!state.is_tool_active("ctx_discover_tools"));
         assert!(!state.is_tool_active("ctx_dedup"));
+    }
+
+    // --- from_config: basic scenarios ---
+
+    #[test]
+    fn from_config_core_arch_memory() {
+        let cats = vec!["core".to_string(), "arch".to_string(), "memory".to_string()];
+        let mut state = DynamicToolState::from_config(&cats);
+        state.set_supports_list_changed(true);
+        assert!(state.is_tool_active("ctx_read"));
+        assert!(state.is_tool_active("ctx_architecture"));
+        assert!(state.is_tool_active("ctx_semantic_search"));
+        assert!(!state.is_tool_active("ctx_benchmark"));
+        assert!(!state.is_tool_active("ctx_fill"));
+    }
+
+    #[test]
+    fn from_config_empty_still_has_core() {
+        let mut state = DynamicToolState::from_config(&[]);
+        state.set_supports_list_changed(true);
+        assert!(state.is_tool_active("ctx_read"));
+        assert!(!state.is_tool_active("ctx_architecture"));
+        assert!(!state.is_tool_active("ctx_benchmark"));
+        assert!(!state.is_tool_active("ctx_semantic_search"));
+    }
+
+    // --- from_config: all categories ---
+
+    #[test]
+    fn from_config_all_categories_enables_everything_except_internal() {
+        let cats = vec![
+            "core".to_string(),
+            "arch".to_string(),
+            "debug".to_string(),
+            "memory".to_string(),
+            "metrics".to_string(),
+            "session".to_string(),
+        ];
+        let mut state = DynamicToolState::from_config(&cats);
+        state.set_supports_list_changed(true);
+        assert!(state.is_tool_active("ctx_read"));
+        assert!(state.is_tool_active("ctx_architecture"));
+        assert!(state.is_tool_active("ctx_benchmark"));
+        assert!(state.is_tool_active("ctx_semantic_search"));
+        assert!(state.is_tool_active("ctx_fill"));
+        assert!(state.is_tool_active("ctx_workflow"));
+        assert!(!state.is_tool_active("ctx_metrics"));
+    }
+
+    // --- from_config: single category ---
+
+    #[test]
+    fn from_config_only_debug() {
+        let cats = vec!["debug".to_string()];
+        let mut state = DynamicToolState::from_config(&cats);
+        state.set_supports_list_changed(true);
+        assert!(state.is_tool_active("ctx_read"));
+        assert!(state.is_tool_active("ctx_benchmark"));
+        assert!(!state.is_tool_active("ctx_architecture"));
+        assert!(!state.is_tool_active("ctx_workflow"));
+    }
+
+    // --- from_config: invalid categories are silently ignored ---
+
+    #[test]
+    fn from_config_ignores_unknown_categories() {
+        let cats = vec![
+            "core".to_string(),
+            "nonexistent".to_string(),
+            "foobar".to_string(),
+        ];
+        let mut state = DynamicToolState::from_config(&cats);
+        state.set_supports_list_changed(true);
+        assert!(state.is_tool_active("ctx_read"));
+        assert!(!state.is_tool_active("ctx_architecture"));
+    }
+
+    #[test]
+    fn from_config_only_invalid_still_has_core() {
+        let cats = vec!["invalid".to_string(), "bogus".to_string()];
+        let mut state = DynamicToolState::from_config(&cats);
+        state.set_supports_list_changed(true);
+        assert!(state.is_tool_active("ctx_read"));
+        assert!(!state.is_tool_active("ctx_benchmark"));
+    }
+
+    // --- from_config: duplicate categories are idempotent ---
+
+    #[test]
+    fn from_config_duplicates_are_harmless() {
+        let cats = vec!["arch".to_string(), "arch".to_string(), "arch".to_string()];
+        let mut state = DynamicToolState::from_config(&cats);
+        state.set_supports_list_changed(true);
+        assert!(state.is_tool_active("ctx_architecture"));
+        let active = state.active_categories();
+        let arch_count = active.iter().filter(|&&c| c == "arch").count();
+        assert_eq!(arch_count, 1);
+    }
+
+    // --- from_config: internal category is never user-activatable ---
+
+    #[test]
+    fn from_config_internal_category_not_parseable() {
+        assert!(ToolCategory::parse("internal").is_none());
+    }
+
+    // --- from_config: category aliases work ---
+
+    #[test]
+    fn from_config_alias_architecture_maps_to_arch() {
+        let cats = vec!["architecture".to_string()];
+        let mut state = DynamicToolState::from_config(&cats);
+        state.set_supports_list_changed(true);
+        assert!(state.is_tool_active("ctx_architecture"));
+    }
+
+    #[test]
+    fn from_config_alias_profiling_maps_to_debug() {
+        let cats = vec!["profiling".to_string()];
+        let mut state = DynamicToolState::from_config(&cats);
+        state.set_supports_list_changed(true);
+        assert!(state.is_tool_active("ctx_benchmark"));
+    }
+
+    #[test]
+    fn from_config_alias_semantic_maps_to_memory() {
+        let cats = vec!["semantic".to_string()];
+        let mut state = DynamicToolState::from_config(&cats);
+        state.set_supports_list_changed(true);
+        assert!(state.is_tool_active("ctx_semantic_search"));
+    }
+
+    // --- from_config: subsequent load/unload still works ---
+
+    #[test]
+    fn from_config_then_load_additional_category() {
+        let cats = vec!["core".to_string()];
+        let mut state = DynamicToolState::from_config(&cats);
+        state.set_supports_list_changed(true);
+        assert!(!state.is_tool_active("ctx_architecture"));
+        state.load_category(ToolCategory::Arch);
+        assert!(state.is_tool_active("ctx_architecture"));
+    }
+
+    #[test]
+    fn from_config_then_unload_non_core_category() {
+        let cats = vec!["core".to_string(), "arch".to_string()];
+        let mut state = DynamicToolState::from_config(&cats);
+        state.set_supports_list_changed(true);
+        assert!(state.is_tool_active("ctx_architecture"));
+        state.unload_category(ToolCategory::Arch);
+        assert!(!state.is_tool_active("ctx_architecture"));
+    }
+
+    #[test]
+    fn from_config_cannot_unload_core() {
+        let cats = vec!["core".to_string(), "arch".to_string()];
+        let mut state = DynamicToolState::from_config(&cats);
+        assert!(!state.unload_category(ToolCategory::Core));
+    }
+
+    // --- from_config: without list_changed, all tools visible ---
+
+    #[test]
+    fn from_config_without_list_changed_shows_all() {
+        let cats = vec!["core".to_string()];
+        let state = DynamicToolState::from_config(&cats);
+        assert!(state.is_tool_active("ctx_architecture"));
+        assert!(state.is_tool_active("ctx_benchmark"));
+        assert!(!state.is_tool_active("ctx_metrics"));
     }
 
     #[test]

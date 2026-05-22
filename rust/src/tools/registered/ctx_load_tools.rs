@@ -62,7 +62,9 @@ impl McpTool for CtxLoadToolsTool {
                     )
                 })?;
                 let changed = {
-                    let mut state = dynamic_tools::global().lock().unwrap();
+                    let Ok(mut state) = dynamic_tools::global().lock() else {
+                        return Err(ErrorData::internal_error("dynamic_tools lock failed", None));
+                    };
                     state.load_category(cat)
                 };
                 let text = if changed {
@@ -91,7 +93,9 @@ impl McpTool for CtxLoadToolsTool {
                     )
                 })?;
                 let changed = {
-                    let mut state = dynamic_tools::global().lock().unwrap();
+                    let Ok(mut state) = dynamic_tools::global().lock() else {
+                        return Err(ErrorData::internal_error("dynamic_tools lock failed", None));
+                    };
                     state.unload_category(cat)
                 };
                 let text = if changed {
@@ -117,7 +121,9 @@ impl McpTool for CtxLoadToolsTool {
 }
 
 fn format_category_status() -> String {
-    let state = dynamic_tools::global().lock().unwrap();
+    let Ok(state) = dynamic_tools::global().lock() else {
+        return "dynamic_tools: lock unavailable".to_string();
+    };
     let active = state.active_categories();
     let all = DynamicToolState::all_categories();
     let mut lines = vec![format!(

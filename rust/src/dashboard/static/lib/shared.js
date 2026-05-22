@@ -429,6 +429,53 @@
     return ' <span class="info-tip" tabindex="0" data-tip="' + escHtml(t) + '"><svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="8" cy="8" r="7.5" fill="none" stroke="currentColor" stroke-width="1"/><text x="8" y="12" text-anchor="middle" font-size="11" font-weight="700" font-family="serif">i</text></svg></span>';
   }
 
+  function gaugeColor(ratio) {
+    if (ratio > 0.85) return 'var(--red)';
+    if (ratio > 0.6) return 'var(--yellow)';
+    return 'var(--green)';
+  }
+
+  function gaugeRingSvg(pct, color, size) {
+    var s = size || 36;
+    var v = Math.max(0, Math.min(100, Number(pct) || 0));
+    var circ = 100;
+    var gap = circ - v;
+    return (
+      '<svg width="' + s + '" height="' + s + '" viewBox="0 0 36 36" aria-hidden="true">' +
+      '<circle class="bg" cx="18" cy="18" r="15.91549430918954" />' +
+      '<circle class="fg" cx="18" cy="18" r="15.91549430918954" ' +
+      'stroke="' + color + '" ' +
+      'stroke-dasharray="' + v + ' ' + gap + '" ' +
+      'stroke-dashoffset="' + gap + '" /></svg>'
+    );
+  }
+
+  function miniGauge(pct, color) {
+    return '<div class="stat-gauge">' + gaugeRingSvg(pct, color, 36) + '</div>';
+  }
+
+  function gaugeRing(pct, color, size, label) {
+    var html = '<div class="gauge-ring" style="width:' + size + 'px;height:' + size + 'px">';
+    html += gaugeRingSvg(pct, color, size);
+    if (label != null) html += '<span class="gauge-value">' + escHtml(String(label)) + '</span>';
+    html += '</div>';
+    return html;
+  }
+
+  function shortenPath(p) {
+    if (!p) return '';
+    var parts = p.replace(/\\/g, '/').split('/');
+    if (parts.length <= 3) return parts.join('/');
+    return '\u2026/' + parts.slice(-3).join('/');
+  }
+
+  function fmtTokens(n) {
+    if (n == null) return '0';
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
+    return String(n);
+  }
+
   window.LctxShared = {
     openFullscreen,
     closeFullscreen,
@@ -451,5 +498,13 @@
     registerValueLabelPlugin,
     TIPS,
     tip,
+    gaugeColor,
+    gaugeRingSvg,
+    miniGauge,
+    gaugeRing,
+    shortenPath,
+    fmtTokens,
+    escHtml,
+    fmtNum,
   };
 })();

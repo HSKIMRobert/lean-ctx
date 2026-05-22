@@ -38,19 +38,11 @@ function lvlTier(level) {
 }
 
 function miniGauge(val, color) {
+  var S = window.LctxShared;
+  if (S && S.miniGauge) return S.miniGauge(val, color);
   var v = Math.max(0, Math.min(100, Number(val) || 0));
-  var circ = 100;
-  var gap = circ - v;
-  return (
-    '<div class="stat-gauge">' +
-    '<svg width="36" height="36" viewBox="0 0 36 36">' +
-    '<circle class="bg" cx="18" cy="18" r="15.91549430918954" />' +
-    '<circle class="fg" cx="18" cy="18" r="15.91549430918954" ' +
-    'stroke="' + color + '" ' +
-    'stroke-dasharray="' + v + ' ' + gap + '" ' +
-    'stroke-dashoffset="' + gap + '" />' +
-    '</svg></div>'
-  );
+  var gap = 100 - v;
+  return '<div class="stat-gauge"><svg width="36" height="36" viewBox="0 0 36 36"><circle class="bg" cx="18" cy="18" r="15.91549430918954" /><circle class="fg" cx="18" cy="18" r="15.91549430918954" stroke="' + color + '" stroke-dasharray="' + v + ' ' + gap + '" stroke-dashoffset="' + gap + '" /></svg></div>';
 }
 
 class CockpitOverview extends HTMLElement {
@@ -72,8 +64,12 @@ class CockpitOverview extends HTMLElement {
     if (this._ready) return;
     this._ready = true;
     this.style.display = 'block';
+    this._onSessionData = function (e) { if (e.detail) this._cachedSession = e.detail; }.bind(this);
+    this._onStatsData = function (e) { if (e.detail) this._cachedStats = e.detail; }.bind(this);
     document.addEventListener('lctx:refresh', this._onRefresh);
     document.addEventListener('lctx:view', this._onViewChange);
+    document.addEventListener('lctx:session-data', this._onSessionData);
+    document.addEventListener('lctx:stats-data', this._onStatsData);
     this.render();
     this.loadData();
   }
@@ -81,6 +77,8 @@ class CockpitOverview extends HTMLElement {
   disconnectedCallback() {
     document.removeEventListener('lctx:refresh', this._onRefresh);
     document.removeEventListener('lctx:view', this._onViewChange);
+    document.removeEventListener('lctx:session-data', this._onSessionData);
+    document.removeEventListener('lctx:stats-data', this._onStatsData);
     this._stopAnim();
     this._destroyCharts();
   }
@@ -132,9 +130,11 @@ class CockpitOverview extends HTMLElement {
       '/api/graph/stats',
     ];
 
+    var cached = window.LctxApi && window.LctxApi.cachedFetch ? window.LctxApi.cachedFetch : fetchJson;
     var results = await Promise.all(
       paths.map(function (p) {
-        return fetchJson(p, { timeoutMs: 12000 }).catch(function (e) {
+        var fn = (p === '/api/stats' || p === '/api/session') ? cached : fetchJson;
+        return fn(p, { timeoutMs: 12000 }).catch(function (e) {
           return { __error: e && e.error ? e.error : String(e || 'error'), __path: p };
         });
       })
@@ -152,10 +152,10 @@ class CockpitOverview extends HTMLElement {
     }
 
     this._data = {
-      stats: ok(results[0]),
+      stats: ok(results[0]) || this._cachedStats || null,
       gain: ok(results[1]),
       buddy: ok(results[2]),
-      session: ok(results[3]),
+      session: ok(results[3]) || this._cachedSession || null,
       slos: ok(results[4]),
       verification: ok(results[5]),
       graphStats: ok(results[6]),
@@ -197,6 +197,7 @@ class CockpitOverview extends HTMLElement {
     var body = '';
     body += this._renderTimeFilter(esc);
     body += this._renderHero(esc, ff, fmt, fu, pc);
+    body += this._renderContextHealthCard(esc, ff);
     body += this._renderBuddy(esc);
     body += this._renderChartsRow1(esc, ff, fu);
     body += this._renderHealthRow(esc);
@@ -205,6 +206,7 @@ class CockpitOverview extends HTMLElement {
 
     this.innerHTML = body;
     this._bind();
+    this._bindContextHealthCard();
   }
 
   /* ── Time filter bar ───────────────────────────────── */
@@ -276,17 +278,9 @@ class CockpitOverview extends HTMLElement {
 
       '<div class="hc">' +
       '<span class="hl">Gain score' + tip('gain_score') + '</span>' +
-      '<div class="gauge-ring" style="width:72px;height:72px">' +
-      '<svg width="72" height="72" viewBox="0 0 36 36" aria-hidden="true">' +
-      '<circle class="bg" cx="18" cy="18" r="15.91549430918954" />' +
-      '<circle class="fg" cx="18" cy="18" r="15.91549430918954" ' +
-      'stroke="' + scoreCol + '" ' +
-      'stroke-dasharray="' + scoreDash + ' ' + scoreGap + '" ' +
-      'stroke-dashoffset="' + scoreGap + '" />' +
-      '</svg>' +
-      '<span class="gauge-value" style="font-size:15px">' +
-      Math.round(scoreTotal) + '</span>' +
-      '</div>' +
+      (window.LctxShared && window.LctxShared.gaugeRing
+        ? window.LctxShared.gaugeRing(scoreDash, scoreCol, 72, Math.round(scoreTotal))
+        : '<div class="gauge-ring" style="width:72px;height:72px"><span class="gauge-value">' + Math.round(scoreTotal) + '</span></div>') +
       '</div>' +
 
       '<div class="hc">' +
@@ -301,6 +295,85 @@ class CockpitOverview extends HTMLElement {
 
       '</div>'
     );
+  }
+
+  /* ── Context Health Card (links to Commander) ───────── */
+
+  _renderContextHealthCard(esc, ff) {
+    if (!this._triageData) {
+      var self = this;
+      var fetchJson = api();
+      if (fetchJson) {
+        fetchJson('/api/context-triage', { timeoutMs: 8000 }).then(function (data) {
+          if (data && !data.__error) {
+            self._triageData = data;
+            var placeholder = document.getElementById('cko-contextHealth');
+            if (placeholder) {
+              placeholder.innerHTML = self._buildContextHealthHtml(esc, ff, data);
+              self._bindContextHealthCard();
+            }
+          }
+        }).catch(function () {});
+      }
+      return '<div id="cko-contextHealth" class="card" style="margin-bottom:20px;padding:16px">' +
+        '<h3>Context Health</h3><p class="hs">Loading\u2026</p></div>';
+    }
+
+    return '<div id="cko-contextHealth" class="card" style="margin-bottom:20px;padding:16px">' +
+      this._buildContextHealthHtml(esc, ff, this._triageData) + '</div>';
+  }
+
+  _buildContextHealthHtml(esc, ff, data) {
+    var b = data.budget || {};
+    var s = data.summary || {};
+    var actions = data.actions || [];
+    var band = b.band || 'green';
+
+    var bandLabels = { green: 'Optimal', yellow: 'Moderate', orange: 'High', red: 'Critical' };
+    var bandColors = { green: 'var(--green)', yellow: 'var(--yellow)', orange: 'var(--orange)', red: 'var(--red)' };
+    var pct = Math.round((b.utilization || 0) * 100);
+    var col = bandColors[band] || 'var(--green)';
+    var label = bandLabels[band] || 'Unknown';
+
+    var h = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">';
+    h += '<h3 style="margin:0">Context Health' + tip('context_health') + '</h3>';
+    h += '<button type="button" class="btn" id="cko-goCommander" style="font-size:11px;padding:4px 12px">Open Commander \u2192</button>';
+    h += '</div>';
+
+    h += '<div style="display:flex;align-items:center;gap:16px;margin-bottom:12px">';
+    h += '<div style="position:relative;width:52px;height:52px;flex-shrink:0">';
+    h += '<svg viewBox="0 0 36 36" width="52" height="52" style="transform:rotate(-90deg)">';
+    h += '<circle cx="18" cy="18" r="15.91549430918954" fill="none" stroke="var(--surface-2)" stroke-width="3" />';
+    var dash = Math.min(100, pct);
+    var gap = 100 - dash;
+    h += '<circle cx="18" cy="18" r="15.91549430918954" fill="none" stroke="' + col + '" stroke-width="3" stroke-linecap="round" stroke-dasharray="' + dash + ' ' + gap + '" stroke-dashoffset="' + gap + '" />';
+    h += '</svg>';
+    h += '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;font-family:var(--mono)">' + pct + '%</div>';
+    h += '</div>';
+
+    h += '<div>';
+    h += '<div style="font-size:14px;font-weight:600;color:' + col + '">' + esc(label) + ' Pressure</div>';
+    h += '<div style="font-size:11px;color:var(--muted)">' + esc(b.recommendation || '') + '</div>';
+    h += '</div>';
+    h += '</div>';
+
+    h += '<div style="display:flex;gap:16px;font-size:12px">';
+    h += '<span><strong>' + (s.total_files || 0) + '</strong> files</span>';
+    h += '<span><strong>' + (s.pinned_count || 0) + '</strong> pinned</span>';
+    if (s.risk_count > 0) h += '<span style="color:var(--yellow)"><strong>' + s.risk_count + '</strong> at risk</span>';
+    if (actions.length > 0) h += '<span style="color:' + col + '"><strong>' + actions.length + '</strong> actions recommended</span>';
+    h += '</div>';
+
+    return h;
+  }
+
+  _bindContextHealthCard() {
+    var btn = document.getElementById('cko-goCommander');
+    if (btn) {
+      btn.addEventListener('click', function () {
+        if (window.LctxRouter) window.LctxRouter.navigateTo('commander');
+      });
+    }
   }
 
   /* ── Buddy card ────────────────────────────────────── */

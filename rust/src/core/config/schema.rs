@@ -172,6 +172,22 @@ impl ConfigSchema {
             ),
         );
         root.insert(
+            "default_tool_categories".into(),
+            key(
+                "string[]",
+                serde_json::json!(cfg.default_tool_categories),
+                "Tool categories active by default (core, arch, debug, memory, metrics, session). Override via LCTX_DEFAULT_CATEGORIES",
+            ),
+        );
+        root.insert(
+            "no_degrade".into(),
+            key(
+                "boolean",
+                serde_json::json!(cfg.no_degrade),
+                "Disable all automatic read-mode degradation. Override via LCTX_NO_DEGRADE=1",
+            ),
+        );
+        root.insert(
             "rules_scope".into(),
             key_enum(
                 &["both", "global", "project"],
@@ -334,6 +350,14 @@ impl ConfigSchema {
                 "u16?",
                 serde_json::json!(null),
                 "Custom proxy port (default: 4444). Useful for multi-user systems. Env: LEAN_CTX_PROXY_PORT",
+            ),
+        );
+        root.insert(
+            "proxy_timeout_ms".into(),
+            key(
+                "u64?",
+                serde_json::json!(null),
+                "Proxy reachability timeout in ms (default: 200). Override via LEAN_CTX_PROXY_TIMEOUT_MS",
             ),
         );
         root.insert(

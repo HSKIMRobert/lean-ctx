@@ -10,6 +10,7 @@ const ROUTE_ALIASES = {
 /** @type {string[]} */
 const KNOWN_ROUTES = [
   'overview',
+  'commander',
   'context',
   'live',
   'knowledge',
@@ -28,6 +29,7 @@ const KNOWN_ROUTES = [
 
 const ROUTE_LABELS = {
   overview: 'Overview',
+  commander: 'Context Commander',
   context: 'Context Manager',
   live: 'Live Observatory',
   knowledge: 'Knowledge Graph',
@@ -141,6 +143,7 @@ function makeViewLoader(elementId) {
 function initRouter() {
   var viewElementMap = {
     overview: 'overviewView',
+    commander: 'commanderView',
     context: 'contextView',
     live: 'liveView',
     knowledge: 'knowledgeView',

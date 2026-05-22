@@ -435,16 +435,23 @@ fn install_claude_env_inner(home: &Path, port: u16, quiet: bool, force: bool) {
     }
 }
 
+/// Proxy reachability timeout. Priority: env var > config.toml > 200ms default.
+pub fn proxy_timeout() -> std::time::Duration {
+    if let Ok(val) = std::env::var("LEAN_CTX_PROXY_TIMEOUT_MS") {
+        if let Ok(ms) = val.parse::<u64>() {
+            return std::time::Duration::from_millis(ms);
+        }
+    }
+    if let Some(ms) = crate::core::config::Config::load().proxy_timeout_ms {
+        return std::time::Duration::from_millis(ms);
+    }
+    std::time::Duration::from_millis(200)
+}
+
 fn is_proxy_reachable(port: u16) -> bool {
-    use std::net::TcpStream;
-    use std::time::Duration;
-    TcpStream::connect_timeout(
-        &format!("127.0.0.1:{port}")
-            .parse()
-            .expect("BUG: invalid hardcoded socket address"),
-        Duration::from_millis(200),
-    )
-    .is_ok()
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+    TcpStream::connect_timeout(&addr, proxy_timeout()).is_ok()
 }
 
 fn install_codex_env(home: &Path, port: u16, quiet: bool) {
@@ -546,5 +553,24 @@ mod tests {
         let uid: u16 = 500;
         let offset = uid.saturating_sub(1000) % 1000;
         assert_eq!(DEFAULT_PROXY_PORT + offset, DEFAULT_PROXY_PORT);
+    }
+
+    #[test]
+    fn proxy_timeout_default_200ms() {
+        if std::env::var("LEAN_CTX_PROXY_TIMEOUT_MS").is_ok() {
+            return;
+        }
+        assert_eq!(proxy_timeout(), std::time::Duration::from_millis(200));
+    }
+
+    #[test]
+    fn proxy_timeout_is_non_zero() {
+        let t = proxy_timeout();
+        assert!(t.as_millis() > 0);
+    }
+
+    #[test]
+    fn is_proxy_reachable_returns_false_on_unused_port() {
+        assert!(!is_proxy_reachable(19999));
     }
 }

@@ -22,7 +22,10 @@ fn per_file_lock(path: &str) -> Arc<Mutex<()>> {
     static FILE_LOCKS: std::sync::OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> =
         std::sync::OnceLock::new();
     let map = FILE_LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut map = map.lock().unwrap();
+    let mut map = map.lock().unwrap_or_else(|poisoned| {
+        tracing::warn!("per_file_lock map poisoned; recovering");
+        poisoned.into_inner()
+    });
 
     const MAX_ENTRIES: usize = 500;
     if map.len() > MAX_ENTRIES {
@@ -556,6 +559,9 @@ fn apply_verdict(
 }
 
 fn auto_degrade_read_mode(mode: &str) -> (String, Option<String>) {
+    if crate::core::config::Config::load().no_degrade_effective() {
+        return (mode.to_string(), None);
+    }
     let profile = crate::core::profiles::active_profile();
     if !profile.degradation.enforce_effective() {
         return (mode.to_string(), None);
@@ -868,5 +874,127 @@ mod tests {
         assert!(warning.contains("mode=full"));
         assert!(warning.contains("mode=map"));
         assert!(warning.contains("Warn"));
+    }
+
+    // --- auto_degrade_read_mode: no_degrade integration ---
+    // With default config (no LCTX_NO_DEGRADE), the profile's degradation.enforce
+    // is also off by default, so auto_degrade_read_mode returns mode unchanged.
+
+    #[test]
+    fn auto_degrade_preserves_full_when_default_config() {
+        if std::env::var("LCTX_NO_DEGRADE").is_ok() {
+            return;
+        }
+        let (mode, warning) = super::auto_degrade_read_mode("full");
+        assert_eq!(mode, "full");
+        assert!(warning.is_none());
+    }
+
+    #[test]
+    fn auto_degrade_preserves_map_when_default_config() {
+        if std::env::var("LCTX_NO_DEGRADE").is_ok() {
+            return;
+        }
+        let (mode, warning) = super::auto_degrade_read_mode("map");
+        assert_eq!(mode, "map");
+        assert!(warning.is_none());
+    }
+
+    #[test]
+    fn auto_degrade_preserves_signatures_when_default_config() {
+        if std::env::var("LCTX_NO_DEGRADE").is_ok() {
+            return;
+        }
+        let (mode, warning) = super::auto_degrade_read_mode("signatures");
+        assert_eq!(mode, "signatures");
+        assert!(warning.is_none());
+    }
+
+    #[test]
+    fn auto_degrade_preserves_diff_always() {
+        let (mode, warning) = super::auto_degrade_read_mode("diff");
+        assert_eq!(mode, "diff");
+        assert!(warning.is_none());
+    }
+
+    #[test]
+    fn auto_degrade_preserves_lines_mode_always() {
+        let (mode, warning) = super::auto_degrade_read_mode("lines:10-50");
+        assert_eq!(mode, "lines:10-50");
+        assert!(warning.is_none());
+    }
+
+    #[test]
+    fn auto_degrade_preserves_aggressive_when_default_config() {
+        if std::env::var("LCTX_NO_DEGRADE").is_ok() {
+            return;
+        }
+        let (mode, warning) = super::auto_degrade_read_mode("aggressive");
+        assert_eq!(mode, "aggressive");
+        assert!(warning.is_none());
+    }
+
+    #[test]
+    fn auto_degrade_preserves_entropy_when_default_config() {
+        if std::env::var("LCTX_NO_DEGRADE").is_ok() {
+            return;
+        }
+        let (mode, warning) = super::auto_degrade_read_mode("entropy");
+        assert_eq!(mode, "entropy");
+        assert!(warning.is_none());
+    }
+
+    #[test]
+    fn auto_degrade_preserves_auto_when_default_config() {
+        if std::env::var("LCTX_NO_DEGRADE").is_ok() {
+            return;
+        }
+        let (mode, warning) = super::auto_degrade_read_mode("auto");
+        assert_eq!(mode, "auto");
+        assert!(warning.is_none());
+    }
+
+    // --- apply_verdict: exhaustive mode × verdict matrix ---
+
+    #[test]
+    fn verdict_warn_does_not_degrade_diff() {
+        let (mode, degraded) = super::apply_verdict("diff", DegradationVerdictV1::Warn);
+        assert_eq!(mode, "diff");
+        assert!(!degraded);
+    }
+
+    #[test]
+    fn verdict_throttle_does_not_degrade_signatures() {
+        let (mode, degraded) = super::apply_verdict("signatures", DegradationVerdictV1::Throttle);
+        assert_eq!(mode, "signatures");
+        assert!(!degraded);
+    }
+
+    #[test]
+    fn verdict_ok_preserves_map() {
+        let (mode, degraded) = super::apply_verdict("map", DegradationVerdictV1::Ok);
+        assert_eq!(mode, "map");
+        assert!(!degraded);
+    }
+
+    #[test]
+    fn verdict_ok_preserves_signatures() {
+        let (mode, degraded) = super::apply_verdict("signatures", DegradationVerdictV1::Ok);
+        assert_eq!(mode, "signatures");
+        assert!(!degraded);
+    }
+
+    #[test]
+    fn verdict_ok_preserves_lines() {
+        let (mode, degraded) = super::apply_verdict("lines:1-100", DegradationVerdictV1::Ok);
+        assert_eq!(mode, "lines:1-100");
+        assert!(!degraded);
+    }
+
+    #[test]
+    fn verdict_block_degrades_map_to_signatures() {
+        let (mode, degraded) = super::apply_verdict("map", DegradationVerdictV1::Block);
+        assert_eq!(mode, "signatures");
+        assert!(degraded);
     }
 }

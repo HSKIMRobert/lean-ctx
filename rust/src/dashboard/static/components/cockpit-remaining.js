@@ -75,7 +75,8 @@ class CockpitLearning extends HTMLElement {
     this.render();
 
     try {
-      this._data = await fetchJson('/api/stats', { timeoutMs: 10000 });
+      var cached = window.LctxApi && window.LctxApi.cachedFetch ? window.LctxApi.cachedFetch : fetchJson;
+      this._data = await cached('/api/stats', { timeoutMs: 10000 });
     } catch (e) {
       this._error = e && e.error ? e.error : String(e || 'load failed');
       this._data = null;
@@ -281,196 +282,10 @@ class CockpitRoutes extends HTMLElement {
   }
 }
 
-/* ===================== CockpitContextLayer ===================== */
-
-class CockpitContextLayer extends HTMLElement {
-  constructor() {
-    super();
-    this._loading = true;
-    this._error = null;
-    this._ledger = null;
-    this._field = null;
-    this._onRefresh = this._onRefresh.bind(this);
-  }
-
-  connectedCallback() {
-    if (this._ready) return;
-    this._ready = true;
-    this.style.display = 'block';
-    document.addEventListener('lctx:refresh', this._onRefresh);
-    this.render();
-    this.loadData();
-  }
-
-  disconnectedCallback() {
-    document.removeEventListener('lctx:refresh', this._onRefresh);
-  }
-
-  _onRefresh() {
-    var v = document.getElementById('view-contextlayer');
-    if (v && v.classList.contains('active')) this.loadData();
-  }
-
-  async loadData() {
-    var fetchJson = remApi();
-    if (!fetchJson) {
-      this._error = 'API client not loaded';
-      this._loading = false;
-      this.render();
-      return;
-    }
-    this._loading = true;
-    this._error = null;
-    this.render();
-
-    var results = await Promise.all([
-      fetchJson('/api/context-ledger', { timeoutMs: 10000 }).catch(function (e) {
-        return { __error: e && e.error ? e.error : String(e || 'error') };
-      }),
-      fetchJson('/api/context-field', { timeoutMs: 10000 }).catch(function (e) {
-        return { __error: e && e.error ? e.error : String(e || 'error') };
-      }),
-    ]);
-
-    this._ledger = results[0] && !results[0].__error ? results[0] : null;
-    this._field = results[1] && !results[1].__error ? results[1] : null;
-
-    if (!this._ledger && !this._field) {
-      this._error = 'Could not load context layer data';
-    }
-
-    this._loading = false;
-    this.render();
-  }
-
-  render() {
-    var F = remFmt();
-    var esc = F.esc || function (s) { return String(s); };
-    var ff = F.ff || function (n) { return String(n); };
-
-    if (this._loading) {
-      this.innerHTML =
-        '<div class="card"><div class="loading-state">Loading context layer\u2026</div></div>';
-      return;
-    }
-    if (this._error && !this._ledger && !this._field) {
-      this.innerHTML =
-        '<div class="card"><h3>Error</h3>' +
-        '<p class="hs" style="color:var(--red)">' + esc(String(this._error)) + '</p></div>';
-      return;
-    }
-
-    var body = '';
-    body += this._renderMetrics(esc, ff);
-    body += this._renderModeDistribution(esc, ff);
-    body += this._renderFileList(esc, ff);
-    body += this._renderFieldInfo(esc, ff);
-    this.innerHTML = body;
-  }
-
-  _renderMetrics(esc, ff) {
-    var ledger = this._ledger || {};
-    var field = this._field || {};
-    var entries = ledger.entries || [];
-    var totalSent = ledger.total_tokens_sent || 0;
-    var totalSaved = ledger.total_tokens_saved || 0;
-    var cr = typeof ledger.compression_ratio === 'number' ? ledger.compression_ratio : 1;
-    var savedPct = Math.max(0, Math.min(100, Math.round((1 - Math.min(1, cr)) * 100)));
-
-    return (
-      '<div class="hero r4 stagger" style="margin-bottom:16px">' +
-      '<div class="hc"><span class="hl">Active files</span>' +
-      '<div class="hv">' + esc(ff(entries.length)) + '</div></div>' +
-      '<div class="hc"><span class="hl">Tokens sent</span>' +
-      '<div class="hv">' + esc(ff(totalSent)) + '</div></div>' +
-      '<div class="hc"><span class="hl">Tokens saved</span>' +
-      '<div class="hv" style="color:var(--green)">' + esc(ff(totalSaved)) + '</div></div>' +
-      '<div class="hc"><span class="hl">Compression</span>' +
-      '<div class="hv">' + esc(String(savedPct)) + '%</div></div></div>'
-    );
-  }
-
-  _renderModeDistribution(esc, ff) {
-    var ledger = this._ledger || {};
-    var modeDist = ledger.mode_distribution;
-    if (!modeDist || typeof modeDist !== 'object') return '';
-
-    var modes = Object.keys(modeDist).sort();
-    if (modes.length === 0) return '';
-
-    var html = '<div class="card" style="margin-bottom:20px"><h3>View modes in use' + tip('context_layer_modes') + '</h3>';
-    for (var i = 0; i < modes.length; i++) {
-      var m = modes[i];
-      html +=
-        '<div class="sr" style="padding:6px 0">' +
-        '<span class="sl"><span class="tag tg">' + esc(m) + '</span></span>' +
-        '<span class="sv">' + esc(ff(modeDist[m])) + ' files</span></div>';
-    }
-    return html + '</div>';
-  }
-
-  _renderFileList(esc, ff) {
-    var ledger = this._ledger || {};
-    var entries = ledger.entries || [];
-
-    if (entries.length === 0) {
-      return (
-        '<div class="card" style="margin-bottom:20px"><h3>Active context files' + tip('context_layer_files') + '</h3>' +
-        '<p class="hs">No files in the context ledger yet.</p></div>'
-      );
-    }
-
-    var limit = Math.min(entries.length, 30);
-    var rows = '';
-    for (var i = 0; i < limit; i++) {
-      var e = entries[i];
-      var path = e.path || '\u2014';
-      var shortPath = path.length > 50 ? '\u2026' + path.slice(-48) : path;
-      var mode = e.mode || e.active_view || 'full';
-      var sent = e.sent_tokens != null ? ff(e.sent_tokens) : '\u2014';
-
-      rows +=
-        '<tr>' +
-        '<td title="' + esc(path) + '">' + esc(shortPath) + '</td>' +
-        '<td><span class="tag tg">' + esc(mode) + '</span></td>' +
-        '<td class="r">' + esc(sent) + '</td></tr>';
-    }
-
-    return (
-      '<div class="card" style="margin-bottom:16px">' +
-      '<div class="card-header"><h3>Active context files' + tip('context_layer_files') + '</h3>' +
-      '<span class="badge">' + esc(ff(entries.length)) + '</span></div>' +
-      '<div class="table-scroll"><table>' +
-      '<thead><tr><th>Path</th><th>Mode</th><th class="r">Tokens</th></tr></thead>' +
-      '<tbody>' + rows + '</tbody></table></div></div>'
-    );
-  }
-
-  _renderFieldInfo(esc, ff) {
-    var ledger = this._ledger || {};
-    var field = this._field || {};
-    var items = field.items || [];
-    var temp = field.temperature != null
-      ? Number(field.temperature).toFixed(2) : '\u2014';
-
-    return (
-      '<div class="card">' +
-      '<h3>Field info' + tip('context_layer_field') + '</h3>' +
-      '<div class="sr"><span class="sl">Temperature</span>' +
-      '<span class="sv">' + esc(temp) + '</span></div>' +
-      '<div class="sr"><span class="sl">Field items</span>' +
-      '<span class="sv">' + esc(ff(items.length)) + '</span></div>' +
-      '<div class="sr"><span class="sl">Window size</span>' +
-      '<span class="sv">' + esc(ff(ledger.window_size || 0)) + '</span></div></div>'
-    );
-  }
-}
-
 /* ===================== register ===================== */
 
 customElements.define('cockpit-learning', CockpitLearning);
 customElements.define('cockpit-routes', CockpitRoutes);
-customElements.define('cockpit-contextlayer', CockpitContextLayer);
 
 (function registerRemLoaders() {
   function doRegister() {
@@ -504,24 +319,10 @@ customElements.define('cockpit-contextlayer', CockpitContextLayer);
         el.loadData();
       }
     });
-
-    R.registerLoader('contextlayer', function () {
-      var section = document.getElementById('view-contextlayer');
-      if (!section) return;
-      var el = section.querySelector('cockpit-contextlayer');
-      if (!el) {
-        section.innerHTML = '';
-        el = document.createElement('cockpit-contextlayer');
-        el.id = 'ckcl-root';
-        section.appendChild(el);
-      } else if (typeof el.loadData === 'function') {
-        el.loadData();
-      }
-    });
   }
 
   if (window.LctxRouter && window.LctxRouter.registerLoader) doRegister();
   else document.addEventListener('DOMContentLoaded', doRegister);
 })();
 
-export { CockpitLearning, CockpitRoutes, CockpitContextLayer };
+export { CockpitLearning, CockpitRoutes };

@@ -1977,7 +1977,6 @@ fn resolve_install_path() -> std::path::PathBuf {
 
 fn spawn_proxy_if_needed() {
     use std::net::TcpStream;
-    use std::time::Duration;
 
     let cfg = core::config::Config::load();
     if cfg.proxy_enabled != Some(true) {
@@ -1985,11 +1984,11 @@ fn spawn_proxy_if_needed() {
     }
 
     let port = crate::proxy_setup::default_port();
-    let already_running = TcpStream::connect_timeout(
-        &format!("127.0.0.1:{port}").parse().unwrap(),
-        Duration::from_millis(200),
-    )
-    .is_ok();
+    let already_running = {
+        use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+        TcpStream::connect_timeout(&addr, crate::proxy_setup::proxy_timeout()).is_ok()
+    };
 
     if already_running {
         tracing::debug!("proxy already running on port {port}");

@@ -167,6 +167,12 @@ impl ServerHandler for LeanCtxServer {
         let client_caps = crate::core::client_capabilities::ClientMcpCapabilities::detect(&name);
         tracing::info!("Client capabilities: {}", client_caps.format_summary());
 
+        {
+            let cfg = crate::core::config::Config::load();
+            let cats = cfg.default_tool_categories_effective();
+            dynamic_tools::init_from_config(&cats);
+        }
+
         if client_caps.dynamic_tools {
             if let Ok(mut dt) = dynamic_tools::global().lock() {
                 dt.set_supports_list_changed(true);
@@ -253,7 +259,13 @@ impl ServerHandler for LeanCtxServer {
             .collect();
 
         let tools = {
-            let dyn_state = dynamic_tools::global().lock().unwrap();
+            let Ok(dyn_state) = dynamic_tools::global().lock() else {
+                tracing::warn!("dynamic_tools mutex poisoned in list_tools; returning unfiltered");
+                return Ok(ListToolsResult {
+                    tools,
+                    ..Default::default()
+                });
+            };
             if dyn_state.supports_list_changed() {
                 tools
                     .into_iter()

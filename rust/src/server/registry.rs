@@ -41,7 +41,10 @@ impl ToolRegistry {
     /// Returns tool definitions filtered by the dynamic tool state.
     /// Only includes tools whose category is currently active.
     pub fn active_tool_defs(&self) -> Vec<Tool> {
-        let state = super::dynamic_tools::global().lock().unwrap();
+        let Ok(state) = super::dynamic_tools::global().lock() else {
+            tracing::warn!("dynamic_tools mutex poisoned in active_tool_defs; returning all");
+            return self.tool_defs();
+        };
         let mut defs: Vec<Tool> = self
             .tools
             .values()
