@@ -100,15 +100,13 @@ impl CtxReadTool {
             .ok_or_else(|| ErrorData::internal_error("cache not available", None))?;
 
         let current_task = {
+            let rt = tokio::runtime::Handle::current();
             let mut attempt = 0u32;
             loop {
-                if let Ok(session) = tokio::task::block_in_place(|| {
-                    let rt = tokio::runtime::Handle::current();
-                    rt.block_on(tokio::time::timeout(
-                        std::time::Duration::from_secs(5),
-                        session_lock.read(),
-                    ))
-                }) {
+                if let Ok(session) = rt.block_on(tokio::time::timeout(
+                    std::time::Duration::from_secs(5),
+                    session_lock.read(),
+                )) {
                     break session.task.as_ref().map(|t| t.description.clone());
                 }
                 attempt += 1;
@@ -392,13 +390,11 @@ impl CtxReadTool {
         let mut ensured_root: Option<String> = None;
         let project_root_snapshot;
         {
-            let session_guard = tokio::task::block_in_place(|| {
-                let rt = tokio::runtime::Handle::current();
-                rt.block_on(tokio::time::timeout(
-                    std::time::Duration::from_secs(10),
-                    session_lock.write(),
-                ))
-            });
+            let rt = tokio::runtime::Handle::current();
+            let session_guard = rt.block_on(tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                session_lock.write(),
+            ));
             if let Ok(mut session) = session_guard {
                 session.touch_file(path, file_ref.as_deref(), &resolved_mode, original);
                 if is_cache_hit {

@@ -62,25 +62,37 @@ pub fn detect_tokenizer(client_name: &str) -> TokenizerFamily {
 
 // ── Tokenizer Instances ────────────────────────────────────
 
-static BPE_O200K: OnceLock<CoreBPE> = OnceLock::new();
-static BPE_CL100K: OnceLock<CoreBPE> = OnceLock::new();
+static BPE_O200K: OnceLock<Option<CoreBPE>> = OnceLock::new();
+static BPE_CL100K: OnceLock<Option<CoreBPE>> = OnceLock::new();
 
-fn get_bpe_o200k() -> &'static CoreBPE {
+fn get_bpe_o200k() -> Option<&'static CoreBPE> {
     BPE_O200K
-        .get_or_init(|| tiktoken_rs::o200k_base().expect("failed to load o200k_base tokenizer"))
+        .get_or_init(|| {
+            tiktoken_rs::o200k_base()
+                .inspect_err(|e| tracing::error!("failed to load o200k_base tokenizer: {e}"))
+                .ok()
+        })
+        .as_ref()
 }
 
-fn get_bpe_cl100k() -> &'static CoreBPE {
+fn get_bpe_cl100k() -> Option<&'static CoreBPE> {
     BPE_CL100K
-        .get_or_init(|| tiktoken_rs::cl100k_base().expect("failed to load cl100k_base tokenizer"))
+        .get_or_init(|| {
+            tiktoken_rs::cl100k_base()
+                .inspect_err(|e| tracing::error!("failed to load cl100k_base tokenizer: {e}"))
+                .ok()
+        })
+        .as_ref()
 }
 
-fn bpe_for_family(family: TokenizerFamily) -> &'static CoreBPE {
+fn bpe_for_family(family: TokenizerFamily) -> Option<&'static CoreBPE> {
     match family {
         TokenizerFamily::O200kBase | TokenizerFamily::Gemini => get_bpe_o200k(),
         TokenizerFamily::Cl100k | TokenizerFamily::Llama => get_bpe_cl100k(),
     }
 }
+
+const CHARS_PER_TOKEN_ESTIMATE: f64 = 3.5;
 
 /// Gemini tokens are ~8% larger on average vs o200k; empirically calibrated.
 const GEMINI_CORRECTION: f64 = 1.08;
@@ -150,9 +162,12 @@ pub fn count_tokens_for(text: &str, family: TokenizerFamily) -> usize {
         return cached;
     }
 
-    let raw = bpe_for_family(family)
-        .encode_with_special_tokens(text)
-        .len();
+    let Some(bpe) = bpe_for_family(family) else {
+        let estimate = (text.len() as f64 / CHARS_PER_TOKEN_ESTIMATE).ceil() as usize;
+        cache.insert(key, estimate);
+        return estimate;
+    };
+    let raw = bpe.encode_with_special_tokens(text).len();
     let count = if family == TokenizerFamily::Gemini {
         (raw as f64 * GEMINI_CORRECTION).ceil() as usize
     } else {
@@ -168,7 +183,10 @@ pub fn encode_tokens(text: &str) -> Vec<u32> {
     if text.is_empty() {
         return Vec::new();
     }
-    get_bpe_o200k().encode_with_special_tokens(text)
+    match get_bpe_o200k() {
+        Some(bpe) => bpe.encode_with_special_tokens(text),
+        None => Vec::new(),
+    }
 }
 
 /// Encodes text into BPE token IDs for the specified tokenizer family.
@@ -178,7 +196,10 @@ pub fn encode_tokens_for(text: &str, family: TokenizerFamily) -> Vec<u32> {
     if text.is_empty() {
         return Vec::new();
     }
-    bpe_for_family(family).encode_with_special_tokens(text)
+    match bpe_for_family(family) {
+        Some(bpe) => bpe.encode_with_special_tokens(text),
+        None => Vec::new(),
+    }
 }
 
 #[cfg(test)]
@@ -367,6 +388,7 @@ mod tests {
         ] {
             let encoded = encode_tokens_for(text, family);
             let raw_count = bpe_for_family(family)
+                .unwrap()
                 .encode_with_special_tokens(text)
                 .len();
             assert_eq!(encoded.len(), raw_count, "mismatch for {family}");
