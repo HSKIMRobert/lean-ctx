@@ -42,7 +42,14 @@ pub fn handle(path: &str, depth: usize, show_hidden: bool) -> (String, usize) {
 
 fn generate_compact_tree(root: &Path, max_depth: usize, show_hidden: bool) -> String {
     let mut lines = Vec::new();
-    let mut entries: Vec<(usize, String, bool, usize)> = Vec::new();
+
+    struct Entry {
+        depth: usize,
+        name: String,
+        is_dir: bool,
+        path: std::path::PathBuf,
+    }
+    let mut entries: Vec<Entry> = Vec::new();
 
     let walker = WalkBuilder::new(root)
         .hidden(!show_hidden)
@@ -57,27 +64,31 @@ fn generate_compact_tree(root: &Path, max_depth: usize, show_hidden: bool) -> St
         if entry.depth() == 0 {
             continue;
         }
-
-        let name = entry.file_name().to_string_lossy().to_string();
-
-        let depth = entry.depth();
-        let is_dir = entry.file_type().is_some_and(|ft| ft.is_dir());
-
-        let file_count = if is_dir {
-            count_files_in_dir(entry.path())
-        } else {
-            0
-        };
-
-        entries.push((depth, name, is_dir, file_count));
+        entries.push(Entry {
+            depth: entry.depth(),
+            name: entry.file_name().to_string_lossy().to_string(),
+            is_dir: entry.file_type().is_some_and(|ft| ft.is_dir()),
+            path: entry.path().to_path_buf(),
+        });
     }
 
-    for (depth, name, is_dir, file_count) in &entries {
-        let indent = "  ".repeat(depth.saturating_sub(1));
-        if *is_dir {
-            lines.push(format!("{indent}{name}/ ({file_count})"));
+    let mut dir_file_counts: std::collections::HashMap<&std::path::Path, usize> =
+        std::collections::HashMap::new();
+    for e in &entries {
+        if !e.is_dir {
+            if let Some(parent) = e.path.parent() {
+                *dir_file_counts.entry(parent).or_default() += 1;
+            }
+        }
+    }
+
+    for e in &entries {
+        let indent = "  ".repeat(e.depth.saturating_sub(1));
+        if e.is_dir {
+            let count = dir_file_counts.get(e.path.as_path()).copied().unwrap_or(0);
+            lines.push(format!("{indent}{}/ ({count})", e.name));
         } else {
-            lines.push(format!("{indent}{name}"));
+            lines.push(format!("{indent}{}", e.name));
         }
     }
 
@@ -109,17 +120,6 @@ fn generate_raw_tree(root: &Path, depth: usize, show_hidden: bool) -> String {
     }
 
     lines.join("\n")
-}
-
-fn count_files_in_dir(dir: &Path) -> usize {
-    WalkBuilder::new(dir)
-        .hidden(false)
-        .git_ignore(true)
-        .max_depth(Some(5))
-        .build()
-        .filter_map(std::result::Result::ok)
-        .filter(|e| e.file_type().is_some_and(|ft| ft.is_file()))
-        .count()
 }
 
 #[cfg(test)]
