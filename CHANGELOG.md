@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.6.16] — 2026-05-22
+
+### Added
+
+- **First-class OpenClaw agent support** — `lean-ctx init --agent openclaw` writes the MCP server entry to `~/.openclaw/openclaw.json` under `mcp.servers.lean-ctx` (nested JSON structure), installs global rules to `~/.openclaw/rules/lean-ctx.md`, and copies the LeanCTX SKILL.md to `~/.openclaw/skills/lean-ctx/`. `lean-ctx doctor` detects OpenClaw installations. `lean-ctx setup` auto-configures when `~/.openclaw/` exists
+- **Context package graph-native architecture (`.ctxpkg` v2)** — New `ContextGraph` data model (`ContextNode`, `ContextEdge`) with activation weights and temporal metadata. Graph-merge composition with conflict detection and contradiction resolution. Ed25519 package signing with hex-encoded key verification. Manifest schema version 2 with scoped package names (`@scope/name`) and conformance levels (Basic, Graph, Cognitive). New `docs/specs/` with JSON schema
+- **LeanCTX Custom GPT documentation** — Knowledge base and system prompt prepared for creating a ChatGPT Custom GPT to answer lean-ctx documentation questions (files in `docs/gpt/`, gitignored)
+
+### Fixed
+
+- **`ctx_session` finding panic on em-dash (#272)** — `parse_finding_value` crashed on multi-byte separators like `" — "` (space + U+2014 EM DASH + space = 5 bytes) because the code assumed a 3-byte ASCII separator. Now dynamically determines separator length using `str::len()`. Added 6 regression tests including exact repro with Cyrillic text from the issue report
+- **Panic handler returns `isError: false`** — The `catch_unwind` block in the MCP server returned panics as successful tool results (`isError: false`), hiding crashes from AI agents. Now returns `CallToolResult::error` so `isError: true` is set correctly
+
 ## [3.6.15] — 2026-05-22
 
 ### Fixed
