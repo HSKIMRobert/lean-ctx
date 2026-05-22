@@ -57,6 +57,16 @@ pub struct ThrottleResult {
     pub message: Option<String>,
 }
 
+impl Default for ThrottleResult {
+    fn default() -> Self {
+        Self {
+            level: ThrottleLevel::Normal,
+            call_count: 0,
+            message: None,
+        }
+    }
+}
+
 impl Default for LoopDetector {
     fn default() -> Self {
         Self::new()

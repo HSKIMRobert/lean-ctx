@@ -15,6 +15,7 @@ pub mod resources;
 pub mod role_guard;
 pub mod tool_trait;
 
+use futures::FutureExt;
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
     CallToolRequestParams, CallToolResult, Content, Implementation, InitializeRequestParams,
@@ -387,6 +388,37 @@ impl ServerHandler for LeanCtxServer {
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
+        use std::panic::AssertUnwindSafe;
+
+        match AssertUnwindSafe(self.call_tool_guarded(request))
+            .catch_unwind()
+            .await
+        {
+            Ok(result) => result,
+            Err(panic_payload) => {
+                let detail = if let Some(s) = panic_payload.downcast_ref::<&str>() {
+                    (*s).to_string()
+                } else if let Some(s) = panic_payload.downcast_ref::<String>() {
+                    s.clone()
+                } else {
+                    "unknown".to_string()
+                };
+                tracing::error!("call_tool panicked: {detail}");
+                Ok(CallToolResult::error(vec![Content::text(
+                    "ERROR: lean-ctx internal error. The MCP server is still running. \
+                     Please retry or use a different approach."
+                        .to_string(),
+                )]))
+            }
+        }
+    }
+}
+
+impl LeanCtxServer {
+    async fn call_tool_guarded(
+        &self,
+        request: CallToolRequestParams,
+    ) -> Result<CallToolResult, ErrorData> {
         self.check_idle_expiry().await;
         elicitation::increment_call();
 
@@ -462,15 +494,21 @@ impl ServerHandler for LeanCtxServer {
                 let session = self.session.read().await;
                 session.project_root.clone()
             };
-            let mut cache = self.cache.write().await;
-            crate::tools::autonomy::session_lifecycle_pre_hook(
-                &self.autonomy,
-                name,
-                &mut cache,
-                task.as_deref(),
-                project_root.as_deref(),
-                CrpMode::effective(),
-            )
+            let cache_timeout =
+                tokio::time::timeout(std::time::Duration::from_secs(5), self.cache.write()).await;
+            if let Ok(mut cache) = cache_timeout {
+                crate::tools::autonomy::session_lifecycle_pre_hook(
+                    &self.autonomy,
+                    name,
+                    &mut cache,
+                    task.as_deref(),
+                    project_root.as_deref(),
+                    CrpMode::effective(),
+                )
+            } else {
+                tracing::warn!("pre-dispatch: cache write-lock timeout (5s), skipping autonomy");
+                None
+            }
         };
 
         let throttle_result = {
@@ -481,35 +519,43 @@ impl ServerHandler for LeanCtxServer {
                     )
                 })
                 .unwrap_or_default();
-            let mut detector = self.loop_detector.write().await;
-
-            let is_search = crate::core::loop_detection::LoopDetector::is_search_tool(name);
-            let is_search_shell = name == "ctx_shell" && {
-                let cmd = args
-                    .as_ref()
-                    .and_then(|a| a.get("command"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                crate::core::loop_detection::LoopDetector::is_search_shell_command(cmd)
-            };
-
-            if is_search || is_search_shell {
-                let search_pattern = args.and_then(|a| {
-                    a.get("pattern")
-                        .or_else(|| a.get("query"))
+            let detector_timeout = tokio::time::timeout(
+                std::time::Duration::from_secs(3),
+                self.loop_detector.write(),
+            )
+            .await;
+            if let Ok(mut detector) = detector_timeout {
+                let is_search = crate::core::loop_detection::LoopDetector::is_search_tool(name);
+                let is_search_shell = name == "ctx_shell" && {
+                    let cmd = args
+                        .as_ref()
+                        .and_then(|a| a.get("command"))
                         .and_then(|v| v.as_str())
-                });
-                let shell_pattern = if is_search_shell {
-                    args.and_then(|a| a.get("command"))
-                        .and_then(|v| v.as_str())
-                        .and_then(helpers::extract_search_pattern_from_command)
-                } else {
-                    None
+                        .unwrap_or("");
+                    crate::core::loop_detection::LoopDetector::is_search_shell_command(cmd)
                 };
-                let pat = search_pattern.or(shell_pattern.as_deref());
-                detector.record_search(name, &fp, pat)
+
+                if is_search || is_search_shell {
+                    let search_pattern = args.and_then(|a| {
+                        a.get("pattern")
+                            .or_else(|| a.get("query"))
+                            .and_then(|v| v.as_str())
+                    });
+                    let shell_pattern = if is_search_shell {
+                        args.and_then(|a| a.get("command"))
+                            .and_then(|v| v.as_str())
+                            .and_then(helpers::extract_search_pattern_from_command)
+                    } else {
+                        None
+                    };
+                    let pat = search_pattern.or(shell_pattern.as_deref());
+                    detector.record_search(name, &fp, pat)
+                } else {
+                    detector.record_call(name, &fp)
+                }
             } else {
-                detector.record_call(name, &fp)
+                tracing::warn!("pre-dispatch: loop_detector write-lock timeout (3s), skipping");
+                crate::core::loop_detection::ThrottleResult::default()
             }
         };
 
@@ -576,31 +622,11 @@ impl ServerHandler for LeanCtxServer {
         }
 
         let tool_start = std::time::Instant::now();
-        let (mut result_text, tool_saved_tokens) = {
-            use futures::FutureExt;
-            use std::panic::AssertUnwindSafe;
-            match AssertUnwindSafe(self.dispatch_tool(name, args, minimal))
-                .catch_unwind()
-                .await
-            {
-                Ok(Ok(pair)) => pair,
-                Ok(Err(e)) => return Err(e),
-                Err(panic_payload) => {
-                    let detail = if let Some(s) = panic_payload.downcast_ref::<&str>() {
-                        (*s).to_string()
-                    } else if let Some(s) = panic_payload.downcast_ref::<String>() {
-                        s.clone()
-                    } else {
-                        "unknown".to_string()
-                    };
-                    tracing::error!(tool = name, "Tool panicked: {detail}");
-                    return Ok(CallToolResult::error(vec![Content::text(format!(
-                        "ERROR: lean-ctx internal error in tool '{name}'.\n\
-                         The MCP server is still running. Please retry or use a different approach."
-                    ))]));
-                }
-            }
-        };
+        let (mut result_text, tool_saved_tokens) =
+            match self.dispatch_tool(name, args, minimal).await {
+                Ok(pair) => pair,
+                Err(e) => return Err(e),
+            };
 
         let is_raw_shell = name == "ctx_shell" && {
             let arg_raw = helpers::get_bool(args, "raw").unwrap_or(false);
@@ -843,12 +869,24 @@ impl ServerHandler for LeanCtxServer {
                 let autonomy_clone = self.autonomy.clone();
                 let name_owned = name.to_string();
                 tokio::spawn(async move {
-                    let mut cache = cache_clone.write().await;
-                    crate::tools::autonomy::maybe_auto_dedup(
-                        &autonomy_clone,
-                        &mut cache,
-                        &name_owned,
-                    );
+                    let result = std::panic::AssertUnwindSafe(async {
+                        let mut cache = cache_clone.write().await;
+                        crate::tools::autonomy::maybe_auto_dedup(
+                            &autonomy_clone,
+                            &mut cache,
+                            &name_owned,
+                        );
+                    })
+                    .catch_unwind()
+                    .await;
+                    if let Err(e) = result {
+                        let msg = e
+                            .downcast_ref::<String>()
+                            .map(String::as_str)
+                            .or_else(|| e.downcast_ref::<&str>().copied())
+                            .unwrap_or("unknown");
+                        tracing::error!("background auto_dedup panicked: {msg}");
+                    }
                 });
             } else {
                 let read_path = self
@@ -900,42 +938,54 @@ impl ServerHandler for LeanCtxServer {
                 let wants_eviction = true;
                 let wants_elicitation = profile_hints.elicitation_hint();
                 tokio::spawn(async move {
-                    let active_task = {
-                        let session = session_clone.read().await;
-                        session.task.as_ref().map(|t| t.description.clone())
-                    };
-                    let mut ledger = ledger_clone.write().await;
-                    let overlay = crate::core::context_overlay::OverlayStore::load_project(
-                        &std::path::PathBuf::from(project_root_owned.as_deref().unwrap_or(".")),
-                    );
-                    let gate_result = context_gate::post_dispatch_record_with_task(
-                        &read_path_owned,
-                        &mode_used,
-                        out_tok,
-                        sent_tok,
-                        &mut ledger,
-                        &overlay,
-                        active_task.as_deref(),
-                    );
-                    drop(ledger);
-                    if wants_eviction {
-                        if let Some(hint) = &gate_result.eviction_hint {
-                            tracing::debug!("deferred eviction hint: {hint}");
+                    let result = std::panic::AssertUnwindSafe(async {
+                        let active_task = {
+                            let session = session_clone.read().await;
+                            session.task.as_ref().map(|t| t.description.clone())
+                        };
+                        let mut ledger = ledger_clone.write().await;
+                        let overlay = crate::core::context_overlay::OverlayStore::load_project(
+                            &std::path::PathBuf::from(project_root_owned.as_deref().unwrap_or(".")),
+                        );
+                        let gate_result = context_gate::post_dispatch_record_with_task(
+                            &read_path_owned,
+                            &mode_used,
+                            out_tok,
+                            sent_tok,
+                            &mut ledger,
+                            &overlay,
+                            active_task.as_deref(),
+                        );
+                        drop(ledger);
+                        if wants_eviction {
+                            if let Some(hint) = &gate_result.eviction_hint {
+                                tracing::debug!("deferred eviction hint: {hint}");
+                            }
                         }
-                    }
-                    if wants_elicitation {
-                        if let Some(hint) = &gate_result.elicitation_hint {
-                            tracing::debug!("deferred elicitation hint: {hint}");
+                        if wants_elicitation {
+                            if let Some(hint) = &gate_result.elicitation_hint {
+                                tracing::debug!("deferred elicitation hint: {hint}");
+                            }
                         }
-                    }
-                    if gate_result.resource_changed {
-                        if let Some(peer) = peer_clone.read().await.as_ref() {
-                            notifications::send_resource_updated(
-                                peer,
-                                notifications::RESOURCE_URI_SUMMARY,
-                            )
-                            .await;
+                        if gate_result.resource_changed {
+                            if let Some(peer) = peer_clone.read().await.as_ref() {
+                                notifications::send_resource_updated(
+                                    peer,
+                                    notifications::RESOURCE_URI_SUMMARY,
+                                )
+                                .await;
+                            }
                         }
+                    })
+                    .catch_unwind()
+                    .await;
+                    if let Err(e) = result {
+                        let msg = e
+                            .downcast_ref::<String>()
+                            .map(String::as_str)
+                            .or_else(|| e.downcast_ref::<&str>().copied())
+                            .unwrap_or("unknown");
+                        tracing::error!("background post_dispatch panicked: {msg}");
                     }
                 });
             }
