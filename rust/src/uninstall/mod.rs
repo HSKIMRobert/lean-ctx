@@ -83,17 +83,27 @@ pub(super) fn safe_remove(path: &Path, dry_run: bool) -> Result<(), std::io::Err
 // Main entry
 // ---------------------------------------------------------------------------
 
-pub fn run(dry_run: bool) {
+pub fn run(dry_run: bool, keep_config: bool) {
     let Some(home) = dirs::home_dir() else {
         tracing::warn!("Could not determine home directory");
         return;
     };
 
+    let mode_label = if keep_config {
+        "uninstall --keep-config"
+    } else {
+        "uninstall"
+    };
+
     if dry_run {
-        println!("\n  lean-ctx uninstall --dry-run\n  ──────────────────────────────────\n");
+        println!("\n  lean-ctx {mode_label} --dry-run\n  ──────────────────────────────────\n");
         println!("  Preview mode — no files will be modified.\n");
     } else {
-        println!("\n  lean-ctx uninstall\n  ──────────────────────────────────\n");
+        println!("\n  lean-ctx {mode_label}\n  ──────────────────────────────────\n");
+    }
+
+    if keep_config {
+        println!("  Mode: keep-config (MCP configs and rules preserved for reinstall)\n");
     }
 
     let mut removed_any = false;
@@ -104,8 +114,15 @@ pub fn run(dry_run: bool) {
     } else {
         crate::proxy_setup::uninstall_proxy_env(&home, false);
     }
-    removed_any |= remove_mcp_configs(&home, dry_run);
-    removed_any |= remove_rules_files(&home, dry_run);
+
+    if keep_config {
+        println!("  · Skipped: MCP configs (--keep-config)");
+        println!("  · Skipped: Rules files (--keep-config)");
+    } else {
+        removed_any |= remove_mcp_configs(&home, dry_run);
+        removed_any |= remove_rules_files(&home, dry_run);
+    }
+
     removed_any |= remove_hook_files(&home, dry_run);
     removed_any |= remove_project_agent_files(dry_run);
 
@@ -127,7 +144,12 @@ pub fn run(dry_run: bool) {
         println!("  ──────────────────────────────────");
         if dry_run {
             println!(
-                "  The above changes WOULD be applied.\n  Run `lean-ctx uninstall` to execute.\n"
+                "  The above changes WOULD be applied.\n  Run `lean-ctx {mode_label}` to execute.\n"
+            );
+        } else if keep_config {
+            println!(
+                "  Runtime data removed. MCP configs preserved for reinstall.\n  \
+                 Reinstall with: cargo install lean-ctx\n"
             );
         } else {
             println!("  lean-ctx configuration removed.\n");

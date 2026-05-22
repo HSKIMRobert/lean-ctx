@@ -1362,7 +1362,8 @@ pub fn run() {
             }
             "uninstall" => {
                 let dry_run = rest.iter().any(|a| a == "--dry-run");
-                uninstall::run(dry_run);
+                let keep_config = rest.iter().any(|a| a == "--keep-config");
+                uninstall::run(dry_run, keep_config);
                 return;
             }
             "bypass" => {
@@ -1631,7 +1632,7 @@ COMMANDS:
     control <action> [--target=<t>] Context field manipulation (exclude/pin/priority)
     plan <task> [--budget=N]       Context planning (optimal Phi-scored context plan)
     compile [--mode=<m>] [--budget=N] Context compilation (knapsack + Boltzmann)
-    uninstall                      Remove shell hook, MCP configs, and data directory
+    uninstall [--keep-config]       Remove all lean-ctx artifacts (--keep-config preserves MCP/rules)
 
 SHELL HOOK PATTERNS (95+):
     git       status, log, diff, add, commit, push, pull, fetch, clone,
