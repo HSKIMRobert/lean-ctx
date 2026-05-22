@@ -5,6 +5,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.6.15] — 2026-05-22
+
+### Fixed
+
+- **MCP crash: "Cannot read properties of undefined (reading 'invoke')"** — Identified and fixed 4 distinct crash vectors that caused intermittent MCP server death on v3.6.14 (#271):
+  - 5 `Mutex::lock().unwrap()` calls in the MCP request hot path (`list_tools`, `active_tool_defs`, `ctx_load_tools`) replaced with graceful fallbacks that degrade instead of crashing
+  - `memory_guard` hard `process::exit(137)` replaced with 3-attempt eviction loop — server now aggressively reclaims memory but never hard-exits
+  - Nested `block_in_place` in `bounded_lock` eliminated to prevent Tokio blocking-pool exhaustion under concurrent tool calls
+  - CSPRNG `expect()` in dashboard nonce/token generation replaced with time-based fallback
+- **`parse().unwrap()` for SocketAddr** in 2 dashboard routes replaced with direct `SocketAddr::new()` construction
+- **`tempfile().expect()` in `ctx_execute`** replaced with graceful error return
+
+### Changed
+
+- **Dashboard: modular route architecture** — Monolithic `context.rs` (617 lines) and `graph.rs` (364 lines) split into focused sub-modules (`context/{core,overlay,diagnostics,aggregated}.rs`, `graph/{deps,callgraph,analysis}.rs`)
+- **Dashboard: API consolidation** — 3 new aggregated endpoints (`/api/context-summary`, `/api/context-capabilities`, `/api/context-history`) reduce parallel fetches from 18 to 11 in the Context Manager view
+- **Dashboard: shared frontend utilities** — Extracted common rendering logic (gauges, formatters, path shortening) into `lib/shared.js`; TTL-cached API layer in `lib/api.js` with event-based data broadcasting
+- **Dashboard: removed dead code** — Deleted legacy `dashboard.html` (3057 lines) and `CockpitContextLayer` component
+
+### Added
+
+- **Context Commander** — New action-oriented dashboard component with context pressure visualization, budget bands, and risk analysis
+- **Configurable proxy timeout** — `LEAN_CTX_PROXY_TIMEOUT_MS` env var / `proxy_timeout_ms` in config.toml (default: 200ms) (#270)
+- **Dynamic tool categories** — `LCTX_DEFAULT_CATEGORIES` env var / `default_tool_categories` in config.toml to control which tool categories are active by default
+- **Global degradation disable** — `LCTX_NO_DEGRADE=1` env var / `no_degrade = true` in config.toml to globally disable all read mode degradation
+
 ## [3.6.14] — 2026-05-22
 
 ### Added
