@@ -1206,8 +1206,8 @@ fn agent_mcp_targets(agent: &str, home: &std::path::Path) -> Result<Vec<EditorTa
             home.join(".verdent/mcp.json"),
             ConfigType::McpJson,
         ),
-        "jetbrains" | "amp" => {
-            // Handled by dedicated install hooks (servers[] array / amp.mcpServers)
+        "jetbrains" | "amp" | "openclaw" => {
+            // Handled by dedicated install hooks (servers[] array / amp.mcpServers / mcp.servers)
         }
         "qwen" => push(
             &mut targets,
@@ -1432,7 +1432,7 @@ pub fn disable_agent_mcp(agent: &str, overwrite_invalid: bool) -> Result<(), Str
             home.join(".verdent/mcp.json"),
             ConfigType::McpJson,
         ),
-        "jetbrains" | "amp" => {
+        "jetbrains" | "amp" | "openclaw" => {
             // Not supported for disable via this helper.
         }
         "qwen" => push(

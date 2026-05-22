@@ -10,6 +10,7 @@ mod gemini;
 mod hermes;
 mod jetbrains;
 mod kiro;
+mod openclaw;
 mod opencode;
 mod pi;
 mod qoder;
@@ -36,6 +37,7 @@ pub(super) use gemini::{
 pub(super) use hermes::install_hermes_hook_with_mode;
 pub(super) use jetbrains::install_jetbrains_hook;
 pub(super) use kiro::install_kiro_hook;
+pub(super) use openclaw::install_openclaw_hook;
 pub(super) use opencode::install_opencode_hook_with_mode;
 pub(super) use pi::install_pi_hook_with_mode;
 pub(super) use qoder::install_qoder_hook_with_mode;

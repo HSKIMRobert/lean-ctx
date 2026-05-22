@@ -208,6 +208,7 @@ fn match_agent_name(cli_key: &str, target_name: &str) -> bool {
         || (needle == "qwen" && tn.contains("qwen"))
         || (needle == "antigravity" && tn.contains("antigravity"))
         || (needle == "augment" && tn.contains("augment"))
+        || (needle == "openclaw" && tn.contains("openclaw"))
         || (needle == "vscode" && (tn.contains("vs code") || tn.contains("vscode")))
 }
 
@@ -656,6 +657,11 @@ fn build_rules_targets(home: &std::path::Path) -> Vec<RulesTarget> {
             path: home.join(".augment/rules/lean-ctx.md"),
             format: RulesFormat::DedicatedMarkdown,
         },
+        RulesTarget {
+            name: "OpenClaw",
+            path: home.join(".openclaw/rules/lean-ctx.md"),
+            format: RulesFormat::DedicatedMarkdown,
+        },
     ]
 }
 
@@ -714,6 +720,11 @@ fn build_skill_targets(home: &std::path::Path) -> Vec<SkillTarget> {
             display_name: "GitHub Copilot",
             skill_dir: home.join(".copilot/skills/lean-ctx"),
         },
+        SkillTarget {
+            agent_key: "openclaw",
+            display_name: "OpenClaw",
+            skill_dir: home.join(".openclaw/skills/lean-ctx"),
+        },
     ]
 }
 
@@ -735,6 +746,7 @@ fn is_skill_agent_detected(agent_key: &str, home: &std::path::Path) -> bool {
                 || home.join(".copilot/mcp-config.json").exists()
                 || command_exists("copilot")
         }
+        "openclaw" => home.join(".openclaw").exists() || command_exists("openclaw"),
         _ => false,
     }
 }
@@ -966,7 +978,7 @@ mod tests {
     fn target_count() {
         let home = std::path::PathBuf::from("/tmp/fake_home");
         let targets = build_rules_targets(&home);
-        assert_eq!(targets.len(), 22);
+        assert_eq!(targets.len(), 23);
     }
 
     #[test]
@@ -979,7 +991,7 @@ mod tests {
     fn skill_targets_count() {
         let home = std::path::PathBuf::from("/tmp/fake_home");
         let targets = build_skill_targets(&home);
-        assert_eq!(targets.len(), 4);
+        assert_eq!(targets.len(), 5);
     }
 
     #[test]
@@ -1045,6 +1057,7 @@ mod tests {
         assert!(match_agent_name("antigravity", "Antigravity"));
         assert!(match_agent_name("gemini", "Gemini CLI"));
         assert!(match_agent_name("augment", "Augment"));
+        assert!(match_agent_name("openclaw", "OpenClaw"));
     }
 
     #[test]

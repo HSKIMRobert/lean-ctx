@@ -56,8 +56,10 @@ pub fn recommend_hook_mode(agent_key: &str) -> HookMode {
         // Claude Code: PreToolUse hooks for shell + MCP for reads/search.
         // All other agents with shell access: shell hooks + MCP.
         "cursor" | "gemini" | "codex" | "claude" | "claude-code" | "crush" | "hermes"
-        | "opencode" | "pi" | "qoder" | "windsurf" | "amp" | "cline" | "roo" | "copilot"
-        | "kiro" | "qwen" | "trae" | "antigravity" | "amazonq" | "verdent" => HookMode::Hybrid,
+        | "opencode" | "openclaw" | "pi" | "qoder" | "windsurf" | "amp" | "cline" | "roo"
+        | "copilot" | "kiro" | "qwen" | "trae" | "antigravity" | "amazonq" | "verdent" => {
+            HookMode::Hybrid
+        }
 
         // No reliable direct shell tool → MCP only
         _ => HookMode::Mcp,
@@ -70,8 +72,8 @@ use agents::{
     install_cursor_hook_config, install_cursor_hook_scripts, install_cursor_hook_with_mode,
     install_gemini_hook, install_gemini_hook_config, install_gemini_hook_scripts,
     install_hermes_hook_with_mode, install_jetbrains_hook, install_kiro_hook,
-    install_opencode_hook_with_mode, install_pi_hook_with_mode, install_qoder_hook_with_mode,
-    install_windsurf_rules,
+    install_openclaw_hook, install_opencode_hook_with_mode, install_pi_hook_with_mode,
+    install_qoder_hook_with_mode, install_windsurf_rules,
 };
 use support::{
     ensure_codex_hooks_enabled, install_codex_instruction_docs, install_named_json_server,
@@ -562,6 +564,7 @@ pub fn install_agent_hook_with_mode(agent: &str, global: bool, mode: HookMode) {
         "opencode" => install_opencode_hook_with_mode(mode),
         "amp" => install_amp_hook(),
         "crush" => install_crush_hook_with_mode(mode),
+        "openclaw" => install_openclaw_hook(),
         "hermes" => install_hermes_hook_with_mode(global, mode),
         "zed" => {
             let zed_path = crate::core::editor_registry::zed_settings_path(&home);
@@ -596,8 +599,8 @@ pub fn install_agent_hook_with_mode(agent: &str, global: bool, mode: HookMode) {
             eprintln!("Unknown agent: {agent}");
             eprintln!("  Supported: aider, amazonq, amp, antigravity, augment, claude, cline,");
             eprintln!("    codex, continue, copilot, crush, cursor, emacs, gemini, hermes,");
-            eprintln!("    jetbrains, kiro, neovim, opencode, pi, qoder, qoderwork, qwen, roo,");
-            eprintln!("    sublime, trae, verdent, vscode, windsurf, zed");
+            eprintln!("    jetbrains, kiro, neovim, openclaw, opencode, pi, qoder, qoderwork,");
+            eprintln!("    qwen, roo, sublime, trae, verdent, vscode, windsurf, zed");
             std::process::exit(1);
         }
     }

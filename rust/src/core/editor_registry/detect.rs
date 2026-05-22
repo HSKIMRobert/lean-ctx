@@ -240,6 +240,13 @@ pub fn build_targets(home: &Path) -> Vec<EditorTarget> {
             detect_path: detect_sublime_path(home),
             config_type: ConfigType::McpJson,
         },
+        EditorTarget {
+            name: "OpenClaw",
+            agent_key: "openclaw".to_string(),
+            config_path: home.join(".openclaw/openclaw.json"),
+            detect_path: home.join(".openclaw"),
+            config_type: ConfigType::McpJson,
+        },
     ];
 
     targets.extend(

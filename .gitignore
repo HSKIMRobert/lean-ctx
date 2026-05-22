@@ -58,3 +58,4 @@ test-results/
 website/generated/
 worktrees/website/generated/
 AGENTS.md.lean-ctx.*.bak
+docs/gpt/
