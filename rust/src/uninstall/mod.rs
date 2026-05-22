@@ -5,8 +5,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use agents::{
-    remove_hook_files, remove_mcp_configs, remove_project_agent_files, remove_rules_files,
-    remove_shell_hook,
+    remove_hook_files, remove_mcp_configs, remove_plan_mode_settings, remove_project_agent_files,
+    remove_rules_files, remove_shell_hook,
 };
 
 pub(super) fn backup_before_modify(path: &Path, dry_run: bool) {
@@ -124,6 +124,7 @@ pub fn run(dry_run: bool, keep_config: bool) {
     }
 
     removed_any |= remove_hook_files(&home, dry_run);
+    removed_any |= remove_plan_mode_settings(&home, dry_run);
     removed_any |= remove_skill_dirs(&home, dry_run);
     removed_any |= remove_project_agent_files(dry_run);
 
@@ -194,8 +195,9 @@ pub(super) fn remove_marked_block(content: &str, start: &str, end: &str) -> Stri
 // ---------------------------------------------------------------------------
 
 fn remove_skill_dirs(home: &Path, dry_run: bool) -> bool {
-    let skill_dirs: Vec<(&str, PathBuf)> = vec![
-        ("Claude Code", home.join(".claude/skills/lean-ctx")),
+    let claude_state = crate::core::editor_registry::claude_state_dir(home);
+    let mut skill_dirs: Vec<(&str, PathBuf)> = vec![
+        ("Claude Code", claude_state.join("skills/lean-ctx")),
         ("Cursor", home.join(".cursor/skills/lean-ctx")),
         (
             "Codex CLI",
@@ -206,6 +208,12 @@ fn remove_skill_dirs(home: &Path, dry_run: bool) -> bool {
         ("Copilot", home.join(".copilot/skills/lean-ctx")),
         ("OpenClaw", home.join(".openclaw/skills/lean-ctx")),
     ];
+
+    // If CLAUDE_CONFIG_DIR differs from ~/.claude, also clean default path
+    let default_claude_skill = home.join(".claude/skills/lean-ctx");
+    if !skill_dirs.iter().any(|(_, p)| *p == default_claude_skill) {
+        skill_dirs.push(("Claude Code (default)", default_claude_skill));
+    }
 
     let mut removed = false;
     for (name, dir) in &skill_dirs {

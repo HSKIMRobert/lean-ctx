@@ -461,6 +461,14 @@ fn remove_lean_ctx_from_json_serde(content: &str) -> Option<String> {
         modified |= mcp.remove("lean-ctx").is_some();
     }
 
+    // Zed uses `context_servers` instead of `mcpServers`
+    if let Some(ctx) = parsed
+        .get_mut("context_servers")
+        .and_then(|s| s.as_object_mut())
+    {
+        modified |= ctx.remove("lean-ctx").is_some();
+    }
+
     if let Some(amp) = parsed
         .get_mut("amp.mcpServers")
         .and_then(|s| s.as_object_mut())

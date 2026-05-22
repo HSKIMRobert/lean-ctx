@@ -196,7 +196,9 @@ pub(super) fn remove_shell_hook(home: &Path, dry_run: bool) -> bool {
     let shell = std::env::var("SHELL").unwrap_or_default();
     let mut removed = false;
 
-    if !dry_run {
+    if dry_run {
+        println!("  Would remove shell hook dropin files (.zshenv.d, .bashenv.d)");
+    } else {
         crate::shell_hook::uninstall_all(false);
     }
 
@@ -386,14 +388,21 @@ pub(super) fn remove_mcp_configs(home: &Path, dry_run: bool) -> bool {
         }
     }
 
+    // Zed: uses `context_servers` key — handled by remove_lean_ctx_from_json
     let zed_path = crate::core::editor_registry::zed_settings_path(home);
     if zed_path.exists() {
         if let Ok(content) = fs::read_to_string(&zed_path) {
             if content.contains("lean-ctx") {
-                println!(
-                    "  ⚠ Zed: manually remove lean-ctx from {}",
-                    shorten(&zed_path, home)
-                );
+                backup_before_modify(&zed_path, dry_run);
+                if let Some(cleaned) = remove_lean_ctx_from_json(&content) {
+                    if let Err(e) = safe_write(&zed_path, &cleaned, dry_run) {
+                        tracing::warn!("Failed to update Zed config: {e}");
+                    } else {
+                        let verb = if dry_run { "Would update" } else { "✓" };
+                        println!("  {verb} MCP config removed from Zed");
+                        removed = true;
+                    }
+                }
             }
         }
     }
@@ -415,6 +424,50 @@ pub(super) fn remove_mcp_configs(home: &Path, dry_run: bool) -> bool {
             }
         }
     }
+
+    removed
+}
+
+// ---------------------------------------------------------------------------
+// Plan mode settings cleanup
+// ---------------------------------------------------------------------------
+
+pub(super) fn remove_plan_mode_settings(_home: &Path, dry_run: bool) -> bool {
+    let mut removed = false;
+
+    // VS Code settings.json: remove lean-ctx plan tools from additionalTools array
+    if let Some(vscode_settings) = crate::core::editor_registry::plan_mode::vscode_settings_path() {
+        if vscode_settings.exists() {
+            if let Ok(content) = fs::read_to_string(&vscode_settings) {
+                if content.contains("lean-ctx") {
+                    if let Ok(mut parsed) = crate::core::jsonc::parse_jsonc(&content) {
+                        let mut modified = false;
+                        let key = "github.copilot.chat.planAgent.additionalTools";
+                        if let Some(tools) = parsed.get_mut(key).and_then(|t| t.as_array_mut()) {
+                            let before = tools.len();
+                            tools.retain(|t| !t.as_str().is_some_and(|s| s.contains("lean-ctx")));
+                            if tools.len() < before {
+                                modified = true;
+                            }
+                        }
+                        if modified {
+                            backup_before_modify(&vscode_settings, dry_run);
+                            if let Ok(cleaned) = serde_json::to_string_pretty(&parsed) {
+                                let _ = safe_write(&vscode_settings, &(cleaned + "\n"), dry_run);
+                                let verb = if dry_run { "Would clean" } else { "✓" };
+                                println!(
+                                    "  {verb} VS Code plan mode tools cleaned (other tools preserved)"
+                                );
+                                removed = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Claude Code: permissions.allow cleaned via hook cleanup (already handled there)
 
     removed
 }
@@ -524,8 +577,12 @@ pub(super) fn remove_rules_files(home: &Path, dry_run: bool) -> bool {
     }
 
     // --- Shared: surgically remove lean-ctx section, keep user content ---
-    const RULES_MARKER: &str = "# lean-ctx — Context Engineering Layer";
-    const RULES_END: &str = "<!-- /lean-ctx -->";
+    // Two marker styles exist:
+    //   1. Heading-based: `# lean-ctx — Context Engineering Layer` … `<!-- /lean-ctx -->`
+    //   2. HTML comments: `<!-- lean-ctx -->` … `<!-- /lean-ctx -->`
+    const HEADING_MARKER: &str = "# lean-ctx — Context Engineering Layer";
+    const HTML_START: &str = "<!-- lean-ctx -->";
+    const HTML_END: &str = "<!-- /lean-ctx -->";
 
     for (name, path) in &shared_files {
         if !path.exists() {
@@ -538,8 +595,10 @@ pub(super) fn remove_rules_files(home: &Path, dry_run: bool) -> bool {
             continue;
         }
 
-        let cleaned = if content.contains(RULES_END) {
-            remove_marked_block(&content, RULES_MARKER, RULES_END)
+        let cleaned = if content.contains(HEADING_MARKER) && content.contains(HTML_END) {
+            remove_marked_block(&content, HEADING_MARKER, HTML_END)
+        } else if content.contains(HTML_START) && content.contains(HTML_END) {
+            remove_marked_block(&content, HTML_START, HTML_END)
         } else {
             remove_lean_ctx_block_from_md(&content)
         };
@@ -821,16 +880,18 @@ pub(super) fn remove_lean_ctx_from_hooks_json(content: &str) -> HookCleanupResul
     };
     let mut modified = false;
 
-    // Also clean permissions.allow entries like "mcp__lean-ctx__*"
-    if let Some(perms) = parsed
-        .get_mut("permissions")
-        .and_then(|p| p.get_mut("allow"))
-        .and_then(|a| a.as_array_mut())
-    {
-        let before = perms.len();
-        perms.retain(|p| !p.as_str().is_some_and(|s| s.contains("lean-ctx")));
-        if perms.len() < before {
-            modified = true;
+    // Clean permissions.allow AND permissions.deny entries like "mcp__lean-ctx__*"
+    for perm_key in ["allow", "deny"] {
+        if let Some(perms) = parsed
+            .get_mut("permissions")
+            .and_then(|p| p.get_mut(perm_key))
+            .and_then(|a| a.as_array_mut())
+        {
+            let before = perms.len();
+            perms.retain(|p| !p.as_str().is_some_and(|s| s.contains("lean-ctx")));
+            if perms.len() < before {
+                modified = true;
+            }
         }
     }
 
@@ -880,17 +941,19 @@ pub(super) fn remove_lean_ctx_from_hooks_json(content: &str) -> HookCleanupResul
         hooks.retain(|_, v| v.as_array().is_none_or(|a| !a.is_empty()));
     }
 
-    // Remove empty permissions.allow and empty permissions object
+    // Remove empty permissions arrays and empty permissions object
     if let Some(perms) = parsed
         .get_mut("permissions")
         .and_then(|p| p.as_object_mut())
     {
-        if perms
-            .get("allow")
-            .and_then(|a| a.as_array())
-            .is_some_and(Vec::is_empty)
-        {
-            perms.remove("allow");
+        for key in ["allow", "deny"] {
+            if perms
+                .get(key)
+                .and_then(|a| a.as_array())
+                .is_some_and(Vec::is_empty)
+            {
+                perms.remove(key);
+            }
         }
     }
     if parsed
