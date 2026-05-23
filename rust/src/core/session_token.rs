@@ -54,9 +54,15 @@ pub fn resolve_proxy_token(env_var: &str) -> String {
 /// Write token to file with restrictive permissions (0600 on Unix).
 fn write_token_file(path: &PathBuf, token: &str) {
     if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            tracing::error!("Failed to create token directory {}: {e}", parent.display());
+            return;
+        }
     }
-    let _ = std::fs::write(path, token);
+    if let Err(e) = std::fs::write(path, token) {
+        tracing::error!("Failed to write session token to {}: {e}", path.display());
+        return;
+    }
     set_restrictive_permissions(path);
 }
 

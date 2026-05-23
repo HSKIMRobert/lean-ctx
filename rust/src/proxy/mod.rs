@@ -220,6 +220,7 @@ async fn proxy_auth_guard(
         return Ok(next.run(req).await);
     }
 
+    // Accept Bearer token (lean-ctx session token)
     if let Some(auth) = req
         .headers()
         .get("authorization")
@@ -232,9 +233,17 @@ async fn proxy_auth_guard(
         }
     }
 
+    // Accept provider API keys on provider routes (loopback-only, host_guard runs first).
+    // AI tools like Claude Code send x-api-key, not Bearer tokens. Since the proxy
+    // only binds to 127.0.0.1, the presence of a valid API key header is sufficient
+    // to authenticate the request as coming from a local AI tool.
+    if has_provider_api_key(&req) && is_provider_route(path) {
+        return Ok(next.run(req).await);
+    }
+
     let cfg = crate::core::config::Config::load();
     let hint = match cfg.proxy_enabled {
-        Some(true) => "lean-ctx proxy requires a Bearer token. Check LEAN_CTX_PROXY_TOKEN.",
+        Some(true) => "lean-ctx proxy requires authentication. Use a Bearer token (LEAN_CTX_PROXY_TOKEN) or configure your AI tool's API key.",
         Some(false) => "lean-ctx proxy is disabled but still running. Run: lean-ctx proxy cleanup",
         None => "lean-ctx proxy is not configured. Your AI tool's ANTHROPIC_BASE_URL may be pointing here by mistake. Fix: lean-ctx proxy cleanup  OR  lean-ctx proxy enable",
     };
@@ -248,6 +257,31 @@ async fn proxy_auth_guard(
     });
 
     Err((StatusCode::UNAUTHORIZED, axum::Json(body)).into_response())
+}
+
+fn has_provider_api_key(req: &axum::extract::Request) -> bool {
+    let headers = req.headers();
+    for key in ["x-api-key", "x-goog-api-key", "api-key"] {
+        if headers
+            .get(key)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| !v.trim().is_empty())
+        {
+            return true;
+        }
+    }
+    if let Some(auth) = headers.get("authorization").and_then(|v| v.to_str().ok()) {
+        if auth.starts_with("Bearer sk-") || auth.starts_with("Bearer gsk_") {
+            return true;
+        }
+    }
+    false
+}
+
+fn is_provider_route(path: &str) -> bool {
+    path.starts_with("/v1/")
+        || path.starts_with("/v1beta/")
+        || path.starts_with("/chat/completions")
 }
 
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {

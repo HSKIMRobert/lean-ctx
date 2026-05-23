@@ -1237,6 +1237,34 @@ fn skill_files_outcome() -> Outcome {
     }
 }
 
+fn proxy_auth_probe(port: u16) -> bool {
+    use std::io::{Read, Write};
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
+
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+    let token = crate::core::session_token::resolve_proxy_token("LEAN_CTX_PROXY_TOKEN");
+
+    let Ok(mut stream) = TcpStream::connect_timeout(&addr, crate::proxy_setup::proxy_timeout())
+    else {
+        return false;
+    };
+    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(3)));
+
+    let req = format!(
+        "GET /health HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Bearer {token}\r\nConnection: close\r\n\r\n"
+    );
+    if stream.write_all(req.as_bytes()).is_err() {
+        return false;
+    }
+
+    let mut buf = [0u8; 128];
+    let Ok(n) = stream.read(&mut buf) else {
+        return false;
+    };
+    let response = String::from_utf8_lossy(&buf[..n]);
+    response.contains("200") || response.contains("ok")
+}
+
 fn proxy_health_outcome() -> Outcome {
     use crate::core::config::Config;
 
@@ -1253,11 +1281,22 @@ fn proxy_health_outcome() -> Outcome {
             };
 
             if installed && reachable {
-                Outcome {
-                    ok: true,
-                    line: format!(
-                        "{BOLD}Proxy{RST}  {GREEN}enabled, running on port {port}{RST}"
-                    ),
+                // Verify auth works: probe /health (no auth needed) to confirm HTTP layer
+                let auth_ok = proxy_auth_probe(port);
+                if auth_ok {
+                    Outcome {
+                        ok: true,
+                        line: format!(
+                            "{BOLD}Proxy{RST}  {GREEN}enabled, running on port {port}{RST}"
+                        ),
+                    }
+                } else {
+                    Outcome {
+                        ok: false,
+                        line: format!(
+                            "{BOLD}Proxy{RST}  {YELLOW}running on port {port} but auth probe failed{RST}  {YELLOW}fix: lean-ctx proxy restart{RST}"
+                        ),
+                    }
                 }
             } else if installed && !reachable {
                 Outcome {
