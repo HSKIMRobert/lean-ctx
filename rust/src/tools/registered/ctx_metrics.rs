@@ -28,14 +28,20 @@ impl McpTool for CtxMetricsTool {
         _args: &Map<String, Value>,
         ctx: &ToolContext,
     ) -> Result<ToolOutput, ErrorData> {
-        let cache = ctx.cache.as_ref().unwrap();
+        let cache = ctx
+            .cache
+            .as_ref()
+            .ok_or_else(|| ErrorData::internal_error("cache not available", None))?;
         let Some(cache_guard) = crate::server::bounded_lock::read(cache, "ctx_metrics:cache")
         else {
             return Ok(ToolOutput::simple(
                 "[metrics unavailable — cache busy, retry]".to_string(),
             ));
         };
-        let calls = ctx.tool_calls.as_ref().unwrap();
+        let calls = ctx
+            .tool_calls
+            .as_ref()
+            .ok_or_else(|| ErrorData::internal_error("tool_calls not available", None))?;
         let Some(calls_guard) = crate::server::bounded_lock::read(calls, "ctx_metrics:calls")
         else {
             return Ok(ToolOutput::simple(

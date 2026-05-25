@@ -42,7 +42,17 @@ impl McpTool for CtxTreeTool {
         let depth = (get_int(args, "depth").unwrap_or(3) as usize).min(10);
         let show_hidden = get_bool(args, "show_hidden").unwrap_or(false);
 
-        let (result, original) = crate::tools::ctx_tree::handle(&path, depth, show_hidden);
+        let path_clone = path.clone();
+        let Ok((result, original)) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            crate::tools::ctx_tree::handle(&path_clone, depth, show_hidden)
+        })) else {
+            return Err(ErrorData::internal_error(
+                format!(
+                    "ctx_tree panicked while processing '{path}'. This is a bug — please report it."
+                ),
+                None,
+            ));
+        };
 
         if result.starts_with("ERROR:") {
             return Err(ErrorData::invalid_params(result, None));

@@ -66,7 +66,10 @@ impl McpTool for CtxPrefetchTool {
                 .collect()
         });
 
-        let cache = ctx.cache.as_ref().unwrap();
+        let cache = ctx
+            .cache
+            .as_ref()
+            .ok_or_else(|| ErrorData::internal_error("cache not available", None))?;
         let Some(mut guard) = crate::server::bounded_lock::write(cache, "ctx_prefetch") else {
             return Ok(ToolOutput::simple(
                 "[prefetch skipped — cache busy, retry in a moment]".to_string(),

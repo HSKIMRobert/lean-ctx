@@ -28,7 +28,10 @@ impl McpTool for CtxContextTool {
         _args: &Map<String, Value>,
         ctx: &ToolContext,
     ) -> Result<ToolOutput, ErrorData> {
-        let cache = ctx.cache.as_ref().unwrap();
+        let cache = ctx
+            .cache
+            .as_ref()
+            .ok_or_else(|| ErrorData::internal_error("cache not available", None))?;
         let Some(guard) = crate::server::bounded_lock::read(cache, "ctx_context") else {
             return Ok(ToolOutput::simple(
                 "[context status temporarily unavailable — retry]".to_string(),

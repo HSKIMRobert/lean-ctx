@@ -511,14 +511,15 @@ impl LeanCtxServer {
             }
         };
 
+        let args_fp = args
+            .map(|a| {
+                crate::core::loop_detection::LoopDetector::fingerprint(&serde_json::Value::Object(
+                    a.clone(),
+                ))
+            })
+            .unwrap_or_default();
         let throttle_result = {
-            let fp = args
-                .map(|a| {
-                    crate::core::loop_detection::LoopDetector::fingerprint(
-                        &serde_json::Value::Object(a.clone()),
-                    )
-                })
-                .unwrap_or_default();
+            let fp = &args_fp;
             let detector_timeout = tokio::time::timeout(
                 std::time::Duration::from_secs(3),
                 self.loop_detector.write(),
@@ -549,9 +550,9 @@ impl LeanCtxServer {
                         None
                     };
                     let pat = search_pattern.or(shell_pattern.as_deref());
-                    detector.record_search(name, &fp, pat)
+                    detector.record_search(name, fp, pat)
                 } else {
-                    detector.record_call(name, &fp)
+                    detector.record_call(name, fp)
                 }
             } else {
                 tracing::warn!("pre-dispatch: loop_detector write-lock timeout (3s), skipping");
@@ -625,7 +626,17 @@ impl LeanCtxServer {
         let (mut result_text, tool_saved_tokens) =
             match self.dispatch_tool(name, args, minimal).await {
                 Ok(pair) => pair,
-                Err(e) => return Err(e),
+                Err(e) => {
+                    if let Ok(mut detector) = tokio::time::timeout(
+                        std::time::Duration::from_secs(1),
+                        self.loop_detector.write(),
+                    )
+                    .await
+                    {
+                        detector.record_error_outcome(name, &args_fp);
+                    }
+                    return Err(e);
+                }
             };
 
         let is_raw_shell = name == "ctx_shell" && {

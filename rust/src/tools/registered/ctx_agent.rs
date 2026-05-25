@@ -82,11 +82,10 @@ list, info.",
 
         let project_root = ctx.project_root.clone();
 
-        let agent_id_handle = ctx.agent_id.as_ref().unwrap();
-        let current_agent_id = {
-            let guard = agent_id_handle.blocking_read();
-            guard.clone()
-        };
+        let agent_id_handle = ctx.agent_id.as_ref();
+        let current_agent_id = agent_id_handle
+            .map(|a| a.blocking_read().clone())
+            .unwrap_or_default();
 
         let result = crate::tools::ctx_agent::handle(
             &action,
@@ -110,8 +109,10 @@ list, info.",
             if let Some(id) = result.split(':').nth(1) {
                 let id = id.split_whitespace().next().unwrap_or("").to_string();
                 if !id.is_empty() {
-                    let mut guard = agent_id_handle.blocking_write();
-                    *guard = Some(id);
+                    if let Some(handle) = agent_id_handle {
+                        let mut guard = handle.blocking_write();
+                        *guard = Some(id);
+                    }
                 }
             }
 

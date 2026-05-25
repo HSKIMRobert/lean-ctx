@@ -12,19 +12,17 @@ fn strip_json_comments(input: &str) -> String {
     let len = bytes.len();
     let mut out = String::with_capacity(len);
     let mut i = 0;
+    let mut seg = 0;
 
     while i < len {
         let b = bytes[i];
 
         if b == b'"' {
-            out.push('"');
             i += 1;
             while i < len {
                 let c = bytes[i];
-                out.push(c as char);
                 i += 1;
                 if c == b'\\' && i < len {
-                    out.push(bytes[i] as char);
                     i += 1;
                 } else if c == b'"' {
                     break;
@@ -35,13 +33,16 @@ fn strip_json_comments(input: &str) -> String {
 
         if b == b'/' && i + 1 < len {
             if bytes[i + 1] == b'/' {
+                out.push_str(&input[seg..i]);
                 i += 2;
                 while i < len && bytes[i] != b'\n' {
                     i += 1;
                 }
+                seg = i;
                 continue;
             }
             if bytes[i + 1] == b'*' {
+                out.push_str(&input[seg..i]);
                 i += 2;
                 while i + 1 < len {
                     if bytes[i] == b'*' && bytes[i + 1] == b'/' {
@@ -50,14 +51,15 @@ fn strip_json_comments(input: &str) -> String {
                     }
                     i += 1;
                 }
+                seg = i;
                 continue;
             }
         }
 
-        out.push(b as char);
         i += 1;
     }
 
+    out.push_str(&input[seg..]);
     out
 }
 
@@ -150,5 +152,94 @@ mod tests {
         let v = parse_jsonc(input).unwrap();
         assert_eq!(v["$schema"], "https://opencode.ai/config.json");
         assert!(v["mcp"]["my-tool"]["enabled"].as_bool().unwrap());
+    }
+
+    #[test]
+    fn utf8_umlauts_preserved() {
+        let input = "{\n  // German names\n  \"name\": \"Müller\",\n  \"city\": \"Zürich\"\n}";
+        let v = parse_jsonc(input).unwrap();
+        assert_eq!(v["name"], "Müller");
+        assert_eq!(v["city"], "Zürich");
+    }
+
+    #[test]
+    fn utf8_cjk_with_block_comment() {
+        let input = "{\n  /* 日本語コメント */\n  \"desc\": \"日本語テスト\"\n}";
+        let v = parse_jsonc(input).unwrap();
+        assert_eq!(v["desc"], "日本語テスト");
+    }
+
+    #[test]
+    fn utf8_emoji_between_comments() {
+        let input = "{\n  // before\n  \"icon\": \"🚀🔥\",\n  /* after */\n  \"ok\": true\n}";
+        let v = parse_jsonc(input).unwrap();
+        assert_eq!(v["icon"], "🚀🔥");
+        assert!(v["ok"].as_bool().unwrap());
+    }
+
+    #[test]
+    fn utf8_in_comment_stripped_cleanly() {
+        let input = "{\n  // Achtung: ä ö ü ß\n  \"key\": \"value\"\n}";
+        let v = parse_jsonc(input).unwrap();
+        assert_eq!(v["key"], "value");
+    }
+
+    #[test]
+    fn utf8_in_key() {
+        let input = "{\"straße\": \"Hauptstraße 42\"}";
+        let v = parse_jsonc(input).unwrap();
+        assert_eq!(v["straße"], "Hauptstraße 42");
+    }
+
+    #[test]
+    fn mixed_ascii_and_utf8_values() {
+        let input = "{\n  // config\n  \"en\": \"hello\",\n  \"ru\": \"привет\",\n  \"jp\": \"こんにちは\"\n}";
+        let v = parse_jsonc(input).unwrap();
+        assert_eq!(v["en"], "hello");
+        assert_eq!(v["ru"], "привет");
+        assert_eq!(v["jp"], "こんにちは");
+    }
+
+    #[test]
+    fn escaped_unicode_unchanged() {
+        let input = r#"{"test": "\u00e4\u00f6\u00fc"}"#;
+        let v = parse_jsonc(input).unwrap();
+        assert_eq!(v["test"], "\u{00e4}\u{00f6}\u{00fc}");
+    }
+
+    #[test]
+    fn utf8_at_comment_boundary() {
+        let input = "{\n  \"before\": \"текст\"// комментарий\n, \"after\": 1\n}";
+        let v = parse_jsonc(input).unwrap();
+        assert_eq!(v["before"], "текст");
+        assert_eq!(v["after"], 1);
+    }
+
+    #[test]
+    fn empty_string_after_utf8_comment() {
+        let input = "{\n  // Ü\n  \"key\": \"\"\n}";
+        let v = parse_jsonc(input).unwrap();
+        assert_eq!(v["key"], "");
+    }
+
+    #[test]
+    fn real_claude_settings_with_german_paths() {
+        let input = r#"{
+  // Claude Code Einstellungen
+  "mcpServers": {
+    /* Lean-CTX Konfiguration für /Users/müller/Projekte */
+    "lean-ctx": {
+      "command": "/Users/müller/.local/bin/lean-ctx",
+      "args": ["--project", "/Users/müller/Projekte/größtes-projekt"]
+    }
+  }
+}"#;
+        let v = parse_jsonc(input).unwrap();
+        assert_eq!(
+            v["mcpServers"]["lean-ctx"]["command"],
+            "/Users/müller/.local/bin/lean-ctx"
+        );
+        let args = v["mcpServers"]["lean-ctx"]["args"].as_array().unwrap();
+        assert_eq!(args[1], "/Users/müller/Projekte/größtes-projekt");
     }
 }

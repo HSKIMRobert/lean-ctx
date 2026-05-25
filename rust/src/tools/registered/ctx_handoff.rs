@@ -110,7 +110,10 @@ fn resolve_curated_refs(
         resolved.push(abs);
     }
 
-    let cache_handle = ctx.cache.as_ref().unwrap();
+    let cache_handle = ctx
+        .cache
+        .as_ref()
+        .ok_or_else(|| ErrorData::internal_error("cache not available", None))?;
     let Some(mut cache) = crate::server::bounded_lock::write(cache_handle, "ctx_handoff") else {
         return Err(ErrorData::internal_error(
             "cache busy (ctx_handoff) — retry in a moment",
@@ -134,17 +137,33 @@ fn resolve_curated_refs(
 fn handle_create(args: &Map<String, Value>, ctx: &ToolContext) -> Result<String, ErrorData> {
     let curated_refs = resolve_curated_refs(args, ctx)?;
 
-    let session_handle = ctx.session.as_ref().unwrap();
+    let session_handle = ctx
+        .session
+        .as_ref()
+        .ok_or_else(|| ErrorData::internal_error("session not available", None))?;
     let session = { session_handle.blocking_read().clone() };
     let active_intent = session.active_structured_intent.clone();
 
-    let tool_calls = {
-        let tc = ctx.tool_calls.as_ref().unwrap().blocking_read();
-        tc.clone()
-    };
-    let workflow = { ctx.workflow.as_ref().unwrap().blocking_read().clone() };
-    let agent_id = { ctx.agent_id.as_ref().unwrap().blocking_read().clone() };
-    let client_name = { ctx.client_name.as_ref().unwrap().blocking_read().clone() };
+    let tool_calls = ctx
+        .tool_calls
+        .as_ref()
+        .map(|tc| tc.blocking_read().clone())
+        .unwrap_or_default();
+    let workflow = ctx
+        .workflow
+        .as_ref()
+        .map(|w| w.blocking_read().clone())
+        .unwrap_or_default();
+    let agent_id = ctx
+        .agent_id
+        .as_ref()
+        .map(|a| a.blocking_read().clone())
+        .unwrap_or_default();
+    let client_name = ctx
+        .client_name
+        .as_ref()
+        .map(|c| c.blocking_read().clone())
+        .unwrap_or_default();
     let project_root = session.project_root.clone();
 
     let (ledger, path) = crate::core::handoff_ledger::create_ledger(
@@ -160,7 +179,11 @@ fn handle_create(args: &Map<String, Value>, ctx: &ToolContext) -> Result<String,
     )
     .map_err(|e| ErrorData::internal_error(format!("create ledger: {e}"), None))?;
 
-    let ctx_ledger = ctx.ledger.as_ref().unwrap().blocking_read();
+    let ctx_ledger_handle = ctx
+        .ledger
+        .as_ref()
+        .ok_or_else(|| ErrorData::internal_error("ledger not available", None))?;
+    let ctx_ledger = ctx_ledger_handle.blocking_read();
     let package = crate::core::handoff_ledger::HandoffPackage::build(
         ledger.clone(),
         active_intent.as_ref(),
@@ -185,16 +208,32 @@ fn handle_create(args: &Map<String, Value>, ctx: &ToolContext) -> Result<String,
 fn handle_export(args: &Map<String, Value>, ctx: &ToolContext) -> Result<String, ErrorData> {
     let curated_refs = resolve_curated_refs(args, ctx)?;
 
-    let session_handle = ctx.session.as_ref().unwrap();
+    let session_handle = ctx
+        .session
+        .as_ref()
+        .ok_or_else(|| ErrorData::internal_error("session not available", None))?;
     let session = { session_handle.blocking_read().clone() };
 
-    let tool_calls = {
-        let tc = ctx.tool_calls.as_ref().unwrap().blocking_read();
-        tc.clone()
-    };
-    let workflow = { ctx.workflow.as_ref().unwrap().blocking_read().clone() };
-    let agent_id = { ctx.agent_id.as_ref().unwrap().blocking_read().clone() };
-    let client_name = { ctx.client_name.as_ref().unwrap().blocking_read().clone() };
+    let tool_calls = ctx
+        .tool_calls
+        .as_ref()
+        .map(|tc| tc.blocking_read().clone())
+        .unwrap_or_default();
+    let workflow = ctx
+        .workflow
+        .as_ref()
+        .map(|w| w.blocking_read().clone())
+        .unwrap_or_default();
+    let agent_id = ctx
+        .agent_id
+        .as_ref()
+        .map(|a| a.blocking_read().clone())
+        .unwrap_or_default();
+    let client_name = ctx
+        .client_name
+        .as_ref()
+        .map(|c| c.blocking_read().clone())
+        .unwrap_or_default();
     let project_root = session.project_root.clone();
 
     let (ledger, _ledger_path) = crate::core::handoff_ledger::create_ledger(
@@ -319,21 +358,25 @@ fn handle_pull(args: &Map<String, Value>, ctx: &ToolContext) -> Result<String, E
     let apply_knowledge = get_bool(args, "apply_knowledge").unwrap_or(true);
 
     if apply_workflow {
-        let mut wf = ctx.workflow.as_ref().unwrap().blocking_write();
-        // Never restore a terminal "done" workflow — it would block all tools
-        if ledger
-            .workflow
-            .as_ref()
-            .is_some_and(|r| r.current == "done")
-        {
-            *wf = None;
-        } else {
-            wf.clone_from(&ledger.workflow);
+        if let Some(wf_lock) = ctx.workflow.as_ref() {
+            let mut wf = wf_lock.blocking_write();
+            if ledger
+                .workflow
+                .as_ref()
+                .is_some_and(|r| r.current == "done")
+            {
+                *wf = None;
+            } else {
+                wf.clone_from(&ledger.workflow);
+            }
         }
     }
 
     if apply_session {
-        let session_handle = ctx.session.as_ref().unwrap();
+        let session_handle = ctx
+            .session
+            .as_ref()
+            .ok_or_else(|| ErrorData::internal_error("session not available", None))?;
         let mut session = session_handle.blocking_write();
         if let Some(t) = ledger.session.task.as_deref() {
             session.set_task(t, None);
@@ -434,21 +477,25 @@ fn handle_import(args: &Map<String, Value>, ctx: &ToolContext) -> Result<String,
     let apply_knowledge = get_bool(args, "apply_knowledge").unwrap_or(true);
 
     if apply_workflow {
-        let mut wf = ctx.workflow.as_ref().unwrap().blocking_write();
-        // Never restore a terminal "done" workflow — it would block all tools
-        if ledger
-            .workflow
-            .as_ref()
-            .is_some_and(|r| r.current == "done")
-        {
-            *wf = None;
-        } else {
-            wf.clone_from(&ledger.workflow);
+        if let Some(wf_lock) = ctx.workflow.as_ref() {
+            let mut wf = wf_lock.blocking_write();
+            if ledger
+                .workflow
+                .as_ref()
+                .is_some_and(|r| r.current == "done")
+            {
+                *wf = None;
+            } else {
+                wf.clone_from(&ledger.workflow);
+            }
         }
     }
 
     if apply_session {
-        let session_handle = ctx.session.as_ref().unwrap();
+        let session_handle = ctx
+            .session
+            .as_ref()
+            .ok_or_else(|| ErrorData::internal_error("session not available", None))?;
         let mut session = session_handle.blocking_write();
         if let Some(t) = ledger.session.task.as_deref() {
             session.set_task(t, None);
@@ -485,7 +532,11 @@ fn import_knowledge_from_ledger(
 ) -> Result<(u32, u32), ErrorData> {
     let project_root = ctx.project_root.clone();
     let session_id = {
-        let s = ctx.session.as_ref().unwrap().blocking_read();
+        let session_handle = ctx
+            .session
+            .as_ref()
+            .ok_or_else(|| ErrorData::internal_error("session not available", None))?;
+        let s = session_handle.blocking_read();
         s.id.clone()
     };
 

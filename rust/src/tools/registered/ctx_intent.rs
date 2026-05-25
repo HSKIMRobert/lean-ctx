@@ -46,7 +46,10 @@ impl McpTool for CtxIntentTool {
         };
         let format = get_str(args, "format");
 
-        let cache = ctx.cache.as_ref().unwrap();
+        let cache = ctx
+            .cache
+            .as_ref()
+            .ok_or_else(|| ErrorData::internal_error("cache not available", None))?;
         let Some(mut cache_guard) = crate::server::bounded_lock::write(cache, "ctx_intent:cache")
         else {
             return Ok(ToolOutput::simple(

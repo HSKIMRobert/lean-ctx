@@ -78,7 +78,15 @@ Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fre
     ) -> Result<ToolOutput, ErrorData> {
         let path = require_resolved_path(ctx, args, "path")?;
 
-        self.handle_inner(args, ctx, &path)
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.handle_inner(args, ctx, &path)
+        })) {
+            Ok(result) => result,
+            Err(_) => Err(ErrorData::internal_error(
+                format!("ctx_read panicked while processing '{path}'. This is a bug — please report it."),
+                None,
+            )),
+        }
     }
 }
 

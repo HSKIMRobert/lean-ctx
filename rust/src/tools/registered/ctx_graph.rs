@@ -82,7 +82,10 @@ impact (blast radius), status (stats), enrich (add commits+tests+knowledge), con
         let depth = get_int(args, "depth").map(|d| d as usize);
         let kind = get_str(args, "kind");
 
-        let cache = ctx.cache.as_ref().unwrap();
+        let cache = ctx
+            .cache
+            .as_ref()
+            .ok_or_else(|| ErrorData::internal_error("cache not available", None))?;
         let Some(mut guard) = crate::server::bounded_lock::write(cache, "ctx_graph") else {
             return Ok(ToolOutput::simple(
                 "[graph cache temporarily unavailable — retry in a moment]".to_string(),

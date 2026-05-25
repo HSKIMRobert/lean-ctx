@@ -31,7 +31,10 @@ impl McpTool for CtxCompressTool {
         ctx: &ToolContext,
     ) -> Result<ToolOutput, ErrorData> {
         let include_sigs = get_bool(args, "include_signatures").unwrap_or(true);
-        let cache = ctx.cache.as_ref().unwrap();
+        let cache = ctx
+            .cache
+            .as_ref()
+            .ok_or_else(|| ErrorData::internal_error("cache not available", None))?;
         let Some(guard) = crate::server::bounded_lock::read(cache, "ctx_compress") else {
             return Ok(ToolOutput::simple(
                 "[cache temporarily unavailable — retry in a moment]".to_string(),

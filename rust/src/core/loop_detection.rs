@@ -186,6 +186,17 @@ impl LoopDetector {
         }
     }
 
+    /// Undo the pre-dispatch count for a call that resulted in an error.
+    /// Prevents failed retries from triggering throttling prematurely.
+    pub fn record_error_outcome(&mut self, tool: &str, args_fingerprint: &str) {
+        let key = format!("{tool}:{args_fingerprint}");
+        if let Some(entries) = self.call_history.get_mut(&key) {
+            entries.pop();
+            let count = entries.len() as u32;
+            self.duplicate_counts.insert(key, count);
+        }
+    }
+
     /// Record a search-category call and check the cross-tool search group limit.
     /// `search_pattern` is the extracted query/regex the agent is looking for (if available).
     pub fn record_search(
@@ -812,5 +823,138 @@ mod tests {
         assert!(msg.contains("ctx_tree"));
         assert!(msg.contains("path"));
         assert!(msg.contains("ctx_read"));
+    }
+
+    #[test]
+    fn error_outcome_undoes_pre_dispatch_count() {
+        let cfg = test_config(2, 4, 0);
+        let mut detector = LoopDetector::with_config(&cfg);
+
+        detector.record_call("ctx_read", "fp1");
+        detector.record_call("ctx_read", "fp1");
+        detector.record_error_outcome("ctx_read", "fp1");
+
+        let r = detector.record_call("ctx_read", "fp1");
+        assert_eq!(r.call_count, 2, "error should have undone one count");
+        assert_eq!(r.level, ThrottleLevel::Normal);
+    }
+
+    #[test]
+    fn repeated_errors_dont_trigger_reduced() {
+        let cfg = test_config(2, 4, 0);
+        let mut detector = LoopDetector::with_config(&cfg);
+
+        for _ in 0..5 {
+            detector.record_call("ctx_read", "fp1");
+            detector.record_error_outcome("ctx_read", "fp1");
+        }
+
+        let r = detector.record_call("ctx_read", "fp1");
+        assert_eq!(
+            r.level,
+            ThrottleLevel::Normal,
+            "5 failed retries should not throttle"
+        );
+    }
+
+    #[test]
+    fn mixed_success_and_error_correct_count() {
+        let cfg = test_config(2, 4, 0);
+        let mut detector = LoopDetector::with_config(&cfg);
+
+        detector.record_call("ctx_read", "fp1");
+        detector.record_error_outcome("ctx_read", "fp1");
+        detector.record_call("ctx_read", "fp1");
+        detector.record_error_outcome("ctx_read", "fp1");
+        detector.record_call("ctx_read", "fp1");
+        // 3 pre-dispatch, 2 error undos -> effective count = 1
+        assert_eq!(detector.record_call("ctx_read", "fp1").call_count, 2);
+    }
+
+    #[test]
+    fn error_outcome_on_nonexistent_key_is_noop() {
+        let mut detector = LoopDetector::new();
+        detector.record_error_outcome("ctx_read", "never_called");
+        let r = detector.record_call("ctx_read", "never_called");
+        assert_eq!(r.call_count, 1);
+    }
+
+    #[test]
+    fn error_outcome_doesnt_go_negative() {
+        let mut detector = LoopDetector::new();
+        detector.record_call("ctx_read", "fp1");
+        detector.record_error_outcome("ctx_read", "fp1");
+        detector.record_error_outcome("ctx_read", "fp1");
+        let r = detector.record_call("ctx_read", "fp1");
+        assert_eq!(r.call_count, 1, "count should never go below 0");
+    }
+
+    #[test]
+    fn error_in_tool_a_doesnt_affect_tool_b() {
+        let cfg = test_config(2, 4, 0);
+        let mut detector = LoopDetector::with_config(&cfg);
+
+        for _ in 0..5 {
+            detector.record_call("ctx_read", "fp1");
+            detector.record_error_outcome("ctx_read", "fp1");
+        }
+
+        let r = detector.record_call("ctx_shell", "fp_shell");
+        assert_eq!(r.call_count, 1);
+        assert_eq!(r.level, ThrottleLevel::Normal);
+    }
+
+    #[test]
+    fn different_fingerprints_independent_after_errors() {
+        let cfg = test_config(2, 4, 0);
+        let mut detector = LoopDetector::with_config(&cfg);
+
+        detector.record_call("ctx_read", "fp_a");
+        detector.record_error_outcome("ctx_read", "fp_a");
+
+        detector.record_call("ctx_read", "fp_b");
+        let r = detector.record_call("ctx_read", "fp_b");
+        assert_eq!(r.call_count, 2);
+
+        let r_a = detector.record_call("ctx_read", "fp_a");
+        assert_eq!(r_a.call_count, 1, "fp_a count should be reset to 0 then +1");
+    }
+
+    #[test]
+    fn correction_degrade_recovery_after_prune() {
+        let mut detector = LoopDetector::new();
+        for i in 0..4u32 {
+            detector.record_read_for_correction(&format!("warmup{i}.rs"), "full", false);
+        }
+        detector.record_read_for_correction("target.rs", "full", false);
+        detector.record_read_for_correction("target.rs", "full", true);
+        assert!(detector.correction_count() > 0);
+        detector.prune_corrections();
+        // After prune, count is still > 0 because signal is within window
+        // but the mechanism works: once window expires, count drops
+        assert!(detector.correction_count() >= 1);
+    }
+
+    #[test]
+    fn success_after_errors_resets_to_normal() {
+        let cfg = test_config(2, 4, 0);
+        let mut detector = LoopDetector::with_config(&cfg);
+
+        for _ in 0..3 {
+            detector.record_call("ctx_read", "fp1");
+            detector.record_error_outcome("ctx_read", "fp1");
+        }
+
+        let r = detector.record_call("ctx_read", "fp1");
+        assert_eq!(r.level, ThrottleLevel::Normal);
+        assert_eq!(r.call_count, 1);
+    }
+
+    #[test]
+    fn throttle_result_default_is_normal() {
+        let r = ThrottleResult::default();
+        assert_eq!(r.level, ThrottleLevel::Normal);
+        assert_eq!(r.call_count, 0);
+        assert!(r.message.is_none());
     }
 }

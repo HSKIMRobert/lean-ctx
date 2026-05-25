@@ -35,7 +35,10 @@ impl McpTool for CtxDedupTool {
         ctx: &ToolContext,
     ) -> Result<ToolOutput, ErrorData> {
         let action = get_str(args, "action").unwrap_or_default();
-        let cache = ctx.cache.as_ref().unwrap();
+        let cache = ctx
+            .cache
+            .as_ref()
+            .ok_or_else(|| ErrorData::internal_error("cache not available", None))?;
         let result = if action == "apply" {
             let Some(mut guard) = crate::server::bounded_lock::write(cache, "ctx_dedup:apply")
             else {

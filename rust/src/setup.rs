@@ -822,22 +822,34 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
             note: Some("Proxy not enabled (run `lean-ctx proxy enable`)".to_string()),
         });
     } else {
-        let proxy_port = crate::proxy_setup::default_port();
-        crate::proxy_autostart::install(proxy_port, true);
-        std::thread::sleep(std::time::Duration::from_millis(500));
-        crate::proxy_setup::install_proxy_env(&home, proxy_port, opts.json);
-        proxy_step.items.push(SetupItem {
-            name: "proxy_autostart".to_string(),
-            status: "installed".to_string(),
-            path: None,
-            note: Some("LaunchAgent/systemd auto-start on login".to_string()),
-        });
-        proxy_step.items.push(SetupItem {
-            name: "proxy_env".to_string(),
-            status: "configured".to_string(),
-            path: None,
-            note: Some("ANTHROPIC_BASE_URL, OPENAI_BASE_URL, GEMINI_API_BASE_URL".to_string()),
-        });
+        let proxy_cfg = crate::core::config::Config::load();
+        if proxy_cfg.proxy_enabled == Some(true) {
+            let proxy_port = crate::proxy_setup::default_port();
+            crate::proxy_autostart::install(proxy_port, true);
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            crate::proxy_setup::install_proxy_env(&home, proxy_port, opts.json);
+            proxy_step.items.push(SetupItem {
+                name: "proxy_autostart".to_string(),
+                status: "installed".to_string(),
+                path: None,
+                note: Some("LaunchAgent/systemd auto-start on login".to_string()),
+            });
+            proxy_step.items.push(SetupItem {
+                name: "proxy_env".to_string(),
+                status: "configured".to_string(),
+                path: None,
+                note: Some("ANTHROPIC_BASE_URL, OPENAI_BASE_URL, GEMINI_API_BASE_URL".to_string()),
+            });
+        } else {
+            proxy_step.items.push(SetupItem {
+                name: "proxy".to_string(),
+                status: "skipped".to_string(),
+                path: None,
+                note: Some(
+                    "Proxy not opted-in (run `lean-ctx proxy enable` to activate)".to_string(),
+                ),
+            });
+        }
     }
     steps.push(proxy_step);
 

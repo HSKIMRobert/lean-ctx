@@ -257,12 +257,16 @@ fn install_systemd(binary: &str, port: u16, quiet: bool) {
         r"[Unit]
 Description=lean-ctx API Proxy
 After=network.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
 ExecStart={binary} proxy start --port={port}
 Restart=on-failure
 RestartSec=5
+StandardOutput=journal
+StandardError=journal
 Environment=RUST_LOG=info
 
 [Install]
@@ -324,6 +328,6 @@ fn uninstall_systemd(quiet: bool) {
     }
 }
 
-fn find_binary() -> String {
+pub fn find_binary() -> String {
     crate::core::portable_binary::resolve_portable_binary()
 }

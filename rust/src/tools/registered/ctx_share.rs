@@ -54,12 +54,16 @@ pull (receive files shared by other agents), list (show all shared contexts), cl
         let paths = get_str(args, "paths");
         let message = get_str(args, "message");
 
-        let from_agent = {
-            let guard = ctx.agent_id.as_ref().unwrap().blocking_read();
-            guard.clone()
-        };
+        let from_agent = ctx
+            .agent_id
+            .as_ref()
+            .map(|a| a.blocking_read().clone())
+            .unwrap_or_default();
 
-        let cache_handle = ctx.cache.as_ref().unwrap();
+        let cache_handle = ctx
+            .cache
+            .as_ref()
+            .ok_or_else(|| ErrorData::internal_error("cache not available", None))?;
         let cache = cache_handle.blocking_read();
         let result = crate::tools::ctx_share::handle(
             &action,

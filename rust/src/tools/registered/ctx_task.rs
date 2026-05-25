@@ -41,10 +41,11 @@ impl McpTool for CtxTaskTool {
         ctx: &ToolContext,
     ) -> Result<ToolOutput, ErrorData> {
         let action = get_str(args, "action").unwrap_or_else(|| "list".to_string());
-        let current_agent_id = {
-            let guard = ctx.agent_id.as_ref().unwrap().blocking_read();
-            guard.clone()
-        };
+        let current_agent_id = ctx
+            .agent_id
+            .as_ref()
+            .map(|a| a.blocking_read().clone())
+            .unwrap_or_default();
         let task_id = get_str(args, "task_id");
         let to_agent = get_str(args, "to_agent");
         let description = get_str(args, "description");

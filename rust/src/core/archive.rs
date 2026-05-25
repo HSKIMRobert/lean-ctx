@@ -86,7 +86,7 @@ pub fn store(tool: &str, command: &str, content: &str, session_id: Option<&str>)
     }
 
     let content = if content.len() > MAX_ARCHIVE_SIZE {
-        &content[..MAX_ARCHIVE_SIZE]
+        &content[..content.floor_char_boundary(MAX_ARCHIVE_SIZE)]
     } else {
         content
     };

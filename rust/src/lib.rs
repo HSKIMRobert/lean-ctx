@@ -16,6 +16,7 @@ pub mod compound_lexer;
 pub mod config_io;
 pub mod core;
 pub mod daemon;
+pub mod daemon_autostart;
 pub mod daemon_client;
 pub mod dashboard;
 pub mod doctor;

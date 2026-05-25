@@ -479,7 +479,7 @@ fn truncate(s: &str, max: usize) -> String {
     if s.len() <= max {
         s.to_string()
     } else {
-        format!("{}...", &s[..max.saturating_sub(3)])
+        format!("{}...", &s[..s.floor_char_boundary(max.saturating_sub(3))])
     }
 }
 
@@ -918,5 +918,22 @@ mod tests {
             diary.add_entry(DiaryEntryType::Progress, &format!("Step {i}"), None);
         }
         assert!(diary.entries.len() <= 100);
+    }
+
+    #[test]
+    fn truncate_utf8_emoji_no_panic() {
+        let result = truncate("Agent 🤖 Name ist lang genug", 15);
+        assert!(result.ends_with("..."));
+    }
+
+    #[test]
+    fn truncate_utf8_cyrillic_no_panic() {
+        let result = truncate("агент выполняет длинную задачу", 15);
+        assert!(result.ends_with("..."));
+    }
+
+    #[test]
+    fn truncate_short_utf8_unchanged() {
+        assert_eq!(truncate("短い", 20), "短い");
     }
 }

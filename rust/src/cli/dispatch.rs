@@ -699,6 +699,7 @@ pub fn run() {
                     }
 
                     if stop_mode {
+                        crate::daemon_autostart::stop();
                         if let Err(e) = crate::daemon::stop_daemon() {
                             eprintln!("Error: {e}");
                             std::process::exit(1);
@@ -926,6 +927,67 @@ pub fn run() {
                     eprintln!("lean-ctx proxy is not available in this build");
                     std::process::exit(1);
                 }
+            }
+            "daemon" => {
+                let sub = rest.first().map_or("status", std::string::String::as_str);
+                match sub {
+                    "enable" => {
+                        crate::daemon_autostart::install(false);
+                        println!(
+                            "\x1b[32m✓\x1b[0m Daemon autostart enabled. Will start on login and restart if stopped."
+                        );
+                    }
+                    "disable" => {
+                        crate::daemon_autostart::uninstall(false);
+                        println!("\x1b[32m✓\x1b[0m Daemon autostart disabled.");
+                    }
+                    "start" => {
+                        if let Err(e) = crate::daemon::start_daemon(&rest[1..]) {
+                            eprintln!("Error: {e}");
+                            std::process::exit(1);
+                        }
+                    }
+                    "stop" => {
+                        crate::daemon_autostart::stop();
+                        match crate::daemon::stop_daemon() {
+                            Ok(()) => println!("Daemon stopped."),
+                            Err(e) => eprintln!("Error: {e}"),
+                        }
+                    }
+                    "status" => {
+                        if crate::daemon::is_daemon_running() {
+                            let pid = crate::daemon::read_daemon_pid().unwrap_or(0);
+                            println!("lean-ctx daemon:");
+                            println!("  Status:    running (PID {pid})");
+                            println!(
+                                "  Autostart: {}",
+                                if crate::daemon_autostart::is_installed() {
+                                    "enabled"
+                                } else {
+                                    "not installed (run: lean-ctx daemon enable)"
+                                }
+                            );
+                        } else {
+                            println!("lean-ctx daemon:");
+                            println!("  Status:    not running");
+                            println!(
+                                "  Autostart: {}",
+                                if crate::daemon_autostart::is_installed() {
+                                    "enabled"
+                                } else {
+                                    "not installed"
+                                }
+                            );
+                            println!();
+                            println!("  Start:     lean-ctx daemon start");
+                            println!("  Autostart: lean-ctx daemon enable");
+                        }
+                    }
+                    _ => {
+                        println!("Usage: lean-ctx daemon <start|stop|status|enable|disable>");
+                    }
+                }
+                return;
             }
             "init" => {
                 super::cmd_init(&rest);
@@ -1462,7 +1524,7 @@ fn run_mcp_server() -> Result<()> {
 
     std::env::set_var("LEAN_CTX_MCP_SERVER", "1");
 
-    crate::core::startup_guard::crash_loop_backoff("mcp-server");
+    crate::core::startup_guard::crash_loop_backoff(crate::core::startup_guard::MCP_PROCESS_NAME);
 
     // Concurrency hardening:
     // - Smooths "thundering herd" MCP startups (multiple agent sessions).
@@ -1578,6 +1640,8 @@ COMMANDS:
     serve [--host H] [--port N]    MCP over HTTP (Streamable HTTP, local-first)
     proxy start [--port=4444]      API proxy: compress tool_results before LLM API
     proxy status                   Show proxy statistics
+    daemon start|stop|status       IPC daemon management
+    daemon enable|disable          Auto-start daemon on login (systemd/LaunchAgent)
     cache [list|clear|stats]       Show/manage file read cache
     wrapped [--week|--month|--all] Deprecated alias for gain --wrapped
     sessions [list|show|cleanup]   Manage CCP sessions (~/.lean-ctx/sessions/)
@@ -1745,8 +1809,8 @@ fn cmd_stop() {
 
     eprintln!("Stopping all lean-ctx processes…");
 
-    // 1. Unload LaunchAgent/systemd first to prevent respawning
     crate::proxy_autostart::stop();
+    crate::daemon_autostart::stop();
     eprintln!("  Unloaded autostart (LaunchAgent/systemd).");
 
     // 2. Stop daemon via IPC
@@ -1801,8 +1865,8 @@ fn cmd_restart() {
 
     eprintln!("Restarting lean-ctx…");
 
-    // Stop autostart first to prevent respawning during restart
     crate::proxy_autostart::stop();
+    crate::daemon_autostart::stop();
 
     if let Err(e) = daemon::stop_daemon() {
         eprintln!("  Warning: daemon stop: {e}");
@@ -1830,14 +1894,18 @@ fn cmd_restart() {
 
     daemon::cleanup_daemon_files();
 
-    // Re-enable autostart
     crate::proxy_autostart::start();
 
-    match daemon::start_daemon(&[]) {
-        Ok(()) => eprintln!("  ✓ Daemon restarted. Config changes are now active."),
-        Err(e) => {
-            eprintln!("  ✗ Daemon start failed: {e}");
-            std::process::exit(1);
+    if crate::daemon_autostart::is_installed() {
+        crate::daemon_autostart::start();
+        eprintln!("  ✓ Daemon restarted via autostart.");
+    } else {
+        match daemon::start_daemon(&[]) {
+            Ok(()) => eprintln!("  ✓ Daemon restarted."),
+            Err(e) => {
+                eprintln!("  ✗ Daemon start failed: {e}");
+                std::process::exit(1);
+            }
         }
     }
 }
@@ -1883,6 +1951,7 @@ fn cmd_dev_install() {
 
     eprintln!("  Stopping all lean-ctx processes…");
     crate::proxy_autostart::stop();
+    crate::daemon_autostart::stop();
     let _ = crate::daemon::stop_daemon();
     ipc::process::kill_all_by_name("lean-ctx");
     std::thread::sleep(std::time::Duration::from_millis(500));
@@ -1937,10 +2006,15 @@ fn cmd_dev_install() {
     eprintln!("  Re-enabling autostart…");
     crate::proxy_autostart::start();
 
-    eprintln!("  Starting daemon…");
-    match crate::daemon::start_daemon(&[]) {
-        Ok(()) => {}
-        Err(e) => eprintln!("  Warning: daemon start: {e} (will be started by editor)"),
+    if crate::daemon_autostart::is_installed() {
+        crate::daemon_autostart::start();
+        eprintln!("  ✓ Daemon restarted via autostart.");
+    } else {
+        eprintln!("  Starting daemon…");
+        match crate::daemon::start_daemon(&[]) {
+            Ok(()) => {}
+            Err(e) => eprintln!("  Warning: daemon start: {e} (will be started by editor)"),
+        }
     }
 }
 

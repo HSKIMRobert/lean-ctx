@@ -1018,22 +1018,33 @@ pub fn run() {
 
     // Daemon status
     #[cfg(unix)]
-    let daemon_outcome = if crate::daemon::is_daemon_running() {
-        let pid_path = crate::daemon::daemon_pid_path();
-        let pid_str = std::fs::read_to_string(&pid_path).unwrap_or_default();
-        Outcome {
-            ok: true,
-            line: format!(
-                "{BOLD}Daemon{RST}  {GREEN}running (PID {}){RST}",
-                pid_str.trim()
-            ),
-        }
-    } else {
-        Outcome {
-            ok: true,
-            line: format!(
-                "{BOLD}Daemon{RST}  {YELLOW}not running{RST}  {DIM}(run: lean-ctx serve -d){RST}"
-            ),
+    let daemon_outcome = {
+        let autostart = crate::daemon_autostart::is_installed();
+        let autostart_tag = if autostart {
+            format!("  {DIM}[autostart: on]{RST}")
+        } else {
+            String::new()
+        };
+        if crate::daemon::is_daemon_running() {
+            let pid_path = crate::daemon::daemon_pid_path();
+            let pid_str = std::fs::read_to_string(&pid_path).unwrap_or_default();
+            Outcome {
+                ok: true,
+                line: format!(
+                    "{BOLD}Daemon{RST}  {GREEN}running (PID {}){RST}{autostart_tag}",
+                    pid_str.trim()
+                ),
+            }
+        } else {
+            let hint = if autostart {
+                format!("{DIM}(autostart enabled, will restart){RST}")
+            } else {
+                format!("{DIM}(run: lean-ctx daemon start  or: lean-ctx daemon enable){RST}")
+            };
+            Outcome {
+                ok: true,
+                line: format!("{BOLD}Daemon{RST}  {YELLOW}not running{RST}  {hint}"),
+            }
         }
     };
     #[cfg(not(unix))]

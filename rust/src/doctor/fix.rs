@@ -262,6 +262,24 @@ pub(super) fn run_fix(opts: &DoctorFixOptions) -> Result<i32, String> {
     });
     steps.push(proxy_env_step);
 
+    let mut startup_step = SetupStepReport {
+        name: "crash_loop_reset".to_string(),
+        ok: true,
+        items: Vec::new(),
+        warnings: Vec::new(),
+        errors: Vec::new(),
+    };
+    crate::core::startup_guard::reset_crash_loop(crate::core::startup_guard::MCP_PROCESS_NAME);
+    startup_step.items.push(SetupItem {
+        name: "crash_loop_backoff".to_string(),
+        status: "reset".to_string(),
+        path: None,
+        note: Some(
+            "cleared MCP startup history (fixes backoff after IDE restart loops)".to_string(),
+        ),
+    });
+    steps.push(startup_step);
+
     let mut verify_step = SetupStepReport {
         name: "verify".to_string(),
         ok: true,

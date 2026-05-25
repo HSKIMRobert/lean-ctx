@@ -135,8 +135,8 @@ pub fn truncate_to_budget(content: &str, token_budget: usize) -> &str {
         return content;
     }
 
-    // Find a line boundary near the budget
-    let truncated = &content[..char_budget.min(content.len())];
+    let safe_end = content.floor_char_boundary(char_budget.min(content.len()));
+    let truncated = &content[..safe_end];
     match truncated.rfind('\n') {
         Some(pos) => &content[..=pos],
         None => truncated,
@@ -211,5 +211,19 @@ mod tests {
         let content = "line1\nline2\nline3\nline4\nline5\n";
         let truncated = truncate_to_budget(content, 3); // ~12 chars
         assert!(truncated.len() <= 12);
+    }
+
+    #[test]
+    fn truncate_utf8_russian_no_panic() {
+        let content = "Первая строка\nВторая строка\nТретья строка\nЧетвёртая строка\n";
+        let truncated = truncate_to_budget(content, 5);
+        assert!(content.is_char_boundary(truncated.len()));
+    }
+
+    #[test]
+    fn truncate_utf8_cjk_boundary() {
+        let content = "日本語\n中文\n한국어\nこんにちは\n";
+        let truncated = truncate_to_budget(content, 2);
+        assert!(content.is_char_boundary(truncated.len()));
     }
 }

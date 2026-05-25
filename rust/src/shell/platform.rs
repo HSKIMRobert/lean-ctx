@@ -108,6 +108,16 @@ pub fn is_non_interactive() -> bool {
     !io::stdin().is_terminal()
 }
 
+/// Returns `true` when `shell_path` points to a PowerShell executable.
+pub(crate) fn is_powershell(shell_path: &str) -> bool {
+    let name = std::path::Path::new(shell_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    name.contains("powershell") || name.contains("pwsh")
+}
+
 /// Windows only: argument that passes one command string to the shell binary.
 /// `exe_basename` must already be ASCII-lowercase (e.g. `bash.exe`, `cmd.exe`).
 fn windows_shell_flag_for_exe_basename(exe_basename: &str) -> &'static str {
@@ -407,6 +417,45 @@ mod join_command_tests {
     fn powershell_single_no_spaces_still_uses_call_operator() {
         let args: Vec<String> = vec!["git".into()];
         assert_eq!(join_command_for(&args, "-Command"), "& git");
+    }
+}
+
+#[cfg(test)]
+mod is_powershell_tests {
+    use super::is_powershell;
+
+    #[test]
+    fn detects_pwsh_exe() {
+        assert!(is_powershell("pwsh.exe"));
+    }
+
+    #[test]
+    fn detects_powershell_exe() {
+        assert!(is_powershell("powershell.exe"));
+    }
+
+    #[test]
+    fn rejects_cmd() {
+        assert!(!is_powershell("cmd.exe"));
+    }
+
+    #[test]
+    fn rejects_bash() {
+        assert!(!is_powershell("/usr/bin/bash"));
+    }
+
+    #[test]
+    fn case_insensitive() {
+        assert!(is_powershell("PWSH.EXE"));
+        assert!(is_powershell("PowerShell.exe"));
+    }
+
+    #[test]
+    fn full_path_with_pwsh() {
+        assert!(is_powershell(
+            "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        ));
+        assert!(is_powershell("/usr/local/bin/pwsh"));
     }
 }
 

@@ -2228,7 +2228,7 @@ approval_mode = \"approve\"
 
         let t = EditorTarget {
             name: "Antigravity",
-            agent_key: "gemini".to_string(),
+            agent_key: "antigravity".to_string(),
             config_path: path.clone(),
             detect_path: PathBuf::from("/nonexistent"),
             config_type: ConfigType::McpJson,

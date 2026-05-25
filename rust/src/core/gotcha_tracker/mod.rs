@@ -466,7 +466,7 @@ fn truncate_str(s: &str, max: usize) -> String {
     if s.len() <= max {
         s.to_string()
     } else {
-        format!("{}...", &s[..max.saturating_sub(3)])
+        format!("{}...", &s[..s.floor_char_boundary(max.saturating_sub(3))])
     }
 }
 
@@ -787,5 +787,24 @@ mod tests {
         assert!(block.contains("PROJECT GOTCHAS"));
         assert!(block.contains("cargo E0507"));
         assert!(block.contains("use clone"));
+    }
+
+    #[test]
+    fn truncate_str_utf8_umlaut_no_panic() {
+        let result = truncate_str("Fehler in Datei übergrößetest.rs", 20);
+        assert!(result.len() <= 23); // 20 + "..."
+        assert!(result.ends_with("..."));
+    }
+
+    #[test]
+    fn truncate_str_utf8_emoji_no_panic() {
+        let result = truncate_str("Error 🔥 in module 🧪 test", 15);
+        assert!(result.ends_with("..."));
+    }
+
+    #[test]
+    fn truncate_str_short_utf8_unchanged() {
+        let input = "Ölüm";
+        assert_eq!(truncate_str(input, 20), input);
     }
 }

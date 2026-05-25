@@ -577,8 +577,8 @@ fn truncate_smart(output: &str, max_bytes: usize) -> String {
 
     if head_text.len() + tail_text.len() + 100 > max_bytes {
         let half = max_bytes / 2;
-        let h = &output[..half.min(output.len())];
-        let t_start = output.len().saturating_sub(half);
+        let h = &output[..output.floor_char_boundary(half.min(output.len()))];
+        let t_start = output.ceil_char_boundary(output.len().saturating_sub(half));
         let t = &output[t_start..];
         let skipped = output.len() - h.len() - t.len();
         return format!("{h}\n\n... [{skipped} bytes truncated — showing head + tail] ...\n\n{t}");

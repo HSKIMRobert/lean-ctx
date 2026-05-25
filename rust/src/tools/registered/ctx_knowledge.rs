@@ -96,7 +96,10 @@ impl McpTool for CtxKnowledgeTool {
             .and_then(serde_json::Value::as_f64)
             .map(|v| v as f32);
 
-        let session_handle = ctx.session.as_ref().unwrap();
+        let session_handle = ctx
+            .session
+            .as_ref()
+            .ok_or_else(|| ErrorData::internal_error("session not available", None))?;
         let (session_id, project_root) = {
             let timeout_dur =
                 crate::core::io_health::adaptive_timeout(std::time::Duration::from_secs(10));
