@@ -1221,9 +1221,37 @@ pub fn run() {
                         });
                         println!("{out}");
                     }
+                    "related" | "impact" | "symbol" | "context" | "status" => {
+                        let path_arg = if sub == "status" {
+                            None
+                        } else {
+                            rest.get(1).map(String::as_str)
+                        };
+                        let root_idx = if sub == "status" { 1 } else { 2 };
+                        let root = resolve_graph_root(rest.get(root_idx));
+                        println!(
+                            "{}",
+                            tools::ctx_graph::handle(
+                                sub,
+                                path_arg,
+                                &root,
+                                &mut core::cache::SessionCache::new(),
+                                tools::CrpMode::Off,
+                                None,
+                                None,
+                            )
+                        );
+                    }
                     _ => {
                         eprintln!(
-                            "Usage:\n  lean-ctx graph build [path]\n  lean-ctx graph export-html --out <path> [--root <path>] [--max-nodes <n>]"
+                            "Usage:\n  \
+                             lean-ctx graph build [path]\n  \
+                             lean-ctx graph related <file>\n  \
+                             lean-ctx graph impact <file|symbol>\n  \
+                             lean-ctx graph symbol <name>\n  \
+                             lean-ctx graph context <query>\n  \
+                             lean-ctx graph status\n  \
+                             lean-ctx graph export-html --out <path> [--root <path>] [--max-nodes <n>]"
                         );
                         std::process::exit(1);
                     }
@@ -1500,6 +1528,16 @@ pub fn run() {
         tracing::error!("lean-ctx: {e}");
         std::process::exit(1);
     }
+}
+
+fn resolve_graph_root(arg: Option<&String>) -> String {
+    arg.cloned()
+        .or_else(|| {
+            std::env::current_dir()
+                .ok()
+                .map(|p| p.to_string_lossy().to_string())
+        })
+        .unwrap_or_else(|| ".".to_string())
 }
 
 fn passthrough(command: &str) -> ! {
@@ -1780,6 +1818,14 @@ EXAMPLES:
     lean-ctx read src/main.rs -m map
     lean-ctx grep \"pub fn\" src/
     lean-ctx deps .
+
+GRAPH (project analysis):
+    lean-ctx graph build [path]    Build/rebuild project graph index
+    lean-ctx graph status          Show graph index statistics
+    lean-ctx graph related <file>  List files related to a given file
+    lean-ctx graph impact <file>   Show files impacted by changes to a file
+    lean-ctx graph symbol <spec>   Inspect a symbol (format: file.rs::fn_name)
+    lean-ctx graph context <query> Query the property graph for a concept
 
 CLOUD:
     cloud status                   Show cloud connection status
