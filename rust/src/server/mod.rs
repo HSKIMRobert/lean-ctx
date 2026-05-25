@@ -390,6 +390,19 @@ impl ServerHandler for LeanCtxServer {
     ) -> Result<CallToolResult, ErrorData> {
         use std::panic::AssertUnwindSafe;
 
+        let tool_name_for_panic = request.name.as_ref().to_string();
+        let args_fp_for_panic = request
+            .arguments
+            .as_ref()
+            .map(|a| {
+                crate::core::loop_detection::LoopDetector::fingerprint(&serde_json::Value::Object(
+                    a.clone(),
+                ))
+            })
+            .unwrap_or_default();
+
+        let loop_detector = self.loop_detector.clone();
+
         match AssertUnwindSafe(self.call_tool_guarded(request))
             .catch_unwind()
             .await
@@ -404,6 +417,14 @@ impl ServerHandler for LeanCtxServer {
                     "unknown".to_string()
                 };
                 tracing::error!("call_tool panicked: {detail}");
+
+                if let Ok(mut detector) =
+                    tokio::time::timeout(std::time::Duration::from_secs(1), loop_detector.write())
+                        .await
+                {
+                    detector.record_error_outcome(&tool_name_for_panic, &args_fp_for_panic);
+                }
+
                 Ok(CallToolResult::error(vec![Content::text(
                     "ERROR: lean-ctx internal error. The MCP server is still running. \
                      Please retry or use a different approach."

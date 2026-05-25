@@ -26,10 +26,10 @@ fn antigravity_has_distinct_agent_key_from_gemini() {
     let targets = lean_ctx::core::editor_registry::detect::build_targets(&home);
 
     let gemini = targets.iter().find(|t| t.name == "Gemini CLI");
-    let antigravity = targets.iter().find(|t| t.name == "Antigravity");
+    let antigravity = targets.iter().find(|t| t.name == "Antigravity IDE");
 
     assert!(gemini.is_some(), "Gemini CLI target must exist");
-    assert!(antigravity.is_some(), "Antigravity target must exist");
+    assert!(antigravity.is_some(), "Antigravity IDE target must exist");
 
     let g = gemini.unwrap();
     let a = antigravity.unwrap();
@@ -37,11 +37,11 @@ fn antigravity_has_distinct_agent_key_from_gemini() {
     assert_eq!(g.agent_key, "gemini", "Gemini CLI must use 'gemini' key");
     assert_eq!(
         a.agent_key, "antigravity",
-        "Antigravity must use 'antigravity' key, not 'gemini'"
+        "Antigravity IDE must use 'antigravity' key, not 'gemini'"
     );
     assert_ne!(
         g.agent_key, a.agent_key,
-        "Gemini and Antigravity must have different agent_keys"
+        "Gemini and Antigravity IDE must have different agent_keys"
     );
 }
 
@@ -49,16 +49,56 @@ fn antigravity_has_distinct_agent_key_from_gemini() {
 fn antigravity_config_path_is_under_gemini_subdirectory() {
     let home = dirs::home_dir().unwrap_or_default();
     let targets = lean_ctx::core::editor_registry::detect::build_targets(&home);
-    let antigravity = targets.iter().find(|t| t.name == "Antigravity").unwrap();
+    let antigravity = targets
+        .iter()
+        .find(|t| t.name == "Antigravity IDE")
+        .unwrap();
 
     let path_str = antigravity.config_path.to_string_lossy();
     assert!(
         path_str.contains(".gemini/antigravity"),
-        "Antigravity config should be under .gemini/antigravity/, got: {path_str}"
+        "Antigravity IDE config should be under .gemini/antigravity/, got: {path_str}"
     );
     assert!(
         path_str.ends_with("mcp_config.json"),
-        "Antigravity config should be mcp_config.json, got: {path_str}"
+        "Antigravity IDE config should be mcp_config.json, got: {path_str}"
+    );
+}
+
+#[test]
+fn antigravity_cli_target_exists_with_correct_paths() {
+    let home = dirs::home_dir().unwrap_or_default();
+    let targets = lean_ctx::core::editor_registry::detect::build_targets(&home);
+    let cli = targets
+        .iter()
+        .find(|t| t.agent_key == "antigravity-cli")
+        .expect("Antigravity CLI target must be registered");
+
+    assert_eq!(cli.name, "Antigravity CLI");
+    let path_str = cli.config_path.to_string_lossy();
+    assert!(
+        path_str.contains(".gemini/antigravity-cli"),
+        "Antigravity CLI config should be under .gemini/antigravity-cli/, got: {path_str}"
+    );
+    assert!(
+        path_str.ends_with("mcp_config.json"),
+        "Antigravity CLI config should be mcp_config.json, got: {path_str}"
+    );
+}
+
+#[test]
+fn antigravity_ide_and_cli_are_separate_targets() {
+    let home = dirs::home_dir().unwrap_or_default();
+    let targets = lean_ctx::core::editor_registry::detect::build_targets(&home);
+    let ide = targets.iter().find(|t| t.agent_key == "antigravity");
+    let cli = targets.iter().find(|t| t.agent_key == "antigravity-cli");
+
+    assert!(ide.is_some(), "Antigravity IDE target required");
+    assert!(cli.is_some(), "Antigravity CLI target required");
+    assert_ne!(
+        ide.unwrap().config_path,
+        cli.unwrap().config_path,
+        "IDE and CLI must have different config paths"
     );
 }
 
@@ -76,8 +116,8 @@ fn antigravity_and_gemini_have_distinct_keys() {
 
     let gemini_names = keys.get("gemini").cloned().unwrap_or_default();
     assert!(
-        !gemini_names.iter().any(|n| n == "Antigravity"),
-        "Antigravity must NOT share agent_key 'gemini' with Gemini CLI. Found: {gemini_names:?}"
+        !gemini_names.iter().any(|n| n.contains("Antigravity")),
+        "Antigravity targets must NOT share agent_key 'gemini'. Found: {gemini_names:?}"
     );
 
     assert!(

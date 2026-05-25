@@ -73,6 +73,9 @@ pub fn uninstall(quiet: bool) {
 
     #[cfg(target_os = "linux")]
     uninstall_systemd(quiet);
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    let _ = quiet;
 }
 
 pub fn is_installed() -> bool {

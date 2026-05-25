@@ -8,6 +8,12 @@ pub const CRASH_LOOP_MAX_BACKOFF_SECS: u64 = 30;
 
 pub const MCP_PROCESS_NAME: &str = "mcp-server";
 
+pub fn crash_loop_log_path(process_name: &str) -> Option<PathBuf> {
+    crate::core::data_dir::lean_ctx_data_dir()
+        .ok()
+        .map(|dir| dir.join(format!(".{}-starts.log", sanitize_lock_name(process_name))))
+}
+
 pub struct StartupLockGuard {
     path: PathBuf,
 }

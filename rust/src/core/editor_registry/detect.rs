@@ -80,10 +80,17 @@ pub fn build_targets(home: &Path) -> Vec<EditorTarget> {
             config_type: ConfigType::GeminiSettings,
         },
         EditorTarget {
-            name: "Antigravity",
+            name: "Antigravity IDE",
             agent_key: "antigravity".to_string(),
             config_path: home.join(".gemini/antigravity/mcp_config.json"),
             detect_path: home.join(".gemini/antigravity"),
+            config_type: ConfigType::McpJson,
+        },
+        EditorTarget {
+            name: "Antigravity CLI",
+            agent_key: "antigravity-cli".to_string(),
+            config_path: home.join(".gemini/antigravity-cli/mcp_config.json"),
+            detect_path: home.join(".gemini/antigravity-cli"),
             config_type: ConfigType::McpJson,
         },
         EditorTarget {

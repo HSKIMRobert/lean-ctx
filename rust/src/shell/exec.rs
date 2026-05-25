@@ -237,9 +237,7 @@ fn exec_buffered(command: &str, shell: &str, shell_flag: &str, cfg: &config::Con
     let ps_tmp_path: Option<tempfile::TempPath>;
     #[cfg(windows)]
     {
-        let is_powershell =
-            shell.to_lowercase().contains("powershell") || shell.to_lowercase().contains("pwsh");
-        if is_powershell {
+        if super::platform::is_powershell(shell) {
             let ps_script = format!(
                 "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; {}",
                 command

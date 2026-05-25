@@ -1057,6 +1057,53 @@ pub fn run() {
     }
     print_check(&daemon_outcome);
 
+    // Daemon diagnostics: systemctl is-active, linger, crash-loop log
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(o) = std::process::Command::new("systemctl")
+            .args(["--user", "is-active", "lean-ctx-daemon.service"])
+            .output()
+        {
+            let state = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if state != "active" {
+                println!(
+                    "  {DIM}  systemd unit state: {YELLOW}{state}{RST}{DIM} (expected: active){RST}"
+                );
+            }
+        }
+        let username = std::env::var("USER")
+            .or_else(|_| std::env::var("LOGNAME"))
+            .unwrap_or_else(|_| "$(whoami)".to_string());
+        if let Ok(o) = std::process::Command::new("loginctl")
+            .args(["show-user", &username, "-p", "Linger", "--value"])
+            .output()
+        {
+            let val = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if val != "yes" {
+                println!(
+                    "  {YELLOW}⚠{RST}  Linger not enabled — daemon won't start at boot without login"
+                );
+                println!("     {DIM}Fix: loginctl enable-linger {username}{RST}");
+            }
+        }
+    }
+    if let Some(log_path) = crate::core::startup_guard::crash_loop_log_path(
+        crate::core::startup_guard::MCP_PROCESS_NAME,
+    ) {
+        if log_path.exists() {
+            if let Ok(contents) = std::fs::read_to_string(&log_path) {
+                let lines: Vec<&str> = contents.lines().collect();
+                if lines.len() >= 5 {
+                    println!(
+                        "  {YELLOW}⚠{RST}  Crash-loop log: {} recent restarts  {DIM}({}){RST}",
+                        lines.len(),
+                        log_path.display()
+                    );
+                }
+            }
+        }
+    }
+
     // Providers
     let provider_outcome = provider_outcome();
     print_check(&provider_outcome);
