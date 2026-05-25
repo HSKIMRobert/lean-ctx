@@ -1159,15 +1159,27 @@ fn agent_mcp_targets(agent: &str, home: &std::path::Path) -> Result<Vec<EditorTa
             );
             push(
                 &mut targets,
-                "Antigravity",
+                "Antigravity IDE",
                 home.join(".gemini/antigravity/mcp_config.json"),
+                ConfigType::McpJson,
+            );
+            push(
+                &mut targets,
+                "Antigravity CLI",
+                home.join(".gemini/antigravity-cli/mcp_config.json"),
                 ConfigType::McpJson,
             );
         }
         "antigravity" => push(
             &mut targets,
-            "Antigravity",
+            "Antigravity IDE",
             home.join(".gemini/antigravity/mcp_config.json"),
+            ConfigType::McpJson,
+        ),
+        "antigravity-cli" => push(
+            &mut targets,
+            "Antigravity CLI",
+            home.join(".gemini/antigravity-cli/mcp_config.json"),
             ConfigType::McpJson,
         ),
         "copilot" => push(
@@ -1385,15 +1397,27 @@ pub fn disable_agent_mcp(agent: &str, overwrite_invalid: bool) -> Result<(), Str
             );
             push(
                 &mut targets,
-                "Antigravity",
+                "Antigravity IDE",
                 home.join(".gemini/antigravity/mcp_config.json"),
+                ConfigType::McpJson,
+            );
+            push(
+                &mut targets,
+                "Antigravity CLI",
+                home.join(".gemini/antigravity-cli/mcp_config.json"),
                 ConfigType::McpJson,
             );
         }
         "antigravity" => push(
             &mut targets,
-            "Antigravity",
+            "Antigravity IDE",
             home.join(".gemini/antigravity/mcp_config.json"),
+            ConfigType::McpJson,
+        ),
+        "antigravity-cli" => push(
+            &mut targets,
+            "Antigravity CLI",
+            home.join(".gemini/antigravity-cli/mcp_config.json"),
             ConfigType::McpJson,
         ),
         "copilot" => push(

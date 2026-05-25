@@ -57,23 +57,22 @@ pub fn recommend_hook_mode(agent_key: &str) -> HookMode {
         // All other agents with shell access: shell hooks + MCP.
         "cursor" | "gemini" | "codex" | "claude" | "claude-code" | "crush" | "hermes"
         | "opencode" | "openclaw" | "pi" | "qoder" | "windsurf" | "amp" | "cline" | "roo"
-        | "copilot" | "kiro" | "qwen" | "trae" | "antigravity" | "amazonq" | "verdent" => {
-            HookMode::Hybrid
-        }
+        | "copilot" | "kiro" | "qwen" | "trae" | "antigravity" | "antigravity-cli" | "amazonq"
+        | "verdent" => HookMode::Hybrid,
 
         // No reliable direct shell tool → MCP only
         _ => HookMode::Mcp,
     }
 }
 use agents::{
-    install_amp_hook, install_antigravity_hook, install_claude_hook_config,
-    install_claude_hook_scripts, install_claude_hook_with_mode, install_claude_project_hooks,
-    install_cline_rules, install_codex_hook, install_copilot_hook, install_crush_hook_with_mode,
-    install_cursor_hook_config, install_cursor_hook_scripts, install_cursor_hook_with_mode,
-    install_gemini_hook, install_gemini_hook_config, install_gemini_hook_scripts,
-    install_hermes_hook_with_mode, install_jetbrains_hook, install_kiro_hook,
-    install_openclaw_hook, install_opencode_hook_with_mode, install_pi_hook_with_mode,
-    install_qoder_hook_with_mode, install_windsurf_rules,
+    install_amp_hook, install_antigravity_cli_hook, install_antigravity_hook,
+    install_claude_hook_config, install_claude_hook_scripts, install_claude_hook_with_mode,
+    install_claude_project_hooks, install_cline_rules, install_codex_hook, install_copilot_hook,
+    install_crush_hook_with_mode, install_cursor_hook_config, install_cursor_hook_scripts,
+    install_cursor_hook_with_mode, install_gemini_hook, install_gemini_hook_config,
+    install_gemini_hook_scripts, install_hermes_hook_with_mode, install_jetbrains_hook,
+    install_kiro_hook, install_openclaw_hook, install_opencode_hook_with_mode,
+    install_pi_hook_with_mode, install_qoder_hook_with_mode, install_windsurf_rules,
 };
 use support::{
     ensure_codex_hooks_enabled, install_codex_instruction_docs, install_named_json_server,
@@ -527,6 +526,7 @@ pub fn install_agent_hook_with_mode(agent: &str, global: bool, mode: HookMode) {
         "cursor" => install_cursor_hook_with_mode(global, mode),
         "gemini" => install_gemini_hook(),
         "antigravity" => install_antigravity_hook(),
+        "antigravity-cli" => install_antigravity_cli_hook(),
         "augment" => install_mcp_json_agent(
             "Augment CLI",
             "~/.augment/settings.json",
@@ -597,10 +597,10 @@ pub fn install_agent_hook_with_mode(agent: &str, global: bool, mode: HookMode) {
         ),
         _ => {
             eprintln!("Unknown agent: {agent}");
-            eprintln!("  Supported: aider, amazonq, amp, antigravity, augment, claude, cline,");
-            eprintln!("    codex, continue, copilot, crush, cursor, emacs, gemini, hermes,");
-            eprintln!("    jetbrains, kiro, neovim, openclaw, opencode, pi, qoder, qoderwork,");
-            eprintln!("    qwen, roo, sublime, trae, verdent, vscode, windsurf, zed");
+            eprintln!("  Supported: aider, amazonq, amp, antigravity, antigravity-cli, augment,");
+            eprintln!("    claude, cline, codex, continue, copilot, crush, cursor, emacs, gemini,");
+            eprintln!("    hermes, jetbrains, kiro, neovim, openclaw, opencode, pi, qoder,");
+            eprintln!("    qoderwork, qwen, roo, sublime, trae, verdent, vscode, windsurf, zed");
             std::process::exit(1);
         }
     }

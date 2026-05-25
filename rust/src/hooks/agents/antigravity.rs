@@ -6,16 +6,23 @@ pub(crate) fn install_antigravity_hook() {
         return;
     };
 
-    install_antigravity_mcp_config(&home);
+    install_antigravity_mcp_config(&home, "antigravity");
     install_antigravity_gemini_hooks(&home);
 }
 
-fn install_antigravity_mcp_config(home: &std::path::Path) {
+pub(crate) fn install_antigravity_cli_hook() {
+    let Some(home) = crate::core::home::resolve_home_dir() else {
+        tracing::error!("Cannot resolve home directory");
+        return;
+    };
+
+    install_antigravity_mcp_config(&home, "antigravity-cli");
+    install_antigravity_gemini_hooks(&home);
+}
+
+fn install_antigravity_mcp_config(home: &std::path::Path, subdir: &str) {
     let binary = resolve_binary_path();
-    let config_path = home
-        .join(".gemini")
-        .join("antigravity")
-        .join("mcp_config.json");
+    let config_path = home.join(".gemini").join(subdir).join("mcp_config.json");
 
     if let Some(parent) = config_path.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -30,8 +37,13 @@ fn install_antigravity_mcp_config(home: &std::path::Path) {
     let already_configured = existing.contains("lean-ctx");
     if already_configured {
         if !mcp_server_quiet_mode() {
+            let label = if subdir == "antigravity-cli" {
+                "Antigravity CLI"
+            } else {
+                "Antigravity"
+            };
             eprintln!(
-                "Antigravity MCP: lean-ctx already configured at {}",
+                "{label} MCP: lean-ctx already configured at {}",
                 config_path.display()
             );
         }

@@ -166,10 +166,10 @@ pub fn cmd_init(args: &[String]) {
     }
     qprintln!();
     qprintln!("For AI tool integration: lean-ctx init --agent <tool> [--mode <mode>]");
-    qprintln!("  Supported: aider, amazonq, amp, antigravity, augment, claude, cline,");
-    qprintln!("    codex, continue, copilot, crush, cursor, emacs, gemini, hermes,");
-    qprintln!("    jetbrains, kiro, neovim, openclaw, opencode, pi, qoder, qoderwork,");
-    qprintln!("    qwen, roo, sublime, trae, verdent, vscode, windsurf, zed");
+    qprintln!("  Supported: aider, amazonq, amp, antigravity, antigravity-cli, augment,");
+    qprintln!("    claude, cline, codex, continue, copilot, crush, cursor, emacs, gemini,");
+    qprintln!("    hermes, jetbrains, kiro, neovim, openclaw, opencode, pi, qoder,");
+    qprintln!("    qoderwork, qwen, roo, sublime, trae, verdent, vscode, windsurf, zed");
     qprintln!("  Modes: mcp, hybrid  (auto-detected per agent, override with --mode)");
 }
 
