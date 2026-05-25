@@ -193,25 +193,39 @@ fn prune_caches_handles_empty_isolated_dir() {
     assert_eq!(result2.removed, 0);
 }
 
+/// Guards env var modifications so parallel tests don't race.
+/// Uses a process-wide mutex to serialize all env-mutating tests.
 struct EnvGuard {
     key: &'static str,
     prev: Option<String>,
+    _lock: std::sync::MutexGuard<'static, ()>,
 }
 
 impl EnvGuard {
     fn new(key: &'static str, val: &str) -> Self {
+        use std::sync::{Mutex, OnceLock};
+        static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        let lock = ENV_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
         let prev = std::env::var(key).ok();
-        std::env::set_var(key, val);
-        Self { key, prev }
+        unsafe { std::env::set_var(key, val) };
+        Self {
+            key,
+            prev,
+            _lock: lock,
+        }
     }
 }
 
 impl Drop for EnvGuard {
     fn drop(&mut self) {
         if let Some(ref v) = self.prev {
-            std::env::set_var(self.key, v);
+            unsafe { std::env::set_var(self.key, v) };
         } else {
-            std::env::remove_var(self.key);
+            unsafe { std::env::remove_var(self.key) };
         }
     }
 }

@@ -587,8 +587,13 @@ fn is_rewritable(cmd: &str) -> bool {
 }
 
 fn wrap_single_command(cmd: &str, binary: &str) -> String {
-    let shell_escaped = cmd.replace('\'', "'\\''");
-    format!("{binary} -c '{shell_escaped}'")
+    if cfg!(windows) {
+        let escaped = cmd.replace('"', "\\\"");
+        format!("{binary} -c \"{escaped}\"")
+    } else {
+        let shell_escaped = cmd.replace('\'', "'\\''");
+        format!("{binary} -c '{shell_escaped}'")
+    }
 }
 
 fn rewrite_candidate(cmd: &str, binary: &str) -> Option<String> {
@@ -631,72 +636,108 @@ fn rewrite_file_read_command(cmd: &str, binary: &str) -> Option<String> {
         return None;
     }
 
-    let parts: Vec<&str> = cmd.split_whitespace().collect();
+    let parts = shell_tokenize(cmd);
     if parts.len() < 2 {
         return None;
     }
 
-    match parts[0] {
+    match parts[0].as_str() {
         "cat" => {
             let path = parts[1..].join(" ");
-            Some(format!("{binary} read {path}"))
+            Some(format!("{binary} read {}", shell_quote(&path)))
         }
         "head" => {
-            let (n, path) = parse_head_tail_args(&parts[1..]);
+            let refs: Vec<&str> = parts[1..].iter().map(String::as_str).collect();
+            let (n, path) = parse_head_tail_args(&refs);
             let path = path?;
+            let qp = shell_quote(path);
             match n {
-                Some(lines) => Some(format!("{binary} read {path} -m lines:1-{lines}")),
-                None => Some(format!("{binary} read {path} -m lines:1-10")),
+                Some(lines) => Some(format!("{binary} read {qp} -m lines:1-{lines}")),
+                None => Some(format!("{binary} read {qp} -m lines:1-10")),
             }
         }
         "tail" => {
-            let (n, path) = parse_head_tail_args(&parts[1..]);
+            let refs: Vec<&str> = parts[1..].iter().map(String::as_str).collect();
+            let (n, path) = parse_head_tail_args(&refs);
             let path = path?;
+            let qp = shell_quote(path);
             let lines = n.unwrap_or(10);
-            Some(format!("{binary} read {path} -m lines:-{lines}"))
+            Some(format!("{binary} read {qp} -m lines:-{lines}"))
         }
         _ => None,
     }
 }
 
 /// Rewrites `rg <pattern> [path]` to `lean-ctx grep <pattern> [path]` for simple forms.
-///
-/// Falls back to `lean-ctx -c 'rg ...'` for flags/complex quoting (handled elsewhere).
 fn rewrite_search_command(cmd: &str, binary: &str) -> Option<String> {
-    let parts: Vec<&str> = cmd.split_whitespace().collect();
-    if parts.first().copied() != Some("rg") {
+    let parts = shell_tokenize(cmd);
+    if parts.first().map(String::as_str) != Some("rg") {
         return None;
     }
-    if parts.len() < 2 {
+    if parts.len() < 2 || parts.len() > 3 {
         return None;
     }
     if parts[1].starts_with('-') {
         return None;
     }
-    if parts.len() > 3 {
-        return None;
-    }
-    let pattern = parts[1];
-    let path = parts.get(2).copied();
-    match path {
+    let pattern = &parts[1];
+    match parts.get(2) {
         Some(p) if p.starts_with('-') => None,
-        Some(p) => Some(format!("{binary} grep {pattern} {p}")),
+        Some(p) => Some(format!("{binary} grep {pattern} {}", shell_quote(p))),
         None => Some(format!("{binary} grep {pattern}")),
     }
 }
 
 /// Rewrites simple `ls [path]` to `lean-ctx ls [path]`.
-///
-/// Falls back to `lean-ctx -c 'ls ...'` for flags (handled elsewhere).
 fn rewrite_dir_list_command(cmd: &str, binary: &str) -> Option<String> {
-    let parts: Vec<&str> = cmd.split_whitespace().collect();
-    if parts.first().copied() != Some("ls") {
+    let parts = shell_tokenize(cmd);
+    if parts.first().map(String::as_str) != Some("ls") {
         return None;
     }
     match parts.len() {
         1 => Some(format!("{binary} ls")),
-        2 if !parts[1].starts_with('-') => Some(format!("{binary} ls {}", parts[1])),
+        2 if !parts[1].starts_with('-') => Some(format!("{binary} ls {}", shell_quote(&parts[1]))),
         _ => None,
+    }
+}
+
+/// Tokenize a shell command respecting single/double quotes and backslash escapes.
+pub fn shell_tokenize(input: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut chars = input.chars().peekable();
+    let mut in_single = false;
+    let mut in_double = false;
+
+    while let Some(c) = chars.next() {
+        match c {
+            '\'' if !in_double => in_single = !in_single,
+            '"' if !in_single => in_double = !in_double,
+            '\\' if !in_single => {
+                if let Some(next) = chars.next() {
+                    current.push(next);
+                }
+            }
+            c if c.is_whitespace() && !in_single && !in_double => {
+                if !current.is_empty() {
+                    tokens.push(std::mem::take(&mut current));
+                }
+            }
+            _ => current.push(c),
+        }
+    }
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+    tokens
+}
+
+/// Quote a path/arg for shell if it contains spaces or special chars.
+pub fn shell_quote(s: &str) -> String {
+    if s.contains(|c: char| c.is_whitespace() || c == '\'' || c == '"' || c == '\\') {
+        format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
+    } else {
+        s.to_string()
     }
 }
 

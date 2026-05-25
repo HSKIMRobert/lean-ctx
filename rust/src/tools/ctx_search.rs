@@ -162,7 +162,7 @@ pub fn handle(
         matches
             .iter()
             .filter_map(|m| {
-                let file = m.split(':').next()?;
+                let file = extract_file_from_match(m);
                 if seen.insert(file) {
                     Some(file)
                 } else {
@@ -292,11 +292,27 @@ fn is_generated_file(path: &Path) -> bool {
         || name.ends_with(".css.map")
 }
 
+/// Extract file path from a grep match line, handling Windows drive letters (e.g. "C:").
+fn extract_file_from_match(line: &str) -> &str {
+    let start = if line.len() >= 2
+        && line.as_bytes().first().is_some_and(u8::is_ascii_alphabetic)
+        && line.as_bytes().get(1) == Some(&b':')
+    {
+        2
+    } else {
+        0
+    };
+    match line[start..].find(':') {
+        Some(pos) => &line[..start + pos],
+        None => line,
+    }
+}
+
 fn monorepo_scope_hint(matches: &[String], search_dir: &str) -> Option<String> {
     let top_dirs: HashSet<&str> = matches
         .iter()
         .filter_map(|m| {
-            let path = m.split(':').next()?;
+            let path = extract_file_from_match(m);
             let relative = path.strip_prefix("./").unwrap_or(path);
             let relative = relative.strip_prefix(search_dir).unwrap_or(relative);
             let relative = relative.strip_prefix('/').unwrap_or(relative);

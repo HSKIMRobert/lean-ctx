@@ -19,7 +19,7 @@ pub(super) fn backup_before_modify(path: &Path, dry_run: bool) {
     }
 }
 
-pub(super) fn bak_path_for(path: &Path) -> PathBuf {
+pub fn bak_path_for(path: &Path) -> PathBuf {
     let filename = path.file_name().unwrap_or_default().to_string_lossy();
     path.with_file_name(format!("{filename}.lean-ctx.bak"))
 }
@@ -121,6 +121,9 @@ pub fn run(dry_run: bool, keep_config: bool) {
     } else {
         removed_any |= remove_mcp_configs(&home, dry_run);
         removed_any |= remove_rules_files(&home, dry_run);
+        if !dry_run {
+            try_claude_mcp_remove();
+        }
     }
 
     removed_any |= remove_hook_files(&home, dry_run);
@@ -130,8 +133,10 @@ pub fn run(dry_run: bool, keep_config: bool) {
 
     if dry_run {
         println!("  Would remove proxy autostart (LaunchAgent/systemd)");
+        println!("  Would remove daemon autostart (LaunchAgent/systemd)");
     } else {
         crate::proxy_autostart::uninstall(true);
+        crate::daemon_autostart::uninstall(true);
     }
 
     if !dry_run {
@@ -238,26 +243,66 @@ fn remove_skill_dirs(home: &Path, dry_run: bool) -> bool {
 // ---------------------------------------------------------------------------
 
 fn remove_data_dir(home: &Path, dry_run: bool) -> bool {
-    let data_dir = home.join(".lean-ctx");
-    if !data_dir.exists() {
+    let mut removed = false;
+
+    let dirs_to_remove = [home.join(".lean-ctx"), home.join(".config/lean-ctx")];
+
+    for data_dir in &dirs_to_remove {
+        if !data_dir.exists() {
+            continue;
+        }
+        let short = shorten(data_dir, home);
+        if dry_run {
+            println!("  Would remove data directory ({short})");
+            removed = true;
+            continue;
+        }
+        match fs::remove_dir_all(data_dir) {
+            Ok(()) => {
+                println!("  ✓ Data directory removed ({short})");
+                removed = true;
+            }
+            Err(e) => tracing::warn!("Failed to remove {short}: {e}"),
+        }
+    }
+
+    // Project-local .lean-ctx/ and .lean-ctx-id in CWD
+    if let Ok(cwd) = std::env::current_dir() {
+        let project_dir = cwd.join(".lean-ctx");
+        let project_id = cwd.join(".lean-ctx-id");
+        for p in [&project_dir, &project_id] {
+            if p.exists() {
+                if dry_run {
+                    println!("  Would remove {}", p.display());
+                    removed = true;
+                } else if p.is_dir() {
+                    if fs::remove_dir_all(p).is_ok() {
+                        println!("  ✓ Removed {}", p.display());
+                        removed = true;
+                    }
+                } else if fs::remove_file(p).is_ok() {
+                    println!("  ✓ Removed {}", p.display());
+                    removed = true;
+                }
+            }
+        }
+    }
+
+    if !removed {
         println!("  · No data directory found");
-        return false;
     }
+    removed
+}
 
-    if dry_run {
-        println!("  Would remove Data directory (~/.lean-ctx/)");
-        return true;
-    }
-
-    match fs::remove_dir_all(&data_dir) {
-        Ok(()) => {
-            println!("  ✓ Data directory removed (~/.lean-ctx/)");
-            true
-        }
-        Err(e) => {
-            tracing::warn!("Failed to remove ~/.lean-ctx/: {e}");
-            false
-        }
+fn try_claude_mcp_remove() {
+    let result = std::process::Command::new("claude")
+        .args(["mcp", "remove", "lean-ctx", "--scope", "user"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    match result {
+        Ok(s) if s.success() => println!("  ✓ Removed lean-ctx from Claude MCP registry"),
+        _ => {} // claude CLI not available or already removed
     }
 }
 
@@ -320,11 +365,15 @@ fn cleanup_bak_files(home: &Path) {
                     cleaned += 1;
                     continue;
                 }
+                if name_str.contains(".lean-ctx.invalid.") && name_str.ends_with(".bak") {
+                    let _ = fs::remove_file(entry.path());
+                    cleaned += 1;
+                    continue;
+                }
                 if name_str.ends_with(".lean-ctx.bak") {
                     let original_name = name_str.trim_end_matches(".lean-ctx.bak");
                     let original = entry.path().with_file_name(original_name);
                     if original.exists() {
-                        // Only remove backups if the original is already clean.
                         match fs::read_to_string(&original) {
                             Ok(c) if !c.contains("lean-ctx") => {
                                 let _ = fs::remove_file(entry.path());
@@ -333,9 +382,22 @@ fn cleanup_bak_files(home: &Path) {
                             _ => {}
                         }
                     } else {
-                        // If the original is gone, the backup is no longer needed.
                         let _ = fs::remove_file(entry.path());
                         cleaned += 1;
+                    }
+                    continue;
+                }
+                // Plain .bak files next to known config files (created by config_io)
+                if name_str.ends_with(".bak") && !name_str.contains(".lean-ctx") {
+                    let original_name = name_str.trim_end_matches(".bak");
+                    let original = entry.path().with_file_name(original_name);
+                    if original.exists() {
+                        if let Ok(bak_content) = fs::read_to_string(entry.path()) {
+                            if bak_content.contains("lean-ctx") {
+                                let _ = fs::remove_file(entry.path());
+                                cleaned += 1;
+                            }
+                        }
                     }
                 }
             }

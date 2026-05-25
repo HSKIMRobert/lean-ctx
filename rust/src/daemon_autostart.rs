@@ -1,0 +1,322 @@
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+use std::path::PathBuf;
+
+#[cfg(target_os = "macos")]
+const PLIST_LABEL: &str = "com.leanctx.daemon";
+#[cfg(target_os = "linux")]
+const SYSTEMD_SERVICE: &str = "lean-ctx-daemon";
+
+pub fn install(quiet: bool) {
+    let binary = crate::proxy_autostart::find_binary();
+    if binary.is_empty() {
+        if !quiet {
+            tracing::error!("Cannot find lean-ctx binary for daemon autostart");
+        }
+        return;
+    }
+
+    #[cfg(target_os = "macos")]
+    install_launchagent(&binary, quiet);
+
+    #[cfg(target_os = "linux")]
+    install_systemd(&binary, quiet);
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        let _ = (&binary, quiet);
+        println!("  Autostart not supported on this platform");
+        println!("  Run manually: lean-ctx serve -d");
+    }
+}
+
+pub fn stop() {
+    #[cfg(target_os = "macos")]
+    {
+        let plist_path = launchagent_path();
+        if plist_path.exists() {
+            let _ = std::process::Command::new("launchctl")
+                .args(["unload", &plist_path.to_string_lossy()])
+                .output();
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let _ = std::process::Command::new("systemctl")
+            .args(["--user", "stop", SYSTEMD_SERVICE])
+            .output();
+    }
+}
+
+pub fn start() {
+    #[cfg(target_os = "macos")]
+    {
+        let plist_path = launchagent_path();
+        if plist_path.exists() {
+            let _ = std::process::Command::new("launchctl")
+                .args(["load", &plist_path.to_string_lossy()])
+                .output();
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let _ = std::process::Command::new("systemctl")
+            .args(["--user", "start", SYSTEMD_SERVICE])
+            .output();
+    }
+}
+
+pub fn uninstall(quiet: bool) {
+    #[cfg(target_os = "macos")]
+    uninstall_launchagent(quiet);
+
+    #[cfg(target_os = "linux")]
+    uninstall_systemd(quiet);
+}
+
+pub fn is_installed() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        launchagent_path().exists()
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if !systemd_path().exists() {
+            return false;
+        }
+        std::process::Command::new("systemctl")
+            .args(["--user", "is-enabled", "--quiet", SYSTEMD_SERVICE])
+            .status()
+            .is_ok_and(|s| s.success())
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        false
+    }
+}
+
+// ---------------------------------------------------------------------------
+// macOS LaunchAgent
+// ---------------------------------------------------------------------------
+
+#[cfg(target_os = "macos")]
+fn launchagent_path() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join("Library/LaunchAgents")
+        .join(format!("{PLIST_LABEL}.plist"))
+}
+
+#[cfg(target_os = "macos")]
+fn install_launchagent(binary: &str, quiet: bool) {
+    let la_dir = dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join("Library/LaunchAgents");
+    let _ = std::fs::create_dir_all(&la_dir);
+
+    let plist_path = la_dir.join(format!("{PLIST_LABEL}.plist"));
+    let data_dir = dirs::data_local_dir()
+        .unwrap_or_else(|| dirs::home_dir().unwrap_or_default().join(".local/share"))
+        .join("lean-ctx");
+
+    let _ = std::fs::create_dir_all(&data_dir);
+
+    let plist = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>{PLIST_LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{binary}</string>
+        <string>serve</string>
+        <string>--_foreground-daemon</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+    <key>StandardOutPath</key>
+    <string>{stdout}</string>
+    <key>StandardErrorPath</key>
+    <string>{stderr}</string>
+</dict>
+</plist>
+"#,
+        stdout = data_dir.join("daemon-stdout.log").display(),
+        stderr = data_dir.join("daemon-stderr.log").display(),
+    );
+
+    let _ = std::fs::write(&plist_path, &plist);
+
+    let _ = std::process::Command::new("launchctl")
+        .args(["unload", &plist_path.to_string_lossy()])
+        .output();
+    let result = std::process::Command::new("launchctl")
+        .args(["load", "-w", &plist_path.to_string_lossy()])
+        .output();
+
+    if !quiet {
+        match result {
+            Ok(o) if o.status.success() => {
+                println!("  Installed LaunchAgent: {PLIST_LABEL}");
+                println!("  Daemon will start on login and restart if stopped");
+            }
+            Ok(o) => {
+                let err = String::from_utf8_lossy(&o.stderr);
+                println!("  Created plist but load failed: {err}");
+            }
+            Err(e) => {
+                println!("  Created plist at {}", plist_path.display());
+                println!("  Could not load: {e}");
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn uninstall_launchagent(quiet: bool) {
+    let plist_path = launchagent_path();
+    if !plist_path.exists() {
+        if !quiet {
+            println!("  Daemon LaunchAgent not installed, nothing to remove");
+        }
+        return;
+    }
+    let _ = std::process::Command::new("launchctl")
+        .args(["unload", &plist_path.to_string_lossy()])
+        .output();
+    let _ = std::fs::remove_file(&plist_path);
+    if !quiet {
+        println!("  Removed daemon LaunchAgent");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Linux systemd
+// ---------------------------------------------------------------------------
+
+#[cfg(target_os = "linux")]
+fn systemd_path() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join(".config/systemd/user")
+        .join(format!("{SYSTEMD_SERVICE}.service"))
+}
+
+#[cfg(target_os = "linux")]
+fn install_systemd(binary: &str, quiet: bool) {
+    let service_dir = dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join(".config/systemd/user");
+    let _ = std::fs::create_dir_all(&service_dir);
+
+    let service_path = service_dir.join(format!("{SYSTEMD_SERVICE}.service"));
+
+    let unit = format!(
+        r"[Unit]
+Description=lean-ctx IPC Daemon
+After=network.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStart={binary} serve --_foreground-daemon
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=default.target
+"
+    );
+
+    let _ = std::fs::write(&service_path, &unit);
+
+    let _ = std::process::Command::new("systemctl")
+        .args(["--user", "daemon-reload"])
+        .output();
+
+    let result = std::process::Command::new("systemctl")
+        .args(["--user", "enable", "--now", SYSTEMD_SERVICE])
+        .output();
+
+    match result {
+        Ok(o) if o.status.success() => {
+            if !quiet {
+                println!("  Installed systemd user service: {SYSTEMD_SERVICE}");
+                println!("  Daemon will start on login and restart if stopped");
+            }
+        }
+        Ok(o) => {
+            let err = String::from_utf8_lossy(&o.stderr);
+            eprintln!("  Created service file but `systemctl enable` failed: {err}");
+            eprintln!("  Try manually: systemctl --user enable --now {SYSTEMD_SERVICE}");
+        }
+        Err(e) => {
+            eprintln!("  Created service file at {}", service_path.display());
+            eprintln!("  Could not run systemctl: {e}");
+        }
+    }
+
+    // Hint about linger for headless/server use (needed for boot-time start without login)
+    if !quiet {
+        if let Ok(o) = std::process::Command::new("loginctl")
+            .args(["show-user", &whoami(), "-p", "Linger", "--value"])
+            .output()
+        {
+            let val = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if val != "yes" {
+                println!(
+                    "  Note: for daemon to start at boot (without login), run:\n    \
+                     loginctl enable-linger {}",
+                    whoami()
+                );
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn whoami() -> String {
+    std::env::var("USER")
+        .or_else(|_| std::env::var("LOGNAME"))
+        .unwrap_or_else(|_| "$(whoami)".to_string())
+}
+
+#[cfg(target_os = "linux")]
+fn uninstall_systemd(quiet: bool) {
+    let service_path = systemd_path();
+    if !service_path.exists() {
+        if !quiet {
+            println!("  Daemon systemd service not installed, nothing to remove");
+        }
+        return;
+    }
+
+    let _ = std::process::Command::new("systemctl")
+        .args(["--user", "stop", SYSTEMD_SERVICE])
+        .output();
+    let _ = std::process::Command::new("systemctl")
+        .args(["--user", "disable", SYSTEMD_SERVICE])
+        .output();
+    let _ = std::fs::remove_file(&service_path);
+    let _ = std::process::Command::new("systemctl")
+        .args(["--user", "daemon-reload"])
+        .output();
+
+    if !quiet {
+        println!("  Removed daemon systemd service: {SYSTEMD_SERVICE}");
+    }
+}

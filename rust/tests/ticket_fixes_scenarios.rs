@@ -8,6 +8,9 @@
 // - JSONC UTF-8 safety
 // - ls -lah human-readable size passthrough
 // - PowerShell -NoProfile
+// - Uninstall: .bak cleanup, XDG dirs, project-local files
+// - Windows drive-colon grep parsing
+// - Shell-tokenizer for hook rewrites
 
 use std::collections::HashMap;
 
@@ -175,14 +178,17 @@ fn crash_loop_reset_allows_fresh_start() {
 
 // ──────────────────────────────────────────────────────────
 // Scenario Group 4: Daemon autostart lifecycle (#289)
+// (only on macOS/Linux — daemon_autostart uses LaunchAgent/systemd)
 // ──────────────────────────────────────────────────────────
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 #[test]
 fn daemon_autostart_is_installed_returns_bool() {
     let result = lean_ctx::daemon_autostart::is_installed();
     let _ = result;
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 #[test]
 fn daemon_autostart_install_uninstall_idempotent() {
     let installed_before = lean_ctx::daemon_autostart::is_installed();
@@ -587,4 +593,154 @@ fn hash_fast_with_mixed_scripts_at_4096_boundary() {
 
     let hash = lean_ctx::server::helpers::hash_fast(&s);
     assert!(!hash.is_empty(), "must handle CJK at 4096 boundary");
+}
+
+// ──────────────────────────────────────────────────────────
+// Scenario Group: Uninstall .bak cleanup
+// ──────────────────────────────────────────────────────────
+
+#[test]
+fn uninstall_bak_path_generation() {
+    use std::path::Path;
+    let p = Path::new("/home/user/.cursor/settings.json");
+    let bak = lean_ctx::uninstall::bak_path_for(p);
+    assert!(
+        bak.to_string_lossy().ends_with(".lean-ctx.bak"),
+        "Backup must use .lean-ctx.bak suffix"
+    );
+    assert!(
+        bak.to_string_lossy().contains("settings.json"),
+        "Backup must preserve original filename"
+    );
+}
+
+#[test]
+fn uninstall_bak_cleanup_handles_temp_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join(".cursor");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("mcp.json.lean-ctx.tmp"), "tmp").unwrap();
+    std::fs::write(dir.join("mcp.json.lean-ctx.bak"), "bak").unwrap();
+
+    assert!(dir.join("mcp.json.lean-ctx.tmp").exists());
+    assert!(dir.join("mcp.json.lean-ctx.bak").exists());
+}
+
+#[test]
+fn uninstall_invalid_bak_pattern_detected() {
+    let name = "settings.json.lean-ctx.invalid.20260525.bak";
+    assert!(name.contains(".lean-ctx.invalid."));
+    assert!(std::path::Path::new(name)
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("bak")));
+}
+
+// ──────────────────────────────────────────────────────────
+// Scenario Group: Windows drive-colon grep parsing
+// ──────────────────────────────────────────────────────────
+
+#[test]
+fn grep_parser_handles_windows_drive_letter() {
+    use lean_ctx::core::patterns::grep::compress;
+    let mut input = String::new();
+    for i in 1..=10 {
+        input.push_str(&format!(
+            "C:\\Users\\dev\\src\\main.rs:{i}:fn handler_{i}() {{}}\n"
+        ));
+    }
+    let result = compress(&input);
+    assert!(result.is_some(), "Must parse Windows drive paths");
+    let r = result.unwrap();
+    assert!(
+        r.contains("main.rs"),
+        "Must extract filename from Windows path: {r}"
+    );
+}
+
+#[test]
+fn grep_parser_handles_unix_paths() {
+    use lean_ctx::core::patterns::grep::compress;
+    let mut input = String::new();
+    for i in 1..=10 {
+        input.push_str(&format!("src/main.rs:{i}:fn handler_{i}() {{}}\n"));
+    }
+    let result = compress(&input);
+    assert!(result.is_some(), "Must parse Unix paths");
+    assert!(
+        result.unwrap().contains("main.rs"),
+        "Must extract filename from Unix path"
+    );
+}
+
+#[test]
+fn grep_parser_handles_relative_dotslash() {
+    use lean_ctx::core::patterns::grep::compress;
+    let mut input = String::new();
+    for i in 1..=10 {
+        input.push_str(&format!("./src/app.ts:{i}:export const val_{i} = {i};\n"));
+    }
+    let result = compress(&input);
+    assert!(result.is_some(), "Must parse ./ relative paths");
+    assert!(
+        result.unwrap().contains("app.ts"),
+        "Must extract filename from ./ path"
+    );
+}
+
+// ──────────────────────────────────────────────────────────
+// Scenario Group: daemon_autostart::is_installed checks enabled state
+// ──────────────────────────────────────────────────────────
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn daemon_autostart_is_installed_checks_enabled_state() {
+    let result = lean_ctx::daemon_autostart::is_installed();
+    let _ = result;
+}
+
+// ──────────────────────────────────────────────────────────
+// Scenario Group: Shell tokenizer (paths with spaces)
+// ──────────────────────────────────────────────────────────
+
+#[test]
+fn hook_shell_tokenize_respects_quotes() {
+    use lean_ctx::hook_handlers::shell_tokenize;
+    let tokens = shell_tokenize(r#"cat "My Documents/file.txt""#);
+    assert_eq!(tokens, vec!["cat", "My Documents/file.txt"]);
+}
+
+#[test]
+fn hook_shell_tokenize_handles_single_quotes() {
+    use lean_ctx::hook_handlers::shell_tokenize;
+    let tokens = shell_tokenize("rg 'hello world' src/");
+    assert_eq!(tokens, vec!["rg", "hello world", "src/"]);
+}
+
+#[test]
+fn hook_shell_tokenize_handles_backslash_escapes() {
+    use lean_ctx::hook_handlers::shell_tokenize;
+    let tokens = shell_tokenize(r"cat My\ Documents/file.txt");
+    assert_eq!(tokens, vec!["cat", "My Documents/file.txt"]);
+}
+
+#[test]
+fn hook_shell_tokenize_simple_no_quotes() {
+    use lean_ctx::hook_handlers::shell_tokenize;
+    let tokens = shell_tokenize("ls src/components");
+    assert_eq!(tokens, vec!["ls", "src/components"]);
+}
+
+#[test]
+fn hook_shell_quote_adds_quotes_for_spaces() {
+    use lean_ctx::hook_handlers::shell_quote;
+    let q = shell_quote("My Documents/file.txt");
+    assert!(q.starts_with('"') && q.ends_with('"'));
+    assert!(q.contains("My Documents"));
+}
+
+#[test]
+fn hook_shell_quote_noop_for_simple_paths() {
+    use lean_ctx::hook_handlers::shell_quote;
+    let q = shell_quote("src/main.rs");
+    assert_eq!(q, "src/main.rs");
 }

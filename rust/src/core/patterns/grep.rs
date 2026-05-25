@@ -72,9 +72,19 @@ pub fn compress(output: &str) -> Option<String> {
 }
 
 fn parse_grep_line(line: &str) -> Option<(&str, &str)> {
-    if let Some(pos) = line.find(':') {
+    // Skip Windows drive letter (e.g. "C:" at position 1)
+    let start = if line.len() >= 2
+        && line.as_bytes()[0].is_ascii_alphabetic()
+        && line.as_bytes()[1] == b':'
+    {
+        2
+    } else {
+        0
+    };
+    if let Some(rel_pos) = line[start..].find(':') {
+        let pos = start + rel_pos;
         let file = &line[..pos];
-        if file.contains('/') || file.contains('.') {
+        if file.contains('/') || file.contains('\\') || file.contains('.') {
             let rest = &line[pos + 1..];
             return Some((file, rest));
         }
