@@ -15,7 +15,7 @@ use crate::core::tokens::count_tokens;
 use crate::tools::CrpMode;
 
 #[cfg(test)]
-const SEARCH_REPEAT_IDLE_RESET: Duration = Duration::from_millis(50);
+const SEARCH_REPEAT_IDLE_RESET: Duration = Duration::from_millis(500);
 #[cfg(not(test))]
 const SEARCH_REPEAT_IDLE_RESET: Duration = Duration::from_mins(5);
 
@@ -812,7 +812,7 @@ mod tests {
         for _ in 0..3 {
             assert!(state.track_search("idle", "x").is_none());
         }
-        std::thread::sleep(std::time::Duration::from_millis(80));
+        std::thread::sleep(std::time::Duration::from_millis(600));
         assert!(
             state.track_search("idle", "x").is_none(),
             "count should reset after idle window"
