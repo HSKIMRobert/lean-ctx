@@ -774,6 +774,7 @@ mod tests {
 
     #[test]
     fn track_search_none_first_three() {
+        let _lock = crate::core::data_dir::test_env_lock();
         let state = AutonomyState::new();
         assert!(state.track_search("foo", "src").is_none());
         assert!(state.track_search("foo", "src").is_none());
@@ -782,6 +783,7 @@ mod tests {
 
     #[test]
     fn track_search_hint_band() {
+        let _lock = crate::core::data_dir::test_env_lock();
         let state = AutonomyState::new();
         for _ in 0..3 {
             assert!(state.track_search("bar", ".").is_none());
@@ -793,6 +795,7 @@ mod tests {
 
     #[test]
     fn track_search_throttle_seventh() {
+        let _lock = crate::core::data_dir::test_env_lock();
         let state = AutonomyState::new();
         for _ in 0..6 {
             let _ = state.track_search("baz", "p");
@@ -804,6 +807,7 @@ mod tests {
 
     #[test]
     fn track_search_resets_after_idle() {
+        let _lock = crate::core::data_dir::test_env_lock();
         let state = AutonomyState::new();
         for _ in 0..3 {
             assert!(state.track_search("idle", "x").is_none());
@@ -817,6 +821,7 @@ mod tests {
 
     #[test]
     fn track_search_disabled_no_tracking_messages() {
+        let _lock = crate::core::data_dir::test_env_lock();
         let mut state = AutonomyState::new();
         state.config.enabled = false;
         for _ in 0..8 {
@@ -826,6 +831,7 @@ mod tests {
 
     #[test]
     fn track_search_distinct_keys() {
+        let _lock = crate::core::data_dir::test_env_lock();
         let state = AutonomyState::new();
         assert!(state.track_search("pat", "a").is_none());
         assert!(state.track_search("pat", "a").is_none());

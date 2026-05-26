@@ -64,8 +64,8 @@ fn registry_tools_use_resolved_path() {
     ];
     for (name, src) in registry_tools {
         assert!(
-            src.contains("resolved_path("),
-            "{name}: registry tool must use ctx.resolved_path() for path access"
+            src.contains("resolved_path(") || src.contains("resolve_tool_paths("),
+            "{name}: registry tool must use ctx.resolved_path() or resolve_tool_paths() for path access"
         );
     }
 }
