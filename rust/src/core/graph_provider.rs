@@ -306,7 +306,7 @@ pub fn open_best_effort(project_root: &str) -> Option<OpenGraphProvider> {
                 provider: GraphProvider::PropertyGraph(pg),
             });
         }
-        if nodes > 0 {
+        if nodes > 0 && file_cat > 0 {
             pg_provider = Some(pg);
         }
     }
