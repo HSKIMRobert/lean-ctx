@@ -31,7 +31,12 @@ pub fn record_lctx_call() {
 
 pub fn set_session_id(id: &str) {
     if let Ok(mut guard) = SESSION_ID.lock() {
+        let changed = guard.as_deref() != Some(id);
         *guard = Some(id.to_string());
+        if changed {
+            LAST_LCTX_CALL_TS.store(0, Ordering::Relaxed);
+            HINT_COOLDOWN.store(0, Ordering::Relaxed);
+        }
     }
 }
 
@@ -91,12 +96,14 @@ fn count_native_since(data_dir: &Path, since_ts: u64, session_id: Option<&str>) 
             break;
         }
 
-        // Only count events from the same session (avoids subagent false positives)
+        // Only count events from the same session (avoids subagent and
+        // parallel-tab false positives). Events without a conversation_id
+        // are excluded when session filtering is active — they come from
+        // IDE-internal hooks or background processes, not agent tool calls.
         if let Some(sid) = session_id {
-            if let Some(ref event_sid) = event.conversation_id {
-                if event_sid != sid {
-                    continue;
-                }
+            match event.conversation_id.as_deref() {
+                Some(event_sid) if event_sid == sid => {}
+                _ => continue,
             }
         }
 
@@ -111,9 +118,7 @@ fn count_native_since(data_dir: &Path, since_ts: u64, session_id: Option<&str>) 
             }
             count += 1;
         }
-        // file_read events without a tool_name are IDE-internal (beforeReadFile hook)
-        // and should not count as "native Read usage"
-        if event.event_type == "file_read" && event.tool_name.is_some() {
+        if event.event_type == "file_read" && is_read_grep_tool(event.tool_name.as_ref()) {
             count += 1;
         }
     }
@@ -195,17 +200,42 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("context_radar.jsonl");
         let mut f = std::fs::File::create(&path).unwrap();
-        // IDE-internal file_read (beforeReadFile hook) — no tool_name
         writeln!(f, r#"{{"ts":1100,"event_type":"file_read","tokens":100}}"#).unwrap();
-        // Explicit file_read with tool_name — should count
         writeln!(
             f,
             r#"{{"ts":1200,"event_type":"file_read","tokens":100,"tool_name":"Read"}}"#
         )
         .unwrap();
+        // file_read with non-Read tool_name should NOT count
+        writeln!(
+            f,
+            r#"{{"ts":1300,"event_type":"file_read","tokens":100,"tool_name":"SomePlugin"}}"#
+        )
+        .unwrap();
         drop(f);
 
         assert_eq!(count_native_since(dir.path(), 1_000_000, None), 1);
+    }
+
+    #[test]
+    fn session_filter_excludes_events_without_conversation_id() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("context_radar.jsonl");
+        let mut f = std::fs::File::create(&path).unwrap();
+        // Event with matching session
+        writeln!(f, r#"{{"ts":1100,"event_type":"native_tool","tokens":200,"tool_name":"Read","conversation_id":"sess-1"}}"#).unwrap();
+        // Event WITHOUT conversation_id (IDE background, hooks, etc.)
+        writeln!(
+            f,
+            r#"{{"ts":1200,"event_type":"native_tool","tokens":150,"tool_name":"Read"}}"#
+        )
+        .unwrap();
+        drop(f);
+
+        // With session filter: only the matching event counts, not the one without ID
+        assert_eq!(count_native_since(dir.path(), 1_000_000, Some("sess-1")), 1);
+        // Without session filter: both count
+        assert_eq!(count_native_since(dir.path(), 1_000_000, None), 2);
     }
 
     #[test]

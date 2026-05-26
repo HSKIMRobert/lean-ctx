@@ -597,7 +597,7 @@ pub fn prune_bm25_caches() -> PruneResult {
         return result;
     };
 
-    let max_bytes = crate::core::config::Config::load().bm25_max_cache_mb * 1024 * 1024;
+    let max_bytes = crate::core::config::Config::load().bm25_max_cache_mb_effective() * 1024 * 1024;
 
     for entry in entries.flatten() {
         let dir = entry.path();

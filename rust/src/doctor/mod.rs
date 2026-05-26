@@ -1952,6 +1952,24 @@ fn capacity_warnings() -> Vec<Outcome> {
                     k.patterns.len(),
                     policy.knowledge.max_patterns,
                 ));
+                checks.push((
+                    "history".to_string(),
+                    k.history.len(),
+                    policy.knowledge.max_history,
+                ));
+            }
+        }
+
+        if let Ok(content) = std::fs::read_to_string(hash_dir.join("embeddings.json")) {
+            if let Ok(idx) = serde_json::from_str::<
+                crate::core::knowledge_embedding::KnowledgeEmbeddingIndex,
+            >(&content)
+            {
+                checks.push((
+                    "embeddings".to_string(),
+                    idx.entries.len(),
+                    policy.embeddings.max_facts,
+                ));
             }
         }
 

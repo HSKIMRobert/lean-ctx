@@ -262,7 +262,7 @@ impl ProjectIndex {
             return;
         };
         let cfg = crate::core::config::Config::load();
-        let max_age_secs = cfg.archive.max_age_hours * 3600;
+        let max_age_secs = cfg.archive_max_age_hours_effective() * 3600;
 
         for entry in entries.filter_map(Result::ok) {
             let path = entry.path();
@@ -423,12 +423,13 @@ fn index_looks_stale(index: &ProjectIndex, root_abs: &str) -> bool {
         chrono::NaiveDateTime::parse_from_str(&index.last_scan, "%Y-%m-%d %H:%M:%S")
     {
         let cfg = crate::core::config::Config::load();
-        let max_age = chrono::Duration::hours(cfg.archive.max_age_hours as i64);
+        let effective_hours = cfg.archive_max_age_hours_effective();
+        let max_age = chrono::Duration::hours(effective_hours as i64);
         let now = chrono::Local::now().naive_local();
         if now.signed_duration_since(scan_time) > max_age {
             tracing::info!(
                 "[graph_index: index is older than {}h — marking stale]",
-                cfg.archive.max_age_hours
+                effective_hours
             );
             return true;
         }
