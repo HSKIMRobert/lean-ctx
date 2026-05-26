@@ -1542,12 +1542,10 @@ fn resolve_graph_root(arg: Option<&String>) -> String {
 
 fn passthrough(command: &str) -> ! {
     let (shell, flag) = shell::shell_and_flag();
-    let status = std::process::Command::new(&shell)
-        .arg(&flag)
-        .arg(command)
-        .env("LEAN_CTX_ACTIVE", "1")
-        .status()
-        .map_or(127, |s| s.code().unwrap_or(1));
+    let mut cmd = std::process::Command::new(&shell);
+    cmd.arg(&flag).arg(command).env("LEAN_CTX_ACTIVE", "1");
+    shell::platform::apply_utf8_locale(&mut cmd);
+    let status = cmd.status().map_or(127, |s| s.code().unwrap_or(1));
     std::process::exit(status);
 }
 

@@ -130,13 +130,14 @@ pub fn exec_argv(args: &[String]) -> i32 {
 }
 
 fn exec_direct(args: &[String]) -> i32 {
-    let status = Command::new(&args[0])
-        .args(&args[1..])
+    let mut cmd = Command::new(&args[0]);
+    cmd.args(&args[1..])
         .env("LEAN_CTX_ACTIVE", "1")
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .status();
+        .stderr(Stdio::inherit());
+    super::platform::apply_utf8_locale(&mut cmd);
+    let status = cmd.status();
 
     match status {
         Ok(s) => s.code().unwrap_or(1),
@@ -191,14 +192,15 @@ pub fn exec(command: &str) -> i32 {
 }
 
 fn exec_inherit(command: &str, shell: &str, shell_flag: &str) -> i32 {
-    let status = Command::new(shell)
-        .arg(shell_flag)
+    let mut cmd = Command::new(shell);
+    cmd.arg(shell_flag)
         .arg(command)
         .env("LEAN_CTX_ACTIVE", "1")
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .status();
+        .stderr(Stdio::inherit());
+    super::platform::apply_utf8_locale(&mut cmd);
+    let status = cmd.status();
 
     match status {
         Ok(s) => s.code().unwrap_or(1),
@@ -269,11 +271,11 @@ fn exec_buffered(command: &str, shell: &str, shell_flag: &str, cfg: &config::Con
         cmd.arg(command);
     }
 
-    let child = cmd
-        .env("LEAN_CTX_ACTIVE", "1")
+    cmd.env("LEAN_CTX_ACTIVE", "1")
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn();
+        .stderr(Stdio::piped());
+    super::platform::apply_utf8_locale(&mut cmd);
+    let child = cmd.spawn();
 
     let child = match child {
         Ok(c) => c,

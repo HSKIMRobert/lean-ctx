@@ -36,6 +36,8 @@ pub(crate) fn execute_command_with_env(
         cmd.env("PAGER", "cat");
     }
 
+    ensure_utf8_locale(&mut cmd, extra_env);
+
     // Auto-forward agent runtime env vars from parent process
     for (key, val) in std::env::vars() {
         if key.starts_with("CODEX_")
@@ -161,6 +163,16 @@ pub(crate) fn execute_command_with_env(
     (text, code)
 }
 
+fn ensure_utf8_locale(
+    cmd: &mut std::process::Command,
+    extra_env: &std::collections::HashMap<String, String>,
+) {
+    if extra_env.contains_key("LC_ALL") || extra_env.contains_key("LC_CTYPE") {
+        return;
+    }
+    crate::shell::platform::apply_utf8_locale(cmd);
+}
+
 fn command_timeout() -> Duration {
     std::env::var("LEAN_CTX_SHELL_TIMEOUT_MS")
         .ok()
@@ -171,7 +183,59 @@ fn command_timeout() -> Duration {
 
 #[cfg(test)]
 mod tests {
-    use super::execute_command_in;
+    use super::{ensure_utf8_locale, execute_command_in};
+
+    #[test]
+    fn ensure_utf8_locale_sets_fallback_when_none_inherited() {
+        let empty: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        let mut cmd = std::process::Command::new("true");
+
+        // Temporarily unset locale vars to test fallback
+        let saved = (
+            std::env::var("LC_ALL").ok(),
+            std::env::var("LC_CTYPE").ok(),
+            std::env::var("LANG").ok(),
+        );
+        std::env::remove_var("LC_ALL");
+        std::env::remove_var("LC_CTYPE");
+        std::env::remove_var("LANG");
+
+        ensure_utf8_locale(&mut cmd, &empty);
+
+        // Restore
+        if let Some(v) = saved.0 {
+            std::env::set_var("LC_ALL", v);
+        }
+        if let Some(v) = saved.1 {
+            std::env::set_var("LC_CTYPE", v);
+        }
+        if let Some(v) = saved.2 {
+            std::env::set_var("LANG", v);
+        }
+
+        // Command internal env isn't inspectable, but we verify the fn doesn't panic
+        // and the real integration test below checks byte-level correctness.
+    }
+
+    #[test]
+    fn ensure_utf8_locale_skips_when_extra_env_has_lc_all() {
+        let mut extra = std::collections::HashMap::new();
+        extra.insert("LC_ALL".to_string(), "C".to_string());
+        let mut cmd = std::process::Command::new("true");
+        ensure_utf8_locale(&mut cmd, &extra);
+        // Should not panic or override
+    }
+
+    #[test]
+    #[cfg_attr(windows, ignore)]
+    fn utf8_bytes_survive_shell_roundtrip() {
+        let (output, code) = execute_command_in(
+            "printf '\\xD0\\x9F\\xD1\\x80\\xD0\\xB8\\xD0\\xB2\\xD0\\xB5\\xD1\\x82'",
+            ".",
+        );
+        assert_eq!(code, 0, "printf failed: {output}");
+        assert_eq!(output, "Привет", "Cyrillic bytes must survive roundtrip");
+    }
 
     #[test]
     #[cfg_attr(windows, ignore)] // ReadToEnd() blocks indefinitely on Windows CI

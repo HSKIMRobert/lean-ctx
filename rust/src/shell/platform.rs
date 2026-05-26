@@ -1,5 +1,19 @@
 use std::io::{self, IsTerminal};
 
+/// Sets `LC_CTYPE=C.UTF-8` when no UTF-8 locale is inherited from the parent
+/// process. Without this, commands treat bytes >127 as non-printable (C locale),
+/// mangling Cyrillic, CJK, emoji, etc.
+pub(crate) fn apply_utf8_locale(cmd: &mut std::process::Command) {
+    let has_utf8 = std::env::var("LC_ALL")
+        .or_else(|_| std::env::var("LC_CTYPE"))
+        .or_else(|_| std::env::var("LANG"))
+        .is_ok_and(|v| v.to_ascii_lowercase().contains("utf"));
+
+    if !has_utf8 {
+        cmd.env("LC_CTYPE", "C.UTF-8");
+    }
+}
+
 pub fn decode_output(bytes: &[u8]) -> String {
     match String::from_utf8(bytes.to_vec()) {
         Ok(s) => s,
