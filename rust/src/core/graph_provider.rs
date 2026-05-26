@@ -1,10 +1,39 @@
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use super::graph_index::ProjectIndex;
+use super::graph_index::{self, ProjectIndex};
 use super::property_graph::CodeGraph;
 
 static GRAPH_BUILD_TRIGGERED: AtomicBool = AtomicBool::new(false);
+
+#[derive(Debug, Clone)]
+pub struct SymbolInfo {
+    pub name: String,
+    pub file: String,
+    pub kind: String,
+    pub start_line: usize,
+    pub end_line: usize,
+    pub is_exported: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct EdgeInfo {
+    pub from: String,
+    pub to: String,
+    pub kind: String,
+    pub weight: f64,
+}
+
+#[derive(Debug, Clone)]
+pub struct FileInfo {
+    pub path: String,
+    pub hash: String,
+    pub language: String,
+    pub line_count: usize,
+    pub token_count: usize,
+    pub exports: Vec<String>,
+    pub summary: String,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GraphProviderSource {
@@ -71,6 +100,172 @@ impl GraphProvider {
         }
     }
 
+    pub fn file_paths(&self) -> Vec<String> {
+        match self {
+            GraphProvider::PropertyGraph(g) => g.file_catalog_paths().unwrap_or_default(),
+            GraphProvider::GraphIndex(i) => {
+                let mut paths: Vec<String> = i.files.keys().cloned().collect();
+                paths.sort();
+                paths
+            }
+        }
+    }
+
+    pub fn file_count(&self) -> usize {
+        match self {
+            GraphProvider::PropertyGraph(g) => g.file_catalog_count().unwrap_or(0),
+            GraphProvider::GraphIndex(i) => i.files.len(),
+        }
+    }
+
+    pub fn symbol_count(&self) -> usize {
+        match self {
+            GraphProvider::PropertyGraph(g) => g.symbol_count().unwrap_or(0),
+            GraphProvider::GraphIndex(i) => i.symbols.len(),
+        }
+    }
+
+    pub fn find_symbols(
+        &self,
+        name: &str,
+        file_filter: Option<&str>,
+        kind_filter: Option<&str>,
+    ) -> Vec<SymbolInfo> {
+        match self {
+            GraphProvider::PropertyGraph(g) => g
+                .find_symbols(name, file_filter, kind_filter)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|n| SymbolInfo {
+                    name: n.name,
+                    file: n.file_path,
+                    kind: n.kind.as_str().to_string(),
+                    start_line: n.line_start.unwrap_or(0),
+                    end_line: n.line_end.unwrap_or(0),
+                    is_exported: true,
+                })
+                .collect(),
+            GraphProvider::GraphIndex(i) => {
+                let name_lower = name.to_lowercase();
+                i.symbols
+                    .values()
+                    .filter(|s| s.name.to_lowercase().contains(&name_lower))
+                    .filter(|s| file_filter.is_none_or(|f| s.file.contains(f)))
+                    .filter(|s| kind_filter.is_none_or(|k| s.kind == k))
+                    .take(100)
+                    .map(|s| SymbolInfo {
+                        name: s.name.clone(),
+                        file: s.file.clone(),
+                        kind: s.kind.clone(),
+                        start_line: s.start_line,
+                        end_line: s.end_line,
+                        is_exported: s.is_exported,
+                    })
+                    .collect()
+            }
+        }
+    }
+
+    pub fn get_symbol(&self, key: &str) -> Option<SymbolInfo> {
+        match self {
+            GraphProvider::PropertyGraph(g) => {
+                let parts: Vec<&str> = key.rsplitn(2, "::").collect();
+                if parts.len() != 2 {
+                    return None;
+                }
+                let (sym_name, file_path) = (parts[0], parts[1]);
+                g.get_node_by_symbol(sym_name, file_path)
+                    .ok()
+                    .flatten()
+                    .map(|n| SymbolInfo {
+                        name: n.name,
+                        file: n.file_path,
+                        kind: n.kind.as_str().to_string(),
+                        start_line: n.line_start.unwrap_or(0),
+                        end_line: n.line_end.unwrap_or(0),
+                        is_exported: true,
+                    })
+            }
+            GraphProvider::GraphIndex(i) => i.get_symbol(key).map(|s| SymbolInfo {
+                name: s.name.clone(),
+                file: s.file.clone(),
+                kind: s.kind.clone(),
+                start_line: s.start_line,
+                end_line: s.end_line,
+                is_exported: s.is_exported,
+            }),
+        }
+    }
+
+    pub fn edges(&self) -> Vec<EdgeInfo> {
+        match self {
+            GraphProvider::PropertyGraph(g) => g
+                .all_edges_flat()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|(from, to, kind, weight)| EdgeInfo {
+                    from,
+                    to,
+                    kind,
+                    weight,
+                })
+                .collect(),
+            GraphProvider::GraphIndex(i) => i
+                .edges
+                .iter()
+                .map(|e| EdgeInfo {
+                    from: e.from.clone(),
+                    to: e.to.clone(),
+                    kind: e.kind.clone(),
+                    weight: e.weight as f64,
+                })
+                .collect(),
+        }
+    }
+
+    pub fn edges_by_kind(&self, kind: &str) -> Vec<EdgeInfo> {
+        self.edges()
+            .into_iter()
+            .filter(|e| e.kind == kind)
+            .collect()
+    }
+
+    pub fn get_file_entry(&self, path: &str) -> Option<FileInfo> {
+        match self {
+            GraphProvider::PropertyGraph(g) => {
+                g.get_file_catalog(path).ok().flatten().map(|e| FileInfo {
+                    path: e.path,
+                    hash: e.hash,
+                    language: e.language,
+                    line_count: e.line_count,
+                    token_count: e.token_count,
+                    exports: e.exports,
+                    summary: e.summary,
+                })
+            }
+            GraphProvider::GraphIndex(i) => i.files.get(path).map(|e| FileInfo {
+                path: e.path.clone(),
+                hash: e.hash.clone(),
+                language: e.language.clone(),
+                line_count: e.line_count,
+                token_count: e.token_count,
+                exports: e.exports.clone(),
+                summary: e.summary.clone(),
+            }),
+        }
+    }
+
+    pub fn last_scan(&self) -> String {
+        match self {
+            GraphProvider::PropertyGraph(_) => String::new(),
+            GraphProvider::GraphIndex(i) => i.last_scan.clone(),
+        }
+    }
+
+    pub fn index_dir(project_root: &str) -> Option<std::path::PathBuf> {
+        graph_index::ProjectIndex::index_dir(project_root)
+    }
+
     /// Scored related files using multi-edge weights.
     /// Falls back to unscored deps/dependents for GraphIndex backend.
     pub fn related_files_scored(&self, file_path: &str, limit: usize) -> Vec<(String, f64)> {
@@ -96,6 +291,7 @@ impl GraphProvider {
 }
 
 pub fn open_best_effort(project_root: &str) -> Option<OpenGraphProvider> {
+    let t0 = std::time::Instant::now();
     let mut pg_provider = None;
     let mut pg_populated = false;
     if let Ok(pg) = CodeGraph::open(project_root) {
@@ -103,6 +299,7 @@ pub fn open_best_effort(project_root: &str) -> Option<OpenGraphProvider> {
         let edges = pg.edge_count().unwrap_or(0);
         pg_populated = nodes > 0 && edges > 0;
         if pg_populated {
+            log_source_selection(GraphProviderSource::PropertyGraph, nodes, edges, t0);
             return Some(OpenGraphProvider {
                 source: GraphProviderSource::PropertyGraph,
                 provider: GraphProvider::PropertyGraph(pg),
@@ -113,20 +310,15 @@ pub fn open_best_effort(project_root: &str) -> Option<OpenGraphProvider> {
         }
     }
 
-    // Trigger lazy SQLite graph build if PropertyGraph is empty,
-    // even when the JSON graph index provides a fallback.
     if !pg_populated {
         trigger_lazy_graph_build(project_root);
     }
 
     if let Some(idx) = super::index_orchestrator::try_load_graph_index(project_root) {
-        if !idx.edges.is_empty() {
-            return Some(OpenGraphProvider {
-                source: GraphProviderSource::GraphIndex,
-                provider: GraphProvider::GraphIndex(idx),
-            });
-        }
-        if !idx.files.is_empty() {
+        let files = idx.files.len();
+        let edges = idx.edges.len();
+        if !idx.edges.is_empty() || !idx.files.is_empty() {
+            log_source_selection(GraphProviderSource::GraphIndex, files, edges, t0);
             return Some(OpenGraphProvider {
                 source: GraphProviderSource::GraphIndex,
                 provider: GraphProvider::GraphIndex(idx),
@@ -135,6 +327,8 @@ pub fn open_best_effort(project_root: &str) -> Option<OpenGraphProvider> {
     }
 
     if let Some(pg) = pg_provider {
+        let nodes = pg.node_count().unwrap_or(0);
+        log_source_selection(GraphProviderSource::PropertyGraph, nodes, 0, t0);
         return Some(OpenGraphProvider {
             source: GraphProviderSource::PropertyGraph,
             provider: GraphProvider::PropertyGraph(pg),
@@ -142,6 +336,21 @@ pub fn open_best_effort(project_root: &str) -> Option<OpenGraphProvider> {
     }
 
     None
+}
+
+fn log_source_selection(
+    source: GraphProviderSource,
+    nodes: usize,
+    edges: usize,
+    start: std::time::Instant,
+) {
+    let elapsed_ms = start.elapsed().as_millis();
+    if std::env::var("LCTX_DEBUG").is_ok() {
+        eprintln!(
+            "[graph_provider] source={source:?} nodes={nodes} edges={edges} resolve_ms={elapsed_ms}"
+        );
+    }
+    let _ = (source, nodes, edges, elapsed_ms);
 }
 
 /// Triggers a background graph build once per process when the graph is empty.
@@ -233,5 +442,70 @@ mod tests {
         assert!(open.is_none());
 
         std::env::remove_var("LEAN_CTX_DATA_DIR");
+    }
+
+    #[test]
+    fn parity_dependencies_both_stores_agree() {
+        use super::super::graph_index::{FileEntry, IndexEdge};
+        use super::super::property_graph::{Edge, EdgeKind, Node};
+
+        let pg = CodeGraph::open_in_memory().unwrap();
+        let a_id = pg.upsert_node(&Node::file("src/a.rs")).unwrap();
+        let b_id = pg.upsert_node(&Node::file("src/b.rs")).unwrap();
+        let c_id = pg.upsert_node(&Node::file("src/c.rs")).unwrap();
+        pg.upsert_edge(&Edge::new(a_id, b_id, EdgeKind::Imports))
+            .unwrap();
+        pg.upsert_edge(&Edge::new(a_id, c_id, EdgeKind::Imports))
+            .unwrap();
+
+        let mut idx = ProjectIndex::new("/test");
+        for name in &["src/a.rs", "src/b.rs", "src/c.rs"] {
+            idx.files.insert(
+                name.to_string(),
+                FileEntry {
+                    path: name.to_string(),
+                    hash: "h".into(),
+                    language: "rs".into(),
+                    line_count: 1,
+                    token_count: 1,
+                    exports: vec![],
+                    summary: String::new(),
+                },
+            );
+        }
+        idx.edges.push(IndexEdge {
+            from: "src/a.rs".into(),
+            to: "src/b.rs".into(),
+            kind: "import".into(),
+            weight: 1.0,
+        });
+        idx.edges.push(IndexEdge {
+            from: "src/a.rs".into(),
+            to: "src/c.rs".into(),
+            kind: "import".into(),
+            weight: 1.0,
+        });
+
+        let pg_deps = GraphProvider::PropertyGraph(pg);
+        let gi_deps = GraphProvider::GraphIndex(idx);
+
+        let mut pg_result = pg_deps.dependencies("src/a.rs");
+        let mut gi_result = gi_deps.dependencies("src/a.rs");
+        pg_result.sort();
+        gi_result.sort();
+
+        assert_eq!(
+            pg_result, gi_result,
+            "Import edges must match between PG and GraphIndex"
+        );
+
+        let mut pg_dependents = pg_deps.dependents("src/b.rs");
+        let mut gi_dependents = gi_deps.dependents("src/b.rs");
+        pg_dependents.sort();
+        gi_dependents.sort();
+        assert_eq!(
+            pg_dependents, gi_dependents,
+            "Dependents must match between PG and GraphIndex"
+        );
     }
 }

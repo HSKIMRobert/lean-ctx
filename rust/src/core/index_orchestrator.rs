@@ -137,6 +137,9 @@ pub fn ensure_all_background(project_root: &str) {
         }
         let graph_result = std::panic::catch_unwind(|| {
             let (idx, content_cache) = graph_index::scan_with_content_cache(&root);
+            // JSON index write is kept for backward compatibility with remaining
+            // direct ProjectIndex consumers. Will be removed when all consumers
+            // are migrated to GraphProvider/PropertyGraph. (OPT-14/15 Phase 6)
             let _ = idx.save();
             (idx, content_cache)
         });

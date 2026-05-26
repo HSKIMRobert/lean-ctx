@@ -245,26 +245,24 @@ impl ModePredictor {
         }
 
         let mode = match (sig.ext.as_str(), sig.size_bucket) {
-            // Lock / large code files: signatures only
-            ("lock", _)
-            | (
+            // Large code files: signatures only
+            (
                 "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go" | "java" | "c" | "cpp" | "rb"
                 | "swift" | "kt" | "cs" | "vue" | "svelte",
                 4..,
             ) => "signatures",
 
-            // Code files 2k-10k / SQL: map gives structure without bloat
-            (
+            // Code 2k-10k, SQL, lock, config/data: structured map
+            ("lock" | "json" | "yaml" | "yml" | "toml", _)
+            | (
                 "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go" | "java" | "c" | "cpp" | "rb"
                 | "swift" | "kt" | "cs" | "vue" | "svelte",
                 2 | 3,
             )
             | ("sql", 2..) => "map",
 
-            // Config/data, CSS, and large unknown files: aggressive
-            ("json" | "yaml" | "yml" | "toml" | "xml" | "csv", _)
-            | ("css" | "scss" | "less" | "sass", 2..)
-            | (_, 3..) => "aggressive",
+            // CSS, XML/CSV, and large unknown files: aggressive
+            ("xml" | "csv", _) | ("css" | "scss" | "less" | "sass", 2..) | (_, 3..) => "aggressive",
 
             _ => return None,
         };
@@ -417,11 +415,11 @@ mod tests {
     }
 
     #[test]
-    fn defaults_recommend_aggressive_for_json() {
+    fn defaults_recommend_map_for_json() {
         let sig = FileSignature::from_path("config.json", 1000);
         assert_eq!(
             ModePredictor::predict_from_defaults(&sig),
-            Some("aggressive".to_string())
+            Some("map".to_string())
         );
     }
 

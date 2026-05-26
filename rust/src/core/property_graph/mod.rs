@@ -6,12 +6,14 @@
 //! and graph-driven context loading.
 
 mod edge;
+pub mod file_catalog;
 mod meta;
 mod node;
 mod queries;
 mod schema;
 
 pub use edge::{Edge, EdgeKind};
+pub use file_catalog::FileCatalogEntry;
 pub use meta::{load_meta, meta_path, write_meta, PropertyGraphMetaV1};
 pub use node::{Node, NodeKind};
 pub use queries::{
@@ -167,8 +169,41 @@ impl CodeGraph {
 
     pub fn clear(&self) -> anyhow::Result<()> {
         self.conn
-            .execute_batch("DELETE FROM edges; DELETE FROM nodes;")?;
+            .execute_batch("DELETE FROM edges; DELETE FROM nodes; DELETE FROM file_catalog;")?;
         Ok(())
+    }
+
+    pub fn upsert_file_catalog(&self, entry: &FileCatalogEntry) -> anyhow::Result<()> {
+        file_catalog::upsert(&self.conn, entry)
+    }
+
+    pub fn get_file_catalog(&self, path: &str) -> anyhow::Result<Option<FileCatalogEntry>> {
+        file_catalog::get(&self.conn, path)
+    }
+
+    pub fn file_catalog_count(&self) -> anyhow::Result<usize> {
+        file_catalog::count(&self.conn)
+    }
+
+    pub fn file_catalog_paths(&self) -> anyhow::Result<Vec<String>> {
+        file_catalog::all_paths(&self.conn)
+    }
+
+    pub fn find_symbols(
+        &self,
+        name: &str,
+        file_filter: Option<&str>,
+        kind_filter: Option<&str>,
+    ) -> anyhow::Result<Vec<Node>> {
+        node::find_symbols(&self.conn, name, file_filter, kind_filter)
+    }
+
+    pub fn symbol_count(&self) -> anyhow::Result<usize> {
+        node::symbol_count(&self.conn)
+    }
+
+    pub fn all_edges_flat(&self) -> anyhow::Result<Vec<(String, String, String, f64)>> {
+        node::all_edges_flat(&self.conn)
     }
 }
 

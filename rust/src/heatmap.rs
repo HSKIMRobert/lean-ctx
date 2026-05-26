@@ -1,4 +1,4 @@
-use crate::core::graph_index::{self, ProjectIndex};
+use crate::core::graph_provider::{self, GraphProvider};
 use std::collections::HashMap;
 
 struct HeatEntry {
@@ -35,9 +35,12 @@ pub fn cmd_heatmap(args: &[String]) {
 
     let json_output = args.iter().any(|a| a == "--json");
 
-    let index = graph_index::load_or_build(&project_root);
+    let Some(open) = graph_provider::open_or_build(&project_root) else {
+        eprintln!("No graph available for project.");
+        return;
+    };
 
-    let entries = build_heat_entries(&index, dir_filter);
+    let entries = build_heat_entries(&open.provider, dir_filter);
 
     if entries.is_empty() {
         eprintln!("No files found in project graph.");
@@ -71,40 +74,44 @@ enum SortBy {
     Connections,
 }
 
-fn build_heat_entries(index: &ProjectIndex, dir_filter: Option<&str>) -> Vec<HeatEntry> {
+fn build_heat_entries(gp: &GraphProvider, dir_filter: Option<&str>) -> Vec<HeatEntry> {
+    let all_edges = gp.edges();
     let mut connection_counts: HashMap<String, usize> = HashMap::new();
-    for edge in &index.edges {
+    for edge in &all_edges {
         *connection_counts.entry(edge.from.clone()).or_default() += 1;
         *connection_counts.entry(edge.to.clone()).or_default() += 1;
     }
 
-    let max_tokens = index
-        .files
-        .values()
-        .map(|f| f.token_count)
-        .max()
-        .unwrap_or(1) as f64;
+    let paths = gp.file_paths();
+    let mut max_tokens = 1usize;
+    let mut file_entries: Vec<(String, usize)> = Vec::new();
+    for path in &paths {
+        if let Some(entry) = gp.get_file_entry(path) {
+            max_tokens = max_tokens.max(entry.token_count);
+            file_entries.push((path.clone(), entry.token_count));
+        }
+    }
+    let max_tokens = max_tokens as f64;
     let max_connections = connection_counts.values().max().copied().unwrap_or(1) as f64;
 
-    index
-        .files
-        .values()
-        .filter(|f| {
+    file_entries
+        .into_iter()
+        .filter(|(path, _)| {
             if let Some(dir) = dir_filter {
-                f.path.starts_with(dir) || f.path.starts_with(&format!("./{dir}"))
+                path.starts_with(dir) || path.starts_with(&format!("./{dir}"))
             } else {
                 true
             }
         })
-        .map(|f| {
-            let connections = connection_counts.get(&f.path).copied().unwrap_or(0);
-            let token_norm = f.token_count as f64 / max_tokens;
+        .map(|(path, token_count)| {
+            let connections = connection_counts.get(&path).copied().unwrap_or(0);
+            let token_norm = token_count as f64 / max_tokens;
             let conn_norm = connections as f64 / max_connections;
             let heat_score = token_norm * 0.4 + conn_norm * 0.6;
 
             HeatEntry {
-                path: f.path.clone(),
-                token_count: f.token_count,
+                path,
+                token_count,
                 connections,
                 heat_score,
             }
@@ -233,8 +240,8 @@ mod tests {
 
     #[test]
     fn test_build_heat_entries_empty() {
-        let index = ProjectIndex::new(".");
-        let entries = build_heat_entries(&index, None);
+        let gp = GraphProvider::GraphIndex(crate::core::graph_index::ProjectIndex::new("."));
+        let entries = build_heat_entries(&gp, None);
         assert!(entries.is_empty());
     }
 }

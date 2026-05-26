@@ -154,29 +154,50 @@ pub fn cmd_read(args: &[String]) {
 
     match mode {
         "map" => {
-            let sigs = signatures::extract_signatures(&content, ext);
-            let dep_info = dep_extract::extract_deps(&content, ext);
-
-            let mut output_buf = format!("{short} [{line_count}L]");
-            if !dep_info.imports.is_empty() {
-                output_buf.push_str(&format!("\n  deps: {}", dep_info.imports.join(", ")));
-            }
-            if !dep_info.exports.is_empty() {
-                output_buf.push_str(&format!("\n  exports: {}", dep_info.exports.join(", ")));
-            }
-            let key_sigs: Vec<_> = sigs
-                .iter()
-                .filter(|s| s.is_exported || s.indent == 0)
-                .collect();
-            if !key_sigs.is_empty() {
-                output_buf.push_str("\n  API:");
-                for sig in &key_sigs {
-                    output_buf.push_str(&format!("\n    {}", sig.to_compact()));
+            let structured = match ext {
+                "md" | "mdx" | "rst" => {
+                    crate::core::structured_read::extract_markdown_outline(&content)
                 }
-            }
-            println!("{output_buf}");
+                "json" => crate::core::structured_read::extract_json_structure(&content),
+                "yaml" | "yml" => crate::core::structured_read::extract_yaml_structure(&content),
+                "toml" => crate::core::structured_read::extract_toml_structure(&content),
+                _ if path.to_lowercase().ends_with(".lock")
+                    || path.to_lowercase().ends_with("go.sum") =>
+                {
+                    crate::core::structured_read::extract_lock_summary(&content, path)
+                }
+                _ => String::new(),
+            };
+
+            let mut output_buf = if structured.is_empty() {
+                let sigs = signatures::extract_signatures(&content, ext);
+                let dep_info = dep_extract::extract_deps(&content, ext);
+                let mut buf = format!("{short} [{line_count}L]");
+                if !dep_info.imports.is_empty() {
+                    buf.push_str(&format!("\n  deps: {}", dep_info.imports.join(", ")));
+                }
+                if !dep_info.exports.is_empty() {
+                    buf.push_str(&format!("\n  exports: {}", dep_info.exports.join(", ")));
+                }
+                let key_sigs: Vec<_> = sigs
+                    .iter()
+                    .filter(|s| s.is_exported || s.indent == 0)
+                    .collect();
+                if !key_sigs.is_empty() {
+                    buf.push_str("\n  API:");
+                    for sig in &key_sigs {
+                        buf.push_str(&format!("\n    {}", sig.to_compact()));
+                    }
+                }
+                buf
+            } else {
+                format!("{short} [{line_count}L]\n{structured}")
+            };
+
             let sent = count_tokens(&output_buf);
-            print_savings(original_tokens, sent);
+            let savings = protocol::append_savings(&output_buf, original_tokens, sent);
+            output_buf = savings;
+            println!("{output_buf}");
             super::common::cli_track_read(path, "map", original_tokens, sent);
         }
         "signatures" => {

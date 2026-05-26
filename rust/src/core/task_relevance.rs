@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use super::graph_index::ProjectIndex;
-
+use super::graph_provider::{EdgeInfo, GraphProvider};
 use super::neural::attention_learned::LearnedAttention;
 
 #[derive(Debug, Clone)]
@@ -12,12 +11,14 @@ pub struct RelevanceScore {
 }
 
 pub fn compute_relevance(
-    index: &ProjectIndex,
+    gp: &GraphProvider,
     task_files: &[String],
     task_keywords: &[String],
 ) -> Vec<RelevanceScore> {
-    let adj = build_adjacency_resolved(index);
-    let all_nodes: Vec<String> = index.files.keys().cloned().collect();
+    let all_edges = gp.edges();
+    let file_set: HashSet<String> = gp.file_paths().into_iter().collect();
+    let adj = build_adjacency_resolved(&all_edges, &file_set);
+    let all_nodes: Vec<String> = file_set.into_iter().collect();
     if all_nodes.is_empty() {
         return Vec::new();
     }
@@ -100,19 +101,20 @@ pub fn compute_relevance(
         }
     }
 
-    // Keyword boost
     if !task_keywords.is_empty() {
         let kw_lower: Vec<String> = task_keywords.iter().map(|k| k.to_lowercase()).collect();
-        for (file_path, file_entry) in &index.files {
+        for file_path in &all_nodes {
             let path_lower = file_path.to_lowercase();
             let mut keyword_hits = 0;
             for kw in &kw_lower {
                 if path_lower.contains(kw) {
                     keyword_hits += 1;
                 }
-                for export in &file_entry.exports {
-                    if export.to_lowercase().contains(kw) {
-                        keyword_hits += 1;
+                if let Some(entry) = gp.get_file_entry(file_path) {
+                    for export in &entry.exports {
+                        if export.to_lowercase().contains(kw) {
+                            keyword_hits += 1;
+                        }
                     }
                 }
             }
@@ -145,7 +147,7 @@ pub fn compute_relevance(
 }
 
 pub fn compute_relevance_from_intent(
-    index: &ProjectIndex,
+    gp: &GraphProvider,
     intent: &super::intent_engine::StructuredIntent,
 ) -> Vec<RelevanceScore> {
     use super::intent_engine::IntentScope;
@@ -153,16 +155,17 @@ pub fn compute_relevance_from_intent(
     let mut file_seeds: Vec<String> = Vec::new();
     let mut extra_keywords: Vec<String> = intent.keywords.clone();
 
+    let file_paths = gp.file_paths();
     for target in &intent.targets {
         if target.contains('.') || target.contains('/') {
-            let matched = resolve_target_to_files(index, target);
+            let matched = resolve_target_to_files(&file_paths, target);
             if matched.is_empty() {
                 extra_keywords.push(target.clone());
             } else {
                 file_seeds.extend(matched);
             }
         } else {
-            let from_symbol = resolve_symbol_to_files(index, target);
+            let from_symbol = resolve_symbol_to_files(gp, target);
             if from_symbol.is_empty() {
                 extra_keywords.push(target.clone());
             } else {
@@ -184,7 +187,7 @@ pub fn compute_relevance_from_intent(
         };
         if let Some(ext) = lang_ext {
             if file_seeds.is_empty() {
-                for path in index.files.keys() {
+                for path in &file_paths {
                     if path.ends_with(&format!(".{ext}")) {
                         extra_keywords.push(
                             std::path::Path::new(path)
@@ -200,7 +203,7 @@ pub fn compute_relevance_from_intent(
         }
     }
 
-    let mut result = compute_relevance(index, &file_seeds, &extra_keywords);
+    let mut result = compute_relevance(gp, &file_seeds, &extra_keywords);
 
     match intent.scope {
         IntentScope::SingleFile => {
@@ -215,36 +218,34 @@ pub fn compute_relevance_from_intent(
     result
 }
 
-fn resolve_target_to_files(index: &ProjectIndex, target: &str) -> Vec<String> {
-    let mut matches = Vec::new();
-    for path in index.files.keys() {
-        if path.ends_with(target) || path.contains(target) {
-            matches.push(path.clone());
-        }
-    }
-    matches
+fn resolve_target_to_files(file_paths: &[String], target: &str) -> Vec<String> {
+    file_paths
+        .iter()
+        .filter(|path| path.ends_with(target) || path.contains(target))
+        .cloned()
+        .collect()
 }
 
-fn resolve_symbol_to_files(index: &ProjectIndex, symbol: &str) -> Vec<String> {
-    let sym_lower = symbol.to_lowercase();
-    let mut matches = Vec::new();
-    for entry in index.symbols.values() {
-        let name_lower = entry.name.to_lowercase();
-        if (name_lower == sym_lower || name_lower.contains(&sym_lower))
-            && !matches.contains(&entry.file)
-        {
-            matches.push(entry.file.clone());
-        }
-    }
+fn resolve_symbol_to_files(gp: &GraphProvider, symbol: &str) -> Vec<String> {
+    let found = gp.find_symbols(symbol, None, None);
+    let mut matches: Vec<String> = found
+        .into_iter()
+        .map(|s| s.file)
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
     if matches.is_empty() {
-        for (path, file_entry) in &index.files {
-            if file_entry
-                .exports
-                .iter()
-                .any(|e| e.to_lowercase().contains(&sym_lower))
-                && !matches.contains(path)
-            {
-                matches.push(path.clone());
+        let sym_lower = symbol.to_lowercase();
+        for path in gp.file_paths() {
+            if let Some(entry) = gp.get_file_entry(&path) {
+                if entry
+                    .exports
+                    .iter()
+                    .any(|e| e.to_lowercase().contains(&sym_lower))
+                    && !matches.contains(&path)
+                {
+                    matches.push(path);
+                }
             }
         }
     }
@@ -263,22 +264,22 @@ fn recommend_mode(score: f64) -> &'static str {
     }
 }
 
-/// Build adjacency with module-path → file-path resolution.
-/// Graph edges store file paths as `from` and Rust module paths as `to`
-/// (e.g. `crate::core::tokens::count_tokens`). We resolve `to` back to file
-/// paths so heat diffusion and PageRank can propagate across the graph.
-fn build_adjacency_resolved(index: &ProjectIndex) -> HashMap<String, Vec<String>> {
-    let module_to_file = build_module_map(index);
+fn build_adjacency_resolved(
+    edges: &[EdgeInfo],
+    file_set: &HashSet<String>,
+) -> HashMap<String, Vec<String>> {
+    let file_paths_vec: Vec<&str> = file_set.iter().map(String::as_str).collect();
+    let module_to_file = build_module_map(edges, file_set, &file_paths_vec);
     let mut adj: HashMap<String, Vec<String>> = HashMap::new();
 
-    for edge in &index.edges {
+    for edge in edges {
         let from = &edge.from;
         let to_resolved = module_to_file
             .get(&edge.to)
             .cloned()
             .unwrap_or_else(|| edge.to.clone());
 
-        if index.files.contains_key(from) && index.files.contains_key(&to_resolved) {
+        if file_set.contains(from) && file_set.contains(&to_resolved) {
             adj.entry(from.clone())
                 .or_default()
                 .push(to_resolved.clone());
@@ -288,25 +289,22 @@ fn build_adjacency_resolved(index: &ProjectIndex) -> HashMap<String, Vec<String>
     adj
 }
 
-/// Map module/import paths to file paths using heuristics.
-/// e.g. `crate::core::tokens::count_tokens` → `rust/src/core/tokens.rs`
-fn build_module_map(index: &ProjectIndex) -> HashMap<String, String> {
-    let file_paths: Vec<&str> = index
-        .files
-        .keys()
-        .map(std::string::String::as_str)
-        .collect();
+fn build_module_map(
+    edges: &[EdgeInfo],
+    file_set: &HashSet<String>,
+    file_paths: &[&str],
+) -> HashMap<String, String> {
     let mut mapping: HashMap<String, String> = HashMap::new();
 
-    let edge_targets: HashSet<String> = index.edges.iter().map(|e| e.to.clone()).collect();
+    let edge_targets: HashSet<String> = edges.iter().map(|e| e.to.clone()).collect();
 
     for target in &edge_targets {
-        if index.files.contains_key(target) {
+        if file_set.contains(target) {
             mapping.insert(target.clone(), target.clone());
             continue;
         }
 
-        if let Some(resolved) = resolve_module_to_file(target, &file_paths) {
+        if let Some(resolved) = resolve_module_to_file(target, file_paths) {
             mapping.insert(target.clone(), resolved);
         }
     }

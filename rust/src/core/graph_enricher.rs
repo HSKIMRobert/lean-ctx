@@ -363,6 +363,8 @@ fn consolidate_callgraph(graph: &CodeGraph, project_root: &str) -> anyhow::Resul
         .values()
         .map(|s| (s.name.as_str(), s.file.as_str()))
         .collect();
+    // TODO(opt1415): Once PropertyGraph stores all symbols, replace
+    // ProjectIndex lookup with: SELECT file_path FROM nodes WHERE kind='symbol' AND name=?
 
     for edge in &call_graph.edges {
         let from_file = &edge.caller_file;

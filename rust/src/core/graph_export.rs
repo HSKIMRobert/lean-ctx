@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{anyhow, Context, Result};
 use serde::Serialize;
 
-use crate::core::graph_index::{self, ProjectIndex};
+use crate::core::graph_provider::{self, GraphProvider};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -54,29 +54,28 @@ fn escape_for_script_tag(json: &str) -> String {
         .replace("<!--", "<\\!--")
 }
 
-fn select_nodes(index: &ProjectIndex, max_nodes: usize) -> Vec<String> {
-    if index.files.len() <= max_nodes {
-        let mut all: Vec<String> = index.files.keys().cloned().collect();
-        all.sort();
-        return all;
+fn select_nodes(gp: &GraphProvider, max_nodes: usize) -> Vec<String> {
+    let paths = gp.file_paths();
+    if paths.len() <= max_nodes {
+        return paths;
     }
 
+    let edges = gp.edges();
     let mut degree: HashMap<&str, usize> = HashMap::new();
-    for e in &index.edges {
+    for e in &edges {
         *degree.entry(e.from.as_str()).or_insert(0) += 1;
         *degree.entry(e.to.as_str()).or_insert(0) += 1;
     }
 
-    let mut scored: Vec<(&String, usize, usize)> = index
-        .files
-        .iter()
-        .map(|(p, f)| {
+    let mut scored: Vec<(String, usize, usize)> = paths
+        .into_iter()
+        .map(|p| {
             let d = degree.get(p.as_str()).copied().unwrap_or(0);
-            (p, d, f.token_count)
+            let tok = gp.get_file_entry(&p).map_or(0, |f| f.token_count);
+            (p, d, tok)
         })
         .collect();
 
-    // Sort by degree desc, then token_count desc, then path asc.
     scored.sort_by(|(pa, da, ta), (pb, db, tb)| {
         db.cmp(da).then_with(|| tb.cmp(ta)).then_with(|| pa.cmp(pb))
     });
@@ -84,19 +83,20 @@ fn select_nodes(index: &ProjectIndex, max_nodes: usize) -> Vec<String> {
     scored
         .into_iter()
         .take(max_nodes)
-        .map(|(p, _, _)| p.clone())
+        .map(|(p, _, _)| p)
         .collect()
 }
 
-fn build_export_graph(index: &ProjectIndex, max_nodes: usize) -> ExportGraph {
-    let original_node_count = index.files.len();
-    let original_edge_count = index.edges.len();
+fn build_export_graph(gp: &GraphProvider, project_root: &str, max_nodes: usize) -> ExportGraph {
+    let original_node_count = gp.file_count();
+    let all_edges = gp.edges();
+    let original_edge_count = all_edges.len();
 
-    let selected_paths = select_nodes(index, max_nodes);
+    let selected_paths = select_nodes(gp, max_nodes);
     let selected_set: HashSet<&str> = selected_paths.iter().map(String::as_str).collect();
 
     let mut degree: HashMap<&str, usize> = HashMap::new();
-    for e in &index.edges {
+    for e in &all_edges {
         if selected_set.contains(e.from.as_str()) && selected_set.contains(e.to.as_str()) {
             *degree.entry(e.from.as_str()).or_insert(0) += 1;
             *degree.entry(e.to.as_str()).or_insert(0) += 1;
@@ -106,7 +106,7 @@ fn build_export_graph(index: &ProjectIndex, max_nodes: usize) -> ExportGraph {
     let mut nodes: Vec<ExportNode> = Vec::with_capacity(selected_paths.len());
     let mut id_by_path: HashMap<&str, usize> = HashMap::new();
     for (id, path) in selected_paths.iter().enumerate() {
-        if let Some(f) = index.files.get(path) {
+        if let Some(f) = gp.get_file_entry(path) {
             id_by_path.insert(path.as_str(), id);
             nodes.push(ExportNode {
                 id,
@@ -116,9 +116,9 @@ fn build_export_graph(index: &ProjectIndex, max_nodes: usize) -> ExportGraph {
                     .and_then(|s| s.to_str())
                     .unwrap_or(&f.path)
                     .to_string(),
-                language: f.language.clone(),
-                summary: f.summary.clone(),
-                exports: f.exports.clone(),
+                language: f.language,
+                summary: f.summary,
+                exports: f.exports,
                 token_count: f.token_count,
                 line_count: f.line_count,
                 degree: degree.get(path.as_str()).copied().unwrap_or(0),
@@ -127,7 +127,7 @@ fn build_export_graph(index: &ProjectIndex, max_nodes: usize) -> ExportGraph {
     }
 
     let mut edges: Vec<ExportEdge> = Vec::new();
-    for e in &index.edges {
+    for e in &all_edges {
         let Some(&s) = id_by_path.get(e.from.as_str()) else {
             continue;
         };
@@ -142,7 +142,7 @@ fn build_export_graph(index: &ProjectIndex, max_nodes: usize) -> ExportGraph {
     }
 
     ExportGraph {
-        project_root: index.project_root.clone(),
+        project_root: project_root.to_string(),
         generated_at_unix_ms: now_unix_ms(),
         nodes,
         edges,
@@ -615,14 +615,15 @@ fn render_html(graph: &ExportGraph) -> Result<String> {
     ))
 }
 
-pub fn export_graph_html_string_from_index(
-    index: &ProjectIndex,
+pub fn export_graph_html_string_from_provider(
+    gp: &GraphProvider,
+    project_root: &str,
     max_nodes: usize,
 ) -> Result<String> {
     if max_nodes == 0 {
         return Err(anyhow!("max_nodes must be >= 1"));
     }
-    let graph = build_export_graph(index, max_nodes);
+    let graph = build_export_graph(gp, project_root, max_nodes);
     render_html(&graph)
 }
 
@@ -630,8 +631,9 @@ pub fn export_graph_html_string(project_root: &str, max_nodes: usize) -> Result<
     if max_nodes == 0 {
         return Err(anyhow!("max_nodes must be >= 1"));
     }
-    let index = graph_index::load_or_build(project_root);
-    export_graph_html_string_from_index(&index, max_nodes)
+    let open =
+        graph_provider::open_or_build(project_root).ok_or_else(|| anyhow!("No graph available"))?;
+    export_graph_html_string_from_provider(&open.provider, project_root, max_nodes)
 }
 
 pub fn export_graph_html(project_root: &str, out_path: &Path, max_nodes: usize) -> Result<()> {

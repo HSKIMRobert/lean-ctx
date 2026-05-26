@@ -163,12 +163,13 @@ fn pre_dispatch_inner(
     }
 
     if let Some(root) = project_root {
-        if let Some(index) = try_load_graph(root) {
-            let related = index.get_related(path, 1);
+        if let Some(open) = try_load_graph(root) {
+            let gp = &open.provider;
+            let related = gp.related(path, 1);
             if let Some(task_str) = task {
                 let intent = crate::core::intent_engine::StructuredIntent::from_query(task_str);
                 for target in &intent.targets {
-                    let target_related = index.get_related(target, 1);
+                    let target_related = gp.related(target, 1);
                     let norm = crate::core::pathutil::normalize_tool_path(path);
                     if target_related
                         .iter()
@@ -185,7 +186,7 @@ fn pre_dispatch_inner(
                 }
             }
             if !related.is_empty() && requested_mode == "auto" {
-                let reverse_deps = index.get_reverse_deps(path, 1);
+                let reverse_deps = gp.dependents(path);
                 if reverse_deps.len() > 3 {
                     return PreDispatchResult {
                         overridden_mode: Some("map".to_string()),
@@ -250,23 +251,7 @@ fn estimate_read_tokens(path: &str, mode: &str) -> usize {
 }
 
 fn pressure_downgrade(requested_mode: &str, action: &PressureAction) -> Option<String> {
-    match action {
-        PressureAction::SuggestCompression => match requested_mode {
-            "auto" => Some("map".to_string()),
-            _ => None,
-        },
-        PressureAction::ForceCompression => match requested_mode {
-            "full" => Some("map".to_string()),
-            "auto" | "map" => Some("signatures".to_string()),
-            _ => None,
-        },
-        PressureAction::EvictLeastRelevant => match requested_mode {
-            "full" => Some("map".to_string()),
-            "auto" | "map" => Some("signatures".to_string()),
-            _ => None,
-        },
-        PressureAction::NoAction => None,
-    }
+    crate::core::auto_mode_resolver::pressure_downgrade(requested_mode, action)
 }
 
 fn check_overlay_mode_override(
@@ -410,8 +395,8 @@ fn apply_reinjection_plan(ledger: &mut ContextLedger, action: &PressureAction) {
     }
 }
 
-fn try_load_graph(project_root: &str) -> Option<crate::core::graph_index::ProjectIndex> {
-    crate::core::graph_index::ProjectIndex::load(project_root)
+fn try_load_graph(project_root: &str) -> Option<crate::core::graph_provider::OpenGraphProvider> {
+    crate::core::graph_provider::open_best_effort(project_root)
 }
 
 #[cfg(test)]
@@ -604,9 +589,9 @@ mod tests {
     }
 
     #[test]
-    fn pressure_downgrade_suggest_does_not_touch_full() {
+    fn pressure_downgrade_suggest_full_to_map() {
         let result = pressure_downgrade("full", &PressureAction::SuggestCompression);
-        assert!(result.is_none());
+        assert_eq!(result, Some("map".to_string()));
     }
 
     #[test]

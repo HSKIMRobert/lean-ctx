@@ -17,54 +17,80 @@ pub(super) fn get_route(
 
 fn heatmap() -> (&'static str, &'static str, String) {
     let project_root = detect_project_root_for_dashboard();
-    let index = crate::core::graph_index::load_or_build(&project_root);
-    let entries = build_heatmap_json(&index);
+    let Some(open) = crate::core::graph_provider::open_or_build(&project_root) else {
+        return ("200 OK", "application/json", "[]".to_string());
+    };
+    let entries = build_heatmap_json(&open.provider);
     ("200 OK", "application/json", entries)
 }
 
 fn graph() -> (&'static str, &'static str, String) {
     let root = detect_project_root_for_dashboard();
-    let index = crate::core::graph_index::load_or_build(&root);
+    let Some(open) = crate::core::graph_provider::open_or_build(&root) else {
+        return (
+            "200 OK",
+            "application/json",
+            "{\"error\":\"no graph\"}".to_string(),
+        );
+    };
+    let gp = &open.provider;
 
+    let all_edges = gp.edges();
     let mut edge_stats: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
-    for edge in &index.edges {
+    for edge in &all_edges {
         *edge_stats.entry(edge.kind.as_str()).or_default() += 1;
     }
-    let connected: std::collections::HashSet<&str> = index
-        .edges
+    let connected: std::collections::HashSet<&str> = all_edges
         .iter()
         .flat_map(|e| [e.from.as_str(), e.to.as_str()])
         .collect();
-    let isolated_count = index.files.len() - connected.len().min(index.files.len());
+    let file_count = gp.file_count();
+    let isolated_count = file_count - connected.len().min(file_count);
 
-    let mut val = serde_json::to_value(&index).unwrap_or_default();
-    if let Some(obj) = val.as_object_mut() {
-        obj.insert(
-            "project_root".to_string(),
-            serde_json::Value::String(super::project_basename(&root)),
-        );
-        obj.insert(
-            "project_root_full".to_string(),
-            serde_json::Value::String(root.clone()),
-        );
-        obj.insert(
-            "edge_stats".to_string(),
-            serde_json::to_value(&edge_stats).unwrap_or_default(),
-        );
-        obj.insert(
-            "isolated_node_count".to_string(),
-            serde_json::Value::Number(isolated_count.into()),
-        );
-        let total = index.files.len();
-        let orphan_rate = if total > 0 {
-            (isolated_count as f64 / total as f64 * 100.0).round() / 100.0
+    let files: Vec<serde_json::Value> = gp
+        .file_paths()
+        .iter()
+        .filter_map(|p| {
+            gp.get_file_entry(p).map(|f| {
+                serde_json::json!({
+                    "path": f.path,
+                    "language": f.language,
+                    "token_count": f.token_count,
+                    "line_count": f.line_count,
+                    "exports": f.exports,
+                    "summary": f.summary,
+                })
+            })
+        })
+        .collect();
+
+    let edges: Vec<serde_json::Value> = all_edges
+        .iter()
+        .map(|e| {
+            serde_json::json!({
+                "from": e.from,
+                "to": e.to,
+                "kind": e.kind,
+                "weight": e.weight,
+            })
+        })
+        .collect();
+
+    let val = serde_json::json!({
+        "project_root": super::project_basename(&root),
+        "project_root_full": root,
+        "files": files,
+        "edges": edges,
+        "edge_stats": edge_stats,
+        "isolated_node_count": isolated_count,
+        "orphan_rate": if file_count > 0 {
+            (isolated_count as f64 / file_count as f64 * 100.0).round() / 100.0
         } else {
             0.0
-        };
-        obj.insert("orphan_rate".to_string(), serde_json::json!(orphan_rate));
-    }
+        },
+    });
     let json = serde_json::to_string(&val)
-        .unwrap_or_else(|_| "{\"error\":\"failed to serialize project index\"}".to_string());
+        .unwrap_or_else(|_| "{\"error\":\"failed to serialize\"}".to_string());
     ("200 OK", "application/json", json)
 }
 
@@ -133,16 +159,21 @@ fn stats() -> (&'static str, &'static str, String) {
 
 fn graph_files() -> (&'static str, &'static str, String) {
     let root = detect_project_root_for_dashboard();
-    let index = crate::core::graph_index::load_or_build(&root);
-    let mut files: Vec<serde_json::Value> = index
-        .files
-        .values()
-        .map(|f| {
-            serde_json::json!({
-                "path": f.path,
-                "language": f.language,
-                "token_count": f.token_count,
-                "line_count": f.line_count,
+    let Some(open) = crate::core::graph_provider::open_or_build(&root) else {
+        return ("200 OK", "application/json", "{\"files\":[]}".to_string());
+    };
+    let gp = &open.provider;
+    let mut files: Vec<serde_json::Value> = gp
+        .file_paths()
+        .iter()
+        .filter_map(|p| {
+            gp.get_file_entry(p).map(|f| {
+                serde_json::json!({
+                    "path": f.path,
+                    "language": f.language,
+                    "token_count": f.token_count,
+                    "line_count": f.line_count,
+                })
             })
         })
         .collect();
@@ -160,11 +191,36 @@ fn graph_files() -> (&'static str, &'static str, String) {
 
 fn routes(_query_str: &str) -> (&'static str, &'static str, String) {
     let root = detect_project_root_for_dashboard();
-    let index = crate::core::graph_index::load_or_build(&root);
-    let routes = crate::core::route_extractor::extract_routes_from_project(&root, &index.files);
-    let route_candidate_count = index
-        .files
-        .keys()
+    let Some(open) = crate::core::graph_provider::open_or_build(&root) else {
+        return ("200 OK", "application/json", "{\"routes\":[]}".to_string());
+    };
+    let gp = &open.provider;
+    let file_paths = gp.file_paths();
+
+    let files_map: std::collections::HashMap<String, crate::core::graph_index::FileEntry> =
+        file_paths
+            .iter()
+            .filter_map(|p| {
+                gp.get_file_entry(p).map(|f| {
+                    (
+                        p.clone(),
+                        crate::core::graph_index::FileEntry {
+                            path: f.path,
+                            hash: f.hash,
+                            language: f.language,
+                            line_count: f.line_count,
+                            token_count: f.token_count,
+                            exports: f.exports,
+                            summary: f.summary,
+                        },
+                    )
+                })
+            })
+            .collect();
+
+    let routes = crate::core::route_extractor::extract_routes_from_project(&root, &files_map);
+    let route_candidate_count = file_paths
+        .iter()
         .filter(|p| {
             std::path::Path::new(p.as_str())
                 .extension()
@@ -176,43 +232,47 @@ fn routes(_query_str: &str) -> (&'static str, &'static str, String) {
         .count();
     let payload = serde_json::json!({
         "routes": routes,
-        "indexed_file_count": index.files.len(),
+        "indexed_file_count": file_paths.len(),
         "route_candidate_count": route_candidate_count,
     });
     let json = serde_json::to_string(&payload).unwrap_or_else(|_| "{\"routes\":[]}".to_string());
     ("200 OK", "application/json", json)
 }
 
-fn build_heatmap_json(index: &crate::core::graph_index::ProjectIndex) -> String {
+fn build_heatmap_json(gp: &crate::core::graph_provider::GraphProvider) -> String {
+    let all_edges = gp.edges();
     let mut connection_counts: std::collections::HashMap<String, usize> =
         std::collections::HashMap::new();
-    for edge in &index.edges {
+    for edge in &all_edges {
         *connection_counts.entry(edge.from.clone()).or_default() += 1;
         *connection_counts.entry(edge.to.clone()).or_default() += 1;
     }
 
-    let max_tokens = index
-        .files
-        .values()
-        .map(|f| f.token_count)
-        .max()
-        .unwrap_or(1) as f64;
+    let paths = gp.file_paths();
+    let mut max_tokens = 1usize;
+    for path in &paths {
+        if let Some(entry) = gp.get_file_entry(path) {
+            max_tokens = max_tokens.max(entry.token_count);
+        }
+    }
+    let max_tokens = max_tokens as f64;
     let max_connections = connection_counts.values().max().copied().unwrap_or(1) as f64;
 
-    let mut entries: Vec<serde_json::Value> = index
-        .files
-        .values()
-        .map(|f| {
-            let connections = connection_counts.get(&f.path).copied().unwrap_or(0);
-            let token_norm = f.token_count as f64 / max_tokens;
-            let conn_norm = connections as f64 / max_connections;
-            let heat = token_norm * 0.4 + conn_norm * 0.6;
-            serde_json::json!({
-                "path": f.path,
-                "tokens": f.token_count,
-                "connections": connections,
-                "language": f.language,
-                "heat": (heat * 100.0).round() / 100.0,
+    let mut entries: Vec<serde_json::Value> = paths
+        .iter()
+        .filter_map(|p| {
+            gp.get_file_entry(p).map(|f| {
+                let connections = connection_counts.get(&f.path).copied().unwrap_or(0);
+                let token_norm = f.token_count as f64 / max_tokens;
+                let conn_norm = connections as f64 / max_connections;
+                let heat = token_norm * 0.4 + conn_norm * 0.6;
+                serde_json::json!({
+                    "path": f.path,
+                    "tokens": f.token_count,
+                    "connections": connections,
+                    "language": f.language,
+                    "heat": (heat * 100.0).round() / 100.0,
+                })
             })
         })
         .collect();

@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::core::graph_index::{self, ProjectIndex, SymbolEntry};
+use crate::core::graph_provider::{self, FileInfo, GraphProvider, SymbolInfo};
 use crate::core::protocol;
 use crate::core::tokens::count_tokens;
 
@@ -10,27 +10,36 @@ pub fn handle(
     kind: Option<&str>,
     project_root: &str,
 ) -> (String, usize) {
-    let index = graph_index::load_or_build(project_root);
+    let Some(open) = graph_provider::open_or_build(project_root) else {
+        return (
+            format!(
+                "Symbol '{name}' not found (no graph available). \
+                 Try ctx_search(pattern=\"{name}\") for a broader search.",
+            ),
+            0,
+        );
+    };
+    let gp = &open.provider;
 
-    let matches = find_symbols(&index, name, file, kind);
+    let matches = gp.find_symbols(name, file, kind);
 
     if matches.is_empty() {
         return (
             format!(
                 "Symbol '{name}' not found in index ({} symbols indexed). \
                  Try ctx_search(pattern=\"{name}\") for a broader search.",
-                index.symbol_count()
+                gp.symbol_count()
             ),
             0,
         );
     }
 
     if matches.len() == 1 {
-        return render_single(matches[0], &index, project_root);
+        return render_single(&matches[0], gp, project_root);
     }
 
     if matches.len() <= 5 {
-        return render_multiple(&matches, &index, project_root);
+        return render_multiple(&matches, gp, project_root);
     }
 
     let mut out = format!(
@@ -49,41 +58,7 @@ pub fn handle(
     (out, 0)
 }
 
-fn find_symbols<'a>(
-    index: &'a ProjectIndex,
-    name: &str,
-    file_filter: Option<&str>,
-    kind_filter: Option<&str>,
-) -> Vec<&'a SymbolEntry> {
-    let name_lower = name.to_lowercase();
-    let mut results: Vec<&SymbolEntry> = index
-        .symbols
-        .values()
-        .filter(|s| {
-            let s_lower = s.name.to_lowercase();
-            let name_match = s_lower == name_lower
-                || s_lower.ends_with(&name_lower)
-                || s_lower.starts_with(&format!("{name_lower}::"))
-                || s_lower.contains(&format!("::{name_lower}"));
-
-            let file_match = file_filter.is_none_or(|f| s.file.contains(f));
-
-            let kind_match = kind_filter.is_none_or(|k| s.kind.to_lowercase() == k.to_lowercase());
-
-            name_match && file_match && kind_match
-        })
-        .collect();
-
-    results.sort_by(|a, b| {
-        let a_exact = a.name.to_lowercase() == name_lower;
-        let b_exact = b.name.to_lowercase() == name_lower;
-        b_exact.cmp(&a_exact).then_with(|| a.file.cmp(&b.file))
-    });
-
-    results
-}
-
-fn render_single(sym: &SymbolEntry, index: &ProjectIndex, project_root: &str) -> (String, usize) {
+fn render_single(sym: &SymbolInfo, gp: &GraphProvider, project_root: &str) -> (String, usize) {
     let abs_path = resolve_file_path(&sym.file, project_root);
 
     let Ok(content) = std::fs::read_to_string(&abs_path) else {
@@ -115,7 +90,7 @@ fn render_single(sym: &SymbolEntry, index: &ProjectIndex, project_root: &str) ->
         sym.file, sym.name, vis, sym.kind, sym.start_line, sym.end_line
     );
 
-    let file_info = index.files.get(&sym.file);
+    let file_info: Option<FileInfo> = gp.get_file_entry(&sym.file);
     let ctx = if let Some(f) = file_info {
         format!(
             "File: {} ({} lines, {} tokens)",
@@ -134,8 +109,8 @@ fn render_single(sym: &SymbolEntry, index: &ProjectIndex, project_root: &str) ->
 }
 
 fn render_multiple(
-    symbols: &[&SymbolEntry],
-    index: &ProjectIndex,
+    symbols: &[SymbolInfo],
+    gp: &GraphProvider,
     project_root: &str,
 ) -> (String, usize) {
     let mut out = String::new();
@@ -145,7 +120,7 @@ fn render_multiple(
         if i > 0 {
             out.push_str("\n---\n\n");
         }
-        let (rendered, orig) = render_single(sym, index, project_root);
+        let (rendered, orig) = render_single(sym, gp, project_root);
         out.push_str(&rendered);
         total_original = total_original.max(orig);
     }
@@ -170,7 +145,7 @@ mod tests {
     use super::*;
     use crate::core::graph_index::{ProjectIndex, SymbolEntry};
 
-    fn test_index() -> ProjectIndex {
+    fn test_provider() -> GraphProvider {
         let mut index = ProjectIndex::new("/tmp/test");
         index.symbols.insert(
             "src/main.rs::main".to_string(),
@@ -205,36 +180,36 @@ mod tests {
                 is_exported: true,
             },
         );
-        index
+        GraphProvider::GraphIndex(index)
     }
 
     #[test]
     fn find_exact_match() {
-        let index = test_index();
-        let results = find_symbols(&index, "main", None, None);
+        let gp = test_provider();
+        let results = gp.find_symbols("main", None, None);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].name, "main");
     }
 
     #[test]
     fn find_with_kind_filter() {
-        let index = test_index();
-        let results = find_symbols(&index, "Config", None, Some("struct"));
+        let gp = test_provider();
+        let results = gp.find_symbols("Config", None, Some("struct"));
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].kind, "struct");
     }
 
     #[test]
     fn find_with_file_filter() {
-        let index = test_index();
-        let results = find_symbols(&index, "Config", Some("lib.rs"), None);
+        let gp = test_provider();
+        let results = gp.find_symbols("Config", Some("lib.rs"), None);
         assert_eq!(results.len(), 2);
     }
 
     #[test]
     fn no_match_returns_empty() {
-        let index = test_index();
-        let results = find_symbols(&index, "nonexistent", None, None);
+        let gp = test_provider();
+        let results = gp.find_symbols("nonexistent", None, None);
         assert!(results.is_empty());
     }
 }

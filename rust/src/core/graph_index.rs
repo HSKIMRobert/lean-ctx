@@ -1,3 +1,9 @@
+// DEPRECATED: This module is being replaced by PropertyGraph (core/property_graph/).
+// New code should use GraphProvider (core/graph_provider.rs) instead of accessing
+// ProjectIndex directly. Remaining direct consumers: call_graph, graph_enricher,
+// ctx_callgraph, ctx_graph_diagram, ctx_routes, autonomy, dashboard/callgraph.
+// See OPT-14/15 plan for the full migration path.
+
 use std::collections::HashMap;
 use std::path::Path;
 

@@ -15,6 +15,12 @@ pub enum EdgeKind {
     MentionedIn,
     Affects,
     Breaks,
+    /// Implicit module/package/re-export relationship (from graph_index)
+    Module,
+    /// Git co-change correlation (files frequently changed together)
+    Cochange,
+    /// Sibling/orphan rescue edge (fallback connectivity)
+    Sibling,
 }
 
 impl EdgeKind {
@@ -31,6 +37,9 @@ impl EdgeKind {
             Self::MentionedIn => "mentioned_in",
             Self::Affects => "affects",
             Self::Breaks => "breaks",
+            Self::Module => "module",
+            Self::Cochange => "cochange",
+            Self::Sibling => "sibling",
         }
     }
 
@@ -46,6 +55,9 @@ impl EdgeKind {
             "mentioned_in" => Self::MentionedIn,
             "affects" => Self::Affects,
             "breaks" => Self::Breaks,
+            "module" => Self::Module,
+            "cochange" => Self::Cochange,
+            "sibling" => Self::Sibling,
             _ => Self::Imports,
         }
     }

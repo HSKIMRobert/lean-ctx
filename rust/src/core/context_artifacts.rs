@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 
 use crate::core::bm25_index::BM25Index;
-use crate::core::graph_index;
+use crate::core::graph_provider::{self, GraphProvider};
 
 #[derive(Debug, Clone, Copy)]
 pub struct ExportOptions {
@@ -85,14 +85,24 @@ pub fn build(project_root: &Path, opts: &ExportOptions) -> Result<ContextArtifac
 
     let git = git_info(project_root);
 
-    let graph = graph_index::load_or_build(&root_s);
+    let open = graph_provider::open_or_build(&root_s);
+    let (files, symbols, edges, last_scan) = if let Some(ref o) = open {
+        let gp = &o.provider;
+        (
+            gp.file_count(),
+            gp.symbol_count(),
+            gp.edge_count().unwrap_or(0),
+            gp.last_scan(),
+        )
+    } else {
+        (0, 0, 0, String::new())
+    };
     let graph_summary = GraphIndexSummary {
-        files: graph.file_count(),
-        symbols: graph.symbol_count(),
-        edges: graph.edge_count(),
-        last_scan: graph.last_scan.clone(),
-        index_dir: graph_index::ProjectIndex::index_dir(&root_s)
-            .map(|p| p.to_string_lossy().to_string()),
+        files,
+        symbols,
+        edges,
+        last_scan,
+        index_dir: GraphProvider::index_dir(&root_s).map(|p| p.to_string_lossy().to_string()),
     };
 
     let bm25 = BM25Index::load_or_build(project_root);
@@ -107,7 +117,8 @@ pub fn build(project_root: &Path, opts: &ExportOptions) -> Result<ContextArtifac
     let pg = property_graph_summary(project_root);
 
     let deps_graph = if opts.include_deps_graph {
-        Some(build_deps_graph(&graph, opts.max_nodes, opts.max_edges))
+        open.as_ref()
+            .map(|o| build_deps_graph(&o.provider, opts.max_nodes, opts.max_edges))
     } else {
         None
     };
@@ -125,15 +136,11 @@ pub fn build(project_root: &Path, opts: &ExportOptions) -> Result<ContextArtifac
     })
 }
 
-fn build_deps_graph(
-    idx: &graph_index::ProjectIndex,
-    max_nodes: usize,
-    max_edges: usize,
-) -> DepsGraph {
+fn build_deps_graph(gp: &GraphProvider, max_nodes: usize, max_edges: usize) -> DepsGraph {
     let max_nodes = max_nodes.max(1);
     let max_edges = max_edges.max(1);
 
-    let mut nodes: Vec<String> = idx.files.keys().cloned().collect();
+    let mut nodes = gp.file_paths();
     nodes.sort();
 
     let truncated_nodes = nodes.len() > max_nodes;
@@ -142,8 +149,9 @@ fn build_deps_graph(
     }
     let node_set: std::collections::HashSet<&str> = nodes.iter().map(String::as_str).collect();
 
+    let all_edges = gp.edges();
     let mut edges: Vec<DepsEdge> = Vec::new();
-    for e in &idx.edges {
+    for e in &all_edges {
         if edges.len() >= max_edges {
             break;
         }
@@ -157,7 +165,7 @@ fn build_deps_graph(
         });
     }
 
-    let truncated_edges = idx.edges.len() > edges.len() && edges.len() >= max_edges;
+    let truncated_edges = all_edges.len() > edges.len() && edges.len() >= max_edges;
     DepsGraph {
         nodes,
         edges,

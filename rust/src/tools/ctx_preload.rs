@@ -1,5 +1,5 @@
 use crate::core::cache::SessionCache;
-use crate::core::graph_index::ProjectIndex;
+use crate::core::graph_provider::{self, GraphProvider};
 use crate::core::protocol;
 use crate::core::task_relevance::{compute_relevance, parse_task_hints, RelevanceScore};
 use crate::core::tokens::count_tokens;
@@ -23,16 +23,19 @@ pub fn handle(
     let project_root = path.map_or_else(|| ".".to_string(), std::string::ToString::to_string);
     let jail_root = std::path::Path::new(&project_root);
 
-    let index = crate::core::graph_index::load_or_build(&project_root);
+    let Some(open) = graph_provider::open_or_build(&project_root) else {
+        return format!("[task: {task}]\nNo graph available. Use ctx_overview for project map.");
+    };
+    let gp = &open.provider;
 
     let session_intent =
         crate::core::session::SessionState::load_latest().and_then(|s| s.active_structured_intent);
 
     let (task_files, task_keywords) = parse_task_hints(task);
     let relevance = if let Some(ref intent) = session_intent {
-        crate::core::task_relevance::compute_relevance_from_intent(&index, intent)
+        crate::core::task_relevance::compute_relevance_from_intent(gp, intent)
     } else {
-        compute_relevance(&index, &task_files, &task_keywords)
+        compute_relevance(gp, &task_files, &task_keywords)
     };
 
     let mut scored: Vec<_> = relevance
@@ -41,7 +44,7 @@ pub fn handle(
         .take(MAX_PRELOAD_FILES + 10)
         .collect();
 
-    apply_heat_ranking(&mut scored, &index, &project_root);
+    apply_heat_ranking(&mut scored, gp, &project_root);
 
     let pop = crate::core::pop_pruning::decide_for_candidates(task, &project_root, &scored);
     let candidates =
@@ -207,8 +210,8 @@ pub fn handle(
         }
     }
 
-    let graph_edges: Vec<_> = index
-        .edges
+    let all_edges = gp.edges();
+    let graph_edges: Vec<_> = all_edges
         .iter()
         .filter(|e| {
             candidates
@@ -380,43 +383,31 @@ fn extract_imports(content: &str) -> Vec<String> {
         .collect()
 }
 
-fn apply_heat_ranking(candidates: &mut [&RelevanceScore], index: &ProjectIndex, root: &str) {
-    if index.files.is_empty() {
+fn apply_heat_ranking(candidates: &mut [&RelevanceScore], gp: &GraphProvider, root: &str) {
+    if gp.file_count() == 0 {
         return;
     }
 
+    let all_edges = gp.edges();
     let mut connection_counts: std::collections::HashMap<String, usize> =
         std::collections::HashMap::new();
-    for edge in &index.edges {
+    for edge in &all_edges {
         *connection_counts.entry(edge.from.clone()).or_default() += 1;
         *connection_counts.entry(edge.to.clone()).or_default() += 1;
     }
 
-    let max_tokens = index
-        .files
-        .values()
-        .map(|f| f.token_count)
-        .max()
-        .unwrap_or(1) as f64;
+    let mut max_tokens = 1usize;
+    for path in gp.file_paths() {
+        if let Some(entry) = gp.get_file_entry(&path) {
+            max_tokens = max_tokens.max(entry.token_count);
+        }
+    }
+    let max_tokens = max_tokens as f64;
     let max_conn = connection_counts.values().max().copied().unwrap_or(1) as f64;
 
     candidates.sort_by(|a, b| {
-        let heat_a = compute_heat(
-            &a.path,
-            root,
-            index,
-            &connection_counts,
-            max_tokens,
-            max_conn,
-        );
-        let heat_b = compute_heat(
-            &b.path,
-            root,
-            index,
-            &connection_counts,
-            max_tokens,
-            max_conn,
-        );
+        let heat_a = compute_heat(&a.path, root, gp, &connection_counts, max_tokens, max_conn);
+        let heat_b = compute_heat(&b.path, root, gp, &connection_counts, max_tokens, max_conn);
         let combined_a = a.score * 0.6 + heat_a * 0.4;
         let combined_b = b.score * 0.6 + heat_b * 0.4;
         combined_b
@@ -428,7 +419,7 @@ fn apply_heat_ranking(candidates: &mut [&RelevanceScore], index: &ProjectIndex, 
 fn compute_heat(
     path: &str,
     root: &str,
-    index: &ProjectIndex,
+    gp: &GraphProvider,
     connections: &std::collections::HashMap<String, usize>,
     max_tokens: f64,
     max_conn: f64,
@@ -438,7 +429,7 @@ fn compute_heat(
         .unwrap_or(path)
         .trim_start_matches('/');
 
-    if let Some(entry) = index.files.get(rel) {
+    if let Some(entry) = gp.get_file_entry(rel) {
         let conn = connections.get(rel).copied().unwrap_or(0);
         let token_norm = entry.token_count as f64 / max_tokens;
         let conn_norm = conn as f64 / max_conn;

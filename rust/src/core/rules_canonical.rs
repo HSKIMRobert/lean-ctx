@@ -22,7 +22,7 @@ pub fn dedicated_rules(mode: Mode) -> String {
 
     format!(
         r"# lean-ctx — Context Engineering Layer
-<!-- lean-ctx-rules-v9 -->
+<!-- lean-ctx-rules-v10 -->
 
 CRITICAL: ALWAYS use lean-ctx tools instead of native equivalents. This is NOT optional.
 
@@ -84,6 +84,72 @@ lean-ctx tools replace Read/Grep/Shell/ls. See tool descriptions for details. Ed
 const MCP_INSTRUCTIONS_MCP: &str = "\
 lean-ctx tools replace Read/Grep/Shell/ls. See tool descriptions for details. Edit/Write/Glob: native.";
 
+/// Tool-mapping in bullet format for MCP instructions blocks.
+pub fn tool_mapping_bullets(mode: Mode) -> &'static str {
+    match mode {
+        Mode::Hybrid => HYBRID_BULLETS,
+        Mode::Mcp => MCP_BULLETS,
+    }
+}
+
+const MCP_BULLETS: &str = "\
+lean-ctx MCP — MANDATORY tool mapping:\n\
+• Read/cat/head/tail -> ctx_read(path, mode)  [NEVER use native Read]\n\
+• Shell/bash -> ctx_shell(command)  [NEVER use native Shell]\n\
+• Grep/rg -> ctx_search(pattern, path)  [NEVER use native Grep]\n\
+• ls/find -> ctx_tree(path, depth)\n\
+• Edit/StrReplace -> use native (lean-ctx only replaces READ, not WRITE)\n\
+• Write, Delete, Glob -> use normally";
+
+const HYBRID_BULLETS: &str = "\
+lean-ctx — MANDATORY tool mapping:\n\
+• Read/cat/head/tail -> ctx_read(path, mode)  [NEVER use native Read]\n\
+• Shell commands -> lean-ctx -c \"<cmd>\" (via Shell)  [NEVER use ctx_shell]\n\
+• Grep/rg -> ctx_search(pattern, path)  [NEVER use native Grep]\n\
+• ls/find -> lean-ctx ls [path] (via Shell)\n\
+• Edit/StrReplace -> use native (lean-ctx only replaces READ, not WRITE)\n\
+• Write, Delete, Glob -> use normally";
+
+pub fn compatibility_block() -> &'static str {
+    "COMPATIBILITY: lean-ctx replaces READ operations only. Edit/Write/StrReplace stay native.\n\
+     FILE EDITING: Native Edit/StrReplace preferred. If Edit fails, use ctx_edit immediately."
+}
+
+pub fn ctx_read_modes_block() -> &'static str {
+    "ctx_read modes: full|map|signatures|diff|task|reference|aggressive|entropy|lines:N-M. Auto-selects. Cached re-reads can be ~13 tok when unchanged. Fn refs F1,F2.. persist.\n\
+     Cache auto-validates via file mtime. Use fresh=true (or start_line / lines:N-M) to force a disk re-read."
+}
+
+pub fn automation_block() -> &'static str {
+    "Auto: ctx_overview, ctx_preload, ctx_dedup, ctx_compress run behind the scenes. Checkpoint every 15 calls.\n\
+     Multi-agent: ctx_agent(action=handoff|sync). Diary: ctx_agent(action=diary, category=discovery|decision|blocker|progress|insight).\n\
+     ctx_semantic_search for meaning-based search. ctx_session for memory. ctx_knowledge: remember|recall|timeline|rooms|search|wakeup.\n\
+     ctx_shell raw=true for uncompressed output."
+}
+
+pub fn cep_block() -> &'static str {
+    "CEP v1: 1.ACT FIRST 2.DELTA ONLY (Fn refs) 3.STRUCTURED (+/-/~) 4.ONE LINE PER ACTION 5.QUALITY ANCHOR"
+}
+
+pub fn litm_end_block(mode: Mode) -> &'static str {
+    match mode {
+        Mode::Hybrid => {
+            "--- TOOL PREFERENCE (LITM-END) ---\n\
+             ctx_read>Read ctx_search>Grep lean-ctx_-c>Shell lean-ctx_ls>ls | Edit/Write/Glob=native"
+        }
+        Mode::Mcp => {
+            "--- TOOL PREFERENCE (LITM-END) ---\n\
+             ctx_read>Read ctx_shell>Shell ctx_search>Grep ctx_tree>ls | Edit/Write/Glob=native"
+        }
+    }
+}
+
+pub fn unified_tool_mode_block() -> &'static str {
+    "UNIFIED TOOL MODE (active):\n\
+     Additional tools are accessed via ctx() meta-tool: ctx(tool=\"<name>\", ...params).\n\
+     See the ctx() tool description for available sub-tools."
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -120,7 +186,7 @@ mod tests {
     #[test]
     fn dedicated_rules_have_markers() {
         let rules = dedicated_rules(Mode::Hybrid);
-        assert!(rules.contains("lean-ctx-rules-v9"));
+        assert!(rules.contains("lean-ctx-rules-v10"));
         assert!(rules.contains("<!-- /lean-ctx -->"));
     }
 
@@ -156,5 +222,40 @@ mod tests {
                 "MCP instructions must use MUST, not PREFER for {mode:?}"
             );
         }
+    }
+
+    #[test]
+    fn hybrid_bullets_use_cli() {
+        let bullets = tool_mapping_bullets(Mode::Hybrid);
+        for line in bullets.lines() {
+            if line.starts_with('•') {
+                assert!(
+                    !line.starts_with("• Shell/bash -> ctx_shell"),
+                    "Hybrid bullets must not map Shell to ctx_shell"
+                );
+            }
+        }
+        assert!(bullets.contains("lean-ctx -c"));
+    }
+
+    #[test]
+    fn mcp_bullets_no_lean_ctx_c() {
+        let bullets = tool_mapping_bullets(Mode::Mcp);
+        assert!(
+            !bullets.contains("lean-ctx -c"),
+            "MCP bullets must not reference lean-ctx -c"
+        );
+        assert!(bullets.contains("ctx_shell"));
+    }
+
+    #[test]
+    fn shared_sections_not_empty() {
+        assert!(!compatibility_block().is_empty());
+        assert!(!ctx_read_modes_block().is_empty());
+        assert!(!automation_block().is_empty());
+        assert!(!cep_block().is_empty());
+        assert!(!litm_end_block(Mode::Mcp).is_empty());
+        assert!(!litm_end_block(Mode::Hybrid).is_empty());
+        assert!(!unified_tool_mode_block().is_empty());
     }
 }

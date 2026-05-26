@@ -37,12 +37,13 @@ fn main() {
     .expect("write main.rs");
 
     let root_s = root.to_string_lossy().to_string();
-    let index = lean_ctx::core::graph_index::load_or_build(&root_s);
+    let ogp = lean_ctx::core::graph_provider::open_or_build(&root_s).expect("build graph");
 
     c.bench_function("graph_export_html_string_500", |b| {
         b.iter(|| {
-            let html = lean_ctx::core::graph_export::export_graph_html_string_from_index(
-                black_box(&index),
+            let html = lean_ctx::core::graph_export::export_graph_html_string_from_provider(
+                black_box(&ogp.provider),
+                black_box(&root_s),
                 500,
             )
             .expect("export html");

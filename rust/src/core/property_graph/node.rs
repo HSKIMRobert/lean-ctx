@@ -223,6 +223,96 @@ pub(super) fn remove_by_file(conn: &Connection, file_path: &str) -> anyhow::Resu
     Ok(())
 }
 
+pub(super) fn find_symbols(
+    conn: &Connection,
+    name: &str,
+    file_filter: Option<&str>,
+    kind_filter: Option<&str>,
+) -> anyhow::Result<Vec<Node>> {
+    let name_lower = name.to_lowercase();
+    let mut sql = String::from(
+        "SELECT id, kind, name, file_path, line_start, line_end, metadata
+         FROM nodes WHERE kind != 'file'
+         AND LOWER(name) LIKE '%' || ?1 || '%'",
+    );
+    let mut param_idx = 2;
+    if file_filter.is_some() {
+        sql.push_str(&format!(" AND file_path LIKE '%' || ?{param_idx} || '%'"));
+        param_idx += 1;
+    }
+    if kind_filter.is_some() {
+        sql.push_str(&format!(" AND kind = ?{param_idx}"));
+    }
+    sql.push_str(" ORDER BY file_path, line_start LIMIT 100");
+
+    let mut stmt = conn.prepare(&sql)?;
+
+    let params_vec: Vec<Box<dyn rusqlite::types::ToSql>> = {
+        let mut v: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(name_lower)];
+        if let Some(f) = file_filter {
+            v.push(Box::new(f.to_string()));
+        }
+        if let Some(k) = kind_filter {
+            v.push(Box::new(k.to_string()));
+        }
+        v
+    };
+    let refs: Vec<&dyn rusqlite::types::ToSql> =
+        params_vec.iter().map(std::convert::AsRef::as_ref).collect();
+
+    let rows = stmt.query_map(refs.as_slice(), |row| {
+        Ok(Node {
+            id: Some(row.get(0)?),
+            kind: NodeKind::parse(&row.get::<_, String>(1)?),
+            name: row.get(2)?,
+            file_path: row.get(3)?,
+            line_start: row.get::<_, Option<i64>>(4)?.map(|v| v as usize),
+            line_end: row.get::<_, Option<i64>>(5)?.map(|v| v as usize),
+            metadata: row.get(6)?,
+        })
+    })?;
+
+    let mut results = Vec::new();
+    for r in rows {
+        results.push(r?);
+    }
+    Ok(results)
+}
+
+pub(super) fn symbol_count(conn: &Connection) -> anyhow::Result<usize> {
+    let c: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM nodes WHERE kind != 'file'",
+        [],
+        |row| row.get(0),
+    )?;
+    Ok(c as usize)
+}
+
+pub(super) fn all_edges_flat(
+    conn: &Connection,
+) -> anyhow::Result<Vec<(String, String, String, f64)>> {
+    let mut stmt = conn.prepare(
+        "SELECT n1.file_path, n2.file_path, e.kind, e.weight
+         FROM edges e
+         JOIN nodes n1 ON e.source_id = n1.id
+         JOIN nodes n2 ON e.target_id = n2.id
+         WHERE n1.kind = 'file' AND n2.kind = 'file'",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, f64>(3)?,
+        ))
+    })?;
+    let mut result = Vec::new();
+    for r in rows {
+        result.push(r?);
+    }
+    Ok(result)
+}
+
 pub(super) fn count(conn: &Connection) -> anyhow::Result<usize> {
     let c: i64 = conn.query_row("SELECT COUNT(*) FROM nodes", [], |row| row.get(0))?;
     Ok(c as usize)

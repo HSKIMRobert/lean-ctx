@@ -579,75 +579,15 @@ pub fn is_instruction_file(path: &str) -> bool {
         || lower.contains("/agents.md")
 }
 
+/// Delegates to the unified `auto_mode_resolver::resolve()`.
 fn resolve_auto_mode(file_path: &str, original_tokens: usize, task: Option<&str>) -> String {
-    if is_instruction_file(file_path) {
-        return "full".to_string();
-    }
-
-    if let Ok(bt) = crate::core::bounce_tracker::global().lock() {
-        if bt.should_force_full(file_path) {
-            return "full".to_string();
-        }
-    }
-
-    let intent_query = task.unwrap_or("read");
-    let route = crate::core::intent_router::route_v1(intent_query);
-    let intent_mode = &route.decision.effective_read_mode;
-    if intent_mode != "auto" && intent_mode != "reference" {
-        return intent_mode.clone();
-    }
-
-    // Priority 2: FileSignature-based predictor
-    let sig = crate::core::mode_predictor::FileSignature::from_path(file_path, original_tokens);
-    let predictor = crate::core::mode_predictor::ModePredictor::new();
-    let mut predicted = predictor
-        .predict_best_mode(&sig)
-        .unwrap_or_else(|| "full".to_string());
-    if predicted == "auto" {
-        predicted = "full".to_string();
-    }
-
-    // Priority 3: Bandit exploration when budget is tight
-    // SAFETY: Bandit NEVER overrides "full" — full is sacred (byte-accurate content needed for edits)
-    if predicted != "full" {
-        if let Some(project_root) =
-            crate::core::session::SessionState::load_latest().and_then(|s| s.project_root)
-        {
-            let ext = std::path::Path::new(file_path)
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("");
-            let bucket = match original_tokens {
-                0..=2000 => "sm",
-                2001..=10000 => "md",
-                10001..=50000 => "lg",
-                _ => "xl",
-            };
-            let bandit_key = format!("{ext}_{bucket}");
-            let mut store = crate::core::bandit::BanditStore::load(&project_root);
-            let bandit = store.get_or_create(&bandit_key);
-            let arm = bandit.select_arm();
-            if arm.budget_ratio < 0.25 && original_tokens > 2000 {
-                predicted = "aggressive".to_string();
-            }
-        }
-    }
-
-    // Priority 4: Adaptive mode policy
-    let policy = crate::core::adaptive_mode_policy::AdaptiveModePolicyStore::load();
-    let chosen = policy.choose_auto_mode(task, &predicted);
-
-    if original_tokens > 2000 {
-        if predicted == "map" || predicted == "signatures" {
-            if chosen != "map" && chosen != "signatures" {
-                return predicted;
-            }
-        } else if chosen == "full" && predicted != "full" {
-            return predicted;
-        }
-    }
-
-    chosen
+    let ctx = crate::core::auto_mode_resolver::AutoModeContext {
+        path: file_path,
+        token_count: original_tokens,
+        task,
+        cache: None,
+    };
+    crate::core::auto_mode_resolver::resolve(&ctx).mode
 }
 
 fn find_similar_and_update_semantic_index(path: &str, content: &str) -> Option<String> {
@@ -963,6 +903,32 @@ fn process_mode(
                     let output = protocol::append_savings(&output, original_tokens, sent);
                     return (append_compressed_hint(&output, file_path), sent);
                 }
+            }
+
+            let structured = match ext {
+                "md" | "mdx" | "rst" => {
+                    crate::core::structured_read::extract_markdown_outline(content)
+                }
+                "json" => crate::core::structured_read::extract_json_structure(content),
+                "yaml" | "yml" => crate::core::structured_read::extract_yaml_structure(content),
+                "toml" => crate::core::structured_read::extract_toml_structure(content),
+                _ if file_path.to_lowercase().ends_with(".lock")
+                    || file_path.to_lowercase().ends_with("go.sum") =>
+                {
+                    crate::core::structured_read::extract_lock_summary(content, file_path)
+                }
+                _ => String::new(),
+            };
+
+            if !structured.is_empty() {
+                let mut output = if crate::core::protocol::meta_visible() && !file_ref.is_empty() {
+                    format!("{file_ref}={short} {line_count}L\n{structured}")
+                } else {
+                    format!("{short} {line_count}L\n{structured}")
+                };
+                let sent = count_tokens(&output);
+                output = protocol::append_savings(&output, original_tokens, sent);
+                return (append_compressed_hint(&output, file_path), sent);
             }
 
             let sigs = signatures::extract_signatures(content, ext);

@@ -19,6 +19,7 @@ pub mod progressive_compression;
 pub mod rabin_karp;
 pub mod rules_canonical;
 pub mod structural_tokenizer;
+pub mod structured_read;
 
 /// Convenience re-export: all compression-related modules.
 pub mod compression {
@@ -241,6 +242,7 @@ pub mod autonomy_drivers;
 pub mod adaptive;
 pub mod adaptive_mode_policy;
 pub mod adaptive_thresholds;
+pub mod auto_mode_resolver;
 pub mod bandit;
 pub mod mode_predictor;
 pub mod model_registry;

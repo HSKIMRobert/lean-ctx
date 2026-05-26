@@ -106,6 +106,16 @@ pub fn apply_artifacts(
     graph_edges: Option<&mut Vec<IndexEdge>>,
     session_cache: Option<&mut crate::core::cache::SessionCache>,
 ) -> ConsolidationResult {
+    apply_artifacts_with_pg(artifacts, bm25, graph_edges, session_cache, None)
+}
+
+pub fn apply_artifacts_with_pg(
+    artifacts: &ConsolidationArtifacts,
+    bm25: Option<&mut crate::core::bm25_index::BM25Index>,
+    graph_edges: Option<&mut Vec<IndexEdge>>,
+    session_cache: Option<&mut crate::core::cache::SessionCache>,
+    property_graph: Option<&crate::core::property_graph::CodeGraph>,
+) -> ConsolidationResult {
     let mut result = ConsolidationResult::default();
 
     if let Some(index) = bm25 {
@@ -114,6 +124,10 @@ pub fn apply_artifacts(
 
     if let Some(edges) = graph_edges {
         result.edges_created = cross_source_edges::merge_edges(edges, artifacts.edges.clone());
+    }
+
+    if let Some(pg) = property_graph {
+        write_edges_to_property_graph(pg, &artifacts.edges);
     }
 
     result.facts_extracted = artifacts.facts.len();
@@ -126,6 +140,20 @@ pub fn apply_artifacts(
     }
 
     result
+}
+
+fn write_edges_to_property_graph(pg: &crate::core::property_graph::CodeGraph, edges: &[IndexEdge]) {
+    use crate::core::property_graph::{Edge, EdgeKind, Node};
+    for edge in edges {
+        let Ok(src_id) = pg.upsert_node(&Node::file(&edge.from)) else {
+            continue;
+        };
+        let Ok(tgt_id) = pg.upsert_node(&Node::file(&edge.to)) else {
+            continue;
+        };
+        let kind = EdgeKind::parse(&edge.kind);
+        let _ = pg.upsert_edge(&Edge::new(src_id, tgt_id, kind));
+    }
 }
 
 #[cfg(test)]

@@ -51,6 +51,16 @@ pub(super) fn initialize(conn: &Connection) -> anyhow::Result<()> {
             ON edges(source_id, kind);
         CREATE INDEX IF NOT EXISTS idx_edges_target_kind
             ON edges(target_id, kind);
+
+        CREATE TABLE IF NOT EXISTS file_catalog (
+            path        TEXT PRIMARY KEY,
+            hash        TEXT NOT NULL,
+            language    TEXT NOT NULL DEFAULT '',
+            line_count  INTEGER NOT NULL DEFAULT 0,
+            token_count INTEGER NOT NULL DEFAULT 0,
+            exports     TEXT NOT NULL DEFAULT '[]',
+            summary     TEXT NOT NULL DEFAULT ''
+        );
         ",
     )?;
     Ok(())
@@ -75,6 +85,7 @@ mod tests {
 
         assert!(tables.contains(&"nodes".to_string()));
         assert!(tables.contains(&"edges".to_string()));
+        assert!(tables.contains(&"file_catalog".to_string()));
     }
 
     #[test]

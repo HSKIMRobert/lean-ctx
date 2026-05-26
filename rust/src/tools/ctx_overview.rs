@@ -1,4 +1,5 @@
 use crate::core::cache::SessionCache;
+use crate::core::graph_provider::{self, GraphProvider};
 use crate::core::task_relevance::{compute_relevance, parse_task_hints};
 use crate::core::tokens::count_tokens;
 use crate::tools::CrpMode;
@@ -23,7 +24,7 @@ pub fn handle(
 
     let auto_loaded = crate::core::context_package::auto_load_packages(&project_root);
 
-    let Some(index) = crate::core::index_orchestrator::try_load_graph_index(&project_root) else {
+    let Some(open) = graph_provider::open_or_build(&project_root) else {
         crate::core::index_orchestrator::ensure_all_background(&project_root);
         return format!(
             "INDEXING IN PROGRESS\n\n\
@@ -33,6 +34,7 @@ pub fn handle(
             Please try this command again in 1-2 minutes."
         );
     };
+    let gp = &open.provider;
 
     let (task_files, task_keywords) = if let Some(task_desc) = task {
         parse_task_hints(task_desc)
@@ -45,12 +47,11 @@ pub fn handle(
     let mut output = Vec::new();
 
     if has_task {
-        let relevance = compute_relevance(&index, &task_files, &task_keywords);
+        let relevance = compute_relevance(gp, &task_files, &task_keywords);
 
-        // Static project-level header first (prefix-cache-friendly)
         output.push(format!(
             "PROJECT OVERVIEW  {} files  task-filtered",
-            index.files.len()
+            gp.file_count()
         ));
         output.push(String::new());
 
@@ -149,7 +150,8 @@ pub fn handle(
         }
     } else {
         // No task context: show project structure overview
-        let scan_age = chrono::NaiveDateTime::parse_from_str(&index.last_scan, "%Y-%m-%d %H:%M:%S")
+        let last_scan = gp.last_scan();
+        let scan_age = chrono::NaiveDateTime::parse_from_str(&last_scan, "%Y-%m-%d %H:%M:%S")
             .ok()
             .map(|t| {
                 let elapsed = chrono::Local::now().naive_local().signed_duration_since(t);
@@ -169,23 +171,19 @@ pub fn handle(
         };
         output.push(format!(
             "PROJECT OVERVIEW  {} files  {} edges{scan_info}",
-            index.files.len(),
-            index.edges.len()
+            gp.file_count(),
+            gp.edge_count().unwrap_or(0)
         ));
         output.push(String::new());
 
-        // Group by directory
         let mut by_dir: std::collections::BTreeMap<String, Vec<String>> =
             std::collections::BTreeMap::new();
 
-        for file_entry in index.files.values() {
-            let dir = std::path::Path::new(&file_entry.path)
+        for path in gp.file_paths() {
+            let dir = std::path::Path::new(&path)
                 .parent()
                 .map_or_else(|| ".".to_string(), |p| p.to_string_lossy().to_string());
-            by_dir
-                .entry(dir)
-                .or_default()
-                .push(short_path(&file_entry.path));
+            by_dir.entry(dir).or_default().push(short_path(&path));
         }
 
         for (dir, files) in &by_dir {
@@ -209,9 +207,9 @@ pub fn handle(
     }
 
     if let Some(task_desc) = task {
-        append_knowledge_task_section(&mut output, &index.project_root, task_desc);
+        append_knowledge_task_section(&mut output, &project_root, task_desc);
     }
-    append_graph_hotspots_section(&mut output, &index.project_root, &index);
+    append_graph_hotspots_section(&mut output, &project_root, gp);
 
     let cfg = crate::core::config::Config::load();
     if cfg.enable_wakeup_ctx {
@@ -230,7 +228,8 @@ pub fn handle(
         ));
     }
 
-    let original = count_tokens(&format!("{} files", index.files.len())) * index.files.len();
+    let fc = gp.file_count();
+    let original = count_tokens(&format!("{fc} files")) * fc;
     let compressed = count_tokens(&output.join("\n"));
     output.push(String::new());
     output.push(crate::core::protocol::format_savings(original, compressed));
@@ -275,12 +274,8 @@ fn compact_fact_phrase(f: &crate::core::knowledge::KnowledgeFact) -> String {
     }
 }
 
-fn append_graph_hotspots_section(
-    output: &mut Vec<String>,
-    project_root: &str,
-    index: &crate::core::graph_index::ProjectIndex,
-) {
-    let rows = graph_hotspot_rows(project_root, index);
+fn append_graph_hotspots_section(output: &mut Vec<String>, project_root: &str, gp: &GraphProvider) {
+    let rows = graph_hotspot_rows(project_root, gp);
     if rows.is_empty() {
         return;
     }
@@ -297,12 +292,7 @@ fn append_graph_hotspots_section(
     }
 }
 
-/// Import/call edge touches per file from SQLite graph when available; otherwise
-/// import-edge degree from the JSON graph index (calls omitted).
-fn graph_hotspot_rows(
-    project_root: &str,
-    index: &crate::core::graph_index::ProjectIndex,
-) -> Vec<(String, usize, usize)> {
+fn graph_hotspot_rows(project_root: &str, gp: &GraphProvider) -> Vec<(String, usize, usize)> {
     if let Ok(graph) = crate::core::property_graph::CodeGraph::open(project_root) {
         let sql = "
             WITH edge_files AS (
@@ -341,20 +331,14 @@ fn graph_hotspot_rows(
             }
         }
     }
-    index_import_hotspots(index, 5)
+    import_hotspots_from_edges(gp, 5)
 }
 
-fn index_import_hotspots(
-    index: &crate::core::graph_index::ProjectIndex,
-    limit: usize,
-) -> Vec<(String, usize, usize)> {
+fn import_hotspots_from_edges(gp: &GraphProvider, limit: usize) -> Vec<(String, usize, usize)> {
     use std::collections::HashMap;
 
     let mut imp: HashMap<String, usize> = HashMap::new();
-    for e in &index.edges {
-        if e.kind != "import" {
-            continue;
-        }
+    for e in gp.edges_by_kind("import") {
         *imp.entry(e.from.clone()).or_insert(0) += 1;
         *imp.entry(e.to.clone()).or_insert(0) += 1;
     }

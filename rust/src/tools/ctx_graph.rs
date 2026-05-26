@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::core::graph_index::{self, ProjectIndex};
+use crate::core::graph_index;
+use crate::core::graph_provider::{self, GraphProvider};
 use crate::core::tokens::count_tokens;
 
 pub fn handle(
@@ -70,7 +71,7 @@ fn handle_build(root: &str) -> String {
         }
     }
 
-    if let Some(dir) = ProjectIndex::index_dir(root) {
+    if let Some(dir) = GraphProvider::index_dir(root) {
         result.push(format!(
             "\nIndex saved: {}",
             crate::core::protocol::shorten_path(&dir.to_string_lossy())
@@ -87,13 +88,13 @@ fn handle_related(path: Option<&str>, root: &str) -> String {
         return "path is required for 'related' action".to_string();
     };
 
-    let Some(index) = ProjectIndex::load(root) else {
+    let Some(open) = graph_provider::open_or_build(root) else {
         return "No graph index found. Run ctx_graph with action='build' first.".to_string();
     };
 
     let rel_target = graph_index::graph_relative_key(target, root);
 
-    let related = index.get_related(&rel_target, 2);
+    let related = open.provider.related(&rel_target, 2);
     if related.is_empty() {
         return format!(
             "No related files found for {}",
@@ -128,27 +129,28 @@ fn handle_symbol(
         return format!("Invalid symbol spec '{spec}'. Use format: file.rs::function_name");
     };
 
-    let Some(index) = ProjectIndex::load(root) else {
+    let Some(open) = graph_provider::open_or_build(root) else {
         return "No graph index found. Run ctx_graph with action='build' first.".to_string();
     };
 
     let rel_file = graph_index::graph_relative_key(file_part, root);
 
     let key = format!("{rel_file}::{symbol_name}");
-    let Some(symbol) = index.get_symbol(&key) else {
-        let available: Vec<&str> = index
-            .symbols
-            .keys()
-            .filter(|k| k.starts_with(&rel_file))
-            .map(std::string::String::as_str)
-            .take(10)
-            .collect();
+    let Some(symbol) = open.provider.get_symbol(&key) else {
+        let available = open
+            .provider
+            .find_symbols(symbol_name, Some(&rel_file), None);
         if available.is_empty() {
             return format!("Symbol '{symbol_name}' not found in {rel_file}. Run ctx_graph action='build' to update the index.");
         }
+        let names: Vec<String> = available
+            .iter()
+            .take(10)
+            .map(|s| format!("{}::{}", s.file, s.name))
+            .collect();
         return format!(
             "Symbol '{symbol_name}' not found in {rel_file}.\nAvailable symbols:\n  {}",
-            available.join("\n  ")
+            names.join("\n  ")
         );
     };
 
@@ -202,7 +204,7 @@ fn handle_symbol(
 fn file_path_to_module_prefixes(
     rel_path: &str,
     project_root: &str,
-    index: &ProjectIndex,
+    provider: &GraphProvider,
 ) -> Vec<String> {
     let rel_path_slash = graph_index::graph_match_key(rel_path);
     let without_ext = rel_path_slash
@@ -261,7 +263,7 @@ fn file_path_to_module_prefixes(
                     .map(|rest| rest.trim().trim_end_matches(';').to_string())
             }) {
                 prefixes.push(package_name.clone());
-                if let Some(entry) = index.files.get(rel_path) {
+                if let Some(entry) = provider.get_file_entry(rel_path) {
                     for export in &entry.exports {
                         prefixes.push(format!("{package_name}.{export}"));
                     }
@@ -291,18 +293,18 @@ fn handle_impact(path: Option<&str>, root: &str) -> String {
         return "path is required for 'impact' action".to_string();
     };
 
-    let Some(index) = ProjectIndex::load(root) else {
+    let Some(open) = graph_provider::open_or_build(root) else {
         return "No graph index found. Run ctx_graph with action='build' first.".to_string();
     };
+    let gp = &open.provider;
 
     let rel_target = graph_index::graph_relative_key(target, root);
+    let module_prefixes = file_path_to_module_prefixes(&rel_target, root, gp);
 
-    let module_prefixes = file_path_to_module_prefixes(&rel_target, root, &index);
-
-    let direct: Vec<&str> = index
-        .edges
+    let import_edges = gp.edges_by_kind("import");
+    let direct: Vec<&str> = import_edges
         .iter()
-        .filter(|e| e.kind == "import" && edge_matches_file(&e.to, &module_prefixes))
+        .filter(|e| edge_matches_file(&e.to, &module_prefixes))
         .map(|e| e.from.as_str())
         .collect();
 
@@ -311,7 +313,7 @@ fn handle_impact(path: Option<&str>, root: &str) -> String {
         .map(std::string::ToString::to_string)
         .collect();
     for d in &direct {
-        for dep in index.get_reverse_deps(d, 1) {
+        for dep in gp.dependents(d) {
             if !all_dependents.contains(&dep) && dep != rel_target {
                 all_dependents.push(dep);
             }
@@ -354,15 +356,19 @@ fn handle_impact(path: Option<&str>, root: &str) -> String {
 }
 
 fn handle_status(root: &str) -> String {
-    let Some(index) = ProjectIndex::load(root) else {
+    let Some(open) = graph_provider::open_best_effort(root) else {
         return "No graph index. Run ctx_graph action='build' to create one.".to_string();
     };
+    let gp = &open.provider;
 
-    let mut by_lang: HashMap<&str, usize> = HashMap::new();
+    let file_paths = gp.file_paths();
+    let mut by_lang: HashMap<String, usize> = HashMap::new();
     let mut total_tokens = 0usize;
-    for entry in index.files.values() {
-        *by_lang.entry(&entry.language).or_insert(0) += 1;
-        total_tokens += entry.token_count;
+    for path in &file_paths {
+        if let Some(entry) = gp.get_file_entry(path) {
+            *by_lang.entry(entry.language).or_insert(0) += 1;
+            total_tokens += entry.token_count;
+        }
     }
 
     let mut langs: Vec<_> = by_lang.iter().collect();
@@ -375,13 +381,14 @@ fn handle_status(root: &str) -> String {
         .join(" ");
 
     format!(
-        "Graph: {} files, {} symbols, {} edges | {} tok total\nLast scan: {}\nLanguages: {lang_summary}\nStored: {}",
-        index.file_count(),
-        index.symbol_count(),
-        index.edge_count(),
+        "Graph: {} files, {} symbols, {} edges ({:?}) | {} tok total\nLast scan: {}\nLanguages: {lang_summary}\nStored: {}",
+        gp.file_count(),
+        gp.symbol_count(),
+        gp.edge_count().unwrap_or(0),
+        open.source,
         total_tokens,
-        index.last_scan,
-        ProjectIndex::index_dir(root)
+        gp.last_scan(),
+        GraphProvider::index_dir(root)
             .map(|d| d.to_string_lossy().to_string())
             .unwrap_or_default()
     )
@@ -426,7 +433,7 @@ fn handle_context_query(query: Option<&str>, root: &str) -> String {
         Err(e) => return format!("Failed to open graph: {e}"),
     };
 
-    let index = graph_index::load_or_build(root);
+    let gp = graph_provider::open_or_build(root);
     let mut result = Vec::new();
 
     if let Ok(Some(node)) = graph.get_node_by_path(query) {
@@ -520,7 +527,10 @@ fn handle_context_query(query: Option<&str>, root: &str) -> String {
         }
     } else {
         result.push(format!("## Search: `{query}`\n"));
-        let related = index.get_related(query, 2);
+        let related = gp
+            .as_ref()
+            .map(|o| o.provider.related(query, 2))
+            .unwrap_or_default();
         if related.is_empty() {
             result.push("No matching nodes found in graph.".to_string());
         } else {
@@ -564,16 +574,18 @@ mod tests {
 
     #[test]
     fn test_file_path_to_module_prefixes_rust() {
-        let index = ProjectIndex::new("/nonexistent");
-        let prefixes = file_path_to_module_prefixes("src/core/cache.rs", "/nonexistent", &index);
+        let gp =
+            GraphProvider::GraphIndex(crate::core::graph_index::ProjectIndex::new("/nonexistent"));
+        let prefixes = file_path_to_module_prefixes("src/core/cache.rs", "/nonexistent", &gp);
         assert!(prefixes.contains(&"crate::core::cache".to_string()));
         assert!(prefixes.contains(&"core::cache".to_string()));
     }
 
     #[test]
     fn test_file_path_to_module_prefixes_mod_rs() {
-        let index = ProjectIndex::new("/nonexistent");
-        let prefixes = file_path_to_module_prefixes("src/core/mod.rs", "/nonexistent", &index);
+        let gp =
+            GraphProvider::GraphIndex(crate::core::graph_index::ProjectIndex::new("/nonexistent"));
+        let prefixes = file_path_to_module_prefixes("src/core/mod.rs", "/nonexistent", &gp);
         assert!(prefixes.contains(&"crate::core".to_string()));
         assert!(!prefixes.iter().any(|p| p.contains("mod")));
     }

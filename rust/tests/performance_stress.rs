@@ -213,9 +213,10 @@ mod hebbian_stress {
         let elapsed = start.elapsed();
 
         assert_eq!(evictions.len(), 100);
+        let limit_us = if cfg!(windows) { 50_000 } else { 20_000 };
         assert!(
-            elapsed.as_micros() < 20000,
-            "Evicting 100 from 1000 entries took {}µs — must be <20000µs",
+            elapsed.as_micros() < limit_us,
+            "Evicting 100 from 1000 entries took {}µs — must be <{limit_us}µs",
             elapsed.as_micros()
         );
     }

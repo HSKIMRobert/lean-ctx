@@ -699,6 +699,30 @@ fn index_graph_file_minimal(
         }
     }
 
+    let exports: Vec<String> = analysis
+        .types
+        .iter()
+        .filter(|t| t.is_exported)
+        .map(|t| t.name.clone())
+        .collect();
+    let line_count = content.lines().count();
+    let token_count = crate::core::tokens::count_tokens(content);
+    let hash = {
+        use md5::{Digest, Md5};
+        let mut h = Md5::new();
+        h.update(content.as_bytes());
+        format!("{:x}", h.finalize())
+    };
+    let _ = graph.upsert_file_catalog(&crate::core::property_graph::FileCatalogEntry {
+        path: rel_path.to_string(),
+        hash,
+        language: ext.to_string(),
+        line_count,
+        token_count,
+        exports,
+        summary: String::new(),
+    });
+
     (total_nodes, total_edges)
 }
 
