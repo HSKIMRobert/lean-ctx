@@ -123,6 +123,7 @@ pub fn root_from_env() -> Option<String> {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
     #[test]
     fn parse_file_uri_unix() {
         assert_eq!(
@@ -131,6 +132,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn parse_file_uri_windows() {
         assert_eq!(
@@ -139,6 +141,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn parse_file_uri_with_spaces() {
         assert_eq!(
