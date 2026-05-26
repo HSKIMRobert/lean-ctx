@@ -297,7 +297,8 @@ pub fn open_best_effort(project_root: &str) -> Option<OpenGraphProvider> {
     if let Ok(pg) = CodeGraph::open(project_root) {
         let nodes = pg.node_count().unwrap_or(0);
         let edges = pg.edge_count().unwrap_or(0);
-        pg_populated = nodes > 0 && edges > 0;
+        let file_cat = pg.file_catalog_count().unwrap_or(0);
+        pg_populated = nodes > 0 && edges > 0 && file_cat > 0;
         if pg_populated {
             log_source_selection(GraphProviderSource::PropertyGraph, nodes, edges, t0);
             return Some(OpenGraphProvider {
