@@ -1,19 +1,38 @@
 use std::path::Path;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::Mutex;
 
 use crate::core::context_radar::RadarEvent;
 
 static LAST_LCTX_CALL_TS: AtomicU64 = AtomicU64::new(0);
 static HINT_COOLDOWN: AtomicU32 = AtomicU32::new(0);
+static SESSION_ID: Mutex<Option<String>> = Mutex::new(None);
 
 const COOLDOWN_CALLS: u32 = 5;
+
+const NATIVE_READ_TOOLS: &[&str] = &[
+    "Read",
+    "read",
+    "read_file",
+    "ReadFile",
+    "Grep",
+    "grep",
+    "search",
+    "ripgrep",
+];
 
 pub fn record_lctx_call() {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
-        .as_secs();
+        .as_millis() as u64;
     LAST_LCTX_CALL_TS.store(now, Ordering::Relaxed);
+}
+
+pub fn set_session_id(id: &str) {
+    if let Ok(mut guard) = SESSION_ID.lock() {
+        *guard = Some(id.to_string());
+    }
 }
 
 pub fn check(data_dir: &Path) -> Option<String> {
@@ -35,7 +54,8 @@ pub fn check(data_dir: &Path) -> Option<String> {
         return None;
     }
 
-    let native_count = count_native_since(data_dir, last_ts);
+    let session_id = SESSION_ID.lock().ok().and_then(|g| g.clone());
+    let native_count = count_native_since(data_dir, last_ts, session_id.as_deref());
     if native_count == 0 {
         return None;
     }
@@ -46,7 +66,7 @@ pub fn check(data_dir: &Path) -> Option<String> {
     ))
 }
 
-fn count_native_since(data_dir: &Path, since_ts: u64) -> usize {
+fn count_native_since(data_dir: &Path, since_ts: u64, session_id: Option<&str>) -> usize {
     let radar_path = radar_jsonl_path(data_dir);
     if !radar_path.exists() {
         return 0;
@@ -66,15 +86,42 @@ fn count_native_since(data_dir: &Path, since_ts: u64) -> usize {
             Err(_) => continue,
         };
 
-        if event.ts < since_ts {
+        let event_ts_ms = event.ts * 1000;
+        if event_ts_ms < since_ts {
             break;
         }
 
-        if matches!(event.event_type.as_str(), "native_tool" | "file_read") {
+        // Only count events from the same session (avoids subagent false positives)
+        if let Some(sid) = session_id {
+            if let Some(ref event_sid) = event.conversation_id {
+                if event_sid != sid {
+                    continue;
+                }
+            }
+        }
+
+        if event.event_type == "native_tool" {
+            if !is_read_grep_tool(event.tool_name.as_ref()) {
+                continue;
+            }
+            if let Some(ref name) = event.tool_name {
+                if name.starts_with("ctx_") || name.starts_with("mcp__lean-ctx__") {
+                    continue;
+                }
+            }
+            count += 1;
+        }
+        // file_read events without a tool_name are IDE-internal (beforeReadFile hook)
+        // and should not count as "native Read usage"
+        if event.event_type == "file_read" && event.tool_name.is_some() {
             count += 1;
         }
     }
     count
+}
+
+fn is_read_grep_tool(tool_name: Option<&String>) -> bool {
+    tool_name.is_some_and(|name| NATIVE_READ_TOOLS.iter().any(|t| name == *t))
 }
 
 fn effective_mode() -> String {
@@ -103,25 +150,133 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("context_radar.jsonl");
         std::fs::write(&path, "").unwrap();
-        LAST_LCTX_CALL_TS.store(1000, Ordering::Relaxed);
-        assert_eq!(count_native_since(dir.path(), 1000), 0);
+        LAST_LCTX_CALL_TS.store(1_000_000, Ordering::Relaxed);
+        assert_eq!(count_native_since(dir.path(), 1_000_000, None), 0);
     }
 
     #[test]
-    fn counts_native_events_after_timestamp() {
+    fn only_counts_read_grep_not_edit_write() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("context_radar.jsonl");
         let mut f = std::fs::File::create(&path).unwrap();
-        writeln!(f, r#"{{"ts":900,"event_type":"native_tool","tokens":100}}"#).unwrap();
         writeln!(
             f,
-            r#"{{"ts":1100,"event_type":"native_tool","tokens":200}}"#
+            r#"{{"ts":1100,"event_type":"native_tool","tokens":200,"tool_name":"Read"}}"#
         )
         .unwrap();
-        writeln!(f, r#"{{"ts":1200,"event_type":"file_read","tokens":150}}"#).unwrap();
-        writeln!(f, r#"{{"ts":1300,"event_type":"mcp_call","tokens":50}}"#).unwrap();
+        writeln!(
+            f,
+            r#"{{"ts":1200,"event_type":"native_tool","tokens":150,"tool_name":"Grep"}}"#
+        )
+        .unwrap();
+        writeln!(
+            f,
+            r#"{{"ts":1300,"event_type":"native_tool","tokens":100,"tool_name":"Edit"}}"#
+        )
+        .unwrap();
+        writeln!(
+            f,
+            r#"{{"ts":1400,"event_type":"native_tool","tokens":100,"tool_name":"Write"}}"#
+        )
+        .unwrap();
+        writeln!(
+            f,
+            r#"{{"ts":1500,"event_type":"native_tool","tokens":100,"tool_name":"Shell"}}"#
+        )
+        .unwrap();
         drop(f);
 
-        assert_eq!(count_native_since(dir.path(), 1000), 2);
+        // Only Read + Grep count (2), not Edit/Write/Shell
+        assert_eq!(count_native_since(dir.path(), 1_000_000, None), 2);
+    }
+
+    #[test]
+    fn file_read_without_tool_name_not_counted() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("context_radar.jsonl");
+        let mut f = std::fs::File::create(&path).unwrap();
+        // IDE-internal file_read (beforeReadFile hook) — no tool_name
+        writeln!(f, r#"{{"ts":1100,"event_type":"file_read","tokens":100}}"#).unwrap();
+        // Explicit file_read with tool_name — should count
+        writeln!(
+            f,
+            r#"{{"ts":1200,"event_type":"file_read","tokens":100,"tool_name":"Read"}}"#
+        )
+        .unwrap();
+        drop(f);
+
+        assert_eq!(count_native_since(dir.path(), 1_000_000, None), 1);
+    }
+
+    #[test]
+    fn session_filter_excludes_other_sessions() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("context_radar.jsonl");
+        let mut f = std::fs::File::create(&path).unwrap();
+        writeln!(f, r#"{{"ts":1100,"event_type":"native_tool","tokens":200,"tool_name":"Read","conversation_id":"session-A"}}"#).unwrap();
+        writeln!(f, r#"{{"ts":1200,"event_type":"native_tool","tokens":150,"tool_name":"Grep","conversation_id":"session-B"}}"#).unwrap();
+        writeln!(f, r#"{{"ts":1300,"event_type":"native_tool","tokens":100,"tool_name":"Read","conversation_id":"session-A"}}"#).unwrap();
+        drop(f);
+
+        // Filter for session-A: only 2 events
+        assert_eq!(
+            count_native_since(dir.path(), 1_000_000, Some("session-A")),
+            2
+        );
+        // Filter for session-B: only 1 event
+        assert_eq!(
+            count_native_since(dir.path(), 1_000_000, Some("session-B")),
+            1
+        );
+    }
+
+    #[test]
+    fn no_session_filter_counts_all() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("context_radar.jsonl");
+        let mut f = std::fs::File::create(&path).unwrap();
+        writeln!(f, r#"{{"ts":1100,"event_type":"native_tool","tokens":200,"tool_name":"Read","conversation_id":"session-A"}}"#).unwrap();
+        writeln!(f, r#"{{"ts":1200,"event_type":"native_tool","tokens":150,"tool_name":"Read","conversation_id":"session-B"}}"#).unwrap();
+        drop(f);
+
+        // No session filter → counts all
+        assert_eq!(count_native_since(dir.path(), 1_000_000, None), 2);
+    }
+
+    #[test]
+    fn ignores_ctx_tools_in_native_events() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("context_radar.jsonl");
+        let mut f = std::fs::File::create(&path).unwrap();
+        writeln!(
+            f,
+            r#"{{"ts":1100,"event_type":"native_tool","tokens":200,"tool_name":"ctx_read"}}"#
+        )
+        .unwrap();
+        writeln!(f, r#"{{"ts":1200,"event_type":"native_tool","tokens":150,"tool_name":"mcp__lean-ctx__ctx_search"}}"#).unwrap();
+        writeln!(
+            f,
+            r#"{{"ts":1300,"event_type":"native_tool","tokens":100,"tool_name":"Read"}}"#
+        )
+        .unwrap();
+        drop(f);
+
+        assert_eq!(count_native_since(dir.path(), 1_000_000, None), 1);
+    }
+
+    #[test]
+    fn millis_timestamp_precision() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("context_radar.jsonl");
+        let mut f = std::fs::File::create(&path).unwrap();
+        writeln!(
+            f,
+            r#"{{"ts":5,"event_type":"native_tool","tokens":100,"tool_name":"Read"}}"#
+        )
+        .unwrap();
+        drop(f);
+
+        assert_eq!(count_native_since(dir.path(), 5500, None), 0);
+        assert_eq!(count_native_since(dir.path(), 4999, None), 1);
     }
 }

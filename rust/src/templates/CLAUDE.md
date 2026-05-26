@@ -30,3 +30,12 @@ NEVER loop trying to make Edit work. If it fails, switch to ctx_edit immediately
 Write, Delete have no lean-ctx equivalent — use them normally.
 
 Prefer `ctx_workflow` for state + evidence + tool gating.
+
+## Session Documentation
+
+After significant work, document progress for session continuity:
+- `ctx_knowledge(action="remember", category="decision", content="<what and why>")`
+- `ctx_session(action="task", value="<task description> [progress%]")`
+- If blocked: `ctx_knowledge(action="remember", category="blocker", content="...")`
+
+When you see `[CHECKPOINT]` in tool output → document current task status immediately.

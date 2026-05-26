@@ -189,6 +189,19 @@ pub fn try_load_bm25_index(project_root: &str) -> Option<BM25Index> {
     BM25Index::load(Path::new(project_root))
 }
 
+/// Returns true if any project is currently building its indices.
+pub fn is_building() -> bool {
+    let map = registry()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    map.values().any(|entry| {
+        let s = entry
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        matches!(s.bm25.state, State::Building) || matches!(s.graph.state, State::Building)
+    })
+}
+
 #[derive(Debug, Serialize)]
 struct ComponentStatus<'a> {
     state: &'a str,

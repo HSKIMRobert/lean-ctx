@@ -11,16 +11,24 @@ pub fn cmd_config(args: &[String]) {
 
     match args[0].as_str() {
         "init" | "create" => {
-            let default = config::Config::default();
-            match default.save() {
-                Ok(()) => {
-                    let path = config::Config::path().map_or_else(
-                        || "~/.lean-ctx/config.toml".to_string(),
-                        |p| p.to_string_lossy().to_string(),
-                    );
-                    println!("Created default config at {path}");
+            let full = args.iter().any(|a| a == "--full");
+            if full {
+                let default = config::Config::default();
+                match default.save() {
+                    Ok(()) => {
+                        let path = config::Config::path().map_or_else(
+                            || "~/.lean-ctx/config.toml".to_string(),
+                            |p| p.to_string_lossy().to_string(),
+                        );
+                        println!("Created full config at {path}");
+                    }
+                    Err(e) => eprintln!("Error: {e}"),
                 }
-                Err(e) => eprintln!("Error: {e}"),
+            } else {
+                match write_simplified_config() {
+                    Ok(path) => println!("Created simplified config at {path}"),
+                    Err(e) => eprintln!("Error: {e}"),
+                }
             }
         }
         "set" => {
@@ -120,11 +128,14 @@ pub fn cmd_config(args: &[String]) {
         "validate" => {
             cmd_validate();
         }
+        "show" | "effective" => {
+            cmd_show_effective();
+        }
         "apply" | "reload" => {
             cmd_apply();
         }
         _ => {
-            eprintln!("Usage: lean-ctx config [init|set|schema|validate|apply]");
+            eprintln!("Usage: lean-ctx config [init|set|show|schema|validate|apply]");
             std::process::exit(1);
         }
     }
@@ -321,6 +332,20 @@ fn cmd_validate() {
             } else {
                 eprintln!("[WARN] Unknown key '{uk}' -- this field does not exist");
             }
+        }
+    }
+
+    let cfg = config::Config::load();
+    let budget = cfg.max_disk_mb_effective();
+    if budget > 0 {
+        let explicit_archive = cfg.archive.max_disk_mb;
+        let explicit_bm25 = cfg.bm25_max_cache_mb;
+        let sum = explicit_archive + explicit_bm25;
+        if sum > budget {
+            warnings += 1;
+            println!(
+                "  ⚠ max_disk_mb={budget} but archive.max_disk_mb({explicit_archive}) + bm25_max_cache_mb({explicit_bm25}) = {sum} exceeds budget"
+            );
         }
     }
 
@@ -718,6 +743,142 @@ fn try_read_project_root_from_graph(path: &std::path::Path) -> Option<String> {
     let content = String::from_utf8(data).ok()?;
     let val: serde_json::Value = serde_json::from_str(&content).ok()?;
     val.get("project_root")?.as_str().map(String::from)
+}
+
+pub const SIMPLIFIED_TEMPLATE: &str = r#"# lean-ctx — Simplified Configuration
+# Full reference: https://leanctx.com/docs/configuration
+# For all settings: lean-ctx config init --full
+
+# ── High-Level Knobs ─────────────────────────────────────────────────
+# These auto-adjust advanced settings. Override individual values below
+# only if you need fine-grained control.
+
+# Compression aggressiveness: off | lite | standard | max
+compression_level = "standard"
+
+# RAM/feature trade-off: low | balanced | performance
+memory_profile = "balanced"
+
+# Maximum % of system RAM lean-ctx may use (1-50)
+max_ram_percent = 5
+
+# Total disk budget in MB (0 = use individual limits).
+# Distributes proportionally: archive ~25%, BM25 cache ~10%.
+# max_disk_mb = 2000
+
+# Auto-purge data older than N days (0 = disabled).
+# Flows into archive.max_age_hours.
+# max_staleness_days = 30
+
+# Explicit project paths to scan/index (default: auto-detect).
+# [ide_paths]
+# cursor = ["/home/user/projects/app1"]
+
+# ── Proxy ────────────────────────────────────────────────────────────
+# proxy_enabled = false
+# proxy_port = 3128
+"#;
+
+fn write_simplified_config() -> Result<String, String> {
+    let path = config::Config::path().ok_or_else(|| "Cannot determine config path".to_string())?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("{e}"))?;
+    }
+    std::fs::write(&path, SIMPLIFIED_TEMPLATE).map_err(|e| format!("{e}"))?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+fn cmd_show_effective() {
+    let cfg = config::Config::load();
+    let compression = config::CompressionLevel::effective(&cfg);
+    let policy = cfg.memory_policy_effective().unwrap_or_default();
+
+    println!("╭─── Simplified (high-level) ───────────────────────────────╮");
+    println!(
+        "│ compression_level   = {:10}  {}",
+        format!("{compression:?}"),
+        source_hint(
+            "LEAN_CTX_COMPRESSION",
+            cfg.compression_level != config::CompressionLevel::Off
+        )
+    );
+    println!(
+        "│ max_disk_mb         = {:10}  {}",
+        cfg.max_disk_mb_effective(),
+        source_hint("LEAN_CTX_MAX_DISK_MB", cfg.max_disk_mb > 0)
+    );
+    println!(
+        "│ max_ram_percent     = {:10}  {}",
+        cfg.max_ram_percent,
+        source_hint("LEAN_CTX_MAX_RAM_PERCENT", cfg.max_ram_percent != 5)
+    );
+    println!(
+        "│ max_staleness_days  = {:10}  {}",
+        cfg.max_staleness_days_effective(),
+        source_hint("LEAN_CTX_MAX_STALENESS_DAYS", cfg.max_staleness_days > 0)
+    );
+    println!(
+        "│ memory_profile      = {:10}  {}",
+        format!("{:?}", cfg.memory_profile),
+        source_hint("LEAN_CTX_MEMORY_PROFILE", false)
+    );
+    println!("╰────────────────────────────────────────────────────────────╯");
+
+    println!();
+    println!("╭─── Derived effective limits ────────────────────────────────╮");
+    println!(
+        "│ archive_max_disk_mb    = {:>6} MB",
+        cfg.archive_max_disk_mb_effective()
+    );
+    println!(
+        "│ bm25_max_cache_mb      = {:>6} MB",
+        cfg.bm25_max_cache_mb_effective()
+    );
+    println!(
+        "│ archive_max_age_hours  = {:>6} h",
+        cfg.archive_max_age_hours_effective()
+    );
+    println!(
+        "│ graph_index_max_files  = {:>6}",
+        cfg.graph_index_max_files
+    );
+    println!("│");
+    println!(
+        "│ memory.knowledge.max_facts     = {:>6}",
+        policy.knowledge.max_facts
+    );
+    println!(
+        "│ memory.knowledge.max_patterns  = {:>6}",
+        policy.knowledge.max_patterns
+    );
+    println!(
+        "│ memory.episodic.max_episodes   = {:>6}",
+        policy.episodic.max_episodes
+    );
+    println!(
+        "│ memory.procedural.max_procedures = {:>4}",
+        policy.procedural.max_procedures
+    );
+    println!("╰────────────────────────────────────────────────────────────╯");
+
+    if cfg.max_disk_mb_effective() > 0 {
+        println!();
+        println!(
+            "  ℹ  max_disk_mb={} → limits scaled proportionally (factor: {:.1}x)",
+            cfg.max_disk_mb_effective(),
+            (cfg.max_disk_mb_effective() as f64 / 500.0).clamp(0.5, 10.0)
+        );
+    }
+}
+
+fn source_hint(env_var: &str, config_set: bool) -> &'static str {
+    if std::env::var(env_var).is_ok() {
+        "← env"
+    } else if config_set {
+        "← config"
+    } else {
+        "← default"
+    }
 }
 
 fn dir_size(path: &std::path::Path) -> u64 {

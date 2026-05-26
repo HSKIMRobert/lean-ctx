@@ -106,10 +106,30 @@ pub fn position_optimize(session: &SessionState) -> PositionedOutput {
             .map(|f| {
                 let r = f.file_ref.as_deref().unwrap_or("?");
                 let status = if f.modified { "mod" } else { &f.last_mode };
-                format!("{r}={} [{status}]", short_path(&f.path))
+                let summary_hint = f
+                    .summary
+                    .as_deref()
+                    .map_or(String::new(), |s| format!(", \"{s}\""));
+                format!("{r}={} [{status}{summary_hint}]", short_path(&f.path))
             })
             .collect();
         begin_lines.push(format!("Files: {}", items.join(" ")));
+    }
+
+    // Progress entries (recent work done)
+    if !session.progress.is_empty() {
+        let items: Vec<String> = session
+            .progress
+            .iter()
+            .rev()
+            .take(5)
+            .map(|p| {
+                p.detail
+                    .as_deref()
+                    .map_or_else(|| p.action.clone(), |d| format!("{}: {d}", p.action))
+            })
+            .collect();
+        begin_lines.push(format!("Progress: {}", items.join(" | ")));
     }
 
     if !session.findings.is_empty() {
@@ -117,12 +137,8 @@ pub fn position_optimize(session: &SessionState) -> PositionedOutput {
             .findings
             .iter()
             .rev()
-            .take(5)
-            .map(|f| match (&f.file, f.line) {
-                (Some(file), Some(line)) => format!("{}:{line} — {}", short_path(file), f.summary),
-                (Some(file), None) => format!("{} — {}", short_path(file), f.summary),
-                _ => f.summary.clone(),
-            })
+            .take(8)
+            .map(|f| f.summary.clone())
             .collect();
         end_lines.push(format!("Findings: {}", items.join(" | ")));
     }

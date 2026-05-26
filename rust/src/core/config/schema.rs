@@ -231,6 +231,15 @@ impl ConfigSchema {
             ),
         );
         root.insert(
+            "extra_roots".into(),
+            key_with_env(
+                "string[]",
+                serde_json::json!(cfg.extra_roots),
+                "Extra project roots for multi-root workspaces (auto-added to PathJail allow-list)",
+                "LEAN_CTX_EXTRA_ROOTS",
+            ),
+        );
+        root.insert(
             "content_defined_chunking".into(),
             key(
                 "bool",
@@ -325,6 +334,24 @@ impl ConfigSchema {
                 serde_json::json!(cfg.max_ram_percent),
                 "Maximum percentage of system RAM that lean-ctx may use (1-50, default 5)",
                 "LEAN_CTX_MAX_RAM_PERCENT",
+            ),
+        );
+        root.insert(
+            "max_disk_mb".into(),
+            key_with_env(
+                "u64",
+                serde_json::json!(cfg.max_disk_mb),
+                "Simplified disk budget in MB (0 = disabled). Distributes: archive ~25%, BM25 ~10%",
+                "LEAN_CTX_MAX_DISK_MB",
+            ),
+        );
+        root.insert(
+            "max_staleness_days".into(),
+            key_with_env(
+                "u32",
+                serde_json::json!(cfg.max_staleness_days),
+                "Auto-purge data older than N days (0 = disabled). Flows into archive.max_age_hours",
+                "LEAN_CTX_MAX_STALENESS_DAYS",
             ),
         );
         root.insert(

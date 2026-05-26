@@ -107,7 +107,30 @@ impl McpTool for CtxSemanticSearchTool {
         let file_path_param = get_str(args, "file_path");
         let line_param = get_int(args, "line");
 
+        if let Some(ref cache) = ctx.bm25_cache {
+            crate::tools::ctx_semantic_search::set_thread_cache(cache.clone());
+        }
+
+        if let Some(ref ps) = ctx.progress_sender {
+            if let Some(sender) = ps
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .as_ref()
+            {
+                sender.send(0.0, Some(1.0), Some("Starting search...".to_string()));
+            }
+        }
+
         let result = if action == "reindex" {
+            if let Some(ref ps) = ctx.progress_sender {
+                if let Some(sender) = ps
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .as_ref()
+                {
+                    sender.send(0.0, Some(1.0), Some("Rebuilding BM25 index...".to_string()));
+                }
+            }
             if artifacts {
                 crate::tools::ctx_semantic_search::handle_reindex_artifacts(&path, workspace)
             } else {
@@ -142,6 +165,16 @@ impl McpTool for CtxSemanticSearchTool {
                 Some(artifacts),
             )
         };
+
+        if let Some(ref ps) = ctx.progress_sender {
+            if let Some(sender) = ps
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .as_ref()
+            {
+                sender.send(1.0, Some(1.0), Some("Search complete".to_string()));
+            }
+        }
 
         let repeat_hint = if action == "reindex" {
             String::new()

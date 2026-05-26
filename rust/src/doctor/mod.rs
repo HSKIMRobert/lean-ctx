@@ -1207,7 +1207,16 @@ pub fn run() {
     }
     print_check(&ram_outcome);
 
-    // 19) Proxy health
+    // 19) Capacity warnings (memory stores near limits)
+    let cap_warnings = capacity_warnings();
+    for cw in &cap_warnings {
+        if cw.ok {
+            passed += 1;
+        }
+        print_check(cw);
+    }
+
+    // 20) Proxy health
     let proxy_health = proxy_health_outcome();
     if proxy_health.ok {
         passed += 1;
@@ -1231,6 +1240,7 @@ pub fn run() {
     }
 
     let mut effective_total = total + 9; // session_state + integrity + cache_safety + bm25_health + daemon + mem_profile + mem_cleanup + ram_guardian + proxy_health
+    effective_total += cap_warnings.len() as u32;
     effective_total += docker_outcomes.len() as u32;
     if pi.is_some() {
         effective_total += 1;
@@ -1631,8 +1641,16 @@ fn bm25_cache_health_outcome() -> Outcome {
         };
     };
 
-    let max_bytes = crate::core::config::Config::load().bm25_max_cache_mb * 1024 * 1024;
-    let warn_bytes = 100 * 1024 * 1024; // 100 MB
+    let cfg = crate::core::config::Config::load();
+    let profile = crate::core::config::MemoryProfile::effective(&cfg);
+    let effective_mb = if cfg.bm25_max_cache_mb == crate::core::config::default_bm25_max_cache_mb()
+    {
+        profile.bm25_max_cache_mb()
+    } else {
+        cfg.bm25_max_cache_mb
+    };
+    let max_bytes = effective_mb * 1024 * 1024;
+    let warn_bytes = max_bytes * 80 / 100; // 80% of effective limit
     let mut total_dirs = 0u32;
     let mut total_bytes = 0u64;
     let mut oversized: Vec<(String, u64)> = Vec::new();
@@ -1696,7 +1714,7 @@ fn bm25_cache_health_outcome() -> Outcome {
         return Outcome {
             ok: true,
             line: format!(
-                "{BOLD}BM25 cache{RST}  {YELLOW}{} large index(es) (>100 MB){RST}: {}  {DIM}(consider extra_ignore_patterns){RST}",
+                "{BOLD}BM25 cache{RST}  {YELLOW}{} index(es) >80% of {effective_mb} MB limit{RST}: {}  {DIM}(consider extra_ignore_patterns){RST}",
                 warnings.len(),
                 details.join(", ")
             ),
@@ -1888,6 +1906,194 @@ fn ram_guardian_outcome() -> Outcome {
     }
 }
 
+fn capacity_warnings() -> Vec<Outcome> {
+    let Ok(data_dir) = crate::core::data_dir::lean_ctx_data_dir() else {
+        return vec![];
+    };
+
+    let cfg = crate::core::config::Config::load();
+    let policy = cfg.memory_policy_effective().unwrap_or_default();
+
+    let knowledge_dir = data_dir.join("knowledge");
+    let Ok(entries) = std::fs::read_dir(&knowledge_dir) else {
+        return vec![Outcome {
+            ok: true,
+            line: format!("{BOLD}Capacity{RST} {GREEN}no memory stores{RST}"),
+        }];
+    };
+
+    let mut results = Vec::new();
+
+    for entry in entries.flatten() {
+        let hash_dir = entry.path();
+        if !hash_dir.is_dir() {
+            continue;
+        }
+        let hash = hash_dir
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        let short_hash = &hash[..hash.len().min(8)];
+
+        let mut checks: Vec<(String, usize, usize)> = Vec::new();
+
+        if let Ok(content) = std::fs::read_to_string(hash_dir.join("knowledge.json")) {
+            if let Ok(k) =
+                serde_json::from_str::<crate::core::knowledge::ProjectKnowledge>(&content)
+            {
+                checks.push((
+                    "facts".to_string(),
+                    k.facts.len(),
+                    policy.knowledge.max_facts,
+                ));
+                checks.push((
+                    "patterns".to_string(),
+                    k.patterns.len(),
+                    policy.knowledge.max_patterns,
+                ));
+            }
+        }
+
+        if let Ok(content) = std::fs::read_to_string(hash_dir.join("gotchas.json")) {
+            if let Ok(g) =
+                serde_json::from_str::<crate::core::gotcha_tracker::GotchaStore>(&content)
+            {
+                checks.push((
+                    "gotchas".to_string(),
+                    g.gotchas.len(),
+                    policy.gotcha.max_gotchas_per_project,
+                ));
+            }
+        }
+
+        let episodes_path = data_dir
+            .join("memory")
+            .join("episodes")
+            .join(format!("{hash}.json"));
+        if let Ok(content) = std::fs::read_to_string(&episodes_path) {
+            if let Ok(e) =
+                serde_json::from_str::<crate::core::episodic_memory::EpisodicStore>(&content)
+            {
+                checks.push((
+                    "episodes".to_string(),
+                    e.episodes.len(),
+                    policy.episodic.max_episodes,
+                ));
+            }
+        }
+
+        let procedures_path = data_dir
+            .join("memory")
+            .join("procedures")
+            .join(format!("{hash}.json"));
+        if let Ok(content) = std::fs::read_to_string(&procedures_path) {
+            if let Ok(p) =
+                serde_json::from_str::<crate::core::procedural_memory::ProceduralStore>(&content)
+            {
+                checks.push((
+                    "procedures".to_string(),
+                    p.procedures.len(),
+                    policy.procedural.max_procedures,
+                ));
+            }
+        }
+
+        let mut warnings: Vec<String> = Vec::new();
+        let mut critical = false;
+
+        for (name, current, limit) in &checks {
+            if *limit == 0 {
+                continue;
+            }
+            let pct = (*current as f64 / *limit as f64 * 100.0) as u32;
+            if pct >= 95 {
+                critical = true;
+                warnings.push(format!("{name}: {current}/{limit} ({pct}%)"));
+            } else if pct >= 80 {
+                warnings.push(format!("{name}: {current}/{limit} ({pct}%)"));
+            }
+        }
+
+        if !warnings.is_empty() {
+            let color = if critical { RED } else { YELLOW };
+            let label = if critical { "CRIT" } else { "WARN" };
+            results.push(Outcome {
+                ok: !critical,
+                line: format!(
+                    "{BOLD}Capacity [{short_hash}]{RST} {color}{label}: {}{RST}",
+                    warnings.join(", ")
+                ),
+            });
+        }
+    }
+
+    // Global checks (not per project hash)
+
+    // Archive disk usage vs limit
+    let archive_limit_bytes = cfg.archive_max_disk_mb_effective() * 1_048_576;
+    if archive_limit_bytes > 0 {
+        let archive_used = crate::core::archive::disk_usage_bytes();
+        let pct = (archive_used as f64 / archive_limit_bytes as f64 * 100.0) as u32;
+        if pct >= 95 {
+            results.push(Outcome {
+                ok: false,
+                line: format!(
+                    "{BOLD}Capacity [archive]{RST} {RED}CRIT: disk {}/{}MB ({pct}%){RST}",
+                    archive_used / 1_048_576,
+                    archive_limit_bytes / 1_048_576
+                ),
+            });
+        } else if pct >= 80 {
+            results.push(Outcome {
+                ok: true,
+                line: format!(
+                    "{BOLD}Capacity [archive]{RST} {YELLOW}WARN: disk {}/{}MB ({pct}%){RST}",
+                    archive_used / 1_048_576,
+                    archive_limit_bytes / 1_048_576
+                ),
+            });
+        }
+    }
+
+    // Graph index file count vs limit
+    let graph_max_files = cfg.graph_index_max_files;
+    if graph_max_files > 0 {
+        if let Some(session) = crate::core::session::SessionState::load_latest() {
+            if let Some(ref project_root) = session.project_root {
+                let disk_status = crate::core::index_orchestrator::disk_status(project_root);
+                if let Some(graph_files) = disk_status.graph_index.file_count {
+                    let pct = (graph_files as f64 / graph_max_files as f64 * 100.0) as u32;
+                    if pct >= 95 {
+                        results.push(Outcome {
+                            ok: false,
+                            line: format!(
+                                "{BOLD}Capacity [graph]{RST} {RED}CRIT: files {graph_files}/{graph_max_files} ({pct}%){RST}"
+                            ),
+                        });
+                    } else if pct >= 80 {
+                        results.push(Outcome {
+                            ok: true,
+                            line: format!(
+                                "{BOLD}Capacity [graph]{RST} {YELLOW}WARN: files {graph_files}/{graph_max_files} ({pct}%){RST}"
+                            ),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    if results.is_empty() {
+        results.push(Outcome {
+            ok: true,
+            line: format!("{BOLD}Capacity{RST} {GREEN}all stores within limits{RST}"),
+        });
+    }
+
+    results
+}
+
 fn lsp_server_outcomes() -> Vec<Outcome> {
     use crate::lsp::config::{find_binary_in_path, KNOWN_SERVERS};
 
@@ -1920,6 +2126,69 @@ fn lsp_server_outcomes() -> Vec<Outcome> {
 #[cfg(test)]
 mod tests {
     use super::is_active_shell_impl;
+
+    fn make_capacity_check(name: &str, current: usize, limit: usize) -> Option<(bool, String)> {
+        if limit == 0 {
+            return None;
+        }
+        let pct = (current as f64 / limit as f64 * 100.0) as u32;
+        if pct >= 95 {
+            Some((true, format!("{name}: {current}/{limit} ({pct}%)")))
+        } else if pct >= 80 {
+            Some((false, format!("{name}: {current}/{limit} ({pct}%)")))
+        } else {
+            None
+        }
+    }
+
+    #[test]
+    fn capacity_below_80_no_warning() {
+        assert!(make_capacity_check("facts", 100, 200).is_none());
+        assert!(make_capacity_check("facts", 159, 200).is_none());
+    }
+
+    #[test]
+    fn capacity_at_80_yellow_warning() {
+        let result = make_capacity_check("facts", 160, 200);
+        assert!(result.is_some());
+        let (critical, msg) = result.unwrap();
+        assert!(!critical);
+        assert!(msg.contains("160/200"));
+        assert!(msg.contains("80%"));
+    }
+
+    #[test]
+    fn capacity_at_92_yellow_warning() {
+        let result = make_capacity_check("facts", 185, 200);
+        assert!(result.is_some());
+        let (critical, msg) = result.unwrap();
+        assert!(!critical);
+        assert!(msg.contains("185/200"));
+        assert!(msg.contains("92%"));
+    }
+
+    #[test]
+    fn capacity_at_95_critical() {
+        let result = make_capacity_check("facts", 190, 200);
+        assert!(result.is_some());
+        let (critical, msg) = result.unwrap();
+        assert!(critical);
+        assert!(msg.contains("190/200"));
+        assert!(msg.contains("95%"));
+    }
+
+    #[test]
+    fn capacity_at_100_critical() {
+        let result = make_capacity_check("facts", 200, 200);
+        assert!(result.is_some());
+        let (critical, _) = result.unwrap();
+        assert!(critical);
+    }
+
+    #[test]
+    fn capacity_zero_limit_skipped() {
+        assert!(make_capacity_check("facts", 50, 0).is_none());
+    }
 
     #[test]
     fn bashrc_active_on_non_windows_when_shell_empty() {

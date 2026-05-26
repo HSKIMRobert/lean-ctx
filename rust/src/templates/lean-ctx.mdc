@@ -27,4 +27,8 @@ CLI for shell (no MCP schema overhead):
 ## File Editing
 Use native Edit/StrReplace. Write/Delete/Glob → use normally.
 If Edit fails, use `ctx_edit(path, old_string, new_string)` immediately.
+
+## Session Documentation
+After significant work: `ctx_knowledge(action="remember", category="decision", content="...")`
+When you see [CHECKPOINT] → call `ctx_session(action="task", value="<status>")`.
 <!-- /lean-ctx -->

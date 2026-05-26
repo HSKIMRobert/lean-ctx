@@ -35,8 +35,24 @@ When working on lean-ctx itself:
 
 ## Session Continuity
 
-Read `memory-bank/activeContext.md` at session start for current state.
-Append to `memory-bank/decisions.md` when making architecture decisions.
+lean-ctx automatically persists session context across restarts:
+- **Findings**: Recent tool results (reads, searches, test outcomes)
+- **Decisions**: Architecture choices made during the session
+- **Files**: Touched files with summaries and modification status
+- **Progress**: Task completion state and next steps
+
+This data is injected into every new session via the `ACTIVE SESSION` LITM block.
+
+### Active Documentation (Agent Responsibility)
+
+After completing a significant task (implementation, bugfix, refactoring):
+1. Record the decision: `ctx_knowledge(action="remember", category="decision", content="...")`
+2. Record progress: `ctx_session(action="task", value="<current task> [N%]")`
+3. Record blockers: `ctx_knowledge(action="remember", category="blocker", content="...")`
+
+After 30+ tool calls without documentation:
+- lean-ctx will prompt with `[CHECKPOINT: please document current progress]`
+- Respond by calling `ctx_session(action="task")` with current status
 
 ## Provider Pipeline (Context Cortex)
 

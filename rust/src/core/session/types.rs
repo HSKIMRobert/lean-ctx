@@ -34,6 +34,13 @@ pub struct SessionState {
     /// Unified compression level label (off/lite/standard/max).
     #[serde(default)]
     pub compression_level: String,
+    /// Watermark: timestamp of last auto-consolidation to prevent duplicate knowledge entries.
+    #[serde(default)]
+    pub last_consolidate_ts: Option<DateTime<Utc>>,
+    /// Extra project roots for multi-root workspaces.
+    /// Populated from config `extra_roots` and/or MCP `roots/list`.
+    #[serde(default)]
+    pub extra_roots: Vec<String>,
 }
 
 /// Description of the current task being worked on, with optional progress tracking.
@@ -74,6 +81,9 @@ pub struct FileTouched {
     pub stale: bool,
     #[serde(default)]
     pub context_item_id: Option<String>,
+    /// One-line summary of file purpose/content (max 80 chars)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
 }
 
 /// Snapshot of a test run with pass/fail counts.

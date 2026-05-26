@@ -969,7 +969,7 @@ fn spawn_index_build_background(root: &std::path::Path) {
             cmd.arg("ionice").args(["-c", "3"]);
         }
         cmd.arg(&binary)
-            .args(["index", "build-graph", "--root"])
+            .args(["index", "build", "--root"])
             .arg(root)
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
@@ -983,7 +983,7 @@ fn spawn_index_build_background(root: &std::path::Path) {
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         let _ = std::process::Command::new(&binary)
-            .args(["index", "build-graph", "--root"])
+            .args(["index", "build", "--root"])
             .arg(root)
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())

@@ -543,11 +543,26 @@ impl BM25Index {
     }
 
     pub fn load_or_build(root: &Path) -> Self {
+        Self::load_or_build_inner(root, false)
+    }
+
+    /// Like `load_or_build` but uses a fast sentinel-sampling staleness check
+    /// that skips the expensive full directory walk for new-file detection.
+    pub fn load_or_build_fast(root: &Path) -> Self {
+        Self::load_or_build_inner(root, true)
+    }
+
+    fn load_or_build_inner(root: &Path, fast_stale: bool) -> Self {
         if !is_safe_bm25_root(root) {
             return Self::default();
         }
         if let Some(idx) = Self::load(root) {
-            if !bm25_index_looks_stale(&idx, root) {
+            let stale = if fast_stale {
+                bm25_index_looks_stale_fast(&idx, root)
+            } else {
+                bm25_index_looks_stale(&idx, root)
+            };
+            if !stale {
                 return idx;
             }
             tracing::debug!(
@@ -613,12 +628,21 @@ fn is_safe_bm25_root(root: &Path) -> bool {
 }
 
 fn bm25_index_looks_stale(index: &BM25Index, root: &Path) -> bool {
+    bm25_index_looks_stale_inner(index, root, false)
+}
+
+/// Fast staleness check: samples a subset of tracked files and skips the
+/// expensive `list_code_files()` walk for new-file detection.
+pub fn bm25_index_looks_stale_fast(index: &BM25Index, root: &Path) -> bool {
+    bm25_index_looks_stale_inner(index, root, true)
+}
+
+fn bm25_index_looks_stale_inner(index: &BM25Index, root: &Path, fast: bool) -> bool {
     if index.chunks.is_empty() {
         return false;
     }
 
     if index.files.is_empty() {
-        // Legacy index (pre file-state tracking): only detect missing files.
         let mut seen = std::collections::HashSet::<&str>::new();
         for chunk in &index.chunks {
             let rel = chunk.file_path.trim_start_matches(['/', '\\']);
@@ -635,7 +659,31 @@ fn bm25_index_looks_stale(index: &BM25Index, root: &Path) -> bool {
         return false;
     }
 
-    // Missing or modified tracked files.
+    if fast {
+        let sample_size = index.files.len().min(SENTINEL_SAMPLE_SIZE);
+        let step = if index.files.len() > sample_size {
+            index.files.len() / sample_size
+        } else {
+            1
+        };
+        for (i, (rel, old_state)) in index.files.iter().enumerate() {
+            if i % step != 0 {
+                continue;
+            }
+            let abs = root.join(rel);
+            if !abs.exists() {
+                return true;
+            }
+            let Some(cur) = IndexedFileState::from_path(&abs) else {
+                return true;
+            };
+            if &cur != old_state {
+                return true;
+            }
+        }
+        return false;
+    }
+
     for (rel, old_state) in &index.files {
         let abs = root.join(rel);
         if !abs.exists() {
@@ -649,7 +697,6 @@ fn bm25_index_looks_stale(index: &BM25Index, root: &Path) -> bool {
         }
     }
 
-    // New files (present on disk but not in index).
     for rel in list_code_files(root) {
         if !index.files.contains_key(&rel) {
             return true;
@@ -658,6 +705,8 @@ fn bm25_index_looks_stale(index: &BM25Index, root: &Path) -> bool {
 
     false
 }
+
+const SENTINEL_SAMPLE_SIZE: usize = 10;
 
 fn bounded_zstd_decode(compressed: &[u8], max_bytes: u64) -> Option<Vec<u8>> {
     use std::io::Read;

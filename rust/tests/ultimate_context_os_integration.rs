@@ -79,6 +79,7 @@ mod shared_sessions {
                         tokens: 100 + i,
                         stale: false,
                         context_item_id: None,
+                        summary: None,
                     });
 
                     if i % 5 == 0 {
@@ -162,6 +163,7 @@ mod shared_sessions {
                 tokens: 200,
                 stale: false,
                 context_item_id: None,
+                summary: None,
             });
         }
 
@@ -584,6 +586,7 @@ mod external_app_docking {
                 tokens: 1500,
                 stale: false,
                 context_item_id: None,
+                summary: None,
             });
         }
 
@@ -740,6 +743,7 @@ mod session_features {
                 tokens: 500,
                 stale: false,
                 context_item_id: None,
+                summary: None,
             });
         }
 
@@ -1188,6 +1192,7 @@ mod e2e_multi_agent_scenario {
                 tokens: 2000,
                 stale: false,
                 context_item_id: None,
+                summary: None,
             });
         }
         bus.append(
@@ -1230,6 +1235,7 @@ mod e2e_multi_agent_scenario {
                 tokens: 800,
                 stale: false,
                 context_item_id: None,
+                summary: None,
             });
         }
         bus.append(
