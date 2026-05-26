@@ -128,6 +128,10 @@ impl LeanCtxServer {
             }
         };
 
+        if let Some(ref root) = startup.project_root {
+            crate::core::index_orchestrator::ensure_all_background(root);
+        }
+
         Self {
             cache: Arc::new(RwLock::new(SessionCache::new())),
             session,
@@ -173,6 +177,10 @@ impl LeanCtxServer {
             startup_project_root: startup.project_root,
             startup_shell_cwd: startup.shell_cwd,
             peer: Arc::new(tokio::sync::RwLock::new(None)),
+            has_client_roots: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            roots_resolved: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            bm25_cache: Arc::new(std::sync::Mutex::new(None)),
+            progress_sender: Arc::new(std::sync::Mutex::new(None)),
         }
     }
 
@@ -199,8 +207,20 @@ impl LeanCtxServer {
         *self.last_call.write().await = Instant::now();
     }
 
-    /// Aggressive cleanup on connection drop: save session, clear all caches, purge allocator.
+    /// Aggressive cleanup on connection drop: save session, consolidate knowledge, clear caches.
     pub async fn shutdown(&self) {
+        {
+            let session = self.session.read().await;
+            let has_insights = !session.findings.is_empty() || !session.decisions.is_empty();
+            let root = session.project_root.clone();
+            drop(session);
+
+            if has_insights {
+                if let Some(ref root) = root {
+                    crate::tools::startup::auto_consolidate_knowledge(root);
+                }
+            }
+        }
         {
             let mut session = self.session.write().await;
             let _ = session.save();

@@ -818,7 +818,9 @@ fn handle_health(project_root: &str) -> String {
         }
     }
 
-    let policy = crate::core::memory_policy::MemoryPolicy::default();
+    let policy = crate::core::config::Config::load()
+        .memory_policy_effective()
+        .unwrap_or_default();
     out.push_str(&format!(
         "\nPolicy: max {} facts, max {} patterns\n",
         policy.knowledge.max_facts, policy.knowledge.max_patterns

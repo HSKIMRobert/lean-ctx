@@ -3,6 +3,7 @@
 // ---------------------------------------------------------------------------
 pub mod adaptive_chunking;
 pub mod attention_context;
+pub mod auto_findings;
 pub mod codebook;
 pub mod compression_safety;
 pub mod compressor;
@@ -153,6 +154,7 @@ pub mod knowledge_domain {
 // ---------------------------------------------------------------------------
 // Domain: Search & Retrieval
 // ---------------------------------------------------------------------------
+pub mod bm25_cache;
 pub mod bm25_index;
 pub mod content_chunk;
 pub mod dense_backend;

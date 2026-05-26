@@ -153,8 +153,19 @@ impl LeanCtxServer {
             return None;
         }
 
+        // Check if agent has documented anything recently
+        let doc_reminder = {
+            let session = self.session.read().await;
+            let calls_since_last_doc = Self::calls_since_last_documentation(&session);
+            if calls_since_last_doc >= 30 {
+                "\n[CHECKPOINT: please document current progress via ctx_session(action=\"task\") or ctx_knowledge(action=\"remember\")]"
+            } else {
+                ""
+            }
+        };
+
         Some(format!(
-            "{checkpoint}\n\n--- SESSION STATE ---\n{session_summary}\n\n{}{multi_agent_block}",
+            "{checkpoint}\n\n--- SESSION STATE ---\n{session_summary}\n\n{}{multi_agent_block}{doc_reminder}",
             complexity.instruction_suffix()
         ))
     }
@@ -372,5 +383,40 @@ impl LeanCtxServer {
             cs.tool_call_count,
             &cs.complexity,
         );
+    }
+
+    /// Counts tool calls since the last documentation action (ctx_knowledge remember, ctx_session task).
+    fn calls_since_last_documentation(session: &crate::core::session::SessionState) -> u64 {
+        let total = session.stats.total_tool_calls;
+        // Use findings and decisions timestamps as proxy for documentation activity
+        let last_finding_ts = session.findings.last().map(|f| f.timestamp);
+        let last_decision_ts = session.decisions.last().map(|d| d.timestamp);
+
+        // If there are recent decisions or explicit task updates, consider it documented
+        if session.task.is_some() {
+            // Task was set at some point — check how many calls ago
+            let task_set_at = session
+                .progress
+                .last()
+                .map(|p| p.timestamp)
+                .or(last_decision_ts)
+                .or(last_finding_ts);
+
+            if let Some(ts) = task_set_at {
+                let age = chrono::Utc::now() - ts;
+                // If last doc action was less than 5 minutes ago, not stale
+                if age.num_minutes() < 5 {
+                    return 0;
+                }
+            }
+        }
+
+        // Conservative: if no decisions at all, report total calls
+        if session.decisions.is_empty() && session.progress.is_empty() {
+            return u64::from(total);
+        }
+
+        // Estimate calls since last documentation based on time
+        u64::from(total.min(30))
     }
 }

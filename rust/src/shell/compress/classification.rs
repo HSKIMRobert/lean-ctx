@@ -336,9 +336,7 @@ fn is_container_listing(command: &str) -> bool {
     if cl.starts_with("podman ps") || cl.starts_with("podman images") {
         return true;
     }
-    if cl.starts_with("kubectl get") || cl.starts_with("k get") {
-        return true;
-    }
+    // kubectl get is handled by the kubectl pattern compressor (not verbatim)
     if cl.starts_with("helm list") || cl.starts_with("helm ls") {
         return true;
     }

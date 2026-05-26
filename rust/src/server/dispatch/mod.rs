@@ -192,6 +192,8 @@ impl LeanCtxServer {
                 autonomy: Some(self.autonomy.clone()),
                 pressure_snapshot,
                 path_errors,
+                bm25_cache: Some(self.bm25_cache.clone()),
+                progress_sender: Some(self.progress_sender.clone()),
             };
             let output = tokio::task::block_in_place(|| tool.handle(args_map, &ctx))?;
 

@@ -49,7 +49,14 @@ pub fn handle(
         return workspace_search(query, root, top_k, compact, &filter, &mode);
     }
 
-    let index = load_or_refresh_bm25(root);
+    let index = match load_or_refresh_bm25(root) {
+        Bm25LoadResult::Ready(idx) => idx,
+        Bm25LoadResult::Building => {
+            return "BM25 index is being built in the background. \
+                    Run ctx_semantic_search again in ~30s, or use action=reindex to wait for completion."
+                .to_string();
+        }
+    };
     if index.doc_count == 0 {
         return "No code files found to index.".to_string();
     }
@@ -225,8 +232,67 @@ fn truncate_query(q: &str, max: usize) -> &str {
     }
 }
 
-fn load_or_refresh_bm25(root: &Path) -> BM25Index {
-    BM25Index::load_or_build(root)
+std::thread_local! {
+    static BM25_SHARED_CACHE: std::cell::RefCell<Option<crate::core::bm25_cache::SharedBm25Cache>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Set the shared BM25 cache for the current thread (called from the registered handler).
+pub fn set_thread_cache(cache: crate::core::bm25_cache::SharedBm25Cache) {
+    BM25_SHARED_CACHE.with(|c| {
+        *c.borrow_mut() = Some(cache);
+    });
+}
+
+/// Result of BM25 index loading — may indicate background build in progress.
+pub(crate) enum Bm25LoadResult {
+    Ready(BM25Index),
+    Building,
+}
+
+fn load_or_refresh_bm25(root: &Path) -> Bm25LoadResult {
+    let cached = BM25_SHARED_CACHE.with(|c| {
+        let borrow = c.borrow();
+        borrow
+            .as_ref()
+            .and_then(|cache| crate::core::bm25_cache::get_or_background(cache, root))
+    });
+    if let Some(idx) = cached {
+        return Bm25LoadResult::Ready(idx);
+    }
+
+    let root_str = root.to_string_lossy().to_string();
+
+    if let Some(idx) = crate::core::index_orchestrator::try_load_bm25_index(&root_str) {
+        store_in_thread_cache(root, idx.clone());
+        return Bm25LoadResult::Ready(idx);
+    }
+
+    if crate::core::index_orchestrator::is_building() {
+        return Bm25LoadResult::Building;
+    }
+
+    crate::core::index_orchestrator::ensure_all_background(&root_str);
+
+    let idx = BM25Index::load_or_build(root);
+    store_in_thread_cache(root, idx.clone());
+    Bm25LoadResult::Ready(idx)
+}
+
+fn store_in_thread_cache(root: &Path, idx: BM25Index) {
+    BM25_SHARED_CACHE.with(|c| {
+        let borrow = c.borrow();
+        if let Some(cache) = borrow.as_ref() {
+            let mut guard = cache
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            *guard = Some(crate::core::bm25_cache::Bm25CacheEntry {
+                root: root.to_path_buf(),
+                index: idx,
+                loaded_at: std::time::Instant::now(),
+            });
+        }
+    });
 }
 
 fn filtered_candidate_k(top_k: usize, filtered: bool) -> usize {

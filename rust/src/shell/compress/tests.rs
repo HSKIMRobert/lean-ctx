@@ -480,9 +480,9 @@ mod verbatim_output_tests {
     }
 
     #[test]
-    fn kubectl_get_is_now_verbatim() {
-        assert!(is_verbatim_output("kubectl get pods"));
-        assert!(is_verbatim_output("kubectl get deployments"));
+    fn kubectl_get_uses_pattern_not_verbatim() {
+        assert!(!is_verbatim_output("kubectl get pods"));
+        assert!(!is_verbatim_output("kubectl get deployments"));
     }
 
     #[test]
@@ -557,10 +557,11 @@ mod verbatim_output_tests {
         assert!(is_verbatim_output("docker images -a"));
         assert!(is_verbatim_output("podman ps"));
         assert!(is_verbatim_output("podman images"));
-        assert!(is_verbatim_output("kubectl get pods"));
-        assert!(is_verbatim_output("kubectl get deployments -A"));
-        assert!(is_verbatim_output("kubectl get svc --all-namespaces"));
-        assert!(is_verbatim_output("k get pods"));
+        // kubectl get uses pattern compressor now (not verbatim)
+        assert!(!is_verbatim_output("kubectl get pods"));
+        assert!(!is_verbatim_output("kubectl get deployments -A"));
+        assert!(!is_verbatim_output("kubectl get svc --all-namespaces"));
+        assert!(!is_verbatim_output("k get pods"));
         assert!(is_verbatim_output("helm list"));
         assert!(is_verbatim_output("helm ls --all-namespaces"));
         assert!(is_verbatim_output("docker compose ps"));

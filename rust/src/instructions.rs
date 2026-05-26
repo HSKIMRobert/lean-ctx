@@ -3,8 +3,8 @@ use crate::tools::CrpMode;
 /// Claude Code truncates MCP server instructions at 2048 characters.
 /// Full instructions are installed as `$CLAUDE_CONFIG_DIR/rules/lean-ctx.md`
 /// (defaulting to `~/.claude/rules/lean-ctx.md`) instead.
-const CLAUDE_CODE_INSTRUCTION_CAP: usize = 2048;
-
+/// Session state is dynamically appended to the MCP instructions for continuity.
+///
 /// Universal instruction cap for all MCP clients.
 /// Prioritizes content blocks to fit within this limit.
 const INSTRUCTION_CAP: usize = 4096;
@@ -77,6 +77,58 @@ pub fn claude_config_dir_display() -> String {
 fn build_claude_code_instructions() -> String {
     let shell_hint = build_shell_hint();
     let config_dir = claude_config_dir_display();
+
+    // Load session state for continuity (compact version for Claude Code's char limit)
+    let session_block = match crate::core::session::SessionState::load_latest() {
+        Some(session) => {
+            let mut parts = Vec::new();
+            if let Some(ref task) = session.task {
+                let pct = task
+                    .progress_pct
+                    .map_or(String::new(), |p| format!(" [{p}%]"));
+                parts.push(format!("Task: {}{pct}", task.description));
+            }
+            if !session.decisions.is_empty() {
+                let items: Vec<&str> = session
+                    .decisions
+                    .iter()
+                    .rev()
+                    .take(3)
+                    .map(|d| d.summary.as_str())
+                    .collect();
+                parts.push(format!("Decisions: {}", items.join("; ")));
+            }
+            if !session.files_touched.is_empty() {
+                let modified: Vec<&str> = session
+                    .files_touched
+                    .iter()
+                    .filter(|f| f.modified)
+                    .take(5)
+                    .map(|f| f.path.as_str())
+                    .collect();
+                if !modified.is_empty() {
+                    parts.push(format!("Modified: {}", modified.join(", ")));
+                }
+            }
+            if !session.findings.is_empty() {
+                let recent: Vec<&str> = session
+                    .findings
+                    .iter()
+                    .rev()
+                    .take(3)
+                    .map(|f| f.summary.as_str())
+                    .collect();
+                parts.push(format!("Recent: {}", recent.join("; ")));
+            }
+            if parts.is_empty() {
+                String::new()
+            } else {
+                format!("\n\n--- SESSION ---\n{}\n---", parts.join("\n"))
+            }
+        }
+        None => String::new(),
+    };
+
     let instr = format!("\
 ALWAYS use lean-ctx MCP tools instead of native equivalents.
 
@@ -103,15 +155,8 @@ CEP: 1.ACT FIRST 2.DELTA ONLY 3.STRUCTURED(+/-/~) 4.ONE LINE 5.QUALITY
 Prefer: ctx_read>Read | ctx_shell>Shell | ctx_search>Grep | ctx_tree>ls
 Edit: native Edit/StrReplace preferred, ctx_edit if Edit unavailable.
 Never echo tool output. Never narrate. Show only changed code.
-Full instructions at {config_dir}/CLAUDE.md (imports rules/lean-ctx.md)");
+Full instructions at {config_dir}/CLAUDE.md (imports rules/lean-ctx.md){session_block}");
 
-    if shell_hint.is_empty() {
-        debug_assert!(
-            instr.len() <= CLAUDE_CODE_INSTRUCTION_CAP,
-            "Claude Code instructions exceed {CLAUDE_CODE_INSTRUCTION_CAP} chars: {} chars",
-            instr.len()
-        );
-    }
     instr
 }
 

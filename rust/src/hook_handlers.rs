@@ -84,7 +84,12 @@ fn parse_observe_event(input: &str) -> Option<ObserveEvent> {
 }
 
 fn detect_event_type(v: &serde_json::Value, ts: u64) -> Option<ObserveEvent> {
-    if let Some(result) = v.get("result_json").or_else(|| v.get("result")) {
+    if let Some(result) = v
+        .get("result_json")
+        .or_else(|| v.get("result"))
+        .or_else(|| v.get("tool_response"))
+        .or_else(|| v.get("tool_output"))
+    {
         let tool = v
             .get("tool_name")
             .and_then(|t| t.as_str())
@@ -206,6 +211,7 @@ fn detect_event_type(v: &serde_json::Value, ts: u64) -> Option<ObserveEvent> {
             .and_then(|t| t.as_str())
             .unwrap_or("unknown")
             .to_string();
+        let is_lctx = tool.starts_with("ctx_") || tool.starts_with("mcp__lean-ctx__");
         let tokens = v.get("tool_input").map_or(0, estimate_tokens_json);
         let input_str = v
             .get("tool_input")
@@ -213,7 +219,7 @@ fn detect_event_type(v: &serde_json::Value, ts: u64) -> Option<ObserveEvent> {
             .unwrap_or_default();
         return Some(ObserveEvent {
             ts,
-            event_type: "native_tool",
+            event_type: if is_lctx { "mcp_call" } else { "native_tool" },
             tokens,
             tool_name: Some(tool),
             detail: None,
@@ -631,8 +637,19 @@ fn rewrite_candidate(cmd: &str, binary: &str) -> Option<String> {
 }
 
 /// Rewrites cat/head/tail to lean-ctx read with appropriate arguments.
+/// Only rewrites simple single-file reads within the project scope.
 fn rewrite_file_read_command(cmd: &str, binary: &str) -> Option<String> {
     if !rewrite_registry::is_file_read_command(cmd) {
+        return None;
+    }
+
+    // Compound commands (pipes, chains) should not be rewritten as file reads.
+    if cmd.contains('|') || cmd.contains("&&") || cmd.contains("||") || cmd.contains(';') {
+        return None;
+    }
+
+    // Shell redirections indicate complex usage — don't rewrite.
+    if cmd.contains(">&") || cmd.contains(">>") || cmd.contains(" >") {
         return None;
     }
 
@@ -644,12 +661,18 @@ fn rewrite_file_read_command(cmd: &str, binary: &str) -> Option<String> {
     match parts[0].as_str() {
         "cat" => {
             let path = parts[1..].join(" ");
+            if is_outside_project_path(&path) {
+                return None;
+            }
             Some(format!("{binary} read {}", shell_quote(&path)))
         }
         "head" => {
             let refs: Vec<&str> = parts[1..].iter().map(String::as_str).collect();
             let (n, path) = parse_head_tail_args(&refs);
             let path = path?;
+            if is_outside_project_path(path) {
+                return None;
+            }
             let qp = shell_quote(path);
             match n {
                 Some(lines) => Some(format!("{binary} read {qp} -m lines:1-{lines}")),
@@ -660,12 +683,58 @@ fn rewrite_file_read_command(cmd: &str, binary: &str) -> Option<String> {
             let refs: Vec<&str> = parts[1..].iter().map(String::as_str).collect();
             let (n, path) = parse_head_tail_args(&refs);
             let path = path?;
+            if is_outside_project_path(path) {
+                return None;
+            }
             let qp = shell_quote(path);
             let lines = n.unwrap_or(10);
             Some(format!("{binary} read {qp} -m lines:-{lines}"))
         }
         _ => None,
     }
+}
+
+/// Returns true if the path clearly points outside the current project.
+/// Paths starting with `~`, `$`, or absolute paths that don't resolve
+/// within the working directory should not be intercepted.
+fn is_outside_project_path(path: &str) -> bool {
+    let trimmed = path.trim();
+
+    // Home-relative paths are always outside the project
+    if trimmed.starts_with('~') {
+        return true;
+    }
+
+    // Environment variable expansion — too complex, pass through
+    if trimmed.starts_with('$') {
+        return true;
+    }
+
+    // /proc, /sys, /dev, /tmp, /var — system paths
+    if trimmed.starts_with("/proc/")
+        || trimmed.starts_with("/sys/")
+        || trimmed.starts_with("/dev/")
+        || trimmed.starts_with("/tmp/")
+        || trimmed.starts_with("/var/")
+    {
+        return true;
+    }
+
+    // Absolute paths: only pass through if they clearly point outside.
+    // We can't know the project root here (hooks are stateless), but we can
+    // detect common external patterns.
+    if trimmed.starts_with('/') {
+        // Home directory paths (e.g. /Users/*/Library, /home/*/.config)
+        if trimmed.contains("/Library/") || trimmed.contains("/.config/") {
+            return true;
+        }
+        // lean-ctx's own data directories
+        if trimmed.contains("/.lean-ctx/") || trimmed.contains("/lean-ctx/logs/") {
+            return true;
+        }
+    }
+
+    false
 }
 
 /// Rewrites `rg <pattern> [path]` to `lean-ctx grep <pattern> [path]` for simple forms.
@@ -1220,6 +1289,119 @@ mod tests {
     }
 
     #[test]
+    fn file_read_skips_home_relative_paths() {
+        assert_eq!(
+            rewrite_file_read_command("cat ~/Library/Logs/proxy.log", "lean-ctx"),
+            None
+        );
+        assert_eq!(
+            rewrite_file_read_command("head -20 ~/.lean-ctx/logs/proxy.stderr.log", "lean-ctx"),
+            None
+        );
+        assert_eq!(
+            rewrite_file_read_command("tail -50 ~/some/file.txt", "lean-ctx"),
+            None
+        );
+    }
+
+    #[test]
+    fn file_read_skips_system_paths() {
+        assert_eq!(
+            rewrite_file_read_command("cat /tmp/test.log", "lean-ctx"),
+            None
+        );
+        assert_eq!(
+            rewrite_file_read_command("cat /var/log/syslog", "lean-ctx"),
+            None
+        );
+        assert_eq!(
+            rewrite_file_read_command("cat /proc/cpuinfo", "lean-ctx"),
+            None
+        );
+    }
+
+    #[test]
+    fn file_read_skips_env_var_paths() {
+        assert_eq!(
+            rewrite_file_read_command("cat $HOME/.bashrc", "lean-ctx"),
+            None
+        );
+    }
+
+    #[test]
+    fn file_read_skips_library_and_config_paths() {
+        assert_eq!(
+            rewrite_file_read_command(
+                "cat /Users/user/Library/LaunchAgents/com.leanctx.proxy.plist",
+                "lean-ctx"
+            ),
+            None
+        );
+        assert_eq!(
+            rewrite_file_read_command("cat /home/user/.config/lean-ctx/config.toml", "lean-ctx"),
+            None
+        );
+    }
+
+    #[test]
+    fn file_read_skips_pipes_and_redirects() {
+        assert_eq!(
+            rewrite_file_read_command("cat file.rs | grep fn", "lean-ctx"),
+            None
+        );
+        assert_eq!(
+            rewrite_file_read_command("cat file.rs 2>&1", "lean-ctx"),
+            None
+        );
+        assert_eq!(
+            rewrite_file_read_command("cat file.rs >> output.log", "lean-ctx"),
+            None
+        );
+        assert_eq!(
+            rewrite_file_read_command("cat a.rs && cat b.rs", "lean-ctx"),
+            None
+        );
+        assert_eq!(
+            rewrite_file_read_command("cat a.rs; echo done", "lean-ctx"),
+            None
+        );
+    }
+
+    #[test]
+    fn file_read_still_rewrites_project_relative_paths() {
+        assert_eq!(
+            rewrite_file_read_command("cat src/main.rs", "lean-ctx"),
+            Some("lean-ctx read src/main.rs".to_string())
+        );
+        assert_eq!(
+            rewrite_file_read_command("cat ./Cargo.toml", "lean-ctx"),
+            Some("lean-ctx read ./Cargo.toml".to_string())
+        );
+        assert_eq!(
+            rewrite_file_read_command("head -20 src/lib.rs", "lean-ctx"),
+            Some("lean-ctx read src/lib.rs -m lines:1-20".to_string())
+        );
+    }
+
+    #[test]
+    fn is_outside_project_path_tests() {
+        assert!(is_outside_project_path("~/foo"));
+        assert!(is_outside_project_path("~/.lean-ctx/config.toml"));
+        assert!(is_outside_project_path("$HOME/.bashrc"));
+        assert!(is_outside_project_path("/tmp/test"));
+        assert!(is_outside_project_path("/var/log/syslog"));
+        assert!(is_outside_project_path("/proc/cpuinfo"));
+        assert!(is_outside_project_path("/Users/x/Library/Logs/foo.log"));
+        assert!(is_outside_project_path("/home/x/.config/app/conf"));
+        assert!(is_outside_project_path("/root/.lean-ctx/logs/proxy.log"));
+
+        assert!(!is_outside_project_path("src/main.rs"));
+        assert!(!is_outside_project_path("./Cargo.toml"));
+        assert!(!is_outside_project_path("../sibling/file.rs"));
+        assert!(!is_outside_project_path("file.txt"));
+    }
+
+    #[test]
     fn parse_head_tail_args_basic() {
         let (n, path) = parse_head_tail_args(&["-n", "20", "file.rs"]);
         assert_eq!(n, Some(20));
@@ -1513,5 +1695,65 @@ mod tests {
         let cmd = "find . -not -path ./node_modules -not -path ./.git -not -path ./dist";
         let r = wrap_single_command(cmd, "lean-ctx");
         assert_eq!(r, expect_wrapped(cmd, "lean-ctx"));
+    }
+
+    #[test]
+    fn detect_event_type_tool_response_is_mcp_call() {
+        let v = serde_json::json!({
+            "tool_name": "ctx_read",
+            "tool_response": "file contents here"
+        });
+        let event = detect_event_type(&v, 1000).unwrap();
+        assert_eq!(event.event_type, "mcp_call");
+    }
+
+    #[test]
+    fn detect_event_type_tool_output_is_mcp_call() {
+        let v = serde_json::json!({
+            "tool_name": "ctx_search",
+            "tool_output": "search results"
+        });
+        let event = detect_event_type(&v, 1000).unwrap();
+        assert_eq!(event.event_type, "mcp_call");
+    }
+
+    #[test]
+    fn detect_event_type_ctx_prefix_is_mcp_call() {
+        let v = serde_json::json!({
+            "tool_name": "ctx_read",
+            "tool_input": {"path": "src/main.rs"}
+        });
+        let event = detect_event_type(&v, 1000).unwrap();
+        assert_eq!(event.event_type, "mcp_call");
+    }
+
+    #[test]
+    fn detect_event_type_mcp_prefix_is_mcp_call() {
+        let v = serde_json::json!({
+            "tool_name": "mcp__lean-ctx__ctx_read",
+            "tool_input": {"path": "src/main.rs"}
+        });
+        let event = detect_event_type(&v, 1000).unwrap();
+        assert_eq!(event.event_type, "mcp_call");
+    }
+
+    #[test]
+    fn detect_event_type_native_read_is_native_tool() {
+        let v = serde_json::json!({
+            "tool_name": "Read",
+            "tool_input": {"path": "src/main.rs"}
+        });
+        let event = detect_event_type(&v, 1000).unwrap();
+        assert_eq!(event.event_type, "native_tool");
+    }
+
+    #[test]
+    fn detect_event_type_result_json_is_mcp_call() {
+        let v = serde_json::json!({
+            "tool_name": "ctx_read",
+            "result_json": {"content": "..."}
+        });
+        let event = detect_event_type(&v, 1000).unwrap();
+        assert_eq!(event.event_type, "mcp_call");
     }
 }

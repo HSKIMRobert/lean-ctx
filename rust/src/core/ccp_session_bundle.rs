@@ -281,6 +281,8 @@ pub fn import_bundle_v1_into_session(
         stats: imported.stats.clone(),
         terse_mode: imported.terse_mode,
         compression_level: imported.compression_level.clone(),
+        last_consolidate_ts: None,
+        extra_roots: Vec::new(),
     };
 
     ImportReportV1 {

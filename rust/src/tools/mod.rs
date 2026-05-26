@@ -63,7 +63,7 @@ mod server;
 mod server_lifecycle;
 mod server_metrics;
 mod server_paths;
-mod startup;
+pub(crate) mod startup;
 
 pub use server::*;
 pub use startup::create_server;

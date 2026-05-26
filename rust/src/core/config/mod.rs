@@ -355,6 +355,12 @@ pub struct Config {
     /// Override via LEAN_CTX_ALLOW_PATH env var (path-list separator).
     #[serde(default)]
     pub allow_paths: Vec<String>,
+    /// Extra project roots for multi-root workspaces.
+    /// Tools like ctx_tree and ctx_search can scan across all roots in a single call.
+    /// These paths are automatically added to PathJail's allow-list.
+    /// Override via LEAN_CTX_EXTRA_ROOTS env var (path-list separator).
+    #[serde(default)]
+    pub extra_roots: Vec<String>,
     /// Enable content-defined chunking (Rabin-Karp) for cache-optimal output ordering.
     /// Stable chunks are emitted first to maximize prompt cache hits.
     #[serde(default)]
@@ -402,6 +408,15 @@ pub struct Config {
     /// Override via LEAN_CTX_MAX_RAM_PERCENT env var.
     #[serde(default = "serde_defaults::default_max_ram_percent")]
     pub max_ram_percent: u8,
+    /// Simplified disk budget (MB). When set and detail values are at defaults,
+    /// distributes proportionally: archive=25%, bm25=10%, remainder for stores.
+    /// 0 = disabled (use individual settings). Override via LEAN_CTX_MAX_DISK_MB.
+    #[serde(default)]
+    pub max_disk_mb: u64,
+    /// Auto-purge data older than this many days. 0 = disabled.
+    /// Flows into archive.max_age_hours and lifecycle idle TTL.
+    #[serde(default)]
+    pub max_staleness_days: u32,
     /// Controls visibility of token savings footers in tool output.
     /// Values: "never" (default, suppress everywhere), "always", "auto" (legacy compatibility).
     /// Override via LEAN_CTX_SAVINGS_FOOTER env var.
@@ -856,6 +871,7 @@ impl Default for Config {
             archive: ArchiveConfig::default(),
             memory: MemoryPolicy::default(),
             allow_paths: Vec::new(),
+            extra_roots: Vec::new(),
             content_defined_chunking: false,
             minimal_overhead: false,
             shell_hook_disabled: false,
@@ -867,6 +883,8 @@ impl Default for Config {
             memory_profile: MemoryProfile::default(),
             memory_cleanup: MemoryCleanup::default(),
             max_ram_percent: serde_defaults::default_max_ram_percent(),
+            max_disk_mb: 0,
+            max_staleness_days: 0,
             savings_footer: SavingsFooter::default(),
             project_root: None,
             lsp: std::collections::HashMap::new(),
@@ -887,12 +905,13 @@ impl Default for Config {
     }
 }
 
-fn default_shell_allowlist() -> Vec<String> {
+pub(crate) fn default_shell_allowlist() -> Vec<String> {
     [
         // VCS
         "git",
         "gh",
         "svn",
+        "hg",
         // Build tools
         "cargo",
         "npm",
@@ -915,6 +934,17 @@ fn default_shell_allowlist() -> Vec<String> {
         "zig",
         "rustup",
         "rustc",
+        "deno",
+        "bazel",
+        // Package managers
+        "pipenv",
+        "conda",
+        "mamba",
+        "brew",
+        "apt",
+        "apt-get",
+        "apk",
+        "nix",
         // Common CLI
         "ls",
         "cat",
@@ -953,6 +983,7 @@ fn default_shell_allowlist() -> Vec<String> {
         "touch",
         "ln",
         "chmod",
+        "chown",
         "diff",
         "patch",
         "tar",
@@ -963,6 +994,19 @@ fn default_shell_allowlist() -> Vec<String> {
         "zstd",
         "curl",
         "wget",
+        "tree",
+        "du",
+        "df",
+        "ps",
+        "lsof",
+        "watch",
+        "tee",
+        "less",
+        "more",
+        "id",
+        "whoami",
+        "uname",
+        "hostname",
         // Dev tools
         "docker",
         "docker-compose",
@@ -993,6 +1037,96 @@ fn default_shell_allowlist() -> Vec<String> {
         "timeout",
         "nice",
         "ionice",
+        // Testing frameworks
+        "pytest",
+        "py.test",
+        "jest",
+        "vitest",
+        "mocha",
+        "cypress",
+        "playwright",
+        "puppeteer",
+        // Pre-commit & git hooks
+        "pre-commit",
+        "husky",
+        "lint-staged",
+        "lefthook",
+        "overcommit",
+        "commitlint",
+        // Linters & formatters
+        "mypy",
+        "pyright",
+        "pylint",
+        "flake8",
+        "bandit",
+        "isort",
+        "autopep8",
+        "yapf",
+        "golangci-lint",
+        "shellcheck",
+        "markdownlint",
+        "stylelint",
+        // Bundlers & dev servers
+        "webpack",
+        "vite",
+        "esbuild",
+        "rollup",
+        "turbo",
+        "nx",
+        "lerna",
+        "next",
+        "nuxt",
+        // Ruby ecosystem
+        "bundle",
+        "bundler",
+        "rake",
+        "rails",
+        "rspec",
+        "rubocop",
+        // PHP ecosystem
+        "php",
+        "composer",
+        "phpunit",
+        "artisan",
+        // Mobile
+        "flutter",
+        "dart",
+        "xcodebuild",
+        "xcrun",
+        "pod",
+        "fastlane",
+        // Cloud & infra
+        "terraform",
+        "ansible",
+        "kubectl",
+        "helm",
+        "az",
+        "aws",
+        "gcloud",
+        "firebase",
+        "heroku",
+        "vercel",
+        "netlify",
+        "fly",
+        "wrangler",
+        "pulumi",
+        // Database
+        "psql",
+        "mysql",
+        "sqlite3",
+        "mongosh",
+        "redis-cli",
+        "pg_dump",
+        "pg_restore",
+        "mysqldump",
+        // JVM ecosystem
+        "scala",
+        "sbt",
+        "kotlin",
+        "kotlinc",
+        // Elixir
+        "elixir",
+        "iex",
         // lean-ctx itself
         "lean-ctx",
     ]
@@ -1113,6 +1247,27 @@ impl Config {
     pub fn memory_policy_effective(&self) -> Result<MemoryPolicy, String> {
         let mut policy = self.memory.clone();
         policy.apply_env_overrides();
+
+        // Scale memory limits proportionally when max_disk_mb is set
+        // and individual limits are still at their defaults.
+        let budget = self.max_disk_mb_effective();
+        if budget > 0 {
+            let scale_factor = (budget as f64 / 500.0).clamp(0.5, 10.0);
+            let default_policy = MemoryPolicy::default();
+            if policy.knowledge.max_facts == default_policy.knowledge.max_facts {
+                policy.knowledge.max_facts = (200.0 * scale_factor) as usize;
+            }
+            if policy.knowledge.max_patterns == default_policy.knowledge.max_patterns {
+                policy.knowledge.max_patterns = (50.0 * scale_factor) as usize;
+            }
+            if policy.episodic.max_episodes == default_policy.episodic.max_episodes {
+                policy.episodic.max_episodes = (500.0 * scale_factor) as usize;
+            }
+            if policy.procedural.max_procedures == default_policy.procedural.max_procedures {
+                policy.procedural.max_procedures = (100.0 * scale_factor) as usize;
+            }
+        }
+
         policy.validate()?;
         Ok(policy)
     }
@@ -1144,6 +1299,60 @@ impl Config {
             return val == "1" || val.eq_ignore_ascii_case("true");
         }
         self.no_degrade
+    }
+
+    /// Effective max_disk_mb from env or config.
+    pub fn max_disk_mb_effective(&self) -> u64 {
+        std::env::var("LEAN_CTX_MAX_DISK_MB")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(self.max_disk_mb)
+    }
+
+    /// Effective max_staleness_days from env or config.
+    pub fn max_staleness_days_effective(&self) -> u32 {
+        std::env::var("LEAN_CTX_MAX_STALENESS_DAYS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(self.max_staleness_days)
+    }
+
+    /// Archive max_disk_mb derived from simplified max_disk_mb if the detail
+    /// value is still at its default. Explicit overrides take priority.
+    pub fn archive_max_disk_mb_effective(&self) -> u64 {
+        let budget = self.max_disk_mb_effective();
+        if budget > 0 && self.archive.max_disk_mb == ArchiveConfig::default().max_disk_mb {
+            budget * 25 / 100
+        } else {
+            self.archive.max_disk_mb
+        }
+    }
+
+    /// Archive max_age_hours derived from max_staleness_days if the detail
+    /// value is still at its default. Explicit overrides take priority.
+    pub fn archive_max_age_hours_effective(&self) -> u64 {
+        let staleness = self.max_staleness_days_effective();
+        if staleness > 0 && self.archive.max_age_hours == ArchiveConfig::default().max_age_hours {
+            staleness as u64 * 24
+        } else {
+            self.archive.max_age_hours
+        }
+    }
+
+    /// BM25 max cache MB derived from simplified max_disk_mb if the detail
+    /// value is still at its default. Explicit overrides and MemoryProfile take priority.
+    pub fn bm25_max_cache_mb_effective(&self) -> u64 {
+        let budget = self.max_disk_mb_effective();
+        if budget > 0 && self.bm25_max_cache_mb == serde_defaults::default_bm25_max_cache_mb() {
+            budget * 10 / 100
+        } else {
+            let profile = MemoryProfile::effective(self);
+            if self.bm25_max_cache_mb == serde_defaults::default_bm25_max_cache_mb() {
+                profile.bm25_max_cache_mb()
+            } else {
+                self.bm25_max_cache_mb
+            }
+        }
     }
 }
 
@@ -1871,6 +2080,9 @@ impl Config {
         if !local.allow_paths.is_empty() {
             self.allow_paths.extend(local.allow_paths);
         }
+        if !local.extra_roots.is_empty() {
+            self.extra_roots.extend(local.extra_roots);
+        }
         if local.minimal_overhead {
             self.minimal_overhead = true;
         }
@@ -1938,6 +2150,33 @@ impl Config {
             }
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod extra_roots_tests {
+    use super::*;
+
+    #[test]
+    fn default_is_empty() {
+        let cfg = Config::default();
+        assert!(cfg.extra_roots.is_empty());
+    }
+
+    #[test]
+    fn deserialization_from_toml() {
+        let cfg: Config = toml::from_str(r#"extra_roots = ["/data/store", "/test/env"]"#).unwrap();
+        assert_eq!(cfg.extra_roots, vec!["/data/store", "/test/env"]);
+    }
+
+    #[test]
+    fn merge_extends() {
+        let mut base = Config {
+            extra_roots: vec!["/base".to_string()],
+            ..Config::default()
+        };
+        base.merge_local(r#"extra_roots = ["/local"]"#);
+        assert_eq!(base.extra_roots, vec!["/base", "/local"]);
     }
 }
 
@@ -2134,5 +2373,133 @@ mod memory_cleanup_tests {
         };
         let eff = MemoryCleanup::effective(&cfg);
         assert_eq!(eff, MemoryCleanup::Shared);
+    }
+}
+
+#[cfg(test)]
+mod simplified_config_tests {
+    use super::*;
+
+    #[test]
+    fn max_disk_mb_zero_means_disabled() {
+        let cfg = Config::default();
+        assert_eq!(cfg.max_disk_mb, 0);
+        assert_eq!(cfg.max_disk_mb_effective(), 0);
+    }
+
+    #[test]
+    fn archive_derives_from_disk_budget() {
+        let cfg = Config {
+            max_disk_mb: 4000,
+            ..Default::default()
+        };
+        assert_eq!(cfg.archive_max_disk_mb_effective(), 1000);
+    }
+
+    #[test]
+    fn archive_explicit_overrides_derived() {
+        let cfg = Config {
+            max_disk_mb: 4000,
+            archive: ArchiveConfig {
+                max_disk_mb: 800,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert_eq!(cfg.archive_max_disk_mb_effective(), 800);
+    }
+
+    #[test]
+    fn bm25_derives_from_disk_budget() {
+        let cfg = Config {
+            max_disk_mb: 4000,
+            ..Default::default()
+        };
+        assert_eq!(cfg.bm25_max_cache_mb_effective(), 400);
+    }
+
+    #[test]
+    fn bm25_explicit_overrides_derived() {
+        let cfg = Config {
+            max_disk_mb: 4000,
+            bm25_max_cache_mb: 256,
+            ..Default::default()
+        };
+        assert_eq!(cfg.bm25_max_cache_mb_effective(), 256);
+    }
+
+    #[test]
+    fn staleness_days_derives_archive_age() {
+        let cfg = Config {
+            max_staleness_days: 30,
+            ..Default::default()
+        };
+        assert_eq!(cfg.archive_max_age_hours_effective(), 720);
+    }
+
+    #[test]
+    fn staleness_explicit_archive_age_overrides() {
+        let cfg = Config {
+            max_staleness_days: 30,
+            archive: ArchiveConfig {
+                max_age_hours: 96,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert_eq!(cfg.archive_max_age_hours_effective(), 96);
+    }
+
+    #[test]
+    fn no_budget_returns_defaults() {
+        let cfg = Config::default();
+        assert_eq!(
+            cfg.archive_max_disk_mb_effective(),
+            ArchiveConfig::default().max_disk_mb
+        );
+        assert_eq!(
+            cfg.archive_max_age_hours_effective(),
+            ArchiveConfig::default().max_age_hours
+        );
+    }
+
+    #[test]
+    fn memory_limits_scale_with_disk_budget() {
+        let cfg = Config {
+            max_disk_mb: 2000,
+            ..Default::default()
+        };
+        let policy = cfg.memory_policy_effective().unwrap();
+        // factor = 2000/500 = 4.0
+        assert_eq!(policy.knowledge.max_facts, 800);
+        assert_eq!(policy.knowledge.max_patterns, 200);
+        assert_eq!(policy.episodic.max_episodes, 2000);
+        assert_eq!(policy.procedural.max_procedures, 400);
+    }
+
+    #[test]
+    fn memory_limits_clamped_at_max_factor() {
+        let cfg = Config {
+            max_disk_mb: 50_000,
+            ..Default::default()
+        };
+        let policy = cfg.memory_policy_effective().unwrap();
+        // factor clamped at 10.0
+        assert_eq!(policy.knowledge.max_facts, 2000);
+        assert_eq!(policy.episodic.max_episodes, 5000);
+    }
+
+    #[test]
+    fn memory_limits_unchanged_when_no_budget() {
+        let cfg = Config::default();
+        let policy = cfg.memory_policy_effective().unwrap();
+        assert_eq!(policy.knowledge.max_facts, 200);
+        assert_eq!(policy.episodic.max_episodes, 500);
+    }
+
+    #[test]
+    fn simplified_template_is_valid_toml() {
+        let parsed: Result<toml::Table, _> = toml::from_str(crate::cli::SIMPLIFIED_TEMPLATE);
+        assert!(parsed.is_ok(), "Template must be valid TOML");
     }
 }

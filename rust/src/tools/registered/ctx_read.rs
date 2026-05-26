@@ -405,6 +405,11 @@ impl CtxReadTool {
             ));
             if let Ok(mut session) = session_guard {
                 session.touch_file(path, file_ref.as_deref(), &resolved_mode, original);
+                // Auto-generate file summary from output content
+                let file_summary = extract_file_summary(&output, path);
+                if !file_summary.is_empty() {
+                    session.set_file_summary(path, &file_summary);
+                }
                 if is_cache_hit {
                     session.record_cache_hit();
                 }
@@ -419,6 +424,10 @@ impl CtxReadTool {
                     if inferred.confidence >= 0.4 {
                         session.active_structured_intent = Some(inferred);
                     }
+                }
+                // Auto-infer task every 5th file read if not explicitly set
+                if session.task.is_none() && session.stats.files_read % 5 == 0 {
+                    session.auto_infer_task();
                 }
                 let root_missing = session
                     .project_root
@@ -582,6 +591,52 @@ fn auto_degrade_read_mode(mode: &str) -> (String, Option<String>) {
         None
     };
     (new_mode, warning)
+}
+
+/// Extracts a one-line summary from ctx_read output for session context.
+/// Looks for structural hints: exports, deps, doc comments, or main definitions.
+fn extract_file_summary(output: &str, path: &str) -> String {
+    let lines: Vec<&str> = output.lines().skip(1).take(20).collect();
+
+    // Look for deps/exports/module-level descriptions
+    for line in &lines {
+        let trimmed = line.trim();
+        if trimmed.starts_with("deps:")
+            || trimmed.starts_with("exports:")
+            || trimmed.starts_with("//!")
+        {
+            let summary = trimmed[..trimmed.len().min(80)].to_string();
+            return summary;
+        }
+    }
+
+    // Look for primary struct/fn/class definitions
+    for line in &lines {
+        let trimmed = line.trim();
+        if trimmed.starts_with("pub struct ")
+            || trimmed.starts_with("pub enum ")
+            || trimmed.starts_with("pub trait ")
+            || trimmed.starts_with("class ")
+            || trimmed.starts_with("export default ")
+            || trimmed.starts_with("export function ")
+            || trimmed.starts_with("def ")
+        {
+            return trimmed[..trimmed.len().min(70)].to_string();
+        }
+    }
+
+    // Fallback: use file extension to guess purpose
+    let ext = std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+
+    let line_count = output.lines().count();
+    if line_count > 5 {
+        format!("{ext} file, {line_count} lines")
+    } else {
+        String::new()
+    }
 }
 
 #[cfg(test)]

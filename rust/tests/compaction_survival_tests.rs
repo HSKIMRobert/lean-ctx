@@ -116,6 +116,7 @@ fn resume_block_with_files() {
             tokens: 100,
             stale: false,
             context_item_id: None,
+            summary: None,
         });
     session
         .files_touched
@@ -128,6 +129,7 @@ fn resume_block_with_files() {
             tokens: 50,
             stale: false,
             context_item_id: None,
+            summary: None,
         });
     let block = session.build_resume_block();
     assert!(

@@ -7,12 +7,15 @@ pub mod dynamic_tools;
 pub mod elicitation;
 pub(crate) mod execute;
 pub mod helpers;
+pub mod multi_path;
 pub mod notifications;
+pub mod progress;
 pub mod prompts;
 pub mod reference_store;
 pub mod registry;
 pub mod resources;
 pub mod role_guard;
+pub mod roots;
 pub mod tool_trait;
 
 use futures::FutureExt;
@@ -67,7 +70,17 @@ impl ServerHandler for LeanCtxServer {
             }
         }
 
+        let has_roots = request.capabilities.roots.is_some();
+        self.has_client_roots
+            .store(has_roots, std::sync::atomic::Ordering::Relaxed);
+        if has_roots {
+            tracing::info!("Client supports MCP roots/list — will resolve on first tool call");
+        }
+
+        let env_root = roots::root_from_env();
         let derived_root = derive_project_root_from_cwd();
+        let effective_root = env_root.or(derived_root);
+
         let cwd_str = std::env::current_dir()
             .ok()
             .map(|p| p.to_string_lossy().to_string())
@@ -77,7 +90,7 @@ impl ServerHandler for LeanCtxServer {
             if !cwd_str.is_empty() {
                 session.shell_cwd = Some(cwd_str.clone());
             }
-            if let Some(ref root) = derived_root {
+            if let Some(ref root) = effective_root {
                 session.project_root = Some(root.clone());
                 tracing::info!("Project root set to: {root}");
             } else if let Some(ref root) = session.project_root {
@@ -94,6 +107,16 @@ impl ServerHandler for LeanCtxServer {
                     || root_str.contains("\\Temp\\");
                 if root_suspicious && !root_has_marker {
                     session.project_root = None;
+                }
+            }
+            let cfg_extra = crate::core::config::Config::load().extra_roots;
+            if !cfg_extra.is_empty() {
+                let existing: std::collections::HashSet<_> =
+                    session.extra_roots.iter().cloned().collect();
+                for r in cfg_extra {
+                    if !existing.contains(&r) {
+                        session.extra_roots.push(r);
+                    }
                 }
             }
             if self.session_mode == crate::tools::SessionMode::Shared {
@@ -113,8 +136,12 @@ impl ServerHandler for LeanCtxServer {
             }
         }
 
+        if let Some(ref root) = effective_root {
+            crate::core::index_orchestrator::ensure_all_background(root);
+        }
+
         let agent_name = name.clone();
-        let agent_root = derived_root.clone().unwrap_or_default();
+        let agent_root = effective_root.clone().unwrap_or_default();
         let agent_id_handle = self.agent_id.clone();
         tokio::task::spawn_blocking(move || {
             if std::env::var("LEAN_CTX_HEADLESS").is_ok() {
@@ -386,9 +413,22 @@ impl ServerHandler for LeanCtxServer {
     async fn call_tool(
         &self,
         request: CallToolRequestParams,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
         use std::panic::AssertUnwindSafe;
+
+        let progress_token = request
+            .meta
+            .as_ref()
+            .and_then(rmcp::model::Meta::get_progress_token);
+        if let Some(ref token) = progress_token {
+            let sender =
+                crate::server::progress::ProgressSender::new(context.peer.clone(), token.clone());
+            *self
+                .progress_sender
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(sender);
+        }
 
         let tool_name_for_panic = request.name.as_ref().to_string();
         let args_fp_for_panic = request
@@ -433,6 +473,15 @@ impl ServerHandler for LeanCtxServer {
             }
         }
     }
+
+    async fn on_roots_list_changed(
+        &self,
+        _context: rmcp::service::NotificationContext<RoleServer>,
+    ) {
+        tracing::info!("Received roots/list_changed — will re-resolve on next tool call");
+        self.roots_resolved
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 impl LeanCtxServer {
@@ -441,6 +490,7 @@ impl LeanCtxServer {
         request: CallToolRequestParams,
     ) -> Result<CallToolResult, ErrorData> {
         self.check_idle_expiry().await;
+        self.resolve_roots_once().await;
         elicitation::increment_call();
 
         let original_name = request.name.as_ref().to_string();
@@ -1050,12 +1100,21 @@ impl LeanCtxServer {
         }
 
         if !minimal && !is_raw_shell {
-            bypass_hint::record_lctx_call();
             if let Ok(data_dir) = crate::core::data_dir::lean_ctx_data_dir() {
+                let session = self.session.read().await;
+                bypass_hint::set_session_id(&session.id);
+                drop(session);
                 if let Some(hint) = bypass_hint::check(&data_dir) {
                     result_text = format!("{result_text}\n{hint}");
                 }
             }
+            bypass_hint::record_lctx_call();
+        }
+
+        if let Some(finding) = crate::core::auto_findings::extract(name, &result_text) {
+            let mut session = self.session.write().await;
+            session.add_finding(finding.file.as_deref(), None, &finding.summary);
+            drop(session);
         }
 
         #[allow(clippy::cast_possible_truncation)]
@@ -1363,6 +1422,74 @@ impl LeanCtxServer {
         }
 
         Ok(CallToolResult::success(vec![Content::text(result_text)]))
+    }
+
+    /// Resolve project root from MCP client roots (once per session).
+    /// Called on the first tool call. If the client supports `roots/list`,
+    /// we query it and pick the best root with project markers.
+    async fn resolve_roots_once(&self) {
+        use std::sync::atomic::Ordering;
+        if !self.has_client_roots.load(Ordering::Relaxed) {
+            return;
+        }
+        if self.roots_resolved.swap(true, Ordering::Relaxed) {
+            return;
+        }
+        let peer_guard = self.peer.read().await;
+        let Some(peer) = peer_guard.as_ref() else {
+            return;
+        };
+        let list_result = match peer.list_roots().await {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!("roots/list failed: {e}");
+                return;
+            }
+        };
+        drop(peer_guard);
+
+        let uris: Vec<String> = list_result.roots.iter().map(|r| r.uri.clone()).collect();
+        let validated_paths = roots::valid_dir_paths_from_uris(&uris);
+        let Some(new_root) = roots::best_root_from_uris(&uris) else {
+            return;
+        };
+
+        let mut session = self.session.write().await;
+        let old_root = session.project_root.clone();
+
+        let other_roots: Vec<String> = validated_paths
+            .iter()
+            .filter(|p| p.as_str() != new_root)
+            .cloned()
+            .collect();
+        if !other_roots.is_empty() {
+            session.extra_roots = other_roots;
+            tracing::info!(
+                "MCP roots: {} extra root(s) registered",
+                session.extra_roots.len()
+            );
+        }
+
+        if old_root.as_deref() == Some(&new_root) {
+            let _ = session.save();
+            return;
+        }
+        tracing::info!(
+            "MCP roots: switching project root from {:?} to {new_root}",
+            old_root
+        );
+        if let Some(existing) =
+            crate::core::session::SessionState::load_latest_for_project_root(&new_root)
+        {
+            *session = existing;
+            session.extra_roots = validated_paths
+                .iter()
+                .filter(|p| p.as_str() != new_root)
+                .cloned()
+                .collect();
+        }
+        session.project_root = Some(new_root);
+        let _ = session.save();
     }
 }
 

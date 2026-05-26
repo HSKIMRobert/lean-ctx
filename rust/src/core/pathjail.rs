@@ -38,16 +38,27 @@ pub fn allow_paths_from_env_and_config() -> Vec<PathBuf> {
         let pb = PathBuf::from(p);
         out.push(canonicalize_or_self(&pb));
     }
+    for p in &cfg.extra_roots {
+        let pb = PathBuf::from(p);
+        out.push(canonicalize_or_self(&pb));
+    }
 
     let v = std::env::var("LCTX_ALLOW_PATH")
         .or_else(|_| std::env::var("LEAN_CTX_ALLOW_PATH"))
         .unwrap_or_default();
-    if v.trim().is_empty() {
-        return out;
+    if !v.trim().is_empty() {
+        for p in std::env::split_paths(&v) {
+            out.push(canonicalize_or_self(&p));
+        }
     }
-    for p in std::env::split_paths(&v) {
-        out.push(canonicalize_or_self(&p));
+
+    let extra = std::env::var("LEAN_CTX_EXTRA_ROOTS").unwrap_or_default();
+    if !extra.trim().is_empty() {
+        for p in std::env::split_paths(&extra) {
+            out.push(canonicalize_or_self(&p));
+        }
     }
+
     out
 }
 

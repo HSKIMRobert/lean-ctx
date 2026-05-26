@@ -116,6 +116,10 @@ pub struct ToolContext {
     /// Errors from path resolution (PathJail rejection, secret path, etc.).
     /// Keyed by argument name (e.g. "path" -> "path escapes project root: ...").
     pub path_errors: std::collections::HashMap<String, String>,
+    /// Shared in-memory BM25 index cache for semantic search.
+    pub bm25_cache: Option<crate::core::bm25_cache::SharedBm25Cache>,
+    /// MCP progress notification sender for long-running operations.
+    pub progress_sender: Option<crate::server::progress::SharedProgressSender>,
 }
 
 impl ToolContext {
@@ -235,6 +239,8 @@ mod tests {
             autonomy: None,
             pressure_snapshot: None,
             path_errors: std::collections::HashMap::new(),
+            bm25_cache: None,
+            progress_sender: None,
         }
     }
 

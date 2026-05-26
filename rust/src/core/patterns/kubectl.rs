@@ -61,20 +61,46 @@ fn compress_get(output: &str) -> String {
     let header = lines[0];
     let cols: Vec<&str> = header.split_whitespace().collect();
 
-    let mut rows = Vec::new();
-    for line in &lines[1..] {
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.is_empty() {
-            continue;
-        }
+    // Find STATUS column index for aggregation
+    let status_col = cols.iter().position(|c| c.eq_ignore_ascii_case("STATUS"));
 
+    let data_lines: Vec<Vec<&str>> = lines[1..]
+        .iter()
+        .map(|l| l.split_whitespace().collect::<Vec<&str>>())
+        .filter(|p| !p.is_empty())
+        .collect();
+
+    if data_lines.is_empty() {
+        return "no resources".to_string();
+    }
+
+    let total = data_lines.len();
+
+    // If STATUS column exists and we have many rows, produce aggregation summary
+    if let Some(si) = status_col {
+        if total > 5 {
+            let mut status_counts: std::collections::HashMap<&str, usize> =
+                std::collections::HashMap::new();
+            for row in &data_lines {
+                if let Some(status) = row.get(si) {
+                    *status_counts.entry(status).or_default() += 1;
+                }
+            }
+            let mut summary_parts: Vec<String> = status_counts
+                .iter()
+                .map(|(k, v)| format!("{v} {k}"))
+                .collect();
+            summary_parts.sort_by(|a, b| b.cmp(a));
+            return format!("{total} resources ({})", summary_parts.join(", "));
+        }
+    }
+
+    // For small result sets, show compact table
+    let mut rows = Vec::new();
+    for parts in &data_lines {
         let name = parts[0];
         let relevant: Vec<&str> = parts.iter().skip(1).take(4).copied().collect();
         rows.push(format!("{name} {}", relevant.join(" ")));
-    }
-
-    if rows.is_empty() {
-        return "no resources".to_string();
     }
 
     let col_hint = cols
@@ -290,4 +316,113 @@ fn compact_output(text: &str, max: usize) -> String {
         lines[..max].join("\n"),
         lines.len() - max
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn get_pods_many_aggregates_by_status() {
+        let output = "\
+NAME                    READY   STATUS    RESTARTS   AGE
+api-server-abc123       1/1     Running   0          5d
+api-server-def456       1/1     Running   0          5d
+worker-1-ghi789        1/1     Running   2          3d
+worker-2-jkl012        1/1     Running   0          3d
+scheduler-mno345       0/1     Pending   0          1h
+cache-pqr678           0/1     CrashLoopBackOff   5   2d
+db-stu901              1/1     Running   0          10d
+";
+        let result = compress("kubectl get pods -A", output);
+        let r = result.unwrap();
+        assert!(r.contains("7 resources"));
+        assert!(r.contains("Running"));
+        assert!(r.contains("Pending"));
+        assert!(r.contains("CrashLoopBackOff"));
+    }
+
+    #[test]
+    fn get_pods_few_shows_compact_table() {
+        let output = "\
+NAME          READY   STATUS    RESTARTS   AGE
+my-pod-123    1/1     Running   0          5d
+my-pod-456    1/1     Running   0          3d
+";
+        let result = compress("kubectl get pods", output);
+        let r = result.unwrap();
+        assert!(r.contains("my-pod-123"));
+        assert!(r.contains("[READY STATUS RESTARTS AGE]"));
+    }
+
+    #[test]
+    fn get_no_resources() {
+        let result = compress(
+            "kubectl get pods",
+            "No resources found in default namespace.\n",
+        );
+        assert_eq!(result.unwrap(), "no resources");
+    }
+
+    #[test]
+    fn apply_aggregates_actions() {
+        let output = "\
+service/api-gateway configured
+deployment.apps/api-server configured
+configmap/settings created
+secret/db-credentials unchanged
+";
+        let result = compress("kubectl apply -f deploy/", output);
+        let r = result.unwrap();
+        assert!(r.contains("4 resources"));
+        assert!(r.contains("2 configured"));
+        assert!(r.contains("1 created"));
+        assert!(r.contains("1 unchanged"));
+    }
+
+    #[test]
+    fn logs_deduplicates_repeated_lines() {
+        let mut lines = Vec::new();
+        for i in 0..20 {
+            lines.push(format!("2026-05-25T10:{i:02}:00Z INFO: Processing request"));
+        }
+        lines.push("2026-05-25T10:20:00Z ERROR: Connection refused".to_string());
+        let output = lines.join("\n");
+        let result = compress("kubectl logs my-pod", &output);
+        let r = result.unwrap();
+        assert!(r.contains("(x"));
+        assert!(r.contains("Connection refused"));
+    }
+
+    #[test]
+    fn describe_extracts_events() {
+        let mut output = String::new();
+        output.push_str("Name: my-pod\n");
+        output.push_str("Namespace: default\n");
+        output.push_str("Labels:\n");
+        for i in 0..10 {
+            output.push_str(&format!("  app=myapp-{i}\n"));
+        }
+        output.push_str("Conditions:\n");
+        output.push_str("  Type    Status\n");
+        output.push_str("  Ready   True\n");
+        output.push_str("Events:\n");
+        for i in 0..8 {
+            output.push_str(&format!("  Normal  Pulled  {i}m  kubelet  pulled image\n"));
+        }
+        let result = compress("kubectl describe pod my-pod", &output);
+        let r = result.unwrap();
+        assert!(r.contains("Events (last 5 of 8)"));
+    }
+
+    #[test]
+    fn delete_counts_resources() {
+        let output = "\
+pod \"worker-1\" deleted
+pod \"worker-2\" deleted
+pod \"worker-3\" deleted
+";
+        let result = compress("kubectl delete pods -l app=worker", output);
+        assert_eq!(result.unwrap(), "deleted 3 resources");
+    }
 }

@@ -39,6 +39,10 @@ Use native Edit/Write/StrReplace — unchanged. lean-ctx replaces READ only.
 If Edit requires Read and Read is unavailable, use `ctx_edit(path, old_string, new_string)`.
 NEVER loop on Edit failures — switch to ctx_edit immediately.
 
+## Session Documentation
+After significant work: ctx_knowledge(action=remember, category=decision, content=...)
+When you see [CHECKPOINT] → call ctx_session(action=task, value=current status).
+
 Fallback only if a lean-ctx tool is unavailable: use native equivalents.
 <!-- /lean-ctx -->";
 
@@ -67,6 +71,12 @@ Write, Delete, Glob → use normally. NEVER loop on Edit failures — switch to 
 ## Proactive (use without being asked)
 - `ctx_overview(task)` at session start
 - `ctx_compress` when context grows large
+
+## Session Documentation
+After significant work, document progress:
+- ctx_knowledge(action=remember, category=decision, content=what and why)
+- ctx_session(action=task, value=task description with progress)
+When you see [CHECKPOINT] → document current status immediately.
 
 Fallback only if a lean-ctx tool is unavailable: use native equivalents.
 <!-- /lean-ctx -->";

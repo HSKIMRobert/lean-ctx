@@ -490,16 +490,31 @@ impl SessionState {
         }
 
         if !self.files_touched.is_empty() {
-            let modified: Vec<&str> = self
+            let modified: Vec<String> = self
                 .files_touched
                 .iter()
                 .filter(|f| f.modified)
                 .take(10)
-                .map(|f| f.path.as_str())
+                .map(|f| {
+                    f.summary
+                        .as_deref()
+                        .map_or_else(|| f.path.clone(), |s| format!("{} ({})", f.path, s))
+                })
                 .collect();
             if !modified.is_empty() {
                 parts.push(format!("Modified: {}", modified.join(", ")));
             }
+        }
+
+        if !self.findings.is_empty() {
+            let recent: Vec<&str> = self
+                .findings
+                .iter()
+                .rev()
+                .take(5)
+                .map(|f| f.summary.as_str())
+                .collect();
+            parts.push(format!("Key findings: {}", recent.join("; ")));
         }
 
         if !self.next_steps.is_empty() {
