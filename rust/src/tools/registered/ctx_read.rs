@@ -593,44 +593,15 @@ fn auto_degrade_read_mode(mode: &str) -> (String, Option<String>) {
     (new_mode, warning)
 }
 
-/// Extracts a one-line summary from ctx_read output for session context.
-/// Looks for structural hints: exports, deps, doc comments, or main definitions.
 fn extract_file_summary(output: &str, path: &str) -> String {
-    let lines: Vec<&str> = output.lines().skip(1).take(20).collect();
-
-    // Look for deps/exports/module-level descriptions
-    for line in &lines {
-        let trimmed = line.trim();
-        if trimmed.starts_with("deps:")
-            || trimmed.starts_with("exports:")
-            || trimmed.starts_with("//!")
-        {
-            let summary = trimmed[..trimmed.len().min(80)].to_string();
-            return summary;
-        }
+    let hint = crate::core::auto_findings::extract_content_hint(output);
+    if !hint.is_empty() {
+        return hint;
     }
-
-    // Look for primary struct/fn/class definitions
-    for line in &lines {
-        let trimmed = line.trim();
-        if trimmed.starts_with("pub struct ")
-            || trimmed.starts_with("pub enum ")
-            || trimmed.starts_with("pub trait ")
-            || trimmed.starts_with("class ")
-            || trimmed.starts_with("export default ")
-            || trimmed.starts_with("export function ")
-            || trimmed.starts_with("def ")
-        {
-            return trimmed[..trimmed.len().min(70)].to_string();
-        }
-    }
-
-    // Fallback: use file extension to guess purpose
     let ext = std::path::Path::new(path)
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("");
-
     let line_count = output.lines().count();
     if line_count > 5 {
         format!("{ext} file, {line_count} lines")

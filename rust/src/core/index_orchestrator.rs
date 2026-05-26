@@ -128,40 +128,48 @@ pub fn ensure_all_background(project_root: &str) {
     std::thread::spawn(move || {
         let state = entry_for(&root);
 
+        // Phase 1: Graph index — may produce a content cache from the file walk
         {
             let mut s = state
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             start_component(&mut s.graph);
         }
-        let idx = std::panic::catch_unwind(|| {
-            let idx = graph_index::load_or_build(&root);
+        let graph_result = std::panic::catch_unwind(|| {
+            let (idx, content_cache) = graph_index::scan_with_content_cache(&root);
             let _ = idx.save();
-            idx
+            (idx, content_cache)
         });
-        if let Ok(_i) = idx {
+        let content_cache = if let Ok((_idx, cache)) = graph_result {
             let mut s = state
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             finish_ok(&mut s.graph);
+            cache
         } else {
             let mut s = state
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             finish_err(&mut s.graph, "graph index build panicked".to_string());
-        }
+            HashMap::new()
+        };
 
+        // Phase 2: BM25 index — reuses content from graph scan when available
         {
             let mut s = state
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             start_component(&mut s.bm25);
         }
-        let bm = std::panic::catch_unwind(|| {
+        let bm = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let root_pb = Path::new(&root);
-            let idx = BM25Index::load_or_build(root_pb);
+            let idx = if content_cache.is_empty() {
+                BM25Index::load_or_build(root_pb)
+            } else {
+                BM25Index::build_with_content_hint(root_pb, &content_cache)
+            };
             let _ = idx.save(root_pb);
-        });
+        }));
         if let Ok(()) = bm {
             let mut s = state
                 .lock()

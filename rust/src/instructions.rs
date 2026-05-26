@@ -5,9 +5,10 @@ use crate::tools::CrpMode;
 /// (defaulting to `~/.claude/rules/lean-ctx.md`) instead.
 /// Session state is dynamically appended to the MCP instructions for continuity.
 ///
-/// Universal instruction cap for all MCP clients.
-/// Prioritizes content blocks to fit within this limit.
-const INSTRUCTION_CAP: usize = 4096;
+/// Universal instruction cap for all MCP clients (in tokens, not bytes).
+/// Enforced via `count_tokens` so truncation is accurate regardless of
+/// character mix (ASCII, CJK, emoji).
+const INSTRUCTION_CAP_TOKENS: usize = 1200;
 
 pub fn build_instructions(crp_mode: CrpMode) -> String {
     build_instructions_with_client(crp_mode, "")
@@ -320,22 +321,32 @@ BUDGET: <=150 tok. ZERO NARRATION. Trust tool outputs.\n\n\
         }
     };
 
-    if full.len() > INSTRUCTION_CAP {
-        truncate_to_cap(&full, INSTRUCTION_CAP)
+    if crate::core::tokens::count_tokens(&full) > INSTRUCTION_CAP_TOKENS {
+        truncate_to_token_cap(&full, INSTRUCTION_CAP_TOKENS)
     } else {
         full
     }
 }
 
-fn truncate_to_cap(s: &str, cap: usize) -> String {
-    if s.len() <= cap {
+fn truncate_to_token_cap(s: &str, cap_tokens: usize) -> String {
+    if crate::core::tokens::count_tokens(s) <= cap_tokens {
         return s.to_string();
     }
-    let safe_end = s.floor_char_boundary(cap);
-    match s[..safe_end].rfind('\n') {
-        Some(pos) => s[..pos].to_string(),
-        None => s[..safe_end].to_string(),
+    let mut end = s.len();
+    loop {
+        match s[..end].rfind('\n') {
+            Some(pos) if pos > 0 => {
+                end = pos;
+                if crate::core::tokens::count_tokens(&s[..end]) <= cap_tokens {
+                    return s[..end].to_string();
+                }
+            }
+            _ => break,
+        }
     }
+    let byte_approx = cap_tokens * 4;
+    let safe = s.floor_char_boundary(byte_approx.min(s.len()));
+    s[..safe].to_string()
 }
 
 fn build_full_instructions_for_test(crp_mode: CrpMode, client_name: &str) -> String {

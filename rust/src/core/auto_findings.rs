@@ -319,35 +319,46 @@ fn truncate(s: &str, max: usize) -> String {
     }
 }
 
-fn extract_content_hint(output: &str) -> String {
-    let lines: Vec<&str> = output.lines().skip(1).take(10).collect();
+/// Extracts a one-line structural hint from file/tool output.
+/// Shared between auto-findings and session file-summary generation.
+pub fn extract_content_hint(output: &str) -> String {
+    let lines: Vec<&str> = output.lines().skip(1).take(20).collect();
 
-    // Look for struct/fn/impl/class definitions
+    // Layer 1: deps/exports/module-level descriptions
+    for line in &lines {
+        let trimmed = line.trim();
+        if trimmed.starts_with("deps:")
+            || trimmed.starts_with("exports:")
+            || trimmed.starts_with("//!")
+        {
+            return trimmed[..trimmed.len().min(80)].to_string();
+        }
+    }
+
+    // Layer 2: primary struct/fn/class/trait definitions
     for line in &lines {
         let trimmed = line.trim();
         if trimmed.starts_with("pub struct ")
             || trimmed.starts_with("pub fn ")
             || trimmed.starts_with("pub enum ")
+            || trimmed.starts_with("pub trait ")
             || trimmed.starts_with("impl ")
             || trimmed.starts_with("class ")
             || trimmed.starts_with("export ")
+            || trimmed.starts_with("export default ")
+            || trimmed.starts_with("export function ")
             || trimmed.starts_with("def ")
             || trimmed.starts_with("func ")
         {
-            let hint = trimmed[..trimmed.len().min(60)].to_string();
-            return hint;
+            return trimmed[..trimmed.len().min(70)].to_string();
         }
     }
 
-    // Look for a "deps:" or module description line
+    // Layer 3: doc comments / markdown headings
     for line in &lines {
         let trimmed = line.trim();
-        if trimmed.starts_with("deps:")
-            || trimmed.starts_with("//!")
-            || trimmed.starts_with("///")
-            || trimmed.starts_with("# ")
-        {
-            return trimmed[..trimmed.len().min(60)].to_string();
+        if trimmed.starts_with("///") || trimmed.starts_with("# ") {
+            return trimmed[..trimmed.len().min(70)].to_string();
         }
     }
 
@@ -479,7 +490,11 @@ mod tests {
         let f = extract_ctx_read(output).unwrap();
         assert_eq!(f.file.as_deref(), Some("src/server/mod.rs"));
         assert!(f.summary.contains("1400L"));
-        assert!(f.summary.contains("pub struct Server"));
+        assert!(
+            f.summary.contains("deps: tokio, serde"),
+            "deps line should be preferred over struct: {}",
+            f.summary
+        );
     }
 
     #[test]

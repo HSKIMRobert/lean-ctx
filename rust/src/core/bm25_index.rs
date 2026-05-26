@@ -193,6 +193,16 @@ impl BM25Index {
     }
 
     pub fn build_from_directory(root: &Path) -> Self {
+        Self::build_from_directory_inner(root, &HashMap::new())
+    }
+
+    /// Like `build_from_directory` but reuses file content from a prior scan
+    /// (e.g. the graph index walk) to avoid redundant disk reads.
+    pub fn build_with_content_hint(root: &Path, content_hint: &HashMap<String, String>) -> Self {
+        Self::build_from_directory_inner(root, content_hint)
+    }
+
+    fn build_from_directory_inner(root: &Path, content_hint: &HashMap<String, String>) -> Self {
         let root_str = root.to_string_lossy();
         if !super::graph_index::is_safe_scan_root_public(&root_str) {
             tracing::warn!("[bm25: scan aborted for unsafe root {root_str}]");
@@ -201,6 +211,7 @@ impl BM25Index {
         let mut index = Self::new();
         let files = list_code_files(root);
         const MAX_FILE_SIZE_BYTES: u64 = 2 * 1024 * 1024;
+        let mut cache_hits = 0usize;
 
         for (i, rel) in files.iter().enumerate() {
             if i.is_multiple_of(500) && crate::core::memory_guard::is_under_pressure() {
@@ -222,19 +233,35 @@ impl BM25Index {
             if state.size_bytes > MAX_FILE_SIZE_BYTES {
                 continue;
             }
-            if let Ok(content) = std::fs::read_to_string(&abs) {
-                let mut chunks = extract_chunks(rel, &content);
-                chunks.sort_by(|a, b| {
-                    a.start_line
-                        .cmp(&b.start_line)
-                        .then_with(|| a.end_line.cmp(&b.end_line))
-                        .then_with(|| a.symbol_name.cmp(&b.symbol_name))
-                });
-                for chunk in chunks {
-                    index.add_chunk(chunk);
+
+            let content = if let Some(cached) = content_hint.get(rel) {
+                cache_hits += 1;
+                std::borrow::Cow::Borrowed(cached.as_str())
+            } else {
+                match std::fs::read_to_string(&abs) {
+                    Ok(c) => std::borrow::Cow::Owned(c),
+                    Err(_) => continue,
                 }
-                index.files.insert(rel.clone(), state);
+            };
+
+            let mut chunks = extract_chunks(rel, &content);
+            chunks.sort_by(|a, b| {
+                a.start_line
+                    .cmp(&b.start_line)
+                    .then_with(|| a.end_line.cmp(&b.end_line))
+                    .then_with(|| a.symbol_name.cmp(&b.symbol_name))
+            });
+            for chunk in chunks {
+                index.add_chunk(chunk);
             }
+            index.files.insert(rel.clone(), state);
+        }
+
+        if cache_hits > 0 {
+            tracing::info!(
+                "[bm25: reused {cache_hits}/{} file contents from graph scan cache]",
+                files.len()
+            );
         }
 
         index.finalize();

@@ -422,9 +422,8 @@ impl SessionCache {
         self.entries.values().map(|e| e.original_tokens).sum()
     }
 
-    /// Evict until cache fits within token budget using segmented LRU:
-    /// probationary (`read_count` ≤ 1, newly inserted / single-touch) first by oldest `last_access`,
-    /// then protected entries (`read_count` > 1) by oldest access.
+    /// Evict until cache fits within token budget using RRF (Reciprocal Rank Fusion).
+    /// Combines recency, frequency, and size signals to evict least-valuable entries first.
     pub fn evict_if_needed(&mut self, incoming_tokens: usize) {
         let max_tokens = max_cache_tokens();
         let current = self.total_cached_tokens();
@@ -432,32 +431,22 @@ impl SessionCache {
             return;
         }
 
+        let now = Instant::now();
+        let all: Vec<(&String, &CacheEntry)> = self.entries.iter().collect();
+        let mut scores = eviction_scores_rrf(&all, now);
+        // Sort ascending: lowest RRF score = least valuable = evict first
+        scores.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
         let mut freed = 0usize;
         let target = (current + incoming_tokens).saturating_sub(max_tokens);
 
-        let mut probationary: Vec<(String, Instant)> = self
-            .entries
-            .iter()
-            .filter(|(_, e)| e.read_count <= 1)
-            .map(|(p, e)| (p.clone(), e.last_access))
-            .collect();
-        probationary.sort_by_key(|(_, t)| *t);
-
-        let mut protected: Vec<(String, Instant)> = self
-            .entries
-            .iter()
-            .filter(|(_, e)| e.read_count > 1)
-            .map(|(p, e)| (p.clone(), e.last_access))
-            .collect();
-        protected.sort_by_key(|(_, t)| *t);
-
-        for (path, _) in probationary.into_iter().chain(protected) {
+        for (path, _score) in &scores {
             if freed >= target {
                 break;
             }
-            if let Some(entry) = self.entries.remove(&path) {
+            if let Some(entry) = self.entries.remove(path) {
                 freed += entry.original_tokens;
-                self.file_refs.remove(&path);
+                self.file_refs.remove(path);
             }
         }
     }
