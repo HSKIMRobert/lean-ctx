@@ -255,7 +255,12 @@ pub(super) const BUILTIN_PASSTHROUGH: &[&str] = &[
     // Authentication flows (device code, OAuth, SSO)
     "az login",
     "az account",
-    "gh",
+    "gh auth",
+    "gh browse",
+    "gh codespace",
+    "gh cs ",
+    "gh ssh-key",
+    "gh gpg-key",
     "gcloud auth",
     "gcloud init",
     "aws sso",

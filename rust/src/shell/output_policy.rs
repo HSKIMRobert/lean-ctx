@@ -63,12 +63,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn passthrough_beats_verbatim() {
-        // `gh` is in BUILTIN_PASSTHROUGH so it must be Passthrough,
-        // even though `gh api` would also match verbatim.
+    fn gh_auth_is_passthrough() {
+        assert_eq!(classify("gh auth login", &[]), OutputPolicy::Passthrough);
+    }
+
+    #[test]
+    fn gh_api_is_verbatim() {
+        // gh api returns raw JSON data — should be verbatim
         assert_eq!(
             classify("gh api repos/owner/repo/issues", &[]),
-            OutputPolicy::Passthrough
+            OutputPolicy::Verbatim
         );
     }
 
@@ -170,10 +174,10 @@ mod tests {
 
     #[test]
     fn issue_198_gh_api_jq() {
-        // gh api is in BUILTIN_PASSTHROUGH via "gh" prefix
+        // gh api returns JSON — verbatim (API data)
         assert_eq!(
             classify("gh api repos/yvgude/lean-ctx/issues/198 --jq '.body'", &[]),
-            OutputPolicy::Passthrough
+            OutputPolicy::Verbatim
         );
     }
 
@@ -243,9 +247,8 @@ mod tests {
     }
 
     #[test]
-    fn gh_pr_list_is_passthrough() {
-        // "gh" prefix is in BUILTIN_PASSTHROUGH
-        assert_eq!(classify("gh pr list", &[]), OutputPolicy::Passthrough);
+    fn gh_pr_list_is_compressible() {
+        assert_eq!(classify("gh pr list", &[]), OutputPolicy::Compressible);
     }
 
     #[test]

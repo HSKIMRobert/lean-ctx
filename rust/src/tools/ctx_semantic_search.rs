@@ -246,7 +246,7 @@ pub fn set_thread_cache(cache: crate::core::bm25_cache::SharedBm25Cache) {
 
 /// Result of BM25 index loading — may indicate background build in progress.
 pub(crate) enum Bm25LoadResult {
-    Ready(BM25Index),
+    Ready(std::sync::Arc<BM25Index>),
     Building,
 }
 
@@ -264,7 +264,8 @@ fn load_or_refresh_bm25(root: &Path) -> Bm25LoadResult {
     let root_str = root.to_string_lossy().to_string();
 
     if let Some(idx) = crate::core::index_orchestrator::try_load_bm25_index(&root_str) {
-        store_in_thread_cache(root, idx.clone());
+        let idx = std::sync::Arc::new(idx);
+        store_in_thread_cache(root, &idx);
         return Bm25LoadResult::Ready(idx);
     }
 
@@ -274,12 +275,12 @@ fn load_or_refresh_bm25(root: &Path) -> Bm25LoadResult {
 
     crate::core::index_orchestrator::ensure_all_background(&root_str);
 
-    let idx = BM25Index::load_or_build(root);
-    store_in_thread_cache(root, idx.clone());
+    let idx = std::sync::Arc::new(BM25Index::load_or_build(root));
+    store_in_thread_cache(root, &idx);
     Bm25LoadResult::Ready(idx)
 }
 
-fn store_in_thread_cache(root: &Path, idx: BM25Index) {
+fn store_in_thread_cache(root: &Path, idx: &std::sync::Arc<BM25Index>) {
     BM25_SHARED_CACHE.with(|c| {
         let borrow = c.borrow();
         if let Some(cache) = borrow.as_ref() {
@@ -288,7 +289,7 @@ fn store_in_thread_cache(root: &Path, idx: BM25Index) {
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             *guard = Some(crate::core::bm25_cache::Bm25CacheEntry {
                 root: root.to_path_buf(),
-                index: idx,
+                index: std::sync::Arc::clone(idx),
                 loaded_at: std::time::Instant::now(),
             });
         }

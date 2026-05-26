@@ -51,6 +51,30 @@ pub fn flush() {
     }
 }
 
+/// Adjust saved tokens after post-processing (terse, hints) changed the output size.
+/// Positive delta = savings were over-reported, negative = under-reported.
+pub fn adjust_savings(command: &str, over_report_delta: i64) {
+    let mut guard = STATS_BUFFER
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Some((store, _, _)) = guard.as_mut() else {
+        return;
+    };
+    if over_report_delta > 0 {
+        let adj = over_report_delta as u64;
+        store.total_output_tokens = store.total_output_tokens.saturating_add(adj);
+        if let Some(cmd) = store.commands.get_mut(command) {
+            cmd.output_tokens = cmd.output_tokens.saturating_add(adj);
+        }
+    } else {
+        let adj = over_report_delta.unsigned_abs();
+        store.total_output_tokens = store.total_output_tokens.saturating_sub(adj);
+        if let Some(cmd) = store.commands.get_mut(command) {
+            cmd.output_tokens = cmd.output_tokens.saturating_sub(adj);
+        }
+    }
+}
+
 pub fn record(command: &str, input_tokens: usize, output_tokens: usize) {
     let mut guard = STATS_BUFFER
         .lock()

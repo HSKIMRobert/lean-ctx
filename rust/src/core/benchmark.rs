@@ -14,7 +14,10 @@ use crate::core::tokens::count_tokens;
 const COST_PER_TOKEN: f64 = crate::core::stats::DEFAULT_INPUT_PRICE_PER_M / 1_000_000.0;
 const MAX_FILE_SIZE: u64 = 100 * 1024;
 const MAX_FILES: usize = 50;
-const CACHE_HIT_TOKENS: usize = 13;
+fn cache_hit_tokens() -> usize {
+    let stub = "F1=src/example.rs [unchanged, 500L, use cached context]";
+    count_tokens(stub)
+}
 
 // ── Types ───────────────────────────────────────────────────
 
@@ -246,16 +249,15 @@ fn measure_mode(content: &str, ext: &str, mode: &str, raw_tokens: usize) -> Mode
         }
         "aggressive" => compressor::aggressive_compress(content, Some(ext)),
         "entropy" => entropy::entropy_compress(content).output,
-        "cache_hit" => "cached re-read ~13tok".to_string(),
+        "cache_hit" => format!(
+            "F1=src/file.{ext} [unchanged, {}L, use cached context]",
+            content.lines().count()
+        ),
         _ => content.to_string(),
     };
 
     let latency = start.elapsed();
-    let tokens = if mode == "cache_hit" {
-        CACHE_HIT_TOKENS
-    } else {
-        count_tokens(&compressed)
-    };
+    let tokens = count_tokens(&compressed);
 
     let savings_pct = if raw_tokens > 0 {
         (1.0 - tokens as f64 / raw_tokens as f64) * 100.0
@@ -474,7 +476,7 @@ fn simulate_session(files: &[FileMeasurement]) -> SessionSimResult {
         .iter()
         .map(|f| f.raw_tokens)
         .sum();
-    let cache_lean: usize = cache_reread_count * CACHE_HIT_TOKENS;
+    let cache_lean: usize = cache_reread_count * cache_hit_tokens();
 
     let shell_count = 8usize;
     let shell_raw = shell_count * 500;
@@ -952,7 +954,7 @@ mod tests {
                     vec![
                         ("map", 800),
                         ("aggressive", 600),
-                        ("cache_hit", CACHE_HIT_TOKENS),
+                        ("cache_hit", cache_hit_tokens()),
                     ],
                 )
             })

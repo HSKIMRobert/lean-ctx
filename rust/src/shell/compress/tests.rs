@@ -104,8 +104,8 @@ mod passthrough_tests {
     fn auth_commands_excluded() {
         assert!(is_excluded_command("az login --use-device-code", &[]));
         assert!(is_excluded_command("gh auth login", &[]));
-        assert!(is_excluded_command("gh pr close --comment 'done'", &[]));
-        assert!(is_excluded_command("gh issue list", &[]));
+        assert!(!is_excluded_command("gh pr close --comment 'done'", &[]));
+        assert!(!is_excluded_command("gh issue list", &[]));
         assert!(is_excluded_command("gcloud auth login", &[]));
         assert!(is_excluded_command("aws sso login", &[]));
         assert!(is_excluded_command("firebase login", &[]));
@@ -362,18 +362,13 @@ mod passthrough_tests {
     }
 
     #[test]
-    fn gh_fully_excluded() {
-        assert!(is_excluded_command("gh", &[]));
-        assert!(is_excluded_command(
-            "gh pr close --comment 'closing — see #407'",
-            &[]
-        ));
-        assert!(is_excluded_command(
-            "gh issue create --title \"bug\" --body \"desc\"",
-            &[]
-        ));
-        assert!(is_excluded_command("gh api repos/owner/repo/pulls", &[]));
-        assert!(is_excluded_command("gh run list --limit 5", &[]));
+    fn gh_auth_excluded_but_data_commands_not() {
+        assert!(is_excluded_command("gh auth login", &[]));
+        assert!(is_excluded_command("gh browse", &[]));
+        assert!(!is_excluded_command("gh pr list", &[]));
+        assert!(!is_excluded_command("gh issue list", &[]));
+        assert!(!is_excluded_command("gh api repos/owner/repo/pulls", &[]));
+        assert!(!is_excluded_command("gh run list --limit 5", &[]));
     }
 }
 

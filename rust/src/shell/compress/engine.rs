@@ -50,7 +50,7 @@ pub(crate) fn compress_if_beneficial(command: &str, output: &str) -> String {
 
     let original_tokens = count_tokens(output);
 
-    if original_tokens < 50 {
+    if original_tokens < 30 {
         return output.to_string();
     }
 

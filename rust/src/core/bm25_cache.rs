@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Instant;
 
 use super::bm25_index::BM25Index;
@@ -7,7 +8,7 @@ const DEFAULT_TTL_SECS: u64 = 60;
 
 pub struct Bm25CacheEntry {
     pub root: PathBuf,
-    pub index: BM25Index,
+    pub index: Arc<BM25Index>,
     pub loaded_at: Instant,
 }
 
@@ -27,27 +28,27 @@ fn ttl_secs() -> u64 {
 pub type SharedBm25Cache = std::sync::Arc<std::sync::Mutex<Option<Bm25CacheEntry>>>;
 
 /// Get the BM25 index from cache if available and fresh, otherwise load/build,
-/// cache it, and return.
-pub fn get_or_load(cache: &SharedBm25Cache, root: &Path) -> BM25Index {
+/// cache it, and return. Uses Arc to avoid cloning the entire index.
+pub fn get_or_load(cache: &SharedBm25Cache, root: &Path) -> Arc<BM25Index> {
     {
         let guard = cache
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(ref entry) = *guard {
             if entry.root == root && entry.is_fresh() {
-                return entry.index.clone();
+                return Arc::clone(&entry.index);
             }
         }
     }
 
-    let index = BM25Index::load_or_build_fast(root);
+    let index = Arc::new(BM25Index::load_or_build_fast(root));
 
     let mut guard = cache
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     *guard = Some(Bm25CacheEntry {
         root: root.to_path_buf(),
-        index: index.clone(),
+        index: Arc::clone(&index),
         loaded_at: Instant::now(),
     });
 
@@ -56,7 +57,7 @@ pub fn get_or_load(cache: &SharedBm25Cache, root: &Path) -> BM25Index {
 
 /// Get index from cache (fresh or stale), triggering background rebuild if stale.
 /// Returns None only if no cache entry exists at all.
-pub fn get_or_background(cache: &SharedBm25Cache, root: &Path) -> Option<BM25Index> {
+pub fn get_or_background(cache: &SharedBm25Cache, root: &Path) -> Option<Arc<BM25Index>> {
     let guard = cache
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -65,7 +66,7 @@ pub fn get_or_background(cache: &SharedBm25Cache, root: &Path) -> Option<BM25Ind
         return None;
     }
 
-    let idx = entry.index.clone();
+    let idx = Arc::clone(&entry.index);
 
     if !entry.is_fresh() {
         let root_str = root.to_string_lossy().to_string();
@@ -78,7 +79,7 @@ pub fn get_or_background(cache: &SharedBm25Cache, root: &Path) -> Option<BM25Ind
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             *g = Some(Bm25CacheEntry {
                 root: root_clone,
-                index: rebuilt,
+                index: Arc::new(rebuilt),
                 loaded_at: Instant::now(),
             });
             tracing::debug!("[bm25_cache: background refresh done for {root_str}]");

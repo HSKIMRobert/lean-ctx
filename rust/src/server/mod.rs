@@ -1123,6 +1123,23 @@ impl LeanCtxServer {
         } else {
             crate::core::tokens::count_tokens(&result_text)
         };
+
+        // OPT-4: Correct stats with post-processing token counts.
+        // dispatch/mod.rs records savings before terse/hints; adjust here
+        // so persistent stats reflect what the model actually receives.
+        if result_text.len() != pre_terse_len && tool_saved_tokens > 0 {
+            let pre_savings = tool_saved_tokens;
+            let actual_sent = output_token_count;
+            let original = actual_sent + pre_savings;
+            let actual_savings = original.saturating_sub(actual_sent);
+            if actual_savings != pre_savings {
+                let delta = pre_savings as i64 - actual_savings as i64;
+                if delta != 0 {
+                    crate::core::stats::adjust_savings(name, delta);
+                }
+            }
+        }
+
         let action = helpers::get_str(args, "action");
 
         // K-bounded staleness guard: warn if shared context has diverged.
