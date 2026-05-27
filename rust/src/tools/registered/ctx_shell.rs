@@ -45,6 +45,8 @@ impl McpTool for CtxShellTool {
             return Ok(ToolOutput::simple(msg));
         }
 
+        warn_shell_secret_paths(&command);
+
         tokio::task::block_in_place(|| {
             let session_lock = ctx
                 .session
@@ -77,9 +79,10 @@ impl McpTool for CtxShellTool {
                                 .collect()
                         })
                         .unwrap_or_default();
-                    let (output, _exit_code) = crate::server::execute::execute_command_with_env(
+                    let (raw_output, _exit_code) = crate::server::execute::execute_command_with_env(
                         &cmd_clone, &cwd_clone, &extra_env,
                     );
+                    let output = redact_shell_output_secrets(&raw_output);
                     return Ok(ToolOutput::simple(output));
                 };
                 session.update_shell_cwd(&command);
@@ -320,6 +323,35 @@ fn is_dangerous_env_key(key: &str) -> bool {
         return true;
     }
     false
+}
+
+/// Warn when shell reads secret-like paths via cat/head/tail/less/more.
+/// WARN-ONLY: command still executes, this is purely observational.
+fn warn_shell_secret_paths(command: &str) {
+    const READ_CMDS: &[&str] = &["cat", "head", "tail", "less", "more", "bat"];
+    let segments = crate::core::shell_allowlist::extract_all_commands_pub(command);
+    for seg in &segments {
+        let trimmed = seg.trim();
+        let tokens: Vec<&str> = trimmed.split_whitespace().collect();
+        if tokens.is_empty() {
+            continue;
+        }
+        let base = tokens[0].rsplit('/').next().unwrap_or(tokens[0]);
+        if !READ_CMDS.contains(&base) {
+            continue;
+        }
+        for &tok in &tokens[1..] {
+            if tok.starts_with('-') {
+                continue;
+            }
+            let path = std::path::Path::new(tok);
+            if crate::core::io_boundary::is_secret_like(path).is_some() {
+                tracing::warn!(
+                    "[SECURITY] Shell reading secret-like path: {tok} (command: {base})"
+                );
+            }
+        }
+    }
 }
 
 /// Scans shell output for secrets and redacts them before returning to the agent.

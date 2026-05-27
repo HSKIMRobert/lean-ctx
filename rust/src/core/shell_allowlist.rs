@@ -576,6 +576,11 @@ fn effective_allowlist() -> Vec<String> {
     list
 }
 
+/// Public accessor for extracting all command segments.
+pub fn extract_all_commands_pub(command: &str) -> Vec<String> {
+    extract_all_commands(command)
+}
+
 // Legacy compat: single-segment extraction (used by other callers)
 pub fn extract_base_command(command: &str) -> String {
     let first_seg = split_on_operators(command)
