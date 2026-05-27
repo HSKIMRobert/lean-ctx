@@ -76,6 +76,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
+    #[cfg(not(feature = "no-jail"))]
     #[test]
     fn effective_cwd_explicit_outside_root_is_jailed() {
         let tmp = std::env::temp_dir().join("lean-ctx-test-cwd-jail");

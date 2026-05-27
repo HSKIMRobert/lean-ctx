@@ -108,6 +108,7 @@ mod tests {
         std::fs::write(root.join(".leanctx.json"), cfg).expect("write cfg");
     }
 
+    #[cfg(not(feature = "no-jail"))]
     #[test]
     fn linked_projects_outside_root_are_rejected_without_allow_path() {
         let _guard = ENV_LOCK.lock().expect("lock");

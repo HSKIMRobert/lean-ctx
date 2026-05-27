@@ -92,6 +92,7 @@ pub fn jail_path(candidate: &Path, jail_root: &Path) -> Result<PathBuf, String> 
 
     #[cfg(feature = "no-jail")]
     {
+        let _ = jail_root;
         return Ok(canonicalize_or_self(candidate));
     }
 
@@ -194,6 +195,7 @@ fn reject_symlink_on_windows(path: &Path) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    #[cfg(not(feature = "no-jail"))]
     #[test]
     fn rejects_path_outside_root() {
         let tmp = tempfile::tempdir().unwrap();
@@ -257,6 +259,7 @@ mod tests {
         assert!(result.is_ok(), "same dir should be accepted: {result:?}");
     }
 
+    #[cfg(not(feature = "no-jail"))]
     #[test]
     fn error_message_contains_escape_info() {
         let tmp = tempfile::tempdir().unwrap();
@@ -293,7 +296,7 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, not(feature = "no-jail")))]
     #[test]
     fn rejects_symlink_escape_on_unix() {
         use std::os::unix::fs::symlink;

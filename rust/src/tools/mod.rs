@@ -78,6 +78,7 @@ mod resolve_path_tests {
         canonicalize_path(path)
     }
 
+    #[cfg(not(feature = "no-jail"))]
     #[tokio::test]
     async fn resolve_path_can_reroot_to_trusted_startup_root_when_session_root_is_stale() {
         std::env::set_var("LEAN_CTX_ALLOW_REROOT", "1");
@@ -113,6 +114,7 @@ mod resolve_path_tests {
         assert_eq!(session.shell_cwd.as_deref(), Some(real_root.as_str()));
     }
 
+    #[cfg(not(feature = "no-jail"))]
     #[tokio::test]
     async fn resolve_path_rejects_absolute_path_outside_trusted_startup_root() {
         let tmp = tempfile::tempdir().unwrap();
@@ -239,6 +241,7 @@ mod resolve_path_tests {
         assert_ne!(session.id, old_id);
     }
 
+    #[cfg(not(feature = "no-jail"))]
     #[tokio::test]
     async fn resolve_path_does_not_auto_update_when_current_root_is_real_project() {
         let tmp = tempfile::tempdir().unwrap();
