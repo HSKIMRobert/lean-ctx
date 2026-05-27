@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.6.21] — 2026-05-27
+
+### Fixed
+- **RAM Guardian now performs real cache eviction under memory pressure** (#300): Previously, the `memory_guard` eviction callback only called `jemalloc_purge()`, which returns already-freed pages to the OS but never evicts actual data (SessionCache, BM25 index, etc.). Now a new `EvictionOrchestrator` bridges the RSS-based memory guardian to the `HomeostasisController`, enabling 5-stage graduated eviction: trim compressed outputs → evict probationary entries → unload BM25 index → evict protected entries → emergency full cache clear.
+- **`jemalloc_purge()` error handling**: Previously swallowed errors with `let _ =`. Now logs failures via `tracing::debug` for diagnosability.
+- **`is_under_pressure()` no longer expensive in hot loops**: Was calling `MemorySnapshot::capture()` (which does `Config::load()` + syscalls) on every invocation in BM25/graph index builders. Now reads a cached `AtomicU8` flag set by the guardian thread — O(1) with zero allocations.
+
+### Added
+- **`EvictionOrchestrator`** (`core/eviction_orchestrator.rs`): New module connecting `memory_guard` (RSS monitoring) to `HomeostasisController` (graduated eviction). Holds `Arc` references to `SessionCache` and `SharedBm25Cache`, executes eviction actions with non-blocking `try_read`/`try_write` to avoid stalling the guardian thread.
+- **SessionCache eviction methods**: `trim_compressed_outputs()`, `evict_probationary()`, `evict_to_budget()`, `approximate_bytes()`, `trim_shared_blocks()` — enable fine-grained memory reclamation under pressure.
+- **BM25 cache management**: `bm25_cache::unload()` drops the cached index (rebuilt on next search), `bm25_cache::memory_usage()` reports current heap usage.
+- **Doctor pressure hints**: RAM Guardian check now shows the active pressure level and recommends `memory_profile = "low"` or increasing `max_ram_percent` when under pressure.
+
 ## [3.6.20] — 2026-05-27
 
 ### Fixed

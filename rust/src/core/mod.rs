@@ -289,6 +289,7 @@ pub mod consolidation_engine;
 pub mod data_dir;
 pub mod error;
 pub mod events;
+pub mod eviction_orchestrator;
 pub mod evidence_ledger;
 pub mod feedback;
 pub mod filters;

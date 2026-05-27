@@ -4,12 +4,13 @@
 //! when memory usage exceeds configurable thresholds (default: 5% of system RAM).
 //! At critical levels (>3x limit), performs emergency shutdown to prevent OS OOM kill.
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 
 static PEAK_RSS: AtomicU64 = AtomicU64::new(0);
 static GUARD_RUNNING: AtomicBool = AtomicBool::new(false);
 static ABORT_REQUESTED: AtomicBool = AtomicBool::new(false);
+static CURRENT_PRESSURE: AtomicU8 = AtomicU8::new(0);
 
 /// Current process RSS in bytes, or `None` if unavailable.
 pub fn get_rss_bytes() -> Option<u64> {
@@ -69,12 +70,25 @@ pub struct MemorySnapshot {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
+#[repr(u8)]
 pub enum PressureLevel {
-    Normal,
-    Soft,
-    Medium,
-    Hard,
-    Critical,
+    Normal = 0,
+    Soft = 1,
+    Medium = 2,
+    Hard = 3,
+    Critical = 4,
+}
+
+impl PressureLevel {
+    fn from_u8(v: u8) -> Self {
+        match v {
+            1 => Self::Soft,
+            2 => Self::Medium,
+            3 => Self::Hard,
+            4 => Self::Critical,
+            _ => Self::Normal,
+        }
+    }
 }
 
 impl MemorySnapshot {
@@ -118,13 +132,17 @@ impl MemorySnapshot {
 }
 
 /// Force-purge all jemalloc arenas to return memory to the OS.
+/// Uses `MALLCTL_ARENAS_ALL` (value 4096) which is the jemalloc sentinel
+/// for "all arenas". Logs errors instead of silently swallowing them.
 pub fn jemalloc_purge() {
     #[cfg(all(feature = "jemalloc", not(windows)))]
     {
         use tikv_jemalloc_ctl::raw;
         let purge_mib = b"arena.4096.purge\0";
         unsafe {
-            let _ = raw::write(purge_mib, 0u64);
+            if let Err(e) = raw::write(purge_mib, 0u64) {
+                tracing::debug!("[memory_guard] jemalloc purge failed: {e}");
+            }
         }
     }
 }
@@ -135,12 +153,14 @@ pub fn abort_requested() -> bool {
 }
 
 /// Quick, non-allocating memory pressure check for hot loops (scanners, indexers).
-/// Returns `true` if memory is at or above Soft pressure and work should be paused/stopped.
+/// Reads the cached atomic flag set by the guardian thread — O(1), no syscalls.
 pub fn is_under_pressure() -> bool {
-    let Some(snap) = MemorySnapshot::capture() else {
-        return false;
-    };
-    snap.pressure_level >= PressureLevel::Soft
+    current_pressure() >= PressureLevel::Soft
+}
+
+/// Returns the current pressure level as last observed by the guardian thread.
+pub fn current_pressure() -> PressureLevel {
+    PressureLevel::from_u8(CURRENT_PRESSURE.load(Ordering::Relaxed))
 }
 
 /// Start the background memory guardian task (idempotent).
@@ -159,6 +179,8 @@ pub fn start_guard(eviction_callback: Arc<dyn Fn(PressureLevel) + Send + Sync>) 
                 let Some(snap) = MemorySnapshot::capture() else {
                     continue;
                 };
+
+                CURRENT_PRESSURE.store(snap.pressure_level as u8, Ordering::Relaxed);
 
                 if snap.pressure_level == PressureLevel::Critical {
                     tracing::error!(
@@ -342,5 +364,23 @@ mod tests {
         PEAK_RSS.fetch_max(100, Ordering::Relaxed);
         PEAK_RSS.fetch_max(50, Ordering::Relaxed);
         assert_eq!(PEAK_RSS.load(Ordering::Relaxed), 100);
+    }
+
+    #[test]
+    fn pressure_level_roundtrip() {
+        for level in [
+            PressureLevel::Normal,
+            PressureLevel::Soft,
+            PressureLevel::Medium,
+            PressureLevel::Hard,
+            PressureLevel::Critical,
+        ] {
+            assert_eq!(PressureLevel::from_u8(level as u8), level);
+        }
+    }
+
+    #[test]
+    fn atomic_pressure_defaults_to_normal() {
+        assert_eq!(current_pressure(), PressureLevel::Normal);
     }
 }

@@ -89,6 +89,26 @@ pub fn get_or_background(cache: &SharedBm25Cache, root: &Path) -> Option<Arc<BM2
     Some(idx)
 }
 
+/// Drops the cached BM25 index, freeing its heap memory.
+/// The index will be rebuilt from disk on the next search.
+pub fn unload(cache: &SharedBm25Cache) {
+    let mut guard = cache
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if guard.is_some() {
+        *guard = None;
+        tracing::info!("[bm25_cache] unloaded index to free memory");
+    }
+}
+
+/// Returns the approximate heap memory used by the cached BM25 index, or 0.
+pub fn memory_usage(cache: &SharedBm25Cache) -> usize {
+    let guard = cache
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    guard.as_ref().map_or(0, |e| e.index.memory_usage_bytes())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -550,6 +550,95 @@ impl SessionCache {
             .is_some_and(|e| e.full_content_delivered)
     }
 
+    /// Removes all compressed output variants (map, signatures, etc.) from every entry,
+    /// keeping the full zstd-compressed content intact. Returns the number of entries trimmed.
+    pub fn trim_compressed_outputs(&mut self) -> usize {
+        let mut trimmed = 0;
+        for entry in self.entries.values_mut() {
+            if !entry.compressed_outputs.is_empty() {
+                entry.compressed_outputs.clear();
+                trimmed += 1;
+            }
+        }
+        trimmed
+    }
+
+    /// Evicts all entries that have been read at most once (probationary).
+    /// Returns the number of entries removed.
+    pub fn evict_probationary(&mut self) -> usize {
+        let to_remove: Vec<String> = self
+            .entries
+            .iter()
+            .filter(|(_, e)| e.read_count <= 1)
+            .map(|(k, _)| k.clone())
+            .collect();
+        let count = to_remove.len();
+        for key in &to_remove {
+            self.entries.remove(key);
+            self.file_refs.remove(key);
+        }
+        count
+    }
+
+    /// Evicts entries via RRF scoring until total tokens are at or below `target_tokens`.
+    pub fn evict_to_budget(&mut self, target_tokens: usize) {
+        let current = self.total_cached_tokens();
+        if current <= target_tokens {
+            return;
+        }
+        let now = Instant::now();
+        let all: Vec<(&String, &CacheEntry)> = self.entries.iter().collect();
+        let mut scores = eviction_scores_rrf(&all, now);
+        scores.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let mut freed = 0usize;
+        let target_free = current.saturating_sub(target_tokens);
+        for (path, _score) in &scores {
+            if freed >= target_free {
+                break;
+            }
+            if let Some(entry) = self.entries.remove(path) {
+                freed += entry.original_tokens;
+                self.file_refs.remove(path);
+            }
+        }
+    }
+
+    /// Estimates the approximate heap memory usage in bytes.
+    pub fn approximate_bytes(&self) -> usize {
+        let entries_bytes: usize = self
+            .entries
+            .values()
+            .map(|e| {
+                e.compressed_content.len()
+                    + e.hash.len()
+                    + e.path.len()
+                    + e.compressed_outputs
+                        .iter()
+                        .map(|(k, v)| k.len() + v.len())
+                        .sum::<usize>()
+                    + 128 // fixed overhead per entry
+            })
+            .sum();
+        let refs_bytes: usize = self.file_refs.iter().map(|(k, v)| k.len() + v.len()).sum();
+        let blocks_bytes: usize = self
+            .shared_blocks
+            .iter()
+            .map(|b| b.canonical_path.len() + b.canonical_ref.len() + b.content.len() + 32)
+            .sum();
+        entries_bytes + refs_bytes + blocks_bytes
+    }
+
+    const MAX_SHARED_BLOCKS: usize = 100;
+
+    /// Trims shared blocks to a maximum count, keeping the most recent.
+    pub fn trim_shared_blocks(&mut self) {
+        if self.shared_blocks.len() > Self::MAX_SHARED_BLOCKS {
+            let excess = self.shared_blocks.len() - Self::MAX_SHARED_BLOCKS;
+            self.shared_blocks.drain(..excess);
+        }
+    }
+
     /// Clears all cached entries, file refs, and resets stats. Returns the number of entries removed.
     pub fn clear(&mut self) -> usize {
         let count = self.entries.len();

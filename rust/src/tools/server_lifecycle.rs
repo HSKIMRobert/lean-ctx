@@ -67,25 +67,6 @@ impl LeanCtxServer {
         // Purge stale graph indices on startup to prevent serving outdated data
         crate::core::graph_index::ProjectIndex::purge_stale_indices();
 
-        // Start the RAM guardian — monitors RSS and triggers tiered eviction.
-        // At Critical pressure (>3x limit), performs emergency shutdown.
-        crate::core::memory_guard::start_guard(std::sync::Arc::new(|level| {
-            use crate::core::memory_guard::PressureLevel;
-            match level {
-                PressureLevel::Soft => {
-                    tracing::info!("[memory_guard] soft pressure — deferring new index builds");
-                }
-                PressureLevel::Medium | PressureLevel::Hard | PressureLevel::Critical => {
-                    tracing::warn!(
-                        "[memory_guard] {:?} pressure — purging jemalloc arenas",
-                        level,
-                    );
-                    crate::core::memory_guard::jemalloc_purge();
-                }
-                PressureLevel::Normal => {}
-            }
-        }));
-
         let startup = detect_startup_context(project_root, startup_cwd);
         let (session, context_os) = match session_mode {
             SessionMode::Personal => {
@@ -132,8 +113,24 @@ impl LeanCtxServer {
             crate::core::index_orchestrator::ensure_all_background(root);
         }
 
+        let cache = Arc::new(RwLock::new(SessionCache::new()));
+        let bm25_cache: Arc<std::sync::Mutex<Option<crate::core::bm25_cache::Bm25CacheEntry>>> =
+            Arc::new(std::sync::Mutex::new(None));
+
+        // Start the RAM guardian with real eviction via EvictionOrchestrator.
+        // Bridges memory_guard (RSS monitoring) → HomeostasisController (graduated actions).
+        let orchestrator = std::sync::Arc::new(
+            crate::core::eviction_orchestrator::EvictionOrchestrator::new(
+                cache.clone(),
+                bm25_cache.clone(),
+            ),
+        );
+        crate::core::memory_guard::start_guard(std::sync::Arc::new(move |level| {
+            orchestrator.on_pressure(level);
+        }));
+
         Self {
-            cache: Arc::new(RwLock::new(SessionCache::new())),
+            cache,
             session,
             tool_calls: Arc::new(RwLock::new(Vec::new())),
             call_count: Arc::new(AtomicUsize::new(0)),
@@ -179,7 +176,7 @@ impl LeanCtxServer {
             peer: Arc::new(tokio::sync::RwLock::new(None)),
             has_client_roots: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             roots_resolved: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            bm25_cache: Arc::new(std::sync::Mutex::new(None)),
+            bm25_cache,
             progress_sender: Arc::new(std::sync::Mutex::new(None)),
         }
     }

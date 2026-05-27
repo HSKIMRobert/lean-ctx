@@ -1894,10 +1894,18 @@ fn ram_guardian_outcome() -> Outcome {
     };
     let ok = snap.pressure_level == crate::core::memory_guard::PressureLevel::Normal;
     let color = if ok { GREEN } else { RED };
+    let pressure_hint = match snap.pressure_level {
+        crate::core::memory_guard::PressureLevel::Normal => String::new(),
+        level => {
+            format!(
+                "  {YELLOW}pressure={level:?} — consider: memory_profile=\"low\" or increase max_ram_percent{RST}"
+            )
+        }
+    };
     Outcome {
         ok,
         line: format!(
-            "{BOLD}RAM Guardian{RST}  {color}{:.0} MB{RST} / {:.1} GB system ({:.1}%)  {DIM}limit: {:.0} MB ({allocator}){RST}",
+            "{BOLD}RAM Guardian{RST}  {color}{:.0} MB{RST} / {:.1} GB system ({:.1}%)  {DIM}limit: {:.0} MB ({allocator}){RST}{pressure_hint}",
             snap.rss_bytes as f64 / 1_048_576.0,
             snap.system_ram_bytes as f64 / 1_073_741_824.0,
             snap.rss_percent,
