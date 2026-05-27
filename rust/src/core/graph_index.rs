@@ -619,8 +619,9 @@ fn scan_inner(project_root: &str) -> (ProjectIndex, HashMap<String, String>) {
         }
         let file_path = normalize_absolute_path(&entry.path().to_string_lossy());
 
-        // Prevent indexing files that escaped the project root (symlinks, mount points)
-        if !file_path.starts_with(&project_root) {
+        // Prevent indexing files that escaped the project root (symlinks, mount points).
+        // Use Path::starts_with for component-safe comparison (prevents /proj matching /proj-evil).
+        if !std::path::Path::new(&file_path).starts_with(std::path::Path::new(&project_root)) {
             continue;
         }
 

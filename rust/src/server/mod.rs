@@ -180,7 +180,7 @@ impl ServerHandler for LeanCtxServer {
                     .ok();
                 let effective_role = env_role.as_deref().or(heuristic_role).unwrap_or("coder");
 
-                let _ = crate::core::roles::set_active_role(effective_role);
+                let _ = crate::core::roles::set_active_role_with_source(effective_role, true);
 
                 let mut registry = crate::core::agents::AgentRegistry::load_or_create();
                 registry.cleanup_stale(24);

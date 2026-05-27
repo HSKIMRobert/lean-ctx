@@ -42,8 +42,9 @@ pub fn safe_canonicalize_bounded(path: &Path, timeout_ms: u64) -> PathBuf {
         canonical
     } else {
         io_health::record_freeze();
-        tracing::debug!(
-            "canonicalize timed out ({}ms) for {}; using original path",
+        tracing::warn!(
+            "[SECURITY] canonicalize timed out ({}ms) for {}; PathJail checks on \
+             uncanonicalized paths may be less reliable",
             effective_timeout.as_millis(),
             path.display()
         );
