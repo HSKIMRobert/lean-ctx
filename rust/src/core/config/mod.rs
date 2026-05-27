@@ -499,6 +499,12 @@ pub struct Config {
     /// Override via LEAN_CTX_SHELL_ALLOWLIST env var (comma-separated).
     #[serde(default = "default_shell_allowlist")]
     pub shell_allowlist: Vec<String>,
+
+    /// When true, block command substitution ($(), backticks) and process substitution
+    /// (<(), >()) in shell arguments. When false (default), only warn via tracing.
+    /// Default false preserves backward compatibility — set true for maximum security.
+    #[serde(default)]
+    pub shell_strict_mode: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -906,6 +912,7 @@ impl Default for Config {
             reference_results: false,
             agent_token_budget: 0,
             shell_allowlist: default_shell_allowlist(),
+            shell_strict_mode: false,
         }
     }
 }

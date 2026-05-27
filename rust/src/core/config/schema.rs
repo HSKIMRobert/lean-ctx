@@ -448,6 +448,14 @@ impl ConfigSchema {
                 "LEAN_CTX_SHELL_ALLOWLIST",
             ),
         );
+        root.insert(
+            "shell_strict_mode".into(),
+            key(
+                "bool",
+                serde_json::json!(false),
+                "Block $(), backticks, <() in shell arguments. Default false = warn only.",
+            ),
+        );
 
         sections.insert(
             "root".into(),

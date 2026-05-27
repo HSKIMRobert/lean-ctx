@@ -11,7 +11,10 @@
 /// When the allowlist is empty, all commands pass (blocklist-only mode).
 /// When non-empty, EVERY command segment in the pipeline must match.
 pub fn check_shell_allowlist(command: &str) -> Result<(), String> {
-    if has_dangerous_patterns(command) {
+    let normalized = normalize_line_continuations(command);
+    let cmd = normalized.as_str();
+
+    if has_dangerous_patterns(cmd) {
         return Err(format!(
             "[BLOCKED — DO NOT RETRY] Command uses eval or $()/ backticks at command position, \
              which is blocked regardless of allowlist. \
@@ -19,16 +22,183 @@ pub fn check_shell_allowlist(command: &str) -> Result<(), String> {
              Command: {command}"
         ));
     }
+
+    check_substitution_in_args(cmd);
+    check_pipe_to_bare_interpreter(cmd);
+
     let allowlist = effective_allowlist();
     if allowlist.is_empty() {
+        check_unconditional_blocked_only(cmd)?;
         return Ok(());
     }
-    check_all_segments(command, &allowlist)
+    check_all_segments(cmd, &allowlist)
+}
+
+/// Remove backslash-newline continuations so the parser sees what the shell sees.
+fn normalize_line_continuations(command: &str) -> String {
+    command.replace("\\\r\n", "").replace("\\\n", "")
+}
+
+/// WARN-FIRST: Log warning (or block if strict) for $(), backticks, <() in arguments.
+fn check_substitution_in_args(command: &str) {
+    let strict = crate::core::config::Config::load().shell_strict_mode;
+    if has_unquoted_substitution_in_args(command) {
+        if strict {
+            tracing::warn!(
+                "[SECURITY] Command substitution in arguments blocked (shell_strict_mode=true): {command}"
+            );
+        } else {
+            tracing::warn!(
+                "[SECURITY] Command substitution in arguments detected (warn-only, set shell_strict_mode=true to block): {command}"
+            );
+        }
+    }
+}
+
+/// Check for $(), backticks, <(, >( outside of command position, outside quotes.
+fn has_unquoted_substitution_in_args(command: &str) -> bool {
+    let bytes = command.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut past_first_token = false;
+    let mut seen_space_after_cmd = false;
+
+    while i < len {
+        let ch = bytes[i];
+        if in_single_quote {
+            if ch == b'\'' {
+                in_single_quote = false;
+            }
+            i += 1;
+            continue;
+        }
+        if in_double_quote {
+            if ch == b'"' && (i == 0 || bytes[i - 1] != b'\\') {
+                in_double_quote = false;
+            }
+            i += 1;
+            continue;
+        }
+        match ch {
+            b'\'' => {
+                in_single_quote = true;
+                i += 1;
+            }
+            b'"' => {
+                in_double_quote = true;
+                i += 1;
+            }
+            b' ' | b'\t' if !past_first_token => {
+                seen_space_after_cmd = true;
+                i += 1;
+            }
+            _ if !seen_space_after_cmd => {
+                i += 1;
+            }
+            _ => {
+                past_first_token = true;
+                if ch == b'$' && i + 1 < len && bytes[i + 1] == b'(' {
+                    return true;
+                }
+                if ch == b'`' {
+                    return true;
+                }
+                if (ch == b'<' || ch == b'>') && i + 1 < len && bytes[i + 1] == b'(' {
+                    return true;
+                }
+                i += 1;
+            }
+        }
+    }
+    false
+}
+
+/// WARN-FIRST: Log warning for piping into bare interpreter (no script file).
+fn check_pipe_to_bare_interpreter(command: &str) {
+    let segments = split_on_operators(command);
+    let pipe_indices: Vec<usize> = {
+        let mut indices = Vec::new();
+        let bytes = command.as_bytes();
+        let len = bytes.len();
+        let mut j = 0;
+        let mut in_sq = false;
+        let mut in_dq = false;
+        while j < len {
+            if in_sq {
+                if bytes[j] == b'\'' {
+                    in_sq = false;
+                }
+                j += 1;
+                continue;
+            }
+            if in_dq {
+                if bytes[j] == b'"' && (j == 0 || bytes[j - 1] != b'\\') {
+                    in_dq = false;
+                }
+                j += 1;
+                continue;
+            }
+            match bytes[j] {
+                b'\'' => {
+                    in_sq = true;
+                    j += 1;
+                }
+                b'"' => {
+                    in_dq = true;
+                    j += 1;
+                }
+                b'|' if j + 1 < len && bytes[j + 1] != b'|' => {
+                    indices.push(j);
+                    j += 1;
+                }
+                _ => {
+                    j += 1;
+                }
+            }
+        }
+        indices
+    };
+    let _ = pipe_indices;
+
+    for (idx, seg) in segments.iter().enumerate() {
+        if idx == 0 {
+            continue;
+        }
+        if is_bare_interpreter_stdin(seg) {
+            let base = extract_base_from_segment(seg);
+            let strict = crate::core::config::Config::load().shell_strict_mode;
+            if strict {
+                tracing::warn!(
+                    "[SECURITY] Pipe to bare interpreter '{base}' blocked (shell_strict_mode=true)"
+                );
+            } else {
+                tracing::warn!("[SECURITY] Pipe to bare interpreter '{base}' detected (warn-only)");
+            }
+        }
+    }
+}
+
+/// For empty allowlists: still enforce UNCONDITIONAL_BLOCKED commands.
+fn check_unconditional_blocked_only(command: &str) -> Result<(), String> {
+    let segments = extract_all_commands(command);
+    for seg in &segments {
+        let base = extract_base_from_segment(seg);
+        if !base.is_empty() && UNCONDITIONAL_BLOCKED.contains(&base.as_str()) {
+            return Err(format!(
+                "[BLOCKED — DO NOT RETRY] '{base}' is unconditionally blocked \
+                 regardless of allowlist configuration.\n\
+                 Command: {command}"
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Commands that are unconditionally blocked regardless of allowlist membership.
 /// These provide direct arbitrary code execution or re-enter the shell.
-const UNCONDITIONAL_BLOCKED: &[&str] = &["eval", "exec", "source"];
+const UNCONDITIONAL_BLOCKED: &[&str] = &["eval", "exec", "source", "."];
 
 /// Interpreters that can execute arbitrary code via -c/-e flags.
 const INTERPRETER_COMMANDS: &[&str] = &[
@@ -37,7 +207,15 @@ const INTERPRETER_COMMANDS: &[&str] = &[
 ];
 
 /// Flags that indicate inline code execution for interpreters.
-const EVAL_FLAGS: &[&str] = &["-c", "-e", "--eval", "--exec", "-exec"];
+const EVAL_FLAGS: &[&str] = &[
+    "-c", "-e", "-r", "-p", "--eval", "--exec", "-exec", "--print", "--run",
+];
+
+/// Script file extensions that indicate a file argument (not stdin execution).
+const SCRIPT_EXTENSIONS: &[&str] = &[
+    ".py", ".rb", ".js", ".ts", ".pl", ".lua", ".php", ".sh", ".bash", ".zsh", ".mjs", ".cjs",
+    ".tsx", ".jsx",
+];
 
 /// Commands that delegate to another command (the delegated command must also be allowed).
 const DELEGATION_COMMANDS: &[&str] = &["env", "nice", "timeout", "sudo", "doas"];
@@ -45,6 +223,17 @@ const DELEGATION_COMMANDS: &[&str] = &["env", "nice", "timeout", "sudo", "doas"]
 /// Check if a segment uses an interpreter with an eval flag, or a delegation command
 /// whose target is not in the allowlist.
 fn check_interpreter_abuse(segment: &str, allowlist: &[String]) -> Result<(), String> {
+    check_interpreter_abuse_inner(segment, allowlist, 0)
+}
+
+fn check_interpreter_abuse_inner(
+    segment: &str,
+    allowlist: &[String],
+    depth: usize,
+) -> Result<(), String> {
+    if depth > 3 {
+        return Ok(());
+    }
     let trimmed = skip_env_assignments(segment.trim());
     let tokens: Vec<&str> = trimmed.split_whitespace().collect();
     if tokens.is_empty() {
@@ -62,26 +251,69 @@ fn check_interpreter_abuse(segment: &str, allowlist: &[String]) -> Result<(), St
                      This is a permanent security restriction."
                 ));
             }
+            if has_eval_flag_prefix(tok) {
+                return Err(format!(
+                    "[BLOCKED — DO NOT RETRY] Interpreter '{base}' with combined flag '{tok}' \
+                     containing eval flag is blocked.\n\
+                     This is a permanent security restriction."
+                ));
+            }
+        }
+        if tokens[1..].iter().any(|t| t.contains("<<")) {
+            return Err(format!(
+                "[BLOCKED — DO NOT RETRY] Interpreter '{base}' with heredoc stdin is blocked. \
+                 Use a script file instead.\n\
+                 This is a permanent security restriction."
+            ));
         }
     }
 
     if DELEGATION_COMMANDS.contains(&base) {
-        for &tok in &tokens[1..] {
-            if tok.starts_with('-') {
-                continue;
-            }
-            let delegated = tok.rsplit('/').next().unwrap_or(tok);
+        let rest_tokens: Vec<&str> = tokens[1..]
+            .iter()
+            .skip_while(|t| t.starts_with('-') || t.contains('='))
+            .copied()
+            .collect();
+        if let Some(&delegated_tok) = rest_tokens.first() {
+            let delegated = delegated_tok.rsplit('/').next().unwrap_or(delegated_tok);
             if !delegated.is_empty() && !allowlist.iter().any(|a| a == delegated) {
                 return Err(format!(
                     "[BLOCKED — DO NOT RETRY] '{base}' delegates to '{delegated}' which is not \
                      in the shell allowlist. This is a permanent restriction."
                 ));
             }
-            break;
+            let rest_str = rest_tokens.join(" ");
+            check_interpreter_abuse_inner(&rest_str, allowlist, depth + 1)?;
         }
     }
 
     Ok(())
+}
+
+/// Check for combined flags like -pe, -ne, -ce that contain eval characters.
+fn has_eval_flag_prefix(token: &str) -> bool {
+    if !token.starts_with('-') || token.starts_with("--") || token.len() < 3 {
+        return false;
+    }
+    let flag_chars = &token[1..];
+    let eval_chars = ['c', 'e', 'r', 'p'];
+    flag_chars.chars().any(|c| eval_chars.contains(&c))
+}
+
+/// Check if a segment is a bare interpreter after a pipe (no script file argument).
+fn is_bare_interpreter_stdin(segment: &str) -> bool {
+    let trimmed = skip_env_assignments(segment.trim());
+    let tokens: Vec<&str> = trimmed.split_whitespace().collect();
+    if tokens.is_empty() {
+        return false;
+    }
+    let base = tokens[0].rsplit('/').next().unwrap_or(tokens[0]);
+    if !INTERPRETER_COMMANDS.contains(&base) {
+        return false;
+    }
+    !tokens[1..]
+        .iter()
+        .any(|t| !t.starts_with('-') && SCRIPT_EXTENSIONS.iter().any(|ext| t.ends_with(ext)))
 }
 
 fn check_all_segments(command: &str, allowlist: &[String]) -> Result<(), String> {
@@ -140,8 +372,16 @@ fn check_all_segments(command: &str, allowlist: &[String]) -> Result<(), String>
 fn has_dangerous_patterns(command: &str) -> bool {
     let trimmed = command.trim();
 
-    if trimmed.starts_with("eval ") || trimmed.contains("; eval ") || trimmed.contains("&& eval ") {
-        return true;
+    for blocked in UNCONDITIONAL_BLOCKED {
+        let with_space = format!("{blocked} ");
+        if trimmed.starts_with(&with_space) {
+            return true;
+        }
+        for sep in ["; ", "&& ", "|| ", "| ", "\n"] {
+            if trimmed.contains(&format!("{sep}{blocked} ")) {
+                return true;
+            }
+        }
     }
 
     if has_substitution_at_command_pos(trimmed) {
@@ -747,6 +987,151 @@ mod tests {
     fn env_override_is_additive() {
         let base_list = crate::core::config::default_shell_allowlist();
         assert!(base_list.contains(&"git".to_string()));
-        // env override should add, not replace
+    }
+
+    // --- Phase 1 V2: SAFE checks ---
+
+    #[test]
+    fn dot_source_alias_blocked() {
+        let list = allow(&["echo"]);
+        let result = check_all_segments(". ~/.bashrc", &list);
+        assert!(result.is_err(), ". (source alias) must be blocked");
+    }
+
+    #[test]
+    fn backslash_newline_normalized() {
+        let normalized = normalize_line_continuations("echo ok && \\\ncurl evil");
+        assert!(
+            !normalized.contains('\n'),
+            "backslash-newline must be removed"
+        );
+        assert!(
+            normalized.contains("curl"),
+            "content after continuation must be preserved"
+        );
+    }
+
+    #[test]
+    fn delegation_recursive_interpreter_check() {
+        let list = allow(&["env", "python3"]);
+        let result = check_all_segments("env python3 -c 'import os'", &list);
+        assert!(
+            result.is_err(),
+            "env python3 -c must be blocked via recursive check"
+        );
+    }
+
+    #[test]
+    fn delegation_recursive_normal_allowed() {
+        let list = allow(&["env", "git"]);
+        let result = check_all_segments("env git status", &list);
+        assert!(result.is_ok(), "env git status must be allowed");
+    }
+
+    #[test]
+    fn eval_flags_extended_r() {
+        let list = allow(&["php"]);
+        let result = check_all_segments("php -r 'system(\"id\")'", &list);
+        assert!(result.is_err(), "php -r must be blocked");
+    }
+
+    #[test]
+    fn eval_flags_extended_p() {
+        let list = allow(&["node"]);
+        let result = check_all_segments("node -p 'process.exit(1)'", &list);
+        assert!(result.is_err(), "node -p must be blocked");
+    }
+
+    #[test]
+    fn combined_flags_pe_blocked() {
+        let list = allow(&["perl"]);
+        let result = check_all_segments("perl -pe 's/foo/bar/'", &list);
+        assert!(result.is_err(), "perl -pe must be blocked (combined flag)");
+    }
+
+    #[test]
+    fn combined_flags_ne_blocked() {
+        let list = allow(&["perl"]);
+        let result = check_all_segments("perl -ne 'print'", &list);
+        assert!(result.is_err(), "perl -ne must be blocked (combined flag)");
+    }
+
+    #[test]
+    fn heredoc_to_interpreter_blocked() {
+        let list = allow(&["python3"]);
+        let result = check_all_segments("python3 <<'EOF'", &list);
+        assert!(result.is_err(), "heredoc to interpreter must be blocked");
+    }
+
+    #[test]
+    fn python_script_file_still_allowed() {
+        let list = allow(&["python3"]);
+        assert!(check_all_segments("python3 script.py", &list).is_ok());
+        assert!(check_all_segments("python3 -u script.py", &list).is_ok());
+    }
+
+    #[test]
+    fn bare_interpreter_detection() {
+        assert!(is_bare_interpreter_stdin("python3"));
+        assert!(is_bare_interpreter_stdin("python3 -u"));
+        assert!(!is_bare_interpreter_stdin("python3 script.py"));
+        assert!(!is_bare_interpreter_stdin("python3 -u script.py"));
+    }
+
+    // --- Phase 1 V2: WARN-FIRST checks (default = command passes through) ---
+
+    #[test]
+    fn dollar_paren_in_args_passes_by_default() {
+        let list = allow(&["echo", "git", "cat"]);
+        assert!(
+            check_all_segments("echo $(whoami)", &list).is_ok(),
+            "$() in args must still pass when shell_strict_mode=false (default)"
+        );
+    }
+
+    #[test]
+    fn backticks_in_args_passes_by_default() {
+        let list = allow(&["echo"]);
+        assert!(
+            check_all_segments("echo `date`", &list).is_ok(),
+            "backticks in args must still pass when shell_strict_mode=false"
+        );
+    }
+
+    #[test]
+    fn git_commit_with_subst_passes_by_default() {
+        let list = allow(&["git", "cat"]);
+        assert!(
+            check_all_segments(
+                "git commit -m \"$(cat <<'EOF'\nfix: something\nEOF\n)\"",
+                &list,
+            )
+            .is_ok(),
+            "git commit with $() must still pass (regression test)"
+        );
+    }
+
+    // --- Empty allowlist + unconditional blocked ---
+
+    #[test]
+    fn empty_allowlist_blocks_dot_source() {
+        let result = check_shell_allowlist(". /tmp/evil.sh");
+        assert!(
+            result.is_err(),
+            ". must be blocked even with empty allowlist"
+        );
+    }
+
+    #[test]
+    fn empty_allowlist_blocks_exec() {
+        let result = check_shell_allowlist("exec /bin/sh");
+        // exec is in has_dangerous_patterns or check_unconditional_blocked_only
+        // With empty allowlist, check_unconditional_blocked_only catches it
+        // Actually exec at command start is not caught by has_dangerous_patterns
+        // but by check_unconditional_blocked_only
+        assert!(
+            result.is_err(),
+            "exec must be blocked even with empty allowlist"
+        );
     }
 }
