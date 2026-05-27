@@ -982,6 +982,22 @@ fn merge_profiles(parent: Profile, child: Profile) -> Profile {
     }
 }
 
+/// Reads the `profile` key directly from `config.toml` without going through
+/// `Config::load()`. This avoids a reentrancy deadlock: `Config::load()` →
+/// `find_project_root()` (OnceLock) → `SessionState::load_latest()` →
+/// `normalize_loaded_session()` → `active_profile()` → here → `Config::load()`.
+fn profile_name_from_config_file() -> Option<String> {
+    let path = crate::core::config::Config::path()?;
+    let content = std::fs::read_to_string(path).ok()?;
+    let table: toml::Table = toml::from_str(&content).ok()?;
+    table
+        .get("profile")?
+        .as_str()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+}
+
 /// Returns the currently active profile name.
 /// Resolution order: LEAN_CTX_PROFILE env var → config.toml `profile` field → "coder".
 pub fn active_profile_name() -> String {
@@ -991,11 +1007,8 @@ pub fn active_profile_name() -> String {
             return v;
         }
     }
-    if let Some(ref name) = crate::core::config::Config::load().profile {
-        let name = name.trim().to_string();
-        if !name.is_empty() {
-            return name;
-        }
+    if let Some(name) = profile_name_from_config_file() {
+        return name;
     }
     "coder".to_string()
 }

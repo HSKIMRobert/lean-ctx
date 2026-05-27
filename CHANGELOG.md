@@ -5,6 +5,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.6.20] — 2026-05-27
+
+### Fixed
+- **Critical: OnceLock reentrancy deadlock on Linux** (#301): All shell hook commands (`ls`, `cat`, etc.) and `lean-ctx update` hung after upgrading to v3.6.19. Caused by `active_profile_name()` calling `Config::load()`, which re-entered `find_project_root()`'s `OnceLock` via `SessionState::load_latest()` → `normalize_loaded_session()` → `active_profile()`. Fixed by reading the `profile` config key directly from disk (bypassing the full `Config::load()` pipeline) and removing the `active_profile()` call from session normalization.
+
 ## [3.6.19] — 2026-05-26
 
 ### Added

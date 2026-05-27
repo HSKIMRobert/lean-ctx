@@ -26,13 +26,11 @@ pub(crate) fn normalize_loaded_session(mut session: SessionState) -> SessionStat
             session.compression_level = env_level.label().to_string();
             session.terse_mode = env_level.is_active();
         } else {
-            let profile = crate::core::profiles::active_profile();
-            if profile.compression.terse_mode_effective() {
-                session.compression_level = "lite".to_string();
-                session.terse_mode = true;
-            } else {
-                session.compression_level = "off".to_string();
-            }
+            // Do NOT call active_profile() here — this function is called during
+            // Config::load() → find_project_root() → SessionState::load_latest(),
+            // and active_profile() → active_profile_name() would re-enter Config::load(),
+            // causing an OnceLock reentrancy deadlock (#301).
+            session.compression_level = "off".to_string();
         }
     } else if !session.terse_mode {
         let level =
