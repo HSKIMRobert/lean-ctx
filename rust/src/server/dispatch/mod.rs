@@ -81,6 +81,18 @@ impl LeanCtxServer {
                     ));
                 }
 
+                let inner_role_check = crate::server::role_guard::check_tool_access(&inner);
+                if let Some(denied) =
+                    crate::server::role_guard::into_call_tool_result(&inner_role_check)
+                {
+                    let msg = denied
+                        .content
+                        .first()
+                        .and_then(|c| c.as_text())
+                        .map_or_else(|| "Blocked by role policy".to_string(), |t| t.text.clone());
+                    return Ok((msg, 0));
+                }
+
                 if !super::WORKFLOW_PASSTHROUGH_TOOLS.contains(&inner.as_str()) {
                     let active = self.workflow.read().await.clone();
                     if let Some(run) = active {

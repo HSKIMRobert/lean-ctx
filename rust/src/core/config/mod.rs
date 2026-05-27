@@ -1013,9 +1013,8 @@ pub(crate) fn default_shell_allowlist() -> Vec<String> {
         "uname",
         "hostname",
         // Dev tools
-        "docker",
-        "docker-compose",
-        "podman",
+        // docker/podman removed from default: mount-based PathJail bypass risk
+        // Add explicitly if needed: shell_allowlist = [..., "docker"]
         "node",
         "python",
         "python3",
@@ -1031,8 +1030,6 @@ pub(crate) fn default_shell_allowlist() -> Vec<String> {
         "clippy",
         "jq",
         "yq",
-        "xargs",
-        "env",
         "which",
         "type",
         "file",

@@ -117,13 +117,20 @@ pub fn jail_path(candidate: &Path, jail_root: &Path) -> Result<PathBuf, String> 
     let allowed = allowed || is_under_prefix_windows(&base, &root);
 
     if !allowed {
-        return Err(format!(
-            "path escapes project root: {} (root: {}). \
-             Hint: set LEAN_CTX_ALLOW_PATH={} or add it to allow_paths in ~/.lean-ctx/config.toml",
+        let base_msg = format!(
+            "path escapes project root: {} (root: {})",
             candidate.display(),
             root.display(),
-            candidate.parent().unwrap_or(candidate).display()
-        ));
+        );
+        let hint = if crate::core::protocol::meta_visible() {
+            format!(
+                ". Hint: set LEAN_CTX_ALLOW_PATH={} or add it to allow_paths in ~/.lean-ctx/config.toml",
+                candidate.parent().unwrap_or(candidate).display()
+            )
+        } else {
+            String::new()
+        };
+        return Err(format!("{base_msg}{hint}"));
     }
 
     #[cfg(windows)]
@@ -133,6 +140,24 @@ pub fn jail_path(candidate: &Path, jail_root: &Path) -> Result<PathBuf, String> 
     for part in remainder.iter().rev() {
         out.push(part);
     }
+
+    // Re-validate after reconstruction: if the final path exists, canonicalize
+    // and re-check to close TOCTOU window (symlink created between check and use).
+    if out.exists() {
+        let final_canon = canonicalize_or_self(&out);
+        let final_ok = is_under_prefix(&final_canon, &root)
+            || allow.iter().any(|p| is_under_prefix(&final_canon, p));
+        #[cfg(windows)]
+        let final_ok = final_ok || is_under_prefix_windows(&final_canon, &root);
+        if !final_ok {
+            return Err(format!(
+                "post-canonicalize jail escape detected: {} resolves to {}",
+                candidate.display(),
+                final_canon.display()
+            ));
+        }
+    }
+
     Ok(out)
 }
 
@@ -230,7 +255,7 @@ mod tests {
     }
 
     #[test]
-    fn error_message_contains_allow_path_hint() {
+    fn error_message_contains_escape_info() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("root");
         let other = tmp.path().join("other");
@@ -240,12 +265,8 @@ mod tests {
 
         let err = jail_path(&other.join("b.txt"), &root).unwrap_err();
         assert!(
-            err.contains("LEAN_CTX_ALLOW_PATH"),
-            "error should hint at LEAN_CTX_ALLOW_PATH: {err}"
-        );
-        assert!(
-            err.contains("allow_paths"),
-            "error should hint at config allow_paths: {err}"
+            err.contains("path escapes project root"),
+            "error should mention escape: {err}"
         );
     }
 

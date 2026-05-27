@@ -119,9 +119,11 @@ impl McpTool for CtxShellTool {
                 })
                 .unwrap_or_default();
 
-            let (output, exit_code) = crate::server::execute::execute_command_with_env(
+            let (raw_output, exit_code) = crate::server::execute::execute_command_with_env(
                 &cmd_clone, &cwd_clone, &extra_env,
             );
+
+            let output = redact_shell_output_secrets(&raw_output);
 
             let (result_out, original, saved, tee_hint) = if raw {
                 let tokens = crate::core::tokens::count_tokens(&output);
@@ -261,18 +263,80 @@ fn shell_mismatch_hint(command: &str, output: &str) -> String {
 
 fn is_dangerous_env_key(key: &str) -> bool {
     const BLOCKED: &[&str] = &[
+        // Dynamic linker injection
         "LD_PRELOAD",
         "LD_LIBRARY_PATH",
         "DYLD_INSERT_LIBRARIES",
         "DYLD_LIBRARY_PATH",
         "DYLD_FRAMEWORK_PATH",
+        // Shell re-entry / startup injection
         "BASH_ENV",
         "ENV",
         "PROMPT_COMMAND",
         "SHELL",
         "IFS",
         "CDPATH",
+        // Binary resolution hijacking
+        "PATH",
+        "GIT_EXEC_PATH",
+        "GIT_SSH",
+        "GIT_SSH_COMMAND",
+        // Identity / home directory manipulation
+        "HOME",
+        "USER",
+        "LOGNAME",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_STATE_HOME",
+        "XDG_CACHE_HOME",
+        // Language runtime search path hijacking
+        "PYTHONPATH",
+        "PYTHONSTARTUP",
+        "PYTHONHOME",
+        "NODE_PATH",
+        "NODE_OPTIONS",
+        "RUBYOPT",
+        "RUBYLIB",
+        "GEM_PATH",
+        "GEM_HOME",
+        "PERL5LIB",
+        "PERL5OPT",
+        "CLASSPATH",
+        "JAVA_HOME",
+        "CARGO_HOME",
+        "RUSTUP_HOME",
+        "GOPATH",
+        "GOROOT",
     ];
     let upper = key.to_uppercase();
-    BLOCKED.contains(&upper.as_str()) || upper.starts_with("LD_") && upper.ends_with("_PATH")
+    if BLOCKED.contains(&upper.as_str()) {
+        return true;
+    }
+    if upper.starts_with("LD_") && upper.ends_with("_PATH") {
+        return true;
+    }
+    // Block all lean-ctx config overrides from env
+    if upper.starts_with("LEAN_CTX_") || upper.starts_with("LCTX_") {
+        return true;
+    }
+    false
+}
+
+/// Scans shell output for secrets and redacts them before returning to the agent.
+fn redact_shell_output_secrets(output: &str) -> String {
+    let cfg = crate::core::config::Config::load();
+    if !cfg.secret_detection.enabled {
+        return output.to_string();
+    }
+    let (redacted, matches) =
+        crate::core::secret_detection::scan_and_redact(output, &cfg.secret_detection);
+    if !matches.is_empty() {
+        let names: Vec<&str> = matches.iter().map(|m| m.pattern_name).collect();
+        tracing::warn!(
+            "[SHELL SECRET REDACTION] {} secret(s) redacted from shell output: {}",
+            matches.len(),
+            names.join(", ")
+        );
+    }
+    redacted
 }

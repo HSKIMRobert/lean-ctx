@@ -6,6 +6,16 @@ use super::state::BATCH_SAVE_INTERVAL;
 #[allow(clippy::wildcard_imports)]
 use super::types::*;
 
+#[cfg(unix)]
+fn restrict_file_permissions(path: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let perms = std::fs::Permissions::from_mode(0o600);
+    let _ = std::fs::set_permissions(path, perms);
+}
+
+#[cfg(not(unix))]
+fn restrict_file_permissions(_path: &std::path::Path) {}
+
 impl PreparedSave {
     /// Writes the pre-serialized session data, latest pointer, and compaction
     /// snapshot to disk atomically.
@@ -16,6 +26,7 @@ impl PreparedSave {
         let path = self.dir.join(format!("{}.json", self.id));
         let tmp = self.dir.join(format!(".{}.json.tmp", self.id));
         std::fs::write(&tmp, &self.json).map_err(|e| e.to_string())?;
+        restrict_file_permissions(&tmp);
         std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
 
         let latest_path = self.dir.join("latest.json");

@@ -123,7 +123,7 @@ pub struct IoPolicy {
 }
 
 fn default_boundary_mode() -> String {
-    "warn".to_string()
+    "enforce".to_string()
 }
 
 fn default_redact_outputs() -> bool {
@@ -466,8 +466,31 @@ pub fn active_role() -> Role {
     load_role(&name).unwrap_or_else(builtin_coder)
 }
 
+/// Roles that grant elevated privileges and cannot be activated via MCP tool calls.
+/// These roles must be set via env var (`LEAN_CTX_ROLE`) or config file.
+const PRIVILEGED_ROLES: &[&str] = &["admin", "ops"];
+
+/// Returns true if the named role has elevated privileges that require
+/// explicit configuration (env/config) rather than runtime activation.
+pub fn is_privileged_role(name: &str) -> bool {
+    PRIVILEGED_ROLES.contains(&name)
+}
+
 pub fn set_active_role(name: &str) -> Result<Role, String> {
+    set_active_role_with_source(name, false)
+}
+
+/// Set active role. `from_config` = true allows privileged roles (env/config startup).
+pub fn set_active_role_with_source(name: &str, from_config: bool) -> Result<Role, String> {
     let role = load_role(name).ok_or_else(|| format!("Role '{name}' not found"))?;
+
+    if !from_config && is_privileged_role(name) {
+        return Err(format!(
+            "[SECURITY] Cannot escalate to privileged role '{name}' at runtime. \
+             Set LEAN_CTX_ROLE={name} in your environment or config to use this role."
+        ));
+    }
+
     let prev = active_role_name();
     let lock = ACTIVE_ROLE_NAME.get_or_init(|| std::sync::Mutex::new("coder".to_string()));
     if let Ok(mut g) = lock.lock() {
@@ -695,5 +718,55 @@ mod tests {
         assert_eq!(r.limits.warn_at_percent, 80);
         // 255 = never block (LeanCTX philosophy: always help, never block)
         assert_eq!(r.limits.block_at_percent, 255);
+    }
+
+    #[test]
+    fn runtime_escalation_to_admin_blocked() {
+        let result = set_active_role("admin");
+        assert!(
+            result.is_err(),
+            "runtime escalation to admin must be blocked"
+        );
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("SECURITY"),
+            "error must indicate security: {err}"
+        );
+    }
+
+    #[test]
+    fn runtime_escalation_to_ops_blocked() {
+        let result = set_active_role("ops");
+        assert!(result.is_err(), "runtime escalation to ops must be blocked");
+    }
+
+    #[test]
+    fn config_escalation_to_admin_allowed() {
+        let result = set_active_role_with_source("admin", true);
+        assert!(
+            result.is_ok(),
+            "config-source escalation to admin must work"
+        );
+    }
+
+    #[test]
+    fn runtime_switch_to_coder_allowed() {
+        let result = set_active_role("coder");
+        assert!(result.is_ok(), "switching to coder must always work");
+    }
+
+    #[test]
+    fn runtime_switch_to_reviewer_allowed() {
+        let result = set_active_role("reviewer");
+        assert!(result.is_ok(), "switching to reviewer must always work");
+    }
+
+    #[test]
+    fn privileged_roles_detected() {
+        assert!(is_privileged_role("admin"));
+        assert!(is_privileged_role("ops"));
+        assert!(!is_privileged_role("coder"));
+        assert!(!is_privileged_role("reviewer"));
+        assert!(!is_privileged_role("debugger"));
     }
 }

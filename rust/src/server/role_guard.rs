@@ -150,8 +150,24 @@ mod tests {
 
     #[test]
     fn coder_role_allows_all() {
+        // Reset to coder for this test (other tests may have changed the global role)
+        let _ = roles::set_active_role("coder");
         let result = check_tool_access("ctx_edit");
-        assert!(!result.blocked);
-        assert_eq!(result.role_name, roles::active_role_name());
+        assert!(
+            !result.blocked,
+            "coder role should allow ctx_edit, active={}",
+            result.role_name
+        );
+        assert_eq!(result.role_name, "coder");
+    }
+
+    #[test]
+    fn ctx_call_is_not_exempt_from_guard() {
+        let _ = roles::set_active_role("coder");
+        let result = check_tool_access("ctx_call");
+        assert!(
+            !result.blocked,
+            "ctx_call itself should be allowed for coder"
+        );
     }
 }

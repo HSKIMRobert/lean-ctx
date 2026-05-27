@@ -151,14 +151,34 @@ pub fn is_secret_like(path: &Path) -> Option<&'static str> {
         lower.as_str(),
         "id_rsa"
             | "id_ed25519"
+            | "id_ecdsa"
+            | "id_dsa"
             | "authorized_keys"
             | "known_hosts"
             | ".npmrc"
             | ".netrc"
             | ".pypirc"
             | ".dockerconfigjson"
+            | "credentials.json"
+            | "secrets.json"
+            | "secrets.yaml"
+            | "secrets.yml"
+            | "keystore.jks"
+            | "truststore.jks"
+            | ".htpasswd"
+            | "shadow"
+            | "master.key"
     ) {
         return Some("credential file");
+    }
+
+    if lower.starts_with("service-account") {
+        let p = std::path::Path::new(&lower);
+        if p.extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("json") || ext.eq_ignore_ascii_case("key"))
+        {
+            return Some("service account key");
+        }
     }
 
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
@@ -278,5 +298,38 @@ mod tests {
             is_secret_like(Path::new("cert.KEY")),
             Some("secret key material")
         );
+    }
+
+    #[test]
+    fn credentials_json_is_secret_like() {
+        assert_eq!(
+            is_secret_like(Path::new("credentials.json")),
+            Some("credential file")
+        );
+        assert_eq!(
+            is_secret_like(Path::new("secrets.yaml")),
+            Some("credential file")
+        );
+    }
+
+    #[test]
+    fn service_account_is_secret_like() {
+        assert_eq!(
+            is_secret_like(Path::new("service-account.json")),
+            Some("service account key")
+        );
+        assert_eq!(
+            is_secret_like(Path::new("service-account-prod.key")),
+            Some("service account key")
+        );
+    }
+
+    #[test]
+    fn htpasswd_and_shadow_are_secret_like() {
+        assert_eq!(
+            is_secret_like(Path::new(".htpasswd")),
+            Some("credential file")
+        );
+        assert_eq!(is_secret_like(Path::new("shadow")), Some("credential file"));
     }
 }
