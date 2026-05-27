@@ -29,6 +29,8 @@ pub enum AuditEventType {
     CrossProjectAccess,
     RateLimited,
     SecurityViolation,
+    RoleChanged,
+    SecretDetected,
 }
 
 pub struct AuditEntryData {
