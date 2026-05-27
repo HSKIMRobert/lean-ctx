@@ -316,6 +316,101 @@ fn is_bare_interpreter_stdin(segment: &str) -> bool {
         .any(|t| !t.starts_with('-') && SCRIPT_EXTENSIONS.iter().any(|ext| t.ends_with(ext)))
 }
 
+/// Dangerous flag patterns for specific commands.
+const DANGEROUS_GIT_FLAGS: &[&str] = &[
+    "--upload-pack",
+    "--receive-pack",
+    "--config=core.sshcommand",
+    "--config=core.gitproxy",
+];
+
+const DANGEROUS_TAR_FLAGS: &[&str] = &["--to-command", "--use-compress-program"];
+
+/// Blocked inline environment assignments that can hijack execution.
+const BLOCKED_INLINE_ENV: &[&str] = &[
+    "PATH=",
+    "GIT_ASKPASS=",
+    "GIT_SSH=",
+    "GIT_SSH_COMMAND=",
+    "GIT_EDITOR=",
+    "GIT_EXTERNAL_DIFF=",
+    "SSH_ASKPASS=",
+    "LD_PRELOAD=",
+    "DYLD_INSERT_LIBRARIES=",
+];
+
+fn check_dangerous_flags(segment: &str) -> Result<(), String> {
+    let trimmed = skip_env_assignments(segment.trim());
+    let tokens: Vec<&str> = trimmed.split_whitespace().collect();
+    if tokens.is_empty() {
+        return Ok(());
+    }
+    let base = tokens[0].rsplit('/').next().unwrap_or(tokens[0]);
+
+    match base {
+        "git" => {
+            for &tok in &tokens[1..] {
+                for flag in DANGEROUS_GIT_FLAGS {
+                    if tok.starts_with(flag) {
+                        return Err(format!(
+                            "[BLOCKED — DO NOT RETRY] 'git' with dangerous flag '{tok}' is blocked.\n\
+                             This is a permanent security restriction."
+                        ));
+                    }
+                }
+            }
+        }
+        "tar" => {
+            for &tok in &tokens[1..] {
+                for flag in DANGEROUS_TAR_FLAGS {
+                    if tok.starts_with(flag) {
+                        return Err(format!(
+                            "[BLOCKED — DO NOT RETRY] 'tar' with dangerous flag '{tok}' is blocked.\n\
+                             This is a permanent security restriction."
+                        ));
+                    }
+                }
+            }
+        }
+        "find" => {
+            for &tok in &tokens[1..] {
+                if tok == "-exec" || tok == "-execdir" {
+                    return Err(format!(
+                        "[BLOCKED — DO NOT RETRY] 'find' with '{tok}' is blocked. \
+                         Use 'find ... -print' and pipe to xargs instead.\n\
+                         This is a permanent security restriction."
+                    ));
+                }
+            }
+        }
+        "awk" | "gawk" | "mawk" => {
+            for &tok in &tokens[1..] {
+                if tok.contains("system(") {
+                    return Err(format!(
+                        "[BLOCKED — DO NOT RETRY] '{base}' with 'system()' call is blocked.\n\
+                         This is a permanent security restriction."
+                    ));
+                }
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn check_inline_env_block(segment: &str) -> Result<(), String> {
+    let trimmed = segment.trim();
+    for blocked in BLOCKED_INLINE_ENV {
+        if trimmed.starts_with(blocked) {
+            return Err(format!(
+                "[BLOCKED — DO NOT RETRY] Inline environment override '{blocked}' is blocked.\n\
+                 This is a permanent security restriction."
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn check_all_segments(command: &str, allowlist: &[String]) -> Result<(), String> {
     if allowlist.is_empty() {
         return Ok(());
@@ -336,6 +431,7 @@ fn check_all_segments(command: &str, allowlist: &[String]) -> Result<(), String>
     }
 
     for seg in &segments {
+        check_inline_env_block(seg)?;
         let base = extract_base_from_segment(seg);
         if base.is_empty() {
             continue;
@@ -349,6 +445,7 @@ fn check_all_segments(command: &str, allowlist: &[String]) -> Result<(), String>
             ));
         }
         check_interpreter_abuse(seg, allowlist)?;
+        check_dangerous_flags(seg)?;
         if !allowlist.iter().any(|a| a == &base) {
             return Err(format!(
                 "[BLOCKED — DO NOT RETRY] '{base}' is not in the shell allowlist. \
@@ -1113,6 +1210,95 @@ mod tests {
             )
             .is_ok(),
             "git commit with $() must still pass (regression test)"
+        );
+    }
+
+    // --- Empty allowlist + unconditional blocked ---
+
+    // --- Phase 6: Dangerous flag detection ---
+
+    #[test]
+    fn git_status_allowed() {
+        let list = allow(&["git"]);
+        assert!(check_all_segments("git status", &list).is_ok());
+    }
+
+    #[test]
+    fn git_upload_pack_blocked() {
+        let list = allow(&["git"]);
+        let result = check_all_segments("git --upload-pack=\"evil\" clone repo", &list);
+        assert!(result.is_err(), "git --upload-pack must be blocked");
+    }
+
+    #[test]
+    fn git_config_sshcommand_blocked() {
+        let list = allow(&["git"]);
+        let result = check_all_segments("git --config=core.sshcommand=\"evil\" clone repo", &list);
+        assert!(
+            result.is_err(),
+            "git --config=core.sshcommand must be blocked"
+        );
+    }
+
+    #[test]
+    fn tar_extract_allowed() {
+        let list = allow(&["tar"]);
+        assert!(check_all_segments("tar xf archive.tar", &list).is_ok());
+    }
+
+    #[test]
+    fn tar_to_command_blocked() {
+        let list = allow(&["tar"]);
+        let result = check_all_segments("tar xf a.tar --to-command=evil", &list);
+        assert!(result.is_err(), "tar --to-command must be blocked");
+    }
+
+    #[test]
+    fn find_name_allowed() {
+        let list = allow(&["find"]);
+        assert!(check_all_segments("find . -name \"*.rs\"", &list).is_ok());
+    }
+
+    #[test]
+    fn find_exec_blocked() {
+        let list = allow(&["find"]);
+        let result = check_all_segments("find . -exec curl evil \\;", &list);
+        assert!(result.is_err(), "find -exec must be blocked");
+    }
+
+    #[test]
+    fn awk_system_blocked() {
+        let list = allow(&["awk"]);
+        let result = check_all_segments("awk '{system(\"id\")}'", &list);
+        assert!(result.is_err(), "awk system() must be blocked");
+    }
+
+    #[test]
+    fn awk_normal_allowed() {
+        let list = allow(&["awk"]);
+        assert!(check_all_segments("awk '{print $1}'", &list).is_ok());
+    }
+
+    #[test]
+    fn inline_path_env_blocked() {
+        let list = allow(&["git"]);
+        let result = check_all_segments("PATH=/tmp/evil git status", &list);
+        assert!(result.is_err(), "PATH= inline env must be blocked");
+    }
+
+    #[test]
+    fn inline_ld_preload_blocked() {
+        let list = allow(&["ls"]);
+        let result = check_all_segments("LD_PRELOAD=/tmp/evil.so ls", &list);
+        assert!(result.is_err(), "LD_PRELOAD= inline env must be blocked");
+    }
+
+    #[test]
+    fn echo_path_in_quotes_allowed() {
+        let list = allow(&["echo"]);
+        assert!(
+            check_all_segments("echo \"PATH=test\"", &list).is_ok(),
+            "PATH inside quotes is not an inline env assignment"
         );
     }
 
