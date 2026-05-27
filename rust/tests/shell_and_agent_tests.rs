@@ -464,16 +464,24 @@ fn hook_rewrite_works_with_shell_override() {
 }
 
 #[test]
-fn hook_rewrite_disabled_produces_no_output() {
+fn hook_rewrite_disabled_produces_allow_output() {
     let input = r#"{"tool_name":"Bash","command":"git status"}"#;
     let (stdout, _stderr, code) = run_hook_test(
         &["hook", "rewrite"],
         &[("LEAN_CTX_DISABLED", "1")],
         Some(input),
     );
+    let trimmed = stdout.trim();
     assert!(
-        stdout.trim().is_empty(),
-        "disabled hook should produce no output, got: {stdout}"
+        !trimmed.is_empty(),
+        "disabled hook should produce ALLOW output"
+    );
+    let v: serde_json::Value =
+        serde_json::from_str(trimmed).expect("disabled hook output should be valid JSON");
+    assert_eq!(
+        v["permission"].as_str().unwrap_or(""),
+        "allow",
+        "disabled hook must output allow, got: {stdout}"
     );
     assert_eq!(code, 0, "disabled hook should exit cleanly");
 }
