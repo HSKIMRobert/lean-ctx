@@ -136,7 +136,14 @@ pub(crate) fn auto_consolidate_knowledge(project_root: &str) {
                 file.clone()
             }
         } else {
-            "finding-auto".to_string()
+            let slug: String = finding
+                .summary
+                .chars()
+                .take(60)
+                .collect::<String>()
+                .replace(' ', "-")
+                .to_lowercase();
+            format!("finding-{slug}")
         };
         knowledge.remember("finding", &key, &finding.summary, &session.id, 0.7, &policy);
     }

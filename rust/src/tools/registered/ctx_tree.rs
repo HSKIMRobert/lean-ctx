@@ -26,7 +26,8 @@ impl McpTool for CtxTreeTool {
                         "description": "Multiple directories to list (alternative to path)"
                     },
                     "depth": { "type": "integer", "description": "Max depth (default: 3)" },
-                    "show_hidden": { "type": "boolean", "description": "Show hidden files" }
+                    "show_hidden": { "type": "boolean", "description": "Show hidden files" },
+                    "respect_gitignore": { "type": "boolean", "description": "Filter out .gitignore'd files (default: true). Set false to show all files." }
                 }
             }),
         )
@@ -40,9 +41,10 @@ impl McpTool for CtxTreeTool {
         let resolved = crate::server::multi_path::resolve_tool_paths(args, ctx);
         let depth = (get_int(args, "depth").unwrap_or(3) as usize).min(10);
         let show_hidden = get_bool(args, "show_hidden").unwrap_or(false);
+        let respect_gitignore = get_bool(args, "respect_gitignore").unwrap_or(true);
 
         if !resolved.is_multi {
-            return handle_single(&resolved.roots[0], depth, show_hidden);
+            return handle_single(&resolved.roots[0], depth, show_hidden, respect_gitignore);
         }
 
         let mut combined = String::new();
@@ -53,7 +55,12 @@ impl McpTool for CtxTreeTool {
             let root_clone = root.clone();
             let Ok((result, original)) =
                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    crate::tools::ctx_tree::handle(&root_clone, depth, show_hidden)
+                    crate::tools::ctx_tree::handle(
+                        &root_clone,
+                        depth,
+                        show_hidden,
+                        respect_gitignore,
+                    )
                 }))
             else {
                 combined.push_str(&format!("── {root} ──\nERROR: internal panic\n\n"));
@@ -85,10 +92,15 @@ impl McpTool for CtxTreeTool {
     }
 }
 
-fn handle_single(path: &str, depth: usize, show_hidden: bool) -> Result<ToolOutput, ErrorData> {
+fn handle_single(
+    path: &str,
+    depth: usize,
+    show_hidden: bool,
+    respect_gitignore: bool,
+) -> Result<ToolOutput, ErrorData> {
     let path_clone = path.to_string();
     let Ok((result, original)) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        crate::tools::ctx_tree::handle(&path_clone, depth, show_hidden)
+        crate::tools::ctx_tree::handle(&path_clone, depth, show_hidden, respect_gitignore)
     })) else {
         return Err(ErrorData::internal_error(
             format!(

@@ -211,7 +211,7 @@ mod error_data {
 
     #[test]
     fn scenario_tree_nonexistent_dir_returns_error() {
-        let (result, _) = lean_ctx::tools::ctx_tree::handle("/nonexistent_xyz", 3, false);
+        let (result, _) = lean_ctx::tools::ctx_tree::handle("/nonexistent_xyz", 3, false, true);
         assert!(
             result.starts_with("ERROR:"),
             "Expected ERROR prefix, got: {result}"
@@ -224,7 +224,7 @@ mod error_data {
         let file = dir.path().join("file.txt");
         std::fs::write(&file, "data").unwrap();
 
-        let (result, _) = lean_ctx::tools::ctx_tree::handle(file.to_str().unwrap(), 3, false);
+        let (result, _) = lean_ctx::tools::ctx_tree::handle(file.to_str().unwrap(), 3, false, true);
         assert!(
             result.starts_with("ERROR:"),
             "Expected ERROR prefix, got: {result}"
@@ -425,7 +425,7 @@ mod tree_ux {
         let file = dir.path().join("test.txt");
         std::fs::write(&file, "content").unwrap();
 
-        let (result, _) = lean_ctx::tools::ctx_tree::handle(file.to_str().unwrap(), 3, false);
+        let (result, _) = lean_ctx::tools::ctx_tree::handle(file.to_str().unwrap(), 3, false, true);
         assert!(result.contains("is a file, not a directory"));
         assert!(result.contains("Use path="));
     }
@@ -434,7 +434,8 @@ mod tree_ux {
     fn scenario_empty_directory_explicit_message() {
         let dir = tempfile::tempdir().unwrap();
 
-        let (result, _) = lean_ctx::tools::ctx_tree::handle(dir.path().to_str().unwrap(), 3, false);
+        let (result, _) =
+            lean_ctx::tools::ctx_tree::handle(dir.path().to_str().unwrap(), 3, false, true);
         assert!(
             result.contains("empty directory"),
             "Expected 'empty directory' message, got: {result}"
@@ -796,7 +797,8 @@ mod integration_workflow {
         std::fs::write(src.join("lib.rs"), "pub mod utils;").unwrap();
         std::fs::write(tests.join("integration.rs"), "#[test] fn it_works() {}").unwrap();
 
-        let (result, _) = lean_ctx::tools::ctx_tree::handle(dir.path().to_str().unwrap(), 3, false);
+        let (result, _) =
+            lean_ctx::tools::ctx_tree::handle(dir.path().to_str().unwrap(), 3, false, true);
         assert!(result.contains("src"));
         assert!(result.contains("tests"));
         assert!(!result.starts_with("ERROR:"));

@@ -381,6 +381,7 @@ pub fn cmd_ls(args: &[String]) {
     let mut raw_path = ".";
     let mut depth = 3usize;
     let mut show_hidden = false;
+    let mut respect_gitignore = true;
     let mut i = 0;
 
     while i < args.len() {
@@ -392,11 +393,13 @@ pub fn cmd_ls(args: &[String]) {
             }
         } else if arg == "--all" || arg == "-a" {
             show_hidden = true;
+        } else if arg == "--no-gitignore" {
+            respect_gitignore = false;
         } else if arg.starts_with('-') {
             eprintln!("Error: lean-ctx ls does not support flag '{arg}'.\n");
             eprintln!("lean-ctx ls is a compressed directory tree viewer for AI context, not a drop-in ls replacement.");
             eprintln!("The shell hook (lean-ctx -t ls {arg} ...) passes flags to system ls transparently.\n");
-            eprintln!("Usage: lean-ctx ls [path] [--depth N] [--all]");
+            eprintln!("Usage: lean-ctx ls [path] [--depth N] [--all] [--no-gitignore]");
             std::process::exit(1);
         } else {
             raw_path = arg;
@@ -416,6 +419,7 @@ pub fn cmd_ls(args: &[String]) {
                 "path": path,
                 "depth": depth,
                 "show_hidden": show_hidden,
+                "respect_gitignore": respect_gitignore,
             })),
         ) {
             println!("{}", super::common::filter_daemon_output(&out));
@@ -424,7 +428,8 @@ pub fn cmd_ls(args: &[String]) {
     }
     super::common::daemon_fallback_hint();
 
-    let (out, _original) = crate::tools::ctx_tree::handle(path, depth, show_hidden);
+    let (out, _original) =
+        crate::tools::ctx_tree::handle(path, depth, show_hidden, respect_gitignore);
     println!("{out}");
     super::common::cli_track_tree(0, count_tokens(&out));
 }

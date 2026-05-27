@@ -5,8 +5,14 @@ use ignore::WalkBuilder;
 use crate::core::protocol;
 use crate::core::tokens::count_tokens;
 
-/// Generates a compact directory tree listing with file counts, respecting gitignore.
-pub fn handle(path: &str, depth: usize, show_hidden: bool) -> (String, usize) {
+/// Generates a compact directory tree listing with file counts.
+/// When `respect_gitignore` is true, entries matching .gitignore patterns are excluded.
+pub fn handle(
+    path: &str,
+    depth: usize,
+    show_hidden: bool,
+    respect_gitignore: bool,
+) -> (String, usize) {
     let root = Path::new(path);
     if root.is_file() {
         let parent = root
@@ -26,8 +32,8 @@ pub fn handle(path: &str, depth: usize, show_hidden: bool) -> (String, usize) {
         );
     }
 
-    let raw_output = generate_raw_tree(root, depth, show_hidden);
-    let compact_output = generate_compact_tree(root, depth, show_hidden);
+    let raw_output = generate_raw_tree(root, depth, show_hidden, respect_gitignore);
+    let compact_output = generate_compact_tree(root, depth, show_hidden, respect_gitignore);
 
     if compact_output.trim().is_empty() {
         return (format!("{path}/ (empty directory, depth={depth})"), 0);
@@ -40,7 +46,12 @@ pub fn handle(path: &str, depth: usize, show_hidden: bool) -> (String, usize) {
     (format!("{compact_output}\n{savings}"), raw_tokens)
 }
 
-fn generate_compact_tree(root: &Path, max_depth: usize, show_hidden: bool) -> String {
+fn generate_compact_tree(
+    root: &Path,
+    max_depth: usize,
+    show_hidden: bool,
+    respect_gitignore: bool,
+) -> String {
     let mut lines = Vec::new();
 
     struct Entry {
@@ -53,9 +64,9 @@ fn generate_compact_tree(root: &Path, max_depth: usize, show_hidden: bool) -> St
 
     let walker = WalkBuilder::new(root)
         .hidden(!show_hidden)
-        .git_ignore(true)
-        .git_global(true)
-        .git_exclude(true)
+        .git_ignore(respect_gitignore)
+        .git_global(respect_gitignore)
+        .git_exclude(respect_gitignore)
         .max_depth(Some(max_depth))
         .sort_by_file_name(std::cmp::Ord::cmp)
         .build();
@@ -95,14 +106,19 @@ fn generate_compact_tree(root: &Path, max_depth: usize, show_hidden: bool) -> St
     lines.join("\n")
 }
 
-fn generate_raw_tree(root: &Path, depth: usize, show_hidden: bool) -> String {
+fn generate_raw_tree(
+    root: &Path,
+    depth: usize,
+    show_hidden: bool,
+    respect_gitignore: bool,
+) -> String {
     let mut lines = Vec::new();
 
     let walker = WalkBuilder::new(root)
         .hidden(!show_hidden)
-        .git_ignore(true)
-        .git_global(true)
-        .git_exclude(true)
+        .git_ignore(respect_gitignore)
+        .git_global(respect_gitignore)
+        .git_exclude(respect_gitignore)
         .max_depth(Some(depth))
         .sort_by_file_name(std::cmp::Ord::cmp)
         .build();
@@ -129,7 +145,7 @@ mod tests {
     #[test]
     fn tree_savings_are_reasonable() {
         let dir = env!("CARGO_MANIFEST_DIR");
-        let (output, original) = handle(dir, 3, false);
+        let (output, original) = handle(dir, 3, false, true);
         let compact_tokens = count_tokens(&output);
 
         eprintln!("=== ctx_tree savings test ===");

@@ -100,6 +100,64 @@ fn wait_with_limits(mut child: Child, max_bytes: usize, timeout: std::time::Dura
     }
 }
 
+const DEFAULT_MAX_BYTES: usize = 8 * 1024 * 1024; // 8 MB
+const DEFAULT_TIMEOUT: std::time::Duration = std::time::Duration::from_mins(2);
+const HEAVY_MAX_BYTES: usize = 32 * 1024 * 1024; // 32 MB
+const HEAVY_TIMEOUT: std::time::Duration = std::time::Duration::from_mins(10);
+
+fn exec_limits(command: &str) -> (usize, std::time::Duration) {
+    if is_heavy_command(command) {
+        (HEAVY_MAX_BYTES, HEAVY_TIMEOUT)
+    } else {
+        (DEFAULT_MAX_BYTES, DEFAULT_TIMEOUT)
+    }
+}
+
+fn is_heavy_command(command: &str) -> bool {
+    let cmd = command.trim();
+    let lower = cmd.to_lowercase();
+    static HEAVY_PREFIXES: &[&str] = &[
+        "cargo build",
+        "cargo test",
+        "cargo clippy",
+        "cargo check",
+        "cargo install",
+        "cargo bench",
+        "npm run build",
+        "npm install",
+        "npm ci",
+        "pnpm install",
+        "pnpm build",
+        "yarn install",
+        "yarn build",
+        "bun install",
+        "make",
+        "cmake",
+        "bazel build",
+        "bazel test",
+        "gradle build",
+        "gradle test",
+        "mvn package",
+        "mvn install",
+        "mvn test",
+        "go build",
+        "go test",
+        "dotnet build",
+        "dotnet test",
+        "swift build",
+        "swift test",
+        "flutter build",
+        "docker build",
+        "docker compose build",
+        "pip install",
+        "poetry install",
+        "uv sync",
+        "bundle install",
+        "mix compile",
+    ];
+    HEAVY_PREFIXES.iter().any(|p| lower.starts_with(p))
+}
+
 /// Execute a command from pre-split argv without going through `sh -c`.
 /// Used by `-t` mode when the shell hook passes `"$@"` — arguments are
 /// already correctly split by the user's shell, so re-serializing them
@@ -293,10 +351,8 @@ fn exec_buffered(command: &str, shell: &str, shell_flag: &str, cfg: &config::Con
         }
     };
 
-    const MAX_BUFFERED_BYTES: usize = 8 * 1024 * 1024; // 8 MB
-    const EXEC_TIMEOUT: std::time::Duration = std::time::Duration::from_mins(2);
-
-    let output = wait_with_limits(child, MAX_BUFFERED_BYTES, EXEC_TIMEOUT);
+    let (max_bytes, timeout) = exec_limits(command);
+    let output = wait_with_limits(child, max_bytes, timeout);
 
     let duration_ms = start.elapsed().as_millis();
     let exit_code = output.status.code().unwrap_or(1);
@@ -461,5 +517,35 @@ mod exec_tests {
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert!(stdout.contains("[lean-ctx: output truncated"));
+    }
+
+    #[test]
+    fn heavy_commands_get_higher_limits() {
+        let (bytes, timeout) = super::exec_limits("cargo build --release");
+        assert_eq!(bytes, super::HEAVY_MAX_BYTES);
+        assert_eq!(timeout, super::HEAVY_TIMEOUT);
+
+        let (bytes, timeout) = super::exec_limits("cargo test --lib");
+        assert_eq!(bytes, super::HEAVY_MAX_BYTES);
+        assert_eq!(timeout, super::HEAVY_TIMEOUT);
+
+        let (bytes, timeout) = super::exec_limits("npm run build");
+        assert_eq!(bytes, super::HEAVY_MAX_BYTES);
+        assert_eq!(timeout, super::HEAVY_TIMEOUT);
+
+        let (bytes, timeout) = super::exec_limits("docker build -t myapp .");
+        assert_eq!(bytes, super::HEAVY_MAX_BYTES);
+        assert_eq!(timeout, super::HEAVY_TIMEOUT);
+    }
+
+    #[test]
+    fn normal_commands_get_default_limits() {
+        let (bytes, timeout) = super::exec_limits("echo hello");
+        assert_eq!(bytes, super::DEFAULT_MAX_BYTES);
+        assert_eq!(timeout, super::DEFAULT_TIMEOUT);
+
+        let (bytes, timeout) = super::exec_limits("git status");
+        assert_eq!(bytes, super::DEFAULT_MAX_BYTES);
+        assert_eq!(timeout, super::DEFAULT_TIMEOUT);
     }
 }

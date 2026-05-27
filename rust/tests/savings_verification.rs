@@ -528,7 +528,7 @@ fn audit_full_savings_pipeline() {
     // 4. ctx_tree — fair comparison (same depth)
     {
         let dir = env!("CARGO_MANIFEST_DIR");
-        let (output, raw_tokens) = lean_ctx::tools::ctx_tree::handle(dir, 2, false);
+        let (output, raw_tokens) = lean_ctx::tools::ctx_tree::handle(dir, 2, false, true);
         let compact_tokens = count_tokens(&output);
         let savings = raw_tokens.saturating_sub(compact_tokens);
         let ratio = if raw_tokens > 0 {
