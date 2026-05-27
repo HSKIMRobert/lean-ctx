@@ -32,11 +32,13 @@ impl PreparedSave {
         let latest_path = self.dir.join("latest.json");
         let latest_tmp = self.dir.join(".latest.json.tmp");
         std::fs::write(&latest_tmp, &self.pointer_json).map_err(|e| e.to_string())?;
+        restrict_file_permissions(&latest_tmp);
         std::fs::rename(&latest_tmp, &latest_path).map_err(|e| e.to_string())?;
 
         if let Some(snapshot) = self.compaction_snapshot {
             let snap_path = self.dir.join(format!("{}_snapshot.txt", self.id));
             let _ = std::fs::write(&snap_path, &snapshot);
+            restrict_file_permissions(&snap_path);
         }
         Ok(())
     }

@@ -79,7 +79,13 @@ pub fn save_tee(command: &str, output: &str) -> Option<String> {
     let path = tee_dir.join(&filename);
 
     let masked = mask_sensitive_data(output);
-    std::fs::write(&path, masked).ok()?;
+    let (redacted, _) = crate::core::secret_detection::scan_and_redact_from_config(&masked);
+    std::fs::write(&path, redacted).ok()?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+    }
     Some(path.to_string_lossy().to_string())
 }
 

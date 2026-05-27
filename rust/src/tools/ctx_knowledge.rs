@@ -362,6 +362,8 @@ fn handle_remember(
         return "Error: value is required for remember".to_string();
     };
     let conf = confidence.unwrap_or(0.8);
+    let (v, _secret_matches) = crate::core::secret_detection::scan_and_redact_from_config(v);
+    let v = v.as_str();
     let policy = match load_policy_or_error() {
         Ok(p) => p,
         Err(e) => return e,

@@ -519,7 +519,7 @@ impl Default for SecretDetectionConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            redact: false,
+            redact: true,
             custom_patterns: Vec::new(),
         }
     }

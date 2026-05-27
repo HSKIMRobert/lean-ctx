@@ -54,13 +54,43 @@ fn gitlab_pat_re() -> &'static Regex {
     static_regex!(r"glpat-[A-Za-z0-9_\-]{20,}")
 }
 
+fn jwt_re() -> &'static Regex {
+    static_regex!(r"eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}")
+}
+
+fn slack_token_re() -> &'static Regex {
+    static_regex!(r"xox[bpas]-[0-9a-zA-Z\-]{10,}")
+}
+
+fn stripe_key_re() -> &'static Regex {
+    static_regex!(r"[sr]k_live_[0-9a-zA-Z]{10,}")
+}
+
+fn db_url_re() -> &'static Regex {
+    static_regex!(r"(?:postgres|mysql|mongodb|redis)://[^\s]+:[^\s]+@")
+}
+
+fn npm_token_re() -> &'static Regex {
+    static_regex!(r"npm_[A-Za-z0-9]{10,}")
+}
+
+fn github_fine_grained_re() -> &'static Regex {
+    static_regex!(r"github_pat_[A-Za-z0-9_]{20,}")
+}
+
 const BUILTIN_PATTERNS: &[(&str, fn() -> &'static Regex)] = &[
     ("aws_key", aws_key_re),
     ("private_key", private_key_re),
     ("github_token", github_token_re),
+    ("github_fine_grained", github_fine_grained_re),
     ("anthropic_key", anthropic_key_re),
     ("openai_key", openai_key_re),
     ("gitlab_pat", gitlab_pat_re),
+    ("jwt", jwt_re),
+    ("slack_token", slack_token_re),
+    ("stripe_key", stripe_key_re),
+    ("db_url", db_url_re),
+    ("npm_token", npm_token_re),
     ("generic_api_key", generic_api_key_re),
     ("high_entropy_secret", high_entropy_b64_re),
 ];
@@ -229,6 +259,50 @@ mod tests {
         let input = "fn main() { println!(\"hello world\"); }";
         let matches = detect_secrets(input);
         assert!(matches.is_empty());
+    }
+
+    #[test]
+    fn detects_jwt() {
+        let input = "token = eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkw";
+        let matches = detect_secrets(input);
+        assert!(matches.iter().any(|m| m.pattern_name == "jwt"));
+    }
+
+    #[test]
+    fn detects_slack_token() {
+        let input = "SLACK_TOKEN=xoxb-1234567890-abcdefghij";
+        let matches = detect_secrets(input);
+        assert!(matches.iter().any(|m| m.pattern_name == "slack_token"));
+    }
+
+    #[test]
+    fn detects_stripe_key() {
+        let input = "stripe_key = sk_live_abcdefghij1234567890";
+        let matches = detect_secrets(input);
+        assert!(matches.iter().any(|m| m.pattern_name == "stripe_key"));
+    }
+
+    #[test]
+    fn detects_db_url() {
+        let input = "DATABASE_URL=postgres://user:password@localhost:5432/db";
+        let matches = detect_secrets(input);
+        assert!(matches.iter().any(|m| m.pattern_name == "db_url"));
+    }
+
+    #[test]
+    fn detects_npm_token() {
+        let input = "NPM_TOKEN=npm_abcdefghij1234567890";
+        let matches = detect_secrets(input);
+        assert!(matches.iter().any(|m| m.pattern_name == "npm_token"));
+    }
+
+    #[test]
+    fn detects_github_fine_grained() {
+        let input = "token = github_pat_ABCDEFGHIJKLMNOPQRSTuvwx";
+        let matches = detect_secrets(input);
+        assert!(matches
+            .iter()
+            .any(|m| m.pattern_name == "github_fine_grained"));
     }
 
     #[test]
