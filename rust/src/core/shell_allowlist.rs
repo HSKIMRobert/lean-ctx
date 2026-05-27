@@ -704,6 +704,14 @@ fn skip_env_assignments(segment: &str) -> &str {
 }
 
 fn effective_allowlist() -> Vec<String> {
+    // LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE completely replaces the config (for testing)
+    if let Ok(ov) = std::env::var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE") {
+        return ov
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+    }
     let mut list = crate::core::config::Config::load().shell_allowlist;
     if let Ok(env_val) = std::env::var("LEAN_CTX_SHELL_ALLOWLIST") {
         for entry in env_val

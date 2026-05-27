@@ -16,16 +16,14 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 
 mod shell_security {
-    // Use check_all_segments directly to avoid env var race conditions in parallel tests
     use lean_ctx::core::shell_allowlist::check_shell_allowlist;
 
-    /// Internal helper that bypasses env vars for deterministic testing.
+    /// Override the allowlist completely (bypasses config defaults) for deterministic tests.
     fn check(command: &str, allowlist: &[&str]) -> Result<(), String> {
-        // Set env, call, unset — still racy but we use serial for critical tests
         let val = allowlist.join(",");
-        std::env::set_var("LEAN_CTX_SHELL_ALLOWLIST", &val);
+        std::env::set_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE", &val);
         let result = check_shell_allowlist(command);
-        std::env::remove_var("LEAN_CTX_SHELL_ALLOWLIST");
+        std::env::remove_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE");
         result
     }
 
@@ -114,10 +112,14 @@ mod shell_security {
 
     #[test]
     #[serial_test::serial]
-    fn scenario_empty_allowlist_passes_everything() {
-        std::env::set_var("LEAN_CTX_SHELL_ALLOWLIST", "");
+    fn scenario_empty_allowlist_passes_safe_commands() {
+        std::env::set_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE", "");
         assert!(check_shell_allowlist("anything goes here").is_ok());
-        std::env::remove_var("LEAN_CTX_SHELL_ALLOWLIST");
+        assert!(check_shell_allowlist("ls -la").is_ok());
+        // Unconditionally blocked commands (eval, exec, source) are still rejected
+        assert!(check_shell_allowlist("eval 'rm -rf /'").is_err());
+        assert!(check_shell_allowlist("exec /bin/bash").is_err());
+        std::env::remove_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE");
     }
 }
 
