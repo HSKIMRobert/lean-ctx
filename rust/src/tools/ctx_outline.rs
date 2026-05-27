@@ -5,6 +5,15 @@ use crate::tools::CrpMode;
 
 /// Thin redirect: delegates to ctx_read mode=signatures with optional kind filter.
 pub fn handle(path: &str, kind_filter: Option<&str>) -> (String, usize) {
+    let p = std::path::Path::new(path);
+    if p.symlink_metadata()
+        .is_ok_and(|m| m.file_type().is_symlink())
+    {
+        return (
+            format!("ERROR: {path} is a symlink (skipped for security)"),
+            0,
+        );
+    }
     let content = match std::fs::read_to_string(path) {
         Ok(c) => c,
         Err(e) => return (format!("ERROR: Cannot read {path}: {e}"), 0),

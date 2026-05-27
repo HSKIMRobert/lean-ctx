@@ -617,17 +617,18 @@ fn scan_inner(project_root: &str) -> (ProjectIndex, HashMap<String, String>) {
         if !entry.file_type().is_some_and(|ft| ft.is_file()) {
             continue;
         }
+
+        if entry.path_is_symlink() {
+            continue;
+        }
         let file_path = normalize_absolute_path(&entry.path().to_string_lossy());
 
-        // Prevent indexing files that escaped the project root (symlinks, mount points).
-        // Use Path::starts_with for component-safe comparison (prevents /proj matching /proj-evil).
         if !std::path::Path::new(&file_path).starts_with(std::path::Path::new(&project_root)) {
             continue;
         }
 
-        // Skip special files (devices, FIFOs, sockets) that can stream infinite data
-        if let Ok(meta) = std::fs::metadata(&file_path) {
-            if !meta.is_file() {
+        if let Ok(meta) = std::fs::symlink_metadata(&file_path) {
+            if meta.file_type().is_symlink() || !meta.is_file() {
                 continue;
             }
             if meta.len() > MAX_FILE_SIZE_BYTES {
