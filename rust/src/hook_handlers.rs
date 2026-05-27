@@ -490,18 +490,6 @@ fn read_stdin_with_timeout(timeout: Duration) -> Option<String> {
     }
 }
 
-fn build_dual_deny_output(reason: &str) -> String {
-    serde_json::json!({
-        "permission": "deny",
-        "reason": reason,
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "deny",
-        }
-    })
-    .to_string()
-}
-
 fn build_dual_allow_output() -> String {
     serde_json::json!({
         "permission": "allow",
@@ -542,32 +530,35 @@ fn build_dual_rewrite_output(tool_input: Option<&serde_json::Value>, rewritten: 
 }
 
 pub fn handle_rewrite() {
+    let allow = build_dual_allow_output();
     if is_disabled() {
+        print!("{allow}");
         return;
     }
     let binary = resolve_binary();
     let Some(input) = read_stdin_with_timeout(HOOK_STDIN_TIMEOUT) else {
+        print!("{allow}");
         return;
     };
 
-    let v: serde_json::Value = if let Ok(v) = serde_json::from_str(&input) {
-        v
-    } else {
-        print!("{}", build_dual_deny_output("invalid JSON hook payload"));
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&input) else {
+        tracing::warn!("[hook rewrite] invalid JSON payload, allowing passthrough");
+        print!("{allow}");
         return;
     };
 
     let tool = v.get("tool_name").and_then(|t| t.as_str());
     let Some(tool_name) = tool else {
+        print!("{allow}");
         return;
     };
 
-    // Claude Code uses Bash; Cursor uses Shell; Copilot uses runInTerminal.
     let is_shell_tool = matches!(
         tool_name,
         "Bash" | "bash" | "Shell" | "shell" | "runInTerminal" | "run_in_terminal" | "terminal"
     );
     if !is_shell_tool {
+        print!("{allow}");
         return;
     }
 
@@ -577,14 +568,14 @@ pub fn handle_rewrite() {
         .and_then(|c| c.as_str())
         .or_else(|| v.get("command").and_then(|c| c.as_str()))
     else {
+        print!("{allow}");
         return;
     };
 
     if let Some(rewritten) = rewrite_candidate(cmd, &binary) {
         print!("{}", build_dual_rewrite_output(tool_input, &rewritten));
     } else {
-        // Always return a valid allow JSON for hosts that require JSON on exit 0.
-        print!("{}", build_dual_allow_output());
+        print!("{allow}");
     }
 }
 
@@ -857,18 +848,21 @@ fn emit_rewrite(rewritten: &str) {
 }
 
 pub fn handle_redirect() {
+    let allow = build_dual_allow_output();
     if is_disabled() {
         let _ = read_stdin_with_timeout(HOOK_STDIN_TIMEOUT);
-        print!("{}", build_dual_allow_output());
+        print!("{allow}");
         return;
     }
 
     let Some(input) = read_stdin_with_timeout(HOOK_STDIN_TIMEOUT) else {
+        print!("{allow}");
         return;
     };
 
     let Ok(v) = serde_json::from_str::<serde_json::Value>(&input) else {
-        print!("{}", build_dual_deny_output("invalid JSON hook payload"));
+        tracing::warn!("[hook redirect] invalid JSON payload, allowing passthrough");
+        print!("{allow}");
         return;
     };
 
@@ -878,7 +872,7 @@ pub fn handle_redirect() {
     match tool_name {
         "Read" | "read" | "read_file" => redirect_read(tool_input),
         "Grep" | "grep" | "search" | "ripgrep" => redirect_grep(tool_input),
-        _ => print!("{}", build_dual_allow_output()),
+        _ => print!("{allow}"),
     }
 }
 
@@ -897,13 +891,7 @@ fn redirect_read(tool_input: Option<&serde_json::Value>) {
     }
 
     if is_harden_active() {
-        print!(
-            "{}",
-            build_dual_deny_output(
-                "Use ctx_read instead of native Read. lean-ctx harden mode is active."
-            )
-        );
-        return;
+        tracing::info!("[hook redirect] harden mode active, redirecting Read through lean-ctx");
     }
 
     let binary = resolve_binary();
@@ -937,13 +925,7 @@ fn redirect_grep(tool_input: Option<&serde_json::Value>) {
     }
 
     if is_harden_active() {
-        print!(
-            "{}",
-            build_dual_deny_output(
-                "Use ctx_search instead of native Grep. lean-ctx harden mode is active."
-            )
-        );
-        return;
+        tracing::info!("[hook redirect] harden mode active, redirecting Grep through lean-ctx");
     }
 
     let binary = resolve_binary();
