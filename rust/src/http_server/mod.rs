@@ -124,6 +124,26 @@ impl HttpServerConfig {
         Ok(())
     }
 
+    pub fn effective_auth_token(&self) -> Option<String> {
+        if let Some(ref token) = self.auth_token {
+            if !token.is_empty() {
+                return Some(token.clone());
+            }
+        }
+        let host = self.host.trim().to_lowercase();
+        let is_loopback = host == "127.0.0.1" || host == "localhost" || host == "::1";
+        if is_loopback {
+            let auto_token = crate::core::session_token::generate_token();
+            eprintln!(
+                "[lean-ctx] Auto-generated auth token for loopback: {auto_token}\n\
+                 Pass as Bearer token or set --auth-token explicitly."
+            );
+            Some(auto_token)
+        } else {
+            None
+        }
+    }
+
     fn mcp_http_config(&self) -> StreamableHttpServerConfig {
         let mut cfg = StreamableHttpServerConfig::default()
             .with_stateful_mode(self.stateful_mode)
@@ -834,7 +854,7 @@ fn build_app_router(cfg: &HttpServerConfig) -> Router {
     let rest_server = LeanCtxServer::new_shared_with_context(&project_root, "default", "default");
 
     let state = AppState {
-        token: cfg.auth_token.clone().filter(|t| !t.is_empty()),
+        token: cfg.effective_auth_token(),
         concurrency: Arc::new(tokio::sync::Semaphore::new(cfg.max_concurrency.max(1))),
         rate: Arc::new(RateLimiter::new(cfg.max_rps, cfg.rate_burst)),
         project_root,

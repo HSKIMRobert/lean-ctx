@@ -39,7 +39,7 @@ impl LeanCtxServer {
             .await
             .clone()
             .unwrap_or_else(|| "unknown".to_string());
-        if name != "ctx_call" {
+        {
             if let crate::core::a2a::rate_limiter::RateLimitResult::Limited { retry_after_ms } =
                 crate::core::a2a::rate_limiter::check_rate_limit(&agent_id, name)
             {

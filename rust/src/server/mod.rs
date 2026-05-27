@@ -272,6 +272,7 @@ impl ServerHandler for LeanCtxServer {
         let client = self.client_name.read().await.clone();
         let is_zed = !client.is_empty() && client.to_lowercase().contains("zed");
 
+        let active_role = crate::core::roles::active_role();
         let tools: Vec<_> = all_tools
             .into_iter()
             .filter(|t| {
@@ -280,6 +281,9 @@ impl ServerHandler for LeanCtxServer {
                     return false;
                 }
                 if is_zed && name == "ctx_edit" {
+                    return false;
+                }
+                if !active_role.is_tool_allowed(name) {
                     return false;
                 }
                 true
