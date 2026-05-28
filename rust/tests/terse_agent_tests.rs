@@ -70,7 +70,7 @@ fn terse_agent_from_env() {
 fn legacy_terse_lite_routes_to_compression_lite() {
     let _g = lock();
     set_legacy_terse("lite");
-    let text = instructions::build_instructions(CrpMode::Off);
+    let text = instructions::build_instructions_for_test(CrpMode::Off);
     assert!(
         text.contains("OUTPUT STYLE: concise"),
         "legacy terse lite should route to compression lite prompt"
@@ -82,7 +82,7 @@ fn legacy_terse_lite_routes_to_compression_lite() {
 fn legacy_terse_full_routes_to_compression_standard() {
     let _g = lock();
     set_legacy_terse("full");
-    let text = instructions::build_instructions(CrpMode::Off);
+    let text = instructions::build_instructions_for_test(CrpMode::Off);
     assert!(
         text.contains("OUTPUT STYLE: dense"),
         "legacy terse full should route to compression standard prompt"
@@ -94,7 +94,7 @@ fn legacy_terse_full_routes_to_compression_standard() {
 fn legacy_terse_ultra_routes_to_compression_max() {
     let _g = lock();
     set_legacy_terse("ultra");
-    let text = instructions::build_instructions(CrpMode::Off);
+    let text = instructions::build_instructions_for_test(CrpMode::Off);
     assert!(
         text.contains("OUTPUT STYLE: expert-terse"),
         "legacy terse ultra should route to compression max prompt"
@@ -106,7 +106,7 @@ fn legacy_terse_ultra_routes_to_compression_max() {
 fn legacy_terse_off_no_output_style() {
     let _g = lock();
     set_legacy_terse("off");
-    let text = instructions::build_instructions(CrpMode::Off);
+    let text = instructions::build_instructions_for_test(CrpMode::Off);
     assert!(
         !text.contains("OUTPUT STYLE"),
         "terse off should not inject OUTPUT STYLE block"
@@ -121,7 +121,7 @@ fn compression_env_overrides_legacy_terse_agent() {
     let _g = lock();
     std::env::set_var("LEAN_CTX_COMPRESSION", "max");
     std::env::set_var("LEAN_CTX_TERSE_AGENT", "lite");
-    let text = instructions::build_instructions(CrpMode::Off);
+    let text = instructions::build_instructions_for_test(CrpMode::Off);
     assert!(
         text.contains("expert-terse"),
         "compression env should override legacy terse_agent"
@@ -133,7 +133,7 @@ fn compression_env_overrides_legacy_terse_agent() {
 fn compression_level_lite_injects_concise() {
     let _g = lock();
     set_compression("lite");
-    let text = instructions::build_instructions(CrpMode::Off);
+    let text = instructions::build_instructions_for_test(CrpMode::Off);
     assert!(
         text.contains("OUTPUT STYLE: concise"),
         "compression lite should inject concise prompt"
@@ -145,7 +145,7 @@ fn compression_level_lite_injects_concise() {
 fn compression_level_standard_injects_dense() {
     let _g = lock();
     set_compression("standard");
-    let text = instructions::build_instructions(CrpMode::Off);
+    let text = instructions::build_instructions_for_test(CrpMode::Off);
     assert!(
         text.contains("OUTPUT STYLE: dense"),
         "compression standard should inject dense prompt"
@@ -161,7 +161,7 @@ fn compression_level_standard_injects_dense() {
 fn compression_level_max_injects_expert_terse() {
     let _g = lock();
     set_compression("max");
-    let text = instructions::build_instructions(CrpMode::Off);
+    let text = instructions::build_instructions_for_test(CrpMode::Off);
     assert!(
         text.contains("OUTPUT STYLE: expert-terse"),
         "compression max should inject expert-terse prompt"
@@ -173,7 +173,7 @@ fn compression_level_max_injects_expert_terse() {
 fn compression_level_off_no_output_style() {
     let _g = lock();
     set_compression("off");
-    let text = instructions::build_instructions(CrpMode::Off);
+    let text = instructions::build_instructions_for_test(CrpMode::Off);
     assert!(
         !text.contains("OUTPUT STYLE"),
         "compression off should not inject any OUTPUT STYLE block"

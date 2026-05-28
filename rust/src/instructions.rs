@@ -290,36 +290,61 @@ CRITICAL: ALWAYS use lean-ctx MCP tools instead of native equivalents for token 
     let intelligence_block = build_intelligence_block();
     let terse_block = build_terse_agent_block_for_client(&crp_mode, client_name);
 
-    let base = base;
-    let full = match crp_mode {
-        CrpMode::Off => format!("{base}\n\n{terse_block}{intelligence_block}"),
-        CrpMode::Compact => {
-            format!(
-                "{base}\n\n\
-CRP MODE: compact\n\
+    // The guidance suffix (CRP-mode rules + compression/output-style + the
+    // intelligence block) is the operational contract for the agent and must
+    // survive the token cap. The variable session/knowledge/gotcha blocks live
+    // inside `base` and are the right thing to shed under pressure (H3). So we
+    // protect the suffix and truncate only `base` to fit the budget.
+    let guidance_suffix = match crp_mode {
+        CrpMode::Off => format!("{terse_block}{intelligence_block}"),
+        CrpMode::Compact => format!(
+            "CRP MODE: compact\n\
 Omit filler. Abbreviate: fn,cfg,impl,deps,req,res,ctx,err,ret,arg,val,ty,mod.\n\
 Diff lines (+/-) only. TARGET: <=200 tok. Trust tool outputs.\n\n\
 {terse_block}{intelligence_block}"
-            )
-        }
-        CrpMode::Tdd => {
-            format!(
-                "{base}\n\n\
-CRP MODE: tdd\n\
+        ),
+        CrpMode::Tdd => format!(
+            "CRP MODE: tdd\n\
 Max density. Every token carries meaning. Fn refs only, diff lines (+/-) only.\n\
 Abbreviate: fn,cfg,impl,deps,req,res,ctx,err,ret,arg,val,ty,mod.\n\
 +F1:42 param(timeout:Duration) | -F1:10-15 | ~F1:42 old->new\n\
 BUDGET: <=150 tok. ZERO NARRATION. Trust tool outputs.\n\n\
 {terse_block}{intelligence_block}"
-            )
-        }
+        ),
     };
 
-    if crate::core::tokens::count_tokens(&full) > INSTRUCTION_CAP_TOKENS {
-        truncate_to_token_cap(&full, INSTRUCTION_CAP_TOKENS)
-    } else {
-        full
+    assemble_within_cap(&base, &guidance_suffix, INSTRUCTION_CAP_TOKENS)
+}
+
+/// Join `base` and a protected `suffix` so the result fits `cap_tokens`,
+/// truncating only `base` if needed. The suffix is the agent's operational
+/// contract (compression/output-style guidance) and is preserved verbatim as
+/// long as it fits on its own; otherwise we fall back to capping the whole.
+fn assemble_within_cap(base: &str, suffix: &str, cap_tokens: usize) -> String {
+    use crate::core::tokens::count_tokens;
+    let suffix = suffix.trim_end_matches('\n');
+    if suffix.is_empty() {
+        let full = base.to_string();
+        return if count_tokens(&full) > cap_tokens {
+            truncate_to_token_cap(&full, cap_tokens)
+        } else {
+            full
+        };
     }
+
+    let full = format!("{base}\n\n{suffix}");
+    if count_tokens(&full) <= cap_tokens {
+        return full;
+    }
+
+    let suffix_tokens = count_tokens(suffix);
+    // Reserve room for the suffix plus the "\n\n" join. If the suffix alone is
+    // already at/over budget, degrade to a plain tail-cap of the whole text.
+    let Some(base_budget) = cap_tokens.checked_sub(suffix_tokens + 1) else {
+        return truncate_to_token_cap(&full, cap_tokens);
+    };
+    let trimmed_base = truncate_to_token_cap(base, base_budget);
+    format!("{trimmed_base}\n\n{suffix}")
 }
 
 fn truncate_to_token_cap(s: &str, cap_tokens: usize) -> String {
@@ -559,4 +584,47 @@ fn should_use_unified(client_name: &str) -> bool {
     }
     let _ = client_name;
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::tokens::count_tokens;
+
+    #[test]
+    fn guidance_suffix_survives_oversized_base() {
+        // Simulate a bloated session/knowledge `base` that alone exceeds the cap.
+        let base = "SESSION LINE\n".repeat(4000);
+        let suffix = "OUTPUT STYLE: expert-terse\nFn refs only, diff lines only.";
+        let out = assemble_within_cap(&base, suffix, INSTRUCTION_CAP_TOKENS);
+
+        assert!(
+            out.contains("OUTPUT STYLE: expert-terse"),
+            "protected guidance suffix must survive truncation"
+        );
+        assert!(
+            count_tokens(&out) <= INSTRUCTION_CAP_TOKENS,
+            "assembled output must respect the token cap"
+        );
+        assert!(
+            out.len() < base.len(),
+            "oversized base must have been truncated"
+        );
+    }
+
+    #[test]
+    fn under_cap_keeps_everything() {
+        let base = "tool mapping block";
+        let suffix = "OUTPUT STYLE: dense";
+        let out = assemble_within_cap(base, suffix, INSTRUCTION_CAP_TOKENS);
+        assert!(out.contains(base));
+        assert!(out.contains(suffix));
+    }
+
+    #[test]
+    fn empty_suffix_caps_base_only() {
+        let base = "x\n".repeat(4000);
+        let out = assemble_within_cap(&base, "", INSTRUCTION_CAP_TOKENS);
+        assert!(count_tokens(&out) <= INSTRUCTION_CAP_TOKENS);
+    }
 }

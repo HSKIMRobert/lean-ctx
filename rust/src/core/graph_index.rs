@@ -132,7 +132,7 @@ fn is_safe_scan_root(path: &str) -> bool {
     true
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectIndex {
     pub version: u32,
     pub project_root: String,

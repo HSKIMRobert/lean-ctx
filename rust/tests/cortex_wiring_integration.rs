@@ -1,4 +1,4 @@
-//! Integration test: full Cortex wiring pipeline.
+//! Integration test: full Context Engine wiring pipeline.
 //!
 //! Tests the data flow from provider chunks through consolidation into
 //! the session cache, graph edges, and cross-source hints — the exact

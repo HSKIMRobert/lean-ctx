@@ -125,7 +125,7 @@ Changes to these files receive extra scrutiny:
 All dependencies in `Cargo.toml` meet these criteria:
 
 - **Established crates**: All 29 dependencies are well-known, widely-used Rust crates
-- **License**: MIT or Apache-2.0 compatible
+- **License**: Apache-2.0 compatible
 - **Active maintenance**: Recent commits within 6 months
 - **Minimal network**: `ureq` (lightweight HTTP client) used only for version check and opt-in cloud sync
 

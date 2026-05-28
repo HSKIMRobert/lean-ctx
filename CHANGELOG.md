@@ -5,6 +5,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- **Efficiency Epic — resident line-search index**: `ctx_search` now narrows candidate files in memory via a RAM-resident trigram index (`core/search_index.rs`) before reading them, eliminating the per-call directory walk + full-corpus read. Benchmarked **17×–1000× faster** (p50, warm) on a 2000-file corpus with byte-identical recall. Falls back to the walk path when the index is absent/building; opt-out via `LEAN_CTX_DISABLE_SEARCH_INDEX=1`.
+- **`ctx_compose` task composer**: one call returns extracted keywords, semantically ranked files, exact match locations, and the most relevant symbol's body inline — replacing the typical search→read→outline→read chain.
+- **Benchmark harness** (`rust/benches/efficiency.rs` + `benchmarks/efficiency/`): reproducible latency (p50/p95/p99) + token report comparing the walk and resident-index paths, with a recall-parity assertion.
+- **Submodular context packing** (`core/context_packing.rs`): generic greedy max-coverage selector with a provable `1 − 1/e` approximation guarantee (Nemhauser–Wolsey–Fisher). `ctx_compose` now uses it to inline the *non-redundant set* of symbol bodies with maximal keyword coverage under a token budget, instead of just the first match. Budget via `LEAN_CTX_COMPOSE_SYMBOL_TOKENS` (default 600).
+- **Search index Bloom tier** (`core/search_index.rs`): monorepos whose trigram postings would exceed the memory budget now build compact per-file Bloom filters (~3× smaller, ~12 bits/trigram) instead of falling back to a full directory walk. Bloom filters have **zero false negatives** (a superset of true matches that `ctx_search` regex-verifies), so recall is identical to the exact tier. The `MAX_FILES` ceiling rose 20k→200k. Proven by a parity fuzz test (Bloom ⊇ postings for every query) + end-to-end recall test.
+- **Hebbian co-access graph** (`core/cooccurrence.rs`): a persistent, decaying "files that fire together, wire together" association graph. Files surfaced for the same task strengthen their mutual link (LTP); every update decays all weights (the forgetting curve) and prunes below threshold. Bounded by neighbour/file caps. Becomes an associative retrieval signal over time.
+- **Spreading-activation retrieval** (`core/spreading_activation.rs`): ACT-R-style associative ranker. Activation seeds at the files a task names and spreads over the project graph (fan-out-normalised, decaying → provably convergent even on cycles), surfacing structurally-close files lexical search misses. `ctx_compose` runs it over the **union of the static import/call graph and the learned co-access graph** as a budgeted, additive `## Related (associative…)` section (`LEAN_CTX_COMPOSE_GRAPH_BUDGET_MS`, default 1500).
+- **Retrieval eval harness** (`tests/retrieval_eval.rs`): a labelled benchmark (queries + relevance judgments) measuring recall@k, MRR and R-precision. Gates the associative ranker as **regression-free** (recall ≥ lexical for every query) with a measured gain (mean recall@3 1.00 vs 0.00 lexical, R-precision 1.00 — it recovers in-cluster files without flooding unrelated ones).
+
+### Hardening
+- **`ctx_compose` semantic ranking is wall-time budgeted (H1)**: the only `O(corpus)` stage (a cold BM25 build) runs in a cache-sharing worker thread bounded by `LEAN_CTX_COMPOSE_BUDGET_MS` (default 2500). On overrun the call returns immediately with exact-match + symbol sections and a "warming" note, while the worker finishes warming the resident cache for the next call — the agent loop can no longer stall on a cold index.
+- **`ctx_compose` full-path test coverage (H2)**: new `tests/ctx_compose_scenarios.rs` exercises the semantic + exact-match + symbol pipeline on a real mini-corpus and asserts the tight-budget degradation path never stalls.
+- **Instruction token cap is priority-aware (H3)**: the compression/output-style guidance suffix is now protected from truncation; only the variable session/knowledge/gotcha blocks are shed when the 1200-token cap is exceeded. Previously a large on-disk session could silently drop the agent's output-style contract.
+
+### Changed
+- **`ctx_read` auto-mode delivers task-relevant bodies**: in `map`/`signatures` mode with an active task, the body of the best-matching symbol is inlined, avoiding a follow-up full read. The `map` heuristic threshold was raised 3000→6000 tokens, and the redundant double disk read in auto-mode selection was removed (cached token counts are reused).
+- **Alpha/§MAP symbol substitution is now off by default** for agent-facing output (it traded per-call bytes for agent decode work). CLI/batch pipelines can opt back in with `LEAN_CTX_SYMBOL_MAP=1`.
+- **Resident graph-index cache** (`core/graph_cache.rs`): `try_load_graph_index` reuses a deserialized `ProjectIndex` from RAM, instead of re-reading + decompressing + parsing on every graph query.
+- **BM25 + graph caches use a `(mtime, size)` content fingerprint** instead of mtime alone: coarse (1–2 s) filesystem mtime could miss a same-second background rebuild; pairing it with the file size catches those rewrites without the cost of hashing a multi-MB index on every per-query freshness check. A rebuild is still picked up immediately within the TTL window.
+
+### Fixed
+- **CI: `dropin_install_tests` failed on shell-less runners** (regression from #309): the new "is the shell installed?" guard skips writing zsh hooks when no `zsh` binary is present, but the drop-in install tests assert the hooks are written — so they failed on the zsh-less `ubuntu-latest` runner. Added `LEAN_CTX_SHELL_HOOK_FORCE` (`1`/`true`/`all` or a comma list like `zsh,bash`) to force hook installation regardless of detection — useful in minimal containers / custom images, and the seam the tests use to stay host-independent.
+
 ## [3.6.23] — 2026-05-28
 
 ### Fixed

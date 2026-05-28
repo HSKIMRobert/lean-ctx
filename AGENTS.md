@@ -54,7 +54,7 @@ After 30+ tool calls without documentation:
 - lean-ctx will prompt with `[CHECKPOINT: please document current progress]`
 - Respond by calling `ctx_session(action="task")` with current status
 
-## Provider Pipeline (Context Cortex)
+## Provider Pipeline (Context Engine)
 
 External data sources (GitHub, GitLab, Jira, Postgres, MCP bridges, custom REST) are first-class citizens.
 All provider data flows through the same consolidation pipeline:

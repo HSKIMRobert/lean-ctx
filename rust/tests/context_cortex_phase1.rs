@@ -1,6 +1,6 @@
 //! Phase 1: Cortical Column Infrastructure — Integration Tests
 //!
-//! Verifies the full Context Cortex Phase 1 implementation:
+//! Verifies the full Context Engine Phase 1 implementation:
 //!   1. ContentChunk ↔ CodeChunk bidirectional conversion
 //!   2. ContentSource serialization and tagging
 //!   3. BM25 cross-source ingest pipeline

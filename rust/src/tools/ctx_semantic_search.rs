@@ -244,6 +244,13 @@ pub fn set_thread_cache(cache: crate::core::bm25_cache::SharedBm25Cache) {
     });
 }
 
+/// Clone the current thread's shared BM25 cache, if any. Lets composer tools
+/// propagate the resident cache into a budgeted worker thread so a slow cold
+/// build warms the *same* cache instead of being wasted work.
+pub fn get_thread_cache() -> Option<crate::core::bm25_cache::SharedBm25Cache> {
+    BM25_SHARED_CACHE.with(|c| c.borrow().clone())
+}
+
 /// Result of BM25 index loading — may indicate background build in progress.
 pub(crate) enum Bm25LoadResult {
     Ready(std::sync::Arc<BM25Index>),
@@ -291,6 +298,7 @@ fn store_in_thread_cache(root: &Path, idx: &std::sync::Arc<BM25Index>) {
                 root: root.to_path_buf(),
                 index: std::sync::Arc::clone(idx),
                 loaded_at: std::time::Instant::now(),
+                fingerprint: crate::core::bm25_cache::index_fingerprint(root),
             });
         }
     });

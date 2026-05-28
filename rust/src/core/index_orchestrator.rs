@@ -128,6 +128,10 @@ pub fn ensure_all_background(project_root: &str) {
     std::thread::spawn(move || {
         let state = entry_for(&root);
 
+        // Pre-warm the resident line-search index in parallel (own thread,
+        // deduped internally) so the first ctx_search hits the fast path.
+        crate::core::search_index::ensure_background(&root, true, false);
+
         // Phase 1: Graph index — may produce a content cache from the file walk
         {
             let mut s = state
@@ -193,7 +197,9 @@ pub fn ensure_all_background(project_root: &str) {
 }
 
 pub fn try_load_graph_index(project_root: &str) -> Option<ProjectIndex> {
-    ProjectIndex::load(project_root).filter(|idx| !idx.files.is_empty())
+    // Resident cache: avoids re-reading + zstd-decompressing + serde-parsing the
+    // on-disk index on every graph-touching query. Returns an in-memory clone.
+    crate::core::graph_cache::get_cached(project_root).map(|arc| (*arc).clone())
 }
 
 pub fn try_load_bm25_index(project_root: &str) -> Option<BM25Index> {

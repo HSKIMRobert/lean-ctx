@@ -21,7 +21,7 @@ This catalog is the single feature inventory for LeanCTX at release/runtime leve
 
 ## Runtime Surface (Current)
 
-- Granular MCP tools: **62**
+- Granular MCP tools: **63**
 - Unified MCP tools: **5**
 - MCP Resources: **5**
 - MCP Prompts: **5**
@@ -43,7 +43,7 @@ This catalog is the single feature inventory for LeanCTX at release/runtime leve
 
 ---
 
-## Granular MCP Tools (62)
+## Granular MCP Tools (63)
 
 ### A) Read / Search / IO Surface
 
@@ -62,6 +62,7 @@ This catalog is the single feature inventory for LeanCTX at release/runtime leve
 - `ctx_symbol`
 - `ctx_routes`
 - `ctx_context`
+- `ctx_compose`
 
 ### B) Architecture / Analysis / Discovery
 

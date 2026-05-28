@@ -58,6 +58,16 @@ pub fn handle(
     (out, 0)
 }
 
+/// Render the body of the single most relevant symbol named `name`.
+/// Used by `ctx_compose` to inline the top symbol's definition. Returns
+/// `(rendered_with_body, full_file_tokens)` or `None` when no graph/symbol.
+pub fn best_symbol_snippet(name: &str, project_root: &str) -> Option<(String, usize)> {
+    let open = graph_provider::open_or_build(project_root)?;
+    let gp = &open.provider;
+    let sym = gp.find_symbols(name, None, None).into_iter().next()?;
+    Some(render_single(&sym, gp, project_root))
+}
+
 fn render_single(sym: &SymbolInfo, gp: &GraphProvider, project_root: &str) -> (String, usize) {
     let abs_path = resolve_file_path(&sym.file, project_root);
 

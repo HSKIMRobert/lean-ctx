@@ -158,6 +158,8 @@ pub mod knowledge_domain {
 pub mod bm25_cache;
 pub mod bm25_index;
 pub mod content_chunk;
+pub mod context_packing;
+pub mod cooccurrence;
 pub mod dense_backend;
 pub mod embedding_index;
 pub mod embeddings;
@@ -168,6 +170,7 @@ pub mod search_reranking;
 pub mod semantic_cache;
 pub mod semantic_chunks;
 pub mod splade_retrieval;
+pub mod spreading_activation;
 
 /// Convenience re-export: all search-related modules.
 pub mod search {
@@ -304,6 +307,7 @@ pub mod hnsw;
 pub mod home;
 pub mod homeostasis;
 
+pub mod graph_cache;
 pub mod import_resolver;
 pub mod index_namespace;
 pub mod index_orchestrator;
@@ -340,6 +344,7 @@ pub mod sandbox;
 pub mod sandbox_landlock;
 pub mod sandbox_seatbelt;
 pub mod sanitize;
+pub mod search_index;
 pub mod secret_detection;
 pub mod session_token;
 pub mod shell_allowlist;

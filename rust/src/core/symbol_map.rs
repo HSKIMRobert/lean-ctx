@@ -14,6 +14,18 @@ macro_rules! static_regex {
 const MIN_IDENT_LENGTH: usize = 6;
 const SHORT_ID_PREFIX: char = 'α';
 
+/// Whether alpha/§MAP identifier substitution should be applied to tool output.
+///
+/// Default: **off**. Substituting identifiers for `α`-symbols saves a few
+/// per-call bytes but forces the agent to mentally decode them, increasing
+/// total task tokens and tool-calls. For agent-facing MCP output we therefore
+/// keep raw identifiers. CLI/batch pipelines that post-process output can opt
+/// back in with `LEAN_CTX_SYMBOL_MAP=1`.
+pub fn substitution_enabled() -> bool {
+    std::env::var("LEAN_CTX_SYMBOL_MAP")
+        .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("on"))
+}
+
 #[derive(Debug, Clone)]
 pub struct SymbolMap {
     forward: HashMap<String, String>,

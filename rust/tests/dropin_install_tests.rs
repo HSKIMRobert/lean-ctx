@@ -33,12 +33,21 @@ fn with_home<F: FnOnce(&Path)>(f: F) {
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let tmp = tempfile::tempdir().expect("tempdir");
     let prev = std::env::var_os("HOME");
+    let prev_force = std::env::var_os("LEAN_CTX_SHELL_HOOK_FORCE");
     // SAFETY: serialised via HOME_LOCK.
     unsafe { std::env::set_var("HOME", tmp.path()) };
+    // These tests validate the cross-file *install logic*, not host shell
+    // detection (which has its own unit test). CI runners may lack zsh, so force
+    // both shells "available" to keep the assertions host-independent.
+    unsafe { std::env::set_var("LEAN_CTX_SHELL_HOOK_FORCE", "all") };
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(tmp.path())));
     match prev {
         Some(v) => unsafe { std::env::set_var("HOME", v) },
         None => unsafe { std::env::remove_var("HOME") },
+    }
+    match prev_force {
+        Some(v) => unsafe { std::env::set_var("LEAN_CTX_SHELL_HOOK_FORCE", v) },
+        None => unsafe { std::env::remove_var("LEAN_CTX_SHELL_HOOK_FORCE") },
     }
     if let Err(p) = result {
         std::panic::resume_unwind(p);

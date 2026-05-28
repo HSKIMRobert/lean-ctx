@@ -1,4 +1,4 @@
-//! Universal content chunk — the atomic unit of the Context Cortex.
+//! Universal content chunk — the atomic unit of the Context Engine.
 //!
 //! Extends the existing `CodeChunk` (BM25) with a source dimension so that
 //! external data (GitHub issues, Jira tickets, DB schemas, wiki pages) flows

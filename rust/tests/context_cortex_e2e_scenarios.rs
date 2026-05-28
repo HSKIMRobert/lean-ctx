@@ -1,4 +1,4 @@
-//! End-to-End Scenario Tests — Realistic Context Cortex Usage
+//! End-to-End Scenario Tests — Realistic Context Engine Usage
 //!
 //! Tests the full pipeline with realistic multi-source data:
 //!

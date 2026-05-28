@@ -64,7 +64,7 @@ pub enum ChunkKind {
     Class,
     Method,
     Other,
-    // -- External source kinds (Context Cortex) --
+    // -- External source kinds (Context Engine) --
     Issue,
     PullRequest,
     WikiPage,

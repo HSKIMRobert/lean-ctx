@@ -171,7 +171,11 @@ fn heuristic_mode(ext: &str, token_count: usize) -> String {
         }
         return "aggressive".to_string();
     }
-    if token_count > 3000 && is_code(ext) {
+    // Raised from 3000 → 6000: at 3-6k tokens, returning only signatures forces
+    // the agent into a follow-up full/lines read for the body it actually
+    // needs. Keeping `full` here trades a few hundred tokens per call for
+    // fewer round-trips — the right call per the total-task-token principle.
+    if token_count > 6000 && is_code(ext) {
         return "map".to_string();
     }
     "full".to_string()

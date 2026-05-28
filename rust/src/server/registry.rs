@@ -120,6 +120,7 @@ pub fn build_registry() -> ToolRegistry {
     registry.register(Box::new(registered::ctx_fill::CtxFillTool));
     registry.register(Box::new(registered::ctx_shell::CtxShellTool));
     registry.register(Box::new(registered::ctx_search::CtxSearchTool));
+    registry.register(Box::new(registered::ctx_compose::CtxComposeTool));
     registry.register(Box::new(registered::ctx_execute::CtxExecuteTool));
 
     // Utility tools (migrated from dispatch/utility_tools.rs)

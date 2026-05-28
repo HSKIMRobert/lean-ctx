@@ -48,7 +48,7 @@ parsing noisy shell output, and losing context between sessions.
 
 ---
 
-> **LeanCTX** stands for **Lean Cortex**: a lightweight cognitive layer that helps AI agents perceive, compress, remember, route, and reuse context across workflows.
+> **LeanCTX** stands for **Lean Context**: a lightweight cognitive layer that helps AI agents perceive, compress, remember, route, and reuse context across workflows.
 
 > It governs every token between your code and the AI — so you make better decisions, not just cheaper ones. Works with **Cursor, Claude Code, Copilot, Windsurf, Codex, Gemini** and 23+ other agents — no config needed.
 
@@ -127,7 +127,7 @@ Know exactly where your context budget goes. Control it.
 - **Context Proof** (`ctx_proof`, `ctx_verify`): cryptographic proofs with 4-layer verification engine
 
 <details>
-<summary><strong>Full feature list (62 MCP tools)</strong></summary>
+<summary><strong>Full feature list (63 MCP tools)</strong></summary>
 
 - **Graph-Powered Intelligence**: hybrid search (BM25 + embeddings + graph proximity via RRF), incremental git-diff updates
 - **LSP Refactoring** (`ctx_refactor`): language-server-powered rename, references, go-to-definition via rust-analyzer, typescript-language-server, pylsp, gopls
@@ -286,7 +286,7 @@ lean-ctx benchmark report .
 - **190+ forks** — active community contributions
 - **181 releases** — shipped daily since launch
 - **28 supported AI coding agents** — broadest MCP compatibility
-- **62 MCP tools** — from simple file reads to multi-agent orchestration
+- **63 MCP tools** — from simple file reads to multi-agent orchestration
 - Used in production by teams running Claude Code, Cursor, and Codex daily
 
 ## Docs
@@ -341,5 +341,3 @@ Start with [CONTRIBUTING.md](CONTRIBUTING.md). Easy first PR: propose a new CLI 
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE).
-
-Portions of this software were originally released under the MIT License. See [LICENSE-MIT](LICENSE-MIT) and [NOTICE](NOTICE).
