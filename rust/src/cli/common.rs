@@ -121,23 +121,37 @@ pub(crate) fn detect_project_root(args: &[String]) -> String {
     while let Some(a) = it.next() {
         if let Some(v) = a.strip_prefix("--root=") {
             if !v.trim().is_empty() {
-                return v.to_string();
+                return promote_to_git_root(v);
             }
         }
         if let Some(v) = a.strip_prefix("--project-root=") {
             if !v.trim().is_empty() {
-                return v.to_string();
+                return promote_to_git_root(v);
             }
         }
         if a == "--root" || a == "--project-root" {
             if let Some(v) = it.peek() {
                 if !v.starts_with("--") && !v.trim().is_empty() {
-                    return (*v).clone();
+                    return promote_to_git_root(v);
                 }
             }
         }
     }
-    std::env::current_dir()
+    let cwd = std::env::current_dir()
         .ok()
-        .map_or_else(|| ".".to_string(), |p| p.to_string_lossy().to_string())
+        .map_or_else(|| ".".to_string(), |p| p.to_string_lossy().to_string());
+    promote_to_git_root(&cwd)
+}
+
+fn promote_to_git_root(path: &str) -> String {
+    let mut p = std::path::Path::new(path);
+    loop {
+        if p.join(".git").exists() {
+            return p.to_string_lossy().to_string();
+        }
+        match p.parent() {
+            Some(parent) => p = parent,
+            None => return path.to_string(),
+        }
+    }
 }

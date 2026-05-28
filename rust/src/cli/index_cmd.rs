@@ -32,12 +32,15 @@ pub(crate) fn cmd_index(args: &[String]) {
             if let Some(dir) = crate::core::graph_index::ProjectIndex::index_dir(&project_root) {
                 let _ = std::fs::remove_file(dir.join("index.json.zst"));
                 let _ = std::fs::remove_file(dir.join("index.json"));
+                let _ = std::fs::remove_file(dir.join("call_graph.json.zst"));
+                let _ = std::fs::remove_file(dir.join("graph.db"));
+                let _ = std::fs::remove_file(dir.join("graph.meta.json"));
             }
             crate::core::index_orchestrator::ensure_all_background(&project_root);
 
             let started = std::time::Instant::now();
-            let timeout = Duration::from_mins(2);
-            eprint!("rebuilding indexes");
+            let timeout = Duration::from_mins(5);
+            eprint!("rebuilding indexes (graph + BM25 + call graph)");
             loop {
                 std::thread::sleep(Duration::from_millis(500));
                 let status = crate::core::index_orchestrator::status_json(&project_root);
@@ -51,6 +54,15 @@ pub(crate) fn cmd_index(args: &[String]) {
                 }
             }
             eprintln!(" done");
+
+            eprint!("rebuilding property graph");
+            let result =
+                crate::tools::ctx_impact::handle("build", None, &project_root, None, Some("text"));
+            if result.contains("ERROR") {
+                eprintln!(" {result}");
+            } else {
+                eprintln!(" done");
+            }
         }
         Some("build-graph") => {
             let root_str = project_root.clone();
