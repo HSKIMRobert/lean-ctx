@@ -5,6 +5,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.6.22] — 2026-05-28
+
+### Security
+- **Security Hardening V2 (8 phases)**: Comprehensive security audit and hardening across the entire codebase:
+  - **Phase 1**: Shell substitution blocking — `eval`, `exec`, `source`, backtick-at-command-position detection
+  - **Phase 2**: Role system hardening — parameterized `roles_dir_project_from()`, stricter role validation
+  - **Phase 3**: Shell file access controls — lock-timeout secret redaction
+  - **Phase 4**: PathJail bypass removal — eliminated `#[cfg(feature = "no-jail")]` escape hatches in tests
+  - **Phase 5**: Secret detection unification — consolidated redaction pipeline
+  - **Phase 6**: Dangerous flag detection — `--checkpoint-action`, `GIT_SSH=`, `PATH=` override warnings
+  - **Phase 7**: HTTP + audit hardening — request validation, audit trail improvements
+  - **Phase 8**: Unicode normalization (U+2028/U+2029 → newline), CLI warn-first validation, empty-allowlist gap fix
+
+### Fixed
+- **Critical: preToolUse hook DENY loop** (#306): Cursor and other AI agents entered infinite retry loops when lean-ctx hooks returned DENY responses. Eliminated all DENY paths — hooks now always return valid ALLOW JSON, even for disabled mode, invalid payloads, or non-shell tools. Removed `build_dual_deny_output()` entirely.
+- **Graph index disappears after upgrade** (user report): CLI `index build-full` and Dashboard used different project root hashes (CLI used raw cwd, Dashboard promoted to git root). Unified `detect_project_root()` to always promote to git root, matching Dashboard behavior. Users in subdirectories now see the same index.
+- **`index build-full` incomplete rebuild**: Previously only cleared JSON graph index + BM25. Now also clears `call_graph.json.zst`, `graph.db`, and `graph.meta.json`, then rebuilds the SQLite property graph. Timeout increased from 2min to 5min.
+- **Knowledge overflow from `finding-auto` duplicates**: Auto-consolidated findings without a file reference all received the key `finding-auto`, creating hundreds of duplicate facts. The cognition loop's contradiction resolver couldn't keep up, causing `contradict` event spam in the dashboard. Keys are now generated from the finding summary (unique per finding).
+- **`cargo build --release` truncated by lean-ctx**: Heavy build commands hit the 8MB/120s output limit. Added adaptive exec limits: build tools (`cargo build`, `npm install`, `docker build`, etc.) now get 32MB/10min instead of 8MB/2min.
+- **Disabled hook test expected empty output** (#306 follow-up): Updated `hook_rewrite_disabled_produces_no_output` test to expect ALLOW JSON output instead of empty stdout.
+
+### Added
+- **`ctx_tree` / `lean-ctx ls` gitignore toggle**: New `respect_gitignore` parameter (MCP) / `--no-gitignore` flag (CLI) to show files regardless of `.gitignore` rules. Default: gitignore respected (backward compatible). Fixes user report where all-gitignored folders appeared empty.
+- **`LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE` env var**: Completely replaces the config-based allowlist for deterministic testing. Unlike `LEAN_CTX_SHELL_ALLOWLIST` (which merges), this overrides everything.
+- **37 heavy-command prefixes for adaptive exec limits**: `cargo build/test/clippy`, `npm install/ci`, `docker build`, `go build/test`, `mvn`, `gradle`, `dotnet`, `swift`, `flutter`, `pip install`, `bundle install`, `mix compile`, and more.
+
 ## [3.6.21] — 2026-05-27
 
 ### Fixed
