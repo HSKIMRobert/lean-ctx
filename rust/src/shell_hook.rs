@@ -285,9 +285,41 @@ pub fn install_all_with_style(quiet: bool, style: Style) {
     };
 
     let stamp = BackupStamp::now();
-    install_zshenv(&home, quiet, style, &stamp);
-    install_bashenv(&home, quiet, style, &stamp);
+    if shell_available("zsh") {
+        install_zshenv(&home, quiet, style, &stamp);
+    }
+    if shell_available("bash") {
+        install_bashenv(&home, quiet, style, &stamp);
+    }
     install_aliases(&home, quiet, style, &stamp);
+}
+
+/// Returns `true` if the given shell binary is installed on the system.
+/// Checks common installation paths without spawning a subprocess.
+#[cfg(unix)]
+fn shell_available(shell: &str) -> bool {
+    let candidates: &[&str] = match shell {
+        "zsh" => &[
+            "/bin/zsh",
+            "/usr/bin/zsh",
+            "/usr/local/bin/zsh",
+            "/opt/homebrew/bin/zsh",
+        ],
+        "bash" => &[
+            "/bin/bash",
+            "/usr/bin/bash",
+            "/usr/local/bin/bash",
+            "/opt/homebrew/bin/bash",
+        ],
+        _ => return false,
+    };
+    candidates.iter().any(|p| Path::new(p).exists())
+}
+
+#[cfg(not(unix))]
+fn shell_available(_shell: &str) -> bool {
+    // On non-Unix platforms (Windows), shell hooks are not applicable.
+    false
 }
 
 pub fn uninstall_all(quiet: bool) {
@@ -865,5 +897,31 @@ mod tests {
         let dropin = tmp.path().join(".zshenv.d").join(DROPIN_ZSH);
         let body = std::fs::read_to_string(&dropin).unwrap();
         assert!(body.contains("_lc()"), "drop-in must also contain stubs");
+    }
+
+    // --- #309: shell_available guards ---
+
+    #[cfg(unix)]
+    #[test]
+    fn shell_available_rejects_unknown_shell() {
+        assert!(!shell_available("fish"));
+        assert!(!shell_available("nushell"));
+        assert!(!shell_available(""));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn shell_available_finds_installed_shells() {
+        // On any Unix CI/dev machine at least one of bash/zsh should exist.
+        let has_bash = Path::new("/bin/bash").exists() || Path::new("/usr/bin/bash").exists();
+        let has_zsh = Path::new("/bin/zsh").exists() || Path::new("/usr/bin/zsh").exists();
+        assert!(
+            shell_available("bash") == has_bash,
+            "shell_available(bash) should match filesystem"
+        );
+        assert!(
+            shell_available("zsh") == has_zsh,
+            "shell_available(zsh) should match filesystem"
+        );
     }
 }

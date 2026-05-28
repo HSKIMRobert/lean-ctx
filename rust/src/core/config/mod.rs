@@ -13,6 +13,7 @@ mod memory;
 mod proxy;
 pub mod schema;
 mod serde_defaults;
+pub mod setter;
 mod shell_activation;
 
 pub use memory::{MemoryCleanup, MemoryGuardConfig, MemoryProfile, SavingsFooter};

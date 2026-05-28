@@ -1229,6 +1229,18 @@ impl ConfigSchema {
         }
     }
 
+    /// Looks up a key schema by its dot-separated TOML path.
+    /// Returns `None` if the key is not part of the schema.
+    pub fn lookup(&self, key: &str) -> Option<&KeySchema> {
+        if let Some(dot_pos) = key.find('.') {
+            let section = &key[..dot_pos];
+            let field = &key[dot_pos + 1..];
+            self.sections.get(section)?.keys.get(field)
+        } else {
+            self.sections.get("root")?.keys.get(key)
+        }
+    }
+
     /// All known TOML keys (dot-separated) for validation.
     pub fn known_keys(&self) -> Vec<String> {
         let mut keys = Vec::new();

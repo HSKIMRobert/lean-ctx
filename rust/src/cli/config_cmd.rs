@@ -36,86 +36,63 @@ pub fn cmd_config(args: &[String]) {
                 eprintln!("Usage: lean-ctx config set <key> <value>");
                 std::process::exit(1);
             }
-            let mut cfg = cfg;
             let key = &args[1];
             let val = &args[2];
+
+            // Special validation hooks for keys that need custom logic
+            // beyond what the schema type system can express.
             match key.as_str() {
-                "ultra_compact" => cfg.ultra_compact = val == "true",
+                "theme" if theme::from_preset(val).is_none() && val != "custom" => {
+                    eprintln!(
+                        "Unknown theme '{val}'. Available: {}",
+                        theme::PRESET_NAMES.join(", ")
+                    );
+                    std::process::exit(1);
+                }
                 "tee_on_error" | "tee_mode" => {
-                    cfg.tee_mode = match val.as_str() {
-                        "true" | "failures" => config::TeeMode::Failures,
-                        "highcompression" | "high_compression" => config::TeeMode::HighCompression,
-                        "always" => config::TeeMode::Always,
-                        "false" | "never" => config::TeeMode::Never,
-                        _ => {
-                            eprintln!(
-                                "Valid tee_mode values: always, highcompression, failures, never"
-                            );
+                    let normalized = match val.as_str() {
+                        "true" => "failures",
+                        "false" => "never",
+                        other => other,
+                    };
+                    match config::setter::set_by_key("tee_mode", normalized) {
+                        Ok(_) => println!("Updated {key} = {val}"),
+                        Err(e) => {
+                            eprintln!("{e}");
                             std::process::exit(1);
                         }
-                    };
-                }
-                "checkpoint_interval" => {
-                    cfg.checkpoint_interval = val.parse().unwrap_or(15);
-                }
-                "theme" => {
-                    if theme::from_preset(val).is_some() || val == "custom" {
-                        cfg.theme.clone_from(val);
-                    } else {
-                        eprintln!(
-                            "Unknown theme '{val}'. Available: {}",
-                            theme::PRESET_NAMES.join(", ")
-                        );
-                        std::process::exit(1);
                     }
+                    return;
                 }
-                "slow_command_threshold_ms" => {
-                    cfg.slow_command_threshold_ms = val.parse().unwrap_or(5000);
-                }
-                "passthrough_urls" => {
-                    cfg.passthrough_urls = val.split(',').map(|s| s.trim().to_string()).collect();
-                }
-                "excluded_commands" => {
-                    cfg.excluded_commands = val
-                        .split(',')
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect();
-                }
-                "rules_scope" => match val.as_str() {
-                    "global" | "project" | "both" => {
-                        cfg.rules_scope = Some(val.clone());
-                    }
-                    _ => {
-                        eprintln!("Valid rules_scope values: global, project, both");
-                        std::process::exit(1);
-                    }
-                },
                 "project_root" => {
                     let path = std::path::Path::new(val.as_str());
                     if !path.exists() || !path.is_dir() {
                         eprintln!("Error: '{val}' is not an existing directory.");
                         std::process::exit(1);
                     }
-                    cfg.project_root = Some(val.clone());
                 }
-                "proxy.anthropic_upstream" => {
-                    cfg.proxy.anthropic_upstream = normalize_optional_upstream(val);
+                "proxy.anthropic_upstream" | "proxy.openai_upstream" | "proxy.gemini_upstream" => {
+                    let normalized = normalize_optional_upstream(val);
+                    let effective = normalized.as_deref().unwrap_or("");
+                    match config::setter::set_by_key(key, effective) {
+                        Ok(_) => println!("Updated {key} = {val}"),
+                        Err(e) => {
+                            eprintln!("{e}");
+                            std::process::exit(1);
+                        }
+                    }
+                    return;
                 }
-                "proxy.openai_upstream" => {
-                    cfg.proxy.openai_upstream = normalize_optional_upstream(val);
-                }
-                "proxy.gemini_upstream" => {
-                    cfg.proxy.gemini_upstream = normalize_optional_upstream(val);
-                }
-                _ => {
-                    eprintln!("Unknown config key: {key}");
+                _ => {}
+            }
+
+            // Generic schema-based setter handles all keys
+            match config::setter::set_by_key(key, val) {
+                Ok(_) => println!("Updated {key} = {val}"),
+                Err(e) => {
+                    eprintln!("{e}");
                     std::process::exit(1);
                 }
-            }
-            match cfg.save() {
-                Ok(()) => println!("Updated {key} = {val}"),
-                Err(e) => eprintln!("Error saving config: {e}"),
             }
         }
         "schema" => {

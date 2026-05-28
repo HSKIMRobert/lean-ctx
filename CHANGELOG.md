@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.6.23] — 2026-05-28
+
+### Fixed
+- **`lean-ctx update` creates `.zshenv` on systems without zsh** (#309): `install_all_with_style()` unconditionally wrote shell hooks for both zsh and bash regardless of whether the shell was installed. Now checks for shell binary existence (`/bin/zsh`, `/usr/bin/zsh`, etc.) before installing hooks. Systems with only bash no longer get a spurious `.zshenv`.
+- **`lean-ctx config set` rejects valid config keys** (#308): The `config set` command only supported ~12 hardcoded keys while the config schema defines 80+. Implemented a generic schema-based setter (`config/setter.rs`) that validates any key against the ConfigSchema, parses values by type (bool, integer, float, string, enum, string[]), and performs a TOML round-trip with full serde validation. Keys like `proxy_enabled`, `profile`, `compression_level`, `memory_profile` now work as expected.
+
+### Added
+- **`lean-ctx gain`: 30-day USD savings** (#307): The dashboard now shows a "past 30 days" line with the estimated dollar savings for the last 30 days, in addition to the all-time total.
+- **`lean-ctx gain`: version in Recent Days header** (#307): The "Recent Days" section now displays the current lean-ctx version (e.g. `v3.6.23`) for easier troubleshooting in screenshots.
+- **Generic `config set` with enum validation**: Setting enum keys (e.g. `compression_level`) now shows allowed values on invalid input instead of a generic error.
+
 ## [3.6.22] — 2026-05-28
 
 ### Security
@@ -250,7 +261,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
-- **Context Cortex architecture** — Cross-source intelligence engine that unifies file reads, shell output, and external data sources into a single context graph. Includes `ContentChunk` abstraction, `ProviderRegistry`, cross-source edge hints, provider bandit (Thompson sampling), and active inference prefetching
+- **Context Engine architecture** — Cross-source intelligence engine that unifies file reads, shell output, and external data sources into a single context graph. Includes `ContentChunk` abstraction, `ProviderRegistry`, cross-source edge hints, provider bandit (Thompson sampling), and active inference prefetching
 - **Config-based data source providers** — Connect any REST API to lean-ctx without code. Drop a TOML/JSON file into `~/.config/lean-ctx/providers/` and lean-ctx auto-discovers it. Supports 6 auth methods (bearer, API key, basic, header, query param, none), dot-notation response extraction, and project-local providers
 - **Built-in providers** — GitHub (issues, PRs, actions), Jira (issues, sprints, projects), PostgreSQL (tables, schema, queries) activate automatically when their env vars are set
 - **`ctx_provider` tool** — MCP tool to query any registered data source: `ctx_provider(provider="github", resource="issues", params={...})`
@@ -1820,7 +1831,7 @@ The existing file-based method (`lean-ctx init --global`) continues to work unch
 ## [3.2.0] — 2026-04-17
 
 ### Breaking
-- **License changed from MIT to Apache-2.0**. All code from this release onwards is Apache-2.0. Previous releases remain MIT-licensed. See `LICENSE-MIT` for the original license and `NOTICE` for attribution.
+- **License changed from MIT to Apache-2.0**. All code from this release onwards is Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 ### Added
 - **Context Engine + HTTP server mode**: `lean-ctx serve` exposes all 48 MCP tools via REST endpoints with rate limiting, timeouts, and graceful shutdown — enables embedding lean-ctx as a library.
