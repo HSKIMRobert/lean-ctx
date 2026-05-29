@@ -69,7 +69,7 @@ fn hex_val(b: u8) -> Option<u8> {
     }
 }
 
-fn has_project_marker(dir: &Path) -> bool {
+pub(super) fn has_project_marker(dir: &Path) -> bool {
     PROJECT_MARKERS.iter().any(|m| dir.join(m).exists())
 }
 

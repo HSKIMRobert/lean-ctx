@@ -16,6 +16,7 @@ pub mod registry;
 pub mod resources;
 pub mod role_guard;
 pub mod roots;
+use roots::has_project_marker;
 pub mod tool_trait;
 
 use futures::FutureExt;
@@ -1522,23 +1523,6 @@ pub fn build_instructions_for_test(crp_mode: CrpMode) -> String {
 
 pub fn build_claude_code_instructions_for_test() -> String {
     crate::instructions::claude_code_instructions()
-}
-
-const PROJECT_MARKERS: &[&str] = &[
-    ".git",
-    "Cargo.toml",
-    "package.json",
-    "go.mod",
-    "pyproject.toml",
-    "setup.py",
-    "pom.xml",
-    "build.gradle",
-    "Makefile",
-    ".lean-ctx.toml",
-];
-
-fn has_project_marker(dir: &std::path::Path) -> bool {
-    PROJECT_MARKERS.iter().any(|m| dir.join(m).exists())
 }
 
 fn is_home_or_agent_dir(dir: &std::path::Path) -> bool {
