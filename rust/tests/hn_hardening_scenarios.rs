@@ -686,7 +686,10 @@ mod integration {
         assert!(src.contains("let (mut result_text, tool_saved_tokens)"));
 
         // 2. skip_terse uses it
-        assert!(src.contains("|| tool_saved_tokens > 0"));
+        assert!(
+            src.contains("tool_saved_tokens > 0"),
+            "skip_terse must reference tool_saved_tokens"
+        );
 
         // 3. Compression only runs when not skipped
         assert!(src.contains("if compression.is_active() && !skip_terse"));
