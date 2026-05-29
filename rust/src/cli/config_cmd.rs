@@ -6,6 +6,9 @@ pub fn cmd_config(args: &[String]) {
 
     if args.is_empty() {
         println!("{}", cfg.show());
+        println!(
+            "\nTip: this is the full config. For the few knobs most people touch, run\n     `lean-ctx config show` (high-level summary), or change one with\n     `lean-ctx config set <key> <value>`."
+        );
         return;
     }
 
@@ -730,8 +733,11 @@ pub const SIMPLIFIED_TEMPLATE: &str = r#"# lean-ctx — Simplified Configuration
 # These auto-adjust advanced settings. Override individual values below
 # only if you need fine-grained control.
 
-# Compression aggressiveness: off | lite | standard | max
-compression_level = "standard"
+# Output style for the model's prose (not tool-output compression):
+#   off    — no style guidance
+#   lite   — plain-English concise (default; readable, still token-saving)
+#   standard / max — denser symbolic "power modes" (opt-in)
+compression_level = "lite"
 
 # RAM/feature trade-off: low | balanced | performance
 memory_profile = "balanced"

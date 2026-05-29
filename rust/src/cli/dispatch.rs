@@ -1524,6 +1524,16 @@ pub fn run() {
         }
     }
 
+    // Bare `lean-ctx` in an interactive terminal: a human almost certainly did
+    // not mean to start a silent stdio MCP server (which just hangs waiting for
+    // JSON-RPC). Show a short quickstart instead. MCP clients pipe stdin (not a
+    // TTY) so they still get the server, and explicit `lean-ctx mcp` always
+    // serves regardless of TTY.
+    if args.len() == 1 && std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+        print_quickstart();
+        return;
+    }
+
     if let Err(e) = run_mcp_server() {
         tracing::error!("lean-ctx: {e}");
         std::process::exit(1);
@@ -1643,6 +1653,32 @@ fn run_mcp_server() -> Result<()> {
     })
 }
 
+/// Short, friendly orientation shown when a human runs bare `lean-ctx` in a
+/// terminal (where the silent stdio MCP server would otherwise just hang). One
+/// obvious next step (`setup`), not the full 150-line command reference.
+fn quickstart_text() -> String {
+    format!(
+        "lean-ctx {version} — Context Runtime for AI Agents
+
+With no arguments, lean-ctx speaks the MCP protocol on stdin/stdout — that is
+for your AI editor, not for interactive use, so it is waiting silently. You
+probably want one of these:
+
+  lean-ctx setup     Connect lean-ctx to your AI tools (start here)
+  lean-ctx doctor    Check that everything is wired up correctly
+  lean-ctx gain      See how many tokens you have saved
+  lean-ctx --help    Full command reference
+
+Docs: https://leanctx.com
+",
+        version = env!("CARGO_PKG_VERSION"),
+    )
+}
+
+fn print_quickstart() {
+    print!("{}", quickstart_text());
+}
+
 /// One-line capability summary under the `--help` title. The MCP-tool count is
 /// derived from the registry (single source of truth) so it can never drift
 /// from the README / feature catalog.
@@ -1658,6 +1694,12 @@ fn print_help() {
         "lean-ctx {version} — Context Runtime for AI Agents
 
 {banner}
+
+GETTING STARTED:
+    lean-ctx setup                 Connect lean-ctx to your AI tools (start here)
+    lean-ctx doctor                Check that everything is wired up correctly
+    lean-ctx gain                  See how many tokens you have saved
+    (everything below is reference — you rarely need it day to day)
 
 USAGE:
     lean-ctx                       Start MCP server (stdio)
@@ -2150,6 +2192,26 @@ fn resolve_worker_threads(parallelism: usize) -> usize {
 mod tests {
     use super::*;
     use serial_test::serial;
+
+    #[test]
+    fn quickstart_is_short_and_points_to_setup() {
+        let q = quickstart_text();
+        assert!(
+            q.contains("lean-ctx setup"),
+            "quickstart must point to setup"
+        );
+        assert!(q.contains("--help"), "quickstart must point to full help");
+        // Must stay a *quickstart*, not the full reference — keep it tight.
+        assert!(
+            q.lines().count() <= 16,
+            "quickstart should be short; got {} lines",
+            q.lines().count()
+        );
+        assert!(
+            !q.contains("COMMANDS:"),
+            "quickstart must not inline the full command reference"
+        );
+    }
 
     #[test]
     fn capability_banner_tool_count_matches_registry() {
