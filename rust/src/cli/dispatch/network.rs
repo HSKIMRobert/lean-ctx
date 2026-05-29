@@ -1,0 +1,736 @@
+use crate::{dashboard, tui};
+
+pub(super) fn cmd_team(rest: &[String]) {
+    let sub = rest.first().map_or("help", std::string::String::as_str);
+    match sub {
+        "serve" => {
+            #[cfg(feature = "team-server")]
+            {
+                let cfg_path = rest
+                    .iter()
+                    .enumerate()
+                    .find_map(|(i, a)| {
+                        if let Some(v) = a.strip_prefix("--config=") {
+                            return Some(v.to_string());
+                        }
+                        if a == "--config" {
+                            return rest.get(i + 1).cloned();
+                        }
+                        None
+                    })
+                    .unwrap_or_default();
+
+                if cfg_path.trim().is_empty() {
+                    eprintln!("Usage: lean-ctx team serve --config <path>");
+                    std::process::exit(1);
+                }
+
+                let cfg = crate::http_server::team::TeamServerConfig::load(std::path::Path::new(
+                    &cfg_path,
+                ))
+                .unwrap_or_else(|e| {
+                    eprintln!("Invalid team config: {e}");
+                    std::process::exit(1);
+                });
+
+                if let Err(e) = super::run_async(crate::http_server::team::serve_team(cfg)) {
+                    tracing::error!("Team server error: {e}");
+                    std::process::exit(1);
+                }
+                return;
+            }
+            #[cfg(not(feature = "team-server"))]
+            {
+                eprintln!("lean-ctx team serve is not available in this build");
+                std::process::exit(1);
+            }
+        }
+        "token" => {
+            let action = rest.get(1).map_or("help", std::string::String::as_str);
+            if action == "create" {
+                #[cfg(feature = "team-server")]
+                {
+                    let args = &rest[2..];
+                    let cfg_path = args
+                        .iter()
+                        .enumerate()
+                        .find_map(|(i, a)| {
+                            if let Some(v) = a.strip_prefix("--config=") {
+                                return Some(v.to_string());
+                            }
+                            if a == "--config" {
+                                return args.get(i + 1).cloned();
+                            }
+                            None
+                        })
+                        .unwrap_or_default();
+                    let token_id = args
+                        .iter()
+                        .enumerate()
+                        .find_map(|(i, a)| {
+                            if let Some(v) = a.strip_prefix("--id=") {
+                                return Some(v.to_string());
+                            }
+                            if a == "--id" {
+                                return args.get(i + 1).cloned();
+                            }
+                            None
+                        })
+                        .unwrap_or_default();
+                    let scopes_csv = args
+                        .iter()
+                        .enumerate()
+                        .find_map(|(i, a)| {
+                            if let Some(v) = a.strip_prefix("--scopes=") {
+                                return Some(v.to_string());
+                            }
+                            if let Some(v) = a.strip_prefix("--scope=") {
+                                return Some(v.to_string());
+                            }
+                            if a == "--scopes" || a == "--scope" {
+                                return args.get(i + 1).cloned();
+                            }
+                            None
+                        })
+                        .unwrap_or_default();
+
+                    if cfg_path.trim().is_empty()
+                        || token_id.trim().is_empty()
+                        || scopes_csv.trim().is_empty()
+                    {
+                        eprintln!(
+                            "Usage: lean-ctx team token create --config <path> --id <id> --scopes <csv>"
+                        );
+                        std::process::exit(1);
+                    }
+
+                    let cfg_p = std::path::PathBuf::from(&cfg_path);
+                    let mut cfg = crate::http_server::team::TeamServerConfig::load(cfg_p.as_path())
+                        .unwrap_or_else(|e| {
+                            eprintln!("Invalid team config: {e}");
+                            std::process::exit(1);
+                        });
+
+                    let mut scopes = Vec::new();
+                    for part in scopes_csv.split(',') {
+                        let p = part.trim().to_ascii_lowercase();
+                        if p.is_empty() {
+                            continue;
+                        }
+                        let scope = match p.as_str() {
+                            "search" => crate::http_server::team::TeamScope::Search,
+                            "graph" => crate::http_server::team::TeamScope::Graph,
+                            "artifacts" => crate::http_server::team::TeamScope::Artifacts,
+                            "index" => crate::http_server::team::TeamScope::Index,
+                            "events" => crate::http_server::team::TeamScope::Events,
+                            "sessionmutations" | "session_mutations" => {
+                                crate::http_server::team::TeamScope::SessionMutations
+                            }
+                            "knowledge" => crate::http_server::team::TeamScope::Knowledge,
+                            "audit" => crate::http_server::team::TeamScope::Audit,
+                            _ => {
+                                eprintln!("Unknown scope: {p}. Valid: search, graph, artifacts, index, events, sessionmutations, knowledge, audit");
+                                std::process::exit(1);
+                            }
+                        };
+                        if !scopes.contains(&scope) {
+                            scopes.push(scope);
+                        }
+                    }
+                    if scopes.is_empty() {
+                        eprintln!("At least 1 scope is required");
+                        std::process::exit(1);
+                    }
+
+                    let (token, hash) =
+                        crate::http_server::team::create_token().unwrap_or_else(|e| {
+                            eprintln!("Token generation failed: {e}");
+                            std::process::exit(1);
+                        });
+
+                    cfg.tokens.push(crate::http_server::team::TeamTokenConfig {
+                        id: token_id,
+                        sha256_hex: hash,
+                        scopes,
+                    });
+
+                    cfg.save(cfg_p.as_path()).unwrap_or_else(|e| {
+                        eprintln!("Failed to write config: {e}");
+                        std::process::exit(1);
+                    });
+
+                    println!("{token}");
+                    return;
+                }
+
+                #[cfg(not(feature = "team-server"))]
+                {
+                    eprintln!("lean-ctx team token is not available in this build");
+                    std::process::exit(1);
+                }
+            }
+            eprintln!("Usage: lean-ctx team token create --config <path> --id <id> --scopes <csv>");
+            std::process::exit(1);
+        }
+        "sync" => {
+            #[cfg(feature = "team-server")]
+            {
+                let args = &rest[1..];
+                let cfg_path = args
+                    .iter()
+                    .enumerate()
+                    .find_map(|(i, a)| {
+                        if let Some(v) = a.strip_prefix("--config=") {
+                            return Some(v.to_string());
+                        }
+                        if a == "--config" {
+                            return args.get(i + 1).cloned();
+                        }
+                        None
+                    })
+                    .unwrap_or_default();
+                if cfg_path.trim().is_empty() {
+                    eprintln!("Usage: lean-ctx team sync --config <path> [--workspace <id>]");
+                    std::process::exit(1);
+                }
+                let only_ws = args.iter().enumerate().find_map(|(i, a)| {
+                    if let Some(v) = a.strip_prefix("--workspace=") {
+                        return Some(v.to_string());
+                    }
+                    if let Some(v) = a.strip_prefix("--workspace-id=") {
+                        return Some(v.to_string());
+                    }
+                    if a == "--workspace" || a == "--workspace-id" {
+                        return args.get(i + 1).cloned();
+                    }
+                    None
+                });
+
+                let cfg = crate::http_server::team::TeamServerConfig::load(std::path::Path::new(
+                    &cfg_path,
+                ))
+                .unwrap_or_else(|e| {
+                    eprintln!("Invalid team config: {e}");
+                    std::process::exit(1);
+                });
+
+                for ws in &cfg.workspaces {
+                    if let Some(ref only) = only_ws {
+                        if ws.id != *only {
+                            continue;
+                        }
+                    }
+                    let git_dir = ws.root.join(".git");
+                    if !git_dir.exists() {
+                        eprintln!(
+                            "workspace '{}' root is not a git repo: {}",
+                            ws.id,
+                            ws.root.display()
+                        );
+                        std::process::exit(1);
+                    }
+                    let status = std::process::Command::new("git")
+                        .arg("-C")
+                        .arg(&ws.root)
+                        .args(["fetch", "--all", "--prune"])
+                        .status()
+                        .unwrap_or_else(|e| {
+                            eprintln!("git fetch failed for workspace '{}': {e}", ws.id);
+                            std::process::exit(1);
+                        });
+                    if !status.success() {
+                        eprintln!(
+                            "git fetch failed for workspace '{}' (exit={})",
+                            ws.id,
+                            status.code().unwrap_or(1)
+                        );
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
+            #[cfg(not(feature = "team-server"))]
+            {
+                eprintln!("lean-ctx team sync is not available in this build");
+                std::process::exit(1);
+            }
+        }
+        _ => {
+            eprintln!(
+                "Usage:\n  lean-ctx team serve --config <path>\n  lean-ctx team token create --config <path> --id <id> --scopes <csv>\n  lean-ctx team sync --config <path> [--workspace <id>]"
+            );
+            std::process::exit(1);
+        }
+    }
+}
+
+pub(super) fn cmd_dashboard(rest: &[String]) {
+    if rest.iter().any(|a| a == "--help" || a == "-h") {
+        println!("Usage: lean-ctx dashboard [--port=N] [--host=H] [--project=PATH]");
+        println!("Examples:");
+        println!("  lean-ctx dashboard");
+        println!("  lean-ctx dashboard --port=3333");
+        println!("  lean-ctx dashboard --host=0.0.0.0");
+        return;
+    }
+    let port = rest
+        .iter()
+        .find_map(|p| p.strip_prefix("--port=").or_else(|| p.strip_prefix("-p=")))
+        .and_then(|p| p.parse().ok());
+    let host = rest
+        .iter()
+        .find_map(|p| p.strip_prefix("--host=").or_else(|| p.strip_prefix("-H=")))
+        .map(String::from);
+    let project = rest
+        .iter()
+        .find_map(|p| p.strip_prefix("--project="))
+        .map(String::from);
+    if let Some(ref p) = project {
+        std::env::set_var("LEAN_CTX_DASHBOARD_PROJECT", p);
+    }
+    super::spawn_proxy_if_needed();
+    super::run_async(dashboard::start(port, host));
+}
+
+pub(super) fn cmd_watch(rest: &[String]) {
+    if rest.iter().any(|a| a == "--help" || a == "-h") {
+        println!("Usage: lean-ctx watch");
+        println!("  Live TUI dashboard (real-time event stream).");
+        return;
+    }
+    if let Err(e) = tui::run() {
+        tracing::error!("TUI error: {e}");
+        std::process::exit(1);
+    }
+}
+
+pub(super) fn cmd_proxy(rest: &[String]) {
+    #[cfg(feature = "http-server")]
+    {
+        let sub = rest.first().map_or("help", std::string::String::as_str);
+        match sub {
+            "start" => {
+                let port: u16 = rest
+                    .iter()
+                    .find_map(|p| p.strip_prefix("--port=").or_else(|| p.strip_prefix("-p=")))
+                    .and_then(|p| p.parse().ok())
+                    .unwrap_or_else(crate::proxy_setup::default_port);
+                let autostart = rest.iter().any(|a| a == "--autostart");
+                if autostart {
+                    crate::proxy_autostart::install(port, false);
+                    return;
+                }
+                if let Err(e) = super::run_async(crate::proxy::start_proxy(port)) {
+                    tracing::error!("Proxy error: {e}");
+                    std::process::exit(1);
+                }
+            }
+            "stop" => {
+                let port: u16 = rest
+                    .iter()
+                    .find_map(|p| p.strip_prefix("--port="))
+                    .and_then(|p| p.parse().ok())
+                    .unwrap_or_else(crate::proxy_setup::default_port);
+                let health_url = format!("http://127.0.0.1:{port}/health");
+                match ureq::get(&health_url).call() {
+                    Ok(resp) => {
+                        if let Ok(body) = resp.into_body().read_to_string() {
+                            if let Some(pid_str) = body
+                                .split("pid\":")
+                                .nth(1)
+                                .and_then(|s| s.split([',', '}']).next())
+                            {
+                                if let Ok(pid) = pid_str.trim().parse::<u32>() {
+                                    let _ = crate::ipc::process::terminate_gracefully(pid);
+                                    std::thread::sleep(std::time::Duration::from_millis(500));
+                                    if crate::ipc::process::is_alive(pid) {
+                                        let _ = crate::ipc::process::force_kill(pid);
+                                    }
+                                    println!("Proxy on port {port} stopped (PID {pid}).");
+                                    return;
+                                }
+                            }
+                        }
+                        println!("Proxy on port {port} running but could not parse PID. Use `lean-ctx stop` to kill all.");
+                    }
+                    Err(_) => {
+                        println!("No proxy running on port {port}.");
+                    }
+                }
+            }
+            "status" => {
+                let port: u16 = rest
+                    .iter()
+                    .find_map(|p| p.strip_prefix("--port="))
+                    .and_then(|p| p.parse().ok())
+                    .unwrap_or_else(crate::proxy_setup::default_port);
+                let cfg = crate::core::config::Config::load();
+                println!("lean-ctx proxy:");
+                match cfg.proxy_enabled {
+                    Some(true) => println!("  Config:  enabled"),
+                    Some(false) => println!("  Config:  disabled"),
+                    None => println!("  Config:  undecided (not yet configured)"),
+                }
+                println!("  Port:    {port}");
+                if let Ok(resp) = ureq::get(&format!("http://127.0.0.1:{port}/status")).call() {
+                    let body = resp.into_body().read_to_string().unwrap_or_default();
+                    println!("  Process: running");
+                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&body) {
+                        println!("  Requests:    {}", v["requests_total"]);
+                        println!("  Compressed:  {}", v["requests_compressed"]);
+                        println!("  Tokens saved: {}", v["tokens_saved"]);
+                        println!(
+                            "  Compression: {}%",
+                            v["compression_ratio_pct"].as_str().unwrap_or("0.0")
+                        );
+                    }
+                } else {
+                    println!("  Process: not running");
+                }
+                if cfg.proxy_enabled == Some(false) || cfg.proxy_enabled.is_none() {
+                    println!();
+                    println!("  Enable: lean-ctx proxy enable");
+
+                    let home = dirs::home_dir().unwrap_or_default();
+                    if crate::proxy_setup::has_stale_proxy_url(&home) {
+                        println!();
+                        println!("  \x1b[33m⚠ WARNING: Claude Code ANTHROPIC_BASE_URL points to the local proxy,\x1b[0m");
+                        println!("  \x1b[33m  but proxy is not enabled. This causes 401 auth failures.\x1b[0m");
+                        println!("  Fix:  lean-ctx proxy cleanup   (remove stale URL)");
+                        println!("        lean-ctx proxy enable    (enable the proxy)");
+                    }
+                }
+            }
+            "enable" => {
+                let force = rest.iter().any(|a| a == "--force");
+                let mut cfg = crate::core::config::Config::load();
+                cfg.proxy_enabled = Some(true);
+                let _ = cfg.save();
+
+                let port = crate::proxy_setup::default_port();
+                crate::proxy_autostart::install(port, false);
+                std::thread::sleep(std::time::Duration::from_millis(500));
+
+                let home = dirs::home_dir().unwrap_or_default();
+                crate::proxy_setup::install_proxy_env_unchecked(&home, port, false, force);
+                println!(
+                    "\x1b[32m✓\x1b[0m Proxy enabled on port {port}. LLM requests will be compressed."
+                );
+            }
+            "disable" => {
+                let mut cfg = crate::core::config::Config::load();
+                cfg.proxy_enabled = Some(false);
+                let _ = cfg.save();
+
+                crate::proxy_autostart::uninstall(false);
+                let home = dirs::home_dir().unwrap_or_default();
+                crate::proxy_setup::uninstall_proxy_env(&home, false);
+
+                println!("\x1b[32m✓\x1b[0m Proxy disabled. Original endpoint restored.");
+                println!("  Re-enable anytime: lean-ctx proxy enable");
+            }
+            "cleanup" => {
+                let home = dirs::home_dir().unwrap_or_default();
+                let removed = crate::proxy_setup::cleanup_stale_proxy_env(&home);
+                if removed > 0 {
+                    println!("\x1b[32m✓\x1b[0m Cleaned up {removed} stale proxy URL(s).");
+                    println!("  Restart your AI tool for changes to take effect.");
+                } else {
+                    println!("  No stale proxy URLs found. Nothing to clean up.");
+                }
+            }
+            _ => {
+                println!(
+                    "Usage: lean-ctx proxy <start|stop|status|enable|disable|cleanup> [--port=4444]"
+                );
+            }
+        }
+    }
+    #[cfg(not(feature = "http-server"))]
+    {
+        eprintln!("lean-ctx proxy is not available in this build");
+        std::process::exit(1);
+    }
+}
+
+pub(super) fn cmd_daemon(rest: &[String]) {
+    let sub = rest.first().map_or("status", std::string::String::as_str);
+    match sub {
+        "enable" => {
+            crate::daemon_autostart::install(false);
+            println!(
+                "\x1b[32m✓\x1b[0m Daemon autostart enabled. Will start on login and restart if stopped."
+            );
+        }
+        "disable" => {
+            crate::daemon_autostart::uninstall(false);
+            println!("\x1b[32m✓\x1b[0m Daemon autostart disabled.");
+        }
+        "start" => {
+            if let Err(e) = crate::daemon::start_daemon(&rest[1..]) {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+        }
+        "stop" => {
+            crate::daemon_autostart::stop();
+            match crate::daemon::stop_daemon() {
+                Ok(()) => println!("Daemon stopped."),
+                Err(e) => eprintln!("Error: {e}"),
+            }
+        }
+        "status" => {
+            if crate::daemon::is_daemon_running() {
+                let pid = crate::daemon::read_daemon_pid().unwrap_or(0);
+                println!("lean-ctx daemon:");
+                println!("  Status:    running (PID {pid})");
+                println!(
+                    "  Autostart: {}",
+                    if crate::daemon_autostart::is_installed() {
+                        "enabled"
+                    } else {
+                        "not installed (run: lean-ctx daemon enable)"
+                    }
+                );
+            } else {
+                println!("lean-ctx daemon:");
+                println!("  Status:    not running");
+                println!(
+                    "  Autostart: {}",
+                    if crate::daemon_autostart::is_installed() {
+                        "enabled"
+                    } else {
+                        "not installed"
+                    }
+                );
+                println!();
+                println!("  Start:     lean-ctx daemon start");
+                println!("  Autostart: lean-ctx daemon enable");
+            }
+        }
+        _ => {
+            println!("Usage: lean-ctx daemon <start|stop|status|enable|disable>");
+        }
+    }
+}
+
+pub(super) fn cmd_serve(rest: &[String]) {
+    #[cfg(feature = "http-server")]
+    {
+        let mut cfg = crate::http_server::HttpServerConfig::default();
+        let mut daemon_mode = false;
+        let mut stop_mode = false;
+        let mut status_mode = false;
+        let mut foreground_daemon = false;
+        let mut i = 0;
+        while i < rest.len() {
+            match rest[i].as_str() {
+                "--daemon" | "-d" => daemon_mode = true,
+                "--stop" => stop_mode = true,
+                "--status" => status_mode = true,
+                "--_foreground-daemon" => foreground_daemon = true,
+                "--host" | "-H" => {
+                    i += 1;
+                    if i < rest.len() {
+                        cfg.host.clone_from(&rest[i]);
+                    }
+                }
+                arg if arg.starts_with("--host=") => {
+                    cfg.host = arg["--host=".len()..].to_string();
+                }
+                "--port" | "-p" => {
+                    i += 1;
+                    if i < rest.len() {
+                        if let Ok(p) = rest[i].parse::<u16>() {
+                            cfg.port = p;
+                        }
+                    }
+                }
+                arg if arg.starts_with("--port=") => {
+                    if let Ok(p) = arg["--port=".len()..].parse::<u16>() {
+                        cfg.port = p;
+                    }
+                }
+                "--project-root" => {
+                    i += 1;
+                    if i < rest.len() {
+                        cfg.project_root = std::path::PathBuf::from(&rest[i]);
+                    }
+                }
+                arg if arg.starts_with("--project-root=") => {
+                    cfg.project_root = std::path::PathBuf::from(&arg["--project-root=".len()..]);
+                }
+                "--auth-token" => {
+                    i += 1;
+                    if i < rest.len() {
+                        cfg.auth_token = Some(rest[i].clone());
+                    }
+                }
+                arg if arg.starts_with("--auth-token=") => {
+                    cfg.auth_token = Some(arg["--auth-token=".len()..].to_string());
+                }
+                "--stateful" => cfg.stateful_mode = true,
+                "--stateless" => cfg.stateful_mode = false,
+                "--json" => cfg.json_response = true,
+                "--sse" => cfg.json_response = false,
+                "--disable-host-check" => cfg.disable_host_check = true,
+                "--allowed-host" => {
+                    i += 1;
+                    if i < rest.len() {
+                        cfg.allowed_hosts.push(rest[i].clone());
+                    }
+                }
+                arg if arg.starts_with("--allowed-host=") => {
+                    cfg.allowed_hosts
+                        .push(arg["--allowed-host=".len()..].to_string());
+                }
+                "--max-body-bytes" => {
+                    i += 1;
+                    if i < rest.len() {
+                        if let Ok(n) = rest[i].parse::<usize>() {
+                            cfg.max_body_bytes = n;
+                        }
+                    }
+                }
+                arg if arg.starts_with("--max-body-bytes=") => {
+                    if let Ok(n) = arg["--max-body-bytes=".len()..].parse::<usize>() {
+                        cfg.max_body_bytes = n;
+                    }
+                }
+                "--max-concurrency" => {
+                    i += 1;
+                    if i < rest.len() {
+                        if let Ok(n) = rest[i].parse::<usize>() {
+                            cfg.max_concurrency = n;
+                        }
+                    }
+                }
+                arg if arg.starts_with("--max-concurrency=") => {
+                    if let Ok(n) = arg["--max-concurrency=".len()..].parse::<usize>() {
+                        cfg.max_concurrency = n;
+                    }
+                }
+                "--max-rps" => {
+                    i += 1;
+                    if i < rest.len() {
+                        if let Ok(n) = rest[i].parse::<u32>() {
+                            cfg.max_rps = n;
+                        }
+                    }
+                }
+                arg if arg.starts_with("--max-rps=") => {
+                    if let Ok(n) = arg["--max-rps=".len()..].parse::<u32>() {
+                        cfg.max_rps = n;
+                    }
+                }
+                "--rate-burst" => {
+                    i += 1;
+                    if i < rest.len() {
+                        if let Ok(n) = rest[i].parse::<u32>() {
+                            cfg.rate_burst = n;
+                        }
+                    }
+                }
+                arg if arg.starts_with("--rate-burst=") => {
+                    if let Ok(n) = arg["--rate-burst=".len()..].parse::<u32>() {
+                        cfg.rate_burst = n;
+                    }
+                }
+                "--request-timeout-ms" => {
+                    i += 1;
+                    if i < rest.len() {
+                        if let Ok(n) = rest[i].parse::<u64>() {
+                            cfg.request_timeout_ms = n;
+                        }
+                    }
+                }
+                arg if arg.starts_with("--request-timeout-ms=") => {
+                    if let Ok(n) = arg["--request-timeout-ms=".len()..].parse::<u64>() {
+                        cfg.request_timeout_ms = n;
+                    }
+                }
+                "--help" | "-h" => {
+                    eprintln!(
+                        "Usage: lean-ctx serve [--host H] [--port N] [--project-root DIR] [--daemon] [--stop] [--status]\\n\\
+                         \\n\\
+                         Options:\\n\\
+                           --daemon, -d          Start as background daemon (UDS)\\n\\
+                           --stop                Stop running daemon\\n\\
+                           --status              Show daemon status\\n\\
+                           --host, -H            Bind host (default: 127.0.0.1)\\n\\
+                           --port, -p            Bind port (default: 8080)\\n\\
+                           --project-root        Resolve relative paths against this root (default: cwd)\\n\\
+                           --auth-token          Require Authorization: Bearer <token> (required for non-loopback binds)\\n\\
+                           --stateful/--stateless  Streamable HTTP session mode (default: stateless)\\n\\
+                           --json/--sse          Response framing in stateless mode (default: json)\\n\\
+                           --max-body-bytes      Max request body size in bytes (default: 2097152)\\n\\
+                           --max-concurrency     Max concurrent requests (default: 32)\\n\\
+                           --max-rps             Max requests/sec (global, default: 50)\\n\\
+                           --rate-burst          Rate limiter burst (global, default: 100)\\n\\
+                           --request-timeout-ms  REST tool-call timeout (default: 30000)\\n\\
+                           --allowed-host        Add allowed Host header (repeatable)\\n\\
+                           --disable-host-check  Disable Host header validation (unsafe)"
+                    );
+                    return;
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+
+        if stop_mode {
+            crate::daemon_autostart::stop();
+            if let Err(e) = crate::daemon::stop_daemon() {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+            return;
+        }
+
+        if status_mode {
+            println!("{}", crate::daemon::daemon_status());
+            return;
+        }
+
+        if daemon_mode {
+            if let Err(e) = crate::daemon::start_daemon(rest) {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+            return;
+        }
+
+        if foreground_daemon {
+            if let Err(e) = crate::daemon::init_foreground_daemon() {
+                eprintln!("Error writing PID file: {e}");
+                std::process::exit(1);
+            }
+            let addr = crate::daemon::daemon_addr();
+            if let Err(e) = super::run_async(crate::http_server::serve_ipc(cfg.clone(), addr)) {
+                tracing::error!("Daemon server error: {e}");
+                crate::daemon::cleanup_daemon_files();
+                std::process::exit(1);
+            }
+            crate::daemon::cleanup_daemon_files();
+            return;
+        }
+
+        if cfg.auth_token.is_none() {
+            if let Ok(v) = std::env::var("LEAN_CTX_HTTP_TOKEN") {
+                if !v.trim().is_empty() {
+                    cfg.auth_token = Some(v);
+                }
+            }
+        }
+
+        if let Err(e) = super::run_async(crate::http_server::serve(cfg)) {
+            tracing::error!("HTTP server error: {e}");
+            std::process::exit(1);
+        }
+    }
+    #[cfg(not(feature = "http-server"))]
+    {
+        eprintln!("lean-ctx serve is not available in this build");
+        std::process::exit(1);
+    }
+}
