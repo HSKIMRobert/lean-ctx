@@ -1,0 +1,249 @@
+// Auto-split from the former monolithic dispatch.rs. run() (the command
+// match) stays in mod.rs; standalone helpers grouped by concern.
+
+/// Short, friendly orientation shown when a human runs bare `lean-ctx` in a
+/// terminal (where the silent stdio MCP server would otherwise just hang). One
+/// obvious next step (`setup`), not the full 150-line command reference.
+pub(super) fn quickstart_text() -> String {
+    format!(
+        "lean-ctx {version} — Context Runtime for AI Agents
+
+With no arguments, lean-ctx speaks the MCP protocol on stdin/stdout — that is
+for your AI editor, not for interactive use, so it is waiting silently. You
+probably want one of these:
+
+  lean-ctx setup     Connect lean-ctx to your AI tools (start here)
+  lean-ctx doctor    Check that everything is wired up correctly
+  lean-ctx gain      See how many tokens you have saved
+  lean-ctx --help    Full command reference
+
+Docs: https://leanctx.com
+",
+        version = env!("CARGO_PKG_VERSION"),
+    )
+}
+
+pub(super) fn print_quickstart() {
+    print!("{}", quickstart_text());
+}
+
+/// One-line capability summary under the `--help` title. The MCP-tool count is
+/// derived from the registry (single source of truth) so it can never drift
+/// from the README / feature catalog.
+pub(super) fn capability_banner() -> String {
+    format!(
+        "60+ compression patterns | {} MCP tools | 10 read modes | Context Continuity Protocol",
+        crate::server::registry::tool_count()
+    )
+}
+
+pub(super) fn print_help() {
+    println!(
+        "lean-ctx {version} — Context Runtime for AI Agents
+
+{banner}
+
+GETTING STARTED:
+    lean-ctx setup                 Connect lean-ctx to your AI tools (start here)
+    lean-ctx doctor                Check that everything is wired up correctly
+    lean-ctx gain                  See how many tokens you have saved
+    (everything below is reference — you rarely need it day to day)
+
+USAGE:
+    lean-ctx                       Start MCP server (stdio)
+    lean-ctx serve                 Start MCP server (Streamable HTTP)
+    lean-ctx serve --daemon        Start as background daemon (Unix Domain Socket)
+    lean-ctx serve --stop          Stop running daemon
+    lean-ctx serve --status        Show daemon status
+    lean-ctx -t \"command\"          Track command (full output + stats, no compression)
+    lean-ctx -c \"command\"          Execute with compressed output (used by AI hooks)
+    lean-ctx -c --raw \"command\"    Execute without compression (full output)
+    lean-ctx exec \"command\"        Same as -c
+    lean-ctx shell                 Interactive shell with compression
+
+COMMANDS:
+    gain                           Visual dashboard (colors, bars, sparklines, USD)
+    gain --live                    Live mode: auto-refreshes every 1s in-place
+    gain --graph                   30-day savings chart
+    gain --daily                   Bordered day-by-day table with USD
+    gain --json                    Raw JSON export of all stats
+         token-report [--json]          Token + memory report (project + session + CEP)
+    pack --pr                      PR Context Pack (changed files, impact, tests, artifacts)
+    index <status|build|build-full|watch>  Codebase index utilities
+    cep                            CEP impact report (score trends, cache, modes)
+    watch                          Live TUI dashboard (real-time event stream)
+    dashboard [--port=N] [--host=H] Open web dashboard (default: http://localhost:3333)
+    serve [--host H] [--port N]    MCP over HTTP (Streamable HTTP, local-first)
+    proxy start [--port=4444]      API proxy: compress tool_results before LLM API
+    proxy status                   Show proxy statistics
+    daemon start|stop|status       IPC daemon management
+    daemon enable|disable          Auto-start daemon on login (systemd/LaunchAgent)
+    cache [list|clear|stats]       Show/manage file read cache
+    wrapped [--week|--month|--all] Deprecated alias for gain --wrapped
+    sessions [list|show|cleanup]   Manage CCP sessions (~/.lean-ctx/sessions/)
+    benchmark run [path] [--json]  Run real benchmark on project files
+    benchmark report [path]        Generate shareable Markdown report
+    cheatsheet                     Command cheat sheet & workflow quick reference
+    setup                          One-command setup: shell + editor + verify
+    install --repair [--json]      Premium repair: merge-based setup refresh (no deletes)
+    bootstrap                      Non-interactive setup + fix (zero-config)
+    status [--json]                Show setup + MCP + rules status
+    init [--global]                Install shell aliases (zsh/bash/fish/PowerShell)
+    init --agent <name>            Configure MCP for specific editor/agent
+    read <file> [-m mode]          Read file with compression
+    diff <file1> <file2>           Compressed file diff
+    grep <pattern> [path]          Search with compressed output
+    find <pattern> [path]          Find files with compressed output
+    ls [path]                      Directory listing with compression
+    deps [path]                    Show project dependencies
+    discover                       Find uncompressed commands in shell history
+    ghost [--json]                 Ghost Token report: find hidden token waste
+    filter [list|validate|init]    Manage custom compression filters (~/.lean-ctx/filters/)
+    session                        Show adoption statistics
+    session task <desc>            Set current task
+    session finding <summary>      Record a finding
+    session save                   Save current session
+    session load [id]              Load session (latest if no ID)
+    knowledge remember <value> --category <c> --key <k>   Store a fact
+    knowledge recall [query] [--category <c>]             Retrieve facts
+    knowledge search <query>       Cross-project knowledge search
+    knowledge export [--format json|jsonl|simple] [--output <path>]  Export knowledge
+    knowledge import <path> [--merge replace|append|skip-existing]   Import knowledge
+    knowledge remove --category <c> --key <k>             Remove a fact
+    knowledge status               Knowledge base summary
+    overview [task]                Project overview (task-contextualized if given)
+    compress [--signatures]        Context compression checkpoint
+    config                         Show/edit configuration (~/.lean-ctx/config.toml)
+    profile [list|show|diff|create|set]  Manage context profiles
+    theme [list|set|export|import] Customize terminal colors and themes
+    tee [list|clear|show <file>|last] Manage output tee files (~/.lean-ctx/tee/)
+    terse [off|lite|full|ultra]    Set agent output verbosity (saves 25-65% output tokens)
+    slow-log [list|clear]          Show/clear slow command log (~/.lean-ctx/slow-commands.log)
+    update [--check]               Self-update lean-ctx binary from GitHub Releases
+    stop                           Stop ALL lean-ctx processes (daemon, proxy, orphans)
+    restart                        Restart daemon (applies config.toml changes)
+    dev-install                    Build release + atomic install + restart (for development)
+    gotchas [list|clear|export|stats] Bug Memory: view/manage auto-detected error patterns
+    buddy [show|stats|ascii|json]  Token Guardian: your data-driven coding companion
+    doctor integrations [--json]   Integration health checks (Cursor/Claude Code)
+    doctor [--fix] [--json]        Run diagnostics (and optionally repair)
+    smells [scan|summary|rules|file] [--rule=<r>] [--path=<p>] [--json]
+                                   Code smell detection (Property Graph, 8 rules)
+    control <action> [--target=<t>] Context field manipulation (exclude/pin/priority)
+    plan <task> [--budget=N]       Context planning (optimal Phi-scored context plan)
+    compile [--mode=<m>] [--budget=N] Context compilation (knapsack + Boltzmann)
+    uninstall [--keep-config]       Remove all lean-ctx artifacts (--keep-config preserves MCP/rules)
+
+SHELL HOOK PATTERNS (95+):
+    git       status, log, diff, add, commit, push, pull, fetch, clone,
+              branch, checkout, switch, merge, stash, tag, reset, remote
+    docker    build, ps, images, logs, compose, exec, network
+    npm/pnpm  install, test, run, list, outdated, audit
+    cargo     build, test, check, clippy
+    gh        pr list/view/create, issue list/view, run list/view
+    kubectl   get pods/services/deployments, logs, describe, apply
+    python    pip install/list/outdated, ruff check/format, poetry, uv
+    linters   eslint, biome, prettier, golangci-lint
+    builds    tsc, next build, vite build
+    ruby      rubocop, bundle install/update, rake test, rails test
+    tests     jest, vitest, pytest, go test, playwright, rspec, minitest
+    iac       terraform, make, maven, gradle, dotnet, flutter, dart
+    utils     curl, grep/rg, find, ls, wget, env
+    data      JSON schema extraction, log deduplication
+
+READ MODES:
+    auto                           Auto-select optimal mode (default)
+    full                           Full content (cached re-reads = 13 tokens)
+    map                            Dependency graph + API signatures
+    signatures                     tree-sitter AST extraction (18 languages)
+    task                           Task-relevant filtering (requires ctx_session task)
+    reference                      One-line reference stub (cheap cache key)
+    aggressive                     Syntax-stripped content
+    entropy                        Shannon entropy filtered
+    diff                           Changed lines only
+    lines:N-M                      Specific line ranges (e.g. lines:10-50,80)
+
+ENVIRONMENT:
+    LEAN_CTX_DISABLED=1            Bypass ALL compression + prevent shell hook from loading
+    LEAN_CTX_ENABLED=0             Prevent shell hook auto-start (lean-ctx-on still works)
+    LEAN_CTX_RAW=1                 Same as --raw for current command
+    LEAN_CTX_AUTONOMY=false        Disable autonomous features
+    LEAN_CTX_COMPRESS=1            Force compression (even for excluded commands)
+
+OPTIONS:
+    --version, -V                  Show version
+    --help, -h                     Show this help
+
+EXAMPLES:
+    lean-ctx -c \"git status\"       Compressed git output
+    lean-ctx -c \"kubectl get pods\" Compressed k8s output
+    lean-ctx -c \"gh pr list\"       Compressed GitHub CLI output
+    lean-ctx gain                  Visual terminal dashboard
+    lean-ctx gain --live           Live auto-updating terminal dashboard
+    lean-ctx gain --graph          30-day savings chart
+    lean-ctx gain --daily          Day-by-day breakdown with USD
+         lean-ctx token-report --json   Machine-readable token + memory report
+    lean-ctx dashboard             Open web dashboard at localhost:3333
+    lean-ctx dashboard --host=0.0.0.0  Bind to all interfaces (remote access)
+    lean-ctx gain --wrapped        Wrapped report card (recommended)
+    lean-ctx gain --wrapped --period=month  Monthly Wrapped report card
+    lean-ctx sessions list         List all CCP sessions
+    lean-ctx sessions show         Show latest session state
+    lean-ctx discover              Find missed savings in shell history
+    lean-ctx setup                 One-command setup (shell + editors + verify)
+    lean-ctx install --repair      Premium repair path (non-interactive, merge-based)
+    lean-ctx bootstrap             Non-interactive setup + fix (zero-config)
+    lean-ctx bootstrap --json      Machine-readable bootstrap report
+    lean-ctx init --global         Install shell aliases (includes lean-ctx-on/off/mode/status)
+    lean-ctx-on                    Enable shell aliases in track mode (full output + stats)
+    lean-ctx-off                   Disable all shell aliases
+    lean-ctx-mode track            Track mode: full output, stats recorded (default)
+    lean-ctx-mode compress         Compress mode: all output compressed (power users)
+    lean-ctx-mode off              Same as lean-ctx-off
+    lean-ctx-status                Show whether compression is active
+    lean-ctx init --agent pi       Install Pi Coding Agent extension
+    lean-ctx doctor                Check PATH, config, MCP, and dashboard port
+    lean-ctx doctor integrations   Premium integration checks (Cursor/Claude Code)
+    lean-ctx doctor --fix --json   Repair + machine-readable report
+    lean-ctx status --json         Machine-readable current status
+    lean-ctx session task \"implement auth\"
+    lean-ctx session finding \"auth.rs:42 — missing validation\"
+    lean-ctx knowledge remember \"Uses JWT\" --category auth --key token-type
+    lean-ctx knowledge recall \"authentication\"
+    lean-ctx knowledge search \"database migration\"
+    lean-ctx overview \"refactor auth module\"
+    lean-ctx compress --signatures
+    lean-ctx read src/main.rs -m map
+    lean-ctx grep \"pub fn\" src/
+    lean-ctx deps .
+
+GRAPH (project analysis):
+    lean-ctx graph build [path]    Build/rebuild project graph index
+    lean-ctx graph status          Show graph index statistics
+    lean-ctx graph related <file>  List files related to a given file
+    lean-ctx graph impact <file>   Show files impacted by changes to a file
+    lean-ctx graph symbol <spec>   Inspect a symbol (format: file.rs::fn_name)
+    lean-ctx graph context <query> Query the property graph for a concept
+
+CLOUD:
+    cloud status                   Show cloud connection status
+    login <email>                  Log into existing LeanCTX Cloud account
+    register <email>               Create a new LeanCTX Cloud account
+    forgot-password <email>        Send password reset email
+    sync                           Upload local stats to cloud dashboard
+    contribute                     Share anonymized compression data
+
+TROUBLESHOOTING:
+    Commands broken?     lean-ctx-off             (fixes current session)
+    Permanent fix?       lean-ctx uninstall       (removes all hooks)
+    Manual fix?          Edit ~/.zshrc, remove the \"lean-ctx shell hook\" block
+    Binary missing?      Aliases auto-fallback to original commands (safe)
+    Preview init?        lean-ctx init --global --dry-run
+
+WEBSITE: https://leanctx.com
+GITHUB:  https://github.com/yvgude/lean-ctx
+",
+        version = env!("CARGO_PKG_VERSION"),
+        banner = capability_banner(),
+    );
+}
