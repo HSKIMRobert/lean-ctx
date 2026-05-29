@@ -153,15 +153,10 @@ impl LeanCtxServer {
             return None;
         }
 
-        // Check if agent has documented anything recently
         let doc_reminder = {
             let session = self.session.read().await;
-            let calls_since_last_doc = Self::calls_since_last_documentation(&session);
-            if calls_since_last_doc >= 30 {
-                "\n[CHECKPOINT: please document current progress via ctx_session(action=\"task\") or ctx_knowledge(action=\"remember\")]"
-            } else {
-                ""
-            }
+            let calls = self.tool_calls.read().await;
+            Self::activity_nudge(&session, &calls)
         };
 
         Some(format!(
@@ -385,38 +380,208 @@ impl LeanCtxServer {
         );
     }
 
-    /// Counts tool calls since the last documentation action (ctx_knowledge remember, ctx_session task).
-    fn calls_since_last_documentation(session: &crate::core::session::SessionState) -> u64 {
-        let total = session.stats.total_tool_calls;
-        // Use findings and decisions timestamps as proxy for documentation activity
-        let last_finding_ts = session.findings.last().map(|f| f.timestamp);
-        let last_decision_ts = session.decisions.last().map(|d| d.timestamp);
+    fn activity_nudge(
+        session: &crate::core::session::SessionState,
+        calls: &[ToolCallRecord],
+    ) -> &'static str {
+        let last_doc_ts = session
+            .progress
+            .last()
+            .map(|p| p.timestamp)
+            .or_else(|| session.decisions.last().map(|d| d.timestamp))
+            .or_else(|| session.findings.last().map(|f| f.timestamp));
 
-        // If there are recent decisions or explicit task updates, consider it documented
-        if session.task.is_some() {
-            // Task was set at some point — check how many calls ago
-            let task_set_at = session
-                .progress
-                .last()
-                .map(|p| p.timestamp)
-                .or(last_decision_ts)
-                .or(last_finding_ts);
-
-            if let Some(ts) = task_set_at {
-                let age = chrono::Utc::now() - ts;
-                // If last doc action was less than 5 minutes ago, not stale
-                if age.num_minutes() < 5 {
-                    return 0;
-                }
+        if let Some(ts) = last_doc_ts {
+            let age = chrono::Utc::now() - ts;
+            if age.num_minutes() < 8 {
+                return "";
             }
         }
 
-        // Conservative: if no decisions at all, report total calls
-        if session.decisions.is_empty() && session.progress.is_empty() {
-            return u64::from(total);
+        let (weighted_score, significant_tools, shell_heavy, edit_heavy) =
+            Self::compute_activity_score(calls, last_doc_ts);
+
+        if weighted_score < 20 || significant_tools < 5 {
+            if session.stats.total_tool_calls >= 30
+                && session.decisions.is_empty()
+                && session.progress.is_empty()
+            {
+                return "\n[CHECKPOINT: please document current progress via ctx_session(action=\"task\") or ctx_knowledge(action=\"remember\")]";
+            }
+            return "";
         }
 
-        // Estimate calls since last documentation based on time
-        u64::from(total.min(30))
+        if shell_heavy {
+            "\n[CHECKPOINT: multiple shell commands executed — any test results or findings worth persisting via ctx_knowledge(action=\"remember\")?]"
+        } else if edit_heavy {
+            "\n[CHECKPOINT: several files modified — document the architecture decision or pattern via ctx_knowledge(action=\"remember\")?]"
+        } else {
+            "\n[CHECKPOINT: significant work detected — consider persisting decisions via ctx_knowledge(action=\"remember\")]"
+        }
+    }
+
+    fn compute_activity_score(
+        calls: &[ToolCallRecord],
+        last_doc_ts: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> (u32, u32, bool, bool) {
+        let mut weighted_score: u32 = 0;
+        let mut significant_tools: u32 = 0;
+        let mut shell_count: u32 = 0;
+        let mut edit_count: u32 = 0;
+
+        let since_doc: Vec<&ToolCallRecord> = if let Some(ts) = last_doc_ts {
+            let ts_str = ts.format("%Y-%m-%d %H:%M:%S").to_string();
+            calls.iter().filter(|c| c.timestamp > ts_str).collect()
+        } else {
+            calls.iter().collect()
+        };
+
+        for call in &since_doc {
+            let tool = call.tool.as_str();
+            let is_knowledge = tool == "ctx_knowledge" || tool == "ctx_session";
+            if is_knowledge {
+                weighted_score = 0;
+                significant_tools = 0;
+                shell_count = 0;
+                edit_count = 0;
+                continue;
+            }
+
+            let (weight, significant) = match tool {
+                "edit" | "write" | "str_replace" => {
+                    edit_count += 1;
+                    (4u32, true)
+                }
+                "ctx_shell" => {
+                    shell_count += 1;
+                    let is_test_or_build = call
+                        .mode
+                        .as_deref()
+                        .is_some_and(|m| m.contains("test") || m.contains("build"));
+                    if is_test_or_build {
+                        (3, true)
+                    } else {
+                        (2, true)
+                    }
+                }
+                "ctx_read" => {
+                    let is_cache_hit = call.saved_tokens > 0
+                        && call.original_tokens > 0
+                        && call.saved_tokens == call.original_tokens;
+                    if is_cache_hit {
+                        (0, false)
+                    } else {
+                        (1, false)
+                    }
+                }
+                _ => (1, false),
+            };
+
+            weighted_score = weighted_score.saturating_add(weight);
+            if significant {
+                significant_tools += 1;
+            }
+        }
+
+        let shell_heavy = shell_count >= 3 && shell_count > edit_count;
+        let edit_heavy = edit_count >= 3 && edit_count >= shell_count;
+
+        (weighted_score, significant_tools, shell_heavy, edit_heavy)
+    }
+}
+
+#[cfg(test)]
+mod activity_score_tests {
+    use super::*;
+
+    fn make_call(tool: &str, mode: Option<&str>) -> ToolCallRecord {
+        ToolCallRecord {
+            tool: tool.to_string(),
+            original_tokens: 100,
+            saved_tokens: 50,
+            mode: mode.map(String::from),
+            duration_ms: 10,
+            timestamp: "2026-01-01 12:00:00".to_string(),
+        }
+    }
+
+    fn make_cache_hit() -> ToolCallRecord {
+        ToolCallRecord {
+            tool: "ctx_read".to_string(),
+            original_tokens: 100,
+            saved_tokens: 100,
+            mode: Some("full".to_string()),
+            duration_ms: 1,
+            timestamp: "2026-01-01 12:00:00".to_string(),
+        }
+    }
+
+    #[test]
+    fn empty_calls_zero_score() {
+        let (score, sig, _, _) = LeanCtxServer::compute_activity_score(&[], None);
+        assert_eq!(score, 0);
+        assert_eq!(sig, 0);
+    }
+
+    #[test]
+    fn edits_have_highest_weight() {
+        let calls = vec![
+            make_call("edit", None),
+            make_call("edit", None),
+            make_call("edit", None),
+        ];
+        let (score, sig, _, edit_heavy) = LeanCtxServer::compute_activity_score(&calls, None);
+        assert_eq!(score, 12);
+        assert_eq!(sig, 3);
+        assert!(edit_heavy);
+    }
+
+    #[test]
+    fn shell_test_build_weight_three() {
+        let calls = vec![
+            make_call("ctx_shell", Some("test")),
+            make_call("ctx_shell", Some("build")),
+            make_call("ctx_shell", Some("test")),
+        ];
+        let (score, sig, shell_heavy, _) = LeanCtxServer::compute_activity_score(&calls, None);
+        assert_eq!(score, 9);
+        assert_eq!(sig, 3);
+        assert!(shell_heavy);
+    }
+
+    #[test]
+    fn cache_hits_zero_weight() {
+        let calls = vec![make_cache_hit(), make_cache_hit(), make_cache_hit()];
+        let (score, sig, _, _) = LeanCtxServer::compute_activity_score(&calls, None);
+        assert_eq!(score, 0);
+        assert_eq!(sig, 0);
+    }
+
+    #[test]
+    fn knowledge_call_resets_score() {
+        let calls = vec![
+            make_call("edit", None),
+            make_call("edit", None),
+            make_call("ctx_knowledge", None),
+            make_call("ctx_read", None),
+        ];
+        let (score, sig, _, _) = LeanCtxServer::compute_activity_score(&calls, None);
+        assert_eq!(score, 1);
+        assert_eq!(sig, 0);
+    }
+
+    #[test]
+    fn mixed_workflow_scoring() {
+        let calls = vec![
+            make_call("ctx_read", None),
+            make_call("ctx_read", None),
+            make_call("edit", None),
+            make_call("edit", None),
+            make_call("ctx_shell", Some("test output")),
+            make_call("ctx_shell", None),
+        ];
+        let (score, sig, _, _) = LeanCtxServer::compute_activity_score(&calls, None);
+        assert_eq!(score, 2 + 4 + 4 + 3 + 2);
+        assert_eq!(sig, 4);
     }
 }

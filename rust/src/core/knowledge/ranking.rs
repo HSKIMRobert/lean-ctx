@@ -1,6 +1,6 @@
 use chrono::Utc;
 
-use super::types::KnowledgeFact;
+use super::types::{JudgedPair, KnowledgeFact};
 
 pub(super) fn confidence_stars(confidence: f32) -> &'static str {
     if confidence >= 0.95 {
@@ -140,6 +140,67 @@ pub(super) fn build_token_index(
         indices.dedup();
     }
     index
+}
+
+#[derive(Debug, Clone)]
+pub struct SimilarFact {
+    pub category: String,
+    pub key: String,
+    pub value_preview: String,
+    pub similarity: f32,
+}
+
+pub fn find_cross_key_similar(
+    new_category: &str,
+    new_key: &str,
+    new_value: &str,
+    all_facts: &[KnowledgeFact],
+    judged_pairs: &[JudgedPair],
+    limit: usize,
+) -> Vec<SimilarFact> {
+    let composite_key = format!("{new_category}/{new_key}");
+    let mut results: Vec<SimilarFact> = Vec::new();
+
+    for f in all_facts {
+        if !f.is_current() {
+            continue;
+        }
+        let other_key = format!("{}/{}", f.category, f.key);
+        if other_key == composite_key {
+            continue;
+        }
+
+        let already_judged = judged_pairs.iter().any(|jp| {
+            (jp.key_a == composite_key && jp.key_b == other_key)
+                || (jp.key_a == other_key && jp.key_b == composite_key)
+        });
+        if already_judged {
+            continue;
+        }
+
+        let sim = string_similarity(new_value, &f.value);
+        if sim > 0.35 {
+            let preview = if f.value.len() > 60 {
+                format!("{}...", &f.value[..57])
+            } else {
+                f.value.clone()
+            };
+            results.push(SimilarFact {
+                category: f.category.clone(),
+                key: f.key.clone(),
+                value_preview: preview,
+                similarity: sim,
+            });
+        }
+    }
+
+    results.sort_by(|a, b| {
+        b.similarity
+            .partial_cmp(&a.similarity)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    results.truncate(limit);
+    results
 }
 
 pub(super) fn fact_version_id_v1(f: &KnowledgeFact) -> String {

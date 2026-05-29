@@ -400,6 +400,7 @@ mod tests {
             imported_from: None,
             archetype: KnowledgeArchetype::default(),
             fidelity: None,
+            revision_count: 0,
         }
     }
 
@@ -426,6 +427,7 @@ mod tests {
             patterns: Vec::new(),
             history: Vec::new(),
             updated_at: Utc::now(),
+            judged_pairs: Vec::new(),
         }
     }
 

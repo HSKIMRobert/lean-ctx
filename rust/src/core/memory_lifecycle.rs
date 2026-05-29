@@ -308,6 +308,7 @@ mod tests {
             imported_from: None,
             archetype: KnowledgeArchetype::default(),
             fidelity: None,
+            revision_count: 0,
         }
     }
 
@@ -340,6 +341,7 @@ mod tests {
             imported_from: None,
             archetype: KnowledgeArchetype::default(),
             fidelity: None,
+            revision_count: 0,
         }
     }
 

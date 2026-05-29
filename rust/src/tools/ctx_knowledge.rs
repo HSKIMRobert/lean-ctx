@@ -73,12 +73,13 @@ pub fn handle(
         "embeddings_status" => handle_embeddings_status(project_root),
         "embeddings_reset" => handle_embeddings_reset(project_root),
         "embeddings_reindex" => handle_embeddings_reindex(project_root),
+        "judge" => handle_judge(project_root, category, key, value, query),
         "cognition_loop" => handle_cognition_loop(project_root),
         "bridge_publish" => handle_bridge_publish(project_root, session_id),
         "bridge_pull" => handle_bridge_pull(project_root, session_id),
         "bridge_status" => handle_bridge_status(project_root),
         _ => format!(
-            "Unknown action: {action}. Use: policy, remember, recall, pattern, feedback, relate, unrelate, relations, relations_diagram, status, health, remove, export, consolidate, timeline, rooms, search, wakeup, embeddings_status, embeddings_reset, embeddings_reindex, cognition_loop, bridge_publish, bridge_pull, bridge_status"
+            "Unknown action: {action}. Use: policy, remember, recall, pattern, feedback, judge, relate, unrelate, relations, relations_diagram, status, health, remove, export, consolidate, timeline, rooms, search, wakeup, embeddings_status, embeddings_reset, embeddings_reindex, cognition_loop, bridge_publish, bridge_pull, bridge_status"
         ),
     }
 }
@@ -188,6 +189,106 @@ fn handle_feedback(
             "Feedback recorded ({dir}) but save failed: {e} (up={up}, down={down}, quality={quality:.2})"
         ),
     }
+}
+
+fn handle_judge(
+    project_root: &str,
+    category: Option<&str>,
+    key: Option<&str>,
+    value: Option<&str>,
+    query: Option<&str>,
+) -> String {
+    let source = match (category, key) {
+        (Some(cat), Some(k)) => format!("{cat}/{k}"),
+        _ => {
+            if let Some(k) = key.or(category) {
+                if k.contains('/') {
+                    k.to_string()
+                } else {
+                    return "Error: judge requires key as 'category/key' (source fact)".to_string();
+                }
+            } else {
+                return "Error: judge requires category+key (source fact) and value (target 'category/key')"
+                    .to_string();
+            }
+        }
+    };
+
+    let Some(target) = value else {
+        return "Error: judge requires value as target 'category/key'".to_string();
+    };
+    let target = target.trim().to_string();
+    if !target.contains('/') {
+        return "Error: target must be 'category/key' format".to_string();
+    }
+
+    let verdict = query.unwrap_or("compatible").trim().to_lowercase();
+    if !matches!(verdict.as_str(), "supersedes" | "compatible" | "unrelated") {
+        return format!("Error: verdict must be supersedes|compatible|unrelated, got '{verdict}'");
+    }
+
+    let mut knowledge = ProjectKnowledge::load_or_create(project_root);
+
+    let source_exists = {
+        let parts: Vec<&str> = source.splitn(2, '/').collect();
+        parts.len() == 2
+            && knowledge
+                .facts
+                .iter()
+                .any(|f| f.category == parts[0] && f.key == parts[1] && f.is_current())
+    };
+    if !source_exists {
+        return format!("Error: no current fact found for '{source}'");
+    }
+
+    let target_parts: Vec<&str> = target.splitn(2, '/').collect();
+    if target_parts.len() != 2 {
+        return format!("Error: invalid target format '{target}'");
+    }
+    let (tcat, tkey) = (target_parts[0], target_parts[1]);
+
+    let target_exists = knowledge
+        .facts
+        .iter()
+        .any(|f| f.category == tcat && f.key == tkey && f.is_current());
+    if !target_exists {
+        return format!("Error: no current fact found for '{target}'");
+    }
+
+    if verdict == "supersedes" {
+        let now = Utc::now();
+        if let Some(tf) = knowledge
+            .facts
+            .iter_mut()
+            .find(|f| f.category == tcat && f.key == tkey && f.is_current())
+        {
+            tf.valid_until = Some(now);
+            tf.valid_from = tf.valid_from.or(Some(tf.created_at));
+        }
+    }
+
+    knowledge
+        .judged_pairs
+        .push(crate::core::knowledge::JudgedPair {
+            key_a: source.clone(),
+            key_b: target.clone(),
+            verdict: verdict.clone(),
+            judged_at: Utc::now(),
+        });
+
+    let save_msg = match knowledge.save() {
+        Ok(()) => String::new(),
+        Err(e) => format!(" (save warning: {e})"),
+    };
+
+    let action_desc = match verdict.as_str() {
+        "supersedes" => format!("{source} supersedes {target} (target archived)"),
+        "compatible" => format!("{source} ↔ {target} (compatible, suppressed from future similar)"),
+        "unrelated" => format!("{source} ≠ {target} (unrelated, suppressed from future similar)"),
+        _ => unreachable!(),
+    };
+
+    format!("Judged: {action_desc}{save_msg}")
 }
 
 #[cfg(feature = "embeddings")]
@@ -372,13 +473,56 @@ fn handle_remember(
     let contradiction = knowledge.remember(cat, k, v, session_id, conf, &policy);
     let _ = knowledge.run_memory_lifecycle(&policy);
 
-    let mut result = format!(
-        "Remembered [{cat}] {k}: {v} (confidence: {:.0}%)",
-        conf * 100.0
-    );
+    let current_fact = knowledge
+        .facts
+        .iter()
+        .find(|f| f.category == cat && f.key == k && f.is_current());
+    let rev = current_fact.map_or(1, |f| f.revision_count);
+    let conf_count = current_fact.map_or(1, |f| f.confirmation_count);
 
-    if let Some(c) = contradiction {
-        result.push_str(&format!("\n⚠ CONTRADICTION DETECTED: {}", c.resolution));
+    let mut result = if contradiction.is_some() {
+        format!(
+            "Updated [{cat}] {k}: {v} → revision {rev} (previous archived, confidence: {:.0}%)",
+            conf * 100.0
+        )
+    } else if rev > 1 {
+        format!(
+            "Confirmed [{cat}] {k}: {v} (revision {rev}, confirmed {conf_count}x, confidence: {:.0}%)",
+            current_fact.map_or(conf, |f| f.confidence) * 100.0
+        )
+    } else {
+        format!(
+            "Remembered [{cat}] {k}: {v} (revision 1, confidence: {:.0}%)",
+            conf * 100.0
+        )
+    };
+
+    if let Some(c) = &contradiction {
+        result.push_str(&format!("\n⚠ CONTRADICTION: {}", c.resolution));
+    }
+
+    let similar = crate::core::knowledge::find_cross_key_similar(
+        cat,
+        k,
+        v,
+        &knowledge.facts,
+        &knowledge.judged_pairs,
+        3,
+    );
+    if !similar.is_empty() {
+        result.push_str(&format!("\n\nSIMILAR FACTS ({} found):", similar.len()));
+        for sf in &similar {
+            result.push_str(&format!(
+                "\n  {}/{} ({:.0}%) — \"{}\"",
+                sf.category,
+                sf.key,
+                sf.similarity * 100.0,
+                sf.value_preview
+            ));
+        }
+        result.push_str(
+            "\n→ ctx_knowledge(action=\"judge\", key=\"<cat/key>\", value=\"<target_cat/key>\", query=\"supersedes|compatible|unrelated\")"
+        );
     }
 
     #[cfg(feature = "embeddings")]
@@ -440,14 +584,19 @@ fn handle_recall(
             if rehydrated {
                 let (facts2, total2) = knowledge.recall_by_category_for_output(cat, limit);
                 if !facts2.is_empty() && total2 > 0 {
-                    let out2 = format_facts(&facts2, total2, Some(cat));
+                    let out2 = format_facts_with_annotations(
+                        &facts2,
+                        total2,
+                        Some(cat),
+                        &knowledge.judged_pairs,
+                    );
                     save_knowledge_deferred(knowledge);
                     return out2;
                 }
             }
             return format!("No facts in category '{cat}'.");
         }
-        let out = format_facts(&facts, total, Some(cat));
+        let out = format_facts_with_annotations(&facts, total, Some(cat), &knowledge.judged_pairs);
         save_knowledge_deferred(knowledge);
         return out;
     }
@@ -532,14 +681,19 @@ fn handle_recall(
             if rehydrated {
                 let (facts2, total2) = knowledge.recall_for_output(q, limit);
                 if !facts2.is_empty() && total2 > 0 {
-                    let out2 = format_facts(&facts2, total2, None);
+                    let out2 = format_facts_with_annotations(
+                        &facts2,
+                        total2,
+                        None,
+                        &knowledge.judged_pairs,
+                    );
                     save_knowledge_deferred(knowledge);
                     return out2;
                 }
             }
             return format!("No facts matching '{q}'.");
         }
-        let out = format_facts(&facts, total, None);
+        let out = format_facts_with_annotations(&facts, total, None, &knowledge.judged_pairs);
         save_knowledge_deferred(knowledge);
         return out;
     }
@@ -1438,10 +1592,11 @@ fn format_semantic_facts(query: &str, hits: &[SemanticHit]) -> String {
     out
 }
 
-fn format_facts(
+fn format_facts_with_annotations(
     facts: &[crate::core::knowledge::KnowledgeFact],
     total: usize,
     category: Option<&str>,
+    judged_pairs: &[crate::core::knowledge::JudgedPair],
 ) -> String {
     let mut facts: Vec<&crate::core::knowledge::KnowledgeFact> = facts.iter().collect();
     facts.sort_by(|a, b| sort_fact_for_output(a, b));
@@ -1462,8 +1617,13 @@ fn format_facts(
     }
     for f in facts {
         let temporal = if f.is_current() { "" } else { " [archived]" };
+        let rev = if f.revision_count > 1 {
+            format!(" rev {}", f.revision_count)
+        } else {
+            String::new()
+        };
         out.push_str(&format!(
-            "  [{}/{}]: {} (quality: {:.0}%, confidence: {:.0}%, confirmed: {} x{}){temporal}\n",
+            "  [{}/{}]: {} (quality: {:.0}%, confidence: {:.0}%, confirmed: {} x{}){rev}{temporal}\n",
             f.category,
             f.key,
             f.value,
@@ -1472,6 +1632,17 @@ fn format_facts(
             f.last_confirmed.format("%Y-%m-%d"),
             f.confirmation_count
         ));
+
+        if !judged_pairs.is_empty() {
+            let composite = format!("{}/{}", f.category, f.key);
+            for jp in judged_pairs {
+                if jp.key_a == composite {
+                    out.push_str(&format!("    ↳ {} {}\n", jp.verdict, jp.key_b));
+                } else if jp.key_b == composite && jp.verdict == "supersedes" {
+                    out.push_str(&format!("    ↳ superseded by {}\n", jp.key_a));
+                }
+            }
+        }
     }
     out
 }

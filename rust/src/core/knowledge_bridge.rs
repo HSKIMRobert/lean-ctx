@@ -144,6 +144,7 @@ impl KnowledgeBridge {
             imported_from: Some(format!("bridge:{}", entry.source_agent)),
             archetype: entry.archetype.clone(),
             fidelity: None,
+            revision_count: 0,
         }
     }
 
@@ -237,6 +238,7 @@ mod tests {
             imported_from: None,
             archetype,
             fidelity: None,
+            revision_count: 0,
         }
     }
 

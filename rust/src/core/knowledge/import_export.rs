@@ -75,6 +75,7 @@ pub fn parse_import_data(data: &str) -> Result<Vec<KnowledgeFact>, String> {
                 imported_from: None,
                 archetype: KnowledgeArchetype::default(),
                 fidelity: None,
+                revision_count: 0,
             })
             .collect();
         return Ok(facts);
@@ -109,6 +110,7 @@ pub fn parse_import_data(data: &str) -> Result<Vec<KnowledgeFact>, String> {
                 imported_from: None,
                 archetype: KnowledgeArchetype::default(),
                 fidelity: None,
+                revision_count: 0,
             });
         } else {
             return Err(format!(
@@ -147,6 +149,7 @@ fn imported_fact(source: &KnowledgeFact, session_id: &str) -> KnowledgeFact {
         imported_from: source.imported_from.clone(),
         archetype: source.archetype.clone(),
         fidelity: None,
+        revision_count: 0,
     }
 }
 

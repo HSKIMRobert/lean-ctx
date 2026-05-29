@@ -31,6 +31,7 @@ impl ProjectKnowledge {
             patterns: Vec::new(),
             history: Vec::new(),
             updated_at: Utc::now(),
+            judged_pairs: Vec::new(),
         }
     }
 
@@ -113,6 +114,7 @@ impl ProjectKnowledge {
                 existing.source_session = session_id.to_string();
                 existing.confidence = f32::midpoint(existing.confidence, confidence);
                 existing.confirmation_count += 1;
+                existing.revision_count += 1;
 
                 if existing.value != value && similarity > 0.8 && value.len() > existing.value.len()
                 {
@@ -120,6 +122,7 @@ impl ProjectKnowledge {
                 }
             } else {
                 let superseded = fact_version_id_v1(existing);
+                let next_revision = existing.revision_count + 1;
                 existing.valid_until = Some(now);
                 existing.valid_from = existing.valid_from.or(Some(existing.created_at));
 
@@ -144,6 +147,7 @@ impl ProjectKnowledge {
                     imported_from: None,
                     archetype: KnowledgeArchetype::default(),
                     fidelity: None,
+                    revision_count: next_revision,
                 });
             }
         } else {
@@ -169,6 +173,7 @@ impl ProjectKnowledge {
                 imported_from: None,
                 archetype: KnowledgeArchetype::default(),
                 fidelity: None,
+                revision_count: 1,
             });
         }
 

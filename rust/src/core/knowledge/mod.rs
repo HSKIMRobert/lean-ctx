@@ -8,6 +8,7 @@ mod ranking;
 mod types;
 
 pub use import_export::{parse_import_data, ImportMerge, ImportResult, SimpleFactEntry};
+pub use ranking::{find_cross_key_similar, SimilarFact};
 pub use types::*;
 
 #[cfg(test)]
@@ -308,6 +309,7 @@ mod tests {
             imported_from: None,
             archetype: KnowledgeArchetype::default(),
             fidelity: None,
+            revision_count: 0,
         }];
 
         let result = k.import_facts(incoming, ImportMerge::SkipExisting, "imp-1", &policy);
@@ -343,6 +345,7 @@ mod tests {
             imported_from: None,
             archetype: KnowledgeArchetype::default(),
             fidelity: None,
+            revision_count: 0,
         }];
 
         let result = k.import_facts(incoming, ImportMerge::Replace, "imp-1", &policy);
@@ -379,6 +382,7 @@ mod tests {
             imported_from: None,
             archetype: KnowledgeArchetype::default(),
             fidelity: None,
+            revision_count: 0,
         }];
 
         let result = k.import_facts(incoming, ImportMerge::SkipExisting, "imp-1", &policy);
@@ -432,5 +436,211 @@ mod tests {
         );
         assert_eq!(ImportMerge::parse("skip"), Some(ImportMerge::SkipExisting));
         assert!(ImportMerge::parse("invalid").is_none());
+    }
+
+    #[test]
+    fn revision_count_on_new_fact() {
+        let policy = default_policy();
+        let mut k = ProjectKnowledge::new("/tmp/test");
+        k.remember("arch", "db", "PostgreSQL", "s1", 0.9, &policy);
+        let cur = k.facts.iter().find(|f| f.is_current()).unwrap();
+        assert_eq!(cur.revision_count, 1);
+    }
+
+    #[test]
+    fn revision_count_increments_on_confirm() {
+        let policy = default_policy();
+        let mut k = ProjectKnowledge::new("/tmp/test");
+        k.remember("arch", "db", "PostgreSQL", "s1", 0.9, &policy);
+        k.remember("arch", "db", "PostgreSQL", "s2", 0.9, &policy);
+        k.remember("arch", "db", "PostgreSQL", "s3", 0.9, &policy);
+        let cur = k.facts.iter().find(|f| f.is_current()).unwrap();
+        assert_eq!(cur.revision_count, 3);
+        assert_eq!(cur.confirmation_count, 3);
+    }
+
+    #[test]
+    fn revision_count_carries_over_on_supersede() {
+        let policy = default_policy();
+        let mut k = ProjectKnowledge::new("/tmp/test");
+        k.remember("arch", "db", "PostgreSQL", "s1", 0.95, &policy);
+        k.remember("arch", "db", "PostgreSQL", "s2", 0.9, &policy);
+        assert_eq!(
+            k.facts
+                .iter()
+                .find(|f| f.is_current())
+                .unwrap()
+                .revision_count,
+            2
+        );
+        k.facts[0].confirmation_count = 3;
+        k.remember("arch", "db", "MySQL", "s3", 0.9, &policy);
+        let cur: Vec<_> = k.facts.iter().filter(|f| f.is_current()).collect();
+        assert_eq!(cur.len(), 1);
+        assert_eq!(cur[0].value, "MySQL");
+        assert_eq!(cur[0].revision_count, 3);
+        assert!(cur[0].supersedes.is_some());
+    }
+
+    #[test]
+    fn revision_count_default_zero_for_legacy() {
+        let json = r#"{
+            "category": "test", "key": "k", "value": "v",
+            "source_session": "s", "confidence": 0.8,
+            "created_at": "2024-01-01T00:00:00Z",
+            "last_confirmed": "2024-01-01T00:00:00Z"
+        }"#;
+        let fact: KnowledgeFact = serde_json::from_str(json).unwrap();
+        assert_eq!(fact.revision_count, 0);
+    }
+
+    #[test]
+    fn judged_pairs_default_empty_for_legacy() {
+        let json = r#"{
+            "project_root": "/test", "project_hash": "abc",
+            "facts": [], "patterns": [], "history": [],
+            "updated_at": "2024-01-01T00:00:00Z"
+        }"#;
+        let pk: ProjectKnowledge = serde_json::from_str(json).unwrap();
+        assert!(pk.judged_pairs.is_empty());
+    }
+
+    #[test]
+    fn cross_key_similar_finds_related_facts() {
+        let policy = default_policy();
+        let mut k = ProjectKnowledge::new("/tmp/test");
+        k.remember(
+            "architecture",
+            "auth",
+            "JWT RS256 token based authentication with Redis session store",
+            "s1",
+            0.9,
+            &policy,
+        );
+        k.remember(
+            "decision",
+            "session-model",
+            "JWT token authentication stored in Redis for session management",
+            "s1",
+            0.85,
+            &policy,
+        );
+        k.remember("deploy", "host", "AWS us-east-1", "s1", 0.8, &policy);
+
+        let similar = find_cross_key_similar(
+            "architecture",
+            "auth",
+            "JWT RS256 token based authentication with Redis session store",
+            &k.facts,
+            &k.judged_pairs,
+            3,
+        );
+        assert!(!similar.is_empty(), "should find session-model as similar");
+        assert_eq!(similar[0].category, "decision");
+        assert_eq!(similar[0].key, "session-model");
+        assert!(similar[0].similarity > 0.35);
+    }
+
+    #[test]
+    fn cross_key_similar_excludes_same_key() {
+        let policy = default_policy();
+        let mut k = ProjectKnowledge::new("/tmp/test");
+        k.remember("arch", "db", "PostgreSQL 16", "s1", 0.9, &policy);
+
+        let similar =
+            find_cross_key_similar("arch", "db", "PostgreSQL 16", &k.facts, &k.judged_pairs, 3);
+        assert!(similar.is_empty());
+    }
+
+    #[test]
+    fn cross_key_similar_excludes_judged_pairs() {
+        let policy = default_policy();
+        let mut k = ProjectKnowledge::new("/tmp/test");
+        k.remember(
+            "architecture",
+            "auth",
+            "JWT RS256 token based authentication with Redis",
+            "s1",
+            0.9,
+            &policy,
+        );
+        k.remember(
+            "decision",
+            "session-model",
+            "JWT token authentication stored in Redis",
+            "s1",
+            0.85,
+            &policy,
+        );
+
+        k.judged_pairs.push(JudgedPair {
+            key_a: "architecture/auth".into(),
+            key_b: "decision/session-model".into(),
+            verdict: "compatible".into(),
+            judged_at: Utc::now(),
+        });
+
+        let similar = find_cross_key_similar(
+            "architecture",
+            "auth",
+            "JWT RS256 token based authentication with Redis",
+            &k.facts,
+            &k.judged_pairs,
+            3,
+        );
+        assert!(similar.is_empty(), "judged pairs should be excluded");
+    }
+
+    #[test]
+    fn cross_key_similar_ignores_unrelated_facts() {
+        let policy = default_policy();
+        let mut k = ProjectKnowledge::new("/tmp/test");
+        k.remember(
+            "arch",
+            "db",
+            "PostgreSQL 16 with pgvector",
+            "s1",
+            0.9,
+            &policy,
+        );
+        k.remember("deploy", "host", "AWS us-east-1 region", "s1", 0.8, &policy);
+
+        let similar = find_cross_key_similar(
+            "arch",
+            "db",
+            "PostgreSQL 16 with pgvector",
+            &k.facts,
+            &k.judged_pairs,
+            3,
+        );
+        assert!(similar.is_empty(), "unrelated facts should not match");
+    }
+
+    #[test]
+    fn judge_supersedes_archives_target() {
+        let policy = default_policy();
+        let mut k = ProjectKnowledge::new("/tmp/test");
+        k.remember("architecture", "auth", "JWT RS256", "s1", 0.9, &policy);
+        k.remember("decision", "session", "JWT tokens", "s1", 0.85, &policy);
+
+        assert!(k.facts.iter().all(KnowledgeFact::is_current));
+
+        if let Some(tf) = k
+            .facts
+            .iter_mut()
+            .find(|f| f.category == "decision" && f.key == "session" && f.is_current())
+        {
+            tf.valid_until = Some(Utc::now());
+        }
+        k.judged_pairs.push(JudgedPair {
+            key_a: "architecture/auth".into(),
+            key_b: "decision/session".into(),
+            verdict: "supersedes".into(),
+            judged_at: Utc::now(),
+        });
+
+        let cur: Vec<_> = k.facts.iter().filter(|f| f.is_current()).collect();
+        assert_eq!(cur.len(), 1);
+        assert_eq!(cur[0].category, "architecture");
     }
 }

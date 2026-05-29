@@ -76,6 +76,16 @@ pub struct ProjectKnowledge {
     pub patterns: Vec<ProjectPattern>,
     pub history: Vec<ConsolidatedInsight>,
     pub updated_at: DateTime<Utc>,
+    #[serde(default)]
+    pub judged_pairs: Vec<JudgedPair>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JudgedPair {
+    pub key_a: String,
+    pub key_b: String,
+    pub verdict: String,
+    pub judged_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,6 +123,8 @@ pub struct KnowledgeFact {
     pub archetype: KnowledgeArchetype,
     #[serde(default)]
     pub fidelity: Option<FidelityScore>,
+    #[serde(default)]
+    pub revision_count: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -208,6 +220,7 @@ mod archetype_tests {
             imported_from: None,
             archetype: KnowledgeArchetype::default(),
             fidelity: None,
+            revision_count: 0,
         };
         let fidelity = fact.compute_structural_fidelity();
         assert!(fidelity >= 0.8);
