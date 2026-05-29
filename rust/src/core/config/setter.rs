@@ -20,7 +20,7 @@ pub fn set_by_key(key: &str, value: &str) -> Result<Config, String> {
 
     let mut table = load_config_as_table()?;
     let toml_value = parse_value(value, key_schema)?;
-    set_nested(&mut table, key, toml_value);
+    set_nested(&mut table, key, toml_value)?;
 
     let cfg: Config = toml::Value::Table(table)
         .try_into()
@@ -97,8 +97,10 @@ fn parse_value(value: &str, schema: &KeySchema) -> Result<toml::Value, String> {
 }
 
 /// Sets a value in a nested TOML table using a dot-separated key path.
-/// Creates intermediate tables as needed.
-fn set_nested(table: &mut toml::Table, key: &str, value: toml::Value) {
+/// Creates intermediate tables as needed. Returns an error (rather than
+/// panicking) if an intermediate key already holds a non-table value in the
+/// user's `config.toml` — e.g. `proxy = "x"` then `config set proxy.port 1`.
+fn set_nested(table: &mut toml::Table, key: &str, value: toml::Value) -> Result<(), String> {
     let parts: Vec<&str> = key.split('.').collect();
     let (parents, leaf) = parts.split_at(parts.len() - 1);
 
@@ -108,9 +110,15 @@ fn set_nested(table: &mut toml::Table, key: &str, value: toml::Value) {
             .entry(*part)
             .or_insert_with(|| toml::Value::Table(toml::Table::new()))
             .as_table_mut()
-            .expect("intermediate key is not a table");
+            .ok_or_else(|| {
+                format!(
+                    "Cannot set '{key}': '{part}' already holds a non-table value in config.toml. \
+                     Fix or remove that key first."
+                )
+            })?;
     }
     current.insert(leaf[0].to_string(), value);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -193,7 +201,8 @@ mod tests {
             &mut table,
             "proxy.anthropic_upstream",
             toml::Value::String("https://example.com".into()),
-        );
+        )
+        .unwrap();
         let proxy = table["proxy"].as_table().unwrap();
         assert_eq!(
             proxy["anthropic_upstream"].as_str().unwrap(),
@@ -204,7 +213,15 @@ mod tests {
     #[test]
     fn set_nested_flat_key() {
         let mut table = toml::Table::new();
-        set_nested(&mut table, "ultra_compact", toml::Value::Boolean(true));
+        set_nested(&mut table, "ultra_compact", toml::Value::Boolean(true)).unwrap();
         assert!(table["ultra_compact"].as_bool().unwrap());
+    }
+
+    #[test]
+    fn set_nested_rejects_non_table_intermediate() {
+        let mut table = toml::Table::new();
+        table.insert("proxy".into(), toml::Value::String("oops".into()));
+        let err = set_nested(&mut table, "proxy.port", toml::Value::Integer(8080)).unwrap_err();
+        assert!(err.contains("non-table"), "got: {err}");
     }
 }

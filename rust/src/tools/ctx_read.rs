@@ -627,7 +627,9 @@ fn find_similar_and_update_semantic_index(path: &str, content: &str) -> Option<S
         .collect();
 
     index.add_file(path, content, &session_id);
-    let _ = index.save(&project_root);
+    if let Err(e) = index.save(&project_root) {
+        tracing::warn!("lean-ctx: failed to persist semantic index: {e}");
+    }
 
     if relevant.is_empty() {
         return None;

@@ -306,21 +306,35 @@ fn exec_buffered(command: &str, shell: &str, shell_flag: &str, cfg: &config::Con
                 "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; {}",
                 command
             );
-            let tmp = tempfile::Builder::new()
+            // A temp script lets us set UTF-8 output encoding. If the temp file
+            // cannot be created (full disk, perms, broken TMP), degrade to
+            // running the command inline rather than panicking the process.
+            match tempfile::Builder::new()
                 .prefix("lean-ctx-ps-")
                 .suffix(".ps1")
                 .tempfile()
-                .expect("failed to create temp file for PowerShell script");
-            let tmp_path = tmp.into_temp_path();
-            let _ = std::fs::write(&tmp_path, &ps_script);
-            cmd.args([
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-                &tmp_path.to_string_lossy(),
-            ]);
-            ps_tmp_path = Some(tmp_path);
+            {
+                Ok(tmp) => {
+                    let tmp_path = tmp.into_temp_path();
+                    let _ = std::fs::write(&tmp_path, &ps_script);
+                    cmd.args([
+                        "-NoProfile",
+                        "-ExecutionPolicy",
+                        "Bypass",
+                        "-File",
+                        &tmp_path.to_string_lossy(),
+                    ]);
+                    ps_tmp_path = Some(tmp_path);
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "lean-ctx: temp script unavailable ({e}); running PowerShell inline"
+                    );
+                    cmd.arg(shell_flag);
+                    cmd.arg(command);
+                    ps_tmp_path = None;
+                }
+            }
         } else {
             cmd.arg(shell_flag);
             cmd.arg(command);

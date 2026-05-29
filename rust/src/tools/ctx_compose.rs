@@ -152,7 +152,14 @@ fn associative_block_budgeted(project_root: &str, keywords: &[String]) -> String
     let root = project_root.to_string();
     let kws = keywords.to_vec();
     std::thread::spawn(move || {
-        let _ = tx.send(build_associative_block(&root, &kws));
+        let block = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            build_associative_block(&root, &kws)
+        }))
+        .unwrap_or_else(|_| {
+            tracing::warn!("[ctx_compose: associative block panicked; omitting section]");
+            String::new()
+        });
+        let _ = tx.send(block);
     });
     rx.recv_timeout(graph_budget()).unwrap_or_default()
 }
@@ -247,17 +254,23 @@ fn ranked_files_budgeted(task: &str, project_root: &str, crp_mode: CrpMode) -> S
         if let Some(cache) = shared_cache {
             crate::tools::ctx_semantic_search::set_thread_cache(cache);
         }
-        let ranked = crate::tools::ctx_semantic_search::handle(
-            &task_owned,
-            &root_owned,
-            8,
-            crp_mode,
-            None,
-            None,
-            None,
-            Some(false),
-            Some(false),
-        );
+        let ranked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            crate::tools::ctx_semantic_search::handle(
+                &task_owned,
+                &root_owned,
+                8,
+                crp_mode,
+                None,
+                None,
+                None,
+                Some(false),
+                Some(false),
+            )
+        }))
+        .unwrap_or_else(|_| {
+            tracing::warn!("[ctx_compose: semantic ranking panicked; omitting section]");
+            String::new()
+        });
         // Receiver may be gone (we timed out); dropping the result is fine —
         // the cache warming already happened as a side effect of the build.
         let _ = tx.send(ranked);

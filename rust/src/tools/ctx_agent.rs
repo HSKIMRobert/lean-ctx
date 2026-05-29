@@ -39,7 +39,9 @@ pub fn handle(
         "list" => {
             let mut registry = AgentRegistry::load_or_create();
             registry.cleanup_stale(24);
-            let _ = registry.save();
+            if let Err(e) = registry.save() {
+                tracing::warn!("lean-ctx: failed to persist agent registry: {e}");
+            }
 
             let agents = registry.list_active(Some(project_root));
             if agents.is_empty() {
@@ -100,7 +102,9 @@ pub fn handle(
             let messages = registry.read_unread(agent_id);
 
             if messages.is_empty() {
-                let _ = registry.save();
+                if let Err(e) = registry.save() {
+                    tracing::warn!("lean-ctx: failed to persist agent registry: {e}");
+                }
                 return "No new messages.".to_string();
             }
 
@@ -112,7 +116,9 @@ pub fn handle(
                     m.category, m.from_agent, age, m.message
                 ));
             }
-            let _ = registry.save();
+            if let Err(e) = registry.save() {
+                tracing::warn!("lean-ctx: failed to persist agent registry (messages may reappear): {e}");
+            }
             out
         }
 

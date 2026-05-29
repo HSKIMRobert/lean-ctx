@@ -104,18 +104,29 @@ pub fn get_or_background(cache: &SharedBm25Cache, root: &Path) -> Option<Arc<BM2
         let cache_clone = cache.clone();
         let root_clone = root.to_path_buf();
         std::thread::spawn(move || {
-            let rebuilt = BM25Index::load_or_build(&root_clone);
-            let rebuilt_fp = index_fingerprint(&root_clone);
-            let mut g = cache_clone
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            *g = Some(Bm25CacheEntry {
-                root: root_clone,
-                index: Arc::new(rebuilt),
-                loaded_at: Instant::now(),
-                fingerprint: rebuilt_fp,
-            });
-            tracing::debug!("[bm25_cache: background refresh done for {root_str}]");
+            // Isolate panics (corrupt index file, FS race): a panic here must not
+            // kill the worker silently — the stale index keeps serving and the
+            // next call retries the refresh.
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let rebuilt = BM25Index::load_or_build(&root_clone);
+                let rebuilt_fp = index_fingerprint(&root_clone);
+                let mut g = cache_clone
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                *g = Some(Bm25CacheEntry {
+                    root: root_clone,
+                    index: Arc::new(rebuilt),
+                    loaded_at: Instant::now(),
+                    fingerprint: rebuilt_fp,
+                });
+            }));
+            if result.is_ok() {
+                tracing::debug!("[bm25_cache: background refresh done for {root_str}]");
+            } else {
+                tracing::warn!(
+                    "[bm25_cache: background refresh panicked for {root_str}; serving stale index]"
+                );
+            }
         });
     }
 

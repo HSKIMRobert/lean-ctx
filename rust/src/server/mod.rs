@@ -131,8 +131,8 @@ impl ServerHandler for LeanCtxServer {
                         rt.metrics.record_session_persisted();
                     }
                 }
-            } else {
-                let _ = session.save();
+            } else if let Err(e) = session.save() {
+                tracing::warn!("lean-ctx: failed to persist session state: {e}");
             }
         }
 
@@ -1274,7 +1274,9 @@ impl LeanCtxServer {
                     output_token_count_u64,
                     0,
                 );
-                let _ = store.save();
+                if let Err(e) = store.save() {
+                    tracing::warn!("lean-ctx: failed to persist cost attribution: {e}");
+                }
             });
         }
 
