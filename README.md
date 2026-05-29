@@ -195,7 +195,7 @@ lean-ctx is a standard **MCP server**, so it works with any MCP-compatible clien
 | Mode | How it works | Best for |
 |---|---|---|
 | **Hybrid** | MCP for cached reads (~13 tokens) + shell hooks for command compression | Agents with shell access (Cursor, Claude Code, Codex, ...) |
-| **MCP** | All 51+ tools via MCP protocol, no shell hooks | Protocol-only agents (JetBrains, VS Code, Zed, ...) |
+| **MCP** | All 63 tools via MCP protocol, no shell hooks | Protocol-only agents (JetBrains, VS Code, Zed, ...) |
 
 ### Agent compatibility matrix
 

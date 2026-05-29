@@ -224,8 +224,8 @@ impl ConfigSchema {
             "compression_level".into(),
             key_enum_with_env(
                 &["off", "lite", "standard", "max"],
-                "off",
-                "Unified compression level for all output",
+                "lite",
+                "Unified output-style level for the model's prose (not tool-output compression). lite=plain concise (default), standard/max=denser symbolic 'power modes'",
                 "LEAN_CTX_COMPRESSION",
             ),
         );

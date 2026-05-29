@@ -210,11 +210,8 @@ fn compression_level_config_deserializes() {
 }
 
 #[test]
-fn compression_level_config_default_standard() {
+fn compression_level_config_default_lite() {
     let toml = "";
     let config: Config = toml::from_str(toml).expect("empty toml should use defaults");
-    assert!(matches!(
-        config.compression_level,
-        CompressionLevel::Standard
-    ));
+    assert!(matches!(config.compression_level, CompressionLevel::Lite));
 }

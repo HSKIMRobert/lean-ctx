@@ -126,8 +126,14 @@ impl ResponseVerbosity {
 #[serde(rename_all = "lowercase")]
 pub enum CompressionLevel {
     Off,
-    Lite,
+    /// Default: plain-English "concise" guidance (bullets, no filler). Readable
+    /// by humans inspecting their rules files, and still token-saving. The
+    /// denser, symbolic styles (`Standard`/`Max`, which enable CRP and the
+    /// `→ ∵ ∴` vocabulary) are opt-in "power modes" — set `compression_level`
+    /// in config. This only shapes the model's prose; tool-output compression
+    /// is governed separately and is unaffected.
     #[default]
+    Lite,
     Standard,
     Max,
 }
@@ -2199,8 +2205,10 @@ mod compression_level_tests {
     use super::*;
 
     #[test]
-    fn default_is_standard() {
-        assert_eq!(CompressionLevel::default(), CompressionLevel::Standard);
+    fn default_is_lite() {
+        // Friendly default: plain-English concise guidance, not the symbolic
+        // dense/expert-terse styles (those are opt-in power modes).
+        assert_eq!(CompressionLevel::default(), CompressionLevel::Lite);
     }
 
     #[test]
@@ -2308,9 +2316,9 @@ mod compression_level_tests {
     }
 
     #[test]
-    fn deserialization_defaults_to_standard() {
+    fn deserialization_defaults_to_lite() {
         let cfg: Config = toml::from_str("").unwrap();
-        assert_eq!(cfg.compression_level, CompressionLevel::Standard);
+        assert_eq!(cfg.compression_level, CompressionLevel::Lite);
     }
 
     #[test]

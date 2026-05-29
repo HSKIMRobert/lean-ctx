@@ -76,6 +76,13 @@ impl Default for ToolRegistry {
     }
 }
 
+/// Number of registered MCP tools — the single source of truth for the
+/// "N MCP tools" count shown in `--help`, the README, and the feature catalog.
+/// Deriving it here means the count can never drift from the actual registry.
+pub fn tool_count() -> usize {
+    build_registry().len()
+}
+
 /// Register all trait-based tools. Called once during server startup.
 /// Tools are added here as they are migrated from the legacy dispatch.
 pub fn build_registry() -> ToolRegistry {

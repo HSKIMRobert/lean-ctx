@@ -1643,11 +1643,21 @@ fn run_mcp_server() -> Result<()> {
     })
 }
 
+/// One-line capability summary under the `--help` title. The MCP-tool count is
+/// derived from the registry (single source of truth) so it can never drift
+/// from the README / feature catalog.
+fn capability_banner() -> String {
+    format!(
+        "60+ compression patterns | {} MCP tools | 10 read modes | Context Continuity Protocol",
+        crate::server::registry::tool_count()
+    )
+}
+
 fn print_help() {
     println!(
         "lean-ctx {version} — Context Runtime for AI Agents
 
-60+ compression patterns | 61 MCP tools | 10 read modes | Context Continuity Protocol
+{banner}
 
 USAGE:
     lean-ctx                       Start MCP server (stdio)
@@ -1844,6 +1854,7 @@ WEBSITE: https://leanctx.com
 GITHUB:  https://github.com/yvgude/lean-ctx
 ",
         version = env!("CARGO_PKG_VERSION"),
+        banner = capability_banner(),
     );
 }
 
@@ -2139,6 +2150,16 @@ fn resolve_worker_threads(parallelism: usize) -> usize {
 mod tests {
     use super::*;
     use serial_test::serial;
+
+    #[test]
+    fn capability_banner_tool_count_matches_registry() {
+        let n = crate::server::registry::tool_count();
+        let banner = capability_banner();
+        assert!(
+            banner.contains(&format!("{n} MCP tools")),
+            "banner must show the live registry count ({n}); got: {banner}"
+        );
+    }
 
     #[test]
     #[serial]
