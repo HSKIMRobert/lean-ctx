@@ -26,13 +26,7 @@ pub fn handle(
 
     let Some(open) = graph_provider::open_or_build(&project_root) else {
         crate::core::index_orchestrator::ensure_all_background(&project_root);
-        return format!(
-            "INDEXING IN PROGRESS\n\n\
-            The knowledge graph for this project is being built in the background.\n\
-            Project: {project_root}\n\n\
-            Because this is a large project, the initial scan may take a moment.\n\
-            Please try this command again in 1-2 minutes."
-        );
+        return partial_overview(&project_root);
     };
     let gp = &open.provider;
 
@@ -515,6 +509,71 @@ fn truncate_start_char_boundary(s: &str, max_tail_bytes: usize) -> usize {
 
 fn file_line_count(path: &str) -> usize {
     std::fs::read_to_string(path).map_or(0, |c| c.lines().count())
+}
+
+/// Builds an immediately-useful overview while the knowledge graph is still
+/// being indexed in the background (#2365). Instead of only telling the user to
+/// "try again in 1-2 minutes", we return what is already available: a shallow
+/// directory tree, the detected project markers, and persistent project
+/// knowledge — plus a note that the richer graph-based view will follow.
+fn partial_overview(project_root: &str) -> String {
+    let mut out = Vec::new();
+    out.push("PROJECT OVERVIEW (partial — knowledge graph indexing in background)".to_string());
+    out.push(format!("Project: {project_root}"));
+
+    let markers = detected_markers(project_root);
+    if !markers.is_empty() {
+        out.push(format!("Markers: {}", markers.join(", ")));
+    }
+    out.push(String::new());
+
+    // Shallow tree (depth 2) of what's on disk right now.
+    let (tree, _) = crate::tools::ctx_tree::handle(project_root, 2, false, true);
+    if !tree.trim().is_empty() {
+        out.push("STRUCTURE (depth 2):".to_string());
+        out.push(tree);
+        out.push(String::new());
+    }
+
+    // Persistent knowledge is independent of the code graph and available now.
+    if let Some(knowledge) = crate::core::knowledge::ProjectKnowledge::load(project_root) {
+        let mut facts: Vec<_> = knowledge.facts.iter().filter(|f| f.is_current()).collect();
+        facts.sort_by_key(|f| std::cmp::Reverse(f.created_at));
+        if !facts.is_empty() {
+            out.push("KNOWN FACTS (from prior sessions):".to_string());
+            for f in facts.iter().take(5) {
+                let val: String = f.value.chars().take(80).collect();
+                out.push(format!("  • [{}] {}: {}", f.category, f.key, val));
+            }
+            out.push(String::new());
+        }
+    }
+
+    out.push(
+        "The full task-relevant graph view (signatures, neighbors, relevance) will be \
+         available shortly — re-run ctx_overview to get it."
+            .to_string(),
+    );
+    out.join("\n")
+}
+
+fn detected_markers(project_root: &str) -> Vec<String> {
+    const MARKERS: &[&str] = &[
+        ".git",
+        "Cargo.toml",
+        "package.json",
+        "go.mod",
+        "pyproject.toml",
+        "pom.xml",
+        "build.gradle",
+        ".lean-ctx.toml",
+    ];
+    let root = std::path::Path::new(project_root);
+    MARKERS
+        .iter()
+        .filter(|m| root.join(m).exists())
+        .map(|m| (*m).to_string())
+        .collect()
 }
 
 #[cfg(test)]

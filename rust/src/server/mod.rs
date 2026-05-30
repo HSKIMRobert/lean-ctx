@@ -948,10 +948,21 @@ impl LeanCtxServer {
             .swap(true, std::sync::atomic::Ordering::Relaxed)
         {
             let client = self.client_name.read().await.clone();
-            if !client.is_empty() {
-                if let Some(stale_msg) = crate::rules_inject::check_rules_freshness(&client) {
-                    result_text = format!("{result_text}\n\n{stale_msg}");
-                }
+            if !client.is_empty() && crate::rules_inject::check_rules_freshness(&client).is_some() {
+                // Self-heal: auto-refresh the rules on disk instead of asking
+                // the user to run setup manually (#2365). The rewrite is
+                // idempotent and cheap; run it off the async runtime.
+                let _ = tokio::task::spawn_blocking(|| {
+                    if let Some(home) = dirs::home_dir() {
+                        let _ = crate::rules_inject::inject_all_rules(&home);
+                    }
+                })
+                .await;
+                result_text = format!(
+                    "{result_text}\n\n[RULES AUTO-UPDATED] Your lean-ctx rules were written by \
+                     an older version and have been refreshed on disk. Start a new session to \
+                     load them for full compatibility."
+                );
             }
         }
 
