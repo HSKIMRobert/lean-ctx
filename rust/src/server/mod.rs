@@ -95,18 +95,20 @@ impl ServerHandler for LeanCtxServer {
                 session.project_root = Some(root.clone());
                 tracing::info!("Project root set to: {root}");
             } else if let Some(ref root) = session.project_root {
+                // A previously persisted session may carry a contaminated root
+                // (e.g. HOME from an older build or a client that reported HOME
+                // as its workspace). Drop it unless it is a real, safe project
+                // dir — otherwise PROJECT MEMORY leaks across projects.
                 let root_path = std::path::Path::new(root);
                 let root_has_marker = has_project_marker(root_path);
                 let root_str = root_path.to_string_lossy();
-                let root_suspicious = root_str.contains("/.claude")
-                    || root_str.contains("/.codex")
+                let root_suspicious = crate::core::pathutil::is_broad_or_unsafe_root(root_path)
                     || root_str.contains("/var/folders/")
                     || root_str.contains("/tmp/")
-                    || root_str.contains("\\.claude")
-                    || root_str.contains("\\.codex")
                     || root_str.contains("\\AppData\\Local\\Temp")
                     || root_str.contains("\\Temp\\");
                 if root_suspicious && !root_has_marker {
+                    tracing::info!("Dropping suspicious persisted project root: {root}");
                     session.project_root = None;
                 }
             }
@@ -1510,6 +1512,13 @@ impl LeanCtxServer {
         let Some(new_root) = roots::best_root_from_uris(&uris) else {
             return;
         };
+        // Defense-in-depth: never adopt a broad/unsafe root (HOME, `/`, agent
+        // sandbox dirs) even if the client reports it — it would pollute the
+        // session and resolve relative paths against the wrong tree.
+        if crate::core::pathutil::is_broad_or_unsafe_root(std::path::Path::new(&new_root)) {
+            tracing::warn!("MCP roots: ignoring unsafe project root {new_root}");
+            return;
+        }
 
         let mut session = self.session.write().await;
         let old_root = session.project_root.clone();

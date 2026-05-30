@@ -76,7 +76,9 @@ pub(super) fn has_project_marker(dir: &Path) -> bool {
 /// Select the best project root from MCP client roots.
 /// Only considers paths that are existing directories.
 /// Prefers roots with project markers (.git, Cargo.toml, etc.).
-/// Falls back to the first valid directory if none have markers.
+/// Falls back to the first valid directory if none have markers — but never
+/// accepts a broad/unsafe root (HOME, filesystem root, agent sandbox dirs),
+/// which would otherwise contaminate sessions across projects.
 pub fn best_root_from_uris(uris: &[String]) -> Option<String> {
     let paths: Vec<String> = uris
         .iter()
@@ -94,7 +96,12 @@ pub fn best_root_from_uris(uris: &[String]) -> Option<String> {
         }
     }
 
-    Some(paths[0].clone())
+    // No markers: fall back to the first *safe* directory. A client that reports
+    // its workspace root as HOME (some do) must not turn HOME into the project
+    // root — that is the root cause of cross-project session contamination.
+    paths
+        .into_iter()
+        .find(|p| !crate::core::pathutil::is_broad_or_unsafe_root(Path::new(p)))
 }
 
 /// Filter and validate URIs to existing directories only.
@@ -111,7 +118,10 @@ pub fn root_from_env() -> Option<String> {
     for var in ["LEAN_CTX_PROJECT_ROOT", "CLAUDE_PROJECT_DIR"] {
         if let Ok(val) = std::env::var(var) {
             let trimmed = val.trim().to_string();
-            if !trimmed.is_empty() && Path::new(&trimmed).is_dir() {
+            if !trimmed.is_empty()
+                && Path::new(&trimmed).is_dir()
+                && !crate::core::pathutil::is_broad_or_unsafe_root(Path::new(&trimmed))
+            {
                 return Some(trimmed);
             }
         }
@@ -228,6 +238,41 @@ mod tests {
     #[test]
     fn env_override_returns_none_when_unset() {
         let _ = root_from_env();
+    }
+
+    #[test]
+    fn best_root_rejects_home_without_marker() {
+        // A client reporting HOME as its workspace root must NOT turn HOME into
+        // the project root (root cause of cross-project session contamination).
+        if let Some(home) = dirs::home_dir() {
+            let uris = vec![format!("file://{}", home.display())];
+            assert_eq!(
+                best_root_from_uris(&uris),
+                None,
+                "HOME must never be accepted as a marker-less project root"
+            );
+        }
+    }
+
+    #[test]
+    fn best_root_prefers_safe_dir_over_home() {
+        if let Some(home) = dirs::home_dir() {
+            let tmp = tempfile::tempdir().unwrap();
+            let safe = tmp.path().join("real_project");
+            std::fs::create_dir_all(&safe).unwrap();
+            let uris = vec![
+                format!("file://{}", home.display()),
+                format!("file://{}", safe.display()),
+            ];
+            let result = best_root_from_uris(&uris).unwrap();
+            assert!(result.contains("real_project"));
+        }
+    }
+
+    #[test]
+    fn best_root_rejects_filesystem_root() {
+        let uris = vec!["file:///".to_string()];
+        assert!(best_root_from_uris(&uris).is_none());
     }
 
     #[test]
