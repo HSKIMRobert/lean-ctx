@@ -3,6 +3,25 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.6.26] — 2026-05-30
+
+> **EPIC 6 — Perfect-First (Track A).** A focused correctness + hygiene pass so the
+> session/knowledge layer behaves perfectly across projects, the disk footprint stays
+> bounded, and cold-start UX is useful immediately.
+
+### Fixed
+- **Project root never resolves to HOME / `/` / agent sandbox dirs** (#2361): `best_root_from_uris`, `root_from_env`, `resolve_roots_once`, and the `initialize` handler now reject broad/unsafe directories as a project root via `pathutil::is_broad_or_unsafe_root`, even when a client reports one. This was the root cause of cross-project context bleed (the "HOME mega-session").
+- **Cross-project session leakage** (#2362): `SessionState::load_latest()` no longer falls back to the global `latest.json` pointer — it is strictly project-scoped and returns `None` for an unsafe cwd. A new `load_global_latest_pointer()` covers the explicit "show my last session anywhere" UX, and `consolidate_latest()` loads the session for its explicit project root instead of the process cwd.
+- **Noise auto-findings suppressed** (#2363): findings whose files live in VCS/dependency/build/cache dirs, virtualenvs, vendored code, home dotfiles (`~/.ssh/config` …), or binary/log artifacts are dropped, and `ctx_search` no longer emits `Found `?` in N files` when no meaningful pattern could be identified. Knowledge recall now boosts exact key/category matches above incidental lexical hits.
+- **Cold-start `ctx_overview` returns a useful partial view** (#2365): instead of only "INDEXING IN PROGRESS, try again", it returns detected project markers, a depth-2 gitignore-aware tree, and persistent knowledge while the graph builds in the background.
+
+### Added
+- **`lean-ctx sessions doctor [--apply]`** (#2362): detects sessions rooted at a broad/unsafe path and non-destructively quarantines them to `sessions/quarantine/`.
+- **Archive FTS disk cap enforcement** (#2364): the archive index (`archives/index.db`) now enforces an on-disk size cap (default 500 MB, override via `LEAN_CTX_ARCHIVE_DB_MAX_MB`) by pruning the oldest entries + VACUUM. A new daemon-safe `storage_maintenance` pass also prunes accumulated quarantined BM25 indexes on startup, and `lean-ctx doctor` gains an **Archive FTS** footprint check.
+
+### Changed
+- **Self-healing rules refresh** (#2365): when an outdated rules file is detected on the first tool call of a session, lean-ctx auto-refreshes the rules on disk (off the async runtime) instead of only nudging the user to run `lean-ctx setup`.
+
 ## [3.6.24] — 2026-05-30
 
 ### Added
