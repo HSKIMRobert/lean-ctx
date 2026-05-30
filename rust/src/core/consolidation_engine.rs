@@ -31,7 +31,13 @@ pub fn consolidate_latest(
     project_root: &str,
     budgets: ConsolidationBudgets,
 ) -> Result<ConsolidationOutcome, String> {
-    let session = SessionState::load_latest().ok_or_else(|| "no active session".to_string())?;
+    // Consolidate the session for the explicitly given project root rather than
+    // whatever the process cwd resolves to. This is both correct (the caller
+    // already knows the project) and required after session loads became
+    // strictly project-scoped (#2362): load_latest() is cwd-bound and would miss
+    // a session whose root differs from cwd.
+    let session = SessionState::load_latest_for_project_root(project_root)
+        .ok_or_else(|| "no active session".to_string())?;
     let policy = crate::core::config::Config::load()
         .memory_policy_effective()
         .map_err(|e| format!("invalid memory policy: {e}"))?;
