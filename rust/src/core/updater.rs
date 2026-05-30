@@ -187,7 +187,8 @@ pub fn run(args: &[String]) {
         );
         println!("    \x1b[2mThe MCP server must reconnect to use the updated binary.\x1b[0m");
         println!(
-            "    \x1b[2mRun 'source ~/.zshrc' (or restart terminal) for updated shell aliases.\x1b[0m"
+            "    \x1b[2m{}\x1b[0m",
+            crate::shell_hook::reload_aliases_hint()
         );
     }
     println!();

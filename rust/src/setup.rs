@@ -468,16 +468,7 @@ pub fn run_setup() {
     }
 
     // Next steps
-    let shell = std::env::var("SHELL").unwrap_or_default();
-    let source_cmd = if shell.contains("zsh") {
-        "source ~/.zshrc"
-    } else if shell.contains("fish") {
-        "source ~/.config/fish/config.fish"
-    } else if shell.contains("bash") {
-        "source ~/.bashrc"
-    } else {
-        "Restart your shell"
-    };
+    let source_cmd = crate::shell_hook::shell_source_command().unwrap_or("Restart your shell");
 
     let dim = "\x1b[2m";
     let bold = "\x1b[1m";

@@ -26,6 +26,39 @@ const AGENT_ALIASES: &[(&str, &str)] = &[
     ("gemini", "gemini"),
 ];
 
+/// The `source <rc>` command for a given login-shell path, or `None` when the
+/// shell is unknown/unsupported (callers should fall back to "restart your
+/// shell"). Kept pure so it is deterministic to unit-test without mutating the
+/// process environment.
+fn source_command_for_shell(shell: &str) -> Option<&'static str> {
+    if shell.contains("zsh") {
+        Some("source ~/.zshrc")
+    } else if shell.contains("fish") {
+        Some("source ~/.config/fish/config.fish")
+    } else if shell.contains("bash") {
+        Some("source ~/.bashrc")
+    } else {
+        None
+    }
+}
+
+/// The `source <rc>` command for the user's current login shell (`$SHELL`), or
+/// `None` when it cannot be determined. Single source of truth so post-`setup`
+/// and post-`update` hints stay in sync and never advise sourcing a shell the
+/// user does not have (e.g. `~/.zshrc` on a bash-only system — see #321).
+pub fn shell_source_command() -> Option<&'static str> {
+    source_command_for_shell(&std::env::var("SHELL").unwrap_or_default())
+}
+
+/// Human-facing one-liner telling the user how to load the refreshed aliases,
+/// tailored to their login shell. Used after `lean-ctx update`.
+pub fn reload_aliases_hint() -> String {
+    match shell_source_command() {
+        Some(cmd) => format!("Run '{cmd}' (or restart terminal) for updated shell aliases."),
+        None => "Restart your terminal to load updated shell aliases.".to_string(),
+    }
+}
+
 /// Installation style for the shell hook + agent aliases.
 ///
 /// `Auto` (default) inspects each rc file to decide: if the file references
@@ -469,6 +502,26 @@ mod tests {
         assert!(check.contains("LEAN_CTX_AGENT"));
         assert!(check.contains("CLAUDECODE"));
         assert!(check.contains("||"));
+    }
+
+    #[test]
+    fn source_command_matches_login_shell() {
+        // Bash-only users must never be told to source ~/.zshrc (#321).
+        assert_eq!(
+            source_command_for_shell("/usr/bin/bash"),
+            Some("source ~/.bashrc")
+        );
+        assert_eq!(
+            source_command_for_shell("/bin/zsh"),
+            Some("source ~/.zshrc")
+        );
+        assert_eq!(
+            source_command_for_shell("/usr/local/bin/fish"),
+            Some("source ~/.config/fish/config.fish")
+        );
+        // Unknown / unset shell → no rc suggestion (caller falls back).
+        assert_eq!(source_command_for_shell(""), None);
+        assert_eq!(source_command_for_shell("/bin/false"), None);
     }
 
     #[test]
