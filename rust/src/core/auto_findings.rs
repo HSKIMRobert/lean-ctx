@@ -67,6 +67,9 @@ fn extract_ctx_read(output: &str) -> Option<AutoFinding> {
     if path.is_empty() || path.starts_with('[') || path.starts_with("ERROR") {
         return None;
     }
+    if is_noise_path(path) {
+        return None;
+    }
 
     // Extract line count from output
     let line_count = first_line
@@ -111,7 +114,15 @@ fn extract_ctx_search(output: &str) -> Option<AutoFinding> {
     // Extract pattern from common output formats
     let pattern = extract_search_pattern(&lines);
 
-    // Extract matched file names (lines with ':' that look like file:line matches)
+    // Low-signal guard: if we could not identify a meaningful search pattern
+    // (placeholder "?") or it is a single trivial character, the resulting
+    // "Found `?` in N files" finding is pure noise — skip it.
+    if pattern == "?" || pattern.trim().chars().count() < 2 {
+        return None;
+    }
+
+    // Extract matched file names (lines with ':' that look like file:line matches),
+    // excluding noise paths (VCS/deps/build/home dotfiles).
     let matched_files: Vec<&str> = lines
         .iter()
         .filter(|l| {
@@ -121,6 +132,7 @@ fn extract_ctx_search(output: &str) -> Option<AutoFinding> {
                 && !l.starts_with("Pattern")
         })
         .filter_map(|l| l.split(':').next())
+        .filter(|p| !is_noise_path(p))
         .collect();
 
     // Deduplicate file paths
@@ -285,6 +297,56 @@ fn extract_ctx_semantic_search(output: &str) -> Option<AutoFinding> {
 }
 
 // --- Helpers ---
+
+/// Returns true for paths whose findings are noise rather than signal:
+/// VCS/dependency/build dirs, virtualenvs, caches, the user's home dotfiles
+/// (e.g. `~/.ssh/config`), and binary/log files. Such findings polluted the
+/// session and knowledge store (see EPIC 6 / #2363).
+fn is_noise_path(path: &str) -> bool {
+    let p = path.replace('\\', "/");
+    const NOISE_SEGMENTS: &[&str] = &[
+        ".git",
+        "node_modules",
+        ".ssh",
+        ".gnupg",
+        ".aws",
+        ".cargo",
+        ".rustup",
+        "target",
+        ".venv",
+        "venv",
+        "__pycache__",
+        "site-packages",
+        "dist-packages",
+        ".next",
+        ".cache",
+        "dist",
+        "build",
+        "vendor",
+        ".terraform",
+    ];
+    // Match a noise directory anywhere in the path (leading, middle, or with a
+    // leading slash). Splitting on components handles relative paths too.
+    if p.split('/').any(|c| NOISE_SEGMENTS.contains(&c)) {
+        return true;
+    }
+    // Home dotfiles outside any workspace (e.g. ~/.ssh/config, ~/.zshrc).
+    if let Some(home) = dirs::home_dir() {
+        let home_s = home.to_string_lossy().replace('\\', "/");
+        if let Some(rest) = p.strip_prefix(&home_s) {
+            let rest = rest.trim_start_matches('/');
+            if rest.starts_with('.') {
+                return true;
+            }
+        }
+    }
+    const NOISE_EXTS: &[&str] = &[
+        ".lock", ".log", ".min.js", ".map", ".png", ".jpg", ".jpeg", ".gif", ".pdf", ".zip",
+        ".tar", ".gz", ".bin", ".so", ".dylib", ".dll", ".o", ".a", ".class", ".wasm",
+    ];
+    let lower = p.to_ascii_lowercase();
+    NOISE_EXTS.iter().any(|ext| lower.ends_with(ext))
+}
 
 fn strip_cache_ref(raw: &str) -> &str {
     if raw.len() > 3
@@ -525,6 +587,42 @@ mod tests {
     fn ctx_search_ignores_no_matches() {
         let output = "0 matches found";
         assert!(extract_ctx_search(output).is_none());
+    }
+
+    #[test]
+    fn ctx_search_suppresses_unidentified_pattern() {
+        // No pattern/Pattern/query line and no backtick hint → pattern resolves
+        // to "?", which must not produce a "Found `?` in N files" noise finding.
+        let output = "src/a.rs:10: something\nsrc/b.rs:20: other\n[2 matches in 2 files]";
+        assert!(extract_ctx_search(output).is_none());
+    }
+
+    #[test]
+    fn ctx_search_skips_noise_paths_only() {
+        let output = "pattern: \"foo\"\nnode_modules/x/y.js:1: foo\n.git/config:2: foo\n[2 matches in 2 files]";
+        assert!(
+            extract_ctx_search(output).is_none(),
+            "matches only in node_modules/.git should yield no finding"
+        );
+    }
+
+    #[test]
+    fn ctx_read_skips_dependency_path() {
+        assert!(
+            extract_ctx_read("node_modules/react/index.js 50L\nexport default React;").is_none()
+        );
+        assert!(extract_ctx_read("project/target/debug/build.rs 10L\nfn main() {}").is_none());
+    }
+
+    #[test]
+    fn noise_path_detects_home_dotfiles() {
+        if let Some(home) = dirs::home_dir() {
+            let ssh = format!("{}/.ssh/config", home.display());
+            assert!(is_noise_path(&ssh));
+        }
+        assert!(is_noise_path("a/node_modules/b.js"));
+        assert!(is_noise_path("pkg/foo.min.js"));
+        assert!(!is_noise_path("src/server/mod.rs"));
     }
 
     #[test]

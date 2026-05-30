@@ -126,7 +126,16 @@ impl ProjectKnowledge {
             .into_iter()
             .map(|(idx, count)| {
                 let f = &self.facts[idx];
-                let relevance = (count as f32 / terms.len() as f32) * f.confidence;
+                let mut relevance = (count as f32 / terms.len() as f32) * f.confidence;
+                // Exact-match boost: an exact hit on the fact key (or category)
+                // should rank above incidental lexical matches (#2363). The +1.0
+                // dominates the [0,1] coverage*confidence base.
+                let key_lower = f.key.to_lowercase();
+                if key_lower == q {
+                    relevance += 1.0;
+                } else if f.category.to_lowercase() == q {
+                    relevance += 0.5;
+                }
                 Scored { idx, relevance }
             })
             .collect();
