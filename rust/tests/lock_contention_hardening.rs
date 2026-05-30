@@ -272,15 +272,29 @@ async fn spawned_background_task_doesnt_block_caller() {
         guard.push("background update".into());
     });
 
-    // Caller should return immediately, not wait for the spawned task
+    // Caller should return immediately, not wait for the spawned task's 1s
+    // sleep. A 500ms ceiling stays well under 1s while tolerating scheduling
+    // jitter on slow CI runners.
     let caller_elapsed = start.elapsed();
     assert!(
-        caller_elapsed < Duration::from_millis(100),
-        "spawning background task should be instant, took {caller_elapsed:?}"
+        caller_elapsed < Duration::from_millis(500),
+        "spawning background task should not block on the task, took {caller_elapsed:?}"
     );
 
-    // Wait for background task to complete
-    tokio::time::sleep(Duration::from_millis(1200)).await;
+    // Wait for the background task to complete. Poll with a generous deadline
+    // instead of a fixed sleep so the test stays robust on slow/loaded CI
+    // runners (the task itself sleeps 1s before writing).
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if lock.read().await.len() == 1 {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "background task did not complete within 10s"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
     let guard = lock.read().await;
     assert_eq!(guard.len(), 1);
     assert_eq!(guard[0], "background update");
