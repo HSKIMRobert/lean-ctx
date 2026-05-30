@@ -62,7 +62,7 @@ pub fn compress(_command: &str, output: &str) -> Option<String> {
 
         if !by_code.is_empty() {
             let mut codes: Vec<(String, u32)> = by_code.into_iter().collect();
-            codes.sort_by_key(|x| std::cmp::Reverse(x.1));
+            codes.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
             for (code, count) in codes.iter().take(6) {
                 parts.push(format!("  [{code}]: {count}"));
             }

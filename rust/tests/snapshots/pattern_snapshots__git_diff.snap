@@ -1,0 +1,24 @@
+---
+source: tests/pattern_snapshots.rs
+expression: compressed
+---
+diff --git a/src/main.rs b/src/main.rs
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -1,5 +1,7 @@
++use std::io;
+fn main() {
+-    println!("hello");
++    println!("hello world");
++    io::stdout().flush().unwrap();
+}
+diff --git a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -10,3 +10,5 @@
+pub fn greet() -> &'static str {
+-    "hi"
++    "hello"
+}
++
++pub fn farewell() -> &'static str { "bye" }

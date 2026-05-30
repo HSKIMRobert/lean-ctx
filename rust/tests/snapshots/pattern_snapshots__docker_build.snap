@@ -1,0 +1,5 @@
+---
+source: tests/pattern_snapshots.rs
+expression: compressed
+---
+9 steps, last: #8 [5/5] COPY . .

@@ -1,0 +1,8 @@
+---
+source: tests/pattern_snapshots.rs
+expression: compressed
+---
+  page: int
+  per_page: int
+  total: int
+  users: [{...8 keys}...10]

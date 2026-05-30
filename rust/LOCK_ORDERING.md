@@ -28,6 +28,27 @@ All `std::sync::Mutex` unless noted otherwise.
 | L15 | `PROVIDER_CACHE` | `core/providers/cache.rs:5` | `LazyLock<Mutex<ProviderCache>>` | Cached provider metadata |
 | L16 | `LAST_BANDIT_ARM` | `core/adaptive_thresholds.rs:337` | `Mutex<Option<(String, String, String)>>` | Last bandit arm selection for adaptive thresholds |
 | L17 | `FILE_LOCKS` | `tools/registered/ctx_read.rs` | `OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>>` | Per-file read serialization for concurrent subagents |
+| L18 | `LAST_HASH` | `core/audit_trail.rs:52` | `Mutex<Option<String>>` | Dedup hash for audit trail entries |
+| L19 | `CACHE` (graph) | `core/graph_cache.rs:31` | `OnceLock<Mutex<HashMap<String, Entry>>>` | Property graph query result cache |
+| L20 | `RECENT` | `core/auto_findings.rs:15` | `Mutex<Vec<RecentEntry>>` | Recent auto-finding entries |
+| L21 | `LOCK` (home) | `core/home.rs:79` | `Mutex<()>` | Serialize home directory creation |
+| L22 | `CLIENTS` | `lsp/router.rs:11` | `LazyLock<Mutex<HashMap<String, LspClient>>>` | LSP client connection registry |
+| L23 | `BUDGETS` | `core/agent_budget.rs:6` | `Mutex<Option<HashMap<String, AgentBudget>>>` | Per-agent token budget tracking |
+| L24 | `SHELL_ENV_LOCK` | `shell_hook.rs:928` | `Mutex<()>` | Serialize env-var access in shell hook |
+| L25 | `TRACKER` | `core/search_delta.rs:49` | `Mutex<Option<SearchDeltaTracker>>` | Tracks search result changes between calls |
+| L26 | `SESSION_ID` | `server/bypass_hint.rs:9` | `Mutex<Option<String>>` | Current bypass hint session ID |
+| L27 | `CACHE` (git) | `core/git_cache.rs:10` | `LazyLock<Mutex<GitCache>>` | Cached git metadata (branch, status) |
+| L28 | `STORE` (refs) | `server/reference_store.rs:15` | `OnceLock<Mutex<HashMap<String, RefEntry>>>` | Function reference store for Fn-ref system |
+| L29 | `DB` | `core/archive_fts.rs:7` | `LazyLock<Mutex<Option<Connection>>>` | SQLite FTS archive connection |
+| L30 | `LOCK` (prop-graph) | `core/property_graph/mod.rs:423` | `Mutex<()>` | Serialize property graph test access |
+| L31 | `GLOBAL` (dyn-tools) | `server/dynamic_tools.rs:232` | `OnceLock<Mutex<DynamicToolState>>` | Dynamic tool registration state |
+| L32 | `APPLIED_PACKAGES` | `core/context_package/auto_load.rs:6` | `Mutex<Option<HashSet<String>>>` | Track which context packages have been applied |
+| L33 | `CACHE` (search) | `core/search_index.rs:401` | `OnceLock<Mutex<HashMap<String, CacheEntry>>>` | BM25 search index query cache |
+| L34 | `GLOBAL` (capabilities) | `core/client_capabilities.rs:188` | `OnceLock<Mutex<ClientMcpCapabilities>>` | Client MCP capability flags |
+| L35 | `LOCK` (doctor) | `doctor/workspace_scope.rs:132` | `Mutex<()>` | Serialize doctor workspace scope tests |
+| L36 | `BUILD` | `core/call_graph.rs:54` | `OnceLock<Mutex<BuildState>>` | Call graph build state |
+| L37 | `LAST_REAL` | `proxy/introspect.rs:54` | `Mutex<[Option<String>; 3]>` | Last 3 real (non-proxy) request paths |
+| L38 | `GLOBAL_TRACKER` | `core/bounce_tracker.rs:226` | `OnceLock<Mutex<BounceTracker>>` | Tracks repeated tool-call bounces |
 
 ### Test / Environment Locks (serialise env-var mutations)
 
@@ -117,9 +138,9 @@ Override via `LEAN_CTX_WORKER_THREADS` (positive integer) for environments with 
 concurrent subagents. Example: `LEAN_CTX_WORKER_THREADS=8`. The blocking thread pool
 is always `worker_threads * 4`, clamped to `[8, 32]`.
 
-### Independent Static Locks (L3–L16)
+### Independent Static Locks (L3–L38)
 
-All other static locks (L3–L16) are **independent singletons** — they protect isolated subsystem
+All other static locks (L3–L38) are **independent singletons** — they protect isolated subsystem
 state and are never nested inside each other. Each should be acquired in isolation:
 
 - **Do not hold two static locks at the same time.** If a future change requires locking two

@@ -1,0 +1,8 @@
+---
+source: tests/pattern_snapshots.rs
+expression: compressed
+---
+PLAY RECAP:
+  web1.example.com           : ok=4    changed=3    unreachable=0    failed=0    skipped=0
+  web2.example.com           : ok=4    changed=3    unreachable=0    failed=0    skipped=0
+  web3.example.com           : ok=4    changed=3    unreachable=0    failed=0    skipped=0

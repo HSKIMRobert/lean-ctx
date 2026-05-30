@@ -1,0 +1,5 @@
+---
+source: tests/pattern_snapshots.rs
+expression: compressed
+---
+INFO: Build completed successfully, 5 total actions

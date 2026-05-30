@@ -1,0 +1,5 @@
+---
+source: tests/pattern_snapshots.rs
+expression: compressed
+---
+6 warnings

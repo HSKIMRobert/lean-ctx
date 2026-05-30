@@ -32,7 +32,7 @@ pub fn compress(output: &str) -> Option<String> {
 
     let mut result = format!("{total_matches} matches in {}F:\n", by_file.len());
     let mut sorted_files: Vec<_> = by_file.iter().collect();
-    sorted_files.sort_by_key(|(_, matches)| std::cmp::Reverse(matches.len()));
+    sorted_files.sort_by(|a, b| b.1.len().cmp(&a.1.len()).then_with(|| a.0.cmp(b.0)));
 
     for (file, matches) in &sorted_files {
         let short = shorten_path(file);

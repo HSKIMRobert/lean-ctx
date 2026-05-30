@@ -1,0 +1,6 @@
+---
+source: tests/pattern_snapshots.rs
+expression: compressed
+---
+[INFO] Tests run: 28, Failures: 0, Errors: 0, Skipped: 2
+[INFO] BUILD SUCCESS

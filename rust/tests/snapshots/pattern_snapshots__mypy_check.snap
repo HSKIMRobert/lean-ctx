@@ -1,0 +1,18 @@
+---
+source: tests/pattern_snapshots.rs
+expression: compressed
+---
+10 errors in 4 files
+  [arg-type]: 2
+  [attr-defined]: 2
+  [assignment]: 1
+  [name-defined]: 1
+  [return]: 1
+  [return-value]: 1
+  ... +2 more codes
+Top errors:
+  auth.py:12 [arg-type] Argument 1 to "verify" has incompatible type "Optional[str]"; expected "str"
+  auth.py:25 [return] Missing return statement
+  auth.py:40 [return-value] Incompatible return value type (got "None", expected "User")
+  db.py:8 [assignment] Incompatible types in assignment (expression has type "None", variable has type "Connection")
+  db.py:15 [name-defined] Name "cursor" is not defined

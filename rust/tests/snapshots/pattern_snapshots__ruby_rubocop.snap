@@ -1,0 +1,7 @@
+---
+source: tests/pattern_snapshots.rs
+expression: compressed
+---
+rubocop: 25 files, 9 offenses
+  unknown: 8x
+  125/120: 1x

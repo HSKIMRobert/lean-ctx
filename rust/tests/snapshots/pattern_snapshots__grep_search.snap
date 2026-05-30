@@ -1,0 +1,56 @@
+---
+source: tests/pattern_snapshots.rs
+expression: compressed
+---
+40 matches in 10F:
+
+src/api.rs (4):
+  83: // TODO: task 17
+  88: // TODO: task 18
+  93: // TODO: task 19
+  98: // TODO: task 20
+src/auth.rs (4):
+  143: // TODO: task 29
+  148: // TODO: task 30
+  153: // TODO: task 31
+  158: // TODO: task 32
+src/cache.rs (4):
+  123: // TODO: task 25
+  128: // TODO: task 26
+  133: // TODO: task 27
+  138: // TODO: task 28
+src/config.rs (4):
+  63: // TODO: task 13
+  68: // TODO: task 14
+  73: // TODO: task 15
+  78: // TODO: task 16
+src/db.rs (4):
+  103: // TODO: task 21
+  108: // TODO: task 22
+  113: // TODO: task 23
+  118: // TODO: task 24
+src/lib.rs (4):
+  23: // TODO: task 5
+  28: // TODO: task 6
+  33: // TODO: task 7
+  38: // TODO: task 8
+src/main.rs (4):
+  3: // TODO: task 1
+  8: // TODO: task 2
+  13: // TODO: task 3
+  18: // TODO: task 4
+src/middleware.rs (4):
+  163: // TODO: task 33
+  168: // TODO: task 34
+  173: // TODO: task 35
+  178: // TODO: task 36
+src/router.rs (4):
+  183: // TODO: task 37
+  188: // TODO: task 38
+  193: // TODO: task 39
+  198: // TODO: task 40
+src/utils.rs (4):
+  43: // TODO: task 9
+  48: // TODO: task 10
+  53: // TODO: task 11
+  58: // TODO: task 12

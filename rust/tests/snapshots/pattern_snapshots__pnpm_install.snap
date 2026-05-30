@@ -1,0 +1,7 @@
+---
+source: tests/pattern_snapshots.rs
+expression: compressed
+---
+Lockfile is up to date, resolution step is skipped
+Done in 1.2s
+Packages: +0

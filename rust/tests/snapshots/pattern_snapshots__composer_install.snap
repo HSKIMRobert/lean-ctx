@@ -1,0 +1,6 @@
+---
+source: tests/pattern_snapshots.rs
+expression: compressed
+---
+composer: 6 installed
+  Package operations: 42 installs, 0 updates, 0 removals

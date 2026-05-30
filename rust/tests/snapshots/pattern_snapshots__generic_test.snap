@@ -1,0 +1,7 @@
+---
+source: tests/pattern_snapshots.rs
+expression: compressed
+---
+Test Suites: 1 failed, 3 passed, 4 total
+Tests:       1 failed, 19 passed, 20 total
+Time:        3.456 s

@@ -1,0 +1,8 @@
+---
+source: tests/pattern_snapshots.rs
+expression: compressed
+---
+41 lines → 3 unique
+INFO  Processing request for /api/users (x30)
+WARN  High latency detected: 250ms
+INFO  Processing request for /api/users (x10)

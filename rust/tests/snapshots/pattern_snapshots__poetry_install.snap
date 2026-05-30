@@ -1,0 +1,15 @@
+---
+source: tests/pattern_snapshots.rs
+expression: compressed
+---
+10 package(s):
+  markupsafe 2.1.5
+  jinja2 3.1.3
+  click 8.1.7
+  werkzeug 3.0.1
+  flask 3.0.0
+  requests 2.31.0
+  certifi 2023.11.17 -> 2024.2.2
+  urllib3 2.1.0 -> 2.2.0
+  pytest 8.0.0
+  coverage 7.4.0

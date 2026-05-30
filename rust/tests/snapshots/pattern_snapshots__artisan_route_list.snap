@@ -1,0 +1,13 @@
+---
+source: tests/pattern_snapshots.rs
+expression: compressed
+---
+8 routes:
+  GET HEAD → /
+  GET HEAD → api/users
+  POST api/users → users.store
+  GET HEAD → api/users/{user}
+  PUT PATCH → api/users/{user}
+  DELETE api/users/{user} → users.destroy
+  GET HEAD → api/posts
+  POST api/posts → posts.store

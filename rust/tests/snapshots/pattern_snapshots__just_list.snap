@@ -1,0 +1,14 @@
+---
+source: tests/pattern_snapshots.rs
+expression: compressed
+---
+Available recipes:
+  build         # Build the project
+  clean         # Remove build artifacts
+  dev           # Start development server
+  fmt           # Format source code
+  lint          # Run linters
+  release       # Create a release build
+  test          # Run all tests
+  test-e2e      # Run end-to-end tests
+  test-unit     # Run unit tests

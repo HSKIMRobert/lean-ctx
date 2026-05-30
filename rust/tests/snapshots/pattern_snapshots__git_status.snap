@@ -1,0 +1,7 @@
+---
+source: tests/pattern_snapshots.rs
+expression: compressed
+---
+main
+unstaged: ~src/main.rs ~src/lib.rs
+untracked: new_file.rs no changes added to commit (use "git add" and/or "git commit -a")

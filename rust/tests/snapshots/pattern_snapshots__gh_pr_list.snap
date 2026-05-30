@@ -1,0 +1,10 @@
+---
+source: tests/pattern_snapshots.rs
+expression: compressed
+---
+5 PRs:
+#42 feat: add oauth (feature/oauth)
+#41 fix: login crash (fix/login)
+#40 docs: api guide (docs/api)
+#39 refactor: db (refactor/db)
+#38 chore: deps (chore/deps)

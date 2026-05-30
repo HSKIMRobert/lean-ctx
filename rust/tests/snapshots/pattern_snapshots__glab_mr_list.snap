@@ -1,0 +1,14 @@
+---
+source: tests/pattern_snapshots.rs
+expression: compressed
+---
+glab MRs (9):
+  Showing 4 open merge requests on mygroup/myproject (Page 1)
+  !142 feat: add oauth support          feature/oauth    alice (alice@dev)  2024-01-15T10:23:45Z
+  !141 fix: login crash on empty token   fix/login        bob (bob@dev)      2024-01-14T08:00:00Z
+  !140 docs: add API reference guide     docs/api-ref     charlie (cdev)     2024-01-13T12:30:00Z
+  !139 refactor: database layer          refactor/db      diana (ddev)       2024-01-12T09:15:00Z
+  !138 chore: bump dependencies          chore/deps       eve (edev)         2024-01-11T14:00:00Z
+  !137 test: add E2E smoke tests         test/e2e         frank (fdev)       2024-01-10T16:45:00Z
+  !136 ci: add ARM64 runner              ci/arm-runner    grace (gdev)       2024-01-09T11:30:00Z
+  !135 perf: optimize query planner      perf/queries     hank (hdev)        2024-01-08T13:20:00Z

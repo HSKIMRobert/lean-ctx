@@ -1,0 +1,5 @@
+---
+source: tests/pattern_snapshots.rs
+expression: compressed
+---
++ 1 added, ~ 1 changed, - 0 destroyed

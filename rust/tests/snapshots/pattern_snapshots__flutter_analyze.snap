@@ -1,0 +1,6 @@
+---
+source: tests/pattern_snapshots.rs
+expression: compressed
+---
+Analyzing myapp...
+4 issues found

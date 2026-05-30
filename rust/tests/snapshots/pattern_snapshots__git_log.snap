@@ -1,0 +1,9 @@
+---
+source: tests/pattern_snapshots.rs
+expression: compressed
+---
+abc1234 feat: add user authentication
+def5678 fix: handle null pointer in config parser
+111aaaa refactor: extract config module from main
+222bbbb docs: update README with API examples
+333cccc test: add integration tests for auth flow
