@@ -42,6 +42,7 @@ fn summary() -> (&'static str, &'static str, String) {
                 "original_tokens": e.original_tokens,
                 "kind": e.kind,
                 "timestamp": e.timestamp,
+                "access_count": e.access_count,
             })
         })
         .collect();

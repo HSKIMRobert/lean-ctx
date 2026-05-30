@@ -67,6 +67,16 @@ function fmtTok(n) {
   var S = window.LctxShared;
   return S && S.fmtTokens ? S.fmtTokens(n) : String(n || 0);
 }
+// Compact "time since" label from a unix-seconds timestamp.
+function relTime(ts) {
+  const t = Number(ts);
+  if (!t) return '\u2014';
+  const sec = Math.max(0, Math.floor(Date.now() / 1000 - t));
+  if (sec < 60) return sec + 's';
+  if (sec < 3600) return Math.floor(sec / 60) + 'm';
+  if (sec < 86400) return Math.floor(sec / 3600) + 'h';
+  return Math.floor(sec / 86400) + 'd';
+}
 
 const escFallback = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
@@ -312,6 +322,9 @@ class CockpitContext extends HTMLElement {
       }
     }
 
+    // Triage banner — turns observation into a next action as pressure rises.
+    h += this._renderTriageBanner(esc, pressure, util);
+
     // Eviction candidates (from pressure)
     const evicts = pressure?.eviction_candidates || [];
     if (evicts.length > 0) {
@@ -328,6 +341,33 @@ class CockpitContext extends HTMLElement {
     return h;
   }
 
+  // Maps the backend pressure band to a concrete operator action.
+  _renderTriageBanner(esc, pressure, util) {
+    // Prefer the backend recommendation; fall back to the local utilization band.
+    const rec = pressure?.recommendation || '';
+    const u = typeof pressure?.utilization === 'number' ? pressure.utilization : util;
+    let band;
+    if (rec === 'EvictLeastRelevant' || u > 0.9) {
+      band = { color: 'var(--red)', label: 'Critical', icon: '\u25cf',
+        action: 'Evict least-relevant files or create a handoff/compact pack now.' };
+    } else if (rec === 'ForceCompression' || u > 0.75) {
+      band = { color: 'var(--red)', label: 'High', icon: '\u25cf',
+        action: 'Compress or evict the top candidates below before adding more.' };
+    } else if (rec === 'SuggestCompression' || u > 0.5) {
+      band = { color: 'var(--yellow)', label: 'Elevated', icon: '\u25d0',
+        action: 'Prefer map/signatures reads for new files to slow growth.' };
+    } else {
+      band = { color: 'var(--green)', label: 'Healthy', icon: '\u25cb',
+        action: 'No action needed \u2014 plenty of headroom.' };
+    }
+    let h = '<div style="margin-top:12px;display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;background:var(--surface);border-left:3px solid ' + band.color + '">';
+    h += '<span style="color:' + band.color + ';font-size:13px">' + band.icon + '</span>';
+    h += '<div style="font-size:12px"><strong style="color:' + band.color + '">' + band.label + ' \u00b7 ' + Math.round(u * 100) + '%</strong>';
+    h += '<span style="color:var(--muted);margin-left:8px">' + esc(band.action) + '</span></div>';
+    h += '</div>';
+    return h;
+  }
+
   // ─── 2. FILES + OVERLAYS (merged) ─────────────────────────────────
 
   _renderFilesSection(esc, ff, pc) {
@@ -339,24 +379,34 @@ class CockpitContext extends HTMLElement {
     const phiByPath = new Map();
     (field?.items || []).forEach(it => { if (it?.path) phiByPath.set(it.path, it.phi); });
 
+    const nowSec = Date.now() / 1000;
     const rows = entries.map(e => {
       const orig = e.original_tokens ?? 0;
       const sent = e.sent_tokens ?? 0;
       const saved = orig > 0 ? Math.max(0, pc(orig - sent, orig)) : 0;
       const phi = e.phi ?? phiByPath.get(e.path) ?? null;
+      const access = Number(e.access_count) || 0;
+      const ts = Number(e.timestamp) || 0;
+      // Eviction score (0..100): high token cost + long idle + rarely re-read.
+      const idleNorm = ts ? Math.min(1, Math.max(0, nowSec - ts) / 3600) : 0.5;
+      const tokNorm = win > 0 ? Math.min(1, sent / win) : 0;
+      const accessPenalty = 1 / (access + 1);
+      const evict = Math.round((tokNorm * 0.5 + idleNorm * 0.3 + accessPenalty * 0.2) * 100);
       return {
         path: e.path, mode: e.mode || (typeof e.active_view === 'string' ? e.active_view : '') || 'full',
         original_tokens: orig, sent_tokens: sent, saved_pct: saved,
-        phi: phi != null ? Number(phi).toFixed(3) : '\u2014', raw: e,
+        phi: phi != null ? Number(phi).toFixed(3) : '\u2014',
+        access, last_ts: ts, evict, raw: e,
       };
     });
 
     let filtered = this._modeFilter !== 'all' ? rows.filter(r => r.mode === this._modeFilter) : rows;
 
     const sk = this._sortKey, dir = this._sortDir === 'desc' ? -1 : 1;
+    const numericKeys = ['phi', 'sent_tokens', 'original_tokens', 'saved_pct', 'access', 'last_ts', 'evict'];
     filtered.sort((a, b) => {
       let av = a[sk], bv = b[sk];
-      if (sk === 'phi') { av = parseFloat(av) || 0; bv = parseFloat(bv) || 0; }
+      if (numericKeys.includes(sk)) { av = parseFloat(av) || 0; bv = parseFloat(bv) || 0; }
       if (typeof av === 'string') av = av.toLowerCase();
       if (typeof bv === 'string') bv = bv.toLowerCase();
       return av < bv ? -1 * dir : av > bv ? dir : 0;
@@ -388,7 +438,9 @@ class CockpitContext extends HTMLElement {
     } else {
       h += '<div class="table-scroll"><table><thead><tr>' +
         th('path', 'Path') + th('mode', 'Mode') + th('sent_tokens', 'Sent', 'r') +
-        th('original_tokens', 'Original', 'r') + th('saved_pct', 'Saved %', 'r') + th('phi', 'Phi', 'r') +
+        th('original_tokens', 'Original', 'r') + th('saved_pct', 'Saved %', 'r') +
+        th('access', 'Used', 'r') + th('last_ts', 'Last', 'r') + th('phi', 'Phi', 'r') +
+        th('evict', 'Evict', 'r') +
         '<th>Actions</th></tr></thead><tbody>';
 
       for (const r of filtered) {
@@ -402,7 +454,11 @@ class CockpitContext extends HTMLElement {
         h += '<td class="r">' + ff(r.sent_tokens) + '</td>';
         h += '<td class="r">' + ff(r.original_tokens) + '</td>';
         h += '<td class="r">' + r.saved_pct + '%</td>';
+        h += '<td class="r">' + ff(r.access) + '</td>';
+        h += '<td class="r" title="last read into context">' + relTime(r.last_ts) + '</td>';
         h += '<td class="r">' + r.phi + '</td>';
+        const ec = r.evict >= 60 ? 'var(--red)' : r.evict >= 35 ? 'var(--yellow)' : 'var(--muted)';
+        h += '<td class="r" title="high token cost + long idle + rarely re-read"><span style="color:' + ec + '">' + r.evict + '</span></td>';
         h += '<td style="white-space:nowrap">';
         h += '<button type="button" class="action-btn" data-act="pin" data-path="' + pd + '">Pin</button> ';
         h += '<button type="button" class="action-btn danger" data-act="exclude" data-path="' + pd + '">Excl</button> ';

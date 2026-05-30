@@ -102,6 +102,10 @@ pub struct LedgerEntry {
     pub active_view: Option<ViewKind>,
     #[serde(default)]
     pub provenance: Option<Provenance>,
+    /// How many times this item has been (re)read into context. Drives the
+    /// "high tokens + low recent use" eviction-candidate heuristic.
+    #[serde(default)]
+    pub access_count: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -168,6 +172,7 @@ impl ContextLedger {
             existing.original_tokens = original_tokens;
             existing.sent_tokens = sent_tokens;
             existing.timestamp = chrono::Utc::now().timestamp();
+            existing.access_count = existing.access_count.saturating_add(1);
             existing.active_view = Some(ViewKind::parse(mode));
             if existing.id.is_none() {
                 existing.id = Some(item_id);
@@ -193,6 +198,7 @@ impl ContextLedger {
                 view_costs: Some(ViewCosts::from_full_tokens(original_tokens)),
                 active_view: Some(ViewKind::parse(mode)),
                 provenance: None,
+                access_count: 1,
             });
         }
         self.total_tokens_sent += sent_tokens;
@@ -704,6 +710,20 @@ mod tests {
         assert_eq!(ledger.entries.len(), 1);
         assert_eq!(ledger.total_tokens_sent, 100);
         assert_eq!(ledger.total_tokens_saved, 400);
+    }
+
+    #[test]
+    fn access_count_tracks_rereads() {
+        let mut ledger = ContextLedger::with_window_size(10000);
+        ledger.record("src/main.rs", "full", 500, 500);
+        assert_eq!(ledger.entries[0].access_count, 1);
+        ledger.record("src/main.rs", "signatures", 500, 100);
+        ledger.record("src/main.rs", "map", 500, 50);
+        assert_eq!(ledger.entries[0].access_count, 3);
+        // A different file starts its own count.
+        ledger.record("src/other.rs", "full", 200, 200);
+        let other = ledger.entries.iter().find(|e| e.path == "src/other.rs");
+        assert_eq!(other.map(|e| e.access_count), Some(1));
     }
 
     #[test]
