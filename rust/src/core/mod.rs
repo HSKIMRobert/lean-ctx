@@ -330,6 +330,7 @@ pub mod logging;
 pub mod mcp_manifest;
 pub mod mdl_selector;
 pub mod owasp_alignment;
+pub mod path_locks;
 pub mod pathutil;
 pub mod pipeline;
 pub mod portable_binary;

@@ -106,16 +106,27 @@ The `entry_for()` function in `index_orchestrator.rs` enforces this: it locks L1
 `Arc<Mutex<ProjectBuild>>`, **drops** L1, then the caller locks L2 independently. This avoids
 deadlock by ensuring L1 and L2 are never held simultaneously.
 
-### Per-file Read Lock (L17)
+### Per-file Path Lock (L17)
 
-L17 uses the same outer/inner pattern as L1/L2: the outer `Mutex<HashMap>` is held briefly to
-clone the per-path `Arc<Mutex<()>>`, then dropped before the per-file lock is acquired. The
-per-file lock is acquired inside the spawned OS thread (timeout guard), before `cache_lock.blocking_write()`.
-This serializes concurrent reads of the same path so only one thread at a time contends on the
-global cache write lock per file. Threads reading different files proceed independently.
+L17 lives in the shared `core::path_locks` registry and is used by **both** `ctx_read` and
+`ctx_edit`. It uses the same outer/inner pattern as L1/L2: the outer `Mutex<HashMap>` is held
+briefly to clone the per-path `Arc<Mutex<()>>`, then dropped before the per-file lock is acquired.
+The per-file lock is acquired before the global cache lock. This serializes concurrent operations
+on the *same* path so only one thread at a time contends on the global cache lock per file; threads
+operating on different files proceed independently.
 
 This prevents the thundering-herd scenario where N concurrent subagents all requesting the same
 file simultaneously contend on the global cache lock, each holding it during disk I/O.
+
+**Edit path (Issue #320 fix):** `ctx_edit` acquires the L17 per-file lock (bounded `try_lock()`
+loop, 30s deadline) and then performs **all** disk I/O — read preimage, replace, TOCTOU recheck,
+atomic rename — *without* holding the global cache write-lock. The global cache lock is taken only
+twice, each for a sub-millisecond instant: a brief shared `read()` to fetch the recorded read-mode
+(for auto-escalation) before the I/O, and a brief exclusive `write()` to apply the deferred
+`CacheEffect` (invalidate / store-full) after the I/O. Previously the global cache write-lock was
+held across the entire edit, so concurrent agents editing *different* files serialized on it and
+the second edit could hit the 10s write-lock timeout. Same-file edit correctness is still guaranteed
+by the TOCTOU preimage guard plus the atomic temp-file rename inside `run_io`, not by the cache lock.
 
 **Bounded waits (Issue #229 fix):** All lock acquisitions inside the spawned thread use
 `try_lock()`/`try_write()` loops with 25s deadlines (inside the 30s `recv_timeout` guard).

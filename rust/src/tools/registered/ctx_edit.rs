@@ -57,52 +57,90 @@ impl McpTool for CtxEditTool {
             .unwrap_or(200);
         let allow_lossy_utf8 = get_bool(args, "allow_lossy_utf8").unwrap_or(false);
 
+        let edit_params = crate::tools::ctx_edit::EditParams {
+            path: path.clone(),
+            old_string,
+            new_string,
+            replace_all,
+            create,
+            expected_md5,
+            expected_size,
+            expected_mtime_ms,
+            backup,
+            backup_path,
+            evidence,
+            diff_max_lines,
+            allow_lossy_utf8,
+        };
+
         tokio::task::block_in_place(|| {
             let cache_lock = ctx
                 .cache
                 .as_ref()
                 .ok_or_else(|| ErrorData::internal_error("cache not available", None))?;
-            let cache_guard = {
-                let rt = tokio::runtime::Handle::current();
-                rt.block_on(tokio::time::timeout(
-                    std::time::Duration::from_secs(10),
+            let rt = tokio::runtime::Handle::current();
+
+            // Serialize edits to the SAME file via a cheap per-file lock. This
+            // lets the (slow) disk read/replace/write run WITHOUT holding the
+            // global cache write-lock, so concurrent agents editing different
+            // files never block each other (issue #320). Correctness for same-file
+            // edits is still guaranteed by the TOCTOU preimage guard + atomic
+            // rename inside run_io.
+            let file_lock = crate::core::path_locks::per_file_lock(&path);
+            let _file_guard = {
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+                loop {
+                    if let Ok(guard) = file_lock.try_lock() {
+                        break guard;
+                    }
+                    if std::time::Instant::now() >= deadline {
+                        return Err(ErrorData::internal_error(
+                            format!("per-file edit lock contention for {path} — another edit to the same file is in progress, retry in a moment"),
+                            None,
+                        ));
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+            };
+
+            // Brief shared lock: read the recorded read-mode for auto-escalation.
+            // On contention we simply skip escalation rather than blocking I/O.
+            let last_mode = match rt.block_on(tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                cache_lock.read(),
+            )) {
+                Ok(cache) => cache
+                    .get(&path)
+                    .map(|e| e.last_mode.clone())
+                    .unwrap_or_default(),
+                Err(_) => String::new(),
+            };
+
+            // Heavy disk I/O — no global cache lock held here.
+            let (output, effect) = crate::tools::ctx_edit::run_io(&edit_params, &last_mode);
+
+            // Apply the deferred cache mutation under a brief exclusive lock.
+            if !matches!(effect, crate::tools::ctx_edit::CacheEffect::None) {
+                match rt.block_on(tokio::time::timeout(
+                    std::time::Duration::from_secs(5),
                     cache_lock.write(),
-                ))
-            };
-            let Ok(mut cache) = cache_guard else {
-                return Err(ErrorData::internal_error(
-                    "cache write-lock timeout (10s) in ctx_edit — retry in a moment",
-                    None,
-                ));
-            };
-            let output = crate::tools::ctx_edit::handle(
-                &mut cache,
-                &crate::tools::ctx_edit::EditParams {
-                    path: path.clone(),
-                    old_string,
-                    new_string,
-                    replace_all,
-                    create,
-                    expected_md5,
-                    expected_size,
-                    expected_mtime_ms,
-                    backup,
-                    backup_path,
-                    evidence,
-                    diff_max_lines,
-                    allow_lossy_utf8,
-                },
-            );
-            drop(cache);
+                )) {
+                    Ok(mut cache) => {
+                        crate::tools::ctx_edit::apply_cache_effect(&mut cache, &path, effect);
+                    }
+                    Err(_) => {
+                        tracing::warn!(
+                            "ctx_edit: cache write-lock timeout (5s) applying post-edit cache effect for {path}"
+                        );
+                    }
+                }
+            }
 
             if let Some(session_lock) = ctx.session.as_ref() {
-                let guard = {
-                    let rt = tokio::runtime::Handle::current();
-                    rt.block_on(tokio::time::timeout(
-                        std::time::Duration::from_secs(5),
-                        session_lock.write(),
-                    ))
-                };
+                let guard = rt.block_on(tokio::time::timeout(
+                    std::time::Duration::from_secs(5),
+                    session_lock.write(),
+                ));
                 if let Ok(mut session) = guard {
                     session.mark_modified(&path);
                 }

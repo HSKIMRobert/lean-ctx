@@ -327,27 +327,78 @@ fn build_diff_evidence(old: &str, new: &str, label: &str, max_lines: usize) -> S
     out.trim_end_matches('\n').to_string()
 }
 
-/// Performs a string replacement edit on a file with CRLF/LF and whitespace tolerance.
+/// A cache mutation that an edit needs *after* its disk I/O completes.
+///
+/// Decoupling the cache mutation from the I/O lets the MCP layer perform the
+/// (slow) file read/replace/write while holding only a cheap per-file lock, then
+/// touch the shared cache for a sub-millisecond instant — instead of holding the
+/// global cache write-lock across all disk I/O (the root cause of issue #320).
+pub enum CacheEffect {
+    /// No cache change required (e.g. the edit failed before writing).
+    None,
+    /// The file on disk changed; drop the stale cache entry.
+    Invalidate,
+    /// Auto-escalation re-read full content that should be stored and marked
+    /// as fully delivered.
+    StoreFull(String),
+}
+
+/// Performs a string replacement edit on a file with CRLF/LF and whitespace
+/// tolerance. Thin wrapper that runs the I/O and applies the resulting cache
+/// effect to `cache` in one shot (used by tests and any in-process caller that
+/// already holds the cache exclusively).
 pub fn handle(cache: &mut SessionCache, params: &EditParams) -> String {
+    let last_mode = cache
+        .get(&params.path)
+        .map(|e| e.last_mode.clone())
+        .unwrap_or_default();
+    let (text, effect) = run_io(params, &last_mode);
+    apply_cache_effect(cache, &params.path, effect);
+    text
+}
+
+/// Applies a deferred [`CacheEffect`] to the session cache.
+pub fn apply_cache_effect(cache: &mut SessionCache, path: &str, effect: CacheEffect) {
+    match effect {
+        CacheEffect::None => {}
+        CacheEffect::Invalidate => {
+            cache.invalidate(path);
+        }
+        CacheEffect::StoreFull(content) => {
+            cache.store(path, &content);
+            cache.mark_full_delivered(path);
+        }
+    }
+}
+
+/// Performs the full edit on disk **without** touching the session cache, and
+/// reports back the [`CacheEffect`] the caller should apply afterwards.
+///
+/// `last_mode` is the cache's recorded read mode for the path (used only to
+/// decide whether to auto-escalate on a not-found match); pass `""` when unknown.
+pub fn run_io(params: &EditParams, last_mode: &str) -> (String, CacheEffect) {
     let file_path = &params.path;
 
     if params.create {
-        return handle_create(cache, file_path, &params.new_string, params);
+        return handle_create(file_path, &params.new_string, params);
     }
 
     let cap = crate::core::limits::max_read_bytes();
     let path = Path::new(file_path);
     let pre = match read_preimage(path, cap, params.allow_lossy_utf8) {
         Ok(p) => p,
-        Err(e) => return e,
+        Err(e) => return (e, CacheEffect::None),
     };
     if let Err(e) = verify_expected_preimage(&pre, params) {
-        return e;
+        return (e, CacheEffect::None);
     }
     let content = &pre.text;
 
     if params.old_string.is_empty() {
-        return "ERROR: old_string must not be empty (use create=true to create a new file)".into();
+        return (
+            "ERROR: old_string must not be empty (use create=true to create a new file)".into(),
+            CacheEffect::None,
+        );
     }
 
     let uses_crlf = pre.uses_crlf;
@@ -366,7 +417,7 @@ pub fn handle(cache: &mut SessionCache, params: &EditParams) -> String {
             old_tokens: count_tokens(&params.old_string),
             new_tokens: count_tokens(&params.new_string),
         };
-        return do_replace(cache, path, &pre, params, cap, &args);
+        return do_replace(path, &pre, params, cap, &args);
     }
 
     // Direct match failed -- try CRLF/LF normalization
@@ -384,7 +435,7 @@ pub fn handle(cache: &mut SessionCache, params: &EditParams) -> String {
                 old_tokens: count_tokens(&params.old_string),
                 new_tokens: count_tokens(&params.new_string),
             };
-            return do_replace(cache, path, &pre, params, cap, &args);
+            return do_replace(path, &pre, params, cap, &args);
         }
     } else if !uses_crlf && old_str.contains("\r\n") {
         let old_lf = old_str.replace("\r\n", "\n");
@@ -400,7 +451,7 @@ pub fn handle(cache: &mut SessionCache, params: &EditParams) -> String {
                 old_tokens: count_tokens(&params.old_string),
                 new_tokens: count_tokens(&params.new_string),
             };
-            return do_replace(cache, path, &pre, params, cap, &args);
+            return do_replace(path, &pre, params, cap, &args);
         }
     }
 
@@ -422,7 +473,7 @@ pub fn handle(cache: &mut SessionCache, params: &EditParams) -> String {
                 old_tokens: count_tokens(&params.old_string),
                 new_tokens: count_tokens(&params.new_string),
             };
-            return do_replace(cache, path, &pre, params, cap, &args);
+            return do_replace(path, &pre, params, cap, &args);
         }
     }
 
@@ -437,37 +488,36 @@ pub fn handle(cache: &mut SessionCache, params: &EditParams) -> String {
         ""
     };
 
-    let escalation = auto_escalate_reread(cache, file_path);
+    let (escalation, effect) = auto_escalate_reread(last_mode, file_path);
 
-    format!(
-        "ERROR: old_string not found in {file_path}{hint}. \
-         Make sure it matches exactly (including whitespace/indentation).\n\
-         Searched for: {preview}{escalation}"
+    (
+        format!(
+            "ERROR: old_string not found in {file_path}{hint}. \
+             Make sure it matches exactly (including whitespace/indentation).\n\
+             Searched for: {preview}{escalation}"
+        ),
+        effect,
     )
 }
 
 /// Auto-escalation: when old_string is not found and the file was previously read
 /// in a compressed mode, re-read in full and return the content so the agent
-/// can immediately retry with the correct old_string.
-fn auto_escalate_reread(cache: &mut SessionCache, path: &str) -> String {
-    let entry = cache.get(path);
-    let last_mode = entry.map(|e| e.last_mode.clone()).unwrap_or_default();
-
+/// can immediately retry with the correct old_string. Returns the text to append
+/// plus the [`CacheEffect`] the caller should apply (store full content).
+fn auto_escalate_reread(last_mode: &str, path: &str) -> (String, CacheEffect) {
     if last_mode.is_empty() || last_mode == "full" {
-        return String::new();
+        return (String::new(), CacheEffect::None);
     }
 
     let Ok(fresh_content) = std::fs::read_to_string(path) else {
-        return String::new();
+        return (String::new(), CacheEffect::None);
     };
-    cache.store(path, &fresh_content);
-    cache.mark_full_delivered(path);
 
     let line_count = fresh_content.lines().count();
     const MAX_LINES: usize = 300;
 
     let content_preview = if line_count <= MAX_LINES {
-        fresh_content
+        fresh_content.clone()
     } else {
         let lines: Vec<&str> = fresh_content.lines().collect();
         let head = &lines[..MAX_LINES / 2];
@@ -480,27 +530,32 @@ fn auto_escalate_reread(cache: &mut SessionCache, path: &str) -> String {
         )
     };
 
-    format!(
-        "\n\n[auto-escalation] Last read used mode=\"{last_mode}\". \
-         Full content ({line_count}L) below — retry edit with exact text from here:\n\n{content_preview}"
+    (
+        format!(
+            "\n\n[auto-escalation] Last read used mode=\"{last_mode}\". \
+             Full content ({line_count}L) below — retry edit with exact text from here:\n\n{content_preview}"
+        ),
+        CacheEffect::StoreFull(fresh_content),
     )
 }
 
 fn do_replace(
-    cache: &mut SessionCache,
     path: &Path,
     pre: &FilePreimage,
     params: &EditParams,
     cap: usize,
     args: &ReplaceArgs<'_>,
-) -> String {
+) -> (String, CacheEffect) {
     if args.occurrences > 1 && !args.replace_all {
-        return format!(
-            "ERROR: old_string found {} times in {}. \
-             Use replace_all=true to replace all, or provide more context to make old_string unique."
-            ,
-            args.occurrences,
-            path.display()
+        return (
+            format!(
+                "ERROR: old_string found {} times in {}. \
+                 Use replace_all=true to replace all, or provide more context to make old_string unique."
+                ,
+                args.occurrences,
+                path.display()
+            ),
+            CacheEffect::None,
         );
     }
 
@@ -511,7 +566,7 @@ fn do_replace(
     };
 
     if let Err(e) = ensure_preimage_still_matches(path, &pre.fp, cap) {
-        return e;
+        return (e, CacheEffect::None);
     }
 
     let backup_path = if params.backup {
@@ -521,11 +576,17 @@ fn do_replace(
             .map(PathBuf::from)
             .or_else(|| default_backup_path(path));
         let Some(bp) = bp else {
-            return format!("ERROR: cannot compute backup path for {}", path.display());
+            return (
+                format!("ERROR: cannot compute backup path for {}", path.display()),
+                CacheEffect::None,
+            );
         };
         if let Err(e) = write_atomic_bytes_with_permissions(&bp, &pre.bytes, Some(&pre.permissions))
         {
-            return format!("ERROR: cannot create backup {}: {e}", bp.display());
+            return (
+                format!("ERROR: cannot create backup {}: {e}", bp.display()),
+                CacheEffect::None,
+            );
         }
         Some(bp.to_string_lossy().to_string())
     } else {
@@ -535,10 +596,8 @@ fn do_replace(
     if let Err(e) =
         write_atomic_bytes_with_permissions(path, new_content.as_bytes(), Some(&pre.permissions))
     {
-        return e;
+        return (e, CacheEffect::None);
     }
-
-    cache.invalidate(&params.path);
 
     if let Ok(mut bt) = crate::core::bounce_tracker::global().lock() {
         bt.record_edit(&params.path);
@@ -592,15 +651,10 @@ postimage: bytes={}, mtime_ms={}, md5={}",
         out.push_str(&diff);
         out.push_str("\n```");
     }
-    out
+    (out, CacheEffect::Invalidate)
 }
 
-fn handle_create(
-    cache: &mut SessionCache,
-    file_path: &str,
-    content: &str,
-    params: &EditParams,
-) -> String {
+fn handle_create(file_path: &str, content: &str, params: &EditParams) -> (String, CacheEffect) {
     let path = Path::new(file_path);
     let cap = crate::core::limits::max_read_bytes();
 
@@ -608,13 +662,13 @@ fn handle_create(
     if path.exists() {
         let pre = match read_preimage(path, cap, params.allow_lossy_utf8) {
             Ok(p) => p,
-            Err(e) => return e,
+            Err(e) => return (e, CacheEffect::None),
         };
         if let Err(e) = verify_expected_preimage(&pre, params) {
-            return e;
+            return (e, CacheEffect::None);
         }
         if let Err(e) = ensure_preimage_still_matches(path, &pre.fp, cap) {
-            return e;
+            return (e, CacheEffect::None);
         }
         preimage = Some(pre);
     }
@@ -622,7 +676,10 @@ fn handle_create(
     if let Some(parent) = path.parent() {
         if !parent.exists() {
             if let Err(e) = std::fs::create_dir_all(parent) {
-                return format!("ERROR: cannot create directory {}: {e}", parent.display());
+                return (
+                    format!("ERROR: cannot create directory {}: {e}", parent.display()),
+                    CacheEffect::None,
+                );
             }
         }
     }
@@ -635,12 +692,18 @@ fn handle_create(
                 .map(PathBuf::from)
                 .or_else(|| default_backup_path(path));
             let Some(bp) = bp else {
-                return format!("ERROR: cannot compute backup path for {}", path.display());
+                return (
+                    format!("ERROR: cannot compute backup path for {}", path.display()),
+                    CacheEffect::None,
+                );
             };
             if let Err(e) =
                 write_atomic_bytes_with_permissions(&bp, &pre.bytes, Some(&pre.permissions))
             {
-                return format!("ERROR: cannot create backup {}: {e}", bp.display());
+                return (
+                    format!("ERROR: cannot create backup {}: {e}", bp.display()),
+                    CacheEffect::None,
+                );
             }
             Some(bp.to_string_lossy().to_string())
         } else {
@@ -652,10 +715,8 @@ fn handle_create(
 
     let perms = preimage.as_ref().map(|p| &p.permissions);
     if let Err(e) = write_atomic_bytes_with_permissions(path, content.as_bytes(), perms) {
-        return e;
+        return (e, CacheEffect::None);
     }
-
-    cache.invalidate(file_path);
 
     let lines = content.lines().count();
     let tokens = count_tokens(content);
@@ -668,7 +729,7 @@ fn handle_create(
     if let Some(bp) = backup_path {
         out.push_str(&format!("\nbackup: {bp}"));
     }
-    out
+    (out, CacheEffect::Invalidate)
 }
 
 fn trim_trailing_per_line(s: &str) -> String {
@@ -971,5 +1032,124 @@ mod tests {
         std::fs::write(f.path(), "bbb\n").unwrap();
         let err = ensure_preimage_still_matches(f.path(), &pre.fp, cap).unwrap_err();
         assert!(err.contains("TOCTOU guard"), "unexpected error: {err}");
+    }
+
+    /// Issue #320: run_io performs the full edit without any cache handle, so the
+    /// MCP layer can avoid holding the global cache write-lock across disk I/O.
+    /// A successful edit reports an Invalidate effect.
+    #[test]
+    fn run_io_success_reports_invalidate_effect() {
+        let f = make_temp("fn main() {\n    let x = 42;\n}\n");
+        let (text, effect) = run_io(
+            &mk_params(f.path(), "let x = 42", "let x = 99", false, false),
+            "",
+        );
+        assert!(text.contains("✓"), "expected success: {text}");
+        assert!(
+            matches!(effect, CacheEffect::Invalidate),
+            "successful edit must invalidate the cache entry"
+        );
+        let content = std::fs::read_to_string(f.path()).unwrap();
+        assert!(content.contains("let x = 99"));
+    }
+
+    #[test]
+    fn run_io_failure_reports_no_cache_effect() {
+        let f = make_temp("some content\n");
+        let (text, effect) = run_io(&mk_params(f.path(), "nonexistent", "x", false, false), "");
+        assert!(text.contains("ERROR: old_string not found"));
+        assert!(
+            matches!(effect, CacheEffect::None),
+            "a failed edit must not mutate the cache"
+        );
+    }
+
+    /// Issue #320: concurrent edits to *different* files must all succeed without
+    /// serializing on any shared lock — run_io takes no cache, so there is nothing
+    /// global to contend on.
+    #[test]
+    fn run_io_concurrent_edits_to_different_files_all_succeed() {
+        use std::sync::Arc;
+        let dir = Arc::new(tempfile::tempdir().unwrap());
+        let n = 16;
+        let mut paths = Vec::new();
+        for i in 0..n {
+            let p = dir.path().join(format!("file_{i}.txt"));
+            std::fs::write(&p, format!("value = {i}\n")).unwrap();
+            paths.push(p);
+        }
+        let barrier = Arc::new(std::sync::Barrier::new(n));
+        let mut handles = Vec::new();
+        for (i, p) in paths.into_iter().enumerate() {
+            let barrier = Arc::clone(&barrier);
+            handles.push(std::thread::spawn(move || {
+                barrier.wait();
+                let (text, effect) = run_io(
+                    &mk_params(
+                        &p,
+                        &format!("value = {i}"),
+                        &format!("value = {}", i + 1000),
+                        false,
+                        false,
+                    ),
+                    "",
+                );
+                assert!(text.contains("✓"), "edit {i} failed: {text}");
+                assert!(matches!(effect, CacheEffect::Invalidate));
+                (p, i)
+            }));
+        }
+        for h in handles {
+            let (p, i) = h.join().unwrap();
+            let content = std::fs::read_to_string(&p).unwrap();
+            assert_eq!(content, format!("value = {}\n", i + 1000));
+        }
+    }
+
+    #[test]
+    fn run_io_escalation_reports_store_full_effect() {
+        // A file previously read in a compressed mode ("signatures") triggers
+        // auto-escalation when old_string is not found: the full content is
+        // returned for re-store.
+        let f = make_temp("line a\nline b\nline c\n");
+        let (text, effect) = run_io(
+            &mk_params(f.path(), "definitely-not-present", "x", false, false),
+            "signatures",
+        );
+        assert!(
+            text.contains("[auto-escalation]"),
+            "expected escalation: {text}"
+        );
+        match effect {
+            CacheEffect::StoreFull(content) => {
+                assert!(content.contains("line a") && content.contains("line c"));
+            }
+            _ => panic!("escalation must report a StoreFull cache effect"),
+        }
+    }
+
+    #[test]
+    fn apply_cache_effect_invalidate_and_store() {
+        let f = make_temp("hello\n");
+        let mut cache = SessionCache::new();
+        cache.store(&f.path().to_string_lossy(), "hello\n");
+        apply_cache_effect(
+            &mut cache,
+            &f.path().to_string_lossy(),
+            CacheEffect::Invalidate,
+        );
+        assert!(
+            cache.get(&f.path().to_string_lossy()).is_none(),
+            "Invalidate must drop the entry"
+        );
+        apply_cache_effect(
+            &mut cache,
+            &f.path().to_string_lossy(),
+            CacheEffect::StoreFull("fresh\n".to_string()),
+        );
+        assert!(
+            cache.get(&f.path().to_string_lossy()).is_some(),
+            "StoreFull must re-populate the entry"
+        );
     }
 }

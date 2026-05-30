@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -18,23 +17,11 @@ use crate::tool_defs::tool_def;
 /// they all contend on the global cache write lock while doing redundant I/O.
 /// This lock ensures only one thread reads a given file from disk; the others
 /// wait cheaply on the per-file mutex, then hit the warm cache.
+///
+/// Backed by the shared `core::path_locks` registry so reads and edits of the
+/// same path coordinate through a single mutex (see issue #320).
 fn per_file_lock(path: &str) -> Arc<Mutex<()>> {
-    static FILE_LOCKS: std::sync::OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> =
-        std::sync::OnceLock::new();
-    let map = FILE_LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut map = map.lock().unwrap_or_else(|poisoned| {
-        tracing::warn!("per_file_lock map poisoned; recovering");
-        poisoned.into_inner()
-    });
-
-    const MAX_ENTRIES: usize = 500;
-    if map.len() > MAX_ENTRIES {
-        map.retain(|_, v| Arc::strong_count(v) > 1);
-    }
-
-    map.entry(path.to_string())
-        .or_insert_with(|| Arc::new(Mutex::new(())))
-        .clone()
+    crate::core::path_locks::per_file_lock(path)
 }
 
 pub struct CtxReadTool;
