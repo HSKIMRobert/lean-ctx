@@ -305,10 +305,14 @@ pub fn cmd_sessions(args: &[String]) {
         }
         "show" => {
             let id = args.get(1);
+            // Explicit, cross-project UX: show the current project's session if
+            // present, else fall back to the global latest pointer so `show`
+            // works from any directory. (load_latest itself stays project-scoped
+            // to avoid leaking knowledge into a new project's context.)
             let session = if let Some(id) = id {
                 SessionState::load_by_id(id)
             } else {
-                SessionState::load_latest()
+                SessionState::load_latest().or_else(SessionState::load_global_latest_pointer)
             };
             match session {
                 Some(s) => println!("{}", s.format_compact()),
@@ -327,8 +331,28 @@ pub fn cmd_sessions(args: &[String]) {
                 );
             }
         }
+        "doctor" => {
+            let apply = args.iter().any(|a| a == "--apply" || a == "--fix");
+            let (found, quarantined) = SessionState::doctor_quarantine_unsafe_roots(apply);
+            if found.is_empty() {
+                println!("session doctor: no contaminated sessions found.");
+            } else {
+                println!(
+                    "session doctor: {} session(s) rooted at a broad/unsafe path (HOME/'/'/agent dir):",
+                    found.len()
+                );
+                for (id, root) in &found {
+                    println!("  {id} | root: {root}");
+                }
+                if apply {
+                    println!("\nQuarantined {quarantined} session(s) to sessions/quarantine/.");
+                } else {
+                    println!("\nRun `lean-ctx sessions doctor --apply` to quarantine them.");
+                }
+            }
+        }
         _ => {
-            eprintln!("Usage: lean-ctx sessions [list|show [id]|cleanup [days]]");
+            eprintln!("Usage: lean-ctx sessions [list|show [id]|cleanup [days]|doctor [--apply]]");
             std::process::exit(1);
         }
     }

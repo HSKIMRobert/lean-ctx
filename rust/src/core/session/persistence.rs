@@ -82,20 +82,31 @@ impl SessionState {
         })
     }
 
-    /// Loads the most recent session from disk.
+    /// Loads the most recent session matching the current working directory's
+    /// project root.
     ///
-    /// Prefers the session matching the current working directory's project root.
-    /// Falls back to the global `latest.json` pointer only if no project-scoped
-    /// match is found. This prevents cross-project session leakage.
+    /// Returns `None` (a fresh session) rather than falling back to the global
+    /// `latest.json` pointer: that unconditional fallback bypassed project-root
+    /// matching and was the root cause of cross-project session leakage — one
+    /// project's findings/decisions/knowledge bleeding into another project's
+    /// first session. The correct project session is loaded later from the MCP
+    /// `roots` handshake (`load_latest_for_project_root`).
+    ///
+    /// Also refuses to scope to a broad/unsafe cwd (e.g. the MCP daemon's HOME),
+    /// which would otherwise resurrect the contaminated "HOME mega-session".
     pub fn load_latest() -> Option<Self> {
-        if let Some(project_root) = std::env::current_dir()
-            .ok()
-            .map(|p| p.to_string_lossy().to_string())
-        {
-            if let Some(session) = Self::load_latest_for_project_root(&project_root) {
-                return Some(session);
-            }
+        let cwd = std::env::current_dir().ok()?;
+        if crate::core::pathutil::is_broad_or_unsafe_root(&cwd) {
+            return None;
         }
+        Self::load_latest_for_project_root(&cwd.to_string_lossy())
+    }
+
+    /// Loads the session referenced by the global `latest.json` pointer,
+    /// regardless of project. Intended only for explicit, cross-project UX
+    /// (e.g. `lean-ctx session` status from an arbitrary directory) — never for
+    /// injecting knowledge into a new project's context. Prefer `load_latest`.
+    pub fn load_global_latest_pointer() -> Option<Self> {
         let dir = sessions_dir()?;
         let latest_path = dir.join("latest.json");
         let pointer_json = std::fs::read_to_string(&latest_path).ok()?;
@@ -184,6 +195,56 @@ impl SessionState {
 
         summaries.sort_by_key(|x| std::cmp::Reverse(x.updated_at));
         summaries
+    }
+
+    /// Scans all saved sessions for contaminated ones — those rooted at a
+    /// broad/unsafe path (HOME, filesystem root, agent sandbox dir) without a
+    /// real project marker, i.e. the historic "HOME mega-session" artifact.
+    ///
+    /// Returns `(found, quarantined)` where `found` is `(id, root)` pairs. When
+    /// `apply` is true, each offending session file is moved to a
+    /// `sessions/quarantine/` subdirectory (non-destructive) instead of being
+    /// loaded into any project's context.
+    pub fn doctor_quarantine_unsafe_roots(apply: bool) -> (Vec<(String, String)>, usize) {
+        let mut found: Vec<(String, String)> = Vec::new();
+        let mut quarantined = 0usize;
+        let Some(dir) = sessions_dir() else {
+            return (found, quarantined);
+        };
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            return (found, quarantined);
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let Some(id) = path.file_stem().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            if id == "latest" || id.starts_with('.') {
+                continue;
+            }
+            let Some(session) = Self::load_by_id(id) else {
+                continue;
+            };
+            let Some(root) = session.project_root.as_deref() else {
+                continue;
+            };
+            let root_path = std::path::Path::new(root);
+            if crate::core::pathutil::is_broad_or_unsafe_root(root_path) {
+                found.push((id.to_string(), root.to_string()));
+                if apply {
+                    let q_dir = dir.join("quarantine");
+                    if std::fs::create_dir_all(&q_dir).is_ok()
+                        && std::fs::rename(&path, q_dir.join(format!("{id}.json"))).is_ok()
+                    {
+                        quarantined += 1;
+                    }
+                }
+            }
+        }
+        (found, quarantined)
     }
 
     /// Deletes sessions older than `max_age_days`, preserving the latest. Returns count removed.
