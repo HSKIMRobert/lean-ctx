@@ -142,10 +142,38 @@ fn generate_raw_tree(
 mod tests {
     use super::*;
 
+    /// Builds a deterministic source-tree fixture so the assertions do not
+    /// depend on the live repository size or platform path separators (the live
+    /// repo coupling previously made this test tip over its token threshold on
+    /// Windows as the codebase grew).
+    fn make_fixture() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let files = [
+            "Cargo.toml",
+            "README.md",
+            "src/main.rs",
+            "src/lib.rs",
+            "src/core/mod.rs",
+            "src/core/engine.rs",
+            "src/core/util.rs",
+            "src/tools/mod.rs",
+            "src/tools/reader.rs",
+            "tests/integration.rs",
+            "tests/smoke.rs",
+        ];
+        for rel in files {
+            let p = root.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, "// fixture\n").unwrap();
+        }
+        dir
+    }
+
     #[test]
     fn tree_savings_are_reasonable() {
-        let dir = env!("CARGO_MANIFEST_DIR");
-        let (output, original) = handle(dir, 3, false, true);
+        let dir = make_fixture();
+        let (output, original) = handle(&dir.path().to_string_lossy(), 3, false, true);
         let compact_tokens = count_tokens(&output);
 
         eprintln!("=== ctx_tree savings test ===");
@@ -156,11 +184,11 @@ mod tests {
             original.saturating_sub(compact_tokens)
         );
 
-        assert!(
-            original < 5000,
-            "raw tree at depth 3 should be < 5000 tokens, got {original}"
-        );
         assert!(original > 0, "raw tree should have some tokens");
+        assert!(
+            original < 2000,
+            "raw tree for the fixture should be small, got {original}"
+        );
         if original > compact_tokens {
             let ratio = (original - compact_tokens) as f64 / original as f64;
             eprintln!("  savings ratio:         {:.1}%", ratio * 100.0);
