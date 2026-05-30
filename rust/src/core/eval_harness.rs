@@ -238,21 +238,23 @@ pub fn generate_self_eval(index: &BM25Index, max_queries: usize) -> Vec<EvalQuer
     queries
 }
 
+/// Normalizes path separators so comparisons are platform-independent (the
+/// retrieved paths use the OS separator — `\` on Windows — while expected paths
+/// in eval fixtures use `/`).
+fn normalize_sep(p: &str) -> String {
+    p.replace('\\', "/")
+}
+
 fn recall_at_k(retrieved: &[String], expected: &[String], k: usize) -> f64 {
     if expected.is_empty() {
         return 0.0;
     }
-    let top_k: Vec<&str> = retrieved
-        .iter()
-        .take(k)
-        .map(std::string::String::as_str)
-        .collect();
+    let top_k: Vec<String> = retrieved.iter().take(k).map(|r| normalize_sep(r)).collect();
     let hits = expected
         .iter()
         .filter(|e| {
-            top_k
-                .iter()
-                .any(|r| r.ends_with(e.as_str()) || e.ends_with(r))
+            let e = normalize_sep(e);
+            top_k.iter().any(|r| r.ends_with(&e) || e.ends_with(r))
         })
         .count();
     hits as f64 / expected.len() as f64
@@ -260,10 +262,11 @@ fn recall_at_k(retrieved: &[String], expected: &[String], k: usize) -> f64 {
 
 fn mean_reciprocal_rank(retrieved: &[String], expected: &[String]) -> f64 {
     for (rank, r) in retrieved.iter().enumerate() {
-        if expected
-            .iter()
-            .any(|e| r.ends_with(e.as_str()) || e.ends_with(r.as_str()))
-        {
+        let r = normalize_sep(r);
+        if expected.iter().any(|e| {
+            let e = normalize_sep(e);
+            r.ends_with(&e) || e.ends_with(&r)
+        }) {
             return 1.0 / (rank as f64 + 1.0);
         }
     }
@@ -302,6 +305,16 @@ mod tests {
         let retrieved = vec!["a.rs".into(), "b.rs".into(), "c.rs".into()];
         let expected = vec!["a.rs".into()];
         assert_eq!(recall_at_k(&retrieved, &expected, 5), 1.0);
+    }
+
+    #[test]
+    fn recall_at_k_matches_across_path_separators() {
+        // Retrieved paths may use the OS separator (backslash on Windows) while
+        // expected fixtures use '/'. They must still match.
+        let retrieved = vec!["proj\\src\\auth.rs".into(), "proj\\src\\db.rs".into()];
+        let expected = vec!["src/auth.rs".into()];
+        assert_eq!(recall_at_k(&retrieved, &expected, 5), 1.0);
+        assert_eq!(mean_reciprocal_rank(&retrieved, &expected), 1.0);
     }
 
     #[test]
