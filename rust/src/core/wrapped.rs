@@ -11,6 +11,7 @@ pub struct WrappedReport {
     pub top_commands: Vec<(String, u64, f64)>,
     pub compression_rate_pct: f64,
     pub files_touched: u64,
+    pub daily_savings: Vec<u64>,
 }
 
 impl WrappedReport {
@@ -67,6 +68,25 @@ impl WrappedReport {
 
         let files_touched: u64 = sessions.iter().map(|s| s.tool_calls as u64).sum();
 
+        let day_saved = |d: &stats::DayStats| d.input_tokens.saturating_sub(d.output_tokens);
+        let take_recent = |n: usize| -> Vec<u64> {
+            store
+                .daily
+                .iter()
+                .rev()
+                .take(n)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .map(day_saved)
+                .collect()
+        };
+        let daily_savings = match period {
+            "week" => take_recent(7),
+            "month" => take_recent(30),
+            _ => store.daily.iter().map(day_saved).collect(),
+        };
+
         WrappedReport {
             period: period.to_string(),
             tokens_saved,
@@ -77,47 +97,123 @@ impl WrappedReport {
             top_commands,
             compression_rate_pct,
             files_touched,
+            daily_savings,
         }
     }
 
+    /// Renders a premium, shareable "Wrapped" card. Colors are emitted only when
+    /// stdout is a TTY (see `theme::no_color`), so piping to a file or social post
+    /// yields clean copy-pasteable ASCII.
+    #[allow(clippy::many_single_char_names)] // ANSI formatting helpers: t/r/b/d
     pub fn format_ascii(&self) -> String {
+        use crate::core::theme;
+
+        let cfg = crate::core::config::Config::load();
+        let t = theme::load_theme(&cfg.theme);
+        let rst = theme::rst();
+        let bold = theme::bold();
+        let dim = theme::dim();
+
         let period_label = match self.period.as_str() {
-            "week" => format!("Week of {}", chrono::Utc::now().format("%B %d, %Y")),
+            "week" => format!("Week of {}", chrono::Utc::now().format("%b %d, %Y")),
             "month" => format!("Month of {}", chrono::Utc::now().format("%B %Y")),
             _ => "All Time".to_string(),
         };
 
-        let saved_str = format_tokens(self.tokens_saved);
-        let cost_str = format!("${:.2}", self.cost_avoided_usd);
+        let w = 52;
+        let side = t.box_side();
+        let box_line = |content: &str| -> String {
+            let padded = theme::pad_right(content, w);
+            format!("  {side}{padded}{side}")
+        };
 
-        let top_str = if self.top_commands.is_empty() {
-            "No data yet".to_string()
-        } else {
-            self.top_commands
+        let mut out: Vec<String> = Vec::new();
+        out.push(String::new());
+        out.push(format!("  {}", t.box_top(w)));
+        out.push(box_line(""));
+        out.push(box_line(&format!(
+            "   {icon}  {brand} {accent}Wrapped{rst}  {dim}· {period_label}{rst}",
+            icon = t.header_icon(),
+            brand = t.brand_title(),
+            accent = t.accent.fg(),
+        )));
+        out.push(box_line(""));
+        out.push(format!("  {}", t.box_mid(w)));
+        out.push(box_line(""));
+
+        // Primary metric row: tokens saved + cost avoided + commands.
+        let kw = 16;
+        let sc = t.success.fg();
+        let c2 = t.secondary.fg();
+        let c3 = t.warning.fg();
+        let c4 = t.accent.fg();
+
+        let v1 = theme::pad_right(
+            &format!("{sc}{bold}{}{rst}", format_tokens(self.tokens_saved)),
+            kw,
+        );
+        let v2 = theme::pad_right(&format!("{c4}{bold}${:.2}{rst}", self.cost_avoided_usd), kw);
+        let v3 = theme::pad_right(&format!("{c3}{bold}{}{rst}", self.total_commands), kw);
+        out.push(box_line(&format!("   {v1}{v2}{v3}")));
+        let l1 = theme::pad_right(&format!("{dim}tokens saved{rst}"), kw);
+        let l2 = theme::pad_right(&format!("{dim}cost avoided{rst}"), kw);
+        let l3 = theme::pad_right(&format!("{dim}commands{rst}"), kw);
+        out.push(box_line(&format!("   {l1}{l2}{l3}")));
+        out.push(box_line(""));
+
+        // Secondary metric row: sessions + compression rate.
+        let v4 = theme::pad_right(&format!("{c2}{bold}{}{rst}", self.sessions_count), kw);
+        let v5 = theme::pad_right(
+            &format!(
+                "{pc}{bold}{:.1}%{rst}",
+                self.compression_rate_pct,
+                pc = t.pct_color(self.compression_rate_pct),
+            ),
+            kw,
+        );
+        out.push(box_line(&format!("   {v4}{v5}")));
+        let l4 = theme::pad_right(&format!("{dim}sessions{rst}"), kw);
+        let l5 = theme::pad_right(&format!("{dim}compression{rst}"), kw);
+        out.push(box_line(&format!("   {l4}{l5}")));
+        out.push(box_line(""));
+
+        // Trend sparkline (only when there is at least a little history).
+        if self.daily_savings.iter().filter(|v| **v > 0).count() >= 2 {
+            let spark = t.gradient_sparkline(&self.daily_savings);
+            out.push(box_line(&format!("   {dim}trend{rst}  {spark}")));
+            out.push(box_line(""));
+        }
+
+        // Top commands (truncated to fit the inner box width).
+        if !self.top_commands.is_empty() {
+            let prefix_visible = 8; // "   top  "
+            let budget = w.saturating_sub(prefix_visible);
+            let mut top_str = self
+                .top_commands
                 .iter()
                 .take(3)
                 .map(|(cmd, _, pct)| format!("{cmd} {pct:.0}%"))
                 .collect::<Vec<_>>()
-                .join(" | ")
-        };
+                .join("  ·  ");
+            if top_str.chars().count() > budget {
+                let truncated: String = top_str.chars().take(budget.saturating_sub(1)).collect();
+                top_str = format!("{truncated}…");
+            }
+            out.push(format!("  {}", t.box_mid(w)));
+            out.push(box_line(&format!(
+                "   {m}top{rst}  {top_str}",
+                m = t.muted.fg()
+            )));
+        }
 
-        let width = 48;
-        let border = "\u{2500}".repeat(width);
+        out.push(format!("  {}", t.box_bottom(w)));
+        out.push(format!(
+            "    {dim}\"Your AI saw only what mattered.\"{rst}   {accent}leanctx.com{rst}",
+            accent = t.accent.fg(),
+        ));
+        out.push(String::new());
 
-        format!(
-            "\n LeanCTX Wrapped \u{2014} {period_label}\n \
-             {border}\n  \
-             {saved_str} tokens saved      {cost_str} avoided\n  \
-             {sessions} sessions            {cmds} commands\n  \
-             Top: {top_str}\n  \
-             Compression rate: {compression:.1}%\n \
-             {border}\n  \
-             \"Your AI saw only what mattered.\"\n  \
-             leanctx.com\n",
-            sessions = self.sessions_count,
-            cmds = self.total_commands,
-            compression = self.compression_rate_pct,
-        )
+        out.join("\n")
     }
 
     pub fn format_compact(&self) -> String {
@@ -162,5 +258,85 @@ fn format_tokens(tokens: u64) -> String {
         format!("{:.1}K", tokens as f64 / 1_000.0)
     } else {
         format!("{tokens}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample() -> WrappedReport {
+        WrappedReport {
+            period: "all".into(),
+            tokens_saved: 348_300_000,
+            tokens_input: 580_000_000,
+            cost_avoided_usd: 870.81,
+            total_commands: 17_055,
+            sessions_count: 67,
+            top_commands: vec![
+                ("ctx_search".into(), 100, 60.0),
+                ("cli_grep".into(), 80, 85.0),
+                ("cli_shell".into(), 50, 37.0),
+            ],
+            compression_rate_pct: 60.2,
+            files_touched: 1_234,
+            daily_savings: vec![10, 50, 30, 30, 80, 80, 20, 5, 5, 40, 60, 40, 5, 50, 15],
+        }
+    }
+
+    fn is_box_line(l: &str) -> bool {
+        let trimmed = l.trim_start();
+        ["│", "╭", "├", "╰"].iter().any(|c| trimmed.starts_with(c))
+    }
+
+    #[test]
+    fn wrapped_ascii_box_lines_have_uniform_width() {
+        // In the test runner, stdout is not a TTY, so colors are auto-disabled.
+        let out = sample().format_ascii();
+        let widths: Vec<usize> = out
+            .lines()
+            .filter(|l| is_box_line(l))
+            .map(|l| l.chars().count())
+            .collect();
+        assert!(widths.len() >= 4, "expected several box lines:\n{out}");
+        let first = widths[0];
+        for w in &widths {
+            assert_eq!(*w, first, "box line widths must be uniform:\n{out}");
+        }
+    }
+
+    #[test]
+    fn wrapped_ascii_includes_brand_and_metrics() {
+        let out = sample().format_ascii();
+        assert!(out.contains("leanctx.com"), "missing brand footer:\n{out}");
+        assert!(out.contains("Wrapped"));
+        assert!(out.contains("tokens saved"));
+        assert!(out.contains("compression"));
+    }
+
+    #[test]
+    fn wrapped_ascii_truncates_overlong_top_line() {
+        let out = sample().format_ascii();
+        // No box line may exceed the others (top row must be truncated to fit).
+        let max = out
+            .lines()
+            .filter(|l| is_box_line(l))
+            .map(|l| l.chars().count())
+            .max()
+            .unwrap_or(0);
+        let min = out
+            .lines()
+            .filter(|l| is_box_line(l))
+            .map(|l| l.chars().count())
+            .min()
+            .unwrap_or(0);
+        assert_eq!(max, min, "top line overflowed the box:\n{out}");
+    }
+
+    #[test]
+    fn wrapped_compact_is_single_line_summary() {
+        let out = sample().format_compact();
+        assert!(out.starts_with("WRAPPED"), "compact summary changed: {out}");
+        assert!(out.contains("Compression:"));
     }
 }

@@ -28,6 +28,7 @@ fn match_component_path(path: &str) -> Option<String> {
         "/static/components/cockpit-health.js" => super::COCKPIT_COMPONENT_HEALTH_JS,
         "/static/components/cockpit-remaining.js" => super::COCKPIT_COMPONENT_REMAINING_JS,
         "/static/components/cockpit-commander.js" => super::COCKPIT_COMPONENT_COMMANDER_JS,
+        "/static/components/cockpit-palette.js" => super::COCKPIT_COMPONENT_PALETTE_JS,
         _ => return None,
     };
     Some(content.to_string())
@@ -102,6 +103,34 @@ pub fn route_response(
     }
     if let Some(content) = match_component_path(path) {
         return ("200 OK", "application/javascript; charset=utf-8", content);
+    }
+    if path == "/static/fonts/fonts.css" {
+        return (
+            "200 OK",
+            "text/css; charset=utf-8",
+            super::COCKPIT_FONTS_CSS.to_string(),
+        );
+    }
+    if path == "/static/vendor/chart.umd.min.js" {
+        return (
+            "200 OK",
+            "application/javascript; charset=utf-8",
+            super::COCKPIT_VENDOR_CHART_JS.to_string(),
+        );
+    }
+    if path == "/static/vendor/d3.min.js" {
+        return (
+            "200 OK",
+            "application/javascript; charset=utf-8",
+            super::COCKPIT_VENDOR_D3_JS.to_string(),
+        );
+    }
+    if path == "/favicon.svg" {
+        return (
+            "200 OK",
+            "image/svg+xml; charset=utf-8",
+            super::COCKPIT_FAVICON_SVG.to_string(),
+        );
     }
     if path == "/favicon.ico" {
         return ("204 No Content", "text/plain", String::new());

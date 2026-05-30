@@ -67,8 +67,29 @@ function destroyIfNeeded(canvasId) {
  * @param {object} data
  * @param {object} [options]
  */
+/** Paints a subtle inline notice onto a canvas when a chart cannot render
+ *  (e.g. the vendored library failed to load). Keeps the panel from looking
+ *  silently broken. */
+function paintCanvasNotice(canvasId, message) {
+  const el = typeof canvasId === 'string' ? document.getElementById(canvasId) : canvasId;
+  if (!el || el.tagName !== 'CANVAS') return;
+  const ctx = el.getContext && el.getContext('2d');
+  if (!ctx) return;
+  const w = el.width || el.clientWidth || 240;
+  const h = el.height || el.clientHeight || 120;
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = '#7a7a9a';
+  ctx.font = '11px ui-monospace, monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(message, w / 2, h / 2);
+}
+
 function createChart(canvasId, type, data, options) {
-  if (typeof Chart === 'undefined') throw { error: 'Chart.js not loaded' };
+  if (typeof Chart === 'undefined') {
+    paintCanvasNotice(canvasId, 'Chart unavailable');
+    throw { error: 'Chart.js not loaded' };
+  }
   const canvas = destroyIfNeeded(canvasId);
   if (!canvas) throw { error: 'canvas not found: ' + canvasId };
   const defaults = chartDefaults();
@@ -144,6 +165,7 @@ window.LctxCharts = {
   barChart,
   chartDefaults,
   destroyIfNeeded,
+  paintCanvasNotice,
 };
 
-export { createChart, doughnutChart, lineChart, barChart, chartDefaults, destroyIfNeeded };
+export { createChart, doughnutChart, lineChart, barChart, chartDefaults, destroyIfNeeded, paintCanvasNotice };

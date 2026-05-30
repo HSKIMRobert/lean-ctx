@@ -1,14 +1,12 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicU8;
 use std::sync::Mutex;
 use std::time::SystemTime;
 
-static SESSION_DEGRADE_LEVEL: AtomicU8 = AtomicU8::new(0);
-
 use super::memory_policy::MemoryPolicy;
 
+mod enums;
 mod memory;
 mod proxy;
 pub mod schema;
@@ -16,6 +14,9 @@ mod serde_defaults;
 pub mod setter;
 mod shell_activation;
 
+pub use enums::{
+    CompressionLevel, OutputDensity, ResponseVerbosity, RulesScope, TeeMode, TerseAgent,
+};
 pub use memory::{MemoryCleanup, MemoryGuardConfig, MemoryProfile, SavingsFooter};
 pub use proxy::{is_local_proxy_url, normalize_url, normalize_url_opt, ProxyConfig, ProxyProvider};
 pub use shell_activation::ShellActivation;
@@ -23,250 +24,6 @@ pub use shell_activation::ShellActivation;
 /// Default BM25 cache cap from config (also used by `bm25_index` heuristics).
 pub fn default_bm25_max_cache_mb() -> u64 {
     serde_defaults::default_bm25_max_cache_mb()
-}
-
-/// Controls when shell output is tee'd to disk for later retrieval.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum TeeMode {
-    Never,
-    #[default]
-    Failures,
-    HighCompression,
-    Always,
-}
-
-/// Legacy: Controls agent output verbosity level injected into MCP instructions.
-/// Superseded by `CompressionLevel`. Kept for backward compatibility with old config.toml files.
-/// New setups use `compression_level` instead. See `CompressionLevel::effective()`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum TerseAgent {
-    #[default]
-    Off,
-    Lite,
-    Full,
-    Ultra,
-}
-
-impl TerseAgent {
-    /// Reads the terse-agent level from the `LEAN_CTX_TERSE_AGENT` env var.
-    pub fn from_env() -> Self {
-        match std::env::var("LEAN_CTX_TERSE_AGENT")
-            .unwrap_or_default()
-            .to_lowercase()
-            .as_str()
-        {
-            "lite" => Self::Lite,
-            "full" => Self::Full,
-            "ultra" => Self::Ultra,
-            _ => Self::Off,
-        }
-    }
-}
-
-/// Legacy: Controls how dense/compact MCP tool output is formatted.
-/// Superseded by `CompressionLevel`. Kept for backward compatibility with old config.toml files.
-/// New setups use `compression_level` instead. See `CompressionLevel::effective()`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum OutputDensity {
-    #[default]
-    Normal,
-    Terse,
-    Ultra,
-}
-
-impl OutputDensity {
-    /// Reads the output density from the `LEAN_CTX_OUTPUT_DENSITY` env var.
-    pub fn from_env() -> Self {
-        match std::env::var("LEAN_CTX_OUTPUT_DENSITY")
-            .unwrap_or_default()
-            .to_lowercase()
-            .as_str()
-        {
-            "terse" => Self::Terse,
-            "ultra" => Self::Ultra,
-            _ => Self::Normal,
-        }
-    }
-}
-
-/// Unified compression level that replaces the 4 separate legacy concepts:
-/// `terse_agent`, `output_density`, `terse_mode`, and `crp_mode`.
-///
-/// Controls how much detail tool responses include.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum ResponseVerbosity {
-    #[default]
-    Full,
-    HeadersOnly,
-}
-
-impl ResponseVerbosity {
-    pub fn effective() -> Self {
-        if let Ok(v) = std::env::var("LEAN_CTX_RESPONSE_VERBOSITY") {
-            match v.trim().to_lowercase().as_str() {
-                "headers_only" | "headers" | "minimal" => return Self::HeadersOnly,
-                "full" | "" => return Self::Full,
-                _ => {}
-            }
-        }
-        Config::load().response_verbosity
-    }
-
-    pub fn is_headers_only(&self) -> bool {
-        matches!(self, Self::HeadersOnly)
-    }
-}
-
-/// Each level maps to specific component settings via `to_components()`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum CompressionLevel {
-    Off,
-    /// Default: plain-English "concise" guidance (bullets, no filler). Readable
-    /// by humans inspecting their rules files, and still token-saving. The
-    /// denser, symbolic styles (`Standard`/`Max`, which enable CRP and the
-    /// `→ ∵ ∴` vocabulary) are opt-in "power modes" — set `compression_level`
-    /// in config. This only shapes the model's prose; tool-output compression
-    /// is governed separately and is unaffected.
-    #[default]
-    Lite,
-    Standard,
-    Max,
-}
-
-impl CompressionLevel {
-    /// Decomposes the unified level into legacy component settings.
-    /// Returns (TerseAgent, OutputDensity, crp_mode_str, terse_mode_bool).
-    pub fn to_components(&self) -> (TerseAgent, OutputDensity, &'static str, bool) {
-        match self {
-            Self::Off => (TerseAgent::Off, OutputDensity::Normal, "off", false),
-            Self::Lite => (TerseAgent::Lite, OutputDensity::Terse, "off", true),
-            Self::Standard => (TerseAgent::Full, OutputDensity::Terse, "compact", true),
-            Self::Max => (TerseAgent::Ultra, OutputDensity::Ultra, "tdd", true),
-        }
-    }
-
-    /// Infers a `CompressionLevel` from legacy config keys for backward compatibility.
-    /// Priority: terse_agent > output_density (picks the highest implied level).
-    pub fn from_legacy(terse_agent: &TerseAgent, output_density: &OutputDensity) -> Self {
-        match (terse_agent, output_density) {
-            (TerseAgent::Ultra, _) | (_, OutputDensity::Ultra) => Self::Max,
-            (TerseAgent::Full, _) => Self::Standard,
-            (TerseAgent::Lite, _) | (_, OutputDensity::Terse) => Self::Lite,
-            _ => Self::Off,
-        }
-    }
-
-    /// Reads the compression level from the `LEAN_CTX_COMPRESSION` env var.
-    pub fn from_env() -> Option<Self> {
-        std::env::var("LEAN_CTX_COMPRESSION").ok().and_then(|v| {
-            match v.trim().to_lowercase().as_str() {
-                "off" => Some(Self::Off),
-                "lite" => Some(Self::Lite),
-                "standard" => Some(Self::Standard),
-                "max" => Some(Self::Max),
-                _ => None,
-            }
-        })
-    }
-
-    /// Returns the effective compression level with resolution order:
-    /// 0. Session-level degrade override (set by correction-loop feedback)
-    /// 1. `LEAN_CTX_COMPRESSION` env var
-    /// 2. `compression_level` in config
-    /// 3. Legacy `ultra_compact` flag (maps to `Max`)
-    /// 4. Legacy env vars (`LEAN_CTX_TERSE_AGENT`, `LEAN_CTX_OUTPUT_DENSITY`)
-    /// 5. Legacy config fields (`terse_agent`, `output_density`)
-    pub fn effective(config: &Config) -> Self {
-        if let Some(degraded) = Self::session_degrade_level() {
-            return degraded;
-        }
-        if let Some(env_level) = Self::from_env() {
-            return env_level;
-        }
-        if config.compression_level != Self::Off {
-            return config.compression_level.clone();
-        }
-        if config.ultra_compact {
-            return Self::Max;
-        }
-        let ta_env = TerseAgent::from_env();
-        let od_env = OutputDensity::from_env();
-        let ta = if ta_env == TerseAgent::Off {
-            config.terse_agent.clone()
-        } else {
-            ta_env
-        };
-        let od = if od_env == OutputDensity::Normal {
-            config.output_density.clone()
-        } else {
-            od_env
-        };
-        Self::from_legacy(&ta, &od)
-    }
-
-    /// Session-level degrade: correction loop detected, temporarily reduce compression.
-    /// 0 = no override, 1 = Off, 2 = Lite
-    pub fn session_degrade_level() -> Option<Self> {
-        match SESSION_DEGRADE_LEVEL.load(std::sync::atomic::Ordering::Relaxed) {
-            1 => Some(Self::Off),
-            2 => Some(Self::Lite),
-            _ => None,
-        }
-    }
-
-    /// Sets a session-level compression degrade (called by correction loop detection).
-    pub fn set_session_degrade(level: &Self) {
-        let val = match level {
-            Self::Off => 1u8,
-            Self::Lite => 2u8,
-            _ => 0u8,
-        };
-        SESSION_DEGRADE_LEVEL.store(val, std::sync::atomic::Ordering::Relaxed);
-    }
-
-    /// Clears the session-level degrade (recovery after correction rate drops).
-    pub fn clear_session_degrade() {
-        SESSION_DEGRADE_LEVEL.store(0, std::sync::atomic::Ordering::Relaxed);
-    }
-
-    pub fn from_str_label(s: &str) -> Option<Self> {
-        match s.trim().to_lowercase().as_str() {
-            "off" => Some(Self::Off),
-            "lite" => Some(Self::Lite),
-            "standard" | "std" => Some(Self::Standard),
-            "max" => Some(Self::Max),
-            _ => None,
-        }
-    }
-
-    pub fn is_active(&self) -> bool {
-        !matches!(self, Self::Off)
-    }
-
-    pub fn label(&self) -> &'static str {
-        match self {
-            Self::Off => "off",
-            Self::Lite => "lite",
-            Self::Standard => "standard",
-            Self::Max => "max",
-        }
-    }
-
-    pub fn description(&self) -> &'static str {
-        match self {
-            Self::Off => "No compression — full verbose output",
-            Self::Lite => "Light compression — concise output, basic terse filtering",
-            Self::Standard => {
-                "Standard compression — dense output, compact protocol, pattern-aware"
-            }
-            Self::Max => "Maximum compression — expert mode, TDD protocol, all layers active",
-        }
-    }
 }
 
 /// Global lean-ctx configuration loaded from `config.toml`, merged with project-local overrides.
@@ -1181,14 +938,6 @@ pub(crate) fn default_shell_allowlist() -> Vec<String> {
     .iter()
     .map(|s| (*s).to_string())
     .collect()
-}
-
-/// Where agent rule files are installed: global home dir, project-local, or both.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RulesScope {
-    Both,
-    Global,
-    Project,
 }
 
 impl Config {

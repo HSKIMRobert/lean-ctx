@@ -4,9 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>LeanCTX Context Cockpit</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="stylesheet" href="/static/fonts/fonts.css">
 <link rel="stylesheet" href="/static/style.css">
 <style>
 /* Cockpit shell — works with tokens in style.css */
@@ -116,8 +115,8 @@
   .topbar-center{max-width:100%;order:3;flex-basis:100%}
 }
 </style>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js" defer></script>
-<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js" defer></script>
+<script src="/static/vendor/chart.umd.min.js" defer></script>
+<script src="/static/vendor/d3.min.js" defer></script>
 <script>
 (function(){
   if (window.__LEAN_CTX_TOKEN__) {
@@ -154,8 +153,10 @@
 <script type="module" src="/static/components/cockpit-health.js"></script>
 <script type="module" src="/static/components/cockpit-remaining.js"></script>
 <script type="module" src="/static/components/cockpit-commander.js"></script>
+<script type="module" src="/static/components/cockpit-palette.js"></script>
 </head>
 <body class="cockpit-shell-styles">
+<cockpit-palette></cockpit-palette>
 <div class="ascii-global-bg" aria-hidden="true"><pre id="asciiBgPre"></pre></div>
 <script>
 (function(){
@@ -592,10 +593,8 @@ function bootCockpit() {
   }
 
   function syncVersionBadge(ver) {
-    var badge = document.getElementById('verBadge');
     var sbVer = document.getElementById('sbVersion');
     var t = ver || 'v---';
-    if (badge) badge.textContent = t;
     if (sbVer) sbVer.textContent = t;
     if (nav && typeof nav.setVersion === 'function') nav.setVersion(t);
   }

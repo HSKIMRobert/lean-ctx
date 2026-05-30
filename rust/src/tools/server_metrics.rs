@@ -356,7 +356,7 @@ impl LeanCtxServer {
         }
     }
 
-    /// Persists a CEP (Context Efficiency Protocol) score snapshot for analytics.
+    /// Persists a CEP (Cognitive Efficiency Protocol) score snapshot for analytics.
     pub async fn record_cep_snapshot(&self) {
         let cache = self.cache.read().await;
         let calls = self.tool_calls.read().await;

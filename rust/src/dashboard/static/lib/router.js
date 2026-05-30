@@ -36,7 +36,7 @@ const ROUTE_LABELS = {
   deps: 'Dependency Map',
   compression: 'Compression Lab',
   agents: 'Agent World',
-  memory: 'Bug Memory',
+  memory: 'Memory',
   search: 'Search Explorer',
   learning: 'Learning Curves',
   symbols: 'Symbol Explorer',

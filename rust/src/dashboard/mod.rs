@@ -26,6 +26,31 @@ const COCKPIT_COMPONENT_GRAPH_JS: &str = include_str!("static/components/cockpit
 const COCKPIT_COMPONENT_HEALTH_JS: &str = include_str!("static/components/cockpit-health.js");
 const COCKPIT_COMPONENT_REMAINING_JS: &str = include_str!("static/components/cockpit-remaining.js");
 const COCKPIT_COMPONENT_COMMANDER_JS: &str = include_str!("static/components/cockpit-commander.js");
+const COCKPIT_COMPONENT_PALETTE_JS: &str = include_str!("static/components/cockpit-palette.js");
+
+// Vendored third-party libraries — embedded so the dashboard works fully offline
+// (no external CDN). Served as text via the standard route pipeline.
+const COCKPIT_VENDOR_CHART_JS: &str = include_str!("static/vendor/chart.umd.min.js");
+const COCKPIT_VENDOR_D3_JS: &str = include_str!("static/vendor/d3.min.js");
+const COCKPIT_FONTS_CSS: &str = include_str!("static/fonts/fonts.css");
+const COCKPIT_FAVICON_SVG: &str = include_str!("static/favicon.svg");
+
+// Self-hosted variable fonts (binary woff2). Served via a dedicated binary
+// branch in `handle_request` so the bytes are never corrupted by the
+// String-based route pipeline.
+const FONT_INTER_WOFF2: &[u8] = include_bytes!("static/fonts/inter-variable.woff2");
+const FONT_JETBRAINS_WOFF2: &[u8] = include_bytes!("static/fonts/jetbrains-mono-variable.woff2");
+const FONT_SPACE_GROTESK_WOFF2: &[u8] = include_bytes!("static/fonts/space-grotesk-variable.woff2");
+
+/// Maps a request path to an embedded binary font asset.
+fn match_font_asset(path: &str) -> Option<&'static [u8]> {
+    match path {
+        "/static/fonts/inter-variable.woff2" => Some(FONT_INTER_WOFF2),
+        "/static/fonts/jetbrains-mono-variable.woff2" => Some(FONT_JETBRAINS_WOFF2),
+        "/static/fonts/space-grotesk-variable.woff2" => Some(FONT_SPACE_GROTESK_WOFF2),
+        _ => None,
+    }
+}
 
 pub mod routes;
 
@@ -420,6 +445,24 @@ async fn handle_request(mut stream: tokio::net::TcpStream, token: Option<Arc<Str
         .find('?')
         .map_or(String::new(), |i| raw_path[i + 1..].to_string());
 
+    // Binary font assets are public (like CSS/JS) and bypass the String-based
+    // route pipeline so their bytes stay intact.
+    if let Some(bytes) = match_font_asset(&path) {
+        let header = format!(
+            "HTTP/1.1 200 OK\r\n\
+             Content-Type: font/woff2\r\n\
+             Content-Length: {}\r\n\
+             Cache-Control: public, max-age=31536000, immutable\r\n\
+             X-Content-Type-Options: nosniff\r\n\
+             Connection: close\r\n\
+             \r\n",
+            bytes.len()
+        );
+        let _ = stream.write_all(header.as_bytes()).await;
+        let _ = stream.write_all(bytes).await;
+        return;
+    }
+
     let is_api = path.starts_with("/api/");
     let requires_auth = is_api || path == "/metrics";
 
@@ -512,7 +555,7 @@ async fn handle_request(mut stream: tokio::net::TcpStream, token: Option<Arc<Str
         "X-Content-Type-Options: nosniff\r\n\
          X-Frame-Options: DENY\r\n\
          Referrer-Policy: no-referrer\r\n\
-         Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-{nonce}' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'\r\n"
+         Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-{nonce}'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'\r\n"
     );
 
     let response = format!(
