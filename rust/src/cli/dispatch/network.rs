@@ -732,3 +732,95 @@ pub(super) fn cmd_serve(rest: &[String]) {
         std::process::exit(1);
     }
 }
+
+/// Reads a `--data-source <id>` / `--data-source=<id>` flag, defaulting to "jira".
+fn data_source_flag(args: &[String]) -> String {
+    args.iter()
+        .enumerate()
+        .find_map(|(i, a)| {
+            if let Some(v) = a.strip_prefix("--data-source=") {
+                return Some(v.to_string());
+            }
+            if a == "--data-source" {
+                return args.get(i + 1).cloned();
+            }
+            None
+        })
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| "jira".to_string())
+}
+
+fn provider_usage() {
+    eprintln!(
+        "Usage: lean-ctx provider <command>\n\n\
+         Commands:\n  \
+         auth jira [--data-source <id>]     Connect a Jira Cloud site via OAuth 2.0 (3LO)\n  \
+         logout jira [--data-source <id>]   Remove stored Jira OAuth credentials\n  \
+         list                               List connected Jira OAuth data sources\n\n\
+         Jira OAuth requires your own Atlassian app credentials in the environment:\n  \
+         JIRA_OAUTH_CLIENT_ID, JIRA_OAUTH_CLIENT_SECRET\n  \
+         (optional) JIRA_OAUTH_SCOPES — default: \"read:jira-work read:jira-user offline_access\"\n\n\
+         Register a free app at https://developer.atlassian.com/console/myapps/"
+    );
+}
+
+pub(super) fn cmd_provider(rest: &[String]) {
+    use crate::core::providers::jira_oauth;
+
+    let sub = rest.first().map_or("help", std::string::String::as_str);
+    match sub {
+        "auth" | "login" | "connect" => {
+            let target = rest.get(1).map_or("", std::string::String::as_str);
+            if !target.eq_ignore_ascii_case("jira") {
+                eprintln!("Only 'jira' is supported for OAuth today.\n");
+                provider_usage();
+                std::process::exit(1);
+            }
+            let args: &[String] = if rest.len() > 2 { &rest[2..] } else { &[] };
+            let data_source = data_source_flag(args);
+            match jira_oauth::run_auth_flow(&data_source) {
+                Ok(()) => {}
+                Err(e) => {
+                    eprintln!("\x1b[31m✗\x1b[0m Jira OAuth failed: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        "logout" | "disconnect" => {
+            let target = rest.get(1).map_or("", std::string::String::as_str);
+            if !target.eq_ignore_ascii_case("jira") {
+                provider_usage();
+                std::process::exit(1);
+            }
+            let args: &[String] = if rest.len() > 2 { &rest[2..] } else { &[] };
+            let data_source = data_source_flag(args);
+            match jira_oauth::remove_credential(&data_source) {
+                Ok(true) => {
+                    println!(
+                        "\x1b[32m✓\x1b[0m Removed Jira OAuth credentials for '{data_source}'."
+                    );
+                }
+                Ok(false) => {
+                    println!("No stored Jira OAuth credentials for '{data_source}'.");
+                }
+                Err(e) => {
+                    eprintln!("\x1b[31m✗\x1b[0m {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        "list" | "ls" | "status" => {
+            let conns = jira_oauth::list_connections();
+            if conns.is_empty() {
+                println!("No Jira OAuth data sources connected. Run: lean-ctx provider auth jira");
+            } else {
+                println!("Connected Jira OAuth data sources:");
+                for c in conns {
+                    println!("  • {c}");
+                }
+            }
+        }
+        _ => provider_usage(),
+    }
+}

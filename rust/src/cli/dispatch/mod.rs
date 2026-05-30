@@ -130,6 +130,10 @@ pub fn run() {
                 cmd_team(&rest);
                 return;
             }
+            "provider" => {
+                cmd_provider(&rest);
+                return;
+            }
             "serve" => {
                 cmd_serve(&rest);
                 return;

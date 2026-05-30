@@ -6,7 +6,17 @@
 //!   - `JIRA_TOKEN`: API token
 //!   - `JIRA_PROJECT`: Default project key (e.g., "PROJ")
 //!   - `JIRA_DEPLOYMENT`: `cloud` (default) or `server` for Data Center/Server
+//!
+//! Authentication is resolved in this order:
+//!   1. **OAuth 2.0 (3LO)** — used when a stored OAuth credential exists for the
+//!      data source (see [`crate::core::providers::jira_oauth`]) or when
+//!      `JIRA_AUTH=oauth` is set. Bearer tokens are auto-refreshed and Cloud API
+//!      calls are routed through `https://api.atlassian.com/ex/jira/{cloudId}`.
+//!   2. **Basic auth** — the classic `JIRA_EMAIL` + `JIRA_TOKEN` API-token flow,
+//!      which remains the default and the recommended path for Jira Server / Data
+//!      Center.
 
+use crate::core::providers::jira_oauth;
 use crate::core::providers::{ContextProvider, ProviderItem, ProviderParams, ProviderResult};
 
 const B64_CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -40,19 +50,36 @@ pub enum JiraDeployment {
     Server,
 }
 
+/// How a `JiraConfig` authenticates to Jira.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum JiraAuth {
+    /// Classic email + API token (Basic auth). Default; works for Cloud and
+    /// Server / Data Center.
+    Basic { email: String, token: String },
+    /// OAuth 2.0 (3LO) bearer tokens resolved from the named data source's
+    /// stored credential (Jira Cloud only).
+    OAuth { data_source: String },
+}
+
 pub struct JiraConfig {
     pub base_url: String,
-    pub email: String,
-    pub token: String,
     pub project: Option<String>,
     pub deployment: JiraDeployment,
+    pub auth: JiraAuth,
+}
+
+/// The per-request resolved routing + credential.
+struct ResolvedAuth {
+    /// Base URL for REST calls (Cloud OAuth routes via `api.atlassian.com`).
+    api_base: String,
+    /// Base URL for `/browse/` item links (the user-facing site URL).
+    browse_base: String,
+    /// The `Authorization` header value (`Basic …` or `Bearer …`).
+    auth_header: String,
 }
 
 impl JiraConfig {
     pub fn from_env() -> Result<Self, String> {
-        let base_url = std::env::var("JIRA_URL").map_err(|_| "JIRA_URL not set")?;
-        let email = std::env::var("JIRA_EMAIL").map_err(|_| "JIRA_EMAIL not set")?;
-        let token = std::env::var("JIRA_TOKEN").map_err(|_| "JIRA_TOKEN not set")?;
         let project = std::env::var("JIRA_PROJECT").ok();
 
         let deployment = match std::env::var("JIRA_DEPLOYMENT")
@@ -64,19 +91,70 @@ impl JiraConfig {
             _ => JiraDeployment::Cloud,
         };
 
+        // Prefer OAuth when a credential is already stored for the data source,
+        // or when explicitly forced via JIRA_AUTH=oauth.
+        let data_source = std::env::var("JIRA_DATA_SOURCE")
+            .ok()
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| "jira".to_string());
+        let force_oauth = std::env::var("JIRA_AUTH").is_ok_and(|v| v.eq_ignore_ascii_case("oauth"));
+        let has_oauth_cred = jira_oauth::get_credential(&data_source).is_some();
+
+        if force_oauth || has_oauth_cred {
+            // OAuth is Jira Cloud only; JIRA_URL is optional and only used as a
+            // fallback for browse links if the stored site URL is unavailable.
+            let base_url = std::env::var("JIRA_URL")
+                .unwrap_or_default()
+                .trim_end_matches('/')
+                .to_string();
+            return Ok(Self {
+                base_url,
+                project,
+                deployment: JiraDeployment::Cloud,
+                auth: JiraAuth::OAuth { data_source },
+            });
+        }
+
+        let base_url = std::env::var("JIRA_URL").map_err(|_| "JIRA_URL not set")?;
+        let email = std::env::var("JIRA_EMAIL").map_err(|_| "JIRA_EMAIL not set")?;
+        let token = std::env::var("JIRA_TOKEN").map_err(|_| "JIRA_TOKEN not set")?;
+
         Ok(Self {
             base_url: base_url.trim_end_matches('/').to_string(),
-            email,
-            token,
             project,
             deployment,
+            auth: JiraAuth::Basic { email, token },
         })
     }
 
-    fn auth_header(&self) -> String {
-        let credentials = format!("{}:{}", self.email, self.token);
-        let encoded = simple_base64(credentials.as_bytes());
-        format!("Basic {encoded}")
+    /// Resolves the effective base URLs and `Authorization` header for a request,
+    /// refreshing OAuth tokens on demand.
+    fn resolve(&self) -> Result<ResolvedAuth, String> {
+        match &self.auth {
+            JiraAuth::Basic { email, token } => {
+                let credentials = format!("{email}:{token}");
+                let encoded = simple_base64(credentials.as_bytes());
+                Ok(ResolvedAuth {
+                    api_base: self.base_url.clone(),
+                    browse_base: self.base_url.clone(),
+                    auth_header: format!("Basic {encoded}"),
+                })
+            }
+            JiraAuth::OAuth { data_source } => {
+                let tok = jira_oauth::ensure_valid_access_token(data_source)?;
+                let browse_base = if tok.cloud_url.is_empty() {
+                    self.base_url.clone()
+                } else {
+                    tok.cloud_url.trim_end_matches('/').to_string()
+                };
+                Ok(ResolvedAuth {
+                    api_base: format!("{}/{}", jira_oauth::API_BASE, tok.cloud_id),
+                    browse_base,
+                    auth_header: format!("Bearer {}", tok.access_token),
+                })
+            }
+        }
     }
 }
 
@@ -138,20 +216,20 @@ impl ContextProvider for JiraProvider {
 // ---------------------------------------------------------------------------
 
 fn jira_request(
-    config: &JiraConfig,
+    auth_header: &str,
     method: &str,
     url: &str,
     body: Option<&[u8]>,
 ) -> Result<String, String> {
     let resp = match method {
         "POST" => ureq::post(url)
-            .header("Authorization", &config.auth_header())
+            .header("Authorization", auth_header)
             .header("Accept", "application/json")
             .header("Content-Type", "application/json")
             .send(body.unwrap_or(&[]))
             .map_err(|ref e| jira_error_with_hint(e))?,
         _ => ureq::get(url)
-            .header("Authorization", &config.auth_header())
+            .header("Authorization", auth_header)
             .header("Accept", "application/json")
             .call()
             .map_err(|ref e| jira_error_with_hint(e))?,
@@ -206,9 +284,10 @@ fn list_issues_cloud(
     config: &JiraConfig,
     params: &ProviderParams,
 ) -> Result<ProviderResult, String> {
+    let resolved = config.resolve()?;
     let limit = params.limit.unwrap_or(20);
     let jql = build_jql(config, params);
-    let url = format!("{}/rest/api/3/search/jql", config.base_url);
+    let url = format!("{}/rest/api/3/search/jql", resolved.api_base);
 
     let mut all_items = Vec::new();
     let mut next_page_token: Option<String> = None;
@@ -224,12 +303,16 @@ fn list_issues_cloud(
         }
 
         let body_bytes = serde_json::to_vec(&body).unwrap_or_default();
-        let text = jira_request(config, "POST", &url, Some(&body_bytes))?;
+        let text = jira_request(&resolved.auth_header, "POST", &url, Some(&body_bytes))?;
         let resp: serde_json::Value =
             serde_json::from_str(&text).map_err(|e| format!("Jira JSON parse error: {e}"))?;
 
         let issues = resp["issues"].as_array().cloned().unwrap_or_default();
-        all_items.extend(issues.iter().map(|issue| parse_issue(issue, config)));
+        all_items.extend(
+            issues
+                .iter()
+                .map(|issue| parse_issue(issue, &resolved.browse_base)),
+        );
 
         next_page_token = resp["nextPageToken"].as_str().map(String::from);
 
@@ -254,16 +337,17 @@ fn list_issues_server(
     config: &JiraConfig,
     params: &ProviderParams,
 ) -> Result<ProviderResult, String> {
+    let resolved = config.resolve()?;
     let limit = params.limit.unwrap_or(20);
     let jql = build_jql(config, params);
 
     let url = format!(
         "{}/rest/api/2/search?jql={}&maxResults={limit}",
-        config.base_url,
+        resolved.api_base,
         urlencoding::encode(&jql)
     );
 
-    let text = jira_request(config, "GET", &url, None)?;
+    let text = jira_request(&resolved.auth_header, "GET", &url, None)?;
     let body: serde_json::Value =
         serde_json::from_str(&text).map_err(|e| format!("Jira JSON parse error: {e}"))?;
 
@@ -272,7 +356,7 @@ fn list_issues_server(
 
     let items: Vec<ProviderItem> = issues
         .iter()
-        .map(|issue| parse_issue(issue, config))
+        .map(|issue| parse_issue(issue, &resolved.browse_base))
         .collect();
 
     Ok(ProviderResult {
@@ -284,7 +368,7 @@ fn list_issues_server(
     })
 }
 
-fn parse_issue(issue: &serde_json::Value, config: &JiraConfig) -> ProviderItem {
+fn parse_issue(issue: &serde_json::Value, browse_base: &str) -> ProviderItem {
     let fields = &issue["fields"];
     ProviderItem {
         id: issue["key"].as_str().unwrap_or_default().to_string(),
@@ -295,7 +379,7 @@ fn parse_issue(issue: &serde_json::Value, config: &JiraConfig) -> ProviderItem {
         updated_at: fields["updated"].as_str().map(String::from),
         url: Some(format!(
             "{}/browse/{}",
-            config.base_url,
+            browse_base,
             issue["key"].as_str().unwrap_or_default()
         )),
         labels: fields["labels"]
@@ -327,13 +411,14 @@ fn list_sprints(config: &JiraConfig, params: &ProviderParams) -> Result<Provider
         .as_deref()
         .ok_or("Sprint listing requires a board ID via the 'state' parameter")?;
 
+    let resolved = config.resolve()?;
     let limit = params.limit.unwrap_or(5);
     let url = format!(
         "{}/rest/agile/1.0/board/{board_id}/sprint?state=active,future&maxResults={limit}",
-        config.base_url
+        resolved.api_base
     );
 
-    let text = jira_request(config, "GET", &url, None)?;
+    let text = jira_request(&resolved.auth_header, "GET", &url, None)?;
     let body: serde_json::Value =
         serde_json::from_str(&text).map_err(|e| format!("Jira JSON parse error: {e}"))?;
 
@@ -365,18 +450,41 @@ fn list_sprints(config: &JiraConfig, params: &ProviderParams) -> Result<Provider
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    /// Serializes tests that mutate the process-global `JIRA_*` environment.
+    /// Without this, parallel tests race on shared env and intermittently fail.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    /// Clears every Jira-related env var so a test starts from a known state.
+    /// Pins a data source that has no stored OAuth credential so the OAuth
+    /// auto-detection in `from_env` is deterministic across machines.
+    fn reset_jira_env() {
+        for var in [
+            "JIRA_URL",
+            "JIRA_EMAIL",
+            "JIRA_TOKEN",
+            "JIRA_PROJECT",
+            "JIRA_DEPLOYMENT",
+            "JIRA_AUTH",
+        ] {
+            std::env::remove_var(var);
+        }
+        std::env::set_var("JIRA_DATA_SOURCE", "lean-ctx-test-no-such-source");
+    }
 
     #[test]
     fn jira_provider_is_unavailable_without_env() {
-        let _orig_url = std::env::var("JIRA_URL");
-        std::env::remove_var("JIRA_URL");
-        std::env::remove_var("JIRA_EMAIL");
-        std::env::remove_var("JIRA_TOKEN");
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset_jira_env();
 
         let provider = JiraProvider::new();
         assert!(!provider.is_available());
         assert_eq!(provider.id(), "jira");
         assert!(provider.requires_auth());
+        std::env::remove_var("JIRA_DATA_SOURCE");
     }
 
     #[test]
@@ -388,20 +496,27 @@ mod tests {
 
     #[test]
     fn deployment_defaults_to_cloud() {
-        std::env::remove_var("JIRA_DEPLOYMENT");
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset_jira_env();
         std::env::set_var("JIRA_URL", "https://test.atlassian.net");
         std::env::set_var("JIRA_EMAIL", "test@test.com");
         std::env::set_var("JIRA_TOKEN", "token");
         let cfg = JiraConfig::from_env().unwrap();
         assert_eq!(cfg.deployment, JiraDeployment::Cloud);
-        std::env::remove_var("JIRA_URL");
-        std::env::remove_var("JIRA_EMAIL");
-        std::env::remove_var("JIRA_TOKEN");
+        assert!(matches!(cfg.auth, JiraAuth::Basic { .. }));
+        reset_jira_env();
+        std::env::remove_var("JIRA_DATA_SOURCE");
     }
 
     #[test]
     fn deployment_server_variants() {
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         for val in &["server", "dc", "datacenter", "SERVER", "DC"] {
+            reset_jira_env();
             std::env::set_var("JIRA_URL", "https://jira.internal");
             std::env::set_var("JIRA_EMAIL", "u@e.com");
             std::env::set_var("JIRA_TOKEN", "t");
@@ -409,21 +524,39 @@ mod tests {
             let cfg = JiraConfig::from_env().unwrap();
             assert_eq!(cfg.deployment, JiraDeployment::Server, "failed for {val}");
         }
-        std::env::remove_var("JIRA_URL");
-        std::env::remove_var("JIRA_EMAIL");
-        std::env::remove_var("JIRA_TOKEN");
-        std::env::remove_var("JIRA_DEPLOYMENT");
+        reset_jira_env();
+        std::env::remove_var("JIRA_DATA_SOURCE");
+    }
+
+    #[test]
+    fn oauth_is_selected_when_forced() {
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset_jira_env();
+        std::env::set_var("JIRA_AUTH", "oauth");
+        let cfg = JiraConfig::from_env().unwrap();
+        assert!(matches!(cfg.auth, JiraAuth::OAuth { .. }));
+        assert_eq!(cfg.deployment, JiraDeployment::Cloud);
+        reset_jira_env();
+        std::env::remove_var("JIRA_DATA_SOURCE");
+    }
+
+    fn basic_cfg(base_url: &str, project: Option<&str>) -> JiraConfig {
+        JiraConfig {
+            base_url: base_url.into(),
+            project: project.map(String::from),
+            deployment: JiraDeployment::Cloud,
+            auth: JiraAuth::Basic {
+                email: String::new(),
+                token: String::new(),
+            },
+        }
     }
 
     #[test]
     fn build_jql_with_project() {
-        let cfg = JiraConfig {
-            base_url: "https://x.atlassian.net".into(),
-            email: String::new(),
-            token: String::new(),
-            project: Some("PROJ".into()),
-            deployment: JiraDeployment::Cloud,
-        };
+        let cfg = basic_cfg("https://x.atlassian.net", Some("PROJ"));
         let params = ProviderParams::default();
         assert_eq!(
             build_jql(&cfg, &params),
@@ -433,13 +566,7 @@ mod tests {
 
     #[test]
     fn build_jql_wildcard() {
-        let cfg = JiraConfig {
-            base_url: String::new(),
-            email: String::new(),
-            token: String::new(),
-            project: None,
-            deployment: JiraDeployment::Cloud,
-        };
+        let cfg = basic_cfg("", None);
         let params = ProviderParams::default();
         assert_eq!(build_jql(&cfg, &params), "ORDER BY updated DESC");
     }
@@ -482,14 +609,7 @@ mod tests {
                 "description": "Fix the thing"
             }
         });
-        let cfg = JiraConfig {
-            base_url: "https://x.atlassian.net".into(),
-            email: String::new(),
-            token: String::new(),
-            project: None,
-            deployment: JiraDeployment::Cloud,
-        };
-        let item = parse_issue(&issue, &cfg);
+        let item = parse_issue(&issue, "https://x.atlassian.net");
         assert_eq!(item.id, "PROJ-123");
         assert_eq!(item.title, "Test issue");
         assert_eq!(item.state.as_deref(), Some("Open"));

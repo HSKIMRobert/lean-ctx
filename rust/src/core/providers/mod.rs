@@ -5,6 +5,7 @@ pub mod github;
 pub mod gitlab;
 pub mod init;
 pub mod jira;
+pub mod jira_oauth;
 pub mod mcp_bridge;
 pub mod postgres;
 pub mod provider_trait;
