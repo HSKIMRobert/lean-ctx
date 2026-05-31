@@ -1094,6 +1094,16 @@ pub fn format_search_results(results: &[SearchResult], compact: bool) -> String 
     let mut out = String::new();
     for (i, r) in results.iter().enumerate() {
         let is_external = r.file_path.contains("://");
+        // Forward-slash normalize local paths so Windows backslashes are never
+        // dropped/escape-mangled by client render layers (issue #324). External
+        // URIs (provider results, e.g. `github://`) are left untouched.
+        let normalized;
+        let file_path: &str = if is_external {
+            &r.file_path
+        } else {
+            normalized = crate::core::protocol::display_path(&r.file_path);
+            &normalized
+        };
         if compact {
             if is_external {
                 out.push_str(&format!(
@@ -1101,7 +1111,7 @@ pub fn format_search_results(results: &[SearchResult], compact: bool) -> String 
                     i + 1,
                     r.score,
                     r.kind,
-                    r.file_path,
+                    file_path,
                     r.symbol_name,
                 ));
             } else {
@@ -1109,7 +1119,7 @@ pub fn format_search_results(results: &[SearchResult], compact: bool) -> String 
                     "{}. {:.2} {}:{}-{} {:?} {}\n",
                     i + 1,
                     r.score,
-                    r.file_path,
+                    file_path,
                     r.start_line,
                     r.end_line,
                     r.kind,
@@ -1122,7 +1132,7 @@ pub fn format_search_results(results: &[SearchResult], compact: bool) -> String 
                 i + 1,
                 r.score,
                 r.kind,
-                r.file_path,
+                file_path,
                 r.symbol_name,
                 r.snippet,
             ));
@@ -1131,7 +1141,7 @@ pub fn format_search_results(results: &[SearchResult], compact: bool) -> String 
                 "\n--- Result {} (score: {:.2}) ---\n{} :: {} [{:?}] (L{}-{})\n{}\n",
                 i + 1,
                 r.score,
-                r.file_path,
+                file_path,
                 r.symbol_name,
                 r.kind,
                 r.start_line,
@@ -1179,6 +1189,48 @@ mod tests {
         assert!(tokens.contains(&"calculate_total".to_string()));
         assert!(tokens.contains(&"items".to_string()));
         assert!(tokens.contains(&"Vec".to_string()));
+    }
+
+    #[test]
+    fn format_search_results_normalizes_windows_separators() {
+        // Issue #324: Windows backslash paths in search output were dropped or
+        // escape-mangled by client render layers. They must come out with
+        // forward slashes.
+        let r = SearchResult {
+            chunk_idx: 0,
+            score: 1.0,
+            file_path: r"C:\Users\zir\AppData\Local\Temp\win-build-log.txt".to_string(),
+            symbol_name: "main".to_string(),
+            kind: ChunkKind::Function,
+            start_line: 1,
+            end_line: 2,
+            snippet: "x".to_string(),
+        };
+        let compact = format_search_results(std::slice::from_ref(&r), true);
+        assert!(compact.contains("C:/Users/zir/AppData/Local/Temp/win-build-log.txt"));
+        assert!(!compact.contains('\\'));
+
+        let verbose = format_search_results(std::slice::from_ref(&r), false);
+        assert!(verbose.contains("C:/Users/zir/AppData/Local/Temp/win-build-log.txt"));
+        assert!(!verbose.contains('\\'));
+    }
+
+    #[test]
+    fn format_search_results_leaves_external_uris_untouched() {
+        // Provider results (e.g. github://) are not OS paths and must not be
+        // rewritten.
+        let r = SearchResult {
+            chunk_idx: 0,
+            score: 1.0,
+            file_path: "github://owner/repo/issues/42".to_string(),
+            symbol_name: "issue".to_string(),
+            kind: ChunkKind::Module,
+            start_line: 0,
+            end_line: 0,
+            snippet: "y".to_string(),
+        };
+        let out = format_search_results(std::slice::from_ref(&r), true);
+        assert!(out.contains("github://owner/repo/issues/42"));
     }
 
     #[test]

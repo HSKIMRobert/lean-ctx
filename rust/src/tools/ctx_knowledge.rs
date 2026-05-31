@@ -469,9 +469,17 @@ fn handle_remember(
         Ok(p) => p,
         Err(e) => return e,
     };
-    let mut knowledge = ProjectKnowledge::load_or_create(project_root);
-    let contradiction = knowledge.remember(cat, k, v, session_id, conf, &policy);
-    let _ = knowledge.run_memory_lifecycle(&policy);
+    // Serialize the read-modify-write under a per-project lock so parallel
+    // `remember` calls cannot clobber each other (issue #326). The closure
+    // operates on the freshly (re)loaded state inside the lock.
+    let (knowledge, contradiction) = match ProjectKnowledge::mutate_locked(project_root, |kn| {
+        let c = kn.remember(cat, k, v, session_id, conf, &policy);
+        let _ = kn.run_memory_lifecycle(&policy);
+        c
+    }) {
+        Ok(pair) => pair,
+        Err(e) => return format!("Remembered [{cat}] {k}: {v}\n(save failed: {e})"),
+    };
 
     let current_fact = knowledge
         .facts
@@ -553,10 +561,7 @@ fn handle_remember(
         }
     }
 
-    match knowledge.save() {
-        Ok(()) => result,
-        Err(e) => format!("{result}\n(save failed: {e})"),
-    }
+    result
 }
 
 fn handle_recall(

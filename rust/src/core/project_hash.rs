@@ -8,10 +8,18 @@ use std::path::Path;
 /// This prevents hash collisions when different projects share the same
 /// mount path (e.g. Docker volumes at `/workspace`).
 pub(crate) fn hash_project_root(root: &str) -> String {
+    // Normalize the path separator/casing first so the SAME directory always
+    // produces the SAME hash regardless of which interface resolved it. On
+    // Windows the MCP server reports forward slashes (`D:/repo`) while the CLI
+    // reports backslashes (`D:\repo`); without normalization these hash to two
+    // different project stores and facts written via one are invisible to the
+    // other (issue #325). `normalize_tool_path` is a no-op for clean POSIX
+    // paths, so non-Windows hashes are unaffected.
+    let root = crate::core::pathutil::normalize_tool_path(root);
     let mut hasher = DefaultHasher::new();
     root.hash(&mut hasher);
 
-    if let Some(identity) = project_identity(root) {
+    if let Some(identity) = project_identity(&root) {
         identity.hash(&mut hasher);
     }
 
@@ -21,6 +29,7 @@ pub(crate) fn hash_project_root(root: &str) -> String {
 /// Legacy path-only hash used before v3.3.2.
 /// Kept for auto-migration from old knowledge directories.
 pub(crate) fn hash_path_only(root: &str) -> String {
+    let root = crate::core::pathutil::normalize_tool_path(root);
     let mut hasher = DefaultHasher::new();
     root.hash(&mut hasher);
     format!("{:016x}", hasher.finish())
@@ -75,6 +84,33 @@ pub(crate) fn project_identity(root: &str) -> Option<String> {
     }
 
     None
+}
+
+/// Hashes computed from the *raw* (un-normalized) project root, as produced
+/// before issue #325 was fixed. Used purely to detect and migrate stores that
+/// were keyed by a platform-specific path separator (most importantly Windows
+/// backslash paths written by the CLI). Returns both the composite and the
+/// path-only variant. Empty when the raw path already normalizes to itself, so
+/// callers can skip migration on POSIX where no split ever occurred.
+pub(crate) fn legacy_unnormalized_hashes(root: &str) -> Vec<String> {
+    let normalized = crate::core::pathutil::normalize_tool_path(root);
+    if normalized == root {
+        return Vec::new();
+    }
+
+    let mut composite = DefaultHasher::new();
+    root.hash(&mut composite);
+    if let Some(identity) = project_identity(root) {
+        identity.hash(&mut composite);
+    }
+
+    let mut path_only = DefaultHasher::new();
+    root.hash(&mut path_only);
+
+    vec![
+        format!("{:016x}", composite.finish()),
+        format!("{:016x}", path_only.finish()),
+    ]
 }
 
 /// Copies all files from `old_hash` dir to `new_hash` dir when the composite
@@ -319,6 +355,46 @@ mod tests {
         assert_eq!(h.len(), 16);
         let h2 = hash_path_only("/workspace");
         assert_eq!(h, h2);
+    }
+
+    #[test]
+    fn windows_slash_and_backslash_hash_identically() {
+        // Issue #325: the MCP server reports forward slashes while the CLI
+        // reports backslashes for the same Windows directory. Both must resolve
+        // to the same project hash so the knowledge store is not split.
+        assert_eq!(
+            hash_project_root(r"D:\repos\oref-examples"),
+            hash_project_root("D:/repos/oref-examples"),
+        );
+        assert_eq!(
+            hash_path_only(r"D:\repos\oref-examples"),
+            hash_path_only("D:/repos/oref-examples"),
+        );
+    }
+
+    #[test]
+    fn trailing_slash_does_not_split_hash() {
+        assert_eq!(
+            hash_project_root("/home/user/project/"),
+            hash_project_root("/home/user/project"),
+        );
+    }
+
+    #[test]
+    fn legacy_unnormalized_hashes_empty_for_clean_posix() {
+        // POSIX paths already normalize to themselves: no split ever occurred,
+        // so there is nothing to migrate.
+        assert!(legacy_unnormalized_hashes("/home/user/project").is_empty());
+    }
+
+    #[test]
+    fn legacy_unnormalized_hashes_present_for_backslash_path() {
+        // A backslash path normalizes to a different string, so the pre-fix
+        // (raw) hashes are offered for migration.
+        let legacy = legacy_unnormalized_hashes(r"D:\repos\oref-examples");
+        assert_eq!(legacy.len(), 2, "composite + path-only raw hashes");
+        // The raw path-only hash must differ from the normalized hash.
+        assert!(!legacy.contains(&hash_project_root(r"D:\repos\oref-examples")));
     }
 
     #[test]

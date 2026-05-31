@@ -136,6 +136,9 @@ fn build_associative_block(project_root: &str, keywords: &[String]) -> String {
 
     let mut s = String::from("\n## Related (associative: import/call graph + learned co-access)\n");
     for (file, activation) in ranked {
+        // Forward-slash normalize so Windows backslash paths are never escape-
+        // mangled by client render layers (issue #324).
+        let file = crate::core::protocol::display_path(&file);
         s.push_str(&format!("- {file} (activation {activation:.2})\n"));
     }
     s
