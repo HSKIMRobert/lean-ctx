@@ -364,10 +364,16 @@ fn hook_binary_refs(content: &str) -> Vec<String> {
     }
     pieces[..pieces.len() - 1]
         .iter()
-        .filter_map(|piece| piece.split_whitespace().last())
-        .map(|tok| {
-            tok.trim_matches(|c: char| c == '"' || c == '\'' || c == '`' || c == ',')
-                .to_string()
+        .filter_map(|piece| {
+            // The binary token is the trailing run before " hook ", bounded by
+            // whitespace or JSON string delimiters. Splitting on whitespace
+            // alone breaks on minified JSON (e.g. `serde_json::to_string`
+            // output), where there is no space between the opening quote and
+            // the command — we would otherwise capture the whole JSON prefix.
+            piece
+                .rsplit(|c: char| c.is_whitespace() || c == '"' || c == '\'' || c == '`')
+                .find(|tok| !tok.is_empty())
+                .map(|tok| tok.trim_end_matches(',').to_string())
         })
         .filter(|tok| tok.contains("lean-ctx"))
         .collect()
@@ -1111,6 +1117,30 @@ mod tests {
     #[test]
     fn hook_binary_refs_empty_without_hook_invocation() {
         assert!(hook_binary_refs(r#"{"command": "echo nothing here"}"#).is_empty());
+    }
+
+    #[test]
+    fn hook_binary_refs_handles_minified_json() {
+        // `serde_json::to_string` emits no spaces around keys/values; the binary
+        // token must still be extracted cleanly. Regression: the whitespace-only
+        // split used to capture the entire JSON prefix as the "binary".
+        let content = r#"[{"hooks":[{"command":"lean-ctx hook rewrite"},{"command":"lean-ctx hook redirect"}]}]"#;
+        assert_eq!(hook_binary_refs(content), vec!["lean-ctx", "lean-ctx"]);
+    }
+
+    #[test]
+    fn stale_hook_binary_accepts_minified_bare_command() {
+        let content = r#"[{"hooks":[{"command":"lean-ctx hook rewrite"}]}]"#;
+        assert!(stale_hook_binary(content, "/anything/lean-ctx").is_none());
+    }
+
+    #[test]
+    fn stale_hook_binary_flags_minified_foreign_path() {
+        let content = r#"[{"hooks":[{"command":"/old/install/lean-ctx hook rewrite"}]}]"#;
+        assert_eq!(
+            stale_hook_binary(content, "/current/lean-ctx").as_deref(),
+            Some("/old/install/lean-ctx")
+        );
     }
 
     #[test]
