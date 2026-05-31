@@ -346,6 +346,7 @@ pub mod provider_bandit;
 pub mod provider_cache;
 pub mod providers;
 pub mod redaction;
+pub mod reference_docs;
 pub mod roles;
 pub mod route_extractor;
 pub mod saliency;

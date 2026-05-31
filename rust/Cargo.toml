@@ -44,6 +44,11 @@ path = "src/bin/gen_tdd_schema.rs"
 required-features = ["dev-tools"]
 
 [[example]]
+name = "gen_docs"
+path = "src/bin/gen_docs.rs"
+required-features = ["dev-tools"]
+
+[[example]]
 name = "seed_observatory"
 path = "src/bin/seed_observatory.rs"
 required-features = ["dev-tools"]

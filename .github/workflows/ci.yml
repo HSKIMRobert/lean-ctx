@@ -233,5 +233,8 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --no-deps --all-features
+      - name: Check generated reference docs are current
+        working-directory: rust
+        run: cargo run --example gen_docs --features dev-tools -- --check
 
   # Security audit runs in security-check.yml workflow
