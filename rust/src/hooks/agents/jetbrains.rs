@@ -21,7 +21,8 @@ pub(crate) fn install_jetbrains_hook() {
     if config_path.exists() {
         let content = std::fs::read_to_string(&config_path).unwrap_or_default();
         if content.contains("lean-ctx") {
-            eprintln!("JetBrains MCP already configured at {display_path}");
+            eprintln!("JetBrains MCP snippet already written to {display_path}");
+            print_jetbrains_manual_step(display_path);
             return;
         }
 
@@ -35,7 +36,8 @@ pub(crate) fn install_jetbrains_hook() {
                 }
                 if let Ok(formatted) = serde_json::to_string_pretty(&json) {
                     let _ = std::fs::write(&config_path, formatted);
-                    eprintln!("  \x1b[32m✓\x1b[0m JetBrains MCP configured at {display_path}");
+                    eprintln!("  \x1b[32m✓\x1b[0m JetBrains MCP snippet written to {display_path}");
+                    print_jetbrains_manual_step(display_path);
                     return;
                 }
             }
@@ -45,8 +47,20 @@ pub(crate) fn install_jetbrains_hook() {
     let config = serde_json::json!({ "mcpServers": { "lean-ctx": entry } });
     if let Ok(json_str) = serde_json::to_string_pretty(&config) {
         let _ = std::fs::write(&config_path, json_str);
-        eprintln!("  \x1b[32m✓\x1b[0m JetBrains MCP configured at {display_path}");
+        eprintln!("  \x1b[32m✓\x1b[0m JetBrains MCP snippet written to {display_path}");
+        print_jetbrains_manual_step(display_path);
     } else {
         tracing::error!("Failed to configure JetBrains");
     }
+}
+
+/// JetBrains AI Assistant does not auto-load `~/.jb-mcp.json`. The snippet must
+/// be pasted into the IDE once, so we always state the manual step explicitly
+/// to set the right expectation (no silent "configured" that never wires up).
+fn print_jetbrains_manual_step(display_path: &str) {
+    eprintln!(
+        "    \x1b[33mManual step:\x1b[0m JetBrains has no auto-wiring — open \
+Settings → Tools → AI Assistant → Model Context Protocol (MCP) and paste the \
+`lean-ctx` server from {display_path}."
+    );
 }

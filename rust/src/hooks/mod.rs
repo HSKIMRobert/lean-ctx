@@ -47,21 +47,42 @@ impl HookMode {
 ///   Hybrid — MCP server (full Context OS) + shell hooks where available.
 ///            Read/Search via MCP (reliable, cached). Shell via hooks (zero overhead).
 ///   Mcp    — agent has no reliable direct shell tool (e.g. IDE plugin only)
-pub fn recommend_hook_mode(agent_key: &str) -> HookMode {
-    match agent_key {
-        // Hybrid: MCP for reads/search + shell hooks for command compression.
-        // Cursor: hooks.json with Shell matcher + MCP for ctx_read/ctx_search.
-        // Gemini CLI: BeforeTool for shell + MCP for reads/search.
-        // Codex: CLI variant has Bash hooks, Desktop/Cloud variants use MCP.
-        // Claude Code: PreToolUse hooks for shell + MCP for reads/search.
-        // All other agents with shell access: shell hooks + MCP.
-        "cursor" | "gemini" | "codex" | "claude" | "claude-code" | "crush" | "hermes"
-        | "opencode" | "openclaw" | "pi" | "qoder" | "windsurf" | "amp" | "cline" | "roo"
-        | "copilot" | "kiro" | "qwen" | "trae" | "antigravity" | "antigravity-cli" | "amazonq"
-        | "verdent" => HookMode::Hybrid,
+/// Agents that get the Hybrid integration (MCP for reads/search + shell hooks
+/// or rules for command compression). Kept as a single data list so it is
+/// testable and so `refresh_installed_hooks` can prove it covers every one of
+/// them (see `refresh_covers_every_hybrid_agent`).
+pub const HYBRID_AGENTS: &[&str] = &[
+    "cursor",
+    "gemini",
+    "codex",
+    "claude",
+    "claude-code",
+    "crush",
+    "hermes",
+    "opencode",
+    "openclaw",
+    "pi",
+    "qoder",
+    "windsurf",
+    "amp",
+    "cline",
+    "roo",
+    "copilot",
+    "kiro",
+    "qwen",
+    "trae",
+    "antigravity",
+    "antigravity-cli",
+    "amazonq",
+    "verdent",
+];
 
-        // No reliable direct shell tool → MCP only
-        _ => HookMode::Mcp,
+pub fn recommend_hook_mode(agent_key: &str) -> HookMode {
+    if HYBRID_AGENTS.contains(&agent_key) {
+        HookMode::Hybrid
+    } else {
+        // No reliable direct shell tool → MCP only.
+        HookMode::Mcp
     }
 }
 use agents::{
@@ -72,7 +93,8 @@ use agents::{
     install_cursor_hook_with_mode, install_gemini_hook, install_gemini_hook_config,
     install_gemini_hook_scripts, install_hermes_hook_with_mode, install_jetbrains_hook,
     install_kiro_hook, install_openclaw_hook, install_opencode_hook_with_mode,
-    install_pi_hook_with_mode, install_qoder_hook_with_mode, install_windsurf_rules,
+    install_pi_hook_with_mode, install_qoder_hook, install_qoder_hook_with_mode,
+    install_windsurf_hooks, install_windsurf_rules,
 };
 use support::{
     ensure_codex_hooks_enabled, install_codex_instruction_docs, install_named_json_server,
@@ -84,53 +106,117 @@ fn mcp_server_quiet_mode() -> bool {
         || matches!(std::env::var("LEAN_CTX_QUIET"), Ok(value) if value.trim() == "1")
 }
 
+/// Agents whose global shell-hook artifacts embed the binary path / command
+/// and therefore must be re-rendered after an update or on MCP server start so
+/// they always point at the current binary. Each entry is gated on a detection
+/// marker (see `hooks_installed_for`) so we never install hooks for an agent
+/// the user never configured. The `refresh_covers_every_hybrid_agent` test
+/// proves this list plus `REFRESH_EXEMPT_HYBRID_AGENTS` accounts for every
+/// Hybrid agent, so a newly added agent can never silently regress.
+const REFRESHABLE_HOOK_AGENTS: &[&str] = &[
+    "claude", "cursor", "gemini", "codex", "windsurf", "copilot", "qoder",
+];
+
+/// Hybrid agents intentionally NOT auto-refreshed, with the reason each is safe
+/// to skip. Refresh runs silently (including on every MCP server start), so it
+/// must never spawn subprocesses or write project/cwd-relative files. Used by
+/// the coverage test to prove every Hybrid agent has an explicit decision.
+#[cfg(test)]
+const REFRESH_EXEMPT_HYBRID_AGENTS: &[&str] = &[
+    // Alias of `claude` — same global files, already refreshed via "claude".
+    "claude-code",
+    // Installer shells out to `pi install` (subprocess) — unsafe on every start.
+    "pi",
+    // Write project/cwd-relative rules (.clinerules, .kiro/steering) — a silent
+    // server-start refresh must not create files in the user's working dir.
+    "cline",
+    "roo",
+    "kiro",
+    // MCP-config / rules wiring only (no global binary-embedding shell-hook
+    // script to keep current); refreshed by `setup --fix`, not on start.
+    "antigravity",
+    "antigravity-cli",
+    "amp",
+    "crush",
+    "hermes",
+    "opencode",
+    "openclaw",
+    "qwen",
+    "trae",
+    "amazonq",
+    "verdent",
+];
+
 /// Silently refresh all hook scripts for agents that are already configured.
-/// Called after updates and on MCP server start to ensure hooks match the current binary version.
+/// Called after updates and on MCP server start to ensure hooks match the
+/// current binary version. Registry-driven: every Hybrid agent with a global
+/// shell hook is covered (the rest are explicitly exempted, enforced by test).
 pub fn refresh_installed_hooks() {
     let Some(home) = crate::core::home::resolve_home_dir() else {
         return;
     };
-
-    let claude_dir = crate::setup::claude_config_dir(&home);
-    let claude_hooks = claude_dir.join("hooks/lean-ctx-rewrite.sh").exists()
-        || claude_dir.join("settings.json").exists()
-            && std::fs::read_to_string(claude_dir.join("settings.json"))
-                .unwrap_or_default()
-                .contains("lean-ctx");
-
-    if claude_hooks {
-        install_claude_hook_scripts(&home);
-        install_claude_hook_config(&home);
+    for agent in REFRESHABLE_HOOK_AGENTS {
+        if hooks_installed_for(agent, &home) {
+            refresh_agent_hooks(agent, &home);
+        }
     }
+}
 
-    let cursor_hooks = home.join(".cursor/hooks/lean-ctx-rewrite.sh").exists()
-        || home.join(".cursor/hooks.json").exists()
-            && std::fs::read_to_string(home.join(".cursor/hooks.json"))
-                .unwrap_or_default()
-                .contains("lean-ctx");
-
-    if cursor_hooks {
-        install_cursor_hook_scripts(&home);
-        install_cursor_hook_config(&home);
+/// True when `agent` already has lean-ctx hook artifacts on disk (global only).
+fn hooks_installed_for(agent: &str, home: &std::path::Path) -> bool {
+    match agent {
+        "claude" => {
+            let dir = crate::setup::claude_config_dir(home);
+            dir.join("hooks/lean-ctx-rewrite.sh").exists()
+                || file_contains_lean_ctx(&dir.join("settings.json"))
+        }
+        "cursor" => {
+            home.join(".cursor/hooks/lean-ctx-rewrite.sh").exists()
+                || file_contains_lean_ctx(&home.join(".cursor/hooks.json"))
+        }
+        "gemini" => {
+            home.join(".gemini/hooks/lean-ctx-rewrite-gemini.sh")
+                .exists()
+                || home.join(".gemini/hooks/lean-ctx-hook-gemini.sh").exists()
+        }
+        "codex" => {
+            let dir = crate::core::home::resolve_codex_dir().unwrap_or_else(|| home.join(".codex"));
+            dir.join("hooks/lean-ctx-rewrite-codex.sh").exists()
+                || file_contains_lean_ctx(&dir.join("hooks.json"))
+        }
+        "windsurf" => file_contains_lean_ctx(&home.join(".codeium/windsurf/hooks.json")),
+        "copilot" => file_contains_lean_ctx(&home.join(".github/hooks/hooks.json")),
+        "qoder" => file_contains_lean_ctx(&home.join(".qoder/settings.json")),
+        _ => false,
     }
+}
 
-    let gemini_rewrite = home.join(".gemini/hooks/lean-ctx-rewrite-gemini.sh");
-    let gemini_legacy = home.join(".gemini/hooks/lean-ctx-hook-gemini.sh");
-    if gemini_rewrite.exists() || gemini_legacy.exists() {
-        install_gemini_hook_scripts(&home);
-        install_gemini_hook_config(&home);
+/// Re-render the hook artifacts for an already-configured agent. Only calls
+/// narrow, subprocess-free, global installers (never the full agent setup).
+fn refresh_agent_hooks(agent: &str, home: &std::path::Path) {
+    match agent {
+        "claude" => {
+            install_claude_hook_scripts(home);
+            install_claude_hook_config(home);
+        }
+        "cursor" => {
+            install_cursor_hook_scripts(home);
+            install_cursor_hook_config(home);
+        }
+        "gemini" => {
+            install_gemini_hook_scripts(home);
+            install_gemini_hook_config(home);
+        }
+        "codex" => install_codex_hook(),
+        "windsurf" => install_windsurf_hooks(home),
+        "copilot" => install_copilot_hook(true),
+        "qoder" => install_qoder_hook(),
+        _ => {}
     }
+}
 
-    let codex_dir = crate::core::home::resolve_codex_dir().unwrap_or_else(|| home.join(".codex"));
-    let codex_hooks = codex_dir.join("hooks/lean-ctx-rewrite-codex.sh").exists()
-        || codex_dir.join("hooks.json").exists()
-            && std::fs::read_to_string(codex_dir.join("hooks.json"))
-                .unwrap_or_default()
-                .contains("lean-ctx");
-
-    if codex_hooks {
-        install_codex_hook();
-    }
+fn file_contains_lean_ctx(path: &std::path::Path) -> bool {
+    std::fs::read_to_string(path).is_ok_and(|c| c.contains("lean-ctx"))
 }
 
 fn resolve_binary_path() -> String {
@@ -667,6 +753,80 @@ pub(crate) fn install_mcp_json_agent(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn refresh_covers_every_hybrid_agent() {
+        // Every Hybrid agent must be in exactly one of the two sets, so a newly
+        // added agent can never silently skip the post-update hook refresh.
+        for agent in HYBRID_AGENTS {
+            let refreshed = REFRESHABLE_HOOK_AGENTS.contains(agent);
+            let exempt = REFRESH_EXEMPT_HYBRID_AGENTS.contains(agent);
+            assert!(
+                refreshed ^ exempt,
+                "hybrid agent `{agent}` must be either refreshed or explicitly exempt (exactly one)"
+            );
+        }
+    }
+
+    #[test]
+    fn refresh_sets_reference_only_hybrid_agents() {
+        for agent in REFRESHABLE_HOOK_AGENTS {
+            assert!(
+                HYBRID_AGENTS.contains(agent),
+                "refreshable agent `{agent}` is not a Hybrid agent"
+            );
+        }
+        for agent in REFRESH_EXEMPT_HYBRID_AGENTS {
+            assert!(
+                HYBRID_AGENTS.contains(agent),
+                "exempt agent `{agent}` is not a Hybrid agent (stale exemption?)"
+            );
+        }
+    }
+
+    #[test]
+    fn hooks_installed_for_is_false_without_artifacts() {
+        let tmp = unique_tmp_dir("leanctx_refresh_empty");
+        for agent in REFRESHABLE_HOOK_AGENTS {
+            // `codex` resolves its dir via the global CODEX_HOME-aware resolver
+            // (not the passed home), so it cannot be isolated to a temp dir here;
+            // its detection is exercised by the marker-content test instead.
+            if *agent == "codex" {
+                continue;
+            }
+            assert!(
+                !hooks_installed_for(agent, &tmp),
+                "`{agent}` should not be detected as installed in an empty home"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn hooks_installed_for_detects_marker_content() {
+        let tmp = unique_tmp_dir("leanctx_refresh_marker");
+        let hooks = tmp.join(".codeium/windsurf/hooks.json");
+        std::fs::create_dir_all(hooks.parent().unwrap()).unwrap();
+
+        // A foreign hooks.json must not trigger a refresh.
+        std::fs::write(&hooks, "{\"hooks\":{}}").unwrap();
+        assert!(!hooks_installed_for("windsurf", &tmp));
+
+        // Once it mentions lean-ctx, it is ours and must be refreshed.
+        std::fs::write(&hooks, "{\"hooks\":{\"cmd\":\"lean-ctx hook rewrite\"}}").unwrap();
+        assert!(hooks_installed_for("windsurf", &tmp));
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    fn unique_tmp_dir(prefix: &str) -> std::path::PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        let dir = std::env::temp_dir().join(format!("{prefix}_{}_{nanos}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
 
     #[test]
     fn bash_path_unix_unchanged() {

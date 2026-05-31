@@ -31,7 +31,7 @@ pub(crate) fn install_windsurf_rules(global: bool) {
     }
 }
 
-fn install_windsurf_hooks(home: &std::path::Path) {
+pub(crate) fn install_windsurf_hooks(home: &std::path::Path) {
     let hooks_json = home.join(".codeium").join("windsurf").join("hooks.json");
     let binary = resolve_binary_path();
     let observe_cmd = format!("{binary} hook observe");

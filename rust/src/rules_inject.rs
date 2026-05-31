@@ -508,7 +508,7 @@ fn is_tool_detected(target: &RulesTarget, home: &std::path::Path) -> bool {
         "Gemini CLI" => home.join(".gemini").exists(),
         "VS Code" => detect_vscode_installed(home),
         "Copilot CLI" => home.join(".copilot").exists() || command_exists("copilot"),
-        "Zed" => home.join(".config/zed").exists(),
+        "Zed" => crate::core::editor_registry::zed_config_dir(home).exists(),
         "Cline" => detect_extension_installed(home, "saoudrizwan.claude-dev"),
         "Roo Code" => detect_extension_installed(home, "rooveterinaryinc.roo-cline"),
         "OpenCode" => home.join(".config/opencode").exists(),
@@ -659,7 +659,9 @@ fn build_rules_targets(home: &std::path::Path) -> Vec<RulesTarget> {
         },
         RulesTarget {
             name: "Zed",
-            path: home.join(".config/zed/rules/lean-ctx.md"),
+            // OS-aware: Zed's config dir is platform-specific (macOS uses
+            // Application Support); keep rules co-located with the MCP config.
+            path: crate::core::editor_registry::zed_config_dir(home).join("rules/lean-ctx.md"),
             format: RulesFormat::DedicatedMarkdown,
         },
         RulesTarget {
@@ -905,6 +907,20 @@ mod tests {
         assert!(RULES_SHARED.contains(MARKER));
         assert!(RULES_SHARED.contains(END_MARKER));
         assert!(RULES_SHARED.contains(RULES_VERSION));
+    }
+
+    #[test]
+    fn zed_rules_path_is_os_aware_and_matches_config_dir() {
+        // Zed's config dir is platform-specific (macOS uses Application Support).
+        // Rules must live under the SAME dir as the MCP config, never a hardcoded
+        // ~/.config/zed on every OS (regression: rules missed on macOS).
+        let home = std::path::Path::new("/home/tester");
+        let zed = build_rules_targets(home)
+            .into_iter()
+            .find(|t| t.name == "Zed")
+            .expect("Zed rules target must exist");
+        let expected = crate::core::editor_registry::zed_config_dir(home).join("rules/lean-ctx.md");
+        assert_eq!(zed.path, expected);
     }
 
     #[test]

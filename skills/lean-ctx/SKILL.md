@@ -27,9 +27,9 @@ After installation, run the one-command setup (installs shell hook + editor wiri
 lean-ctx setup
 ```
 
-lean-ctx supports two integration styles:
-- **CLI-redirect (preferred when shell access exists)**: no MCP tool schema overhead.
-- **MCP (required for some IDE extensions)**: cached reads + tools via MCP.
+lean-ctx supports two integration styles (auto-detected per agent):
+- **Hybrid (default where shell access exists)**: MCP for cached reads/search + shell hooks that compress command output.
+- **MCP (for IDE-extension agents without reliable shell hooks)**: cached reads + all tools via MCP.
 
 ## When to use lean-ctx
 
@@ -76,20 +76,22 @@ Use `full` mode only when you will edit the file.
 ## AI Tool Integration
 
 ```bash
-lean-ctx init --global                             # Install shell aliases
-lean-ctx init --agent cursor --mode cli-redirect   # CLI-first (no MCP schema overhead)
-lean-ctx init --agent claude --mode cli-redirect   # CLI-first (Claude Code)
-lean-ctx init --agent codex --mode cli-redirect    # CLI-first (Codex)
-lean-ctx init --agent opencode --mode cli-redirect # CLI-first (OpenCode)
+lean-ctx init --global                # Install shell aliases
+lean-ctx init --agent cursor          # Hybrid (MCP reads/search + shell hooks)
+lean-ctx init --agent claude          # Hybrid (Claude Code)
+lean-ctx init --agent codex           # Hybrid (Codex CLI)
+lean-ctx init --agent opencode        # Hybrid (OpenCode)
 
-lean-ctx init --agent copilot                      # MCP (VS Code / Copilot)
-lean-ctx init --agent jetbrains                    # MCP (JetBrains)
-lean-ctx init --agent windsurf                     # MCP/Hybrid (Windsurf)
+lean-ctx init --agent copilot         # MCP (VS Code / Copilot)
+lean-ctx init --agent jetbrains       # MCP (JetBrains)
+lean-ctx init --agent windsurf        # Hybrid (Windsurf)
+
+# Mode is auto-detected; override with --mode mcp|hybrid if needed.
 ```
 
 ## Multi-Agent & Knowledge
 
-CLI (works in CLI-redirect and MCP setups):
+CLI (works in Hybrid and MCP setups):
 
 ```bash
 lean-ctx knowledge remember "value" --category <c> --key <k>

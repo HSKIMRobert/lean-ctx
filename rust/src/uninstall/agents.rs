@@ -495,7 +495,10 @@ pub(super) fn remove_rules_files(home: &Path, dry_run: bool) -> bool {
                 .join("LEAN-CTX.md"),
         ),
         ("Windsurf", home.join(".codeium/windsurf/rules/lean-ctx.md")),
-        ("Zed", home.join(".config/zed/rules/lean-ctx.md")),
+        (
+            "Zed",
+            crate::core::editor_registry::zed_config_dir(home).join("rules/lean-ctx.md"),
+        ),
         ("Cline", home.join(".cline/rules/lean-ctx.md")),
         ("Roo Code", home.join(".roo/rules/lean-ctx.md")),
         (

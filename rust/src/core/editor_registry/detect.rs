@@ -637,6 +637,18 @@ mod augment_tests {
     }
 
     #[test]
+    fn build_targets_count_backs_supported_agents_claim() {
+        // README / VISION advertise "30+ supported AI coding agents". This guards
+        // that claim against the registry shrinking below it (i.e. an overclaim).
+        let home = Path::new("/home/tester");
+        let count = build_targets(home).len();
+        assert!(
+            count >= 30,
+            "registry has only {count} agent targets; the documented '30+ supported agents' claim would be an overclaim"
+        );
+    }
+
+    #[test]
     fn build_targets_includes_augment_vscode_entry() {
         let home = Path::new("/home/tester");
         let target = build_targets(home)
