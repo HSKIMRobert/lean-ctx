@@ -582,12 +582,16 @@
 
     /* ── Message handler ── */
     window.addEventListener("message", (event) => {
-      // Only accept messages from the VS Code webview host (CodeQL
-      // js/missing-origin-check). Desktop delivers a `vscode-webview:` origin;
-      // the web build (vscode.dev / Cursor web) delivers an `https:` origin —
-      // both are trusted, anything else (file:, null, http:) is rejected.
-      const origin = event.origin || "";
-      if (!origin.startsWith("vscode-webview:") && !origin.startsWith("https:")) {
+      // Only accept messages from the trusted webview host
+      // (CodeQL js/missing-origin-check). Extension→webview messages share the
+      // webview's own origin; the prefix checks additionally allow the desktop
+      // (`vscode-webview:`) and web (`https:`) hosts. Anything else (file:,
+      // null, http:, a foreign frame) is rejected.
+      if (
+        event.origin !== window.location.origin &&
+        !event.origin.startsWith("vscode-webview:") &&
+        !event.origin.startsWith("https:")
+      ) {
         return;
       }
       const msg = event.data;
