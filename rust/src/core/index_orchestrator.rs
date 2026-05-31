@@ -23,6 +23,10 @@ struct Component {
     finished_ms: Option<u64>,
     duration_ms: Option<u64>,
     last_error: Option<String>,
+    /// Human-readable outcome detail surfaced to operators (e.g. doc count +
+    /// persisted size, or the "not persisted: too large …" remedy). Independent
+    /// of `last_error` so a *successful* build can still carry a warning note.
+    note: Option<String>,
 }
 
 impl Component {
@@ -33,6 +37,7 @@ impl Component {
             finished_ms: None,
             duration_ms: None,
             last_error: None,
+            note: None,
         }
     }
 }
@@ -89,6 +94,7 @@ fn start_component(c: &mut Component) {
     c.finished_ms = None;
     c.duration_ms = None;
     c.last_error = None;
+    c.note = None;
 }
 
 fn finish_ok(c: &mut Component) {
@@ -175,13 +181,15 @@ pub fn ensure_all_background(project_root: &str) {
             } else {
                 BM25Index::build_with_content_hint(root_pb, &content_cache)
             };
-            let _ = idx.save(root_pb);
+            let outcome = idx.save(root_pb);
+            (idx.doc_count, outcome)
         }));
-        if let Ok(()) = bm {
+        if let Ok((doc_count, save_res)) = bm {
             let mut s = state
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             finish_ok(&mut s.bm25);
+            s.bm25.note = Some(bm25_build_note(doc_count, &save_res));
         } else {
             let mut s = state
                 .lock()
@@ -194,6 +202,69 @@ pub fn ensure_all_background(project_root: &str) {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         s.worker_running = false;
     });
+}
+
+/// Build a human-readable outcome note for a finished BM25 build, including the
+/// indexed chunk count and whether the index was persisted to disk. A
+/// "too large" refusal carries the exact remedy so the operator (or agent) is
+/// never left guessing why search/ranking stays cold (issue #249).
+fn bm25_build_note(
+    doc_count: usize,
+    save: &std::io::Result<crate::core::bm25_index::SaveOutcome>,
+) -> String {
+    use crate::core::bm25_index::SaveOutcome;
+    match save {
+        Ok(SaveOutcome::Persisted { compressed_bytes }) => format!(
+            "indexed {doc_count} chunks, {:.1} MB persisted",
+            *compressed_bytes as f64 / 1_048_576.0
+        ),
+        Ok(SaveOutcome::SkippedTooLarge {
+            compressed_bytes,
+            limit_bytes,
+        }) => format!(
+            "indexed {doc_count} chunks but NOT persisted to disk: compressed {:.1} MB exceeds the {:.0} MB cap. \
+             Raise it via LEAN_CTX_BM25_MAX_CACHE_MB (or bm25_max_cache_mb in config) or add extra_ignore_patterns, \
+             then run `lean-ctx reindex`. Until then the index is rebuilt from scratch on every cold start.",
+            *compressed_bytes as f64 / 1_048_576.0,
+            *limit_bytes as f64 / 1_048_576.0
+        ),
+        Err(e) => format!("indexed {doc_count} chunks but persisting failed: {e}"),
+    }
+}
+
+/// Lightweight, allocation-frugal snapshot of the BM25 component for the
+/// in-call composer/search messaging. Avoids the heavier [`disk_status`] walk.
+#[derive(Debug, Clone)]
+pub struct Bm25Summary {
+    pub state: &'static str,
+    /// While building: elapsed so far. Otherwise: last build duration.
+    pub elapsed_ms: Option<u64>,
+    pub note: Option<String>,
+    pub last_error: Option<String>,
+}
+
+pub fn bm25_summary(project_root: &str) -> Bm25Summary {
+    let entry = entry_for(project_root);
+    let s = entry
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let c = &s.bm25;
+    let elapsed_ms = if matches!(c.state, State::Building) {
+        c.started_ms.map(|start| now_ms().saturating_sub(start))
+    } else {
+        c.duration_ms
+    };
+    Bm25Summary {
+        state: match c.state {
+            State::Idle => "idle",
+            State::Building => "building",
+            State::Ready => "ready",
+            State::Failed => "failed",
+        },
+        elapsed_ms,
+        note: c.note.clone(),
+        last_error: c.last_error.clone(),
+    }
 }
 
 pub fn try_load_graph_index(project_root: &str) -> Option<ProjectIndex> {
@@ -226,6 +297,8 @@ struct ComponentStatus<'a> {
     finished_ms: Option<u64>,
     duration_ms: Option<u64>,
     last_error: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    note: Option<&'a str>,
 }
 
 fn component_status(c: &Component) -> ComponentStatus<'_> {
@@ -240,6 +313,7 @@ fn component_status(c: &Component) -> ComponentStatus<'_> {
         finished_ms: c.finished_ms,
         duration_ms: c.duration_ms,
         last_error: c.last_error.as_deref(),
+        note: c.note.as_deref(),
     }
 }
 
@@ -367,5 +441,61 @@ mod tests {
     fn status_json_is_valid_json() {
         let s = status_json("/tmp");
         let _: serde_json::Value = serde_json::from_str(&s).unwrap();
+    }
+
+    #[test]
+    fn build_note_persisted_reports_size() {
+        let note = bm25_build_note(
+            42,
+            &Ok(crate::core::bm25_index::SaveOutcome::Persisted {
+                compressed_bytes: 3 * 1024 * 1024,
+            }),
+        );
+        assert!(
+            note.contains("42 chunks"),
+            "note should report chunk count: {note}"
+        );
+        assert!(
+            note.contains("persisted"),
+            "note should report persistence: {note}"
+        );
+    }
+
+    #[test]
+    fn build_note_too_large_carries_remedy() {
+        let note = bm25_build_note(
+            1000,
+            &Ok(crate::core::bm25_index::SaveOutcome::SkippedTooLarge {
+                compressed_bytes: 600 * 1024 * 1024,
+                limit_bytes: 512 * 1024 * 1024,
+            }),
+        );
+        assert!(
+            note.contains("NOT persisted"),
+            "must flag non-persistence: {note}"
+        );
+        assert!(
+            note.contains("LEAN_CTX_BM25_MAX_CACHE_MB") && note.contains("reindex"),
+            "too-large note must carry an actionable remedy: {note}"
+        );
+    }
+
+    #[test]
+    fn build_note_persist_error_is_reported() {
+        let note = bm25_build_note(7, &Err(std::io::Error::other("disk full")));
+        assert!(note.contains("persisting failed"), "note: {note}");
+        assert!(
+            note.contains("disk full"),
+            "note should include the io error: {note}"
+        );
+    }
+
+    #[test]
+    fn bm25_summary_unknown_project_is_idle() {
+        let tmp = tempfile::tempdir().unwrap();
+        let summary = bm25_summary(tmp.path().to_string_lossy().as_ref());
+        assert_eq!(summary.state, "idle");
+        assert!(summary.note.is_none());
+        assert!(summary.last_error.is_none());
     }
 }

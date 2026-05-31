@@ -419,6 +419,16 @@ pub fn run() {
     }
     print_check(&bm25_health);
 
+    // 15a) Semantic index runtime status (state/timing/persistence) for the
+    // active project — surfaces a stuck "warming" index (issue #249).
+    let semantic_index = semantic_index_outcome();
+    if let Some(ref check) = semantic_index {
+        if check.ok {
+            passed += 1;
+        }
+        print_check(check);
+    }
+
     // 15b) Archive FTS footprint
     let archive_footprint = archive_footprint_outcome();
     if archive_footprint.ok {
@@ -488,6 +498,9 @@ pub fn run() {
         effective_total += 1;
     }
     if workspace_scope.is_some() {
+        effective_total += 1;
+    }
+    if semantic_index.is_some() {
         effective_total += 1;
     }
     let needs_attention = effective_total.saturating_sub(passed);

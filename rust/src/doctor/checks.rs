@@ -755,15 +755,11 @@ pub(super) fn bm25_cache_health_outcome() -> Outcome {
         };
     };
 
-    let cfg = crate::core::config::Config::load();
-    let profile = crate::core::config::MemoryProfile::effective(&cfg);
-    let effective_mb = if cfg.bm25_max_cache_mb == crate::core::config::default_bm25_max_cache_mb()
-    {
-        profile.bm25_max_cache_mb()
-    } else {
-        cfg.bm25_max_cache_mb
-    };
-    let max_bytes = effective_mb * 1024 * 1024;
+    // Single source of truth with `save`/`load` (decoupled from the RAM profile;
+    // see bm25_index::persist_ceiling_bytes) so the warning threshold here always
+    // matches what is actually enforced on disk.
+    let max_bytes = crate::core::bm25_index::persist_ceiling_bytes();
+    let effective_mb = max_bytes / (1024 * 1024);
     let warn_bytes = max_bytes * 80 / 100; // 80% of effective limit
     let mut total_dirs = 0u32;
     let mut total_bytes = 0u64;
@@ -850,6 +846,80 @@ pub(super) fn bm25_cache_health_outcome() -> Outcome {
     }
 }
 
+/// Runtime status of the semantic (BM25) index for the active project: whether
+/// it is idle/building/ready/failed, how long the last build took, and — crucially
+/// — *why* it might be stuck (e.g. "indexed but NOT persisted: too large").
+///
+/// This answers issue #249: users had no way to tell whether the semantic index
+/// was working, how fast it was, or why it kept "warming up" forever.
+pub(super) fn semantic_index_outcome() -> Option<Outcome> {
+    let session = crate::core::session::SessionState::load_latest()?;
+    let project_root = session.project_root?;
+
+    let summary = crate::core::index_orchestrator::bm25_summary(&project_root);
+    let disk = crate::core::index_orchestrator::disk_status(&project_root);
+    let persisted = if disk.bm25_index.exists {
+        match disk.bm25_index.size_bytes {
+            Some(b) => format!("persisted {:.1} MB", b as f64 / 1_048_576.0),
+            None => "persisted".to_string(),
+        }
+    } else {
+        "not persisted".to_string()
+    };
+
+    let timing = match summary.elapsed_ms {
+        Some(ms) if summary.state == "building" => format!(", {:.1}s elapsed", ms as f64 / 1000.0),
+        Some(ms) => format!(", built in {:.1}s", ms as f64 / 1000.0),
+        None => String::new(),
+    };
+
+    let outcome = match summary.state {
+        "failed" => Outcome {
+            ok: false,
+            line: format!(
+                "{BOLD}Semantic index{RST}  {RED}FAILED{RST}: {}  {DIM}(run: lean-ctx reindex){RST}",
+                summary
+                    .last_error
+                    .or(summary.note)
+                    .unwrap_or_else(|| "unknown error".to_string())
+            ),
+        },
+        "building" => Outcome {
+            ok: true,
+            line: format!("{BOLD}Semantic index{RST}  {YELLOW}building{timing}{RST}"),
+        },
+        _ if summary
+            .note
+            .as_deref()
+            .is_some_and(|n| n.contains("NOT persisted")) =>
+        {
+            Outcome {
+                ok: false,
+                line: format!(
+                    "{BOLD}Semantic index{RST}  {YELLOW}rebuilds every cold start{RST}: {}",
+                    summary.note.unwrap_or_default()
+                ),
+            }
+        }
+        "ready" => Outcome {
+            ok: true,
+            line: format!("{BOLD}Semantic index{RST}  {GREEN}ready{RST} {DIM}({persisted}{timing}){RST}"),
+        },
+        // idle: never asked to build this session — report disk state only.
+        _ if disk.bm25_index.exists => Outcome {
+            ok: true,
+            line: format!("{BOLD}Semantic index{RST}  {GREEN}ready{RST} {DIM}({persisted}, on disk){RST}"),
+        },
+        _ => Outcome {
+            ok: true,
+            line: format!(
+                "{BOLD}Semantic index{RST}  {DIM}not built yet (builds on first semantic search/compose){RST}"
+            ),
+        },
+    };
+    Some(outcome)
+}
+
 pub(super) fn archive_footprint_outcome() -> Outcome {
     let bytes = crate::core::archive_fts::db_size_bytes();
     let cap_mb = std::env::var("LEAN_CTX_ARCHIVE_DB_MAX_MB")
@@ -884,16 +954,22 @@ pub(super) fn archive_footprint_outcome() -> Outcome {
 pub(super) fn memory_profile_outcome() -> Outcome {
     let cfg = crate::core::config::Config::load();
     let profile = crate::core::config::MemoryProfile::effective(&cfg);
+    // The BM25 *disk* ceiling is decoupled from the RAM profile (#249); show the
+    // real effective ceiling rather than a hardcoded per-profile figure.
+    let bm25_mb = cfg.bm25_max_cache_mb_effective();
     let (label, detail) = match profile {
-        crate::core::config::MemoryProfile::Low => {
-            ("low", "embeddings+semantic cache disabled, BM25 64 MB")
-        }
-        crate::core::config::MemoryProfile::Balanced => {
-            ("balanced", "default — BM25 128 MB, single embedding engine")
-        }
-        crate::core::config::MemoryProfile::Performance => {
-            ("performance", "full caches, BM25 512 MB")
-        }
+        crate::core::config::MemoryProfile::Low => (
+            "low",
+            format!("embeddings+semantic cache disabled, BM25 disk {bm25_mb} MB"),
+        ),
+        crate::core::config::MemoryProfile::Balanced => (
+            "balanced",
+            format!("default — single embedding engine, BM25 disk {bm25_mb} MB"),
+        ),
+        crate::core::config::MemoryProfile::Performance => (
+            "performance",
+            format!("full caches, BM25 disk {bm25_mb} MB"),
+        ),
     };
     let source = if crate::core::config::MemoryProfile::from_env().is_some() {
         "env"

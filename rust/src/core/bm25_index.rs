@@ -26,20 +26,38 @@ const DEFAULT_BM25_IGNORES: &[&str] = &[
 ];
 
 fn max_bm25_cache_bytes() -> u64 {
+    // Single source of truth: `Config::bm25_max_cache_mb_effective` (env override
+    // › explicit config › disk-budget › generous default). Decoupled from the RAM
+    // profile so large repos persist instead of rebuilding forever (issue #249).
     let mb = std::env::var("LEAN_CTX_BM25_MAX_CACHE_MB")
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
-        .unwrap_or_else(|| {
-            let cfg = crate::core::config::Config::load();
-            let profile = crate::core::config::MemoryProfile::effective(&cfg);
-            let profile_mb = profile.bm25_max_cache_mb();
-            if cfg.bm25_max_cache_mb == crate::core::config::default_bm25_max_cache_mb() {
-                profile_mb
-            } else {
-                cfg.bm25_max_cache_mb
-            }
-        });
+        .unwrap_or_else(|| crate::core::config::Config::load().bm25_max_cache_mb_effective());
     mb * 1024 * 1024
+}
+
+/// Effective on-disk ceiling (bytes) for the persisted BM25 index. Single source
+/// of truth shared with `doctor` so its "oversized index" warning matches what
+/// `save`/`load` actually enforce.
+pub fn persist_ceiling_bytes() -> u64 {
+    max_bm25_cache_bytes()
+}
+
+/// Outcome of persisting a BM25 index to disk. Distinguishes a real write from a
+/// size-capped refusal so callers never mistake "refused to persist" for
+/// success (the bug behind the perpetual "index warming" report, issue #249).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SaveOutcome {
+    /// Written to disk. Carries the compressed (zstd) size in bytes.
+    Persisted { compressed_bytes: u64 },
+    /// Built fine but NOT written — the compressed size exceeds the disk
+    /// ceiling. The in-memory index is still usable for this process; callers
+    /// should surface the remedy (raise the cap / add ignore patterns) instead
+    /// of silently rebuilding on every call.
+    SkippedTooLarge {
+        compressed_bytes: u64,
+        limit_bytes: u64,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -437,7 +455,7 @@ impl BM25Index {
         results
     }
 
-    pub fn save(&self, root: &Path) -> std::io::Result<()> {
+    pub fn save(&self, root: &Path) -> std::io::Result<SaveOutcome> {
         if self.chunks.len() > CHUNK_COUNT_WARNING {
             tracing::warn!(
                 "[bm25] index has {} chunks (threshold {}), consider adding extra_ignore_patterns",
@@ -453,23 +471,32 @@ impl BM25Index {
 
         let compressed = zstd::encode_all(data.as_slice(), ZSTD_LEVEL)
             .map_err(|e| std::io::Error::other(format!("zstd compress: {e}")))?;
+        let compressed_bytes = compressed.len() as u64;
 
         let max_bytes = max_bm25_cache_bytes();
-        if compressed.len() as u64 > max_bytes {
+        if compressed_bytes > max_bytes {
+            // Do NOT pretend success: a silent `Ok(())` here made `load` return
+            // `None` forever and the index rebuild on every call (issue #249).
+            // Report the refusal so the orchestrator can record an actionable
+            // note and the agent-facing tools can stop claiming the index will
+            // be "ready next call".
             tracing::warn!(
                 "[bm25] compressed index too large ({:.1} MB, limit {:.0} MB), refusing to persist: {}",
-                compressed.len() as f64 / 1_048_576.0,
+                compressed_bytes as f64 / 1_048_576.0,
                 max_bytes / (1024 * 1024),
                 dir.display()
             );
-            return Ok(());
+            return Ok(SaveOutcome::SkippedTooLarge {
+                compressed_bytes,
+                limit_bytes: max_bytes,
+            });
         }
 
         tracing::info!(
             "[bm25] index: {:.1} MB bincode → {:.1} MB zstd ({:.0}% saved)",
             data.len() as f64 / 1_048_576.0,
-            compressed.len() as f64 / 1_048_576.0,
-            (1.0 - compressed.len() as f64 / data.len().max(1) as f64) * 100.0
+            compressed_bytes as f64 / 1_048_576.0,
+            (1.0 - compressed_bytes as f64 / data.len().max(1) as f64) * 100.0
         );
 
         let target = dir.join("bm25_index.bin.zst");
@@ -485,7 +512,7 @@ impl BM25Index {
             root.to_string_lossy().as_bytes(),
         );
 
-        Ok(())
+        Ok(SaveOutcome::Persisted { compressed_bytes })
     }
 
     pub fn load(root: &Path) -> Option<Self> {
@@ -1416,13 +1443,54 @@ mod tests {
         });
         index.finalize();
 
-        let _ = index.save(root);
+        let outcome = index
+            .save(root)
+            .expect("save returns Ok even when refusing");
+        assert!(
+            matches!(outcome, SaveOutcome::SkippedTooLarge { .. }),
+            "oversized save must report SkippedTooLarge (not a silent success), got {outcome:?}"
+        );
         let index_path = BM25Index::index_file_path(root);
         assert!(
             !index_path.exists(),
             "save should refuse to persist oversized index"
         );
 
+        std::env::remove_var("LEAN_CTX_BM25_MAX_CACHE_MB");
+    }
+
+    #[test]
+    fn save_reports_persisted_outcome() {
+        let _env = crate::core::data_dir::test_env_lock();
+        let data_dir = tempdir().expect("data_dir");
+        std::env::set_var("LEAN_CTX_DATA_DIR", data_dir.path());
+        std::env::set_var("LEAN_CTX_BM25_MAX_CACHE_MB", "512");
+        let td = tempdir().expect("tempdir");
+        let root = td.path();
+        std::fs::write(root.join("a.rs"), "pub fn alpha() {}\n").expect("write");
+
+        let index = BM25Index::build_from_directory(root);
+        let outcome = index.save(root).expect("save");
+        match outcome {
+            SaveOutcome::Persisted { compressed_bytes } => {
+                assert!(compressed_bytes > 0, "persisted size should be non-zero");
+            }
+            SaveOutcome::SkippedTooLarge { .. } => {
+                panic!("expected Persisted, got {outcome:?}")
+            }
+        }
+
+        std::env::remove_var("LEAN_CTX_BM25_MAX_CACHE_MB");
+        std::env::remove_var("LEAN_CTX_DATA_DIR");
+    }
+
+    #[test]
+    fn persist_ceiling_honors_env_override() {
+        // The public ceiling accessor (shared with doctor) must honor an explicit
+        // override exactly, so operators can size it to their monorepo.
+        let _env = crate::core::data_dir::test_env_lock();
+        std::env::set_var("LEAN_CTX_BM25_MAX_CACHE_MB", "777");
+        assert_eq!(persist_ceiling_bytes(), 777 * 1024 * 1024);
         std::env::remove_var("LEAN_CTX_BM25_MAX_CACHE_MB");
     }
 

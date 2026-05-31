@@ -281,9 +281,51 @@ fn ranked_files_budgeted(task: &str, project_root: &str, crp_mode: CrpMode) -> S
 
     match rx.recv_timeout(semantic_budget()) {
         Ok(ranked) => ranked.trim().to_string(),
-        Err(_) => "(deferred — semantic index is warming; the exact matches below are \
-                   authoritative for this call, and ranking will be instant on the next call)"
-            .to_string(),
+        Err(_) => deferred_ranking_note(project_root),
+    }
+}
+
+/// Honest, state-aware note when semantic ranking overruns its wall-time budget.
+///
+/// The old message always promised ranking would be "instant on the next call".
+/// That is a lie when the index build *failed* or the index is too large to
+/// persist — in those cases every call rebuilds and the promise never comes
+/// true (issue #249: "keeps saying it's warming up … but it never happens").
+/// We now read the real orchestrator state and tell the agent exactly what is
+/// happening and what to do about it.
+fn deferred_ranking_note(project_root: &str) -> String {
+    let exact = "the exact matches below are authoritative for this call";
+    let s = crate::core::index_orchestrator::bm25_summary(project_root);
+    match s.state {
+        "failed" => {
+            let why = s
+                .last_error
+                .or(s.note)
+                .unwrap_or_else(|| "unknown error".to_string());
+            format!(
+                "(semantic ranking unavailable — index build FAILED: {why}. {exact}. \
+                 Inspect with `ctx_index status` / `lean-ctx doctor`, then `lean-ctx reindex`)"
+            )
+        }
+        "building" => {
+            let secs = s.elapsed_ms.map_or(0, |ms| ms / 1000);
+            format!(
+                "(deferred — semantic index is building ({secs}s elapsed); {exact}, \
+                 and ranking becomes available once the build finishes)"
+            )
+        }
+        // ready/idle: this call's cold build just overran the budget. If the
+        // index could not be persisted (too large), surface that — otherwise it
+        // silently rebuilds on every cold start and never gets faster.
+        _ => match s.note {
+            Some(note) if note.contains("NOT persisted") => {
+                format!("(semantic ranking deferred — {note} {exact}.)")
+            }
+            _ => format!(
+                "(deferred — semantic index is warming; {exact}, \
+                 and ranking will be fast on the next call once the index is cached)"
+            ),
+        },
     }
 }
 
@@ -409,5 +451,26 @@ mod tests {
         let (out, tok) = handle("   ", "/tmp", CrpMode::Off);
         assert!(out.starts_with("ERROR"));
         assert_eq!(tok, 0);
+    }
+
+    #[test]
+    fn deferred_note_for_idle_index_is_optimistic_but_honest() {
+        // Unknown project → orchestrator state is idle. The note must NOT promise
+        // "instant on the next call" (the dishonest wording from #249); it should
+        // explain the index is warming and will be fast once cached.
+        let tmp = tempfile::tempdir().unwrap();
+        let note = deferred_ranking_note(tmp.path().to_string_lossy().as_ref());
+        assert!(
+            note.contains("warming") || note.contains("building"),
+            "note: {note}"
+        );
+        assert!(
+            note.contains("authoritative"),
+            "note must reassure that exact matches are authoritative: {note}"
+        );
+        assert!(
+            !note.contains("instant on the next call"),
+            "must not repeat the dishonest 'instant next call' promise: {note}"
+        );
     }
 }

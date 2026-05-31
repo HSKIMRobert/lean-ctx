@@ -55,6 +55,17 @@ pub(crate) fn cmd_index(args: &[String]) {
             }
             eprintln!(" done");
 
+            // Surface the BM25 build outcome (chunk count + persisted size, or the
+            // "too large to persist" remedy) so the user is never left guessing why
+            // semantic search stays cold (issue #249).
+            let summary = crate::core::index_orchestrator::bm25_summary(&project_root);
+            if let Some(note) = summary.note {
+                eprintln!("  BM25: {note}");
+            }
+            if let Some(err) = summary.last_error {
+                eprintln!("  BM25 error: {err}");
+            }
+
             eprint!("rebuilding property graph");
             let result =
                 crate::tools::ctx_impact::handle("build", None, &project_root, None, Some("text"));
@@ -204,6 +215,23 @@ fn print_human_status(project_root: &str) {
         "  Code Graph:  {}",
         format_disk_line(&disk.code_graph, "nodes")
     );
+
+    // Runtime semantic-index status (state/timing/why-stuck). This is the part
+    // users asked for in #249 — knowing whether the index is working, how fast,
+    // and if/why it failed, instead of an opaque "warming up" loop.
+    let summary = crate::core::index_orchestrator::bm25_summary(project_root);
+    let timing = match summary.elapsed_ms {
+        Some(ms) if summary.state == "building" => format!(" ({:.1}s elapsed)", ms as f64 / 1000.0),
+        Some(ms) => format!(" (built in {:.1}s)", ms as f64 / 1000.0),
+        None => String::new(),
+    };
+    println!("  Semantic:    {}{timing}", summary.state);
+    if let Some(note) = summary.note {
+        println!("  Note:        {note}");
+    }
+    if let Some(err) = summary.last_error {
+        println!("  Error:       {err}");
+    }
 }
 
 fn format_disk_line(ds: &crate::core::index_orchestrator::DiskStatus, count_label: &str) -> String {

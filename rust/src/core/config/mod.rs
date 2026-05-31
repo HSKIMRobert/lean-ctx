@@ -26,6 +26,21 @@ pub fn default_bm25_max_cache_mb() -> u64 {
     serde_defaults::default_bm25_max_cache_mb()
 }
 
+/// Effective on-disk ceiling (MB) for the persisted BM25 index when nothing is
+/// explicitly configured (no `bm25_max_cache_mb`, no `max_disk_mb` budget).
+///
+/// Deliberately decoupled from the RAM `MemoryProfile` (64/128/512 MB): this is
+/// a *disk* file, and tying it to the profile silently refused persistence on
+/// large repos under Low/Balanced, forcing a cold rebuild on every call (the
+/// perpetual "index warming" of issue #249). 512 MB compressed covers
+/// essentially every real repo; RAM pressure is governed separately by the
+/// eviction orchestrator (which measures real heap).
+pub const DEFAULT_BM25_PERSIST_MB: u64 = 512;
+
+// Compile-time regression guard (#249): the default disk ceiling must stay well
+// above the old RAM-profile caps (64/128 MB) that starved large repos.
+const _: () = assert!(DEFAULT_BM25_PERSIST_MB >= 512);
+
 /// Global lean-ctx configuration loaded from `config.toml`, merged with project-local overrides.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -1228,20 +1243,25 @@ impl Config {
         }
     }
 
-    /// BM25 max cache MB derived from simplified max_disk_mb if the detail
-    /// value is still at its default. Explicit overrides and MemoryProfile take priority.
+    /// Effective on-disk ceiling (MB) for the persisted BM25 index. Single source
+    /// of truth for `save`/`load`, `cache prune`, and the doctor health check.
+    ///
+    /// Priority: explicit `bm25_max_cache_mb` › `max_disk_mb` budget (10%) ›
+    /// generous default ([`DEFAULT_BM25_PERSIST_MB`]). The default is decoupled
+    /// from the RAM profile so large repos persist instead of rebuilding forever
+    /// (issue #249).
     pub fn bm25_max_cache_mb_effective(&self) -> u64 {
-        let budget = self.max_disk_mb_effective();
-        if budget > 0 && self.bm25_max_cache_mb == serde_defaults::default_bm25_max_cache_mb() {
-            budget * 10 / 100
-        } else {
-            let profile = MemoryProfile::effective(self);
-            if self.bm25_max_cache_mb == serde_defaults::default_bm25_max_cache_mb() {
-                profile.bm25_max_cache_mb()
-            } else {
-                self.bm25_max_cache_mb
-            }
+        // Explicit per-key override always wins.
+        if self.bm25_max_cache_mb != serde_defaults::default_bm25_max_cache_mb() {
+            return self.bm25_max_cache_mb;
         }
+        // Otherwise derive from an explicit overall disk budget when present …
+        let budget = self.max_disk_mb_effective();
+        if budget > 0 {
+            return budget * 10 / 100;
+        }
+        // … else fall back to the generous, profile-independent disk default.
+        DEFAULT_BM25_PERSIST_MB
     }
 }
 
@@ -2329,6 +2349,18 @@ mod simplified_config_tests {
             ..Default::default()
         };
         assert_eq!(cfg.bm25_max_cache_mb_effective(), 256);
+    }
+
+    #[test]
+    fn bm25_pure_default_is_generous_not_ram_profile() {
+        // No explicit cap and no disk budget: must fall back to the generous disk
+        // default (512), NOT the RAM-profile value (which starved large repos and
+        // caused perpetual cold rebuilds, issue #249).
+        let cfg = Config {
+            memory_profile: MemoryProfile::Balanced,
+            ..Default::default()
+        };
+        assert_eq!(cfg.bm25_max_cache_mb_effective(), DEFAULT_BM25_PERSIST_MB);
     }
 
     #[test]
