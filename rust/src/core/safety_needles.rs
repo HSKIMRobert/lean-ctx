@@ -29,6 +29,17 @@ const SAFETY_NEEDLES: &[&str] = &[
     "certificate",
     "expired",
     "corrupt",
+    // Test-runner outcome lines — never drop these during truncation so a large
+    // (even fully-passing) test run keeps every per-suite summary and any buried
+    // failure. Covers Rust, pytest, jest/mocha, go test, dotnet, etc.
+    "test result:", // cargo / rust
+    "passed",       // "5 passed", "0 passed", "Tests: N passed"
+    "passing",      // mocha "5 passing"
+    "panicked",     // rust panic location line
+    "assertion",    // assertion failures across many runners
+    "traceback",    // python tracebacks
+    "tests run",    // junit-style summaries
+    "ran all test", // jest "Ran all test suites"
 ];
 
 pub fn is_safety_relevant(line: &str) -> bool {
@@ -64,7 +75,28 @@ mod tests {
     fn ignores_normal_lines() {
         assert!(!is_safety_relevant("compiled successfully"));
         assert!(!is_safety_relevant("200 OK"));
-        assert!(!is_safety_relevant("all tests passed"));
+        assert!(!is_safety_relevant("Downloaded 3 crates"));
+    }
+
+    #[test]
+    fn preserves_test_runner_summaries() {
+        // Critical: test outcome lines must always survive truncation so large
+        // test runs never lose their pass/fail summaries (regression guard).
+        assert!(is_safety_relevant(
+            "test result: ok. 23 passed; 0 failed; 0 ignored"
+        ));
+        assert!(is_safety_relevant(
+            "test result: FAILED. 1 passed; 2 failed"
+        ));
+        assert!(is_safety_relevant("=== 5 passed, 1 warning in 0.42s ==="));
+        assert!(is_safety_relevant(
+            "Tests:       1 failed, 5 passed, 6 total"
+        ));
+        assert!(is_safety_relevant("5 passing (1s)"));
+        assert!(is_safety_relevant(
+            "thread 'main' panicked at src/lib.rs:10:5"
+        ));
+        assert!(is_safety_relevant("Traceback (most recent call last):"));
     }
 
     #[test]

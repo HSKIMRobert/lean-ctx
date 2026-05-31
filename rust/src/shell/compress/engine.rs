@@ -44,6 +44,14 @@ pub(crate) fn compress_if_beneficial(command: &str, output: &str) -> String {
         return truncate_verbatim(output, count_tokens(output));
     }
 
+    // CRITICAL: Test-runner output is kept verbatim (only head/tail truncated
+    // when huge, and even then middle test-result/failure lines are preserved).
+    // This holds for fully-passing runs too, so pass/fail summaries can never be
+    // semantically compressed or deduplicated away — on any OS or client.
+    if is_test_runner_command(command) {
+        return truncate_verbatim(output, count_tokens(output));
+    }
+
     if !is_search_output(command) && crate::tools::ctx_shell::contains_auth_flow(output) {
         return output.to_string();
     }
@@ -237,9 +245,83 @@ fn is_error_output_from_build_tool(command: &str, output: &str) -> bool {
         || output.contains("could not compile")
 }
 
+/// Strips leading `VAR=value` environment assignments from a command segment so
+/// `RUST_BACKTRACE=1 cargo test` / `CI=true pytest` are still recognized as the
+/// underlying test runner.
+fn strip_env_prefix(segment: &str) -> &str {
+    let mut rest = segment.trim_start();
+    loop {
+        let Some(first) = rest.split_whitespace().next() else {
+            return rest;
+        };
+        // An env assignment is a single token containing '=' before any '/' so it
+        // isn't confused with a path or a flag like `--threads=4`.
+        let is_env_assignment = first.contains('=')
+            && !first.starts_with('-')
+            && first.split('=').next().is_some_and(|name| {
+                !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+            });
+        if !is_env_assignment {
+            return rest;
+        }
+        rest = rest[first.len()..].trim_start();
+    }
+}
+
+/// Detects test-runner commands across ecosystems. Their output must never be
+/// semantically compressed/deduplicated — only verbatim head/tail truncation
+/// (with middle test/error lines preserved). Matched even for fully-passing
+/// runs so per-suite summaries always survive. Checks each pipeline segment so
+/// `cargo test … | grep …` / `pytest … | tail` are caught too.
+fn is_test_runner_command(command: &str) -> bool {
+    command
+        .split('|')
+        .map(|seg| strip_env_prefix(seg.trim()).to_ascii_lowercase())
+        .any(|seg| {
+            seg.starts_with("cargo test")
+                || seg.starts_with("cargo nextest")
+                || seg.starts_with("nextest")
+                || seg.starts_with("pytest")
+                || seg.starts_with("python -m pytest")
+                || seg.starts_with("python3 -m pytest")
+                || seg.starts_with("py.test")
+                || seg.starts_with("go test")
+                || seg.starts_with("gotestsum")
+                || seg.starts_with("npm test")
+                || seg.starts_with("npm run test")
+                || seg.starts_with("pnpm test")
+                || seg.starts_with("pnpm run test")
+                || seg.starts_with("yarn test")
+                || seg.starts_with("bun test")
+                || seg.starts_with("deno test")
+                || seg.starts_with("jest")
+                || seg.starts_with("npx jest")
+                || seg.starts_with("vitest")
+                || seg.starts_with("npx vitest")
+                || seg.starts_with("mocha")
+                || seg.starts_with("npx mocha")
+                || seg.starts_with("dotnet test")
+                || seg.starts_with("mix test")
+                || seg.starts_with("rspec")
+                || seg.starts_with("bundle exec rspec")
+                || seg.starts_with("phpunit")
+                || seg.starts_with("./vendor/bin/phpunit")
+                || seg.starts_with("./gradlew test")
+                || seg.starts_with("gradle test")
+                || seg.starts_with("mvn test")
+                || seg.starts_with("ctest")
+        })
+}
+
 const MAX_VERBATIM_TOKENS: usize = 8000;
 
 /// For verbatim commands: never transform content, only head/tail truncate if huge.
+///
+/// Even when truncating, every safety- and test-relevant line from the omitted
+/// middle is preserved (test-result summaries, panics, failures, errors). This
+/// guarantees a large test run — even a fully passing one with dozens of
+/// per-suite `test result:` lines — never silently loses its outcome lines,
+/// regardless of OS or client (issue: compression must never swallow signal).
 fn truncate_verbatim(output: &str, original_tokens: usize) -> String {
     if original_tokens <= MAX_VERBATIM_TOKENS {
         return output.to_string();
@@ -251,15 +333,33 @@ fn truncate_verbatim(output: &str, original_tokens: usize) -> String {
     }
     let head = 30.min(total);
     let tail = 20.min(total.saturating_sub(head));
-    let omitted = total - head - tail;
+    let middle = &lines[head..total - tail];
+
+    // Preserve up to 200 safety/test/diagnostic lines from the omitted middle so
+    // buried failures and per-suite summaries survive head/tail truncation.
+    let preserved = crate::core::safety_needles::extract_safety_lines(middle, 200);
+    let omitted = middle.len() - preserved.len();
+
     let mut result = String::with_capacity(output.len() / 2);
     for line in &lines[..head] {
         result.push_str(line);
         result.push('\n');
     }
-    result.push_str(&format!(
-        "\n[{omitted} lines omitted — output too large for context window]\n\n"
-    ));
+    if preserved.is_empty() {
+        result.push_str(&format!(
+            "\n[{omitted} lines omitted — output too large for context window]\n\n"
+        ));
+    } else {
+        result.push_str(&format!(
+            "\n[{omitted} lines omitted, {} test/diagnostic lines preserved]\n",
+            preserved.len()
+        ));
+        for line in &preserved {
+            result.push_str(line);
+            result.push('\n');
+        }
+        result.push('\n');
+    }
     for line in lines.iter().skip(total - tail) {
         result.push_str(line);
         result.push('\n');
@@ -280,7 +380,7 @@ fn truncate_with_safety_scan(lines: &[&str], original_tokens: usize) -> Option<S
     let last = &lines[lines.len() - 5..];
     let middle = &lines[5..lines.len() - 5];
 
-    let safety_lines = safety_needles::extract_safety_lines(middle, 20);
+    let safety_lines = safety_needles::extract_safety_lines(middle, 80);
     let safety_count = safety_lines.len();
     let omitted = middle.len() - safety_count;
 

@@ -1,5 +1,4 @@
-import { execSync } from "child_process";
-import { resolve } from "path";
+import { execFileSync } from "child_process";
 
 export interface LeanCtxOptions {
   binary?: string;
@@ -58,7 +57,13 @@ export class LeanCtxClient {
 
   private run(args: string[]): string {
     try {
-      const result = execSync([this.binary, ...args].join(" "), {
+      // execFileSync passes argv directly to the binary WITHOUT spawning a
+      // shell, so caller-provided values (search patterns, paths, shell
+      // commands) can never be interpreted as shell metacharacters. This
+      // closes the shell-command-injection class (CodeQL js/shell-command-
+      // constructed-from-input). `lean-ctx -c "<cmd>"` still works: the whole
+      // command arrives as a single argv element for lean-ctx's own wrapper.
+      const result = execFileSync(this.binary, args, {
         cwd: this.projectRoot,
         timeout: this.timeout,
         encoding: "utf-8",

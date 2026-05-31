@@ -486,7 +486,10 @@
       }
       let html = '<ul class="fact-list">';
       for (const fact of facts) {
-        const catClass = fact.category.toLowerCase();
+        // Restrict to a safe CSS-class charset: any HTML-significant character
+        // (quotes, angle brackets, spaces) is stripped, so the value can never
+        // break out of the class attribute (CodeQL js/xss).
+        const catClass = String(fact.category).toLowerCase().replace(/[^a-z0-9_-]/g, "");
         const time = fact.timestamp
           ? '<div class="fact-time">' + escapeHtml(fact.timestamp) + "</div>"
           : "";
@@ -517,7 +520,7 @@
           : "—";
         html +=
           '<li class="repomap-item" data-path="' + escapeAttr(entry.path) + '">' +
-          '<span class="repomap-rank">#' + entry.rank + "</span>" +
+          '<span class="repomap-rank">#' + escapeHtml(String(entry.rank)) + "</span>" +
           '<div class="repomap-path">' + escapeHtml(entry.path) + "</div>" +
           '<div class="repomap-symbols">' + escapeHtml(symbols) + "</div>" +
           "</li>";
@@ -551,7 +554,7 @@
           '<div class="search-result" data-path="' + escapeAttr(r.file) + '">' +
           score +
           '<div class="search-file">' + escapeHtml(r.file) + "</div>" +
-          '<div class="search-line">Line ' + r.line + "</div>" +
+          '<div class="search-line">Line ' + escapeHtml(String(r.line)) + "</div>" +
           '<div class="search-content">' + escapeHtml(r.content) + "</div>" +
           "</div>";
       }
@@ -579,7 +582,18 @@
 
     /* ── Message handler ── */
     window.addEventListener("message", (event) => {
+      // Only accept messages from the VS Code webview host (CodeQL
+      // js/missing-origin-check). Desktop delivers a `vscode-webview:` origin;
+      // the web build (vscode.dev / Cursor web) delivers an `https:` origin —
+      // both are trusted, anything else (file:, null, http:) is rejected.
+      const origin = event.origin || "";
+      if (!origin.startsWith("vscode-webview:") && !origin.startsWith("https:")) {
+        return;
+      }
       const msg = event.data;
+      if (!msg || typeof msg.type !== "string") {
+        return;
+      }
       switch (msg.type) {
         case "stats":
           renderStats(msg.data);

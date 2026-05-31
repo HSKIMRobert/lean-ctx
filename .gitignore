@@ -8,6 +8,7 @@ Dockerfile.web
 /src/
 /package.json
 /package-lock.json
+package-lock.json
 /tsconfig.json
 lean-ctx.config.example.json
 INTERNAL_ARCHITECTURE.md
