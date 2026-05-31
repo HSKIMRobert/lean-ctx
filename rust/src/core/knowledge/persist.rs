@@ -30,6 +30,32 @@ fn knowledge_lock(project_hash: &str) -> Arc<Mutex<()>> {
         .clone()
 }
 
+/// Acquires an exclusive, cross-process advisory lock for a project's
+/// knowledge store. The returned file handle holds the lock until it is
+/// dropped; the OS releases it automatically if the process exits (even on
+/// crash), so there are no stale locks. This serializes the read-modify-write
+/// cycle across *separate processes* (parallel CLI invocations, CLI + daemon +
+/// MCP server), complementing the in-process mutex (issue #326).
+fn acquire_file_lock(dir: &Path) -> Option<std::fs::File> {
+    use fs2::FileExt;
+    let lock_path = dir.join(".knowledge.lock");
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&lock_path)
+        .ok()?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&lock_path, std::fs::Permissions::from_mode(0o600));
+    }
+    // Blocks until every other process holding the lock releases it. A failure
+    // here (unsupported FS, etc.) degrades to the in-process lock only.
+    file.lock_exclusive().ok()?;
+    Some(file)
+}
+
 /// Atomically writes `json` to `path` by writing to a unique temp file in the
 /// same directory and renaming it into place. `rename` is atomic on every
 /// supported platform (and replaces the target on Windows), so readers and
@@ -73,12 +99,15 @@ impl ProjectKnowledge {
         Ok(())
     }
 
-    /// Runs a read-modify-write cycle under a per-project lock, then saves
-    /// atomically. The knowledge is (re)loaded *inside* the lock so the closure
-    /// always operates on the latest on-disk state; this is what prevents lost
-    /// updates when several `remember` calls run in parallel (issue #326).
-    /// Returns the persisted knowledge plus the closure's return value so the
-    /// caller can build a response from the committed state.
+    /// Runs a read-modify-write cycle under both an in-process mutex and a
+    /// cross-process file lock, then saves atomically. The knowledge is
+    /// (re)loaded *inside* the locks so the closure always operates on the
+    /// latest on-disk state; this is what prevents lost updates when several
+    /// `remember` calls run in parallel — whether as threads in one process
+    /// (parallel MCP calls) or as separate processes (parallel CLI invocations,
+    /// CLI + daemon + MCP server) — see issue #326. Returns the persisted
+    /// knowledge plus the closure's return value so the caller can build a
+    /// response from the committed state.
     pub fn mutate_locked<T>(
         project_root: &str,
         f: impl FnOnce(&mut Self) -> T,
@@ -88,6 +117,17 @@ impl ProjectKnowledge {
         let _guard = lock
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        // Cross-process lock: create the dir up front so the lock file has a
+        // home, then block until any other process releases it. Held for the
+        // whole read-modify-write via `_file_lock`'s lifetime.
+        let _file_lock = match knowledge_dir(&hash) {
+            Ok(dir) => {
+                let _ = std::fs::create_dir_all(&dir);
+                acquire_file_lock(&dir)
+            }
+            Err(_) => None,
+        };
 
         let mut knowledge = Self::load_or_create(project_root);
         let out = f(&mut knowledge);
@@ -253,5 +293,52 @@ impl ProjectKnowledge {
         }
 
         Ok(true)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fs2::FileExt;
+
+    #[test]
+    fn file_lock_is_exclusive_across_handles() {
+        // flock-style locks are tied to the open file description, so two
+        // independent `open()`s in the same process behave like two separate
+        // processes: while the first holds the exclusive lock, the second must
+        // fail to acquire it. This validates the cross-process guarantee that
+        // protects parallel CLI writes (issue #326).
+        let dir = tempfile::tempdir().unwrap();
+        let held = acquire_file_lock(dir.path()).expect("first lock must succeed");
+
+        let second = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(dir.path().join(".knowledge.lock"))
+            .unwrap();
+        assert!(
+            second.try_lock_exclusive().is_err(),
+            "a second handle must not acquire the lock while it is held"
+        );
+
+        drop(held);
+        assert!(
+            second.try_lock_exclusive().is_ok(),
+            "lock must be acquirable once released"
+        );
+    }
+
+    #[test]
+    fn write_json_atomic_leaves_valid_file_and_no_temp() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("knowledge.json");
+        write_json_atomic(dir.path(), &path, "{\"ok\":true}").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{\"ok\":true}");
+        let leftover = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .any(|e| e.file_name().to_string_lossy().contains(".tmp."));
+        assert!(!leftover, "no temp file should remain");
     }
 }
