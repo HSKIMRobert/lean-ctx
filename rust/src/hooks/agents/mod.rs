@@ -40,5 +40,5 @@ pub(super) use kiro::install_kiro_hook;
 pub(super) use openclaw::install_openclaw_hook;
 pub(super) use opencode::install_opencode_hook_with_mode;
 pub(super) use pi::install_pi_hook_with_mode;
-pub(super) use qoder::install_qoder_hook_with_mode;
-pub(super) use windsurf::install_windsurf_rules;
+pub(super) use qoder::{install_qoder_hook, install_qoder_hook_with_mode};
+pub(super) use windsurf::{install_windsurf_hooks, install_windsurf_rules};

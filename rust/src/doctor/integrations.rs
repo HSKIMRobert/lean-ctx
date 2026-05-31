@@ -125,9 +125,15 @@ fn integration_generic(
     let mut checks = Vec::new();
     match target.config_type {
         crate::core::editor_registry::types::ConfigType::McpJson
-        | crate::core::editor_registry::types::ConfigType::JetBrains
         | crate::core::editor_registry::types::ConfigType::QoderSettings => {
             checks.push(check_mcp_json(&target.config_path, binary, data_dir));
+        }
+        crate::core::editor_registry::types::ConfigType::JetBrains => {
+            checks.push(check_jetbrains_snippet(
+                &target.config_path,
+                binary,
+                data_dir,
+            ));
         }
         crate::core::editor_registry::types::ConfigType::Zed => {
             checks.push(check_zed_settings(&target.config_path, binary));
@@ -135,7 +141,7 @@ fn integration_generic(
         crate::core::editor_registry::types::ConfigType::Codex => {
             checks.push(check_codex_toml(&target.config_path, binary));
             checks.push(check_codex_hooks_enabled(home));
-            checks.push(check_codex_hooks_json(home));
+            checks.push(check_codex_hooks_json(home, binary));
         }
         crate::core::editor_registry::types::ConfigType::VsCodeMcp => {
             checks.push(check_vscode_mcp(&target.config_path, binary, data_dir));
@@ -197,7 +203,7 @@ fn integration_cursor(home: &std::path::Path, binary: &str, data_dir: &str) -> I
     checks.push(check_mcp_json(&mcp_path, binary, data_dir));
 
     let hooks_path = cursor_dir.join("hooks.json");
-    checks.push(check_cursor_hooks(&hooks_path));
+    checks.push(check_cursor_hooks(&hooks_path, binary));
 
     let ok = checks.iter().all(|c| c.ok);
     IntegrationStatus {
@@ -230,7 +236,7 @@ fn integration_claude(home: &std::path::Path, binary: &str, data_dir: &str) -> I
     checks.push(check_mcp_json(&mcp_path, binary, data_dir));
 
     let settings_path = crate::core::editor_registry::claude_state_dir(home).join("settings.json");
-    checks.push(check_claude_hooks(&settings_path));
+    checks.push(check_claude_hooks(&settings_path, binary));
 
     let rules_path = crate::core::editor_registry::claude_rules_dir(home).join("lean-ctx.md");
     let has_rules = rules_path.exists();
@@ -314,6 +320,22 @@ fn check_mcp_json(path: &std::path::Path, binary: &str, data_dir: &str) -> Named
     }
 }
 
+/// JetBrains AI Assistant has no auto-wiring: lean-ctx writes a ready-to-paste
+/// snippet to `~/.jb-mcp.json`, which the user imports once via the IDE. The
+/// `doctor` verdict therefore verifies the snippet exists and is current, while
+/// making the required manual step explicit instead of implying auto-wiring.
+fn check_jetbrains_snippet(path: &std::path::Path, binary: &str, data_dir: &str) -> NamedCheck {
+    let mut c = check_mcp_json(path, binary, data_dir);
+    c.name = "MCP snippet".to_string();
+    if c.ok {
+        c.detail = format!(
+            "ready — paste into Settings → Tools → AI Assistant → MCP ({})",
+            path.display()
+        );
+    }
+    c
+}
+
 fn cmd_matches_expected(cmd: &str, portable: &str) -> bool {
     let cmd = cmd.trim();
     if cmd == portable.trim() {
@@ -328,6 +350,39 @@ fn cmd_matches_expected(cmd: &str, portable: &str) -> bool {
         }
     }
     false
+}
+
+/// Collect the `lean-ctx` binary tokens that appear immediately before a
+/// ` hook ` invocation inside a hook config file. Managed hook commands look
+/// like `"<binary> hook rewrite"` / `"<binary> hook redirect"` /
+/// `"<binary> hook codex-pretooluse"`, so the token directly preceding a
+/// ` hook ` delimiter is the binary the hook will execute.
+fn hook_binary_refs(content: &str) -> Vec<String> {
+    let pieces: Vec<&str> = content.split(" hook ").collect();
+    if pieces.len() < 2 {
+        return Vec::new();
+    }
+    pieces[..pieces.len() - 1]
+        .iter()
+        .filter_map(|piece| piece.split_whitespace().last())
+        .map(|tok| {
+            tok.trim_matches(|c: char| c == '"' || c == '\'' || c == '`' || c == ',')
+                .to_string()
+        })
+        .filter(|tok| tok.contains("lean-ctx"))
+        .collect()
+}
+
+/// If a hook file references a `lean-ctx` binary path that does not match the
+/// currently installed binary (and none of its references do), return that
+/// stale path. Returns `None` when there are no hook references or at least one
+/// reference points at the current binary (or the bare `lean-ctx` PATH command).
+fn stale_hook_binary(content: &str, binary: &str) -> Option<String> {
+    let refs = hook_binary_refs(content);
+    if refs.is_empty() || refs.iter().any(|r| cmd_matches_expected(r, binary)) {
+        return None;
+    }
+    refs.into_iter().next()
 }
 
 fn check_rules_file(path: &std::path::Path) -> NamedCheck {
@@ -781,7 +836,7 @@ fn check_codex_hooks_enabled(home: &std::path::Path) -> NamedCheck {
     }
 }
 
-fn check_codex_hooks_json(home: &std::path::Path) -> NamedCheck {
+fn check_codex_hooks_json(home: &std::path::Path, binary: &str) -> NamedCheck {
     let codex_dir = crate::core::home::resolve_codex_dir().unwrap_or_else(|| home.join(".codex"));
     let path = codex_dir.join("hooks.json");
     if !path.exists() {
@@ -825,15 +880,20 @@ fn check_codex_hooks_json(home: &std::path::Path) -> NamedCheck {
             }
         }
     }
-    let ok = saw_session_start && saw_pretool;
+    let entries_ok = saw_session_start && saw_pretool;
+    let stale = stale_hook_binary(&content, binary);
+    let ok = entries_ok && stale.is_none();
+    let detail = if !entries_ok {
+        format!("missing managed entries ({})", path.display())
+    } else if let Some(old) = stale {
+        format!("stale binary {old} — run lean-ctx setup --fix")
+    } else {
+        format!("ok ({})", path.display())
+    };
     NamedCheck {
         name: "Codex hooks.json".to_string(),
         ok,
-        detail: if ok {
-            format!("ok ({})", path.display())
-        } else {
-            format!("missing managed entries ({})", path.display())
-        },
+        detail,
     }
 }
 
@@ -941,7 +1001,7 @@ fn check_gemini_trust_and_hooks(home: &std::path::Path, binary: &str) -> NamedCh
     }
 }
 
-fn check_cursor_hooks(path: &std::path::Path) -> NamedCheck {
+fn check_cursor_hooks(path: &std::path::Path, binary: &str) -> NamedCheck {
     if !path.exists() {
         return NamedCheck {
             name: "Hooks".to_string(),
@@ -979,18 +1039,36 @@ fn check_cursor_hooks(path: &std::path::Path) -> NamedCheck {
             .and_then(|c| c.as_str())
             .is_some_and(|c| c.contains(" hook redirect"))
     });
+    let entries_ok = has_rewrite && has_redirect;
+    let stale = stale_hook_binary(&content, binary);
+    finalize_hook_check("Hooks", path, entries_ok, stale)
+}
+
+/// Shared verdict for hook checks: distinguishes missing/incomplete managed
+/// entries from a stale binary reference, so `doctor` can show the precise
+/// repair reason (the #249 observability pattern, extended to hook staleness).
+fn finalize_hook_check(
+    name: &str,
+    path: &std::path::Path,
+    entries_ok: bool,
+    stale: Option<String>,
+) -> NamedCheck {
+    let ok = entries_ok && stale.is_none();
+    let detail = if !entries_ok {
+        format!("drift ({})", path.display())
+    } else if let Some(old) = stale {
+        format!("stale binary {old} — run lean-ctx setup --fix")
+    } else {
+        format!("ok ({})", path.display())
+    };
     NamedCheck {
-        name: "Hooks".to_string(),
-        ok: has_rewrite && has_redirect,
-        detail: if has_rewrite && has_redirect {
-            format!("ok ({})", path.display())
-        } else {
-            format!("drift ({})", path.display())
-        },
+        name: name.to_string(),
+        ok,
+        detail,
     }
 }
 
-fn check_claude_hooks(path: &std::path::Path) -> NamedCheck {
+fn check_claude_hooks(path: &std::path::Path, binary: &str) -> NamedCheck {
     if !path.exists() {
         return NamedCheck {
             name: "Hooks".to_string(),
@@ -1014,14 +1092,107 @@ fn check_claude_hooks(path: &std::path::Path) -> NamedCheck {
         .cloned()
         .unwrap_or_default();
     let joined = serde_json::to_string(&pre).unwrap_or_default();
-    let ok = joined.contains(" hook rewrite") && joined.contains(" hook redirect");
-    NamedCheck {
-        name: "Hooks".to_string(),
-        ok,
-        detail: if ok {
-            format!("ok ({})", path.display())
-        } else {
-            format!("drift ({})", path.display())
-        },
+    let entries_ok = joined.contains(" hook rewrite") && joined.contains(" hook redirect");
+    let stale = stale_hook_binary(&joined, binary);
+    finalize_hook_check("Hooks", path, entries_ok, stale)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hook_binary_refs_extracts_token_before_hook_keyword() {
+        let content = r#"{"command": "/opt/lean-ctx hook rewrite"} {"command": "/opt/lean-ctx hook redirect"}"#;
+        let refs = hook_binary_refs(content);
+        assert_eq!(refs, vec!["/opt/lean-ctx", "/opt/lean-ctx"]);
+    }
+
+    #[test]
+    fn hook_binary_refs_empty_without_hook_invocation() {
+        assert!(hook_binary_refs(r#"{"command": "echo nothing here"}"#).is_empty());
+    }
+
+    #[test]
+    fn stale_hook_binary_flags_foreign_path() {
+        let content = r#""/nonexistent/old/lean-ctx hook rewrite""#;
+        let stale = stale_hook_binary(content, "/current/install/lean-ctx");
+        assert_eq!(stale.as_deref(), Some("/nonexistent/old/lean-ctx"));
+    }
+
+    #[test]
+    fn stale_hook_binary_accepts_current_binary() {
+        let bin = "/current/install/lean-ctx";
+        let content = format!(r#""{bin} hook rewrite""#);
+        assert!(stale_hook_binary(&content, bin).is_none());
+    }
+
+    #[test]
+    fn stale_hook_binary_accepts_bare_path_command() {
+        // The bare `lean-ctx` PATH form is always considered current.
+        let content = r#""lean-ctx hook rewrite""#;
+        assert!(stale_hook_binary(content, "/anything/lean-ctx").is_none());
+    }
+
+    #[test]
+    fn finalize_hook_check_reports_drift_missing_and_stale() {
+        let p = std::path::Path::new("/tmp/hooks.json");
+
+        let missing = finalize_hook_check("Hooks", p, false, None);
+        assert!(!missing.ok);
+        assert!(missing.detail.contains("drift"));
+
+        let stale = finalize_hook_check("Hooks", p, true, Some("/old/lean-ctx".to_string()));
+        assert!(!stale.ok);
+        assert!(stale.detail.contains("stale binary"));
+        assert!(stale.detail.contains("setup --fix"));
+
+        let healthy = finalize_hook_check("Hooks", p, true, None);
+        assert!(healthy.ok);
+        assert!(healthy.detail.contains("ok"));
+    }
+
+    #[test]
+    fn check_cursor_hooks_detects_stale_binary() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("hooks.json");
+        std::fs::write(
+            &path,
+            r#"{
+  "hooks": {
+    "preToolUse": [
+      { "matcher": "Shell", "command": "/old/bin/lean-ctx hook rewrite" },
+      { "matcher": "Read|Grep", "command": "/old/bin/lean-ctx hook redirect" }
+    ]
+  }
+}"#,
+        )
+        .unwrap();
+        let check = check_cursor_hooks(&path, "/new/bin/lean-ctx");
+        assert!(!check.ok, "stale binary path must fail the hook check");
+        assert!(check.detail.contains("stale binary"));
+    }
+
+    #[test]
+    fn check_cursor_hooks_ok_for_bare_command() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("hooks.json");
+        std::fs::write(
+            &path,
+            r#"{
+  "hooks": {
+    "preToolUse": [
+      { "matcher": "Shell", "command": "lean-ctx hook rewrite" },
+      { "matcher": "Read|Grep", "command": "lean-ctx hook redirect" }
+    ]
+  }
+}"#,
+        )
+        .unwrap();
+        let check = check_cursor_hooks(&path, "/new/bin/lean-ctx");
+        assert!(
+            check.ok,
+            "bare lean-ctx command is PATH-resolved and current"
+        );
     }
 }
