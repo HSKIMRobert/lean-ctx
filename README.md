@@ -9,12 +9,16 @@
 ╚══════╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝     ╚═════╝   ╚═╝   ╚═╝  ╚═╝
 </pre>
 
-**The Cognitive Context Layer for Agentic Systems**
+**The Context OS for AI Development**
 
-Your AI coding agent wastes thousands of tokens rereading files,
-parsing noisy shell output, and losing context between sessions.
+Your AI coding agent wastes thousands of tokens rereading files, parsing noisy
+shell output, and losing context between sessions — and you have no control
+over any of it.
 
-**LeanCTX fixes that.** One binary. Zero config required. Local-first.
+**LeanCTX is the operating system for that context.** One local binary that
+governs every token between your code and the model: it **compresses** what the
+AI reads, **remembers** what matters across sessions, **routes** each read to the
+right fidelity, and **verifies** what comes back. Zero config required. Local-first.
 
 | Problem | With LeanCTX |
 |---------|-------------|
@@ -98,11 +102,12 @@ parsing noisy shell output, and losing context between sessions.
 
 ---
 
-## What it does
+## What it does — the four dimensions of context
 
-**One binary. Three layers of value:**
+LeanCTX treats context as a managed resource, not an afterthought. One binary
+covers the four dimensions that decide how well an AI agent actually performs:
 
-### Layer 1: Compression (instant value)
+### 1. Compression — input efficiency
 
 Your AI agent reads files and runs commands. LeanCTX compresses both automatically.
 
@@ -110,7 +115,15 @@ Your AI agent reads files and runs commands. LeanCTX compresses both automatical
 - **Shell output**: 56 pattern modules compress git, npm, cargo, docker, kubectl, terraform and more (270 passthrough rules)
 - **Tree-sitter AST**: structural understanding for 21 languages — not just text compression
 
-### Layer 2: Memory (sticky value)
+### 2. Routing — the right fidelity per read
+
+Not every file needs the same depth. LeanCTX sends the signal, not the noise.
+
+- **10 read modes**: from full content down to AST signatures and entropy-filtered views
+- **Adaptive `ModePredictor`**: learns the optimal read mode per file type from past sessions
+- **`IntentEngine`**: classifies query complexity so simple lookups stay cheap
+
+### 3. Memory — context that persists
 
 Context doesn't disappear between chats anymore.
 
@@ -118,16 +131,16 @@ Context doesn't disappear between chats anymore.
 - **Knowledge graph**: temporal facts with validity windows, episodic + procedural memory
 - **Property Graph**: multi-edge code graph (imports, calls, exports, type_ref) powers impact analysis and search ranking
 
-### Layer 3: Governance & Observability (enterprise value)
+### 4. Verification — control what reaches the model
 
-Know exactly where your context budget goes. Control it.
+Performance is accuracy, not just speed. You stay in control of the window.
 
 - **Context Manager**: browser dashboard with real-time token tracking, compression stats, utilization gauge
 - **Budgets & SLOs**: profiles, roles, per-agent budgets, and throttling policies
-- **Context Proof** (`ctx_proof`, `ctx_verify`): cryptographic proofs with 4-layer verification engine
+- **Context Proof** (`ctx_proof`, `ctx_verify`): 4-layer verification engine with CI drift gates
 
 <details>
-<summary><strong>Full feature list (67 MCP tools)</strong></summary>
+<summary><strong>Full feature list (63 MCP tools)</strong></summary>
 
 - **Graph-Powered Intelligence**: hybrid search (BM25 + embeddings + graph proximity via RRF), incremental git-diff updates
 - **LSP Refactoring** (`ctx_refactor`): language-server-powered rename, references, go-to-definition via rust-analyzer, typescript-language-server, pylsp, gopls
@@ -139,6 +152,19 @@ Know exactly where your context budget goes. Control it.
 - **HTTP mode**: `lean-ctx serve` for Streamable HTTP MCP + `/v1/tools/call` (used by the Cookbook + SDK)
 
 </details>
+
+## Where it's going — the Context OS
+
+LeanCTX is growing from a context *layer* into a lightweight **Context OS for AI
+development**: version-controlled context strategy, one unified graph, and a
+governance layer for whole teams of agents.
+
+- **Context as Code** — declarative pipelines, profiles, and policies in TOML, versioned like infrastructure
+- **Unified Context Graph** — code, tests, commits, CI runs, and knowledge entries in a single semantic graph
+- **Agent Harness** — roles, budgets, and tool permissions for multi-agent governance
+- **Context Observability** — SLOs on context consumption, anomaly detection, OpenTelemetry / Prometheus export
+
+The full roadmap lives in **[VISION.md](VISION.md)**.
 
 ## How it works (30 seconds)
 
@@ -191,7 +217,7 @@ After onboarding, restart your shell and your editor/AI tool once so the MCP + h
 
 LeanCTX grows with you. Below are the journeys most people actually take — each
 links to a complete, function-by-function walkthrough in the
-**[Reference](docs/reference/README.md)** (every CLI command and all 67 MCP
+**[Reference](docs/reference/README.md)** (every CLI command and all 63 MCP
 tools are documented there).
 
 <table>
@@ -354,7 +380,7 @@ All analytics live in the CLI/dashboard — never burning agent tokens.
 ### 📚 The full reference
 *"I want to read everything."*
 
-Every command and all 67 MCP tools, organized as user journeys, plus
+Every command and all 63 MCP tools, organized as user journeys, plus
 appendices for the [CLI map](docs/reference/appendix-cli-map.md),
 [MCP tools](docs/reference/appendix-mcp-tools.md), and
 [paths & config](docs/reference/appendix-paths-and-config.md).
@@ -366,12 +392,12 @@ appendices for the [CLI map](docs/reference/appendix-cli-map.md),
 
 ## Supported IDEs & AI tools
 
-lean-ctx is a standard **MCP server**, so it works with any MCP-compatible client. Two integration modes are auto-selected per agent:
+LeanCTX is a standard **MCP server**, so it works with any MCP-compatible client. Two integration modes are auto-selected per agent:
 
 | Mode | How it works | Best for |
 |---|---|---|
 | **Hybrid** | MCP for cached reads (~13 tokens) + shell hooks for command compression | Agents with shell access (Cursor, Claude Code, Codex, ...) |
-| **MCP** | All 67 tools via MCP protocol, no shell hooks | Protocol-only agents (JetBrains, VS Code, Zed, ...) |
+| **MCP** | All 63 tools via MCP protocol, no shell hooks | Protocol-only agents (JetBrains, VS Code, Zed, ...) |
 
 ### Agent compatibility matrix
 
@@ -462,7 +488,7 @@ lean-ctx benchmark report .
 - **190+ forks** — active community contributions
 - **181 releases** — shipped daily since launch
 - **30+ supported AI coding agents** — broadest MCP compatibility
-- **67 MCP tools** — from simple file reads to multi-agent orchestration
+- **63 MCP tools** — from simple file reads to multi-agent orchestration
 - Used in production by teams running Claude Code, Cursor, and Codex daily
 
 ## Docs
