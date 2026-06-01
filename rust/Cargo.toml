@@ -117,6 +117,7 @@ tokio-util = { version = "0.7", features = ["codec"] }
 dirs = "5"
 chrono = { version = "0.4", features = ["serde"] }
 toml = "0.8"
+toml_edit = "0.22"
 similar = "2"
 flate2 = "1"
 rusqlite = { version = "0.39.0", features = ["bundled"] }

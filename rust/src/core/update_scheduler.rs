@@ -497,7 +497,8 @@ pub fn has_user_decided() -> bool {
     content.contains("auto_update")
 }
 
-/// Write the auto_update setting to config.toml.
+/// Writes the `[updates]` settings to config.toml, preserving all comments,
+/// formatting, and unrelated keys.
 pub fn set_auto_update(enabled: bool, notify_only: bool, interval_hours: u64) {
     let Some(home) = dirs::home_dir() else {
         return;
@@ -505,23 +506,24 @@ pub fn set_auto_update(enabled: bool, notify_only: bool, interval_hours: u64) {
     let config_dir = home.join(".lean-ctx");
     let _ = std::fs::create_dir_all(&config_dir);
     let config_path = config_dir.join("config.toml");
-    let mut content = std::fs::read_to_string(&config_path).unwrap_or_default();
 
-    if let Some(start) = content.find("[updates]") {
-        let section_end = content[start + 9..]
-            .find("\n[")
-            .map_or(content.len(), |i| start + 9 + i);
-        content = format!("{}{}", &content[..start], &content[section_end..]);
-    }
+    let mut doc = crate::config_io::load_toml_document(&config_path);
+    apply_auto_update(&mut doc, enabled, notify_only, interval_hours);
+    let _ = crate::config_io::write_toml_document(&config_path, &doc);
+}
 
-    if !content.is_empty() && !content.ends_with('\n') {
-        content.push('\n');
-    }
-    content.push_str(&format!(
-        "\n[updates]\nauto_update = {enabled}\ncheck_interval_hours = {interval_hours}\nnotify_only = {notify_only}\n"
-    ));
-
-    let _ = std::fs::write(&config_path, content);
+/// Applies the `[updates]` settings onto a TOML document in place. Pure helper
+/// so the merge behavior is unit-testable without touching the real home dir.
+fn apply_auto_update(
+    doc: &mut toml_edit::DocumentMut,
+    enabled: bool,
+    notify_only: bool,
+    interval_hours: u64,
+) {
+    let updates = doc["updates"].or_insert(toml_edit::table());
+    updates["auto_update"] = toml_edit::value(enabled);
+    updates["check_interval_hours"] = toml_edit::value(interval_hours as i64);
+    updates["notify_only"] = toml_edit::value(notify_only);
 }
 
 #[cfg(test)]
@@ -556,21 +558,42 @@ mod tests {
     }
 
     #[test]
-    fn set_auto_update_writes_config() {
-        let tmp = tempfile::tempdir().unwrap();
-        let config_path = tmp.path().join("config.toml");
-        std::fs::write(&config_path, "buddy_enabled = true\n").unwrap();
+    fn apply_auto_update_preserves_existing_keys_and_comments() {
+        let mut doc = "\
+# important user comment
+buddy_enabled = true
+"
+        .parse::<toml_edit::DocumentMut>()
+        .unwrap();
 
-        let mut content = std::fs::read_to_string(&config_path).unwrap();
-        content.push_str(
-            "\n[updates]\nauto_update = true\ncheck_interval_hours = 12\nnotify_only = false\n",
-        );
-        std::fs::write(&config_path, &content).unwrap();
+        apply_auto_update(&mut doc, true, false, 12);
 
-        let result = std::fs::read_to_string(&config_path).unwrap();
+        let result = doc.to_string();
         assert!(result.contains("auto_update = true"));
         assert!(result.contains("check_interval_hours = 12"));
+        assert!(result.contains("notify_only = false"));
+        // Existing key + comment survive.
         assert!(result.contains("buddy_enabled = true"));
+        assert!(result.contains("# important user comment"));
+    }
+
+    #[test]
+    fn apply_auto_update_overwrites_only_updates_section() {
+        let mut doc = "\
+[updates]
+auto_update = false
+check_interval_hours = 99
+"
+        .parse::<toml_edit::DocumentMut>()
+        .unwrap();
+
+        apply_auto_update(&mut doc, true, true, 6);
+
+        let result = doc.to_string();
+        assert!(result.contains("auto_update = true"));
+        assert!(result.contains("check_interval_hours = 6"));
+        assert!(result.contains("notify_only = true"));
+        assert!(!result.contains("check_interval_hours = 99"));
     }
 
     #[test]

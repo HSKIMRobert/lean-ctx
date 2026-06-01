@@ -108,6 +108,19 @@ pub fn normalize_tool_path(path: &str) -> String {
         p.pop();
     }
 
+    // Resolve symlinks for absolute paths to ensure cache key consistency.
+    // Skip relative paths (preserve "." / "../" as-is) and slow mounts
+    // (WSL DrvFS /mnt/) where canonicalize can hang.
+    let is_absolute = p.starts_with('/') || (p.len() >= 3 && p.as_bytes()[1] == b':');
+    if is_absolute && !crate::core::io_health::is_slow_mount(&p) {
+        if let Ok(canonical) = std::fs::canonicalize(&p) {
+            let canonical_str = canonical.to_string_lossy().replace('\\', "/");
+            if !canonical_str.is_empty() {
+                p = canonical_str;
+            }
+        }
+    }
+
     p
 }
 

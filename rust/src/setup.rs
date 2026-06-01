@@ -377,7 +377,7 @@ pub fn run_setup() {
                 config_content.push('\n');
             }
             config_content.push_str("\n[cloud]\ncontribute_enabled = true\n");
-            let _ = std::fs::write(&config_path, config_content);
+            let _ = crate::config_io::write_atomic_with_backup(&config_path, &config_content);
         }
         terminal_ui::print_status_ok("Enabled — thank you!");
     } else {
@@ -469,7 +469,7 @@ pub fn run_setup() {
                         }
                         content.push_str(&format!("project_root = \"{root_trimmed}\"\n"));
                     }
-                    let _ = std::fs::write(&config_path, &content);
+                    let _ = crate::config_io::write_atomic_with_backup(&config_path, &content);
                     terminal_ui::print_status_ok(&format!("Project root set: {root_trimmed}"));
                     if root_path.join(".git").exists()
                         || root_path.join("Cargo.toml").exists()
@@ -2086,7 +2086,7 @@ fn configure_premium_features(home: &std::path::Path) {
         terminal_ui::print_status_skip("Archive: off (enable later in config.toml)");
     }
 
-    let _ = std::fs::write(&config_path, config_content);
+    let _ = crate::config_io::write_atomic_with_backup(&config_path, &config_content);
 }
 
 #[cfg(all(test, target_os = "macos"))]

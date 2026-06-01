@@ -86,7 +86,9 @@ impl MultiRepoConfig {
         }
         let content =
             toml::to_string_pretty(self).map_err(|e| format!("Failed to serialize config: {e}"))?;
-        std::fs::write(&config_path, content)
+        let defaults = toml::to_string_pretty(&Self::default())
+            .map_err(|e| format!("Failed to serialize defaults: {e}"))?;
+        crate::config_io::write_toml_preserving_minimal(&config_path, &content, &defaults)
             .map_err(|e| format!("Failed to write config: {e}"))?;
         Ok(())
     }

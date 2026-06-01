@@ -2037,6 +2037,10 @@ impl Config {
     }
 
     /// Persists the current config to the global config file.
+    ///
+    /// Preserves user comments, formatting, and unknown keys, keeps the file
+    /// minimal (defaults that were never set on disk stay implicit), and writes
+    /// atomically with a `.bak` backup so customizations are always recoverable.
     pub fn save(&self) -> std::result::Result<(), super::error::LeanCtxError> {
         let path = Self::path().ok_or_else(|| {
             super::error::LeanCtxError::Config("cannot determine home directory".into())
@@ -2046,7 +2050,15 @@ impl Config {
         }
         let content = toml::to_string_pretty(self)
             .map_err(|e| super::error::LeanCtxError::Config(e.to_string()))?;
-        std::fs::write(&path, content)?;
+        // Baseline = what loading an empty config yields. This honors serde's
+        // field-level `#[serde(default)]` (which can diverge from the struct's
+        // `Default` impl), so minimal mode skips exactly the keys that a fresh
+        // load would produce — no spurious lines on save.
+        let baseline = toml::from_str::<Self>("").unwrap_or_else(|_| Self::default());
+        let defaults = toml::to_string_pretty(&baseline)
+            .map_err(|e| super::error::LeanCtxError::Config(e.to_string()))?;
+        crate::config_io::write_toml_preserving_minimal(&path, &content, &defaults)
+            .map_err(super::error::LeanCtxError::Config)?;
         Ok(())
     }
 

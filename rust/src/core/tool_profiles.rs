@@ -169,31 +169,16 @@ pub fn list_profiles() -> Vec<ProfileInfo> {
     ]
 }
 
-/// Writes the tool_profile setting to config.toml.
+/// Writes the `tool_profile` setting to config.toml, preserving all comments,
+/// formatting, and unrelated keys (robust against substring/comment matches).
 pub fn set_profile_in_config(profile_name: &str) -> Result<(), String> {
     let config_dir = crate::core::data_dir::lean_ctx_data_dir()
         .map_err(|e| format!("Cannot determine config dir: {e}"))?;
     let config_path = config_dir.join("config.toml");
-    let mut content = std::fs::read_to_string(&config_path).unwrap_or_default();
 
-    let key = "tool_profile";
-    let new_line = format!("{key} = \"{profile_name}\"");
-    let pattern = format!("{key} = ");
-
-    if let Some(start) = content.find(&pattern) {
-        let line_end = content[start..]
-            .find('\n')
-            .map_or(content.len(), |p| start + p);
-        content.replace_range(start..line_end, &new_line);
-    } else {
-        if !content.is_empty() && !content.ends_with('\n') {
-            content.push('\n');
-        }
-        content.push_str(&new_line);
-        content.push('\n');
-    }
-
-    std::fs::write(&config_path, content).map_err(|e| format!("Write config: {e}"))?;
+    let mut doc = crate::config_io::load_toml_document(&config_path);
+    doc["tool_profile"] = toml_edit::value(profile_name);
+    crate::config_io::write_toml_document(&config_path, &doc)?;
     Ok(())
 }
 
