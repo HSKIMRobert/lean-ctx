@@ -293,3 +293,27 @@ jobs:
           git push
         env:
           HOMEBREW_TOKEN: ${{ secrets.HOMEBREW_GITHUB_TOKEN }}
+
+  announce-twitter:
+    name: Announce on Twitter
+    needs: release
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.ref_name, '-rc') }}
+    steps:
+      - uses: actions/checkout@v4 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: Post release tweet
+        env:
+          TWITTER_CONSUMER_KEY: ${{ secrets.TWITTER_CONSUMER_KEY }}
+          TWITTER_CONSUMER_SECRET: ${{ secrets.TWITTER_CONSUMER_SECRET }}
+          TWITTER_ACCESS_TOKEN: ${{ secrets.TWITTER_ACCESS_TOKEN }}
+          TWITTER_ACCESS_SECRET: ${{ secrets.TWITTER_ACCESS_SECRET }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: node .github/scripts/post-release-tweet.mjs
