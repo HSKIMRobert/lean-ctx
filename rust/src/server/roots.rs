@@ -1,18 +1,5 @@
 use std::path::Path;
 
-const PROJECT_MARKERS: &[&str] = &[
-    ".git",
-    "Cargo.toml",
-    "package.json",
-    "go.mod",
-    "pyproject.toml",
-    "setup.py",
-    "pom.xml",
-    "build.gradle",
-    "Makefile",
-    ".lean-ctx.toml",
-];
-
 /// Parse a `file://` URI to a validated local path string.
 /// Rejects non-file URIs, null bytes, `..` traversal, and non-directory paths.
 /// Returns a canonicalized absolute path.
@@ -70,7 +57,7 @@ fn hex_val(b: u8) -> Option<u8> {
 }
 
 pub(super) fn has_project_marker(dir: &Path) -> bool {
-    PROJECT_MARKERS.iter().any(|m| dir.join(m).exists())
+    crate::core::pathutil::has_project_marker(dir)
 }
 
 /// Select the best project root from MCP client roots.

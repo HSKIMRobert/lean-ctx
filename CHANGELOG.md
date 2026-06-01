@@ -3,21 +3,49 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [3.7.0] — 2026-06-01
 
-### Security
-- **Shell-command injection in the Node SDK** (CodeQL `js/shell-command-constructed-from-input`): `LeanCtxClient` built the command by `join(" ")`-ing argv and running it through `execSync`, so a search pattern / path / shell argument containing shell metacharacters could be interpreted by the shell. Switched to `execFileSync(binary, args)`, which passes argv directly to the binary with **no shell**, eliminating the injection class. `lean-ctx -c "<cmd>"` still works (the command arrives as a single argv element).
-- **XSS in the VS Code/Cursor sidebar webview** (CodeQL `js/xss`, 3× high): `renderKnowledge`/`renderRepoMap`/`renderSearchResults` interpolated a few values (`category` CSS class, `rank`, `line`) into `innerHTML` without escaping. All dynamic values are now escaped (`escapeHtml`) or restricted to a safe charset, so provider/CLI-derived data can never inject markup.
-- **Missing origin check on the webview message handler** (CodeQL `js/missing-origin-check`): the `window` message listener now rejects any message whose origin is not the trusted webview host (`vscode-webview:` on desktop, `https:` on web builds) and validates the message shape before dispatching.
+> **Shadow Mode + Meaningful Instructions.** Rules injected into agents are now
+> actionable (concrete tool names, examples, workflow), and a new `shadow_mode`
+> transparently intercepts native Read/Grep/Shell calls for users who want full
+> automatic routing.
+
+### Added
+- **Shadow Mode** (`lean-ctx config set shadow_mode true`): transparently intercepts native Read/Grep/Shell via hooks, strengthens MCP instructions to MUST-level, activates immediate bypass hints on first native tool use, logs all intercepts to `~/.lean-ctx/shadow.log` for audit transparency. Visible in `lean-ctx doctor` and `lean-ctx status`.
+- **6-step workflow in all injected rules**: Orient → Locate → Read → Edit → Verify → Record — agents can follow blindly without memorizing tool names.
+- **Tool Mapping table in rules**: every injected rule file now includes a MANDATORY table with exact tool names, parameters, and runnable examples (`ctx_read("src/main.rs", "full")`).
+- **Proactive section in RULES_DEDICATED**: `ctx_overview` at session start, `ctx_compress` at phase boundaries, `ctx_knowledge(action="wakeup")` for prior findings.
+- **Compression Bypass ladder**: `lines:N-M` → `full` → `raw=true` — documented escape hatch when compression hides detail.
+- **Risk Gate guidance**: before editing exported symbols, auth, DB schemas, or 3+ files — run `ctx_impact` + `ctx_callgraph`.
+- **Registry-driven hook refresh + doctor staleness check**: `lean-ctx doctor` detects stale hooks, IDE path misconfiguration, and auto-refreshes outdated rules on first tool call.
+- **Reference appendices generated from code**: `docs-gen` renders MCP tool reference, CLI reference, and journey golden outputs directly from source — with CI drift-gate to catch divergence.
+- **Complete user-journey reference** (14 journeys): install-to-first-save through performance tuning, with IDE quickstarts and golden output examples.
+- **Semantic-index observability** (#249): `lean-ctx index status` and `lean-ctx doctor` surface BM25 state (idle/building/ready/failed), build duration, persisted size, and failure notes.
+
+### Changed
+- **Rules version v10 → v11**: all templates (`RULES_SHARED`, `RULES_DEDICATED`, `lean-ctx.mdc`, `lean-ctx-hybrid.mdc`) rewritten with actionable structure. Existing installations auto-upgrade on next `lean-ctx setup` or `lean-ctx update`.
+- **MCP instructions include workflow hint**: "Orient(ctx_overview) → Locate(ctx_search) → Read(ctx_read) → Edit → Verify → Record".
+- **`bypass_hint.rs` respects shadow_mode**: when active, hints trigger on first native use (not after 5 calls) with stronger "intercepted" wording.
+- **Hook redirect messaging**: in shadow_mode, redirected Read/Grep outputs include a header explaining the interception and suggesting direct `ctx_*` usage.
 
 ### Fixed
-- **Semantic index stuck "warming up" forever, with no visibility** (#249): on a repo whose compressed BM25 index exceeded the disk cap, `BM25Index::save` *silently* returned success without writing the file, so `load` returned `None` on every call and the index rebuilt from scratch each time — making `ctx_compose`/semantic search permanently report "index is warming, ranking will be instant on the next call" while it never actually became ready, and with no way to see why. Three fixes: (1) the on-disk persist ceiling is **decoupled from the RAM profile** and defaults to a generous 512 MB (was 64/128 MB on Low/Balanced), so realistic large repos now persist and stop rebuilding; (2) `save` now reports a typed `SaveOutcome` (`Persisted` vs `SkippedTooLarge`) instead of a silent `Ok`, and the index orchestrator records an **observable, actionable note** ("indexed N chunks but NOT persisted: … raise `LEAN_CTX_BM25_MAX_CACHE_MB` / add `extra_ignore_patterns`, then `lean-ctx reindex`"); (3) the `ctx_compose` deferred message is now **state-aware and honest** — it reports `building (Ns elapsed)`, a real failure reason, or the too-large remedy instead of always promising "instant on the next call".
-- **No way to inspect semantic-index health** (#249): `lean-ctx index status` and `lean-ctx doctor` now surface the runtime BM25 state (idle/building/ready/failed), build duration, persisted size, and any failure/too-large note; the machine-readable `ctx_index status` JSON gains the same `note` field. Answers "is it working, how fast, and if/why it failed".
-- **Test-runner output was compressed/truncated, losing pass/fail summaries**: a large (even fully-passing) multi-suite run — e.g. a multi-crate `cargo test` piped through `grep`/`tail` — could have its per-suite `test result:` lines collapsed or head/tail-truncated away, forcing a `LEAN_CTX_RAW=1` re-run to see the real outcome. Test-runner commands across ecosystems (cargo/nextest, pytest, go test, jest/vitest/mocha, dotnet/mix/rspec/phpunit/gradle/maven/ctest — incl. `VAR=val …` env prefixes and each pipeline segment) are now kept **verbatim**; even when a huge output is head/tail-truncated, every test-result/failure/panic/error line in the omitted middle is preserved. Test-outcome markers (`test result:`, `passed`, `passing`, `panicked`, `traceback`, …) were added to the safety-needle set so they survive truncation on every code path. OS- and IDE-independent (the guard sits in the shared `compress_if_beneficial` pipeline used by the CLI, MCP `ctx_shell`, and the proxy).
-- **MCP and CLI split the knowledge store on Windows** (#325): the project hash was computed from the raw project-root string, so the forward-slash path reported by the MCP server (`D:/repo`) and the backslash path reported by the CLI (`D:\repo`) hashed to two different stores — facts written via one interface were invisible to the other. The root is now slash/casing-normalized (`pathutil::normalize_tool_path`) before hashing, so both interfaces converge on a single store. POSIX hashes are unaffected (normalization is a no-op for clean POSIX paths). Pre-fix Windows stores keyed by a backslash path are auto-migrated into the canonical location on first load.
-- **Parallel `remember` calls clobbered each other** (#326): each `ctx_knowledge(action="remember")` did an unsynchronized read-modify-write of `knowledge.json`, so a burst of parallel calls lost all but the last writer's fact. The read-modify-write is now serialized per project under **both** an in-process lock (`KNOWLEDGE_LOCKS`, for parallel MCP calls/threads) **and a cross-process advisory file lock** (`.knowledge.lock`, for parallel CLI invocations and CLI + daemon + MCP-server contention), reloading the latest on-disk state inside the locks so every concurrent fact is preserved. Verified with 20 simultaneous separate-process writes (all preserved).
-- **`knowledge.json` could be left with trailing JSON garbage** (#326): writes went straight to the destination file, so an interrupted/overlapping write produced invalid JSON. Saves are now atomic (write to a unique temp file in the same directory, then `rename` into place), so readers and concurrent writers never observe a half-written file.
-- **Windows path corruption hardening** (#324): extended forward-slash normalization to the index-backed `ctx_search`/semantic-search result formatter (`bm25_index::format_search_results`) and the `ctx_compose` associative block, covering the remaining spots where backslash paths could still reach client render layers. External provider URIs (e.g. `github://`) are left untouched.
+- **Config.toml overwritten on update** (#330): all config writes now use `toml_edit`-based format-preserving merge with atomic backup. User comments, formatting, and unknown keys survive any write. Minimal-diff mode: only non-default values are written (no config bloat).
+- **WSL cache hit rate near 0%** (#329): `mtime=None` on DrvFS no longer causes spurious invalidation; path normalization uses `canonicalize` (with verbatim-prefix stripping) for consistent cache keys; `lean-ctx cache stats` now shows both CLI and MCP session cache metrics.
+- **Semantic index stuck "warming up" forever** (#249): on a repo whose BM25 index exceeded the disk cap, the index rebuilt from scratch every call. Three fixes: (1) disk persist ceiling decoupled from RAM profile (default 512 MB); (2) `save` reports typed `SaveOutcome` with actionable notes; (3) `ctx_compose` deferred message is state-aware and honest.
+- **Test-runner output compressed/truncated, losing pass/fail summaries**: test-runner commands across all ecosystems are now kept verbatim; test-outcome markers survive truncation on every code path.
+- **Knowledge store split on Windows** (#325): forward-slash/casing-normalized project hash converges CLI and MCP on a single store. Pre-fix backslash-keyed stores auto-migrate.
+- **Parallel `remember` calls clobbered each other** (#326): read-modify-write serialized with in-process + cross-process file locks; atomic temp-file-then-rename saves prevent JSON corruption.
+- **Windows `\\?\` prefix from canonicalize**: `normalize_tool_path` now uses `safe_canonicalize` (strips extended-length prefix) and skips root-only paths (`/`, `C:/`).
+- **IDE hook integrations check**: doctor now correctly parses hook binary path from minified JSON.
+- **Docs-drift gate line-ending agnostic**: Windows CI no longer fails due to CRLF vs LF in generated docs.
+- **Benchmark system info detection on Windows**: RAM + CPU detection now works on all platforms.
+
+### Security
+- **Shell-command injection in the Node SDK** (CodeQL `js/shell-command-constructed-from-input`): switched to `execFileSync` — no shell interpretation.
+- **XSS in VS Code sidebar webview** (CodeQL `js/xss`, 3× high): all dynamic values escaped.
+- **Missing origin check on webview message handler** (CodeQL `js/missing-origin-check`): rejects untrusted origins.
+
+## [Unreleased]
 
 ## [3.6.26] — 2026-05-30
 

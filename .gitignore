@@ -44,6 +44,9 @@ memory-bank/
 docs/LEANCTX_CONSOLIDATION_TICKETS.md
 deploy_checklist.md
 
+# ── Business / Monetization (private, internal strategy) ──
+docs/business/
+
 # ── Local artifacts ──
 lean-ctx-chrome-extension.zip
 /docs/_local/

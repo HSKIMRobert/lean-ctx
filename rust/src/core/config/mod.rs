@@ -205,7 +205,7 @@ pub struct Config {
     #[serde(default = "serde_defaults::default_bm25_max_cache_mb")]
     pub bm25_max_cache_mb: u64,
     /// Maximum number of files scanned by the lightweight JSON graph index.
-    /// Increase for large monorepos. Default: 5000.
+    /// 0 = unlimited (default). Set >0 to cap for constrained systems.
     #[serde(default = "serde_defaults::default_graph_index_max_files")]
     pub graph_index_max_files: u64,
     /// Controls RAM vs feature trade-off. Values: "low", "balanced" (default), "performance".

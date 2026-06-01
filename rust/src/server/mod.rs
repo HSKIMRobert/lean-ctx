@@ -139,8 +139,18 @@ impl ServerHandler for LeanCtxServer {
             }
         }
 
+        let extra_roots_snapshot = self.session.read().await.extra_roots.clone();
         if let Some(ref root) = effective_root {
             crate::core::index_orchestrator::ensure_all_background(root);
+            if !extra_roots_snapshot.is_empty() {
+                let r = root.clone();
+                std::thread::spawn(move || {
+                    crate::core::index_orchestrator::ensure_extra_roots_background(
+                        &r,
+                        &extra_roots_snapshot,
+                    );
+                });
+            }
         }
 
         let agent_name = name.clone();
@@ -1585,8 +1595,19 @@ impl LeanCtxServer {
                 .cloned()
                 .collect();
         }
-        session.project_root = Some(new_root);
+        session.project_root = Some(new_root.clone());
+        let extra = session.extra_roots.clone();
         let _ = session.save();
+
+        // Trigger background indexing for the new root (+ extra roots)
+        drop(session);
+        crate::core::index_orchestrator::ensure_all_background(&new_root);
+        if !extra.is_empty() {
+            let r = new_root;
+            std::thread::spawn(move || {
+                crate::core::index_orchestrator::ensure_extra_roots_background(&r, &extra);
+            });
+        }
     }
 }
 

@@ -364,7 +364,8 @@ fn trigger_lazy_graph_build(project_root: &str) {
         && (root.join(".git").exists()
             || root.join("Cargo.toml").exists()
             || root.join("package.json").exists()
-            || root.join("go.mod").exists());
+            || root.join("go.mod").exists()
+            || crate::core::pathutil::has_multi_repo_children(root));
     if !is_project {
         return;
     }

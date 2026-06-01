@@ -70,10 +70,13 @@ fn is_safe_scan_root(path: &str) -> bool {
         for blocked in BLOCKED_HOME_SUBDIRS {
             let blocked_path = home_path.join(blocked);
             let is_inside_blocked = p == blocked_path || p.starts_with(&blocked_path);
-            let has_project_marker = p.join(".git").exists()
+            let has_marker = p.join(".git").exists()
                 || p.join("Cargo.toml").exists()
                 || p.join("package.json").exists();
-            if is_inside_blocked && !has_project_marker {
+            if is_inside_blocked
+                && !has_marker
+                && !crate::core::pathutil::has_multi_repo_children(p)
+            {
                 tracing::warn!(
                     "[graph_index: refusing to scan {normalized} — \
                      inside home/{blocked} without project markers]"
@@ -83,13 +86,14 @@ fn is_safe_scan_root(path: &str) -> bool {
         }
 
         // Block directories that are direct children of home without project markers
+        // (but allow multi-repo workspace parents like ~/code/)
         if p.parent() == Some(home_path) {
             let has_marker = p.join(".git").exists()
                 || p.join("Cargo.toml").exists()
                 || p.join("package.json").exists()
                 || p.join("go.mod").exists()
                 || p.join("pyproject.toml").exists();
-            if !has_marker {
+            if !has_marker && !crate::core::pathutil::has_multi_repo_children(p) {
                 tracing::warn!(
                     "[graph_index: refusing to scan {normalized} — \
                      direct child of home without project markers]"
@@ -115,6 +119,11 @@ fn is_safe_scan_root(path: &str) -> bool {
     ];
 
     if !breadth_markers.iter().any(|m| p.join(m).exists()) {
+        // Multi-repo workspace parent: >=2 children with project markers is always safe
+        if crate::core::pathutil::has_multi_repo_children(p) {
+            return true;
+        }
+
         let child_count = std::fs::read_dir(p).map_or(0, |rd| {
             rd.filter_map(Result::ok)
                 .filter(|e| e.path().is_dir())
@@ -1778,5 +1787,45 @@ class UserService {
                 );
             }
         }
+    }
+
+    #[test]
+    fn safe_scan_root_accepts_multi_repo_parent() {
+        let tmp = tempdir().unwrap();
+        let parent = tmp.path().join("code");
+        std::fs::create_dir_all(&parent).unwrap();
+
+        // Create 2 child repos
+        std::fs::create_dir_all(parent.join("repo-a").join(".git")).unwrap();
+        std::fs::create_dir_all(parent.join("repo-b").join(".git")).unwrap();
+
+        // Add >50 empty subdirs to trigger the breadth guard
+        for i in 0..55 {
+            std::fs::create_dir(parent.join(format!("dir-{i}"))).unwrap();
+        }
+
+        let parent_str = parent.to_string_lossy().to_string();
+        assert!(
+            is_safe_scan_root(&parent_str),
+            "Multi-repo parent with >50 subdirs should be accepted"
+        );
+    }
+
+    #[test]
+    fn safe_scan_root_rejects_broad_dir_without_repos() {
+        let tmp = tempdir().unwrap();
+        let broad = tmp.path().join("broad");
+        std::fs::create_dir_all(&broad).unwrap();
+
+        // Create >50 subdirs but no project markers
+        for i in 0..55 {
+            std::fs::create_dir(broad.join(format!("dir-{i}"))).unwrap();
+        }
+
+        let broad_str = broad.to_string_lossy().to_string();
+        assert!(
+            !is_safe_scan_root(&broad_str),
+            "Broad dir without project markers should be rejected"
+        );
     }
 }

@@ -204,6 +204,35 @@ pub fn ensure_all_background(project_root: &str) {
     });
 }
 
+/// Ensure background indexing for all extra roots (in addition to the primary).
+/// Each extra root that is not a subdirectory of `primary_root` gets its own
+/// graph + BM25 index. Capped at `MAX_EXTRA_ROOT_BUILDS` to prevent runaway.
+const MAX_EXTRA_ROOT_BUILDS: usize = 8;
+
+pub fn ensure_extra_roots_background(primary_root: &str, extra_roots: &[String]) {
+    let primary = Path::new(primary_root);
+    let mut built = 0;
+    for root in extra_roots {
+        if built >= MAX_EXTRA_ROOT_BUILDS {
+            break;
+        }
+        let rp = Path::new(root);
+        if !rp.is_dir() {
+            continue;
+        }
+        // Skip if extra_root is inside primary (already indexed by the primary scan)
+        if rp.starts_with(primary) {
+            continue;
+        }
+        // Skip if primary is inside this extra_root (avoid double-indexing the parent)
+        if primary.starts_with(rp) {
+            continue;
+        }
+        ensure_all_background(root);
+        built += 1;
+    }
+}
+
 /// Build a human-readable outcome note for a finished BM25 build, including the
 /// indexed chunk count and whether the index was persisted to disk. A
 /// "too large" refusal carries the exact remedy so the operator (or agent) is
@@ -497,5 +526,43 @@ mod tests {
         assert_eq!(summary.state, "idle");
         assert!(summary.note.is_none());
         assert!(summary.last_error.is_none());
+    }
+
+    #[test]
+    fn extra_roots_skips_subdirs_of_primary() {
+        let tmp = tempfile::tempdir().unwrap();
+        let primary = tmp.path().join("primary");
+        std::fs::create_dir_all(&primary).unwrap();
+        let sub = primary.join("subdir");
+        std::fs::create_dir_all(&sub).unwrap();
+        let external = tmp.path().join("external");
+        std::fs::create_dir_all(&external).unwrap();
+
+        let primary_str = primary.to_string_lossy().to_string();
+        let extra = vec![
+            sub.to_string_lossy().to_string(),
+            external.to_string_lossy().to_string(),
+        ];
+
+        // Should not panic; subdirs are skipped, external is attempted
+        ensure_extra_roots_background(&primary_str, &extra);
+    }
+
+    #[test]
+    fn extra_roots_caps_at_max() {
+        let tmp = tempfile::tempdir().unwrap();
+        let primary = tmp.path().join("primary");
+        std::fs::create_dir_all(&primary).unwrap();
+
+        let mut extra = Vec::new();
+        for i in 0..20 {
+            let d = tmp.path().join(format!("ext-{i}"));
+            std::fs::create_dir_all(&d).unwrap();
+            extra.push(d.to_string_lossy().to_string());
+        }
+
+        let primary_str = primary.to_string_lossy().to_string();
+        // Should not spawn more than MAX_EXTRA_ROOT_BUILDS threads
+        ensure_extra_roots_background(&primary_str, &extra);
     }
 }

@@ -146,6 +146,40 @@ pub fn is_broad_or_unsafe_root(dir: &Path) -> bool {
         || s.contains("/.codex/")
 }
 
+/// Well-known project markers used to identify project roots.
+pub const PROJECT_MARKERS: &[&str] = &[
+    ".git",
+    "Cargo.toml",
+    "package.json",
+    "go.mod",
+    "pyproject.toml",
+    "setup.py",
+    "pom.xml",
+    "build.gradle",
+    "Makefile",
+    ".lean-ctx.toml",
+];
+
+/// Returns `true` if `dir` contains at least one known project marker.
+pub fn has_project_marker(dir: &Path) -> bool {
+    PROJECT_MARKERS.iter().any(|m| dir.join(m).exists())
+}
+
+/// Returns `true` if `dir` is a multi-repo workspace parent — i.e. it has at
+/// least 2 immediate child directories that each contain a project marker.
+pub fn has_multi_repo_children(dir: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    let count = entries
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_ok_and(|ft| ft.is_dir()))
+        .filter(|e| has_project_marker(&e.path()))
+        .take(2)
+        .count();
+    count >= 2
+}
+
 /// Returns `true` if `project_root` collides with the lean-ctx data directory.
 /// This prevents project-scoped files (overlays.json, policies.json) from being
 /// written into `~/.lean-ctx/` or `~/.config/lean-ctx/`.
@@ -378,5 +412,68 @@ mod tests {
         let project = tmp.path().join("my-project");
         std::fs::create_dir_all(&project).unwrap();
         assert!(!is_data_dir_collision(&project));
+    }
+
+    #[test]
+    fn has_project_marker_detects_git() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("repo");
+        std::fs::create_dir_all(&root).unwrap();
+        assert!(!has_project_marker(&root));
+        std::fs::create_dir(root.join(".git")).unwrap();
+        assert!(has_project_marker(&root));
+    }
+
+    #[test]
+    fn has_project_marker_detects_cargo_toml() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("rust-project");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("Cargo.toml"), "[package]").unwrap();
+        assert!(has_project_marker(&root));
+    }
+
+    #[test]
+    fn multi_repo_children_needs_two() {
+        let tmp = tempfile::tempdir().unwrap();
+        let parent = tmp.path().join("code");
+        std::fs::create_dir_all(&parent).unwrap();
+
+        // 0 repos → false
+        assert!(!has_multi_repo_children(&parent));
+
+        // 1 repo → false
+        let repo1 = parent.join("repo1");
+        std::fs::create_dir_all(repo1.join(".git")).unwrap();
+        assert!(!has_multi_repo_children(&parent));
+
+        // 2 repos → true
+        let repo2 = parent.join("repo2");
+        std::fs::create_dir_all(repo2.join(".git")).unwrap();
+        assert!(has_multi_repo_children(&parent));
+    }
+
+    #[test]
+    fn multi_repo_children_ignores_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let parent = tmp.path().join("mixed");
+        std::fs::create_dir_all(&parent).unwrap();
+
+        // One repo dir + one plain file with .git name (not a dir)
+        let repo1 = parent.join("repo1");
+        std::fs::create_dir_all(repo1.join(".git")).unwrap();
+        std::fs::write(parent.join("not-a-repo"), "file").unwrap();
+        assert!(!has_multi_repo_children(&parent));
+
+        // Add second actual repo
+        let repo2 = parent.join("repo2");
+        std::fs::create_dir_all(&repo2).unwrap();
+        std::fs::write(repo2.join("package.json"), "{}").unwrap();
+        assert!(has_multi_repo_children(&parent));
+    }
+
+    #[test]
+    fn multi_repo_children_nonexistent_dir() {
+        assert!(!has_multi_repo_children(Path::new("/nonexistent/path/xyz")));
     }
 }
