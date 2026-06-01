@@ -109,11 +109,13 @@ pub fn normalize_tool_path(path: &str) -> String {
     }
 
     // Resolve symlinks for absolute paths to ensure cache key consistency.
-    // Skip relative paths (preserve "." / "../" as-is) and slow mounts
-    // (WSL DrvFS /mnt/) where canonicalize can hang.
+    // Skip relative paths (preserve "." / "../" as-is), root-only paths (/ or C:/),
+    // and slow mounts (WSL DrvFS /mnt/) where canonicalize can hang.
+    // Uses safe_canonicalize to strip Windows \\?\ prefix.
     let is_absolute = p.starts_with('/') || (p.len() >= 3 && p.as_bytes()[1] == b':');
-    if is_absolute && !crate::core::io_health::is_slow_mount(&p) {
-        if let Ok(canonical) = std::fs::canonicalize(&p) {
+    let is_root_only = p == "/" || (p.len() <= 3 && p.ends_with('/') && is_absolute);
+    if is_absolute && !is_root_only && !crate::core::io_health::is_slow_mount(&p) {
+        if let Ok(canonical) = safe_canonicalize(Path::new(&*p)) {
             let canonical_str = canonical.to_string_lossy().replace('\\', "/");
             if !canonical_str.is_empty() {
                 p = canonical_str;

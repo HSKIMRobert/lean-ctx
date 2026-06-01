@@ -503,6 +503,15 @@ pub fn run() {
     if semantic_index.is_some() {
         effective_total += 1;
     }
+    // Shadow mode status
+    let cfg = crate::core::config::Config::load();
+    let shadow_line = if cfg.shadow_mode {
+        format!("{BOLD}Shadow mode{RST}  {GREEN}active{RST}  {DIM}(native tools intercepted → ctx_*){RST}")
+    } else {
+        format!("{BOLD}Shadow mode{RST}  {DIM}disabled{RST}  {DIM}(enable: lean-ctx config set shadow_mode true){RST}")
+    };
+    println!("  {shadow_line}");
+
     let needs_attention = effective_total.saturating_sub(passed);
     println!();
     println!("  {BOLD}{WHITE}Summary:{RST}  {GREEN}{passed}{RST}{DIM}/{effective_total}{RST} checks passed");

@@ -451,6 +451,30 @@ fn is_harden_active() -> bool {
     matches!(std::env::var("LEAN_CTX_HARDEN"), Ok(v) if v.trim() == "1")
 }
 
+fn is_shadow_mode_active() -> bool {
+    if matches!(std::env::var("LEAN_CTX_SHADOW"), Ok(v) if v.trim() == "1") {
+        return true;
+    }
+    crate::core::config::Config::load().shadow_mode
+}
+
+fn log_shadow_intercept(tool: &str, detail: &str) {
+    if !is_shadow_mode_active() {
+        return;
+    }
+    let Some(data_dir) = crate::core::data_dir::lean_ctx_data_dir().ok() else {
+        return;
+    };
+    let log_path = data_dir.join("shadow.log");
+    let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+    let line = format!("[{ts}] intercepted {tool}: {detail}\n");
+    let _ = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path)
+        .and_then(|mut f| std::io::Write::write_all(&mut f, line.as_bytes()));
+}
+
 fn is_quiet() -> bool {
     matches!(std::env::var("LEAN_CTX_QUIET"), Ok(v) if v.trim() == "1")
 }
@@ -890,17 +914,32 @@ fn redirect_read(tool_input: Option<&serde_json::Value>) {
         return;
     }
 
-    if is_harden_active() {
-        tracing::info!("[hook redirect] harden mode active, redirecting Read through lean-ctx");
+    let shadow = is_shadow_mode_active();
+    if is_harden_active() || shadow {
+        tracing::info!(
+            "[hook redirect] {} active, redirecting Read through lean-ctx",
+            if shadow { "shadow mode" } else { "harden mode" }
+        );
     }
 
     let binary = resolve_binary();
     let temp_path = redirect_temp_path(path);
 
-    if let Some(output) = run_with_timeout(&binary, &["read", path], REDIRECT_SUBPROCESS_TIMEOUT) {
+    if let Some(mut output) =
+        run_with_timeout(&binary, &["read", path], REDIRECT_SUBPROCESS_TIMEOUT)
+    {
+        if shadow {
+            let header = format!(
+                "[shadow-mode: Read intercepted → ctx_read(\"{path}\", \"full\"). Use ctx_read directly for better performance.]\n\n"
+            );
+            let mut prefixed = header.into_bytes();
+            prefixed.append(&mut output);
+            output = prefixed;
+        }
         if !output.is_empty() && std::fs::write(&temp_path, &output).is_ok() {
             let temp_str = temp_path.to_str().unwrap_or("");
             print!("{}", build_redirect_output(tool_input, "path", temp_str));
+            log_shadow_intercept("Read", path);
             return;
         }
     }
@@ -924,22 +963,35 @@ fn redirect_grep(tool_input: Option<&serde_json::Value>) {
         return;
     }
 
-    if is_harden_active() {
-        tracing::info!("[hook redirect] harden mode active, redirecting Grep through lean-ctx");
+    let shadow = is_shadow_mode_active();
+    if is_harden_active() || shadow {
+        tracing::info!(
+            "[hook redirect] {} active, redirecting Grep through lean-ctx",
+            if shadow { "shadow mode" } else { "harden mode" }
+        );
     }
 
     let binary = resolve_binary();
     let key = format!("grep:{pattern}:{search_path}");
     let temp_path = redirect_temp_path(&key);
 
-    if let Some(output) = run_with_timeout(
+    if let Some(mut output) = run_with_timeout(
         &binary,
         &["grep", pattern, search_path],
         REDIRECT_SUBPROCESS_TIMEOUT,
     ) {
+        if shadow {
+            let header = format!(
+                "[shadow-mode: Grep intercepted → ctx_search(\"{pattern}\", \"{search_path}\"). Use ctx_search directly for better performance.]\n\n"
+            );
+            let mut prefixed = header.into_bytes();
+            prefixed.append(&mut output);
+            output = prefixed;
+        }
         if !output.is_empty() && std::fs::write(&temp_path, &output).is_ok() {
             let temp_str = temp_path.to_str().unwrap_or("");
             print!("{}", build_redirect_output(tool_input, "path", temp_str));
+            log_shadow_intercept("Grep", &format!("{pattern} in {search_path}"));
             return;
         }
     }

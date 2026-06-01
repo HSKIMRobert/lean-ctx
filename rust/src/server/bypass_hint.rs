@@ -46,7 +46,10 @@ pub fn check(data_dir: &Path) -> Option<String> {
         return None;
     }
 
-    let aggressive = mode == "aggressive";
+    let cfg = crate::core::config::Config::load();
+    let shadow = cfg.shadow_mode;
+    let aggressive = mode == "aggressive" || shadow;
+
     if !aggressive {
         let counter = HINT_COOLDOWN.fetch_add(1, Ordering::Relaxed);
         if !counter.is_multiple_of(COOLDOWN_CALLS) {
@@ -65,10 +68,17 @@ pub fn check(data_dir: &Path) -> Option<String> {
         return None;
     }
 
-    Some(format!(
-        "\n[HINT: You used native Read/Grep {native_count}x since your last ctx_read call. \
-         Use ctx_read/ctx_search instead — cached, re-reads ~13 tok, saves ~87% tokens.]"
-    ))
+    if shadow {
+        Some(format!(
+            "\n[SHADOW MODE: This native Read/Grep call was intercepted ({native_count}x). \
+             Use ctx_read/ctx_search directly — faster, cached, saves ~87% tokens.]"
+        ))
+    } else {
+        Some(format!(
+            "\n[HINT: You used native Read/Grep {native_count}x since your last ctx_read call. \
+             Use ctx_read/ctx_search instead — cached, re-reads ~13 tok, saves ~87% tokens.]"
+        ))
+    }
 }
 
 fn count_native_since(data_dir: &Path, since_ts: u64, session_id: Option<&str>) -> usize {

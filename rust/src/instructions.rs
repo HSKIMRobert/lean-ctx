@@ -130,7 +130,15 @@ fn build_claude_code_instructions() -> String {
         None => String::new(),
     };
 
+    let cfg = crate::core::config::Config::load();
+    let shadow_preamble = if cfg.shadow_mode {
+        "SHADOW MODE ACTIVE: ALL reads/searches/shell MUST use ctx_* tools. Native equivalents are intercepted.\n\n"
+    } else {
+        ""
+    };
+
     let instr = format!("\
+{shadow_preamble}\
 ALWAYS use lean-ctx MCP tools instead of native equivalents.
 
 Tool mapping (MANDATORY):
@@ -143,13 +151,8 @@ Tool mapping (MANDATORY):
 
 ctx_read modes: full|map|signatures|diff|task|reference|aggressive|entropy|lines:N-M
 Auto-selects mode. Re-reads ~13 tok. File refs F1,F2.. persist.
-Cache auto-validates via file mtime. Use fresh=true (or start_line / lines:N-M) to force a disk re-read.
 
-Auto: ctx_overview, ctx_preload, ctx_dedup, ctx_compress behind the scenes.
-Multi-agent: ctx_agent(action=handoff|sync|diary).
-ctx_semantic_search for meaning search. ctx_session for memory.
-ctx_knowledge: remember|recall|timeline|rooms|search|wakeup.
-ctx_shell raw=true for uncompressed.
+Workflow: Orient(ctx_overview) → Locate(ctx_search) → Read(ctx_read) → Edit(ctx_edit/native) → Verify(ctx_read diff + ctx_shell test) → Record(ctx_knowledge).
 
 CEP: 1.ACT FIRST 2.DELTA ONLY 3.STRUCTURED(+/-/~) 4.ONE LINE 5.QUALITY
 {shell_hint}\
@@ -250,8 +253,16 @@ fn build_full_instructions(crp_mode: CrpMode, client_name: &str) -> String {
     let cep = rc::cep_block();
     let litm_pref = rc::litm_end_block(rc::Mode::Mcp);
 
+    let shadow_preamble = if cfg.shadow_mode {
+        "SHADOW MODE ACTIVE: ALL file reads, searches, and shell commands MUST go through ctx_* tools. \
+         Native Read/Grep/Shell are intercepted and redirected — using ctx_* directly is faster and more reliable.\n\n"
+    } else {
+        ""
+    };
+
     let mut base = format!(
         "\
+{shadow_preamble}\
 CRITICAL: ALWAYS use lean-ctx MCP tools instead of native equivalents for token savings.\n\
 \n\
 {tool_bullets}\n\

@@ -21,8 +21,8 @@ pub fn dedicated_rules(mode: Mode) -> String {
     };
 
     format!(
-        r"# lean-ctx — Context Engineering Layer
-<!-- lean-ctx-rules-v10 -->
+        r#"# lean-ctx — Context Engineering Layer
+<!-- lean-ctx-rules-v11 -->
 
 CRITICAL: ALWAYS use lean-ctx tools instead of native equivalents. This is NOT optional.
 
@@ -30,12 +30,19 @@ CRITICAL: ALWAYS use lean-ctx tools instead of native equivalents. This is NOT o
 
 {shell_note}
 
+## Workflow: Orient → Locate → Read → Edit → Verify → Record
+1. Orient: ctx_overview(task) or ctx_compose(task, path)
+2. Locate: ctx_search(pattern, path) or ctx_semantic_search(query)
+3. Read: ctx_read(path, mode) — full before edits, signatures for context
+4. Edit: ctx_edit(path, old_string, new_string) or native Edit
+5. Verify: ctx_read(path, "diff") + ctx_shell("test command")
+6. Record: ctx_knowledge(action="remember", content="...")
+
 File editing: use native Edit/StrReplace. Write, Delete, Glob → use normally.
 NEVER loop on Edit failures — switch to ctx_edit immediately.
 
-Fallback only if a lean-ctx tool is unavailable: use native equivalents.
-REMINDER: You MUST use lean-ctx tools. NEVER use native Read, Grep, or Shell directly.
-<!-- /lean-ctx -->"
+NEVER use native Read/Grep/Shell when ctx_* equivalents are available.
+<!-- /lean-ctx -->"#
     )
 }
 
@@ -79,10 +86,10 @@ const MCP_TABLE: &str = "\
 | `ctx_tree(path, depth)` | `ls` / `find` | Compact directory maps |";
 
 const MCP_INSTRUCTIONS_HYBRID: &str = "\
-lean-ctx tools replace Read/Grep/Shell/ls. See tool descriptions for details. Edit/Write/Glob: native.";
+lean-ctx tools replace Read/Grep/Shell/ls. Workflow: Orient(ctx_overview) → Locate(ctx_search) → Read(ctx_read) → Edit(ctx_edit/native) → Verify(ctx_read diff + lean-ctx -c test) → Record(ctx_knowledge). Edit/Write/Glob: native.";
 
 const MCP_INSTRUCTIONS_MCP: &str = "\
-lean-ctx tools replace Read/Grep/Shell/ls. See tool descriptions for details. Edit/Write/Glob: native.";
+lean-ctx tools replace Read/Grep/Shell/ls. Workflow: Orient(ctx_overview) → Locate(ctx_search) → Read(ctx_read) → Edit(ctx_edit/native) → Verify(ctx_read diff + ctx_shell test) → Record(ctx_knowledge). Edit/Write/Glob: native.";
 
 /// Tool-mapping in bullet format for MCP instructions blocks.
 pub fn tool_mapping_bullets(mode: Mode) -> &'static str {
@@ -186,7 +193,7 @@ mod tests {
     #[test]
     fn dedicated_rules_have_markers() {
         let rules = dedicated_rules(Mode::Hybrid);
-        assert!(rules.contains("lean-ctx-rules-v10"));
+        assert!(rules.contains("lean-ctx-rules-v11"));
         assert!(rules.contains("<!-- /lean-ctx -->"));
     }
 

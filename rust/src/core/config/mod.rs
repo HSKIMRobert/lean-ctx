@@ -180,6 +180,12 @@ pub struct Config {
     /// Override via LEAN_CTX_NO_HOOK env var.
     #[serde(default)]
     pub shell_hook_disabled: bool,
+    /// Shadow mode: transparently intercepts native tool calls (Read/Grep/Shell)
+    /// via hooks, strengthens MCP instructions to MUST-level, and activates
+    /// immediate bypass hints on first native tool use. Enables "transparent
+    /// replacement" so agents use ctx_* without explicit opt-in.
+    #[serde(default)]
+    pub shadow_mode: bool,
     /// Controls when the shell hook auto-activates aliases.
     /// - `always`: (Default) Aliases active in every interactive shell.
     /// - `agents-only`: Aliases only active when an AI agent env var is detected.
@@ -781,6 +787,7 @@ impl Default for Config {
             search: crate::core::hybrid_search::HybridConfig::default(),
             llm: crate::core::llm_enhance::LlmConfig::default(),
             shell_hook_disabled: false,
+            shadow_mode: false,
             shell_activation: ShellActivation::default(),
             update_check_disabled: false,
             updates: UpdatesConfig::default(),

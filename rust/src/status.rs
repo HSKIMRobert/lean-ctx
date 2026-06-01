@@ -148,6 +148,10 @@ fn build_status_report() -> Result<(StatusReport, std::path::PathBuf), String> {
 
 fn print_human(report: &StatusReport, path: &std::path::Path) {
     println!("lean-ctx status  v{}", report.version);
+    let cfg = crate::core::config::Config::load();
+    if cfg.shadow_mode {
+        println!("  shadow_mode: \x1b[32mactive\x1b[0m");
+    }
     println!(
         "  doctor: {}/{}",
         report.doctor_compact_passed, report.doctor_compact_total

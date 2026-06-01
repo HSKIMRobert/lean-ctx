@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 const MARKER: &str = "# lean-ctx — Context Engineering Layer";
 const END_MARKER: &str = "<!-- /lean-ctx -->";
-const RULES_VERSION: &str = "lean-ctx-rules-v10";
+const RULES_VERSION: &str = "lean-ctx-rules-v11";
 
 pub const RULES_MARKER: &str = MARKER;
 pub const RULES_VERSION_STR: &str = RULES_VERSION;
@@ -22,64 +22,96 @@ pub fn rules_shared_content() -> &'static str {
 // LITM-optimized: critical instruction at START and END of block.
 // Used for: CLAUDE.md, instructions.md, GEMINI.md, copilot-instructions.md
 // ---------------------------------------------------------------------------
-const RULES_SHARED: &str = r"# lean-ctx — Context Engineering Layer
-<!-- lean-ctx-rules-v10 -->
+const RULES_SHARED: &str = r#"# lean-ctx — Context Engineering Layer
+<!-- lean-ctx-rules-v11 -->
 
-## Mode Selection
-- Editing the file? → `full` first, then `diff` for re-reads
-- Context only? → `map` or `signatures`
-- Large file? → `aggressive` or `entropy`
-- Specific lines? → `lines:N-M`
-- Unsure? → `auto`
+## Tool Mapping (MANDATORY — use instead of native equivalents)
+| Instead of | Use | Example |
+|------------|-----|---------|
+| Read/cat/head/tail | `ctx_read(path, mode)` | `ctx_read("src/main.rs", "full")` |
+| Grep/rg/find | `ctx_search(pattern, path)` | `ctx_search("fn handle", "src/")` |
+| Shell/bash | `ctx_shell(command)` | `ctx_shell("cargo test")` |
+| Edit (when Read unavailable) | `ctx_edit(path, old, new)` | `ctx_edit("f.rs", "old", "new")` |
 
-Anti-pattern: NEVER use `full` for files you won't edit — use `map` or `signatures`.
+## ctx_read Mode Selection
+| Goal | Mode | When |
+|------|------|------|
+| Edit this file | `full` | Before any edit |
+| Understand API | `signatures` | Context-only, won't edit |
+| Re-read after edit | `diff` | Post-edit verification |
+| Large file overview | `map` | >500 lines, won't edit |
+| Specific region | `lines:N-M` | Know exact location |
 
-## File Editing
-Use native Edit/Write/StrReplace — unchanged. lean-ctx replaces READ only.
-If Edit requires Read and Read is unavailable, use `ctx_edit(path, old_string, new_string)`.
-NEVER loop on Edit failures — switch to ctx_edit immediately.
+## Workflow (follow this order)
+1. **Orient:** `ctx_overview(task)` or `ctx_compose(task, path)` for unfamiliar tasks
+2. **Locate:** `ctx_search(pattern, path)` for exact text; `ctx_semantic_search(query)` for concepts
+3. **Read:** `ctx_read(path, mode)` with appropriate mode from table above
+4. **Edit:** `ctx_edit(path, old_string, new_string)` or native Edit if available
+5. **Verify:** `ctx_read(path, "diff")` + `ctx_shell("test command")`
+6. **Record:** `ctx_knowledge(action="remember", content="...")` for non-obvious findings
 
-## Session Documentation
-After significant work: ctx_knowledge(action=remember, category=decision, content=...)
-When you see [CHECKPOINT] → call ctx_session(action=task, value=current status).
+## Session
+- **Start:** `ctx_session(action="status")` + `ctx_knowledge(action="wakeup")`
+- **End:** `ctx_session(action="decision", content="what was done + next steps")`
+- **On [CHECKPOINT]:** `ctx_session(action="task", value="current status")`
 
-Fallback only if a lean-ctx tool is unavailable: use native equivalents.
-<!-- /lean-ctx -->";
+NEVER use native Read/Grep/Shell when ctx_* equivalents are available.
+<!-- /lean-ctx -->"#;
 
 // ---------------------------------------------------------------------------
 // Rules content for DEDICATED lean-ctx rule files (we control entire file).
 // LITM-optimized with critical mapping at start and end.
 // Used for: Windsurf, Zed, Cline, Roo Code, OpenCode, Continue, Aider
 // ---------------------------------------------------------------------------
-const RULES_DEDICATED: &str = r"# lean-ctx — Context Engineering Layer
-<!-- lean-ctx-rules-v10 -->
+const RULES_DEDICATED: &str = r#"# lean-ctx — Context Engineering Layer
+<!-- lean-ctx-rules-v11 -->
 
-## Mode Selection
-1. Editing the file? → `full` first, then `diff` for re-reads
-2. Need API surface only? → `map` or `signatures`
-3. Large file, context only? → `entropy` or `aggressive`
-4. Specific lines? → `lines:N-M`
-5. Active task set? → `task`
-6. Unsure? → `auto` (system selects optimal mode)
+## Tool Mapping (MANDATORY — use instead of native equivalents)
+| Instead of | Use | Example |
+|------------|-----|---------|
+| Read/cat/head/tail | `ctx_read(path, mode)` | `ctx_read("src/main.rs", "full")` |
+| Grep/rg/find | `ctx_search(pattern, path)` | `ctx_search("fn handle", "src/")` |
+| Shell/bash | `ctx_shell(command)` | `ctx_shell("cargo test")` |
+| Edit (when Read unavailable) | `ctx_edit(path, old, new)` | `ctx_edit("f.rs", "old", "new")` |
 
-Anti-pattern: NEVER use `full` for files you won't edit — use `map` or `signatures`.
+## ctx_read Mode Selection
+| Goal | Mode | When |
+|------|------|------|
+| Edit this file | `full` | Before any edit |
+| Understand API | `signatures` | Context-only, won't edit |
+| Re-read after edit | `diff` | Post-edit verification |
+| Large file overview | `map` | >500 lines, won't edit |
+| Specific region | `lines:N-M` | Know exact location |
+| Unsure | `auto` | System selects optimal mode |
 
-## File Editing
-Use native Edit/StrReplace if available. If Edit requires Read and Read is unavailable, use ctx_edit.
-Write, Delete, Glob → use normally. NEVER loop on Edit failures — switch to ctx_edit immediately.
+## Workflow (follow this order)
+1. **Orient:** `ctx_overview(task)` or `ctx_compose(task, path)` for unfamiliar tasks
+2. **Locate:** `ctx_search(pattern, path)` for exact text; `ctx_semantic_search(query)` for concepts
+3. **Read:** `ctx_read(path, mode)` with appropriate mode from table above
+4. **Edit:** `ctx_edit(path, old_string, new_string)` or native Edit if available
+5. **Verify:** `ctx_read(path, "diff")` + `ctx_shell("test command")`
+6. **Record:** `ctx_knowledge(action="remember", content="...")` for non-obvious findings
 
 ## Proactive (use without being asked)
-- `ctx_overview(task)` at session start
-- `ctx_compress` when context grows large
+- `ctx_overview(task)` — at session start for orientation
+- `ctx_compress` — when context grows large (at phase boundaries)
+- `ctx_knowledge(action="wakeup")` — at session start to surface prior findings
 
-## Session Documentation
-After significant work, document progress:
-- ctx_knowledge(action=remember, category=decision, content=what and why)
-- ctx_session(action=task, value=task description with progress)
-When you see [CHECKPOINT] → document current status immediately.
+## Compression Bypass (only when compressed output hides needed detail)
+`ctx_read(path, "lines:N-M")` → `ctx_read(path, "full")` → `ctx_shell(cmd, raw=true)`
+Return to compressed defaults after one expanded retrieval.
 
-Fallback only if a lean-ctx tool is unavailable: use native equivalents.
-<!-- /lean-ctx -->";
+## Risk Gate (before high-impact edits)
+Before editing exported symbols, auth, DB schemas, or 3+ files: run `ctx_impact(action="analyze")`
+and `ctx_callgraph(action="callers")` to confirm blast radius.
+
+## Session
+- **Start:** `ctx_session(action="status")` + `ctx_knowledge(action="wakeup")`
+- **End:** `ctx_session(action="decision", content="what was done + next steps")`
+- **On [CHECKPOINT]:** `ctx_session(action="task", value="current status")`
+
+NEVER use native Read/Grep/Shell when ctx_* equivalents are available.
+<!-- /lean-ctx -->"#;
 
 // ---------------------------------------------------------------------------
 // Rules for Cursor MDC format (dedicated file with frontmatter).
@@ -948,9 +980,9 @@ mod tests {
     }
 
     #[test]
-    fn shared_rules_has_anti_pattern() {
-        assert!(RULES_SHARED.contains("Anti-pattern"));
-        assert!(RULES_SHARED.contains("NEVER use `full`"));
+    fn shared_rules_has_never_native() {
+        assert!(RULES_SHARED.contains("NEVER use native"));
+        assert!(RULES_SHARED.contains("ctx_read"));
     }
 
     #[test]
@@ -959,10 +991,8 @@ mod tests {
         assert!(RULES_DEDICATED.contains("full"));
         assert!(RULES_DEDICATED.contains("map"));
         assert!(RULES_DEDICATED.contains("signatures"));
-        assert!(RULES_DEDICATED.contains("entropy"));
-        assert!(RULES_DEDICATED.contains("aggressive"));
-        assert!(RULES_DEDICATED.contains("task"));
         assert!(RULES_DEDICATED.contains("lines:N-M"));
+        assert!(RULES_DEDICATED.contains("diff"));
     }
 
     #[test]
@@ -973,11 +1003,11 @@ mod tests {
     }
 
     #[test]
-    fn cursor_mdc_contains_mode_selection() {
-        assert!(RULES_CURSOR_MDC.contains("Mode Selection"));
+    fn cursor_mdc_contains_tool_mapping() {
+        assert!(RULES_CURSOR_MDC.contains("Tool Mapping"));
         assert!(RULES_CURSOR_MDC.contains("ctx_read"));
         assert!(RULES_CURSOR_MDC.contains("ctx_search"));
-        assert!(RULES_CURSOR_MDC.contains("lean-ctx -c"));
+        assert!(RULES_CURSOR_MDC.contains("Workflow"));
     }
 
     fn ensure_temp_dir() {
