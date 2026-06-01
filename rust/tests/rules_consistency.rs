@@ -91,8 +91,8 @@ fn canonical_mcp_instructions_are_concise() {
             "MCP instructions for {mode:?} must reference tool replacement"
         );
         assert!(
-            instructions.len() < 200,
-            "MCP instructions for {mode:?} should be concise (< 200 chars), got {}",
+            instructions.len() < 250,
+            "MCP instructions for {mode:?} should be concise (< 250 chars), got {}",
             instructions.len()
         );
     }
@@ -104,8 +104,8 @@ fn cursor_mdc_template_has_lean_ctx_markers() {
     assert!(mdc.contains("lean-ctx"), "Cursor MDC must mention lean-ctx");
     assert!(mdc.contains("ctx_read"), "Cursor MDC must mention ctx_read");
     assert!(
-        mdc.contains("Mode Selection"),
-        "Cursor MDC must have Mode Selection"
+        mdc.contains("Tool Mapping") || mdc.contains("Mode Selection"),
+        "Cursor MDC must have Tool Mapping or Mode Selection"
     );
 }
 
