@@ -3,15 +3,19 @@ FROM rust:1-bookworm AS builder
 WORKDIR /app
 COPY rust ./rust
 
-RUN cd rust && cargo build --release --features cloud-server --bin lean-ctx-cloud-api
+# The cloud API is a feature-gated example target (`required-features = ["cloud-server"]`),
+# so it must be built with `--example`; the artifact lands in target/release/examples/.
+RUN cd rust && cargo build --release --features cloud-server --example lean-ctx-cloud-api
 
 FROM debian:bookworm-slim
 
+# ca-certificates: outbound TLS (SMTP, etc.). fonts-dejavu-core: resvg rasterizes the
+# Wrapped OG card to PNG and needs a real sans family present, or headline text renders blank.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates \
+  && apt-get install -y --no-install-recommends ca-certificates fonts-dejavu-core \
   && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /app/rust/target/release/lean-ctx-cloud-api /usr/local/bin/lean-ctx-cloud-api
+COPY --from=builder /app/rust/target/release/examples/lean-ctx-cloud-api /usr/local/bin/lean-ctx-cloud-api
 
 ENV LEANCTX_CLOUD_BIND_HOST=0.0.0.0
 ENV LEANCTX_CLOUD_BIND_PORT=8088

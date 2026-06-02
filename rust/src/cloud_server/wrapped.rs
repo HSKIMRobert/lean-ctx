@@ -17,6 +17,8 @@ use super::helpers::internal_error;
 
 /// Max publishes accepted per `ip_hash` within the rolling rate-limit window.
 const MAX_PUBLISH_PER_HOUR: i64 = 20;
+/// Documented publish body cap (contract: `413 payload_too_large` over this size).
+const MAX_BODY_BYTES: usize = 8 * 1024;
 const MAX_TOP_COMMANDS: usize = 12;
 const MAX_NAME_LEN: usize = 40;
 const MAX_LABEL_LEN: usize = 60;
@@ -152,6 +154,9 @@ pub(super) async fn publish(
     headers: HeaderMap,
     body: Bytes,
 ) -> ApiResult<(StatusCode, Json<serde_json::Value>)> {
+    if body.len() > MAX_BODY_BYTES {
+        return Err(err(StatusCode::PAYLOAD_TOO_LARGE, "payload_too_large"));
+    }
     let payload: PublishPayload = serde_json::from_slice(&body).map_err(|_| bad_payload())?;
     payload.validate()?;
 
@@ -472,7 +477,19 @@ fn svg_to_png(svg: &str) -> Result<Vec<u8>, String> {
     use resvg::{tiny_skia, usvg};
 
     let mut opt = usvg::Options::default();
-    opt.fontdb_mut().load_system_fonts();
+    // The card SVG declares web-font stacks (`Inter, …, sans-serif` and
+    // `ui-monospace, …, monospace`) that don't exist on a headless server. usvg's default
+    // generic families point at Windows fonts (Arial / Courier New), so on a slim image the
+    // generic tail resolves to nothing and the headline renders blank. Map every generic
+    // family onto DejaVu, which the container ships (`fonts-dejavu-core`), so all text
+    // always rasterizes. (In usvg 0.47 the generic mappings live on the fontdb, not Options.)
+    {
+        let db = opt.fontdb_mut();
+        db.load_system_fonts();
+        db.set_serif_family("DejaVu Serif");
+        db.set_sans_serif_family("DejaVu Sans");
+        db.set_monospace_family("DejaVu Sans Mono");
+    }
     opt.font_family = "DejaVu Sans".to_string();
 
     let tree = usvg::Tree::from_str(svg, &opt).map_err(|e| format!("svg parse: {e}"))?;

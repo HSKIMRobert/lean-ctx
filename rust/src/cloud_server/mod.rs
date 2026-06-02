@@ -97,8 +97,10 @@ pub async fn run() -> anyhow::Result<()> {
         )
         .route("/api/sync/gain", get(gain::get_gain).post(gain::post_gain))
         .route(
+            // Hard memory cap (DoS defence-in-depth); the documented 8 KB limit is enforced
+            // inside the handler so oversized bodies get the JSON `payload_too_large` envelope.
             "/api/wrapped",
-            post(wrapped::publish).layer(axum::extract::DefaultBodyLimit::max(8 * 1024)),
+            post(wrapped::publish).layer(axum::extract::DefaultBodyLimit::max(64 * 1024)),
         )
         .route(
             "/api/wrapped/{id}",
