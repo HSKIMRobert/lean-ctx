@@ -51,6 +51,13 @@ finish() {
         echo "  fish_add_path $INSTALL_DIR"
       else
         echo "  echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> $rc && source $rc"
+        # macOS (and any bash login shell) reads ~/.bash_profile, not ~/.bashrc — so a PATH
+        # line in ~/.bashrc never loads in Terminal.app/IDE login shells. 'lean-ctx setup'
+        # fixes this automatically; this is the manual one-liner if you skip setup.
+        if [ "$shell_name" = "bash" ] && [ "$(uname -s)" = "Darwin" ]; then
+          echo "  # then make login shells load ~/.bashrc (macOS bash):"
+          echo "  grep -qs '.bashrc' \"\$HOME/.bash_profile\" 2>/dev/null || printf '\\n[ -f ~/.bashrc ] && . ~/.bashrc\\n' >> \"\$HOME/.bash_profile\""
+        fi
       fi
       ;;
   esac

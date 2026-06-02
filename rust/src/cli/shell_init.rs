@@ -594,12 +594,70 @@ pub fn init_posix(is_zsh: bool, binary: &str) {
 
     if let Some(hook_path) = write_hook_file(&format!("shell-hook.{shell_ext}"), &hook_content) {
         upsert_source_line(&rc_file, &source_line_posix(shell_ext));
+
+        // Bash login shells don't read ~/.bashrc — make sure they pick it up so the hook
+        // (and the installer's PATH export) take effect in Terminal.app / IDE login shells.
+        if !is_zsh {
+            ensure_bash_login_sources_bashrc();
+        }
+
         qprintln!("  Binary: {binary}");
 
         write_env_sh_for_containers(&hook_content);
         print_docker_env_hints(is_zsh);
 
         let _ = hook_path;
+    }
+}
+
+/// Bash login shells (macOS Terminal.app, many IDE terminals, `bash -l`) read
+/// `~/.bash_profile` (or `~/.bash_login` / `~/.profile`) and never `~/.bashrc`. Because we
+/// install the hook — and the installer adds `~/.local/bin` to PATH — into `~/.bashrc`, a login
+/// shell would otherwise see neither. Ensure the login profile sources `~/.bashrc`, exactly as
+/// the Debian/Ubuntu default `.profile` does. Idempotent; zsh is unaffected (it always reads
+/// `~/.zshrc`), so this is only wired in for bash.
+fn ensure_bash_login_sources_bashrc() {
+    let Some(home) = dirs::home_dir() else {
+        return;
+    };
+
+    // Bash reads only the FIRST existing of these on login; target that one, else create
+    // ~/.bash_profile. (~/.bashrc is never a login file, so it's not a candidate.)
+    let target = [".bash_profile", ".bash_login", ".profile"]
+        .iter()
+        .map(|f| home.join(f))
+        .find(|p| p.exists())
+        .unwrap_or_else(|| home.join(".bash_profile"));
+
+    // Already sourcing ~/.bashrc (our snippet or the user's own)? Nothing to do.
+    if let Ok(existing) = std::fs::read_to_string(&target) {
+        let sources_bashrc = existing
+            .lines()
+            .any(|l| !l.trim_start().starts_with('#') && l.contains(".bashrc"));
+        if sources_bashrc {
+            return;
+        }
+    }
+
+    let snippet = "\n# lean-ctx: load ~/.bashrc in login shells (e.g. macOS Terminal) — begin\n\
+         if [ -f \"$HOME/.bashrc\" ]; then . \"$HOME/.bashrc\"; fi\n\
+         # lean-ctx: load ~/.bashrc in login shells (e.g. macOS Terminal) — end\n";
+
+    backup_shell_config(&target);
+    match std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(&target)
+    {
+        Ok(mut f) => {
+            use std::io::Write;
+            if f.write_all(snippet.as_bytes()).is_ok() {
+                qprintln!("  Login shell: {} now sources ~/.bashrc", target.display());
+            }
+        }
+        Err(e) => {
+            tracing::warn!("could not update {}: {e}", target.display());
+        }
     }
 }
 
@@ -994,6 +1052,42 @@ export EDITOR=vim
         );
 
         std::env::remove_var("LEAN_CTX_DATA_DIR");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bash_login_profile_sources_bashrc_idempotently() {
+        let _g = crate::core::data_dir::test_env_lock();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let home = tmp.path();
+        let prev = std::env::var_os("HOME");
+        std::env::set_var("HOME", home);
+
+        std::fs::write(home.join(".bashrc"), "# bashrc\n").expect("write .bashrc");
+        // No login profile yet → the function must create ~/.bash_profile.
+
+        ensure_bash_login_sources_bashrc();
+        let profile = home.join(".bash_profile");
+        let first = std::fs::read_to_string(&profile).expect(".bash_profile created");
+        assert!(
+            first.contains(". \"$HOME/.bashrc\""),
+            "login profile must source ~/.bashrc: {first}"
+        );
+        let markers = first.matches("load ~/.bashrc in login shells").count();
+
+        // Second run is a no-op: it already sources ~/.bashrc.
+        ensure_bash_login_sources_bashrc();
+        let second = std::fs::read_to_string(&profile).expect("read profile");
+        assert_eq!(
+            second.matches("load ~/.bashrc in login shells").count(),
+            markers,
+            "snippet must not be duplicated on re-run"
+        );
+
+        match prev {
+            Some(v) => std::env::set_var("HOME", v),
+            None => std::env::remove_var("HOME"),
+        }
     }
 
     #[test]

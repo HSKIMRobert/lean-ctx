@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use super::parsers::{
     remove_lean_ctx_block, remove_lean_ctx_from_json, remove_lean_ctx_from_toml,
-    remove_lean_ctx_from_yaml,
+    remove_lean_ctx_from_yaml, remove_lean_ctx_login_block,
 };
 use super::{
     backup_before_modify, copilot_instructions_path, remove_marked_block, safe_remove, safe_write,
@@ -205,6 +205,10 @@ pub(super) fn remove_shell_hook(home: &Path, dry_run: bool) -> bool {
     let rc_files: Vec<PathBuf> = vec![
         home.join(".zshrc"),
         home.join(".bashrc"),
+        // Bash login profiles: may carry the "source ~/.bashrc" snippet init_posix adds.
+        home.join(".bash_profile"),
+        home.join(".bash_login"),
+        home.join(".profile"),
         home.join(".config/fish/config.fish"),
         #[cfg(windows)]
         home.join("Documents/PowerShell/Microsoft.PowerShell_profile.ps1"),
@@ -224,6 +228,7 @@ pub(super) fn remove_shell_hook(home: &Path, dry_run: bool) -> bool {
         let is_legacy = !content.contains("# lean-ctx shell hook — end");
         let mut cleaned = remove_lean_ctx_block(&content);
         cleaned = remove_source_lines(&cleaned);
+        cleaned = remove_lean_ctx_login_block(&cleaned);
         if cleaned.trim() != content.trim() {
             let bak = rc.with_extension("lean-ctx.bak");
             if !dry_run {

@@ -104,6 +104,19 @@ pub fn jail_path(candidate: &Path, jail_root: &Path) -> Result<PathBuf, String> 
         }
 
         let root = canonicalize_or_self(jail_root);
+
+        // Resolve relative candidates against the (absolute) jail root — never the process
+        // CWD. The daemon's CWD is not the project, so CWD-relative resolution made
+        // graph-relative paths (e.g. auto-preload candidates like `rust/src/core/foo.rs`)
+        // spuriously fail with "no existing ancestor". Absolute candidates are unchanged.
+        let resolved: PathBuf;
+        let candidate: &Path = if candidate.is_absolute() {
+            candidate
+        } else {
+            resolved = root.join(candidate);
+            resolved.as_path()
+        };
+
         let allow = allow_paths_from_env_and_config();
 
         let (base, remainder) = canonicalize_existing_ancestor(candidate).ok_or_else(|| {
@@ -223,6 +236,25 @@ mod tests {
         let p = root.join("new").join("file.txt");
         let ok = jail_path(&p, &root).unwrap();
         assert!(ok.to_string_lossy().contains("file.txt"));
+    }
+
+    #[cfg(not(feature = "no-jail"))]
+    #[test]
+    fn relative_candidate_resolves_against_root_not_cwd() {
+        // Regression: in the daemon (CWD != project) a relative graph path like
+        // `sub/file.rs` must resolve under the jail root, not the process CWD.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("project");
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        std::fs::write(root.join("sub").join("file.rs"), "ok").unwrap();
+
+        let jailed = jail_path(Path::new("sub/file.rs"), &root)
+            .expect("relative candidate should resolve under the jail root");
+        assert!(jailed.ends_with("sub/file.rs"));
+        assert!(
+            is_under_prefix(&canonicalize_or_self(&jailed), &canonicalize_or_self(&root)),
+            "resolved path must live under the jail root: {jailed:?}"
+        );
     }
 
     #[test]

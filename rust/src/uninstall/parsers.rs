@@ -9,6 +9,34 @@ pub(super) fn remove_lean_ctx_block(content: &str) -> String {
     remove_lean_ctx_block_legacy(content)
 }
 
+/// Removes the login-shell snippet `init_posix` adds so bash login shells source `~/.bashrc`
+/// (see `cli/shell_init.rs::ensure_bash_login_sources_bashrc`). Marker-delimited, so user content
+/// in `~/.bash_profile` / `~/.profile` is preserved.
+pub(super) fn remove_lean_ctx_login_block(content: &str) -> String {
+    const BEGIN: &str = "# lean-ctx: load ~/.bashrc in login shells";
+    const END: &str = "# lean-ctx: load ~/.bashrc in login shells (e.g. macOS Terminal) — end";
+    if !content.contains(BEGIN) {
+        return content.to_string();
+    }
+    let mut result = String::new();
+    let mut in_block = false;
+    for line in content.lines() {
+        if !in_block && line.contains(BEGIN) && !line.trim_end().ends_with("— end") {
+            in_block = true;
+            continue;
+        }
+        if in_block {
+            if line.trim() == END {
+                in_block = false;
+            }
+            continue;
+        }
+        result.push_str(line);
+        result.push('\n');
+    }
+    result
+}
+
 fn remove_lean_ctx_block_by_marker(content: &str) -> String {
     let mut result = String::new();
     let mut in_block = false;
@@ -1048,5 +1076,27 @@ command = \"other\"
             bak_path_for(&path).exists(),
             "non-dry-run should create backups"
         );
+    }
+
+    #[test]
+    fn removes_login_block_preserving_user_content() {
+        let input = "export PATH=\"$HOME/bin:$PATH\"\n\n\
+            # lean-ctx: load ~/.bashrc in login shells (e.g. macOS Terminal) — begin\n\
+            if [ -f \"$HOME/.bashrc\" ]; then . \"$HOME/.bashrc\"; fi\n\
+            # lean-ctx: load ~/.bashrc in login shells (e.g. macOS Terminal) — end\n\n\
+            export EDITOR=vim\n";
+        let out = remove_lean_ctx_login_block(input);
+        assert!(!out.contains("lean-ctx"), "login block removed: {out}");
+        assert!(out.contains("export PATH"), "leading content preserved");
+        assert!(
+            out.contains("export EDITOR=vim"),
+            "trailing content preserved"
+        );
+    }
+
+    #[test]
+    fn login_block_noop_when_absent() {
+        let input = "export PATH=\"$HOME/bin:$PATH\"\n";
+        assert_eq!(remove_lean_ctx_login_block(input), input);
     }
 }
