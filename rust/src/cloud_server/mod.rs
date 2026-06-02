@@ -14,6 +14,7 @@ mod knowledge;
 mod models;
 mod oauth;
 mod stats;
+mod wrapped;
 
 use axum::routing::{get, post};
 use axum::Router;
@@ -47,6 +48,7 @@ pub async fn run() -> anyhow::Result<()> {
         .allow_methods([
             axum::http::Method::GET,
             axum::http::Method::POST,
+            axum::http::Method::DELETE,
             axum::http::Method::OPTIONS,
         ])
         .allow_headers([
@@ -94,6 +96,15 @@ pub async fn run() -> anyhow::Result<()> {
             get(feedback::get_feedback).post(feedback::post_feedback),
         )
         .route("/api/sync/gain", get(gain::get_gain).post(gain::post_gain))
+        .route(
+            "/api/wrapped",
+            post(wrapped::publish).layer(axum::extract::DefaultBodyLimit::max(8 * 1024)),
+        )
+        .route(
+            "/api/wrapped/{id}",
+            get(wrapped::get_card).delete(wrapped::delete_card),
+        )
+        .route("/api/wrapped/{id}/claim", post(wrapped::claim_card))
         .route("/api/global-stats", get(global_stats::get_global_stats))
         .route("/api/cloud/models", get(models::get_models))
         .with_state(state)

@@ -594,6 +594,9 @@ pub fn run_setup() {
     println!();
     terminal_ui::print_logo_animated();
     terminal_ui::print_command_box();
+
+    // First-run "aha": show the savings lean-ctx just started capturing (once).
+    crate::cli::show_first_run_wow();
 }
 
 /// Friendly, non-interactive "golden path" onboarding.
@@ -680,6 +683,9 @@ pub fn run_onboard() {
     println!("  {dim}Check anytime:{rst}  {bold}lean-ctx doctor{rst}  {dim}·{rst}  {bold}lean-ctx gain{rst}");
     println!();
     terminal_ui::print_command_box();
+
+    // First-run "aha": show the savings lean-ctx just started capturing (once).
+    crate::cli::show_first_run_wow();
 }
 
 #[derive(Debug, Clone, Copy, Default)]

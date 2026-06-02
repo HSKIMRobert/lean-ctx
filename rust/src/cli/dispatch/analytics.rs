@@ -46,6 +46,9 @@ pub(super) fn cmd_gain(rest: &[String]) {
         })
         .unwrap_or(10);
 
+    let copy = rest.iter().any(|a| a == "--copy");
+    let open = rest.iter().any(|a| a == "--open");
+
     if let Some(svg_path) = svg_target(rest) {
         let report = core::wrapped::WrappedReport::generate(&period);
         match std::fs::write(&svg_path, report.to_svg()) {
@@ -58,6 +61,7 @@ pub(super) fn cmd_gain(rest: &[String]) {
                 std::process::exit(1);
             }
         }
+        share_side_effects(&report, Some(&svg_path), copy, open);
         return;
     }
 
@@ -84,6 +88,13 @@ pub(super) fn cmd_gain(rest: &[String]) {
                 std::process::exit(1);
             }
         }
+        share_side_effects(&report, Some(&html_path), copy, open);
+        return;
+    }
+
+    if copy {
+        let report = core::wrapped::WrappedReport::generate(&period);
+        share_side_effects(&report, None, true, false);
         return;
     }
 
@@ -216,6 +227,34 @@ fn base_url_arg(rest: &[String]) -> Option<String> {
         }
         None
     })
+}
+
+/// Applies the optional `--copy` (clipboard) and `--open` (browser) side effects for a
+/// Wrapped artifact. `path` is the just-written file to open, when one exists. Both
+/// degrade gracefully: a clipboard miss falls back to printing the share line.
+fn share_side_effects(
+    report: &core::wrapped::WrappedReport,
+    path: Option<&str>,
+    copy: bool,
+    open: bool,
+) {
+    if copy {
+        let text = report.share_text(None);
+        if core::share::copy_to_clipboard(&text) {
+            println!("Copied to clipboard:  {text}");
+        } else {
+            println!("Share text (copy it): {text}");
+        }
+    }
+    if open {
+        if let Some(p) = path {
+            if core::share::open_in_browser(p) {
+                println!("Opened {p}");
+            } else {
+                println!("Could not open {p} automatically — open it manually.");
+            }
+        }
+    }
 }
 
 pub(super) fn cmd_savings(rest: &[String]) {

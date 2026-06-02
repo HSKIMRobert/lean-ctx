@@ -361,6 +361,7 @@ pub mod search_delta;
 pub mod search_index;
 pub mod secret_detection;
 pub mod session_token;
+pub mod share;
 pub mod shell_allowlist;
 pub mod startup_guard;
 pub mod stats;

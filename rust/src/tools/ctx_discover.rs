@@ -220,3 +220,104 @@ pub fn format_cli_output(result: &DiscoverResult) -> String {
 
     lines.join("\n")
 }
+
+/// Renders a shareable "before lean-ctx" SVG card from a discover analysis — the
+/// "ghost tokens you're leaving on the table" framing that drives the first-run share
+/// loop. Same 1200x630 social-card dimensions and visual language as the Wrapped card,
+/// but in an amber/red "leak" palette. Pure string building; all data-derived text is
+/// XML-escaped. Aggregate estimates only — never command contents or arguments.
+pub fn render_before_card(result: &DiscoverResult) -> String {
+    let saved = crate::core::wrapped::format_tokens(result.potential_tokens as u64);
+    let monthly_usd = result.potential_usd * 30.0;
+    let total_missed: u32 = result.missed_commands.iter().map(|m| m.count).sum();
+    let top = before_card_top_commands(result);
+    format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1020"/>
+      <stop offset="1" stop-color="#131a2e"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#f59e0b"/>
+      <stop offset="1" stop-color="#ef4444"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect x="0" y="0" width="1200" height="8" fill="url(#accent)"/>
+  <text x="70" y="92" fill="#e5e7eb" font-size="34" font-weight="700">lean-ctx <tspan fill="#f59e0b">Ghost Tokens</tspan></text>
+  <text x="70" y="130" fill="#94a3b8" font-size="24">before lean-ctx — estimated from my shell history</text>
+  <text x="70" y="300" fill="#f59e0b" font-size="120" font-weight="800" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">{saved}</text>
+  <text x="76" y="346" fill="#94a3b8" font-size="26">tokens/month left on the table</text>
+  <text x="70" y="430" fill="#e5e7eb" font-size="60" font-weight="800" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">${monthly_usd:.0}</text>
+  <text x="74" y="462" fill="#94a3b8" font-size="22">potential monthly savings</text>
+  <text x="70" y="512" fill="#cbd5e1" font-size="22">{total_missed} uncompressed commands · {already} already via lean-ctx</text>
+{top}
+  <text x="70" y="600" fill="#475569" font-size="17">Estimate from local shell history · run `lean-ctx setup` to stop the leak</text>
+  <text x="1130" y="600" text-anchor="end" fill="#f59e0b" font-size="26" font-weight="700">leanctx.com</text>
+</svg>"##,
+        already = result.already_optimized,
+    )
+}
+
+/// The top three missed commands as a single muted line. Empty when none.
+fn before_card_top_commands(result: &DiscoverResult) -> String {
+    if result.missed_commands.is_empty() {
+        return String::new();
+    }
+    let joined = result
+        .missed_commands
+        .iter()
+        .take(3)
+        .map(|m| format!("{} {}x", m.prefix, m.count))
+        .collect::<Vec<_>>()
+        .join("    ·    ");
+    format!(
+        "  <text x=\"70\" y=\"556\" fill=\"#cbd5e1\" font-size=\"22\">top missed  {}</text>",
+        xml_escape(&joined)
+    )
+}
+
+/// Minimal XML text escaping for data-derived strings in the SVG card.
+fn xml_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{analyze_history, render_before_card};
+
+    fn history() -> Vec<String> {
+        vec![
+            "git status".into(),
+            "git diff".into(),
+            "cargo build".into(),
+            "cargo test".into(),
+            "lean-ctx gain".into(),
+            "vim notes.txt".into(),
+        ]
+    }
+
+    #[test]
+    fn before_card_is_well_formed_and_branded() {
+        let result = analyze_history(&history(), 20);
+        let svg = render_before_card(&result);
+        assert!(svg.starts_with("<svg"), "must be an SVG document");
+        assert!(svg.trim_end().ends_with("</svg>"), "must close the svg tag");
+        assert!(svg.contains("leanctx.com"), "must carry the brand footer");
+        assert!(svg.contains("Ghost Tokens"), "must frame the leak");
+        assert!(
+            svg.contains("tokens/month left on the table"),
+            "headline label present"
+        );
+    }
+
+    #[test]
+    fn xml_escape_neutralizes_markup() {
+        assert_eq!(super::xml_escape("a<b>&\"'"), "a&lt;b&gt;&amp;&quot;&apos;");
+    }
+}

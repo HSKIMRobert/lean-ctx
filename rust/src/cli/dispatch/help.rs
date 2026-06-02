@@ -119,6 +119,8 @@ COMMANDS:
     gain --wrapped                 Shareable Wrapped card (terminal)
     gain --svg [=<path>]           Shareable Wrapped card as SVG (social/OG image)
     gain --share [=<path>]         Self-hostable Wrapped page (HTML, opt-in permalink)
+    gain --copy                    Copy a ready-to-post share line to the clipboard
+    gain --svg|--share --open      Also open the written card/page in your browser
     gain --json                    Raw JSON export of all stats
     savings [summary|verify|export] Verified per-event savings ledger (local, auditable)
          token-report [--json]          Token + memory report (project + session + CEP)
@@ -153,6 +155,7 @@ COMMANDS:
     ls [path]                      Directory listing with compression
     deps [path]                    Show project dependencies
     discover                       Find uncompressed commands in shell history
+    discover --card [=<path>]      Shareable 'before lean-ctx' SVG from your history
     ghost [--json]                 Ghost Token report: find hidden token waste
     filter [list|validate|init]    Manage custom compression filters (~/.lean-ctx/filters/)
     session                        Show adoption statistics
@@ -257,11 +260,13 @@ EXAMPLES:
     lean-ctx gain --svg=card.svg --period=month  Monthly SVG card to a chosen path
     lean-ctx gain --share          Self-hostable Wrapped page -> lean-ctx-wrapped.html
     lean-ctx gain --share --base-url=https://you.dev/w  Page with social preview meta
+    lean-ctx gain --copy           Copy your share line to the clipboard
     lean-ctx savings               Verified per-event savings ledger (auditable)
     lean-ctx savings verify        Re-check the savings ledger SHA-256 hash chain
     lean-ctx sessions list         List all CCP sessions
     lean-ctx sessions show         Show latest session state
     lean-ctx discover              Find missed savings in shell history
+    lean-ctx discover --card       Shareable 'before' SVG -> lean-ctx-before.svg
     lean-ctx setup                 One-command setup (shell + editors + verify)
     lean-ctx install --repair      Premium repair path (non-interactive, merge-based)
     lean-ctx bootstrap             Non-interactive setup + fix (zero-config)

@@ -51,6 +51,31 @@ impl WrappedReport {
             desc_attr = escape(&desc),
         )
     }
+
+    /// A ready-to-post one-liner for `gain --copy`. The opt-in permalink `url`
+    /// (once published) is appended when present. Honest about the estimate marker.
+    pub fn share_text(&self, url: Option<&str>) -> String {
+        let period_label = match self.period.as_str() {
+            "week" => " this week",
+            "month" => " this month",
+            _ => "",
+        };
+        let est = if self.pricing_estimated {
+            " (est.)"
+        } else {
+            ""
+        };
+        let mut s = format!(
+            "I saved {} tokens (~${:.2}{est}){period_label} with lean-ctx — my AI saw only what mattered.",
+            format_tokens(self.tokens_saved),
+            self.cost_avoided_usd,
+        );
+        if let Some(u) = url {
+            s.push(' ');
+            s.push_str(u);
+        }
+        s
+    }
 }
 
 /// Builds the Open Graph / Twitter meta block. Image meta only when a base URL is given.
@@ -162,6 +187,29 @@ mod tests {
         assert!(
             !html.contains("a=1&b=2\""),
             "a raw unescaped ampersand must not survive into an attribute"
+        );
+    }
+
+    #[test]
+    fn share_text_is_postable_and_honest() {
+        let txt = sample().share_text(None);
+        assert!(
+            txt.contains("348.3M"),
+            "headline metric must be in the share line"
+        );
+        assert!(txt.contains("lean-ctx"), "must name the brand");
+        assert!(!txt.contains("http"), "no URL when none is supplied");
+    }
+
+    #[test]
+    fn share_text_appends_permalink_and_estimate_marker() {
+        let mut r = sample();
+        r.pricing_estimated = true;
+        let txt = r.share_text(Some("https://leanctx.com/w/abc123"));
+        assert!(txt.ends_with("https://leanctx.com/w/abc123"));
+        assert!(
+            txt.contains("(est.)"),
+            "estimated pricing must be disclosed"
         );
     }
 }

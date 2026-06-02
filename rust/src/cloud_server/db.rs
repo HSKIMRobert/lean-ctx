@@ -181,6 +181,18 @@ CREATE TABLE IF NOT EXISTS feedback_thresholds (
   PRIMARY KEY (user_id, language)
 );
 
+CREATE TABLE IF NOT EXISTS wrapped_cards (
+  id              TEXT PRIMARY KEY,
+  edit_token_hash TEXT NOT NULL,
+  user_id         UUID NULL REFERENCES users(id) ON DELETE SET NULL,
+  payload_json    TEXT NOT NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ip_hash         TEXT NULL,
+  view_count      BIGINT NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS wrapped_cards_ip_created ON wrapped_cards (ip_hash, created_at);
+
 DROP TABLE IF EXISTS team_invites CASCADE;
 DROP TABLE IF EXISTS team_members CASCADE;
 DROP TABLE IF EXISTS teams CASCADE;

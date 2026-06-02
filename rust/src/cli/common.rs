@@ -49,8 +49,11 @@ pub(crate) fn load_shell_history() -> Vec<String> {
         home.join(".bash_history")
     };
 
-    match std::fs::read_to_string(&history_file) {
-        Ok(content) => content
+    // Shell history files (especially zsh's metafied format) frequently contain
+    // non-UTF-8 bytes; `read_to_string` would reject the whole file. Read raw and
+    // decode lossily so a single bad byte never hides 900 lines of real history.
+    match std::fs::read(&history_file) {
+        Ok(bytes) => String::from_utf8_lossy(&bytes)
             .lines()
             .filter_map(|l| {
                 let trimmed = l.trim();

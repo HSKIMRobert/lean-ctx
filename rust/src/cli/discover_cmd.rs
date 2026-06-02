@@ -1,6 +1,6 @@
 use super::common::load_shell_history;
 
-pub fn cmd_discover(_args: &[String]) {
+pub fn cmd_discover(args: &[String]) {
     let history = load_shell_history();
     if history.is_empty() {
         println!("No shell history found.");
@@ -8,7 +8,110 @@ pub fn cmd_discover(_args: &[String]) {
     }
 
     let result = crate::tools::ctx_discover::analyze_history(&history, 20);
+
+    if let Some(path) = card_target(args) {
+        match std::fs::write(
+            &path,
+            crate::tools::ctx_discover::render_before_card(&result),
+        ) {
+            Ok(()) => println!(
+                "Before-card written to {path}\n\
+                 Share it, or run `lean-ctx gain --wrapped` after a week for your real numbers."
+            ),
+            Err(e) => {
+                eprintln!("Failed to write {path}: {e}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
     println!("{}", crate::tools::ctx_discover::format_cli_output(&result));
+}
+
+/// Resolves the `--card[=<path>]` output path for the shareable "before" SVG, or `None`
+/// when not requested. A bare `--card` defaults to `lean-ctx-before.svg`.
+fn card_target(args: &[String]) -> Option<String> {
+    let mut requested = false;
+    let mut path: Option<String> = None;
+    for (i, a) in args.iter().enumerate() {
+        if let Some(v) = a.strip_prefix("--card=") {
+            requested = true;
+            path = Some(v.to_string());
+        } else if a == "--card" {
+            requested = true;
+            if let Some(next) = args.get(i + 1) {
+                if !next.starts_with('-') {
+                    path = Some(next.clone());
+                }
+            }
+        }
+    }
+    requested.then(|| path.unwrap_or_else(|| "lean-ctx-before.svg".to_string()))
+}
+
+/// Path of the marker recording that the first-run "aha" was already shown.
+fn first_run_marker() -> Option<std::path::PathBuf> {
+    dirs::home_dir().map(|h| h.join(".lean-ctx").join(".first_run_wow_done"))
+}
+
+/// Shows the discover "you're leaving X tokens on the table" moment exactly once, right
+/// after setup. Marker-guarded so re-running `setup` never repeats it. Stays silent (but
+/// still marks done) when there is too little history to be meaningful, so it never nags.
+/// Reads only local shell history and prints aggregate estimates — never command contents.
+pub fn show_first_run_wow() {
+    let Some(marker) = first_run_marker() else {
+        return;
+    };
+    if marker.exists() {
+        return;
+    }
+    // Mark immediately so any edge case never reshows on the next setup run.
+    if let Some(parent) = marker.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(&marker, "shown\n");
+
+    let history = load_shell_history();
+    if history.is_empty() {
+        return;
+    }
+    let result = crate::tools::ctx_discover::analyze_history(&history, 20);
+    let total_missed: u32 = result.missed_commands.iter().map(|m| m.count).sum();
+    if total_missed == 0 {
+        return;
+    }
+
+    let bold = "\x1b[1m";
+    let green = "\x1b[32m";
+    let yellow = "\x1b[33m";
+    let dim = "\x1b[2m";
+    let rst = "\x1b[0m";
+    let monthly = result.potential_usd * 30.0;
+    let saved = crate::core::wrapped::format_tokens(result.potential_tokens as u64);
+
+    println!();
+    println!("  {bold}Here's what lean-ctx just started saving you{rst}");
+    println!("  {dim}estimated from your shell history — nothing leaves your machine{rst}");
+    println!();
+    println!(
+        "  {green}~{saved} tokens{rst}{dim}/month{rst} across {total_missed} uncompressed commands {dim}(~${monthly:.0}/mo){rst}"
+    );
+    let top = result
+        .missed_commands
+        .iter()
+        .take(3)
+        .map(|m| format!("{} {}x", m.prefix, m.count))
+        .collect::<Vec<_>>()
+        .join("   ");
+    if !top.is_empty() {
+        println!("  {dim}top: {top}{rst}");
+    }
+    println!();
+    println!(
+        "  {yellow}Run {bold}lean-ctx gain --wrapped{rst}{yellow} after a week for your real numbers — and a shareable card.{rst}"
+    );
+    println!();
 }
 
 pub fn cmd_ghost(args: &[String]) {

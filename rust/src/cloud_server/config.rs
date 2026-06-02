@@ -5,6 +5,9 @@ pub(super) struct Config {
     pub public_base_url: String,
     pub api_base_url: String,
     pub database_url: String,
+    /// Salt for the abuse-only `ip_hash` (Wrapped permalink rate limiting). Never used for
+    /// tracking; only to bound publishes per source. Set `LEANCTX_CLOUD_IP_SALT` in prod.
+    pub ip_hash_salt: String,
     pub smtp_host: Option<String>,
     pub smtp_port: Option<u16>,
     pub smtp_username: Option<String>,
@@ -29,6 +32,8 @@ impl Config {
             .map_err(|_| {
                 anyhow::anyhow!("Missing env: LEANCTX_CLOUD_DATABASE_URL (or DATABASE_URL)")
             })?;
+        let ip_hash_salt = std::env::var("LEANCTX_CLOUD_IP_SALT")
+            .unwrap_or_else(|_| "lean-ctx-wrapped-ip-salt-v1".into());
         let smtp_host = std::env::var("LEANCTX_CLOUD_SMTP_HOST").ok();
         let smtp_port = std::env::var("LEANCTX_CLOUD_SMTP_PORT")
             .ok()
@@ -43,6 +48,7 @@ impl Config {
             public_base_url,
             api_base_url,
             database_url,
+            ip_hash_salt,
             smtp_host,
             smtp_port,
             smtp_username,
