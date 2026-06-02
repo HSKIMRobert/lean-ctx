@@ -51,9 +51,9 @@ directly, so no asset route needs proxying on the canonical host.
 - **`id`** — public, unguessable 128-bit identifier, hex-encoded (32 chars). It is the URL slug.
 - **`edit_token`** — 256-bit secret returned **once** at publish, stored client-side in
   `~/.lean-ctx/wrapped/published.json`. The server persists only `sha256(edit_token)`.
-- **Claim** — an authenticated user (`Authorization: Bearer <api_key|oauth>`) who also presents the
-  matching `X-Edit-Token` binds the card to their `user_id`. This is the bridge to future cloud
-  sync; claiming is idempotent and never required.
+- **Claim** — an authenticated user (identified by a standard bearer credential — API key or OAuth —
+  in the `Authorization` request header) who also presents the matching `X-Edit-Token` binds the card
+  to their `user_id`. This is the bridge to future cloud sync; claiming is idempotent and never required.
 
 ---
 
