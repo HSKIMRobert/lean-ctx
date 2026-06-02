@@ -4,10 +4,14 @@ const GITHUB_API_RELEASES: &str = "https://api.github.com/repos/yvgude/lean-ctx/
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub fn run(args: &[String]) {
-    let check_only = args.iter().any(|a| a == "--check");
+    let mut check_only = args.iter().any(|a| a == "--check");
     let insecure = args.iter().any(|a| a == "--insecure");
     let quiet = args.iter().any(|a| a == "--quiet");
     let skip_rules = args.iter().any(|a| a == "--skip-rules");
+    // The scheduler invokes `update --quiet --scheduled`. `--quiet` alone also
+    // marks an automatic run for backward compatibility with schedulers that
+    // were installed before `--scheduled` existed.
+    let scheduled = args.iter().any(|a| a == "--scheduled");
 
     // Handle --schedule subcommand
     if let Some(pos) = args.iter().position(|a| a == "--schedule") {
@@ -70,6 +74,35 @@ pub fn run(args: &[String]) {
                 }
                 return;
             }
+        }
+    }
+
+    // #335: An automatic run (`--quiet`/`--scheduled`) must obey config.toml.
+    // A user who sets `updates.auto_update = false` after a scheduler was
+    // installed expects auto-updates to stop. Since editing config doesn't
+    // uninstall the scheduler, the next scheduled tick re-checks config here,
+    // self-heals (removes the orphaned scheduler) and bails. `notify_only`
+    // downgrades the run to a check (never installs). Manual `lean-ctx update`
+    // (no `--quiet`/`--scheduled`) is an explicit action and always proceeds.
+    if (quiet || scheduled) && !check_only {
+        let cfg = crate::core::config::Config::load();
+        match automatic_update_gate(cfg.updates.auto_update, cfg.updates.notify_only) {
+            AutoUpdateGate::Skip => {
+                if let Err(e) = crate::core::update_scheduler::remove_schedule() {
+                    tracing::warn!(
+                        "auto-update disabled in config; failed to remove orphaned scheduler: {e}"
+                    );
+                } else {
+                    tracing::info!(
+                        "auto-update disabled (updates.auto_update=false): skipped scheduled update and removed orphaned scheduler"
+                    );
+                }
+                return;
+            }
+            AutoUpdateGate::NotifyOnly => {
+                check_only = true;
+            }
+            AutoUpdateGate::Proceed => {}
         }
     }
 
@@ -230,6 +263,29 @@ pub fn run(args: &[String]) {
                 println!("  \x1b[2m○ Skipped — enable later: lean-ctx update --schedule\x1b[0m");
             }
         }
+    }
+}
+
+/// Outcome of the config gate applied to automatic (scheduled) update runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AutoUpdateGate {
+    /// Install normally.
+    Proceed,
+    /// Auto-update disabled in config — skip and clean up the scheduler.
+    Skip,
+    /// Notify-only — check for a newer version but never install.
+    NotifyOnly,
+}
+
+/// Decide what a scheduled `update` run should do based on config. Pure helper
+/// so the precedence (`auto_update` wins over `notify_only`) is unit-testable.
+fn automatic_update_gate(auto_update: bool, notify_only: bool) -> AutoUpdateGate {
+    if !auto_update {
+        AutoUpdateGate::Skip
+    } else if notify_only {
+        AutoUpdateGate::NotifyOnly
+    } else {
+        AutoUpdateGate::Proceed
     }
 }
 
@@ -900,6 +956,27 @@ fn platform_asset_name() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn auto_update_disabled_skips_and_cleans_up() {
+        // #335: auto_update=false → scheduled run must not install.
+        assert_eq!(automatic_update_gate(false, false), AutoUpdateGate::Skip);
+        // auto_update=false wins even if notify_only is also set.
+        assert_eq!(automatic_update_gate(false, true), AutoUpdateGate::Skip);
+    }
+
+    #[test]
+    fn notify_only_downgrades_to_check() {
+        assert_eq!(
+            automatic_update_gate(true, true),
+            AutoUpdateGate::NotifyOnly
+        );
+    }
+
+    #[test]
+    fn auto_update_enabled_proceeds() {
+        assert_eq!(automatic_update_gate(true, false), AutoUpdateGate::Proceed);
+    }
 
     #[test]
     fn bat_script_has_timeout_guard() {
