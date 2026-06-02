@@ -149,7 +149,7 @@ describe("LeanCtxClient E2E (real server)", () => {
           path: "docs/contracts/http-mcp-contract-v1.md",
           mode: "lines:1-10",
         });
-        expect(text).toContain("HTTP MCP Contract v1");
+        expect(text).toContain("HTTP-MCP Contract v1");
       } finally {
         await stop();
         proc.stdout?.destroy();

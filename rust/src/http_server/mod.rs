@@ -240,22 +240,51 @@ async fn auth_middleware(
 
     let expected = state.token.as_deref().unwrap_or("");
     let Some(h) = req.headers().get(header::AUTHORIZATION) else {
-        return StatusCode::UNAUTHORIZED.into_response();
+        return json_error(
+            StatusCode::UNAUTHORIZED,
+            "unauthorized",
+            "missing Authorization header",
+        );
     };
     let Ok(s) = h.to_str() else {
-        return StatusCode::UNAUTHORIZED.into_response();
+        return json_error(
+            StatusCode::UNAUTHORIZED,
+            "unauthorized",
+            "malformed Authorization header",
+        );
     };
     let Some(token) = s
         .strip_prefix("Bearer ")
         .or_else(|| s.strip_prefix("bearer "))
     else {
-        return StatusCode::UNAUTHORIZED.into_response();
+        return json_error(
+            StatusCode::UNAUTHORIZED,
+            "unauthorized",
+            "Authorization must use the Bearer scheme",
+        );
     };
     if !constant_time_eq(token.as_bytes(), expected.as_bytes()) {
-        return StatusCode::UNAUTHORIZED.into_response();
+        return json_error(
+            StatusCode::UNAUTHORIZED,
+            "unauthorized",
+            "invalid bearer token",
+        );
     }
 
     next.run(req).await
+}
+
+/// Structured REST error envelope: `{ "error": <human message>, "error_code": <stable code> }`.
+///
+/// `error_code` is the stable, machine-readable string SDKs switch on; `error` carries the
+/// human-facing message. Used for every REST (non-A2A) error so clients branch on a code
+/// instead of parsing prose. The A2A JSON-RPC surface keeps its own `-32xxx` envelope.
+pub(crate) fn json_error(status: StatusCode, error_code: &str, message: &str) -> Response {
+    (
+        status,
+        Json(serde_json::json!({ "error": message, "error_code": error_code })),
+    )
+        .into_response()
 }
 
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
@@ -386,17 +415,17 @@ async fn v1_tool_call(
         Ok(Ok(v)) => (StatusCode::OK, Json(serde_json::json!({ "result": v }))).into_response(),
         Ok(Err(e)) => {
             tracing::warn!("tool call error: {e}");
-            (
+            json_error(
                 StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({ "error": "tool_error", "code": "TOOL_ERROR" })),
+                "tool_error",
+                "tool execution failed",
             )
-                .into_response()
         }
-        Err(_) => (
+        Err(_) => json_error(
             StatusCode::GATEWAY_TIMEOUT,
-            Json(serde_json::json!({ "error": "request_timeout" })),
-        )
-            .into_response(),
+            "request_timeout",
+            "tool call timed out",
+        ),
     }
 }
 
