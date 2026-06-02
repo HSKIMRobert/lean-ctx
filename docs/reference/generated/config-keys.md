@@ -113,6 +113,12 @@ Custom command aliases (array of {command, alias} entries). Note: field names ar
 - `alias` (string, default `""`) — The alias definition to execute
 - `command` (string, default `""`) — The command pattern to match (e.g. 'deploy')
 
+## `[embedding]`
+
+Semantic-embedding engine settings (model selection for ctx_semantic_search)
+
+- `model` (string, default `minilm` — env `LEAN_CTX_EMBEDDING_MODEL`) — Local ONNX embedding model for ctx_semantic_search. One of: minilm (all-MiniLM-L6-v2, 384d, default), jina-code-v2 (768d, code-optimized), nomic (768d). Switching models re-indexes once on the next search.
+
 ## `[ide_paths]`
 
 Per-IDE allowed paths. Keys are agent names (cursor, codex, opencode, antigravity, etc.), values are arrays of paths to index for that agent
