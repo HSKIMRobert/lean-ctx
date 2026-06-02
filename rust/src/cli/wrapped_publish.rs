@@ -12,17 +12,14 @@ use serde::{Deserialize, Serialize};
 use crate::cloud_client;
 use crate::core::wrapped::WrappedReport;
 
-const MAX_TOP_COMMANDS: usize = 12;
-const MAX_NAME_LEN: usize = 40;
 const MAX_LABEL_LEN: usize = 60;
 
 // ─── Whitelisted payload (mirrors the server's accepted fields) ───────────────
-
-#[derive(Serialize, Deserialize)]
-struct TopCommand {
-    name: String,
-    pct: f64,
-}
+//
+// Deliberately minimal: only the four aggregate numbers the metrics page & leaderboard use
+// (tokens, cost, compression — energy is derived from tokens), plus the period/opt-in needed
+// to place the card and the optional display name. We do NOT collect command/session/file
+// counts, top command names or the model — they were never used publicly.
 
 #[derive(Serialize, Deserialize)]
 struct PublishPayload {
@@ -31,40 +28,14 @@ struct PublishPayload {
     cost_avoided_usd: f64,
     pricing_estimated: bool,
     compression_rate_pct: f64,
-    total_commands: i64,
-    sessions_count: i64,
-    files_touched: i64,
-    top_commands: Vec<TopCommand>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    model_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     display_name: Option<String>,
     leaderboard_opt_in: bool,
 }
 
 /// Builds the payload, clamping/sanitizing every field so the server's strict validator accepts
-/// it. Only aggregate, non-identifying values are ever included.
-fn build_payload(
-    r: &WrappedReport,
-    name: Option<&str>,
-    no_model: bool,
-    leaderboard: bool,
-) -> PublishPayload {
-    let top_commands = r
-        .top_commands
-        .iter()
-        .filter_map(|(cmd, _count, pct)| {
-            let name = sanitize(cmd, MAX_NAME_LEN);
-            (!name.is_empty()).then(|| TopCommand {
-                name,
-                pct: pct.clamp(0.0, 100.0),
-            })
-        })
-        .take(MAX_TOP_COMMANDS)
-        .collect();
-
-    let model_key =
-        (!no_model && !r.model_key.is_empty()).then(|| sanitize(&r.model_key, MAX_LABEL_LEN));
+/// it. Only the minimal aggregate numbers and the optional chosen name are ever included.
+fn build_payload(r: &WrappedReport, name: Option<&str>, leaderboard: bool) -> PublishPayload {
     let display_name = name
         .map(|s| sanitize(s.trim(), MAX_LABEL_LEN))
         .filter(|s| !s.is_empty());
@@ -75,11 +46,6 @@ fn build_payload(
         cost_avoided_usd: r.cost_avoided_usd.max(0.0),
         pricing_estimated: r.pricing_estimated,
         compression_rate_pct: r.compression_rate_pct.clamp(0.0, 100.0),
-        total_commands: clamp_u64(r.total_commands),
-        sessions_count: i64::try_from(r.sessions_count).unwrap_or(i64::MAX),
-        files_touched: clamp_u64(r.files_touched),
-        top_commands,
-        model_key,
         display_name,
         leaderboard_opt_in: leaderboard,
     }
@@ -87,6 +53,21 @@ fn build_payload(
 
 fn clamp_u64(v: u64) -> i64 {
     i64::try_from(v).unwrap_or(i64::MAX)
+}
+
+/// One-line, honest disclosure of exactly what a publish shares. The payload is a fixed,
+/// minimal set of aggregate numbers (enforced by `build_payload` + the server whitelist) —
+/// never code, paths, repos or prompts. Printed on every publish so the user always sees it.
+fn shared_disclosure(has_name: bool) -> String {
+    let name = if has_name {
+        ", and the display name you chose"
+    } else {
+        ""
+    };
+    format!(
+        "Shared (aggregate numbers only): tokens saved, estimated USD, compression rate{name}.\n\
+         Never shared: your code, file contents, file paths, repo names, prompts or messages."
+    )
 }
 
 /// Strips control/markup characters and truncates to `max` chars (char-safe), matching the
@@ -107,6 +88,10 @@ struct PublishedEntry {
     url: String,
     period: String,
     published_at: String,
+    /// True for cards created by `auto_publish`; these are auto-retired on refresh, while
+    /// manual `--publish` cards (false, the default for older records) are never touched.
+    #[serde(default)]
+    auto: bool,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -144,44 +129,124 @@ impl PublishedStore {
 
 // ─── Commands ───────────────────────────────────────────────────────────────
 
+/// Stable per-machine identity used to sign published cards. It is the same id the savings
+/// ledger signs with, so a user has one identity across proof artifacts and the leaderboard.
+fn publisher_agent_id() -> String {
+    std::env::var("LEAN_CTX_AGENT_ID")
+        .or_else(|_| std::env::var("LCTX_AGENT_ID"))
+        .unwrap_or_else(|_| "local".to_string())
+}
+
+/// Builds the whitelisted payload, signs it with this machine's persistent Ed25519 key, and
+/// publishes it. The server derives a stable, login-less `publisher_id` from the public key and
+/// upserts the card, so re-publishing the same period refreshes one card instead of duplicating.
+fn publish_report(
+    report: &WrappedReport,
+    period: &str,
+    name: Option<&str>,
+    leaderboard: bool,
+    auto: bool,
+) -> Result<cloud_client::PublishedCard, String> {
+    use crate::core::agent_identity;
+
+    let payload = build_payload(report, name, leaderboard);
+    let payload_json =
+        serde_json::to_string(&payload).map_err(|e| format!("could not build payload: {e}"))?;
+
+    let agent = publisher_agent_id();
+    let public_key = agent_identity::get_public_key(&agent)
+        .map(|k| agent_identity::hex_encode(&k.to_bytes()))
+        .map_err(|e| format!("could not load publish identity: {e}"))?;
+    let signature = agent_identity::sign_bytes(&agent, payload_json.as_bytes())
+        .map(|s| agent_identity::hex_encode(&s))
+        .map_err(|e| format!("could not sign payload: {e}"))?;
+
+    let envelope = serde_json::json!({
+        "payload_json": payload_json,
+        "public_key": public_key,
+        "signature": signature,
+    });
+    let card = cloud_client::publish_wrapped(&envelope)?;
+    record_published(&card, period, auto);
+    Ok(card)
+}
+
+/// Records the card as the single local entry for its period: stale cards for the same period
+/// with a different id are retired server-side (cleaning up any pre-upsert duplicates), and the
+/// edit_token is preserved across signed re-publishes (the server returns it only on insert).
+fn record_published(card: &cloud_client::PublishedCard, period: &str, auto: bool) {
+    let mut store = PublishedStore::load();
+
+    for stale in store
+        .cards
+        .iter()
+        .filter(|c| c.period == period && c.id != card.id && !c.edit_token.is_empty())
+    {
+        let _ = cloud_client::unpublish_wrapped(&stale.id, &stale.edit_token);
+    }
+
+    let edit_token = card.edit_token.clone().unwrap_or_else(|| {
+        store
+            .cards
+            .iter()
+            .find(|c| c.id == card.id)
+            .map(|c| c.edit_token.clone())
+            .unwrap_or_default()
+    });
+
+    store.cards.retain(|c| c.period != period);
+    store.cards.push(PublishedEntry {
+        id: card.id.clone(),
+        edit_token,
+        url: card.url.clone(),
+        period: period.to_string(),
+        published_at: chrono::Utc::now().to_rfc3339(),
+        auto,
+    });
+    if let Err(e) = store.save() {
+        tracing::warn!("Published, but could not save local record: {e}");
+    }
+}
+
 /// `lean-ctx gain --publish` — generate, publish, record, and copy the permalink.
-pub(crate) fn publish(period: &str, name: Option<&str>, no_model: bool, leaderboard: bool) {
+pub(crate) fn publish(period: &str, name: Option<&str>, leaderboard: bool) {
     let report = WrappedReport::generate(period);
     if report.tokens_saved == 0 {
         println!("Nothing to publish yet — use lean-ctx for a bit, then try again.");
         return;
     }
 
-    let payload = build_payload(&report, name, no_model, leaderboard);
-    let value = match serde_json::to_value(&payload) {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("Could not build payload: {e}");
-            std::process::exit(1);
-        }
-    };
-
-    match cloud_client::publish_wrapped(&value) {
-        Ok(card) => {
-            let mut store = PublishedStore::load();
-            store.cards.push(PublishedEntry {
-                id: card.id.clone(),
-                edit_token: card.edit_token.clone(),
-                url: card.url.clone(),
-                period: period.to_string(),
-                published_at: chrono::Utc::now().to_rfc3339(),
-            });
-            if let Err(e) = store.save() {
-                tracing::warn!("Published, but could not save local record: {e}");
+    // A name chosen here sticks: persist it so future (incl. automatic) publishes reuse it, and
+    // fall back to a previously saved name when no `--name` flag is given.
+    let mut cfg = crate::core::config::Config::load();
+    if let Some(n) = name.map(str::trim).filter(|n| !n.is_empty()) {
+        if cfg.gain.display_name.as_deref() != Some(n) {
+            cfg.gain.display_name = Some(n.to_string());
+            if let Err(e) = cfg.save() {
+                tracing::warn!("Could not save display name: {e}");
             }
+        }
+    }
+    let effective_name = name
+        .map(str::to_string)
+        .or_else(|| cfg.gain.display_name.clone());
 
+    match publish_report(
+        &report,
+        period,
+        effective_name.as_deref(),
+        leaderboard,
+        false,
+    ) {
+        Ok(card) => {
             println!("Published: {}", card.url);
+            println!("{}", shared_disclosure(effective_name.is_some()));
             if crate::core::share::copy_to_clipboard(&card.url) {
                 println!("URL copied to clipboard — paste it anywhere.");
             }
             if leaderboard {
                 if let Some(base) = card.url.split("/w/").next() {
-                    println!("Listed on the leaderboard: {base}/leaderboard");
+                    println!("Listed on the community leaderboard: {base}/metrics#leaderboard");
                 }
             }
             println!(
@@ -194,6 +259,68 @@ pub(crate) fn publish(period: &str, name: Option<&str>, no_model: bool, leaderbo
             std::process::exit(1);
         }
     }
+}
+
+/// Config-driven automatic publish, invoked from the `lean-ctx gain` recap views.
+///
+/// Opt-in via `[gain] auto_publish = true`, throttled by `auto_publish_interval_hours`, and
+/// fully non-fatal: any failure is logged but never interrupts the recap. Because publishes are
+/// signed, the server upserts one card per (machine, period), so refreshing the recap never
+/// piles up duplicates on the public leaderboard.
+pub(crate) fn maybe_auto_publish(period: &str) {
+    let cfg = crate::core::config::Config::load();
+    let g = &cfg.gain;
+    if !g.auto_publish {
+        return;
+    }
+    if !auto_publish_due(
+        g.last_auto_publish.as_deref(),
+        g.auto_publish_interval_hours,
+    ) {
+        return;
+    }
+
+    let report = WrappedReport::generate(period);
+    if report.tokens_saved == 0 {
+        return;
+    }
+
+    // Capture disclosure input before `cfg` is moved to record the timestamp below.
+    let disclose_name = g.display_name.is_some();
+
+    match publish_report(
+        &report,
+        period,
+        g.display_name.as_deref(),
+        g.leaderboard,
+        true,
+    ) {
+        Ok(card) => {
+            let mut cfg = cfg;
+            cfg.gain.last_auto_publish = Some(chrono::Utc::now().to_rfc3339());
+            if let Err(e) = cfg.save() {
+                tracing::warn!("Auto-published, but could not record timestamp: {e}");
+            }
+            println!("\nAuto-published your recap: {}", card.url);
+            println!("{}", shared_disclosure(disclose_name));
+            println!("  (disable with: lean-ctx config set gain.auto_publish false)");
+        }
+        Err(e) => tracing::warn!("Auto-publish skipped: {e}"),
+    }
+}
+
+/// Whether enough time has elapsed since the last automatic publish. A missing or
+/// unparseable timestamp counts as "due" so the first run always publishes.
+fn auto_publish_due(last: Option<&str>, interval_hours: u64) -> bool {
+    let Some(last) = last else {
+        return true;
+    };
+    let Ok(prev) = chrono::DateTime::parse_from_rfc3339(last) else {
+        return true;
+    };
+    let elapsed = chrono::Utc::now().signed_duration_since(prev.with_timezone(&chrono::Utc));
+    let interval = i64::try_from(interval_hours.max(1)).unwrap_or(i64::MAX);
+    elapsed.num_hours() >= interval
 }
 
 /// `lean-ctx gain --unpublish[=<id>]` — delete a published card via its stored `edit_token`.
@@ -252,11 +379,11 @@ mod tests {
     }
 
     #[test]
-    fn payload_carries_only_whitelisted_aggregates() {
-        let p = build_payload(&report(), Some("yvesg"), false, false);
+    fn payload_carries_only_minimal_aggregates() {
+        let p = build_payload(&report(), Some("yvesg"), false);
         let v = serde_json::to_value(&p).unwrap();
         let obj = v.as_object().unwrap();
-        // exactly the whitelisted keys, nothing more (no daily_savings, tokens_input, bounce…)
+        // exactly the minimal keys — no counts, top_commands, model_key, tokens_input, bounce…
         let mut keys: Vec<&str> = obj.keys().map(String::as_str).collect();
         keys.sort_unstable();
         assert_eq!(
@@ -265,58 +392,66 @@ mod tests {
                 "compression_rate_pct",
                 "cost_avoided_usd",
                 "display_name",
-                "files_touched",
                 "leaderboard_opt_in",
-                "model_key",
                 "period",
                 "pricing_estimated",
-                "sessions_count",
                 "tokens_saved",
-                "top_commands",
-                "total_commands",
             ]
         );
     }
 
     #[test]
-    fn no_model_omits_model_key() {
-        let p = build_payload(&report(), None, true, false);
-        assert!(p.model_key.is_none());
+    fn no_name_omits_display_name() {
+        let p = build_payload(&report(), None, false);
         assert!(p.display_name.is_none());
         let v = serde_json::to_value(&p).unwrap();
-        assert!(v.as_object().unwrap().get("model_key").is_none());
+        assert!(v.as_object().unwrap().get("display_name").is_none());
     }
 
     #[test]
     fn leaderboard_flag_sets_opt_in() {
-        assert!(!build_payload(&report(), None, false, false).leaderboard_opt_in);
-        assert!(build_payload(&report(), None, false, true).leaderboard_opt_in);
+        assert!(!build_payload(&report(), None, false).leaderboard_opt_in);
+        assert!(build_payload(&report(), None, true).leaderboard_opt_in);
+    }
+
+    #[test]
+    fn auto_publish_due_throttle() {
+        // Never published or unparseable → always due (so the first run publishes).
+        assert!(auto_publish_due(None, 24));
+        assert!(auto_publish_due(Some("not-a-timestamp"), 24));
+        // Published just now → not due within the interval.
+        let now = chrono::Utc::now().to_rfc3339();
+        assert!(!auto_publish_due(Some(&now), 24));
+        // Published 48h ago → due again for a 24h interval.
+        let two_days_ago = (chrono::Utc::now() - chrono::Duration::hours(48)).to_rfc3339();
+        assert!(auto_publish_due(Some(&two_days_ago), 24));
+        // A zero interval is clamped to 1h, so a fresh publish is still throttled.
+        assert!(!auto_publish_due(Some(&now), 0));
     }
 
     #[test]
     fn sanitizes_markup_and_truncates() {
-        assert_eq!(sanitize("ctx_search", MAX_NAME_LEN), "ctx_search");
-        assert_eq!(sanitize("<script>", MAX_NAME_LEN), "script");
+        assert_eq!(sanitize("ctx_search", MAX_LABEL_LEN), "ctx_search");
+        assert_eq!(sanitize("<script>", MAX_LABEL_LEN), "script");
         assert_eq!(
-            sanitize(&"a".repeat(100), MAX_NAME_LEN).chars().count(),
-            MAX_NAME_LEN
+            sanitize(&"a".repeat(100), MAX_LABEL_LEN).chars().count(),
+            MAX_LABEL_LEN
         );
     }
 
     #[test]
     fn display_name_is_sanitized_and_capped() {
-        let p = build_payload(&report(), Some("  <b>hi</b>  "), false, false);
+        let p = build_payload(&report(), Some("  <b>hi</b>  "), false);
         let name = p.display_name.unwrap();
         assert!(!name.contains('<') && !name.contains('>'));
         assert!(name.chars().count() <= MAX_LABEL_LEN);
     }
 
     #[test]
-    fn top_commands_are_capped_and_clamped() {
+    fn compression_is_clamped_into_range() {
         let mut r = report();
-        r.top_commands = (0..20).map(|i| (format!("cmd{i}"), 1, 250.0)).collect();
-        let p = build_payload(&r, None, false, false);
-        assert!(p.top_commands.len() <= MAX_TOP_COMMANDS);
-        assert!(p.top_commands.iter().all(|c| c.pct <= 100.0));
+        r.compression_rate_pct = 250.0;
+        let p = build_payload(&r, None, false);
+        assert!((0.0..=100.0).contains(&p.compression_rate_pct));
     }
 }

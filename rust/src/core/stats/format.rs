@@ -584,6 +584,20 @@ pub fn format_gain_themed_at(t: &Theme, tick: Option<u64>) -> String {
         ));
     }
 
+    // Energy footprint of the saved tokens — same methodology as the community /metrics page,
+    // so a user's local figure reconciles with the shared scoreboard. Estimate, never inflated.
+    if total_saved > 0 {
+        let accent = t.accent.fg();
+        let energy_str = crate::core::energy::format_for_tokens(total_saved);
+        let charges = match crate::core::energy::phone_charges_hint(total_saved) {
+            Some(h) => format!("  {dim}({h}){rst}"),
+            None => String::new(),
+        };
+        out.push(format!(
+            "    {dim}energy saved:{rst}  {accent}{bold}{energy_str}{rst}{charges}  {dim}· est. · community total at leanctx.com/metrics{rst}"
+        ));
+    }
+
     {
         let cfg = crate::core::config::Config::load();
         if cfg.buddy_enabled {

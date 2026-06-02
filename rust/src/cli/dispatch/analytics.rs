@@ -58,14 +58,8 @@ pub(super) fn cmd_gain(rest: &[String]) {
         return;
     }
     if rest.iter().any(|a| a == "--publish") {
-        let no_model = rest.iter().any(|a| a == "--no-model");
         let leaderboard = rest.iter().any(|a| a == "--leaderboard");
-        crate::cli::wrapped_publish::publish(
-            &period,
-            name_arg(rest).as_deref(),
-            no_model,
-            leaderboard,
-        );
+        crate::cli::wrapped_publish::publish(&period, name_arg(rest).as_deref(), leaderboard);
         return;
     }
 
@@ -157,6 +151,7 @@ pub(super) fn cmd_gain(rest: &[String]) {
             "{}",
             tools::ctx_gain::handle("wrapped", Some(&period), model.as_deref(), Some(limit))
         );
+        crate::cli::wrapped_publish::maybe_auto_publish(&period);
     } else if rest.iter().any(|a| a == "--pipeline") {
         let stats_path = dirs::home_dir()
             .unwrap_or_default()
@@ -182,6 +177,7 @@ pub(super) fn cmd_gain(rest: &[String]) {
         );
     } else {
         println!("{}", core::stats::format_gain());
+        crate::cli::wrapped_publish::maybe_auto_publish(&period);
     }
 }
 
@@ -338,11 +334,135 @@ pub(super) fn cmd_savings(rest: &[String]) {
                 }
             }
         }
+        "sign" => cmd_savings_sign(&rest[1..]),
+        "verify-batch" => cmd_savings_verify_batch(rest.get(1).map(String::as_str)),
         "summary" | "" => print!("{}", format_savings_summary()),
         _ => {
-            eprintln!("Usage: lean-ctx savings [summary|verify|export]");
+            eprintln!("Usage: lean-ctx savings [summary|verify|export|sign|verify-batch]");
             std::process::exit(1);
         }
+    }
+}
+
+/// Resolves the signing identity (same precedence as the ledger's own attribution).
+fn savings_agent_id() -> String {
+    std::env::var("LEAN_CTX_AGENT_ID")
+        .or_else(|_| std::env::var("LCTX_AGENT_ID"))
+        .unwrap_or_else(|_| "local".to_string())
+}
+
+/// `lean-ctx savings sign [--out FILE]` — builds + Ed25519-signs a portable savings batch and
+/// writes the JSON artifact (offline-verifiable with `savings verify-batch`).
+fn cmd_savings_sign(args: &[String]) {
+    use core::savings_ledger::{signed_batch, SignedSavingsBatchV1};
+
+    let out_override = args.iter().find_map(|a| {
+        a.strip_prefix("--out=")
+            .map(std::path::PathBuf::from)
+            .or_else(|| (a == "--out").then_some(std::path::PathBuf::new()))
+    });
+    // Support `--out FILE` (space-separated) too.
+    let out_override = match out_override {
+        Some(p) if p.as_os_str().is_empty() => args
+            .iter()
+            .skip_while(|a| a.as_str() != "--out")
+            .nth(1)
+            .map(std::path::PathBuf::from),
+        other => other,
+    };
+
+    let agent_id = savings_agent_id();
+    let mut batch = SignedSavingsBatchV1::build_all(&agent_id);
+    if batch.totals.total_events == 0 {
+        eprintln!("Savings ledger is empty — nothing to sign yet. It fills as lean-ctx compresses your reads.");
+        std::process::exit(1);
+    }
+    if let Err(e) = batch.sign(&agent_id) {
+        eprintln!("Signing failed: {e}");
+        std::process::exit(1);
+    }
+
+    let out = match out_override {
+        Some(p) => Ok(p),
+        None => signed_batch::default_artifact_path(),
+    };
+    let path = out.and_then(|p| signed_batch::write_artifact(&batch, &p));
+    match path {
+        Ok(p) => {
+            use core::wrapped::format_tokens;
+            let pk = batch.signer_public_key.as_deref().unwrap_or("");
+            println!("Signed savings batch written to {}", p.display());
+            println!(
+                "  Net saved:  {} tokens (~${:.2}) over {} event(s)",
+                format_tokens(batch.totals.net_saved_tokens),
+                batch.totals.saved_usd,
+                batch.totals.total_events
+            );
+            println!("  Chain head: {}", batch.last_entry_hash);
+            println!(
+                "  Chain:      {}",
+                if batch.chain_valid {
+                    "intact (SHA-256)"
+                } else {
+                    "BROKEN — run `lean-ctx savings verify`"
+                }
+            );
+            println!("  Signer key: {pk}");
+            println!(
+                "\nVerify anywhere (no ledger needed):  lean-ctx savings verify-batch {}",
+                p.display()
+            );
+        }
+        Err(e) => {
+            eprintln!("Could not write artifact: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+/// `lean-ctx savings verify-batch FILE` — verifies an exported batch's Ed25519 signature
+/// offline (integrity + origin), without needing the original ledger.
+fn cmd_savings_verify_batch(file: Option<&str>) {
+    use core::savings_ledger::signed_batch;
+
+    let Some(file) = file else {
+        eprintln!("Usage: lean-ctx savings verify-batch <file.json>");
+        std::process::exit(1);
+    };
+    let batch = match signed_batch::load_artifact(std::path::Path::new(file)) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("Cannot read artifact: {e}");
+            std::process::exit(1);
+        }
+    };
+    let res = batch.verify();
+    if res.signature_valid {
+        use core::wrapped::format_tokens;
+        println!("Signed savings batch: VALID");
+        println!(
+            "  Signed by:  {}",
+            res.signer_public_key.as_deref().unwrap_or("?")
+        );
+        println!("  Agent:      {}", batch.agent_id);
+        println!("  Created:    {}", batch.created_at);
+        println!("  lean-ctx:   {}", batch.lean_ctx_version);
+        println!(
+            "  Net saved:  {} tokens (~${:.2}) over {} event(s)",
+            format_tokens(batch.totals.net_saved_tokens),
+            batch.totals.saved_usd,
+            batch.totals.total_events
+        );
+        println!("  Chain head: {}", batch.last_entry_hash);
+        if !batch.chain_valid {
+            println!("  NOTE: the ledger chain was already broken when this batch was signed.");
+        }
+    } else {
+        println!(
+            "Signed savings batch: INVALID — {}",
+            res.error.as_deref().unwrap_or("signature check failed")
+        );
+        std::process::exit(1);
     }
 }
 
@@ -354,6 +474,12 @@ fn format_savings_summary() -> String {
             .to_string();
     }
     let v = core::savings_ledger::verify();
+    // Net saved tokens drive the energy estimate (same J/token basis as the /metrics board).
+    let energy_tokens = if s.bounce_events > 0 {
+        s.net_saved_tokens()
+    } else {
+        s.saved_tokens
+    };
     let mut out = String::new();
     out.push_str("Verified Savings Ledger (local, auditable)\n");
     out.push_str("──────────────────────────────────────────\n");
@@ -385,6 +511,13 @@ fn format_savings_summary() -> String {
             "Saved (USD):   ${:.2}  (upper bound, model input price)\n",
             s.saved_usd
         ));
+    }
+    {
+        let energy = core::energy::format_for_tokens(energy_tokens);
+        let charges = core::energy::phone_charges_hint(energy_tokens)
+            .map(|h| format!("  ({h})"))
+            .unwrap_or_default();
+        out.push_str(&format!("Energy saved:  {energy}{charges}  (est.)\n"));
     }
     if !s.tokenizers.is_empty() {
         out.push_str(&format!("Tokenizer:     {}\n", s.tokenizers.join(", ")));

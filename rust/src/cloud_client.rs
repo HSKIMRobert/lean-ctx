@@ -325,17 +325,20 @@ pub fn contribute(entries: &[serde_json::Value]) -> Result<String, String> {
         .to_string())
 }
 
-/// Result of a successful anonymous Wrapped publish (`POST /api/wrapped`).
-/// The `edit_token` is shown once and must be stored client-side to delete/claim later.
+/// Result of a successful Wrapped publish (`POST /api/wrapped`). The `edit_token` is returned
+/// (and must be stored to delete/claim later) only on a *fresh* insert; on a signed re-publish
+/// the server updates the existing card in place and omits it (the client keeps the stored one).
 #[derive(serde::Deserialize)]
 pub struct PublishedCard {
     pub id: String,
-    pub edit_token: String,
+    #[serde(default)]
+    pub edit_token: Option<String>,
     pub url: String,
 }
 
-/// Anonymously publish a whitelisted Wrapped payload. No auth; the server rate-limits per IP.
-/// Contract: `docs/contracts/wrapped-permalink-v1.md`.
+/// Publish a whitelisted Wrapped payload. Accepts either a bare payload (legacy anonymous) or a
+/// signed envelope `{payload_json, public_key, signature}` (login-less identity → server upsert).
+/// No account auth; the server rate-limits per IP. Contract: `docs/contracts/wrapped-permalink-v1.md`.
 pub fn publish_wrapped(payload: &serde_json::Value) -> Result<PublishedCard, String> {
     let url = format!("{}/api/wrapped", api_url());
 

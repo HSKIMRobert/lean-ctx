@@ -124,8 +124,9 @@ COMMANDS:
     gain --publish [--name=<n>]    Publish an opt-in permalink (leanctx.com/w/<id>)
     gain --publish --leaderboard   Also list the card on the public leaderboard (opt-in)
     gain --unpublish[=<id>]        Remove a published permalink (most recent if no id)
+    config set gain.auto_publish true  Auto-(re)publish your recap on each `gain` (opt-in, throttled, off by default)
     gain --json                    Raw JSON export of all stats
-    savings [summary|verify|export] Verified per-event savings ledger (local, auditable)
+    savings [summary|verify|export|sign|verify-batch] Verified savings ledger (local, signed)
          token-report [--json]          Token + memory report (project + session + CEP)
     pack --pr                      PR Context Pack (changed files, impact, tests, artifacts)
     index <status|build|build-full|watch>  Codebase index utilities
@@ -267,6 +268,8 @@ EXAMPLES:
     lean-ctx gain --publish        Publish an opt-in permalink and copy its URL
     lean-ctx savings               Verified per-event savings ledger (auditable)
     lean-ctx savings verify        Re-check the savings ledger SHA-256 hash chain
+    lean-ctx savings sign          Export an Ed25519-signed savings batch (ROI/audit artifact)
+    lean-ctx savings verify-batch <file>  Verify a signed batch offline (no ledger needed)
     lean-ctx sessions list         List all CCP sessions
     lean-ctx sessions show         Show latest session state
     lean-ctx discover              Find missed savings in shell history

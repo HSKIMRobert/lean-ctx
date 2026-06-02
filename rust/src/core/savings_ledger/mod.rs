@@ -5,9 +5,11 @@
 //! `docs/business/03-verified-savings-ledger.md`.
 
 pub mod event;
+pub mod signed_batch;
 pub mod store;
 
 pub use event::SavingsEvent;
+pub use signed_batch::{BatchVerifyResult, SignedSavingsBatchV1};
 pub use store::{LedgerSummary, VerifyResult};
 
 use std::sync::OnceLock;

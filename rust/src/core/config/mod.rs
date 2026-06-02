@@ -62,6 +62,8 @@ pub struct Config {
     #[serde(default)]
     pub cloud: CloudConfig,
     #[serde(default)]
+    pub gain: GainConfig,
+    #[serde(default)]
     pub autonomy: AutonomyConfig,
     #[serde(default)]
     pub providers: ProvidersConfig,
@@ -708,6 +710,41 @@ pub struct CloudConfig {
     pub last_model_pull: Option<String>,
 }
 
+/// Settings for publishing your token-savings recap (`gain --publish` / auto-publish).
+///
+/// Publishing is always opt-in: it sends a small, whitelisted *aggregate* payload (tokens
+/// saved, $ avoided, compression % — never code, paths or counts) to the cloud.
+/// `auto_publish` simply removes the need to re-run `gain --publish` by hand; it stays off
+/// until the user explicitly enables it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GainConfig {
+    /// When true, `lean-ctx gain` automatically (re)publishes the recap, throttled to
+    /// `auto_publish_interval_hours`. Off by default.
+    pub auto_publish: bool,
+    /// When auto-publishing, also opt into the public leaderboard.
+    pub leaderboard: bool,
+    /// Optional display name for the published card / leaderboard entry.
+    pub display_name: Option<String>,
+    /// Minimum hours between automatic publishes (throttle).
+    pub auto_publish_interval_hours: u64,
+    /// Runtime state — RFC3339 timestamp of the last automatic publish. Managed by the
+    /// tool, not meant to be set by hand.
+    pub last_auto_publish: Option<String>,
+}
+
+impl Default for GainConfig {
+    fn default() -> Self {
+        Self {
+            auto_publish: false,
+            leaderboard: false,
+            display_name: None,
+            auto_publish_interval_hours: 24,
+            last_auto_publish: None,
+        }
+    }
+}
+
 /// A user-defined command alias mapping for shell compression patterns.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AliasEntry {
@@ -773,6 +810,7 @@ impl Default for Config {
             slow_command_threshold_ms: 5000,
             theme: serde_defaults::default_theme(),
             cloud: CloudConfig::default(),
+            gain: GainConfig::default(),
             autonomy: AutonomyConfig::default(),
             providers: ProvidersConfig::default(),
             proxy: ProxyConfig::default(),

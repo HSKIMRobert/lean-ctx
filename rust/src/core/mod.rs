@@ -166,6 +166,7 @@ pub mod cooccurrence;
 pub mod dense_backend;
 pub mod embedding_index;
 pub mod embeddings;
+pub mod energy;
 pub mod hybrid_search;
 #[cfg(feature = "qdrant")]
 pub mod qdrant_store;

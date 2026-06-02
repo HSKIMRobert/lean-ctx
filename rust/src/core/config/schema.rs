@@ -1072,6 +1072,48 @@ impl ConfigSchema {
             },
         );
 
+        let mut gain = BTreeMap::new();
+        gain.insert(
+            "auto_publish".into(),
+            key(
+                "bool",
+                serde_json::json!(cfg.gain.auto_publish),
+                "Automatically (re)publish your Wrapped recap when you run `lean-ctx gain` (opt-in, off by default; throttled and sends only an aggregate payload)",
+            ),
+        );
+        gain.insert(
+            "leaderboard".into(),
+            key(
+                "bool",
+                serde_json::json!(cfg.gain.leaderboard),
+                "When auto-publishing, also list the card on the public opt-in leaderboard",
+            ),
+        );
+        gain.insert(
+            "display_name".into(),
+            key(
+                "string?",
+                serde_json::json!(cfg.gain.display_name),
+                "Optional display name shown on your published card / leaderboard entry",
+            ),
+        );
+        gain.insert(
+            "auto_publish_interval_hours".into(),
+            key(
+                "u64",
+                serde_json::json!(cfg.gain.auto_publish_interval_hours),
+                "Minimum hours between automatic publishes (throttle; default 24)",
+            ),
+        );
+        sections.insert(
+            "gain".into(),
+            SectionSchema {
+                description: "Token-savings recap publishing (gain --publish / auto-publish)"
+                    .into(),
+                keys: gain,
+            },
+        );
+
         let mut proxy = BTreeMap::new();
         proxy.insert(
             "anthropic_upstream".into(),

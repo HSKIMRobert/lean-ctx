@@ -367,6 +367,7 @@
     overlay_history: 'Chronological log of all manual overlay operations in this project.',
     total_tokens_saved: 'Lifetime total of tokens saved through all compression modes since installation.',
     cost_saved: 'Estimated dollar savings based on average LLM token pricing ($2.50/1M input tokens).',
+    energy_saved: 'Estimated inference energy never burned, at ~0.4 J per saved token (same basis as the community leaderboard at leanctx.com/metrics). An estimate — real figures vary by model and hardware.',
     compression_rate: 'Average compression ratio across all file reads in this session.',
     gain_score: 'Overall efficiency score combining compression rate, cache hits, and mode diversity.',
     total_calls: 'Total number of tool calls (reads, searches, commands) processed by LeanCTX.',

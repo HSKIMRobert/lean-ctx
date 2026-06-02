@@ -13,6 +13,7 @@ mod helpers;
 mod knowledge;
 mod models;
 mod oauth;
+mod site_theme;
 mod stats;
 mod wrapped;
 

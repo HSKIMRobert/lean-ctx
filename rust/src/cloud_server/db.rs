@@ -196,6 +196,14 @@ CREATE TABLE IF NOT EXISTS wrapped_cards (
 CREATE INDEX IF NOT EXISTS wrapped_cards_ip_created ON wrapped_cards (ip_hash, created_at);
 CREATE INDEX IF NOT EXISTS wrapped_cards_leaderboard ON wrapped_cards (leaderboard_opt_in, tokens_saved DESC);
 
+-- Login-less publisher identity (sha256 of the client's Ed25519 public key) + period, so a
+-- re-publish from the same machine UPSERTs its existing card instead of piling up duplicates.
+-- Partial unique index: legacy anonymous rows (publisher_id NULL) never collide.
+ALTER TABLE wrapped_cards ADD COLUMN IF NOT EXISTS publisher_id TEXT;
+ALTER TABLE wrapped_cards ADD COLUMN IF NOT EXISTS period TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS wrapped_cards_publisher_period
+  ON wrapped_cards (publisher_id, period) WHERE publisher_id IS NOT NULL;
+
 DROP TABLE IF EXISTS team_invites CASCADE;
 DROP TABLE IF EXISTS team_members CASCADE;
 DROP TABLE IF EXISTS teams CASCADE;

@@ -51,8 +51,15 @@ pub(super) struct PublishPayload {
     pub cost_avoided_usd: f64,
     pub pricing_estimated: bool,
     pub compression_rate_pct: f64,
+    // The fields below were removed from the publish whitelist (privacy minimalism): current
+    // clients no longer send them. They remain declared as optional/defaulted ONLY so that
+    // cards published by older clients still deserialize under `deny_unknown_fields`. Nothing
+    // public renders them anymore — the hosted card omits any that are zero/empty.
+    #[serde(default)]
     pub total_commands: i64,
+    #[serde(default)]
     pub sessions_count: i64,
+    #[serde(default)]
     pub files_touched: i64,
     #[serde(default)]
     pub top_commands: Vec<TopCommand>,
@@ -145,10 +152,62 @@ fn has_markup(s: &str) -> bool {
         .any(|c| c == '<' || c == '>' || (c.is_control() && c != '\t'))
 }
 
+// ─── Login-less publisher identity (signed publish, VL-3c) ────────────────────
+
+/// Length (hex chars) of the publisher id derived from the public key. 16 bytes of SHA-256 is
+/// collision-safe yet compact, and reveals nothing about the key beyond a stable pseudonym.
+const PUBLISHER_ID_HEX_LEN: usize = 32;
+
+/// Wraps the whitelisted payload with the publisher's Ed25519 public key and a signature over
+/// the exact `payload_json` bytes. The server derives a stable `publisher_id` from the key — no
+/// login, no account — and upserts the card, so re-publishing from the same machine refreshes
+/// one card instead of piling up duplicates. Old clients still POST the bare payload object.
+#[derive(Deserialize)]
+struct SignedEnvelope {
+    /// The serialized `PublishPayload`, byte-identical to what the client signed.
+    payload_json: String,
+    /// Hex-encoded Ed25519 public key (32 bytes → 64 hex chars).
+    public_key: Option<String>,
+    /// Hex-encoded Ed25519 signature over `payload_json.as_bytes()` (64 bytes → 128 hex chars).
+    signature: Option<String>,
+}
+
+/// Verifies the envelope signature against its public key and returns the parsed payload plus
+/// the derived `publisher_id`. A missing key/signature or a bad signature is rejected — there is
+/// no way to publish under another machine's identity without holding its private key.
+fn verify_signed_envelope(env: &SignedEnvelope) -> ApiResult<(PublishPayload, String)> {
+    use crate::core::agent_identity::{hex_decode, verify_signature};
+    let (Some(pk_hex), Some(sig_hex)) = (&env.public_key, &env.signature) else {
+        return Err(bad_payload());
+    };
+    let pk_bytes = hex_decode(pk_hex).map_err(|_| bad_payload())?;
+    let sig_bytes = hex_decode(sig_hex).map_err(|_| bad_payload())?;
+    if !verify_signature(&pk_bytes, env.payload_json.as_bytes(), &sig_bytes) {
+        return Err(err(StatusCode::UNAUTHORIZED, "invalid_signature"));
+    }
+    let payload: PublishPayload =
+        serde_json::from_str(&env.payload_json).map_err(|_| bad_payload())?;
+    // Stable, non-reversible pseudonym derived from the public key (its hex form). The same key
+    // always maps to the same publisher_id, which is the upsert key — no account, no login.
+    let publisher_id = sha256_hex(pk_hex)
+        .get(..PUBLISHER_ID_HEX_LEN)
+        .ok_or_else(internal_error_str)?
+        .to_string();
+    Ok((payload, publisher_id))
+}
+
+fn internal_error_str() -> (StatusCode, String) {
+    err(StatusCode::INTERNAL_SERVER_ERROR, "internal_error")
+}
+
 // ─── Handlers ─────────────────────────────────────────────────────────────────
 
-/// `POST /api/wrapped` — anonymous publish. Body parsed from raw bytes so unknown/oversized
-/// payloads return our own `invalid_payload` / `payload_too_large` instead of axum defaults.
+/// `POST /api/wrapped` — publish (or refresh) a Wrapped card. Body parsed from raw bytes so
+/// unknown/oversized payloads return our own `invalid_payload` / `payload_too_large` instead of
+/// axum defaults. Two body shapes are accepted:
+///   • a signed envelope `{payload_json, public_key, signature}` — the client proves a login-less
+///     identity and the card is UPSERTed by `(publisher_id, period)` (one stable card/URL); or
+///   • a bare payload object — legacy anonymous insert (may create duplicates) for old clients.
 pub(super) async fn publish(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -157,7 +216,19 @@ pub(super) async fn publish(
     if body.len() > MAX_BODY_BYTES {
         return Err(err(StatusCode::PAYLOAD_TOO_LARGE, "payload_too_large"));
     }
-    let payload: PublishPayload = serde_json::from_slice(&body).map_err(|_| bad_payload())?;
+
+    // Signed envelope (login-less identity → upsert) vs. legacy bare payload (anonymous insert).
+    // The signed `payload_json` is stored verbatim so the stored card stays signature-verifiable.
+    let (payload, payload_json, publisher_id) = if let Ok(env) =
+        serde_json::from_slice::<SignedEnvelope>(&body)
+    {
+        let (payload, pid) = verify_signed_envelope(&env)?;
+        (payload, env.payload_json, Some(pid))
+    } else {
+        let payload: PublishPayload = serde_json::from_slice(&body).map_err(|_| bad_payload())?;
+        let json = serde_json::to_string(&payload).map_err(internal_error)?;
+        (payload, json, None)
+    };
     payload.validate()?;
 
     let client = state.pool.get().await.map_err(internal_error)?;
@@ -181,34 +252,70 @@ pub(super) async fn publish(
     let id = generate_card_id();
     let edit_token = generate_token();
     let edit_token_hash = sha256_hex(&edit_token);
-    let payload_json = serde_json::to_string(&payload).map_err(internal_error)?;
+    let base = state.cfg.public_base_url.trim_end_matches('/');
 
-    client
-        .execute(
-            "INSERT INTO wrapped_cards \
-             (id, edit_token_hash, payload_json, ip_hash, leaderboard_opt_in, tokens_saved) \
-             VALUES ($1, $2, $3, $4, $5, $6)",
-            &[
-                &id,
-                &edit_token_hash,
-                &payload_json,
-                &ip_hash,
-                &payload.leaderboard_opt_in,
-                &payload.tokens_saved,
-            ],
-        )
-        .await
-        .map_err(internal_error)?;
-
-    let url = format!(
-        "{}/w/{}",
-        state.cfg.public_base_url.trim_end_matches('/'),
-        id
-    );
-    Ok((
-        StatusCode::CREATED,
-        Json(serde_json::json!({ "id": id, "edit_token": edit_token, "url": url })),
-    ))
+    // Signed → UPSERT by (publisher_id, period): the same machine refreshes one stable card.
+    // Legacy → plain INSERT (anonymous, may duplicate); `period` is still recorded.
+    if let Some(pid) = &publisher_id {
+        let row = client
+            .query_one(
+                "INSERT INTO wrapped_cards \
+                 (id, edit_token_hash, payload_json, ip_hash, leaderboard_opt_in, tokens_saved, publisher_id, period) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8) \
+                 ON CONFLICT (publisher_id, period) WHERE publisher_id IS NOT NULL \
+                 DO UPDATE SET payload_json = EXCLUDED.payload_json, \
+                               leaderboard_opt_in = EXCLUDED.leaderboard_opt_in, \
+                               tokens_saved = EXCLUDED.tokens_saved \
+                 RETURNING id, (xmax = 0) AS inserted",
+                &[
+                    &id,
+                    &edit_token_hash,
+                    &payload_json,
+                    &ip_hash,
+                    &payload.leaderboard_opt_in,
+                    &payload.tokens_saved,
+                    pid,
+                    &payload.period,
+                ],
+            )
+            .await
+            .map_err(internal_error)?;
+        let final_id: String = row.get(0);
+        let inserted: bool = row.get(1);
+        let url = format!("{base}/w/{final_id}");
+        let mut out = serde_json::json!({ "id": final_id, "url": url });
+        // The one-time edit_token exists only for a freshly inserted card; on an update the
+        // client keeps the token it stored on first publish.
+        if inserted {
+            out["edit_token"] = serde_json::Value::String(edit_token);
+            Ok((StatusCode::CREATED, Json(out)))
+        } else {
+            Ok((StatusCode::OK, Json(out)))
+        }
+    } else {
+        client
+            .execute(
+                "INSERT INTO wrapped_cards \
+                 (id, edit_token_hash, payload_json, ip_hash, leaderboard_opt_in, tokens_saved, period) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                &[
+                    &id,
+                    &edit_token_hash,
+                    &payload_json,
+                    &ip_hash,
+                    &payload.leaderboard_opt_in,
+                    &payload.tokens_saved,
+                    &payload.period,
+                ],
+            )
+            .await
+            .map_err(internal_error)?;
+        let url = format!("{base}/w/{id}");
+        Ok((
+            StatusCode::CREATED,
+            Json(serde_json::json!({ "id": id, "edit_token": edit_token, "url": url })),
+        ))
+    }
 }
 
 /// `GET /api/wrapped/:id` — public fetch; increments `view_count` atomically.
@@ -326,6 +433,7 @@ pub(super) struct LeaderRow {
     display_name: Option<String>,
     tokens_saved: i64,
     cost_avoided_usd: f64,
+    compression_rate_pct: f64,
     period: String,
     pricing_estimated: bool,
 }
@@ -359,10 +467,17 @@ pub(super) async fn get_leaderboard_page(
 
 async fn top_cards(state: &AppState) -> ApiResult<Vec<LeaderRow>> {
     let client = state.pool.get().await.map_err(internal_error)?;
+    // One row per publisher (their highest-saving card); legacy anonymous rows (publisher_id
+    // NULL) stay distinct via COALESCE(publisher_id, id) so they are never collapsed together.
     let rows = client
         .query(
-            "SELECT id, payload_json FROM wrapped_cards \
-             WHERE leaderboard_opt_in = TRUE \
+            "SELECT id, payload_json FROM ( \
+               SELECT DISTINCT ON (COALESCE(publisher_id, id)) \
+                      id, payload_json, tokens_saved, created_at \
+               FROM wrapped_cards \
+               WHERE leaderboard_opt_in = TRUE \
+               ORDER BY COALESCE(publisher_id, id), tokens_saved DESC, created_at DESC \
+             ) t \
              ORDER BY tokens_saved DESC, created_at DESC LIMIT $1",
             &[&LEADERBOARD_LIMIT],
         )
@@ -384,6 +499,7 @@ async fn top_cards(state: &AppState) -> ApiResult<Vec<LeaderRow>> {
                 display_name: p.display_name,
                 tokens_saved: p.tokens_saved,
                 cost_avoided_usd: p.cost_avoided_usd,
+                compression_rate_pct: p.compression_rate_pct,
                 period: p.period,
                 pricing_estimated: p.pricing_estimated,
             })
@@ -393,63 +509,76 @@ async fn top_cards(state: &AppState) -> ApiResult<Vec<LeaderRow>> {
 }
 
 fn render_leaderboard_html(rows: &[LeaderRow], public_base: &str) -> String {
+    let base = public_base.trim_end_matches('/');
     let mut items = String::new();
     for row in rows {
         let name = row
             .display_name
             .as_deref()
             .map_or_else(|| "anonymous".to_string(), html_escape);
-        let tokens =
-            crate::core::wrapped::format_tokens(u64::try_from(row.tokens_saved).unwrap_or(0));
-        let est = if row.pricing_estimated { " (est.)" } else { "" };
+        let tokens_u = u64::try_from(row.tokens_saved).unwrap_or(0);
+        let tokens = crate::core::wrapped::format_tokens(tokens_u);
+        let energy = crate::core::energy::format_for_tokens(tokens_u);
+        let comp = format!("{:.0}%", row.compression_rate_pct);
+        let est = if row.pricing_estimated { " est." } else { "" };
+        let rank_class = match row.rank {
+            1 => " lc-rank-1",
+            2 => " lc-rank-2",
+            3 => " lc-rank-3",
+            _ => "",
+        };
         items.push_str(&format!(
-            r#"<li><a href="{url}"><span class="rank">#{rank}</span><span class="name">{name}</span><span class="num">{tokens} tokens · ${cost:.0}{est}</span><span class="period">{period}</span></a></li>"#,
+            r#"<li><a class="lc-row{rank_class}" href="{url}"><span class="lc-rank">#{rank}</span><span class="lc-id"><span class="lc-name">{name}</span><span class="lc-period">{period}</span></span><span class="lc-stats"><span class="lc-num">{tokens}</span><span class="lc-meta">{comp} compressed · {energy} saved</span><span class="lc-usd">${cost:.0}{est}</span></span></a></li>"#,
             url = row.url,
             rank = row.rank,
             cost = row.cost_avoided_usd,
             period = html_escape(&row.period),
         ));
     }
-    if items.is_empty() {
-        items.push_str(r#"<li class="empty">No one has opted in yet — be the first: <code>lean-ctx gain --publish --leaderboard</code></li>"#);
-    }
+    let board = if items.is_empty() {
+        r#"<div class="lc-empty">No one has opted in yet — be the first:<br/><code>lean-ctx gain --publish --leaderboard</code></div>"#.to_string()
+    } else {
+        format!(r#"<ol class="lc-board">{items}</ol>"#)
+    };
+
+    let head = format!(
+        r#"<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>lean-ctx Leaderboard — top realized token savings</title>
+<meta name="description" content="Top token savings, opted in by lean-ctx users. Open source — your AI sees only what matters."/>
+<link rel="canonical" href="{base}/leaderboard"/>
+{fonts}
+<style>{css}</style>"#,
+        fonts = super::site_theme::FONT_LINKS,
+        css = super::site_theme::THEME_CSS,
+    );
 
     format!(
         r#"<!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>lean-ctx Leaderboard</title>
-<meta name="description" content="Top token savings, opted in by lean-ctx users."/>
-<style>
-  :root {{ color-scheme: dark; }}
-  body {{ margin:0; background:#0b1020; color:#e5e7eb;
-         font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; padding:40px 16px; }}
-  main {{ max-width:760px; margin:0 auto; }}
-  h1 {{ font-size:34px; }} h1 span {{ color:#34d399; }}
-  p.sub {{ color:#94a3b8; margin-top:-8px; }}
-  ol {{ list-style:none; padding:0; }}
-  li a {{ display:flex; gap:14px; align-items:baseline; text-decoration:none; color:inherit;
-          padding:14px 16px; border-radius:10px; background:#131a2e; margin-bottom:10px; }}
-  li a:hover {{ background:#1b2540; }}
-  .rank {{ color:#34d399; font-weight:700; width:46px; }}
-  .name {{ font-weight:700; flex:1; }}
-  .num {{ color:#22d3ee; font-variant-numeric:tabular-nums; }}
-  .period {{ color:#64748b; width:60px; text-align:right; }}
-  .empty {{ color:#94a3b8; }} code {{ color:#34d399; }}
-  a.cta {{ color:#34d399; }}
-</style>
+{head}
 </head>
 <body>
-<main>
-<h1>lean-ctx <span>Leaderboard</span></h1>
-<p class="sub">Top realized token savings — opt in with <code>--leaderboard</code>.</p>
-<ol>{items}</ol>
-<p><a class="cta" href="{public_base}">Install lean-ctx — your AI sees only what matters</a></p>
+{header}
+<main class="lc-container">
+<section class="lc-hero">
+<span class="lc-label">Verified savings</span>
+<h1>Leaderboard</h1>
+<p>The most realized token savings, opted in by lean-ctx users. Every number comes from each user's tamper-evident local ledger.</p>
+</section>
+{board}
+<section class="lc-cta-section">
+<h2>Put your savings on the board</h2>
+<p>Install lean-ctx, then publish your Wrapped recap.</p>
+<a class="lc-cta" href="{base}/docs/getting-started/">Install lean-ctx</a>
+</section>
 </main>
+{footer}
 </body>
 </html>"#,
+        header = super::site_theme::header(base),
+        footer = super::site_theme::footer(base),
     )
 }
 
@@ -542,6 +671,7 @@ fn render_permalink_html(
         id
     );
 
+    let base = public_base.trim_end_matches('/');
     format!(
         r#"<!doctype html>
 <html lang="en">
@@ -563,28 +693,28 @@ fn render_permalink_html(
 <meta name="twitter:title" content="{title}"/>
 <meta name="twitter:description" content="{description}"/>
 <meta name="twitter:image" content="{img_url}"/>
-<style>
-  :root {{ color-scheme: dark; }}
-  body {{ margin:0; background:#0b1020; color:#e5e7eb;
-         font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-         display:flex; min-height:100vh; align-items:center; justify-content:center; padding:24px; }}
-  .wrap {{ width:100%; max-width:1200px; text-align:center; }}
-  .card {{ width:100%; height:auto; border-radius:16px; box-shadow:0 20px 60px rgba(0,0,0,.45); }}
-  .cta {{ margin-top:28px; }}
-  .cta a {{ display:inline-block; background:#34d399; color:#06281d; font-weight:700;
-            text-decoration:none; padding:14px 22px; border-radius:10px; }}
-  .sub {{ margin-top:14px; color:#94a3b8; font-size:15px; }}
-  .sub a {{ color:#34d399; }}
-</style>
+{fonts}
+<style>{css}</style>
 </head>
 <body>
-<main class="wrap">
+{header}
+<main class="lc-container">
+<section class="lc-card-wrap">
 {svg}
-<div class="cta"><a href="{public_base}">Make your own — install lean-ctx</a></div>
-<p class="sub">Open source · your AI sees only what matters · <a href="{public_base}">leanctx.com</a></p>
+</section>
+<section class="lc-cta-section">
+<h2>Make your own Wrapped</h2>
+<p>Install lean-ctx — your AI sees only what matters.</p>
+<a class="lc-cta" href="{base}/docs/getting-started/">Install lean-ctx</a>
+</section>
 </main>
+{footer}
 </body>
 </html>"#,
+        fonts = super::site_theme::FONT_LINKS,
+        css = super::site_theme::THEME_CSS,
+        header = super::site_theme::header(base),
+        footer = super::site_theme::footer(base),
     )
 }
 
@@ -716,6 +846,51 @@ mod tests {
     }
 
     #[test]
+    fn signed_envelope_roundtrips_and_rejects_tampering() {
+        use crate::core::agent_identity::hex_encode;
+        use ed25519_dalek::{Signer, SigningKey};
+
+        let key = SigningKey::from_bytes(&[7u8; 32]);
+        let payload_json = serde_json::to_string(&valid()).unwrap();
+        let pubkey_hex = hex_encode(&key.verifying_key().to_bytes());
+        let sig_hex = hex_encode(&key.sign(payload_json.as_bytes()).to_bytes());
+
+        // A valid signature parses the payload and yields a stable, fixed-length publisher id.
+        let env = SignedEnvelope {
+            payload_json: payload_json.clone(),
+            public_key: Some(pubkey_hex.clone()),
+            signature: Some(sig_hex.clone()),
+        };
+        let (parsed, publisher_id) = verify_signed_envelope(&env).expect("valid signature");
+        assert_eq!(parsed.period, "week");
+        assert_eq!(publisher_id.len(), PUBLISHER_ID_HEX_LEN);
+
+        // The same key always maps to the same publisher id — this is the upsert key.
+        let again = SignedEnvelope {
+            payload_json: payload_json.clone(),
+            public_key: Some(pubkey_hex.clone()),
+            signature: Some(sig_hex.clone()),
+        };
+        assert_eq!(verify_signed_envelope(&again).unwrap().1, publisher_id);
+
+        // Tampering with the payload after signing is rejected (signature no longer matches).
+        let tampered = SignedEnvelope {
+            payload_json: payload_json.replacen("480600000", "999999999", 1),
+            public_key: Some(pubkey_hex.clone()),
+            signature: Some(sig_hex),
+        };
+        assert!(verify_signed_envelope(&tampered).is_err());
+
+        // A missing signature cannot slip through the signed path into an unauthenticated upsert.
+        let unsigned = SignedEnvelope {
+            payload_json,
+            public_key: Some(pubkey_hex),
+            signature: None,
+        };
+        assert!(verify_signed_envelope(&unsigned).is_err());
+    }
+
+    #[test]
     fn rejects_unknown_fields() {
         let json = r#"{"period":"week","tokens_saved":1,"cost_avoided_usd":0.1,
             "pricing_estimated":false,"compression_rate_pct":50,"total_commands":1,
@@ -753,7 +928,7 @@ mod tests {
         assert!(p.validate().is_err());
 
         let mut p = valid();
-        p.top_commands = (0..MAX_TOP_COMMANDS + 1)
+        p.top_commands = (0..=MAX_TOP_COMMANDS)
             .map(|_| TopCommand {
                 name: "git".into(),
                 pct: 1.0,
@@ -795,6 +970,61 @@ mod tests {
             "display_name personalizes the title"
         );
         assert!(html.contains("<svg"), "card is embedded inline");
+    }
+
+    #[test]
+    fn leaderboard_html_uses_site_theme_shell() {
+        let rows = vec![
+            LeaderRow {
+                rank: 1,
+                id: "a".into(),
+                url: "https://leanctx.com/w/a".into(),
+                display_name: Some("yvesg".into()),
+                tokens_saved: 486_000_000,
+                cost_avoided_usd: 1458.0,
+                compression_rate_pct: 67.7,
+                period: "all".into(),
+                pricing_estimated: true,
+            },
+            LeaderRow {
+                rank: 2,
+                id: "b".into(),
+                url: "https://leanctx.com/w/b".into(),
+                display_name: None,
+                tokens_saved: 12_800_000,
+                cost_avoided_usd: 32.0,
+                compression_rate_pct: 60.2,
+                period: "month".into(),
+                pricing_estimated: false,
+            },
+            LeaderRow {
+                rank: 3,
+                id: "c".into(),
+                url: "https://leanctx.com/w/c".into(),
+                display_name: Some("roland".into()),
+                tokens_saved: 4_200_000,
+                cost_avoided_usd: 11.0,
+                compression_rate_pct: 55.0,
+                period: "week".into(),
+                pricing_estimated: false,
+            },
+        ];
+        let html = render_leaderboard_html(&rows, "https://leanctx.com");
+        // Brand shell + design tokens mirrored from the marketing site.
+        assert!(
+            html.contains("--accent:#34d399"),
+            "carries the site accent token"
+        );
+        assert!(html.contains("Space Grotesk"), "loads the display font");
+        assert!(html.contains("lc-logo-ctx"), "renders the LeanCTX wordmark");
+        assert!(
+            html.contains(r#"class="lc-row lc-rank-1""#),
+            "top row is highlighted"
+        );
+        assert!(html.contains("lc-footer"), "carries the branded footer");
+        assert!(html.contains("yvesg"), "shows opted-in display names");
+        // Written for manual/visual comparison with leanctx.com during development.
+        let _ = std::fs::write("/tmp/lc_leaderboard.html", &html);
     }
 
     #[test]

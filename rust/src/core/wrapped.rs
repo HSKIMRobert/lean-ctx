@@ -213,7 +213,8 @@ impl WrappedReport {
         out.push(box_line(&format!("   {l1}{l2}{l3}")));
         out.push(box_line(""));
 
-        // Secondary metric row: sessions + compression rate.
+        // Secondary metric row: sessions + compression + energy saved (estimate, same
+        // methodology as the community /metrics page so local & shared figures reconcile).
         let v4 = theme::pad_right(&format!("{c2}{bold}{}{rst}", self.sessions_count), kw);
         let v5 = theme::pad_right(
             &format!(
@@ -223,10 +224,13 @@ impl WrappedReport {
             ),
             kw,
         );
-        out.push(box_line(&format!("   {v4}{v5}")));
+        let energy = crate::core::energy::format_for_tokens(self.tokens_saved);
+        let v6 = theme::pad_right(&format!("{c4}{bold}{energy}{rst}"), kw);
+        out.push(box_line(&format!("   {v4}{v5}{v6}")));
         let l4 = theme::pad_right(&format!("{dim}sessions{rst}"), kw);
         let l5 = theme::pad_right(&format!("{dim}compression{rst}"), kw);
-        out.push(box_line(&format!("   {l4}{l5}")));
+        let l6 = theme::pad_right(&format!("{dim}energy saved{rst}"), kw);
+        out.push(box_line(&format!("   {l4}{l5}{l6}")));
         out.push(box_line(""));
 
         // Trend sparkline (only when there is at least a little history).
@@ -294,9 +298,10 @@ impl WrappedReport {
             ""
         };
         format!(
-            "WRAPPED [{}]: {} tok saved, {} avoided{}, {} sessions, {} cmds | Top: {} | Compression: {:.1}% | model={}",
+            "WRAPPED [{}]: {} tok saved, {} avoided{}, {} sessions, {} cmds | Top: {} | Compression: {:.1}% | Energy: {} | model={}",
             self.period, saved_str, cost_str, est_marker, self.sessions_count,
-            self.total_commands, top_str, self.compression_rate_pct, self.model_key,
+            self.total_commands, top_str, self.compression_rate_pct,
+            crate::core::energy::format_for_tokens(self.tokens_saved), self.model_key,
         )
     }
 }

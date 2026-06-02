@@ -27,7 +27,17 @@ impl WrappedReport {
         } else {
             ""
         };
-        let compression = format!("{:.1}%", self.compression_rate_pct);
+        let secondary = self.svg_secondary_metrics();
+        // Model line is only meaningful when a model was shared (older cards). Minimal cards omit it.
+        let model_line = if self.model_key.is_empty() {
+            String::new()
+        } else {
+            format!(
+                r##"  <text x="70" y="606" fill="#475569" font-size="17">priced at {}{}</text>"##,
+                escape(&self.model_key),
+                est
+            )
+        };
 
         let spark = self.svg_sparkline();
         let top = self.svg_top_commands();
@@ -64,23 +74,49 @@ impl WrappedReport {
   <text x="730" y="252" fill="#22d3ee" font-size="84" font-weight="800" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">{cost}</text>
   <text x="734" y="292" fill="#94a3b8" font-size="24">cost avoided{est}</text>
 
-  <text x="70" y="412" fill="#e5e7eb" font-size="44" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">{commands}</text>
-  <text x="72" y="442" fill="#94a3b8" font-size="22">commands</text>
-  <text x="430" y="412" fill="#e5e7eb" font-size="44" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">{sessions}</text>
-  <text x="432" y="442" fill="#94a3b8" font-size="22">sessions</text>
-  <text x="800" y="412" fill="#e5e7eb" font-size="44" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">{compression}</text>
-  <text x="802" y="442" fill="#94a3b8" font-size="22">compression</text>
+{secondary}
 {spark}
 {top}
   <text x="70" y="582" fill="#64748b" font-size="19">Savings = measured original - compressed{bounce_note} tokens · USD = upper bound</text>
-  <text x="70" y="606" fill="#475569" font-size="17">priced at {model}{est}</text>
+{model_line}
   <text x="1130" y="592" text-anchor="end" fill="#34d399" font-size="26" font-weight="700">leanctx.com</text>
 </svg>"##,
             period = escape(&period_label),
-            commands = self.total_commands,
-            sessions = self.sessions_count,
-            model = escape(&self.model_key),
         )
+    }
+
+    /// The secondary metric row: compression + energy always; commands/sessions only when present
+    /// (older or local cards). Energy is derived from tokens — the same J/token basis as the
+    /// community metrics page — so showing it shares no extra data. Laid out left-to-right so a
+    /// minimal card (just compression + energy) looks balanced and a rich one fills the row.
+    fn svg_secondary_metrics(&self) -> String {
+        let mut items: Vec<(String, &str)> = vec![
+            (format!("{:.1}%", self.compression_rate_pct), "compression"),
+            (
+                crate::core::energy::format_for_tokens(self.tokens_saved),
+                "energy saved",
+            ),
+        ];
+        if self.total_commands > 0 {
+            items.push((self.total_commands.to_string(), "commands"));
+        }
+        if self.sessions_count > 0 {
+            items.push((self.sessions_count.to_string(), "sessions"));
+        }
+        let xs = [70, 360, 650, 940];
+        let mut out = String::new();
+        for (i, (val, label)) in items.iter().take(xs.len()).enumerate() {
+            let x = xs[i];
+            out.push_str(&format!(
+                "  <text x=\"{x}\" y=\"412\" fill=\"#e5e7eb\" font-size=\"44\" font-weight=\"700\" font-family=\"ui-monospace, SFMono-Regular, Menlo, monospace\">{val}</text>\n  <text x=\"{lx}\" y=\"442\" fill=\"#94a3b8\" font-size=\"22\">{label}</text>",
+                lx = x + 2,
+                val = escape(val),
+            ));
+            if i + 1 < items.len() {
+                out.push('\n');
+            }
+        }
+        out
     }
 
     /// A subtle accent-gradient sparkline of daily savings. Empty when there is not
@@ -195,6 +231,26 @@ mod tests {
             svg.contains("cli_grep &lt;x&gt;"),
             "command names must be escaped"
         );
+    }
+
+    #[test]
+    fn svg_minimal_card_shows_energy_and_omits_empty_fields() {
+        // A card published by a current (minimal) client carries no command/session counts or
+        // model — the card must still render cleanly: energy + compression, nothing zeroed.
+        let mut r = sample();
+        r.total_commands = 0;
+        r.sessions_count = 0;
+        r.model_key = String::new();
+        r.top_commands = vec![];
+        let svg = r.to_svg();
+        assert!(
+            svg.contains(">energy saved<"),
+            "energy is always shown:\n{svg}"
+        );
+        assert!(svg.contains(">compression<"), "compression is always shown");
+        assert!(!svg.contains(">commands<"), "no commands label when zero");
+        assert!(!svg.contains(">sessions<"), "no sessions label when zero");
+        assert!(!svg.contains("priced at"), "no model line when model empty");
     }
 
     #[test]

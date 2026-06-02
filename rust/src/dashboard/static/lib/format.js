@@ -28,6 +28,19 @@
     if (typeof a !== 'number' || !Number.isFinite(a)) return '$0.00';
     return '$' + a.toFixed(2);
   };
+  // Energy estimate: same 0.4 J/token basis as the website /metrics page, so the user's
+  // local "energy saved" reconciles with the community scoreboard. Wh = tokens · J / 3600.
+  const J_PER_TOKEN = 0.4;
+  const ewh = function (tokens) {
+    var t = Number(tokens);
+    return Number.isFinite(t) && t > 0 ? (t * J_PER_TOKEN) / 3600 : 0;
+  };
+  const fe = function (wh) {
+    if (typeof wh !== 'number' || !Number.isFinite(wh) || wh <= 0) return '0 Wh';
+    if (wh >= 1e6) return (wh / 1e6).toFixed(1) + ' MWh';
+    if (wh >= 1e3) return (wh / 1e3).toFixed(1) + ' kWh';
+    return Math.round(wh) + ' Wh';
+  };
   const esc = function (s) {
     const d = document.createElement('div');
     d.textContent = s;
@@ -84,6 +97,8 @@
     ff,
     pc,
     fu,
+    fe,
+    ewh,
     esc,
     gc,
     ss,
@@ -92,5 +107,6 @@
     isM,
     sb,
     CM,
+    J_PER_TOKEN,
   };
 })();

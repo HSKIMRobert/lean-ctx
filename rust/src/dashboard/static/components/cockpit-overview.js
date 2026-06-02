@@ -237,11 +237,16 @@ class CockpitOverview extends HTMLElement {
     var stats = this._data.stats;
     var gain = this._data.gain;
 
+    var F = fmtLib();
+    var fe = F.fe || function () { return '0 Wh'; };
+    var ewh = F.ewh || function () { return 0; };
+
     var totalIn = stats ? stats.total_input_tokens || 0 : 0;
     var totalOut = stats ? stats.total_output_tokens || 0 : 0;
     var saved = totalIn - totalOut;
     var compRate = totalIn > 0 ? pc(saved, totalIn) : 0;
     var calls = stats ? stats.total_commands || 0 : 0;
+    var energyWh = ewh(saved);
     var avoidedUsd = gain && gain.summary ? gain.summary.avoided_usd || 0 : 0;
     var scoreTotal = gain && gain.summary && gain.summary.score
       ? gain.summary.score.total || 0 : 0;
@@ -268,6 +273,12 @@ class CockpitOverview extends HTMLElement {
       '<span class="hl">Cost saved' + tip('cost_saved') + '</span>' +
       '<div class="hv" style="color:var(--yellow)">' + esc(fu(avoidedUsd)) + '</div>' +
       '<p class="hs">estimated API cost avoided</p>' +
+      '</div>' +
+
+      '<div class="hc">' +
+      '<span class="hl">Energy saved' + tip('energy_saved') + '</span>' +
+      '<div class="hv" style="color:var(--green)">' + esc(fe(energyWh)) + '</div>' +
+      '<p class="hs">est. inference energy not burned</p>' +
       '</div>' +
 
       '<div class="hc">' +
