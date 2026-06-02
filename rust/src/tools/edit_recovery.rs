@@ -41,12 +41,23 @@ pub(crate) fn moved_or_deleted_hint(target: &Path) -> String {
     let Some(name) = target.file_name().and_then(|n| n.to_str()) else {
         return String::new();
     };
-    let root = search_root(target);
+    let Some(root) = search_root(target) else {
+        // Outside any git repo: report the path as missing without scanning a
+        // foreign tree (system temp, `$HOME`, `/`) we have no business walking.
+        return format!(
+            "\nNo file at `{}` — it may have been deleted, or the path/name is wrong \
+             (use create=true to create it).",
+            target.display()
+        );
+    };
 
     let mut hits: Vec<PathBuf> = Vec::new();
     let mut scanned = 0usize;
     for entry in walk(&root) {
-        if entry.file_type().is_none_or(|ft| ft.is_dir()) {
+        // Only ever consider regular files — never a dir, symlink, FIFO, socket
+        // or device. Suggesting a special file is wrong, and scanning one risks
+        // a blocking open (see `cross_file_hint`).
+        if entry.file_type().is_none_or(|ft| !ft.is_file()) {
             continue;
         }
         scanned += 1;
@@ -86,13 +97,18 @@ pub(crate) fn cross_file_hint(target: &Path, old_str: &str) -> String {
     let Some(needle) = distinctive_line(old_str) else {
         return String::new();
     };
-    let root = search_root(target);
+    let Some(root) = search_root(target) else {
+        return String::new();
+    };
     let target_canon = std::fs::canonicalize(target).ok();
 
     let mut hits: Vec<PathBuf> = Vec::new();
     let mut scanned = 0usize;
     for entry in walk(&root) {
-        if entry.file_type().is_none_or(|ft| ft.is_dir()) {
+        // Only ever read regular files. A FIFO/socket/device would make the
+        // `read_to_string` below block forever (the #331 CI hang); a symlink
+        // could redirect the read outside the repo. Skip anything non-regular.
+        if entry.file_type().is_none_or(|ft| !ft.is_file()) {
             continue;
         }
         let path = entry.path();
@@ -145,11 +161,14 @@ fn walk(root: &Path) -> impl Iterator<Item = ignore::DirEntry> {
         .filter_map(Result::ok)
 }
 
-/// Resolves the directory to search from: the enclosing git repository root
-/// when one exists, otherwise the nearest existing ancestor of `target`
-/// (which itself may not exist). Never climbs above the repo root, so a
-/// non-git directory stays scoped to itself rather than the whole filesystem.
-fn search_root(target: &Path) -> PathBuf {
+/// Resolves the enclosing git repository root that scopes the recovery search.
+///
+/// Returns `None` when `target` is not inside a git repo. Outside a repo a
+/// "where did it move?" walk is meaningless and would scan an unrelated tree
+/// (the system temp dir, `$HOME`, or `/`) — potentially reading foreign or
+/// blocking special files — so callers skip the hint entirely instead. This
+/// also keeps the scan bounded to the project the agent is actually editing.
+fn search_root(target: &Path) -> Option<PathBuf> {
     let abs = if target.is_absolute() {
         target.to_path_buf()
     } else {
@@ -161,29 +180,21 @@ fn search_root(target: &Path) -> PathBuf {
     // The target may not exist; climb to the nearest existing ancestor.
     let mut base = abs;
     while !base.exists() {
-        match base.parent() {
-            Some(parent) => base = parent.to_path_buf(),
-            None => break,
-        }
+        base = base.parent()?.to_path_buf();
     }
     if base.is_file() {
-        if let Some(parent) = base.parent() {
-            base = parent.to_path_buf();
-        }
+        base = base.parent()?.to_path_buf();
     }
 
-    // Prefer the enclosing git repo root (bounded climb).
+    // Only ever search inside an enclosing git repo (bounded climb).
     let mut probe: &Path = base.as_path();
     for _ in 0..40 {
         if probe.join(".git").exists() {
-            return probe.to_path_buf();
+            return Some(probe.to_path_buf());
         }
-        match probe.parent() {
-            Some(parent) => probe = parent,
-            None => break,
-        }
+        probe = probe.parent()?;
     }
-    base
+    None
 }
 
 /// Returns the longest trimmed line in `s` that is distinctive enough
@@ -268,6 +279,67 @@ mod tests {
         assert_eq!(
             distinctive_line("}\nfn meaningful_name() {\n}"),
             Some("fn meaningful_name() {")
+        );
+    }
+
+    /// A bare tempfile lives in the shared system temp dir with no enclosing
+    /// `.git`. Recovery must NOT walk that foreign tree (it can hold unrelated
+    /// or blocking files): the cross-file hint is empty and the moved hint
+    /// stays generic without scanning.
+    #[test]
+    fn outside_a_repo_does_not_scan() {
+        let f = tempfile::NamedTempFile::new().unwrap();
+        assert!(
+            cross_file_hint(f.path(), "fn a_distinctive_needle_line() {}").is_empty(),
+            "no repo => no cross-file scan"
+        );
+
+        let missing = f.path().with_file_name("definitely_missing_zzz_q9.rs");
+        let hint = moved_or_deleted_hint(&missing);
+        assert!(hint.contains("No file at"), "got: {hint}");
+    }
+
+    /// Regression for the #331 CI hang: a FIFO (or any non-regular file) in the
+    /// repo must be skipped, never `read_to_string`-d, or the walk blocks
+    /// forever. Runs the search on a worker thread with a hard timeout so a
+    /// regression fails fast instead of re-introducing a 90-minute hang.
+    #[cfg(unix)]
+    #[test]
+    fn cross_file_hint_skips_blocking_fifo() {
+        use std::ffi::CString;
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().to_path_buf();
+        repo(&root);
+        let target = root.join("a.rs");
+        fs::write(&target, "fn unrelated_a() {}\n").unwrap();
+        fs::write(root.join("b.rs"), "pub fn the_real_target_symbol() {}\n").unwrap();
+        // A FIFO with no writer: `read_to_string` on it blocks until a writer
+        // appears — which never happens — unless the walker skips it.
+        let fifo = root.join("blocking.pipe");
+        let c = CString::new(fifo.to_str().unwrap()).unwrap();
+        assert_eq!(
+            unsafe { libc::mkfifo(c.as_ptr(), 0o644) },
+            0,
+            "mkfifo failed"
+        );
+
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(cross_file_hint(
+                &target,
+                "pub fn the_real_target_symbol() {}",
+            ));
+        });
+        let hint = rx.recv_timeout(Duration::from_secs(10)).expect(
+            "cross_file_hint hung on a FIFO — non-regular files must be skipped (#331 regression)",
+        );
+        assert!(hint.contains("b.rs"), "got: {hint}");
+        assert!(
+            !hint.contains("blocking.pipe"),
+            "must skip the FIFO: {hint}"
         );
     }
 }
