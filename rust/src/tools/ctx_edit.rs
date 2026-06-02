@@ -401,6 +401,13 @@ pub fn run_io(params: &EditParams, last_mode: &str) -> (String, CacheEffect) {
         );
     }
 
+    if params.old_string == params.new_string {
+        return (
+            "ERROR: old_string and new_string are identical — nothing to change.".into(),
+            CacheEffect::None,
+        );
+    }
+
     let uses_crlf = pre.uses_crlf;
     let old_str = &params.old_string;
     let new_str = &params.new_string;
@@ -477,6 +484,17 @@ pub fn run_io(params: &EditParams, last_mode: &str) -> (String, CacheEffect) {
         }
     }
 
+    // Check if edit was already applied (new_string exists but old_string doesn't)
+    if content.contains(new_str) {
+        return (
+            format!(
+                "ERROR: old_string not found in {file_path}, but new_string already exists in the file. \
+                 The edit was likely already applied (by a previous tool call or another agent)."
+            ),
+            CacheEffect::None,
+        );
+    }
+
     let preview = if old_str.len() > 80 {
         format!("{}...", &old_str[..old_str.floor_char_boundary(77)])
     } else {
@@ -488,16 +506,71 @@ pub fn run_io(params: &EditParams, last_mode: &str) -> (String, CacheEffect) {
         ""
     };
 
+    // Find closest matching line to help agent identify the mismatch
+    let closest_hint = find_closest_line_hint(content, old_str);
+
     let (escalation, effect) = auto_escalate_reread(last_mode, file_path);
 
     (
         format!(
             "ERROR: old_string not found in {file_path}{hint}. \
              Make sure it matches exactly (including whitespace/indentation).\n\
-             Searched for: {preview}{escalation}"
+             Searched for: {preview}{closest_hint}{escalation}"
         ),
         effect,
     )
+}
+
+/// Finds the closest matching line in the file content to help the agent
+/// understand what went wrong. Returns a hint string or empty if no useful match.
+fn find_closest_line_hint(content: &str, old_str: &str) -> String {
+    let first_line = old_str.lines().next().unwrap_or("").trim();
+    if first_line.len() < 4 {
+        return String::new();
+    }
+
+    let mut best_line: Option<(usize, &str)> = None;
+
+    // Try exact substring match first
+    for (i, line) in content.lines().enumerate() {
+        if line.contains(first_line) {
+            best_line = Some((i + 1, line));
+            break;
+        }
+    }
+
+    // Try matching with significant identifiers from old_string's first line
+    if best_line.is_none() {
+        let keywords: Vec<&str> = first_line
+            .split(|c: char| !c.is_alphanumeric() && c != '_')
+            .filter(|w| w.len() >= 4)
+            .collect();
+
+        if let Some(keyword) = keywords.first() {
+            for (i, line) in content.lines().enumerate() {
+                if line.contains(keyword) {
+                    best_line = Some((i + 1, line));
+                    break;
+                }
+            }
+        }
+    }
+
+    match best_line {
+        Some((line_num, line_content)) => {
+            let trimmed = line_content.trim();
+            let preview = if trimmed.len() > 100 {
+                format!("{}...", &trimmed[..trimmed.floor_char_boundary(97)])
+            } else {
+                trimmed.to_string()
+            };
+            format!(
+                "\nClosest match at line {line_num}: `{preview}`\n\
+                 Hint: check indentation/whitespace differences."
+            )
+        }
+        None => String::new(),
+    }
 }
 
 /// Auto-escalation: when old_string is not found and the file was previously read
@@ -1151,5 +1224,44 @@ mod tests {
             cache.get(&f.path().to_string_lossy()).is_some(),
             "StoreFull must re-populate the entry"
         );
+    }
+
+    #[test]
+    fn identical_old_new_rejected() {
+        let f = make_temp("fn main() {}\n");
+        let mut cache = SessionCache::new();
+        let result = handle(
+            &mut cache,
+            &mk_params(f.path(), "fn main() {}", "fn main() {}", false, false),
+        );
+        assert!(result.contains("identical"));
+    }
+
+    #[test]
+    fn edit_already_applied_detected() {
+        let f = make_temp("fn updated() {}\n");
+        let (text, effect) = run_io(
+            &mk_params(
+                f.path(),
+                "fn original() {}",
+                "fn updated() {}",
+                false,
+                false,
+            ),
+            "",
+        );
+        assert!(text.contains("already exists"));
+        assert!(text.contains("already applied"));
+        assert!(matches!(effect, CacheEffect::None));
+    }
+
+    #[test]
+    fn closest_line_hint_shown() {
+        let f = make_temp("  fn hello() {\n    println!(\"hi\");\n  }\n");
+        let (text, _) = run_io(
+            &mk_params(f.path(), "fn hello(){", "fn hello_world(){", false, false),
+            "",
+        );
+        assert!(text.contains("Closest match at line"));
     }
 }
