@@ -109,17 +109,22 @@ pub fn record(command: &str, input_tokens: usize, output_tokens: usize) {
     entry.input_tokens = entry.input_tokens.saturating_add(input_tokens as u64);
     entry.output_tokens = entry.output_tokens.saturating_add(output_tokens as u64);
 
+    let current_version = env!("CARGO_PKG_VERSION").to_string();
     if let Some(day) = store.daily.last_mut() {
         if day.date == today {
             day.commands = day.commands.saturating_add(1);
             day.input_tokens = day.input_tokens.saturating_add(input_tokens as u64);
             day.output_tokens = day.output_tokens.saturating_add(output_tokens as u64);
+            // Stamp the running version so a mid-day update attributes the day
+            // to the release in use for its latest activity (#307).
+            day.version = current_version;
         } else {
             store.daily.push(DayStats {
                 date: today,
                 commands: 1,
                 input_tokens: input_tokens as u64,
                 output_tokens: output_tokens as u64,
+                version: current_version,
             });
         }
     } else {
@@ -128,6 +133,7 @@ pub fn record(command: &str, input_tokens: usize, output_tokens: usize) {
             commands: 1,
             input_tokens: input_tokens as u64,
             output_tokens: output_tokens as u64,
+            version: current_version,
         });
     }
 
@@ -371,12 +377,14 @@ mod tests {
             commands: 5,
             input_tokens: 1000,
             output_tokens: 200,
+            version: "3.7.0".to_string(),
         }];
         let mut merged_daily = vec![DayStats {
             date: "2026-04-18".to_string(),
             commands: 20,
             input_tokens: 500,
             output_tokens: 490,
+            version: String::new(),
         }];
 
         io::merge_daily(&mut merged_daily, &current_daily, &baseline_daily);
@@ -384,6 +392,8 @@ mod tests {
         assert_eq!(merged_daily.len(), 1);
         assert_eq!(merged_daily[0].commands, 25);
         assert_eq!(merged_daily[0].input_tokens, 1500);
+        // #307: the most recent known version is carried into the merge.
+        assert_eq!(merged_daily[0].version, "3.7.0");
     }
 
     #[test]

@@ -55,12 +55,17 @@ pub struct CommandStats {
 }
 
 /// Daily aggregate: command count and token totals for one calendar day.
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Default)]
 pub struct DayStats {
     pub date: String,
     pub commands: u64,
     pub input_tokens: u64,
     pub output_tokens: u64,
+    /// lean-ctx version active when this day's stats were last recorded.
+    /// Lets `lean-ctx gain` attribute per-day compression changes to a release
+    /// (#307). Empty for days recorded before this field existed.
+    #[serde(default)]
+    pub version: String,
 }
 
 /// High-level token savings summary for display.

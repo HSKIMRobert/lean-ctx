@@ -780,8 +780,14 @@ pub fn format_gain_themed_at(t: &Theme, tick: Option<u64>) -> String {
             let date_col = theme::pad_right(&format!("{m}{date_short}{rst}", m = t.muted.fg()), 7);
             let saved_col =
                 theme::pad_right(&format!("{pc}{bold}{}{rst}", format_big(day_saved)), 9);
+            // Per-day version attributes a compression change to a release (#307).
+            let ver_col = if day.version.is_empty() {
+                String::new()
+            } else {
+                format!("   {dim}v{}{rst}", day.version)
+            };
             out.push(format!(
-                "    {date_col}  {:>5} cmds   {saved_col} saved   {pc}{day_pct:>5.1}%{rst}",
+                "    {date_col}  {:>5} cmds   {saved_col} saved   {pc}{day_pct:>5.1}%{rst}{ver_col}",
                 day.commands,
             ));
         }
@@ -1114,7 +1120,7 @@ pub fn format_gain_daily() -> String {
     }
 
     let mut out = Vec::new();
-    let w = 64;
+    let w = 76;
 
     let side = theme.box_side();
     let daily_box = |content: &str| -> String {
@@ -1130,13 +1136,14 @@ pub fn format_gain_daily() -> String {
     ));
     out.push(format!("  {}", theme.box_top(w)));
     let hdr = format!(
-        " {bold}{txt}{:<12} {:>6}  {:>10}  {:>10}  {:>7}  {:>6}{rst}",
+        " {bold}{txt}{:<12} {:>6}  {:>10}  {:>10}  {:>7}  {:>8}  {:>8}{rst}",
         "Date",
         "Cmds",
         "Input",
         "Saved",
         "Rate",
         "USD",
+        "Ver",
         txt = theme.text.fg(),
     );
     out.push(daily_box(&hdr));
@@ -1164,14 +1171,20 @@ pub fn format_gain_daily() -> String {
         };
         let pc = theme.pct_color(pct);
         let usd = usd_estimate(saved);
+        let ver = if day.version.is_empty() {
+            "—".to_string()
+        } else {
+            format!("v{}", day.version)
+        };
         let row = format!(
-            " {m}{:<12}{rst} {:>6}  {:>10}  {pc}{bold}{:>10}{rst}  {pc}{:>6.1}%{rst}  {dim}{:>6}{rst}",
+            " {m}{:<12}{rst} {:>6}  {:>10}  {pc}{bold}{:>10}{rst}  {pc}{:>6.1}%{rst}  {dim}{:>8}{rst}  {dim}{:>8}{rst}",
             &day.date,
             day.commands,
             format_big(day.input_tokens),
             format_big(saved),
             pct,
             usd,
+            ver,
             m = theme.muted.fg(),
         );
         out.push(daily_box(&row));
@@ -1198,13 +1211,14 @@ pub fn format_gain_daily() -> String {
 
     out.push(format!("  {}", theme.box_mid(w)));
     let total_row = format!(
-        " {bold}{txt}{:<12}{rst} {:>6}  {:>10}  {sc}{bold}{:>10}{rst}  {sc}{bold}{:>6.1}%{rst}  {bold}{:>6}{rst}",
+        " {bold}{txt}{:<12}{rst} {:>6}  {:>10}  {sc}{bold}{:>10}{rst}  {sc}{bold}{:>6.1}%{rst}  {bold}{:>8}{rst}  {bold}{:>8}{rst}",
         "TOTAL",
         format_num(store.total_commands),
         format_big(total_input),
         format_big(total_saved),
         total_pct,
         total_usd,
+        "",
         txt = theme.text.fg(),
     );
     out.push(daily_box(&total_row));

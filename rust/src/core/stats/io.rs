@@ -179,12 +179,17 @@ pub(super) fn merge_daily(merged: &mut Vec<DayStats>, current: &[DayStats], base
             existing.commands += dc;
             existing.input_tokens += di;
             existing.output_tokens += do_;
+            // Prefer the most recent known version for the day (#307).
+            if !day.version.is_empty() {
+                existing.version.clone_from(&day.version);
+            }
         } else {
             merged.push(DayStats {
                 date: day.date.clone(),
                 commands: dc,
                 input_tokens: di,
                 output_tokens: do_,
+                version: day.version.clone(),
             });
         }
     }
