@@ -601,16 +601,28 @@ async fn team_auth_middleware(
     }
 
     let Some(h) = req.headers().get(header::AUTHORIZATION) else {
-        return StatusCode::UNAUTHORIZED.into_response();
+        return super::json_error(
+            StatusCode::UNAUTHORIZED,
+            "unauthorized",
+            "missing Authorization header",
+        );
     };
     let Ok(s) = h.to_str() else {
-        return StatusCode::UNAUTHORIZED.into_response();
+        return super::json_error(
+            StatusCode::UNAUTHORIZED,
+            "unauthorized",
+            "malformed Authorization header",
+        );
     };
     let Some(token) = s
         .strip_prefix("Bearer ")
         .or_else(|| s.strip_prefix("bearer "))
     else {
-        return StatusCode::UNAUTHORIZED.into_response();
+        return super::json_error(
+            StatusCode::UNAUTHORIZED,
+            "unauthorized",
+            "Authorization must use the Bearer scheme",
+        );
     };
 
     let token_hash = sha256_hex(token.as_bytes());
@@ -622,7 +634,11 @@ async fn team_auth_middleware(
         }
     }
     let Some(tok) = matched else {
-        return StatusCode::UNAUTHORIZED.into_response();
+        return super::json_error(
+            StatusCode::UNAUTHORIZED,
+            "unauthorized",
+            "invalid bearer token",
+        );
     };
     let tok_scopes: BTreeSet<TeamScope> = tok.scopes.iter().copied().collect();
 
@@ -634,7 +650,11 @@ async fn team_auth_middleware(
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| state.team.engine.server.default_workspace_id.clone());
     if !state.team.engine.server.roots.contains_key(&workspace_id) {
-        return StatusCode::BAD_REQUEST.into_response();
+        return super::json_error(
+            StatusCode::BAD_REQUEST,
+            "unknown_workspace",
+            "unknown workspace",
+        );
     }
     let workspace_id_for_audit = workspace_id.clone();
 
@@ -661,7 +681,11 @@ async fn team_auth_middleware(
         )
         .await;
         if !allow {
-            return StatusCode::FORBIDDEN.into_response();
+            return super::json_error(
+                StatusCode::FORBIDDEN,
+                "scope_denied",
+                "token lacks required scope: events",
+            );
         }
     }
 
@@ -679,7 +703,11 @@ async fn team_auth_middleware(
         )
         .await;
         if !allow {
-            return StatusCode::FORBIDDEN.into_response();
+            return super::json_error(
+                StatusCode::FORBIDDEN,
+                "scope_denied",
+                "token lacks required scope: audit",
+            );
         }
     }
 
@@ -696,7 +724,11 @@ async fn team_auth_middleware(
 
         let (parts, body0) = req.into_parts();
         let Ok(bytes) = body::to_bytes(body0, state.max_body_bytes).await else {
-            return StatusCode::BAD_REQUEST.into_response();
+            return super::json_error(
+                StatusCode::BAD_REQUEST,
+                "invalid_request",
+                "could not read request body",
+            );
         };
 
         let mut allow = false;
@@ -749,7 +781,11 @@ async fn team_auth_middleware(
         }
 
         if !allow {
-            return StatusCode::FORBIDDEN.into_response();
+            return super::json_error(
+                StatusCode::FORBIDDEN,
+                "scope_denied",
+                "token lacks required scope for this tool",
+            );
         }
 
         req = Request::from_parts(parts, Body::from(bytes));
@@ -880,11 +916,11 @@ async fn v1_tool_call(
             body.arguments.as_ref(),
         )
         .await;
-        return (
+        return super::json_error(
             StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "unknown_workspace" })),
-        )
-            .into_response();
+            "unknown_workspace",
+            "unknown workspace",
+        );
     }
 
     let mut args = match body.arguments {
@@ -902,11 +938,11 @@ async fn v1_tool_call(
                 Some(&other),
             )
             .await;
-            return (
+            return super::json_error(
                 StatusCode::BAD_REQUEST,
-                Json(json!({ "error": format!("tool arguments must be a JSON object (got {other})") })),
-            )
-                .into_response();
+                "invalid_arguments",
+                &format!("tool arguments must be a JSON object (got {other})"),
+            );
         }
     };
 
@@ -942,11 +978,11 @@ async fn v1_tool_call(
             Some(&args),
         )
         .await;
-        return (
+        return super::json_error(
             StatusCode::FORBIDDEN,
-            Json(json!({ "error": "scope_denied" })),
-        )
-            .into_response();
+            "scope_denied",
+            "token lacks required scope for this tool",
+        );
     }
 
     let tool_name = body.name.clone();
@@ -988,11 +1024,11 @@ async fn v1_tool_call(
             .await;
             {
                 tracing::warn!("team tool call error: {e}");
-                (
+                super::json_error(
                     StatusCode::BAD_REQUEST,
-                    Json(json!({ "error": "tool_error", "code": "TOOL_ERROR" })),
+                    "tool_error",
+                    "tool execution failed",
                 )
-                    .into_response()
             }
         }
         Err(_) => {
@@ -1007,11 +1043,11 @@ async fn v1_tool_call(
                 Some(&args),
             )
             .await;
-            (
+            super::json_error(
                 StatusCode::GATEWAY_TIMEOUT,
-                Json(json!({ "error": "request_timeout" })),
+                "request_timeout",
+                "tool call timed out",
             )
-                .into_response()
         }
     }
 }

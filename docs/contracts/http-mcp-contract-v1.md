@@ -38,6 +38,36 @@ served by the same `axum` server that handles MCP protocol messages via fallback
 
 ---
 
+## Error Responses
+
+Every REST endpoint returns errors as a JSON envelope with `Content-Type: application/json`:
+
+```json
+{ "error": "invalid bearer token", "error_code": "unauthorized" }
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `error` | string | Human-readable message — for logs/UI, **not** for branching |
+| `error_code` | string | Stable machine code clients switch on |
+
+### Codes
+
+| `error_code` | HTTP | Raised when |
+|--------------|------|-------------|
+| `unauthorized` | 401 | Missing/malformed `Authorization` header, wrong scheme, or invalid bearer token |
+| `scope_denied` | 403 | Valid token, but its scopes do not grant the requested endpoint/tool (team server) |
+| `unknown_workspace` | 400 | `x-leanctx-workspace` / body `workspaceId` names a workspace the server does not serve (team server) |
+| `invalid_arguments` | 400 | Tool `arguments` is not a JSON object (team server) |
+| `invalid_request` | 400 | Request body could not be read/parsed (team server) |
+| `tool_error` | 400 | The tool ran but returned an error |
+| `request_timeout` | 504 | The tool call exceeded `request_timeout_ms` |
+
+`GET /health` is exempt — it is a plain-text liveness probe (`200 ok`), never the JSON envelope.
+The A2A JSON-RPC surface keeps the standard JSON-RPC `error: { code, message }` shape instead.
+
+---
+
 ## Workspaces and Channels
 
 Every HTTP request is associated with a **(workspace_id, channel_id)** pair that determines
