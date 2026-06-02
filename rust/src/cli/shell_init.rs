@@ -141,6 +141,7 @@ fn upsert_source_line(rc_path: &std::path::Path, source_line: &str) {
             }
             Err(e) => {
                 tracing::error!("Error updating {}: {e}", rc_path.display());
+                print_shell_write_error(rc_path, source_line, &e);
             }
         }
         return;
@@ -156,8 +157,34 @@ fn upsert_source_line(rc_path: &std::path::Path, source_line: &str) {
             let _ = f.write_all(source_line.as_bytes());
             qprintln!("Added lean-ctx hook to {}", rc_path.display());
         }
-        Err(e) => tracing::error!("Error writing {}: {e}", rc_path.display()),
+        Err(e) => {
+            tracing::error!("Error writing {}: {e}", rc_path.display());
+            print_shell_write_error(rc_path, source_line, &e);
+        }
     }
+}
+
+fn print_shell_write_error(rc_path: &std::path::Path, source_line: &str, err: &std::io::Error) {
+    eprintln!();
+    eprintln!("  \x1B[33m⚠ Cannot write to {}\x1B[0m", rc_path.display());
+    eprintln!("    Error: {err}");
+    if err.kind() == std::io::ErrorKind::PermissionDenied {
+        eprintln!();
+        eprintln!("    Your shell config is read-only (nix-darwin, Home Manager, or similar).");
+        eprintln!("    Add the following to a writable shell config file manually:");
+    } else {
+        eprintln!();
+        eprintln!("    Add the following to your shell config manually:");
+    }
+    eprintln!();
+    for line in source_line.lines() {
+        eprintln!("      {line}");
+    }
+    eprintln!();
+    eprintln!("    Or source it from a writable file (e.g. ~/.zshrc.local):");
+    eprintln!("      echo 'source ~/.zshrc.local' # (add to nix config)");
+    eprintln!("      Then add the hook lines to ~/.zshrc.local");
+    eprintln!();
 }
 
 pub fn generate_hook_powershell(binary: &str) -> String {
