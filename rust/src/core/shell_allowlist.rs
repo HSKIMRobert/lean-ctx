@@ -705,6 +705,12 @@ fn split_on_operators(command: &str) -> Vec<&str> {
                     segments.push(&command[start..i]);
                     i += 2;
                     start = i;
+                } else if (i > 0 && bytes[i - 1] == b'>') || (i + 1 < len && bytes[i + 1] == b'>') {
+                    // Redirect operator, NOT a separator: `2>&1`, `1>&2`, `>&file` (prev is '>')
+                    // or `&>file`, `&>>file` (next is '>'). The '&' belongs to the current
+                    // command — splitting here would mistake the fd/target (e.g. `1`) for a
+                    // standalone command and falsely block it (#334).
+                    i += 1;
                 } else {
                     // single & (background operator) — still a command separator
                     segments.push(&command[start..i]);
@@ -949,6 +955,36 @@ mod tests {
         let list = allow(&["echo", "ls"]);
         assert!(check_all_segments("echo hello; ls -la", &list).is_ok());
         assert!(check_all_segments("echo hello; rm -rf /", &list).is_err());
+    }
+
+    #[test]
+    fn redirect_2to1_not_treated_as_command() {
+        // #334: `2>&1` must not be parsed as a standalone command `1`.
+        let list = allow(&["pnpm", "echo"]);
+        assert!(check_all_segments("pnpm run compile 2>&1", &list).is_ok());
+        assert!(check_all_segments("pnpm run build 2>&1 && echo done", &list).is_ok());
+    }
+
+    #[test]
+    fn redirect_ampersand_forms_not_separators() {
+        let list = allow(&["cmd"]);
+        assert!(check_all_segments("cmd >&2", &list).is_ok()); // >&fd
+        assert!(check_all_segments("cmd 1>&2", &list).is_ok()); // N>&M
+        assert!(check_all_segments("cmd &>out.log", &list).is_ok()); // &>file
+        assert!(check_all_segments("cmd &>>out.log", &list).is_ok()); // &>>file
+                                                                      // The redirect must not leak the fd/target as a new segment.
+        assert_eq!(split_on_operators("pnpm run compile 2>&1").len(), 1);
+        assert_eq!(split_on_operators("cmd &>out.log").len(), 1);
+    }
+
+    #[test]
+    fn background_ampersand_still_splits() {
+        // A genuine background `&` remains a separator — the trailing command is checked.
+        let only_sleep = allow(&["sleep"]);
+        assert!(check_all_segments("sleep 1 & echo done", &only_sleep).is_err());
+        let both = allow(&["sleep", "echo"]);
+        assert!(check_all_segments("sleep 1 & echo done", &both).is_ok());
+        assert_eq!(split_on_operators("sleep 1 & echo done").len(), 2);
     }
 
     #[test]
