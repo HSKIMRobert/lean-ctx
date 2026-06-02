@@ -37,8 +37,11 @@ function requireEnv(name) {
  */
 function extractHighlight(changelog, version) {
   const lines = changelog.split(/\r?\n/);
-  const start = lines.findIndex((l) =>
-    new RegExp(`^##\\s*\\[${version.replace(/\./g, "\\.")}\\]`).test(l),
+  // Match `## [<version>]` literally — `version` is data, never compiled into a
+  // RegExp, so there is no escaping to get wrong and no regex-injection surface.
+  const needle = `[${version}]`;
+  const start = lines.findIndex(
+    (l) => l.startsWith("##") && l.slice(2).trimStart().startsWith(needle),
   );
   if (start === -1) return "";
 
