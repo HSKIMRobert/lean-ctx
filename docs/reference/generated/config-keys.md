@@ -119,6 +119,15 @@ Semantic-embedding engine settings (model selection for ctx_semantic_search)
 
 - `model` (string, default `minilm` — env `LEAN_CTX_EMBEDDING_MODEL`) — Local ONNX embedding model for ctx_semantic_search. One of: minilm (all-MiniLM-L6-v2, 384d, default), jina-code-v2 (768d, code-optimized), nomic (768d). Switching models re-indexes once on the next search.
 
+## `[gain]`
+
+Token-savings recap publishing (gain --publish / auto-publish)
+
+- `auto_publish` (bool, default `false`) — Automatically (re)publish your Wrapped recap when you run `lean-ctx gain` (opt-in, off by default; throttled and sends only an aggregate payload)
+- `auto_publish_interval_hours` (u64, default `24`) — Minimum hours between automatic publishes (throttle; default 24)
+- `display_name` (string?, default `null`) — Optional display name shown on your published card / leaderboard entry
+- `leaderboard` (bool, default `false`) — When auto-publishing, also list the card on the public opt-in leaderboard
+
 ## `[ide_paths]`
 
 Per-IDE allowed paths. Keys are agent names (cursor, codex, opencode, antigravity, etc.), values are arrays of paths to index for that agent
