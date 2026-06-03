@@ -91,8 +91,15 @@ pub(super) fn install_codex_instruction_docs(codex_dir: &Path) -> bool {
 
     let rules_path = codex_dir.join("LEAN-CTX.md");
     let block = format!(
-        "{CODEX_AGENTS_BLOCK_START}\n## lean-ctx\n\nPrefer lean-ctx MCP tools over native equivalents for token savings.\nFull rules: `{}`\n{CODEX_AGENTS_BLOCK_END}\n",
-        rules_path.display()
+        "{CODEX_AGENTS_BLOCK_START}\n## lean-ctx\n\n\
+         Prefer lean-ctx MCP tools over native equivalents for token savings.\n\n\
+         In the Codex Desktop and Cloud app, lifecycle hooks do not run, so there is no \
+         automatic compression. You MUST proactively route shell commands through `ctx_shell` \
+         (or `{binary} -c \"<cmd>\"`) and file reads through `ctx_read` — otherwise large outputs \
+         (builds, `tsc`, tests, logs) reach the model uncompressed.\n\n\
+         Full rules: `{rules}`\n{CODEX_AGENTS_BLOCK_END}\n",
+        binary = super::resolve_binary_path(),
+        rules = rules_path.display()
     );
 
     let mut changed = false;
@@ -142,38 +149,54 @@ pub(super) fn install_codex_instruction_docs(codex_dir: &Path) -> bool {
 fn codex_instruction_doc_content() -> String {
     let binary = super::resolve_binary_path();
     format!(
-        r"# lean-ctx — Context Engineering Layer (Hybrid Mode)
+        r#"# lean-ctx — Context Engineering Layer (Hybrid Mode)
 
 lean-ctx is available via **both** MCP tools and CLI commands.
-Use whichever path the current environment supports.
 
-## MCP tools (preferred when available)
+## IMPORTANT: Codex Desktop & Cloud app
+
+In the Codex Desktop and Cloud app (app-server mode), Codex lifecycle **hooks do
+not run**. lean-ctx's automatic shell/file compression is hook-driven, so in the
+Desktop/Cloud app there is **no automatic compression** — you MUST route work
+through lean-ctx yourself:
+
+- Shell commands → call the `ctx_shell` MCP tool (or `{binary} -c "<cmd>"`).
+- File reads → call the `ctx_read` MCP tool (instead of `cat`/`head`/`tail`).
+- Code search → call the `ctx_search` MCP tool (instead of `grep`/`rg`).
+
+Running `tsc`, builds, tests, `git`, or log-heavy commands directly sends the full
+uncompressed output to the model. Routing them through `ctx_shell` saves 60-90% of
+those tokens.
+
+## MCP tools
 
 | Tool | Purpose |
 |------|---------|
-| `ctx_read` | Cached, compressed file reads (6 modes) |
+| `ctx_read` | Cached, compressed file reads (modes: full/map/signatures/lines:N-M) |
 | `ctx_shell` | Shell commands with pattern compression (95+ patterns) |
 | `ctx_search` | Token-efficient code search |
 | `ctx_tree` | Compact directory maps |
 
-## CLI fallback
+## CLI
 
 Prefix shell commands with `{binary} -c` for compressed output:
 
 ```bash
-{binary} -c git status    # instead of: git status
-{binary} -c cargo test    # instead of: cargo test
-{binary} -c ls src/       # instead of: ls src/
+{binary} -c "tsc"          # instead of: tsc
+{binary} -c "cargo test"   # instead of: cargo test
+{binary} -c "git status"   # instead of: git status
 ```
 
-This saves 60-90% tokens per command. Works with: git, cargo, npm, pnpm, docker, kubectl, pip, ruff, go, curl, grep, find, ls, aws, helm, and 95+ more commands.
+Works with git, cargo, npm, pnpm, docker, kubectl, pip, ruff, go, tsc, and 95+ more.
 Use `{binary} -c --raw <cmd>` to skip compression and get full output.
 
-## When to use which
+## Codex CLI vs Desktop
 
-- **Codex Desktop / Cloud**: MCP tools are the primary path (CLI may not be available).
-- **Codex CLI**: Both paths work; CLI is slightly faster for shell commands.
-"
+- **Codex CLI**: hooks fire after you trust them once via `/hooks`, so shell
+  compression is automatic. Both MCP tools and CLI work.
+- **Codex Desktop / Cloud**: hooks do not fire — use the MCP tools (or `{binary} -c`)
+  as described above.
+"#
     )
 }
 

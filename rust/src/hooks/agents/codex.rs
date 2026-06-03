@@ -349,6 +349,33 @@ command = \"lean-ctx\"
     }
 
     #[test]
+    fn codex_docs_warn_about_desktop_hook_absence() {
+        let tmp = std::env::temp_dir().join("lean-ctx-test-codex-desktop-note");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        crate::hooks::support::install_codex_instruction_docs(&tmp);
+
+        let lean_ctx_md = std::fs::read_to_string(tmp.join("LEAN-CTX.md")).unwrap();
+        assert!(
+            lean_ctx_md.contains("no automatic compression"),
+            "LEAN-CTX.md must explain that Desktop has no automatic compression"
+        );
+        assert!(
+            lean_ctx_md.contains("ctx_shell") && lean_ctx_md.contains("ctx_read"),
+            "LEAN-CTX.md must steer the agent to the MCP tools"
+        );
+
+        let agents_md = std::fs::read_to_string(tmp.join("AGENTS.md")).unwrap();
+        assert!(
+            agents_md.contains("Desktop") && agents_md.contains("ctx_shell"),
+            "AGENTS.md block must mention the Desktop limitation and ctx_shell"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
     fn install_codex_docs_preserves_existing_user_instructions() {
         let tmp = std::env::temp_dir().join("lean-ctx-test-codex-preserve");
         let _ = std::fs::remove_dir_all(&tmp);
