@@ -92,6 +92,10 @@ struct PublishedEntry {
     /// manual `--publish` cards (false, the default for older records) are never touched.
     #[serde(default)]
     auto: bool,
+    /// Whether this card was published with leaderboard opt-in. Used to prevent
+    /// auto-publish from accidentally downgrading a leaderboard entry.
+    #[serde(default)]
+    leaderboard: bool,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -173,14 +177,19 @@ fn publish_report(
         "signature": signature,
     });
     let card = cloud_client::publish_wrapped(&envelope)?;
-    record_published(&card, period, auto);
+    record_published(&card, period, auto, leaderboard);
     Ok(card)
 }
 
 /// Records the card as the single local entry for its period: stale cards for the same period
 /// with a different id are retired server-side (cleaning up any pre-upsert duplicates), and the
 /// edit_token is preserved across signed re-publishes (the server returns it only on insert).
-fn record_published(card: &cloud_client::PublishedCard, period: &str, auto: bool) {
+fn record_published(
+    card: &cloud_client::PublishedCard,
+    period: &str,
+    auto: bool,
+    leaderboard: bool,
+) {
     let mut store = PublishedStore::load();
 
     for stale in store
@@ -208,6 +217,7 @@ fn record_published(card: &cloud_client::PublishedCard, period: &str, auto: bool
         period: period.to_string(),
         published_at: chrono::Utc::now().to_rfc3339(),
         auto,
+        leaderboard,
     });
     if let Err(e) = store.save() {
         tracing::warn!("Published, but could not save local record: {e}");
@@ -294,11 +304,20 @@ pub(crate) fn maybe_auto_publish(period: &str) {
     // Capture disclosure input before `cfg` is moved to record the timestamp below.
     let disclose_name = g.display_name.is_some();
 
+    // Never downgrade leaderboard opt-in: if the stored card was on the leaderboard,
+    // preserve that even when the config flag is (accidentally) false.
+    let stored_leaderboard = PublishedStore::load()
+        .cards
+        .iter()
+        .find(|c| c.period == period)
+        .is_some_and(|c| c.leaderboard);
+    let leaderboard = g.leaderboard || stored_leaderboard;
+
     match publish_report(
         &report,
         period,
         g.display_name.as_deref(),
-        g.leaderboard,
+        leaderboard,
         true,
     ) {
         Ok(card) => {
