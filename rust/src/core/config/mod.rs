@@ -166,6 +166,11 @@ pub struct Config {
     /// Auto-enable SymbolMap for projects with >50 source files.
     #[serde(default = "serde_defaults::default_true")]
     pub symbol_map_auto: bool,
+    /// Team server URL for opt-in savings roll-up.
+    /// Set via `lean-ctx config set team_url https://...` or `[team] url` in config.toml.
+    /// Override via LEAN_CTX_TEAM_URL env var.
+    #[serde(default)]
+    pub team_url: Option<String>,
     /// Enable human-readable activity journal (~/.lean-ctx/journal.md).
     #[serde(default)]
     pub journal_enabled: bool,
@@ -838,6 +843,7 @@ impl Default for Config {
             content_defined_chunking: false,
             minimal_overhead: true,
             symbol_map_auto: true,
+            team_url: None,
             journal_enabled: true,
             auto_capture: true,
             search: crate::core::hybrid_search::HybridConfig::default(),

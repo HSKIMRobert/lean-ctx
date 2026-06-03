@@ -335,10 +335,11 @@ pub(super) fn cmd_savings(rest: &[String]) {
             }
         }
         "sign" => cmd_savings_sign(&rest[1..]),
+        "push" => cmd_savings_push(&rest[1..]),
         "verify-batch" => cmd_savings_verify_batch(rest.get(1).map(String::as_str)),
         "summary" | "" => print!("{}", format_savings_summary()),
         _ => {
-            eprintln!("Usage: lean-ctx savings [summary|verify|export|sign|verify-batch]");
+            eprintln!("Usage: lean-ctx savings [summary|verify|export|sign|push|verify-batch]");
             std::process::exit(1);
         }
     }
@@ -415,6 +416,78 @@ fn cmd_savings_sign(args: &[String]) {
         }
         Err(e) => {
             eprintln!("Could not write artifact: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+/// `lean-ctx savings push [--team-url URL]` — signs the local savings ledger and pushes
+/// the batch to the team server for opt-in org roll-up.
+fn cmd_savings_push(args: &[String]) {
+    use core::savings_ledger::SignedSavingsBatchV1;
+
+    let team_url = args
+        .iter()
+        .find_map(|a| a.strip_prefix("--team-url=").map(String::from))
+        .or_else(|| {
+            args.iter()
+                .position(|a| a == "--team-url")
+                .and_then(|i| args.get(i + 1).cloned())
+        })
+        .or_else(|| {
+            let cfg = crate::core::config::Config::load();
+            cfg.team_url.clone()
+        });
+
+    let Some(url) = team_url else {
+        eprintln!("No team URL configured. Use --team-url or set [team] url in config.toml");
+        std::process::exit(1);
+    };
+
+    let agent_id = savings_agent_id();
+    let mut batch = SignedSavingsBatchV1::build_all(&agent_id);
+    if batch.totals.total_events == 0 {
+        eprintln!("Savings ledger is empty — nothing to push.");
+        std::process::exit(1);
+    }
+    if let Err(e) = batch.sign(&agent_id) {
+        eprintln!("Signing failed: {e}");
+        std::process::exit(1);
+    }
+
+    let endpoint = format!("{}/api/v1/savings/ingest", url.trim_end_matches('/'));
+    let body = match serde_json::to_vec(&batch) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("Serialization failed: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    let resp = ureq::post(&endpoint)
+        .header("Content-Type", "application/json")
+        .send(&body[..]);
+
+    match resp {
+        Ok(resp) => {
+            let status = resp.status();
+            let text = resp.into_body().read_to_string().unwrap_or_default();
+            if status == 200 {
+                use core::wrapped::format_tokens;
+                println!("\x1b[32m✓\x1b[0m Savings batch pushed to team server.");
+                println!(
+                    "  Net saved:  {} tokens (~${:.2})",
+                    format_tokens(batch.totals.net_saved_tokens),
+                    batch.totals.saved_usd
+                );
+                println!("  Endpoint:   {endpoint}");
+            } else {
+                eprintln!("Team server rejected the batch (HTTP {status}): {text}");
+                std::process::exit(1);
+            }
+        }
+        Err(e) => {
+            eprintln!("Failed to reach team server at {endpoint}: {e}");
             std::process::exit(1);
         }
     }

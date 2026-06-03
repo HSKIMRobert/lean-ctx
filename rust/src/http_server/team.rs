@@ -207,18 +207,19 @@ pub struct TeamRequestContext {
 }
 
 #[derive(Clone)]
-struct TeamState {
+pub struct TeamState {
     auth: Arc<Vec<TeamTokenConfig>>,
     engine: Arc<TeamContextEngine>,
     audit: Arc<tokio::sync::Mutex<tokio::fs::File>>,
+    pub savings_store_dir: Arc<tokio::sync::Mutex<std::path::PathBuf>>,
 }
 
 #[derive(Clone)]
-struct TeamAppState {
+pub struct TeamAppState {
     concurrency: Arc<tokio::sync::Semaphore>,
     rate: Arc<super::RateLimiter>,
     timeout: Duration,
-    team: Arc<TeamState>,
+    pub team: Arc<TeamState>,
     max_body_bytes: usize,
 }
 
@@ -1214,10 +1215,16 @@ pub async fn serve_team(cfg: TeamServerConfig) -> Result<()> {
         .await
         .with_context(|| format!("open audit log {}", cfg.audit_log_path.display()))?;
 
+    let savings_dir = cfg
+        .audit_log_path
+        .parent()
+        .unwrap_or(std::path::Path::new("."))
+        .join("savings");
     let team = Arc::new(TeamState {
         auth: Arc::new(cfg.tokens.clone()),
         engine,
         audit: Arc::new(tokio::sync::Mutex::new(audit_file)),
+        savings_store_dir: Arc::new(tokio::sync::Mutex::new(savings_dir)),
     });
 
     let state = TeamAppState {
@@ -1257,6 +1264,10 @@ pub async fn serve_team(cfg: TeamServerConfig) -> Result<()> {
             get(super::context_views::v1_event_lineage),
         )
         .route("/v1/metrics", get(v1_team_metrics))
+        .route(
+            "/api/v1/savings/ingest",
+            axum::routing::post(super::savings_ingest::v1_savings_ingest),
+        )
         .fallback_service(mcp_http)
         .layer(axum::extract::DefaultBodyLimit::max(cfg.max_body_bytes))
         .layer(middleware::from_fn_with_state(
@@ -1392,6 +1403,12 @@ mod tests {
             auth: Arc::new(cfg.tokens.clone()),
             engine,
             audit: Arc::new(tokio::sync::Mutex::new(audit_file)),
+            savings_store_dir: Arc::new(tokio::sync::Mutex::new(
+                cfg.audit_log_path
+                    .parent()
+                    .unwrap_or(std::path::Path::new("."))
+                    .join("savings"),
+            )),
         });
         let state = TeamAppState {
             concurrency: Arc::new(tokio::sync::Semaphore::new(4)),
