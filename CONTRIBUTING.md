@@ -96,6 +96,21 @@ Tip: open a ticket via the [New Compression Pattern](.github/ISSUE_TEMPLATE/comp
 - Include a short test plan (commands you ran)
 - If relevant, include a small “before/after” token-savings snippet
 
+## Contributor License Agreement (CLA)
+
+Before your first pull request can be merged, you need to sign our
+[Contributor License Agreement](CLA.md). It is a one-time, automated step: the
+CLA Assistant bot comments on your PR, and you sign by replying:
+
+> I have read the CLA Document and I hereby sign the CLA
+
+The CLA keeps lean-ctx Apache-2.0 for everyone while allowing the maintainer to
+relicense (e.g. for the hosted/commercial offering). The free, open-source
+runtime for individual developers stays free — that commitment is written into
+the CLA itself (§8).
+
 ## License
 
-By contributing, you agree that your contributions will be licensed under the Apache License 2.0.
+lean-ctx is distributed under the Apache License 2.0; by contributing, your
+contributions are licensed to the public under the same terms (see the [CLA](CLA.md)
+for the full grant).
