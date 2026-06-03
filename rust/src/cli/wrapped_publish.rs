@@ -107,6 +107,12 @@ fn store_path() -> Option<PathBuf> {
     Some(base.join("wrapped").join("published.json"))
 }
 
+/// Returns true if the user has ever published at least one Wrapped card.
+pub(crate) fn has_published() -> bool {
+    let store = PublishedStore::load();
+    !store.cards.is_empty()
+}
+
 impl PublishedStore {
     fn load() -> Self {
         store_path()

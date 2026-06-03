@@ -178,7 +178,21 @@ pub(super) fn cmd_gain(rest: &[String]) {
     } else {
         println!("{}", core::stats::format_gain());
         crate::cli::wrapped_publish::maybe_auto_publish(&period);
+        print_community_hint();
     }
+}
+
+fn print_community_hint() {
+    let s = core::savings_ledger::summary();
+    if s.total_events == 0 {
+        return;
+    }
+    if crate::cli::wrapped_publish::has_published() {
+        return;
+    }
+    eprintln!(
+        "\n  \x1b[2m💡 Share your savings with the community: lean-ctx gain --wrapped --publish\x1b[0m"
+    );
 }
 
 /// Resolves the output path for the shareable SVG Wrapped card, or `None` when no

@@ -132,7 +132,10 @@ pub async fn start(port: Option<u16>, host: Option<String>) {
         println!("\n  lean-ctx dashboard → http://{host}:{port}");
     }
     println!("  Stats file: {stats_path}");
-    println!("  Press Ctrl+C to stop\n");
+    println!("  Press Ctrl+C to stop");
+    println!(
+        "  \x1b[2m💡 Join the community leaderboard: lean-ctx gain --wrapped --publish --leaderboard\x1b[0m\n"
+    );
 
     if is_local {
         if let Some(t) = token.as_ref() {
