@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.7.1] — 2026-06-03
+
 > **Wrapped Viral-Loop.** The honest Wrapped recap is now shareable end-to-end: a
 > first-run "aha", one-click sharing, an opt-in hosted permalink, and an opt-in
 > public leaderboard — privacy-safe and anonymous-first.
@@ -21,6 +23,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - **Auto-update ignored `config.toml`** (#335): a scheduler installed earlier kept running `lean-ctx update` even after the user set `updates.auto_update = false`, because the `update` command never re-checked config. Scheduled runs (`--quiet`/`--scheduled`) now obey config: `auto_update = false` skips the update **and removes the orphaned scheduler** (self-heal), and `notify_only = true` downgrades to a check (never installs). Manual `lean-ctx update` is an explicit action and always proceeds.
 - **macOS bash login shells missed the hook and PATH** (user report): bash login shells (Terminal.app, IDE terminals, `bash -l`) read `~/.bash_profile`/`~/.profile`, never `~/.bashrc` — yet the hook (and the installer's `~/.local/bin` PATH export) land in `~/.bashrc`. `lean-ctx setup` now ensures the login profile sources `~/.bashrc` (idempotent, Debian/Ubuntu-style), so the hook and PATH take effect in login shells. `install.sh` prints the matching one-liner; uninstall removes the snippet. zsh is unaffected (it always reads `~/.zshrc`).
 - **Event feed flooded with false "denied" policy violations**: auto-preload candidates from the project graph are repo-relative (e.g. `rust/src/core/foo.rs`); the path jail resolved them against the daemon's CWD (not the project root), so every candidate failed with "no existing ancestor" and was logged as a policy violation. Relative candidates now resolve against the jail root, and a genuinely missing file is no longer mislabeled as a security denial. As defense-in-depth, `ctx_preload` now resolves its jail root from the dispatch-provided project root when no explicit `path` and no session root are available, so it never silently jails against the daemon CWD in any IDE.
+- **`ctx_search` and the background index build could hang on special files (FIFOs, sockets, devices)** (#336): a regular-file guard now skips non-regular paths before any blocking read — `read_to_string` on a named pipe blocks forever waiting for a writer, which surfaced as random, unlogged hangs. `ctx_search` additionally enforces a wall-clock deadline (`LEAN_CTX_SEARCH_DEADLINE_MS`, default 10s) and returns partial results with a note instead of hanging. Reproduced with a real FIFO and covered by regression tests (`search_skips_named_pipe_without_hanging`, `build_skips_named_pipe_without_hanging`).
 
 ## [3.7.0] — 2026-06-01
 
