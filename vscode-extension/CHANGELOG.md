@@ -2,7 +2,13 @@
 
 All notable changes to the **lean-ctx** VS Code extension are documented here.
 
-## [0.1.0] — Unreleased
+## [0.1.1] — Unreleased
+
+### Fixed
+
+- **Session stats never loaded** (#347, thanks [@shawonis08](https://github.com/shawonis08)): the sidebar and status bar always showed zeros because `getSessionStats()` invoked `lean-ctx metrics --json`, a subcommand that does not exist, so every call threw and fell back to empty defaults. Stats are now sourced from `lean-ctx stats json` — the authoritative per-tool breakdown — mapping `commands.ctx_read` / `ctx_search` / `ctx_shell` counts and deriving tokens saved from the lifetime input/output totals, so reads, searches, shells and savings populate with real numbers.
+
+## [0.1.0] — 2026-06-04
 
 First public release on the VS Code Marketplace and Open VSX (Cursor, VSCodium, Windsurf).
 

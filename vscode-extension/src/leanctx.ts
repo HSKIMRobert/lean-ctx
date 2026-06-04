@@ -167,17 +167,38 @@ export function runLeanCtxCapture(
   });
 }
 
+function formatSpan(fromIso?: string, toIso?: string): string {
+  if (!fromIso || !toIso) return "—";
+  const from = Date.parse(fromIso);
+  const to = Date.parse(toIso);
+  if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) return "—";
+  const minutes = Math.round((to - from) / 60_000);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.round(hours / 24)}d`;
+}
+
 export async function getSessionStats(): Promise<SessionStats> {
   try {
-    const raw = await runLeanCtx(["metrics", "--json"]);
+    // `lean-ctx stats json` is the authoritative per-tool breakdown: a `commands`
+    // map keyed by tool name plus lifetime input/output token totals. (The former
+    // `metrics` subcommand never existed, so the previous call always threw.)
+    const raw = await runLeanCtx(["stats", "json"]);
     const data = JSON.parse(raw);
+    const commands = (data.commands ?? {}) as Record<string, { count?: number }>;
+    const count = (tool: string): number => commands[tool]?.count ?? 0;
+
+    const inputTokens: number = data.total_input_tokens ?? 0;
+    const outputTokens: number = data.total_output_tokens ?? 0;
+
     return {
-      totalReads: data.total_reads ?? 0,
-      totalSearches: data.total_searches ?? 0,
-      totalShells: data.total_shells ?? 0,
-      tokensSaved: data.tokens_saved ?? 0,
-      sessionDuration: data.session_duration ?? "0s",
-      filesTouched: data.files_touched ?? 0,
+      totalReads: count("ctx_read"),
+      totalSearches: count("ctx_search"),
+      totalShells: count("ctx_shell"),
+      tokensSaved: Math.max(0, inputTokens - outputTokens),
+      sessionDuration: formatSpan(data.first_use, data.last_use),
+      filesTouched: 0,
     };
   } catch {
     return {
