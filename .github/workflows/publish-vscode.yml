@@ -79,6 +79,10 @@ jobs:
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ github.ref_name }}
+          # Never let the extension release become the repo's "latest" — install.sh
+          # and the npm postinstall resolve binaries via /releases/latest, so a
+          # vscode-v* release hijacking "latest" breaks CLI installs (see #345).
+          make_latest: false
           name: lean-ctx VS Code extension ${{ steps.ver.outputs.version }}
           files: lean-ctx-*.vsix
           body: |
