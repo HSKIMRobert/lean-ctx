@@ -1,8 +1,11 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
+import { type TSchema, Type } from "typebox";
 import type { McpBridgeRetryState, McpBridgeStatus } from "./types.js";
+
+/** Result shape returned by the MCP client's `callTool`. */
+type McpCallResult = Awaited<ReturnType<Client["callTool"]>>;
 
 const CLI_OVERRIDE_TOOLS = new Set([
   "ctx_read",
@@ -166,12 +169,14 @@ export class McpBridge {
       description: tool.description ?? `lean-ctx MCP tool: ${tool.name}`,
       promptSnippet: tool.description ?? tool.name,
       parameters: schema,
-      async execute(_toolCallId, params, signal) {
-        return bridge.callTool(
+      async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
+        const result = await bridge.callTool(
           tool.name,
           params as Record<string, unknown>,
           signal,
         );
+        // Pi's AgentToolResult requires a `details` field; MCP tool output has none.
+        return { ...result, details: undefined };
       },
     });
 
@@ -182,7 +187,7 @@ export class McpBridge {
     name: string,
     args: Record<string, unknown>,
     signal?: AbortSignal,
-  ): Promise<{ content: Array<{ type: string; text: string }> }> {
+  ): Promise<{ content: Array<{ type: "text"; text: string }> }> {
     if (!this.client || !this.connected) {
       throw new Error(
         `lean-ctx MCP bridge not connected. Tool "${name}" unavailable.`,
@@ -224,7 +229,7 @@ export class McpBridge {
     name: string,
     args: Record<string, unknown>,
     signal?: AbortSignal,
-  ) {
+  ): Promise<McpCallResult> {
     const call = this.client?.callTool({ name, arguments: args });
     if (!call) {
       throw new Error(`lean-ctx MCP bridge not connected. Tool "${name}" unavailable.`);
@@ -242,7 +247,7 @@ export class McpBridge {
       }, TOOL_CALL_TIMEOUT_MS);
     });
 
-    const promises: Promise<unknown>[] = [call, timeout];
+    const promises: Promise<McpCallResult>[] = [call, timeout];
 
     if (signal) {
       let onAbort: (() => void) | undefined;
@@ -274,8 +279,8 @@ export class McpBridge {
   }
 
   private toTextBlocks(
-    result: Awaited<ReturnType<Client["callTool"]>>,
-  ): { content: Array<{ type: string; text: string }> } {
+    result: McpCallResult,
+  ): { content: Array<{ type: "text"; text: string }> } {
     const content = (
       result.content as Array<{ type: string; text?: string }>
     ).map((block) => ({
@@ -300,13 +305,13 @@ export class McpBridge {
     const required = new Set(
       (schema.required as string[] | undefined) ?? [],
     );
-    const fields: Record<string, ReturnType<typeof Type.String>> = {};
+    const fields: Record<string, TSchema> = {};
 
     for (const [key, prop] of Object.entries(properties)) {
       const desc = (prop.description as string) ?? undefined;
       const jsonType = prop.type as string | undefined;
 
-      let field;
+      let field: TSchema;
       switch (jsonType) {
         case "number":
         case "integer":
