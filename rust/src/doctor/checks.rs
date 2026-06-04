@@ -5,6 +5,61 @@ use super::common::*;
 use super::{Outcome, BOLD, DIM, GREEN, RED, RST, YELLOW};
 use std::net::TcpListener;
 
+/// Reports the shell allowlist exactly as the MCP tools enforce it — and, crucially,
+/// flags when `config.toml` fails to parse (the silent-default trap behind #341,
+/// where an allowlist edit appears to "do nothing" because the file never loaded).
+pub(super) fn shell_allowlist_outcome() -> Outcome {
+    if let Some(err) = crate::core::config::last_config_parse_error() {
+        let short = err.lines().next().unwrap_or("parse error");
+        return Outcome {
+            ok: false,
+            line: format!(
+                "{BOLD}Shell allowlist{RST}  {RED}config.toml fails to parse → running on DEFAULTS{RST}  {DIM}({short}){RST}"
+            ),
+        };
+    }
+
+    let effective = crate::core::shell_allowlist::effective_allowlist_pub();
+    if effective.is_empty() {
+        return Outcome {
+            ok: true,
+            line: format!(
+                "{BOLD}Shell allowlist{RST}  {YELLOW}disabled{RST}  {DIM}(all commands allowed){RST}"
+            ),
+        };
+    }
+
+    Outcome {
+        ok: true,
+        line: format!(
+            "{BOLD}Shell allowlist{RST}  {GREEN}{} command(s) enforced{RST}  {DIM}(add one: lean-ctx allow <cmd>){RST}",
+            effective.len()
+        ),
+    }
+}
+
+/// Reports the format-aware passthrough (#342): output already in a compact,
+/// token-oriented format (TOON by default) is preserved verbatim instead of
+/// recompressed, so an agent's proof-of-output-shape survives intact.
+pub(super) fn compact_format_passthrough_outcome() -> Outcome {
+    let cfg = crate::core::config::Config::load();
+    if cfg.preserve_compact_formats.is_empty() {
+        return Outcome {
+            ok: true,
+            line: format!(
+                "{BOLD}Compact-format passthrough{RST}  {YELLOW}off{RST}  {DIM}(set preserve_compact_formats to keep e.g. TOON verbatim){RST}"
+            ),
+        };
+    }
+    Outcome {
+        ok: true,
+        line: format!(
+            "{BOLD}Compact-format passthrough{RST}  {GREEN}{}{RST}  {DIM}(preserved verbatim, not recompressed){RST}",
+            cfg.preserve_compact_formats.join(", ")
+        ),
+    }
+}
+
 pub(super) fn shell_aliases_outcome() -> Outcome {
     let Some(home) = dirs::home_dir() else {
         return Outcome {

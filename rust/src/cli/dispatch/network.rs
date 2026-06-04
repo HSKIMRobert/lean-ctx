@@ -236,11 +236,28 @@ pub(super) fn cmd_team(rest: &[String]) {
 
 pub(super) fn cmd_dashboard(rest: &[String]) {
     if rest.iter().any(|a| a == "--help" || a == "-h") {
-        println!("Usage: lean-ctx dashboard [--port=N] [--host=H] [--project=PATH]");
+        println!("Usage: lean-ctx dashboard [--port=N] [--host=H] [--project=PATH] [--export]");
         println!("Examples:");
         println!("  lean-ctx dashboard");
         println!("  lean-ctx dashboard --port=3333");
         println!("  lean-ctx dashboard --host=0.0.0.0");
+        println!("  lean-ctx dashboard --export        Export HTML report (replaces visualize)");
+        return;
+    }
+    if rest.iter().any(|a| a == "--export") {
+        let output = rest
+            .iter()
+            .find_map(|a| a.strip_prefix("--output="))
+            .unwrap_or("lean-ctx-report.html");
+        let open = rest.iter().any(|a| a == "--open");
+        crate::cli::cmd_visualize(&[
+            format!("--output={output}"),
+            if open {
+                "--open".to_string()
+            } else {
+                String::new()
+            },
+        ]);
         return;
     }
     let port = rest

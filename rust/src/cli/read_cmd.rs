@@ -186,7 +186,7 @@ pub fn cmd_read(args: &[String]) {
                 if !key_sigs.is_empty() {
                     buf.push_str("\n  API:");
                     for sig in &key_sigs {
-                        buf.push_str(&format!("\n    {}", sig.to_compact()));
+                        buf.push_str(&format!("\n    {}", sig.to_compact_located()));
                     }
                 }
                 buf
@@ -204,7 +204,7 @@ pub fn cmd_read(args: &[String]) {
             let sigs = signatures::extract_signatures(&content, ext);
             let mut output_buf = format!("{short} [{line_count}L]");
             for sig in &sigs {
-                output_buf.push_str(&format!("\n{}", sig.to_compact()));
+                output_buf.push_str(&format!("\n{}", sig.to_compact_located()));
             }
             println!("{output_buf}");
             let sent = count_tokens(&output_buf);

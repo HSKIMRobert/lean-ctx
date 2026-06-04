@@ -146,20 +146,12 @@ fn install_macos_launchagent(
         stderr_log.display()
     );
 
-    let _ = std::process::Command::new("launchctl")
-        .args(["unload", &path.to_string_lossy()])
-        .output();
+    crate::core::launchd::bootout(LABEL, &path);
 
     std::fs::write(&path, plist).map_err(|e| format!("Failed to write plist: {e}"))?;
 
-    let out = std::process::Command::new("launchctl")
-        .args(["load", &path.to_string_lossy()])
-        .output()
-        .map_err(|e| format!("Failed to load LaunchAgent: {e}"))?;
-
-    if !out.status.success() {
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        return Err(format!("launchctl load failed: {stderr}"));
+    if !crate::core::launchd::bootstrap(LABEL, &path) {
+        return Err("launchctl bootstrap failed; check: launchctl print gui/$(id -u)".into());
     }
 
     Ok(ScheduleInfo {
@@ -175,9 +167,7 @@ fn install_macos_launchagent(
 fn remove_macos_launchagent() -> Result<(), String> {
     let path = plist_path();
     if path.exists() {
-        let _ = std::process::Command::new("launchctl")
-            .args(["unload", &path.to_string_lossy()])
-            .output();
+        crate::core::launchd::bootout(LABEL, &path);
         std::fs::remove_file(&path).map_err(|e| format!("Failed to remove plist: {e}"))?;
     }
     Ok(())

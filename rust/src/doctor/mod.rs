@@ -201,6 +201,20 @@ pub fn run() {
     };
     print_check(&config_outcome);
 
+    // 5b) Shell allowlist (effective runtime view + silent-parse-error trap, #341)
+    let allowlist_outcome = shell_allowlist_outcome();
+    if allowlist_outcome.ok {
+        passed += 1;
+    }
+    print_check(&allowlist_outcome);
+
+    // 5c) Compact-format passthrough (preserve already-compact TOON output, #342)
+    let passthrough_outcome = compact_format_passthrough_outcome();
+    if passthrough_outcome.ok {
+        passed += 1;
+    }
+    print_check(&passthrough_outcome);
+
     // 6) Proxy upstreams
     let proxy_outcome = proxy_upstream_outcome();
     if proxy_outcome.ok {
@@ -486,6 +500,8 @@ pub fn run() {
     }
 
     let mut effective_total = total + 10; // session_state + integrity + cache_safety + bm25_health + archive_footprint + daemon + mem_profile + mem_cleanup + ram_guardian + proxy_health
+    effective_total += 1; // shell_allowlist (#341)
+    effective_total += 1; // compact_format_passthrough (#342)
     effective_total += cap_warnings.len() as u32;
     effective_total += docker_outcomes.len() as u32;
     if pi.is_some() {

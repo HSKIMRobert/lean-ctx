@@ -67,7 +67,7 @@ fn compressed_tokens_for(mode: &str, content: &str, path: &str) -> usize {
         "map" => count_tokens(&extract_file_map(path, content)),
         "signatures" => {
             let sigs = extract_signatures(content, ext);
-            let lines: Vec<String> = sigs.iter().map(Signature::to_compact).collect();
+            let lines: Vec<String> = sigs.iter().map(Signature::to_compact_located).collect();
             count_tokens(&render_signatures(&lines))
         }
         "aggressive" => count_tokens(&aggressive_compress(content, Some(ext))),

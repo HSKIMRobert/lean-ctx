@@ -34,9 +34,7 @@ pub fn stop() {
     {
         let plist_path = launchagent_path();
         if plist_path.exists() {
-            let _ = std::process::Command::new("launchctl")
-                .args(["unload", &plist_path.to_string_lossy()])
-                .output();
+            crate::core::launchd::bootout(PLIST_LABEL, &plist_path);
         }
     }
 
@@ -53,9 +51,7 @@ pub fn start() {
     {
         let plist_path = launchagent_path();
         if plist_path.exists() {
-            let _ = std::process::Command::new("launchctl")
-                .args(["load", &plist_path.to_string_lossy()])
-                .output();
+            crate::core::launchd::bootstrap(PLIST_LABEL, &plist_path);
         }
     }
 
@@ -160,27 +156,15 @@ fn install_launchagent(binary: &str, quiet: bool) {
 
     let _ = std::fs::write(&plist_path, &plist);
 
-    let _ = std::process::Command::new("launchctl")
-        .args(["unload", &plist_path.to_string_lossy()])
-        .output();
-    let result = std::process::Command::new("launchctl")
-        .args(["load", "-w", &plist_path.to_string_lossy()])
-        .output();
+    let ok = crate::core::launchd::bootstrap(PLIST_LABEL, &plist_path);
 
     if !quiet {
-        match result {
-            Ok(o) if o.status.success() => {
-                println!("  Installed LaunchAgent: {PLIST_LABEL}");
-                println!("  Daemon will start on login and restart if stopped");
-            }
-            Ok(o) => {
-                let err = String::from_utf8_lossy(&o.stderr);
-                println!("  Created plist but load failed: {err}");
-            }
-            Err(e) => {
-                println!("  Created plist at {}", plist_path.display());
-                println!("  Could not load: {e}");
-            }
+        if ok {
+            println!("  Installed LaunchAgent: {PLIST_LABEL}");
+            println!("  Daemon will start on login and restart if stopped");
+        } else {
+            println!("  Created plist at {}", plist_path.display());
+            println!("  Load reported a problem; check: launchctl print {PLIST_LABEL}");
         }
     }
 }
@@ -194,9 +178,7 @@ fn uninstall_launchagent(quiet: bool) {
         }
         return;
     }
-    let _ = std::process::Command::new("launchctl")
-        .args(["unload", &plist_path.to_string_lossy()])
-        .output();
+    crate::core::launchd::bootout(PLIST_LABEL, &plist_path);
     let _ = std::fs::remove_file(&plist_path);
     if !quiet {
         println!("  Removed daemon LaunchAgent");

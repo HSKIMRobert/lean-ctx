@@ -1,3 +1,4 @@
+mod allow_cmd;
 pub mod audit_report;
 mod cheatsheet_cmd;
 pub mod cloud;
@@ -30,6 +31,7 @@ mod verify_cmd;
 mod visualize_cmd;
 pub(crate) mod wrapped_publish;
 
+pub use allow_cmd::cmd_allow;
 pub use cheatsheet_cmd::*;
 pub use common::load_shell_history_pub;
 pub(crate) use compress_cmd::cmd_compress;

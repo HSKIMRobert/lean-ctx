@@ -28,6 +28,11 @@ pub(super) fn default_theme() -> String {
     "default".to_string()
 }
 
+/// Default compact output formats preserved verbatim instead of recompressed (#342).
+pub(super) fn default_preserve_compact_formats() -> Vec<String> {
+    vec!["toon".to_string()]
+}
+
 pub(super) fn default_buddy_enabled() -> bool {
     true
 }

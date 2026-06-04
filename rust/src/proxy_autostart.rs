@@ -34,9 +34,7 @@ pub fn stop() {
     {
         let plist_path = launchagent_path();
         if plist_path.exists() {
-            let _ = std::process::Command::new("launchctl")
-                .args(["unload", &plist_path.to_string_lossy()])
-                .output();
+            crate::core::launchd::bootout(PLIST_LABEL, &plist_path);
         }
     }
 
@@ -53,9 +51,7 @@ pub fn start() {
     {
         let plist_path = launchagent_path();
         if plist_path.exists() {
-            let _ = std::process::Command::new("launchctl")
-                .args(["load", &plist_path.to_string_lossy()])
-                .output();
+            crate::core::launchd::bootstrap(PLIST_LABEL, &plist_path);
         }
     }
 
@@ -97,15 +93,10 @@ pub fn status() {
         let plist_path = launchagent_path();
         if plist_path.exists() {
             println!("  LaunchAgent: installed at {}", plist_path.display());
-            let output = std::process::Command::new("launchctl")
-                .args(["list", PLIST_LABEL])
-                .output();
-            match output {
-                Ok(o) if o.status.success() => println!("  Status: loaded"),
-                _ => println!(
-                    "  Status: not loaded (run: launchctl load {})",
-                    plist_path.display()
-                ),
+            if crate::core::launchd::is_loaded(PLIST_LABEL) {
+                println!("  Status: loaded");
+            } else {
+                println!("  Status: not loaded (run: lean-ctx proxy start)");
             }
         } else {
             println!("  LaunchAgent: not installed");
@@ -189,29 +180,15 @@ fn install_launchagent(binary: &str, port: u16, quiet: bool) {
 
     let _ = std::fs::write(&plist_path, &plist);
 
-    let _ = std::process::Command::new("launchctl")
-        .args(["unload", &plist_path.to_string_lossy()])
-        .output();
-
-    let result = std::process::Command::new("launchctl")
-        .args(["load", &plist_path.to_string_lossy()])
-        .output();
+    let ok = crate::core::launchd::bootstrap(PLIST_LABEL, &plist_path);
 
     if !quiet {
-        match result {
-            Ok(o) if o.status.success() => {
-                println!("  Installed LaunchAgent: {}", plist_path.display());
-                println!("  Proxy will start on login and restart if stopped");
-            }
-            Ok(o) => {
-                let err = String::from_utf8_lossy(&o.stderr);
-                println!("  Created LaunchAgent but load failed: {err}");
-                println!("  Try: launchctl load {}", plist_path.display());
-            }
-            Err(e) => {
-                println!("  Created LaunchAgent at {}", plist_path.display());
-                println!("  Could not load: {e}");
-            }
+        if ok {
+            println!("  Installed LaunchAgent: {}", plist_path.display());
+            println!("  Proxy will start on login and restart if stopped");
+        } else {
+            println!("  Created LaunchAgent at {}", plist_path.display());
+            println!("  Load reported a problem; check: launchctl print {PLIST_LABEL}");
         }
     }
 }
@@ -226,9 +203,7 @@ fn uninstall_launchagent(quiet: bool) {
         return;
     }
 
-    let _ = std::process::Command::new("launchctl")
-        .args(["unload", &plist_path.to_string_lossy()])
-        .output();
+    crate::core::launchd::bootout(PLIST_LABEL, &plist_path);
 
     let _ = std::fs::remove_file(&plist_path);
     if !quiet {

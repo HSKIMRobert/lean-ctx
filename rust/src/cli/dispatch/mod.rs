@@ -1,6 +1,5 @@
 use crate::{
-    core, doctor, heatmap, hook_handlers, report, setup, shell, status, token_report, tools,
-    uninstall,
+    core, doctor, heatmap, hook_handlers, report, setup, shell, status, token_report, uninstall,
 };
 
 mod analytics;
@@ -135,7 +134,7 @@ pub fn run() {
                 return;
             }
             "cep" => {
-                println!("{}", tools::ctx_gain::handle("score", None, None, Some(10)));
+                println!("{}", core::stats::format_cep_report());
                 return;
             }
             "dashboard" => {
@@ -376,8 +375,8 @@ pub fn run() {
                 return;
             }
             "wrapped" => {
-                super::cmd_wrapped(&rest);
-                return;
+                eprintln!("'lean-ctx wrapped' has been removed. Use: lean-ctx gain --wrapped");
+                std::process::exit(1);
             }
             "sessions" | "session-store" => {
                 super::cmd_sessions(&rest);
@@ -406,6 +405,10 @@ pub fn run() {
             }
             "config" => {
                 super::cmd_config(&rest);
+                return;
+            }
+            "allow" => {
+                super::cmd_allow(&rest);
                 return;
             }
             "stats" => {

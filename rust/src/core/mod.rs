@@ -327,6 +327,8 @@ pub mod io_health;
 pub mod journal;
 pub mod jsonc;
 pub mod language_capabilities;
+#[cfg(target_os = "macos")]
+pub mod launchd;
 pub mod limits;
 pub mod llm_enhance;
 pub mod llm_feedback;

@@ -114,8 +114,22 @@ USAGE:
 COMMANDS:
     gain                           Visual dashboard (colors, bars, sparklines, USD)
     gain --live                    Live mode: auto-refreshes every 1s in-place
+    gain --deep                    Full breakdown (cost + tasks + agents + heatmap combined)
     gain --graph                   30-day savings chart
     gain --daily                   Bordered day-by-day table with USD
+    gain --score                   Gain score breakdown (4 sub-scores + trend)
+    gain --cost                    Agent cost attribution report
+    gain --tasks                   Task breakdown by category
+    gain --agents                  Top agents by tool spend
+    gain --heatmap                 Top files by tokens saved
+    gain --json                    Raw JSON export of all stats
+    gain --pipeline                Pipeline compression stats
+    gain --opportunity             Find missed savings in shell history (replaces discover/ghost)
+    gain --raw [--json]            Plain stats output (machine-friendly)
+    gain --reset                   Clear all token savings data
+    gain --model=<model>           Model for USD pricing calculations
+    gain --period=<week|month|all> Period for wrapped/stats (default: all)
+    gain --limit=<N>               Row limit for tables (default: 10, max: 50)
     gain --wrapped                 Shareable Wrapped card (terminal)
     gain --svg [=<path>]           Shareable Wrapped card as SVG (social/OG image)
     gain --share [=<path>]         Self-hostable Wrapped page (HTML, opt-in permalink)
@@ -125,12 +139,11 @@ COMMANDS:
     gain --publish --leaderboard   Also list the card on the public leaderboard (opt-in)
     gain --unpublish[=<id>]        Remove a published permalink (most recent if no id)
     config set gain.auto_publish true  Auto-(re)publish your recap on each `gain` (opt-in, throttled, off by default)
-    gain --json                    Raw JSON export of all stats
     savings [summary|verify|export|sign|verify-batch] Verified savings ledger (local, signed)
          token-report [--json]          Token + memory report (project + session + CEP)
     pack --pr                      PR Context Pack (changed files, impact, tests, artifacts)
     index <status|build|build-full|watch>  Codebase index utilities
-    cep                            CEP impact report (score trends, cache, modes)
+    cep                            CEP report (compression metrics, cache, modes, trends)
     watch                          Live TUI dashboard (real-time event stream)
     dashboard [--port=N] [--host=H] Open web dashboard (default: http://localhost:3333)
     serve [--host H] [--port N]    MCP over HTTP (Streamable HTTP, local-first)
@@ -139,7 +152,6 @@ COMMANDS:
     daemon start|stop|status       IPC daemon management
     daemon enable|disable          Auto-start daemon on login (systemd/LaunchAgent)
     cache [list|clear|stats]       Show/manage file read cache
-    wrapped [--week|--month|--all] Deprecated alias for gain --wrapped
     sessions [list|show|cleanup]   Manage saved CCP session snapshots (alias: session-store)
     benchmark run [path] [--json]  Run real benchmark on project files
     benchmark report [path]        Generate shareable Markdown report

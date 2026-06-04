@@ -6,8 +6,10 @@ use crate::server::tool_trait::{get_str, McpTool, ToolContext, ToolOutput};
 use crate::tool_defs::tool_def;
 
 /// A `shell` tool alias that transparently delegates to `ctx_shell`'s compression
-/// logic. Registered conditionally for clients (like Codex Desktop) whose agent
-/// model prefers a tool named `shell` / `bash` over `ctx_shell`.
+/// logic. Registered for all MCP clients (see `server::registry`); it exists for
+/// clients (like Codex Desktop) whose agent model prefers a tool named `shell` /
+/// `bash` over `ctx_shell` and would otherwise fall back to a native, uncompressed
+/// shell tool.
 ///
 /// This solves the "Codex Desktop doesn't compress" issue (#337): the Desktop app
 /// loads the MCP server but the agent ignores `ctx_shell` and uses its native

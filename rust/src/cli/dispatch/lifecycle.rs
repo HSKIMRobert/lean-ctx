@@ -165,39 +165,20 @@ pub(super) fn cmd_dev_install() {
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
 
-    let old_path = install_path.with_extension("old");
-    if install_path.exists() {
-        if let Err(e) = std::fs::rename(&install_path, &old_path) {
-            eprintln!("  Warning: rename existing binary: {e}");
-        }
+    if let Err(e) = atomic_install_binary(&built_binary, &install_path) {
+        eprintln!("  Error: {e}");
+        std::process::exit(1);
     }
+    eprintln!("  ✓ Binary installed.");
 
-    match std::fs::copy(&built_binary, &install_path) {
-        Ok(_) => {
-            let _ = std::fs::remove_file(&old_path);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ =
-                    std::fs::set_permissions(&install_path, std::fs::Permissions::from_mode(0o755));
-            }
-            eprintln!("  ✓ Binary installed.");
-        }
-        Err(e) => {
-            eprintln!("  Error: copy failed: {e}");
-            if old_path.exists() {
-                let _ = std::fs::rename(&old_path, &install_path);
-                eprintln!("  Rolled back to previous binary.");
-            }
-            std::process::exit(1);
-        }
-    }
-
-    let version = std::process::Command::new(&install_path)
-        .arg("--version")
-        .output()
+    // Verify under a hard timeout — a broken/hanging binary must never wedge
+    // the install (which previously left users having to reboot).
+    let mut verify = std::process::Command::new(&install_path);
+    verify.arg("--version");
+    let version = ipc::process::run_with_timeout(verify, std::time::Duration::from_secs(10))
+        .filter(|o| o.status.success())
         .map_or_else(
-            |_| "unknown".to_string(),
+            || "unknown (version check timed out)".to_string(),
             |o| String::from_utf8_lossy(&o.stdout).trim().to_string(),
         );
 
@@ -216,6 +197,45 @@ pub(super) fn cmd_dev_install() {
             Err(e) => eprintln!("  Warning: daemon start: {e} (will be started by editor)"),
         }
     }
+}
+
+/// Atomically install `src` to `dst`, staging through a temp file in the same
+/// directory so readers never observe a half-written binary.
+///
+/// On macOS the destination inode is unlinked first: running processes keep
+/// their already-mapped pages from the deleted inode, while the fresh file lands
+/// at the path with a new inode. Overwriting a running Mach-O in place (e.g.
+/// plain `cp`) instead triggers an `ETXTBSY`/SIGKILL crash-loop — the root cause
+/// of the "everything hangs after a binary update" reboots. The new binary is
+/// re-codesigned ad-hoc so Gatekeeper accepts it.
+fn atomic_install_binary(src: &std::path::Path, dst: &std::path::Path) -> Result<(), String> {
+    let staged = dst.with_extension("new");
+    let _ = std::fs::remove_file(&staged);
+    std::fs::copy(src, &staged).map_err(|e| format!("staging copy failed: {e}"))?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755))
+            .map_err(|e| format!("chmod failed: {e}"))?;
+    }
+
+    #[cfg(target_os = "macos")]
+    let _ = std::fs::remove_file(dst);
+
+    if let Err(e) = std::fs::rename(&staged, dst) {
+        let _ = std::fs::remove_file(&staged);
+        return Err(format!("atomic rename failed: {e}"));
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("codesign")
+            .args(["--force", "-s", "-", &dst.display().to_string()])
+            .output();
+    }
+
+    Ok(())
 }
 
 pub(super) fn find_cargo_project_root() -> Option<std::path::PathBuf> {

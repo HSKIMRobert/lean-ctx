@@ -505,20 +505,10 @@ fn restart_managed_proxy() -> bool {
             .unwrap_or_default()
             .join("Library/LaunchAgents/com.leanctx.proxy.plist");
         if plist_path.exists() {
-            let plist_str = plist_path.to_string_lossy().to_string();
-            let _ = std::process::Command::new("launchctl")
-                .args(["unload", &plist_str])
-                .output();
-            let result = std::process::Command::new("launchctl")
-                .args(["load", &plist_str])
-                .output();
-            match result {
-                Ok(o) if o.status.success() => {
-                    println!("  \x1b[32m✓\x1b[0m Proxy restarted (LaunchAgent)");
-                }
-                _ => {
-                    println!("  \x1b[33m⚠\x1b[0m Could not restart proxy LaunchAgent");
-                }
+            if crate::core::launchd::bootstrap("com.leanctx.proxy", &plist_path) {
+                println!("  \x1b[32m✓\x1b[0m Proxy restarted (LaunchAgent)");
+            } else {
+                println!("  \x1b[33m⚠\x1b[0m Could not restart proxy LaunchAgent");
             }
             return true;
         }
