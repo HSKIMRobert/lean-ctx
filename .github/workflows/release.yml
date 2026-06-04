@@ -3,7 +3,10 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      # Only true semver release tags (v1.2.3). The digit class deliberately
+      # excludes the editor-extension tags (`vscode-v*`), which have their own
+      # workflow (publish-vscode.yml) and must NOT trigger a binary release.
+      - 'v[0-9]*'
 
 permissions:
   contents: write
