@@ -16,6 +16,27 @@ use ratatui::Terminal;
 use std::io::stdout;
 use std::time::{Duration, Instant};
 
+fn tui_colors() -> TuiTheme {
+    let t = crate::core::theme::load_theme(&crate::core::config::Config::load().theme);
+    let to_ratatui = |c: &crate::core::theme::Color| {
+        let (r, g, b) = c.rgb();
+        Color::Rgb(r, g, b)
+    };
+    TuiTheme {
+        green: to_ratatui(&t.success),
+        muted: to_ratatui(&t.muted),
+        surface: to_ratatui(&t.surface),
+        bg: to_ratatui(&t.background),
+    }
+}
+
+struct TuiTheme {
+    green: Color,
+    muted: Color,
+    surface: Color,
+    bg: Color,
+}
+
 const GREEN: Color = Color::Rgb(52, 211, 153);
 const PURPLE: Color = Color::Rgb(129, 140, 248);
 const BLUE: Color = Color::Rgb(56, 189, 248);
@@ -37,6 +58,57 @@ struct AppState {
     last_gain_refresh: Instant,
     quit: bool,
     focus: usize,
+    filter: EventFilter,
+    search_query: String,
+    search_active: bool,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum EventFilter {
+    All,
+    Reads,
+    Shell,
+    Cache,
+    Errors,
+}
+
+impl EventFilter {
+    fn label(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::Reads => "reads",
+            Self::Shell => "shell",
+            Self::Cache => "cache",
+            Self::Errors => "errors",
+        }
+    }
+
+    fn next(self) -> Self {
+        match self {
+            Self::All => Self::Reads,
+            Self::Reads => Self::Shell,
+            Self::Shell => Self::Cache,
+            Self::Cache => Self::Errors,
+            Self::Errors => Self::All,
+        }
+    }
+
+    fn matches(self, ev: &EventKind) -> bool {
+        match self {
+            Self::All => true,
+            Self::Reads => matches!(ev, EventKind::ToolCall { tool, .. } if tool.contains("read")),
+            Self::Shell => matches!(ev, EventKind::ToolCall { tool, .. } if tool.contains("shell")),
+            Self::Cache => matches!(ev, EventKind::CacheHit { .. }),
+            Self::Errors => matches!(
+                ev,
+                EventKind::BudgetExhausted { .. }
+                    | EventKind::PolicyViolation { .. }
+                    | EventKind::SloViolation { .. }
+                    | EventKind::BudgetWarning { .. }
+                    | EventKind::VerificationWarning { .. }
+            ),
+        }
+    }
 }
 
 struct FileHeat {
@@ -75,6 +147,9 @@ impl AppState {
             last_gain_refresh: Instant::now(),
             quit: false,
             focus: 0,
+            filter: EventFilter::All,
+            search_query: String::new(),
+            search_active: false,
         }
     }
 
@@ -169,15 +244,31 @@ pub fn run() -> anyhow::Result<()> {
         if event::poll(timeout)? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
-                    match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc => state.quit = true,
-                        KeyCode::Tab => state.focus = (state.focus + 1) % 5,
-                        KeyCode::Char('1') => state.focus = 0,
-                        KeyCode::Char('2') => state.focus = 1,
-                        KeyCode::Char('3') => state.focus = 2,
-                        KeyCode::Char('4') => state.focus = 3,
-                        KeyCode::Char('5') => state.focus = 4,
-                        _ => {}
+                    if state.search_active {
+                        match key.code {
+                            KeyCode::Esc | KeyCode::Enter => state.search_active = false,
+                            KeyCode::Backspace => {
+                                state.search_query.pop();
+                            }
+                            KeyCode::Char(c) => state.search_query.push(c),
+                            _ => {}
+                        }
+                    } else {
+                        match key.code {
+                            KeyCode::Char('q') | KeyCode::Esc => state.quit = true,
+                            KeyCode::Tab => state.focus = (state.focus + 1) % 5,
+                            KeyCode::Char('1') => state.focus = 0,
+                            KeyCode::Char('2') => state.focus = 1,
+                            KeyCode::Char('3') => state.focus = 2,
+                            KeyCode::Char('4') => state.focus = 3,
+                            KeyCode::Char('5') => state.focus = 4,
+                            KeyCode::Char('f') => state.filter = state.filter.next(),
+                            KeyCode::Char('/') => {
+                                state.search_active = true;
+                                state.search_query.clear();
+                            }
+                            _ => {}
+                        }
                     }
                 }
             }
@@ -203,6 +294,7 @@ pub fn run() -> anyhow::Result<()> {
 }
 
 fn draw(f: &mut ratatui::Frame, state: &AppState) {
+    let tc = tui_colors();
     let size = f.area();
 
     let header_body = Layout::default()
@@ -225,17 +317,19 @@ fn draw(f: &mut ratatui::Frame, state: &AppState) {
     let right = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Percentage(38),
-            Constraint::Percentage(37),
-            Constraint::Percentage(25),
+            Constraint::Length(5),
+            Constraint::Percentage(35),
+            Constraint::Percentage(35),
+            Constraint::Min(0),
         ])
         .split(columns[1]);
 
     draw_live_feed(f, left[0], state);
     draw_heatmap(f, left[1], state);
-    draw_savings(f, right[0], state);
-    draw_session(f, right[1], state);
-    draw_task_activity(f, right[2], state);
+    draw_gain_score_widget(f, right[0], state, &tc);
+    draw_savings(f, right[1], state);
+    draw_session(f, right[2], state);
+    draw_task_activity(f, right[3], state);
 }
 
 fn draw_header(f: &mut ratatui::Frame, area: Rect, state: &AppState) {
@@ -247,7 +341,7 @@ fn draw_header(f: &mut ratatui::Frame, area: Rect, state: &AppState) {
     let pricing = ModelPricing::load();
     let quote = pricing.quote(env_model.as_deref());
     let cost = format!(
-        "${:.3}",
+        "${:.2}",
         state.total_saved as f64 * quote.cost.input_per_m / 1_000_000.0
     );
     let gain_score = state.gain_score.as_ref().map_or(0, |s| s.total);
@@ -290,6 +384,57 @@ fn draw_header(f: &mut ratatui::Frame, area: Rect, state: &AppState) {
             .border_style(Style::default().fg(Color::Rgb(30, 30, 50))),
     );
     f.render_widget(header, area);
+}
+
+fn draw_gain_score_widget(f: &mut ratatui::Frame, area: Rect, state: &AppState, tc: &TuiTheme) {
+    let gain_score = state.gain_score.as_ref().map_or(0, |s| s.total);
+    let default_lvl = crate::core::gain::gain_score::GainLevel {
+        level: 0,
+        title: "Novice",
+        min_score: 0,
+    };
+    let lvl = state
+        .gain_score
+        .as_ref()
+        .map_or(default_lvl, crate::core::gain::gain_score::GainScore::level);
+
+    let block = Block::default()
+        .title(Span::styled(
+            " Gain Score ",
+            Style::default().fg(tc.green).add_modifier(Modifier::BOLD),
+        ))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Rgb(30, 30, 50)))
+        .style(Style::default().bg(tc.surface));
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Length(2)])
+        .split(inner);
+
+    let score_line = Line::from(vec![
+        Span::styled(
+            format!(" {gain_score}/100 "),
+            Style::default().fg(tc.green).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!("Lv{} {}", lvl.level, lvl.title),
+            Style::default().fg(tc.muted),
+        ),
+    ]);
+    f.render_widget(Paragraph::new(score_line), chunks[0]);
+
+    let ratio = (gain_score as f64 / 100.0).min(1.0);
+    f.render_widget(
+        Gauge::default()
+            .ratio(ratio)
+            .gauge_style(Style::default().fg(tc.green).bg(tc.bg))
+            .label(format!("{gain_score}%")),
+        chunks[1],
+    );
 }
 
 fn draw_task_activity(f: &mut ratatui::Frame, area: Rect, state: &AppState) {
@@ -343,11 +488,30 @@ fn draw_task_activity(f: &mut ratatui::Frame, area: Rect, state: &AppState) {
 }
 
 fn draw_live_feed(f: &mut ratatui::Frame, area: Rect, state: &AppState) {
-    let block = Block::default()
-        .title(Span::styled(
-            " Live Feed ",
+    let filter_label = if state.filter == EventFilter::All {
+        " Live Feed ".to_string()
+    } else {
+        format!(" Live Feed [{}] ", state.filter.label())
+    };
+    let title_spans = if state.search_active {
+        vec![
+            Span::styled(
+                filter_label,
+                Style::default().fg(GREEN).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!(" /{}", state.search_query),
+                Style::default().fg(YELLOW),
+            ),
+        ]
+    } else {
+        vec![Span::styled(
+            filter_label,
             Style::default().fg(GREEN).add_modifier(Modifier::BOLD),
-        ))
+        )]
+    };
+    let block = Block::default()
+        .title(Line::from(title_spans))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(if state.focus == 0 {
             GREEN
@@ -356,9 +520,52 @@ fn draw_live_feed(f: &mut ratatui::Frame, area: Rect, state: &AppState) {
         }))
         .style(Style::default().bg(SURFACE));
 
+    if state.events.is_empty() {
+        let msg = Paragraph::new(vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Waiting for events...",
+                Style::default().fg(MUTED),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Use lean-ctx in your editor or run:",
+                Style::default().fg(MUTED),
+            )),
+            Line::from(Span::styled(
+                "  lean-ctx -c \"git status\"",
+                Style::default().fg(BLUE),
+            )),
+        ])
+        .block(block);
+        f.render_widget(msg, area);
+        return;
+    }
+
     let visible = area.height.saturating_sub(2) as usize;
-    let start = state.events.len().saturating_sub(visible);
-    let items: Vec<ListItem> = state.events[start..]
+    let filtered_events: Vec<&LeanCtxEvent> = state
+        .events
+        .iter()
+        .filter(|ev| state.filter.matches(&ev.kind))
+        .filter(|ev| {
+            if state.search_query.is_empty() {
+                return true;
+            }
+            let q = &state.search_query;
+            match &ev.kind {
+                EventKind::ToolCall { tool, path, .. } => {
+                    tool.contains(q.as_str())
+                        || path.as_ref().is_some_and(|p| p.contains(q.as_str()))
+                }
+                EventKind::CacheHit { path, .. } | EventKind::Compression { path, .. } => {
+                    path.contains(q.as_str())
+                }
+                _ => false,
+            }
+        })
+        .collect();
+    let start = filtered_events.len().saturating_sub(visible);
+    let items: Vec<ListItem> = filtered_events[start..]
         .iter()
         .rev()
         .map(|ev| {
@@ -703,7 +910,7 @@ fn draw_session(f: &mut ratatui::Frame, area: Rect, state: &AppState) {
         ]),
         Line::from(""),
         Line::from(Span::styled(
-            "  q=quit Tab=focus 1-4=panel",
+            "  q=quit Tab=focus 1-5=panel f=filter /=search",
             Style::default().fg(Color::Rgb(50, 50, 70)),
         )),
     ];
@@ -739,6 +946,9 @@ mod tests {
             last_gain_refresh: Instant::now(),
             quit: false,
             focus: 0,
+            filter: EventFilter::All,
+            search_query: String::new(),
+            search_active: false,
         }
     }
 
@@ -782,5 +992,59 @@ mod tests {
         let entry = s.files.get("src/lib.rs").expect("file entry missing");
         assert_eq!(entry.access_count, 1);
         assert_eq!(entry.tokens_saved, 0);
+    }
+
+    /// Renders the full observatory layout off-screen and verifies every panel
+    /// is laid out without panicking. Run with `--nocapture` to eyeball the grid.
+    #[test]
+    fn dashboard_snapshot_renders_all_panels() {
+        use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
+
+        let mut state = mk_state();
+        state.total_saved = 515_300_000;
+        state.total_original = 752_000_000;
+        state.total_calls = 22_599;
+        state.ingest(vec![
+            LeanCtxEvent {
+                id: 1,
+                timestamp: "2026-06-03T20:00".to_string(),
+                kind: EventKind::ToolCall {
+                    tool: "ctx_read".to_string(),
+                    tokens_original: 4200,
+                    tokens_saved: 3360,
+                    mode: Some("map".to_string()),
+                    duration_ms: 5,
+                    path: Some("src/core/stats/format.rs".to_string()),
+                },
+            },
+            LeanCtxEvent {
+                id: 2,
+                timestamp: "2026-06-03T20:01".to_string(),
+                kind: EventKind::CacheHit {
+                    path: "src/core/theme.rs".to_string(),
+                    saved_tokens: 1200,
+                },
+            },
+        ]);
+
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).expect("terminal");
+        terminal
+            .draw(|f| draw(f, &state))
+            .expect("draw must not panic");
+
+        let backend = terminal.backend();
+        println!("{backend:?}");
+
+        let text: String = backend
+            .buffer()
+            .content
+            .iter()
+            .map(ratatui::buffer::Cell::symbol)
+            .collect();
+        assert!(text.contains("LeanCTX"), "header brand missing from render");
+        assert!(text.contains("Gain Score"), "gain score panel missing");
+        assert!(text.contains("Heatmap"), "heatmap panel missing");
     }
 }

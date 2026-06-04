@@ -35,17 +35,6 @@ pub(super) fn format_pct_1dp(val: f64) -> String {
     }
 }
 
-pub(super) fn format_savings_pct(saved: u64, input: u64) -> String {
-    if input == 0 {
-        if saved > 0 {
-            return "n/a".to_string();
-        }
-        return "0.0%".to_string();
-    }
-    let rate = saved as f64 / input as f64 * 100.0;
-    format_pct_1dp(rate)
-}
-
 fn format_big(n: u64) -> String {
     if n >= 1_000_000 {
         format!("{:.1}M", n as f64 / 1_000_000.0)
@@ -270,50 +259,60 @@ pub fn format_cep_report() -> String {
     let sec = theme.secondary.fg();
     let wrn = theme.warning.fg();
 
+    let cep_w = 60;
+    let cep_ss = theme.box_side_square();
+    let cep_line = |content: &str| -> String {
+        let padded = theme::pad_right(content, cep_w);
+        format!("  {cep_ss}{padded}{cep_ss}")
+    };
+
     out.push(String::new());
+    out.push(format!("  {}", theme.box_top(cep_w)));
+    let cep_side = theme.box_side();
     out.push(format!(
-        "  {icon} {brand} {cep}  {dim}Cognitive Efficiency Protocol Report{rst}",
-        icon = theme.header_icon(),
-        brand = theme.brand_title(),
-        cep = theme.section_title("CEP"),
+        "  {cep_side}{}{cep_side}",
+        theme::pad_right(
+            &format!(
+                "  {icon}  {brand}  {dim}CEP Report{rst}",
+                icon = theme.header_icon(),
+                brand = theme.brand_title(),
+            ),
+            cep_w,
+        )
     ));
-    out.push(format!("  {ln}", ln = theme.border_line(56)));
+    out.push(format!("  {}", theme.box_bottom(cep_w)));
     out.push(String::new());
 
-    out.push(format!(
-        "  {bold}{txt}CEP Score{rst}         {bold}{pc}{:>3}/100{rst}  {dim}(avg: {avg_score:.0}, latest: {latest_score}){rst}",
-        latest_score,
-        pc = theme.pct_color(latest_score as f64),
-    ));
-    out.push(format!(
-        "  {bold}{txt}Sessions{rst}          {bold}{sec}{}{rst}",
-        cep.sessions
-    ));
-    out.push(format!(
-        "  {bold}{txt}Cache Hit Rate{rst}    {bold}{pc}{:.1}%{rst}  {dim}({} hits / {} reads){rst}",
-        cache_hit_rate,
-        cep.total_cache_hits,
-        cep.total_cache_reads,
+    let score_ratio = (latest_score as f64 / 100.0).min(1.0);
+    let score_bar = theme.gradient_bar(score_ratio, 20);
+    let score_pc = theme.pct_color(latest_score as f64);
+
+    out.push(format!("  {}", theme.box_top_labeled(cep_w, "CEP SCORE")));
+    out.push(cep_line(&format!(
+        "  {score_bar}  {score_pc}{bold}{latest_score}/100{rst}  {dim}avg: {avg_score:.0}{rst}"
+    )));
+    out.push(cep_line(&format!(
+        "  {bold}{txt}Sessions{rst} {sec}{}{rst}  {bold}{txt}Cache{rst} {pc}{cache_hit_rate:.1}%{rst}  {bold}{txt}Compression{rst} {pc2}{overall_compression:.1}%{rst}",
+        cep.sessions,
         pc = theme.pct_color(cache_hit_rate),
-    ));
-    out.push(format!(
-        "  {bold}{txt}MCP Compression{rst}   {bold}{pc}{:.1}%{rst}  {dim}({} → {}){rst}",
-        overall_compression,
+        pc2 = theme.pct_color(overall_compression),
+    )));
+    out.push(cep_line(&format!(
+        "  {bold}{txt}Saved{rst} {sc}{}{rst} {dim}({} → {} · ≈ {}){rst}",
+        format_big(total_saved),
         format_big(cep.total_tokens_original),
         format_big(cep.total_tokens_compressed),
-        pc = theme.pct_color(overall_compression),
-    ));
-    out.push(format!(
-        "  {bold}{txt}Tokens Saved{rst}      {bold}{sc}{}{rst}  {dim}(≈ {}){rst}",
-        format_big(total_saved),
         usd_estimate(total_saved),
-    ));
+    )));
+    out.push(format!("  {}", theme.box_bottom_square(cep_w)));
     out.push(String::new());
 
-    out.push(format!("  {}", theme.section_title("Savings Breakdown")));
-    out.push(format!("  {ln}", ln = theme.border_line(56)));
+    out.push(format!(
+        "  {}",
+        theme.box_top_labeled(cep_w, "SAVINGS BREAKDOWN")
+    ));
 
-    let bar_w = 30;
+    let bar_w = 26;
     let shell_ratio = if total_all_saved > 0 {
         shell_saved as f64 / total_all_saved as f64
     } else {
@@ -326,18 +325,20 @@ pub fn format_cep_report() -> String {
     };
     let m = theme.muted.fg();
     let shell_bar = theme::pad_right(&theme.gradient_bar(shell_ratio, bar_w), bar_w);
-    let shell_pct_val = (1.0 - cep_share) * 100.0;
-    let shell_pct_display = format_pct_1dp(shell_pct_val);
-    out.push(format!(
-        "  {m}Shell Hook{rst}   {shell_bar} {bold}{:>6}{rst} {dim}({shell_pct_display}){rst}",
+    // `cep_share` is already a percentage (0..100), so the shell share is its
+    // complement — not `(1.0 - cep_share) * 100`, which produced absurd values.
+    let shell_pct_display = format_pct_1dp(100.0 - cep_share);
+    out.push(cep_line(&format!(
+        "  {m}Shell Hook{rst}  {shell_bar} {bold}{:>6}{rst} {dim}({shell_pct_display}){rst}",
         format_big(shell_saved),
-    ));
+    )));
     let cep_bar = theme::pad_right(&theme.gradient_bar(cep_ratio, bar_w), bar_w);
-    let cep_pct_display = format_pct_1dp(cep_share * 100.0);
-    out.push(format!(
-        "  {m}MCP/CEP{rst}      {cep_bar} {bold}{:>6}{rst} {dim}({cep_pct_display}){rst}",
+    let cep_pct_display = format_pct_1dp(cep_share);
+    out.push(cep_line(&format!(
+        "  {m}MCP/CEP{rst}     {cep_bar} {bold}{:>6}{rst} {dim}({cep_pct_display}){rst}",
         format_big(total_saved),
-    ));
+    )));
+    out.push(format!("  {}", theme.box_bottom_square(cep_w)));
     out.push(String::new());
 
     if total_saved == 0 && cep.modes.is_empty() {
@@ -371,18 +372,19 @@ pub fn format_cep_report() -> String {
     }
 
     if !cep.modes.is_empty() {
-        out.push(format!("  {}", theme.section_title("Read Modes Used")));
-        out.push(format!("  {ln}", ln = theme.border_line(56)));
+        out.push(format!("  {}", theme.box_top_labeled(cep_w, "READ MODES")));
 
         let mut sorted_modes: Vec<_> = cep.modes.iter().collect();
         sorted_modes.sort_by_key(|item| std::cmp::Reverse(*item.1));
-        let max_mode = *sorted_modes.first().map_or(&1, |(_, c)| *c);
-        let max_mode = max_mode.max(1);
+        let max_mode = (*sorted_modes.first().map_or(&1, |(_, c)| *c)).max(1);
 
         for (mode, count) in &sorted_modes {
             let ratio = **count as f64 / max_mode as f64;
             let bar = theme::pad_right(&theme.gradient_bar(ratio, 20), 20);
-            out.push(format!("  {sec}{mode:<14}{rst} {count:>4}x  {bar}"));
+            let mode_disp = theme::truncate_visual(mode.as_str(), 16);
+            out.push(cep_line(&format!(
+                "  {sec}{mode_disp:<16}{rst} {count:>4}x  {bar}"
+            )));
         }
 
         let total_mode_calls: u64 = sorted_modes.iter().map(|(_, c)| **c).sum();
@@ -393,50 +395,62 @@ pub fn format_cep_report() -> String {
         } else {
             0.0
         };
-        out.push(format!(
-            "  {dim}{optimized}/{total_mode_calls} reads used optimized modes ({opt_pct:.0}% non-full){rst}"
-        ));
+        out.push(cep_line(&format!(
+            "  {dim}{optimized}/{total_mode_calls} reads optimized \u{00b7} {opt_pct:.0}% non-full{rst}"
+        )));
+        out.push(format!("  {}", theme.box_bottom_square(cep_w)));
+        out.push(String::new());
     }
 
     if cep.scores.len() >= 2 {
-        out.push(String::new());
-        out.push(format!("  {}", theme.section_title("CEP Score Trend")));
-        out.push(format!("  {ln}", ln = theme.border_line(56)));
+        out.push(format!("  {}", theme.box_top_labeled(cep_w, "SCORE TREND")));
 
         let score_values: Vec<u64> = cep.scores.iter().map(|s| s.score as u64).collect();
-        let spark = theme.gradient_sparkline(&score_values);
-        out.push(format!("  {spark}"));
+        // Cap to the most recent points so the sparkline fits inside the box.
+        let spark_vals: Vec<u64> = score_values.iter().rev().take(54).rev().copied().collect();
+        let spark = theme.gradient_sparkline(&spark_vals);
+        out.push(cep_line(&format!("  {spark}")));
 
         let recent: Vec<_> = cep.scores.iter().rev().take(5).collect();
         for snap in recent.iter().rev() {
             let ts = snap.timestamp.get(..16).unwrap_or(&snap.timestamp);
             let pc = theme.pct_color(snap.score as f64);
-            out.push(format!(
-                "  {m}{ts}{rst}  {pc}{bold}{:>3}{rst}/100  cache:{:>3}%  modes:{:>3}%  {dim}{}{rst}",
-                snap.score, snap.cache_hit_rate, snap.mode_diversity, snap.complexity,
-            ));
+            let cplx = theme::truncate_visual(&snap.complexity, 14);
+            out.push(cep_line(&format!(
+                "  {m}{ts}{rst}  {pc}{bold}{:>3}{rst}/100  {dim}cache {:>3}%  {cplx}{rst}",
+                snap.score, snap.cache_hit_rate,
+            )));
         }
+        out.push(format!("  {}", theme.box_bottom_square(cep_w)));
+        out.push(String::new());
     }
 
-    out.push(String::new());
-    out.push(format!("  {ln}", ln = theme.border_line(56)));
-    out.push(format!("  {dim}Improve your CEP score:{rst}"));
+    out.push(format!("  {}", theme.box_top_labeled(cep_w, "IMPROVE")));
+    let mut tips: Vec<String> = Vec::new();
     if cache_hit_rate < 50.0 {
-        out.push(format!(
-            "    {wrn}↑{rst} Re-read files with ctx_read to leverage caching"
+        tips.push(format!(
+            "  {wrn}\u{2191}{rst} Re-read files with ctx_read to leverage caching"
         ));
     }
-    let modes_count = cep.modes.len();
-    if modes_count < 3 {
-        out.push(format!(
-            "    {wrn}↑{rst} Use map/signatures modes for context-only files"
+    if cep.modes.len() < 3 {
+        tips.push(format!(
+            "  {wrn}\u{2191}{rst} Use map/signatures modes for context-only files"
         ));
     }
     if avg_score >= 70.0 {
-        out.push(format!(
-            "    {sc}✓{rst} Great score! You're using lean-ctx effectively"
+        tips.push(format!(
+            "  {sc}\u{2713}{rst} Great score! You're using lean-ctx effectively"
         ));
     }
+    if tips.is_empty() {
+        tips.push(format!(
+            "  {sc}\u{2713}{rst} Solid usage \u{2014} keep leaning on cached, compressed reads"
+        ));
+    }
+    for tip in tips {
+        out.push(cep_line(&tip));
+    }
+    out.push(format!("  {}", theme.box_bottom_square(cep_w)));
     out.push(String::new());
 
     out.join("\n")
@@ -452,9 +466,185 @@ pub fn format_gain_themed(t: &Theme) -> String {
     format_gain_themed_at(t, None)
 }
 
-/// Renders the token savings dashboard at a specific animation tick.
-#[allow(clippy::many_single_char_names)] // ANSI formatting: t=theme, r=reset, b=bold, d=dim
+/// Renders the concise "hero" gain output — 3 key metrics, gain score, trend, next actions.
+pub fn format_gain_hero() -> String {
+    format_gain_hero_themed(&active_theme())
+}
+
+/// Hero gain with specific theme.
+pub fn format_gain_hero_themed(t: &Theme) -> String {
+    let store = super::load();
+    let rst = theme::rst();
+    let bold = theme::bold();
+    let dim = theme::dim();
+
+    if store.total_commands == 0 {
+        return format_gain_themed_at(t, None);
+    }
+
+    let input_saved = store
+        .total_input_tokens
+        .saturating_sub(store.total_output_tokens);
+    let pct = if store.total_input_tokens > 0 {
+        input_saved as f64 / store.total_input_tokens as f64 * 100.0
+    } else {
+        0.0
+    };
+    let cost_model = CostModel::default();
+    let cost = cost_model.calculate(&store);
+
+    let engine = crate::core::gain::GainEngine::load();
+    let score = engine.gain_score(None);
+
+    let w = 57;
+    let side = t.box_side();
+    let box_line = |content: &str| -> String {
+        let padded = theme::pad_right(content, w);
+        format!("  {side}{padded}{side}")
+    };
+
+    let mut out = Vec::new();
+    out.push(String::new());
+    out.push(format!("  {}", t.box_top(w)));
+    out.push(box_line(&format!(
+        "  {icon}  {title}",
+        icon = t.header_icon(),
+        title = t.brand_title(),
+    )));
+    out.push(box_line(""));
+
+    let c1 = t.success.fg();
+    let c2 = t.secondary.fg();
+    let c4 = t.accent.fg();
+    let tok_val = format_big(input_saved);
+    let pct_val = format!("{pct:.0}%");
+    let usd_val = format_usd(cost.total_saved);
+
+    let kw = 18;
+    let v1 = theme::pad_right(&format!("{c1}{bold}{tok_val}{rst}"), kw);
+    let v2 = theme::pad_right(&format!("{c2}{bold}{pct_val}{rst}"), kw);
+    let v3 = theme::pad_right(&format!("{c4}{bold}{usd_val}{rst}"), kw);
+    out.push(box_line(&format!("  {v1}{v2}{v3}")));
+
+    let ul1 = theme::pad_right(&t.kpi_underline(tok_val.len(), &t.success), kw);
+    let ul2 = theme::pad_right(&t.kpi_underline(pct_val.len(), &t.secondary), kw);
+    let ul3 = theme::pad_right(&t.kpi_underline(usd_val.len(), &t.accent), kw);
+    out.push(box_line(&format!("  {ul1}{ul2}{ul3}")));
+
+    let l1 = theme::pad_right(&format!("{dim}tokens saved{rst}"), kw);
+    let l2 = theme::pad_right(&format!("{dim}compression{rst}"), kw);
+    let l3 = theme::pad_right(&format!("{dim}USD saved{rst}"), kw);
+    out.push(box_line(&format!("  {l1}{l2}{l3}")));
+    out.push(box_line(""));
+
+    let score_bar_w = 30;
+    let score_ratio = (score.total as f64 / 100.0).min(1.0);
+    let bar = t.gradient_bar(score_ratio, score_bar_w);
+    let sc_color = t.pct_color(score.total as f64);
+    let lvl = score.level();
+    out.push(box_line(&format!(
+        "  {bar}  {sc_color}{bold}{}/100{rst}  Lv{} {dim}{}{rst}",
+        score.total, lvl.level, lvl.title,
+    )));
+    out.push(box_line(""));
+
+    if store.daily.len() >= 2 {
+        let daily_savings: Vec<u64> = store
+            .daily
+            .iter()
+            .map(|d| d.input_tokens.saturating_sub(d.output_tokens))
+            .collect();
+        let spark = t.gradient_sparkline(&daily_savings);
+        let trend_str = trend_string(&store, &c1, &t.warning.fg(), rst);
+        out.push(box_line(&format!(
+            "  {dim}trend:{rst} {spark}  {trend_str}"
+        )));
+    }
+
+    if input_saved > 0 {
+        let energy_str = crate::core::energy::format_for_tokens(input_saved);
+        let charges = crate::core::energy::phone_charges_hint(input_saved)
+            .map(|h| format!(" ({h})"))
+            .unwrap_or_default();
+        out.push(box_line(&format!(
+            "  {dim}energy:{rst} {c1}{energy_str}{rst}{dim}{charges}{rst}"
+        )));
+    }
+
+    out.push(format!("  {}", t.box_bottom(w)));
+    out.push(String::new());
+
+    // Weekly nudge: after 7 days of data, if user hasn't published, show a prominent card
+    if store.daily.len() >= 7 && !crate::cli::wrapped_publish::has_published() {
+        let week_saved: u64 = store
+            .daily
+            .iter()
+            .rev()
+            .take(7)
+            .map(|d| d.input_tokens.saturating_sub(d.output_tokens))
+            .sum();
+        if week_saved > 0 {
+            let accent = t.accent.fg();
+            out.push(format!("  {}", t.box_top(42)));
+            let nside = t.box_side();
+            out.push(format!(
+                "  {nside} {accent}{bold}Your first week!{rst}                          {nside}"
+            ));
+            out.push(format!(
+                "  {nside} You saved {c1}{bold}{}{rst} tokens this week.      {nside}",
+                crate::core::wrapped::format_tokens(week_saved),
+            ));
+            out.push(format!(
+                "  {nside} Share your card? {sec}lean-ctx gain --wrapped{rst} {nside}",
+                sec = t.secondary.fg(),
+            ));
+            out.push(format!("  {}", t.box_bottom(42)));
+            out.push(String::new());
+        }
+    }
+
+    let sec = t.secondary.fg();
+    out.push(format!(
+        "  {sec}lean-ctx gain --deep{rst}     {dim}Full breakdown{rst}"
+    ));
+    out.push(format!(
+        "  {sec}lean-ctx gain --wrapped{rst}  {dim}Shareable card{rst}"
+    ));
+    out.push(format!(
+        "  {sec}lean-ctx watch{rst}           {dim}Live observatory{rst}"
+    ));
+    out.push(String::new());
+
+    if let Some(tip) = contextual_tip(&store) {
+        out.push(format!("  {dim}💡 {tip}{rst}"));
+        out.push(String::new());
+    }
+
+    out.join("\n")
+}
+
+/// Renders the token savings dashboard at a specific animation tick (with footer).
 pub fn format_gain_themed_at(t: &Theme, tick: Option<u64>) -> String {
+    gain_dashboard(t, tick, true)
+}
+
+/// The dashboard body without the trailing footer (tips / Context OS / hints).
+/// Used to compose `gain --deep`, where the extra themed sections must appear
+/// before the footer instead of in the middle of the output.
+pub fn format_gain_body() -> String {
+    gain_dashboard(&active_theme(), None, false)
+}
+
+/// The standalone gain dashboard footer (contextual tip, Context OS, hints).
+pub fn format_gain_footer() -> String {
+    let store = super::load();
+    let mut out = Vec::new();
+    append_gain_footer(&mut out, &active_theme(), &store);
+    out.join("\n")
+}
+
+#[allow(clippy::many_single_char_names)] // ANSI formatting: t=theme, r=reset, b=bold, d=dim
+fn gain_dashboard(t: &Theme, tick: Option<u64>, with_footer: bool) -> String {
     let store = super::load();
     let mut out = Vec::new();
     let rst = theme::rst();
@@ -519,26 +709,37 @@ pub fn format_gain_themed_at(t: &Theme, tick: Option<u64>) -> String {
     let cost_model = CostModel::default();
     let cost = cost_model.calculate(&store);
     let total_saved = input_saved;
-    let days_active = store.daily.len();
+    let _days_active = store.daily.len();
 
-    let w = 62;
+    let w = 70;
     let side = t.box_side();
+    let ss = t.box_side_square();
 
     let box_line = |content: &str| -> String {
         let padded = theme::pad_right(content, w);
         format!("  {side}{padded}{side}")
+    };
+    let sec_line = |content: &str| -> String {
+        let padded = theme::pad_right(content, w);
+        format!("  {ss}{padded}{ss}")
     };
 
     out.push(String::new());
     out.push(format!("  {}", t.box_top(w)));
     out.push(box_line(""));
 
+    let ver = env!("CARGO_PKG_VERSION");
     let header = format!(
-        "    {icon}  {bold}{title}{rst}   {dim}Token Savings Dashboard{rst}",
+        "     {icon}  {bold}{title}{rst}",
         icon = t.header_icon(),
         title = t.brand_title(),
     );
-    out.push(box_line(&header));
+    let ver_part = format!("{dim}v{ver}{rst}");
+    let header_padded = theme::pad_right(&header, w - ver.len() - 2);
+    out.push(format!("  {side}{header_padded}{ver_part} {side}"));
+
+    let subtitle = format!("     {dim}Token Savings Dashboard{rst}");
+    out.push(box_line(&subtitle));
     out.push(box_line(""));
     out.push(format!("  {}", t.box_mid(w)));
     out.push(box_line(""));
@@ -553,174 +754,124 @@ pub fn format_gain_themed_at(t: &Theme, tick: Option<u64>) -> String {
     let c3 = t.warning.fg();
     let c4 = t.accent.fg();
 
-    let kw = 14;
+    let kw = 16;
     let v1 = theme::pad_right(&format!("{c1}{bold}{tok_val}{rst}"), kw);
     let v2 = theme::pad_right(&format!("{c2}{bold}{pct_val}{rst}"), kw);
     let v3 = theme::pad_right(&format!("{c3}{bold}{cmd_val}{rst}"), kw);
     let v4 = theme::pad_right(&format!("{c4}{bold}{usd_val}{rst}"), kw);
-    out.push(box_line(&format!("    {v1}{v2}{v3}{v4}")));
+    out.push(box_line(&format!("     {v1}{v2}{v3}{v4}")));
+
+    let ul1 = theme::pad_right(&t.kpi_underline(tok_val.len(), &t.success), kw);
+    let ul2 = theme::pad_right(&t.kpi_underline(pct_val.len(), &t.secondary), kw);
+    let ul3 = theme::pad_right(&t.kpi_underline(cmd_val.len(), &t.warning), kw);
+    let ul4 = theme::pad_right(&t.kpi_underline(usd_val.len(), &t.accent), kw);
+    out.push(box_line(&format!("     {ul1}{ul2}{ul3}{ul4}")));
 
     let l1 = theme::pad_right(&format!("{dim}tokens saved{rst}"), kw);
     let l2 = theme::pad_right(&format!("{dim}compression{rst}"), kw);
     let l3 = theme::pad_right(&format!("{dim}commands{rst}"), kw);
     let l4 = theme::pad_right(&format!("{dim}USD saved{rst}"), kw);
-    out.push(box_line(&format!("    {l1}{l2}{l3}{l4}")));
+    out.push(box_line(&format!("     {l1}{l2}{l3}{l4}")));
     out.push(box_line(""));
     out.push(format!("  {}", t.box_bottom(w)));
+    out.push(String::new());
 
-    // 30-day savings subtitle (only shown when enough history exists)
-    if store.daily.len() >= 2 {
-        let thirty_day_tokens: u64 = store
-            .daily
-            .iter()
-            .rev()
-            .take(30)
-            .map(|d| d.input_tokens.saturating_sub(d.output_tokens))
-            .sum();
-        let thirty_day_usd = usd_estimate(thirty_day_tokens);
-        let accent = t.accent.fg();
-        out.push(format!(
-            "    {dim}past 30 days:{rst}  {accent}{bold}{thirty_day_usd}{rst} {dim}saved{rst}"
-        ));
+    // -- GAIN SCORE section (labeled box) --
+    {
+        let engine = crate::core::gain::GainEngine::load();
+        let score = engine.gain_score(None);
+        let lvl = score.level();
+        let score_ratio = (score.total as f64 / 100.0).min(1.0);
+        let bar = t.gradient_bar(score_ratio, 30);
+        let sc_color = t.pct_color(score.total as f64);
+
+        out.push(format!("  {}", t.box_top_labeled(w, "GAIN SCORE")));
+        out.push(sec_line(&format!(
+            "  {bar}  {sc_color}{bold}{}/100{rst}  Lv{} {dim}{}{rst}",
+            score.total, lvl.level, lvl.title,
+        )));
+
+        if store.daily.len() >= 2 {
+            let daily_savings: Vec<u64> = store
+                .daily
+                .iter()
+                .map(|d| d.input_tokens.saturating_sub(d.output_tokens))
+                .collect();
+            let spark = t.gradient_sparkline(&daily_savings);
+            let trend_str = trend_string(&store, &c1, &t.warning.fg(), rst);
+            out.push(sec_line(&format!(
+                "  {dim}trend:{rst} {spark}  {trend_str}"
+            )));
+        }
+
+        if total_saved > 0 {
+            let energy_str = crate::core::energy::format_for_tokens(total_saved);
+            let charges = crate::core::energy::phone_charges_hint(total_saved)
+                .map(|h| format!(" ({h})"))
+                .unwrap_or_default();
+            out.push(sec_line(&format!(
+                "  {dim}energy:{rst} {c1}{energy_str}{rst}{dim}{charges}{rst}"
+            )));
+        }
+        out.push(format!("  {}", t.box_bottom_square(w)));
     }
 
-    // Energy footprint of the saved tokens — same methodology as the community /metrics page,
-    // so a user's local figure reconciles with the shared scoreboard. Estimate, never inflated.
-    if total_saved > 0 {
-        let accent = t.accent.fg();
-        let energy_str = crate::core::energy::format_for_tokens(total_saved);
-        let charges = match crate::core::energy::phone_charges_hint(total_saved) {
-            Some(h) => format!("  {dim}({h}){rst}"),
-            None => String::new(),
-        };
-        out.push(format!(
-            "    {dim}energy saved:{rst}  {accent}{bold}{energy_str}{rst}{charges}  {dim}· est. · community total at leanctx.com/metrics{rst}"
-        ));
-    }
-
+    // -- COMPANION section --
     {
         let cfg = crate::core::config::Config::load();
         if cfg.buddy_enabled {
+            out.push(String::new());
+            out.push(format!("  {}", t.box_top_labeled(w, "YOUR COMPANION")));
             let buddy = crate::core::buddy::BuddyState::compute();
-            out.push(crate::core::buddy::format_buddy_block_at(&buddy, t, tick));
-        }
-    }
-
-    out.push(String::new());
-
-    let cost_title = t.section_title("Cost Breakdown");
-    out.push(format!(
-        "  {cost_title}  {dim}@ ${:.2}/M input · ${:.2}/M output{rst}",
-        cost_model.input_price_per_m, cost_model.output_price_per_m,
-    ));
-    out.push(format!("  {ln}", ln = t.border_line(w)));
-    out.push(String::new());
-    let lbl_w = 20;
-    let lbl_without = theme::pad_right(
-        &format!("{m}Without lean-ctx{rst}", m = t.muted.fg()),
-        lbl_w,
-    );
-    let lbl_with = theme::pad_right(&format!("{m}With lean-ctx{rst}", m = t.muted.fg()), lbl_w);
-    let lbl_saved = theme::pad_right(
-        &format!("{c}{bold}You saved{rst}", c = t.success.fg()),
-        lbl_w,
-    );
-
-    out.push(format!(
-        "    {lbl_without} {:>8}   {dim}{} input + {} output{rst}",
-        format_usd(cost.total_cost_without),
-        format_usd(cost.input_cost_without),
-        format_usd(cost.output_cost_without),
-    ));
-    out.push(format!(
-        "    {lbl_with} {:>8}   {dim}{} input + {} output{rst}",
-        format_usd(cost.total_cost_with),
-        format_usd(cost.input_cost_with),
-        format_usd(cost.output_cost_with),
-    ));
-    out.push(String::new());
-    out.push(format!(
-        "    {lbl_saved} {c}{bold}{:>8}{rst}   {dim}input {} + output {}{rst}",
-        format_usd(cost.total_saved),
-        format_usd(cost.input_cost_without - cost.input_cost_with),
-        format_usd(cost.output_cost_without - cost.output_cost_with),
-        c = t.success.fg(),
-    ));
-
-    {
-        let mut mcp_saved = 0u64;
-        let mut mcp_input = 0u64;
-        let mut mcp_calls = 0u64;
-        let mut hook_saved = 0u64;
-        let mut hook_input = 0u64;
-        let mut hook_calls = 0u64;
-        for (cmd, s) in &store.commands {
-            let sv = s.input_tokens.saturating_sub(s.output_tokens);
-            if cmd.starts_with("ctx_") {
-                mcp_saved += sv;
-                mcp_input += s.input_tokens;
-                mcp_calls += s.count;
-            } else {
-                hook_saved += sv;
-                hook_input += s.input_tokens;
-                hook_calls += s.count;
+            let block = crate::core::buddy::format_buddy_block_at(&buddy, t, tick);
+            for line in block.lines() {
+                out.push(sec_line(line));
             }
-        }
-        if mcp_calls > 0 || hook_calls > 0 {
-            out.push(String::new());
-            out.push(format!("  {}", t.section_title("Savings by Source")));
-            out.push(format!("  {ln}", ln = t.border_line(w)));
-            out.push(String::new());
-
-            let total = (mcp_saved + hook_saved).max(1) as f64;
-            let mcp_pct = mcp_saved as f64 / total * 100.0;
-            let hook_pct = hook_saved as f64 / total * 100.0;
-            let mcp_rate_str = format_savings_pct(mcp_saved, mcp_input);
-            let hook_rate_str = format_savings_pct(hook_saved, hook_input);
-            let mcp_pct_str = format_pct_1dp(mcp_pct);
-            let hook_pct_str = format_pct_1dp(hook_pct);
-
-            let mcp_bar = t.gradient_bar(mcp_saved as f64 / total, 18);
-            let hook_bar = t.gradient_bar(hook_saved as f64 / total, 18);
-
-            let mc = t.success.fg();
-            let hc = t.secondary.fg();
-            out.push(format!(
-                "    {mc}{bold}MCP Tools{rst}      {:>5}x  {mcp_bar}  {bold}{:>6}{rst}  {dim}{mcp_rate_str:>6} rate · {mcp_pct_str:>6} of total{rst}",
-                mcp_calls,
-                format_big(mcp_saved),
-            ));
-            out.push(format!(
-                "    {hc}{bold}Shell Hooks{rst}     {:>5}x  {hook_bar}  {bold}{:>6}{rst}  {dim}{hook_rate_str:>6} rate · {hook_pct_str:>6} of total{rst}",
-                hook_calls,
-                format_big(hook_saved),
-            ));
+            out.push(format!("  {}", t.box_bottom_square(w)));
         }
     }
 
     out.push(String::new());
 
-    if let (Some(first), Some(_last)) = (&store.first_use, &store.last_use) {
-        let first_short = first.get(..10).unwrap_or(first);
-        let daily_savings: Vec<u64> = store
-            .daily
-            .iter()
-            .map(|d2| day_total_saved(d2, &cost_model))
-            .collect();
-        let spark = t.gradient_sparkline(&daily_savings);
-        out.push(format!(
-            "    {dim}Since {first_short} · {days_active} day{plural}{rst}   {spark}",
-            plural = if days_active == 1 { "" } else { "s" }
-        ));
-        out.push(String::new());
-    }
+    // -- COST BREAKDOWN section --
+    let price_label = format!(
+        "@ ${:.2}/M input · ${:.2}/M output",
+        cost_model.input_price_per_m, cost_model.output_price_per_m,
+    );
+    let cost_label = format!("COST BREAKDOWN ──── {price_label}");
+    out.push(format!("  {}", t.box_top_labeled(w, &cost_label)));
+    out.push(sec_line(""));
+    let without_bar = t.gradient_bar(1.0, 26);
+    let with_ratio = cost.total_cost_with / cost.total_cost_without.max(0.01);
+    let with_bar = t.gradient_bar(with_ratio, 26);
+    let saved_pct = if cost.total_cost_without > 0.0 {
+        (1.0 - with_ratio) * 100.0
+    } else {
+        0.0
+    };
+
+    out.push(sec_line(&format!(
+        "  {m}Without lean-ctx{rst}  {:>10}  {without_bar}",
+        format_usd(cost.total_cost_without),
+        m = t.muted.fg(),
+    )));
+    out.push(sec_line(&format!(
+        "  {m}With lean-ctx{rst}      {:>10}  {with_bar}",
+        format_usd(cost.total_cost_with),
+        m = t.muted.fg(),
+    )));
+    out.push(sec_line(&format!(
+        "  {c}{bold}You saved{rst}          {c}{bold}{:>10}{rst}  {dim}── {saved_pct:.1}% reduction ──{rst}",
+        format_usd(cost.total_saved),
+        c = t.success.fg(),
+    )));
+    out.push(format!("  {}", t.box_bottom_square(w)));
 
     out.push(String::new());
 
+    // -- TOP COMMANDS section --
     if !store.commands.is_empty() {
-        out.push(format!("  {}", t.section_title("Top Commands")));
-        out.push(format!("  {ln}", ln = t.border_line(w)));
-        out.push(String::new());
+        out.push(format!("  {}", t.box_top_labeled(w, "TOP COMMANDS")));
 
         let mut sorted: Vec<_> = store
             .commands
@@ -747,38 +898,44 @@ pub fn format_gain_themed_at(t: &Theme, tick: Option<u64>) -> String {
                 0.0
             };
             let ratio = cmd_saved as f64 / max_cmd_saved as f64;
-            let bar = theme::pad_right(&t.gradient_bar(ratio, 22), 22);
+            let bar = theme::pad_right(&t.gradient_bar(ratio, 20), 20);
             let pc = t.pct_color(cmd_pct);
             let cmd_col = theme::pad_right(
-                &format!("{m}{}{rst}", truncate_cmd(cmd, 16), m = t.muted.fg()),
-                18,
+                &format!("{m}{}{rst}", truncate_cmd(cmd, 14), m = t.muted.fg()),
+                16,
             );
             let saved_col =
-                theme::pad_right(&format!("{bold}{pc}{}{rst}", format_big(cmd_saved)), 8);
-            out.push(format!(
-                "    {cmd_col} {:>5}x   {bar}  {saved_col} {dim}{cmd_pct:>3.0}%{rst}",
+                theme::pad_right(&format!("{bold}{pc}{}{rst}", format_big(cmd_saved)), 7);
+            let row = format!(
+                " {cmd_col} {:>4}x {bar} {saved_col}{dim}{cmd_pct:>3.0}%{rst}",
                 stats.count,
-            ));
+            );
+            out.push(sec_line(&row));
         }
 
         if sorted.len() > 10 {
-            out.push(format!(
-                "    {dim}... +{} more commands{rst}",
+            out.push(sec_line(&format!(
+                "  {dim}... +{} more commands{rst}",
                 sorted.len() - 10
-            ));
+            )));
         }
+        out.push(format!("  {}", t.box_bottom_square(w)));
     }
 
+    // -- RECENT DAYS section --
     if store.daily.len() >= 2 {
         out.push(String::new());
-        out.push(String::new());
-        out.push(format!(
-            "  {}  {dim}v{}{rst}",
-            t.section_title("Recent Days"),
-            env!("CARGO_PKG_VERSION"),
-        ));
-        out.push(format!("  {ln}", ln = t.border_line(w)));
-        out.push(String::new());
+        out.push(format!("  {}", t.box_top_labeled(w, "RECENT DAYS")));
+
+        let max_day_saved = store
+            .daily
+            .iter()
+            .rev()
+            .take(7)
+            .map(|d| d.input_tokens.saturating_sub(d.output_tokens))
+            .max()
+            .unwrap_or(1)
+            .max(1);
 
         let recent: Vec<_> = store.daily.iter().rev().take(7).collect();
         for day in recent.iter().rev() {
@@ -790,27 +947,38 @@ pub fn format_gain_themed_at(t: &Theme, tick: Option<u64>) -> String {
                 0.0
             };
             let pc = t.pct_color(day_pct);
+            let ratio = day_input_saved as f64 / max_day_saved as f64;
+            let day_bar = t.gradient_bar(ratio, 20);
             let date_short = day.date.get(5..).unwrap_or(&day.date);
             let date_col = theme::pad_right(&format!("{m}{date_short}{rst}", m = t.muted.fg()), 7);
             let saved_col =
                 theme::pad_right(&format!("{pc}{bold}{}{rst}", format_big(day_saved)), 9);
-            // Per-day version attributes a compression change to a release (#307).
-            let ver_col = if day.version.is_empty() {
-                String::new()
-            } else {
-                format!("   {dim}v{}{rst}", day.version)
-            };
-            out.push(format!(
-                "    {date_col}  {:>5} cmds   {saved_col} saved   {pc}{day_pct:>5.1}%{rst}{ver_col}",
+            out.push(sec_line(&format!(
+                "  {date_col} {:>4} cmds  {saved_col} {pc}{day_pct:>5.1}%{rst}  {day_bar}",
                 day.commands,
-            ));
+            )));
         }
+        out.push(format!("  {}", t.box_bottom_square(w)));
     }
 
+    if with_footer {
+        append_gain_footer(&mut out, t, &store);
+    }
+
+    out.join("\n")
+}
+
+/// Appends the dashboard footer (contextual tip, Bug Memory, Context OS panel,
+/// help hints). Kept separate so `gain --deep` can render it *after* the extra
+/// themed sections instead of in the middle of the output.
+fn append_gain_footer(out: &mut Vec<String>, t: &Theme, store: &StatsStore) {
+    let rst = theme::rst();
+    let bold = theme::bold();
+
     out.push(String::new());
     out.push(String::new());
 
-    if let Some(tip) = contextual_tip(&store) {
+    if let Some(tip) = contextual_tip(store) {
         out.push(format!("    {w}💡 {tip}{rst}", w = t.warning.fg()));
         out.push(String::new());
     }
@@ -930,8 +1098,36 @@ pub fn format_gain_themed_at(t: &Theme, tick: Option<u64>) -> String {
 
     out.push(String::new());
     out.push(String::new());
+}
 
-    out.join("\n")
+fn trend_string(store: &StatsStore, up_color: &str, down_color: &str, rst: &str) -> String {
+    if store.daily.len() < 14 {
+        return String::new();
+    }
+    let recent_7: u64 = store
+        .daily
+        .iter()
+        .rev()
+        .take(7)
+        .map(|d| d.input_tokens.saturating_sub(d.output_tokens))
+        .sum();
+    let prev_7: u64 = store
+        .daily
+        .iter()
+        .rev()
+        .skip(7)
+        .take(7)
+        .map(|d| d.input_tokens.saturating_sub(d.output_tokens))
+        .sum();
+    if prev_7 == 0 {
+        return String::new();
+    }
+    let change = ((recent_7 as f64 / prev_7 as f64) - 1.0) * 100.0;
+    if change >= 0.0 {
+        format!("{up_color}+{change:.0}%{rst} vs last week")
+    } else {
+        format!("{down_color}{change:.0}%{rst} vs last week")
+    }
 }
 
 fn contextual_tip(store: &StatsStore) -> Option<String> {
@@ -997,7 +1193,8 @@ fn build_tips(store: &StatsStore) -> Vec<String> {
     }
 
     tips.push(
-        "Create your own theme with lean-ctx theme create <name> and set custom colors!".into(),
+        "Create a custom theme: write a TOML file and import it with lean-ctx theme import <file>"
+            .into(),
     );
 
     tips

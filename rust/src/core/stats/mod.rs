@@ -411,16 +411,4 @@ mod tests {
         assert_eq!(format::format_pct_1dp(0.1), "0.1%");
         assert_eq!(format::format_pct_1dp(0.5), "0.5%");
     }
-
-    #[test]
-    fn format_savings_pct_zero_input() {
-        assert_eq!(format::format_savings_pct(0, 0), "0.0%");
-        assert_eq!(format::format_savings_pct(100, 0), "n/a");
-    }
-
-    #[test]
-    fn format_savings_pct_normal() {
-        assert_eq!(format::format_savings_pct(50, 100), "50.0%");
-        assert_eq!(format::format_savings_pct(1, 10000), "<0.1%");
-    }
 }

@@ -157,8 +157,21 @@ pub fn cmd_theme(args: &[String]) {
             println!("  {bot}", bot = t.box_bottom(50));
             println!();
         }
+        "tokens" => {
+            let format = args.get(1).map_or("css", String::as_str);
+            let cfg = config::Config::load();
+            let t = theme::load_theme(&cfg.theme);
+            match format {
+                "css" => println!("{}", t.to_css_vars()),
+                "js" => print!("{}", t.to_js_tokens()),
+                _ => {
+                    eprintln!("Usage: lean-ctx theme tokens [css|js]");
+                    std::process::exit(1);
+                }
+            }
+        }
         _ => {
-            eprintln!("Usage: lean-ctx theme [list|set|export|import|preview]");
+            eprintln!("Usage: lean-ctx theme [list|set|export|import|preview|tokens]");
             std::process::exit(1);
         }
     }

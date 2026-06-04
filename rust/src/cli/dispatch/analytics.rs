@@ -6,7 +6,7 @@ pub(super) fn cmd_gain(rest: &[String]) {
         println!("Stats reset. All token savings data cleared.");
         return;
     }
-    if rest.iter().any(|a| a == "--live" || a == "--watch") {
+    if rest.iter().any(|a| a == "--live") {
         core::stats::gain_live();
         return;
     }
@@ -151,7 +151,38 @@ pub(super) fn cmd_gain(rest: &[String]) {
             "{}",
             tools::ctx_gain::handle("wrapped", Some(&period), model.as_deref(), Some(limit))
         );
-        crate::cli::wrapped_publish::maybe_auto_publish(&period);
+        // Interactive publish prompt (if TTY and not already published)
+        if !rest.iter().any(|a| a == "--publish")
+            && std::io::IsTerminal::is_terminal(&std::io::stdin())
+            && !crate::cli::wrapped_publish::has_published()
+        {
+            eprint!("\n  Publish this card? [y/N/leaderboard] ");
+            let mut input = String::new();
+            if std::io::stdin().read_line(&mut input).is_ok() {
+                let answer = input.trim().to_lowercase();
+                match answer.as_str() {
+                    "y" | "yes" => {
+                        let cfg = crate::core::config::Config::load();
+                        crate::cli::wrapped_publish::publish(
+                            &period,
+                            cfg.gain.display_name.as_deref(),
+                            cfg.gain.leaderboard,
+                        );
+                    }
+                    "l" | "leaderboard" => {
+                        let cfg = crate::core::config::Config::load();
+                        crate::cli::wrapped_publish::publish(
+                            &period,
+                            cfg.gain.display_name.as_deref(),
+                            true,
+                        );
+                    }
+                    _ => {}
+                }
+            }
+        } else {
+            crate::cli::wrapped_publish::maybe_auto_publish(&period);
+        }
     } else if rest.iter().any(|a| a == "--pipeline") {
         let stats_path = dirs::home_dir()
             .unwrap_or_default()
@@ -167,16 +198,20 @@ pub(super) fn cmd_gain(rest: &[String]) {
             println!("No pipeline stats available yet. Use MCP tools to generate data.");
         }
     } else if rest.iter().any(|a| a == "--deep") {
-        println!(
-            "{}\n{}\n{}\n{}\n{}",
-            tools::ctx_gain::handle("report", None, model.as_deref(), Some(limit)),
-            tools::ctx_gain::handle("tasks", None, None, Some(limit)),
-            tools::ctx_gain::handle("cost", None, model.as_deref(), Some(limit)),
-            tools::ctx_gain::handle("agents", None, None, Some(limit)),
-            tools::ctx_gain::handle("heatmap", None, None, Some(limit))
+        // Body first, then the extra themed sections, then the footer — so the
+        // tips / Context OS panel land at the very end instead of mid-dashboard.
+        println!("{}", core::stats::format_gain_body());
+        print!(
+            "{}",
+            tools::ctx_gain::format_deep_themed(model.as_deref(), limit)
         );
+        println!("{}", core::stats::format_gain_footer());
+    } else if rest.iter().any(|a| a == "--opportunity") {
+        cmd_opportunity();
+    } else if rest.iter().any(|a| a == "--raw") {
+        cmd_stats_raw(rest);
     } else {
-        println!("{}", core::stats::format_gain());
+        println!("{}", core::stats::format_gain_hero());
         crate::cli::wrapped_publish::maybe_auto_publish(&period);
         print_community_hint();
     }
@@ -187,12 +222,37 @@ fn print_community_hint() {
     if s.total_events == 0 {
         return;
     }
-    if crate::cli::wrapped_publish::has_published() {
-        return;
-    }
-    eprintln!(
-        "\n  \x1b[2m💡 Share your savings with the community: lean-ctx gain --wrapped --publish\x1b[0m"
-    );
+
+    let on_board = crate::cli::wrapped_publish::has_leaderboard_entry();
+    let published = crate::cli::wrapped_publish::has_published();
+    let has_name = crate::core::config::Config::load()
+        .gain
+        .display_name
+        .is_some();
+
+    // State-aware nudge so the path to https://leanctx.com/metrics — and how to set a
+    // display name or unpublish — is always one copy-pasteable line away. Every state
+    // names both the public command and the way back out (community ask: a clear
+    // "how to publish/unpublish" line in the normal `gain` output).
+    let body = if on_board && has_name {
+        "💡 On the public leaderboard (https://leanctx.com/metrics).  \
+         Refresh:  lean-ctx gain --publish --leaderboard   ·   Remove:  lean-ctx gain --unpublish"
+            .to_string()
+    } else if on_board {
+        // Listed but nameless → shows as "anonymous"; spell out the exact missing step.
+        "💡 You're on the leaderboard as \"anonymous\". Claim your handle:\n     \
+         lean-ctx gain --publish --leaderboard --name=\"your handle\""
+            .to_string()
+    } else if published {
+        "💡 You're published privately. List on the public leaderboard at https://leanctx.com/metrics:\n     \
+         lean-ctx gain --publish --leaderboard --name=\"your handle\"   ·   Remove:  lean-ctx gain --unpublish"
+            .to_string()
+    } else {
+        "💡 Join the public leaderboard at https://leanctx.com/metrics (opt-in — shares only 4 aggregate totals, never your code):\n     \
+         Publish:  lean-ctx gain --publish --leaderboard --name=\"your handle\"   ·   Remove:  lean-ctx gain --unpublish"
+            .to_string()
+    };
+    eprintln!("\n  \x1b[2m{body}\x1b[0m");
 }
 
 /// Resolves the output path for the shareable SVG Wrapped card, or `None` when no
@@ -335,9 +395,13 @@ pub(super) fn cmd_savings(rest: &[String]) {
                     v.first_invalid_at.unwrap_or(0),
                     v.total
                 );
+                println!(
+                    "  If you did not edit the ledger, repair the chain with: lean-ctx savings rechain"
+                );
                 std::process::exit(1);
             }
         }
+        "rechain" => cmd_savings_rechain(),
         "export" => {
             let events = core::savings_ledger::all_events();
             match serde_json::to_string_pretty(&events) {
@@ -353,7 +417,36 @@ pub(super) fn cmd_savings(rest: &[String]) {
         "verify-batch" => cmd_savings_verify_batch(rest.get(1).map(String::as_str)),
         "summary" | "" => print!("{}", format_savings_summary()),
         _ => {
-            eprintln!("Usage: lean-ctx savings [summary|verify|export|sign|push|verify-batch]");
+            eprintln!(
+                "Usage: lean-ctx savings [summary|verify|rechain|export|sign|push|verify-batch]"
+            );
+            std::process::exit(1);
+        }
+    }
+}
+
+/// `lean-ctx savings rechain` — re-hashes the ledger under the v2 (float-free) scheme to
+/// repair a chain broken by the legacy `{:.6}` round-trip bug. Event content is preserved;
+/// only the chain links are recomputed. A break that survives re-chaining is real tampering.
+fn cmd_savings_rechain() {
+    match core::savings_ledger::rechain() {
+        Ok(0) => println!("Savings ledger is empty — nothing to re-chain."),
+        Ok(n) => {
+            let v = core::savings_ledger::verify();
+            if v.valid {
+                println!(
+                    "Savings ledger re-chained: {n} event(s) migrated to the v2 (float-free) hash. SHA-256 chain intact."
+                );
+            } else {
+                println!(
+                    "Re-chained {n} event(s), but the chain still breaks at entry {} — this indicates real tampering, not the float bug.",
+                    v.first_invalid_at.unwrap_or(0)
+                );
+                std::process::exit(1);
+            }
+        }
+        Err(e) => {
+            eprintln!("Re-chain failed: {e}");
             std::process::exit(1);
         }
     }
@@ -553,6 +646,7 @@ fn cmd_savings_verify_batch(file: Option<&str>) {
     }
 }
 
+#[allow(clippy::many_single_char_names)] // ANSI formatting locals: s,v,t,m,w
 fn format_savings_summary() -> String {
     use core::wrapped::format_tokens;
     let s = core::savings_ledger::summary();
@@ -561,82 +655,113 @@ fn format_savings_summary() -> String {
             .to_string();
     }
     let v = core::savings_ledger::verify();
-    // Net saved tokens drive the energy estimate (same J/token basis as the /metrics board).
     let energy_tokens = if s.bounce_events > 0 {
         s.net_saved_tokens()
     } else {
         s.saved_tokens
     };
-    let mut out = String::new();
-    out.push_str("Verified Savings Ledger (local, auditable)\n");
-    out.push_str("──────────────────────────────────────────\n");
-    out.push_str(&format!("Events:        {}\n", s.total_events));
+
+    let t = core::theme::load_theme(&core::config::Config::load().theme);
+    let rst = core::theme::rst();
+    let bold = core::theme::bold();
+    let dim = core::theme::dim();
+    let sc = t.success.fg();
+    let m = t.muted.fg();
+    let w = 56;
+    let ss = t.box_side_square();
+    let sl = |content: &str| -> String {
+        let padded = core::theme::pad_right(content, w);
+        format!("  {ss}{padded}{ss}")
+    };
+
+    let integrity_badge = if v.valid {
+        format!("{sc}✓ SHA-256 chain intact{rst}")
+    } else {
+        format!(
+            "{}✗ BROKEN — run `lean-ctx savings verify`{rst}",
+            t.danger.fg()
+        )
+    };
+
+    let mut out = Vec::new();
+    out.push(String::new());
+    out.push(format!(
+        "  {}",
+        t.box_top_labeled(w, "VERIFIED SAVINGS LEDGER")
+    ));
+    out.push(sl(&format!(
+        "  {bold}Events{rst}      {m}{}{rst}",
+        s.total_events
+    )));
+    // Integrity status on its own line — the "BROKEN" badge is too long to share
+    // the Events row without overflowing the box border.
+    out.push(sl(&format!("  {integrity_badge}")));
     if s.bounce_events > 0 {
-        out.push_str(&format!(
-            "Saved tokens:  {}  (gross)\n",
+        out.push(sl(&format!(
+            "  {bold}Saved{rst}       {sc}{}{rst}  {dim}(gross){rst}",
             format_tokens(s.saved_tokens)
-        ));
-        out.push_str(&format!(
-            "Bounce:        {}  ({} compressed->full re-read(s))\n",
+        )));
+        out.push(sl(&format!(
+            "  {bold}Bounce{rst}      {m}{}{rst}  {dim}({} re-reads){rst}",
             format_tokens(s.bounce_tokens),
             s.bounce_events
-        ));
-        out.push_str(&format!(
-            "Net saved:     {}\n",
+        )));
+        out.push(sl(&format!(
+            "  {bold}Net saved{rst}   {sc}{bold}{}{rst}",
             format_tokens(s.net_saved_tokens())
-        ));
-        out.push_str(&format!(
-            "Net (USD):     ${:.2}  (net of bounce; excludes prompt-cache discounts)\n",
+        )));
+        out.push(sl(&format!(
+            "  {bold}USD{rst}         {sc}{bold}${:.2}{rst}  {dim}(net of bounce){rst}",
             s.saved_usd
-        ));
+        )));
     } else {
-        out.push_str(&format!(
-            "Saved tokens:  {}\n",
+        out.push(sl(&format!(
+            "  {bold}Saved{rst}       {sc}{bold}{}{rst}",
             format_tokens(s.saved_tokens)
-        ));
-        out.push_str(&format!(
-            "Saved (USD):   ${:.2}  (upper bound, model input price)\n",
+        )));
+        out.push(sl(&format!(
+            "  {bold}USD{rst}         {sc}{bold}${:.2}{rst}",
             s.saved_usd
-        ));
+        )));
     }
     {
         let energy = core::energy::format_for_tokens(energy_tokens);
         let charges = core::energy::phone_charges_hint(energy_tokens)
             .map(|h| format!("  ({h})"))
             .unwrap_or_default();
-        out.push_str(&format!("Energy saved:  {energy}{charges}  (est.)\n"));
+        out.push(sl(&format!(
+            "  {bold}Energy{rst}      {sc}{energy}{rst}{dim}{charges}{rst}"
+        )));
     }
-    if !s.tokenizers.is_empty() {
-        out.push_str(&format!("Tokenizer:     {}\n", s.tokenizers.join(", ")));
-    }
-    out.push_str(&format!(
-        "Integrity:     {}\n",
-        if v.valid {
-            "SHA-256 chain intact"
-        } else {
-            "BROKEN — run `lean-ctx savings verify`"
-        }
-    ));
+    out.push(format!("  {}", t.box_bottom_square(w)));
+
     if !s.by_model.is_empty() {
-        out.push_str("\nBy model:\n");
+        out.push(String::new());
+        out.push(format!("  {}", t.box_top_labeled(w, "BY MODEL")));
         for (model, tok, usd) in s.by_model.iter().take(5) {
-            out.push_str(&format!(
-                "  {model:<22} {:>10} tok  ${usd:.2}\n",
+            out.push(sl(&format!(
+                "  {m}{model:<22}{rst} {:>10} tok  {sc}${usd:.2}{rst}",
                 format_tokens(*tok)
-            ));
+            )));
         }
+        out.push(format!("  {}", t.box_bottom_square(w)));
     }
+
     if s.by_day.len() >= 2 {
-        out.push_str("\nRecent days:\n");
+        out.push(String::new());
+        out.push(format!("  {}", t.box_top_labeled(w, "RECENT DAYS")));
         let recent: Vec<_> = s.by_day.iter().rev().take(7).collect();
         for (day, tok, usd) in recent.into_iter().rev() {
-            out.push_str(&format!(
-                "  {day}  {:>10} tok  ${usd:.2}\n",
+            out.push(sl(&format!(
+                "  {m}{day}{rst}  {:>10} tok  {sc}${usd:.2}{rst}",
                 format_tokens(*tok)
-            ));
+            )));
         }
+        out.push(format!("  {}", t.box_bottom_square(w)));
     }
-    out
+
+    out.push(String::new());
+    out.join("\n")
 }
 
 pub(super) fn cmd_graph(rest: &[String]) {
@@ -842,6 +967,118 @@ pub(super) fn cmd_compact(rest: &[String]) {
             eprintln!("Error: {e}");
             std::process::exit(1);
         }
+    }
+}
+
+/// `gain --opportunity` — merged discover + ghost (opportunity report).
+fn cmd_opportunity() {
+    use crate::core::theme;
+
+    let t = {
+        let cfg = crate::core::config::Config::load();
+        theme::load_theme(&cfg.theme)
+    };
+    let rst = theme::rst();
+    let bold = theme::bold();
+    let dim = theme::dim();
+    let w = 57;
+
+    let history = crate::cli::common::load_shell_history();
+    let result = crate::tools::ctx_discover::analyze_history(&history, 10);
+
+    let store = core::stats::load();
+    let optimized_cmds = store.total_commands;
+
+    if result.missed_commands.is_empty() {
+        println!(
+            "\n  {sc}{bold}All compressible commands are already using lean-ctx!{rst}\n  {dim}{optimized_cmds} commands optimized.{rst}\n",
+            sc = t.success.fg(),
+        );
+        return;
+    }
+
+    let total_missed: u64 = result
+        .missed_commands
+        .iter()
+        .map(|c| c.estimated_tokens as u64)
+        .sum();
+    let total_count: u64 = result.missed_commands.iter().map(|c| c.count as u64).sum();
+
+    println!();
+    println!("  {}", t.box_top(w));
+    let side = t.box_side();
+    let padded = |s: &str| -> String {
+        let p = theme::pad_right(s, w);
+        format!("  {side}{p}{side}")
+    };
+    println!(
+        "{}",
+        padded(&format!("  {bold}{}Opportunity Report{rst}", t.accent.fg()))
+    );
+    println!("{}", padded(""));
+    println!(
+        "{}",
+        padded(&format!(
+            "  {bold}~{}{rst} {dim}tokens/month going uncompressed{rst}",
+            crate::core::wrapped::format_tokens(total_missed),
+        ))
+    );
+    println!("{}", padded(""));
+
+    for entry in result.missed_commands.iter().take(8) {
+        let line = format!(
+            "  {dim}{:<12}{rst} {:>4}x   {bold}~{}{rst} {dim}tokens recoverable{rst}",
+            entry.prefix,
+            entry.count,
+            crate::core::wrapped::format_tokens(entry.estimated_tokens as u64),
+        );
+        println!("{}", padded(&line));
+    }
+
+    println!("{}", padded(""));
+    let opt_line = format!(
+        "  {dim}Already optimized: {optimized_cmds} commands ({pct}%){rst}",
+        pct = total_count
+            .checked_add(optimized_cmds)
+            .and_then(|total| optimized_cmds.checked_mul(100)?.checked_div(total))
+            .unwrap_or(100)
+    );
+    println!("{}", padded(&opt_line));
+    println!("  {}", t.box_bottom(w));
+    println!();
+    let sec = t.secondary.fg();
+    println!("  {sec}lean-ctx init --global{rst}   {dim}Compress everything{rst}");
+    println!();
+}
+
+/// `gain --raw` — plain stats (absorbs former `lean-ctx stats` command).
+fn cmd_stats_raw(rest: &[String]) {
+    if rest.iter().any(|a| a == "--json" || a == "json") {
+        let store = core::stats::load();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&store).unwrap_or_else(|_| "{}".to_string())
+        );
+    } else {
+        let store = core::stats::load();
+        let input_saved = store
+            .total_input_tokens
+            .saturating_sub(store.total_output_tokens);
+        let pct = if store.total_input_tokens > 0 {
+            input_saved as f64 / store.total_input_tokens as f64 * 100.0
+        } else {
+            0.0
+        };
+        println!("Commands:    {}", store.total_commands);
+        println!("Input:       {} tokens", store.total_input_tokens);
+        println!("Output:      {} tokens", store.total_output_tokens);
+        println!("Saved:       {input_saved} tokens ({pct:.1}%)");
+        println!();
+        println!("CEP sessions:  {}", store.cep.sessions);
+        println!(
+            "CEP tokens:    {} → {}",
+            store.cep.total_tokens_original, store.cep.total_tokens_compressed
+        );
     }
 }
 
