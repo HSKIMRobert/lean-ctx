@@ -6,6 +6,7 @@ pub mod history_prune;
 pub mod introspect;
 pub mod metrics;
 pub mod openai;
+pub mod openai_responses;
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -109,6 +110,8 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
         .route("/v1/messages", any(anthropic::handler))
         .route("/v1/messages/{*rest}", any(anthropic::handler))
         .route("/v1/chat/completions", any(openai::handler))
+        .route("/v1/responses", any(openai_responses::handler))
+        .route("/v1/responses/{*rest}", any(openai_responses::handler))
         .route("/v1/references/{id}", get(v1_resolve_reference))
         .fallback(fallback_router)
         .layer(axum::middleware::from_fn(host_guard))
@@ -130,6 +133,7 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
     }
     println!("  Anthropic: POST /v1/messages → {anthropic_upstream}");
     println!("  OpenAI:    POST /v1/chat/completions → {openai_upstream}");
+    println!("  OpenAI:    POST /v1/responses → {openai_upstream}");
     println!("  Gemini:    POST /v1beta/models/... → {gemini_upstream}");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
