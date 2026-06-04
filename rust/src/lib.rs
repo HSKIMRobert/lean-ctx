@@ -1,3 +1,7 @@
+// Every `unsafe` block must carry a `// SAFETY:` comment justifying soundness.
+// Enforced so the (mostly libc/Win32 syscall) unsafe surface stays documented.
+#![warn(clippy::undocumented_unsafe_blocks)]
+
 #[cfg(all(feature = "jemalloc", not(windows)))]
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;

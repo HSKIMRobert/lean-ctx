@@ -6,6 +6,18 @@ use lean_ctx::core::cache::SessionCache;
 use lean_ctx::core::protocol::CrpMode;
 use std::io::Write;
 
+/// Reads the full `LeanCtxServer` dispatch source across its split submodules
+/// (`mod.rs`, `call_tool.rs`, `server_handler.rs`) so that the invariant checks
+/// below stay robust to internal module structure.
+fn server_dispatch_src() -> String {
+    format!(
+        "{}\n{}\n{}",
+        include_str!("../src/server/mod.rs"),
+        include_str!("../src/server/call_tool.rs"),
+        include_str!("../src/server/server_handler.rs"),
+    )
+}
+
 // =============================================================================
 // Fix A: Correction-Loop-Metrik
 // =============================================================================
@@ -146,7 +158,7 @@ mod double_compression_guard {
 
     #[test]
     fn scenario_skip_terse_when_already_compressed() {
-        let src = include_str!("../src/server/mod.rs");
+        let src = crate::server_dispatch_src();
         assert!(
             src.contains("tool_saved_tokens > 0"),
             "skip_terse condition must check tool_saved_tokens"
@@ -165,7 +177,7 @@ mod double_compression_guard {
 
     #[test]
     fn scenario_raw_shell_still_bypasses() {
-        let src = include_str!("../src/server/mod.rs");
+        let src = crate::server_dispatch_src();
         assert!(
             src.contains("let skip_terse = is_raw_shell"),
             "is_raw_shell must be first in skip_terse"
@@ -469,7 +481,7 @@ mod auto_degrade {
 
     #[test]
     fn scenario_server_degrade_thresholds() {
-        let src = include_str!("../src/server/mod.rs");
+        let src = crate::server_dispatch_src();
         assert!(
             src.contains("correction_count >= 5"),
             "must degrade to Off at 5+ corrections"
@@ -492,7 +504,7 @@ mod auto_degrade {
 mod first_contact {
     #[test]
     fn scenario_meta_visible_guard_removed() {
-        let src = include_str!("../src/server/mod.rs");
+        let src = crate::server_dispatch_src();
         // Find the auto_context section
         let auto_ctx_pos = src
             .find("if let Some(ctx) = auto_context")
@@ -508,7 +520,7 @@ mod first_contact {
 
     #[test]
     fn scenario_token_budget_enforced() {
-        let src = include_str!("../src/server/mod.rs");
+        let src = crate::server_dispatch_src();
         let auto_ctx_pos = src
             .find("if let Some(ctx) = auto_context")
             .expect("auto_context block must exist");
@@ -522,7 +534,7 @@ mod first_contact {
 
     #[test]
     fn scenario_raw_shell_still_skips_auto_context() {
-        let src = include_str!("../src/server/mod.rs");
+        let src = crate::server_dispatch_src();
         let normalized = src.replace("\r\n", "\n");
         assert!(
             normalized.contains("if !is_raw_shell {\n            if let Some(ctx) = auto_context"),
@@ -680,7 +692,7 @@ mod integration {
     #[test]
     fn scenario_shell_compression_with_saved_tokens_skips_terse() {
         // Structural test: verify the pipeline
-        let src = include_str!("../src/server/mod.rs");
+        let src = crate::server_dispatch_src();
 
         // 1. dispatch returns saved_tokens
         assert!(src.contains("let (mut result_text, tool_saved_tokens)"));

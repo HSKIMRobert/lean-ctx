@@ -1,9 +1,55 @@
 use anyhow::Result;
 
+/// Run a command with a hard timeout, capturing its output.
+///
+/// Returns `Some(output)` if the child exits within `timeout`, or `None` if it
+/// had to be killed (timed out) or could not be spawned. This is the safe way
+/// to invoke external control tools (`launchctl`, `systemctl`, a freshly
+/// installed binary's `--version`, …) that must never be able to hang a
+/// `lean-ctx` command — a wedged `launchctl` previously forced users to reboot.
+///
+/// Note: intended for commands with small output. The child's stdout/stderr are
+/// piped; a process that writes more than the pipe buffer (~64 KiB) without
+/// exiting could block. All current callers emit at most a few lines.
+pub fn run_with_timeout(
+    mut cmd: std::process::Command,
+    timeout: std::time::Duration,
+) -> Option<std::process::Output> {
+    use std::process::Stdio;
+    use std::time::Instant;
+
+    let mut child = cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .ok()?;
+
+    let start = Instant::now();
+    loop {
+        match child.try_wait() {
+            // Process exited: pipes are at EOF, so reading output won't block.
+            Ok(Some(_)) => return child.wait_with_output().ok(),
+            Ok(None) => {
+                if start.elapsed() >= timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(_) => return None,
+        }
+    }
+}
+
 /// Check whether a process with the given PID is still running.
 pub fn is_alive(pid: u32) -> bool {
     #[cfg(unix)]
     {
+        // SAFETY: `kill` takes the PID and signal (0 = existence probe) by
+        // value; it dereferences no pointers and reports failure via its return
+        // value, so it cannot cause undefined behaviour.
         unsafe { libc::kill(pid as libc::pid_t, 0) == 0 }
     }
     #[cfg(windows)]
@@ -13,6 +59,9 @@ pub fn is_alive(pid: u32) -> bool {
             GetExitCodeProcess, OpenProcess, WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION,
         };
 
+        // SAFETY: every Win32 call below takes integer args plus the local
+        // `exit_code` out-pointer; the handle is null-checked and closed on
+        // every return path, so no resource leaks or invalid pointers occur.
         unsafe {
             let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
             if handle.is_null() {
@@ -36,6 +85,8 @@ pub fn is_alive(pid: u32) -> bool {
 pub fn terminate_gracefully(pid: u32) -> Result<()> {
     #[cfg(unix)]
     {
+        // SAFETY: `kill` takes the PID and signal by value; no pointer is
+        // dereferenced and errors surface via the return value.
         let ret = unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) };
         if ret != 0 {
             anyhow::bail!(
@@ -55,6 +106,8 @@ pub fn terminate_gracefully(pid: u32) -> Result<()> {
 pub fn force_kill(pid: u32) -> Result<()> {
     #[cfg(unix)]
     {
+        // SAFETY: `kill` takes the PID and signal by value; no pointer is
+        // dereferenced and errors surface via the return value.
         let ret = unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
         if ret != 0 {
             anyhow::bail!(
@@ -71,6 +124,8 @@ pub fn force_kill(pid: u32) -> Result<()> {
             OpenProcess, TerminateProcess, PROCESS_TERMINATE,
         };
 
+        // SAFETY: the Win32 calls take integer args only; the handle is
+        // null-checked and closed before returning on every path.
         unsafe {
             let handle = OpenProcess(PROCESS_TERMINATE, 0, pid);
             if handle.is_null() {
@@ -276,5 +331,30 @@ mod tests {
     #[test]
     fn bogus_pid_is_not_alive() {
         assert!(!is_alive(u32::MAX - 42));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_with_timeout_returns_output_for_fast_command() {
+        let mut cmd = std::process::Command::new("echo");
+        cmd.arg("hello");
+        let out = run_with_timeout(cmd, std::time::Duration::from_secs(5))
+            .expect("fast command should complete");
+        assert!(out.status.success());
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "hello");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_with_timeout_kills_slow_command() {
+        let mut cmd = std::process::Command::new("sleep");
+        cmd.arg("30");
+        let start = std::time::Instant::now();
+        let result = run_with_timeout(cmd, std::time::Duration::from_millis(300));
+        assert!(result.is_none(), "slow command must time out");
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(5),
+            "timeout must not wait for the full command"
+        );
     }
 }

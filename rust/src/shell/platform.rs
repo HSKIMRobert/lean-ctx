@@ -52,7 +52,12 @@ fn decode_windows_output(bytes: &[u8]) -> String {
         ) -> i32;
     }
 
+    // SAFETY: `GetACP` takes no arguments and only returns the active code
+    // page; it cannot fail or cause undefined behaviour.
     let codepage = unsafe { GetACP() };
+    // SAFETY: called with a null destination and length 0 to measure the
+    // required buffer size; `bytes` is a live slice and every pointer/length
+    // argument is valid.
     let wide_len = unsafe {
         MultiByteToWideChar(
             codepage,
@@ -67,6 +72,9 @@ fn decode_windows_output(bytes: &[u8]) -> String {
         return lossy.into_owned();
     }
     let mut wide: Vec<u16> = vec![0u16; wide_len as usize];
+    // SAFETY: `wide` is sized to the previously measured length and `bytes` is
+    // a live slice; the source and destination pointers/lengths are valid and
+    // do not overlap.
     unsafe {
         MultiByteToWideChar(
             codepage,
@@ -87,6 +95,8 @@ pub(super) fn set_console_utf8() {
     extern "system" {
         fn SetConsoleOutputCP(id: u32) -> i32;
     }
+    // SAFETY: `SetConsoleOutputCP` takes a code-page id (65001 = UTF-8) by
+    // value; it cannot cause undefined behaviour.
     unsafe {
         SetConsoleOutputCP(65001);
     }

@@ -321,6 +321,8 @@ mod tests {
         let fifo = root.join("blocking.pipe");
         let c = CString::new(fifo.to_str().unwrap()).unwrap();
         assert_eq!(
+            // SAFETY: `c` is a live CString providing a valid NUL-terminated
+            // path pointer for the duration of the call.
             unsafe { libc::mkfifo(c.as_ptr(), 0o644) },
             0,
             "mkfifo failed"

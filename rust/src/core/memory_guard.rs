@@ -167,6 +167,9 @@ pub fn jemalloc_purge() {
     {
         use tikv_jemalloc_ctl::raw;
         let purge_mib = b"arena.4096.purge\0";
+        // SAFETY: `purge_mib` is a static, NUL-terminated jemalloc MIB name and
+        // the value type (`u64`) matches the `arena.<i>.purge` ctl; `raw::write`
+        // validates the name and surfaces errors via `Result`.
         unsafe {
             if let Err(e) = raw::write(purge_mib, 0u64) {
                 tracing::debug!("[memory_guard] jemalloc purge failed: {e}");
@@ -317,9 +320,14 @@ fn linux_memtotal() -> Option<u64> {
 #[allow(deprecated, clippy::borrow_as_ptr, clippy::ptr_as_ptr)]
 fn macos_rss() -> Option<u64> {
     use std::mem;
+    // SAFETY: `mach_task_basic_info_data_t` is a plain C struct for which an
+    // all-zero bit pattern is a valid initial value.
     let mut info: libc::mach_task_basic_info_data_t = unsafe { mem::zeroed() };
     let mut count = (mem::size_of::<libc::mach_task_basic_info_data_t>()
         / mem::size_of::<libc::natural_t>()) as libc::mach_msg_type_number_t;
+    // SAFETY: `mach_task_self()` returns the current task port; `info` and
+    // `count` are live stack locals passed as out-pointers, sized to match the
+    // requested `MACH_TASK_BASIC_INFO` flavour.
     let kr = unsafe {
         libc::task_info(
             libc::mach_task_self(),
@@ -358,6 +366,8 @@ fn macos_memsize() -> Option<u64> {
     let mut memsize: u64 = 0;
     let mut len = mem::size_of::<u64>();
     let name = b"hw.memsize\0";
+    // SAFETY: `name` is a static, NUL-terminated sysctl name; `memsize` and
+    // `len` are live stack out-pointers whose sizes match the queried value.
     let ret = unsafe {
         libc::sysctlbyname(
             name.as_ptr().cast(),

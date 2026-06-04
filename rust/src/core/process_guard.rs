@@ -75,6 +75,9 @@ pub fn active_count() -> usize {
 fn try_flock(file: &File) -> bool {
     use std::os::unix::io::AsRawFd;
     let fd = file.as_raw_fd();
+    // SAFETY: `fd` is a valid, open descriptor owned by `file`, which outlives
+    // this call; `flock` performs no pointer dereference and reports errors via
+    // its return value.
     let rc = unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) };
     rc == 0
 }

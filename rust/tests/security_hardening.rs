@@ -1,5 +1,17 @@
-/// Security hardening tests — validates all Critical and High fixes from the
-/// bank-readiness audit (2026-05-08).
+//! Security hardening tests — validates all Critical and High fixes from the
+//! bank-readiness audit (2026-05-08).
+
+/// Reads the full `LeanCtxServer` dispatch source across its split submodules
+/// (`mod.rs`, `call_tool.rs`, `server_handler.rs`) so that the security-invariant
+/// checks below stay robust to internal module structure.
+fn server_dispatch_src() -> String {
+    format!(
+        "{}\n{}\n{}",
+        include_str!("../src/server/mod.rs"),
+        include_str!("../src/server/call_tool.rs"),
+        include_str!("../src/server/server_handler.rs"),
+    )
+}
 
 // ---------------------------------------------------------------------------
 // C1 — Dashboard: token not leaked without valid ?token= query
@@ -191,7 +203,7 @@ fn event_lineage_applies_redaction() {
 // ---------------------------------------------------------------------------
 #[test]
 fn team_auth_rejects_batch_requests() {
-    let src = include_str!("../src/http_server/team.rs");
+    let src = include_str!("../src/http_server/team/mod.rs");
 
     assert!(
         src.contains("batch_requests_not_supported"),
@@ -229,7 +241,7 @@ fn postinstall_has_sha256_verification() {
 // ---------------------------------------------------------------------------
 #[test]
 fn pipeline_archive_uses_redacted_output() {
-    let src = include_str!("../src/server/mod.rs");
+    let src = crate::server_dispatch_src();
 
     assert!(
         src.contains("redact_text_if_enabled"),
@@ -347,7 +359,7 @@ fn add_nonce_skips_external_scripts() {
 // ---------------------------------------------------------------------------
 #[test]
 fn raw_shell_skips_all_postprocessing() {
-    let src = include_str!("../src/server/mod.rs").replace("\r\n", "\n");
+    let src = crate::server_dispatch_src().replace("\r\n", "\n");
     assert!(
         src.contains("let is_raw_shell = name == \"ctx_shell\""),
         "call_tool must compute is_raw_shell flag"

@@ -108,6 +108,9 @@ mod landlock_sys {
 
     fn landlock_create_ruleset(handled_access_fs: u64) -> Result<i32, String> {
         let attr = LandlockRulesetAttr { handled_access_fs };
+        // SAFETY: `attr` is a live, fully-initialised struct; the kernel reads
+        // exactly `size_of::<LandlockRulesetAttr>()` bytes through the const
+        // pointer and returns a file descriptor or a negative errno.
         let fd = unsafe {
             libc::syscall(
                 LANDLOCK_CREATE_RULESET,
@@ -129,6 +132,8 @@ mod landlock_sys {
         let c_path =
             CString::new(path.as_os_str().as_bytes()).map_err(|e| format!("invalid path: {e}"))?;
 
+        // SAFETY: `c_path` is a live CString; `open` only reads its NUL-
+        // terminated bytes and returns a descriptor or -1.
         let parent_fd = unsafe { libc::open(c_path.as_ptr(), libc::O_PATH | libc::O_CLOEXEC) };
         if parent_fd < 0 {
             return Err(format!(
@@ -143,6 +148,8 @@ mod landlock_sys {
             parent_fd,
         };
 
+        // SAFETY: `ruleset_fd` is a valid open ruleset descriptor and `attr` is
+        // a live, initialised `LandlockPathBeneathAttr` read by const pointer.
         let ret = unsafe {
             libc::syscall(
                 LANDLOCK_ADD_RULE,
@@ -153,6 +160,8 @@ mod landlock_sys {
             )
         };
 
+        // SAFETY: `parent_fd` is a valid descriptor opened above and is not used
+        // again after being closed here.
         unsafe { libc::close(parent_fd) };
 
         if ret < 0 {
@@ -166,6 +175,8 @@ mod landlock_sys {
     }
 
     fn landlock_restrict_self(ruleset_fd: i32) -> Result<(), String> {
+        // SAFETY: `ruleset_fd` is a valid Landlock ruleset descriptor; the
+        // syscall takes integer arguments only.
         let ret = unsafe { libc::syscall(LANDLOCK_RESTRICT_SELF, ruleset_fd, 0u32) };
         if ret < 0 {
             return Err(format!(
@@ -180,6 +191,8 @@ mod landlock_sys {
     /// Returns `Ok(true)` if enforced, `Ok(false)` if Landlock is unsupported.
     pub(super) fn apply(ruleset: &super::LandlockRuleset) -> Result<bool, String> {
         // no_new_privs is required for unprivileged Landlock
+        // SAFETY: `prctl(PR_SET_NO_NEW_PRIVS, …)` takes fixed integer arguments
+        // and dereferences no pointers.
         let ret = unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) };
         if ret < 0 {
             return Err(format!(
@@ -218,6 +231,8 @@ mod landlock_sys {
         }
 
         landlock_restrict_self(ruleset_fd)?;
+        // SAFETY: `ruleset_fd` is a valid descriptor created above and is not
+        // used again after being closed here.
         unsafe { libc::close(ruleset_fd) };
 
         Ok(true)
@@ -267,6 +282,11 @@ fn execute_with_landlock(
     let rw_paths = ruleset.read_write_paths.clone();
     let interp = ruleset.interpreter.clone();
 
+    // SAFETY: `pre_exec` runs the closure in the forked child before `exec`.
+    // The closure operates only on data captured by value and applies Landlock
+    // via direct libc syscalls. The sandboxed command is spawned from a
+    // controlled, effectively single-threaded path, so the heap clones it makes
+    // cannot deadlock on an allocator lock held across the fork.
     unsafe {
         cmd.pre_exec(move || {
             let rs = LandlockRuleset {
