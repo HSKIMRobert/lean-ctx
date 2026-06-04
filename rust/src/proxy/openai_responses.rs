@@ -8,6 +8,7 @@ use serde_json::Value;
 
 use super::compress::compress_tool_result;
 use super::forward;
+use super::tool_kind::{self, should_protect, ToolResultKind};
 use super::ProxyState;
 
 /// Proxy handler for OpenAI's Responses API (`POST /v1/responses`).
@@ -59,12 +60,19 @@ fn compress_request_body(body: &[u8]) -> (Vec<u8>, usize, usize) {
     // risk 400s here. Compressing only the tool outputs captures the bulk of the
     // savings without touching the conversation structure.
     if let Some(input) = doc.get_mut("input").and_then(|i| i.as_array_mut()) {
+        let tool_names = tool_kind::responses_tool_names(input);
         for item in input.iter_mut() {
             if item.get("type").and_then(|t| t.as_str()) != Some("function_call_output") {
                 continue;
             }
+            let name = item
+                .get("call_id")
+                .and_then(|v| v.as_str())
+                .and_then(|id| tool_names.get(id))
+                .map(String::as_str);
+            let kind = name.map_or(ToolResultKind::Other, tool_kind::classify_tool_name);
             if let Some(output) = item.get_mut("output") {
-                modified |= compress_output_field(output);
+                modified |= compress_output_field(output, name, kind);
             }
         }
     }
@@ -85,10 +93,20 @@ fn compress_request_body(body: &[u8]) -> (Vec<u8>, usize, usize) {
 /// Compress a `function_call_output.output`. OpenAI sends this as a JSON string,
 /// but the API also accepts an array of content parts (`input_text` blocks) for
 /// tools returning richer data, so both shapes are handled.
-fn compress_output_field(output: &mut Value) -> bool {
+///
+/// A protected file/source read (resolved from the matching `function_call`
+/// name) is left intact so a mid-refactor model never loses the body it edits.
+fn compress_output_field(
+    output: &mut Value,
+    tool_name: Option<&str>,
+    kind: ToolResultKind,
+) -> bool {
     match output {
         Value::String(s) => {
-            let compressed = compress_tool_result(s, None);
+            if should_protect(kind, s) {
+                return false;
+            }
+            let compressed = compress_tool_result(s, tool_name);
             if compressed.len() < s.len() {
                 *s = compressed;
                 return true;
@@ -99,7 +117,10 @@ fn compress_output_field(output: &mut Value) -> bool {
             let mut changed = false;
             for part in parts.iter_mut() {
                 if let Some(Value::String(text)) = part.get_mut("text") {
-                    let compressed = compress_tool_result(text, None);
+                    if should_protect(kind, text) {
+                        continue;
+                    }
+                    let compressed = compress_tool_result(text, tool_name);
                     if compressed.len() < text.len() {
                         *text = compressed;
                         changed = true;

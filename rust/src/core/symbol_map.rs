@@ -20,7 +20,7 @@ const SHORT_ID_PREFIX: char = 'α';
 /// 1. `LEAN_CTX_SYMBOL_MAP=1` env var → force on
 /// 2. `LEAN_CTX_SYMBOL_MAP=0` env var → force off
 /// 3. `symbol_map_auto = true` in config + project >50 source files → auto-on
-/// 4. Default: off
+/// 4. Default: off (the abbreviated form hinders editing; opt-in only)
 pub fn substitution_enabled() -> bool {
     if let Ok(v) = std::env::var("LEAN_CTX_SYMBOL_MAP") {
         return v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("on");

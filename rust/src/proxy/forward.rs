@@ -7,7 +7,20 @@ use axum::{
 
 use super::ProxyState;
 
-const MAX_BODY_BYTES: usize = 10 * 1024 * 1024;
+/// Default request-body ceiling (MiB). A large-codebase refactor with several
+/// big files in context easily exceeds the old 10 MiB cap, which surfaced to the
+/// agent as a hard `400` mid-task. Raised and made configurable via
+/// `LEAN_CTX_PROXY_MAX_BODY_MB`.
+const DEFAULT_MAX_BODY_MB: usize = 64;
+
+fn max_body_bytes() -> usize {
+    std::env::var("LEAN_CTX_PROXY_MAX_BODY_MB")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .filter(|mb| *mb > 0)
+        .unwrap_or(DEFAULT_MAX_BODY_MB)
+        .saturating_mul(1024 * 1024)
+}
 
 pub type CompressFn = fn(&[u8]) -> (Vec<u8>, usize, usize);
 
@@ -21,20 +34,21 @@ pub async fn forward_request(
     extra_stream_types: &[&str],
 ) -> Result<Response, StatusCode> {
     let (parts, body) = req.into_parts();
-    let body_bytes = axum::body::to_bytes(body, MAX_BODY_BYTES)
+    let body_bytes = axum::body::to_bytes(body, max_body_bytes())
         .await
-        .map_err(|_| StatusCode::BAD_REQUEST)?;
+        .map_err(|_| StatusCode::PAYLOAD_TOO_LARGE)?;
 
     state.stats.record_request();
 
-    // Introspect the request for context analysis
-    if let Ok(parsed) = serde_json::from_slice::<serde_json::Value>(&body_bytes) {
+    // Parse once; reuse for introspection and per-model cost attribution.
+    let parsed = serde_json::from_slice::<serde_json::Value>(&body_bytes).ok();
+    if let Some(parsed) = &parsed {
         let provider = match provider_label {
             "Anthropic" => super::introspect::Provider::Anthropic,
             "OpenAI" => super::introspect::Provider::OpenAi,
             _ => super::introspect::Provider::Gemini,
         };
-        let breakdown = super::introspect::analyze_request(&parsed, provider);
+        let breakdown = super::introspect::analyze_request(parsed, provider);
         state.introspect.record(breakdown);
     }
 
@@ -48,6 +62,17 @@ pub async fn forward_request(
 
     let tokens_saved = original_size.saturating_sub(compressed_size) as u64 / 4;
     super::metrics::record_request(tokens_saved, compressed_size as u64);
+
+    let model = parsed
+        .as_ref()
+        .and_then(|v| v.get("model"))
+        .and_then(|m| m.as_str());
+    super::cost::record(
+        model,
+        tokens_saved,
+        original_size as u64,
+        compressed_size as u64,
+    );
 
     let upstream_url = build_upstream_url(&parts, upstream_base, default_path);
     let response = send_upstream(

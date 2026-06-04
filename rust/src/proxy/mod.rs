@@ -1,5 +1,6 @@
 pub mod anthropic;
 pub mod compress;
+pub mod cost;
 pub mod forward;
 pub mod google;
 pub mod history_prune;
@@ -7,6 +8,7 @@ pub mod introspect;
 pub mod metrics;
 pub mod openai;
 pub mod openai_responses;
+pub mod tool_kind;
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -77,6 +79,27 @@ impl ProxyStats {
     }
 }
 
+/// TCP connect timeout (seconds). Configurable via `LEAN_CTX_PROXY_CONNECT_TIMEOUT_SECS`.
+fn connect_timeout_secs() -> u64 {
+    std::env::var("LEAN_CTX_PROXY_CONNECT_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .filter(|s| *s > 0)
+        .unwrap_or(15)
+}
+
+/// Idle read timeout (seconds) between bytes from upstream. Generous by default
+/// so long extended-thinking phases (which still emit SSE keepalives) are never
+/// cut, while a truly dead connection eventually fails. Configurable via
+/// `LEAN_CTX_PROXY_READ_TIMEOUT_SECS`.
+fn read_idle_timeout_secs() -> u64 {
+    std::env::var("LEAN_CTX_PROXY_READ_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .filter(|s| *s > 0)
+        .unwrap_or(300)
+}
+
 pub async fn start_proxy(port: u16) -> anyhow::Result<()> {
     let token = crate::core::session_token::resolve_proxy_token("LEAN_CTX_PROXY_TOKEN");
     start_proxy_with_token(port, Some(token)).await
@@ -85,8 +108,13 @@ pub async fn start_proxy(port: u16) -> anyhow::Result<()> {
 pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> anyhow::Result<()> {
     use crate::core::config::{Config, ProxyProvider};
 
+    // A single total timeout aborts long streaming generations (e.g. Opus doing
+    // a big refactor) mid-response. Use a connect timeout plus a read (idle)
+    // timeout instead: a genuinely hung upstream still fails, but a slow-but-
+    // alive stream is never cut off. Both are configurable for edge networks.
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_mins(2))
+        .connect_timeout(std::time::Duration::from_secs(connect_timeout_secs()))
+        .read_timeout(std::time::Duration::from_secs(read_idle_timeout_secs()))
         .build()?;
 
     let cfg = Config::load();
@@ -212,9 +240,12 @@ async fn status_handler(State(state): State<ProxyState>) -> impl IntoResponse {
         "requests_total": s.requests_total.load(Relaxed),
         "requests_compressed": s.requests_compressed.load(Relaxed),
         "tokens_saved": s.tokens_saved.load(Relaxed),
+        "tokens_saved_estimated": true,
         "bytes_original": s.bytes_original.load(Relaxed),
         "bytes_compressed": s.bytes_compressed.load(Relaxed),
         "compression_ratio_pct": format!("{:.1}", s.compression_ratio()),
+        "per_model": cost::snapshot(),
+        "note": "Savings are request-side (tokens removed before forwarding); they do not subtract any re-reads the agent performs. Token figures are estimates; USD uses the shared model price table.",
         "introspect": {
             "total_requests_analyzed": i.total_requests.load(Relaxed),
             "total_system_prompt_tokens": i.total_system_prompt_tokens.load(Relaxed),

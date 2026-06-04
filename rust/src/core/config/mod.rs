@@ -176,8 +176,11 @@ pub struct Config {
     /// Override via LEAN_CTX_MINIMAL env var.
     #[serde(default)]
     pub minimal_overhead: bool,
-    /// Auto-enable SymbolMap for projects with >50 source files.
-    #[serde(default = "serde_defaults::default_true")]
+    /// Opt-in: substitute long identifiers with short α-codes (+ a `§MAP` table)
+    /// in `aggressive` reads for projects with >50 source files. Off by default —
+    /// the abbreviated form is confusing for editing/refactoring, where the agent
+    /// needs the real package and symbol names. Enable for max exploration savings.
+    #[serde(default)]
     pub symbol_map_auto: bool,
     /// Team server URL for opt-in savings roll-up.
     /// Set via `lean-ctx config set team_url https://...` or `[team] url` in config.toml.
@@ -390,7 +393,7 @@ impl Default for Config {
             extra_roots: Vec::new(),
             content_defined_chunking: false,
             minimal_overhead: true,
-            symbol_map_auto: true,
+            symbol_map_auto: false,
             team_url: None,
             journal_enabled: true,
             auto_capture: true,

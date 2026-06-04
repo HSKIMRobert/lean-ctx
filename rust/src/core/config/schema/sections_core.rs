@@ -220,8 +220,8 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
         "symbol_map_auto".into(),
         key(
             "bool",
-            serde_json::json!(true),
-            "Auto-enable SymbolMap for projects with >50 source files",
+            serde_json::json!(false),
+            "Opt-in: α-code identifier substitution in aggressive reads (>50-file projects). Off by default — abbreviated symbols hinder editing/refactoring",
         ),
     );
     root.insert(

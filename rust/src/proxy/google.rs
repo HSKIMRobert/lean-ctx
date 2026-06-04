@@ -8,6 +8,7 @@ use serde_json::Value;
 
 use super::compress::compress_tool_result;
 use super::forward;
+use super::tool_kind::{self, should_protect, ToolResultKind};
 use super::ProxyState;
 
 pub async fn handler(
@@ -43,9 +44,14 @@ fn compress_request_body(body: &[u8]) -> (Vec<u8>, usize, usize) {
             if let Some(parts) = content.get_mut("parts").and_then(|p| p.as_array_mut()) {
                 for part in parts.iter_mut() {
                     if let Some(func_resp) = part.get_mut("functionResponse") {
+                        // Gemini carries the originating function name inline.
+                        let kind = func_resp
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .map_or(ToolResultKind::Other, tool_kind::classify_tool_name);
                         if let Some(response) = func_resp.get_mut("response") {
-                            modified |= compress_string_field(response, "result");
-                            modified |= compress_string_field(response, "content");
+                            modified |= compress_string_field(response, "result", kind);
+                            modified |= compress_string_field(response, "content", kind);
                         }
                     }
                 }
@@ -66,11 +72,14 @@ fn compress_request_body(body: &[u8]) -> (Vec<u8>, usize, usize) {
     }
 }
 
-fn compress_string_field(obj: &mut Value, field: &str) -> bool {
+fn compress_string_field(obj: &mut Value, field: &str, kind: ToolResultKind) -> bool {
     if let Some(val) = obj
         .get_mut(field)
         .and_then(|v| v.as_str().map(String::from))
     {
+        if should_protect(kind, &val) {
+            return false;
+        }
         let compressed = compress_tool_result(&val, None);
         if compressed.len() < val.len() {
             obj[field] = Value::String(compressed);
