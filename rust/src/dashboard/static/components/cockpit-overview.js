@@ -197,7 +197,6 @@ class CockpitOverview extends HTMLElement {
     var body = '';
     body += this._renderTimeFilter(esc);
     body += this._renderHero(esc, ff, fmt, fu, pc);
-    body += this._renderContextHealthCard(esc, ff);
     body += this._renderBuddy(esc);
     body += this._renderChartsRow1(esc, ff, fu);
     body += this._renderHealthRow(esc);
@@ -271,19 +270,19 @@ class CockpitOverview extends HTMLElement {
 
       '<div class="hc">' +
       '<span class="hl">Cost saved' + tip('cost_saved') + '</span>' +
-      '<div class="hv" style="color:var(--yellow)">' + esc(fu(avoidedUsd)) + '</div>' +
+      '<div class="hv">' + esc(fu(avoidedUsd)) + '</div>' +
       '<p class="hs">estimated API cost avoided</p>' +
       '</div>' +
 
       '<div class="hc">' +
       '<span class="hl">Energy saved' + tip('energy_saved') + '</span>' +
-      '<div class="hv" style="color:var(--green)">' + esc(fe(energyWh)) + '</div>' +
+      '<div class="hv">' + esc(fe(energyWh)) + '</div>' +
       '<p class="hs">est. inference energy not burned</p>' +
       '</div>' +
 
       '<div class="hc">' +
       '<span class="hl">Compression rate' + tip('compression_rate') + '</span>' +
-      '<div class="hv" style="color:var(--purple)">' + esc(String(compRate)) + '%</div>' +
+      '<div class="hv">' + esc(String(compRate)) + '%</div>' +
       '<p class="hs">tokens removed before sending</p>' +
       '</div>' +
 
@@ -296,7 +295,7 @@ class CockpitOverview extends HTMLElement {
 
       '<div class="hc">' +
       '<span class="hl">Total calls' + tip('total_calls') + '</span>' +
-      '<div class="hv" style="color:var(--blue)">' + esc(ff(calls)) + '</div>' +
+      '<div class="hv">' + esc(ff(calls)) + '</div>' +
       '<p class="hs">' +
       (stats && stats.first_use
         ? 'since ' + esc(String(stats.first_use).slice(0, 10))
@@ -304,13 +303,15 @@ class CockpitOverview extends HTMLElement {
       '</p>' +
       '</div>' +
 
+      this._healthHeroCard(esc, ff) +
+
       '</div>'
     );
   }
 
-  /* ── Context Health Card (links to Commander) ───────── */
+  /* ── Context Health hero card (compact, links to Commander) ───── */
 
-  _renderContextHealthCard(esc, ff) {
+  _healthHeroCard(esc, ff) {
     if (!this._triageData) {
       var self = this;
       var fetchJson = api();
@@ -318,73 +319,59 @@ class CockpitOverview extends HTMLElement {
         fetchJson('/api/context-triage', { timeoutMs: 8000 }).then(function (data) {
           if (data && !data.__error) {
             self._triageData = data;
-            var placeholder = document.getElementById('cko-contextHealth');
+            var placeholder = document.getElementById('cko-healthCard');
             if (placeholder) {
-              placeholder.innerHTML = self._buildContextHealthHtml(esc, ff, data);
+              placeholder.innerHTML = self._buildHealthHeroInner(esc, ff, data);
               self._bindContextHealthCard();
             }
           }
         }).catch(function () {});
       }
-      return '<div id="cko-contextHealth" class="card" style="margin-bottom:20px;padding:16px">' +
-        '<h3>Context Health</h3><p class="hs">Loading\u2026</p></div>';
+      return '<div class="hc hc--link" id="cko-healthCard" role="button" tabindex="0" ' +
+        'title="Open Context Commander">' +
+        '<span class="hl">Context Health' + tip('context_health') + '</span>' +
+        '<div class="hv" style="color:var(--muted)">\u2014</div>' +
+        '<p class="hs">checking\u2026</p>' +
+        '</div>';
     }
 
-    return '<div id="cko-contextHealth" class="card" style="margin-bottom:20px;padding:16px">' +
-      this._buildContextHealthHtml(esc, ff, this._triageData) + '</div>';
+    return '<div class="hc hc--link" id="cko-healthCard" role="button" tabindex="0" ' +
+      'title="Open Context Commander">' +
+      this._buildHealthHeroInner(esc, ff, this._triageData) + '</div>';
   }
 
-  _buildContextHealthHtml(esc, ff, data) {
+  _buildHealthHeroInner(esc, ff, data) {
     var b = data.budget || {};
     var s = data.summary || {};
-    var actions = data.actions || [];
     var band = b.band || 'green';
 
     var bandLabels = { green: 'Optimal', yellow: 'Moderate', orange: 'High', red: 'Critical' };
-    var bandColors = { green: 'var(--green)', yellow: 'var(--yellow)', orange: 'var(--orange)', red: 'var(--red)' };
+    var bandColors = { green: 'var(--accent)', yellow: 'var(--yellow)', orange: 'var(--orange)', red: 'var(--red)' };
     var pct = Math.round((b.utilization || 0) * 100);
-    var col = bandColors[band] || 'var(--green)';
+    var col = bandColors[band] || 'var(--accent)';
     var label = bandLabels[band] || 'Unknown';
 
-    var h = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">';
-    h += '<h3 style="margin:0">Context Health' + tip('context_health') + '</h3>';
-    h += '<button type="button" class="btn" id="cko-goCommander" style="font-size:11px;padding:4px 12px">Open Commander \u2192</button>';
-    h += '</div>';
+    var sub = pct + '% used \u00b7 ' + (s.total_files || 0) + ' files';
+    if (s.risk_count > 0) sub += ' \u00b7 ' + s.risk_count + ' at risk';
 
-    h += '<div style="display:flex;align-items:center;gap:16px;margin-bottom:12px">';
-    h += '<div style="position:relative;width:52px;height:52px;flex-shrink:0">';
-    h += '<svg viewBox="0 0 36 36" width="52" height="52" style="transform:rotate(-90deg)">';
-    h += '<circle cx="18" cy="18" r="15.91549430918954" fill="none" stroke="var(--surface-2)" stroke-width="3" />';
-    var dash = Math.min(100, pct);
-    var gap = 100 - dash;
-    h += '<circle cx="18" cy="18" r="15.91549430918954" fill="none" stroke="' + col + '" stroke-width="3" stroke-linecap="round" stroke-dasharray="' + dash + ' ' + gap + '" stroke-dashoffset="' + gap + '" />';
-    h += '</svg>';
-    h += '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;font-family:var(--mono)">' + pct + '%</div>';
-    h += '</div>';
-
-    h += '<div>';
-    h += '<div style="font-size:14px;font-weight:600;color:' + col + '">' + esc(label) + ' Pressure</div>';
-    h += '<div style="font-size:11px;color:var(--muted)">' + esc(b.recommendation || '') + '</div>';
-    h += '</div>';
-    h += '</div>';
-
-    h += '<div style="display:flex;gap:16px;font-size:12px">';
-    h += '<span><strong>' + (s.total_files || 0) + '</strong> files</span>';
-    h += '<span><strong>' + (s.pinned_count || 0) + '</strong> pinned</span>';
-    if (s.risk_count > 0) h += '<span style="color:var(--yellow)"><strong>' + s.risk_count + '</strong> at risk</span>';
-    if (actions.length > 0) h += '<span style="color:' + col + '"><strong>' + actions.length + '</strong> actions recommended</span>';
-    h += '</div>';
-
-    return h;
+    return '<span class="hl">Context Health' + tip('context_health') + '</span>' +
+      '<div class="hv hc-health-v" style="color:' + col + '">' +
+      '<span class="hc-health-dot" style="background:' + col + '"></span>' + esc(label) +
+      '</div>' +
+      '<p class="hs">' + esc(sub) + '<span class="hc-health-go">Commander \u2192</span></p>';
   }
 
   _bindContextHealthCard() {
-    var btn = document.getElementById('cko-goCommander');
-    if (btn) {
-      btn.addEventListener('click', function () {
-        if (window.LctxRouter) window.LctxRouter.navigateTo('commander');
-      });
-    }
+    var card = document.getElementById('cko-healthCard');
+    if (!card || card.dataset.bound === '1') return;
+    card.dataset.bound = '1';
+    var go = function () {
+      if (window.LctxRouter) window.LctxRouter.navigateTo('commander');
+    };
+    card.addEventListener('click', go);
+    card.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); }
+    });
   }
 
   /* ── Buddy card ────────────────────────────────────── */
@@ -394,58 +381,55 @@ class CockpitOverview extends HTMLElement {
     if (!b || !b.name) return '';
 
     var rarity = b.rarity || 'Common';
+    var rarityLabel = rarity === 'Egg' ? 'Starter' : rarity;
     var tier = lvlTier(b.level || 1);
     var art = Array.isArray(b.ascii_art) ? b.ascii_art.join('\n') : (b.ascii_art || '');
-    var xp = b.xp || 0;
-    var xpNext = b.xp_next_level || 1;
-    var xpPct = xpNext > 0 ? Math.min(100, Math.round((xp / xpNext) * 100)) : 0;
     var mood = b.mood || 'Content';
+    // Coherent, endless progression: the form follows the evolution\u2192ascension
+    // ladder (never a dead-end word), and the themed aura intensifies with each
+    // ascension tier so the buddy keeps visibly changing forever.
+    var form = b.form || 'Egg';
+    var prestige = b.prestige || 0;
+    var glow = 12 + Math.min(prestige, 18) * 2;
+    var spriteCls = 'buddy-sprite buddy-sprite--theme ' + tier +
+      (prestige > 0 ? ' buddy-sprite--ascend' : '');
 
-    var statNames = ['CMP', 'VIG', 'END', 'WIS', 'EXP'];
-    var statKeys = ['compression', 'vigilance', 'endurance', 'wisdom', 'experience'];
-    var statTipKeys = ['buddy_cmp', 'buddy_vig', 'buddy_end', 'buddy_wis', 'buddy_exp'];
-    var statColors = [
-      'var(--green)', 'var(--blue)', 'var(--purple)',
-      'var(--yellow)', 'var(--pink)',
+    // Real lean-ctx efficiency metrics — no abstract RPG stats.
+    var effMetrics = [
+      { label: 'Compression', val: b.compression_pct || 0, color: 'var(--accent)', tipKey: 'compression' },
+      { label: 'Cache', val: b.cache_hit_rate || 0, color: 'var(--text-bright)', tipKey: 'buddy_cache' },
     ];
-    var bStats = b.stats || {};
 
     var statsHtml = '<div class="buddy-stats-grid">';
-    for (var i = 0; i < statNames.length; i++) {
-      var val = bStats[statKeys[i]] || 0;
+    for (var i = 0; i < effMetrics.length; i++) {
+      var em = effMetrics[i];
       statsHtml +=
         '<div class="stat-cell">' +
-        '<div class="stat-label">' + statNames[i] + tip(statTipKeys[i]) + '</div>' +
-        miniGauge(val, statColors[i]) +
-        '<div class="stat-val">' + val + '</div>' +
+        '<div class="stat-label">' + em.label + tip(em.tipKey) + '</div>' +
+        miniGauge(em.val, em.color) +
+        '<div class="stat-val">' + em.val + '%</div>' +
         '</div>';
     }
     statsHtml += '</div>';
 
     return (
-      '<div class="buddy-card rarity-' + esc(rarity) + ' ' + tier +
+      '<div class="buddy-card buddy-card--theme ' + tier +
       '" style="margin-bottom:20px">' +
-      '<div class="buddy-sprite rarity-' + esc(rarity) + ' ' + tier + '">' +
+      '<div class="' + spriteCls + '" style="--buddyGlow:' + glow + 'px">' +
       '<pre id="cko-buddyArt">' + esc(art) + '</pre>' +
       '</div>' +
       '<div class="buddy-info">' +
       '<div class="buddy-name">' + esc(b.name) +
       ' <span class="rarity-badge r-' + esc(rarity) + '">' +
-      esc(rarity) + '</span></div>' +
+      esc(rarityLabel) + '</span></div>' +
       '<div class="buddy-meta">' +
-      '<span>' + esc(b.species || '') + '</span>' +
+      '<span class="buddy-form">' + esc(form) + tip('buddy_form') + '</span>' +
       '<span>Lv.' + (b.level || 1) + tip('buddy_level') + '</span>' +
       '<span class="mood-dot mood-' + esc(mood) + '"></span>' +
       '<span>' + esc(mood) + tip('buddy_mood') + '</span>' +
       (b.streak_days != null
         ? '<span>' + b.streak_days + 'd streak' + tip('buddy_streak') + '</span>'
         : '') +
-      '</div>' +
-      '<div class="xp-wrap">' +
-      '<div class="xp-label"><span>XP</span><span>' +
-      xp + ' / ' + xpNext + '</span></div>' +
-      '<div class="xp-track"><div class="xp-fill" style="width:' +
-      xpPct + '%"></div></div>' +
       '</div>' +
       statsHtml +
       (b.speech
@@ -580,7 +564,7 @@ class CockpitOverview extends HTMLElement {
       '</div>' +
 
       '<div class="card">' +
-      '<h3>SLO compliance' + tip('slo_compliance') + '</h3>' +
+      '<h3>Reliability' + tip('slo_compliance') + '</h3>' +
       '<div class="hv" style="font-size:28px;color:' + sloCol + '">' +
       sloPct + '%</div>' +
       '<div class="sr" style="margin-top:8px">' +
@@ -598,7 +582,7 @@ class CockpitOverview extends HTMLElement {
       '</div>' +
 
       '<div class="card">' +
-      '<h3>Property graph' + tip('property_graph') + '</h3>' +
+      '<h3>Relationships' + tip('property_graph') + '</h3>' +
       '<div class="sr"><span class="sl">Nodes</span>' +
       '<span class="sv">' + gNodes + '</span></div>' +
       '<div class="sr"><span class="sl">Edges</span>' +
@@ -628,7 +612,7 @@ class CockpitOverview extends HTMLElement {
       '</div>' +
 
       '<div class="card">' +
-      '<h3>MCP vs Shell hook' + tip('mcp_vs_shell') + '</h3>' +
+      '<h3>MCP vs Shell' + tip('mcp_vs_shell') + '</h3>' +
       '<canvas id="cko-chartMcpShell" height="180"' +
       ' aria-label="MCP vs Shell chart"></canvas>' +
       '<div id="cko-mcpShellGrid"></div>' +

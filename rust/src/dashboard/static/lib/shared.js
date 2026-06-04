@@ -413,15 +413,11 @@
     savings_growth: 'Chart tracking cumulative token savings growth over time.',
     compression_trend: 'Trend chart of compression ratio changes over recent activity.',
     command_volume: 'Chart showing command execution volume over time.',
-    buddy_cmp: 'Compression \u2013 how effectively your buddy compresses files (higher = better savings).',
-    buddy_vig: 'Vigilance \u2013 how consistently your buddy catches optimization opportunities.',
-    buddy_end: 'Endurance \u2013 sustained performance over long sessions without degradation.',
-    buddy_wis: 'Wisdom \u2013 smart mode selection and context-aware compression decisions.',
-    buddy_exp: 'Experience \u2013 total accumulated learning from all sessions and projects.',
-    buddy_xp: 'Experience points \u2013 earn XP through tool calls. Level up for new abilities.',
+    buddy_cache: 'Cache hit rate \u2013 share of reads served from cache instead of re-reading files.',
     buddy_mood: 'Current mood \u2013 reflects recent compression performance and activity level.',
-    buddy_streak: 'Consecutive days with at least one tool call. Longer streaks boost XP gain.',
-    buddy_level: 'Guardian level \u2013 higher levels unlock new compression strategies.',
+    buddy_streak: 'Consecutive days with at least one tool call. Longer streaks keep your buddy thriving.',
+    buddy_level: 'Companion level \u2013 climbs forever as you save more tokens. There is no level cap.',
+    buddy_form: 'Current form on the endless ladder: Egg \u2192 Baby \u2192 Teen \u2192 Adult \u2192 Mythic, then ascends through cosmic ranks (Ascended, Stellar, Astral \u2026) without end.',
   };
 
   function tip(key) {

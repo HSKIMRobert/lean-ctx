@@ -515,7 +515,7 @@ class CockpitLive extends HTMLElement {
 
     return (
       '<div class="hero" style="grid-template-columns:1fr 1fr;margin-bottom:14px">' +
-      '<div class="hc" style="background:linear-gradient(145deg,rgba(52,211,153,0.06),rgba(52,211,153,0.02));border-color:var(--green-glow)">' +
+      '<div class="hc">' +
       '<span class="hl">Session Tokens Saved' + tip('session_tokens_saved') + '</span>' +
       '<div class="token-counter" id="ckl-session-saved" data-live="1">' +
       esc(ff(sessionSaved)) +
@@ -524,9 +524,9 @@ class CockpitLive extends HTMLElement {
         ? '<p class="hs">of ' + esc(ff(sessionOrig)) + ' original tokens</p>'
         : '<p class="hs">cumulative this session</p>') +
       '</div>' +
-      '<div class="hc" style="background:linear-gradient(145deg,rgba(129,140,248,0.06),rgba(129,140,248,0.02));border-color:rgba(129,140,248,0.15)">' +
+      '<div class="hc">' +
       '<span class="hl">All-Time Tokens Saved' + tip('all_time_saved') + '</span>' +
-      '<div class="token-counter" id="ckl-alltime-saved" data-live="1" style="background:linear-gradient(135deg,var(--purple),#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;filter:drop-shadow(0 0 20px rgba(129,140,248,0.2))">' +
+      '<div class="token-counter" id="ckl-alltime-saved" data-live="1">' +
       esc(ff(allTimeSaved)) +
       '</div>' +
       '<p class="hs">across all sessions</p>' +
@@ -559,10 +559,10 @@ class CockpitLive extends HTMLElement {
     return (
       '<div class="row r11" style="margin-bottom:14px">' +
       '<div class="card">' +
-      '<div class="card-header"><h3><span class="tag tp">MCP</span> Tools' + tip('mcp_tools') + '</h3></div>' +
+      '<div class="card-header"><h3><span class="tag tg">MCP</span> Tools' + tip('mcp_tools') + '</h3></div>' +
       '<div class="ctx-metric">' +
       '<span class="ctx-label">Saved</span>' +
-      '<span class="ctx-val" style="color:var(--purple)">' + esc(ff(Math.max(0, mcpStats.saved))) + '</span>' +
+      '<span class="ctx-val" style="color:var(--text-bright)">' + esc(ff(Math.max(0, mcpStats.saved))) + '</span>' +
       '</div>' +
       '<div class="ctx-metric">' +
       '<span class="ctx-label">Calls</span>' +
@@ -574,10 +574,10 @@ class CockpitLive extends HTMLElement {
       '</div>' +
       '</div>' +
       '<div class="card">' +
-      '<div class="card-header"><h3><span class="tag tb">Hook</span> Shell Hooks' + tip('shell_hooks') + '</h3></div>' +
+      '<div class="card-header"><h3><span class="tag tn">Hook</span> Shell Hooks' + tip('shell_hooks') + '</h3></div>' +
       '<div class="ctx-metric">' +
       '<span class="ctx-label">Saved</span>' +
-      '<span class="ctx-val" style="color:var(--blue)">' + esc(ff(Math.max(0, hookStats.saved))) + '</span>' +
+      '<span class="ctx-val" style="color:var(--text-bright)">' + esc(ff(Math.max(0, hookStats.saved))) + '</span>' +
       '</div>' +
       '<div class="ctx-metric">' +
       '<span class="ctx-label">Calls</span>' +
@@ -612,13 +612,13 @@ class CockpitLive extends HTMLElement {
 
     return (
       '<div class="card" style="margin-bottom:14px;padding:14px 20px">' +
-      '<div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:10px">' +
-      '<span style="color:var(--purple);font-weight:600">MCP ' + esc(String(mcpPct)) + '%</span>' +
-      '<span style="color:var(--blue);font-weight:600">Hook ' + esc(String(hookPct)) + '%</span>' +
+      '<div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:10px;font-family:var(--mono);letter-spacing:.5px">' +
+      '<span style="color:var(--accent);font-weight:600">MCP ' + esc(String(mcpPct)) + '%</span>' +
+      '<span style="color:var(--muted);font-weight:600">HOOK ' + esc(String(hookPct)) + '%</span>' +
       '</div>' +
-      '<div class="pressure-bar" style="height:10px;display:flex;overflow:hidden">' +
-      '<div style="width:' + mcpPct + '%;background:var(--purple);border-radius:8px 0 0 8px;transition:width .5s var(--ease-out)"></div>' +
-      '<div style="width:' + hookPct + '%;background:var(--blue);border-radius:0 8px 8px 0;transition:width .5s var(--ease-out)"></div>' +
+      '<div class="pressure-bar" style="height:8px;display:flex;overflow:hidden">' +
+      '<div style="width:' + mcpPct + '%;background:var(--accent);transition:width .5s var(--ease-out)"></div>' +
+      '<div style="width:' + hookPct + '%;background:var(--muted);opacity:.45;transition:width .5s var(--ease-out)"></div>' +
       '</div>' +
       '</div>'
     );

@@ -70,6 +70,31 @@ pub(super) fn handle(
             });
             Some(("200 OK", "application/json", json))
         }
+        "/api/theme-tokens" => {
+            let cfg = crate::core::config::Config::load();
+            let theme = crate::core::theme::load_theme(&cfg.theme);
+            let payload = serde_json::json!({
+                "name": theme.name,
+                "tokens": {
+                    "primary": format!("{}", { let crate::core::theme::Color::Hex(ref h) = theme.primary; h }),
+                    "secondary": format!("{}", { let crate::core::theme::Color::Hex(ref h) = theme.secondary; h }),
+                    "accent": format!("{}", { let crate::core::theme::Color::Hex(ref h) = theme.accent; h }),
+                    "success": format!("{}", { let crate::core::theme::Color::Hex(ref h) = theme.success; h }),
+                    "warning": format!("{}", { let crate::core::theme::Color::Hex(ref h) = theme.warning; h }),
+                    "danger": format!("{}", { let crate::core::theme::Color::Hex(ref h) = theme.danger; h }),
+                    "muted": format!("{}", { let crate::core::theme::Color::Hex(ref h) = theme.muted; h }),
+                    "text": format!("{}", { let crate::core::theme::Color::Hex(ref h) = theme.text; h }),
+                    "surface": format!("{}", { let crate::core::theme::Color::Hex(ref h) = theme.surface; h }),
+                    "background": format!("{}", { let crate::core::theme::Color::Hex(ref h) = theme.background; h }),
+                    "barStart": format!("{}", { let crate::core::theme::Color::Hex(ref h) = theme.bar_start; h }),
+                    "barEnd": format!("{}", { let crate::core::theme::Color::Hex(ref h) = theme.bar_end; h }),
+                    "border": format!("{}", { let crate::core::theme::Color::Hex(ref h) = theme.border; h }),
+                },
+                "css": theme.to_css_vars(),
+            });
+            let json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+            Some(("200 OK", "application/json", json))
+        }
         _ => None,
     }
 }

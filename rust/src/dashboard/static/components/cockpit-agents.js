@@ -177,7 +177,7 @@ class CockpitAgents extends HTMLElement {
     if (list.length === 0) {
       return (
         '<div class="card" style="margin-bottom:16px">' +
-        '<h3>Agent Swimlanes' + tip('agent_swimlanes') + '</h3>' +
+        '<h3>Agent timeline' + tip('agent_swimlanes') + '</h3>' +
         '<p class="hs">No agents registered yet. Agents appear here once they connect.</p>' +
         '</div>'
       );
@@ -211,7 +211,7 @@ class CockpitAgents extends HTMLElement {
 
     return (
       '<div class="card" style="margin-bottom:16px">' +
-      '<div class="card-header"><h3>Agent Swimlanes' + tip('agent_swimlanes') + '</h3></div>' +
+      '<div class="card-header"><h3>Agent timeline' + tip('agent_swimlanes') + '</h3></div>' +
       '<div class="cka-swimlane-grid">' + cards + '</div>' +
       '</div>'
     );

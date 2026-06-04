@@ -134,7 +134,7 @@ pub async fn start(port: Option<u16>, host: Option<String>) {
     println!("  Stats file: {stats_path}");
     println!("  Press Ctrl+C to stop");
     println!(
-        "  \x1b[2m💡 Join the community leaderboard: lean-ctx gain --wrapped --publish --leaderboard\x1b[0m\n"
+        "  \x1b[2m💡 Join the public leaderboard at https://leanctx.com/metrics: lean-ctx gain --publish --leaderboard\x1b[0m\n"
     );
 
     if is_local {

@@ -646,7 +646,7 @@ class CockpitContext extends HTMLElement {
 
     // Bounce Detection
     h += '<div class="card">';
-    h += '<div class="card-header"><h3>Bounce Detection</h3></div>';
+    h += '<div class="card-header"><h3>Wasted re-reads</h3></div>';
     if (bounce && bounce.total_bounces > 0) {
       h += '<div style="display:flex;gap:16px;margin-top:10px">';
       h += '<div><div style="font-size:18px;font-weight:600">' + (bounce.total_bounces || 0) + '</div><div style="font-size:10px;color:var(--muted)">Bounces</div></div>';
@@ -666,7 +666,7 @@ class CockpitContext extends HTMLElement {
 
     // Dynamic Tools
     h += '<div class="card">';
-    h += '<div class="card-header"><h3>Dynamic Tools</h3></div>';
+    h += '<div class="card-header"><h3>On-demand tools</h3></div>';
     if (dyn) {
       const active = dyn.active_categories || [];
       const all = dyn.all_categories || [];
@@ -706,7 +706,7 @@ class CockpitContext extends HTMLElement {
     // Active Intent
     if (intent?.task_type) {
       const confPct = intent.confidence != null ? Math.round(intent.confidence * 100) : null;
-      h += '<div class="card" style="margin-bottom:16px"><div class="card-header"><h3>Active Intent</h3>';
+      h += '<div class="card" style="margin-bottom:16px"><div class="card-header"><h3>Current task</h3>';
       h += '<span class="tag tg">' + esc(intent.task_type) + '</span></div>';
       if (confPct != null) {
         const cc = confPct >= 70 ? 'var(--green)' : confPct >= 40 ? 'var(--yellow)' : 'var(--muted)';
@@ -730,7 +730,7 @@ class CockpitContext extends HTMLElement {
     if (!Array.isArray(entries) || entries.length === 0) return '';
 
     let h = '<div class="card" style="margin-bottom:16px">';
-    h += '<div class="card-header"><h3>Context Handles</h3><span class="badge">' + entries.length + '</span></div>';
+    h += '<div class="card-header"><h3>Saved context</h3><span class="badge">' + entries.length + '</span></div>';
     h += '<div class="table-scroll" style="max-height:300px;overflow-y:auto"><table><thead><tr>';
     h += '<th>Ref</th><th>Path</th><th>Kind</th><th class="r">Tokens</th><th class="r">Phi</th><th>Pinned</th>';
     h += '</tr></thead><tbody>';

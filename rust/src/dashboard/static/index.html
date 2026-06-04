@@ -40,17 +40,17 @@
 .global-search{
   width:100%;padding:8px 52px 8px 14px;
   background:var(--bg);border:1px solid var(--border);
-  border-radius:4px;color:var(--text);font-family:var(--mono);font-size:12px;
+  border-radius:var(--rs);color:var(--text);font-family:var(--mono);font-size:12px;
   outline:none;transition:all .2s;
 }
-.global-search:focus{border-color:var(--green);box-shadow:0 0 0 3px rgba(52,211,153,0.08);background:var(--surface)}
+.global-search:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-dim);background:var(--surface)}
 .global-search::placeholder{color:var(--muted);font-size:12px}
 .topbar-right-cluster{
   display:flex;align-items:center;gap:8px;flex-shrink:0;
 }
 .topbar-status{
   display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);
-  padding:5px 12px;background:var(--bg);border-radius:4px;border:1px solid var(--border);
+  padding:5px 12px;background:var(--bg);border-radius:var(--rs);border:1px solid var(--border);
 }
 .topbar-status .ts-item{display:flex;align-items:center;gap:5px;white-space:nowrap}
 .topbar-status .ts-ascii{font-family:var(--mono);font-size:9px;font-weight:700;flex-shrink:0}
@@ -58,8 +58,8 @@
 .topbar-status .ts-ascii.off{color:var(--red)}
 .topbar-status .agent-badge{
   font-size:10px;font-weight:600;font-family:var(--mono);
-  background:var(--purple-dim);color:var(--purple);
-  padding:1px 7px;border-radius:4px;
+  background:var(--surface-2);color:var(--muted);
+  padding:1px 7px;border-radius:4px;border:1px solid var(--border);
 }
 .topbar-status .session-pill{
   max-width:140px;overflow:hidden;text-overflow:ellipsis;
@@ -68,10 +68,10 @@
 .topbar-status .ts-sep{width:1px;height:14px;background:var(--border);flex-shrink:0}
 .theme-toggle{
   display:flex;align-items:center;justify-content:center;
-  width:32px;height:32px;border-radius:4px;border:1px solid var(--border);
+  width:32px;height:32px;border-radius:var(--rs);border:1px solid var(--border);
   background:var(--bg);color:var(--muted);cursor:pointer;transition:.15s;
 }
-.theme-toggle:hover{border-color:var(--green);color:var(--green)}
+.theme-toggle:hover{border-color:var(--border-light);color:var(--text)}
 .cockpit-status-bar{
   position:fixed;bottom:0;left:var(--sidebar-w);right:0;height:32px;z-index:250;
   display:flex;align-items:center;justify-content:space-between;gap:12px;
@@ -82,9 +82,12 @@
   transition:left .25s var(--ease-out);
 }
 .cockpit-status-bar .sb-l,.cockpit-status-bar .sb-c,.cockpit-status-bar .sb-r{
-  display:flex;align-items:center;gap:10px;min-width:0;
+  display:flex;align-items:center;gap:10px;min-width:0;white-space:nowrap;
 }
-.cockpit-status-bar .sb-c{flex:1;justify-content:center;text-align:center}
+.cockpit-status-bar .sb-l{flex:0 0 auto}
+.cockpit-status-bar .sb-c{flex:1 1 auto;justify-content:center;text-align:center}
+.cockpit-status-bar .sb-r{flex:0 1 auto;justify-content:flex-end;overflow:hidden}
+.cockpit-status-bar .sb-r #sbSession{overflow:hidden;text-overflow:ellipsis;max-width:30vw}
 .cockpit-status-bar .sb-strong{color:var(--text-bright);font-weight:600}
 .cockpit-status-bar .sb-sep{opacity:0.35}
 .toast-host{
@@ -110,6 +113,10 @@
   transition:transform .35s var(--ease-out), right .35s var(--ease-out), box-shadow .35s ease;
 }
 .detail-panel.open{transform:translateX(0)}
+@media(max-width:860px){
+  .topbar-status{display:none}
+  .seg-toggle-label{display:none}
+}
 @media(max-width:768px){
   .cockpit-status-bar{left:0;padding-left:12px}
   .topbar-center{max-width:100%;order:3;flex-basis:100%}
@@ -210,8 +217,17 @@
           </span>
           <span class="ts-sep"></span>
           <span class="agent-badge" id="agentCountBadge" title="Active agents">0</span>
-          <span class="ts-sep"></span>
-          <span class="session-pill" id="sessionInfoTop" title="Session">—</span>
+        </div>
+        <div class="seg-toggle" id="modeToggle" role="group" aria-label="View detail level">
+          <span class="seg-toggle-label" aria-hidden="true">View</span>
+          <button type="button" class="seg" data-mode="simple" aria-pressed="true" title="Essential views only">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/></svg>
+            <span>Simple</span>
+          </button>
+          <button type="button" class="seg" data-mode="pro" aria-pressed="false" title="All advanced developer views">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/></svg>
+            <span>Advanced</span>
+          </button>
         </div>
         <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle light and dark theme" title="Theme">
           <svg id="themeIconSun" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
@@ -221,6 +237,11 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
         </button>
       </div>
+    </div>
+
+    <div class="view-hint" id="viewHint" hidden>
+      <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="8" cy="8" r="6.5"/><line x1="8" y1="7.2" x2="8" y2="11.5"/><circle cx="8" cy="4.7" r="0.6" fill="currentColor"/></svg>
+      <span id="viewHintText"></span>
     </div>
 
     <section id="view-overview" class="view active">
@@ -292,6 +313,21 @@
 
 <div class="toast-host" id="toastHost" aria-live="polite" aria-relevant="additions"></div>
 
+<div class="onboard-overlay" id="onboardOverlay" hidden>
+  <div class="onboard-card" role="dialog" aria-modal="true" aria-labelledby="onboardTitle">
+    <div class="onboard-logo"><span>&lt;|&gt;</span> Lean<b>CTX</b></div>
+    <h2 class="onboard-title" id="onboardTitle">Welcome to your cockpit</h2>
+    <p class="onboard-sub">lean-ctx quietly shrinks what your AI tools read. Here's what it has saved you so far:</p>
+    <div class="onboard-stats" id="onboardStats"></div>
+    <ul class="onboard-points">
+      <li><b>Home</b> &amp; <b>Trends</b> show your savings — that's all most people need.</li>
+      <li>Want the deep developer views? Flip <b>Simple → Advanced</b> in the top bar anytime.</li>
+      <li>Hover any <span class="onboard-i">i</span> for a plain-language explanation.</li>
+    </ul>
+    <button type="button" class="onboard-btn" id="onboardBtn">Got it — show me</button>
+  </div>
+</div>
+
 <div class="detail-panel" id="detailPanel">
   <button type="button" class="detail-panel-close" id="detailPanelClose" aria-label="Close panel">&times;</button>
   <h3 class="detail-panel-title" id="detailPanelTitle"></h3>
@@ -351,6 +387,29 @@ function bootCockpit() {
     });
   }
 
+  // Sync CLI theme tokens to CSS custom properties
+  fetch('/api/theme-tokens')
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (data) {
+      if (!data || !data.tokens) return;
+      var t = data.tokens;
+      var root = document.documentElement.style;
+      root.setProperty('--lctx-primary', t.primary);
+      root.setProperty('--lctx-secondary', t.secondary);
+      root.setProperty('--lctx-accent', t.accent);
+      root.setProperty('--lctx-success', t.success);
+      root.setProperty('--lctx-warning', t.warning);
+      root.setProperty('--lctx-danger', t.danger);
+      root.setProperty('--lctx-muted', t.muted);
+      root.setProperty('--lctx-text', t.text);
+      root.setProperty('--lctx-surface', t.surface);
+      root.setProperty('--lctx-background', t.background);
+      root.setProperty('--lctx-bar-start', t.barStart);
+      root.setProperty('--lctx-bar-end', t.barEnd);
+      root.setProperty('--lctx-border', t.border);
+    })
+    .catch(function () {});
+
   var nav = document.getElementById('cockpitNav');
   if (nav) {
     nav.addEventListener('navigate', function (e) {
@@ -400,9 +459,50 @@ function bootCockpit() {
 
   document.addEventListener('lctx:view', function (e) {
     var label = e.detail && e.detail.label;
+    var desc = e.detail && e.detail.desc;
     var el = document.getElementById('breadcrumbCurrent');
     if (el && label) el.textContent = label;
+    var hint = document.getElementById('viewHint');
+    var hintText = document.getElementById('viewHintText');
+    if (hint && hintText) {
+      if (desc) {
+        hintText.textContent = desc;
+        hint.hidden = false;
+      } else {
+        hint.hidden = true;
+      }
+    }
   });
+
+  // Simple ⇄ Advanced navigation mode (persisted; drives cockpit-nav).
+  var NAV_MODE_KEY = 'lctx_nav_mode';
+  var SIMPLE_VIEWS = { overview: 1, learning: 1, compression: 1, live: 1 };
+  function getNavMode() {
+    try { return localStorage.getItem(NAV_MODE_KEY) === 'pro' ? 'pro' : 'simple'; } catch (e) { return 'simple'; }
+  }
+  function applyNavMode(mode) {
+    var segs = document.querySelectorAll('#modeToggle .seg');
+    for (var i = 0; i < segs.length; i++) {
+      var on = segs[i].getAttribute('data-mode') === mode;
+      segs[i].setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+    document.dispatchEvent(new CustomEvent('lctx:navmode', { detail: { mode: mode } }));
+  }
+  function setNavMode(next) {
+    try { localStorage.setItem(NAV_MODE_KEY, next); } catch (e) {}
+    applyNavMode(next);
+    if (next === 'simple' && window.LctxRouter) {
+      var cur = window.LctxRouter.getActiveViewId();
+      if (!SIMPLE_VIEWS[cur]) window.LctxRouter.navigateTo('overview');
+    }
+  }
+  applyNavMode(getNavMode());
+  var segButtons = document.querySelectorAll('#modeToggle .seg');
+  for (var si = 0; si < segButtons.length; si++) {
+    segButtons[si].addEventListener('click', function () {
+      setNavMode(this.getAttribute('data-mode'));
+    });
+  }
 
   var globalSearch = document.getElementById('globalSearch');
   var searchKbd = document.querySelector('.global-search-wrap kbd');
@@ -513,12 +613,7 @@ function bootCockpit() {
   }
 
   function applySessionUI(sess) {
-    var top = document.getElementById('sessionInfoTop');
     var sb = document.getElementById('sbSession');
-    if (top) {
-      top.textContent = sessionTopSummary(sess);
-      top.title = sess && sess.task && sess.task.description ? sess.task.description : top.textContent;
-    }
     if (sb) sb.textContent = sessionBarLabel(sess);
   }
 
@@ -607,6 +702,47 @@ function bootCockpit() {
   setInterval(pollCockpit, 10000);
 
   if (window.LctxRouter && window.LctxRouter.init) window.LctxRouter.init();
+
+  maybeShowOnboarding();
+
+  function onboardStatCard(value, label) {
+    return '<div class="onboard-stat"><div class="onboard-stat-v">' + value +
+      '</div><div class="onboard-stat-l">' + label + '</div></div>';
+  }
+
+  function maybeShowOnboarding() {
+    var seen = false;
+    try { seen = localStorage.getItem('lctx_onboarded') === '1'; } catch (e) {}
+    if (seen) return;
+    var overlay = document.getElementById('onboardOverlay');
+    if (!overlay) return;
+    overlay.hidden = false;
+    requestAnimationFrame(function () { overlay.classList.add('show'); });
+
+    fetch('/api/stats', { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (s) {
+        var host = document.getElementById('onboardStats');
+        if (!host || !s) return;
+        var inp = Number(s.total_input_tokens || 0);
+        var out = Number(s.total_output_tokens || 0);
+        var saved = Math.max(0, inp - out);
+        var pct = inp > 0 ? Math.round(Math.min(100, (saved / inp) * 100)) : 0;
+        host.innerHTML =
+          onboardStatCard(formatTok(saved), 'tokens saved') +
+          onboardStatCard(pct + '%', 'compression');
+      })
+      .catch(function () {});
+
+    var btn = document.getElementById('onboardBtn');
+    function dismiss() {
+      try { localStorage.setItem('lctx_onboarded', '1'); } catch (e) {}
+      overlay.classList.remove('show');
+      setTimeout(function () { overlay.hidden = true; }, 300);
+    }
+    if (btn) btn.addEventListener('click', dismiss);
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) dismiss(); });
+  }
 }
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', bootCockpit);

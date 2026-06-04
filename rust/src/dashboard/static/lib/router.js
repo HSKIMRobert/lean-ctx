@@ -28,22 +28,42 @@ const KNOWN_ROUTES = [
 ];
 
 const ROUTE_LABELS = {
-  overview: 'Overview',
-  commander: 'Context Commander',
+  overview: 'Home',
+  commander: 'Context Health',
   context: 'Context Manager',
-  live: 'Live Observatory',
-  knowledge: 'Knowledge Graph',
-  deps: 'Dependency Map',
-  compression: 'Compression Lab',
-  agents: 'Agent World',
+  live: 'Live Activity',
+  knowledge: 'Knowledge',
+  deps: 'Dependencies',
+  compression: 'Savings',
+  agents: 'Agents',
   memory: 'Memory',
-  search: 'Search Explorer',
-  learning: 'Learning Curves',
-  symbols: 'Symbol Explorer',
+  search: 'Search',
+  learning: 'Trends',
+  symbols: 'Symbols',
   callgraph: 'Call Graph',
   graph: 'Call Graph',
-  routes: 'Route Map',
+  routes: 'Routes',
   health: 'Health',
+};
+
+// One-line, plain-language explanation shown as a hint banner under the top bar.
+const ROUTE_DESCRIPTIONS = {
+  overview: 'Your savings at a glance.',
+  commander: 'Context-window pressure and what to trim.',
+  context: 'Everything currently loaded into the model context.',
+  live: 'What lean-ctx is doing right now.',
+  knowledge: 'Facts lean-ctx has learned about your project.',
+  deps: 'How your modules depend on each other.',
+  compression: 'Which files and read modes saved the most tokens.',
+  agents: 'Connected agents and their activity.',
+  memory: 'Saved episodes, procedures and bug memory.',
+  search: 'Search indexed files, symbols and content.',
+  learning: 'How your savings and efficiency change over time.',
+  symbols: 'Functions, classes and types in your code.',
+  callgraph: 'Which functions call which.',
+  graph: 'Which functions call which.',
+  routes: 'API routes detected in your project.',
+  health: 'System health and reliability.',
 };
 
 /** @type {Record<string, () => void | Promise<void>>} */
@@ -83,7 +103,8 @@ function showViewSection(viewId) {
 
 async function runLoader(viewId) {
   const label = ROUTE_LABELS[viewId] || viewId;
-  document.dispatchEvent(new CustomEvent('lctx:view', { detail: { viewId, label } }));
+  const desc = ROUTE_DESCRIPTIONS[viewId] || '';
+  document.dispatchEvent(new CustomEvent('lctx:view', { detail: { viewId, label, desc } }));
   const fn = viewLoaders[viewId];
   if (typeof fn === 'function') {
     try {
@@ -181,6 +202,7 @@ window.LctxRouter = {
   ROUTE_ALIASES,
   KNOWN_ROUTES,
   ROUTE_LABELS,
+  ROUTE_DESCRIPTIONS,
 };
 
 export {
@@ -192,4 +214,5 @@ export {
   ROUTE_ALIASES,
   KNOWN_ROUTES,
   ROUTE_LABELS,
+  ROUTE_DESCRIPTIONS,
 };

@@ -20,45 +20,56 @@ const NAV_ICONS = {
   health: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>',
 };
 
+const NAV_MODE_KEY = 'lctx_nav_mode';
+
+function getNavMode() {
+  try {
+    return localStorage.getItem(NAV_MODE_KEY) === 'pro' ? 'pro' : 'simple';
+  } catch (e) {
+    return 'simple';
+  }
+}
+
+// Two-tier navigation: a small "Essentials" set that anyone can understand, and
+// "pro" groups that surface the deep developer/observability views on demand.
+// `desc` powers nav tooltips, the per-view hint banner and onboarding copy.
 const COCKPIT_NAV_SECTIONS = [
   {
-    label: null,
+    label: 'Essentials',
+    tier: 'simple',
     items: [
-      { id: 'overview', label: 'Overview' },
+      { id: 'overview', label: 'Home', desc: 'Your savings at a glance.' },
+      { id: 'learning', label: 'Trends', desc: 'How your savings and efficiency change over time.' },
+      { id: 'compression', label: 'Savings', desc: 'Which files and read modes saved the most tokens.' },
+      { id: 'live', label: 'Live Activity', desc: 'What lean-ctx is doing right now.' },
     ],
   },
   {
     label: 'Context',
+    tier: 'pro',
     items: [
-      { id: 'commander', label: 'Context Commander' },
-      { id: 'context', label: 'Context Manager' },
-      { id: 'live', label: 'Live Observatory' },
-      { id: 'compression', label: 'Compression Lab' },
+      { id: 'commander', label: 'Context Health', desc: 'Context-window pressure and what to trim.' },
+      { id: 'context', label: 'Context Manager', desc: 'Everything currently loaded into the model context.' },
     ],
   },
   {
-    label: 'Code Intelligence',
+    label: 'Intelligence',
+    tier: 'pro',
     items: [
-      { id: 'deps', label: 'Dependencies' },
-      { id: 'callgraph', label: 'Call Graph' },
-      { id: 'symbols', label: 'Symbols' },
-      { id: 'routes', label: 'Routes' },
-      { id: 'search', label: 'Search' },
+      { id: 'knowledge', label: 'Knowledge', desc: 'Facts lean-ctx has learned about your project.' },
+      { id: 'memory', label: 'Memory', desc: 'Saved episodes, procedures and bug memory.' },
+      { id: 'search', label: 'Search', desc: 'Search indexed files, symbols and content.' },
+      { id: 'agents', label: 'Agents', desc: 'Connected agents and their activity.' },
     ],
   },
   {
-    label: 'Knowledge',
+    label: 'Code Map',
+    tier: 'pro',
     items: [
-      { id: 'knowledge', label: 'Knowledge Graph' },
-      { id: 'memory', label: 'Memory' },
-      { id: 'learning', label: 'Learning' },
-    ],
-  },
-  {
-    label: 'System',
-    items: [
-      { id: 'agents', label: 'Agents' },
-      { id: 'health', label: 'Health' },
+      { id: 'deps', label: 'Dependencies', desc: 'How your modules depend on each other.' },
+      { id: 'callgraph', label: 'Call Graph', desc: 'Which functions call which.' },
+      { id: 'symbols', label: 'Symbols', desc: 'Functions, classes and types in your code.' },
+      { id: 'routes', label: 'Routes', desc: 'API routes detected in your project.' },
     ],
   },
 ];
@@ -67,6 +78,14 @@ const COCKPIT_VIEWS = COCKPIT_NAV_SECTIONS.reduce(function (acc, section) {
   return acc.concat(section.items);
 }, []);
 
+// id -> { label, desc, tier } for the router/shell to share one source of truth.
+const COCKPIT_VIEW_META = COCKPIT_NAV_SECTIONS.reduce(function (acc, section) {
+  section.items.forEach(function (it) {
+    acc[it.id] = { label: it.label, desc: it.desc || '', tier: section.tier };
+  });
+  return acc;
+}, {});
+
 class CockpitNav extends HTMLElement {
   connectedCallback() {
     if (this._ready) return;
@@ -74,7 +93,9 @@ class CockpitNav extends HTMLElement {
     this.style.display = 'contents';
     this._activeId = 'overview';
     this._onViewEvent = this._onViewEvent.bind(this);
+    this._onNavMode = this._onNavMode.bind(this);
     document.addEventListener('lctx:view', this._onViewEvent);
+    document.addEventListener('lctx:navmode', this._onNavMode);
     this.innerHTML =
       '<aside class="sidebar" part="sidebar">' +
       '<div class="sidebar-logo">' +
@@ -91,6 +112,7 @@ class CockpitNav extends HTMLElement {
 
   disconnectedCallback() {
     document.removeEventListener('lctx:view', this._onViewEvent);
+    document.removeEventListener('lctx:navmode', this._onNavMode);
   }
 
   _onViewEvent(e) {
@@ -98,25 +120,36 @@ class CockpitNav extends HTMLElement {
     if (vid) this.setActive(vid);
   }
 
+  _onNavMode() {
+    this._renderNav();
+  }
+
   _renderNav() {
     const active = this._activeId;
+    const mode = getNavMode();
     var html = '';
+    var shown = 0;
     for (var si = 0; si < COCKPIT_NAV_SECTIONS.length; si++) {
       var section = COCKPIT_NAV_SECTIONS[si];
-      if (si > 0) html += '<div class="nav-divider"></div>';
-      if (section.label) {
+      if (mode === 'simple' && section.tier === 'pro') continue;
+      if (shown > 0) html += '<div class="nav-divider"></div>';
+      // Section labels only add value once several groups are visible (pro).
+      if (section.label && mode === 'pro') {
         html += '<div class="nav-section-label">' + section.label + '</div>';
       }
       html += '<div class="nav-section">';
       for (var ii = 0; ii < section.items.length; ii++) {
         var v = section.items[ii];
         var isActive = v.id === active;
+        var tip = (v.desc ? v.label + ' — ' + v.desc : v.label).replace(/"/g, '&quot;');
         html +=
           '<div class="nav-item' +
           (isActive ? ' active' : '') +
           '" role="menuitem" data-view="' +
           v.id +
-          '" tabindex="0">' +
+          '" tabindex="0" title="' +
+          tip +
+          '">' +
           '<span class="nav-icon">' + (NAV_ICONS[v.id] || '') + '</span>' +
           '<span class="nav-label">' +
           v.label +
@@ -124,6 +157,7 @@ class CockpitNav extends HTMLElement {
           '</div>';
       }
       html += '</div>';
+      shown += 1;
     }
     this._nav.innerHTML = html;
     this._bindItems();
@@ -179,4 +213,4 @@ class CockpitNav extends HTMLElement {
 
 customElements.define('cockpit-nav', CockpitNav);
 
-export { COCKPIT_VIEWS, CockpitNav };
+export { COCKPIT_VIEWS, COCKPIT_VIEW_META, CockpitNav, getNavMode, NAV_MODE_KEY };
