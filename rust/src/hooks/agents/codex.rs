@@ -349,7 +349,7 @@ command = \"lean-ctx\"
     }
 
     #[test]
-    fn codex_docs_warn_about_desktop_hook_absence() {
+    fn codex_docs_steer_to_reliable_mcp_path_without_false_hook_claim() {
         let tmp = std::env::temp_dir().join("lean-ctx-test-codex-desktop-note");
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
@@ -358,18 +358,27 @@ command = \"lean-ctx\"
 
         let lean_ctx_md = std::fs::read_to_string(tmp.join("LEAN-CTX.md")).unwrap();
         assert!(
-            lean_ctx_md.contains("no automatic compression"),
-            "LEAN-CTX.md must explain that Desktop has no automatic compression"
-        );
-        assert!(
             lean_ctx_md.contains("ctx_shell") && lean_ctx_md.contains("ctx_read"),
             "LEAN-CTX.md must steer the agent to the MCP tools"
+        );
+        // Regression guard for #350: never assert as fact that Desktop/Cloud hooks
+        // do not run — they can (gated by trust via /hooks, varies by version).
+        let normalized = lean_ctx_md.replace('\n', " ");
+        assert!(
+            !normalized.contains("hooks do not run")
+                && !normalized.contains("no automatic compression"),
+            "LEAN-CTX.md must not make the false blanket claim that Codex Desktop hooks never run (#350)"
         );
 
         let agents_md = std::fs::read_to_string(tmp.join("AGENTS.md")).unwrap();
         assert!(
-            agents_md.contains("Desktop") && agents_md.contains("ctx_shell"),
-            "AGENTS.md block must mention the Desktop limitation and ctx_shell"
+            agents_md.contains("ctx_shell") && agents_md.contains("ctx_search"),
+            "AGENTS.md block must steer to the reliable MCP tools"
+        );
+        let agents_norm = agents_md.replace('\n', " ");
+        assert!(
+            !agents_norm.contains("hooks do not run"),
+            "AGENTS.md must not claim Codex hooks never run (#350)"
         );
 
         let _ = std::fs::remove_dir_all(&tmp);

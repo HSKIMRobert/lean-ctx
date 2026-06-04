@@ -93,10 +93,12 @@ pub(super) fn install_codex_instruction_docs(codex_dir: &Path) -> bool {
     let block = format!(
         "{CODEX_AGENTS_BLOCK_START}\n## lean-ctx\n\n\
          Prefer lean-ctx MCP tools over native equivalents for token savings.\n\n\
-         In the Codex Desktop and Cloud app, lifecycle hooks do not run, so there is no \
-         automatic compression. You MUST proactively route shell commands through `ctx_shell` \
-         (or `{binary} -c \"<cmd>\"`) and file reads through `ctx_read` — otherwise large outputs \
-         (builds, `tsc`, tests, logs) reach the model uncompressed.\n\n\
+         For compression you can rely on regardless of your Codex surface (CLI, Desktop, \
+         or Cloud) or Codex version, route shell commands through `ctx_shell` \
+         (or `{binary} -c \"<cmd>\"`), file reads through `ctx_read`, and code search through \
+         `ctx_search`. Hook-driven auto-compression may also be active, but the MCP/CLI tools \
+         are the path that works everywhere — otherwise large outputs (builds, `tsc`, tests, \
+         logs) can reach the model uncompressed.\n\n\
          Full rules: `{rules}`\n{CODEX_AGENTS_BLOCK_END}\n",
         binary = super::resolve_binary_path(),
         rules = rules_path.display()
@@ -153,12 +155,13 @@ fn codex_instruction_doc_content() -> String {
 
 lean-ctx is available via **both** MCP tools and CLI commands.
 
-## IMPORTANT: Codex Desktop & Cloud app
+## Reliable compression on every Codex surface
 
-In the Codex Desktop and Cloud app (app-server mode), Codex lifecycle **hooks do
-not run**. lean-ctx's automatic shell/file compression is hook-driven, so in the
-Desktop/Cloud app there is **no automatic compression** — you MUST route work
-through lean-ctx yourself:
+lean-ctx can compress automatically through Codex lifecycle hooks, but whether
+those fire depends on your Codex version and surface (CLI / Desktop / Cloud) and
+on the hooks being trusted (run `/hooks` to review). The agent usually cannot tell
+which environment it is in — so for compression that works **everywhere**, route
+work through lean-ctx explicitly:
 
 - Shell commands → call the `ctx_shell` MCP tool (or `{binary} -c "<cmd>"`).
 - File reads → call the `ctx_read` MCP tool (instead of `cat`/`head`/`tail`).
@@ -190,12 +193,14 @@ Prefix shell commands with `{binary} -c` for compressed output:
 Works with git, cargo, npm, pnpm, docker, kubectl, pip, ruff, go, tsc, and 95+ more.
 Use `{binary} -c --raw <cmd>` to skip compression and get full output.
 
-## Codex CLI vs Desktop
+## Hooks across Codex surfaces
 
-- **Codex CLI**: hooks fire after you trust them once via `/hooks`, so shell
-  compression is automatic. Both MCP tools and CLI work.
-- **Codex Desktop / Cloud**: hooks do not fire — use the MCP tools (or `{binary} -c`)
-  as described above.
+- **Hook-driven auto-compression** fires once hooks are trusted via `/hooks`. Whether
+  hooks run at all depends on your Codex version and surface, and behaviour has
+  changed across releases — so do not assume it is always on.
+- **MCP tools / CLI** (`ctx_shell`, `ctx_read`, `ctx_search`, or `{binary} -c`) compress
+  on **every** surface (CLI, Desktop, Cloud) regardless of hook status — use them as
+  the reliable path described above.
 "#
     )
 }

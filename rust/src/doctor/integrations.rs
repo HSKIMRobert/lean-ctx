@@ -843,17 +843,18 @@ fn check_codex_hooks_enabled(home: &std::path::Path) -> NamedCheck {
     }
 }
 
-/// Informational note (always `ok`): the Codex Desktop and Cloud app run in
-/// app-server mode, which does not execute lifecycle hooks (OpenAI codex#13019).
-/// lean-ctx's transparent shell/file compression is hook-driven, so it only fires
-/// in the Codex CLI (after the hooks are trusted via `/hooks`). In the Desktop/Cloud
-/// app the agent must use the lean-ctx MCP tools (`ctx_shell`/`ctx_read`) instead.
-/// This is a Codex limitation, not a misconfiguration — hence the note never fails.
+/// Informational note (always `ok`): lean-ctx's transparent shell/file
+/// compression is hook-driven, and whether Codex lifecycle hooks fire depends on
+/// the surface (CLI / Desktop / Cloud), the Codex version, and whether the hooks
+/// are trusted (`/hooks`). Rather than asserting any one surface "can't" run hooks
+/// (it varies and changes across Codex releases), this note points at the reliable
+/// path: the lean-ctx MCP tools (`ctx_shell`/`ctx_read`/`ctx_search`) compress on
+/// every surface. Guidance only — it never fails.
 fn codex_desktop_note() -> NamedCheck {
     NamedCheck {
-        name: "Codex Desktop".to_string(),
+        name: "Codex compression".to_string(),
         ok: true,
-        detail: "hooks fire in the CLI only (trust via /hooks); Desktop/Cloud app uses MCP tools (ctx_shell/ctx_read)".to_string(),
+        detail: "hooks auto-compress when trusted (/hooks); the ctx_shell/ctx_read/ctx_search MCP tools compress reliably on every surface (CLI/Desktop/Cloud)".to_string(),
     }
 }
 
@@ -1130,8 +1131,8 @@ mod tests {
             "the Codex Desktop note is informational, never a failure"
         );
         assert!(
-            note.detail.contains("ctx_shell") && note.detail.contains("CLI"),
-            "note must steer Desktop users to MCP tools and explain CLI-only hooks: {}",
+            note.detail.contains("ctx_shell") && note.detail.contains("every surface"),
+            "note must steer users to the MCP tools as the reliable cross-surface path: {}",
             note.detail
         );
     }
