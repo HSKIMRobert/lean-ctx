@@ -329,7 +329,7 @@ impl LspClient {
             method: method.to_string(),
             params,
         };
-        self.send_message(&serde_json::to_value(req).unwrap())?;
+        self.send_message(&serde_json::to_value(req).map_err(|e| e.to_string())?)?;
         self.read_response(id, timeout)
     }
 

@@ -268,9 +268,13 @@ fn step_hebbian_strengthen(
     let mut strengthened = 0u32;
 
     for (i, a) in retrieved.iter().enumerate() {
-        let a_time = a.last_retrieved.unwrap();
+        let Some(a_time) = a.last_retrieved else {
+            continue;
+        };
         for b in &retrieved[i + 1..] {
-            let b_time = b.last_retrieved.unwrap();
+            let Some(b_time) = b.last_retrieved else {
+                continue;
+            };
             let diff = (a_time - b_time).abs();
             if diff <= window {
                 let from = KnowledgeNodeRef::new(&a.category, &a.key);

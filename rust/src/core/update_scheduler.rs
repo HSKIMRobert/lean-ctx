@@ -313,7 +313,7 @@ fn install_linux_cron(
     child
         .stdin
         .take()
-        .unwrap()
+        .ok_or_else(|| "failed to open crontab stdin".to_string())?
         .write_all(filtered.as_bytes())
         .map_err(|e| e.to_string())?;
     child.wait().map_err(|e| e.to_string())?;

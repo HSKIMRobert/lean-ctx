@@ -42,7 +42,10 @@ pub fn wrap_with_seatbelt(profile: &str) -> Result<std::path::PathBuf, String> {
     let tmp = std::env::temp_dir()
         .join("lean-ctx-sandbox")
         .join("profile.sb");
-    std::fs::create_dir_all(tmp.parent().unwrap()).map_err(|e| e.to_string())?;
+    let parent = tmp
+        .parent()
+        .ok_or_else(|| "sandbox profile path has no parent directory".to_string())?;
+    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     std::fs::write(&tmp, profile).map_err(|e| e.to_string())?;
     Ok(tmp)
 }
