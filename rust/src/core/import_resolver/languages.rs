@@ -1,119 +1,21 @@
-//! Import-to-file resolution (AST-driven import strings → project paths).
+//! Per-language import resolvers.
 //!
-//! Resolves import strings from `deep_queries::ImportInfo` to actual file paths
-//! within a project. Handles language-specific module systems:
-//! - TypeScript/JavaScript: relative paths, index files, package.json, tsconfig paths
-//! - Python: dotted modules, __init__.py, relative imports
-//! - Rust: crate/super/self resolution, mod.rs
-//! - Go: go.mod module path, package = directory
-//! - Java: package-to-directory mapping
-//! - C/C++: local includes (best-effort)
-//! - Ruby: require_relative (best-effort)
-//! - PHP: include/require (best-effort)
-//! - Bash: source/. (best-effort)
-//! - Dart: relative + `package:<name>/` (best-effort)
-//! - Zig: @import("path.zig") (best-effort)
+//! Each `resolve_*` maps a language's import specifier to a project file path and
+//! is dispatched from [`super::resolve_one`]. Language-private helpers (path
+//! probing, stdlib checks) stay private to this module.
 
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-
-use super::deep_queries::ImportInfo;
-
-#[derive(Debug, Clone)]
-pub struct ResolvedImport {
-    pub source: String,
-    pub resolved_path: Option<String>,
-    pub is_external: bool,
-    pub line: usize,
-}
-
-#[derive(Debug)]
-pub struct ResolverContext {
-    pub project_root: PathBuf,
-    pub file_paths: Vec<String>,
-    pub tsconfig_paths: HashMap<String, String>,
-    pub go_module: Option<String>,
-    pub dart_package: Option<String>,
-    file_set: std::collections::HashSet<String>,
-}
-
-impl ResolverContext {
-    pub fn new(project_root: &Path, file_paths: Vec<String>) -> Self {
-        let file_set: std::collections::HashSet<String> = file_paths.iter().cloned().collect();
-
-        let tsconfig_paths = load_tsconfig_paths(project_root);
-        let go_module = load_go_module(project_root);
-        let dart_package = load_dart_package(project_root);
-
-        Self {
-            project_root: project_root.to_path_buf(),
-            file_paths,
-            tsconfig_paths,
-            go_module,
-            dart_package,
-            file_set,
-        }
-    }
-
-    fn file_exists(&self, rel_path: &str) -> bool {
-        self.file_set.contains(rel_path)
-    }
-}
-
-pub fn resolve_imports(
-    imports: &[ImportInfo],
-    file_path: &str,
-    ext: &str,
-    ctx: &ResolverContext,
-) -> Vec<ResolvedImport> {
-    imports
-        .iter()
-        .map(|imp| {
-            let (resolved, is_external) = resolve_one(imp, file_path, ext, ctx);
-            ResolvedImport {
-                source: imp.source.clone(),
-                resolved_path: resolved,
-                is_external,
-                line: imp.line,
-            }
-        })
-        .collect()
-}
-
-fn resolve_one(
-    imp: &ImportInfo,
-    file_path: &str,
-    ext: &str,
-    ctx: &ResolverContext,
-) -> (Option<String>, bool) {
-    match ext {
-        "ts" | "tsx" | "js" | "jsx" => resolve_ts(imp, file_path, ctx),
-        "rs" => resolve_rust(imp, file_path, ctx),
-        "py" => resolve_python(imp, file_path, ctx),
-        "go" => resolve_go(imp, ctx),
-        "java" => resolve_java(imp, ctx),
-        "c" | "h" | "cpp" | "cc" | "cxx" | "hpp" | "hxx" | "hh" => {
-            resolve_c_like(imp, file_path, ctx)
-        }
-        "rb" => resolve_ruby(imp, file_path, ctx),
-        "php" => resolve_php(imp, file_path, ctx),
-        "sh" | "bash" => resolve_bash(imp, file_path, ctx),
-        "dart" => resolve_dart(imp, file_path, ctx),
-        "zig" => resolve_zig(imp, file_path, ctx),
-        "kt" | "kts" => resolve_kotlin(imp, ctx),
-        "cs" => resolve_csharp(imp, ctx),
-        "swift" => resolve_swift(imp, file_path, ctx),
-        "scala" | "sc" => resolve_scala(imp, ctx),
-        "ex" | "exs" => resolve_elixir(imp, file_path, ctx),
-        _ => (None, true),
-    }
-}
+#[allow(clippy::wildcard_imports)]
+use super::*;
 
 // ---------------------------------------------------------------------------
 // TypeScript / JavaScript
 // ---------------------------------------------------------------------------
 
-fn resolve_ts(imp: &ImportInfo, file_path: &str, ctx: &ResolverContext) -> (Option<String>, bool) {
+pub(super) fn resolve_ts(
+    imp: &ImportInfo,
+    file_path: &str,
+    ctx: &ResolverContext,
+) -> (Option<String>, bool) {
     let source = &imp.source;
 
     if source.starts_with('.') {
@@ -202,7 +104,7 @@ fn resolve_tsconfig_path(source: &str, ctx: &ResolverContext) -> Option<String> 
 // Rust
 // ---------------------------------------------------------------------------
 
-fn resolve_rust(
+pub(super) fn resolve_rust(
     imp: &ImportInfo,
     file_path: &str,
     ctx: &ResolverContext,
@@ -295,7 +197,7 @@ fn try_rust_paths(base: &str, ctx: &ResolverContext) -> Option<String> {
 // Python
 // ---------------------------------------------------------------------------
 
-fn resolve_python(
+pub(super) fn resolve_python(
     imp: &ImportInfo,
     file_path: &str,
     ctx: &ResolverContext,
@@ -427,7 +329,7 @@ fn is_python_stdlib(module: &str) -> bool {
 // Go
 // ---------------------------------------------------------------------------
 
-fn resolve_go(imp: &ImportInfo, ctx: &ResolverContext) -> (Option<String>, bool) {
+pub(super) fn resolve_go(imp: &ImportInfo, ctx: &ResolverContext) -> (Option<String>, bool) {
     let source = &imp.source;
 
     if let Some(ref go_mod) = ctx.go_module {
@@ -470,7 +372,7 @@ fn try_go_package(pkg_path: &str, ctx: &ResolverContext) -> Option<String> {
 // Java
 // ---------------------------------------------------------------------------
 
-fn resolve_java(imp: &ImportInfo, ctx: &ResolverContext) -> (Option<String>, bool) {
+pub(super) fn resolve_java(imp: &ImportInfo, ctx: &ResolverContext) -> (Option<String>, bool) {
     let source = &imp.source;
 
     if source.starts_with("java.") || source.starts_with("javax.") || source.starts_with("sun.") {
@@ -504,7 +406,7 @@ fn resolve_java(imp: &ImportInfo, ctx: &ResolverContext) -> (Option<String>, boo
 // Kotlin
 // ---------------------------------------------------------------------------
 
-fn resolve_kotlin(imp: &ImportInfo, ctx: &ResolverContext) -> (Option<String>, bool) {
+pub(super) fn resolve_kotlin(imp: &ImportInfo, ctx: &ResolverContext) -> (Option<String>, bool) {
     let source = &imp.source;
 
     if source.starts_with("java.")
@@ -556,7 +458,7 @@ fn resolve_kotlin(imp: &ImportInfo, ctx: &ResolverContext) -> (Option<String>, b
 // C / C++
 // ---------------------------------------------------------------------------
 
-fn resolve_c_like(
+pub(super) fn resolve_c_like(
     imp: &ImportInfo,
     file_path: &str,
     ctx: &ResolverContext,
@@ -613,7 +515,7 @@ fn resolve_c_like(
 // Ruby
 // ---------------------------------------------------------------------------
 
-fn resolve_ruby(
+pub(super) fn resolve_ruby(
     imp: &ImportInfo,
     file_path: &str,
     ctx: &ResolverContext,
@@ -666,7 +568,11 @@ fn resolve_ruby(
 // PHP
 // ---------------------------------------------------------------------------
 
-fn resolve_php(imp: &ImportInfo, file_path: &str, ctx: &ResolverContext) -> (Option<String>, bool) {
+pub(super) fn resolve_php(
+    imp: &ImportInfo,
+    file_path: &str,
+    ctx: &ResolverContext,
+) -> (Option<String>, bool) {
     let source = imp.source.trim();
     if source.is_empty() {
         return (None, true);
@@ -718,7 +624,7 @@ fn resolve_php(imp: &ImportInfo, file_path: &str, ctx: &ResolverContext) -> (Opt
 // Bash
 // ---------------------------------------------------------------------------
 
-fn resolve_bash(
+pub(super) fn resolve_bash(
     imp: &ImportInfo,
     file_path: &str,
     ctx: &ResolverContext,
@@ -771,7 +677,7 @@ fn resolve_bash(
 // Dart
 // ---------------------------------------------------------------------------
 
-fn resolve_dart(
+pub(super) fn resolve_dart(
     imp: &ImportInfo,
     file_path: &str,
     ctx: &ResolverContext,
@@ -840,7 +746,11 @@ fn resolve_dart(
 // Zig
 // ---------------------------------------------------------------------------
 
-fn resolve_zig(imp: &ImportInfo, file_path: &str, ctx: &ResolverContext) -> (Option<String>, bool) {
+pub(super) fn resolve_zig(
+    imp: &ImportInfo,
+    file_path: &str,
+    ctx: &ResolverContext,
+) -> (Option<String>, bool) {
     let source = imp.source.trim();
     if source.is_empty() {
         return (None, true);
@@ -894,100 +804,10 @@ fn resolve_zig(imp: &ImportInfo, file_path: &str, ctx: &ResolverContext) -> (Opt
 }
 
 // ---------------------------------------------------------------------------
-// Config Loaders
-// ---------------------------------------------------------------------------
-
-fn load_tsconfig_paths(root: &Path) -> HashMap<String, String> {
-    let mut paths = HashMap::new();
-
-    let candidates = ["tsconfig.json", "tsconfig.base.json", "jsconfig.json"];
-    for name in &candidates {
-        let tsconfig_path = root.join(name);
-        if let Ok(content) = std::fs::read_to_string(&tsconfig_path) {
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                if let Some(compiler) = json.get("compilerOptions") {
-                    let base_url = compiler
-                        .get("baseUrl")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or(".");
-
-                    if let Some(path_map) = compiler.get("paths").and_then(|v| v.as_object()) {
-                        for (pattern, targets) in path_map {
-                            if let Some(first_target) = targets
-                                .as_array()
-                                .and_then(|a| a.first())
-                                .and_then(|v| v.as_str())
-                            {
-                                let resolved = if base_url == "." {
-                                    first_target.to_string()
-                                } else {
-                                    format!("{base_url}/{first_target}")
-                                };
-                                paths.insert(pattern.clone(), resolved);
-                            }
-                        }
-                    }
-                }
-            }
-            break;
-        }
-    }
-
-    paths
-}
-
-fn load_go_module(root: &Path) -> Option<String> {
-    let go_mod = root.join("go.mod");
-    let content = std::fs::read_to_string(go_mod).ok()?;
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("module ") {
-            return Some(trimmed.strip_prefix("module ")?.trim().to_string());
-        }
-    }
-    None
-}
-
-fn load_dart_package(root: &Path) -> Option<String> {
-    let pubspec = root.join("pubspec.yaml");
-    let content = std::fs::read_to_string(pubspec).ok()?;
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix("name:") {
-            let name = rest.trim();
-            if !name.is_empty() {
-                return Some(name.to_string());
-            }
-        }
-    }
-    None
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-fn normalize_path(path: &Path) -> String {
-    let mut parts: Vec<&str> = Vec::new();
-    for component in path.components() {
-        match component {
-            std::path::Component::ParentDir => {
-                parts.pop();
-            }
-            std::path::Component::Normal(s) => {
-                parts.push(s.to_str().unwrap_or(""));
-            }
-            _ => {}
-        }
-    }
-    parts.join("/")
-}
-
-// ---------------------------------------------------------------------------
 // C#
 // ---------------------------------------------------------------------------
 
-fn resolve_csharp(imp: &ImportInfo, ctx: &ResolverContext) -> (Option<String>, bool) {
+pub(super) fn resolve_csharp(imp: &ImportInfo, ctx: &ResolverContext) -> (Option<String>, bool) {
     let source = &imp.source;
 
     if source.starts_with("System.") || source.starts_with("Microsoft.") {
@@ -1017,7 +837,7 @@ fn resolve_csharp(imp: &ImportInfo, ctx: &ResolverContext) -> (Option<String>, b
 // Swift
 // ---------------------------------------------------------------------------
 
-fn resolve_swift(
+pub(super) fn resolve_swift(
     imp: &ImportInfo,
     file_path: &str,
     ctx: &ResolverContext,
@@ -1051,7 +871,7 @@ fn resolve_swift(
 // Scala
 // ---------------------------------------------------------------------------
 
-fn resolve_scala(imp: &ImportInfo, ctx: &ResolverContext) -> (Option<String>, bool) {
+pub(super) fn resolve_scala(imp: &ImportInfo, ctx: &ResolverContext) -> (Option<String>, bool) {
     let source = &imp.source;
 
     if source.starts_with("scala.") || source.starts_with("java.") {
@@ -1079,7 +899,7 @@ fn resolve_scala(imp: &ImportInfo, ctx: &ResolverContext) -> (Option<String>, bo
 // Elixir
 // ---------------------------------------------------------------------------
 
-fn resolve_elixir(
+pub(super) fn resolve_elixir(
     imp: &ImportInfo,
     file_path: &str,
     ctx: &ResolverContext,
@@ -1121,365 +941,4 @@ fn resolve_elixir(
         }
     }
     (None, false)
-}
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::core::deep_queries::{ImportInfo, ImportKind};
-
-    fn make_ctx(files: &[&str]) -> ResolverContext {
-        ResolverContext {
-            project_root: PathBuf::from("/project"),
-            file_paths: files.iter().map(std::string::ToString::to_string).collect(),
-            tsconfig_paths: HashMap::new(),
-            go_module: None,
-            dart_package: None,
-            file_set: files.iter().map(std::string::ToString::to_string).collect(),
-        }
-    }
-
-    fn make_import(source: &str) -> ImportInfo {
-        ImportInfo {
-            source: source.to_string(),
-            names: Vec::new(),
-            kind: ImportKind::Named,
-            line: 1,
-            is_type_only: false,
-        }
-    }
-
-    // --- TypeScript ---
-
-    #[test]
-    fn ts_relative_import() {
-        let ctx = make_ctx(&["src/components/Button.tsx", "src/utils/helpers.ts"]);
-        let imp = make_import("./helpers");
-        let results = resolve_imports(&[imp], "src/utils/index.ts", "ts", &ctx);
-        assert_eq!(
-            results[0].resolved_path.as_deref(),
-            Some("src/utils/helpers.ts")
-        );
-        assert!(!results[0].is_external);
-    }
-
-    #[test]
-    fn ts_relative_parent() {
-        let ctx = make_ctx(&["src/utils.ts", "src/components/Button.tsx"]);
-        let imp = make_import("../utils");
-        let results = resolve_imports(&[imp], "src/components/Button.tsx", "ts", &ctx);
-        assert_eq!(results[0].resolved_path.as_deref(), Some("src/utils.ts"));
-    }
-
-    #[test]
-    fn ts_index_file() {
-        let ctx = make_ctx(&["src/components/index.ts", "src/app.ts"]);
-        let imp = make_import("./components");
-        let results = resolve_imports(&[imp], "src/app.ts", "ts", &ctx);
-        assert_eq!(
-            results[0].resolved_path.as_deref(),
-            Some("src/components/index.ts")
-        );
-    }
-
-    #[test]
-    fn ts_relative_js_specifier_resolves_to_ts_source() {
-        let ctx = make_ctx(&["src/b.ts", "src/a.ts"]);
-        let imp = make_import("./b.js");
-        let results = resolve_imports(&[imp], "src/a.ts", "ts", &ctx);
-        assert_eq!(results[0].resolved_path.as_deref(), Some("src/b.ts"));
-        assert!(!results[0].is_external);
-    }
-
-    #[test]
-    fn ts_relative_jsx_specifier_resolves_to_tsx_source() {
-        let ctx = make_ctx(&["src/Button.tsx", "src/App.tsx"]);
-        let imp = make_import("./Button.jsx");
-        let results = resolve_imports(&[imp], "src/App.tsx", "tsx", &ctx);
-        assert_eq!(results[0].resolved_path.as_deref(), Some("src/Button.tsx"));
-    }
-
-    #[test]
-    fn ts_relative_mjs_specifier_resolves_to_mts_source() {
-        let ctx = make_ctx(&["src/utils.mts", "src/main.mts"]);
-        let imp = make_import("./utils.mjs");
-        let results = resolve_imports(&[imp], "src/main.mts", "ts", &ctx);
-        assert_eq!(results[0].resolved_path.as_deref(), Some("src/utils.mts"));
-    }
-
-    #[test]
-    fn ts_relative_js_specifier_falls_back_to_js_file() {
-        let ctx = make_ctx(&["src/legacy.js", "src/app.ts"]);
-        let imp = make_import("./legacy.js");
-        let results = resolve_imports(&[imp], "src/app.ts", "ts", &ctx);
-        assert_eq!(results[0].resolved_path.as_deref(), Some("src/legacy.js"));
-    }
-
-    #[test]
-    fn ts_external_package() {
-        let ctx = make_ctx(&["src/app.ts"]);
-        let imp = make_import("react");
-        let results = resolve_imports(&[imp], "src/app.ts", "ts", &ctx);
-        assert!(results[0].is_external);
-        assert!(results[0].resolved_path.is_none());
-    }
-
-    #[test]
-    fn ts_tsconfig_paths() {
-        let mut ctx = make_ctx(&["src/lib/utils/format.ts"]);
-        ctx.tsconfig_paths
-            .insert("@utils/*".to_string(), "src/lib/utils/*".to_string());
-        let imp = make_import("@utils/format");
-        let results = resolve_imports(&[imp], "src/app.ts", "ts", &ctx);
-        assert_eq!(
-            results[0].resolved_path.as_deref(),
-            Some("src/lib/utils/format.ts")
-        );
-        assert!(!results[0].is_external);
-    }
-
-    // --- Rust ---
-
-    #[test]
-    fn rust_crate_import() {
-        let ctx = make_ctx(&["src/core/session.rs", "src/main.rs"]);
-        let imp = make_import("crate::core::session");
-        let results = resolve_imports(&[imp], "src/server.rs", "rs", &ctx);
-        assert_eq!(
-            results[0].resolved_path.as_deref(),
-            Some("src/core/session.rs")
-        );
-        assert!(!results[0].is_external);
-    }
-
-    #[test]
-    fn rust_mod_rs() {
-        let ctx = make_ctx(&["src/core/mod.rs", "src/main.rs"]);
-        let imp = make_import("crate::core");
-        let results = resolve_imports(&[imp], "src/main.rs", "rs", &ctx);
-        assert_eq!(results[0].resolved_path.as_deref(), Some("src/core/mod.rs"));
-    }
-
-    #[test]
-    fn rust_external_crate() {
-        let ctx = make_ctx(&["src/main.rs"]);
-        let imp = make_import("anyhow::Result");
-        let results = resolve_imports(&[imp], "src/main.rs", "rs", &ctx);
-        assert!(results[0].is_external);
-    }
-
-    #[test]
-    fn rust_symbol_in_module() {
-        let ctx = make_ctx(&["src/core/session.rs"]);
-        let imp = make_import("crate::core::session::SessionState");
-        let results = resolve_imports(&[imp], "src/server.rs", "rs", &ctx);
-        assert_eq!(
-            results[0].resolved_path.as_deref(),
-            Some("src/core/session.rs")
-        );
-    }
-
-    // --- Python ---
-
-    #[test]
-    fn python_absolute_import() {
-        let ctx = make_ctx(&["models/user.py", "app.py"]);
-        let imp = make_import("models.user");
-        let results = resolve_imports(&[imp], "app.py", "py", &ctx);
-        assert_eq!(results[0].resolved_path.as_deref(), Some("models/user.py"));
-    }
-
-    #[test]
-    fn python_package_init() {
-        let ctx = make_ctx(&["utils/__init__.py", "app.py"]);
-        let imp = make_import("utils");
-        let results = resolve_imports(&[imp], "app.py", "py", &ctx);
-        assert_eq!(
-            results[0].resolved_path.as_deref(),
-            Some("utils/__init__.py")
-        );
-    }
-
-    #[test]
-    fn python_relative_import() {
-        let ctx = make_ctx(&["pkg/utils.py", "pkg/main.py"]);
-        let imp = make_import(".utils");
-        let results = resolve_imports(&[imp], "pkg/main.py", "py", &ctx);
-        assert_eq!(results[0].resolved_path.as_deref(), Some("pkg/utils.py"));
-    }
-
-    #[test]
-    fn python_stdlib() {
-        let ctx = make_ctx(&["app.py"]);
-        let imp = make_import("os");
-        let results = resolve_imports(&[imp], "app.py", "py", &ctx);
-        assert!(results[0].is_external);
-    }
-
-    // --- Go ---
-
-    #[test]
-    fn go_internal_package() {
-        let mut ctx = make_ctx(&["cmd/server/main.go", "internal/auth/auth.go"]);
-        ctx.go_module = Some("github.com/org/project".to_string());
-        let imp = make_import("github.com/org/project/internal/auth");
-        let results = resolve_imports(&[imp], "cmd/server/main.go", "go", &ctx);
-        assert_eq!(
-            results[0].resolved_path.as_deref(),
-            Some("internal/auth/auth.go")
-        );
-        assert!(!results[0].is_external);
-    }
-
-    #[test]
-    fn go_external_package() {
-        let ctx = make_ctx(&["main.go"]);
-        let imp = make_import("fmt");
-        let results = resolve_imports(&[imp], "main.go", "go", &ctx);
-        assert!(results[0].is_external);
-    }
-
-    // --- Java ---
-
-    #[test]
-    fn java_internal_class() {
-        let ctx = make_ctx(&[
-            "src/main/java/com/example/service/UserService.java",
-            "src/main/java/com/example/model/User.java",
-        ]);
-        let imp = make_import("com.example.model.User");
-        let results = resolve_imports(
-            &[imp],
-            "src/main/java/com/example/service/UserService.java",
-            "java",
-            &ctx,
-        );
-        assert_eq!(
-            results[0].resolved_path.as_deref(),
-            Some("src/main/java/com/example/model/User.java")
-        );
-        assert!(!results[0].is_external);
-    }
-
-    #[test]
-    fn java_stdlib() {
-        let ctx = make_ctx(&["Main.java"]);
-        let imp = make_import("java.util.List");
-        let results = resolve_imports(&[imp], "Main.java", "java", &ctx);
-        assert!(results[0].is_external);
-    }
-
-    // --- Edge cases ---
-
-    #[test]
-    fn empty_imports() {
-        let ctx = make_ctx(&["src/main.rs"]);
-        let results = resolve_imports(&[], "src/main.rs", "rs", &ctx);
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn unsupported_language() {
-        let ctx = make_ctx(&["main.rb"]);
-        let imp = make_import("some_module");
-        let results = resolve_imports(&[imp], "main.rb", "rb", &ctx);
-        assert!(results[0].is_external);
-    }
-
-    #[test]
-    fn c_include_resolves_from_include_dir() {
-        let ctx = make_ctx(&["include/foo/bar.h", "src/main.c"]);
-        let imp = make_import("foo/bar.h");
-        let results = resolve_imports(&[imp], "src/main.c", "c", &ctx);
-        assert_eq!(
-            results[0].resolved_path.as_deref(),
-            Some("include/foo/bar.h")
-        );
-        assert!(!results[0].is_external);
-    }
-
-    #[test]
-    fn ruby_require_relative_resolves() {
-        let ctx = make_ctx(&["lib/utils.rb", "app.rb"]);
-        let imp = make_import("./lib/utils");
-        let results = resolve_imports(&[imp], "app.rb", "rb", &ctx);
-        assert_eq!(results[0].resolved_path.as_deref(), Some("lib/utils.rb"));
-        assert!(!results[0].is_external);
-    }
-
-    #[test]
-    fn php_require_resolves() {
-        let ctx = make_ctx(&["vendor/autoload.php", "index.php"]);
-        let imp = make_import("./vendor/autoload.php");
-        let results = resolve_imports(&[imp], "index.php", "php", &ctx);
-        assert_eq!(
-            results[0].resolved_path.as_deref(),
-            Some("vendor/autoload.php")
-        );
-        assert!(!results[0].is_external);
-    }
-
-    #[test]
-    fn bash_source_resolves() {
-        let ctx = make_ctx(&["scripts/env.sh", "main.sh"]);
-        let imp = make_import("./scripts/env.sh");
-        let results = resolve_imports(&[imp], "main.sh", "sh", &ctx);
-        assert_eq!(results[0].resolved_path.as_deref(), Some("scripts/env.sh"));
-        assert!(!results[0].is_external);
-    }
-
-    #[test]
-    fn dart_package_import_resolves_to_lib() {
-        let mut ctx = make_ctx(&["lib/src/util.dart", "lib/app.dart"]);
-        ctx.dart_package = Some("myapp".to_string());
-        let imp = make_import("package:myapp/src/util.dart");
-        let results = resolve_imports(&[imp], "lib/app.dart", "dart", &ctx);
-        assert_eq!(
-            results[0].resolved_path.as_deref(),
-            Some("lib/src/util.dart")
-        );
-        assert!(!results[0].is_external);
-    }
-
-    #[test]
-    fn kotlin_import_resolves_to_src_main_kotlin() {
-        let ctx = make_ctx(&[
-            "src/main/kotlin/com/example/service/UserService.kt",
-            "src/main/kotlin/com/example/App.kt",
-        ]);
-        let imp = make_import("com.example.service.UserService");
-        let results = resolve_imports(&[imp], "src/main/kotlin/com/example/App.kt", "kt", &ctx);
-        assert_eq!(
-            results[0].resolved_path.as_deref(),
-            Some("src/main/kotlin/com/example/service/UserService.kt")
-        );
-        assert!(!results[0].is_external);
-    }
-
-    #[test]
-    fn kotlin_stdlib_import_is_external() {
-        let ctx = make_ctx(&["src/main/kotlin/App.kt"]);
-        let imp = make_import("kotlin.collections.List");
-        let results = resolve_imports(&[imp], "src/main/kotlin/App.kt", "kt", &ctx);
-        assert!(results[0].is_external);
-    }
-
-    #[test]
-    fn kotlin_import_resolves_java_file() {
-        let ctx = make_ctx(&[
-            "src/main/java/com/example/LegacyUtil.java",
-            "src/main/kotlin/com/example/App.kt",
-        ]);
-        let imp = make_import("com.example.LegacyUtil");
-        let results = resolve_imports(&[imp], "src/main/kotlin/com/example/App.kt", "kt", &ctx);
-        assert_eq!(
-            results[0].resolved_path.as_deref(),
-            Some("src/main/java/com/example/LegacyUtil.java")
-        );
-        assert!(!results[0].is_external);
-    }
 }
