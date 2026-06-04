@@ -15,7 +15,11 @@ ignore = [
 ]
 
 [licenses]
-unused-allowed-license = "warn"
+# The allow-list below is a deliberately curated, forward-looking policy. Some
+# entries (e.g. OpenSSL for `ring`, Unicode-DFS-2016) are kept so dependency
+# bumps don't trip the check; `allow` silences the pedantic "not encountered"
+# notice for those without weakening the policy itself.
+unused-allowed-license = "allow"
 allow = [
     "MIT",
     "Apache-2.0",
