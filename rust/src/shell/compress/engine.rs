@@ -1,7 +1,9 @@
 use crate::core::patterns;
 use crate::core::tokens::count_tokens;
 
-use super::classification::{has_structural_output, is_search_output, is_verbatim_output};
+use super::classification::{
+    has_structural_output, is_search_output, is_verbatim_output, looks_like_toon,
+};
 use super::footer::shell_savings_footer;
 
 pub(in crate::shell) fn compress_and_measure(
@@ -68,6 +70,20 @@ pub(crate) fn compress_if_beneficial(command: &str, output: &str) -> String {
     let policy = crate::shell::output_policy::classify(command, &cfg.excluded_commands);
     if policy == crate::shell::output_policy::OutputPolicy::Verbatim
         || policy == crate::shell::output_policy::OutputPolicy::Passthrough
+    {
+        return truncate_verbatim(output, original_tokens);
+    }
+
+    // Format-aware passthrough (#342): output already in a compact, token-oriented
+    // format the user opted to preserve (TOON by default) is kept verbatim.
+    // Recompressing it saves little and rewrites the exact line/field shape an
+    // agent relies on to validate a CLI output contract. This is output-shape
+    // based, so any tool emitting the format is covered without listing commands.
+    if cfg
+        .preserve_compact_formats
+        .iter()
+        .any(|f| f.eq_ignore_ascii_case("toon"))
+        && looks_like_toon(output)
     {
         return truncate_verbatim(output, original_tokens);
     }

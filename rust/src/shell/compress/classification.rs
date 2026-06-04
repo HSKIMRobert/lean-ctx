@@ -733,3 +733,133 @@ fn has_stat_flag(args: &[&str]) -> bool {
     args.iter()
         .any(|a| *a == "--stat" || a.starts_with("--stat="))
 }
+
+enum ToonHeader {
+    /// Tabular array header: `key[N]{field,field}:`
+    Tabular,
+    /// Length-prefixed array header: `key[N]:` (optionally with inline values).
+    LengthArray,
+}
+
+/// Classifies a single, already left-trimmed line as a TOON array header.
+///
+/// Keys on TOON's bracketed length marker so prose like `see [1] above` or a
+/// stray `[lean-ctx: …]` footer is rejected (the key must be a single,
+/// space-free identifier token preceding `[`).
+fn toon_header_kind(line: &str) -> Option<ToonHeader> {
+    let open = line.find('[')?;
+    if open == 0 || line[..open].contains(char::is_whitespace) {
+        return None;
+    }
+    let after = &line[open + 1..];
+    let close = after.find(']')?;
+    let len_part = &after[..close];
+    if len_part.is_empty() || !len_part.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let rest = after[close + 1..].trim_start();
+    if rest.starts_with('{') && rest.contains('}') && rest.trim_end().ends_with(':') {
+        return Some(ToonHeader::Tabular);
+    }
+    if rest.starts_with(':') {
+        return Some(ToonHeader::LengthArray);
+    }
+    None
+}
+
+/// Heuristically detects output already encoded in TOON (Token-Oriented Object
+/// Notation) so it can be preserved verbatim instead of recompressed (#342).
+///
+/// TOON is itself a compact, token-oriented encoding; a second compression pass
+/// saves little and rewrites the exact line/field shape an agent relies on to
+/// validate a CLI output contract. Detection keys on TOON's unambiguous
+/// structural markers — the tabular `key[N]{f1,f2}:` header and the
+/// length-prefixed `key[N]:` array header — rather than generic indentation, so
+/// plain YAML, JSON, or logs are not misclassified as TOON.
+pub(super) fn looks_like_toon(output: &str) -> bool {
+    let mut tabular_headers = 0usize;
+    let mut length_arrays = 0usize;
+    let mut indented = 0usize;
+    let mut non_empty = 0usize;
+
+    for raw in output.lines() {
+        let trimmed_end = raw.trim_end();
+        let body = trimmed_end.trim_start();
+        if body.is_empty() {
+            continue;
+        }
+        non_empty += 1;
+        if body.len() != trimmed_end.len() {
+            indented += 1;
+        }
+        match toon_header_kind(body) {
+            Some(ToonHeader::Tabular) => tabular_headers += 1,
+            Some(ToonHeader::LengthArray) => length_arrays += 1,
+            None => {}
+        }
+    }
+
+    if non_empty < 2 {
+        return false;
+    }
+    // A tabular array header is near-unambiguous TOON — one is enough.
+    if tabular_headers > 0 {
+        return true;
+    }
+    // Otherwise require a length-prefixed array header plus a mostly-indented
+    // body, which together stay very TOON-specific while rejecting flat
+    // `key: value` logs that merely contain a bracketed token.
+    length_arrays > 0 && indented * 2 >= non_empty
+}
+
+#[cfg(test)]
+mod toon_tests {
+    use super::looks_like_toon;
+
+    #[test]
+    fn detects_tabular_array_header() {
+        let toon = "users[2]{id,name,role}:\n  1,alice,admin\n  2,bob,user";
+        assert!(looks_like_toon(toon));
+    }
+
+    #[test]
+    fn detects_nested_tabular_header() {
+        let toon = "result:\n  tasks[3]{id,status,title}:\n    1,open,First\n    2,done,Second\n    3,open,Third";
+        assert!(looks_like_toon(toon));
+    }
+
+    #[test]
+    fn detects_length_prefixed_array_with_indent() {
+        let toon = "config:\n  tags[3]: alpha,beta,gamma\n  ports[2]: 80,443";
+        assert!(looks_like_toon(toon));
+    }
+
+    #[test]
+    fn rejects_plain_yaml_without_toon_markers() {
+        let yaml = "name: lean-ctx\nversion: 3.7.2\nfeatures:\n  - compress\n  - read";
+        assert!(!looks_like_toon(yaml));
+    }
+
+    #[test]
+    fn rejects_json_payload() {
+        let json = "{\n  \"id\": 1,\n  \"items\": [1, 2, 3],\n  \"ok\": true\n}";
+        assert!(!looks_like_toon(json));
+    }
+
+    #[test]
+    fn rejects_prose_with_bracketed_reference() {
+        let prose = "See note [1] above for details.\nAnother line of plain log output here.";
+        assert!(!looks_like_toon(prose));
+    }
+
+    #[test]
+    fn rejects_lean_ctx_footer_line() {
+        let line = "[lean-ctx: 120->40 tok, compressed]\nsome other content line";
+        assert!(!looks_like_toon(line));
+    }
+
+    #[test]
+    fn rejects_single_line() {
+        assert!(!looks_like_toon("users[2]{id,name}:"));
+    }
+}

@@ -1345,3 +1345,65 @@ mod test_runner_output_tests {
         );
     }
 }
+
+/// #342: already-compact TOON output must be preserved verbatim (not recompressed)
+/// regardless of the command, because re-compressing it destroys the exact
+/// line/field shape agents use to validate CLI output contracts.
+#[cfg(test)]
+mod toon_passthrough_tests {
+    use super::super::engine::compress_if_beneficial;
+
+    /// Builds a TOON tabular block large enough to clear the 30-token floor that
+    /// otherwise returns small outputs unchanged anyway.
+    fn toon_task_list(rows: usize) -> String {
+        let mut out = String::from("task_count: ");
+        out.push_str(&rows.to_string());
+        out.push_str("\ntasks[");
+        out.push_str(&rows.to_string());
+        out.push_str("]{id,status,priority,title}:\n");
+        for i in 0..rows {
+            out.push_str(&format!(
+                "  task-{i},open,p{},Implement feature number {i} end to end\n",
+                i % 3
+            ));
+        }
+        out
+    }
+
+    #[test]
+    fn toon_output_is_preserved_verbatim() {
+        let toon = toon_task_list(12);
+        let result = compress_if_beneficial("vida task list", &toon);
+        assert_eq!(
+            result, toon,
+            "TOON output must pass through unchanged, got: {result}"
+        );
+    }
+
+    #[test]
+    fn toon_passthrough_is_command_agnostic() {
+        // A command lean-ctx would normally compress still passes TOON through,
+        // because the decision is output-shape based, not command based.
+        let toon = toon_task_list(20);
+        let result = compress_if_beneficial("my-tool report --format toon", &toon);
+        assert_eq!(result, toon, "TOON must pass through for any command");
+    }
+
+    #[test]
+    fn non_toon_output_is_still_compressible() {
+        // A noisy, repetitive log that is NOT TOON should not be forced verbatim
+        // by the passthrough — the normal pipeline still applies.
+        let mut log = String::new();
+        for i in 0..200 {
+            log.push_str(&format!(
+                "2026-06-04T10:00:{:02}Z INFO worker processed item {i} successfully in 12ms\n",
+                i % 60
+            ));
+        }
+        let result = compress_if_beneficial("./run-batch.sh", &log);
+        assert_ne!(
+            result, log,
+            "non-TOON noisy log should not be forced verbatim by the TOON passthrough"
+        );
+    }
+}
