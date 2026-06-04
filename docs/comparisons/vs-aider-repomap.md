@@ -11,13 +11,13 @@
 | **Language** | Rust | Python |
 | **Availability** | MCP server (works with 28 agents) | Locked to Aider CLI |
 | **PageRank** | Session-aware personalized PageRank | Personalized PageRank |
-| **Scope** | 67+ MCP tools (repo-map is one) | Repo-map + AI coding assistant |
+| **Scope** | 68+ MCP tools (repo-map is one) | Repo-map + AI coding assistant |
 
 ## The Core Difference
 
 **Aider** is a complete AI coding assistant with a built-in repo-map feature. The repo-map uses personalized PageRank to identify the most relevant files and symbols for the current conversation, presenting them as compact elided code views. It's proven technology — Aider consistently scores well on SWE-bench.
 
-**lean-ctx** implements the same PageRank repo-map concept via `ctx_repomap`, but makes it available as an MCP tool that works with any MCP-compatible agent. It also adds session-aware personalization (recent files and task context influence rankings) and integrates with 62 other tools for a complete context engineering workflow.
+**lean-ctx** implements the same PageRank repo-map concept via `ctx_repomap`, but makes it available as an MCP tool that works with any MCP-compatible agent. It also adds session-aware personalization (recent files and task context influence rankings) and integrates with 67 other tools for a complete context engineering workflow.
 
 The key distinction: Aider's repo-map is locked to Aider. lean-ctx's repo-map works with Cursor, Claude Code, Codex, Windsurf, Gemini, and 23 other agents.
 
@@ -106,7 +106,7 @@ This means you get PageRank-based codebase orientation regardless of which AI co
 
 Aider is a complete AI coding assistant — repo-map is one feature among many (inline editing, git integration, voice coding, etc.).
 
-lean-ctx is a context engineering layer — repo-map is one tool among 63+. The difference is that lean-ctx doesn't try to be the AI coding assistant. It enhances whatever assistant you already use:
+lean-ctx is a context engineering layer — repo-map is one tool among 68+. The difference is that lean-ctx doesn't try to be the AI coding assistant. It enhances whatever assistant you already use:
 
 | lean-ctx Feature | Complements repo-map by... |
 |-----------------|--------------------------|

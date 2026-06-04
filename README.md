@@ -218,7 +218,7 @@ After onboarding, restart your shell and your editor/AI tool once so the MCP + h
 
 LeanCTX grows with you. Below are the journeys most people actually take — each
 links to a complete, function-by-function walkthrough in the
-**[Reference](docs/reference/README.md)** (every CLI command and all 63 MCP
+**[Reference](docs/reference/README.md)** (every CLI command and all 68 MCP
 tools are documented there).
 
 <table>

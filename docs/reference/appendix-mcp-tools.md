@@ -1,4 +1,4 @@
-# Appendix — MCP Tool Map (all 67 tools)
+# Appendix — MCP Tool Map (all 68 tools)
 
 Every tool lean-ctx registers via `rust/src/server/registry.rs`. Your AI editor
 calls these instead of its native file/search tools. The **Profile** column
@@ -12,11 +12,11 @@ shows the smallest tool profile that exposes the tool (`M` minimal, `S` standard
 
 | Profile | Count | Who it's for |
 |---------|-------|--------------|
-| **minimal** | 5 | Lowest context overhead; the absolute essentials |
-| **standard** | 20 | Balanced default for most coding workflows |
-| **power** | 67 | Everything (default for existing installs) |
+| **minimal** | 6 | Lowest context overhead; the absolute essentials |
+| **standard** | 21 | Balanced default for most coding workflows |
+| **power** | 68 | Everything (default for existing installs) |
 
-- **minimal (5):** `ctx_read`, `ctx_shell`, `ctx_search`, `ctx_tree`, `ctx_session`
+- **minimal (6):** `ctx_read`, `ctx_shell`, `shell`, `ctx_search`, `ctx_tree`, `ctx_session`
 - **standard (+15):** + `ctx_semantic_search`, `ctx_knowledge`, `ctx_overview`,
   `ctx_repomap`, `ctx_callgraph`, `ctx_impact`, `ctx_compress`, `ctx_multi_read`,
   `ctx_delta`, `ctx_edit`, `ctx_agent`, `ctx_architecture`, `ctx_pack`,
@@ -39,6 +39,7 @@ shows the smallest tool profile that exposes the tool (`M` minimal, `S` standard
 | `ctx_outline` | List all symbols of a file with signatures | `path`*, `kind` | P |
 | `ctx_retrieve` | Fetch uncompressed original from cache (CCR) | `path`*, `query` | P |
 | `ctx_shell` | Run shell commands with pattern compression | `command`*, `raw`, `cwd` | M |
+| `shell` | Alias of `ctx_shell` (same compression) for clients whose model reaches for a native `shell`/`bash` tool — e.g. Codex Desktop / Codex Cloud | `command`*, `raw`, `cwd` | M |
 | `ctx_search` | Regex search across the codebase, token-efficient | `pattern`*, `path`, `ext`, `max_results`, `ignore_gitignore` | M |
 | `ctx_tree` | Compact directory tree with file counts | `path`, `depth`, `show_hidden` | M |
 | `ctx_semantic_search` | Semantic search (BM25 + embeddings / hybrid) | `query`*, `action` (search\|reindex\|find_related), `mode` (bm25\|dense\|hybrid), `top_k` | S |
@@ -131,9 +132,9 @@ shows the smallest tool profile that exposes the tool (`M` minimal, `S` standard
 
 ## Notes
 
-1. `power` enables all 67 tools; `ToolProfile::is_tool_enabled()` returns `true`
+1. `power` enables all 68 tools; `ToolProfile::is_tool_enabled()` returns `true`
    for everything under power.
 2. `ctx_load_tools` controls *dynamic* categories (`arch`, `debug`, `memory`,
    `metrics`, `session`) independently of the static profile filter.
 3. Lazy clients use `ctx_call` + `ctx_discover_tools` + `ctx_load_tools` to reach
-   tools not in their active profile without listing all 67 upfront.
+   tools not in their active profile without listing all 68 upfront.

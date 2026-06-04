@@ -54,6 +54,7 @@ This catalog is the single feature inventory for LeanCTX at release/runtime leve
 - `ctx_search`
 - `ctx_semantic_search`
 - `ctx_shell`
+- `shell` _(alias of `ctx_shell` — gives Codex Desktop/Cloud the same shell-output compression; registered for all MCP clients)_
 - `ctx_edit`
 - `ctx_delta`
 - `ctx_dedup`

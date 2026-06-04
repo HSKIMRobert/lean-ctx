@@ -10,7 +10,7 @@
 | **GitHub Stars** | 1,800+ | 25,000+ |
 | **Language** | Rust (single binary) | TypeScript (Node.js) |
 | **License** | Apache 2.0 | MIT |
-| **MCP Tools** | 63+ | 8 |
+| **MCP Tools** | 68+ | 8 |
 | **Compression** | Up to 99% (10 modes, context-aware) | ~70% (tree-sitter `--compress`) |
 
 ## The Core Difference
@@ -160,7 +160,7 @@ lean-ctx and Repomix don't conflict. You can use Repomix for quick one-off packi
 
 Repomix is an excellent tool for what it does: pack a codebase into an LLM-friendly format. With 25k+ stars, it's proven and well-maintained.
 
-lean-ctx goes further by providing a complete context engineering layer — compression is just one of 63+ tools. If you use AI coding agents daily and want persistent memory, shell compression, semantic search, and real-time observability, lean-ctx is built for that workflow.
+lean-ctx goes further by providing a complete context engineering layer — compression is just one of 68+ tools. If you use AI coding agents daily and want persistent memory, shell compression, semantic search, and real-time observability, lean-ctx is built for that workflow.
 
 ---
 

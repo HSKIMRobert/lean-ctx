@@ -12,7 +12,7 @@
 | **License** | Apache 2.0 | Apache 2.0 |
 | **Focus** | Code-specific (files, shells, repos) | General-purpose (conversations, preferences, entities) |
 | **Architecture** | 100% local, no external dependencies | Cloud service or self-hosted (requires LLM + vector DB) |
-| **MCP Tools** | 63+ | 9 (cloud-hosted MCP server) |
+| **MCP Tools** | 68+ | 9 (cloud-hosted MCP server) |
 
 ## The Core Difference
 
@@ -190,7 +190,7 @@ lean-ctx:
 - Need code-specific intelligence (call graphs, impact analysis, repo-maps)
 - Want token compression on file reads and shell output
 - Require 100% local operation with no API keys or external services
-- Want 63+ specialized coding tools, not just memory
+- Want 68+ specialized coding tools, not just memory
 
 ### Can You Use Both?
 

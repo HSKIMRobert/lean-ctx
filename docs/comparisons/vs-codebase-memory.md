@@ -10,7 +10,7 @@
 | **GitHub Stars** | 1,800+ | 3,000+ |
 | **Language** | Rust | C |
 | **License** | Apache 2.0 | Proprietary |
-| **MCP Tools** | 63+ | 14 |
+| **MCP Tools** | 68+ | 14 |
 | **Tree-sitter Languages** | 21 | 155 |
 | **Token Reduction** | Up to 99% (context-aware, 10 modes) | 99%+ (graph-derived structural queries) |
 
@@ -169,7 +169,7 @@ The tools don't conflict. You could run codebase-memory for deep structural quer
 
 ## Summary
 
-codebase-memory-mcp and lean-ctx are the two most capable code intelligence MCP servers available. codebase-memory leads in language coverage (155 vs 21) and raw indexing speed. lean-ctx leads in breadth — 63+ tools covering compression, memory, search, governance, and multi-agent support alongside structural intelligence.
+codebase-memory-mcp and lean-ctx are the two most capable code intelligence MCP servers available. codebase-memory leads in language coverage (155 vs 21) and raw indexing speed. lean-ctx leads in breadth — 68+ tools covering compression, memory, search, governance, and multi-agent support alongside structural intelligence.
 
 The choice depends on your workflow: if you primarily need a fast, deep code graph, codebase-memory excels. If you want a comprehensive context layer that saves tokens on every interaction, lean-ctx covers more ground.
 

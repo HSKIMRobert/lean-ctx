@@ -59,7 +59,8 @@ is on the allowlist (~200 common dev tools: `git`, `cargo`, `npm`, `node`,
 
 ```toml
 # config.toml
-shell_allowlist = ["git", "cargo", "npm", "…"]   # override the default set
+shell_allowlist = ["git", "cargo", "npm", "…"]   # REPLACE the default set
+shell_allowlist_extra = ["just", "task"]          # ADD to the default set
 shell_strict_mode = false                         # set true to block $() and backticks
 excluded_commands = []                            # never intercept these
 ```
@@ -68,8 +69,11 @@ excluded_commands = []                            # never intercept these
   mount flags can bypass PathJail. Add them explicitly only if you accept that.
 - `shell_strict_mode = true` blocks command substitution (`$(…)`, backticks) for
   environments that must forbid dynamic command construction.
-- Override the list without editing config via `LEAN_CTX_SHELL_ALLOWLIST`
-  (comma-separated).
+- Replace the whole list via `LEAN_CTX_SHELL_ALLOWLIST` (comma-separated), or
+  just **add** a few extras with `shell_allowlist_extra`. The
+  `lean-ctx allow <cmd>` CLI edits `shell_allowlist_extra` for you, and
+  `lean-ctx allow --list` prints the effective allowlist plus any parse errors so
+  a typo can never silently drop your overrides.
 
 ---
 

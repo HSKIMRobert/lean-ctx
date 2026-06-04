@@ -63,26 +63,30 @@ which mode works best for which file over time.
 `mode = map` — imports + API surface only:
 
 ```text
-jetbrains.rs 66L
+jetbrains.rs [66L]
   deps: super::super::resolve_binary_path
   API:
-    λ+install_jetbrains_hook()
-    λ-print_jetbrains_manual_step(display_path:s)
+    fn ⊛ install_jetbrains_hook() @L3-55
+    fn print_jetbrains_manual_step(display_path:s) @L60-66
 ```
 
 `mode = signatures` — the same API as a flat signature list:
 
 ```text
-jetbrains.rs 66L
- deps super::super::resolve_binary_path
-λ+install_jetbrains_hook()
-λ-print_jetbrains_manual_step(display_path:s)
+jetbrains.rs [66L]
+fn ⊛ install_jetbrains_hook() @L3-55
+fn print_jetbrains_manual_step(display_path:s) @L60-66
 ```
 
-`mode = full` returns all 66 lines verbatim. The `λ+` / `λ-` markers encode
-visibility (`+` public, `-` private), so `map` and `signatures` convey the file's
-shape in ~5 lines instead of 66 — and the first read in a session may also prepend
-an `--- AUTO CONTEXT ---` block with related files and graph edges.
+`mode = full` returns all 66 lines verbatim. The `⊛` marks a public/exported
+symbol (private items carry no marker), and the trailing `@Lstart-end` is the
+symbol's exact line span — so `map` and `signatures` convey both the file's
+*shape* and *where each symbol lives* in ~5 lines instead of 66, letting an agent
+jump straight to a function instead of issuing a follow-up search. The line-range
+suffix is emitted only in these navigation modes; compression-first modes
+(`aggressive`, `entropy`, full reads) stay byte-identical. The first read in a
+session may also prepend an `--- AUTO CONTEXT ---` block with related files and
+graph edges.
 
 ### `lean-ctx diff <a> <b>` / `ctx_delta`
 
@@ -107,7 +111,10 @@ lean-ctx bypass "cmd"                # zero compression (= LEAN_CTX_RAW=1)
 
 When the shell hook is installed, your AI's terminal commands route through this
 automatically — you don't type `lean-ctx -c` yourself. The hook respects an
-allowlist (`shell_allowlist`, ~200 binaries) and skips `excluded_commands`.
+allowlist (`shell_allowlist`, ~200 binaries) and skips `excluded_commands`. Need
+one more binary? `lean-ctx allow <cmd>` adds it (and `lean-ctx allow --list`
+shows the effective allowlist). Output that is already token-dense — JSON or
+TOON — is detected and passed through instead of being re-compressed.
 
 **Safety:** commands run under PathJail and the shell allowlist. Secrets in
 output are redacted when `[secret_detection]` is on (default). Set
@@ -196,13 +203,13 @@ compression opportunities in your shell history).
 
 ## 5. Choosing how much lean-ctx exposes — `lean-ctx tools`
 
-**What it does:** Sets the **tool profile** — how many of the 67 MCP tools your
+**What it does:** Sets the **tool profile** — how many of the 68 MCP tools your
 AI sees. Fewer tools = less per-call overhead.
 
 ```bash
-lean-ctx tools minimal       # 5 essential tools
-lean-ctx tools standard      # 20 tools (balanced)
-lean-ctx tools power         # all 67 (default for existing installs)
+lean-ctx tools minimal       # 6 essential tools
+lean-ctx tools standard      # 21 tools (balanced)
+lean-ctx tools power         # all 68 (default for existing installs)
 lean-ctx tools show          # current profile
 lean-ctx tools list          # what each profile contains
 ```

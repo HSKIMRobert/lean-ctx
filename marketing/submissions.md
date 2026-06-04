@@ -26,7 +26,7 @@ Examples: "**LeanCTX** is the Context OS for AI development." · `lean-ctx setup
 
 - **One local binary** (Rust), CLI-first, privacy-first, **zero telemetry**, local-first.
 - **License:** Apache-2.0 · **open source.**
-- **67 MCP tools**, **10 read modes**, **60+ shell compression patterns**.
+- **68 MCP tools**, **10 read modes**, **60+ shell compression patterns**.
 - **Up to 99% token savings**; cached re-reads cost **~13 tokens**.
 - **Works with 24+ AI tools** — Cursor, Claude Code, GitHub Copilot, Windsurf, OpenAI
   Codex CLI, Gemini CLI, Cline, JetBrains, VS Code, Zed, and more.
@@ -71,7 +71,7 @@ Examples: "**LeanCTX** is the Context OS for AI development." · `lean-ctx setup
 ## Channel: GitHub repository description
 
 > LeanCTX — the Context OS for AI development. One local binary that compresses,
-> remembers, routes, and verifies every token between your code and the model. 63 MCP
+> remembers, routes, and verifies every token between your code and the model. 68 MCP
 > tools, 10 read modes, up to 99% token savings. Works with Cursor, Claude Code,
 > Copilot, Windsurf, Codex, Gemini.
 
@@ -166,7 +166,7 @@ Use the short description and the canonical facts block. Always submit the brand
 - **MCP registries / awesome-mcp lists** — PR blurb:
 
 > **[LeanCTX](https://github.com/yvgude/lean-ctx)** — Context OS for AI coding agents.
-> 67 MCP tools across compression, routing, memory, and verification. CLI-first, local,
+> 68 MCP tools across compression, routing, memory, and verification. CLI-first, local,
 > zero telemetry.
 
 - **awesome-claude / awesome-cursor / awesome-ai-devtools** — same PR blurb.

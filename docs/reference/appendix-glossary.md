@@ -9,7 +9,7 @@ recognize, it's here.
 external tools. lean-ctx registers as an MCP server so your editor can call
 `ctx_*` tools instead of its own native file reads/search.
 
-**MCP tool** — one of the 67 `ctx_*` functions lean-ctx exposes (e.g.
+**MCP tool** — one of the 68 `ctx_*` functions lean-ctx exposes (e.g.
 `ctx_read`, `ctx_search`). Your AI calls these; you usually don't. See the
 [MCP tool map](appendix-mcp-tools.md).
 
@@ -57,8 +57,8 @@ tokens instead of the whole file.
 
 ## Profiles (two different things!)
 
-**Tool profile** — *how many MCP tools* your AI sees: `minimal` (5), `standard`
-(20), `power` (67). Set with `lean-ctx tools`.
+**Tool profile** — *how many MCP tools* your AI sees: `minimal` (6), `standard`
+(21), `power` (68). Set with `lean-ctx tools`.
 
 **Context profile** — *compression/read-mode behavior* tuning. Set with
 `lean-ctx profile`. Different from tool profile despite the similar name.
@@ -125,8 +125,9 @@ internal `post_update_rewire`), so a new version's tool list reaches your editor
 **PathJail** — restricts file access to allowed roots. Extend with `allow_paths`
 / `LEAN_CTX_ALLOW_PATH`.
 
-**Shell allowlist** — the ~200 binaries `ctx_shell` is permitted to run. Override
-with `shell_allowlist` / `LEAN_CTX_SHELL_ALLOWLIST`.
+**Shell allowlist** — the ~200 binaries `ctx_shell` is permitted to run. Replace
+the whole set with `shell_allowlist` / `LEAN_CTX_SHELL_ALLOWLIST`, or just add a
+few extras with `shell_allowlist_extra` (managed via `lean-ctx allow <cmd>`).
 
 **Secret detection** — redacts secrets from output before they enter context
 (`[secret_detection]`, on by default).

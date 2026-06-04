@@ -78,17 +78,17 @@ Fewer tools = fewer tokens spent on tool definitions and less agent confusion.
 
 ```bash
 lean-ctx tools                     # show active profile
-lean-ctx tools minimal             # ~5 core read/search/session tools
-lean-ctx tools standard            # the balanced everyday set (~20 tools)
+lean-ctx tools minimal             # ~6 core read/search/session tools
+lean-ctx tools standard            # the balanced everyday set (~21 tools)
 lean-ctx tools power               # everything (graph, control, agent, …)
 lean-ctx tools list                # list tools per profile
 ```
 
 | Profile | Tools | Best for |
 |---------|-------|----------|
-| `minimal` | ~5 | small models / strict token budgets |
-| `standard` | ~20 | most users — recommended everyday trim |
-| `power` | all (67) | code-intelligence + multi-agent + context-engineering work |
+| `minimal` | ~6 | small models / strict token budgets |
+| `standard` | ~21 | most users — recommended everyday trim |
+| `power` | all (68) | code-intelligence + multi-agent + context-engineering work |
 
 > **Default:** with no explicit `tool_profile` in config, lean-ctx exposes the
 > **`power`** set (every tool) — `tool_profile_effective()` falls back to `power`.
@@ -97,11 +97,11 @@ lean-ctx tools list                # list tools per profile
 > which tool sits in which profile.
 
 **Golden output — `lean-ctx tools`** shows the active profile, the exact tool
-count, and where the value came from (so the `power`/67 default is verifiable):
+count, and where the value came from (so the `power`/68 default is verifiable):
 
 ```text
 Tool Profile: power
-  Tools exposed: 67
+  Tools exposed: 68
   Description:   All tools exposed
   Source:         default (backward compatible)
 

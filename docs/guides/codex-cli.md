@@ -341,6 +341,12 @@ ctx_shell("git status")
 ctx_shell("cargo test")
 ```
 
+> **Codex Desktop / Codex Cloud:** these clients' models instinctively reach for a
+> tool literally named `shell` (or `bash`) rather than `ctx_shell`. lean-ctx
+> registers a `shell` tool that is a 1:1 alias of `ctx_shell` — same pattern
+> compression, same allowlist — so commands stay compressed even when the model
+> never learns the `ctx_` prefix. Nothing to configure; it ships in every profile.
+
 ### Tools not available
 
 ```bash
