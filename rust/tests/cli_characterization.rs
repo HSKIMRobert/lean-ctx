@@ -151,7 +151,9 @@ fn cep_exits_zero() {
 
 #[test]
 fn wrapped_exits_zero() {
-    let out = run(&["wrapped"]);
+    // `wrapped` was folded into `gain --wrapped`; the standalone command now
+    // prints a removal hint and exits non-zero. Characterize the replacement.
+    let out = run(&["gain", "--wrapped"]);
     assert_eq!(exit_code(&out), 0, "stderr: {}", stderr(&out));
 }
 

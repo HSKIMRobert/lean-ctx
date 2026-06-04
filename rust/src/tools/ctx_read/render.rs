@@ -1,0 +1,493 @@
+//! Output rendering: full-output framing, header building, per-mode
+//! processing, task-relevant filtering and line-range extraction.
+//! Split out of `ctx_read/mod.rs`; `use super::*` re-imports parent items.
+
+#[allow(clippy::wildcard_imports)]
+use super::*;
+pub(crate) fn format_full_output(
+    file_ref: &str,
+    short: &str,
+    ext: &str,
+    content: &str,
+    original_tokens: usize,
+    line_count: usize,
+    _task: Option<&str>,
+) -> (String, usize) {
+    let _mode_guard = crate::core::savings_footer::ModeGuard::new("full");
+    let tokens = original_tokens;
+    let metadata = build_header(file_ref, short, ext, content, line_count, true);
+
+    let output = format!("{metadata}\n{content}");
+    let sent = count_tokens(&output);
+    (protocol::append_savings(&output, tokens, sent), sent)
+}
+
+pub(crate) fn build_header(
+    file_ref: &str,
+    short: &str,
+    ext: &str,
+    content: &str,
+    line_count: usize,
+    include_deps: bool,
+) -> String {
+    let mut header = if crate::core::protocol::meta_visible() && !file_ref.is_empty() {
+        format!("{file_ref}={short} {line_count}L")
+    } else {
+        format!("{short} {line_count}L")
+    };
+
+    if include_deps {
+        let dep_info = deps::extract_deps(content, ext);
+        if !dep_info.imports.is_empty() {
+            let imports_str: Vec<&str> = dep_info
+                .imports
+                .iter()
+                .take(8)
+                .map(std::string::String::as_str)
+                .collect();
+            header.push_str(&format!("\n deps {}", imports_str.join(",")));
+        }
+        if !dep_info.exports.is_empty() {
+            let exports_str: Vec<&str> = dep_info
+                .exports
+                .iter()
+                .take(8)
+                .map(std::string::String::as_str)
+                .collect();
+            header.push_str(&format!("\n exports {}", exports_str.join(",")));
+        }
+    }
+
+    header
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn process_mode(
+    content: &str,
+    mode: &str,
+    file_ref: &str,
+    short: &str,
+    ext: &str,
+    original_tokens: usize,
+    crp_mode: CrpMode,
+    file_path: &str,
+    task: Option<&str>,
+) -> (String, usize) {
+    let _mode_guard = crate::core::savings_footer::ModeGuard::new(mode);
+    let line_count = content.lines().count();
+
+    match mode {
+        "auto" => {
+            let chosen = resolve_auto_mode(file_path, original_tokens, task);
+            process_mode(
+                content,
+                &chosen,
+                file_ref,
+                short,
+                ext,
+                original_tokens,
+                crp_mode,
+                file_path,
+                task,
+            )
+        }
+        "full" => format_full_output(
+            file_ref,
+            short,
+            ext,
+            content,
+            original_tokens,
+            line_count,
+            task,
+        ),
+        "signatures" => {
+            let sigs = signatures::extract_signatures(content, ext);
+            let dep_info = deps::extract_deps(content, ext);
+
+            let mut output = if crate::core::protocol::meta_visible() && !file_ref.is_empty() {
+                format!("{file_ref}={short} {line_count}L")
+            } else {
+                format!("{short} {line_count}L")
+            };
+            if !dep_info.imports.is_empty() {
+                let imports_str: Vec<&str> = dep_info
+                    .imports
+                    .iter()
+                    .take(8)
+                    .map(std::string::String::as_str)
+                    .collect();
+                output.push_str(&format!("\n deps {}", imports_str.join(",")));
+            }
+            for sig in &sigs {
+                output.push('\n');
+                if crp_mode.is_tdd() {
+                    output.push_str(&sig.to_tdd_located());
+                } else {
+                    output.push_str(&sig.to_compact_located());
+                }
+            }
+            if let Some(body) = task_relevant_body(content, file_path, ext, task) {
+                output.push('\n');
+                output.push_str(&body);
+            }
+            let sent = count_tokens(&output);
+            (
+                append_compressed_hint(
+                    &protocol::append_savings(&output, original_tokens, sent),
+                    file_path,
+                ),
+                sent,
+            )
+        }
+        "map" => {
+            if ext == "php" {
+                if let Some(php_map) = crate::core::patterns::php::compress_php_map(content, short)
+                {
+                    let output = if crate::core::protocol::meta_visible() && !file_ref.is_empty() {
+                        format!("{file_ref}={short} {line_count}L\n{php_map}")
+                    } else {
+                        format!("{short} {line_count}L\n{php_map}")
+                    };
+                    let sent = count_tokens(&output);
+                    let output = protocol::append_savings(&output, original_tokens, sent);
+                    return (append_compressed_hint(&output, file_path), sent);
+                }
+            }
+
+            let structured = match ext {
+                "md" | "mdx" | "rst" => {
+                    crate::core::structured_read::extract_markdown_outline(content)
+                }
+                "json" => crate::core::structured_read::extract_json_structure(content),
+                "yaml" | "yml" => crate::core::structured_read::extract_yaml_structure(content),
+                "toml" => crate::core::structured_read::extract_toml_structure(content),
+                _ if file_path.to_lowercase().ends_with(".lock")
+                    || file_path.to_lowercase().ends_with("go.sum") =>
+                {
+                    crate::core::structured_read::extract_lock_summary(content, file_path)
+                }
+                _ => String::new(),
+            };
+
+            if !structured.is_empty() {
+                let mut output = if crate::core::protocol::meta_visible() && !file_ref.is_empty() {
+                    format!("{file_ref}={short} {line_count}L\n{structured}")
+                } else {
+                    format!("{short} {line_count}L\n{structured}")
+                };
+                let sent = count_tokens(&output);
+                output = protocol::append_savings(&output, original_tokens, sent);
+                return (append_compressed_hint(&output, file_path), sent);
+            }
+
+            let sigs = signatures::extract_signatures(content, ext);
+            let dep_info = deps::extract_deps(content, ext);
+
+            let mut output = if crate::core::protocol::meta_visible() && !file_ref.is_empty() {
+                format!("{file_ref}={short} {line_count}L")
+            } else {
+                format!("{short} {line_count}L")
+            };
+
+            if !dep_info.imports.is_empty() {
+                output.push_str("\n  deps: ");
+                output.push_str(&dep_info.imports.join(", "));
+            }
+
+            if !dep_info.exports.is_empty() {
+                output.push_str("\n  exports: ");
+                output.push_str(&dep_info.exports.join(", "));
+            }
+
+            let key_sigs: Vec<&signatures::Signature> = sigs
+                .iter()
+                .filter(|s| s.is_exported || s.indent == 0)
+                .collect();
+
+            if !key_sigs.is_empty() {
+                output.push_str("\n  API:");
+                for sig in &key_sigs {
+                    output.push_str("\n    ");
+                    if crp_mode.is_tdd() {
+                        output.push_str(&sig.to_tdd_located());
+                    } else {
+                        output.push_str(&sig.to_compact_located());
+                    }
+                }
+            }
+
+            if let Some(body) = task_relevant_body(content, file_path, ext, task) {
+                output.push('\n');
+                output.push_str(&body);
+            }
+
+            let sent = count_tokens(&output);
+            (
+                append_compressed_hint(
+                    &protocol::append_savings(&output, original_tokens, sent),
+                    file_path,
+                ),
+                sent,
+            )
+        }
+        "aggressive" => {
+            #[cfg(feature = "tree-sitter")]
+            let ast_pruned = crate::core::signatures_ts::ast_prune(content, ext);
+            #[cfg(not(feature = "tree-sitter"))]
+            let ast_pruned: Option<String> = None;
+
+            let base = ast_pruned.as_deref().unwrap_or(content);
+
+            let session_intent = crate::core::session::SessionState::load_latest()
+                .and_then(|s| s.active_structured_intent);
+            let raw = if let Some(ref intent) = session_intent {
+                compressor::task_aware_compress(base, Some(ext), intent)
+            } else {
+                compressor::aggressive_compress(base, Some(ext))
+            };
+            let compressed = compressor::safeguard_ratio(content, &raw);
+            let header = build_header(file_ref, short, ext, content, line_count, true);
+
+            let mut sym = SymbolMap::new();
+            let idents = symbol_map::extract_identifiers(&compressed, ext);
+            for ident in &idents {
+                sym.register(ident);
+            }
+
+            if symbol_map::substitution_enabled() && sym.len() >= 3 {
+                let sym_table = sym.format_table();
+                let sym_applied = sym.apply(&compressed);
+                let orig_tok = count_tokens(&compressed);
+                let comp_tok = count_tokens(&sym_applied) + count_tokens(&sym_table);
+                let net = orig_tok.saturating_sub(comp_tok);
+                if orig_tok > 0 && net * 100 / orig_tok >= 5 {
+                    let savings = protocol::format_savings(original_tokens, comp_tok);
+                    return (
+                        append_compressed_hint(
+                            &format!("{header}\n{sym_applied}{sym_table}\n{savings}"),
+                            file_path,
+                        ),
+                        comp_tok,
+                    );
+                }
+                let savings = protocol::format_savings(original_tokens, orig_tok);
+                return (
+                    append_compressed_hint(
+                        &format!("{header}\n{compressed}\n{savings}"),
+                        file_path,
+                    ),
+                    orig_tok,
+                );
+            }
+
+            let sent = count_tokens(&compressed);
+            let savings = protocol::format_savings(original_tokens, sent);
+            (
+                append_compressed_hint(&format!("{header}\n{compressed}\n{savings}"), file_path),
+                sent,
+            )
+        }
+        "entropy" => {
+            let result = entropy::entropy_compress_adaptive(content, file_path);
+            let avg_h = entropy::analyze_entropy(content).avg_entropy;
+            let header = build_header(file_ref, short, ext, content, line_count, false);
+            let techs = result.techniques.join(", ");
+            let output = format!("{header} H̄={avg_h:.1} [{techs}]\n{}", result.output);
+            let sent = count_tokens(&output);
+            let savings = protocol::format_savings(original_tokens, sent);
+            let compression_ratio = if original_tokens > 0 {
+                1.0 - (sent as f64 / original_tokens as f64)
+            } else {
+                0.0
+            };
+            crate::core::adaptive_thresholds::report_bandit_outcome(compression_ratio > 0.15);
+            (
+                append_compressed_hint(&format!("{output}\n{savings}"), file_path),
+                sent,
+            )
+        }
+        "task" => {
+            let task_str = task.unwrap_or("");
+            if task_str.is_empty() {
+                let header = build_header(file_ref, short, ext, content, line_count, true);
+                let out = format!("{header}\n{content}\n[task mode: no task set — returned full]");
+                let sent = count_tokens(&out);
+                return (out, sent);
+            }
+            let (_files, keywords) = crate::core::task_relevance::parse_task_hints(task_str);
+            if keywords.is_empty() {
+                let header = build_header(file_ref, short, ext, content, line_count, true);
+                let out = format!(
+                    "{header}\n{content}\n[task mode: no keywords extracted — returned full]"
+                );
+                let sent = count_tokens(&out);
+                return (out, sent);
+            }
+            let filtered =
+                crate::core::task_relevance::information_bottleneck_filter(content, &keywords, 0.3);
+            let filtered_lines = filtered.lines().count();
+            let header = if crate::core::protocol::meta_visible() && !file_ref.is_empty() {
+                format!("{file_ref}={short} {line_count}L [task-filtered: {line_count}→{filtered_lines}]")
+            } else {
+                format!("{short} {line_count}L [task-filtered: {line_count}→{filtered_lines}]")
+            };
+            let graph_ctx = if crate::core::profiles::active_profile()
+                .output_hints
+                .graph_context_block()
+            {
+                let project_root = detect_project_root(file_path);
+                crate::core::graph_context::build_graph_context(
+                    file_path,
+                    &project_root,
+                    Some(crate::core::graph_context::GraphContextOptions::default()),
+                )
+                .map(|c| crate::core::graph_context::format_graph_context(&c))
+                .unwrap_or_default()
+            } else {
+                String::new()
+            };
+
+            let sent = count_tokens(&filtered) + count_tokens(&header) + count_tokens(&graph_ctx);
+            let savings = protocol::format_savings(original_tokens, sent);
+            (
+                append_compressed_hint(
+                    &format!("{header}\n{filtered}{graph_ctx}\n{savings}"),
+                    file_path,
+                ),
+                sent,
+            )
+        }
+        "reference" => {
+            let tok = count_tokens(content);
+            let output = if crate::core::protocol::meta_visible() && !file_ref.is_empty() {
+                format!("{file_ref}={short}: {line_count} lines, {tok} tok ({ext})")
+            } else {
+                format!("{short}: {line_count} lines, {tok} tok ({ext})")
+            };
+            let sent = count_tokens(&output);
+            let savings = protocol::format_savings(original_tokens, sent);
+            (format!("{output}\n{savings}"), sent)
+        }
+        mode if mode.starts_with("lines:") => {
+            let range_str = &mode[6..];
+            let extracted = extract_line_range(content, range_str);
+            let header = if crate::core::protocol::meta_visible() && !file_ref.is_empty() {
+                format!("{file_ref}={short} {line_count}L lines:{range_str}")
+            } else {
+                format!("{short} {line_count}L lines:{range_str}")
+            };
+            let sent = count_tokens(&extracted);
+            let savings = protocol::format_savings(original_tokens, sent);
+            (format!("{header}\n{extracted}\n{savings}"), sent)
+        }
+        unknown => {
+            let header = build_header(file_ref, short, ext, content, line_count, true);
+            let out = format!(
+                "[WARNING: unknown mode '{unknown}', falling back to full]\n{header}\n{content}"
+            );
+            let sent = count_tokens(&out);
+            (out, sent)
+        }
+    }
+}
+
+/// When a task is active, find the symbol whose name best matches a task
+/// keyword and return its body as numbered source lines (capped).
+///
+/// `map`/`signatures` stay compact but include the one symbol body the agent is
+/// most likely about to read, avoiding a follow-up full read. Uses the
+/// tree-sitter chunk extractor (which carries spans + body across languages); a
+/// no-op when tree-sitter is unavailable.
+pub(crate) fn task_relevant_body(
+    content: &str,
+    file_path: &str,
+    ext: &str,
+    task: Option<&str>,
+) -> Option<String> {
+    const MAX_BODY_LINES: usize = 80;
+
+    let task = task.map(str::trim).filter(|t| !t.is_empty())?;
+    let (_files, keywords) = crate::core::task_relevance::parse_task_hints(task);
+    if keywords.is_empty() {
+        return None;
+    }
+    let kw_lower: Vec<String> = keywords.iter().map(|k| k.to_lowercase()).collect();
+
+    let chunks = crate::core::chunks_ts::extract_chunks_ts(file_path, content, ext)?;
+
+    // Score: exact name match (2) beats substring overlap (1).
+    let mut best_idx: Option<usize> = None;
+    let mut best_score = 0u8;
+    for (i, ch) in chunks.iter().enumerate() {
+        if ch.symbol_name.is_empty() {
+            continue;
+        }
+        let name_l = ch.symbol_name.to_lowercase();
+        let substr = kw_lower
+            .iter()
+            .any(|k| k.len() >= 3 && (name_l.contains(k.as_str()) || k.contains(name_l.as_str())));
+        let score = if kw_lower.contains(&name_l) {
+            2
+        } else {
+            u8::from(substr)
+        };
+        if score > best_score {
+            best_score = score;
+            best_idx = Some(i);
+        }
+    }
+
+    let ch = &chunks[best_idx?];
+    let body_lines: Vec<&str> = ch.content.lines().collect();
+    let total = body_lines.len();
+    let shown = total.min(MAX_BODY_LINES);
+    let body: String = body_lines[..shown]
+        .iter()
+        .enumerate()
+        .map(|(i, l)| format!("{:>4}|{l}", ch.start_line + i))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let truncated = if shown < total {
+        format!(
+            "\n  … +{} lines — ctx_read(mode=\"lines:{}-{}\")",
+            total - shown,
+            ch.start_line + shown,
+            ch.end_line
+        )
+    } else {
+        String::new()
+    };
+    Some(format!(
+        "  ▸ body {} L{}-{}:\n{body}{truncated}",
+        ch.symbol_name, ch.start_line, ch.end_line
+    ))
+}
+
+pub(crate) fn extract_line_range(content: &str, range_str: &str) -> String {
+    let lines: Vec<&str> = content.lines().collect();
+    let total = lines.len();
+    let mut selected = Vec::new();
+
+    for part in range_str.split(',') {
+        let part = part.trim();
+        if let Some((start_s, end_s)) = part.split_once('-') {
+            let start = start_s.trim().parse::<usize>().unwrap_or(1).max(1);
+            let end = end_s.trim().parse::<usize>().unwrap_or(total).min(total);
+            for i in start..=end {
+                if i >= 1 && i <= total {
+                    selected.push(format!("{i:>4}| {}", lines[i - 1]));
+                }
+            }
+        } else if let Ok(n) = part.parse::<usize>() {
+            if n >= 1 && n <= total {
+                selected.push(format!("{n:>4}| {}", lines[n - 1]));
+            }
+        }
+    }
+
+    if selected.is_empty() {
+        "No lines matched the range.".to_string()
+    } else {
+        selected.join("\n")
+    }
+}

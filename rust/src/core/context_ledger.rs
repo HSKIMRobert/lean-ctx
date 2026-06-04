@@ -45,6 +45,8 @@ fn acquire_ledger_lock(path: &std::path::Path) -> Option<std::fs::File> {
         .open(&lock_path)
         .ok()?;
     let fd = file.as_raw_fd();
+    // SAFETY: `fd` is a valid open descriptor owned by `file`, which outlives
+    // this call; `flock` dereferences no pointers.
     let ret = unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) };
     if ret != 0 {
         // Lock held — block up to 2s
@@ -52,6 +54,8 @@ fn acquire_ledger_lock(path: &std::path::Path) -> Option<std::fs::File> {
         let deadline = Instant::now() + Duration::from_secs(2);
         loop {
             std::thread::sleep(Duration::from_millis(50));
+            // SAFETY: `fd` is still a valid open descriptor owned by `file`,
+            // which outlives this call; `flock` dereferences no pointers.
             let ret = unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) };
             if ret == 0 {
                 break;

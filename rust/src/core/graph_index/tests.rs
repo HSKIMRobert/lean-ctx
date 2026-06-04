@@ -1,0 +1,359 @@
+//! Unit tests for the graph index. Extracted from `graph_index/mod.rs`;
+//! `super::*` resolves to the `graph_index` module.
+
+use super::*;
+use tempfile::tempdir;
+
+#[test]
+fn test_short_hash_deterministic() {
+    let h1 = short_hash("/Users/test/project");
+    let h2 = short_hash("/Users/test/project");
+    assert_eq!(h1, h2);
+    assert_eq!(h1.len(), 8);
+}
+
+#[test]
+fn test_make_relative() {
+    assert_eq!(
+        make_relative("/foo/bar/src/main.rs", "/foo/bar"),
+        graph_relative_key("/foo/bar/src/main.rs", "/foo/bar")
+    );
+    assert_eq!(
+        make_relative("src/main.rs", "/foo/bar"),
+        graph_relative_key("src/main.rs", "/foo/bar")
+    );
+    assert_eq!(
+        make_relative("C:\\repo\\src\\main\\kotlin\\Example.kt", "C:\\repo"),
+        graph_relative_key("C:\\repo\\src\\main\\kotlin\\Example.kt", "C:\\repo")
+    );
+    assert_eq!(
+        make_relative("//?/C:/repo/src/main/kotlin/Example.kt", "//?/C:/repo"),
+        graph_relative_key("//?/C:/repo/src/main/kotlin/Example.kt", "//?/C:/repo")
+    );
+}
+
+#[test]
+fn test_normalize_project_root() {
+    assert_eq!(normalize_project_root("C:\\repo\\"), "C:\\repo");
+    assert_eq!(normalize_project_root("C:\\repo\\."), "C:\\repo");
+    assert_eq!(normalize_project_root("//?/C:/repo/"), "//?/C:/repo");
+}
+
+#[test]
+fn test_graph_match_key_normalizes_windows_forms() {
+    assert_eq!(
+        graph_match_key(r"C:\repo\src\main.rs"),
+        "C:/repo/src/main.rs"
+    );
+    assert_eq!(
+        graph_match_key(r"\\?\C:\repo\src\main.rs"),
+        "C:/repo/src/main.rs"
+    );
+    assert_eq!(graph_match_key(r"\src\main.rs"), "src/main.rs");
+}
+
+#[test]
+fn test_extract_summary() {
+    let content = "// comment\nuse std::io;\n\npub fn main() {\n    println!(\"hello\");\n}";
+    let summary = extract_summary(content);
+    assert_eq!(summary, "pub fn main() {");
+}
+
+#[test]
+fn test_compute_hash_deterministic() {
+    let h1 = compute_hash("hello world");
+    let h2 = compute_hash("hello world");
+    assert_eq!(h1, h2);
+    assert_ne!(h1, compute_hash("hello world!"));
+}
+
+#[test]
+fn test_project_index_new() {
+    let idx = ProjectIndex::new("/test");
+    assert_eq!(idx.version, INDEX_VERSION);
+    assert_eq!(idx.project_root, "/test");
+    assert!(idx.files.is_empty());
+}
+
+fn fe(path: &str, content: &str, language: &str) -> FileEntry {
+    FileEntry {
+        path: path.to_string(),
+        hash: compute_hash(content),
+        language: language.to_string(),
+        line_count: content.lines().count(),
+        token_count: crate::core::tokens::count_tokens(content),
+        exports: Vec::new(),
+        summary: extract_summary(content),
+    }
+}
+
+#[test]
+fn test_index_looks_stale_when_any_file_missing() {
+    let td = tempdir().expect("tempdir");
+    let root = td.path();
+    std::fs::write(root.join("a.rs"), "pub fn a() {}\n").expect("write a.rs");
+
+    let root_s = normalize_project_root(&root.to_string_lossy());
+    let mut idx = ProjectIndex::new(&root_s);
+    idx.files
+        .insert("a.rs".to_string(), fe("a.rs", "pub fn a() {}\n", "rs"));
+    idx.files.insert(
+        "missing.rs".to_string(),
+        fe("missing.rs", "pub fn m() {}\n", "rs"),
+    );
+
+    assert!(index_looks_stale(&idx, &root_s));
+}
+
+#[test]
+fn test_index_looks_fresh_when_all_files_exist() {
+    let td = tempdir().expect("tempdir");
+    let root = td.path();
+    std::fs::write(root.join("a.rs"), "pub fn a() {}\n").expect("write a.rs");
+
+    let root_s = normalize_project_root(&root.to_string_lossy());
+    let mut idx = ProjectIndex::new(&root_s);
+    idx.files
+        .insert("a.rs".to_string(), fe("a.rs", "pub fn a() {}\n", "rs"));
+
+    assert!(!index_looks_stale(&idx, &root_s));
+}
+
+#[test]
+fn test_reverse_deps() {
+    let mut idx = ProjectIndex::new("/test");
+    idx.edges.push(IndexEdge {
+        from: "a.rs".to_string(),
+        to: "b.rs".to_string(),
+        kind: "import".to_string(),
+        weight: 1.0,
+    });
+    idx.edges.push(IndexEdge {
+        from: "c.rs".to_string(),
+        to: "b.rs".to_string(),
+        kind: "import".to_string(),
+        weight: 1.0,
+    });
+
+    let deps = idx.get_reverse_deps("b.rs", 1);
+    assert_eq!(deps.len(), 2);
+    assert!(deps.contains(&"a.rs".to_string()));
+    assert!(deps.contains(&"c.rs".to_string()));
+}
+
+#[test]
+fn test_find_symbol_range_kotlin_function() {
+    let content = r#"
+package com.example
+
+class UserService {
+    fun greet(name: String): String {
+        return "hi $name"
+    }
+}
+"#;
+    let sig = signatures::Signature {
+        kind: "method",
+        name: "greet".to_string(),
+        params: "name:String".to_string(),
+        return_type: "String".to_string(),
+        is_async: false,
+        is_exported: true,
+        indent: 2,
+        ..signatures::Signature::no_span()
+    };
+    let (start, end) = find_symbol_range(content, &sig);
+    assert_eq!(start, 5);
+    assert!(end >= start);
+}
+
+#[test]
+fn test_signature_spans_override_fallback_range() {
+    let sig = signatures::Signature {
+        kind: "method",
+        name: "release".to_string(),
+        params: "id:String".to_string(),
+        return_type: "Boolean".to_string(),
+        is_async: true,
+        is_exported: true,
+        indent: 2,
+        start_line: Some(42),
+        end_line: Some(43),
+    };
+
+    let (start, end) = sig
+        .start_line
+        .zip(sig.end_line)
+        .unwrap_or_else(|| find_symbol_range("ignored", &sig));
+    assert_eq!((start, end), (42, 43));
+}
+
+#[test]
+fn test_parse_stale_index_version() {
+    let json = format!(
+        r#"{{"version":{},"project_root":"/test","last_scan":"now","files":{{}},"edges":[],"symbols":{{}}}}"#,
+        INDEX_VERSION - 1
+    );
+    let parsed: ProjectIndex = serde_json::from_str(&json).unwrap();
+    assert_ne!(parsed.version, INDEX_VERSION);
+}
+
+#[test]
+fn test_kotlin_package_name() {
+    let content = "package com.example.feature\n\nclass UserService";
+    assert_eq!(
+        kotlin_package_name(content).as_deref(),
+        Some("com.example.feature")
+    );
+}
+
+#[test]
+fn safe_scan_root_rejects_fs_root() {
+    assert!(!is_safe_scan_root("/"));
+    assert!(!is_safe_scan_root("\\"));
+    #[cfg(windows)]
+    {
+        assert!(!is_safe_scan_root("C:\\"));
+        assert!(!is_safe_scan_root("D:\\"));
+    }
+}
+
+#[test]
+fn safe_scan_root_rejects_home() {
+    if let Some(home) = dirs::home_dir() {
+        let home_str = home.to_string_lossy().to_string();
+        assert!(
+            !is_safe_scan_root(&home_str),
+            "home dir should be rejected: {home_str}"
+        );
+    }
+}
+
+#[test]
+fn safe_scan_root_accepts_project_dir() {
+    let tmp = tempdir().unwrap();
+    std::fs::write(
+        tmp.path().join("Cargo.toml"),
+        "[package]\nname = \"test\"\n",
+    )
+    .unwrap();
+    let root = tmp.path().to_string_lossy().to_string();
+    assert!(is_safe_scan_root(&root));
+}
+
+#[test]
+fn safe_scan_root_rejects_broad_dir() {
+    let tmp = tempdir().unwrap();
+    for i in 0..55 {
+        std::fs::create_dir(tmp.path().join(format!("dir{i}"))).unwrap();
+    }
+    let root = tmp.path().to_string_lossy().to_string();
+    assert!(!is_safe_scan_root(&root));
+}
+
+#[test]
+fn no_index_env_skips_scan() {
+    let _env = crate::core::data_dir::test_env_lock();
+    let tmp = tempdir().unwrap();
+    std::fs::write(tmp.path().join("Cargo.toml"), "").unwrap();
+    std::fs::write(tmp.path().join("main.rs"), "fn main() {}").unwrap();
+
+    std::env::set_var("LEAN_CTX_NO_INDEX", "1");
+    let idx = scan(&tmp.path().to_string_lossy());
+    std::env::remove_var("LEAN_CTX_NO_INDEX");
+    assert!(idx.files.is_empty(), "LEAN_CTX_NO_INDEX should skip scan");
+}
+
+#[test]
+fn stale_index_detected_by_contamination() {
+    let root_s = "/home/testuser/myproject";
+    let mut idx = ProjectIndex::new(root_s);
+    // Simulate a contaminated index with Desktop files
+    idx.files.insert(
+        "Desktop/random.py".to_string(),
+        fe("Desktop/random.py", "x = 1\n", "py"),
+    );
+    idx.files.insert(
+        "src/main.rs".to_string(),
+        fe("src/main.rs", "fn main() {}\n", "rs"),
+    );
+    assert!(
+        index_looks_stale(&idx, root_s),
+        "Index with Desktop/ files should be considered stale"
+    );
+}
+
+#[test]
+fn stale_index_detected_by_age() {
+    let td = tempdir().expect("tempdir");
+    let root = td.path();
+    std::fs::write(root.join("a.rs"), "fn a() {}\n").unwrap();
+
+    let root_s = normalize_project_root(&root.to_string_lossy());
+    let mut idx = ProjectIndex::new(&root_s);
+    idx.files
+        .insert("a.rs".to_string(), fe("a.rs", "fn a() {}\n", "rs"));
+    // Set last_scan to 100 hours ago (default max_age_hours is 48)
+    let old_time = chrono::Local::now().naive_local() - chrono::Duration::hours(100);
+    idx.last_scan = old_time.format("%Y-%m-%d %H:%M:%S").to_string();
+
+    assert!(
+        index_looks_stale(&idx, &root_s),
+        "Index older than max_age_hours should be stale"
+    );
+}
+
+#[test]
+fn safe_scan_root_rejects_home_downloads() {
+    if let Some(home) = dirs::home_dir() {
+        let downloads = home.join("Downloads");
+        // Only test if Downloads doesn't contain a .git (unlikely but possible)
+        if !downloads.join(".git").exists() {
+            let downloads_str = downloads.to_string_lossy().to_string();
+            assert!(
+                !is_safe_scan_root(&downloads_str),
+                "~/Downloads should be rejected without project markers"
+            );
+        }
+    }
+}
+
+#[test]
+fn safe_scan_root_accepts_multi_repo_parent() {
+    let tmp = tempdir().unwrap();
+    let parent = tmp.path().join("code");
+    std::fs::create_dir_all(&parent).unwrap();
+
+    // Create 2 child repos
+    std::fs::create_dir_all(parent.join("repo-a").join(".git")).unwrap();
+    std::fs::create_dir_all(parent.join("repo-b").join(".git")).unwrap();
+
+    // Add >50 empty subdirs to trigger the breadth guard
+    for i in 0..55 {
+        std::fs::create_dir(parent.join(format!("dir-{i}"))).unwrap();
+    }
+
+    let parent_str = parent.to_string_lossy().to_string();
+    assert!(
+        is_safe_scan_root(&parent_str),
+        "Multi-repo parent with >50 subdirs should be accepted"
+    );
+}
+
+#[test]
+fn safe_scan_root_rejects_broad_dir_without_repos() {
+    let tmp = tempdir().unwrap();
+    let broad = tmp.path().join("broad");
+    std::fs::create_dir_all(&broad).unwrap();
+
+    // Create >50 subdirs but no project markers
+    for i in 0..55 {
+        std::fs::create_dir(broad.join(format!("dir-{i}"))).unwrap();
+    }
+
+    let broad_str = broad.to_string_lossy().to_string();
+    assert!(
+        !is_safe_scan_root(&broad_str),
+        "Broad dir without project markers should be rejected"
+    );
+}

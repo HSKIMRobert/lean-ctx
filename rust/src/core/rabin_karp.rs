@@ -162,6 +162,8 @@ mod tests {
     fn local_change_affects_few_chunks() {
         let original = "a".repeat(2000);
         let mut modified = original.clone();
+        // SAFETY: we overwrite a single byte with an ASCII value (`b'Z'`) at an
+        // in-bounds index, which keeps the buffer valid UTF-8.
         unsafe {
             let bytes = modified.as_bytes_mut();
             bytes[1000] = b'Z';

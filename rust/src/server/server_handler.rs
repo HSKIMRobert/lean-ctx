@@ -1,0 +1,488 @@
+//! `rmcp::ServerHandler` trait implementation for [`LeanCtxServer`].
+//!
+//! Split out of `server/mod.rs`; `use super::*` re-imports the parent module’s
+//! aliases and sibling submodules. Methods attach to `LeanCtxServer` regardless
+//! of which module the impl block lives in.
+
+#[allow(clippy::wildcard_imports)]
+use super::*;
+
+impl ServerHandler for LeanCtxServer {
+    fn get_info(&self) -> ServerInfo {
+        let capabilities = ServerCapabilities::builder()
+            .enable_tools()
+            .enable_resources()
+            .enable_resources_subscribe()
+            .enable_prompts()
+            .build();
+
+        let config = crate::core::config::Config::load();
+        let level = crate::core::config::CompressionLevel::effective(&config);
+        let _ = crate::core::terse::rules_inject::inject(&level);
+
+        let instructions = crate::instructions::build_instructions(CrpMode::effective());
+
+        InitializeResult::new(capabilities)
+            .with_server_info(Implementation::new("lean-ctx", env!("CARGO_PKG_VERSION")))
+            .with_instructions(instructions)
+    }
+
+    async fn initialize(
+        &self,
+        request: InitializeRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<InitializeResult, ErrorData> {
+        let name = request.client_info.name.clone();
+        tracing::info!("MCP client connected: {:?}", name);
+        *self.client_name.write().await = name.clone();
+        *self.peer.write().await = Some(context.peer.clone());
+
+        if self.session_mode != crate::tools::SessionMode::Shared {
+            crate::core::budget_tracker::BudgetTracker::global().reset();
+            if let Ok(data_dir) = crate::core::data_dir::lean_ctx_data_dir() {
+                let radar = data_dir.join("context_radar.jsonl");
+                if radar.exists() {
+                    let prev = data_dir.join("context_radar.prev.jsonl");
+                    let _ = std::fs::rename(&radar, &prev);
+                }
+            }
+        }
+
+        let has_roots = request.capabilities.roots.is_some();
+        self.has_client_roots
+            .store(has_roots, std::sync::atomic::Ordering::Relaxed);
+        if has_roots {
+            tracing::info!("Client supports MCP roots/list — will resolve on first tool call");
+        }
+
+        let env_root = roots::root_from_env();
+        let derived_root = derive_project_root_from_cwd();
+        let effective_root = env_root.or(derived_root);
+
+        let cwd_str = std::env::current_dir()
+            .ok()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+        {
+            let mut session = self.session.write().await;
+            if !cwd_str.is_empty() {
+                session.shell_cwd = Some(cwd_str.clone());
+            }
+            if let Some(ref root) = effective_root {
+                session.project_root = Some(root.clone());
+                tracing::info!("Project root set to: {root}");
+            } else if let Some(ref root) = session.project_root {
+                // A previously persisted session may carry a contaminated root
+                // (e.g. HOME from an older build or a client that reported HOME
+                // as its workspace). Drop it unless it is a real, safe project
+                // dir — otherwise PROJECT MEMORY leaks across projects.
+                let root_path = std::path::Path::new(root);
+                let root_has_marker = has_project_marker(root_path);
+                let root_str = root_path.to_string_lossy();
+                let root_suspicious = crate::core::pathutil::is_broad_or_unsafe_root(root_path)
+                    || root_str.contains("/var/folders/")
+                    || root_str.contains("/tmp/")
+                    || root_str.contains("\\AppData\\Local\\Temp")
+                    || root_str.contains("\\Temp\\");
+                if root_suspicious && !root_has_marker {
+                    tracing::info!("Dropping suspicious persisted project root: {root}");
+                    session.project_root = None;
+                }
+            }
+            let cfg_extra = crate::core::config::Config::load().extra_roots;
+            if !cfg_extra.is_empty() {
+                let existing: std::collections::HashSet<_> =
+                    session.extra_roots.iter().cloned().collect();
+                for r in cfg_extra {
+                    if !existing.contains(&r) {
+                        session.extra_roots.push(r);
+                    }
+                }
+            }
+            if self.session_mode == crate::tools::SessionMode::Shared {
+                if let Some(ref root) = session.project_root {
+                    if let Some(ref rt) = self.context_os {
+                        rt.shared_sessions.persist_best_effort(
+                            root,
+                            &self.workspace_id,
+                            &self.channel_id,
+                            &session,
+                        );
+                        rt.metrics.record_session_persisted();
+                    }
+                }
+            } else if let Err(e) = session.save() {
+                tracing::warn!("lean-ctx: failed to persist session state: {e}");
+            }
+        }
+
+        let extra_roots_snapshot = self.session.read().await.extra_roots.clone();
+        if let Some(ref root) = effective_root {
+            crate::core::index_orchestrator::ensure_all_background(root);
+            if !extra_roots_snapshot.is_empty() {
+                let r = root.clone();
+                std::thread::spawn(move || {
+                    crate::core::index_orchestrator::ensure_extra_roots_background(
+                        &r,
+                        &extra_roots_snapshot,
+                    );
+                });
+            }
+        }
+
+        let agent_name = name.clone();
+        let agent_root = effective_root.clone().unwrap_or_default();
+        let agent_id_handle = self.agent_id.clone();
+        tokio::task::spawn_blocking(move || {
+            if std::env::var("LEAN_CTX_HEADLESS").is_ok() {
+                return;
+            }
+
+            // Avoid startup stampedes when multiple agent sessions initialize at once.
+            // These are best-effort maintenance tasks; it's fine to skip if another
+            // lean-ctx instance is already doing them.
+            let maintenance = crate::core::startup_guard::try_acquire_lock(
+                "startup-maintenance",
+                std::time::Duration::from_secs(2),
+                std::time::Duration::from_mins(2),
+            );
+            if maintenance.is_some() {
+                if let Some(home) = dirs::home_dir() {
+                    let _ = crate::rules_inject::inject_all_rules(&home);
+                }
+                crate::hooks::refresh_installed_hooks();
+                crate::core::version_check::check_background();
+                // Enforce the on-disk budget: prune accumulated quarantined BM25
+                // indexes and cap the archive FTS DB (#2364). Silent (tracing
+                // only) so it never corrupts the MCP stdio protocol.
+                let _ = crate::core::storage_maintenance::run_quiet();
+            }
+            drop(maintenance);
+
+            if !agent_root.is_empty() {
+                let heuristic_role = match agent_name.to_lowercase().as_str() {
+                    n if n.contains("cursor") => Some("coder"),
+                    n if n.contains("claude") => Some("coder"),
+                    n if n.contains("codex") => Some("coder"),
+                    n if n.contains("antigravity") || n.contains("gemini") => Some("coder"),
+                    n if n.contains("review") => Some("reviewer"),
+                    n if n.contains("test") => Some("debugger"),
+                    _ => None,
+                };
+                let env_role = std::env::var("LEAN_CTX_ROLE")
+                    .or_else(|_| std::env::var("LEAN_CTX_AGENT_ROLE"))
+                    .ok();
+                let effective_role = env_role.as_deref().or(heuristic_role).unwrap_or("coder");
+
+                let _ = crate::core::roles::set_active_role_with_source(effective_role, true);
+
+                let mut registry = crate::core::agents::AgentRegistry::load_or_create();
+                registry.cleanup_stale(24);
+                let id = registry.register("mcp", Some(effective_role), &agent_root);
+                let _ = registry.save();
+                if let Ok(mut guard) = agent_id_handle.try_write() {
+                    *guard = Some(id);
+                }
+            }
+        });
+
+        let client_caps = crate::core::client_capabilities::ClientMcpCapabilities::detect(&name);
+        tracing::info!("Client capabilities: {}", client_caps.format_summary());
+
+        {
+            let cfg = crate::core::config::Config::load();
+            let cats = cfg.default_tool_categories_effective();
+            dynamic_tools::init_from_config(&cats);
+        }
+
+        if client_caps.dynamic_tools {
+            if let Ok(mut dt) = dynamic_tools::global().lock() {
+                dt.set_supports_list_changed(true);
+            }
+        }
+        if let Some(max) = client_caps.max_tools {
+            if let Ok(mut dt) = dynamic_tools::global().lock() {
+                dt.set_supports_list_changed(true);
+                if max < 100 {
+                    dt.unload_category(dynamic_tools::ToolCategory::Debug);
+                    dt.unload_category(dynamic_tools::ToolCategory::Memory);
+                }
+            }
+        }
+
+        crate::core::client_capabilities::set_detected(&client_caps);
+
+        let instructions =
+            crate::instructions::build_instructions_with_client(CrpMode::effective(), &name);
+
+        let capabilities = match (client_caps.resources, client_caps.prompts) {
+            (true, true) => ServerCapabilities::builder()
+                .enable_tools()
+                .enable_resources()
+                .enable_resources_subscribe()
+                .enable_prompts()
+                .build(),
+            (true, false) => ServerCapabilities::builder()
+                .enable_tools()
+                .enable_resources()
+                .enable_resources_subscribe()
+                .build(),
+            (false, true) => ServerCapabilities::builder()
+                .enable_tools()
+                .enable_prompts()
+                .build(),
+            (false, false) => ServerCapabilities::builder().enable_tools().build(),
+        };
+
+        Ok(InitializeResult::new(capabilities)
+            .with_server_info(Implementation::new("lean-ctx", env!("CARGO_PKG_VERSION")))
+            .with_instructions(instructions))
+    }
+
+    async fn list_tools(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListToolsResult, ErrorData> {
+        let all_tools = if crate::tool_defs::is_full_mode() {
+            if let Some(ref reg) = self.registry {
+                reg.tool_defs()
+            } else {
+                crate::tool_defs::granular_tool_defs()
+            }
+        } else if std::env::var("LEAN_CTX_UNIFIED").is_ok() {
+            crate::tool_defs::unified_tool_defs()
+        } else if let Some(ref reg) = self.registry {
+            let core_names = crate::tool_defs::core_tool_names();
+            reg.tool_defs()
+                .into_iter()
+                .filter(|t| core_names.contains(&t.name.as_ref()))
+                .collect()
+        } else {
+            crate::tool_defs::lazy_tool_defs()
+        };
+
+        let cfg = crate::core::config::Config::load();
+        let disabled = cfg.disabled_tools_effective();
+        let tool_profile = cfg.tool_profile_effective();
+        let client = self.client_name.read().await.clone();
+        let is_zed = !client.is_empty() && client.to_lowercase().contains("zed");
+
+        let active_role = crate::core::roles::active_role();
+        let tools: Vec<_> = all_tools
+            .into_iter()
+            .filter(|t| {
+                let name = t.name.as_ref();
+                if !tool_profile.is_tool_enabled(name) {
+                    return false;
+                }
+                if !disabled.is_empty() && disabled.iter().any(|d| d.as_str() == name) {
+                    return false;
+                }
+                if is_zed && name == "ctx_edit" {
+                    return false;
+                }
+                if !active_role.is_tool_allowed(name) {
+                    return false;
+                }
+                true
+            })
+            .collect();
+
+        let tools = {
+            let Ok(dyn_state) = dynamic_tools::global().lock() else {
+                tracing::warn!("dynamic_tools mutex poisoned in list_tools; returning unfiltered");
+                return Ok(ListToolsResult {
+                    tools,
+                    ..Default::default()
+                });
+            };
+            if dyn_state.supports_list_changed() {
+                tools
+                    .into_iter()
+                    .filter(|t| dyn_state.is_tool_active(t.name.as_ref()))
+                    .collect()
+            } else {
+                tools
+            }
+        };
+
+        let tools = {
+            let active = self.workflow.read().await.clone();
+            if let Some(run) = active {
+                if run.current == "done" || is_workflow_stale(&run) {
+                    let mut wf = self.workflow.write().await;
+                    *wf = None;
+                    let _ = crate::core::workflow::clear_active();
+                } else if let Some(state) = run.spec.state(&run.current) {
+                    if let Some(allowed) = &state.allowed_tools {
+                        let mut allow: std::collections::HashSet<&str> =
+                            allowed.iter().map(std::string::String::as_str).collect();
+                        for passthrough in WORKFLOW_PASSTHROUGH_TOOLS {
+                            allow.insert(passthrough);
+                        }
+                        return Ok(ListToolsResult {
+                            tools: tools
+                                .into_iter()
+                                .filter(|t| allow.contains(t.name.as_ref()))
+                                .collect(),
+                            ..Default::default()
+                        });
+                    }
+                }
+            }
+            tools
+        };
+
+        let tools = {
+            let cfg = crate::core::config::Config::load();
+            let level = crate::core::config::CompressionLevel::effective(&cfg);
+            let mode =
+                crate::core::terse::mcp_compress::DescriptionMode::from_compression_level(&level);
+            if mode == crate::core::terse::mcp_compress::DescriptionMode::Full {
+                tools
+            } else {
+                tools
+                    .into_iter()
+                    .map(|mut t| {
+                        let compressed = crate::core::terse::mcp_compress::compress_description(
+                            t.name.as_ref(),
+                            t.description.as_deref().unwrap_or(""),
+                            mode,
+                        );
+                        t.description = Some(compressed.into());
+                        t
+                    })
+                    .collect()
+            }
+        };
+
+        Ok(ListToolsResult {
+            tools,
+            ..Default::default()
+        })
+    }
+
+    async fn list_prompts(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<rmcp::model::ListPromptsResult, ErrorData> {
+        Ok(rmcp::model::ListPromptsResult::with_all_items(
+            prompts::list_prompts(),
+        ))
+    }
+
+    async fn get_prompt(
+        &self,
+        request: rmcp::model::GetPromptRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<rmcp::model::GetPromptResult, ErrorData> {
+        let ledger = self.ledger.read().await;
+        match prompts::get_prompt(&request, &ledger) {
+            Some(result) => Ok(result),
+            None => Err(ErrorData::invalid_params(
+                format!("Unknown prompt: {}", request.name),
+                None,
+            )),
+        }
+    }
+
+    async fn list_resources(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<rmcp::model::ListResourcesResult, rmcp::ErrorData> {
+        Ok(rmcp::model::ListResourcesResult::with_all_items(
+            resources::list_resources(),
+        ))
+    }
+
+    async fn read_resource(
+        &self,
+        request: rmcp::model::ReadResourceRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<rmcp::model::ReadResourceResult, rmcp::ErrorData> {
+        let ledger = self.ledger.read().await;
+        match resources::read_resource(&request.uri, &ledger) {
+            Some(contents) => Ok(rmcp::model::ReadResourceResult::new(contents)),
+            None => Err(rmcp::ErrorData::resource_not_found(
+                format!("Unknown resource: {}", request.uri),
+                None,
+            )),
+        }
+    }
+
+    async fn call_tool(
+        &self,
+        request: CallToolRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        use std::panic::AssertUnwindSafe;
+
+        let progress_token = request
+            .meta
+            .as_ref()
+            .and_then(rmcp::model::Meta::get_progress_token);
+        if let Some(ref token) = progress_token {
+            let sender =
+                crate::server::progress::ProgressSender::new(context.peer.clone(), token.clone());
+            *self
+                .progress_sender
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(sender);
+        }
+
+        let tool_name_for_panic = request.name.as_ref().to_string();
+        let args_fp_for_panic = request
+            .arguments
+            .as_ref()
+            .map(|a| {
+                crate::core::loop_detection::LoopDetector::fingerprint(&serde_json::Value::Object(
+                    a.clone(),
+                ))
+            })
+            .unwrap_or_default();
+
+        let loop_detector = self.loop_detector.clone();
+
+        match AssertUnwindSafe(self.call_tool_guarded(request))
+            .catch_unwind()
+            .await
+        {
+            Ok(result) => result,
+            Err(panic_payload) => {
+                let detail = if let Some(s) = panic_payload.downcast_ref::<&str>() {
+                    (*s).to_string()
+                } else if let Some(s) = panic_payload.downcast_ref::<String>() {
+                    s.clone()
+                } else {
+                    "unknown".to_string()
+                };
+                tracing::error!("call_tool panicked: {detail}");
+
+                if let Ok(mut detector) =
+                    tokio::time::timeout(std::time::Duration::from_secs(1), loop_detector.write())
+                        .await
+                {
+                    detector.record_error_outcome(&tool_name_for_panic, &args_fp_for_panic);
+                }
+
+                Ok(CallToolResult::error(vec![Content::text(
+                    "ERROR: lean-ctx internal error. The MCP server is still running. \
+                     Please retry or use a different approach."
+                        .to_string(),
+                )]))
+            }
+        }
+    }
+
+    async fn on_roots_list_changed(
+        &self,
+        _context: rmcp::service::NotificationContext<RoleServer>,
+    ) {
+        tracing::info!("Received roots/list_changed — will re-resolve on next tool call");
+        self.roots_resolved
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+    }
+}

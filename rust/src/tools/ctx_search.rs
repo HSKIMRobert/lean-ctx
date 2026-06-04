@@ -570,6 +570,8 @@ mod tests {
         let fifo = dir.path().join("pipe.fifo");
         let c = std::ffi::CString::new(fifo.to_string_lossy().as_bytes()).unwrap();
         assert_eq!(
+            // SAFETY: `c` is a live CString providing a valid NUL-terminated
+            // path pointer for the duration of the call.
             unsafe { libc::mkfifo(c.as_ptr(), 0o644) },
             0,
             "mkfifo failed"

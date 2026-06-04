@@ -21,6 +21,8 @@ pub(super) fn pipe_exists(name: &str) -> bool {
         .encode_wide()
         .chain(std::iter::once(0))
         .collect();
+    // SAFETY: `wide` is a live, NUL-terminated UTF-16 buffer that outlives the
+    // call; `WaitNamedPipeW` only reads from the pointer and returns a BOOL.
     unsafe { WaitNamedPipeW(wide.as_ptr(), 1) != 0 }
 }
 

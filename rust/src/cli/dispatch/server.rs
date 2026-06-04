@@ -144,6 +144,8 @@ fn is_orphan_mcp(pid: u32) -> bool {
 fn spawn_parent_watchdog() {
     #[cfg(unix)]
     {
+        // SAFETY: `getppid` takes no arguments, always succeeds, and only reads
+        // the parent PID — no preconditions, no UB.
         let ppid = unsafe { libc::getppid() } as u32;
         if ppid <= 1 {
             return;
@@ -153,6 +155,8 @@ fn spawn_parent_watchdog() {
             .spawn(move || {
                 loop {
                     std::thread::sleep(std::time::Duration::from_secs(5));
+                    // SAFETY: `getppid` takes no arguments, always succeeds, and
+                    // only reads the parent PID — no preconditions, no UB.
                     let current_ppid = unsafe { libc::getppid() } as u32;
                     // On Unix, when the parent dies, ppid becomes 1 (init/systemd)
                     // or the subreaper PID. Either way, it changes from our original.

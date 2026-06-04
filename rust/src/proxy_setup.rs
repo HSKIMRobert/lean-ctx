@@ -524,6 +524,8 @@ pub fn default_port() -> u16 {
 fn uid_based_port() -> u16 {
     #[cfg(unix)]
     {
+        // SAFETY: `getuid` takes no arguments, always succeeds, and only reads
+        // the calling process's real UID — no preconditions, no UB.
         let uid = unsafe { libc::getuid() } as u16;
         let offset = uid.saturating_sub(1000) % 1000;
         DEFAULT_PROXY_PORT + offset
