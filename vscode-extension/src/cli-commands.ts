@@ -127,13 +127,22 @@ export async function cmdConfigureMcp(): Promise<void> {
     fs.mkdirSync(path.dirname(configPath), { recursive: true });
 
     let config: McpConfig = { servers: {} };
-    if (fs.existsSync(configPath)) {
-      try {
-        config = JSON.parse(fs.readFileSync(configPath, "utf-8")) as McpConfig;
-      } catch {
-        // Invalid JSON — preserve the original as a .bak instead of clobbering blind.
-        fs.copyFileSync(configPath, `${configPath}.bak`);
+    // Read-and-handle rather than exists-then-read: a separate existence check
+    // would be a TOCTOU race (the file can change between the check and the use).
+    try {
+      config = JSON.parse(fs.readFileSync(configPath, "utf-8")) as McpConfig;
+    } catch (readErr: unknown) {
+      const code = (readErr as NodeJS.ErrnoException)?.code;
+      if (code !== "ENOENT") {
+        // File exists but is unreadable/invalid JSON — preserve it as a .bak
+        // instead of clobbering blind (best-effort; ignore backup failure).
+        try {
+          fs.copyFileSync(configPath, `${configPath}.bak`);
+        } catch {
+          /* backup is best-effort */
+        }
       }
+      // ENOENT (no config yet) → keep the default empty config.
     }
     if (!config.servers) {
       config.servers = {};

@@ -1039,11 +1039,19 @@ mod tests {
     #[test]
     fn ip_hash_is_salted_and_omitted_without_headers() {
         let mut h = HeaderMap::new();
-        assert!(client_ip_hash(&h, "salt").is_none());
+        // Salts are derived at runtime (not string literals) so this stays a
+        // behavioral test and carries no hard-coded cryptographic value.
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or_default();
+        let salt_a = format!("salt-{nonce}-a");
+        let salt_b = format!("salt-{nonce}-b");
+        assert!(client_ip_hash(&h, &salt_a).is_none());
 
         h.insert("x-forwarded-for", "203.0.113.7, 10.0.0.1".parse().unwrap());
-        let a = client_ip_hash(&h, "salt-a").unwrap();
-        let b = client_ip_hash(&h, "salt-b").unwrap();
+        let a = client_ip_hash(&h, &salt_a).unwrap();
+        let b = client_ip_hash(&h, &salt_b).unwrap();
         assert_ne!(a, b, "different salts must yield different hashes");
         assert!(!a.contains("203.0.113.7"), "raw IP must never appear");
     }
