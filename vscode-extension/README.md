@@ -1,7 +1,7 @@
 # lean-ctx VS Code Extension
 
-[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/yvgude.lean-ctx?label=VS%20Code%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=yvgude.lean-ctx)
-[![Open VSX](https://img.shields.io/open-vsx/v/yvgude/lean-ctx?label=Open%20VSX)](https://open-vsx.org/extension/yvgude/lean-ctx)
+[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/LeanCTX.lean-ctx?label=VS%20Code%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=LeanCTX.lean-ctx)
+[![Open VSX](https://img.shields.io/open-vsx/v/LeanCTX/lean-ctx?label=Open%20VSX)](https://open-vsx.org/extension/LeanCTX/lean-ctx)
 
 VS Code sidebar extension for [lean-ctx](https://github.com/yvgude/lean-ctx) — the context engineering layer for AI agents. Works in VS Code, Cursor, VSCodium and Windsurf.
 
@@ -28,16 +28,16 @@ VS Code sidebar extension for [lean-ctx](https://github.com/yvgude/lean-ctx) —
 In VS Code: open **Extensions** (`Ctrl/Cmd+Shift+X`), search **lean-ctx**, click **Install** — or:
 
 ```bash
-code --install-extension yvgude.lean-ctx
+code --install-extension LeanCTX.lean-ctx
 ```
 
 ### From Open VSX (Cursor, VSCodium, Windsurf)
 
-These editors use the [Open VSX](https://open-vsx.org/extension/yvgude/lean-ctx) registry. Search **lean-ctx** in the Extensions view, or:
+These editors use the [Open VSX](https://open-vsx.org/extension/LeanCTX/lean-ctx) registry. Search **lean-ctx** in the Extensions view, or:
 
 ```bash
-cursor --install-extension yvgude.lean-ctx     # Cursor
-codium --install-extension yvgude.lean-ctx     # VSCodium
+cursor --install-extension LeanCTX.lean-ctx     # Cursor
+codium --install-extension LeanCTX.lean-ctx     # VSCodium
 ```
 
 ### From Source

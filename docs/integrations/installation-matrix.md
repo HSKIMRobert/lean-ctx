@@ -95,8 +95,8 @@ worth being explicit about what `lean-ctx setup` actually configures:
   repo-map, semantic search, one-click MCP wiring) on top of the same daemon.
   You do **not** need it for the MCP server to work, and `setup` does not
   install it. Get it from the
-  [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=yvgude.lean-ctx)
-  or [Open VSX](https://open-vsx.org/extension/yvgude/lean-ctx) (Cursor,
+  [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=LeanCTX.lean-ctx)
+  or [Open VSX](https://open-vsx.org/extension/LeanCTX/lean-ctx) (Cursor,
   VSCodium, Windsurf) if you want the in-editor panel.
 - **JetBrains** — there is **no auto-wiring**. `setup` writes a ready-to-paste
   snippet to `~/.jb-mcp.json` and prints a one-line manual step. You must open

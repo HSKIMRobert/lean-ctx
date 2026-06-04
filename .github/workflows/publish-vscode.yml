@@ -84,6 +84,6 @@ jobs:
           body: |
             lean-ctx VS Code extension **${{ steps.ver.outputs.version }}**.
 
-            Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=yvgude.lean-ctx)
-            or [Open VSX](https://open-vsx.org/extension/yvgude/lean-ctx) (Cursor, VSCodium, Windsurf),
+            Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=LeanCTX.lean-ctx)
+            or [Open VSX](https://open-vsx.org/extension/LeanCTX/lean-ctx) (Cursor, VSCodium, Windsurf),
             or download the `.vsix` below and run `code --install-extension lean-ctx-${{ steps.ver.outputs.version }}.vsix`.

@@ -87,9 +87,9 @@ The repo also ships an **optional** VS Code extension (`vscode-extension`) — a
 convenience UI panel (live savings, repo-map, semantic search, one-click MCP
 setup) you do **not** need for the MCP server to work, and `setup` does not
 install it. Get it from the
-[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=yvgude.lean-ctx)
-or [Open VSX](https://open-vsx.org/extension/yvgude/lean-ctx) (Cursor, VSCodium,
-Windsurf), or run `code --install-extension yvgude.lean-ctx`.
+[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=LeanCTX.lean-ctx)
+or [Open VSX](https://open-vsx.org/extension/LeanCTX/lean-ctx) (Cursor, VSCodium,
+Windsurf), or run `code --install-extension LeanCTX.lean-ctx`.
 
 **Verify:**
 ```bash
