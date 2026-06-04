@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { SidebarProvider } from "./sidebar/provider";
 import { StatusBarManager } from "./statusbar";
 import { registerCommands } from "./commands";
+import { disposeOutputChannel, offerMcpSetup } from "./cli-commands";
 import { isAvailable } from "./leanctx";
 
 let statusBar: StatusBarManager | undefined;
@@ -14,6 +15,14 @@ export async function activate(
     vscode.window.showWarningMessage(
       'lean-ctx binary not found. Install lean-ctx or set "leanctx.binaryPath" in settings.'
     );
+  } else if (
+    vscode.workspace
+      .getConfiguration("leanctx")
+      .get<boolean>("autoConfigureMcp", true)
+  ) {
+    // Binary present but MCP possibly unwired — offer a one-click setup (no-op
+    // if already configured). Fire-and-forget so activation stays snappy.
+    void offerMcpSetup();
   }
 
   const sidebarProvider = new SidebarProvider(context.extensionUri);
@@ -35,4 +44,5 @@ export async function activate(
 export function deactivate(): void {
   statusBar?.dispose();
   statusBar = undefined;
+  disposeOutputChannel();
 }

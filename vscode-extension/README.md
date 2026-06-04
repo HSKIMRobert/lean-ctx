@@ -1,6 +1,9 @@
 # lean-ctx VS Code Extension
 
-VS Code sidebar extension for [lean-ctx](https://github.com/yvgude/lean-ctx) — the context engineering layer for AI agents.
+[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/yvgude.lean-ctx?label=VS%20Code%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=yvgude.lean-ctx)
+[![Open VSX](https://img.shields.io/open-vsx/v/yvgude/lean-ctx?label=Open%20VSX)](https://open-vsx.org/extension/yvgude/lean-ctx)
+
+VS Code sidebar extension for [lean-ctx](https://github.com/yvgude/lean-ctx) — the context engineering layer for AI agents. Works in VS Code, Cursor, VSCodium and Windsurf.
 
 ## Features
 
@@ -9,14 +12,33 @@ VS Code sidebar extension for [lean-ctx](https://github.com/yvgude/lean-ctx) —
 - **Repo Map** — Interactive view of the most important files in your project, ranked by relevance
 - **Semantic Search** — Search your codebase by meaning, not just text
 - **Status Bar** — Live token savings counter with one-click dashboard access
+- **Setup & Doctor** — Configure shell + editors and run diagnostics from the command palette
+- **One-click MCP wiring** — Write a workspace `.vscode/mcp.json` entry for lean-ctx
 - **Visualizer** — Launch the lean-ctx call graph visualizer
 
 ## Prerequisites
 
-- [lean-ctx](https://github.com/yvgude/lean-ctx) installed and available in `PATH`
-- VS Code 1.80.0 or later
+- [lean-ctx](https://github.com/yvgude/lean-ctx) installed (`curl -fsSL https://leanctx.com/install.sh | sh`). The extension auto-detects the binary on `PATH`, `~/.cargo/bin` and Homebrew.
+- VS Code 1.80.0 or later (or a compatible editor: Cursor, VSCodium, Windsurf)
 
 ## Installation
+
+### From the VS Code Marketplace
+
+In VS Code: open **Extensions** (`Ctrl/Cmd+Shift+X`), search **lean-ctx**, click **Install** — or:
+
+```bash
+code --install-extension yvgude.lean-ctx
+```
+
+### From Open VSX (Cursor, VSCodium, Windsurf)
+
+These editors use the [Open VSX](https://open-vsx.org/extension/yvgude/lean-ctx) registry. Search **lean-ctx** in the Extensions view, or:
+
+```bash
+cursor --install-extension yvgude.lean-ctx     # Cursor
+codium --install-extension yvgude.lean-ctx     # VSCodium
+```
 
 ### From Source
 
@@ -24,7 +46,7 @@ VS Code sidebar extension for [lean-ctx](https://github.com/yvgude/lean-ctx) —
 cd vscode-extension
 npm install
 npm run compile
-npx @vscode/vsce package --no-dependencies
+npm run package
 code --install-extension lean-ctx-0.1.0.vsix
 ```
 
@@ -41,7 +63,7 @@ npm run watch
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `leanctx.binaryPath` | `lean-ctx` | Path to the lean-ctx binary |
+| `leanctx.binaryPath` | `""` (auto-detect) | Path to the lean-ctx binary. Empty → auto-detect on `PATH`, `~/.cargo/bin`, Homebrew |
 | `leanctx.refreshInterval` | `30` | Status bar refresh interval (seconds) |
 
 ## Commands
@@ -53,14 +75,21 @@ npm run watch
 | `lean-ctx: Knowledge Panel` | Switches to the knowledge tab in the sidebar |
 | `lean-ctx: Open Visualizer` | Launches the lean-ctx call graph visualizer |
 | `lean-ctx: Refresh Dashboard` | Manually refreshes all dashboard data |
+| `lean-ctx: Setup` | Auto-configures shell + editors (`lean-ctx setup`) |
+| `lean-ctx: Doctor` | Runs diagnostics (`lean-ctx doctor`) in an output channel |
+| `lean-ctx: Show Token Savings` | Shows the savings recap (`lean-ctx gain`) |
+| `lean-ctx: Show Context Heatmap` | Shows the context heatmap (`lean-ctx heatmap`) |
+| `lean-ctx: Open Web Dashboard` | Launches the web dashboard in an integrated terminal |
+| `lean-ctx: Configure MCP for this workspace` | Writes a `.vscode/mcp.json` stdio entry for lean-ctx |
 
 ## Architecture
 
 ```
 src/
 ├── extension.ts          # Entry point: activate/deactivate
-├── leanctx.ts            # CLI interface (all lean-ctx communication)
-├── commands.ts           # VS Code command handlers
+├── leanctx.ts            # CLI interface + binary auto-detection
+├── commands.ts           # Sidebar command handlers (search, repomap, …)
+├── cli-commands.ts       # CLI-backed commands (setup, doctor, MCP wiring, dashboard)
 ├── statusbar.ts          # Status bar item with auto-refresh
 └── sidebar/
     ├── provider.ts       # Webview view provider

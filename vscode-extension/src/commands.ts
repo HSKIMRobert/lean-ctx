@@ -1,5 +1,13 @@
 import * as vscode from "vscode";
 import { openVisualizer, semanticSearch } from "./leanctx";
+import {
+  cmdSetup,
+  cmdDoctor,
+  cmdGain,
+  cmdHeatmap,
+  cmdDashboard,
+  cmdConfigureMcp,
+} from "./cli-commands";
 import { SidebarProvider } from "./sidebar/provider";
 
 export function registerCommands(
@@ -19,7 +27,14 @@ export function registerCommands(
     vscode.commands.registerCommand("leanctx.visualize", handleVisualize),
     vscode.commands.registerCommand("leanctx.refresh", () =>
       sidebarProvider.refresh()
-    )
+    ),
+    // CLI-backed commands (setup, diagnostics, MCP wiring, web dashboard).
+    vscode.commands.registerCommand("leanctx.setup", cmdSetup),
+    vscode.commands.registerCommand("leanctx.doctor", cmdDoctor),
+    vscode.commands.registerCommand("leanctx.gain", cmdGain),
+    vscode.commands.registerCommand("leanctx.heatmap", cmdHeatmap),
+    vscode.commands.registerCommand("leanctx.dashboard", cmdDashboard),
+    vscode.commands.registerCommand("leanctx.configureMcp", cmdConfigureMcp)
   );
 }
 

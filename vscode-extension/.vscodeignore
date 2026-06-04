@@ -1,9 +1,16 @@
-.vscode/**
-.vscode-test/**
+# Ship only the compiled out/ plus the webview HTML the sidebar reads at runtime.
 src/**
-node_modules/**
-.gitignore
+!src/sidebar/panel.html
 tsconfig.json
+.eslintrc*
+eslint.config.*
 **/*.map
-**/*.ts
-!out/**
+
+# Dev tooling & noise
+.vscode/**
+.github/**
+node_modules/**
+**/*.d.ts
+**/.gitignore
+**/.DS_Store
+*.vsix

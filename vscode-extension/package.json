@@ -1,20 +1,33 @@
 {
   "name": "lean-ctx",
   "displayName": "lean-ctx — Context Engineering",
-  "description": "AI context optimization with knowledge graph, repo-map, and token savings",
+  "description": "AI context optimization with live token savings, knowledge graph, repo-map, semantic search, and one-click MCP setup. Works with Copilot, Cursor, VSCodium & Windsurf.",
   "version": "0.1.0",
-  "publisher": "leanctx",
-  "license": "MIT",
+  "publisher": "yvgude",
+  "license": "Apache-2.0",
+  "icon": "resources/icon.png",
+  "homepage": "https://leanctx.com",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yvgude/lean-ctx"
+    "url": "https://github.com/yvgude/lean-ctx.git",
+    "directory": "vscode-extension"
+  },
+  "bugs": {
+    "url": "https://github.com/yvgude/lean-ctx/issues"
+  },
+  "qna": "marketplace",
+  "pricing": "Free",
+  "galleryBanner": {
+    "color": "#0b0b0b",
+    "theme": "dark"
   },
   "engines": {
     "vscode": "^1.80.0"
   },
   "categories": [
     "AI",
-    "Programming Languages",
+    "Machine Learning",
+    "Visualization",
     "Other"
   ],
   "keywords": [
@@ -23,7 +36,9 @@
     "llm",
     "token",
     "optimization",
-    "mcp"
+    "mcp",
+    "copilot",
+    "cursor"
   ],
   "activationEvents": [
     "onStartupFinished"
@@ -68,6 +83,30 @@
       {
         "command": "leanctx.refresh",
         "title": "lean-ctx: Refresh Dashboard"
+      },
+      {
+        "command": "leanctx.setup",
+        "title": "lean-ctx: Setup (auto-configure shell + editors)"
+      },
+      {
+        "command": "leanctx.doctor",
+        "title": "lean-ctx: Doctor (diagnostics)"
+      },
+      {
+        "command": "leanctx.gain",
+        "title": "lean-ctx: Show Token Savings"
+      },
+      {
+        "command": "leanctx.heatmap",
+        "title": "lean-ctx: Show Context Heatmap"
+      },
+      {
+        "command": "leanctx.dashboard",
+        "title": "lean-ctx: Open Web Dashboard"
+      },
+      {
+        "command": "leanctx.configureMcp",
+        "title": "lean-ctx: Configure MCP for this workspace"
       }
     ],
     "configuration": {
@@ -75,14 +114,19 @@
       "properties": {
         "leanctx.binaryPath": {
           "type": "string",
-          "default": "lean-ctx",
-          "description": "Path to the lean-ctx binary"
+          "default": "",
+          "description": "Path to the lean-ctx binary. Leave empty to auto-detect (PATH, ~/.cargo/bin, Homebrew)."
         },
         "leanctx.refreshInterval": {
           "type": "number",
           "default": 30,
           "minimum": 5,
           "description": "Status bar refresh interval in seconds"
+        },
+        "leanctx.autoConfigureMcp": {
+          "type": "boolean",
+          "default": true,
+          "description": "On activation, offer to configure MCP for the workspace if it isn't wired yet"
         }
       }
     }
@@ -92,13 +136,16 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "lint": "eslint src --ext ts",
-    "package": "npx @vscode/vsce package --no-dependencies"
+    "package": "npx @vscode/vsce package --no-dependencies",
+    "publish:vsce": "npx @vscode/vsce publish --no-dependencies",
+    "publish:ovsx": "npx ovsx publish --no-dependencies"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.80.0",
     "@vscode/vsce": "^3.0.0",
     "eslint": "^9.0.0",
+    "ovsx": "^0.10.0",
     "typescript": "^5.5.0"
   }
 }

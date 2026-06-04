@@ -1,4 +1,4 @@
-import { spawn } from "child_process";
+import { spawn, execFileSync } from "child_process";
 import * as vscode from "vscode";
 
 export interface KnowledgeFact {
@@ -29,10 +29,52 @@ export interface SearchResult {
   score?: number;
 }
 
+let cachedBinaryPath: string | null = null;
+
+/**
+ * Resolves the lean-ctx binary. An explicit `leanctx.binaryPath` setting always wins.
+ * Otherwise we probe the common install locations, because GUI-launched editors
+ * (VS Code, Cursor, VSCodium) frequently inherit a stripped PATH that omits
+ * `~/.cargo/bin` and Homebrew — the usual reason "lean-ctx not found" despite a
+ * working terminal. The first responsive candidate is cached for the session.
+ */
 function getBinaryPath(): string {
-  return vscode.workspace
+  const inspected = vscode.workspace
     .getConfiguration("leanctx")
-    .get<string>("binaryPath", "lean-ctx");
+    .inspect<string>("binaryPath");
+  const explicit =
+    inspected?.workspaceFolderValue ??
+    inspected?.workspaceValue ??
+    inspected?.globalValue;
+  if (explicit && explicit.trim()) {
+    return explicit.trim();
+  }
+
+  if (cachedBinaryPath) {
+    return cachedBinaryPath;
+  }
+
+  const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
+  const candidates = [
+    "lean-ctx",
+    home ? `${home}/.cargo/bin/lean-ctx` : "",
+    "/opt/homebrew/bin/lean-ctx",
+    "/usr/local/bin/lean-ctx",
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    try {
+      execFileSync(candidate, ["--version"], { timeout: 5_000, stdio: "pipe" });
+      cachedBinaryPath = candidate;
+      return candidate;
+    } catch {
+      continue;
+    }
+  }
+
+  // Nothing responded — fall back to the bare name so the caller surfaces a
+  // clear "not found" error rather than silently doing nothing.
+  return "lean-ctx";
 }
 
 export function runLeanCtx(
@@ -75,6 +117,52 @@ export function runLeanCtx(
           )
         );
       }
+    });
+  });
+}
+
+/** Exposes the resolved binary path (incl. auto-detection) to other modules,
+ *  e.g. for writing an MCP `command` that the editor's launcher can find. */
+export function resolveBinaryPath(): string {
+  return getBinaryPath();
+}
+
+export interface CommandResult {
+  stdout: string;
+  stderr: string;
+  code: number | null;
+}
+
+/**
+ * Runs lean-ctx and resolves with the captured streams regardless of exit code.
+ * Used for informational, output-channel commands (`setup`, `doctor`, `gain`,
+ * `heatmap`) where a non-zero exit (e.g. `doctor` reporting findings) is still a
+ * result worth showing verbatim rather than an error to swallow.
+ */
+export function runLeanCtxCapture(
+  args: string[],
+  cwd?: string
+): Promise<CommandResult> {
+  return new Promise((resolve) => {
+    const bin = getBinaryPath();
+    const workspaceCwd =
+      cwd ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+
+    const proc = spawn(bin, args, {
+      cwd: workspaceCwd,
+      env: { ...process.env, NO_COLOR: "1" },
+      timeout: 120_000,
+    });
+
+    let stdout = "";
+    let stderr = "";
+    proc.stdout.on("data", (data: Buffer) => (stdout += data.toString()));
+    proc.stderr.on("data", (data: Buffer) => (stderr += data.toString()));
+    proc.on("error", (err: Error) => {
+      resolve({ stdout: "", stderr: `Failed to run ${bin}: ${err.message}`, code: null });
+    });
+    proc.on("close", (code: number | null) => {
+      resolve({ stdout: stdout.trim(), stderr: stderr.trim(), code });
     });
   });
 }
