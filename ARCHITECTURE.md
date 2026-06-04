@@ -24,7 +24,7 @@ flowchart TB
         BudgetGate["Budget / SLO Gate — exhaustion blocking, throttling"]
         DegradationEval["Degradation Policy — evaluate_v1_for_tool"]
         ContextGate["Context Gate — pre: bounce/intent/graph/knowledge; post: ledger, overlays, eviction, elicitation"]
-        HybridDispatch["Hybrid Dispatch — Context Server (67 tools)"]
+        HybridDispatch["Hybrid Dispatch — Context Server (68 tools)"]
         ToolRegistry["ToolRegistry — 61 trait-based tools (McpTool), 7 legacy"]
         DispatchRegistry["Registry dispatch — dispatch/mod.rs (majority of tools)"]
         PostPipeline["Post-Pipeline — Context IR, tokens, archive, density, translation, verify, enrich, auto-response, evidence, sandbox routing"]
@@ -220,7 +220,7 @@ flowchart TB
     DegradationEval --> ContextGate
     ContextGate --> HybridDispatch
 
-    HybridDispatch -->|"registry (67 tools)"| ToolRegistry
+    HybridDispatch -->|"registry (68 tools)"| ToolRegistry
     HybridDispatch -->|"legacy (6 tools)"| DispatchRegistry
 
     ToolRegistry --> PostPipeline
@@ -597,7 +597,7 @@ flowchart LR
 | `server/mod.rs` | `LeanCtxServer` — MCP server state, `call_tool` pipeline (dispatch + post-processing + Context IR recording) |
 | `server/tool_trait.rs` | `McpTool` trait, `ToolOutput`, `ToolContext` — interface for self-contained tools |
 | `server/registry.rs` | `ToolRegistry` — HashMap-based tool lookup, `build_registry()` registers 62 trait-based tools |
-| `server/dispatch/mod.rs` | Hybrid dispatch — `dispatch_inner` checks ToolRegistry first (67 tools), falls back to legacy match (6 tools) |
+| `server/dispatch/mod.rs` | Hybrid dispatch — `dispatch_inner` checks ToolRegistry first (68 tools), falls back to legacy match (6 tools) |
 | `server/context_gate.rs` | Context Gate — post-dispatch for ctx_read: ledger recording, eviction/elicitation hints, pressure tracking |
 | `server/resources.rs` | MCP Resources — 5 URI-addressable subscribe-capable resources (`lean-ctx://context/*`) |
 | `server/prompts.rs` | MCP Prompts — 5 slash commands for context manipulation |
@@ -1068,7 +1068,7 @@ The frontend (`cockpit-context.js`) renders these as a unified control panel wit
 
 10. **Contract-first governance** — 19 versioned contracts with CI drift gates ensure documentation, configuration, and runtime stay synchronized.
 
-11. **Hybrid dispatch architecture** — 67 tools are migrated to a trait-based `McpTool` registry (`tools/registered/`), co-locating schema definitions with handlers to eliminate schema-drift. 6 tools requiring mutable async state (cache.write, session.write) remain in the legacy match-cascade in `server/dispatch/mod.rs`. The `dispatch_inner` function checks the `ToolRegistry` first and falls back to legacy dispatch. Post-dispatch processing (Context IR recording, terse compression, verification, enrichment) is handled inline in `server/mod.rs`. CI drift-gate tests (`tool_registry_complete.rs`) prevent duplicate dispatch and ensure schema consistency.
+11. **Hybrid dispatch architecture** — 68 tools are migrated to a trait-based `McpTool` registry (`tools/registered/`), co-locating schema definitions with handlers to eliminate schema-drift. 6 tools requiring mutable async state (cache.write, session.write) remain in the legacy match-cascade in `server/dispatch/mod.rs`. The `dispatch_inner` function checks the `ToolRegistry` first and falls back to legacy dispatch. Post-dispatch processing (Context IR recording, terse compression, verification, enrichment) is handled inline in `server/mod.rs`. CI drift-gate tests (`tool_registry_complete.rs`) prevent duplicate dispatch and ensure schema consistency.
 
 12. **Daemon mode** — `lean-ctx serve --daemon` starts a background process with Unix Domain Socket for zero-overhead CLI-to-server IPC. PID file at `~/.local/share/lean-ctx/daemon.pid`, socket at `daemon.sock`.
 

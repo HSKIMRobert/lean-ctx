@@ -90,12 +90,14 @@ worth being explicit about what `lean-ctx setup` actually configures:
 
 - **VS Code** — `setup` writes the **native, user-global** MCP config at
   `…/Code/User/mcp.json` (VS Code 1.102+ reads this directly; this is the path
-  `doctor integrations` verifies). The repo also ships two **optional** editor
-  extensions — `packages/vscode-lean-ctx` (a `.vsix` UI panel) and
-  `vscode-extension` (a thin CLI launcher). They are convenience layers on top
-  of the same daemon; you do **not** need them for the MCP server to work, and
-  `setup` does not install them. Install a `.vsix` manually only if you want the
-  in-editor panel.
+  `doctor integrations` verifies). The repo also ships an **optional** editor
+  extension (`vscode-extension`) — a convenience UI panel (live savings,
+  repo-map, semantic search, one-click MCP wiring) on top of the same daemon.
+  You do **not** need it for the MCP server to work, and `setup` does not
+  install it. Get it from the
+  [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=yvgude.lean-ctx)
+  or [Open VSX](https://open-vsx.org/extension/yvgude/lean-ctx) (Cursor,
+  VSCodium, Windsurf) if you want the in-editor panel.
 - **JetBrains** — there is **no auto-wiring**. `setup` writes a ready-to-paste
   snippet to `~/.jb-mcp.json` and prints a one-line manual step. You must open
   *Settings → Tools → AI Assistant → Model Context Protocol (MCP)* once and

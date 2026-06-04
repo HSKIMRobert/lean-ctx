@@ -4,7 +4,7 @@
 
 Source of truth: `rust/src/server/registry.rs` and the tool definitions it registers.
 
-lean-ctx registers **67 MCP tools** (granular profile). Each entry below lists the tool name, what it does, and its parameters (`*` marks required).
+lean-ctx registers **68 MCP tools** (granular profile). Each entry below lists the tool name, what it does, and its parameters (`*` marks required).
 
 ## `ctx_agent`
 
@@ -415,4 +415,10 @@ Parameters: `action`, `format`
 Workflow rails (state machine + evidence). Actions: start|status|transition|complete|evidence_add|evidence_list|stop.
 
 Parameters: `action`, `key`, `name`, `spec`, `to`, `value`
+
+## `shell`
+
+Execute a shell command. Returns token-optimized compressed output (95+ patterns for git, npm, cargo, docker, tsc, etc). Equivalent to running the command in a terminal but with automatic output compression for efficiency.
+
+Parameters: `command`*, `cwd`
 
