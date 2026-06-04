@@ -56,13 +56,15 @@ export class McpBridge {
   private registeredTools: string[] = [];
   private connected = false;
   private binary: string;
+  private extraEnv: Record<string, string>;
   private reconnectAttempts = 0;
   private lastError: string | undefined;
   private lastHungTool: string | undefined;
   private lastRetry: McpBridgeRetryState | undefined;
 
-  constructor(binary: string) {
+  constructor(binary: string, extraEnv: Record<string, string> = {}) {
     this.binary = binary;
+    this.extraEnv = extraEnv;
   }
 
   async start(pi: ExtensionAPI): Promise<void> {
@@ -80,7 +82,8 @@ export class McpBridge {
     this.transport = new StdioClientTransport({
       command: this.binary,
       args: [],
-      env: { ...process.env, LEAN_CTX_COMPRESS: "1" },
+      // config.json `env` (lowest) < process env < the forced compress flag.
+      env: { ...this.extraEnv, ...process.env, LEAN_CTX_COMPRESS: "1" },
       stderr: "pipe",
     });
 

@@ -97,6 +97,39 @@ This spawns lean-ctx as an embedded MCP server and registers additional tools:
 | `LEAN_CTX_PI_MCP_TOOLS` | (all) | Comma-separated list of MCP tools to register |
 | `LEAN_CTX_EMBEDDING_MODEL` | `minilm` | Embedding model: `minilm`, `jina-code`, `nomic` |
 
+### Config file (`config.json`)
+
+If you only use lean-ctx through Pi, you can keep every setting in one file
+instead of juggling env vars and `~/.lean-ctx/config.toml`. Create:
+
+```
+~/.pi/agent/extensions/pi-lean-ctx/config.json
+```
+
+```json
+{
+  "mode": "replace",
+  "enableMcp": true,
+  "binary": "/opt/lean-ctx/bin/lean-ctx",
+  "env": {
+    "LEAN_CTX_COMPRESSION": "aggressive"
+  }
+}
+```
+
+| Key | Equivalent to | Notes |
+|-----|---------------|-------|
+| `mode` | `LEAN_CTX_PI_MODE` | `additive` (default) or `replace` |
+| `enableMcp` | `LEAN_CTX_PI_ENABLE_MCP` | Start the embedded MCP bridge |
+| `binary` | `LEAN_CTX_BIN` | Absolute path to the `lean-ctx` binary |
+| `env` | — | Extra env forwarded to every `lean-ctx` subprocess; use it to override `~/.lean-ctx/config.toml` engine settings (the engine honours `LEAN_CTX_*` vars) |
+
+**Precedence (most explicit wins):** an explicit `LEAN_CTX_PI_*` / `LEAN_CTX_BIN`
+environment variable overrides `config.json`, which overrides the built-in
+default. This keeps a shared, file-only config working with no env vars while
+still allowing ad-hoc env overrides on a single machine. Run `/lean-ctx` inside
+Pi to see which config file (if any) was loaded.
+
 ### AGENTS.md
 
 lean-ctx auto-generates an `AGENTS.md` file in your project root with Pi-optimized instructions:

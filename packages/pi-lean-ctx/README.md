@@ -16,6 +16,25 @@ To switch to **replace mode** (disables Pi builtins, only `ctx_*` tools availabl
 export LEAN_CTX_PI_MODE=replace
 ```
 
+## Config file
+
+If you only use lean-ctx through Pi, keep every setting in one file instead of
+env vars — `~/.pi/agent/extensions/pi-lean-ctx/config.json`:
+
+```json
+{
+  "mode": "replace",
+  "enableMcp": true,
+  "binary": "/opt/lean-ctx/bin/lean-ctx",
+  "env": { "LEAN_CTX_COMPRESSION": "aggressive" }
+}
+```
+
+`mode` → `LEAN_CTX_PI_MODE`, `enableMcp` → `LEAN_CTX_PI_ENABLE_MCP`,
+`binary` → `LEAN_CTX_BIN`. The `env` map is forwarded to every `lean-ctx`
+subprocess, so it can override `~/.lean-ctx/config.toml` engine settings.
+Explicit env vars still win over the file; the file wins over defaults.
+
 ## What it does
 
 ### ctx_ Tools (CLI-backed)
@@ -146,10 +165,11 @@ When pi-mcp-adapter manages the lean-ctx MCP server, pi-lean-ctx detects this an
 The extension locates the `lean-ctx` binary in this order:
 
 1. `LEAN_CTX_BIN` environment variable
-2. `~/.cargo/bin/lean-ctx`
-3. `~/.local/bin/lean-ctx` (Linux) or `%APPDATA%\Local\lean-ctx\lean-ctx.exe` (Windows)
-4. `/usr/local/bin/lean-ctx` (macOS/Linux)
-5. `lean-ctx` on PATH
+2. `binary` in `~/.pi/agent/extensions/pi-lean-ctx/config.json`
+3. `~/.cargo/bin/lean-ctx`
+4. `~/.local/bin/lean-ctx` (Linux) or `%APPDATA%\Local\lean-ctx\lean-ctx.exe` (Windows)
+5. `/usr/local/bin/lean-ctx` (macOS/Linux)
+6. `lean-ctx` on PATH
 
 ## Smart Read Modes
 
