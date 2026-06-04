@@ -188,6 +188,16 @@ fn analyze_anthropic(body: &Value) -> RequestBreakdown {
 }
 
 fn analyze_openai(body: &Value) -> RequestBreakdown {
+    // The Responses API (`/v1/responses`) carries its turns in `input` instead
+    // of `messages` and its system prompt in `instructions`. Detect that shape
+    // and analyze it separately so introspection stays accurate for opencode and
+    // the OpenAI Agents SDK rather than reporting an empty breakdown.
+    if body.get("messages").is_none()
+        && (body.get("input").is_some() || body.get("instructions").is_some())
+    {
+        return analyze_openai_responses(body);
+    }
+
     let raw_model = body
         .get("model")
         .and_then(|m| m.as_str())
@@ -235,6 +245,137 @@ fn analyze_openai(body: &Value) -> RequestBreakdown {
                 }
             }
         }
+    }
+
+    let tool_definition_tokens = body
+        .get("tools")
+        .and_then(|t| t.as_array())
+        .map_or(0, |arr| json_chars(arr) / 4);
+
+    let tool_definition_count = body
+        .get("tools")
+        .and_then(|t| t.as_array())
+        .map_or(0, Vec::len);
+
+    let conversation_tokens = user_message_tokens + assistant_message_tokens;
+
+    let total_input_tokens = system_prompt_tokens
+        + rules_tokens
+        + skills_tokens
+        + mcp_config_tokens
+        + user_message_tokens
+        + assistant_message_tokens
+        + tool_definition_tokens
+        + tool_result_tokens
+        + subagent_tokens
+        + summarized_conversation_tokens;
+
+    RequestBreakdown {
+        provider: Provider::OpenAi,
+        model,
+        system_prompt_tokens,
+        user_message_tokens,
+        assistant_message_tokens,
+        tool_definition_tokens,
+        tool_definition_count,
+        tool_result_tokens,
+        image_count,
+        total_input_tokens,
+        message_count,
+        rules_tokens,
+        skills_tokens,
+        mcp_config_tokens,
+        subagent_tokens,
+        summarized_conversation_tokens,
+        conversation_tokens,
+    }
+}
+
+/// Analyze an OpenAI **Responses API** request (`/v1/responses`).
+///
+/// Shape differs from Chat Completions: the system prompt lives in
+/// `instructions`, and conversation turns live in `input` — either a bare string
+/// (single user turn) or an array of typed items (`message`, `function_call`,
+/// `function_call_output`, `reasoning`, …). We map those onto the same
+/// [`RequestBreakdown`] buckets the other providers use.
+fn analyze_openai_responses(body: &Value) -> RequestBreakdown {
+    let raw_model = body
+        .get("model")
+        .and_then(|m| m.as_str())
+        .unwrap_or("unknown");
+    let model = normalize_model(raw_model, Provider::OpenAi);
+
+    let mut system_prompt_tokens = 0;
+    let mut rules_tokens = 0;
+    let mut skills_tokens = 0;
+    let mut mcp_config_tokens = 0;
+    let mut user_message_tokens = 0;
+    let mut assistant_message_tokens = 0;
+    let mut tool_result_tokens = 0;
+    let mut image_count = 0;
+    let mut message_count = 0;
+    let mut subagent_tokens = 0;
+    let mut summarized_conversation_tokens = 0;
+
+    if let Some(instructions) = body.get("instructions").and_then(|i| i.as_str()) {
+        let sp = classify_system_prompt(instructions);
+        system_prompt_tokens += sp.base;
+        rules_tokens += sp.rules;
+        skills_tokens += sp.skills;
+        mcp_config_tokens += sp.mcp;
+    }
+
+    match body.get("input") {
+        Some(Value::String(s)) => {
+            message_count = 1;
+            user_message_tokens += chars_to_tokens(s.len());
+        }
+        Some(Value::Array(items)) => {
+            message_count = items.len();
+            for item in items {
+                // Items default to "message" when no explicit `type` is present.
+                let item_type = item
+                    .get("type")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("message");
+                match item_type {
+                    "function_call_output" => {
+                        tool_result_tokens += estimate_content_tokens(item.get("output"));
+                    }
+                    "function_call" | "custom_tool_call" | "reasoning" => {
+                        // The model's own tool invocations / reasoning.
+                        assistant_message_tokens += json_chars(std::slice::from_ref(item)) / 4;
+                    }
+                    _ => {
+                        let role = item.get("role").and_then(|r| r.as_str()).unwrap_or("user");
+                        let content = item.get("content");
+                        let content_tokens = estimate_content_tokens(content);
+                        image_count += count_images(content);
+                        match role {
+                            "system" | "developer" => {
+                                let text = extract_text_content(content);
+                                let sp = classify_system_prompt(&text);
+                                system_prompt_tokens += sp.base;
+                                rules_tokens += sp.rules;
+                                skills_tokens += sp.skills;
+                                mcp_config_tokens += sp.mcp;
+                            }
+                            "assistant" => assistant_message_tokens += content_tokens,
+                            _ => {
+                                if is_summary_message(content) {
+                                    summarized_conversation_tokens += content_tokens;
+                                } else if is_subagent_message(content) {
+                                    subagent_tokens += content_tokens;
+                                } else {
+                                    user_message_tokens += content_tokens;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        _ => {}
     }
 
     let tool_definition_tokens = body
@@ -417,8 +558,11 @@ fn count_images(content: Option<&Value>) -> usize {
         Some(Value::Array(arr)) => arr
             .iter()
             .filter(|block| {
-                block.get("type").and_then(|t| t.as_str()) == Some("image")
-                    || block.get("type").and_then(|t| t.as_str()) == Some("image_url")
+                matches!(
+                    block.get("type").and_then(|t| t.as_str()),
+                    // "image"/"image_url": Chat Completions; "input_image": Responses API.
+                    Some("image" | "image_url" | "input_image")
+                )
             })
             .count(),
         _ => 0,
@@ -670,6 +814,46 @@ mod tests {
         assert!(b.user_message_tokens > 0);
         assert!(b.tool_result_tokens > 0);
         assert_eq!(b.message_count, 3);
+    }
+
+    #[test]
+    fn openai_responses_api_shape() {
+        // `/v1/responses`: system prompt in `instructions`, turns in `input`.
+        let body = serde_json::json!({
+            "model": "gpt-5",
+            "instructions": "You are a careful coding assistant.",
+            "input": [
+                {"type": "message", "role": "user", "content": [
+                    {"type": "input_text", "text": "List the files"},
+                    {"type": "input_image", "image_url": "data:image/png;base64,AAAA"}
+                ]},
+                {"type": "function_call", "call_id": "c1", "name": "ls", "arguments": "{}"},
+                {"type": "function_call_output", "call_id": "c1", "output": "a.rs\nb.rs\nc.rs"}
+            ],
+            "tools": [{"type": "function", "name": "ls", "parameters": {}}]
+        });
+        let b = analyze_request(&body, Provider::OpenAi);
+        assert_eq!(b.provider, Provider::OpenAi);
+        assert!(b.system_prompt_tokens > 0, "instructions → system prompt");
+        assert!(b.user_message_tokens > 0, "user input_text counted");
+        assert!(b.assistant_message_tokens > 0, "function_call → assistant");
+        assert!(
+            b.tool_result_tokens > 0,
+            "function_call_output → tool result"
+        );
+        assert_eq!(b.tool_definition_count, 1);
+        assert!(b.tool_definition_tokens > 0);
+        assert_eq!(b.image_count, 1, "input_image counted");
+        assert_eq!(b.message_count, 3);
+    }
+
+    #[test]
+    fn openai_responses_string_input() {
+        let body = serde_json::json!({"model": "gpt-5", "input": "just a question"});
+        let b = analyze_request(&body, Provider::OpenAi);
+        assert_eq!(b.provider, Provider::OpenAi);
+        assert!(b.user_message_tokens > 0);
+        assert_eq!(b.message_count, 1);
     }
 
     #[test]

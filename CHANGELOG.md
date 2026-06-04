@@ -5,6 +5,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- **OpenAI Responses API support in the proxy** (#346, thanks [@Lctrs](https://github.com/Lctrs)): clients that moved to OpenAI's new Responses API (`POST /v1/responses`) — opencode, the OpenAI Agents SDK — were forwarded untouched because the proxy only understood Chat Completions (`messages`). The proxy now compresses the Responses-API shape too: each `function_call_output.output` (the Responses analogue of a role:`"tool"` message — a string, or an `input_text` content array) is run through the same pattern pipeline as every other tool result. The conversation `input` array is intentionally left structurally intact (no history pruning) so a `function_call` can never be separated from its matching `function_call_output` and trigger a 400. Retrieve/cancel/delete sub-paths (`/v1/responses/{id}/…`) pass through cleanly, and `/status` introspection now reports an accurate token breakdown for Responses requests (`instructions` → system prompt; `input` items → user/assistant/tool buckets; `input_image` counted). Chat Completions remains fully supported.
+
 ## [3.7.2] — 2026-06-04
 
 > **Compression where the agent actually is — and fidelity where it matters.** A
