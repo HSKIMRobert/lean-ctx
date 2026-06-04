@@ -1,11 +1,15 @@
+pub mod achievements;
+mod ascension;
+pub mod evolution;
 mod format;
+mod mascot_art;
 mod rpg;
 mod sprite;
 mod types;
 
+pub use evolution::EvolutionStage;
 pub use format::{format_buddy_block, format_buddy_block_at, format_buddy_full};
-pub use sprite::render_sprite;
-pub use types::{BuddyState, BuddyStats, CreatureTraits, Mood, Rarity, Species};
+pub use types::{BuddyState, Mood, Rarity, Species};
 
 #[cfg(test)]
 mod tests {
@@ -87,60 +91,6 @@ mod tests {
         assert_eq!(rpg::format_compact(1_500), "1.5K");
         assert_eq!(rpg::format_compact(2_500_000), "2.5M");
         assert_eq!(rpg::format_compact(3_000_000_000), "3.0B");
-    }
-
-    #[test]
-    fn procedural_sprite_returns_7_lines() {
-        for seed in [0u64, 1, 42, 999, 12345, 69_119_999, u64::MAX] {
-            let traits = CreatureTraits::from_seed(seed);
-            for mood in &[
-                Mood::Ecstatic,
-                Mood::Happy,
-                Mood::Content,
-                Mood::Worried,
-                Mood::Sleeping,
-            ] {
-                let sp = render_sprite(&traits, mood);
-                assert_eq!(sp.len(), 7, "sprite for seed={seed}, mood={mood:?}");
-            }
-        }
-    }
-
-    #[test]
-    fn creature_traits_are_deterministic() {
-        let t1 = CreatureTraits::from_seed(42);
-        let t2 = CreatureTraits::from_seed(42);
-        assert_eq!(t1.head, t2.head);
-        assert_eq!(t1.eyes, t2.eyes);
-        assert_eq!(t1.mouth, t2.mouth);
-        assert_eq!(t1.ears, t2.ears);
-        assert_eq!(t1.body, t2.body);
-        assert_eq!(t1.legs, t2.legs);
-        assert_eq!(t1.tail, t2.tail);
-        assert_eq!(t1.markings, t2.markings);
-    }
-
-    #[test]
-    fn different_seeds_produce_different_traits() {
-        let t1 = CreatureTraits::from_seed(1);
-        let t2 = CreatureTraits::from_seed(9999);
-        let same = t1.head == t2.head
-            && t1.eyes == t2.eyes
-            && t1.mouth == t2.mouth
-            && t1.ears == t2.ears
-            && t1.body == t2.body
-            && t1.legs == t2.legs
-            && t1.tail == t2.tail
-            && t1.markings == t2.markings;
-        assert!(
-            !same,
-            "seeds 1 and 9999 should differ in at least one trait"
-        );
-    }
-
-    #[test]
-    fn total_combinations_is_69m() {
-        assert_eq!(12u64 * 10 * 10 * 12 * 10 * 10 * 8 * 6, 69_120_000);
     }
 
     #[test]

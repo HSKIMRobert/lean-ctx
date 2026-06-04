@@ -27,6 +27,49 @@ impl Species {
         }
     }
 
+    /// The element/type skin for the one mascot. A user's dominant language maps
+    /// to an element that tints the sprite and titles the creature — the body
+    /// silhouette is always the same iconic Pixel Sprite.
+    pub fn element_name(&self) -> &'static str {
+        match self {
+            Self::Egg => "Null",
+            Self::Crab => "Ember",
+            Self::Snake => "Venom",
+            Self::Owl => "Spark",
+            Self::Gopher => "Tide",
+            Self::Whale => "Aqua",
+            Self::Fox => "Flux",
+            Self::Dragon => "Prism",
+        }
+    }
+
+    /// Intrinsic element colour as a raw 256-colour ANSI foreground escape.
+    /// Distinct from the UI theme: fire is always orange, poison always green.
+    pub fn element_color(&self) -> &'static str {
+        match self {
+            Self::Egg => "\x1b[38;5;245m",
+            Self::Crab => "\x1b[38;5;208m",
+            Self::Snake => "\x1b[38;5;70m",
+            Self::Owl => "\x1b[38;5;220m",
+            Self::Gopher => "\x1b[38;5;44m",
+            Self::Whale => "\x1b[38;5;39m",
+            Self::Fox => "\x1b[38;5;170m",
+            Self::Dragon => "\x1b[38;5;213m",
+        }
+    }
+
+    /// A single width-1 rune used as the element badge in the nameplate.
+    pub fn element_glyph(&self) -> &'static str {
+        match self {
+            Self::Egg => "○",
+            Self::Crab => "▲",
+            Self::Owl => "✦",
+            Self::Gopher | Self::Whale => "≈",
+            Self::Fox => "◆",
+            Self::Snake | Self::Dragon => "❖",
+        }
+    }
+
     pub fn from_commands(commands: &HashMap<String, super::super::stats::CommandStats>) -> Self {
         let mut scores: HashMap<&str, u64> = HashMap::new();
 
@@ -172,42 +215,6 @@ impl Mood {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BuddyStats {
-    pub compression: u8,
-    pub vigilance: u8,
-    pub endurance: u8,
-    pub wisdom: u8,
-    pub experience: u8,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreatureTraits {
-    pub head: u8,
-    pub eyes: u8,
-    pub mouth: u8,
-    pub ears: u8,
-    pub body: u8,
-    pub legs: u8,
-    pub tail: u8,
-    pub markings: u8,
-}
-
-impl CreatureTraits {
-    pub fn from_seed(seed: u64) -> Self {
-        Self {
-            head: (seed % 12) as u8,
-            eyes: ((seed / 12) % 10) as u8,
-            mouth: ((seed / 120) % 10) as u8,
-            ears: ((seed / 1_200) % 12) as u8,
-            body: ((seed / 14_400) % 10) as u8,
-            legs: ((seed / 144_000) % 10) as u8,
-            tail: ((seed / 1_440_000) % 8) as u8,
-            markings: ((seed / 11_520_000) % 6) as u8,
-        }
-    }
-}
-
 pub(super) fn user_seed() -> u64 {
     dirs::home_dir().map_or(42, |p| {
         use std::collections::hash_map::DefaultHasher;
@@ -227,9 +234,14 @@ pub struct BuddyState {
     pub xp: u64,
     pub xp_next_level: u64,
     pub mood: Mood,
-    pub stats: BuddyStats,
     pub speech: String,
     pub tokens_saved: u64,
+    /// Lifetime compression rate (0..100), the headline lean-ctx efficiency stat.
+    #[serde(default)]
+    pub compression_pct: u8,
+    /// Cache hit rate (0..100) across MCP reads.
+    #[serde(default)]
+    pub cache_hit_rate: u8,
     pub bugs_prevented: u64,
     pub streak_days: u32,
     pub ascii_art: Vec<String>,
@@ -237,10 +249,33 @@ pub struct BuddyState {
     pub ascii_frames: Vec<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub anim_ms: Option<u32>,
-    pub traits: CreatureTraits,
+    #[serde(default)]
+    pub evolution: super::evolution::EvolutionStage,
+    /// Infinite post-Mythic prestige tier. `0` until the buddy starts ascending.
+    #[serde(default)]
+    pub prestige: u32,
+    /// Human-facing form/rank title (never a dead-end). Follows the endless
+    /// ladder: Egg → Baby → Teen → Adult → Mythic → Ascended → Stellar → … →
+    /// (cosmic ranks, then roman-numeral laps). Used verbatim by the web card.
+    #[serde(default)]
+    pub form: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub achievement_badges: Vec<String>,
 }
 
 impl BuddyState {
+    /// The current form/rank title on the endless progression ladder. Before the
+    /// buddy ascends this is its evolution stage; afterwards it is the unbounded
+    /// cosmic ascension rank, so it is *never* a confusing low-stage word at a
+    /// high level.
+    pub fn form_title(&self) -> String {
+        if self.prestige > 0 {
+            super::ascension::title(self.prestige)
+        } else {
+            self.evolution.label().to_string()
+        }
+    }
+
     pub fn compute() -> Self {
         let store = super::super::stats::load();
         let tokens_saved = store
@@ -261,12 +296,19 @@ impl BuddyState {
         let rarity = Rarity::from_tokens_saved(tokens_saved);
 
         let xp = tokens_saved / 1000 + store.total_commands * 5 + bugs_prevented * 100;
-        let level = ((xp as f64 / 50.0).sqrt().floor() as u32).min(99);
-        let xp_next_level = ((level + 1) as u64) * ((level + 1) as u64) * 50;
+        // Level is intentionally *uncapped*: the companion keeps levelling forever
+        // (square-root curve, so each level costs progressively more XP).
+        let level = (xp as f64 / 50.0).sqrt().floor() as u32;
+        let xp_next_level = (u64::from(level) + 1) * (u64::from(level) + 1) * 50;
 
         let streak_days = super::rpg::compute_streak(&store.daily);
         let compression_rate = if store.total_input_tokens > 0 {
             (tokens_saved as f64 / store.total_input_tokens as f64 * 100.0) as u8
+        } else {
+            0
+        };
+        let cache_hit_rate = if store.cep.total_cache_reads > 0 {
+            (store.cep.total_cache_hits as f64 / store.cep.total_cache_reads as f64 * 100.0) as u8
         } else {
             0
         };
@@ -279,39 +321,66 @@ impl BuddyState {
             &store,
         );
 
-        let rpg_stats = super::rpg::compute_rpg_stats(
-            compression_rate,
-            bugs_prevented,
-            errors_detected,
-            streak_days,
-            store.commands.len(),
-            store.total_commands,
-        );
-
         let seed = user_seed();
-        let traits = CreatureTraits::from_seed(seed);
         let name = super::rpg::generate_name(seed);
-        let sprite = super::sprite::render_sprite_pack(&traits, &mood, level);
-        let ascii_art = sprite.base.clone();
         let speech = super::rpg::generate_speech(&mood, tokens_saved, bugs_prevented, streak_days);
 
-        Self {
+        // Buddy evolution: incorporate gain score level into the buddy's display level.
+        // The buddy's visible level is the max of XP-based level and gain score level,
+        // creating a natural milestone-driven evolution.
+        let gain_engine = crate::core::gain::GainEngine::load();
+        let gain_score = gain_engine.gain_score(None);
+        let gain_level_boost = gain_score.level().level as u32;
+        let effective_level = level.max(gain_level_boost * 10);
+
+        let evolution = super::evolution::EvolutionStage::from_level(effective_level);
+        let prestige = super::ascension::tier(xp);
+
+        let ascii_art = super::mascot_art::sprite_for(&evolution, &mood);
+        let ascii_frames = super::mascot_art::frames_for(&evolution, &mood);
+        let anim_ms = Some(super::mascot_art::anim_ms_for(&evolution));
+
+        let mode_count = store
+            .commands
+            .keys()
+            .filter(|k| k.starts_with("cli_") || k.starts_with("ctx_"))
+            .count();
+
+        let achievements = super::achievements::check_unlocked(
+            tokens_saved,
+            streak_days,
+            bugs_prevented,
+            compression_rate,
+            effective_level,
+            &species,
+            mode_count,
+            &evolution,
+        );
+        let achievement_badges: Vec<String> = achievements.iter().map(|a| a.badge()).collect();
+
+        let mut state = Self {
             name,
             species,
             rarity,
-            level,
+            level: effective_level,
             xp,
             xp_next_level,
             mood,
-            stats: rpg_stats,
             speech,
             tokens_saved,
+            compression_pct: compression_rate,
+            cache_hit_rate,
             bugs_prevented,
             streak_days,
             ascii_art,
-            ascii_frames: sprite.frames,
-            anim_ms: sprite.anim_ms,
-            traits,
-        }
+            ascii_frames,
+            anim_ms,
+            evolution,
+            prestige,
+            form: String::new(),
+            achievement_badges,
+        };
+        state.form = state.form_title();
+        state
     }
 }

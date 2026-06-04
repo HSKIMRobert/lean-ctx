@@ -1,4 +1,4 @@
-use super::types::{BuddyStats, Mood};
+use super::types::Mood;
 
 pub(super) fn compute_mood(
     compression: u8,
@@ -34,41 +34,6 @@ pub(super) fn compute_mood(
         Mood::Worried
     } else {
         Mood::Content
-    }
-}
-
-pub(super) fn compute_rpg_stats(
-    compression: u8,
-    prevented: u64,
-    errors: u64,
-    streak: u32,
-    unique_cmds: usize,
-    total_cmds: u64,
-) -> BuddyStats {
-    let compression_stat = compression.min(100);
-
-    let vigilance = if errors > 0 {
-        ((prevented as f64 / errors as f64) * 80.0).min(100.0) as u8
-    } else if prevented > 0 {
-        100
-    } else {
-        20
-    };
-
-    let endurance = (streak * 5).min(100) as u8;
-    let wisdom = (unique_cmds as u8).min(100);
-    let experience = if total_cmds > 0 {
-        ((total_cmds as f64).log10() * 25.0).min(100.0) as u8
-    } else {
-        0
-    };
-
-    BuddyStats {
-        compression: compression_stat,
-        vigilance,
-        endurance,
-        wisdom,
-        experience,
     }
 }
 
@@ -121,27 +86,67 @@ pub(super) fn generate_speech(
     bugs_prevented: u64,
     streak: u32,
 ) -> String {
+    let today_saved = today_tokens_saved();
     match mood {
         Mood::Ecstatic => {
-            if bugs_prevented > 0 {
-                format!("{bugs_prevented} bugs prevented! We're unstoppable!")
+            if streak >= 30 {
+                format!("{streak}-day streak! You're a legend!")
+            } else if bugs_prevented > 10 {
+                format!("{bugs_prevented} bugs squashed! Nothing gets past us!")
+            } else if today_saved > 1_000_000 {
+                format!(
+                    "{} saved just today! Incredible!",
+                    format_compact(today_saved)
+                )
             } else {
-                format!("{} tokens saved! On fire!", format_compact(tokens_saved))
+                format!(
+                    "{} total tokens saved! On fire!",
+                    format_compact(tokens_saved)
+                )
             }
         }
         Mood::Happy => {
-            if streak >= 3 {
-                format!("{streak}-day streak! Keep going!")
+            if streak >= 7 {
+                format!("{streak}-day streak! We're in the zone!")
+            } else if today_saved > 100_000 {
+                format!(
+                    "{} saved today — great session!",
+                    format_compact(today_saved)
+                )
             } else if bugs_prevented > 0 {
                 format!("Caught {bugs_prevented} bugs before they happened!")
             } else {
                 format!("{} tokens saved so far!", format_compact(tokens_saved))
             }
         }
-        Mood::Content => "Watching your code... all good.".to_string(),
-        Mood::Worried => "I see some errors. Let's fix them!".to_string(),
+        Mood::Content => {
+            if today_saved > 0 {
+                format!(
+                    "{} saved today. Steady progress.",
+                    format_compact(today_saved)
+                )
+            } else {
+                "Watching your code... all good.".to_string()
+            }
+        }
+        Mood::Worried => {
+            if streak == 0 {
+                "Haven't seen you in a while. Let's code!".to_string()
+            } else {
+                "I see some errors. Let's fix them together!".to_string()
+            }
+        }
         Mood::Sleeping => "Zzz... wake me with some code!".to_string(),
     }
+}
+
+fn today_tokens_saved() -> u64 {
+    let store = super::super::stats::load();
+    store
+        .daily
+        .last()
+        .filter(|d| d.date == chrono::Local::now().format("%Y-%m-%d").to_string())
+        .map_or(0, |d| d.input_tokens.saturating_sub(d.output_tokens))
 }
 
 pub(super) fn format_compact(n: u64) -> String {
