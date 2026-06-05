@@ -356,6 +356,83 @@ pub(crate) fn maybe_auto_publish(period: &str) {
     }
 }
 
+/// Background-safe auto-publish for long-running hosts (the MCP server).
+///
+/// Unlike [`maybe_auto_publish`], this is what makes auto-publish truly *automatic*:
+/// it runs on MCP-server startup instead of requiring an interactive `lean-ctx gain`.
+/// Two properties make that safe:
+///   * **Silent** — it never writes to stdout (the MCP server owns stdout for the
+///     JSON-RPC protocol; a stray `println!` would corrupt the stream). All output
+///     goes through `tracing`.
+///   * **Non-blocking** — the cheap gating (opt-in flag + 24h throttle) runs inline
+///     so a thread is only spawned when a publish is actually due, and the network
+///     call itself happens on a detached thread that never blocks startup.
+///
+/// Because publishes are signed, the server upserts one card per (machine, period),
+/// so even if two sessions start at once the worst case is one idempotent re-publish.
+pub(crate) fn maybe_auto_publish_background() {
+    let cfg = crate::core::config::Config::load();
+    let g = &cfg.gain;
+    if !g.auto_publish {
+        return;
+    }
+    if !auto_publish_due(
+        g.last_auto_publish.as_deref(),
+        g.auto_publish_interval_hours,
+    ) {
+        return;
+    }
+    std::thread::spawn(|| publish_in_background("all"));
+}
+
+/// The detached publish worker for [`maybe_auto_publish_background`]. Re-checks the
+/// throttle right before the network call (cheap defence against a startup race) and
+/// records the timestamp on success. Period is fixed to `all` to match the public
+/// leaderboard/hero, which aggregate the all-time per-publisher card.
+fn publish_in_background(period: &str) {
+    let cfg = crate::core::config::Config::load();
+    let g = &cfg.gain;
+    if !g.auto_publish
+        || !auto_publish_due(
+            g.last_auto_publish.as_deref(),
+            g.auto_publish_interval_hours,
+        )
+    {
+        return;
+    }
+
+    let report = WrappedReport::generate(period);
+    if report.tokens_saved == 0 {
+        return;
+    }
+
+    // Never silently downgrade a leaderboard entry to a private card.
+    let stored_leaderboard = PublishedStore::load()
+        .cards
+        .iter()
+        .find(|c| c.period == period)
+        .is_some_and(|c| c.leaderboard);
+    let leaderboard = g.leaderboard || stored_leaderboard;
+
+    match publish_report(
+        &report,
+        period,
+        g.display_name.as_deref(),
+        leaderboard,
+        true,
+    ) {
+        Ok(card) => {
+            let mut cfg = cfg;
+            cfg.gain.last_auto_publish = Some(chrono::Utc::now().to_rfc3339());
+            if let Err(e) = cfg.save() {
+                tracing::warn!("Background auto-publish: could not record timestamp: {e}");
+            }
+            tracing::info!("Background auto-published recap: {}", card.url);
+        }
+        Err(e) => tracing::warn!("Background auto-publish skipped: {e}"),
+    }
+}
+
 /// Whether enough time has elapsed since the last automatic publish. A missing or
 /// unparseable timestamp counts as "due" so the first run always publishes.
 fn auto_publish_due(last: Option<&str>, interval_hours: u64) -> bool {

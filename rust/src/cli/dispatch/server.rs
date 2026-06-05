@@ -41,6 +41,11 @@ pub(super) fn run_mcp_server() -> Result<()> {
     // Auto-start proxy in background so the dashboard gets exact token data.
     spawn_proxy_if_needed();
 
+    // Throttled (24h), opt-in background publish of the savings recap so the public
+    // leaderboard/hero stay fresh without the user ever running `lean-ctx gain`.
+    // Silent + detached: must not touch stdout (MCP protocol channel) or block startup.
+    crate::cli::wrapped_publish::maybe_auto_publish_background();
+
     rt.block_on(async {
         core::logging::init_mcp_logging();
         core::protocol::set_mcp_context(true);
