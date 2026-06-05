@@ -66,3 +66,4 @@ website/generated/
 worktrees/website/generated/
 AGENTS.md.lean-ctx.*.bak
 docs/gpt/
+docs/monetization-strategy.md
