@@ -43,6 +43,13 @@ pub fn ansi_density(s: &str) -> f64 {
 
 /// Strips comments, blank lines, and normalizes indentation for maximum token savings.
 pub fn aggressive_compress(content: &str, ext: Option<&str>) -> String {
+    // Structured data (JSON/JSONL) carries no comments and barely compresses via
+    // the line-based path below (~0% measured). Strip insignificant whitespace
+    // losslessly instead — key order, numbers, and string contents are preserved.
+    if let Some(compacted) = crate::core::structured_compact::compact_structured(content, ext) {
+        return compacted;
+    }
+
     let mut result: Vec<String> = Vec::new();
     let is_python = matches!(ext, Some("py"));
     let is_html = matches!(ext, Some("html" | "htm" | "xml" | "svg"));

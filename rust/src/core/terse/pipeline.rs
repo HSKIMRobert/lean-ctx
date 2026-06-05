@@ -35,6 +35,28 @@ pub fn compress(
         return TerseResult::passthrough(input.to_string(), tokens);
     }
 
+    // Structured-data fast path: tool/command output that is a single JSON
+    // document (API responses, `gh api`, `cargo --message-format=json`, MCP
+    // bridge results) compacts losslessly far better than the token engine.
+    // lean-ctx read outputs carry a header line, so they never match here —
+    // only genuine pure-JSON payloads do, keeping file reads byte-exact.
+    if let Some(compact) = crate::core::structured_compact::compact_json(input) {
+        let before = counter::count(input);
+        let after = counter::count(&compact);
+        if after < before {
+            return TerseResult {
+                output: compact,
+                tokens_before: before,
+                tokens_after: after,
+                savings_pct: counter::savings_pct(before, after),
+                layers_applied: vec!["json-compact"],
+                pattern_savings: 0,
+                terse_savings: before.saturating_sub(after),
+                quality_passed: true,
+            };
+        }
+    }
+
     let deadline = std::time::Instant::now();
 
     let mut result = match pattern_compressed {

@@ -409,3 +409,4 @@ pub mod signatures;
 #[cfg(feature = "tree-sitter")]
 pub mod signatures_ts;
 pub mod storage_maintenance;
+pub mod structured_compact;
