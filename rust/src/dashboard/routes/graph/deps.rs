@@ -76,6 +76,25 @@ fn graph() -> (&'static str, &'static str, String) {
         })
         .collect();
 
+    // When the graph is empty, explain *why*: a project built mostly from
+    // graph-unsupported languages (e.g. Lua/Luau, #360) would otherwise leave the
+    // dashboard stuck on an unhelpful "run index build" hint that never helps.
+    let graph_support = if files.is_empty() {
+        let unsupported: Vec<serde_json::Value> =
+            crate::core::language_capabilities::scan_unsupported_source_languages(&root, 5000)
+                .into_iter()
+                .map(|(language, file_count)| {
+                    serde_json::json!({ "language": language, "files": file_count })
+                })
+                .collect();
+        Some(serde_json::json!({
+            "supported_languages": crate::core::language_capabilities::graph_supported_language_names(),
+            "unsupported_present": unsupported,
+        }))
+    } else {
+        None
+    };
+
     let val = serde_json::json!({
         "project_root": super::project_basename(&root),
         "project_root_full": root,
@@ -88,6 +107,7 @@ fn graph() -> (&'static str, &'static str, String) {
         } else {
             0.0
         },
+        "graph_support": graph_support,
     });
     let json = serde_json::to_string(&val)
         .unwrap_or_else(|_| "{\"error\":\"failed to serialize\"}".to_string());

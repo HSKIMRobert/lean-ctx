@@ -618,10 +618,14 @@ export default async function (pi: ExtensionAPI) {
 
   const enableMcpBridge = PI_CONFIG.enableMcp;
   const adapterConfigured = isMcpAdapterConfigured();
-  const mcpBridge =
-    enableMcpBridge && !adapterConfigured
-      ? new McpBridge(resolveBinary(), PI_CONFIG.forwardedEnv)
-      : null;
+  // An explicit opt-in to the embedded bridge wins over mcp.json detection (#361).
+  // A `lean-ctx` entry in ~/.pi/agent/mcp.json does NOT prove that pi-mcp-adapter
+  // is actually serving it — pi has no native MCP support, and `lean-ctx init
+  // --agent pi` writes that entry by default — so it must not silently disable the
+  // bridge a user explicitly requested via LEAN_CTX_PI_ENABLE_MCP=1 / enableMcp.
+  const mcpBridge = enableMcpBridge
+    ? new McpBridge(resolveBinary(), PI_CONFIG.forwardedEnv)
+    : null;
 
   if (mcpBridge) {
     try {
@@ -644,9 +648,7 @@ export default async function (pi: ExtensionAPI) {
         lines.push(`Config: ${PI_CONFIG.configPath}`);
       }
       lines.push(`Mode: ${PI_MODE}`);
-      if (adapterConfigured) {
-        lines.push("MCP bridge: adapter-configured (extension bridge disabled)");
-      } else if (!enableMcpBridge) {
+      if (!enableMcpBridge) {
         lines.push("MCP bridge: disabled (CLI-first)");
         lines.push('  Enable: LEAN_CTX_PI_ENABLE_MCP=1 or "enableMcp": true in config.json, then restart Pi');
       } else if (status) {
@@ -655,6 +657,11 @@ export default async function (pi: ExtensionAPI) {
         lines.push(`MCP tools: ${status.toolCount} registered`);
         if (status.toolNames.length > 0) {
           lines.push(`  ${status.toolNames.join(", ")}`);
+        }
+        if (adapterConfigured) {
+          lines.push(
+            "  Note: ~/.pi/agent/mcp.json also has a lean-ctx entry. The embedded bridge is serving tools; if you additionally run pi-mcp-adapter you may see duplicates.",
+          );
         }
         if (status.lastHungTool) {
           lines.push(`Last hung tool: ${status.lastHungTool}`);

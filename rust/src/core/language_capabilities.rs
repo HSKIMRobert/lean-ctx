@@ -128,6 +128,104 @@ pub fn is_indexable_ext(ext: &str) -> bool {
     language_for_ext(ext).is_some()
 }
 
+/// Every language the property graph / code-map can index, for capability
+/// enumeration and UI hints. Keep in sync with `language_for_ext`.
+pub const ALL_LANGUAGES: &[LanguageId] = &[
+    LanguageId::Rust,
+    LanguageId::TypeScript,
+    LanguageId::JavaScript,
+    LanguageId::Python,
+    LanguageId::Go,
+    LanguageId::Java,
+    LanguageId::C,
+    LanguageId::Cpp,
+    LanguageId::Ruby,
+    LanguageId::CSharp,
+    LanguageId::Kotlin,
+    LanguageId::Swift,
+    LanguageId::Php,
+    LanguageId::Bash,
+    LanguageId::Dart,
+    LanguageId::Scala,
+    LanguageId::Elixir,
+    LanguageId::Zig,
+    LanguageId::Vue,
+    LanguageId::Svelte,
+];
+
+/// Friendly names of every graph-indexable language (e.g. for an empty-graph hint).
+pub fn graph_supported_language_names() -> Vec<&'static str> {
+    ALL_LANGUAGES.iter().map(LanguageId::id_str).collect()
+}
+
+/// Maps a file extension to a human-readable *programming language* name that
+/// lean-ctx recognizes but does **not** graph-index. Returns `None` for
+/// graph-indexed languages and for non-code files (docs, data, config). Used
+/// only to explain an empty graph — e.g. a Lua/Luau project (#360).
+fn unsupported_source_language_name(ext: &str) -> Option<&'static str> {
+    match ext.trim().trim_start_matches('.').to_lowercase().as_str() {
+        "lua" => Some("Lua"),
+        "luau" => Some("Luau"),
+        "r" => Some("R"),
+        "jl" => Some("Julia"),
+        "nim" => Some("Nim"),
+        "cr" => Some("Crystal"),
+        "clj" | "cljs" | "cljc" => Some("Clojure"),
+        "erl" | "hrl" => Some("Erlang"),
+        "hs" => Some("Haskell"),
+        "ml" | "mli" => Some("OCaml"),
+        "fs" | "fsx" => Some("F#"),
+        "pl" | "pm" => Some("Perl"),
+        "groovy" | "gradle" => Some("Groovy"),
+        "tf" => Some("Terraform"),
+        "sol" => Some("Solidity"),
+        "f90" | "f95" | "f03" => Some("Fortran"),
+        "pas" => Some("Pascal"),
+        "d" => Some("D"),
+        "sql" => Some("SQL"),
+        "tcl" => Some("Tcl"),
+        "raku" | "rakumod" => Some("Raku"),
+        _ => None,
+    }
+}
+
+/// Bounded project scan returning programming languages present in `root` that
+/// lean-ctx does **not** graph-index, with file counts (descending, capped to 5).
+/// Honors .gitignore/hidden like the graph walker and stops after `max_entries`
+/// filesystem entries. Lets the dashboard turn a confusing empty graph into a
+/// clear "Lua is not graph-indexed" message instead of an endless loading state.
+pub fn scan_unsupported_source_languages(root: &str, max_entries: usize) -> Vec<(String, usize)> {
+    let mut counts: std::collections::HashMap<&'static str, usize> =
+        std::collections::HashMap::new();
+    let walker = ignore::WalkBuilder::new(root)
+        .hidden(true)
+        .git_ignore(true)
+        .git_global(true)
+        .git_exclude(true)
+        .max_depth(Some(20))
+        .build();
+    for entry in walker.flatten().take(max_entries) {
+        if !entry.file_type().is_some_and(|ft| ft.is_file()) {
+            continue;
+        }
+        let ext = entry
+            .path()
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
+        if let Some(name) = unsupported_source_language_name(ext) {
+            *counts.entry(name).or_default() += 1;
+        }
+    }
+    let mut ranked: Vec<(String, usize)> = counts
+        .into_iter()
+        .map(|(k, c)| (k.to_string(), c))
+        .collect();
+    ranked.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    ranked.truncate(5);
+    ranked
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,5 +253,42 @@ mod tests {
         let c2 = capabilities(LanguageId::Rust);
         assert_eq!(c1, c2);
         assert!(c1.deps_edges);
+    }
+
+    #[test]
+    fn all_languages_match_ext_table() {
+        // Every enumerated language must be reachable via at least one extension,
+        // so the UI's "supported languages" list never drifts from reality.
+        for lang in ALL_LANGUAGES {
+            let names = graph_supported_language_names();
+            assert!(names.contains(&lang.id_str()));
+        }
+        assert!(graph_supported_language_names().contains(&"rust"));
+        assert_eq!(ALL_LANGUAGES.len(), graph_supported_language_names().len());
+    }
+
+    #[test]
+    fn unsupported_source_languages_named_but_not_indexed() {
+        // Lua/Luau (issue #360) are recognized as code yet never graph-indexed.
+        assert_eq!(unsupported_source_language_name("lua"), Some("Lua"));
+        assert_eq!(unsupported_source_language_name(".luau"), Some("Luau"));
+        assert!(!is_indexable_ext("lua"));
+        assert!(!is_indexable_ext("luau"));
+        // Graph-indexed languages and plain data/docs are not reported as "unsupported code".
+        assert_eq!(unsupported_source_language_name("rs"), None);
+        assert_eq!(unsupported_source_language_name("md"), None);
+        assert_eq!(unsupported_source_language_name("json"), None);
+    }
+
+    #[test]
+    fn scan_reports_lua_project() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("init.lua"), "local x = 1").unwrap();
+        std::fs::write(dir.path().join("mod.luau"), "return {}").unwrap();
+        std::fs::write(dir.path().join("README.md"), "# docs").unwrap();
+        let found = scan_unsupported_source_languages(&dir.path().to_string_lossy(), 1000);
+        let names: Vec<&str> = found.iter().map(|(n, _)| n.as_str()).collect();
+        assert!(names.contains(&"Lua"));
+        assert!(names.contains(&"Luau"));
     }
 }

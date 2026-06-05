@@ -256,6 +256,54 @@ class CockpitGraph extends HTMLElement {
     else if (this._tab === 'symbols') this._renderSymbolsTable(content);
   }
 
+  /* ============ Empty / unsupported-language state ============ */
+
+  _emptyGraphHtml(esc) {
+    var support = this._graphData ? this._graphData.graph_support : null;
+    var unsupported = support && Array.isArray(support.unsupported_present)
+      ? support.unsupported_present
+      : [];
+
+    // Project is built from languages the code-map cannot graph yet (e.g. Lua/Luau,
+    // issue #360). Say so plainly instead of suggesting an index rebuild that never helps.
+    if (unsupported.length > 0) {
+      var names = unsupported
+        .map(function (u) {
+          var n = esc(String(u.language));
+          return u.files ? n + ' (' + esc(String(u.files)) + ' files)' : n;
+        })
+        .join(', ');
+      var supported = support && Array.isArray(support.supported_languages)
+        ? support.supported_languages.map(function (s) { return esc(String(s)); }).join(', ')
+        : '';
+      return '<div class="card" style="padding:40px;text-align:center">' +
+        '<div class="loading-state" style="margin-bottom:12px">' +
+        'No graph for this project\u2019s languages yet.</div>' +
+        '<p class="hs" style="color:var(--muted);margin-bottom:8px">' +
+        'Detected source that the dependency graph / code-map does not index: <strong>' +
+        names + '</strong>.</p>' +
+        '<p class="hs" style="color:var(--muted);margin-bottom:8px;font-size:12px">' +
+        'BM25 search and compression still work for these files \u2014 only the graph, ' +
+        'symbols, and roads views require a supported language.</p>' +
+        (supported
+          ? '<p class="hs" style="color:var(--muted);margin-top:12px;font-size:12px">' +
+            'Graph-indexed languages: ' + supported + '</p>'
+          : '') +
+        '</div>';
+    }
+
+    // Genuinely no index built yet (supported languages present but unscanned).
+    return '<div class="card" style="padding:40px;text-align:center">' +
+      '<div class="loading-state" style="margin-bottom:12px">' +
+      'No dependency data found.</div>' +
+      '<p class="hs" style="color:var(--muted);margin-bottom:16px">' +
+      'Run the following command to build the index:</p>' +
+      '<pre style="background:var(--surface-2);padding:12px 20px;border-radius:8px;display:inline-block;font-size:13px;color:var(--green)">' +
+      'lean-ctx index build</pre>' +
+      '<p class="hs" style="color:var(--muted);margin-top:12px;font-size:12px">' +
+      'This scans your project and builds the dependency graph. Re-run after major changes.</p></div>';
+  }
+
   /* ============ Dependencies D3 ============ */
 
   _renderDepsGraph(container) {
@@ -274,16 +322,7 @@ class CockpitGraph extends HTMLElement {
     }
 
     if (files.length === 0) {
-      container.innerHTML =
-        '<div class="card" style="padding:40px;text-align:center">' +
-        '<div class="loading-state" style="margin-bottom:12px">' +
-        'No dependency data found.</div>' +
-        '<p class="hs" style="color:var(--muted);margin-bottom:16px">' +
-        'Run the following command to build the index:</p>' +
-        '<pre style="background:var(--surface-2);padding:12px 20px;border-radius:8px;display:inline-block;font-size:13px;color:var(--green)">' +
-        'lean-ctx index build</pre>' +
-        '<p class="hs" style="color:var(--muted);margin-top:12px;font-size:12px">' +
-        'This scans your project and builds the dependency graph. Re-run after major changes.</p></div>';
+      container.innerHTML = this._emptyGraphHtml(esc);
       return;
     }
 
@@ -643,16 +682,9 @@ class CockpitGraph extends HTMLElement {
         ? this._symbolsData.symbols : []);
 
     if (syms.length === 0) {
-      container.innerHTML =
-        '<div class="card" style="padding:40px;text-align:center">' +
-        '<div class="loading-state" style="margin-bottom:12px">' +
-        'No symbol data found.</div>' +
-        '<p class="hs" style="color:var(--muted);margin-bottom:16px">' +
-        'Run the following command to build the symbol index:</p>' +
-        '<pre style="background:var(--surface-2);padding:12px 20px;border-radius:8px;display:inline-block;font-size:13px;color:var(--green)">' +
-        'lean-ctx index build</pre>' +
-        '<p class="hs" style="color:var(--muted);margin-top:12px;font-size:12px">' +
-        'This extracts symbols (functions, classes, types) from your codebase using tree-sitter.</p></div>';
+      // Same root cause as the deps view: unsupported languages (e.g. Lua/Luau)
+      // yield no symbols, so share the language-aware empty state (#360).
+      container.innerHTML = this._emptyGraphHtml(esc);
       return;
     }
     var kindColors = {

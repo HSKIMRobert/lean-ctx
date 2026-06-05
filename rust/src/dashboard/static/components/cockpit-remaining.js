@@ -181,6 +181,7 @@ class CockpitRoutes extends HTMLElement {
     this._loading = true;
     this._error = null;
     this._routes = [];
+    this._indexedFileCount = null;
     this._onRefresh = this._onRefresh.bind(this);
   }
 
@@ -217,9 +218,13 @@ class CockpitRoutes extends HTMLElement {
     try {
       var data = await fetchJson('/api/routes', { timeoutMs: 8000 });
       this._routes = (data && data.routes) || (Array.isArray(data) ? data : []);
+      this._indexedFileCount = data && typeof data.indexed_file_count === 'number'
+        ? data.indexed_file_count
+        : null;
     } catch (e) {
       this._error = e && e.error ? e.error : String(e || 'load failed');
       this._routes = [];
+      this._indexedFileCount = null;
     }
 
     this._loading = false;
@@ -243,10 +248,19 @@ class CockpitRoutes extends HTMLElement {
       return;
     }
     if (this._routes.length === 0) {
+      // 0 graph-indexed files means the project's languages aren't graph-indexed
+      // (e.g. Lua/Luau, #360) — roads are derived from the graph, so say so.
+      var noIndex = this._indexedFileCount === 0
+        ? '<p class="hs" style="color:var(--muted);font-size:12px;margin-top:8px">' +
+          'No files are graph-indexed in this project. Roads are derived from the ' +
+          'code-map, which only supports specific languages \u2014 see the Code ' +
+          'Intelligence \u2192 Dependencies tab for details.</p>'
+        : '';
       this.innerHTML =
         '<div class="card"><div class="empty-state">' +
         '<h2>No Routes</h2>' +
         '<p>API route data appears after the daemon processes requests.</p>' +
+        noIndex +
         '</div></div>';
       return;
     }
