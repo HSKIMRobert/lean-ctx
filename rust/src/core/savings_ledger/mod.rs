@@ -61,12 +61,7 @@ fn repo_hash() -> &'static str {
 }
 
 fn agent_id() -> &'static str {
-    static CACHE: OnceLock<String> = OnceLock::new();
-    CACHE.get_or_init(|| {
-        std::env::var("LEAN_CTX_AGENT_ID")
-            .or_else(|_| std::env::var("LCTX_AGENT_ID"))
-            .unwrap_or_else(|_| "local".to_string())
-    })
+    crate::core::agent_identity::current_agent_id()
 }
 
 /// The tokenizer family that produced the token counts we record (G2). Resolved once.
