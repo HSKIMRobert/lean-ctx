@@ -329,7 +329,17 @@ impl ServerHandler for LeanCtxServer {
                     ..Default::default()
                 });
             };
-            if dyn_state.supports_list_changed() {
+            // The lazy category gate (load tools on demand for dynamic_tools
+            // clients) only applies to the *default* lean-core surface. When the
+            // user opted into an explicit profile, that profile IS the
+            // authoritative surface — gating it by category would silently drop
+            // profile-enabled tools like Standard's ctx_architecture /
+            // ctx_semantic_search for Codex et al. (#358), so the advertised set
+            // would no longer match `lean-ctx tools show`.
+            if crate::server::tool_visibility::category_gate_applies(
+                dyn_state.supports_list_changed(),
+                explicit_profile,
+            ) {
                 tools
                     .into_iter()
                     .filter(|t| dyn_state.is_tool_active(t.name.as_ref()))

@@ -45,6 +45,20 @@ pub fn is_tool_visible(
     role_allows
 }
 
+/// Whether the lazy per-category gate should filter the advertised tool set.
+///
+/// The dynamic-tools category gate (load tools on demand, signalled via
+/// `notifications/tools/list_changed`) exists to keep the *default* lean-core
+/// surface small for capable clients. An explicit profile is the user's chosen,
+/// authoritative surface, so it must be advertised in full — otherwise category
+/// gating silently drops profile-enabled tools (e.g. Standard's
+/// `ctx_architecture` / `ctx_semantic_search`) for clients like Codex, and the
+/// advertised set stops matching `lean-ctx tools show` (#358).
+#[must_use]
+pub fn category_gate_applies(supports_list_changed: bool, explicit_profile: bool) -> bool {
+    supports_list_changed && !explicit_profile
+}
+
 /// Whether [`INVOKER`] must be force-added to the advertised set.
 ///
 /// True only in non-full mode when it isn't already present, the role permits
@@ -130,6 +144,18 @@ mod tests {
             false,
             false
         ));
+    }
+
+    #[test]
+    fn category_gate_only_in_default_lean_mode() {
+        // Lazy gate applies only when the client supports list_changed AND no
+        // explicit profile is set.
+        assert!(category_gate_applies(true, false));
+        // Explicit profile is authoritative — never gated (#358).
+        assert!(!category_gate_applies(true, true));
+        // Static-list clients are never gated regardless of profile.
+        assert!(!category_gate_applies(false, false));
+        assert!(!category_gate_applies(false, true));
     }
 
     #[test]
