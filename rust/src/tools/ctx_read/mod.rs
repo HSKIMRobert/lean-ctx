@@ -322,6 +322,73 @@ fn handle_with_options_resolved(
     result
 }
 
+/// Attempt to serve a `mode="full"` cache hit (`[unchanged …]`) using only a
+/// shared borrow of the cache.
+///
+/// Returns `None` when the file is not cached, was modified on disk, full
+/// content was never delivered, or the cache policy forbids stubbing — in those
+/// cases the caller must fall back to the write path.
+///
+/// This is the read-locked fast path: it needs no `&mut SessionCache`, so the
+/// dominant "re-read an unchanged file" case proceeds under a shared lock and
+/// parallel reads of distinct files no longer serialize on a global write lock.
+pub fn try_stub_hit_readonly(cache: &SessionCache, path: &str) -> Option<ReadOutput> {
+    let file_ref = cache.get_file_ref_readonly(path)?;
+    let (cached_mtime, read_count, line_count, content_opt) = {
+        let entry = cache.get(path)?;
+        (
+            entry.stored_mtime,
+            entry.read_count(),
+            entry.line_count,
+            entry.content(),
+        )
+    };
+
+    let no_deg = crate::core::config::Config::load().no_degrade_effective();
+    let prof = crate::core::profiles::active_profile();
+    let force_full = no_deg
+        || (prof.read.default_mode_effective() == "full"
+            && prof.compression.crp_mode_effective() == "off");
+    let policy_allows_stub =
+        crate::server::compaction_sync::effective_cache_policy() != "safe" && !force_full;
+    if !policy_allows_stub
+        || crate::core::cache::is_cache_entry_stale(path, cached_mtime)
+        || !cache.is_full_delivered(path)
+    {
+        return None;
+    }
+
+    cache.record_cache_hit(path);
+    let short = protocol::shorten_path(path);
+    let out = if crate::core::protocol::meta_visible() {
+        format!(
+            "{file_ref}={short} [unchanged {line_count}L]\nUnchanged on disk. Use fresh=true to force re-read.",
+        )
+    } else {
+        let proof = content_opt
+            .as_deref()
+            .and_then(|c| cache_hit_proof_line(c, read_count));
+        let reads_note = if read_count > 3 {
+            format!(" (read {}x)", read_count + 1)
+        } else {
+            String::new()
+        };
+        match proof {
+            Some(p) => {
+                format!("{file_ref}={short} [unchanged {line_count}L{reads_note} | \"{p}\"]")
+            }
+            None => format!("{file_ref}={short} [unchanged {line_count}L{reads_note}]"),
+        }
+    };
+    let out = crate::core::redaction::redact_text_if_enabled(&out);
+    let sent = count_tokens(&out);
+    Some(ReadOutput {
+        content: out,
+        resolved_mode: "full".into(),
+        output_tokens: sent,
+    })
+}
+
 fn handle_with_options_inner(
     cache: &mut SessionCache,
     path: &str,
@@ -369,61 +436,18 @@ fn handle_with_options_inner(
         }
     }
 
-    // Extract immutable data from cache entry, then drop the borrow before
-    // any mutable operations (record_cache_hit, set_compressed, invalidate).
-    let cache_snapshot = cache.get(path).map(|existing| {
-        (
-            existing.stored_mtime,
-            existing.read_count,
-            existing.line_count,
-            existing.original_tokens,
-            existing.content(),
-        )
-    });
+    // Snapshot the minimal immutable data the miss paths need, then drop the
+    // borrow before any mutable operations (set_compressed, invalidate, store).
+    let cache_snapshot = cache
+        .get(path)
+        .map(|existing| (existing.original_tokens, existing.content()));
 
-    if let Some((cached_mtime, read_count, line_count, original_tokens, content_opt)) =
-        cache_snapshot
-    {
+    if let Some((original_tokens, content_opt)) = cache_snapshot {
         if mode == "full" {
-            let no_deg = crate::core::config::Config::load().no_degrade_effective();
-            let prof = crate::core::profiles::active_profile();
-            let force_full = no_deg
-                || (prof.read.default_mode_effective() == "full"
-                    && prof.compression.crp_mode_effective() == "off");
-            let policy_allows_stub =
-                crate::server::compaction_sync::effective_cache_policy() != "safe" && !force_full;
-            if policy_allows_stub
-                && !crate::core::cache::is_cache_entry_stale(path, cached_mtime)
-                && cache.is_full_delivered(path)
-            {
-                cache.record_cache_hit(path);
-                let out = if crate::core::protocol::meta_visible() {
-                    format!(
-                        "{file_ref}={short} [unchanged {line_count}L]\nUnchanged on disk. Use fresh=true to force re-read.",
-                        )
-                } else {
-                    let proof = content_opt
-                        .as_deref()
-                        .and_then(|c| cache_hit_proof_line(c, read_count));
-                    let reads_note = if read_count > 3 {
-                        format!(" (read {}x)", read_count + 1)
-                    } else {
-                        String::new()
-                    };
-                    match proof {
-                        Some(p) => format!(
-                            "{file_ref}={short} [unchanged {line_count}L{reads_note} | \"{p}\"]"
-                        ),
-                        None => format!("{file_ref}={short} [unchanged {line_count}L{reads_note}]"),
-                    }
-                };
-                let out = crate::core::redaction::redact_text_if_enabled(&out);
-                let sent = count_tokens(&out);
-                return ReadOutput {
-                    content: out,
-                    resolved_mode: "full".into(),
-                    output_tokens: sent,
-                };
+            // Read-locked stub fast path (single source of truth, shared with
+            // the registered handler's concurrent read-lock attempt).
+            if let Some(out) = try_stub_hit_readonly(cache, path) {
+                return out;
             }
             let (out, _) = handle_full_with_auto_delta(cache, path, &file_ref, &short, ext, task);
             let out = crate::core::redaction::redact_text_if_enabled(&out);
@@ -695,7 +719,8 @@ fn handle_full_with_auto_delta(
             }
             let out = format!(
                 "[using cached version — file read failed]\n{file_ref}={short} cached {}t {}L",
-                existing.read_count, existing.line_count
+                existing.read_count(),
+                existing.line_count
             );
             let sent = count_tokens(&out);
             return (out, sent);

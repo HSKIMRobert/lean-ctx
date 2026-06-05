@@ -29,9 +29,9 @@ pub fn handle(cache: &SessionCache, tool_calls: &[ToolCallRecord], crp_mode: Crp
 
         out.push(format!(
             "files:{} reads:{} hits:{} ({:.0}%)",
-            cache_stats.files_tracked,
-            cache_stats.total_reads,
-            cache_stats.cache_hits,
+            cache_stats.files_tracked(),
+            cache_stats.total_reads(),
+            cache_stats.cache_hits(),
             cache_stats.hit_rate()
         ));
 
@@ -57,9 +57,9 @@ pub fn handle(cache: &SessionCache, tool_calls: &[ToolCallRecord], crp_mode: Crp
 
         out.push(format!(
             "Files tracked: {} | Reads: {} | Cache hits: {} ({:.0}%)",
-            cache_stats.files_tracked,
-            cache_stats.total_reads,
-            cache_stats.cache_hits,
+            cache_stats.files_tracked(),
+            cache_stats.total_reads(),
+            cache_stats.cache_hits(),
             cache_stats.hit_rate()
         ));
 
@@ -221,7 +221,9 @@ pub fn handle(cache: &SessionCache, tool_calls: &[ToolCallRecord], crp_mode: Crp
             if let Some(entry) = cache.get(path) {
                 out.push(format!(
                     "  {r}={short} [{}L {}t r:{}]",
-                    entry.line_count, entry.original_tokens, entry.read_count
+                    entry.line_count,
+                    entry.original_tokens,
+                    entry.read_count()
                 ));
             } else {
                 out.push(format!("  {r}={short}"));

@@ -187,7 +187,7 @@ impl LeanCtxServer {
         let entries = cache.get_all_entries();
         if !entries.is_empty() {
             let mut by_access: Vec<_> = entries.iter().collect();
-            by_access.sort_by_key(|x| std::cmp::Reverse(x.1.read_count));
+            by_access.sort_by_key(|x| std::cmp::Reverse(x.1.read_count()));
             let top_paths: Vec<&str> = by_access
                 .iter()
                 .take(5)
@@ -310,8 +310,8 @@ impl LeanCtxServer {
             total_saved,
             mode_counts,
             complexity: format!("{complexity:?}"),
-            cache_hits: stats.cache_hits,
-            total_reads: stats.total_reads,
+            cache_hits: stats.cache_hits(),
+            total_reads: stats.total_reads(),
             tool_call_count: calls.len() as u64,
         }
     }

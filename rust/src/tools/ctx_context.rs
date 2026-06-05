@@ -9,18 +9,18 @@ pub fn handle_status(cache: &SessionCache, turn_count: usize, crp_mode: CrpMode)
     result.push(format!("  Cached files: {}", entries.len()));
 
     let total_tokens: usize = entries.iter().map(|(_, e)| e.original_tokens).sum();
-    let total_reads: u32 = entries.iter().map(|(_, e)| e.read_count).sum();
+    let total_reads: u32 = entries.iter().map(|(_, e)| e.read_count()).sum();
     result.push(format!("  Total original tokens: {total_tokens}"));
     result.push(format!("  Total reads: {total_reads}"));
 
-    let frequent: Vec<_> = entries.iter().filter(|(_, e)| e.read_count > 1).collect();
+    let frequent: Vec<_> = entries.iter().filter(|(_, e)| e.read_count() > 1).collect();
     if !frequent.is_empty() {
         result.push(format!("\n  Frequently accessed ({}):", frequent.len()));
         for (path, entry) in &frequent {
             result.push(format!(
                 "    {} ({}x, {} tok)",
                 crate::core::protocol::shorten_path(path),
-                entry.read_count,
+                entry.read_count(),
                 entry.original_tokens
             ));
         }
@@ -53,19 +53,20 @@ fn generate_prefill_hints(cache: &SessionCache) -> Vec<String> {
 
     let read_heavy: Vec<_> = entries
         .iter()
-        .filter(|(_, e)| e.read_count >= 3 && e.original_tokens > 500)
+        .filter(|(_, e)| e.read_count() >= 3 && e.original_tokens > 500)
         .collect();
     for (path, entry) in &read_heavy {
         let short = crate::core::protocol::shorten_path(path);
         hints.push(format!(
             "{short} read {}x ({} tok) — consider mode=map for future reads",
-            entry.read_count, entry.original_tokens
+            entry.read_count(),
+            entry.original_tokens
         ));
     }
 
     let large: Vec<_> = entries
         .iter()
-        .filter(|(_, e)| e.original_tokens > 2000 && e.read_count <= 1)
+        .filter(|(_, e)| e.original_tokens > 2000 && e.read_count() <= 1)
         .collect();
     for (path, entry) in &large {
         let short = crate::core::protocol::shorten_path(path);
@@ -75,7 +76,7 @@ fn generate_prefill_hints(cache: &SessionCache) -> Vec<String> {
         ));
     }
 
-    let stale_count = entries.iter().filter(|(_, e)| e.read_count == 1).count();
+    let stale_count = entries.iter().filter(|(_, e)| e.read_count() == 1).count();
     if stale_count > 5 {
         hints.push(format!(
             "{stale_count} files read only once — ctx_cache clear to free context"

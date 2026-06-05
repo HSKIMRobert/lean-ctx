@@ -75,7 +75,7 @@ impl McpTool for CtxCacheTool {
                             crate::core::protocol::shorten_path(path),
                             entry.line_count,
                             entry.original_tokens,
-                            entry.read_count
+                            entry.read_count()
                         ));
                     }
                     lines.join("\n")

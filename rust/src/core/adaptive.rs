@@ -38,7 +38,7 @@ impl TaskComplexity {
 pub fn classify_from_context(cache: &SessionCache) -> TaskComplexity {
     let stats = cache.get_stats();
     let unique_files = cache.get_all_entries().len();
-    let total_reads = stats.total_reads;
+    let total_reads = stats.total_reads();
 
     if unique_files <= 1 && total_reads <= 3 {
         return TaskComplexity::Mechanical;

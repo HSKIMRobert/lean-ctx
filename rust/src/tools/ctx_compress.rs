@@ -67,8 +67,8 @@ pub fn handle(cache: &SessionCache, include_signatures: bool, crp_mode: CrpMode)
     sections.push(String::new());
     sections.push(format!(
         "STATS: {} reads, {} hits ({:.0}%)",
-        stats.total_reads,
-        stats.cache_hits,
+        stats.total_reads(),
+        stats.cache_hits(),
         stats.hit_rate()
     ));
 

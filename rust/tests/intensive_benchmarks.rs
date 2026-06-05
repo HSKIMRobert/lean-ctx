@@ -595,7 +595,7 @@ fn bench_rrf_eviction_vs_legacy() {
     let keys: Vec<String> = (0..10).map(|i| format!("file_{i}.rs")).collect();
     let entries: Vec<lean_ctx::core::cache::CacheEntry> = (0..10)
         .map(|i| {
-            let mut e = lean_ctx::core::cache::CacheEntry::new(
+            let e = lean_ctx::core::cache::CacheEntry::new(
                 &format!("content_{i}"),
                 format!("hash_{i}"),
                 i + 1,
@@ -603,10 +603,11 @@ fn bench_rrf_eviction_vs_legacy() {
                 format!("/file_{i}.rs"),
                 None,
             );
-            e.read_count = (10 - i) as u32;
-            e.last_access = now
-                .checked_sub(Duration::from_secs(i as u64))
-                .unwrap_or(now);
+            e.set_read_count((10 - i) as u32);
+            e.set_last_access(
+                now.checked_sub(Duration::from_secs(i as u64))
+                    .unwrap_or(now),
+            );
             e
         })
         .collect();

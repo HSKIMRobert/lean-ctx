@@ -237,6 +237,32 @@ impl CtxReadTool {
                 let Some(_file_guard) = file_lock.try_lock().ok() else {
                     break 'fast None;
                 };
+
+                // Phase 1 (shared lock): the dominant case is re-reading an
+                // unchanged file in full mode. Serve that stub under a *read*
+                // lock so parallel reads of distinct files run concurrently
+                // instead of serializing on the global write lock.
+                if !fresh && mode == "full" {
+                    if let Ok(cache) = cache_lock.try_read() {
+                        if let Some(read_output) =
+                            crate::tools::ctx_read::try_stub_hit_readonly(&cache, path)
+                        {
+                            let content = read_output.content;
+                            let rmode = read_output.resolved_mode;
+                            let orig = cache.get(path).map_or(0, |e| e.original_tokens);
+                            let hit = content.contains(" cached ")
+                                || content.contains("[unchanged")
+                                || content.contains("[delta:");
+                            let fref = cache.file_ref_map().get(path).cloned();
+                            let stats = cache.get_stats();
+                            let stats_snapshot = (stats.total_reads(), stats.cache_hits());
+                            break 'fast Some((content, rmode, orig, hit, fref, stats_snapshot));
+                        }
+                    }
+                }
+
+                // Phase 2 (write lock): cache miss, changed file, or non-stub
+                // modes (map/signatures/diff/lines) that mutate cache state.
                 let Some(mut cache) = cache_lock.try_write().ok() else {
                     break 'fast None;
                 };
@@ -257,7 +283,7 @@ impl CtxReadTool {
                     || content.contains("[delta:");
                 let fref = cache.file_ref_map().get(path).cloned();
                 let stats = cache.get_stats();
-                let stats_snapshot = (stats.total_reads, stats.cache_hits);
+                let stats_snapshot = (stats.total_reads(), stats.cache_hits());
                 Some((content, rmode, orig, hit, fref, stats_snapshot))
             };
 
@@ -354,7 +380,7 @@ impl CtxReadTool {
                     let hit = content.contains(" cached ");
                     let fref = cache.file_ref_map().get(path_owned.as_str()).cloned();
                     let stats = cache.get_stats();
-                    let stats_snapshot = (stats.total_reads, stats.cache_hits);
+                    let stats_snapshot = (stats.total_reads(), stats.cache_hits());
                     let _ = tx.send((content, rmode, orig, hit, fref, stats_snapshot));
                 });
                 if let Ok(result) = rx.recv_timeout(read_timeout) {
@@ -442,49 +468,59 @@ impl CtxReadTool {
             crate::core::index_orchestrator::ensure_all_background(root);
         }
 
-        crate::core::heatmap::record_file_access(path, original, saved);
-
-        // Mode predictor + feedback — no locks needed, uses snapshots from above
+        // Telemetry + learning are pure side-effects that never influence this
+        // response, yet they did synchronous disk I/O on every read (heatmap
+        // append, ModePredictor load+save, FeedbackStore load). Push them off
+        // the hot path so reads — especially cache-hit stubs — return without
+        // waiting on disk (#149).
         {
-            let sig = crate::core::mode_predictor::FileSignature::from_path(path, original);
-            let density = if output_tokens > 0 {
-                original as f64 / output_tokens as f64
-            } else {
-                1.0
-            };
-            let outcome = crate::core::mode_predictor::ModeOutcome {
-                mode: resolved_mode.clone(),
-                tokens_in: original,
-                tokens_out: output_tokens,
-                density: density.min(1.0),
-            };
-            let mut predictor = crate::core::mode_predictor::ModePredictor::new();
-            predictor.set_project_root(&project_root_snapshot);
-            predictor.record(sig, outcome);
-            predictor.save();
+            let path_bg = path.to_string();
+            let resolved_mode_bg = resolved_mode.clone();
+            let project_root_bg = project_root_snapshot.clone();
+            let (turns, hits) = cache_stats;
+            std::thread::spawn(move || {
+                crate::core::heatmap::record_file_access(&path_bg, original, saved);
 
-            let ext = std::path::Path::new(path)
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("")
-                .to_string();
-            let thresholds = crate::core::adaptive_thresholds::thresholds_for_path(path);
-            let feedback_outcome = crate::core::feedback::CompressionOutcome {
-                session_id: format!("{}", std::process::id()),
-                language: ext,
-                entropy_threshold: thresholds.bpe_entropy,
-                jaccard_threshold: thresholds.jaccard,
-                total_turns: cache_stats.0 as u32,
-                tokens_saved: saved as u64,
-                tokens_original: original as u64,
-                cache_hits: cache_stats.1 as u32,
-                total_reads: cache_stats.0 as u32,
-                task_completed: true,
-                timestamp: chrono::Local::now().to_rfc3339(),
-            };
-            let mut store = crate::core::feedback::FeedbackStore::load();
-            store.project_root = Some(project_root_snapshot.clone());
-            store.record_outcome(feedback_outcome);
+                let sig = crate::core::mode_predictor::FileSignature::from_path(&path_bg, original);
+                let density = if output_tokens > 0 {
+                    original as f64 / output_tokens as f64
+                } else {
+                    1.0
+                };
+                let outcome = crate::core::mode_predictor::ModeOutcome {
+                    mode: resolved_mode_bg,
+                    tokens_in: original,
+                    tokens_out: output_tokens,
+                    density: density.min(1.0),
+                };
+                let mut predictor = crate::core::mode_predictor::ModePredictor::new();
+                predictor.set_project_root(&project_root_bg);
+                predictor.record(sig, outcome);
+                predictor.save();
+
+                let ext = std::path::Path::new(&path_bg)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("")
+                    .to_string();
+                let thresholds = crate::core::adaptive_thresholds::thresholds_for_path(&path_bg);
+                let feedback_outcome = crate::core::feedback::CompressionOutcome {
+                    session_id: format!("{}", std::process::id()),
+                    language: ext,
+                    entropy_threshold: thresholds.bpe_entropy,
+                    jaccard_threshold: thresholds.jaccard,
+                    total_turns: turns as u32,
+                    tokens_saved: saved as u64,
+                    tokens_original: original as u64,
+                    cache_hits: hits as u32,
+                    total_reads: turns as u32,
+                    task_completed: true,
+                    timestamp: chrono::Local::now().to_rfc3339(),
+                };
+                let mut store = crate::core::feedback::FeedbackStore::load();
+                store.project_root = Some(project_root_bg);
+                store.record_outcome(feedback_outcome);
+            });
         }
 
         if let Some(aid) = resolved_agent_id.as_deref() {

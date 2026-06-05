@@ -1,8 +1,26 @@
 use md5::{Digest, Md5};
 use std::collections::HashMap;
-use std::time::{Instant, SystemTime};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::OnceLock;
+use std::time::{Duration, Instant, SystemTime};
 
 use super::tokens::count_tokens;
+
+/// Process-global monotonic base for encoding `Instant`s into an `AtomicU64`.
+/// Stored as milliseconds since this base, which is sufficient resolution for
+/// LRU/RRF eviction recency while allowing lock-free access on cache hits.
+fn instant_base() -> Instant {
+    static BASE: OnceLock<Instant> = OnceLock::new();
+    *BASE.get_or_init(Instant::now)
+}
+
+fn encode_instant(i: Instant) -> u64 {
+    i.saturating_duration_since(instant_base()).as_millis() as u64
+}
+
+fn decode_instant(ms: u64) -> Instant {
+    instant_base() + Duration::from_millis(ms)
+}
 
 fn normalize_key(path: &str) -> String {
     crate::core::pathutil::normalize_tool_path(path)
@@ -16,15 +34,19 @@ fn max_cache_tokens() -> usize {
 }
 
 /// A cached file read: zstd-compressed content, hash, token count, and access metadata.
-#[derive(Clone, Debug)]
+///
+/// `read_count` and `last_access` use interior mutability (atomics) so cache
+/// hits can be recorded under a shared (read) lock — parallel reads of distinct
+/// files no longer serialize on a global write lock.
+#[derive(Debug)]
 pub struct CacheEntry {
     compressed_content: Vec<u8>,
     pub hash: String,
     pub line_count: usize,
     pub original_tokens: usize,
-    pub read_count: u32,
+    read_count: AtomicU32,
     pub path: String,
-    pub last_access: Instant,
+    last_access: AtomicU64,
     pub stored_mtime: Option<SystemTime>,
     /// Mode-specific compressed outputs (e.g. "map", "signatures") cached to avoid re-parsing.
     pub compressed_outputs: HashMap<String, String>,
@@ -63,14 +85,46 @@ impl CacheEntry {
             hash,
             line_count,
             original_tokens,
-            read_count: 1,
+            read_count: AtomicU32::new(1),
             path,
-            last_access: Instant::now(),
+            last_access: AtomicU64::new(encode_instant(Instant::now())),
             stored_mtime,
             compressed_outputs: HashMap::new(),
             full_content_delivered: false,
             last_mode: String::new(),
         }
+    }
+
+    /// Current read count (lock-free).
+    pub fn read_count(&self) -> u32 {
+        self.read_count.load(Ordering::Relaxed)
+    }
+
+    /// Atomically increments the read count and returns the new value (lock-free).
+    pub fn bump_read_count(&self) -> u32 {
+        self.read_count.fetch_add(1, Ordering::Relaxed) + 1
+    }
+
+    /// Overwrites the read count (used by `store` and tests).
+    pub fn set_read_count(&self, n: u32) {
+        self.read_count.store(n, Ordering::Relaxed);
+    }
+
+    /// Last access time, decoded from the atomic millisecond offset.
+    pub fn last_access(&self) -> Instant {
+        decode_instant(self.last_access.load(Ordering::Relaxed))
+    }
+
+    /// Marks the entry as accessed now (lock-free).
+    pub fn touch(&self) {
+        self.last_access
+            .store(encode_instant(Instant::now()), Ordering::Relaxed);
+    }
+
+    /// Overwrites the last-access time (used by tests and eviction setup).
+    pub fn set_last_access(&self, when: Instant) {
+        self.last_access
+            .store(encode_instant(when), Ordering::Relaxed);
     }
 
     /// Decompresses and returns the full file content.
@@ -104,11 +158,11 @@ impl CacheEntry {
     /// Computes a legacy eviction score blending recency, frequency, and size.
     pub fn eviction_score_legacy(&self, now: Instant) -> f64 {
         let elapsed = now
-            .checked_duration_since(self.last_access)
+            .checked_duration_since(self.last_access())
             .unwrap_or_default()
             .as_secs_f64();
         let recency = 1.0 / (1.0 + elapsed.sqrt());
-        let frequency = (self.read_count as f64 + 1.0).ln();
+        let frequency = (self.read_count() as f64 + 1.0).ln();
         let size_value = (self.original_tokens as f64 + 1.0).ln();
         recency * 0.4 + frequency * 0.3 + size_value * 0.3
     }
@@ -150,11 +204,11 @@ pub fn eviction_scores_rrf(entries: &[(&String, &CacheEntry)], now: Instant) -> 
     let mut recency_order: Vec<usize> = (0..n).collect();
     recency_order.sort_by(|&a, &b| {
         let elapsed_a = now
-            .checked_duration_since(entries[a].1.last_access)
+            .checked_duration_since(entries[a].1.last_access())
             .unwrap_or_default()
             .as_secs_f64();
         let elapsed_b = now
-            .checked_duration_since(entries[b].1.last_access)
+            .checked_duration_since(entries[b].1.last_access())
             .unwrap_or_default()
             .as_secs_f64();
         elapsed_a
@@ -163,7 +217,7 @@ pub fn eviction_scores_rrf(entries: &[(&String, &CacheEntry)], now: Instant) -> 
     });
 
     let mut frequency_order: Vec<usize> = (0..n).collect();
-    frequency_order.sort_by(|&a, &b| entries[b].1.read_count.cmp(&entries[a].1.read_count));
+    frequency_order.sort_by(|&a, &b| entries[b].1.read_count().cmp(&entries[a].1.read_count()));
 
     let mut size_order: Vec<usize> = (0..n).collect();
     size_order.sort_by(|&a, &b| {
@@ -200,36 +254,66 @@ pub fn eviction_scores_rrf(entries: &[(&String, &CacheEntry)], now: Instant) -> 
 }
 
 /// Aggregated cache statistics: hits, reads, and token savings.
-#[derive(Debug)]
+///
+/// Counters are atomic so they can be updated on the read-locked cache-hit
+/// fast path without taking a write lock.
+#[derive(Debug, Default)]
 pub struct CacheStats {
-    pub total_reads: u64,
-    pub cache_hits: u64,
-    pub total_original_tokens: u64,
-    pub total_sent_tokens: u64,
-    pub files_tracked: usize,
+    total_reads: AtomicU64,
+    cache_hits: AtomicU64,
+    total_original_tokens: AtomicU64,
+    total_sent_tokens: AtomicU64,
+    files_tracked: AtomicU64,
 }
 
 impl CacheStats {
+    /// Total number of read operations recorded.
+    pub fn total_reads(&self) -> u64 {
+        self.total_reads.load(Ordering::Relaxed)
+    }
+
+    /// Total number of cache hits recorded.
+    pub fn cache_hits(&self) -> u64 {
+        self.cache_hits.load(Ordering::Relaxed)
+    }
+
+    /// Sum of original (uncompressed) token counts across all reads.
+    pub fn total_original_tokens(&self) -> u64 {
+        self.total_original_tokens.load(Ordering::Relaxed)
+    }
+
+    /// Sum of tokens actually sent to the model.
+    pub fn total_sent_tokens(&self) -> u64 {
+        self.total_sent_tokens.load(Ordering::Relaxed)
+    }
+
+    /// Number of distinct files currently tracked.
+    pub fn files_tracked(&self) -> u64 {
+        self.files_tracked.load(Ordering::Relaxed)
+    }
+
     /// Returns the cache hit rate as a percentage (0–100).
     pub fn hit_rate(&self) -> f64 {
-        if self.total_reads == 0 {
+        let total = self.total_reads();
+        if total == 0 {
             return 0.0;
         }
-        (self.cache_hits as f64 / self.total_reads as f64) * 100.0
+        (self.cache_hits() as f64 / total as f64) * 100.0
     }
 
     /// Returns the total number of tokens saved by cache hits.
     pub fn tokens_saved(&self) -> u64 {
-        self.total_original_tokens
-            .saturating_sub(self.total_sent_tokens)
+        self.total_original_tokens()
+            .saturating_sub(self.total_sent_tokens())
     }
 
     /// Returns the savings as a percentage of total original tokens.
     pub fn savings_percent(&self) -> f64 {
-        if self.total_original_tokens == 0 {
+        let original = self.total_original_tokens();
+        if original == 0 {
             return 0.0;
         }
-        (self.tokens_saved() as f64 / self.total_original_tokens as f64) * 100.0
+        (self.tokens_saved() as f64 / original as f64) * 100.0
     }
 }
 
@@ -267,13 +351,7 @@ impl SessionCache {
             file_refs: HashMap::new(),
             next_ref: 1,
             shared_blocks: Vec::new(),
-            stats: CacheStats {
-                total_reads: 0,
-                cache_hits: 0,
-                total_original_tokens: 0,
-                total_sent_tokens: 0,
-                files_tracked: 0,
-            },
+            stats: CacheStats::default(),
         }
     }
 
@@ -313,29 +391,31 @@ impl SessionCache {
     }
 
     /// Records a cache hit, updates access stats, and emits a cache-hit event.
-    pub fn record_cache_hit(&mut self, path: &str) -> Option<&CacheEntry> {
+    ///
+    /// Takes `&self`: the hit counters use interior-mutable atomics, so this
+    /// runs under a shared (read) lock and lets parallel reads of different
+    /// files proceed concurrently instead of serializing on a write lock.
+    pub fn record_cache_hit(&self, path: &str) -> Option<&CacheEntry> {
         let key = normalize_key(path);
         let ref_label = self
             .file_refs
             .get(&key)
             .cloned()
             .unwrap_or_else(|| "F?".to_string());
-        if let Some(entry) = self.entries.get_mut(&key) {
-            entry.read_count += 1;
-            entry.last_access = Instant::now();
-            self.stats.total_reads += 1;
-            self.stats.cache_hits += 1;
-            self.stats.total_original_tokens += entry.original_tokens as u64;
-            let hit_msg = format!(
-                "{ref_label} cached {}t {}L",
-                entry.read_count, entry.line_count
-            );
-            self.stats.total_sent_tokens += count_tokens(&hit_msg) as u64;
-            crate::core::events::emit_cache_hit(path, entry.original_tokens as u64);
-            Some(entry)
-        } else {
-            None
-        }
+        let entry = self.entries.get(&key)?;
+        let new_count = entry.bump_read_count();
+        entry.touch();
+        self.stats.total_reads.fetch_add(1, Ordering::Relaxed);
+        self.stats.cache_hits.fetch_add(1, Ordering::Relaxed);
+        self.stats
+            .total_original_tokens
+            .fetch_add(entry.original_tokens as u64, Ordering::Relaxed);
+        let hit_msg = format!("{ref_label} cached {new_count}t {}L", entry.line_count);
+        self.stats
+            .total_sent_tokens
+            .fetch_add(count_tokens(&hit_msg) as u64, Ordering::Relaxed);
+        crate::core::events::emit_cache_hit(path, entry.original_tokens as u64);
+        Some(entry)
     }
 
     /// Stores file content in the cache; returns a hit if content hash matches.
@@ -347,28 +427,31 @@ impl SessionCache {
         let stored_mtime = std::fs::metadata(path).and_then(|m| m.modified()).ok();
         let now = Instant::now();
 
-        self.stats.total_reads += 1;
-        self.stats.total_original_tokens += original_tokens as u64;
+        self.stats.total_reads.fetch_add(1, Ordering::Relaxed);
+        self.stats
+            .total_original_tokens
+            .fetch_add(original_tokens as u64, Ordering::Relaxed);
 
         if let Some(existing) = self.entries.get_mut(&key) {
-            existing.last_access = now;
+            existing.set_last_access(now);
             if stored_mtime.is_some() {
                 existing.stored_mtime = stored_mtime;
             }
             if existing.hash == hash {
-                existing.read_count += 1;
-                self.stats.cache_hits += 1;
+                let new_count = existing.bump_read_count();
+                self.stats.cache_hits.fetch_add(1, Ordering::Relaxed);
                 let hit_msg = format!(
-                    "{} cached {}t {}L",
+                    "{} cached {new_count}t {}L",
                     self.file_refs.get(&key).unwrap_or(&"F?".to_string()),
-                    existing.read_count,
                     existing.line_count,
                 );
-                self.stats.total_sent_tokens += count_tokens(&hit_msg) as u64;
+                self.stats
+                    .total_sent_tokens
+                    .fetch_add(count_tokens(&hit_msg) as u64, Ordering::Relaxed);
                 return StoreResult {
                     line_count: existing.line_count,
                     original_tokens: existing.original_tokens,
-                    read_count: existing.read_count,
+                    read_count: new_count,
                     was_hit: true,
                     full_content_delivered: existing.full_content_delivered,
                 };
@@ -378,16 +461,18 @@ impl SessionCache {
             existing.hash = hash;
             existing.line_count = line_count;
             existing.original_tokens = original_tokens;
-            existing.read_count += 1;
+            let new_count = existing.bump_read_count();
             existing.full_content_delivered = false;
             if stored_mtime.is_some() {
                 existing.stored_mtime = stored_mtime;
             }
-            self.stats.total_sent_tokens += original_tokens as u64;
+            self.stats
+                .total_sent_tokens
+                .fetch_add(original_tokens as u64, Ordering::Relaxed);
             return StoreResult {
                 line_count,
                 original_tokens,
-                read_count: existing.read_count,
+                read_count: new_count,
                 was_hit: false,
                 full_content_delivered: false,
             };
@@ -406,8 +491,10 @@ impl SessionCache {
         );
 
         self.entries.insert(key, entry);
-        self.stats.files_tracked += 1;
-        self.stats.total_sent_tokens += original_tokens as u64;
+        self.stats.files_tracked.fetch_add(1, Ordering::Relaxed);
+        self.stats
+            .total_sent_tokens
+            .fetch_add(original_tokens as u64, Ordering::Relaxed);
         StoreResult {
             line_count,
             original_tokens,
@@ -569,7 +656,7 @@ impl SessionCache {
         let to_remove: Vec<String> = self
             .entries
             .iter()
-            .filter(|(_, e)| e.read_count <= 1)
+            .filter(|(_, e)| e.read_count() <= 1)
             .map(|(k, _)| k.clone())
             .collect();
         let count = to_remove.len();
@@ -646,13 +733,7 @@ impl SessionCache {
         self.file_refs.clear();
         self.shared_blocks.clear();
         self.next_ref = 1;
-        self.stats = CacheStats {
-            total_reads: 0,
-            cache_hits: 0,
-            total_original_tokens: 0,
-            total_sent_tokens: 0,
-            files_tracked: 0,
-        };
+        self.stats = CacheStats::default();
         count
     }
 }
@@ -741,9 +822,53 @@ mod tests {
         cache.store("/a.rs", "hello");
         cache.store("/a.rs", "hello"); // hit
         let stats = cache.get_stats();
-        assert_eq!(stats.total_reads, 2);
-        assert_eq!(stats.cache_hits, 1);
+        assert_eq!(stats.total_reads(), 2);
+        assert_eq!(stats.cache_hits(), 1);
         assert!(stats.hit_rate() > 0.0);
+    }
+
+    #[test]
+    fn record_cache_hit_works_through_shared_ref() {
+        let mut cache = SessionCache::new();
+        cache.store("/x.rs", "hello world");
+        // &self path: a cache hit can be recorded without a write lock.
+        let shared: &SessionCache = &cache;
+        assert!(shared.record_cache_hit("/x.rs").is_some());
+        assert!(shared.record_cache_hit("/x.rs").is_some());
+        // store=1 + two hits => read_count 3, cache_hits 2.
+        assert_eq!(cache.get("/x.rs").unwrap().read_count(), 3);
+        assert_eq!(cache.get_stats().cache_hits(), 2);
+    }
+
+    #[test]
+    fn concurrent_cache_hits_are_lossless() {
+        use std::sync::Arc;
+        let mut cache = SessionCache::new();
+        cache.store("/a.rs", "a");
+        cache.store("/b.rs", "b");
+        // Shared (no RwLock): proves SessionCache is Sync and hit recording is
+        // lock-free and atomic — the whole point of the read-mostly refactor.
+        let cache = Arc::new(cache);
+        let threads = 8;
+        let iters = 1_000;
+        let handles: Vec<_> = (0..threads)
+            .map(|_| {
+                let c = Arc::clone(&cache);
+                std::thread::spawn(move || {
+                    for _ in 0..iters {
+                        c.record_cache_hit("/a.rs");
+                        c.record_cache_hit("/b.rs");
+                    }
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().unwrap();
+        }
+        let total = (threads * iters) as u64;
+        assert_eq!(cache.get_stats().cache_hits(), total * 2);
+        assert_eq!(cache.get("/a.rs").unwrap().read_count(), 1 + total as u32);
+        assert_eq!(cache.get("/b.rs").unwrap().read_count(), 1 + total as u32);
     }
 
     #[test]
@@ -756,17 +881,18 @@ mod tests {
 
     #[test]
     fn rrf_eviction_prefers_recent() {
-        let base = Instant::now();
-        std::thread::sleep(std::time::Duration::from_millis(5));
-        let now = Instant::now();
         let key_a = "a.rs".to_string();
         let key_b = "b.rs".to_string();
+        // Construct entries first so the global instant base is initialized,
+        // then assign access times relative to a post-init reference.
         let recent = CacheEntry::new("a", "h1".to_string(), 1, 10, "/a.rs".to_string(), None);
-        let old = {
-            let mut e = CacheEntry::new("b", "h2".to_string(), 1, 10, "/b.rs".to_string(), None);
-            e.last_access = base;
-            e
-        };
+        let old = CacheEntry::new("b", "h2".to_string(), 1, 10, "/b.rs".to_string(), None);
+        let t_old = Instant::now();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let t_recent = Instant::now();
+        old.set_last_access(t_old);
+        recent.set_last_access(t_recent);
+        let now = Instant::now();
         let entries: Vec<(&String, &CacheEntry)> = vec![(&key_a, &recent), (&key_b, &old)];
         let scores = eviction_scores_rrf(&entries, now);
         let score_a = scores.iter().find(|(p, _)| p == "a.rs").unwrap().1;
@@ -783,8 +909,8 @@ mod tests {
         let key_a = "a.rs".to_string();
         let key_b = "b.rs".to_string();
         let frequent = {
-            let mut e = CacheEntry::new("a", "h1".to_string(), 1, 10, "/a.rs".to_string(), None);
-            e.read_count = 20;
+            let e = CacheEntry::new("a", "h1".to_string(), 1, 10, "/a.rs".to_string(), None);
+            e.set_read_count(20);
             e
         };
         let rare = CacheEntry::new("b", "h2".to_string(), 1, 10, "/b.rs".to_string(), None);

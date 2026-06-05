@@ -169,6 +169,32 @@ fn cached_lines_mode_invalidates_on_mtime_change() {
 }
 
 #[test]
+fn try_stub_hit_readonly_none_for_uncached_and_stale() {
+    let _lock = crate::core::data_dir::test_env_lock();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("hot.rs");
+    let p = path.to_string_lossy().to_string();
+    std::fs::write(&path, "fn main() {}\n").unwrap();
+
+    let mut cache = SessionCache::new();
+
+    // Never read → no entry → the read-locked path declines (caller falls back).
+    assert!(try_stub_hit_readonly(&cache, &p).is_none());
+
+    // Populate the cache via a real full read.
+    let _ = handle_with_task_resolved(&mut cache, &p, "full", CrpMode::Off, None);
+
+    // Modify the file so the cached entry is stale → must NOT serve a stub,
+    // independent of cache policy (the write path re-reads instead).
+    std::thread::sleep(Duration::from_secs(1));
+    std::fs::write(&path, "fn main() { changed(); }\n").unwrap();
+    assert!(
+        try_stub_hit_readonly(&cache, &p).is_none(),
+        "stale file must never be served from the read-locked stub path"
+    );
+}
+
+#[test]
 #[cfg_attr(tarpaulin, ignore)]
 fn benchmark_task_conditioned_compression() {
     // Keep this reasonably small so CI coverage instrumentation stays fast.
