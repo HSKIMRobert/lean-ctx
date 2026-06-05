@@ -67,8 +67,8 @@ fn knowledge_embeddings_semantic_search_must_include_expected() {
 
     let idx = {
         let mut idx = KnowledgeEmbeddingIndex::new("projhash");
-        idx.upsert("arch", "db", vec![1.0, 0.0, 0.0]);
-        idx.upsert("arch", "cache", vec![0.0, 1.0, 0.0]);
+        idx.upsert("arch", "db", &[1.0, 0.0, 0.0]);
+        idx.upsert("arch", "cache", &[0.0, 1.0, 0.0]);
         idx
     };
 

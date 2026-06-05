@@ -13,6 +13,7 @@ use md5::{Digest, Md5};
 use serde::{Deserialize, Serialize};
 
 use super::bm25_index::CodeChunk;
+use super::embedding_quant::{self, QuantizedVector};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddingIndex {
@@ -32,11 +33,29 @@ pub struct EmbeddingEntry {
     pub symbol_name: String,
     pub start_line: usize,
     pub end_line: usize,
+    /// Legacy full-precision vector (v1/v2 indices). Migrated to `quant` on load
+    /// and then emptied; only present in files written by pre-v3 binaries.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub embedding: Vec<f32>,
+    /// int8-quantized embedding (turbovec-derived) — 4× smaller on disk.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quant: Option<QuantizedVector>,
     pub content_hash: String,
 }
 
-const CURRENT_VERSION: u32 = 2;
+impl EmbeddingEntry {
+    /// Full-precision embedding for scoring: reconstructs from int8 codes, or
+    /// returns the legacy vector for not-yet-migrated entries.
+    fn embedding_f32(&self) -> Vec<f32> {
+        match &self.quant {
+            Some(q) => q.dequantize(),
+            None => self.embedding.clone(),
+        }
+    }
+}
+
+/// v1→v2 added `model_id`; v2→v3 stores embeddings as int8 (`quant`) instead of f32.
+const CURRENT_VERSION: u32 = 3;
 
 impl EmbeddingIndex {
     pub fn new(dimensions: usize) -> Self {
@@ -83,7 +102,9 @@ impl EmbeddingIndex {
                 e.file_path.len()
                     + e.symbol_name.len()
                     + e.content_hash.len()
-                    + e.embedding.len() * 4
+                    + e.quant
+                        .as_ref()
+                        .map_or(e.embedding.len() * 4, |q| q.code.len() + 4)
                     + 48
             })
             .sum();
@@ -162,11 +183,26 @@ impl EmbeddingIndex {
                     symbol_name: chunk.symbol_name.clone(),
                     start_line: chunk.start_line,
                     end_line: chunk.end_line,
-                    embedding: embedding.clone(),
+                    embedding: Vec::new(),
+                    quant: Some(embedding_quant::quantize(embedding)),
                     content_hash,
                 });
             }
         }
+    }
+
+    /// Upgrades any legacy f32 entries to int8 in place. Returns true if anything
+    /// changed, so the caller can persist the 4×-smaller form once.
+    fn migrate_legacy_entries(&mut self) -> bool {
+        let mut changed = false;
+        for e in &mut self.entries {
+            if e.quant.is_none() && !e.embedding.is_empty() {
+                e.quant = Some(embedding_quant::quantize(&e.embedding));
+                e.embedding = Vec::new();
+                changed = true;
+            }
+        }
+        changed
     }
 
     /// Get all embeddings in chunk order (aligned with BM25Index.chunks).
@@ -181,7 +217,7 @@ impl EmbeddingIndex {
         let mut result = Vec::with_capacity(chunks.len());
         for chunk in chunks {
             let entry = map.get(&(chunk.file_path.as_str(), chunk.start_line, chunk.end_line))?;
-            result.push(entry.embedding.clone());
+            result.push(entry.embedding_f32());
         }
         Some(result)
     }
@@ -220,20 +256,21 @@ impl EmbeddingIndex {
                 Ok(content)
             })
             .ok()?;
-        let idx: Self = serde_json::from_str(&data).ok()?;
+        let mut idx: Self = serde_json::from_str(&data).ok()?;
         match idx.version {
             CURRENT_VERSION => Some(idx),
-            1 => {
+            1 | 2 => {
                 tracing::info!(
-                    "[embeddings] migrating index v1 → v{CURRENT_VERSION} (adding model_id field)"
+                    "[embeddings] migrating index v{} → v{CURRENT_VERSION} (int8 quantization)",
+                    idx.version
                 );
-                Some(Self {
-                    version: CURRENT_VERSION,
-                    dimensions: idx.dimensions,
-                    model_id: None,
-                    entries: idx.entries,
-                    file_hashes: idx.file_hashes,
-                })
+                idx.version = CURRENT_VERSION;
+                let quantized = idx.migrate_legacy_entries();
+                // Persist the upgraded (4×-smaller) form once so the cost is amortized.
+                if quantized {
+                    let _ = idx.save(root);
+                }
+                Some(idx)
             }
             _ => None,
         }
@@ -447,7 +484,7 @@ mod tests {
 
         let b_entry = idx.entries.iter().find(|e| e.file_path == "b.rs").unwrap();
         assert!(
-            (b_entry.embedding[0] - 0.1).abs() < 1e-6,
+            (b_entry.embedding_f32()[0] - 0.1).abs() < 1e-6,
             "b.rs embedding should be preserved"
         );
     }
@@ -505,7 +542,11 @@ mod tests {
         let loaded = EmbeddingIndex::load(project_dir.path()).unwrap();
         assert_eq!(loaded.dimensions, 3);
         assert_eq!(loaded.entries.len(), 1);
-        assert!((loaded.entries[0].embedding[0] - 1.0).abs() < 1e-6);
+        // int8-quantized round-trip: within one quantization step of the original.
+        let recon = loaded.entries[0].embedding_f32();
+        assert!((recon[0] - 1.0).abs() < 0.02);
+        assert!((recon[1] - 2.0).abs() < 0.02);
+        assert!((recon[2] - 3.0).abs() < 0.02);
 
         std::env::remove_var("LEAN_CTX_DATA_DIR");
     }
@@ -568,6 +609,53 @@ mod tests {
         assert_eq!(loaded.version, CURRENT_VERSION);
         assert_eq!(loaded.dimensions, 384);
         assert!(loaded.model_id.is_none());
+
+        std::env::remove_var("LEAN_CTX_DATA_DIR");
+    }
+
+    #[test]
+    fn v2_index_quantizes_on_migration() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        let data_dir = tempfile::tempdir().unwrap();
+        std::env::set_var("LEAN_CTX_DATA_DIR", data_dir.path());
+        let project_dir = tempfile::tempdir().unwrap();
+
+        // A v2 index with a full-precision f32 entry (pre-quantization on-disk form).
+        let v2_json = serde_json::json!({
+            "version": 2,
+            "dimensions": 3,
+            "model_id": "all-MiniLM-L6-v2",
+            "entries": [{
+                "file_path": "a.rs",
+                "symbol_name": "fn_a",
+                "start_line": 1,
+                "end_line": 3,
+                "embedding": [1.0, 2.0, 3.0],
+                "content_hash": "abc"
+            }],
+            "file_hashes": {}
+        });
+
+        let dir = crate::core::index_namespace::vectors_dir(project_dir.path());
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("embeddings.json"), v2_json.to_string()).unwrap();
+
+        let loaded = EmbeddingIndex::load(project_dir.path()).unwrap();
+        assert_eq!(loaded.version, CURRENT_VERSION);
+        // The legacy f32 was migrated to int8 codes and the f32 field emptied.
+        let entry = &loaded.entries[0];
+        assert!(
+            entry.embedding.is_empty(),
+            "f32 field cleared after migration"
+        );
+        assert!(entry.quant.is_some(), "entry is now quantized");
+        let recon = entry.embedding_f32();
+        assert!((recon[2] - 3.0).abs() < 0.02);
+
+        // Migration persisted the smaller form: re-loading sees v3 directly.
+        let reloaded = EmbeddingIndex::load(project_dir.path()).unwrap();
+        assert_eq!(reloaded.version, CURRENT_VERSION);
+        assert!(reloaded.entries[0].quant.is_some());
 
         std::env::remove_var("LEAN_CTX_DATA_DIR");
     }

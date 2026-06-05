@@ -9,10 +9,11 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use super::knowledge::{KnowledgeFact, ProjectKnowledge};
+use crate::core::embedding_quant::{self, QuantizedVector};
 use crate::core::memory_policy::MemoryPolicy;
 
 #[cfg(feature = "embeddings")]
-use super::embeddings::{cosine_similarity, EmbeddingEngine};
+use super::embeddings::EmbeddingEngine;
 
 const ALPHA_SEMANTIC: f32 = 0.6;
 const BETA_CONFIDENCE: f32 = 0.25;
@@ -23,7 +24,27 @@ const MAX_RECENCY_DAYS: f32 = 90.0;
 pub struct FactEmbedding {
     pub category: String,
     pub key: String,
+    /// Legacy full-precision vector (indices written before int8 quantization).
+    /// Migrated to `quant` transparently on load and then emptied, so it only
+    /// appears in files written by older binaries.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub embedding: Vec<f32>,
+    /// int8-quantized representation (turbovec-derived) — 4× smaller on disk and
+    /// the canonical storage for every entry written by current binaries.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quant: Option<QuantizedVector>,
+}
+
+impl FactEmbedding {
+    /// Similarity against a full-precision (L2-normalized) query. Scores directly
+    /// against the int8 codes when available; falls back to the legacy f32 vector
+    /// for not-yet-migrated entries.
+    fn similarity(&self, query: &[f32]) -> f32 {
+        match &self.quant {
+            Some(q) => embedding_quant::dot_quant(query, q),
+            None => embedding_quant::dot_f32(query, &self.embedding),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,20 +61,37 @@ impl KnowledgeEmbeddingIndex {
         }
     }
 
-    pub fn upsert(&mut self, category: &str, key: &str, embedding: Vec<f32>) {
+    pub fn upsert(&mut self, category: &str, key: &str, embedding: &[f32]) {
+        let quant = Some(embedding_quant::quantize(embedding));
         if let Some(existing) = self
             .entries
             .iter_mut()
             .find(|e| e.category == category && e.key == key)
         {
-            existing.embedding = embedding;
+            existing.quant = quant;
+            existing.embedding = Vec::new();
         } else {
             self.entries.push(FactEmbedding {
                 category: category.to_string(),
                 key: key.to_string(),
-                embedding,
+                embedding: Vec::new(),
+                quant,
             });
         }
+    }
+
+    /// Upgrades any legacy full-precision entries to int8 in place. Returns true
+    /// if anything changed (so the caller can persist the smaller form once).
+    fn migrate_legacy_entries(&mut self) -> bool {
+        let mut changed = false;
+        for e in &mut self.entries {
+            if e.quant.is_none() && !e.embedding.is_empty() {
+                e.quant = Some(embedding_quant::quantize(&e.embedding));
+                e.embedding = Vec::new();
+                changed = true;
+            }
+        }
+        changed
     }
 
     pub fn remove(&mut self, category: &str, key: &str) {
@@ -71,7 +109,7 @@ impl KnowledgeEmbeddingIndex {
             .entries
             .iter()
             .map(|e| {
-                let sim = cosine_similarity(query_embedding, &e.embedding);
+                let sim = e.similarity(query_embedding);
                 (e, sim)
             })
             .collect();
@@ -97,7 +135,13 @@ impl KnowledgeEmbeddingIndex {
     pub fn load(project_hash: &str) -> Option<Self> {
         let path = Self::index_path(project_hash)?;
         let data = std::fs::read_to_string(path).ok()?;
-        serde_json::from_str(&data).ok()
+        let mut index: Self = serde_json::from_str(&data).ok()?;
+        // Pay the one-time int8 migration cost on first load by an upgraded binary,
+        // then persist so subsequent loads read the 4×-smaller form.
+        if index.migrate_legacy_entries() {
+            let _ = index.save();
+        }
+        Some(index)
     }
 
     pub fn save(&self) -> Result<(), String> {
@@ -342,7 +386,7 @@ pub fn embed_and_store(
 ) -> Result<(), String> {
     let text = format!("{category} {key}: {value}");
     let embedding = engine.embed(&text).map_err(|e| format!("{e}"))?;
-    index.upsert(category, key, embedding);
+    index.upsert(category, key, &embedding);
     Ok(())
 }
 
@@ -399,6 +443,7 @@ mod tests {
                 category: "arch".to_string(),
                 key: "db".to_string(),
                 embedding: vec![1.0, 0.0, 0.0],
+                quant: None,
             }],
         };
         idx.save().expect("save");
@@ -462,9 +507,9 @@ mod tests {
         });
 
         let mut idx = KnowledgeEmbeddingIndex::new(&knowledge.project_hash);
-        idx.upsert("arch", "db", vec![1.0, 0.0, 0.0]);
-        idx.upsert("arch", "old", vec![0.0, 1.0, 0.0]);
-        idx.upsert("ops", "deploy", vec![0.0, 0.0, 1.0]);
+        idx.upsert("arch", "db", &[1.0, 0.0, 0.0]);
+        idx.upsert("arch", "old", &[0.0, 1.0, 0.0]);
+        idx.upsert("ops", "deploy", &[0.0, 0.0, 1.0]);
 
         compact_against_knowledge(&mut idx, &knowledge, &MemoryPolicy::default());
         assert_eq!(idx.entries.len(), 1);
@@ -475,14 +520,20 @@ mod tests {
     #[test]
     fn index_upsert_and_remove() {
         let mut idx = KnowledgeEmbeddingIndex::new("test");
-        idx.upsert("arch", "db", vec![1.0, 0.0, 0.0]);
+        idx.upsert("arch", "db", &[1.0, 0.0, 0.0]);
         assert_eq!(idx.entries.len(), 1);
 
-        idx.upsert("arch", "db", vec![0.0, 1.0, 0.0]);
+        idx.upsert("arch", "db", &[0.0, 1.0, 0.0]);
         assert_eq!(idx.entries.len(), 1);
-        assert_eq!(idx.entries[0].embedding[1], 1.0);
+        // Stored quantized now: the dominant axis reconstructs to ~1.0.
+        let recon = idx.entries[0]
+            .quant
+            .as_ref()
+            .expect("quantized")
+            .dequantize();
+        assert!((recon[1] - 1.0).abs() < 1e-6);
 
-        idx.upsert("arch", "cache", vec![0.0, 0.0, 1.0]);
+        idx.upsert("arch", "cache", &[0.0, 0.0, 1.0]);
         assert_eq!(idx.entries.len(), 2);
 
         idx.remove("arch", "db");
@@ -556,9 +607,9 @@ mod tests {
     #[test]
     fn semantic_search_ranking() {
         let mut idx = KnowledgeEmbeddingIndex::new("test");
-        idx.upsert("arch", "db", vec![1.0, 0.0, 0.0]);
-        idx.upsert("arch", "cache", vec![0.0, 1.0, 0.0]);
-        idx.upsert("ops", "deploy", vec![0.5, 0.5, 0.0]);
+        idx.upsert("arch", "db", &[1.0, 0.0, 0.0]);
+        idx.upsert("arch", "cache", &[0.0, 1.0, 0.0]);
+        idx.upsert("ops", "deploy", &[0.5, 0.5, 0.0]);
 
         let query = vec![1.0, 0.0, 0.0];
         let results = idx.semantic_search(&query, 2);
