@@ -138,6 +138,11 @@ pub fn run() {
                 core::stats::flush();
                 return;
             }
+            "repomap" | "repo-map" => {
+                crate::cli::cmd_repomap(&rest);
+                core::stats::flush();
+                return;
+            }
             "cep" => {
                 println!("{}", core::stats::format_cep_report());
                 return;
