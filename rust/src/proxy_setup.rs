@@ -181,8 +181,7 @@ pub fn uninstall_proxy_env(home: &Path, quiet: bool) {
         );
     }
 
-    let ps_profile =
-        dirs::home_dir().map(|h| h.join("Documents/PowerShell/Microsoft.PowerShell_profile.ps1"));
+    let ps_profile = dirs::home_dir().map(|h| crate::shell::platform::powershell_profile_path(&h));
     if let Some(ref ps) = ps_profile {
         if ps.exists() {
             marked_block::remove_from_file(
@@ -253,8 +252,7 @@ set -gx GEMINI_API_BASE_URL "{base}"
         );
     }
 
-    let ps_profile =
-        dirs::home_dir().map(|h| h.join("Documents/PowerShell/Microsoft.PowerShell_profile.ps1"));
+    let ps_profile = dirs::home_dir().map(|h| crate::shell::platform::powershell_profile_path(&h));
     if let Some(ref ps) = ps_profile {
         if ps.exists() {
             let ps_block = format!(

@@ -248,10 +248,14 @@ if ($_leanCtxShouldActivate) {{
 }
 
 pub fn init_powershell(binary: &str) {
-    let profile_dir = dirs::home_dir().map(|h| h.join("Documents").join("PowerShell"));
-    let profile_path = if let Some(dir) = profile_dir {
-        let _ = std::fs::create_dir_all(&dir);
-        dir.join("Microsoft.PowerShell_profile.ps1")
+    // OS-aware profile path: ~/.config/powershell on macOS/Linux (never ~/Documents,
+    // which triggers a macOS TCC prompt, #356), Documents\PowerShell on Windows.
+    let profile_path = if let Some(home) = dirs::home_dir() {
+        let path = crate::shell::platform::powershell_profile_path(&home);
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        path
     } else {
         tracing::error!("Could not resolve PowerShell profile directory");
         return;

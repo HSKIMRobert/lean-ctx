@@ -115,6 +115,12 @@ use crate::core::pathutil::is_broad_or_unsafe_root;
 /// itself, but contains child directories that do. In this case, use the
 /// parent as jail root and auto-allow all child projects via LEAN_CTX_ALLOW_PATH.
 fn detect_multi_root_workspace(dir: &std::path::Path) -> Option<String> {
+    // Never enumerate the home dir or macOS TCC-protected dirs (Documents/Desktop/
+    // Downloads): read_dir there triggers a macOS privacy prompt (#356), and a real
+    // project under them is already handled upstream via has_project_marker.
+    if crate::core::pathutil::is_tcc_sensitive_home_dir(dir) {
+        return None;
+    }
     let entries = std::fs::read_dir(dir).ok()?;
     let mut child_projects: Vec<String> = Vec::new();
 

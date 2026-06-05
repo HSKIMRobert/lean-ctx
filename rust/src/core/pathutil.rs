@@ -166,9 +166,38 @@ pub fn has_project_marker(dir: &Path) -> bool {
     PROJECT_MARKERS.iter().any(|m| dir.join(m).exists())
 }
 
+/// Returns `true` if `dir` is the home directory or one of the macOS "magic"
+/// home subdirectories (`Documents`, `Desktop`, `Downloads`).
+///
+/// macOS guards these with TCC: the first time a process *enumerates or stats
+/// inside* one, the OS pops a privacy prompt ("lean-ctx would like to access
+/// files in your Documents folder", #356). They are also never valid project
+/// roots or multi-repo workspace parents, so scan heuristics should treat them
+/// as off-limits *without* calling `read_dir` (which is what trips the prompt).
+pub fn is_tcc_sensitive_home_dir(dir: &Path) -> bool {
+    let Some(home) = dirs::home_dir() else {
+        return false;
+    };
+    if dir == home {
+        return true;
+    }
+    if dir.parent() != Some(home.as_path()) {
+        return false;
+    }
+    matches!(
+        dir.file_name().and_then(|n| n.to_str()),
+        Some("Documents" | "Desktop" | "Downloads")
+    )
+}
+
 /// Returns `true` if `dir` is a multi-repo workspace parent — i.e. it has at
 /// least 2 immediate child directories that each contain a project marker.
 pub fn has_multi_repo_children(dir: &Path) -> bool {
+    // Never enumerate the home dir or macOS TCC-protected dirs: read_dir there
+    // pops a macOS privacy prompt (#356) and they are never workspace parents.
+    if is_tcc_sensitive_home_dir(dir) {
+        return false;
+    }
     let Ok(entries) = std::fs::read_dir(dir) else {
         return false;
     };
@@ -219,6 +248,32 @@ mod tests {
         let p = PathBuf::from(r"\\?\C:\Users\dev\project");
         let result = strip_verbatim(p);
         assert_eq!(result, PathBuf::from("C:/Users/dev/project"));
+    }
+
+    #[test]
+    fn tcc_sensitive_home_dir_matches_home_and_magic_dirs() {
+        let Some(home) = dirs::home_dir() else {
+            return;
+        };
+        // Home itself and the macOS magic dirs are off-limits (#356).
+        assert!(is_tcc_sensitive_home_dir(&home));
+        assert!(is_tcc_sensitive_home_dir(&home.join("Documents")));
+        assert!(is_tcc_sensitive_home_dir(&home.join("Desktop")));
+        assert!(is_tcc_sensitive_home_dir(&home.join("Downloads")));
+    }
+
+    #[test]
+    fn tcc_sensitive_home_dir_allows_real_projects() {
+        let Some(home) = dirs::home_dir() else {
+            return;
+        };
+        // A real project (even nested under Documents) and non-magic home children
+        // are scannable — only the bare magic dirs / home are blocked.
+        assert!(!is_tcc_sensitive_home_dir(
+            &home.join("Documents").join("my-project")
+        ));
+        assert!(!is_tcc_sensitive_home_dir(&home.join("code")));
+        assert!(!is_tcc_sensitive_home_dir(&home.join("Projects")));
     }
 
     #[test]

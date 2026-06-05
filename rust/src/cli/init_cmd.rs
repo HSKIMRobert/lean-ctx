@@ -94,7 +94,14 @@ pub fn cmd_init(args: &[String]) {
 
     if dry_run {
         let rc = if is_powershell {
-            "Documents/PowerShell/Microsoft.PowerShell_profile.ps1".to_string()
+            dirs::home_dir().map_or_else(
+                || "PowerShell profile".to_string(),
+                |h| {
+                    crate::shell::platform::powershell_profile_path(&h)
+                        .to_string_lossy()
+                        .into_owned()
+                },
+            )
         } else if is_fish {
             "~/.config/fish/config.fish".to_string()
         } else if is_zsh {

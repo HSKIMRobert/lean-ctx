@@ -142,6 +142,23 @@ pub(crate) fn is_powershell(shell_path: &str) -> bool {
     name.contains("powershell") || name.contains("pwsh")
 }
 
+/// Path to the current-user PowerShell profile (`$PROFILE.CurrentUserCurrentHost`).
+///
+/// Windows PowerShell stores it under `Documents\PowerShell\…`, but **PowerShell
+/// (pwsh) on macOS/Linux reads `~/.config/powershell/…` instead** — and stat-ing
+/// anything inside `~/Documents` on macOS pops a TCC privacy prompt ("lean-ctx
+/// would like to access files in your Documents folder", #356). Resolving the
+/// profile per-OS keeps pwsh support everywhere while never touching `~/Documents`
+/// on non-Windows hosts.
+pub(crate) fn powershell_profile_path(home: &std::path::Path) -> std::path::PathBuf {
+    const PROFILE_FILE: &str = "Microsoft.PowerShell_profile.ps1";
+    if cfg!(windows) {
+        home.join("Documents").join("PowerShell").join(PROFILE_FILE)
+    } else {
+        home.join(".config").join("powershell").join(PROFILE_FILE)
+    }
+}
+
 /// Windows only: argument that passes one command string to the shell binary.
 /// `exe_basename` must already be ASCII-lowercase (e.g. `bash.exe`, `cmd.exe`).
 fn windows_shell_flag_for_exe_basename(exe_basename: &str) -> &'static str {
@@ -480,6 +497,41 @@ mod is_powershell_tests {
             "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
         ));
         assert!(is_powershell("/usr/local/bin/pwsh"));
+    }
+}
+
+#[cfg(test)]
+mod powershell_profile_tests {
+    use super::powershell_profile_path;
+    use std::path::Path;
+
+    #[test]
+    fn always_ends_with_profile_file() {
+        let p = powershell_profile_path(Path::new("/home/u"));
+        assert!(p.ends_with("Microsoft.PowerShell_profile.ps1"));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn non_windows_uses_config_powershell_never_documents() {
+        // #356: stat-ing anything under ~/Documents pops a macOS TCC prompt, so the
+        // non-Windows profile path must live under ~/.config/powershell instead.
+        let p = powershell_profile_path(Path::new("/Users/jane"));
+        assert_eq!(
+            p,
+            Path::new("/Users/jane/.config/powershell/Microsoft.PowerShell_profile.ps1")
+        );
+        assert!(
+            !p.to_string_lossy().contains("Documents"),
+            "macOS/Linux PowerShell profile must never touch ~/Documents (#356)"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_uses_documents_powershell() {
+        let p = powershell_profile_path(Path::new("C:\\Users\\jane"));
+        assert!(p.ends_with("Documents\\PowerShell\\Microsoft.PowerShell_profile.ps1"));
     }
 }
 

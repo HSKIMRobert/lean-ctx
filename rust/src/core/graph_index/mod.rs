@@ -54,6 +54,15 @@ fn is_safe_scan_root(path: &str) -> bool {
             });
             return false;
         }
+        // macOS TCC: Documents/Desktop/Downloads pop a privacy prompt the moment
+        // we stat or enumerate inside them (#356). They are never valid scan roots,
+        // so refuse here before any has_marker stat or read_dir runs.
+        if crate::core::pathutil::is_tcc_sensitive_home_dir(p) {
+            tracing::warn!(
+                "[graph_index: refusing to scan {normalized} — macOS TCC-protected home dir]"
+            );
+            return false;
+        }
         // Block common broad home subdirectories that are never valid project roots
         let home_path = Path::new(&home_norm);
         const BLOCKED_HOME_SUBDIRS: &[&str] = &[
