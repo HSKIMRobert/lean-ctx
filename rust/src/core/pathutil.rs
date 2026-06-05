@@ -158,6 +158,7 @@ pub const PROJECT_MARKERS: &[&str] = &[
     "build.gradle",
     "Makefile",
     ".lean-ctx.toml",
+    ".planning",
 ];
 
 /// Returns `true` if `dir` contains at least one known project marker.

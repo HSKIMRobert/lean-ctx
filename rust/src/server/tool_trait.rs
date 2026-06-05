@@ -132,30 +132,10 @@ impl ToolContext {
         self.path_errors.get(key).map(String::as_str)
     }
 
-    /// Sync path resolution using project_root. Simplified version
-    /// of LeanCtxServer::resolve_path for use in sync tool handlers.
+    /// Sync path resolution using `project_root`. Thin wrapper over
+    /// [`crate::core::path_resolve::resolve_tool_path`] for sync tool handlers.
     pub fn resolve_path_sync(&self, path: &str) -> Result<String, String> {
-        let normalized = crate::core::pathutil::normalize_tool_path(path);
-        if normalized.is_empty() || normalized == "." {
-            return Ok(normalized);
-        }
-        let p = std::path::Path::new(&normalized);
-        let resolved = if p.is_absolute() || p.exists() {
-            std::path::PathBuf::from(&normalized)
-        } else {
-            let joined = std::path::Path::new(&self.project_root).join(&normalized);
-            if joined.exists() {
-                joined
-            } else {
-                std::path::Path::new(&self.project_root).join(&normalized)
-            }
-        };
-        let jail_root = std::path::Path::new(&self.project_root);
-        let jailed = crate::core::pathjail::jail_path(&resolved, jail_root)?;
-        crate::core::io_boundary::check_secret_path_for_tool("resolve_path", &jailed)?;
-        Ok(crate::core::pathutil::normalize_tool_path(
-            &jailed.to_string_lossy().replace('\\', "/"),
-        ))
+        crate::core::path_resolve::resolve_tool_path(Some(&self.project_root), None, path)
     }
 }
 

@@ -340,6 +340,7 @@ pub mod mdl_selector;
 pub mod multi_repo;
 pub mod owasp_alignment;
 pub mod path_locks;
+pub mod path_resolve;
 pub mod pathutil;
 pub mod pipeline;
 pub mod plugins;

@@ -1,4 +1,5 @@
 use super::types::SessionState;
+use crate::core::pathutil::has_project_marker;
 
 pub(crate) fn normalize_loaded_session(mut session: SessionState) -> SessionState {
     if matches!(session.project_root.as_deref(), Some(r) if r.trim().is_empty()) {
@@ -63,19 +64,6 @@ pub(crate) fn session_matches_project_root(
     }
 
     false
-}
-
-fn has_project_marker(dir: &std::path::Path) -> bool {
-    const MARKERS: &[&str] = &[
-        ".git",
-        ".lean-ctx.toml",
-        "Cargo.toml",
-        "package.json",
-        "go.mod",
-        "pyproject.toml",
-        ".planning",
-    ];
-    MARKERS.iter().any(|m| dir.join(m).exists())
 }
 
 fn is_agent_or_temp_dir(dir: &std::path::Path) -> bool {

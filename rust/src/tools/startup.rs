@@ -11,21 +11,8 @@ pub fn create_server() -> LeanCtxServer {
     LeanCtxServer::new()
 }
 
-pub(super) const PROJECT_ROOT_MARKERS: &[&str] = &[
-    ".git",
-    ".lean-ctx.toml",
-    "Cargo.toml",
-    "package.json",
-    "go.mod",
-    "pyproject.toml",
-    "pom.xml",
-    "build.gradle",
-    "Makefile",
-    ".planning",
-];
-
 pub(super) fn has_project_marker(dir: &std::path::Path) -> bool {
-    PROJECT_ROOT_MARKERS.iter().any(|m| dir.join(m).exists())
+    crate::core::pathutil::has_project_marker(dir)
 }
 
 pub(super) fn is_suspicious_root(dir: &std::path::Path) -> bool {
