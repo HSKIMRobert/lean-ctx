@@ -18,6 +18,7 @@ pub mod role_guard;
 pub mod roots;
 use roots::has_project_marker;
 pub mod tool_trait;
+pub mod tool_visibility;
 
 use futures::FutureExt;
 use rmcp::handler::server::ServerHandler;

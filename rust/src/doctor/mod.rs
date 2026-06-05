@@ -528,6 +528,15 @@ pub fn run() {
     };
     println!("  {shadow_line}");
 
+    // Tool-schema footprint (informational, not scored). The active profile now
+    // authoritatively determines the advertised set, so its description reflects
+    // exactly what the MCP client sees (plus the always-on ctx_call gateway).
+    let tool_profile = crate::core::tool_profiles::ToolProfile::from_config(&cfg);
+    println!(
+        "  {BOLD}Tool profile{RST}  {WHITE}{tool_profile}{RST}  {DIM}{} + ctx_call gateway{RST}",
+        tool_profile.description()
+    );
+
     let needs_attention = effective_total.saturating_sub(passed);
     println!();
     println!("  {BOLD}{WHITE}Summary:{RST}  {GREEN}{passed}{RST}{DIM}/{effective_total}{RST} checks passed");

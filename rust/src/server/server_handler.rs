@@ -244,6 +244,19 @@ impl ServerHandler for LeanCtxServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
+        let cfg = crate::core::config::Config::load();
+        let disabled = cfg.disabled_tools_effective();
+        let tool_profile = cfg.tool_profile_effective();
+        // A profile is "explicit" when the user opted into one (config field,
+        // env var, or a custom tools list). Without an explicit choice we keep
+        // the token-lean lazy core set as the default. With one, the profile is
+        // authoritative and resolves against the full registry, so e.g.
+        // `standard` advertises its full balanced set instead of the accidental
+        // `core ∩ standard` intersection.
+        let explicit_profile = cfg.tool_profile.is_some()
+            || !cfg.tools_enabled.is_empty()
+            || std::env::var("LEAN_CTX_TOOL_PROFILE").is_ok();
+
         let all_tools = if crate::tool_defs::is_full_mode() {
             if let Some(ref reg) = self.registry {
                 reg.tool_defs()
@@ -253,18 +266,18 @@ impl ServerHandler for LeanCtxServer {
         } else if std::env::var("LEAN_CTX_UNIFIED").is_ok() {
             crate::tool_defs::unified_tool_defs()
         } else if let Some(ref reg) = self.registry {
-            let core_names = crate::tool_defs::core_tool_names();
-            reg.tool_defs()
-                .into_iter()
-                .filter(|t| core_names.contains(&t.name.as_ref()))
-                .collect()
+            if explicit_profile {
+                reg.tool_defs()
+            } else {
+                let core_names = crate::tool_defs::core_tool_names();
+                reg.tool_defs()
+                    .into_iter()
+                    .filter(|t| core_names.contains(&t.name.as_ref()))
+                    .collect()
+            }
         } else {
             crate::tool_defs::lazy_tool_defs()
         };
-
-        let cfg = crate::core::config::Config::load();
-        let disabled = cfg.disabled_tools_effective();
-        let tool_profile = cfg.tool_profile_effective();
         let client = self.client_name.read().await.clone();
         let is_zed = !client.is_empty() && client.to_lowercase().contains("zed");
 
@@ -273,21 +286,40 @@ impl ServerHandler for LeanCtxServer {
             .into_iter()
             .filter(|t| {
                 let name = t.name.as_ref();
-                if !tool_profile.is_tool_enabled(name) {
-                    return false;
-                }
-                if !disabled.is_empty() && disabled.iter().any(|d| d.as_str() == name) {
-                    return false;
-                }
-                if is_zed && name == "ctx_edit" {
-                    return false;
-                }
-                if !active_role.is_tool_allowed(name) {
-                    return false;
-                }
-                true
+                crate::server::tool_visibility::is_tool_visible(
+                    name,
+                    &tool_profile,
+                    &disabled,
+                    is_zed,
+                    active_role.is_tool_allowed(name),
+                )
             })
             .collect();
+
+        // Guarantee the universal invoker is advertised in non-full mode. Lazy
+        // and profile filtering hide most tools; without ctx_call a static-list
+        // client (one that only calls advertised tools) could not reach them.
+        // ctx_call enforces the same role/workflow gates on the inner tool.
+        let tools = {
+            let mut tools = tools;
+            use crate::server::tool_visibility::INVOKER;
+            let already = tools.iter().any(|t| t.name.as_ref() == INVOKER);
+            if crate::server::tool_visibility::needs_invoker(
+                crate::tool_defs::is_full_mode(),
+                already,
+                active_role.is_tool_allowed(INVOKER),
+                &disabled,
+            ) {
+                if let Some(def) = self.registry.as_ref().and_then(|reg| {
+                    reg.tool_defs()
+                        .into_iter()
+                        .find(|t| t.name.as_ref() == INVOKER)
+                }) {
+                    tools.push(def);
+                }
+            }
+            tools
+        };
 
         let tools = {
             let Ok(dyn_state) = dynamic_tools::global().lock() else {
