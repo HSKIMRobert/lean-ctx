@@ -53,6 +53,7 @@ All `std::sync::Mutex` unless noted otherwise.
 | L40 | `GLOBAL_MANAGER` | `core/multi_repo.rs:363` | `OnceLock<Mutex<MultiRepoManager>>` | Multi-repo workspace manager |
 | L41 | `KNOWLEDGE_LOCKS` | `core/knowledge/persist.rs` | `OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>>` | Per-project knowledge.json read-modify-write serialization |
 | L42 | `LAST_PARSE_ERROR` | `core/config/mod.rs:440` | `Mutex<Option<String>>` | Most recent global `config.toml` parse error (surfaced by doctor/diagnostics) |
+| L43 | `POLICY_CACHE` | `server/permission_inheritance.rs:53` | `OnceLock<Mutex<Option<CacheEntry>>>` | Cached host-IDE permission policy (TTL-bounded) for permission inheritance |
 
 ### Test / Environment Locks (serialise env-var mutations)
 
@@ -153,9 +154,9 @@ Override via `LEAN_CTX_WORKER_THREADS` (positive integer) for environments with 
 concurrent subagents. Example: `LEAN_CTX_WORKER_THREADS=8`. The blocking thread pool
 is always `worker_threads * 4`, clamped to `[8, 32]`.
 
-### Independent Static Locks (L3–L42)
+### Independent Static Locks (L3–L43)
 
-All other static locks (L3–L42) are **independent singletons** — they protect isolated subsystem
+All other static locks (L3–L43) are **independent singletons** — they protect isolated subsystem
 state and are never nested inside each other. Each should be acquired in isolation:
 
 - **Do not hold two static locks at the same time.** If a future change requires locking two

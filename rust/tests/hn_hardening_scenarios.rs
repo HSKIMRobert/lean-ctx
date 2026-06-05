@@ -11,11 +11,25 @@ use std::io::Write;
 /// below stay robust to internal module structure.
 fn server_dispatch_src() -> String {
     format!(
-        "{}\n{}\n{}",
+        "{}\n{}\n{}\n{}\n{}",
         include_str!("../src/server/mod.rs"),
         include_str!("../src/server/call_tool.rs"),
         include_str!("../src/server/server_handler.rs"),
+        include_str!("../src/server/post_process.rs"),
+        include_str!("../src/server/post_dispatch.rs"),
     )
+}
+
+/// Extract the body of the `fn skip_terse(` guard (everything after the opening
+/// brace) so structural assertions stay robust to where the guard lives and to
+/// its parameter order — they only care about the boolean logic in the body.
+fn skip_terse_body(src: &str) -> String {
+    let sig = src
+        .find("fn skip_terse(")
+        .expect("skip_terse guard function must exist");
+    let brace = src[sig..].find('{').expect("skip_terse must have a body") + sig;
+    let window = &src[brace..];
+    window[..window.len().min(800)].to_string()
 }
 
 // =============================================================================
@@ -159,28 +173,24 @@ mod double_compression_guard {
     #[test]
     fn scenario_skip_terse_when_already_compressed() {
         let src = crate::server_dispatch_src();
+        let body = crate::skip_terse_body(&src);
         assert!(
-            src.contains("tool_saved_tokens > 0"),
-            "skip_terse condition must check tool_saved_tokens"
-        );
-        // Verify it's part of the skip_terse condition
-        let skip_terse_block = src
-            .find("let skip_terse = is_raw_shell")
-            .expect("skip_terse must exist");
-        let block_end = src[skip_terse_block..].find(';').unwrap();
-        let block = &src[skip_terse_block..skip_terse_block + block_end];
-        assert!(
-            block.contains("tool_saved_tokens > 0"),
-            "tool_saved_tokens guard must be in skip_terse assignment"
+            body.contains("tool_saved_tokens > 0"),
+            "skip_terse must guard already-compressed output via `tool_saved_tokens > 0`"
         );
     }
 
     #[test]
     fn scenario_raw_shell_still_bypasses() {
         let src = crate::server_dispatch_src();
+        let body = crate::skip_terse_body(&src);
+        let raw_idx = body
+            .find("is_raw_shell")
+            .expect("skip_terse must reference is_raw_shell");
+        let saved_idx = body.find("tool_saved_tokens").unwrap_or(usize::MAX);
         assert!(
-            src.contains("let skip_terse = is_raw_shell"),
-            "is_raw_shell must be first in skip_terse"
+            raw_idx < saved_idx,
+            "is_raw_shell must short-circuit first in the skip_terse body"
         );
     }
 }
@@ -698,12 +708,16 @@ mod integration {
         assert!(src.contains("let (mut result_text, tool_saved_tokens)"));
 
         // 2. skip_terse uses it
+        let body = crate::skip_terse_body(&src);
         assert!(
-            src.contains("tool_saved_tokens > 0"),
+            body.contains("tool_saved_tokens"),
             "skip_terse must reference tool_saved_tokens"
         );
 
-        // 3. Compression only runs when not skipped
-        assert!(src.contains("if compression.is_active() && !skip_terse"));
+        // 3. Terse compression is gated by skip_terse()
+        assert!(
+            src.contains("if skip_terse("),
+            "terse compression must be gated by an early skip_terse() return"
+        );
     }
 }

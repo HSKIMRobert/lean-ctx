@@ -33,18 +33,53 @@ fn check_file(path: &Path, results: &mut Vec<(String, String)>) {
         .strip_prefix(env!("CARGO_MANIFEST_DIR"))
         .unwrap_or(path);
 
+    // Test-only serialization locks (e.g. `static TEST_LOCK: Mutex<()>`) live inside
+    // inline `#[cfg(test)] mod tests { ... }` blocks and are not part of the
+    // production lock-ordering graph, so they must not require documentation. We
+    // track brace depth to skip such blocks. An external `#[cfg(test)] mod tests;`
+    // (semicolon, no body) does NOT open a skip scope, so production locks declared
+    // after it (common in large modules) are still checked.
+    let mut depth: i32 = 0;
+    let mut in_test = false;
+    let mut test_depth: i32 = 0;
+    let mut armed = false; // saw `#[cfg(test)]`, awaiting the gated item's `{`
+
     for (i, line) in content.lines().enumerate() {
         let trimmed = line.trim();
-        if trimmed.starts_with("//") || trimmed.starts_with("///") || trimmed.starts_with("#[") {
-            continue;
-        }
-        let is_static_decl = (trimmed.starts_with("static ") || trimmed.starts_with("pub static "))
-            && (trimmed.contains("Mutex<") || trimmed.contains("RwLock<"));
 
-        if is_static_decl {
+        if !in_test && trimmed.contains("#[cfg(test)]") {
+            armed = true;
+        }
+
+        let opens = line.matches('{').count() as i32;
+        let closes = line.matches('}').count() as i32;
+
+        if armed {
+            if opens > 0 {
+                // The gated item has a body — enter the test scope.
+                in_test = true;
+                test_depth = depth;
+                armed = false;
+            } else if trimmed.contains(';') {
+                // Gated item without a body (external `mod x;`, `use ...;`) — no scope.
+                armed = false;
+            }
+        }
+
+        let is_static_decl =
+            !(trimmed.starts_with("//") || trimmed.starts_with("///") || trimmed.starts_with("#["))
+                && (trimmed.starts_with("static ") || trimmed.starts_with("pub static "))
+                && (trimmed.contains("Mutex<") || trimmed.contains("RwLock<"));
+
+        if is_static_decl && !in_test {
             let lock_name = extract_lock_name(trimmed);
             let location = format!("{}:{}", rel.display(), i + 1);
             results.push((lock_name, location));
+        }
+
+        depth += opens - closes;
+        if in_test && depth <= test_depth {
+            in_test = false;
         }
     }
 }
