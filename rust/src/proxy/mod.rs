@@ -140,6 +140,16 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
         .route("/v1/chat/completions", any(openai::handler))
         .route("/v1/responses", any(openai_responses::handler))
         .route("/v1/responses/{*rest}", any(openai_responses::handler))
+        // Bare provider endpoints (no `/v1` prefix). Clients whose base URL points
+        // at the proxy root — notably OpenCode via `@ai-sdk/openai`, whose
+        // Responses-API requests hit `/responses` — dispatch here. The
+        // `normalize_provider_path` layer rewrites the URI to its canonical
+        // `/v1/...` form before the handler forwards upstream (#353).
+        .route("/messages", any(anthropic::handler))
+        .route("/messages/{*rest}", any(anthropic::handler))
+        .route("/chat/completions", any(openai::handler))
+        .route("/responses", any(openai_responses::handler))
+        .route("/responses/{*rest}", any(openai_responses::handler))
         .route("/v1/references/{id}", get(v1_resolve_reference))
         .fallback(fallback_router)
         .layer(axum::middleware::from_fn(host_guard))
@@ -152,6 +162,11 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
             proxy_auth_guard(req, next, expected)
         }));
     }
+
+    // Outermost layer (runs first): normalize bare provider endpoints to their
+    // canonical `/v1/...` form so auth, routing and upstream forwarding all agree,
+    // regardless of whether the client's base URL includes `/v1` (#353).
+    app = app.layer(axum::middleware::from_fn(normalize_provider_path));
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     if auth_token.is_some() {
@@ -327,6 +342,60 @@ fn is_provider_route(path: &str) -> bool {
     path.starts_with("/v1/")
         || path.starts_with("/v1beta/")
         || path.starts_with("/chat/completions")
+        || path.starts_with("/responses")
+        || path.starts_with("/messages")
+}
+
+/// Maps a bare provider endpoint to its canonical `/v1/...` form, preserving any
+/// sub-path. Returns `None` when the path is already canonical or not a known
+/// provider endpoint.
+///
+/// Some OpenAI-compatible clients treat the configured base URL as the API root
+/// and append the bare endpoint, so they send `POST /responses` or
+/// `/chat/completions` instead of `/v1/responses` — notably OpenCode via
+/// `@ai-sdk/openai`, whose Responses-API requests land on `/responses`. The proxy
+/// and every upstream only know the `/v1/...` paths, so an un-prefixed request
+/// would 401 (not a provider route) and then 404 (no handler). (#353)
+fn canonical_provider_path(path: &str) -> Option<String> {
+    const BARE_TO_CANONICAL: &[(&str, &str)] = &[
+        ("/responses", "/v1/responses"),
+        ("/chat/completions", "/v1/chat/completions"),
+        ("/messages", "/v1/messages"),
+    ];
+    for (bare, canonical) in BARE_TO_CANONICAL {
+        if path == *bare {
+            return Some((*canonical).to_string());
+        }
+        if let Some(rest) = path.strip_prefix(&format!("{bare}/")) {
+            return Some(format!("{canonical}/{rest}"));
+        }
+    }
+    None
+}
+
+/// Returns the canonicalized URI for a bare provider endpoint (query preserved),
+/// or `None` when no rewrite is needed. Pure, so the rewrite is unit-testable
+/// without constructing axum middleware plumbing.
+fn normalized_provider_uri(uri: &axum::http::Uri) -> Option<axum::http::Uri> {
+    let canonical = canonical_provider_path(uri.path())?;
+    let new_path_and_query = match uri.query() {
+        Some(q) => format!("{canonical}?{q}"),
+        None => canonical,
+    };
+    new_path_and_query.parse::<axum::http::Uri>().ok()
+}
+
+/// Rewrites the request URI in place when it targets a bare provider endpoint, so
+/// downstream auth (`is_provider_route`), routing and upstream forwarding all see
+/// the canonical `/v1/...` path. (#353)
+async fn normalize_provider_path(
+    mut req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    if let Some(uri) = normalized_provider_uri(req.uri()) {
+        *req.uri_mut() = uri;
+    }
+    next.run(req).await
 }
 
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
@@ -465,5 +534,77 @@ mod auth_tests {
             !has_provider_api_key(&req),
             "non-sk/gsk Bearer should not count as provider key"
         );
+    }
+
+    // --- #353: bare provider endpoints (OpenCode / @ai-sdk/openai) ---
+
+    #[test]
+    fn is_provider_route_bare_responses_and_messages() {
+        // Clients that point their base URL at the proxy root (no `/v1`) send the
+        // bare endpoint; auth must still recognise it as a provider route.
+        assert!(is_provider_route("/responses"));
+        assert!(is_provider_route("/responses/resp_123/input_items"));
+        assert!(is_provider_route("/messages"));
+    }
+
+    #[test]
+    fn canonical_provider_path_rewrites_bare_endpoints() {
+        assert_eq!(
+            canonical_provider_path("/responses").as_deref(),
+            Some("/v1/responses")
+        );
+        assert_eq!(
+            canonical_provider_path("/chat/completions").as_deref(),
+            Some("/v1/chat/completions")
+        );
+        assert_eq!(
+            canonical_provider_path("/messages").as_deref(),
+            Some("/v1/messages")
+        );
+    }
+
+    #[test]
+    fn canonical_provider_path_preserves_subpaths() {
+        assert_eq!(
+            canonical_provider_path("/responses/resp_abc/cancel").as_deref(),
+            Some("/v1/responses/resp_abc/cancel")
+        );
+        assert_eq!(
+            canonical_provider_path("/messages/batches/batch_1").as_deref(),
+            Some("/v1/messages/batches/batch_1")
+        );
+    }
+
+    #[test]
+    fn canonical_provider_path_ignores_already_canonical_and_unknown() {
+        // Already canonical → no rewrite (avoids `/v1/v1/...`).
+        assert_eq!(canonical_provider_path("/v1/responses"), None);
+        assert_eq!(canonical_provider_path("/v1/chat/completions"), None);
+        // Unrelated paths are untouched.
+        assert_eq!(canonical_provider_path("/health"), None);
+        assert_eq!(canonical_provider_path("/responsesx"), None);
+        assert_eq!(canonical_provider_path("/"), None);
+    }
+
+    #[test]
+    fn normalized_provider_uri_rewrites_path_and_preserves_query() {
+        use axum::http::Uri;
+        let uri: Uri = "/responses?stream=true".parse().unwrap();
+        let rewritten = normalized_provider_uri(&uri).expect("bare /responses must rewrite");
+        assert_eq!(rewritten.path(), "/v1/responses");
+        assert_eq!(rewritten.query(), Some("stream=true"));
+        assert_eq!(
+            rewritten
+                .path_and_query()
+                .map(axum::http::uri::PathAndQuery::as_str),
+            Some("/v1/responses?stream=true")
+        );
+    }
+
+    #[test]
+    fn normalized_provider_uri_noop_for_canonical() {
+        use axum::http::Uri;
+        let uri: Uri = "/v1/responses".parse().unwrap();
+        assert!(normalized_provider_uri(&uri).is_none());
     }
 }
