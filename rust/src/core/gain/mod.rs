@@ -30,6 +30,10 @@ pub struct GainSummary {
     pub tokens_saved: u64,
     pub gain_rate_pct: f64,
     pub avoided_usd: f64,
+    /// Estimated grid energy avoided (Wh) by keeping `tokens_saved` out of context.
+    pub energy_wh: f64,
+    /// Estimated CO₂-equivalent avoided (grams), derived from `energy_wh`.
+    pub co2_grams: f64,
     pub tool_spend_usd: f64,
     pub roi: Option<f64>,
     pub score: GainScore,
@@ -104,6 +108,8 @@ impl GainEngine {
             tokens_saved,
             gain_rate_pct,
             avoided_usd,
+            energy_wh: crate::core::energy::wh_for_tokens(tokens_saved),
+            co2_grams: crate::core::energy::co2_grams_for_tokens(tokens_saved),
             tool_spend_usd,
             roi,
             score,

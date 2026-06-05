@@ -15,6 +15,12 @@ pub const J_PER_TOKEN: f64 = 0.4;
 /// Watt-hours in a full smartphone charge — the relatable yardstick used in the UI.
 pub const WH_PER_PHONE_CHARGE: f64 = 12.0;
 
+/// Grams of CO₂-equivalent per kWh of grid electricity. ~475 g/kWh is the global
+/// average grid carbon intensity (IEA, ~2023) — a transparent, conservative
+/// midpoint. Users on cleaner grids can override via `LEAN_CTX_GRID_CO2_G_PER_KWH`
+/// so the local footprint reflects their actual electricity mix.
+pub const G_CO2_PER_KWH: f64 = 475.0;
+
 /// Energy (Wh) saved for a given number of saved tokens. `Wh = tokens · J/token / 3600`.
 #[must_use]
 pub fn wh_for_tokens(tokens_saved: u64) -> f64 {
@@ -25,6 +31,44 @@ pub fn wh_for_tokens(tokens_saved: u64) -> f64 {
 #[must_use]
 pub fn phone_charges(tokens_saved: u64) -> f64 {
     wh_for_tokens(tokens_saved) / WH_PER_PHONE_CHARGE
+}
+
+/// Effective grid carbon intensity (g CO₂/kWh), honoring the
+/// `LEAN_CTX_GRID_CO2_G_PER_KWH` override when it is a positive, finite number.
+#[must_use]
+pub fn grid_co2_g_per_kwh() -> f64 {
+    std::env::var("LEAN_CTX_GRID_CO2_G_PER_KWH")
+        .ok()
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .filter(|v| v.is_finite() && *v > 0.0)
+        .unwrap_or(G_CO2_PER_KWH)
+}
+
+/// Grams of CO₂-equivalent avoided for a given number of saved tokens.
+/// `g = Wh / 1000 · gridIntensity`.
+#[must_use]
+pub fn co2_grams_for_tokens(tokens_saved: u64) -> f64 {
+    wh_for_tokens(tokens_saved) / 1_000.0 * grid_co2_g_per_kwh()
+}
+
+/// Human-readable CO₂ mass with adaptive units (`g` / `kg` / `t`).
+#[must_use]
+pub fn format_co2(grams: f64) -> String {
+    if !grams.is_finite() || grams <= 0.0 {
+        "0 g".to_string()
+    } else if grams >= 1_000_000.0 {
+        format!("{:.1} t", grams / 1_000_000.0)
+    } else if grams >= 1_000.0 {
+        format!("{:.1} kg", grams / 1_000.0)
+    } else {
+        format!("{grams:.0} g")
+    }
+}
+
+/// Convenience: formatted CO₂ string straight from a saved-token count.
+#[must_use]
+pub fn format_co2_for_tokens(tokens_saved: u64) -> String {
+    format_co2(co2_grams_for_tokens(tokens_saved))
 }
 
 /// Human-readable energy with adaptive units (`Wh` / `kWh` / `MWh`).
@@ -90,5 +134,32 @@ mod tests {
         // 12 Wh = 1 charge needs 108k tokens; far below that → no hint.
         assert!(phone_charges_hint(1_000).is_none());
         assert!(phone_charges_hint(12_800_000).is_some());
+    }
+
+    #[test]
+    fn co2_scales_with_energy_and_grid_intensity() {
+        // 9000 tokens = 1 Wh = 0.001 kWh · 475 g/kWh = 0.475 g.
+        let g = co2_grams_for_tokens(9_000);
+        assert!((g - 0.475).abs() < 1e-6, "got {g}");
+        assert!(co2_grams_for_tokens(0).abs() < 1e-12);
+        // Linear in tokens.
+        assert!((co2_grams_for_tokens(18_000) - 2.0 * g).abs() < 1e-6);
+    }
+
+    #[test]
+    fn format_co2_picks_adaptive_units() {
+        assert_eq!(format_co2(0.0), "0 g");
+        assert_eq!(format_co2(-3.0), "0 g");
+        assert_eq!(format_co2(42.4), "42 g");
+        assert_eq!(format_co2(1_500.0), "1.5 kg");
+        assert_eq!(format_co2(2_500_000.0), "2.5 t");
+    }
+
+    #[test]
+    fn grid_intensity_default_when_no_override() {
+        // The override is read from the environment; without it we use the constant.
+        // (Env mutation is covered indirectly; here we assert the documented default.)
+        std::env::remove_var("LEAN_CTX_GRID_CO2_G_PER_KWH");
+        assert!((grid_co2_g_per_kwh() - G_CO2_PER_KWH).abs() < 1e-9);
     }
 }

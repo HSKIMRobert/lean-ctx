@@ -44,6 +44,8 @@ fn format_summary(engine: &GainEngine, model: Option<&str>) -> String {
     let out = format_tokens(s.output_tokens);
     let avoided = format_usd(s.avoided_usd);
     let spend = format_usd(s.tool_spend_usd);
+    let energy = crate::core::energy::format_wh(s.energy_wh);
+    let co2 = crate::core::energy::format_co2(s.co2_grams);
     let roi = s
         .roi
         .map_or_else(|| "n/a".to_string(), |r| format!("{r:.2}x"));
@@ -59,6 +61,7 @@ fn format_summary(engine: &GainEngine, model: Option<&str>) -> String {
          Score: {total}/100  (compression {comp}, cost {cost}, quality {qual}, consistency {cons})  trend={trend}\n\
          Tokens: {input} in → {out} out  | saved {saved}  ({rate:.1}%)\n\
          Gain: {avoided} avoided  | tool spend {spend}  | ROI {roi}\n\
+         Impact: {energy} grid energy avoided  | {co2} CO₂e (est.)\n\
          Pricing: model={model_key} ({match_kind:?}) in=${in_m:.2}/M out=${out_m:.2}/M\n",
         total = s.score.total,
         comp = s.score.compression,
