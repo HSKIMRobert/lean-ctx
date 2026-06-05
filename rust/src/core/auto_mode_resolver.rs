@@ -27,13 +27,10 @@ pub fn resolve(ctx: &AutoModeContext) -> ResolvedMode {
 
     if let Some(cache) = ctx.cache {
         if let Some(cached) = cache.get(ctx.path) {
-            let current_hash = compute_hash_from_disk(ctx.path);
-            if let Some(hash) = current_hash {
-                if cached.hash == hash {
-                    return resolved("full", "cache_hit");
-                }
-                return resolved("diff", "cache_changed");
+            if file_unchanged(ctx.path, cached) {
+                return resolved("full", "cache_hit");
             }
+            return resolved("diff", "cache_changed");
         }
     }
 
@@ -181,12 +178,25 @@ fn heuristic_mode(ext: &str, token_count: usize) -> String {
     "full".to_string()
 }
 
-fn compute_hash_from_disk(path: &str) -> Option<String> {
-    let content = std::fs::read_to_string(path).ok()?;
-    use md5::{Digest, Md5};
-    let mut hasher = Md5::new();
-    hasher.update(content.as_bytes());
-    Some(format!("{:x}", hasher.finalize()))
+/// Fast O(1) staleness check: if the file's mtime still matches what was
+/// stored when the cache entry was created, the content is unchanged — no need
+/// to read the file or compute any hash. Falls back to "changed" when metadata
+/// is unavailable (e.g. file deleted) or when the cache entry predates mtime
+/// tracking (legacy entries with `stored_mtime = None`).
+///
+/// mtime comparison is sufficient for correctness on all major filesystems:
+/// every `write(2)` / `truncate(2)` updates mtime (POSIX guarantee).
+fn file_unchanged(path: &str, cached: &crate::core::cache::CacheEntry) -> bool {
+    let Some(stored_mtime) = cached.stored_mtime else {
+        return false;
+    };
+    let Ok(meta) = std::fs::metadata(path) else {
+        return false;
+    };
+    let Ok(current_mtime) = meta.modified() else {
+        return false;
+    };
+    current_mtime == stored_mtime
 }
 
 fn is_code(ext: &str) -> bool {

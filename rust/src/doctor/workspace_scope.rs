@@ -91,9 +91,15 @@ pub(super) fn workspace_scope_outcome(user_scope_has_lean_ctx: bool) -> Option<O
     }
 
     // 2) Duplicate registration across user + workspace scope.
+    //
+    // This is informational (WARN), not a hard failure: dual-scope *can* cause
+    // Copilot "ws0 not found" errors, but is also the expected state when
+    // running inside the lean-ctx repo itself (the workspace config is part of
+    // the distribution). Marking it `ok: true` keeps it out of the failure
+    // count while still surfacing the hint.
     if user_scope_has_lean_ctx {
         return Some(Outcome {
-            ok: false,
+            ok: true,
             line: format!(
                 "{BOLD}Workspace MCP{RST}  {YELLOW}lean-ctx registered in BOTH user and \
                  workspace scope{RST} {DIM}({}){RST}  {DIM}(keep only one scope — duplicate \
@@ -215,7 +221,7 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_when_user_and_workspace_both_have_lean_ctx() {
+    fn duplicate_is_informational_warning_not_failure() {
         let tmp = tempfile::tempdir().unwrap();
         write(
             tmp.path(),
@@ -223,7 +229,9 @@ mod tests {
             r#"{"servers": {"lean-ctx": {"command": "lean-ctx"}}}"#,
         );
         let out = with_cwd(tmp.path(), || workspace_scope_outcome(true)).unwrap();
-        assert!(!out.ok);
+        // Dual-scope is a WARN (informational), not a hard failure — it's the
+        // expected state inside the lean-ctx repo itself.
+        assert!(out.ok, "dual-scope should be ok:true (informational WARN)");
         assert!(out.line.contains("BOTH user and"));
     }
 

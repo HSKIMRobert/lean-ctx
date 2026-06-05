@@ -15,6 +15,12 @@ const DEFAULT_MAX_DB_MB: u64 = 500;
 /// Run cap enforcement roughly every N inserts to amortize the VACUUM cost.
 const ENFORCE_EVERY_N_INSERTS: usize = 200;
 
+/// If the `-wal` sidecar ever exceeds this size, force a TRUNCATE checkpoint on
+/// the next write regardless of insert count. This bounds the footprint when a
+/// concurrent reader in another lean-ctx process has been holding back
+/// autocheckpoint (observed 256 MB WAL caused by a stale/orphaned daemon).
+const WAL_TRUNCATE_THRESHOLD_BYTES: u64 = 32 * 1024 * 1024;
+
 fn max_db_bytes() -> u64 {
     std::env::var("LEAN_CTX_ARCHIVE_DB_MAX_MB")
         .ok()
@@ -49,6 +55,12 @@ pub fn db_size_bytes() -> u64 {
     total
 }
 
+/// Current size of just the `-wal` sidecar file in bytes.
+fn wal_bytes() -> u64 {
+    let wal = PathBuf::from(format!("{}-wal", db_path().display()));
+    std::fs::metadata(&wal).map_or(0, |m| m.len())
+}
+
 fn open_db() -> Option<Connection> {
     let path = db_path();
     if let Some(parent) = path.parent() {
@@ -56,8 +68,15 @@ fn open_db() -> Option<Connection> {
     }
     let conn = Connection::open(&path).ok()?;
     conn.execute_batch(
+        // `busy_timeout` lets a checkpoint wait for a concurrent reader instead of
+        // bailing immediately, and an explicit `wal_autocheckpoint` keeps the WAL
+        // bounded even when several lean-ctx processes (daemon + MCP + CLI) hold
+        // the same DB open. Without these, a stale reader (e.g. an orphaned
+        // daemon) blocked autocheckpoint and the WAL grew to 256 MB in the field.
         "PRAGMA journal_mode=WAL;
          PRAGMA synchronous=NORMAL;
+         PRAGMA busy_timeout=5000;
+         PRAGMA wal_autocheckpoint=1000;
          CREATE TABLE IF NOT EXISTS archive_meta (
              archive_id TEXT PRIMARY KEY,
              tool TEXT NOT NULL,
@@ -110,6 +129,12 @@ pub fn index_entry(archive_id: &str, tool: &str, command: &str, content: &str) {
         .unwrap_or(0);
     if (count as usize).is_multiple_of(ENFORCE_EVERY_N_INSERTS) {
         enforce_cap_locked(conn);
+    }
+
+    // Bound the WAL even between cap-enforcement passes: if a concurrent reader
+    // held back autocheckpoint and the sidecar ballooned, reclaim it now.
+    if wal_bytes() > WAL_TRUNCATE_THRESHOLD_BYTES {
+        let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
     }
 }
 
@@ -263,5 +288,27 @@ mod tests {
             .flatten()
             .collect();
         assert_eq!(ids, vec!["t1"]);
+    }
+
+    #[test]
+    fn open_db_bounds_the_wal() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        std::env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
+
+        let conn = open_db().expect("should open");
+
+        // WAL journal mode is required for the FTS write path.
+        let journal_mode: String = conn
+            .query_row("PRAGMA journal_mode;", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(journal_mode.to_lowercase(), "wal");
+
+        // A bounded (non-zero) autocheckpoint is what keeps the sidecar from
+        // growing unbounded when another process holds the DB open.
+        let autocheckpoint: i64 = conn
+            .query_row("PRAGMA wal_autocheckpoint;", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(autocheckpoint, 1000);
     }
 }

@@ -1237,7 +1237,10 @@ pub(super) fn capacity_warnings() -> Vec<Outcome> {
                 continue;
             }
             let pct = (*current as f64 / *limit as f64 * 100.0) as u32;
-            if pct >= 95 {
+            // A store sitting *at* its cap is healthy: eviction (run_lifecycle)
+            // keeps it there by design. Only flag CRIT when it is genuinely
+            // *over* cap, which means eviction is not keeping up.
+            if pct > 100 {
                 critical = true;
                 warnings.push(format!("{name}: {current}/{limit} ({pct}%)"));
             } else if pct >= 80 {

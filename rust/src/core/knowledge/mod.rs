@@ -46,6 +46,32 @@ mod tests {
     }
 
     #[test]
+    fn facts_evict_down_to_cap_not_double() {
+        // Regression: remember() must keep the fact count at or below max_facts.
+        // Previously the lifecycle only fired above 2 * max_facts, so a store
+        // could silently grow to twice its configured budget before reclaiming.
+        let mut policy = default_policy();
+        policy.knowledge.max_facts = 5;
+        let mut k = ProjectKnowledge::new("/tmp/test-evict");
+        for i in 0..40 {
+            k.remember(
+                "finding",
+                &format!("key-{i}"),
+                &format!("value number {i}"),
+                "s1",
+                0.7,
+                &policy,
+            );
+        }
+        assert!(
+            k.facts.len() <= policy.knowledge.max_facts,
+            "expected <= {} facts after eviction, got {}",
+            policy.knowledge.max_facts,
+            k.facts.len()
+        );
+    }
+
+    #[test]
     fn upsert_existing_fact() {
         let policy = default_policy();
         let mut k = ProjectKnowledge::new("/tmp/test");

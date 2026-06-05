@@ -177,7 +177,13 @@ impl ProjectKnowledge {
             });
         }
 
-        if self.facts.len() > policy.knowledge.max_facts.saturating_mul(2) {
+        // Run the lifecycle as soon as we exceed the configured budget.
+        // `run_lifecycle` sorts by importance and drains the excess back down to
+        // `max_facts` (archiving it), so this is self-limiting: the store settles
+        // at <= max_facts. The previous `* 2` guard let a project's facts grow to
+        // twice the cap before any eviction fired, which is why stores were
+        // observed sitting at 103% (206/200) with no reclamation.
+        if self.facts.len() > policy.knowledge.max_facts {
             let _ = self.run_memory_lifecycle(policy);
         }
 

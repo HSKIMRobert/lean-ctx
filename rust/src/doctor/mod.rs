@@ -631,12 +631,15 @@ pub(super) fn print_compact_status(passed: u32, total: u32) {
 mod tests {
     use super::is_active_shell_impl;
 
+    // Mirrors the inline classification in `checks::capacity_warnings`: a store at
+    // or below its cap is at most a WARN (healthy, eviction keeps it there); only
+    // a store *over* cap is CRIT (eviction is not keeping up).
     fn make_capacity_check(name: &str, current: usize, limit: usize) -> Option<(bool, String)> {
         if limit == 0 {
             return None;
         }
         let pct = (current as f64 / limit as f64 * 100.0) as u32;
-        if pct >= 95 {
+        if pct > 100 {
             Some((true, format!("{name}: {current}/{limit} ({pct}%)")))
         } else if pct >= 80 {
             Some((false, format!("{name}: {current}/{limit} ({pct}%)")))
@@ -672,21 +675,34 @@ mod tests {
     }
 
     #[test]
-    fn capacity_at_95_critical() {
+    fn capacity_at_95_is_warning_not_critical() {
         let result = make_capacity_check("facts", 190, 200);
         assert!(result.is_some());
         let (critical, msg) = result.unwrap();
-        assert!(critical);
+        assert!(!critical, "95% is full-but-healthy, not over cap");
         assert!(msg.contains("190/200"));
         assert!(msg.contains("95%"));
     }
 
     #[test]
-    fn capacity_at_100_critical() {
+    fn capacity_at_100_is_warning_not_critical() {
+        // A store exactly at its cap is healthy — eviction keeps it there.
         let result = make_capacity_check("facts", 200, 200);
         assert!(result.is_some());
         let (critical, _) = result.unwrap();
+        assert!(!critical);
+    }
+
+    #[test]
+    fn capacity_over_100_is_critical() {
+        // Genuinely over cap => eviction is not keeping up (regression guard for
+        // the 206/200 "CRIT" that fired before lifecycle eviction was fixed).
+        let result = make_capacity_check("facts", 206, 200);
+        assert!(result.is_some());
+        let (critical, msg) = result.unwrap();
         assert!(critical);
+        assert!(msg.contains("206/200"));
+        assert!(msg.contains("103%"));
     }
 
     #[test]

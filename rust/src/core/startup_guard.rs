@@ -20,19 +20,44 @@ pub struct StartupLockGuard {
 
 impl StartupLockGuard {
     pub fn touch(&self) {
-        // Update mtime so stale eviction doesn't kill active long-running processes.
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
+        // Refresh the lock's mtime so stale eviction doesn't reclaim an active
+        // long-running holder, while preserving the owner PID line so a crashed
+        // holder can still be detected as dead by other processes.
         if let Ok(mut f) = std::fs::OpenOptions::new()
             .write(true)
             .truncate(true)
             .open(&self.path)
         {
-            let _ = writeln!(f, "{now_ms}");
+            let _ = writeln!(f, "{}", std::process::id());
         }
     }
+}
+
+/// Decides whether a currently-held lock file can be reclaimed by a waiter.
+///
+/// A lock whose recorded owner PID is no longer alive is reclaimed immediately —
+/// this is what stops a crashed/killed holder's lock from lingering until
+/// `stale_after` elapses (the cause of the stale `.graph-idx-*.lock` build-up).
+/// If the owner is alive, or the lock predates PID tracking (legacy 0-byte
+/// file), we fall back to the long-standing mtime staleness safety valve.
+fn lock_is_reclaimable(path: &std::path::Path, stale_after: Duration) -> bool {
+    if let Ok(content) = std::fs::read_to_string(path) {
+        if let Some(pid) = content
+            .lines()
+            .next()
+            .and_then(|l| l.trim().parse::<u32>().ok())
+        {
+            if !crate::ipc::process::is_alive(pid) {
+                return true;
+            }
+        }
+    }
+    if let Ok(meta) = std::fs::metadata(path) {
+        if let Ok(modified) = meta.modified() {
+            return modified.elapsed().unwrap_or_default() > stale_after;
+        }
+    }
+    false
 }
 
 impl Drop for StartupLockGuard {
@@ -72,23 +97,19 @@ pub fn try_acquire_lock(
     let mut sleep_ms: u64 = 10;
 
     loop {
-        if std::fs::OpenOptions::new()
+        match std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(&path)
-            .is_ok()
         {
-            return Some(StartupLockGuard { path });
-        }
-
-        if let Ok(meta) = std::fs::metadata(&path) {
-            if let Ok(modified) = meta.modified() {
-                if modified
-                    .elapsed()
-                    .unwrap_or_default()
-                    .saturating_sub(stale_after)
-                    > Duration::from_secs(0)
-                {
+            Ok(mut f) => {
+                // Record the owner PID so a crashed holder's lock can be
+                // reclaimed immediately instead of waiting out `stale_after`.
+                let _ = writeln!(f, "{}", std::process::id());
+                return Some(StartupLockGuard { path });
+            }
+            Err(_) => {
+                if lock_is_reclaimable(&path, stale_after) {
                     let _ = std::fs::remove_file(&path);
                 }
             }
@@ -231,6 +252,29 @@ mod tests {
             Duration::from_secs(30),
         );
         assert!(g3.is_some());
+    }
+
+    #[test]
+    fn dead_owner_lock_is_reclaimed_immediately() {
+        let _env = crate::core::data_dir::test_env_lock();
+        let dir = tempfile::tempdir().unwrap();
+        let _guard = EnvVarGuard::set("LEAN_CTX_DATA_DIR", dir.path());
+
+        // Pre-seed a held lock owned by a PID that cannot be alive.
+        let lock_path = dir.path().join(".dead-owner.lock");
+        std::fs::write(&lock_path, "4294967294\n").unwrap();
+
+        // The lock's mtime is fresh (just written), so the mtime safety valve
+        // would NOT reclaim it within stale_after — only the dead-PID check can.
+        let g = try_acquire_lock(
+            "dead-owner",
+            Duration::from_millis(300),
+            Duration::from_secs(30),
+        );
+        assert!(
+            g.is_some(),
+            "lock with a dead owner PID must be reclaimable"
+        );
     }
 
     #[test]
