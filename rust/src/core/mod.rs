@@ -317,6 +317,7 @@ pub mod home;
 pub mod homeostasis;
 
 pub mod graph_cache;
+pub mod ide_permissions;
 pub mod import_resolver;
 pub mod index_namespace;
 pub mod index_orchestrator;

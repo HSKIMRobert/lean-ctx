@@ -215,6 +215,13 @@ pub fn run() {
     }
     print_check(&passthrough_outcome);
 
+    // 5d) IDE permission inheritance (mirror host IDE bash/rm rules onto ctx_*)
+    let perm_inherit_outcome = permission_inheritance_outcome();
+    if perm_inherit_outcome.ok {
+        passed += 1;
+    }
+    print_check(&perm_inherit_outcome);
+
     // 6) Proxy upstreams
     let proxy_outcome = proxy_upstream_outcome();
     if proxy_outcome.ok {
@@ -502,6 +509,7 @@ pub fn run() {
     let mut effective_total = total + 10; // session_state + integrity + cache_safety + bm25_health + archive_footprint + daemon + mem_profile + mem_cleanup + ram_guardian + proxy_health
     effective_total += 1; // shell_allowlist (#341)
     effective_total += 1; // compact_format_passthrough (#342)
+    effective_total += 1; // permission_inheritance
     effective_total += cap_warnings.len() as u32;
     effective_total += docker_outcomes.len() as u32;
     if pi.is_some() {

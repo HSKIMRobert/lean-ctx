@@ -21,8 +21,8 @@ mod tests;
 
 pub(crate) use defaults_allowlist::default_shell_allowlist;
 pub use enums::{
-    CompressionLevel, OutputDensity, ResponseVerbosity, RulesInjection, RulesScope, TeeMode,
-    TerseAgent,
+    CompressionLevel, OutputDensity, PermissionInheritance, ResponseVerbosity, RulesInjection,
+    RulesScope, TeeMode, TerseAgent,
 };
 pub use memory::{MemoryCleanup, MemoryGuardConfig, MemoryProfile, SavingsFooter};
 pub use proxy::{is_local_proxy_url, normalize_url, normalize_url_opt, ProxyConfig, ProxyProvider};
@@ -145,6 +145,14 @@ pub struct Config {
     /// Override via LEAN_CTX_RULES_INJECTION env var.
     #[serde(default)]
     pub rules_injection: Option<String>,
+    /// Mirror the host IDE's tool-permission rules onto lean-ctx's own MCP tools.
+    /// Values: "off" (default) or "on". When "on", lean-ctx reads the active
+    /// IDE's permission config (v1: OpenCode) and applies the equivalent
+    /// deny/ask/allow decision to the matching lean-ctx tool — so `ctx_shell`
+    /// honors your `bash`/`rm *` rules instead of bypassing them.
+    /// Override via LEAN_CTX_PERMISSION_INHERITANCE env var.
+    #[serde(default)]
+    pub permission_inheritance: Option<String>,
     /// Extra glob patterns to ignore in graph/overview/preload (repo-local).
     /// Example: `["externals/**", "target/**", "temp/**"]`
     #[serde(default)]
@@ -393,6 +401,7 @@ impl Default for Config {
             loop_detection: LoopDetectionConfig::default(),
             rules_scope: None,
             rules_injection: None,
+            permission_inheritance: None,
             extra_ignore_patterns: Vec::new(),
             terse_agent: TerseAgent::default(),
             compression_level: CompressionLevel::default(),
@@ -488,6 +497,21 @@ impl Config {
         match raw.trim().to_lowercase().as_str() {
             "dedicated" => RulesInjection::Dedicated,
             _ => RulesInjection::Shared,
+        }
+    }
+
+    /// Returns the effective permission-inheritance mode, preferring the
+    /// `LEAN_CTX_PERMISSION_INHERITANCE` env var over config. Default is `Off`.
+    /// Accepts `on`/`true`/`1` as enabled.
+    #[must_use]
+    pub fn permission_inheritance_effective(&self) -> PermissionInheritance {
+        let raw = std::env::var("LEAN_CTX_PERMISSION_INHERITANCE")
+            .ok()
+            .or_else(|| self.permission_inheritance.clone())
+            .unwrap_or_default();
+        match raw.trim().to_lowercase().as_str() {
+            "on" | "true" | "1" | "inherit" => PermissionInheritance::On,
+            _ => PermissionInheritance::Off,
         }
     }
 
@@ -918,6 +942,9 @@ impl Config {
         }
         if local.rules_injection.is_some() {
             self.rules_injection = local.rules_injection;
+        }
+        if local.permission_inheritance.is_some() {
+            self.permission_inheritance = local.permission_inheritance;
         }
         if local.proxy.anthropic_upstream.is_some() {
             self.proxy.anthropic_upstream = local.proxy.anthropic_upstream;

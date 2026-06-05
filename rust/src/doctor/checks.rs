@@ -60,6 +60,37 @@ pub(super) fn compact_format_passthrough_outcome() -> Outcome {
     }
 }
 
+/// Reports IDE permission inheritance: when on, lean-ctx mirrors the host IDE's
+/// bash/read/edit/grep permission rules onto its own tools, so `ctx_shell` honors
+/// a `rm *: ask`/`deny` rule instead of forming a parallel, ungoverned path.
+pub(super) fn permission_inheritance_outcome() -> Outcome {
+    use crate::core::config::{Config, PermissionInheritance};
+    let cfg = Config::load();
+    if cfg.permission_inheritance_effective() != PermissionInheritance::On {
+        return Outcome {
+            ok: true,
+            line: format!(
+                "{BOLD}Permission inheritance{RST}  {YELLOW}off{RST}  {DIM}(enable: lean-ctx config set permission_inheritance on → ctx_shell honors your IDE's bash/rm rules){RST}"
+            ),
+        };
+    }
+    let policy = dirs::home_dir()
+        .map(|home| crate::core::ide_permissions::load_opencode(&home, None))
+        .unwrap_or_default();
+    let detail = if policy.is_empty() {
+        "on, but no OpenCode permission rules found yet".to_string()
+    } else {
+        format!(
+            "mirroring {} OpenCode permission rule(s)",
+            policy.rule_count()
+        )
+    };
+    Outcome {
+        ok: true,
+        line: format!("{BOLD}Permission inheritance{RST}  {GREEN}on{RST}  {DIM}({detail}){RST}"),
+    }
+}
+
 pub(super) fn shell_aliases_outcome() -> Outcome {
     let Some(home) = dirs::home_dir() else {
         return Outcome {

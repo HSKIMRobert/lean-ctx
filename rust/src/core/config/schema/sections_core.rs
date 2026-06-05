@@ -166,6 +166,16 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
         ),
     );
     root.insert(
+        "permission_inheritance".into(),
+        key_enum(
+            &["off", "on"],
+            "off",
+            "Mirror the host IDE's permission rules onto lean-ctx tools (v1: \
+             OpenCode). When on, ctx_shell honors your bash/rm * rules instead of \
+             bypassing them. Override via LEAN_CTX_PERMISSION_INHERITANCE",
+        ),
+    );
+    root.insert(
         "extra_ignore_patterns".into(),
         key(
             "string[]",

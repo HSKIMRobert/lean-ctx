@@ -167,6 +167,29 @@ impl LeanCtxServer {
         let config = crate::core::config::Config::load();
         let minimal = config.minimal_overhead_effective();
 
+        // IDE permission inheritance: when enabled, mirror the host IDE's
+        // bash/read/edit/grep permission rules onto the matching lean-ctx tool so
+        // e.g. `ctx_shell` honors a `rm *: ask` rule instead of bypassing it.
+        // Gated on the cheap effective() check so the default (off) pays no lock
+        // cost on the hot path.
+        if config.permission_inheritance_effective()
+            == crate::core::config::PermissionInheritance::On
+        {
+            let client_name = self.client_name.read().await.clone();
+            let project_root = self.session.read().await.project_root.clone();
+            let perm = permission_inheritance::check(
+                &client_name,
+                name,
+                args,
+                project_root.as_deref(),
+                &config,
+            );
+            if let Some(blocked) = permission_inheritance::into_call_tool_result(&perm) {
+                tracing::warn!(tool = name, "held back by IDE permission inheritance");
+                return Ok(blocked);
+            }
+        }
+
         if let Some(msg) = post_process::budget_exhausted_message(name) {
             tracing::warn!(tool = name, "{msg}");
             return Ok(CallToolResult::success(vec![Content::text(msg)]));
