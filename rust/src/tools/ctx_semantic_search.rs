@@ -90,6 +90,82 @@ pub fn handle(
     }
 }
 
+/// Structured single-root search used by the `semantic-search` CLI (`--json`)
+/// and any programmatic caller (editor extensions). Mirrors `handle`'s
+/// single-root logic but returns the ranked [`HybridResult`]s instead of a
+/// formatted report, so callers control their own serialization. Reuses the
+/// exact same hybrid/dense/BM25 ranking as the `ctx_semantic_search` MCP tool —
+/// no second code path to drift.
+pub fn search_hits(
+    query: &str,
+    path: &str,
+    top_k: usize,
+    mode: &str,
+    languages: Option<&[String]>,
+    path_glob: Option<&str>,
+) -> Result<Vec<HybridResult>, String> {
+    let root = Path::new(path);
+    if !root.exists() {
+        return Err(format!("path does not exist: {path}"));
+    }
+    let root = if root.is_file() {
+        root.parent().unwrap_or(root)
+    } else {
+        root
+    };
+
+    let filter =
+        SearchFilter::new(languages, path_glob).map_err(|e| format!("invalid filter: {e}"))?;
+
+    let index = BM25Index::load_or_build(root);
+    if index.doc_count == 0 {
+        return Ok(Vec::new());
+    }
+
+    let results = match mode.to_lowercase().as_str() {
+        "bm25" => bm25_hits(&index, query, top_k, &filter),
+        "dense" => {
+            #[cfg(feature = "embeddings")]
+            {
+                dense_results_for_root(query, root, &index, top_k, &filter).map(|(v, _)| v)?
+            }
+            #[cfg(not(feature = "embeddings"))]
+            {
+                return Err("dense mode requires the embeddings feature".to_string());
+            }
+        }
+        _ => {
+            #[cfg(feature = "embeddings")]
+            {
+                hybrid_results_for_root(query, root, &index, top_k, &filter).map(|(v, _)| v)?
+            }
+            #[cfg(not(feature = "embeddings"))]
+            {
+                bm25_hits(&index, query, top_k, &filter)
+            }
+        }
+    };
+
+    Ok(results)
+}
+
+fn bm25_hits(
+    index: &BM25Index,
+    query: &str,
+    top_k: usize,
+    filter: &SearchFilter,
+) -> Vec<HybridResult> {
+    let mut results = index.search(query, filtered_candidate_k(top_k, filter.is_active()));
+    if filter.is_active() {
+        results.retain(|x| filter.matches(&x.file_path));
+    }
+    results.truncate(top_k);
+    results
+        .into_iter()
+        .map(HybridResult::from_bm25_public)
+        .collect()
+}
+
 /// Rebuilds the BM25 search index for the given directory from scratch.
 pub fn handle_reindex(path: &str) -> String {
     let root = Path::new(path);

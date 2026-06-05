@@ -133,6 +133,11 @@ pub fn run() {
                 crate::cli::cmd_index(&rest);
                 return;
             }
+            "semantic-search" | "search-code" => {
+                crate::cli::cmd_semantic_search(&rest);
+                core::stats::flush();
+                return;
+            }
             "cep" => {
                 println!("{}", core::stats::format_cep_report());
                 return;
