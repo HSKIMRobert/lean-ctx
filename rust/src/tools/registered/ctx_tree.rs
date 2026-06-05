@@ -15,7 +15,8 @@ impl McpTool for CtxTreeTool {
     fn tool_def(&self) -> Tool {
         tool_def(
             "ctx_tree",
-            "Directory listing with file counts. Supports multi-root via `paths` array.",
+            "List a directory. Prefer over native ls/find (counts, compact tree).\n\
+             Supports multi-root via `paths` array. depth controls recursion (default 3).",
             json!({
                 "type": "object",
                 "properties": {

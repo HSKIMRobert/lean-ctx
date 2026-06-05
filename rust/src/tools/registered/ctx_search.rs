@@ -15,7 +15,8 @@ impl McpTool for CtxSearchTool {
     fn tool_def(&self) -> Tool {
         tool_def(
             "ctx_search",
-            "Regex code search (.gitignore aware, compact results). Supports multi-root via `paths` array. Secret-like files skipped unless role allows.",
+            "Search code by regex. Prefer over native Grep/rg/find (compact output).\n\
+             Respects .gitignore; supports multi-root via `paths` array. Secret-like files skipped unless role allows.",
             json!({
                 "type": "object",
                 "properties": {

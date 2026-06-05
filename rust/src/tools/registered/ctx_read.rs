@@ -34,8 +34,8 @@ impl McpTool for CtxReadTool {
     fn tool_def(&self) -> Tool {
         tool_def(
             "ctx_read",
-            "Read file (cached, compressed). Cached re-reads can be ~13 tok when unchanged. Auto-selects optimal mode. \
-Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fresh=true forces a disk re-read.",
+            "Read a file. Prefer over native Read/cat/head/tail (cached, compressed).\n\
+             Unchanged re-reads cost ~13 tokens. Auto-selects mode (full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M). fresh=true forces a disk re-read.",
             json!({
                 "type": "object",
                 "properties": {

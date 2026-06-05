@@ -15,7 +15,8 @@ impl McpTool for CtxShellTool {
     fn tool_def(&self) -> Tool {
         tool_def(
             "ctx_shell",
-            "Run shell command (compressed output, 95+ patterns). Use raw=true to skip compression. cwd sets working directory (persists across calls via cd tracking). Output redaction is on by default for non-admin roles (admin can disable).",
+            "Run a shell command. Prefer over native Shell/Bash (compressed output).\n\
+             95+ output patterns; raw=true skips compression. cwd persists across calls via cd tracking. Output redaction on by default for non-admin roles (admin can disable).",
             json!({
                 "type": "object",
                 "properties": {
