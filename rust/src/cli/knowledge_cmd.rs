@@ -138,6 +138,14 @@ fn cmd_recall(args: &[String], project_root: &str) {
     let mode = value_arg(args, "--mode").or_else(|| value_arg(args, "-m"));
     let query = positional_after(args, "recall");
 
+    // Machine-readable path (editor extensions): a bare `recall --json` lists the
+    // most recent current facts; a query/category narrows it. Reads the store
+    // directly rather than the daemon's formatted text.
+    if args.iter().any(|a| a == "--json") {
+        recall_json(project_root, category.as_deref(), query.as_deref());
+        return;
+    }
+
     if category.is_none() && query.is_none() {
         eprintln!("Usage: lean-ctx knowledge recall [query] [--category <cat>] [--mode auto|semantic|hybrid]");
         eprintln!("Example: lean-ctx knowledge recall \"auth\" --category security");
@@ -424,6 +432,67 @@ fn cmd_import(args: &[String], project_root: &str) {
     }
 }
 
+fn recall_json(project_root: &str, category: Option<&str>, query: Option<&str>) {
+    let json = match crate::core::knowledge::ProjectKnowledge::load(project_root) {
+        Some(k) => facts_to_json(&k.facts, category, query),
+        None => "[]".to_string(),
+    };
+    println!("{json}");
+}
+
+/// Filters to current facts (optional category + substring query), newest
+/// first, capped, and serializes with the `{category, content, timestamp}`
+/// contract the editor extensions consume (plus key + confidence).
+fn facts_to_json(
+    facts: &[crate::core::knowledge::KnowledgeFact],
+    category: Option<&str>,
+    query: Option<&str>,
+) -> String {
+    const MAX: usize = 100;
+    let cat = category.map(str::to_lowercase);
+    let needle = query.map(str::to_lowercase);
+
+    let mut current: Vec<&crate::core::knowledge::KnowledgeFact> = facts
+        .iter()
+        .filter(|f| f.is_current())
+        .filter(|f| {
+            cat.as_deref()
+                .is_none_or(|c| f.category.to_lowercase().contains(c))
+        })
+        .filter(|f| {
+            needle.as_deref().is_none_or(|n| {
+                f.value.to_lowercase().contains(n)
+                    || f.key.to_lowercase().contains(n)
+                    || f.category.to_lowercase().contains(n)
+            })
+        })
+        .collect();
+    current.sort_by_key(|f| std::cmp::Reverse(f.created_at));
+    current.truncate(MAX);
+
+    #[derive(serde::Serialize)]
+    struct FactJson<'a> {
+        category: &'a str,
+        key: &'a str,
+        content: &'a str,
+        confidence: f32,
+        timestamp: String,
+    }
+
+    let out: Vec<FactJson> = current
+        .iter()
+        .map(|f| FactJson {
+            category: &f.category,
+            key: &f.key,
+            content: &f.value,
+            confidence: f.confidence,
+            timestamp: f.created_at.to_rfc3339(),
+        })
+        .collect();
+
+    serde_json::to_string(&out).unwrap_or_else(|_| "[]".to_string())
+}
+
 fn cli_session_id() -> String {
     format!("cli-{}", &uuid_short())
 }
@@ -501,4 +570,56 @@ Examples:
   lean-ctx knowledge remove --category auth --key token-type
   lean-ctx knowledge status"
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::knowledge::ProjectKnowledge;
+    use crate::core::memory_policy::MemoryPolicy;
+
+    fn populated() -> ProjectKnowledge {
+        let policy = MemoryPolicy::default();
+        let mut k = ProjectKnowledge::new("/tmp/lean-ctx-recall-json-test");
+        k.remember("architecture", "auth", "JWT RS256", "s1", 0.9, &policy);
+        k.remember("api", "rate-limit", "100/min", "s1", 0.8, &policy);
+        k
+    }
+
+    #[test]
+    fn facts_to_json_exposes_extension_contract() {
+        let k = populated();
+        let v: serde_json::Value =
+            serde_json::from_str(&facts_to_json(&k.facts, None, None)).unwrap();
+        assert_eq!(v.as_array().unwrap().len(), 2);
+        for e in v.as_array().unwrap() {
+            assert!(e.get("category").is_some());
+            assert!(e.get("content").is_some());
+            assert!(e.get("timestamp").is_some());
+        }
+    }
+
+    #[test]
+    fn facts_to_json_filters_by_category() {
+        let k = populated();
+        let v: serde_json::Value =
+            serde_json::from_str(&facts_to_json(&k.facts, Some("api"), None)).unwrap();
+        assert_eq!(v.as_array().unwrap().len(), 1);
+        assert_eq!(v[0]["category"], "api");
+        assert_eq!(v[0]["content"], "100/min");
+    }
+
+    #[test]
+    fn facts_to_json_filters_by_query_substring() {
+        let k = populated();
+        let v: serde_json::Value =
+            serde_json::from_str(&facts_to_json(&k.facts, None, Some("jwt"))).unwrap();
+        assert_eq!(v.as_array().unwrap().len(), 1);
+        assert_eq!(v[0]["key"], "auth");
+    }
+
+    #[test]
+    fn facts_to_json_empty_is_empty_array() {
+        assert_eq!(facts_to_json(&[], None, None), "[]");
+    }
 }
