@@ -288,7 +288,17 @@ pub(crate) fn process_mode(
             )
         }
         "entropy" => {
-            let result = entropy::entropy_compress_adaptive(content, file_path);
+            // Task-conditioned IB: when there is an active session intent, use
+            // task keywords to rescue low-entropy lines that are still relevant.
+            let task_kws: Vec<String> = crate::core::session::SessionState::load_latest()
+                .and_then(|s| s.active_structured_intent)
+                .map(|i| i.keywords.clone())
+                .unwrap_or_default();
+            let result = if task_kws.is_empty() {
+                entropy::entropy_compress_adaptive(content, file_path)
+            } else {
+                entropy::entropy_compress_task_conditioned(content, file_path, &task_kws)
+            };
             let avg_h = entropy::analyze_entropy(content).avg_entropy;
             let header = build_header(file_ref, short, ext, content, line_count, false);
             let techs = result.techniques.join(", ");

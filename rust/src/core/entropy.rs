@@ -252,25 +252,73 @@ pub fn entropy_compress_adaptive(content: &str, path: &str) -> EntropyResult {
     result
 }
 
-fn entropy_compress_with_thresholds(
+/// Task-conditioned entropy compression: lines that would normally be dropped
+/// for low entropy are kept if they contain task-relevant keywords.  This is
+/// the Information Bottleneck proxy: we compress away only what is neither
+/// surprising (high H) *nor* task-relevant (mentions goal concepts).
+/// Falls back to pure entropy when `task_keywords` is empty.
+pub fn entropy_compress_task_conditioned(
+    content: &str,
+    path: &str,
+    task_keywords: &[String],
+) -> EntropyResult {
+    let thresholds = super::adaptive_thresholds::adaptive_thresholds(path, content);
+    let before_lines = content.lines().count() as u32;
+    let result = entropy_compress_with_task(
+        content,
+        thresholds.bpe_entropy,
+        thresholds.jaccard,
+        task_keywords,
+    );
+    let after_lines = result.output.lines().count() as u32;
+    if before_lines != after_lines {
+        super::events::emit(super::events::EventKind::Compression {
+            path: path.to_string(),
+            before_lines,
+            after_lines,
+            strategy: "entropy_task_conditioned".to_string(),
+            kept_line_count: after_lines,
+            removed_line_count: before_lines.saturating_sub(after_lines),
+        });
+    }
+    result
+}
+
+fn entropy_compress_with_task(
     content: &str,
     entropy_threshold: f64,
     jaccard_threshold: f64,
+    task_keywords: &[String],
 ) -> EntropyResult {
     let original_tokens = count_tokens(content);
     let mut lines: Vec<&str> = content.lines().collect();
     let mut techniques = Vec::new();
 
+    let kw_lower: Vec<String> = task_keywords.iter().map(|k| k.to_lowercase()).collect();
     let original_count = lines.len();
+    let mut task_rescued = 0usize;
     lines.retain(|line| {
         let trimmed = line.trim();
-        super::surprise::should_keep_line(trimmed, entropy_threshold)
+        if super::surprise::should_keep_line(trimmed, entropy_threshold) {
+            return true;
+        }
+        // Task-conditioned rescue: keep low-entropy lines that mention task keywords.
+        if !kw_lower.is_empty() {
+            let lower = trimmed.to_lowercase();
+            if kw_lower.iter().any(|kw| lower.contains(kw.as_str())) {
+                task_rescued += 1;
+                return true;
+            }
+        }
+        false
     });
     let removed = original_count - lines.len();
-    if removed > 0 {
-        techniques.push(format!(
-            "⊘ {removed} low-entropy lines (BPE H<{entropy_threshold:.2})"
-        ));
+    if removed > 0 || task_rescued > 0 {
+        let mut msg = format!("⊘ {removed} low-entropy lines (BPE H<{entropy_threshold:.2})");
+        if task_rescued > 0 {
+            msg.push_str(&format!(" [+{task_rescued} task-rescued]"));
+        }
+        techniques.push(msg);
     }
 
     let blocks = extract_blocks(&lines);
@@ -286,7 +334,7 @@ fn entropy_compress_with_thresholds(
     }
 
     let mut result: Vec<String> = Vec::new();
-    let mut skip_indices: HashSet<usize> = HashSet::new();
+    let mut skip_indices: std::collections::HashSet<usize> = std::collections::HashSet::new();
     for group in &groups {
         if group.len() > 1 {
             for &idx in &group[1..] {
@@ -313,27 +361,22 @@ fn entropy_compress_with_thresholds(
             collapsed.push(line.clone());
         }
     }
-
     let output = collapsed.join("\n");
     let compressed_tokens = count_tokens(&output);
-
-    let final_output = if compressed_tokens > original_tokens {
-        content.to_string()
-    } else {
-        output
-    };
-    let final_tokens = if compressed_tokens > original_tokens {
-        original_tokens
-    } else {
-        compressed_tokens
-    };
-
     EntropyResult {
-        output: final_output,
+        output,
         original_tokens,
-        compressed_tokens: final_tokens,
+        compressed_tokens,
         techniques,
     }
+}
+
+fn entropy_compress_with_thresholds(
+    content: &str,
+    entropy_threshold: f64,
+    jaccard_threshold: f64,
+) -> EntropyResult {
+    entropy_compress_with_task(content, entropy_threshold, jaccard_threshold, &[])
 }
 
 /// Per-line entropy statistics for a block of content.
