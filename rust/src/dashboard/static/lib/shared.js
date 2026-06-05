@@ -145,6 +145,92 @@
     if (tooltipEl) tooltipEl.style.display = 'none';
   }
 
+  // --- Info-tip bubbles (the small "i" markers from tip()) ----------------
+  // Rendered into <body> instead of as a CSS ::after pseudo-element so an
+  // ancestor with overflow:hidden (.hero-main, .buddy-card) can never clip
+  // them (#357). Positioned viewport-aware: above the icon by default, flipped
+  // below when there isn't room, and clamped to stay fully on screen.
+  let infoTipEl = null;
+
+  function ensureInfoTip() {
+    if (!infoTipEl) {
+      infoTipEl = document.createElement('div');
+      infoTipEl.className = 'info-tip-bubble';
+      infoTipEl.setAttribute('role', 'tooltip');
+      document.body.appendChild(infoTipEl);
+    }
+    return infoTipEl;
+  }
+
+  function positionInfoTip(trigger) {
+    const el = infoTipEl;
+    if (!el || !trigger) return;
+    const MARGIN = 8; // min gap from any viewport edge
+    const GAP = 10; // gap between icon and bubble
+    const r = trigger.getBoundingClientRect();
+    const vw = document.documentElement.clientWidth;
+    const vh = document.documentElement.clientHeight;
+    const bw = el.offsetWidth;
+    const bh = el.offsetHeight;
+    const cx = r.left + r.width / 2;
+
+    let left = cx - bw / 2;
+    left = Math.max(MARGIN, Math.min(left, vw - bw - MARGIN));
+
+    const placeBelow = r.top < bh + GAP + MARGIN;
+    let top = placeBelow ? r.bottom + GAP : r.top - GAP - bh;
+    top = Math.max(MARGIN, Math.min(top, vh - bh - MARGIN));
+    el.classList.toggle('below', placeBelow);
+    el.classList.toggle('above', !placeBelow);
+
+    el.style.left = left + 'px';
+    el.style.top = top + 'px';
+    const arrowX = Math.max(10, Math.min(cx - left, bw - 10));
+    el.style.setProperty('--arrow-x', arrowX + 'px');
+  }
+
+  function showInfoTip(trigger) {
+    const t = trigger && trigger.getAttribute('data-tip');
+    if (!t) return;
+    const el = ensureInfoTip();
+    el.textContent = t;
+    positionInfoTip(trigger); // reads offsetWidth → forces layout before fade-in
+    el.classList.add('show');
+  }
+
+  function hideInfoTip() {
+    if (infoTipEl) infoTipEl.classList.remove('show');
+  }
+
+  function infoTipFrom(node) {
+    return node && node.closest ? node.closest('.info-tip') : null;
+  }
+
+  function bindInfoTips() {
+    // Delegated so dynamically re-rendered components keep working.
+    document.addEventListener('mouseover', function (e) {
+      const t = infoTipFrom(e.target);
+      if (t) showInfoTip(t);
+    });
+    document.addEventListener('mouseout', function (e) {
+      const t = infoTipFrom(e.target);
+      // Ignore moves between the icon and its own SVG child (no real leave).
+      if (t && !(e.relatedTarget && t.contains(e.relatedTarget))) hideInfoTip();
+    });
+    document.addEventListener('focusin', function (e) {
+      const t = infoTipFrom(e.target);
+      if (t) showInfoTip(t);
+    });
+    document.addEventListener('focusout', function (e) {
+      if (infoTipFrom(e.target)) hideInfoTip();
+    });
+    // A scrolled/resized viewport invalidates the anchored position.
+    window.addEventListener('scroll', hideInfoTip, true);
+    window.addEventListener('resize', hideInfoTip);
+  }
+
+  bindInfoTips();
+
   function howItWorks(title, content) {
     return (
       '<div class="how-it-works">' +
@@ -480,6 +566,8 @@
     showTooltip,
     moveTooltip,
     hideTooltip,
+    showInfoTip,
+    hideInfoTip,
     howItWorks,
     bindHowItWorks,
     showLoading,

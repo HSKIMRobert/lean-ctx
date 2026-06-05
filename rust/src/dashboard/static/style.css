@@ -50,8 +50,7 @@
 [data-theme="light"] *::selection{background:var(--green);color:var(--surface)}
 [data-theme="light"] .buddy-card{background:var(--surface);border-color:var(--border)}
 [data-theme="light"] .buddy-card::before{opacity:0.5}
-[data-theme="light"] .info-tip::after{background:var(--surface);border-color:var(--border);box-shadow:var(--shadow-md)}
-[data-theme="light"] .info-tip::before{border-top-color:var(--border)}
+[data-theme="light"] .info-tip-bubble{background:var(--surface);border-color:var(--border);box-shadow:var(--shadow-md)}
 [data-theme="light"] .fullscreen-backdrop{background:rgba(255,255,255,0.85)}
 [data-theme="light"] .card-fullscreen{background:var(--bg)}
 [data-theme="light"] .buddy-speech{background:var(--surface-2);border-color:var(--border)}
@@ -346,26 +345,27 @@ tr:hover td{background:var(--surface-2)}
   opacity:0.5;transition:opacity .15s,color .15s;
 }
 .info-tip:hover,.info-tip:focus{opacity:1;color:var(--green);outline:none}
-.info-tip::after{
-  content:attr(data-tip);
-  position:absolute;bottom:calc(100% + 10px);left:50%;transform:translateX(-50%);
+/* Tooltip bubble is portaled to <body> by lib/shared.js (showInfoTip), so an
+   ancestor's overflow:hidden (.hero-main/.buddy-card) can no longer clip it
+   (#357). JS positions it: prefers above the icon, flips below when there isn't
+   room, and clamps inside the viewport. .info-tip keeps only the icon. */
+.info-tip-bubble{
+  position:fixed;top:0;left:0;z-index:var(--z-tooltip);
   padding:10px 14px;
   background:var(--surface);border:1px solid var(--border-light);border-radius:10px;
   color:var(--text);font-size:11px;font-weight:400;font-family:var(--font);
   line-height:1.55;letter-spacing:0;text-transform:none;
   white-space:normal;width:max-content;max-width:280px;
-  z-index:var(--z-tooltip);pointer-events:none;
-  opacity:0;transition:opacity .15s;
-  box-shadow:var(--shadow-lg);
-}
-.info-tip:hover::after,.info-tip:focus::after{opacity:1}
-.info-tip::before{
-  content:'';position:absolute;bottom:calc(100% + 4px);left:50%;transform:translateX(-50%);
-  border:5px solid transparent;border-top-color:var(--border-light);
-  z-index:var(--z-tooltip);pointer-events:none;
+  box-shadow:var(--shadow-lg);pointer-events:none;
   opacity:0;transition:opacity .15s;
 }
-.info-tip:hover::before,.info-tip:focus::before{opacity:1}
+.info-tip-bubble.show{opacity:1}
+.info-tip-bubble::after{
+  content:'';position:absolute;left:var(--arrow-x,50%);
+  border:6px solid transparent;transform:translateX(-50%);
+}
+.info-tip-bubble.above::after{top:100%;margin-top:-1px;border-top-color:var(--surface)}
+.info-tip-bubble.below::after{bottom:100%;margin-bottom:-1px;border-bottom-color:var(--surface)}
 .loading-state{
   text-align:center;padding:60px 24px;color:var(--muted);font-size:13px;
 }
