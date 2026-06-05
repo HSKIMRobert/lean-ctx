@@ -356,11 +356,35 @@ fn load_or_refresh_bm25(root: &Path) -> Bm25LoadResult {
         return Bm25LoadResult::Building;
     }
 
+    // Cold path: kick off the background build (which persists the index to
+    // disk) instead of doing an unbounded synchronous build in the MCP handler.
+    // Wait briefly so small/medium repos still return Ready on the first call;
+    // larger repos return Building and the agent retries against the warm cache
+    // once the worker has persisted the index (#150).
     crate::core::index_orchestrator::ensure_all_background(&root_str);
 
-    let idx = std::sync::Arc::new(BM25Index::load_or_build(root));
-    store_in_thread_cache(root, &idx);
-    Bm25LoadResult::Ready(idx)
+    let deadline = std::time::Instant::now() + bm25_cold_build_budget();
+    loop {
+        if let Some(idx) = crate::core::index_orchestrator::try_load_bm25_index(&root_str) {
+            let idx = std::sync::Arc::new(idx);
+            store_in_thread_cache(root, &idx);
+            return Bm25LoadResult::Ready(idx);
+        }
+        if std::time::Instant::now() >= deadline {
+            return Bm25LoadResult::Building;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
+/// Time budget for waiting on a cold BM25 build in the MCP handler before
+/// returning `Building`. Overridable via `LEAN_CTX_BM25_COLD_BUDGET_MS`.
+fn bm25_cold_build_budget() -> std::time::Duration {
+    let ms = std::env::var("LEAN_CTX_BM25_COLD_BUDGET_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(3000);
+    std::time::Duration::from_millis(ms)
 }
 
 fn store_in_thread_cache(root: &Path, idx: &std::sync::Arc<BM25Index>) {
