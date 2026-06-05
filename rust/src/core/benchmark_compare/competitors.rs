@@ -70,6 +70,21 @@ pub fn all_competitors() -> Vec<CompetitorProfile> {
             supports_session_memory: true,
             feature_count: 5,
         },
+        CompetitorProfile {
+            name: "TokenForge",
+            version: "full-stack",
+            // Code engine is AST folding at 40-70%; we list the top of the
+            // published range to match how Repomix's "up to 70%" is reported.
+            compression_pct: Some(70.0),
+            source: "TokenForge README (tree-sitter code folding 40-70%; \
+                     full-stack: code/command/conversation/json/mcp-schema)",
+            url: "https://github.com/Manavarya09/tokenforge",
+            supports_search: false,
+            supports_caching: true,
+            supports_multi_mode: true,
+            supports_session_memory: true,
+            feature_count: 6,
+        },
     ]
 }
 
