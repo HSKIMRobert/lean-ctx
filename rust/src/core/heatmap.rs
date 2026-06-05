@@ -192,7 +192,11 @@ fn save_to_disk(hm: &HeatMap) -> std::io::Result<()> {
 }
 
 pub fn record_file_access(file_path: &str, original_tokens: usize, saved_tokens: usize) {
-    record_file_access_with_agent(file_path, original_tokens, saved_tokens, None);
+    // Attribute every read to the current agent identity so the per-agent
+    // pheromone field (stigmergic trace) is populated in production, not just
+    // when callers explicitly pass an id.
+    let agent = crate::core::agent_identity::current_agent_id();
+    record_file_access_with_agent(file_path, original_tokens, saved_tokens, Some(agent));
 }
 
 /// Like [`record_file_access`] but attaches an agent identifier so the heatmap
