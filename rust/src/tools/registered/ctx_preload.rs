@@ -185,13 +185,14 @@ fn predict_and_prefetch(
         return String::new();
     }
 
-    let mut bandit = crate::core::provider_bandit::ProviderBandit::new();
+    let mut bandit = crate::core::provider_bandit::ProviderBandit::load(project_root);
     let predictions =
         crate::core::active_inference::predict_preloads(task, &available, &mut bandit, 2);
 
     if predictions.is_empty() {
         return String::new();
     }
+    let task_type = crate::core::active_inference::infer_task_type(&task.to_lowercase());
 
     let cfg = crate::core::config::Config::load();
     let auto_index = cfg.providers.auto_index;
@@ -208,6 +209,9 @@ fn predict_and_prefetch(
 
         match registry.execute_as_chunks(&pred.provider_id, &pred.action, &params) {
             Ok(chunks) => {
+                // Active-inference feedback: a provider that actually returned
+                // context for this task type is a positive prediction error.
+                bandit.update(&task_type, &pred.provider_id, !chunks.is_empty());
                 let artifacts = crate::core::consolidation::consolidate(&chunks);
                 for entry in &artifacts.cache_entries {
                     cache.store(&entry.uri, &entry.content);
@@ -225,6 +229,9 @@ fn predict_and_prefetch(
                 ));
             }
             Err(e) => {
+                // A failed/empty provider is a negative prediction error — learn
+                // not to bet on it for this task type next time.
+                bandit.update(&task_type, &pred.provider_id, false);
                 tracing::debug!(
                     "[preload] provider {}/{} failed: {e}",
                     pred.provider_id,
@@ -233,6 +240,10 @@ fn predict_and_prefetch(
             }
         }
     }
+
+    // Persist the learning even when nothing prefetched — negative outcomes are
+    // exactly what we want the bandit to remember.
+    let _ = bandit.save(project_root);
 
     if prefetched == 0 {
         return String::new();

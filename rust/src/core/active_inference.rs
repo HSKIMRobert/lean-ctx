@@ -128,8 +128,10 @@ pub fn predict_preloads(
     predictions
 }
 
-/// Simple task type inference from keywords.
-fn infer_task_type(task: &str) -> String {
+/// Simple task type inference from keywords. Public so the preload feedback loop
+/// can bucket outcomes by the same task type the prediction was scored under.
+#[must_use]
+pub fn infer_task_type(task: &str) -> String {
     if task.contains("bug")
         || task.contains("fix")
         || task.contains("error")

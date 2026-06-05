@@ -122,6 +122,29 @@ impl ProviderBandit {
         self.arms.get(&key).map_or(0.5, ProviderArm::mean)
     }
 
+    /// Load the persisted bandit for a project, or a fresh one if none exists.
+    /// Persistence is what turns the preloader from a per-call heuristic into a
+    /// model that genuinely learns which providers pay off for which task types.
+    pub fn load(project_root: &str) -> Self {
+        let path = provider_bandit_path(project_root);
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            if let Ok(bandit) = serde_json::from_str::<ProviderBandit>(&content) {
+                return bandit;
+            }
+        }
+        Self::new()
+    }
+
+    /// Persist the bandit's learned arms for this project.
+    pub fn save(&self, project_root: &str) -> Result<(), String> {
+        let path = provider_bandit_path(project_root);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
+        std::fs::write(path, json).map_err(|e| e.to_string())
+    }
+
     /// Format a summary of all arms for debugging/logging.
     pub fn format_report(&self) -> String {
         let mut out = String::from("Provider Bandit Arms:\n");
@@ -145,6 +168,15 @@ impl ProviderBandit {
 
 fn arm_key(task_type: &str, provider_id: &str) -> String {
     format!("{task_type}:{provider_id}")
+}
+
+fn provider_bandit_path(project_root: &str) -> std::path::PathBuf {
+    let hash = crate::core::project_hash::hash_project_root(project_root);
+    crate::core::data_dir::lean_ctx_data_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+        .join("projects")
+        .join(hash)
+        .join("provider_bandit.json")
 }
 
 /// Simple Beta distribution sample using the ratio of two Gamma samples.
@@ -261,5 +293,30 @@ mod tests {
         let report = bandit.format_report();
         assert!(report.contains("bugfix:github"));
         assert!(report.contains("bugfix:jira"));
+    }
+
+    #[test]
+    fn persistence_roundtrip_preserves_learning() {
+        let _env = crate::core::data_dir::test_env_lock();
+        let data_dir = tempfile::tempdir().unwrap();
+        std::env::set_var("LEAN_CTX_DATA_DIR", data_dir.path());
+        let project = "/tmp/provider-bandit-roundtrip";
+
+        let mut bandit = ProviderBandit::new();
+        for _ in 0..10 {
+            bandit.update("bugfix", "github", true);
+        }
+        bandit.save(project).expect("save");
+
+        let reloaded = ProviderBandit::load(project);
+        assert!(
+            reloaded.estimated_probability("bugfix", "github") > 0.8,
+            "reloaded bandit must retain the learned preference"
+        );
+        // A fresh project starts unbiased (no cross-project leakage).
+        let fresh = ProviderBandit::load("/tmp/provider-bandit-unseen");
+        assert!((fresh.estimated_probability("bugfix", "github") - 0.5).abs() < f64::EPSILON);
+
+        std::env::remove_var("LEAN_CTX_DATA_DIR");
     }
 }
