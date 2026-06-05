@@ -722,6 +722,12 @@ pub fn handle_codex_session_start() {
     if is_quiet() {
         return;
     }
+    // Dedicated rules-injection mode (#343): the `hook observe` SessionStart hook
+    // injects the full rules summary as additionalContext, so stay silent here to
+    // avoid double-injecting on Codex (which fires both hooks on SessionStart).
+    if crate::core::config::Config::load().dedicated_session_context_active() {
+        return;
+    }
     println!(
         "For shell commands matched by lean-ctx compression rules, prefer `lean-ctx -c \"<command>\"`. If a Bash call is blocked, rerun it with the exact command suggested by the hook."
     );

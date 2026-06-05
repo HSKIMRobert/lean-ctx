@@ -31,6 +31,7 @@ pub use cursor::install_cursor_hook;
 pub(super) use cursor::{
     install_cursor_hook_config, install_cursor_hook_scripts, install_cursor_hook_with_mode,
 };
+pub(crate) use gemini::unregister_gemini_context_filename;
 pub(super) use gemini::{
     install_gemini_hook, install_gemini_hook_config, install_gemini_hook_scripts,
 };
@@ -39,6 +40,7 @@ pub(super) use jetbrains::install_jetbrains_hook;
 pub(super) use kiro::install_kiro_hook;
 pub(super) use openclaw::install_openclaw_hook;
 pub(super) use opencode::install_opencode_hook_with_mode;
+pub(crate) use opencode::unregister_opencode_instructions;
 pub(super) use pi::install_pi_hook_with_mode;
 pub(super) use qoder::{install_qoder_hook, install_qoder_hook_with_mode};
 pub(super) use windsurf::{install_windsurf_hooks, install_windsurf_rules};

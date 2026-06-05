@@ -263,3 +263,18 @@ pub enum RulesScope {
     Global,
     Project,
 }
+
+/// How agent rules are injected for AGENTS.md/CLAUDE.md/GEMINI.md consumers.
+///
+/// - `Shared` (default): write a marker-delimited block into the user's shared
+///   instruction file (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`) — zero-config
+///   discoverability, but touches a file the user also authors.
+/// - `Dedicated`: never write into those shared files. Instead use each agent's
+///   config-driven, fully-removable auto-load path (Claude/Codex `SessionStart`
+///   hook `additionalContext`, OpenCode `instructions[]`, Gemini
+///   `context.fileName`) plus a lean-ctx-owned rules file. See issue #343.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RulesInjection {
+    Shared,
+    Dedicated,
+}

@@ -95,6 +95,16 @@ fn install_claude_global_claude_md_for_mode(home: &std::path::Path, mode: HookMo
     let _ = std::fs::create_dir_all(&claude_dir);
     let claude_md_path = claude_dir.join("CLAUDE.md");
 
+    // Dedicated mode (#343): never keep a lean-ctx block in the user's CLAUDE.md.
+    // The SessionStart hook injects the compact summary instead; if a block was
+    // left by a previous shared install, strip it so switching modes is clean.
+    if crate::core::config::Config::load().rules_injection_effective()
+        == crate::core::config::RulesInjection::Dedicated
+    {
+        strip_claude_md_block(&claude_md_path);
+        return;
+    }
+
     let existing = std::fs::read_to_string(&claude_md_path).unwrap_or_default();
     let block = match mode {
         HookMode::Mcp | HookMode::Hybrid => CLAUDE_MD_BLOCK_CONTENT_MCP,
@@ -118,6 +128,23 @@ fn install_claude_global_claude_md_for_mode(home: &std::path::Path, mode: HookMo
     } else {
         let updated = format!("{}\n\n{}\n", existing.trim(), block);
         write_file(&claude_md_path, &updated);
+    }
+}
+
+/// Remove the lean-ctx block from `CLAUDE.md` (dedicated mode). Deletes the file
+/// entirely if it becomes empty (i.e. lean-ctx was its only content).
+fn strip_claude_md_block(claude_md_path: &std::path::Path) {
+    let Ok(existing) = std::fs::read_to_string(claude_md_path) else {
+        return;
+    };
+    if !existing.contains(CLAUDE_MD_BLOCK_START) {
+        return;
+    }
+    let cleaned = remove_block(&existing, CLAUDE_MD_BLOCK_START, CLAUDE_MD_BLOCK_END);
+    if cleaned.trim().is_empty() {
+        let _ = std::fs::remove_file(claude_md_path);
+    } else {
+        write_file(claude_md_path, &format!("{}\n", cleaned.trim_end()));
     }
 }
 

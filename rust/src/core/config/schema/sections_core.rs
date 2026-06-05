@@ -156,6 +156,16 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
         ),
     );
     root.insert(
+        "rules_injection".into(),
+        key_enum(
+            &["shared", "dedicated"],
+            "shared",
+            "How rules load for CLAUDE.md/AGENTS.md/GEMINI.md agents: shared block, or \
+             dedicated (no shared-file edits; SessionStart hook / instructions[] / \
+             context.fileName). Override via LEAN_CTX_RULES_INJECTION",
+        ),
+    );
+    root.insert(
         "extra_ignore_patterns".into(),
         key(
             "string[]",

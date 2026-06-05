@@ -298,7 +298,8 @@ Parameters: `format`
 
 ## `ctx_read`
 
-Read file (cached, compressed). Cached re-reads can be ~13 tok when unchanged. Auto-selects optimal mode. Modes: full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M. fresh=true forces a disk re-read.
+Read a file. Prefer over native Read/cat/head/tail (cached, compressed).
+Unchanged re-reads cost ~13 tokens. Auto-selects mode (full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M). fresh=true forces a disk re-read.
 
 Parameters: `fresh`, `mode`, `path`*, `start_line`
 
@@ -346,7 +347,8 @@ Parameters: `action`*, `agent`
 
 ## `ctx_search`
 
-Regex code search (.gitignore aware, compact results). Supports multi-root via `paths` array. Secret-like files skipped unless role allows.
+Search code by regex. Prefer over native Grep/rg/find (compact output).
+Respects .gitignore; supports multi-root via `paths` array. Secret-like files skipped unless role allows.
 
 Parameters: `ext`, `ignore_gitignore`, `max_results`, `path`, `paths`, `pattern`*
 
@@ -370,7 +372,8 @@ Parameters: `action`*, `message`, `paths`, `to_agent`
 
 ## `ctx_shell`
 
-Run shell command (compressed output, 95+ patterns). Use raw=true to skip compression. cwd sets working directory (persists across calls via cd tracking). Output redaction is on by default for non-admin roles (admin can disable).
+Run a shell command. Prefer over native Shell/Bash (compressed output).
+95+ output patterns; raw=true skips compression. cwd persists across calls via cd tracking. Output redaction on by default for non-admin roles (admin can disable).
 
 Parameters: `command`*, `cwd`, `env`, `raw`
 
@@ -400,7 +403,8 @@ Parameters: `action`*, `description`, `message`, `state`, `task_id`, `to_agent`
 
 ## `ctx_tree`
 
-Directory listing with file counts. Supports multi-root via `paths` array.
+List a directory. Prefer over native ls/find (counts, compact tree).
+Supports multi-root via `paths` array. depth controls recursion (default 3).
 
 Parameters: `depth`, `path`, `paths`, `respect_gitignore`, `show_hidden`
 

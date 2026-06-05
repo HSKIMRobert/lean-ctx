@@ -7,6 +7,7 @@ const END_MARKER: &str = "<!-- /lean-ctx -->";
 const RULES_VERSION: &str = "lean-ctx-rules-v11";
 
 pub const RULES_MARKER: &str = MARKER;
+pub const RULES_END_MARKER: &str = END_MARKER;
 pub const RULES_VERSION_STR: &str = RULES_VERSION;
 
 pub fn rules_dedicated_markdown() -> &'static str {
@@ -16,6 +17,44 @@ pub fn rules_dedicated_markdown() -> &'static str {
 pub fn rules_shared_content() -> &'static str {
     RULES_SHARED
 }
+
+/// Compact, agent-agnostic tool-mapping summary injected as `SessionStart`
+/// `additionalContext` in `rules_injection = "dedicated"` mode.
+///
+/// It is the always-loaded counterpart of the (now-skipped) CLAUDE.md/AGENTS.md
+/// marker block, so it carries the same essential per-session footprint. The
+/// full ruleset stays lazy in the removable dedicated rules file. No HTML markers
+/// and no `@import` pointer (Codex has no `@import`), so it renders cleanly as a
+/// developer/system reminder on both Claude and Codex.
+pub fn dedicated_session_summary() -> &'static str {
+    DEDICATED_SESSION_SUMMARY
+}
+
+const DEDICATED_SESSION_SUMMARY: &str =
+    "lean-ctx is active — prefer its tools over native equivalents to save context tokens:
+- ctx_read  → instead of Read/cat/head/tail (cached, 10 modes, re-reads ~13 tokens)
+- ctx_shell → instead of bash/Shell (95+ output-compression patterns)
+- ctx_search → instead of Grep/rg/find (compact, token-efficient results)
+- ctx_tree  → instead of ls/find (compact directory maps)
+Native Edit/Write/Glob stay as-is. If Edit needs Read and Read is unavailable, use ctx_edit.
+NEVER use native Read/Grep/Shell when a ctx_* equivalent exists.";
+
+/// Dedicated-mode rules file for OpenCode, auto-loaded via `opencode.json`
+/// `instructions[]` (absolute path) instead of polluting `~/.config/opencode/AGENTS.md`.
+pub fn opencode_dedicated_rules_path(home: &std::path::Path) -> PathBuf {
+    home.join(".config/opencode/rules/lean-ctx.md")
+}
+
+/// Dedicated-mode rules file for Gemini CLI, auto-loaded via `settings.json`
+/// `context.fileName` instead of polluting `~/.gemini/GEMINI.md`. The filename is
+/// deliberately distinctive: Gemini discovers context files *by name* across the
+/// project tree, so a generic `lean-ctx.md` would get picked up everywhere.
+pub fn gemini_dedicated_rules_path(home: &std::path::Path) -> PathBuf {
+    home.join(".gemini").join(GEMINI_DEDICATED_CONTEXT_FILENAME)
+}
+
+/// The `context.fileName` entry registered for Gemini in dedicated mode.
+pub const GEMINI_DEDICATED_CONTEXT_FILENAME: &str = "LEANCTX.md";
 
 // ---------------------------------------------------------------------------
 // Rules content for SHARED config files (appended to user's existing config).
@@ -151,13 +190,12 @@ pub struct RulesTargetStatus {
 }
 
 pub fn inject_all_rules(home: &std::path::Path) -> InjectResult {
-    if crate::core::config::Config::load().rules_scope_effective()
-        == crate::core::config::RulesScope::Project
-    {
+    let cfg = crate::core::config::Config::load();
+    if cfg.rules_scope_effective() == crate::core::config::RulesScope::Project {
         return InjectResult::default();
     }
 
-    let targets = build_rules_targets(home);
+    let targets = build_rules_targets(home, cfg.rules_injection_effective());
 
     let mut result = InjectResult::default();
 
@@ -212,13 +250,12 @@ pub fn inject_all_rules(home: &std::path::Path) -> InjectResult {
 /// Inject global rules for a single agent (by CLI key like "opencode", "cursor", etc.).
 /// Used by `init --agent` to ensure global rules are written alongside MCP config.
 pub fn inject_rules_for_agent(home: &std::path::Path, agent_key: &str) -> InjectResult {
-    if crate::core::config::Config::load().rules_scope_effective()
-        == crate::core::config::RulesScope::Project
-    {
+    let cfg = crate::core::config::Config::load();
+    if cfg.rules_scope_effective() == crate::core::config::RulesScope::Project {
         return InjectResult::default();
     }
 
-    let targets = build_rules_targets(home);
+    let targets = build_rules_targets(home, cfg.rules_injection_effective());
     let mut result = InjectResult::default();
 
     for target in &targets {
@@ -289,7 +326,8 @@ fn match_agent_name(cli_key: &str, target_name: &str) -> bool {
 /// Returns `Some(message)` if rules are stale/missing, `None` if current.
 pub fn check_rules_freshness(client_name: &str) -> Option<String> {
     let home = dirs::home_dir()?;
-    let targets = build_rules_targets(&home);
+    let injection = crate::core::config::Config::load().rules_injection_effective();
+    let targets = build_rules_targets(&home, injection);
 
     let matched: Vec<&RulesTarget> = targets
         .iter()
@@ -320,7 +358,8 @@ pub fn check_rules_freshness(client_name: &str) -> Option<String> {
 }
 
 pub fn collect_rules_status(home: &std::path::Path) -> Vec<RulesTargetStatus> {
-    let targets = build_rules_targets(home);
+    let injection = crate::core::config::Config::load().rules_injection_effective();
+    let targets = build_rules_targets(home, injection);
     let mut out = Vec::new();
 
     for target in &targets {
@@ -655,7 +694,34 @@ fn detect_extension_installed(_home: &std::path::Path, extension_id: &str) -> bo
 // Target definitions
 // ---------------------------------------------------------------------------
 
-fn build_rules_targets(home: &std::path::Path) -> Vec<RulesTarget> {
+fn build_rules_targets(
+    home: &std::path::Path,
+    injection: crate::core::config::RulesInjection,
+) -> Vec<RulesTarget> {
+    use crate::core::config::RulesInjection;
+
+    // In dedicated mode the two AGENTS.md/GEMINI.md consumers write to a
+    // lean-ctx-owned file instead of the user's shared instruction file;
+    // discovery is wired up separately via opencode.json instructions[] /
+    // .gemini/settings.json context.fileName (#343).
+    let (gemini_path, gemini_format) = match injection {
+        RulesInjection::Dedicated => (
+            gemini_dedicated_rules_path(home),
+            RulesFormat::DedicatedMarkdown,
+        ),
+        RulesInjection::Shared => (home.join(".gemini/GEMINI.md"), RulesFormat::SharedMarkdown),
+    };
+    let (opencode_path, opencode_format) = match injection {
+        RulesInjection::Dedicated => (
+            opencode_dedicated_rules_path(home),
+            RulesFormat::DedicatedMarkdown,
+        ),
+        RulesInjection::Shared => (
+            home.join(".config/opencode/AGENTS.md"),
+            RulesFormat::SharedMarkdown,
+        ),
+    };
+
     vec![
         // --- Shared config files (append-only) ---
         RulesTarget {
@@ -665,8 +731,8 @@ fn build_rules_targets(home: &std::path::Path) -> Vec<RulesTarget> {
         },
         RulesTarget {
             name: "Gemini CLI",
-            path: home.join(".gemini/GEMINI.md"),
-            format: RulesFormat::SharedMarkdown,
+            path: gemini_path,
+            format: gemini_format,
         },
         RulesTarget {
             name: "VS Code",
@@ -708,8 +774,8 @@ fn build_rules_targets(home: &std::path::Path) -> Vec<RulesTarget> {
         },
         RulesTarget {
             name: "OpenCode",
-            path: home.join(".config/opencode/AGENTS.md"),
-            format: RulesFormat::SharedMarkdown,
+            path: opencode_path,
+            format: opencode_format,
         },
         RulesTarget {
             name: "Continue",
@@ -947,7 +1013,7 @@ mod tests {
         // Rules must live under the SAME dir as the MCP config, never a hardcoded
         // ~/.config/zed on every OS (regression: rules missed on macOS).
         let home = std::path::Path::new("/home/tester");
-        let zed = build_rules_targets(home)
+        let zed = build_rules_targets(home, crate::core::config::RulesInjection::Shared)
             .into_iter()
             .find(|t| t.name == "Zed")
             .expect("Zed rules target must exist");
@@ -1103,8 +1169,50 @@ mod tests {
     #[test]
     fn target_count() {
         let home = std::path::PathBuf::from("/tmp/fake_home");
-        let targets = build_rules_targets(&home);
+        let targets = build_rules_targets(&home, crate::core::config::RulesInjection::Shared);
         assert_eq!(targets.len(), 23);
+        // Dedicated mode swaps paths/formats but never changes the target count.
+        let dedicated = build_rules_targets(&home, crate::core::config::RulesInjection::Dedicated);
+        assert_eq!(dedicated.len(), 23);
+    }
+
+    #[test]
+    fn dedicated_mode_swaps_shared_agents_to_dedicated_files() {
+        use crate::core::config::RulesInjection;
+        let home = std::path::Path::new("/home/tester");
+
+        let shared = build_rules_targets(home, RulesInjection::Shared);
+        let gemini_shared = shared.iter().find(|t| t.name == "Gemini CLI").unwrap();
+        let opencode_shared = shared.iter().find(|t| t.name == "OpenCode").unwrap();
+        assert!(matches!(gemini_shared.format, RulesFormat::SharedMarkdown));
+        assert!(gemini_shared.path.ends_with("GEMINI.md"));
+        assert!(matches!(
+            opencode_shared.format,
+            RulesFormat::SharedMarkdown
+        ));
+        assert!(opencode_shared.path.ends_with("AGENTS.md"));
+
+        let dedicated = build_rules_targets(home, RulesInjection::Dedicated);
+        let gemini = dedicated.iter().find(|t| t.name == "Gemini CLI").unwrap();
+        let opencode = dedicated.iter().find(|t| t.name == "OpenCode").unwrap();
+        // Never the user's shared instruction file in dedicated mode.
+        assert!(matches!(gemini.format, RulesFormat::DedicatedMarkdown));
+        assert_eq!(gemini.path, gemini_dedicated_rules_path(home));
+        assert!(!gemini.path.ends_with("GEMINI.md"));
+        assert!(matches!(opencode.format, RulesFormat::DedicatedMarkdown));
+        assert_eq!(opencode.path, opencode_dedicated_rules_path(home));
+        assert!(!opencode.path.ends_with("AGENTS.md"));
+    }
+
+    #[test]
+    fn dedicated_session_summary_is_clean_and_agent_agnostic() {
+        let s = dedicated_session_summary();
+        assert!(s.contains("ctx_read"));
+        assert!(s.contains("ctx_shell"));
+        assert!(s.contains("ctx_search"));
+        // Must not carry HTML markers or an @import pointer (Codex has no @import).
+        assert!(!s.contains("<!--"));
+        assert!(!s.contains('@'));
     }
 
     #[test]

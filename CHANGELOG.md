@@ -3,6 +3,15 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+- **`rules_injection` config — opt out of touching shared instruction files** (#343): a new top-level option (`shared` default | `dedicated`, env `LEAN_CTX_RULES_INJECTION`) controls *how* lean-ctx delivers its tool-mapping rules to the shared-instruction-file agents (Claude Code, Codex, OpenCode, Gemini CLI). The default `shared` keeps today's behavior — a marker-delimited block written into `CLAUDE.md` / `AGENTS.md` / `GEMINI.md` for zero-config discoverability. The new `dedicated` mode **never edits those user-authored files**; instead it uses each agent's own config-driven, fully-removable auto-load path and a lean-ctx-owned rules file:
+  - **Claude Code & Codex** — the rules summary is injected at session start via the existing `SessionStart` hook's `additionalContext` (model-visible, nothing persisted to `CLAUDE.md`/`AGENTS.md`; any prior lean-ctx block is stripped on switch).
+  - **OpenCode** — the dedicated `~/.config/opencode/rules/lean-ctx.md` is registered (by absolute path, idempotently) in `opencode.json` `instructions[]`, and the old `AGENTS.md` block is removed.
+  - **Gemini CLI** — the dedicated `~/.gemini/LEANCTX.md` is registered in `settings.json` `context.fileName` (seeding the default `GEMINI.md` so the user's own context file keeps loading), and the old `GEMINI.md` block is removed.
+  Switching back to `shared`, and `lean-ctx uninstall`, cleanly reverse every registration (`instructions[]` / `context.fileName` collapse back to their pristine default) and delete the dedicated files — no orphaned entries. Toggling is driven entirely by the flag: the same `rules sync` writes a block in `shared` mode and an untouched user file + separate rules file in `dedicated` mode.
+
 ## [3.7.3] — 2026-06-04
 
 > **Compression where the agent actually is — and fidelity where it matters.** A

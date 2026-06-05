@@ -19,10 +19,35 @@ pub fn handle_observe() {
     let Some(input) = read_stdin_with_timeout(HOOK_STDIN_TIMEOUT) else {
         return;
     };
+    // Dedicated rules-injection mode (#343): a Claude/Codex `SessionStart` hook
+    // injects the compact lean-ctx summary as `additionalContext` — the
+    // non-polluting stand-in for the (skipped) CLAUDE.md/AGENTS.md block. Both
+    // agents register `hook observe` on SessionStart, so this is the single
+    // emit point (the Codex-specific handler stays silent in dedicated mode).
+    emit_dedicated_session_context(&input);
     let Some(event) = parse_observe_event(&input) else {
         return;
     };
     append_radar_event(&event);
+}
+
+fn emit_dedicated_session_context(input: &str) {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(input) else {
+        return;
+    };
+    if v.get("hook_event_name").and_then(|e| e.as_str()) != Some("SessionStart") {
+        return;
+    }
+    if !crate::core::config::Config::load().dedicated_session_context_active() {
+        return;
+    }
+    let payload = serde_json::json!({
+        "hookSpecificOutput": {
+            "hookEventName": "SessionStart",
+            "additionalContext": crate::rules_inject::dedicated_session_summary(),
+        }
+    });
+    println!("{payload}");
 }
 
 #[derive(serde::Serialize)]

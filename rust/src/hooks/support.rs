@@ -89,6 +89,37 @@ pub(super) fn install_codex_instruction_docs(codex_dir: &Path) -> bool {
     let lean_ctx_md = codex_dir.join("LEAN-CTX.md");
     let lean_ctx_content = codex_instruction_doc_content();
 
+    let mut changed = false;
+
+    // LEAN-CTX.md (full rules) is lean-ctx-owned and fully removable — written in
+    // both modes, never the user's AGENTS.md.
+    let existing_lean_ctx = std::fs::read_to_string(&lean_ctx_md).unwrap_or_default();
+    if existing_lean_ctx != lean_ctx_content {
+        super::write_file(&lean_ctx_md, &lean_ctx_content);
+        changed = true;
+    }
+
+    // Dedicated mode (#343): never touch AGENTS.md. The Codex SessionStart hook
+    // injects the compact summary; strip any block a prior shared install left.
+    if crate::core::config::Config::load().rules_injection_effective()
+        == crate::core::config::RulesInjection::Dedicated
+    {
+        if agents_path.exists()
+            && std::fs::read_to_string(&agents_path)
+                .is_ok_and(|c| c.contains(CODEX_AGENTS_BLOCK_START))
+        {
+            crate::marked_block::remove_from_file(
+                &agents_path,
+                CODEX_AGENTS_BLOCK_START,
+                CODEX_AGENTS_BLOCK_END,
+                true,
+                "Codex AGENTS.md lean-ctx block",
+            );
+            changed = true;
+        }
+        return changed;
+    }
+
     let rules_path = codex_dir.join("LEAN-CTX.md");
     let block = format!(
         "{CODEX_AGENTS_BLOCK_START}\n## lean-ctx\n\n\
@@ -103,14 +134,6 @@ pub(super) fn install_codex_instruction_docs(codex_dir: &Path) -> bool {
         binary = super::resolve_binary_path(),
         rules = rules_path.display()
     );
-
-    let mut changed = false;
-
-    let existing_lean_ctx = std::fs::read_to_string(&lean_ctx_md).unwrap_or_default();
-    if existing_lean_ctx != lean_ctx_content {
-        super::write_file(&lean_ctx_md, &lean_ctx_content);
-        changed = true;
-    }
 
     if !agents_path.exists() {
         let content = format!("# Global Agent Instructions\n\n{block}");
