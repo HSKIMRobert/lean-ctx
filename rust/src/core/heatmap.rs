@@ -18,6 +18,11 @@ pub struct HeatEntry {
     pub total_tokens_saved: u64,
     pub total_original_tokens: u64,
     pub avg_compression_ratio: f32,
+    /// Per-agent access counts — the stigmergic pheromone field.  When multiple
+    /// agents access the same file, downstream consumers can identify shared
+    /// context (co-access patterns) and compute credit for useful preloads.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub agent_accesses: HashMap<String, u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -41,6 +46,17 @@ impl HeatMap {
     }
 
     pub fn record_access(&mut self, file_path: &str, original_tokens: usize, saved_tokens: usize) {
+        self.record_access_with_agent(file_path, original_tokens, saved_tokens, None);
+    }
+
+    /// Record a file access with an optional agent identifier (stigmergic trace).
+    pub fn record_access_with_agent(
+        &mut self,
+        file_path: &str,
+        original_tokens: usize,
+        saved_tokens: usize,
+        agent_id: Option<&str>,
+    ) {
         let now = chrono::Utc::now().to_rfc3339();
         let entry = self
             .entries
@@ -52,6 +68,7 @@ impl HeatMap {
                 total_tokens_saved: 0,
                 total_original_tokens: 0,
                 avg_compression_ratio: 0.0,
+                agent_accesses: HashMap::new(),
             });
         entry.access_count += 1;
         entry.last_access = now;
@@ -61,6 +78,11 @@ impl HeatMap {
             entry.avg_compression_ratio = 1.0
                 - (entry.total_original_tokens - entry.total_tokens_saved) as f32
                     / entry.total_original_tokens as f32;
+        }
+        if let Some(aid) = agent_id {
+            if !aid.is_empty() {
+                *entry.agent_accesses.entry(aid.to_string()).or_insert(0) += 1;
+            }
         }
         self.dirty = true;
     }
@@ -81,6 +103,32 @@ impl HeatMap {
         let mut sorted: Vec<&HeatEntry> = self.entries.values().collect();
         sorted.sort_by_key(|x| std::cmp::Reverse(x.access_count));
         sorted.truncate(limit);
+        sorted
+    }
+
+    /// Compute stigmergic context credit: which agents' file-access traces
+    /// benefited other agents? An agent A gets credit for a file F when A
+    /// accessed F before (or alongside) agent B, because A's trace effectively
+    /// pointed B to useful context. The credit for each (agent_A, file) pair is
+    /// proportional to how many *other* agents also accessed that file.
+    /// Returns `Vec<(agent_id, total_credit)>` sorted descending.
+    pub fn context_credit(&self) -> Vec<(String, f64)> {
+        let mut credit: HashMap<String, f64> = HashMap::new();
+        for entry in self.entries.values() {
+            let n_agents = entry.agent_accesses.len();
+            if n_agents < 2 {
+                continue;
+            }
+            // Shapley-inspired: each agent that accessed a shared file gets
+            // credit = (n_other_agents) / n_agents. The more agents a file
+            // served, the more each contributor is credited.
+            let share = (n_agents - 1) as f64 / n_agents as f64;
+            for agent in entry.agent_accesses.keys() {
+                *credit.entry(agent.clone()).or_insert(0.0) += share;
+            }
+        }
+        let mut sorted: Vec<(String, f64)> = credit.into_iter().collect();
+        sorted.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         sorted
     }
 
@@ -144,6 +192,17 @@ fn save_to_disk(hm: &HeatMap) -> std::io::Result<()> {
 }
 
 pub fn record_file_access(file_path: &str, original_tokens: usize, saved_tokens: usize) {
+    record_file_access_with_agent(file_path, original_tokens, saved_tokens, None);
+}
+
+/// Like [`record_file_access`] but attaches an agent identifier so the heatmap
+/// builds a per-agent pheromone field (stigmergic trace for multi-agent routing).
+pub fn record_file_access_with_agent(
+    file_path: &str,
+    original_tokens: usize,
+    saved_tokens: usize,
+    agent_id: Option<&str>,
+) {
     // Universal per-read chokepoint (CLI via tool_lifecycle, MCP via ctx_read/ctx_multi_read):
     // also append one auditable savings event. Best-effort; never blocks/breaks the read.
     crate::core::savings_ledger::record_read_event(original_tokens, saved_tokens);
@@ -158,7 +217,7 @@ pub fn record_file_access(file_path: &str, original_tokens: usize, saved_tokens:
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let hm = guard.get_or_insert_with(load_from_disk);
-    hm.record_access(file_path, original_tokens, saved_tokens);
+    hm.record_access_with_agent(file_path, original_tokens, saved_tokens, agent_id);
 
     // Enforce bounded retention.
     if hm.entries.len() > HEATMAP_MAX_ENTRIES {
@@ -334,5 +393,27 @@ mod tests {
         hm.record_access("a.rs", 1000, 800);
         let entry = &hm.entries["a.rs"];
         assert!((entry.avg_compression_ratio - 0.8).abs() < 0.01);
+    }
+
+    #[test]
+    fn agent_scoped_access_and_context_credit() {
+        let mut hm = HeatMap::default();
+        hm.record_access_with_agent("shared.rs", 100, 50, Some("agent-a"));
+        hm.record_access_with_agent("shared.rs", 100, 60, Some("agent-b"));
+        hm.record_access_with_agent("only-a.rs", 100, 70, Some("agent-a"));
+
+        let entry = &hm.entries["shared.rs"];
+        assert_eq!(entry.agent_accesses.len(), 2);
+        assert_eq!(entry.agent_accesses["agent-a"], 1);
+        assert_eq!(entry.agent_accesses["agent-b"], 1);
+
+        let credit = hm.context_credit();
+        assert!(!credit.is_empty());
+        // Both agents get credit for the shared file; only-a.rs contributes
+        // no credit (single-agent access).
+        let a_credit = credit.iter().find(|(id, _)| id == "agent-a").unwrap().1;
+        let b_credit = credit.iter().find(|(id, _)| id == "agent-b").unwrap().1;
+        assert!(a_credit > 0.0);
+        assert!((a_credit - b_credit).abs() < 1e-9);
     }
 }
