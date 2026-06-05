@@ -17,6 +17,10 @@ pub struct AuditEntry {
     pub event_type: AuditEventType,
     pub prev_hash: String,
     pub entry_hash: String,
+    /// Ed25519 signature over `entry_hash`, proving provenance from the local
+    /// lean-ctx identity. `None` only when the keypair is unavailable (early boot).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub signature: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -107,6 +111,10 @@ pub fn record(data: AuditEntryData) {
     let data_json = serde_json::to_string(&partial).unwrap_or_default();
     let entry_hash = compute_entry_hash(&prev_hash, &data_json);
 
+    let signature = crate::core::agent_identity::sign_bytes("lean-ctx", entry_hash.as_bytes())
+        .map(|sig| crate::core::agent_identity::hex_encode(&sig))
+        .ok();
+
     let entry = AuditEntry {
         timestamp: chrono::Utc::now().to_rfc3339(),
         agent_id: data.agent_id,
@@ -118,6 +126,7 @@ pub fn record(data: AuditEntryData) {
         event_type: data.event_type,
         prev_hash,
         entry_hash: entry_hash.clone(),
+        signature,
     };
 
     if let Ok(line) = serde_json::to_string(&entry) {

@@ -282,22 +282,22 @@ impl LeanCtxServer {
                 .await;
             }
 
+            let agent_id = self
+                .agent_id
+                .read()
+                .await
+                .clone()
+                .unwrap_or_else(|| "unknown".into());
+            let role = crate::core::roles::active_role_name();
             {
-                let agent_id = self
-                    .agent_id
-                    .read()
-                    .await
-                    .clone()
-                    .unwrap_or_else(|| "unknown".into());
                 let input_hash = crate::core::audit_trail::hash_input(args_map);
-                let role = crate::core::roles::active_role_name();
                 crate::core::audit_trail::record(crate::core::audit_trail::AuditEntryData {
-                    agent_id,
+                    agent_id: agent_id.clone(),
                     tool: name.to_string(),
                     action: None,
                     input_hash,
                     output_tokens: output_token_estimate,
-                    role,
+                    role: role.clone(),
                     event_type: crate::core::audit_trail::AuditEventType::ToolCall,
                 });
             }
@@ -305,6 +305,25 @@ impl LeanCtxServer {
             let saved = output.saved_tokens;
             let raw_text = header_line.unwrap_or(output.text);
             let final_text = crate::core::output_sanitizer::sanitize(&raw_text);
+
+            // Context immune system: scan for prompt-injection patterns in tool output.
+            let injection_signals = crate::core::output_sanitizer::detect_injection(&final_text);
+            if !injection_signals.is_empty() {
+                tracing::warn!(
+                    tool = name,
+                    signals = injection_signals.len(),
+                    "prompt-injection patterns detected in tool output"
+                );
+                crate::core::audit_trail::record(crate::core::audit_trail::AuditEntryData {
+                    agent_id: agent_id.clone(),
+                    tool: name.to_string(),
+                    action: None,
+                    input_hash: String::new(),
+                    output_tokens: 0,
+                    role: role.clone(),
+                    event_type: crate::core::audit_trail::AuditEventType::SecurityViolation,
+                });
+            }
 
             let reference_enabled = std::env::var("LEAN_CTX_REFERENCE_RESULTS").map_or_else(
                 |_| crate::core::config::Config::load().reference_results,
