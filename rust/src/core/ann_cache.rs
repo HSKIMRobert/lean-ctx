@@ -114,6 +114,27 @@ mod tests {
     // switches to HNSW at 1000 vectors, so 1000 here exercises the real graph).
     const TEST_GATE: usize = 1000;
 
+    // The cache is a single process-wide slot, so tests that drive the HNSW path
+    // must not interleave or they would clobber each other's cached index. This
+    // lock serializes them; poison is recovered since a panic in one test must
+    // not cascade into the others.
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    fn serial() -> std::sync::MutexGuard<'static, ()> {
+        TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Reads the fingerprint of the currently cached index (test-only
+    /// introspection; `tests` is a child module so it may touch private state).
+    fn cached_fingerprint() -> Option<u64> {
+        cache()
+            .lock()
+            .ok()
+            .and_then(|g| g.as_ref().map(|c| c.fingerprint))
+    }
+
     fn random_vec(dim: usize, seed: u64) -> Vec<f32> {
         let mut v = Vec::with_capacity(dim);
         let mut s = seed;
@@ -174,6 +195,7 @@ mod tests {
 
     #[test]
     fn hnsw_path_recall_matches_brute_force_on_clusters() {
+        let _serial = serial();
         let (vectors, centers) = clustered(24, 60, 32); // 1440 vectors
         let query = centers[5].clone();
         let k = 20;
@@ -192,6 +214,7 @@ mod tests {
 
     #[test]
     fn hnsw_path_results_are_descending() {
+        let _serial = serial();
         let (vectors, centers) = clustered(20, 60, 24); // 1200 vectors
         let results = topk_gated(&vectors, &centers[3], 10, TEST_GATE);
         for w in results.windows(2) {
@@ -204,23 +227,34 @@ mod tests {
 
     #[test]
     fn rebuilds_when_corpus_changes() {
+        let _serial = serial();
         // Two distinct corpora share the global cache slot; the fingerprint must
         // force a rebuild so each query reflects its own corpus (no staleness).
+        // Asserting on the cached fingerprint tests the rebuild mechanism
+        // directly — deterministic, unlike HNSW's approximate top-1 recall.
         let (a, ca) = clustered(20, 55, 32); // 1100 vectors
         let (b, cb) = clustered(18, 60, 32); // 1080 vectors
 
-        let ra = topk_gated(&a, &ca[7], 5, TEST_GATE);
-        assert!(
-            ra[0].1 > 0.9,
-            "cluster-center query should match its members"
+        let _ = topk_gated(&a, &ca[7], 5, TEST_GATE);
+        assert_eq!(
+            cached_fingerprint(),
+            Some(fingerprint(&a)),
+            "first query caches corpus A's index"
         );
 
-        let rb = topk_gated(&b, &cb[4], 5, TEST_GATE);
-        assert!(rb[0].1 > 0.9);
+        let _ = topk_gated(&b, &cb[4], 5, TEST_GATE);
+        assert_eq!(
+            cached_fingerprint(),
+            Some(fingerprint(&b)),
+            "a different corpus must force a rebuild to B"
+        );
 
-        // Re-querying the first corpus must rebuild (different fingerprint).
-        let ra2 = topk_gated(&a, &ca[7], 5, TEST_GATE);
-        assert!(ra2[0].1 > 0.9, "stale cache would degrade this result");
+        let _ = topk_gated(&a, &ca[7], 5, TEST_GATE);
+        assert_eq!(
+            cached_fingerprint(),
+            Some(fingerprint(&a)),
+            "re-querying A must rebuild A — never serve stale B"
+        );
     }
 
     #[test]
