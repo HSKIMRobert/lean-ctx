@@ -6,7 +6,7 @@
 //! ungoverned execution path. Shaped like [`super::role_guard`]: returns a
 //! blocking [`CallToolResult`] message, or `None` to proceed.
 //!
-//! The decision is split into a pure [`decide`] (policy in, decision out — fully
+//! The decision is split into a pure `decide` (policy in, decision out — fully
 //! unit-tested) and a thin [`check`] that loads/caches the IDE policy from disk.
 //! lean-ctx never *writes* the IDE's `permission` block; this is read-only.
 
@@ -80,7 +80,7 @@ fn map_tool(
 }
 
 /// Public entry point used by the dispatch path. Honors config + env, detects
-/// the IDE, loads (and caches) its permission policy, then defers to [`decide`].
+/// the IDE, loads (and caches) its permission policy, then defers to `decide`.
 #[must_use]
 pub fn check(
     client_name: &str,
