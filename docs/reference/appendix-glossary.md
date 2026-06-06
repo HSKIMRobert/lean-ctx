@@ -58,7 +58,7 @@ tokens instead of the whole file.
 ## Profiles (two different things!)
 
 **Tool profile** — *how many MCP tools* your AI sees: `minimal` (6), `standard`
-(21), `power` (68). Set with `lean-ctx tools`.
+(22), `power` (69). Set with `lean-ctx tools`.
 
 **Context profile** — *compression/read-mode behavior* tuning. Set with
 `lean-ctx profile`. Different from tool profile despite the similar name.

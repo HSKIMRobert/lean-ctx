@@ -203,13 +203,13 @@ compression opportunities in your shell history).
 
 ## 5. Choosing how much lean-ctx exposes — `lean-ctx tools`
 
-**What it does:** Sets the **tool profile** — how many of the 68 MCP tools your
+**What it does:** Sets the **tool profile** — how many of the 69 MCP tools your
 AI sees. Fewer tools = less per-call overhead.
 
 ```bash
 lean-ctx tools minimal       # 6 essential tools
-lean-ctx tools standard      # 21 tools (balanced)
-lean-ctx tools power         # all 68 (default for existing installs)
+lean-ctx tools standard      # 22 tools (balanced)
+lean-ctx tools power         # all 69 (default for existing installs)
 lean-ctx tools show          # current profile
 lean-ctx tools list          # what each profile contains
 ```
