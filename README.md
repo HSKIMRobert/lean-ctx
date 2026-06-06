@@ -140,7 +140,7 @@ Performance is accuracy, not just speed. You stay in control of the window.
 - **Context Proof** (`ctx_proof`, `ctx_verify`): 4-layer verification engine with CI drift gates
 
 <details>
-<summary><strong>Full feature list (68 MCP tools)</strong></summary>
+<summary><strong>Full feature list (69 MCP tools)</strong></summary>
 
 - **Graph-Powered Intelligence**: hybrid search (BM25 + embeddings + graph proximity via RRF), incremental git-diff updates
 - **LSP Refactoring** (`ctx_refactor`): language-server-powered rename, references, go-to-definition via rust-analyzer, typescript-language-server, pylsp, gopls
@@ -218,7 +218,7 @@ After onboarding, restart your shell and your editor/AI tool once so the MCP + h
 
 LeanCTX grows with you. Below are the journeys most people actually take — each
 links to a complete, function-by-function walkthrough in the
-**[Reference](docs/reference/README.md)** (every CLI command and all 68 MCP
+**[Reference](docs/reference/README.md)** (every CLI command and all 69 MCP
 tools are documented there).
 
 <table>
@@ -382,7 +382,7 @@ All analytics live in the CLI/dashboard — never burning agent tokens.
 ### 📚 The full reference
 *"I want to read everything."*
 
-Every command and all 68 MCP tools, organized as user journeys, plus
+Every command and all 69 MCP tools, organized as user journeys, plus
 appendices for the [CLI map](docs/reference/appendix-cli-map.md),
 [MCP tools](docs/reference/appendix-mcp-tools.md), and
 [paths & config](docs/reference/appendix-paths-and-config.md).
@@ -399,7 +399,7 @@ LeanCTX is a standard **MCP server**, so it works with any MCP-compatible client
 | Mode | How it works | Best for |
 |---|---|---|
 | **Hybrid** | MCP for cached reads (~13 tokens) + shell hooks for command compression | Agents with shell access (Cursor, Claude Code, Codex, ...) |
-| **MCP** | All 68 tools via MCP protocol, no shell hooks | Protocol-only agents (JetBrains, VS Code, Zed, ...) |
+| **MCP** | All 69 tools via MCP protocol, no shell hooks | Protocol-only agents (JetBrains, VS Code, Zed, ...) |
 
 ### Agent compatibility matrix
 
@@ -490,7 +490,7 @@ lean-ctx benchmark report .
 - **190+ forks** — active community contributions
 - **181 releases** — shipped daily since launch
 - **30+ supported AI coding agents** — broadest MCP compatibility
-- **68 MCP tools** — from simple file reads to multi-agent orchestration
+- **69 MCP tools** — from simple file reads to multi-agent orchestration
 - Used in production by teams running Claude Code, Cursor, and Codex daily
 
 ## Docs
