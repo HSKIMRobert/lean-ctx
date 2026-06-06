@@ -321,6 +321,8 @@ async fn proxy_auth_guard(
 
 fn has_provider_api_key(req: &axum::extract::Request) -> bool {
     let headers = req.headers();
+    // Provider-specific key headers: Anthropic `x-api-key`, Google
+    // `x-goog-api-key`, Azure `api-key`. Any non-empty value authenticates.
     for key in ["x-api-key", "x-goog-api-key", "api-key"] {
         if headers
             .get(key)
@@ -330,10 +332,23 @@ fn has_provider_api_key(req: &axum::extract::Request) -> bool {
             return true;
         }
     }
+    // OpenAI-style `Authorization` auth. Accept ANY non-empty credential, not
+    // just `Bearer sk-`/`gsk_`: OpenAI-*compatible* providers driven through
+    // OpenCode/Codex (Azure, OpenRouter, Groq, vLLM/Ollama gateways, project &
+    // service-account keys) issue keys that don't carry those prefixes. The proxy
+    // binds to loopback only and never injects upstream credentials — it forwards
+    // this header verbatim, so an invalid key is rejected by the real upstream,
+    // never silently honoured. Gating provider routes on key *shape* only ever
+    // produced false 401s for those clients (#362).
     if let Some(auth) = headers.get("authorization").and_then(|v| v.to_str().ok()) {
-        if auth.starts_with("Bearer sk-") || auth.starts_with("Bearer gsk_") {
-            return true;
-        }
+        let auth = auth.trim();
+        let credential = auth
+            .strip_prefix("Bearer ")
+            .or_else(|| auth.strip_prefix("bearer "))
+            .unwrap_or(auth)
+            .trim();
+        // Reject an empty value or a bare scheme keyword carrying no token.
+        return !credential.is_empty() && !credential.eq_ignore_ascii_case("bearer");
     }
     false
 }
@@ -525,15 +540,37 @@ mod auth_tests {
     }
 
     #[test]
-    fn has_provider_api_key_regular_bearer_rejected() {
-        let req = build_request(
-            &[("authorization", "Bearer some-session-token")],
-            "/v1/chat",
-        );
-        assert!(
-            !has_provider_api_key(&req),
-            "non-sk/gsk Bearer should not count as provider key"
-        );
+    fn has_provider_api_key_accepts_non_sk_bearer() {
+        // #362: OpenAI-*compatible* providers (Azure, OpenRouter, Groq, vLLM/
+        // Ollama gateways, project/service keys) issue keys without the sk-/gsk_
+        // prefix. OpenCode (@ai-sdk/openai) forwards them as `Bearer <key>`; they
+        // must authenticate on a loopback provider route. The upstream validates
+        // the real key — the proxy never injects one.
+        for key in [
+            "Bearer or-v1-9f8e7d6c", // OpenRouter
+            "Bearer gsk_live_1234",  // (still works)
+            "Bearer abc.def.ghi",    // gateway/service token
+            "Bearer 0123456789",     // opaque
+        ] {
+            let req = build_request(&[("authorization", key)], "/v1/responses");
+            assert!(
+                has_provider_api_key(&req),
+                "non-sk Bearer must count as a provider credential: {key}"
+            );
+        }
+    }
+
+    #[test]
+    fn has_provider_api_key_empty_bearer_rejected() {
+        // A blank credential — or a bare scheme word with no token (some HTTP
+        // stacks trim trailing whitespace down to just "Bearer") — is not auth.
+        for bad in ["Bearer    ", "", "Bearer", "bearer", "   "] {
+            let req = build_request(&[("authorization", bad)], "/responses");
+            assert!(
+                !has_provider_api_key(&req),
+                "blank/scheme-only Authorization must not authenticate: {bad:?}"
+            );
+        }
     }
 
     // --- #353: bare provider endpoints (OpenCode / @ai-sdk/openai) ---
