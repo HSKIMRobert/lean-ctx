@@ -70,6 +70,7 @@ fn generate_compact_tree(
         .git_exclude(respect_gitignore)
         .max_depth(Some(max_depth))
         .sort_by_file_name(std::cmp::Ord::cmp)
+        .filter_entry(crate::core::cloud_files::keep_entry)
         .build();
 
     for entry in walker.filter_map(std::result::Result::ok) {

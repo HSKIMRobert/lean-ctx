@@ -80,6 +80,10 @@ pub fn handle(
             if warning.is_some() {
                 return None;
             }
+            // Don't hydrate cloud placeholders during automatic preload (#363).
+            if crate::core::cloud_files::is_cloud_placeholder(&jailed) {
+                return None;
+            }
             std::fs::read_to_string(&jailed)
                 .ok()
                 .map(|content| (c.path.clone(), content.lines().count()))

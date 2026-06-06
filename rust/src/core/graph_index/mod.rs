@@ -79,6 +79,13 @@ fn is_safe_scan_root(path: &str) -> bool {
             ".config",
             "snap",
             "Applications",
+            // Cloud-sync roots: scanning these forces on-demand providers to
+            // hydrate (download) every placeholder file/folder (#363). iCloud's
+            // backing dir (~/Library/Mobile Documents) is already covered by
+            // "Library" above.
+            "OneDrive",
+            "Dropbox",
+            "Google Drive",
         ];
         for blocked in BLOCKED_HOME_SUBDIRS {
             let blocked_path = home_path.join(blocked);
@@ -574,6 +581,7 @@ fn scan_inner(project_root: &str) -> (ProjectIndex, HashMap<String, String>) {
         .git_global(true)
         .git_exclude(true)
         .max_depth(Some(20))
+        .filter_entry(crate::core::cloud_files::keep_entry)
         .build();
 
     let cfg = crate::core::config::Config::load();

@@ -100,6 +100,7 @@ pub fn handle(
             .git_ignore(respect_gitignore)
             .git_global(respect_gitignore)
             .git_exclude(respect_gitignore)
+            .filter_entry(crate::core::cloud_files::keep_entry)
             .build();
 
         for entry in walker.filter_map(std::result::Result::ok) {

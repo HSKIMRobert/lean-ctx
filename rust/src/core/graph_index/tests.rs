@@ -319,6 +319,25 @@ fn safe_scan_root_rejects_home_downloads() {
 }
 
 #[test]
+fn safe_scan_root_rejects_cloud_sync_roots() {
+    // ~/OneDrive (and friends) must never be a scan root: walking them forces
+    // OneDrive/Dropbox/Drive to hydrate every on-demand placeholder (#363).
+    if let Some(home) = dirs::home_dir() {
+        for dir in ["OneDrive", "Dropbox", "Google Drive"] {
+            let cloud = home.join(dir);
+            if cloud.join(".git").exists() {
+                continue; // a real repo there legitimately overrides the block
+            }
+            let cloud_str = cloud.to_string_lossy().to_string();
+            assert!(
+                !is_safe_scan_root(&cloud_str),
+                "~/{dir} should be rejected as a scan root"
+            );
+        }
+    }
+}
+
+#[test]
 fn safe_scan_root_accepts_multi_repo_parent() {
     let tmp = tempdir().unwrap();
     let parent = tmp.path().join("code");

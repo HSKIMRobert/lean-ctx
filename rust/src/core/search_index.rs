@@ -155,6 +155,13 @@ impl SearchIndex {
         if !root_path.exists() {
             return None;
         }
+        // Never auto-index a broad/unsafe root (HOME, filesystem root, a dir with
+        // dozens of unrelated subtrees). This mirrors the graph/BM25 guard and
+        // stops a background build from walking the whole home directory — which
+        // on Windows would hydrate OneDrive placeholders (#363).
+        if !crate::core::graph_index::is_safe_scan_root_public(root) {
+            return None;
+        }
 
         let walker = WalkBuilder::new(root_path)
             .hidden(true)
@@ -162,6 +169,7 @@ impl SearchIndex {
             .git_ignore(respect_gitignore)
             .git_global(respect_gitignore)
             .git_exclude(respect_gitignore)
+            .filter_entry(crate::core::cloud_files::keep_entry)
             .build();
 
         let mut files: Vec<PathBuf> = Vec::new();
@@ -564,6 +572,18 @@ mod tests {
         std::fs::write(dir.path().join("b.rs"), "fn other() {}\n// nothing here\n").unwrap();
         std::fs::write(dir.path().join("c.txt"), "handler appears in text too\n").unwrap();
         dir
+    }
+
+    #[test]
+    fn build_refuses_to_index_home_directory() {
+        // Auto-indexing HOME would walk the entire home tree and, on Windows,
+        // hydrate every OneDrive placeholder (#363). The build must bail out.
+        if let Some(home) = dirs::home_dir() {
+            assert!(
+                SearchIndex::build(&home.to_string_lossy(), true, false).is_none(),
+                "search index must never auto-build over the home directory"
+            );
+        }
     }
 
     #[test]

@@ -372,6 +372,10 @@ fn silent_preload_imports(
         if cache.get(&jailed_s).is_some() {
             continue;
         }
+        // Don't hydrate cloud placeholders during automatic import preload (#363).
+        if crate::core::cloud_files::is_cloud_placeholder(&jailed) {
+            continue;
+        }
 
         if let Ok(content) = std::fs::read_to_string(&jailed) {
             let tokens = count_tokens(&content);
