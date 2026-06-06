@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.7.5] — 2026-06-06
+
+> **The Web & Research release.** lean-ctx reaches beyond the codebase: the new
+> `ctx_url_read` tool pulls web pages, PDFs and YouTube videos into context as
+> compressed, citation-backed text — research, docs and transcripts without
+> leaving the agent loop. Alongside it ship three field-reported fixes: background
+> scans never hydrate cloud placeholders (#363), the proxy stops 401-ing
+> OpenAI-compatible provider keys (#362), and the Pi extension's session cache
+> finally engages (#361).
+
+### Added
+- **`ctx_url_read` — the web & research layer** (the web counterpart of `ctx_read`): fetch a public web page, PDF, or YouTube video and get back compressed, citation-backed context. HTML pages and PDFs are parsed to clean Markdown/text; a YouTube URL is resolved to its transcript and flattened into compact, quotable text. Seven distillation modes (`auto` | `markdown` | `text` | `links` | `facts` | `quotes` | `transcript`): the `facts` and `quotes` modes return discrete claims, each carrying a **confidence score** and the **source URL** it came from, so web research is auditable. Extractive, relevance-ranked research-compression distils a whole page down to a token budget (`max_tokens`, default 6000; `max_items` caps `facts`/`quotes`, default 12), and an optional `query` focuses extraction on what you actually need. Fetching is **SSRF-guarded** — only `http`/`https`, with private, loopback and link-local addresses blocked and revalidated after every redirect. Ships with the binary and is exposed automatically wherever lean-ctx runs as an MCP server (granular tool surface → 69).
+
 ### Changed
 - **Pi: the embedded MCP bridge is on by default, and every read is cached through it** (#361): the bridge that holds the persistent session cache was opt-in, and even when connected only a plain `ctx_read` was routed through it — line-range reads (`offset`/`limit`) and the grep/ls/find tools always spawned a fresh one-shot CLI, so the ~13-token cached re-read essentially never happened on Pi (an independent benchmark measured `cep.sessions: 0` even with the bridge connected). The bridge now starts by default (opt out with `LEAN_CTX_PI_ENABLE_MCP=0` / `"enableMcp": false`), and **all** `ctx_read` variants — including `lines:N-M` ranges — route through it with a CLI fallback, so unchanged re-reads are cheap and register as real CEP sessions. The #168 steering ("Prefer over native …") is now also carried by the Pi extension's own tool descriptions, and `PI_AGENTS.md` plus the setup output steer agents to the `ctx_*` tools instead of the un-compressed native `read`/`bash`/`grep` (which are not routed through lean-ctx in additive mode).
 
