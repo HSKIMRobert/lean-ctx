@@ -356,7 +356,7 @@ export default async function (pi: ExtensionAPI) {
     name: "ctx_shell",
     label: "ctx_shell",
     description:
-      "Execute a shell command. Output is auto-compressed by lean-ctx. "
+      "Run shell commands. Prefer over native Bash/shell (auto-compressed output). "
       + "IMPORTANT: Do NOT use ctx_shell to read files (cat/head/tail) — use ctx_read instead. "
       + "Do NOT use ctx_shell for grep/find/ls — use ctx_grep, ctx_find, ctx_ls. "
       + "Set raw=true to skip compression when exact output matters. "
@@ -417,10 +417,11 @@ export default async function (pi: ExtensionAPI) {
     name: "ctx_read",
     label: "ctx_read",
     description:
-      "Read file contents. ALWAYS use ctx_read instead of cat/head/tail via ctx_shell. "
+      "Read a file. Prefer over native Read/cat/head/tail (cached, compressed). "
+      + "Unchanged re-reads cost ~13 tokens. "
       + "Auto-selects mode: configs (.yaml/.json/.toml/.env) are always full-read. "
       + "Code files: full (<8KB), map (8-96KB), signatures (>96KB). "
-      + "Add mode=full to get complete file content (bypasses cache). "
+      + "Add mode=full to get complete file content. "
       + "Use offset and limit to read specific line ranges.",
     promptSnippet: "Read file contents (always use instead of cat)",
     promptGuidelines: [
@@ -496,14 +497,31 @@ export default async function (pi: ExtensionAPI) {
       if (params.offset !== undefined || params.limit !== undefined) {
         const startLine = params.offset ?? 1;
         const endLine = params.limit ? startLine + params.limit - 1 : 999999;
-        const args = ["read", absolutePath, "-m", `lines:${startLine}-${endLine}`];
+        const mode = `lines:${startLine}-${endLine}`;
+        // Route line-range reads through the bridge too, so re-reading the same
+        // slice hits the session cache instead of re-spawning a CLI per call (#361).
+        if (mcpBridge?.isConnected()) {
+          try {
+            const bridged = await mcpBridge.callTool("ctx_read", { path: absolutePath, mode }, signal);
+            const bridgedText = bridged.content.map((block) => block.text).join("");
+            const originalSlice = await readSlice(absolutePath, params.offset, params.limit);
+            const decorated = withFooter(bridgedText, { originalText: originalSlice.text, always: true, preferEstimate: true });
+            return {
+              content: [{ type: "text", text: decorated.text }],
+              details: { path: absolutePath, lines: originalSlice.lines, source: "lean-ctx-bridge", mode, compression: decorated.stats },
+            };
+          } catch (err) {
+            console.error(`[pi-lean-ctx] ctx_read(${mode}) bridge call failed, falling back to CLI: ${err}`);
+          }
+        }
+        const args = ["read", absolutePath, "-m", mode];
         try {
           const output = await execLeanCtx(pi, args);
           const originalSlice = await readSlice(absolutePath, params.offset, params.limit);
           const decorated = withFooter(output, { originalText: originalSlice.text, always: true, preferEstimate: true });
           return {
             content: [{ type: "text", text: decorated.text }],
-            details: { path: absolutePath, lines: originalSlice.lines, source: "lean-ctx", mode: `lines:${startLine}-${endLine}`, compression: decorated.stats },
+            details: { path: absolutePath, lines: originalSlice.lines, source: "lean-ctx", mode, compression: decorated.stats },
           };
         } catch {
           const sliced = await readSlice(absolutePath, params.offset, params.limit);
@@ -563,7 +581,7 @@ export default async function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "ctx_ls",
     label: "ctx_ls",
-    description: "List directory contents. Use limit to reduce output size.",
+    description: "List a directory. Prefer over native ls (compact, summarized). Use limit to reduce output size.",
     promptSnippet: "List directory contents",
     parameters: lsSchema,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -582,7 +600,7 @@ export default async function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "ctx_find",
     label: "ctx_find",
-    description: "Find files by glob pattern (respects .gitignore). Use limit to reduce output size.",
+    description: "Find files by glob. Prefer over native find/fd (gitignore-aware). Use limit to reduce output size.",
     promptSnippet: "Find files by glob pattern",
     parameters: findSchema,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -601,7 +619,7 @@ export default async function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "ctx_grep",
     label: "ctx_grep",
-    description: "Search file contents with ripgrep. Use limit to cap matches and context for surrounding lines.",
+    description: "Search code. Prefer over native Grep/ripgrep (compact, ranked). Use limit to cap matches, context for surrounding lines.",
     promptSnippet: "Search file contents for patterns",
     parameters: grepSchema,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {

@@ -15,7 +15,11 @@ import { resolve } from "node:path";
 export interface PiLeanCtxFileConfig {
   /** Tool exposure: "additive" (Pi builtins + ctx_*) or "replace" (ctx_* only). */
   mode?: string;
-  /** Start the embedded MCP bridge (equivalent to `LEAN_CTX_PI_ENABLE_MCP=1`). */
+  /**
+   * Start the embedded MCP bridge (the persistent session cache). Default
+   * `true`; set `false` (or `LEAN_CTX_PI_ENABLE_MCP=0`) to force the one-shot
+   * CLI path, which cannot cache across calls.
+   */
   enableMcp?: boolean;
   /** Absolute path to the lean-ctx binary (equivalent to `LEAN_CTX_BIN`). */
   binary?: string;
@@ -94,10 +98,15 @@ export function loadPiConfig(): ResolvedPiConfig {
   const configPath = piConfigPath();
   const { cfg, loaded } = readFileConfig(configPath);
 
+  // The embedded MCP bridge holds the persistent session cache, so unchanged
+  // re-reads cost ~13 tokens and reads register as CEP sessions. That is
+  // lean-ctx's core value prop, so the bridge is ON by default; the one-shot CLI
+  // path cannot cache across calls (#361). Opt out with LEAN_CTX_PI_ENABLE_MCP=0
+  // or "enableMcp": false in config.json.
   const enableMcp =
     process.env.LEAN_CTX_PI_ENABLE_MCP !== undefined
       ? envFlag("LEAN_CTX_PI_ENABLE_MCP")
-      : cfg.enableMcp === true;
+      : cfg.enableMcp !== false;
 
   const forwardedEnv: Record<string, string> = {};
   if (cfg.env && typeof cfg.env === "object" && !Array.isArray(cfg.env)) {

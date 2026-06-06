@@ -2,8 +2,8 @@
 
 [Pi Coding Agent](https://github.com/badlogic/pi-mono) extension that provides `ctx_`-prefixed tools backed by [lean-ctx](https://leanctx.com) for **60–90% token savings**.
 
-- **Default**: CLI-only, additive mode (no MCP required, Pi builtins preserved)
-- **Optional**: enable MCP tools (`LEAN_CTX_PI_ENABLE_MCP=1`) or run `lean-ctx init --agent pi --mode mcp`
+- **Default**: embedded MCP bridge ON (persistent session cache → unchanged re-reads cost ~13 tokens), additive mode (Pi builtins preserved)
+- **Opt out**: `LEAN_CTX_PI_ENABLE_MCP=0` (or `"enableMcp": false`) forces the one-shot CLI path, which cannot cache across calls
 - **Optional**: replace mode (`LEAN_CTX_PI_MODE=replace`) disables Pi builtins
 
 ## Tool Mode
@@ -108,32 +108,37 @@ These tools invoke the `lean-ctx` binary via CLI with `LEAN_CTX_COMPRESS=1`.
 The built-in tools they replace (`read`, `bash`, `ls`, `find`, `grep`) are disabled
 via `pi.setActiveTools()` so only the `ctx_` versions are available to the LLM.
 
-### Optional MCP bridge (all other tools)
+### Embedded MCP bridge (session cache + advanced tools)
 
-If you enable the MCP bridge, pi-lean-ctx spawns the `lean-ctx` binary as an MCP server (JSON-RPC over stdio).
-It discovers available tools via `list_tools`, filters out those already covered by `ctx_` CLI tools,
-and registers the rest as native Pi tools.
+On by default, pi-lean-ctx spawns the `lean-ctx` binary as an MCP server (JSON-RPC over stdio).
+This persistent process holds the **session cache**: `ctx_read` (every mode, including line
+ranges) is routed through the bridge, so an unchanged re-read costs ~13 tokens instead of the
+full file and the read registers as a real CEP session (counted by `lean-ctx gain`). The bridge
+also discovers the server's advanced tools (`ctx_edit`, `ctx_overview`, `ctx_graph`, …),
+filters out those already exposed as `ctx_` CLI tools, and registers the rest as native Pi tools.
 
-If `lean-ctx` is already configured as an MCP server via [pi-mcp-adapter](https://github.com/nicobailon/pi-mcp-adapter) in `~/.pi/agent/mcp.json`, the embedded bridge is skipped to avoid duplicate tools.
+The bridge wins over `~/.pi/agent/mcp.json`: a `lean-ctx` entry there (written by
+`lean-ctx init --agent pi`) does **not** disable the embedded bridge, because Pi has no native
+MCP support and that entry only does anything if you separately run
+[pi-mcp-adapter](https://github.com/nicobailon/pi-mcp-adapter). `/lean-ctx` warns about possible
+duplicates only when the adapter is genuinely running. If the bridge can't start, the CLI path
+keeps working — only the cache and advanced tools are unavailable.
 
 ### Automatic reconnection
 
 If the MCP server process crashes, the bridge automatically reconnects (up to 3 attempts with exponential backoff). If reconnection fails, CLI-based tools continue working normally — only the advanced MCP tools become unavailable.
 
-## Enabling MCP (optional)
+## Disabling the bridge (optional)
 
-Set an environment variable and restart Pi:
+The bridge is on by default. To force the one-shot CLI path (no cross-call cache),
+set an environment variable and restart Pi:
 
 ```bash
-export LEAN_CTX_PI_ENABLE_MCP=1
+export LEAN_CTX_PI_ENABLE_MCP=0
 pi
 ```
 
-Or configure MCP via `lean-ctx init`:
-
-```bash
-lean-ctx init --agent pi --mode mcp
-```
+…or set `"enableMcp": false` in `~/.pi/agent/extensions/pi-lean-ctx/config.json`.
 
 ## pi-mcp-adapter compatibility
 

@@ -1,17 +1,27 @@
-# lean-ctx — CLI-first Token Optimization for Pi
+# lean-ctx — Token Optimization for Pi
 
-This project uses the **pi-lean-ctx** extension. It routes Pi’s built-in tools through **lean-ctx CLI**
-for strong token savings — **no MCP required**.
+This project uses the **pi-lean-ctx** extension. It exposes `ctx_*` tools backed by **lean-ctx**,
+and runs an embedded MCP bridge (on by default) that holds a **persistent session cache**.
 
 ## What to do (as Pi agent)
 
-- Use Pi tools normally:
-  - `read` (never `cat/head/tail` via bash)
-  - `grep` / `find` / `ls`
-  - `bash` for commands with side effects (build/test/git/etc.)
-- The extension auto-routes these through `lean-ctx` and appends a savings footer where possible.
+Prefer the `ctx_*` tools over Pi's built-ins — only the `ctx_*` tools are compressed and cached;
+the native `read`/`bash`/`grep`/`find`/`ls` are **not** routed through lean-ctx in additive mode.
 
-## Advanced lean-ctx commands (still CLI-only)
+| Prefer | Over (native) | Why |
+|--------|---------------|-----|
+| `ctx_read` | `read`, `cat`/`head`/`tail` | Cached + compressed; unchanged re-reads cost ~13 tokens |
+| `ctx_shell` | `bash` | Shell output compressed via 95+ patterns |
+| `ctx_grep` | `grep` | Compact, ranked matches |
+| `ctx_find` | `find` | Compressed, .gitignore-aware |
+| `ctx_ls` | `ls` | Compact directory maps |
+
+- Use `ctx_shell` for commands with side effects (build/test/git/etc.); set `raw=true` when exact
+  output matters.
+- Use `ctx_read` with `mode=full` for files you will edit, or `offset`/`limit` for line ranges —
+  both are cached through the bridge, so repeated reads stay cheap.
+
+## Advanced lean-ctx commands
 
 Prefer the `lean_ctx` tool (installed by the extension) to run `lean-ctx` directly:
 
@@ -21,10 +31,7 @@ Prefer the `lean_ctx` tool (installed by the extension) to run `lean-ctx` direct
 - `lean-ctx gain` / `lean-ctx stats`
 - `lean-ctx index …`
 
-If `lean_ctx` is not available, use Pi’s `bash` tool with `raw=true` to run `lean-ctx …` directly
-(avoid nesting `lean-ctx` inside its own compression wrapper).
+## MCP bridge
 
-## Optional MCP (disabled by default)
-
-Some users enable MCP for additional tools. If MCP is enabled, it will show up in `/lean-ctx`,
-but the default workflow is CLI-first.
+The embedded bridge is on by default and shows up in `/lean-ctx` (it reports `connected` plus a
+tool count). To force the one-shot CLI path (no cross-call cache), set `LEAN_CTX_PI_ENABLE_MCP=0`.
