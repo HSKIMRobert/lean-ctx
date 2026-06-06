@@ -341,6 +341,11 @@ export class McpBridge {
     return Type.Object(fields);
   }
 
+  /** True when the MCP client is connected and able to serve tool calls. */
+  isConnected(): boolean {
+    return this.connected && this.client !== null;
+  }
+
   getStatus(): McpBridgeStatus {
     return {
       mode: "embedded",

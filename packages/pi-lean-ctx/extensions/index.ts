@@ -327,6 +327,11 @@ export default async function (pi: ExtensionAPI) {
     });
   }
 
+  // Declared up-front so the ctx_read handler (registered below) can route
+  // through the embedded bridge once it connects. Assigned after the tools are
+  // registered (the bridge is started at the end of this function).
+  let mcpBridge: McpBridge | null = null;
+
   const baseBashTool = createBashToolDefinition(process.cwd(), {
     spawnHook: ({ command, cwd, env }) => {
       const bin = resolveBinary();
@@ -515,6 +520,33 @@ export default async function (pi: ExtensionAPI) {
 
       const isExplicitFull = params.mode === "full";
       const mode = params.mode ?? await chooseReadMode(absolutePath);
+
+      // When the embedded MCP bridge is connected, route the read through it so
+      // the persistent session cache engages: an unchanged re-read then costs
+      // ~13 tokens instead of the full file, and the read registers as a real
+      // CEP session (counted by `lean-ctx gain`). The one-shot CLI path below
+      // spawns a fresh `lean-ctx read` per call and therefore cannot cache
+      // across calls — it is used only as a fallback when the bridge is
+      // unavailable or errors.
+      if (mcpBridge?.isConnected()) {
+        try {
+          const bridged = await mcpBridge.callTool(
+            "ctx_read",
+            { path: absolutePath, mode, ...(isExplicitFull ? { fresh: true } : {}) },
+            signal,
+          );
+          const bridgedText = bridged.content.map((block) => block.text).join("");
+          const originalText = await readFile(absolutePath, "utf8");
+          const decorated = withFooter(bridgedText, { originalText, always: true, preferEstimate: true });
+          return {
+            content: [{ type: "text", text: decorated.text }],
+            details: { path: absolutePath, source: "lean-ctx-bridge", mode, compression: decorated.stats },
+          };
+        } catch (err) {
+          console.error(`[pi-lean-ctx] ctx_read bridge call failed, falling back to CLI: ${err}`);
+        }
+      }
+
       const args = ["read", absolutePath, "-m", mode, ...(isExplicitFull ? ["--fresh"] : [])];
       const output = await execLeanCtx(pi, args);
       const originalText = await readFile(absolutePath, "utf8");
@@ -623,7 +655,7 @@ export default async function (pi: ExtensionAPI) {
   // is actually serving it — pi has no native MCP support, and `lean-ctx init
   // --agent pi` writes that entry by default — so it must not silently disable the
   // bridge a user explicitly requested via LEAN_CTX_PI_ENABLE_MCP=1 / enableMcp.
-  const mcpBridge = enableMcpBridge
+  mcpBridge = enableMcpBridge
     ? new McpBridge(resolveBinary(), PI_CONFIG.forwardedEnv)
     : null;
 
