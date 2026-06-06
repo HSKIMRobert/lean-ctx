@@ -410,9 +410,10 @@ Parameters: `depth`, `path`, `paths`, `respect_gitignore`, `show_hidden`
 
 ## `ctx_url_read`
 
-Fetch a web page or YouTube URL as compressed, cited context.
-HTML→clean Markdown, YouTube→transcript; modes: auto|markdown|text|links|facts|quotes|transcript.
-SSRF-guarded (http/https only, blocks private/loopback). Use for research/crawl instead of raw fetch.
+Fetch a web page, PDF, or YouTube URL as compressed, cited context.
+HTML/PDF→clean text, YouTube→transcript; modes: auto|markdown|text|links|facts|quotes|transcript.
+facts/quotes return claims with confidence + source. SSRF-guarded (http/https only, blocks private/loopback).
+Use for research/crawl instead of raw fetch.
 
 Parameters: `max_items`, `max_tokens`, `mode`, `query`, `timeout_secs`, `url`*
 
