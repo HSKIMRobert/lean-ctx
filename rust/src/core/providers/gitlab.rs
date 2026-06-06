@@ -161,6 +161,7 @@ pub fn list_pipelines(
                 url: p["web_url"].as_str().map(std::string::ToString::to_string),
                 labels: Vec::new(),
                 body: None,
+                ..Default::default()
             })
             .collect(),
     })
@@ -259,6 +260,7 @@ fn parse_issue(v: &serde_json::Value) -> ProviderItem {
         body: v["description"]
             .as_str()
             .map(std::string::ToString::to_string),
+        ..Default::default()
     }
 }
 
@@ -288,5 +290,6 @@ fn parse_mr(v: &serde_json::Value) -> ProviderItem {
         body: v["description"]
             .as_str()
             .map(std::string::ToString::to_string),
+        ..Default::default()
     }
 }

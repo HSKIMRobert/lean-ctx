@@ -398,6 +398,7 @@ fn parse_issue(issue: &serde_json::Value, browse_base: &str) -> ProviderItem {
                     .as_array()
                     .map(|_| "[Jira rich text — see web UI]".to_string())
             }),
+        ..Default::default()
     }
 }
 
@@ -435,6 +436,7 @@ fn list_sprints(config: &JiraConfig, params: &ProviderParams) -> Result<Provider
             url: None,
             labels: vec![],
             body: s["goal"].as_str().map(String::from),
+            ..Default::default()
         })
         .collect();
 

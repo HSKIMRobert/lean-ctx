@@ -76,9 +76,9 @@ pub fn categorize_tool(name: &str) -> ToolCategory {
         "ctx_benchmark" | "ctx_verify" | "ctx_analyze" | "ctx_profile" | "ctx_proof"
         | "ctx_review" => ToolCategory::Debug,
 
-        // Provider is Core: ctx_provider is the gateway to external context
-        // (GitHub issues, Jira, Postgres, etc.) and must always be available.
-        "ctx_provider" => ToolCategory::Core,
+        // Provider + URL reader are Core: gateways to external context
+        // (GitHub issues, Jira, Postgres, web pages, YouTube) — always available.
+        "ctx_provider" | "ctx_url_read" => ToolCategory::Core,
 
         // Memory: on-demand semantic tools
         "ctx_semantic_search" | "ctx_artifacts" => ToolCategory::Memory,
@@ -117,6 +117,7 @@ pub fn is_readonly_tool(name: &str) -> bool {
             | "ctx_outline"
             | "ctx_context"
             | "ctx_call"
+            | "ctx_url_read"
             | "ctx_architecture"
             | "ctx_impact"
             | "ctx_callgraph"

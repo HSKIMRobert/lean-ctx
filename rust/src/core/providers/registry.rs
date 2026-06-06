@@ -233,6 +233,7 @@ mod tests {
                 url: Some("https://github.com/o/r/issues/42".into()),
                 labels: vec!["bug".into()],
                 body: Some("Fix in src/auth/handler.rs".into()),
+                ..Default::default()
             }],
             total_count: Some(1),
             truncated: false,

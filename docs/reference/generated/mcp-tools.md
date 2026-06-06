@@ -4,7 +4,7 @@
 
 Source of truth: `rust/src/server/registry.rs` and the tool definitions it registers.
 
-lean-ctx registers **68 MCP tools** (granular profile). Each entry below lists the tool name, what it does, and its parameters (`*` marks required).
+lean-ctx registers **69 MCP tools** (granular profile). Each entry below lists the tool name, what it does, and its parameters (`*` marks required).
 
 ## `ctx_agent`
 
@@ -407,6 +407,14 @@ List a directory. Prefer over native ls/find (counts, compact tree).
 Supports multi-root via `paths` array. depth controls recursion (default 3).
 
 Parameters: `depth`, `path`, `paths`, `respect_gitignore`, `show_hidden`
+
+## `ctx_url_read`
+
+Fetch a web page or YouTube URL as compressed, cited context.
+HTML→clean Markdown, YouTube→transcript; modes: auto|markdown|text|links|facts|quotes|transcript.
+SSRF-guarded (http/https only, blocks private/loopback). Use for research/crawl instead of raw fetch.
+
+Parameters: `max_items`, `max_tokens`, `mode`, `query`, `timeout_secs`, `url`*
 
 ## `ctx_verify`
 

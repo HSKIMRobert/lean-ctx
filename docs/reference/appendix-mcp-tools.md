@@ -1,4 +1,4 @@
-# Appendix — MCP Tool Map (all 68 tools)
+# Appendix — MCP Tool Map (all 69 tools)
 
 Every tool lean-ctx registers via `rust/src/server/registry.rs`. Your AI editor
 calls these instead of its native file/search tools. The **Profile** column
@@ -13,14 +13,14 @@ shows the smallest tool profile that exposes the tool (`M` minimal, `S` standard
 | Profile | Count | Who it's for |
 |---------|-------|--------------|
 | **minimal** | 6 | Lowest context overhead; the absolute essentials |
-| **standard** | 21 | Balanced default for most coding workflows |
-| **power** | 68 | Everything (default for existing installs) |
+| **standard** | 22 | Balanced default for most coding workflows |
+| **power** | 69 | Everything (default for existing installs) |
 
 - **minimal (6):** `ctx_read`, `ctx_shell`, `shell`, `ctx_search`, `ctx_tree`, `ctx_session`
-- **standard (+15):** + `ctx_semantic_search`, `ctx_knowledge`, `ctx_overview`,
+- **standard (+16):** + `ctx_semantic_search`, `ctx_knowledge`, `ctx_overview`,
   `ctx_repomap`, `ctx_callgraph`, `ctx_impact`, `ctx_compress`, `ctx_multi_read`,
   `ctx_delta`, `ctx_edit`, `ctx_agent`, `ctx_architecture`, `ctx_pack`,
-  `ctx_routes`, `ctx_refactor`
+  `ctx_routes`, `ctx_refactor`, `ctx_url_read`
 - **power (+47):** all remaining tools.
 
 ---
@@ -46,6 +46,7 @@ shows the smallest tool profile that exposes the tool (`M` minimal, `S` standard
 | `ctx_compose` | Task composer: keywords + ranked files + matches + top symbol | `task`*, `path` | P |
 | `ctx_execute` | Sandboxed code execution (11 languages); only stdout enters context | `language`*, `code`*, `action`, `timeout` | P |
 | `ctx_multi_repo` | Multi-repo management + cross-repo search (RRF) | `action` (add_root\|remove_root\|list_roots\|search\|status\|save_config) | P |
+| `ctx_url_read` | Fetch a web page, PDF, or YouTube video as compressed, cited context (HTML/PDF→text, transcript; facts/quotes carry confidence + source); SSRF-guarded | `url`*, `mode` (auto\|markdown\|text\|links\|facts\|quotes\|transcript), `query`, `max_tokens`, `max_items`, `timeout_secs` | S |
 
 ## 2. Memory & knowledge
 
@@ -132,9 +133,9 @@ shows the smallest tool profile that exposes the tool (`M` minimal, `S` standard
 
 ## Notes
 
-1. `power` enables all 68 tools; `ToolProfile::is_tool_enabled()` returns `true`
+1. `power` enables all 69 tools; `ToolProfile::is_tool_enabled()` returns `true`
    for everything under power.
 2. `ctx_load_tools` controls *dynamic* categories (`arch`, `debug`, `memory`,
    `metrics`, `session`) independently of the static profile filter.
 3. Lazy clients use `ctx_call` + `ctx_discover_tools` + `ctx_load_tools` to reach
-   tools not in their active profile without listing all 68 upfront.
+   tools not in their active profile without listing all 69 upfront.

@@ -389,6 +389,7 @@ mod context_provider_trait {
                         url: Some("https://gitlab.com/issues/42".to_string()),
                         labels: vec!["bug".to_string()],
                         body: params.query.clone(),
+                        claims: vec![],
                     }],
                     total_count: Some(1),
                     truncated: false,
@@ -501,6 +502,7 @@ mod context_provider_trait {
                 url: None,
                 labels: vec![],
                 body: None,
+                claims: vec![],
             }],
             token_count_raw: 500,
             token_count_compressed: 120,
@@ -598,8 +600,8 @@ mod contracts_integrity {
             "ARCHITECTURE.md should reference IR recording in flow"
         );
         assert!(
-            content.contains("68 trait-based tools"),
-            "ARCHITECTURE.md should reference the current registry count (68 trait-based tools)"
+            content.contains("69 trait-based tools"),
+            "ARCHITECTURE.md should reference the current registry count (69 trait-based tools)"
         );
         assert!(
             !content.contains("pipeline_stages.rs"),

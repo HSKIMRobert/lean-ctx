@@ -34,7 +34,7 @@ impl ToolProfile {
     pub fn description(&self) -> &str {
         match self {
             Self::Minimal => "6 essential tools for new users",
-            Self::Standard => "21 balanced tools (recommended)",
+            Self::Standard => "22 balanced tools (recommended)",
             Self::Power => "All tools exposed",
             Self::Custom(v) => {
                 if v.is_empty() {
@@ -140,6 +140,8 @@ const STANDARD_TOOLS: &[&str] = &[
     "ctx_pack",
     "ctx_routes",
     "ctx_refactor",
+    // Web/research context: fetch + cite external pages and YouTube transcripts
+    "ctx_url_read",
 ];
 
 /// Available built-in profile names.
@@ -160,7 +162,7 @@ pub fn list_profiles() -> Vec<ProfileInfo> {
         },
         ProfileInfo {
             name: "standard",
-            tool_count: "21",
+            tool_count: "22",
             description: "Balanced set (recommended for most users)",
         },
         ProfileInfo {
@@ -219,8 +221,8 @@ mod tests {
     }
 
     #[test]
-    fn standard_has_21_tools() {
-        assert_eq!(STANDARD_TOOLS.len(), 21);
+    fn standard_has_22_tools() {
+        assert_eq!(STANDARD_TOOLS.len(), 22);
     }
 
     #[test]
@@ -398,6 +400,15 @@ mod tests {
         assert!(
             profile.is_tool_enabled("ctx_delta"),
             "ctx_delta must be in standard"
+        );
+    }
+
+    #[test]
+    fn standard_includes_url_read() {
+        let profile = ToolProfile::Standard;
+        assert!(
+            profile.is_tool_enabled("ctx_url_read"),
+            "ctx_url_read must be in standard (web/research context)"
         );
     }
 }

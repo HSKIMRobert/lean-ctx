@@ -144,7 +144,7 @@ pub(crate) fn configure_tool_profile() {
     println!(
         "  {cyan}minimal{rst}   — 6 tools   {dim}(ctx_read, ctx_shell, shell, ctx_search, ctx_tree, ctx_session){rst}"
     );
-    println!("  {cyan}standard{rst}  — 21 tools  {dim}(balanced set for most workflows){rst}");
+    println!("  {cyan}standard{rst}  — 22 tools  {dim}(balanced set for most workflows){rst}");
     println!(
         "  {cyan}power{rst}     — {registry_count} tools  {dim}(everything, for power users){rst}"
     );

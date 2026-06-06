@@ -16,6 +16,8 @@ pub use registry::{global_registry, ProviderRegistry};
 
 use serde::{Deserialize, Serialize};
 
+use crate::core::evidence::Claim;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderResult {
     pub provider: String,
@@ -25,7 +27,7 @@ pub struct ProviderResult {
     pub truncated: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ProviderItem {
     pub id: String,
     pub title: String,
@@ -36,6 +38,10 @@ pub struct ProviderItem {
     pub url: Option<String>,
     pub labels: Vec<String>,
     pub body: Option<String>,
+    /// Attributable evidence distilled from this item (confidence + source).
+    /// Empty for plain records; populated by research/extraction providers.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub claims: Vec<Claim>,
 }
 
 impl ProviderResult {
@@ -58,6 +64,11 @@ impl ProviderResult {
                 "  #{} {} ({}){}\n",
                 item.id, item.title, state, labels
             ));
+            for claim in &item.claims {
+                out.push_str("    ▸ ");
+                out.push_str(&claim.render());
+                out.push('\n');
+            }
         }
         out
     }

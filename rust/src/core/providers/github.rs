@@ -260,6 +260,7 @@ pub fn list_actions(
                 url: r["html_url"].as_str().map(String::from),
                 labels: Vec::new(),
                 body: None,
+                ..Default::default()
             })
             .collect(),
     })
@@ -287,6 +288,7 @@ fn parse_issue(v: &serde_json::Value) -> ProviderItem {
             })
             .unwrap_or_default(),
         body: v["body"].as_str().map(String::from),
+        ..Default::default()
     }
 }
 
@@ -308,6 +310,7 @@ fn parse_pr(v: &serde_json::Value) -> ProviderItem {
             })
             .unwrap_or_default(),
         body: v["body"].as_str().map(String::from),
+        ..Default::default()
     }
 }
 

@@ -128,6 +128,7 @@ fn list_tables(params: &ProviderParams) -> Result<ProviderResult, String> {
                 url: None,
                 labels: vec![schema.to_string()],
                 body: Some(body),
+                ..Default::default()
             }
         })
         .collect();

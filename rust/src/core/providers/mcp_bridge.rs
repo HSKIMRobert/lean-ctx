@@ -143,6 +143,7 @@ fn list_resources(
             url: Some(format!("{server_url}/resources/read")),
             labels: vec![server_name.to_string()],
             body: r["description"].as_str().map(String::from),
+            ..Default::default()
         })
         .collect();
 
@@ -200,6 +201,7 @@ fn read_resource(
         url: Some(format!("{server_url}/resources/read")),
         labels: vec![server_name.to_string()],
         body: Some(content_text),
+        ..Default::default()
     }];
 
     Ok(ProviderResult {
@@ -246,6 +248,7 @@ fn list_tools(
             url: Some(format!("{server_url}/tools/call")),
             labels: vec![server_name.to_string()],
             body: t["description"].as_str().map(String::from),
+            ..Default::default()
         })
         .collect();
 

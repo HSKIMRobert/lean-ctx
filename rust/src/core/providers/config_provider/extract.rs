@@ -164,6 +164,7 @@ pub fn map_item(json: &Value, mapping: &FieldMapping) -> Option<ProviderItem> {
             .as_ref()
             .and_then(|p| extract_value(json, p))
             .and_then(|v| value_to_string(&v)),
+        ..Default::default()
     })
 }
 
