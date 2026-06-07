@@ -59,6 +59,32 @@ card = run_conformance(client)
 assert card.all_passed, [c for c in card.checks if not c.passed]
 ```
 
+## Framework adapters
+
+Expose the lean-ctx tool surface to popular agent frameworks. Each framework is
+an **optional** dependency, imported lazily — installing `leanctx` pulls in none
+of them. The OpenAI adapter is a pure transformation and needs no extra package.
+
+```python
+from leanctx import LeanCtxClient
+from leanctx.adapters import (
+    to_openai_tools, run_openai_tool_call,   # no extra dep
+    to_langchain_tools,                       # pip install "leanctx[langchain]"
+    to_llamaindex_tools,                      # pip install "leanctx[llamaindex]"
+    to_crewai_tools,                          # pip install "leanctx[crewai]"
+)
+
+client = LeanCtxClient("http://127.0.0.1:8080")
+
+# OpenAI function calling
+tools = to_openai_tools(client)
+# ... pass tools to client.chat.completions.create(...), then:
+text = run_openai_tool_call(client, tool_call)
+
+# LangChain / LlamaIndex / CrewAI
+lc_tools = to_langchain_tools(client)
+```
+
 ## Errors
 
 - `LeanCtxConfigError` — invalid arguments / configuration (no I/O performed).

@@ -22,6 +22,10 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=7"]
+# Framework adapters (EPIC 12.6). The OpenAI adapter is pure and needs no extra.
+langchain = ["langchain-core>=0.2"]
+llamaindex = ["llama-index-core>=0.10"]
+crewai = ["crewai>=0.30"]
 
 [project.urls]
 Homepage = "https://github.com/yvgude/lean-ctx"
