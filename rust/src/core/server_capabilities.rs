@@ -87,7 +87,12 @@ pub const LOCAL_ALWAYS_ON_FEATURES: &[&str] = &[
 
 /// Local capabilities that are free but gated by *compilation* only (Cargo
 /// features) — never by account/license/plan.
-pub const LOCAL_OPTIONAL_FEATURES: &[&str] = &["ast_compression", "semantic_search", "http_server"];
+pub const LOCAL_OPTIONAL_FEATURES: &[&str] = &[
+    "ast_compression",
+    "semantic_search",
+    "http_server",
+    "wasm_runtime",
+];
 
 /// Commercial-plane capabilities — additive, opt-in, and never required for any
 /// local feature. Compiled in via opt-in Cargo features.
@@ -108,6 +113,7 @@ fn features() -> Value {
         "ast_compression": cfg!(feature = "tree-sitter"),
         "semantic_search": cfg!(feature = "embeddings"),
         "http_server": cfg!(feature = "http-server"),
+        "wasm_runtime": cfg!(feature = "wasm"),
         "team_server": cfg!(feature = "team-server"),
         "cloud_server": cfg!(feature = "cloud-server"),
     })

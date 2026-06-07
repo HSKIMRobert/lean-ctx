@@ -3,7 +3,8 @@
 //! The built-in `identity`/`whitespace` compressors are conservative — right for
 //! code, but they leave easy savings on prose, scraped web text, and Markdown.
 //! This module adds two **lossless-of-meaning** compressors tuned for non-code
-//! corpora, registered through the same [`extension_registry`] path so they are
+//! corpora, registered through the same
+//! [`extension_registry`](crate::core::extension_registry) path so they are
 //! discoverable and conformance-checked:
 //!
 //! * `prose` — collapse blank-line runs, strip trailing whitespace, collapse

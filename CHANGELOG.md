@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **WASM extension runtime** (Context OS, EPIC 12.8 + 12.10): a sandboxed,
+  language-independent way to contribute **compressors** and **context providers**
+  as plain `.wasm` modules — no recompile of lean-ctx. Behind the off-by-default
+  `wasm` Cargo feature (`features.wasm_runtime` in `/v1/capabilities`), upholding
+  the Local-Free Invariant (free, compile-optional). Uniform ABI v1 (`memory` +
+  `alloc(i32)->i32` + `entry(i32,i32,i32)->i64` packed `ptr/len`); guests run
+  against an **empty linker** (no syscalls/network/fs/clock — sandboxed by the
+  runtime itself) with a fresh `Store` per call for thread-safety + determinism.
+  `WasmCompressor` registers as a first-class compressor (host-enforced byte
+  budget, graceful fallback on traps, conformance-checked); `WasmProvider`
+  registers as a first-class `ContextProvider` (lenient result-JSON mapping).
+  Opt-in discovery from `LEAN_CTX_WASM_DIR` (`*.wasm` compressors; `*.wasm` +
+  `<stem>.provider.json` sidecar providers). Contract: `docs/contracts/wasm-abi-v1.md`.
 - **Context OS guide + non-coding cookbook** (Context OS, EPIC 12.18): `docs/context-os/guide.md` maps the whole platform — principles (Local-Free Invariant), architecture, capability discovery, the four ways to build your own tool (SDK / plugin tool / hook / extension), ingestion+extractors+personas, the savings→ROI substrate, and the plane model. `docs/context-os/cookbook-non-coding.md` adds four runnable, verified recipes (lead-gen, research, support, data-analysis) plus a custom-vertical template, all using real personas/extractors/SDKs/adapters.
 - **Framework adapters** (Context OS, EPIC 12.6): `leanctx.adapters` exposes the lean-ctx tool surface to popular agent frameworks — OpenAI function calling (`to_openai_tools` / `run_openai_tool_call`, a pure transform with no extra dep), LangChain (`to_langchain_tools`), LlamaIndex (`to_llamaindex_tools`), and CrewAI (`to_crewai_tools`). Each framework is an optional, lazily-imported dependency (`leanctx[langchain|llamaindex|crewai]`); all adapters share one tool normalizer and the same `call_tool_text` path so they behave identically. Tested with/without each framework installed.
 - **Python SDK** (Context OS, EPIC 12.4): new `leanctx` package (`clients/python/`) — a thin, **standard-library-only** client (`urllib`, zero runtime deps) for the HTTP `/v1` contract, mirroring the TS/Rust SDKs: `health`, `manifest`, `capabilities`, `openapi`, `list_tools`, `call_tool`/`call_tool_text`, and `subscribe_events` (SSE). Structured errors (`LeanCtxConfigError`/`TransportError`/`HTTPError`) and the shared `run_conformance` kit (lockstep with the TS SDK). Ships a README, `pyproject.toml`, in-process HTTP-server tests, and a `python-sdk` CI job.
