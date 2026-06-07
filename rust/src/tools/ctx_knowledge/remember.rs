@@ -3,6 +3,8 @@
 
 #[allow(clippy::wildcard_imports)]
 use super::*;
+use crate::core::plugins::{executor::HookPoint, PluginManager};
+
 pub(crate) fn handle_remember(
     project_root: &str,
     category: Option<&str>,
@@ -38,6 +40,13 @@ pub(crate) fn handle_remember(
         Ok(pair) => pair,
         Err(e) => return format!("Remembered [{cat}] {k}: {v}\n(save failed: {e})"),
     };
+
+    // Plugin seam: a fact was written. Guarded so it is a no-op without a plugin.
+    if PluginManager::has_listener("on_knowledge_update") {
+        PluginManager::fire_hook_background(HookPoint::OnKnowledgeUpdate {
+            fact_id: format!("{cat}:{k}"),
+        });
+    }
 
     let current_fact = knowledge
         .facts

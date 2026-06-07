@@ -100,6 +100,14 @@ pub(super) fn run_mcp_server() -> Result<()> {
 
         server_handle.shutdown().await;
 
+        // Symmetric to the on_session_start fired at startup. Synchronous so
+        // listeners run before the process exits; no-op without a plugin.
+        if core::plugins::PluginManager::has_listener("on_session_end") {
+            let _ = core::plugins::PluginManager::fire_hook(
+                &core::plugins::executor::HookPoint::OnSessionEnd,
+            );
+        }
+
         core::stats::flush();
         core::heatmap::flush();
         core::mode_predictor::ModePredictor::flush();

@@ -988,7 +988,20 @@ pub async fn serve(cfg: HttpServerConfig) -> Result<()> {
         })
         .await
         .context("http server")?;
+
+    fire_session_end();
     Ok(())
+}
+
+/// Fire the `on_session_end` plugin hook synchronously (best-effort, bounded by
+/// each plugin's own timeout) so listeners run before the process exits. A
+/// no-op unless a plugin declares the hook.
+pub(crate) fn fire_session_end() {
+    if crate::core::plugins::PluginManager::has_listener("on_session_end") {
+        let _ = crate::core::plugins::PluginManager::fire_hook(
+            &crate::core::plugins::executor::HookPoint::OnSessionEnd,
+        );
+    }
 }
 
 #[cfg(windows)]
