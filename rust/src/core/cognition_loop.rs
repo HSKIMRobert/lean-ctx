@@ -401,6 +401,7 @@ mod tests {
             feedback_down: 0,
             last_feedback: None,
             privacy: FactPrivacy::default(),
+            sensitivity: crate::core::sensitivity::SensitivityLevel::default(),
             imported_from: None,
             archetype: KnowledgeArchetype::default(),
             fidelity: None,

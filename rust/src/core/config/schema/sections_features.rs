@@ -381,6 +381,39 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
         },
     );
 
+    let mut sensitivity = BTreeMap::new();
+    sensitivity.insert(
+        "enabled".into(),
+        key(
+            "bool",
+            serde_json::json!(cfg.sensitivity.enabled),
+            "Enable the per-item sensitivity policy floor (no-op when false)",
+        ),
+    );
+    sensitivity.insert(
+        "policy_floor".into(),
+        key(
+            "string",
+            serde_json::json!(cfg.sensitivity.policy_floor.as_str()),
+            "Block items at/above this level: public|internal|confidential|secret",
+        ),
+    );
+    sensitivity.insert(
+        "action".into(),
+        key(
+            "string",
+            serde_json::json!(cfg.sensitivity.action.as_str()),
+            "How to enforce the floor: redact (mask spans) or drop (withhold item)",
+        ),
+    );
+    sections.insert(
+        "sensitivity".into(),
+        SectionSchema {
+            description: "Per-item sensitivity model with a uniform policy floor (#212)".into(),
+            keys: sensitivity,
+        },
+    );
+
     let mut cloud = BTreeMap::new();
     cloud.insert(
         "contribute_enabled".into(),

@@ -264,6 +264,14 @@ Secret/credential detection and redaction settings
 - `enabled` (bool, default `true`) — Enable secret/credential detection in tool outputs
 - `redact` (bool, default `true`) — Redact detected secrets from output
 
+## `[sensitivity]`
+
+Per-item sensitivity model with a uniform policy floor (#212)
+
+- `action` (string, default `redact`) — How to enforce the floor: redact (mask spans) or drop (withhold item)
+- `enabled` (bool, default `false`) — Enable the per-item sensitivity policy floor (no-op when false)
+- `policy_floor` (string, default `secret`) — Block items at/above this level: public|internal|confidential|secret
+
 ## `[setup]`
 
 Controls what lean-ctx injects during setup and updates. Fresh installs default to non-invasive (rules/skills off, MCP on).

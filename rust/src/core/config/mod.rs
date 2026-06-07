@@ -321,6 +321,10 @@ pub struct Config {
     pub boundary_policy: crate::core::memory_boundary::BoundaryPolicy,
     #[serde(default)]
     pub secret_detection: SecretDetectionConfig,
+    /// Per-item sensitivity model with a uniform policy floor (#212).
+    /// Disabled by default → fully no-op until `sensitivity.enabled = true`.
+    #[serde(default)]
+    pub sensitivity: crate::core::sensitivity::SensitivityConfig,
     /// Allow automatic project-root re-rooting when absolute paths outside the jail are seen.
     /// When false (default), absolute paths outside the jail are rejected without re-rooting.
     /// Override via LEAN_CTX_ALLOW_REROOT env var.
@@ -440,6 +444,7 @@ impl Default for Config {
             cache_policy: None,
             boundary_policy: crate::core::memory_boundary::BoundaryPolicy::default(),
             secret_detection: SecretDetectionConfig::default(),
+            sensitivity: crate::core::sensitivity::SensitivityConfig::default(),
             allow_auto_reroot: false,
             path_jail: None,
             sandbox_level: 0,

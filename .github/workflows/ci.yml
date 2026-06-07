@@ -216,6 +216,14 @@ jobs:
       - name: Compile benchmarks
         working-directory: rust
         run: cargo bench --no-run
+      - name: Generate reproducible scorecard
+        working-directory: rust
+        run: cargo run --quiet -- benchmark scorecard --json --output ../scorecard.json
+      - name: Upload scorecard artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: scorecard
+          path: scorecard.json
 
   doc:
     name: Documentation
