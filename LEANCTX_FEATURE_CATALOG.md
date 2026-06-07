@@ -1,6 +1,6 @@
 # LeanCTX Feature Catalog (SSOT Snapshot)
 
-**Version:** `3.6.10`  
+**Version:** `3.7.5`  
 **Updated:** `2026-05-15`  
 **Primary Sources:** `website/generated/mcp-tools.json`, `rust/src/tool_defs/granular.rs`, `README.md`
 

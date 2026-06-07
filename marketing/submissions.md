@@ -26,7 +26,7 @@ Examples: "**LeanCTX** is the Context OS for AI development." · `lean-ctx setup
 
 - **One local binary** (Rust), CLI-first, privacy-first, **zero telemetry**, local-first.
 - **License:** Apache-2.0 · **open source.**
-- **71 MCP tools**, **10 read modes**, **60+ shell compression patterns**.
+- **71 MCP tools**, **10 read modes**, **95+ shell compression patterns**.
 - **Up to 99% token savings**; cached re-reads cost **~13 tokens**.
 - **Works with 24+ AI tools** — Cursor, Claude Code, GitHub Copilot, Windsurf, OpenAI
   Codex CLI, Gemini CLI, Cline, JetBrains, VS Code, Zed, and more.
@@ -57,7 +57,7 @@ Examples: "**LeanCTX** is the Context OS for AI development." · `lean-ctx setup
 
 ## The four dimensions (reusable block)
 
-1. **Compression — input efficiency.** 10 read modes, 60+ shell patterns, tree-sitter
+1. **Compression — input efficiency.** 10 read modes, 95+ shell patterns, tree-sitter
    AST. Cached re-reads cost ~13 tokens.
 2. **Routing — the right fidelity per read.** Adaptive mode prediction and intent
    classification keep simple lookups cheap and deep reads precise.

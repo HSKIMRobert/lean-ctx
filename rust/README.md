@@ -1,6 +1,6 @@
 # lean-ctx
 
-**Context Runtime for AI Agents with CCP + TDD. Shell Hook + MCP Server. 71 MCP tools, 10 read modes, 60+ shell patterns, cross-session memory (CCP), LITM-aware positioning, tree-sitter AST for 18 languages. Single Rust binary.**
+**Context Runtime for AI Agents with CCP + TDD. Shell Hook + MCP Server. 71 MCP tools, 10 read modes, 95+ shell patterns, cross-session memory (CCP), LITM-aware positioning, tree-sitter AST for 18 languages. Single Rust binary.**
 
 [![CI](https://github.com/yvgude/lean-ctx/actions/workflows/ci.yml/badge.svg)](https://github.com/yvgude/lean-ctx/actions/workflows/ci.yml)
 [![Security Check](https://github.com/yvgude/lean-ctx/actions/workflows/security-check.yml/badge.svg)](https://github.com/yvgude/lean-ctx/actions/workflows/security-check.yml)
@@ -16,7 +16,7 @@
 
 lean-ctx reduces LLM token consumption by **up to 99%** through two complementary strategies in a single binary:
 
-1. **Shell Hook** — Transparently compresses CLI output (60+ patterns) before it reaches the LLM. Works without LLM cooperation.
+1. **Shell Hook** — Transparently compresses CLI output (95+ patterns) before it reaches the LLM. Works without LLM cooperation.
 2. **MCP Server** — 71 tools for cached file reads, adaptive mode selection, incremental deltas, dependency maps, intent detection, cross-file dedup, project graph, cross-session memory (CCP), multi-agent coordination, semantic caching, and session metrics. Works with Cursor, GitHub Copilot, Claude Code, Windsurf, OpenAI Codex, Google Antigravity, OpenCode, and any MCP-compatible editor.
 3. **AI Tool Hooks** — One-command integration for Claude Code, Cursor, Gemini CLI, Codex, Crush, Windsurf, and Cline via `lean-ctx init --agent <tool>`.
 
@@ -372,7 +372,7 @@ When configured as an MCP server, lean-ctx provides 71 tools that replace or aug
 | `ctx_read` | File reads — 10 modes incl. `lines:N-M`. Supports `fresh=true` to bypass cache. | 74-99% |
 | `ctx_multi_read` | Multiple file reads in one round trip | 74-99% |
 | `ctx_tree` | Directory listings (ls, find, Glob) | 34-60% |
-| `ctx_shell` | Shell commands with 60+ compression patterns | 60-90% |
+| `ctx_shell` | Shell commands with 95+ compression patterns | 60-90% |
 | `ctx_search` | Code search (Grep) | 50-80% |
 | `ctx_compress` | Context checkpoint for long conversations | 90-99% |
 
@@ -721,7 +721,7 @@ Opens `http://localhost:3333` with:
 |---|---|---|
 | **Architecture** | Shell hook only | **Hybrid: Shell hook + MCP server** |
 | **Language** | Rust | Rust |
-| **CLI compression** | ~50 commands | **60+ patterns** (git, npm, cargo, docker, gh, kubectl, pip, ruff, eslint, prettier, tsc, go, terraform, make, maven, gradle, dotnet, flutter, dart, poetry, uv, playwright, rubocop, bundle, vitest, aws, psql, mysql, prisma, helm, bun, deno, swift, zig, cmake, ansible, composer, mix, bazel, systemd, curl, wget, JSON, logs...) |
+| **CLI compression** | ~50 commands | **95+ patterns** (git, npm, cargo, docker, gh, kubectl, pip, ruff, eslint, prettier, tsc, go, terraform, make, maven, gradle, dotnet, flutter, dart, poetry, uv, playwright, rubocop, bundle, vitest, aws, psql, mysql, prisma, helm, bun, deno, swift, zig, cmake, ansible, composer, mix, bazel, systemd, curl, wget, JSON, logs...) |
 | **File reading** | `rtk read` (signatures mode) | **Modes: full (cached), map, signatures, diff, aggressive, entropy, lines:N-M** |
 | **File caching** | ✗ | ✓ MD5 session cache (re-reads = ~13 tokens) |
 | **Signature engine** | Line-by-line regex | **tree-sitter AST (18 languages)** |

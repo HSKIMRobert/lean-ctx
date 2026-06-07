@@ -32,7 +32,7 @@ pub(super) fn print_quickstart() {
 /// from the README / feature catalog.
 pub(super) fn capability_banner() -> String {
     format!(
-        "60+ compression patterns | {} MCP tools | 10 read modes | Context Continuity Protocol",
+        "95+ compression patterns | {} MCP tools | 10 read modes | Context Continuity Protocol",
         crate::server::registry::tool_count()
     )
 }
