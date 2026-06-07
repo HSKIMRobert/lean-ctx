@@ -144,6 +144,7 @@ COMMANDS:
     pack --pr                      PR Context Pack (changed files, impact, tests, artifacts)
     index <status|build|build-full|watch>  Codebase index utilities
     cep                            CEP report (compression metrics, cache, modes, trends)
+    verify-cache [path] [--json]   Prove the session cache: re-read collapses to a ~13-token stub
     watch                          Live TUI dashboard (real-time event stream)
     dashboard [--port=N] [--host=H] [--base-path=/prefix]  Open web dashboard (default: http://localhost:3333)
     serve [--host H] [--port N]    MCP over HTTP (Streamable HTTP, local-first)

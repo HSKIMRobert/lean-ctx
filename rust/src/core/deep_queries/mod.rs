@@ -286,6 +286,52 @@ class User:
     }
 
     #[test]
+    fn python_call_sites() {
+        // Regression for GH #365: Python uses a bare `call` node, so class
+        // instantiation and method calls must both be extracted as call sites.
+        let src = r"
+from models.engine import Engine
+
+def boot():
+    engine = Engine(power=100)
+    engine.run()
+    return engine
+";
+        let analysis = analyze(src, "py");
+        let callees: Vec<&str> = analysis.calls.iter().map(|c| c.callee.as_str()).collect();
+        assert!(
+            callees.contains(&"Engine"),
+            "class instantiation should be a call site, got {callees:?}"
+        );
+        assert!(
+            callees.contains(&"run"),
+            "method call must resolve to the method name (not the receiver), got {callees:?}"
+        );
+    }
+
+    #[test]
+    fn java_object_creation_is_a_call_site() {
+        let src = r"
+class App {
+    void boot() {
+        Engine e = new Engine(100);
+        e.run();
+    }
+}
+";
+        let analysis = analyze(src, "java");
+        let callees: Vec<&str> = analysis.calls.iter().map(|c| c.callee.as_str()).collect();
+        assert!(
+            callees.contains(&"Engine"),
+            "`new Engine()` should be a call site, got {callees:?}"
+        );
+        assert!(
+            callees.contains(&"run"),
+            "method call expected, got {callees:?}"
+        );
+    }
+
+    #[test]
     fn go_imports() {
         let src = r#"
 package main

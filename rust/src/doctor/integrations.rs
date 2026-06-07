@@ -127,6 +127,12 @@ fn integration_generic(
         crate::core::editor_registry::types::ConfigType::McpJson
         | crate::core::editor_registry::types::ConfigType::QoderSettings => {
             checks.push(check_mcp_json(&target.config_path, binary, data_dir));
+            // The Antigravity CLI also installs observe hooks as a plugin under
+            // ~/.gemini/config/plugins/lean-ctx (registered in import_manifest.json,
+            // NOT in any settings.json — see GH #284); verify that plugin too.
+            if target.agent_key == "antigravity-cli" {
+                checks.push(check_antigravity_cli_hooks(home, binary));
+            }
         }
         crate::core::editor_registry::types::ConfigType::JetBrains => {
             checks.push(check_jetbrains_snippet(
@@ -1019,6 +1025,92 @@ fn check_gemini_trust_and_hooks(home: &std::path::Path, binary: &str) -> NamedCh
             format!("ok ({})", settings.display())
         } else {
             "drift (hooks/trust/scripts)".to_string()
+        },
+    }
+}
+
+/// Verify that the lean-ctx **plugin** for the Antigravity CLI (`agy`) is
+/// installed and registered, pointing at the *current* binary.
+///
+/// `agy` loads hooks only from a plugin under `~/.gemini/config/plugins/lean-ctx`
+/// (root `plugin.json` + `hooks/hooks.json`), registered in
+/// `~/.gemini/config/import_manifest.json`. This guards against the GH #284
+/// regression where hooks were written to a `settings.json` that `agy` ignores
+/// (first the legacy `~/.gemini/settings.json`, then the CLI's own settings.json).
+fn check_antigravity_cli_hooks(home: &std::path::Path, binary: &str) -> NamedCheck {
+    let name = "Antigravity CLI plugin".to_string();
+    let plugin_dir = crate::hooks::agents::antigravity_cli_plugin_dir(home);
+    let hooks_json = plugin_dir.join("hooks").join("hooks.json");
+    if !hooks_json.exists() {
+        return NamedCheck {
+            name,
+            ok: false,
+            detail: format!("missing ({})", hooks_json.display()),
+        };
+    }
+
+    let Some(v) = std::fs::read_to_string(&hooks_json)
+        .ok()
+        .and_then(|c| crate::core::jsonc::parse_jsonc(&c).ok())
+    else {
+        return NamedCheck {
+            name,
+            ok: false,
+            detail: format!("invalid JSON ({})", hooks_json.display()),
+        };
+    };
+
+    // observe hook on PostToolUse, pointing at the current binary.
+    let observe_ok = v
+        .get("hooks")
+        .and_then(|h| h.get("PostToolUse"))
+        .and_then(|x| x.as_array())
+        .is_some_and(|arr| {
+            arr.iter().any(|entry| {
+                entry
+                    .get("hooks")
+                    .and_then(|x| x.as_array())
+                    .is_some_and(|hooks| {
+                        hooks.iter().any(|h| {
+                            let cmd = h
+                                .get("command")
+                                .and_then(|c| c.as_str())
+                                .unwrap_or_default();
+                            let first = cmd.split_whitespace().next().unwrap_or_default();
+                            cmd.contains("hook observe") && cmd_matches_expected(first, binary)
+                        })
+                    })
+            })
+        });
+
+    // The plugin must be registered in the shared import manifest so `agy`
+    // discovers it (`agy plugin list`).
+    let manifest =
+        crate::hooks::agents::antigravity_cli_config_dir(home).join("import_manifest.json");
+    let registered = std::fs::read_to_string(&manifest)
+        .ok()
+        .and_then(|c| crate::core::jsonc::parse_jsonc(&c).ok())
+        .and_then(|v| {
+            v.get("imports").and_then(|i| i.as_array()).map(|a| {
+                a.iter()
+                    .any(|e| e.get("name").and_then(|n| n.as_str()) == Some("lean-ctx"))
+            })
+        })
+        .unwrap_or(false);
+
+    let ok = observe_ok && registered;
+    NamedCheck {
+        name,
+        ok,
+        detail: if ok {
+            format!("ok ({})", plugin_dir.display())
+        } else if !registered {
+            format!(
+                "not registered in import_manifest.json ({})",
+                plugin_dir.display()
+            )
+        } else {
+            format!("drift (observe hook) ({})", hooks_json.display())
         },
     }
 }

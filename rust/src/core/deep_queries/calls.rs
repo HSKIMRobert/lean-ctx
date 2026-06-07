@@ -17,7 +17,7 @@ pub(super) fn extract_calls(root: Node, src: &str, ext: &str) -> Vec<CallSite> {
 
 #[cfg(feature = "tree-sitter")]
 fn walk_calls(node: Node, src: &str, ext: &str, calls: &mut Vec<CallSite>) {
-    if node.kind() == "call_expression" || node.kind() == "method_invocation" {
+    if is_call_node(node.kind()) {
         if let Some(call) = parse_call(node, src, ext) {
             calls.push(call);
         }
@@ -27,6 +27,21 @@ fn walk_calls(node: Node, src: &str, ext: &str, calls: &mut Vec<CallSite>) {
     for child in node.children(&mut cursor) {
         walk_calls(child, src, ext, calls);
     }
+}
+
+/// Call-like AST node kinds across the supported tree-sitter grammars.
+///
+/// Different grammars name the invocation node differently: most use
+/// `call_expression`, Java methods use `method_invocation` and constructors
+/// use `object_creation_expression`, while Python (and Elixir) use a bare
+/// `call`. Missing `call` here is what previously made Python call sites —
+/// including class instantiation `Foo(...)` — invisible to the call graph.
+#[cfg(feature = "tree-sitter")]
+fn is_call_node(kind: &str) -> bool {
+    matches!(
+        kind,
+        "call_expression" | "method_invocation" | "call" | "object_creation_expression"
+    )
 }
 
 #[cfg(feature = "tree-sitter")]
@@ -101,8 +116,16 @@ fn parse_call_python(node: Node, src: &str) -> Option<CallSite> {
     let func = node.child(0)?;
     match func.kind() {
         "attribute" => {
-            let attr = find_child_by_kind(func, "identifier");
-            let obj = func.child(0).map(|r| node_text(r, src).to_string());
+            // `obj.method(...)` — the callee is the trailing `attribute` field,
+            // not the leading `object`. Fall back to text parsing only if the
+            // grammar fields are unavailable.
+            let attr = func
+                .child_by_field_name("attribute")
+                .or_else(|| func.child_by_field_name("attr"));
+            let obj = func
+                .child_by_field_name("object")
+                .or_else(|| func.child(0))
+                .map(|r| node_text(r, src).to_string());
             let name = attr
                 .map(|a| node_text(a, src).to_string())
                 .or_else(|| {
@@ -159,17 +182,31 @@ fn parse_call_go(node: Node, src: &str) -> Option<CallSite> {
 
 #[cfg(feature = "tree-sitter")]
 fn parse_call_java(node: Node, src: &str) -> Option<CallSite> {
+    if node.kind() == "object_creation_expression" {
+        // `new Foo(...)` / `new Foo<T>(...)` — the callee is the constructed type.
+        let type_node = node
+            .child_by_field_name("type")
+            .or_else(|| find_child_by_kind(node, "type_identifier"))
+            .or_else(|| find_child_by_kind(node, "scoped_type_identifier"))
+            .or_else(|| find_child_by_kind(node, "generic_type"))?;
+        let name = find_descendant_by_kind(type_node, "type_identifier").unwrap_or(type_node);
+        return Some(CallSite {
+            callee: node_text(name, src).to_string(),
+            line: node.start_position().row + 1,
+            col: node.start_position().column,
+            receiver: None,
+            is_method: false,
+        });
+    }
+
     if node.kind() == "method_invocation" {
-        let name = find_child_by_kind(node, "identifier")?;
-        let obj = find_child_by_kind(node, "field_access")
-            .or_else(|| {
-                let first = node.child(0)?;
-                if first.kind() == "identifier" && first.id() != name.id() {
-                    Some(first)
-                } else {
-                    None
-                }
-            })
+        // `obj.method(...)` — the callee is the `name` field, not the leading
+        // `object` identifier (which would otherwise be picked up first).
+        let name = node
+            .child_by_field_name("name")
+            .or_else(|| find_child_by_kind(node, "identifier"))?;
+        let obj = node
+            .child_by_field_name("object")
             .map(|o| node_text(o, src).to_string());
         return Some(CallSite {
             callee: node_text(name, src).to_string(),

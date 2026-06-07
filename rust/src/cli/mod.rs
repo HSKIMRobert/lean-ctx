@@ -29,6 +29,7 @@ mod session_cmd;
 mod shell_init;
 mod tee_cmd;
 mod theme_cmd;
+mod verify_cache_cmd;
 mod verify_cmd;
 mod visualize_cmd;
 pub(crate) mod wrapped_publish;
