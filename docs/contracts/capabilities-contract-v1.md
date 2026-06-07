@@ -57,7 +57,7 @@ contract_version, server, plane, transports, presets, read_modes, tools, feature
     "plugins": [{ "name": "my-plugin", "version": "0.1.0", "permissions": ["network"] }],
     "tools": [],
     "read_modes": ["full"],
-    "compressors": ["identity", "whitespace"],
+    "compressors": ["identity", "markdown", "prose", "whitespace"],
     "chunkers": ["csv", "eml", "html", "json", "lines", "paragraph"]
   },
   "contracts": { "leanctx.contract.http_mcp.contract_version": 1, "...": 1 }

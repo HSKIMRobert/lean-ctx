@@ -66,6 +66,9 @@ impl ExtensionRegistry {
         reg.register_read_mode(Arc::new(FullReadMode));
         reg.register_compressor(Arc::new(IdentityCompressor));
         reg.register_compressor(Arc::new(WhitespaceCompressor));
+        // Non-code compressors (prose/markdown) tuned for prose/web/data corpora
+        // (EPIC 12.14), registered through the same public path.
+        crate::core::nc_compress::register_into(&mut reg);
         reg.register_chunker(Arc::new(LineChunker::default()));
         reg.register_chunker(Arc::new(ParagraphChunker));
         // Format-aware chunkers (csv/json/eml/html) register through the same
@@ -226,7 +229,7 @@ impl Chunker for ParagraphChunker {
 }
 
 /// Truncate `s` to at most `budget` bytes, never splitting a UTF-8 char.
-fn truncate_to_budget(mut s: String, budget: Option<usize>) -> String {
+pub(crate) fn truncate_to_budget(mut s: String, budget: Option<usize>) -> String {
     if let Some(b) = budget {
         if s.len() > b {
             let mut end = b;
@@ -247,7 +250,12 @@ mod tests {
     fn builtins_are_registered() {
         let reg = ExtensionRegistry::with_builtins();
         assert_eq!(reg.read_mode_names(), vec!["full"]);
-        assert_eq!(reg.compressor_names(), vec!["identity", "whitespace"]);
+        // identity/whitespace built-ins plus the non-code compressors
+        // (markdown/prose) from `core::nc_compress` (EPIC 12.14).
+        assert_eq!(
+            reg.compressor_names(),
+            vec!["identity", "markdown", "prose", "whitespace"]
+        );
         // Built-in line/paragraph chunkers plus the format-aware chunkers
         // (csv/json/eml/html) registered by `core::extractors` (EPIC 12.13).
         assert_eq!(
