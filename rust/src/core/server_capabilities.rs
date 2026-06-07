@@ -124,6 +124,7 @@ fn extensions() -> Value {
                 json!({
                     "name": p.manifest.plugin.name,
                     "version": p.manifest.plugin.version,
+                    "permissions": p.manifest.trust.policy().declared_permissions(),
                 })
             })
             .collect::<Vec<_>>()

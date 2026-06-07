@@ -1,6 +1,7 @@
 pub mod executor;
 pub mod manifest;
 pub mod registry;
+pub mod sandbox;
 pub mod tools;
 
 use executor::{execute_hooks_for_point, HookPoint, HookResult};
@@ -94,6 +95,7 @@ impl PluginManager {
             reg.enabled_plugins()
                 .iter()
                 .flat_map(|p| {
+                    let policy = p.manifest.trust.policy();
                     p.manifest.tools.iter().map(move |t| tools::PluginToolSpec {
                         plugin_name: p.manifest.plugin.name.clone(),
                         plugin_dir: p.path.clone(),
@@ -102,6 +104,7 @@ impl PluginManager {
                         command: t.command.clone(),
                         timeout_ms: t.timeout_ms,
                         input_schema: t.input_schema.clone(),
+                        policy,
                     })
                 })
                 .collect()
@@ -152,6 +155,14 @@ command = "{name} stop"
 # command = "{name} tool lookup"
 # timeout_ms = 5000
 # input_schema = {{ type = "object", properties = {{ query = {{ type = "string" }} }}, required = ["query"] }}
+
+# Trust & sandbox (least privilege by default). Hooks/tools run with a scrubbed
+# environment and a working-dir jail. Declare only what you need:
+#   network         — you make outbound network calls (surfaced for consent)
+#   fs_write        — you write files outside the plugin dir (surfaced)
+#   env_passthrough — you need the full host env (disables env scrubbing)
+# [trust]
+# permissions = ["network"]
 "#
     );
 

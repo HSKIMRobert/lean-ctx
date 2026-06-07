@@ -92,6 +92,7 @@ pub fn execute_hook_sync(plugin: &Plugin, hook: &HookPoint) -> HookResult {
         &[("LEAN_CTX_HOOK", hook_name)],
         &hook_json,
         timeout,
+        &plugin.manifest.trust.policy(),
     );
     let duration_ms = start.elapsed().as_millis() as u64;
 
@@ -131,14 +132,16 @@ pub fn execute_hook_sync(plugin: &Plugin, hook: &HookPoint) -> HookResult {
 /// Spawn `command` (whitespace-split into program + args) as a sandboxed child:
 /// piped stdio, `LEAN_CTX_PLUGIN_DIR` exported, plus any `extra_env`. The
 /// `stdin_data` is written to the child's stdin and the process is bounded by
-/// `timeout`. Shared by hook execution and manifest-declared tool invocation
-/// (EPIC 12.11) so both honor the same isolation + timeout contract.
+/// `timeout`. The [`SandboxPolicy`] is applied before spawn (env scrub + cwd
+/// jail; EPIC 12.3). Shared by hook execution and manifest-declared tool
+/// invocation (EPIC 12.11) so both honor the same isolation contract.
 pub(crate) fn run_subprocess(
     command: &str,
     plugin_dir: &std::path::Path,
     extra_env: &[(&str, &str)],
     stdin_data: &str,
     timeout: Duration,
+    policy: &super::sandbox::SandboxPolicy,
 ) -> Result<std::process::Output, String> {
     let parts: Vec<&str> = command.split_whitespace().collect();
     let Some((program, args)) = parts.split_first() else {
@@ -149,8 +152,11 @@ pub(crate) fn run_subprocess(
     cmd.args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .env("LEAN_CTX_PLUGIN_DIR", plugin_dir);
+        .stderr(Stdio::piped());
+    // Apply the sandbox (env scrub + cwd jail) first, then set the trusted
+    // lean-ctx env + caller extras so they always win over the scrubbed base.
+    policy.apply(&mut cmd, plugin_dir);
+    cmd.env("LEAN_CTX_PLUGIN_DIR", plugin_dir);
     for (key, value) in extra_env {
         cmd.env(key, value);
     }
@@ -331,6 +337,7 @@ timeout_ms = 1000
             &[("LEAN_CTX_TOOL", "demo")],
             "hello-stdin",
             Duration::from_secs(2),
+            &super::super::sandbox::SandboxPolicy::strict(),
         )
         .unwrap();
         assert!(out.status.success());
@@ -345,6 +352,7 @@ timeout_ms = 1000
             &[],
             "",
             Duration::from_millis(500),
+            &super::super::sandbox::SandboxPolicy::strict(),
         )
         .unwrap_err();
         assert!(err.contains("empty command"));

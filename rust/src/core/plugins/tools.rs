@@ -11,6 +11,8 @@ use std::time::Duration;
 
 use serde_json::Value;
 
+use super::sandbox::SandboxPolicy;
+
 /// A flattened, ready-to-register tool contributed by a plugin manifest.
 #[derive(Debug, Clone)]
 pub struct PluginToolSpec {
@@ -28,6 +30,8 @@ pub struct PluginToolSpec {
     pub timeout_ms: u64,
     /// JSON Schema for the tool's arguments.
     pub input_schema: Value,
+    /// Sandbox policy inherited from the owning plugin's `[trust]` (EPIC 12.3).
+    pub policy: SandboxPolicy,
 }
 
 /// Invoke a plugin tool: the JSON `args_json` is written to the child's stdin
@@ -40,6 +44,7 @@ pub fn invoke(spec: &PluginToolSpec, args_json: &str) -> Result<String, String> 
         &[("LEAN_CTX_TOOL", spec.name.as_str())],
         args_json,
         Duration::from_millis(spec.timeout_ms),
+        &spec.policy,
     )?;
 
     if output.status.success() {
@@ -67,6 +72,7 @@ mod tests {
             command: command.into(),
             timeout_ms: 2000,
             input_schema: Value::Null,
+            policy: SandboxPolicy::strict(),
         }
     }
 

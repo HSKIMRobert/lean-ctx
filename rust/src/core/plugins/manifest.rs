@@ -2,6 +2,8 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::Path;
 
+use super::sandbox::TrustSpec;
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct PluginManifest {
     pub plugin: PluginMeta,
@@ -11,6 +13,10 @@ pub struct PluginManifest {
     /// add tools without forking `build_registry()` (EPIC 12.11).
     #[serde(default)]
     pub tools: Vec<ToolEntry>,
+    /// Declared trust/sandbox capabilities (`[trust]`, EPIC 12.3). Absent ⇒
+    /// least privilege (scrubbed env, no declared network/fs access).
+    #[serde(default)]
+    pub trust: TrustSpec,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -106,6 +112,13 @@ impl PluginManifest {
                     reason: "must not be empty".to_string(),
                 });
             }
+        }
+        if let Err(reason) = self.trust.validate() {
+            return Err(ManifestError::Validation {
+                path: path.to_path_buf(),
+                field: "trust.permissions".to_string(),
+                reason,
+            });
         }
         Ok(())
     }

@@ -80,6 +80,7 @@ mod tests {
             command: "cat".into(),
             timeout_ms: 2000,
             input_schema: serde_json::json!({"type": "object"}),
+            policy: crate::core::plugins::sandbox::SandboxPolicy::strict(),
         }
     }
 
