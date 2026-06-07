@@ -142,9 +142,9 @@ Parameters: `action`, `code`, `intent`, `items`, `language`, `path`, `timeout`
 
 ## `ctx_expand`
 
-Retrieve archived tool output (zero-loss). Large outputs are auto-archived; use this to retrieve full details. Actions: retrieve (default), list.
+Retrieve firewalled/archived tool output (zero-loss). Large outputs are stored out-of-band and replaced inline by a digest+ref; use this to drill into the full content. Actions: retrieve (default), list, search_all.
 
-Parameters: `action`, `end_line`, `id`, `search`, `session_id`, `start_line`
+Parameters: `action`, `end_line`, `head`, `id`, `json_keys`, `json_path`, `query`, `search`, `session_id`, `start_line`, `tail`
 
 ## `ctx_feedback`
 

@@ -74,6 +74,7 @@ Settings for the zero-loss compression archive (large tool outputs saved to disk
 
 - `enabled` (bool, default `true`) — Enable zero-loss compression archive
 - `ephemeral` (bool, default `true`) — Replace large results with summary+ref (ctx_expand to retrieve). Env: LEAN_CTX_EPHEMERAL
+- `ephemeral_min_tokens` (usize, default `2000`) — Minimum output tokens before the ephemeral firewall replaces inline body with summary+ref. Env: LEAN_CTX_EPHEMERAL_MIN_TOKENS
 - `max_age_hours` (u64, default `48`) — Maximum age of archived entries before cleanup
 - `max_disk_mb` (u64, default `500`) — Maximum total disk usage for the archive
 - `threshold_chars` (usize, default `800`) — Minimum output size (chars) to trigger archiving
