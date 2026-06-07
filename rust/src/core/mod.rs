@@ -264,6 +264,9 @@ pub mod task_relevance;
 pub mod anomaly;
 pub mod benchmark;
 pub mod benchmark_compare;
+/// Commercial-plane billing substrate (`billing-plane-v1`): plans, entitlements,
+/// and usage metering derived from the signed savings ledger. Never gates local.
+pub mod billing;
 pub mod cognitive_load;
 pub mod conformance;
 pub mod contracts;

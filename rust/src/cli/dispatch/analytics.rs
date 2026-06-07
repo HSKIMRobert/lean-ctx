@@ -488,6 +488,111 @@ pub(super) fn cmd_conformance(args: &[String]) {
     }
 }
 
+/// `lean-ctx billing <plans|entitlements|usage>` — the commercial-plane billing
+/// substrate (EPIC 13.6). All subcommands are **informational and read-only**:
+/// they describe plans/entitlements and meter local savings. The local plane is
+/// never gated — there are no entitlement checks here, only reporting.
+pub(super) fn cmd_billing(rest: &[String]) {
+    let action = rest.first().map_or("usage", String::as_str);
+    let json = rest.iter().any(|a| a == "--json");
+    match action {
+        "plans" => cmd_billing_plans(json),
+        "entitlements" => cmd_billing_entitlements(rest.get(1).map(String::as_str), json),
+        "usage" => cmd_billing_usage(json),
+        other => {
+            eprintln!("unknown billing action '{other}'. Use: plans | entitlements <plan> | usage [--json]");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn cmd_billing_plans(json: bool) {
+    let plans: Vec<core::billing::Entitlements> = core::billing::Plan::all()
+        .iter()
+        .map(|p| p.entitlements())
+        .collect();
+    if json {
+        print_json_or_die(&plans, "plans");
+        return;
+    }
+    println!("lean-ctx plans (commercial plane — additive, never gates local):\n");
+    for e in &plans {
+        println!("  {} — seats: {}", e.plan.as_str(), quota(e.seats));
+        println!(
+            "    hosted_index_mb: {}  connectors: {}  private_registry: {}",
+            quota(e.hosted_index_mb),
+            quota(e.managed_connectors),
+            e.private_registry
+        );
+        println!(
+            "    sso_scim: {}  audit_retention_days: {}  revenue_share: {}",
+            e.sso_scim, e.audit_retention_days, e.revenue_share
+        );
+    }
+    println!("\nThe Personal plane (local engine) is free + ungated regardless of plan.");
+}
+
+fn cmd_billing_entitlements(plan_arg: Option<&str>, json: bool) {
+    let plan = core::billing::Plan::parse(plan_arg.unwrap_or("free"));
+    let e = plan.entitlements();
+    if json {
+        print_json_or_die(&e, "entitlements");
+        return;
+    }
+    println!("Entitlements for plan '{}':", plan.as_str());
+    println!("  seats:                {}", quota(e.seats));
+    println!("  hosted_index_mb:      {}", quota(e.hosted_index_mb));
+    println!("  managed_connectors:   {}", quota(e.managed_connectors));
+    println!("  private_registry:     {}", e.private_registry);
+    println!("  sso_scim:             {}", e.sso_scim);
+    println!("  audit_retention_days: {}", e.audit_retention_days);
+    println!("  revenue_share:        {}", e.revenue_share);
+}
+
+fn cmd_billing_usage(json: bool) {
+    let agent_id = savings_agent_id();
+    let usage = core::billing::metered_usage(&agent_id);
+    if json {
+        print_json_or_die(&usage, "usage");
+        return;
+    }
+    println!("{}", usage.headline());
+    println!();
+    println!("  Period:        {}", usage.period);
+    println!("  Metered events: {}", usage.metered_events);
+    println!("  Net tokens:    {}", usage.net_saved_tokens);
+    println!("  Saved USD:     ${:.4}", usage.saved_usd);
+    println!(
+        "  Billable:      {}",
+        if usage.is_billable() {
+            "yes (signed + chain intact)"
+        } else {
+            "no (requires a signed, intact ledger)"
+        }
+    );
+    println!("  Provenance:    {}", usage.last_entry_hash);
+}
+
+/// Render a quota: [`core::billing::plans::UNBOUNDED`] → "unlimited", else the
+/// number (a plain `0` means *none*).
+fn quota(n: u32) -> String {
+    if n == core::billing::plans::UNBOUNDED {
+        "unlimited".to_string()
+    } else {
+        n.to_string()
+    }
+}
+
+fn print_json_or_die<T: serde::Serialize>(value: &T, what: &str) {
+    match serde_json::to_string_pretty(value) {
+        Ok(json) => println!("{json}"),
+        Err(e) => {
+            eprintln!("{what} serialization failed: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
 /// `lean-ctx savings roi [--json]` — the privacy-preserving ROI/metering surface
 /// derived from the signed savings batch (EPIC 12.20). Read-only: it never
 /// mutates the ledger.

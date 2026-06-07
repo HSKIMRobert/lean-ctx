@@ -4,6 +4,7 @@
 //! (team/cloud), so this test fails the build if any local capability is ever
 //! placed behind a paywall.
 
+use lean_ctx::core::billing::{entitlement_allows, Plan};
 use lean_ctx::core::server_capabilities::{
     capabilities_value, COMMERCIAL_PLANE_FEATURES, LOCAL_ALWAYS_ON_FEATURES,
     LOCAL_OPTIONAL_FEATURES,
@@ -63,4 +64,21 @@ fn local_features_are_unaffected_by_license_or_plan_env() {
         before, after,
         "no local capability may change based on a license/plan/account env var"
     );
+}
+
+#[test]
+fn billing_plane_never_gates_a_local_feature() {
+    // EPIC 13.6: the commercial billing layer must allow every local capability
+    // on every plan — including Free. The local plane has no entitlement checks.
+    for plan in Plan::all() {
+        for feature in LOCAL_ALWAYS_ON_FEATURES
+            .iter()
+            .chain(LOCAL_OPTIONAL_FEATURES)
+        {
+            assert!(
+                entitlement_allows(*plan, feature),
+                "billing gated local feature '{feature}' on plan {plan:?}"
+            );
+        }
+    }
 }

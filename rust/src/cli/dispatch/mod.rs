@@ -94,6 +94,10 @@ pub fn run() {
                 cmd_conformance(&rest);
                 return;
             }
+            "billing" => {
+                cmd_billing(&rest);
+                return;
+            }
             "token-report" | "report-tokens" => {
                 let code = token_report::run_cli(&rest);
                 if code != 0 {

@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Billing plane: real plans + usage metering** (Commercial Plane, EPIC 13.6):
+  new `core::billing` turns the upgrade flow into real plans (`free`/`team`/
+  `enterprise`) with explicit `Entitlements`, plus usage-based metering derived
+  **read-only** from the Ed25519-signed savings ledger (EPIC 12.20). `Usage` is
+  privacy-preserving and only billable on a signed + intact chain. Crucially,
+  `entitlement_allows` upholds the Local-Free Invariant — every local feature is
+  allowed on **every** plan (incl. Free); the local binary has **no entitlement
+  checks** (enforced by `tests/local_free_invariant.rs`). New CLI:
+  `lean-ctx billing <plans|entitlements|usage> [--json]` (informational only).
+  Quota semantics disambiguated: `0` = none, `UNBOUNDED` = unlimited. Checkout/
+  provisioning are documented as a hosted control-plane concern (no fakes).
+  Contract: `docs/contracts/billing-plane-v1.md`.
 - **WASM extension runtime** (Context OS, EPIC 12.8 + 12.10): a sandboxed,
   language-independent way to contribute **compressors** and **context providers**
   as plain `.wasm` modules — no recompile of lean-ctx. Behind the off-by-default
