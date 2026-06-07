@@ -265,6 +265,7 @@ pub mod anomaly;
 pub mod benchmark;
 pub mod benchmark_compare;
 pub mod cognitive_load;
+pub mod conformance;
 pub mod contracts;
 pub mod cyclomatic;
 pub mod degradation_policy;

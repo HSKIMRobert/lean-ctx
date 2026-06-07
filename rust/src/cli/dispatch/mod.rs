@@ -90,6 +90,10 @@ pub fn run() {
                 cmd_savings(&rest);
                 return;
             }
+            "conformance" | "selftest" => {
+                cmd_conformance(&rest);
+                return;
+            }
             "token-report" | "report-tokens" => {
                 let code = token_report::run_cli(&rest);
                 if code != 0 {
