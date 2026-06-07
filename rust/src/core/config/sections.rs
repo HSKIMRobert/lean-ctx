@@ -108,6 +108,9 @@ pub struct ArchiveConfig {
     pub max_age_hours: u64,
     pub max_disk_mb: u64,
     pub ephemeral: bool,
+    /// Minimum output tokens before the ephemeral firewall replaces an inline tool
+    /// result with a summary + retrieval ref. Outputs below this stay fully inline.
+    pub ephemeral_min_tokens: usize,
 }
 
 impl Default for ArchiveConfig {
@@ -118,6 +121,7 @@ impl Default for ArchiveConfig {
             max_age_hours: 48,
             max_disk_mb: 500,
             ephemeral: true,
+            ephemeral_min_tokens: 2000,
         }
     }
 }
@@ -128,6 +132,15 @@ impl ArchiveConfig {
             return !matches!(v.trim(), "0" | "false" | "off");
         }
         self.ephemeral && self.enabled
+    }
+
+    pub fn ephemeral_min_tokens_effective(&self) -> usize {
+        if let Ok(v) = std::env::var("LEAN_CTX_EPHEMERAL_MIN_TOKENS") {
+            if let Ok(n) = v.trim().parse::<usize>() {
+                return n;
+            }
+        }
+        self.ephemeral_min_tokens
     }
 }
 

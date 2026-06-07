@@ -196,6 +196,113 @@ pub fn retrieve_with_search(id: &str, pattern: &str) -> Option<String> {
     }
 }
 
+/// Retrieve the first `n` lines of an archived entry, with a line-number gutter.
+pub fn retrieve_head(id: &str, n: usize) -> Option<String> {
+    retrieve_with_range(id, 1, n)
+}
+
+/// Retrieve the last `n` lines of an archived entry, with a line-number gutter.
+pub fn retrieve_tail(id: &str, n: usize) -> Option<String> {
+    let content = retrieve(id)?;
+    let total = content.lines().count();
+    let start = if total > n { total - n + 1 } else { 1 };
+    retrieve_with_range(id, start, total)
+}
+
+/// Describe the JSON structure of an archived entry: top-level keys with type hints,
+/// array lengths + element types, etc. An optional dot/slash `path` (e.g. `data.items.0`)
+/// navigates into the structure first. Returns `None` when the archive is missing or its
+/// content is not valid JSON, so callers can fall back to a raw retrieval hint.
+pub fn retrieve_json_keys(id: &str, path: Option<&str>) -> Option<String> {
+    let content = retrieve(id)?;
+    let root: serde_json::Value = serde_json::from_str(content.trim()).ok()?;
+    let mut cur = &root;
+    let mut walked = String::from("$");
+    if let Some(p) = path {
+        for seg in p.split(['.', '/']).filter(|s| !s.is_empty()) {
+            let next = if let Ok(idx) = seg.parse::<usize>() {
+                cur.get(idx)
+            } else {
+                cur.get(seg)
+            };
+            match next {
+                Some(v) => {
+                    cur = v;
+                    walked.push('.');
+                    walked.push_str(seg);
+                }
+                None => {
+                    return Some(format!(
+                        "Path '{p}' not found at '{walked}' in archive {id}"
+                    ));
+                }
+            }
+        }
+    }
+    Some(format!("{walked} => {}", describe_json(cur)))
+}
+
+fn json_type_hint(v: &serde_json::Value) -> String {
+    use serde_json::Value;
+    match v {
+        Value::Object(m) => format!("object({})", m.len()),
+        Value::Array(a) => format!("array({})", a.len()),
+        Value::String(s) => {
+            let preview: String = s.chars().take(40).collect();
+            if s.chars().count() > 40 {
+                format!("string \"{preview}…\"")
+            } else {
+                format!("string \"{preview}\"")
+            }
+        }
+        Value::Number(n) => format!("number {n}"),
+        Value::Bool(b) => format!("bool {b}"),
+        Value::Null => "null".to_string(),
+    }
+}
+
+fn describe_json(v: &serde_json::Value) -> String {
+    use serde_json::Value;
+    match v {
+        Value::Object(map) => {
+            let mut keys: Vec<&String> = map.keys().collect();
+            keys.sort();
+            let rendered: Vec<String> = keys
+                .iter()
+                .map(|k| format!("  {k}: {}", json_type_hint(&map[*k])))
+                .collect();
+            format!("object ({} keys)\n{}", map.len(), rendered.join("\n"))
+        }
+        Value::Array(arr) => {
+            let elem = arr.first().map_or("empty", |e| match e {
+                Value::Object(_) => "object",
+                Value::Array(_) => "array",
+                Value::String(_) => "string",
+                Value::Number(_) => "number",
+                Value::Bool(_) => "bool",
+                Value::Null => "null",
+            });
+            let mut out = format!("array ({} items of {elem})", arr.len());
+            if let Some(Value::Object(map)) = arr.first() {
+                let mut keys: Vec<&String> = map.keys().collect();
+                keys.sort();
+                out.push_str(&format!(
+                    "\n  [0] keys: {}",
+                    keys.iter()
+                        .map(|s| s.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
+            out
+        }
+        Value::String(s) => format!("string ({} chars)", s.len()),
+        Value::Number(n) => format!("number ({n})"),
+        Value::Bool(b) => format!("bool ({b})"),
+        Value::Null => "null".to_string(),
+    }
+}
+
 pub fn list_entries(session_id: Option<&str>) -> Vec<ArchiveEntry> {
     let base = archive_base_dir();
     if !base.exists() {

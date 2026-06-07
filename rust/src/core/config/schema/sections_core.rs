@@ -574,6 +574,10 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
             "ephemeral".into(),
             key("bool", serde_json::json!(cfg.archive.ephemeral), "Replace large results with summary+ref (ctx_expand to retrieve). Env: LEAN_CTX_EPHEMERAL"),
         );
+    archive.insert(
+            "ephemeral_min_tokens".into(),
+            key("usize", serde_json::json!(cfg.archive.ephemeral_min_tokens), "Minimum output tokens before the ephemeral firewall replaces inline body with summary+ref. Env: LEAN_CTX_EPHEMERAL_MIN_TOKENS"),
+        );
     sections.insert(
         "archive".into(),
         SectionSchema {

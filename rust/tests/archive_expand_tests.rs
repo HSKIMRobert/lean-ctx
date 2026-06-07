@@ -182,3 +182,76 @@ fn archive_disk_usage_starts_zero() {
         assert!(archive::disk_usage_bytes() > 0);
     });
 }
+
+#[test]
+fn archive_retrieve_head_and_tail() {
+    with_test_dir(|| {
+        let content = (1..=30)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let id = archive::store("ctx_shell", "run", &content, None).unwrap();
+
+        let head = archive::retrieve_head(&id, 3).unwrap();
+        assert!(head.contains("line 1") && head.contains("line 3"));
+        assert!(!head.contains("line 4"), "head leaked line 4: {head}");
+
+        let tail = archive::retrieve_tail(&id, 2).unwrap();
+        assert!(tail.contains("line 29") && tail.contains("line 30"));
+        assert!(!tail.contains("line 28"), "tail leaked line 28: {tail}");
+    });
+}
+
+#[test]
+fn archive_json_keys_object_array_and_path() {
+    with_test_dir(|| {
+        let content = r#"{"status":"ok","data":{"items":[{"id":1,"name":"a"},{"id":2,"name":"b"}]},"count":2}"#;
+        let id = archive::store("ctx_shell", "curl api", content, None).unwrap();
+
+        let root = archive::retrieve_json_keys(&id, None).unwrap();
+        assert!(root.contains("object (3 keys)"), "unexpected: {root}");
+        assert!(root.contains("status"));
+        assert!(root.contains("data"));
+        assert!(root.contains("count"));
+
+        let items = archive::retrieve_json_keys(&id, Some("data.items")).unwrap();
+        assert!(items.contains("array (2 items of object)"), "got: {items}");
+        assert!(items.contains("[0] keys: id, name"), "got: {items}");
+
+        let elem = archive::retrieve_json_keys(&id, Some("data.items.0")).unwrap();
+        assert!(elem.contains("object (2 keys)"), "got: {elem}");
+    });
+}
+
+#[test]
+fn archive_json_keys_non_json_returns_none() {
+    with_test_dir(|| {
+        let id = archive::store("ctx_shell", "ls", "not json at all\njust text", None).unwrap();
+        assert!(archive::retrieve_json_keys(&id, None).is_none());
+    });
+}
+
+#[test]
+fn ctx_expand_selectors_via_handle() {
+    use lean_ctx::tools::ctx_expand;
+    use serde_json::json;
+    with_test_dir(|| {
+        let content = (1..=40)
+            .map(|i| format!("row {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let id = archive::store("ctx_shell", "run", &content, None).unwrap();
+
+        let head = ctx_expand::handle(&json!({"id": id, "head": 5}));
+        assert!(head.contains("row 1") && head.contains("row 5"));
+        assert!(!head.contains("row 6"), "head leaked row 6: {head}");
+
+        let tail = ctx_expand::handle(&json!({"id": id, "tail": 3}));
+        assert!(tail.contains("row 38") && tail.contains("row 40"));
+
+        let json_id = archive::store("ctx_shell", "api", r#"{"a":1,"b":[1,2,3]}"#, None).unwrap();
+        let keys = ctx_expand::handle(&json!({"id": json_id, "json_keys": true}));
+        assert!(keys.contains("object (2 keys)"), "got: {keys}");
+        assert!(keys.contains("array(3)"), "got: {keys}");
+    });
+}

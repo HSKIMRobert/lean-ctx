@@ -302,6 +302,11 @@ impl LeanCtxServer {
 
         let budget_warning = post_process::budget_warning_message();
 
+        // Out-of-band archive + optional context firewall for large tool outputs.
+        // For firewallable tools (ctx_shell/ctx_execute/ctx_search/ctx_tree) whose output
+        // exceeds the ephemeral threshold, the full (redacted) body is stored out-of-band
+        // and the inline result is replaced by a compact digest + ctx_expand drilldown.
+        let mut firewalled = false;
         let archive_hint = if minimal || is_raw_shell {
             None
         } else {
@@ -323,26 +328,38 @@ impl LeanCtxServer {
                 let session_id = self.session.read().await.id.clone();
                 let to_store = crate::core::redaction::redact_text_if_enabled(&result_text);
                 let tokens = crate::core::tokens::count_tokens(&to_store);
-                archive::store(name, &cmd, &to_store, Some(&session_id))
-                    .map(|id| archive::format_hint(&id, to_store.len(), tokens))
+                match archive::store(name, &cmd, &to_store, Some(&session_id)) {
+                    Some(id) if crate::core::firewall::should_firewall(name, tokens, &config) => {
+                        result_text =
+                            crate::core::firewall::summarize(&to_store, &id, name, tokens);
+                        firewalled = true;
+                        None
+                    }
+                    Some(id) => Some(archive::format_hint(&id, to_store.len(), tokens)),
+                    None => None,
+                }
             } else {
                 None
             }
         };
 
         let pre_compression = result_text.clone();
-        result_text = post_process::compress_terse(
-            result_text,
-            name,
-            args,
-            &config,
-            tool_saved_tokens,
-            is_raw_shell,
-        );
+        // A firewalled result is already a compact digest — re-compressing it would mangle
+        // the retrieval instructions for no benefit.
+        if !firewalled {
+            result_text = post_process::compress_terse(
+                result_text,
+                name,
+                args,
+                &config,
+                tool_saved_tokens,
+                is_raw_shell,
+            );
+        }
 
         let profile_hints = crate::core::profiles::active_profile().output_hints;
 
-        if !is_raw_shell && profile_hints.verify_footer() {
+        if !is_raw_shell && !firewalled && profile_hints.verify_footer() {
             let verify_cfg = crate::core::profiles::active_profile().verification;
             let vr = crate::core::output_verification::verify_output(
                 &pre_compression,
@@ -355,7 +372,7 @@ impl LeanCtxServer {
             }
         }
 
-        if profile_hints.archive_hint() {
+        if !firewalled && profile_hints.archive_hint() {
             if let Some(hint) = archive_hint {
                 result_text = format!("{result_text}\n{hint}");
             }

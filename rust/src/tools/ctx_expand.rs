@@ -69,6 +69,31 @@ fn handle_retrieve(args: &serde_json::Value) -> String {
         );
     }
 
+    // Structured drilldown selectors (head / tail / json_keys).
+    if let Some(n) = args.get("head").and_then(serde_json::Value::as_u64) {
+        return match archive::retrieve_head(id, n as usize) {
+            Some(result) => format!("Archive {id} head {n}:\n{result}"),
+            None => format!("Archive '{id}' not found or expired."),
+        };
+    }
+    if let Some(n) = args.get("tail").and_then(serde_json::Value::as_u64) {
+        return match archive::retrieve_tail(id, n as usize) {
+            Some(result) => format!("Archive {id} tail {n}:\n{result}"),
+            None => format!("Archive '{id}' not found or expired."),
+        };
+    }
+    if args.get("json_keys").and_then(serde_json::Value::as_bool) == Some(true)
+        || args.get("json_path").is_some()
+    {
+        let path = args.get("json_path").and_then(|v| v.as_str());
+        return match archive::retrieve_json_keys(id, path) {
+            Some(result) => result,
+            None => format!(
+                "Archive '{id}' not found or not valid JSON. Use ctx_expand(id=\"{id}\") for raw content."
+            ),
+        };
+    }
+
     if let Some(pattern) = args.get("search").and_then(|v| v.as_str()) {
         return match archive::retrieve_with_search(id, pattern) {
             Some(result) => result,
@@ -158,6 +183,8 @@ fn handle_list(args: &serde_json::Value) -> String {
     out.push_str("\nRetrieve: ctx_expand(id=\"<id>\")");
     out.push_str("\nSearch: ctx_expand(id=\"<id>\", search=\"ERROR\")");
     out.push_str("\nRange: ctx_expand(id=\"<id>\", start_line=10, end_line=50)");
+    out.push_str("\nHead/Tail: ctx_expand(id=\"<id>\", head=120) | tail=40");
+    out.push_str("\nJSON: ctx_expand(id=\"<id>\", json_keys=true) | json_path=\"data.items\"");
     out
 }
 

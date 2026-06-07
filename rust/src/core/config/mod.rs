@@ -1024,6 +1024,9 @@ impl Config {
         if !local.archive.ephemeral {
             self.archive.ephemeral = false;
         }
+        if local.archive.ephemeral_min_tokens != ArchiveConfig::default().ephemeral_min_tokens {
+            self.archive.ephemeral_min_tokens = local.archive.ephemeral_min_tokens;
+        }
         let mem_def = MemoryPolicy::default();
         if local.memory.knowledge.max_facts != mem_def.knowledge.max_facts {
             self.memory.knowledge.max_facts = local.memory.knowledge.max_facts;
