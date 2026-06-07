@@ -29,25 +29,24 @@ pub const TOP_LEVEL_KEYS: [&str; 10] = [
     "contracts",
 ];
 
-/// Built-in context presets (personas). Today only `coding` — the historical
-/// default behavior. The persona system (EPIC 12.15/12.16) expands this.
-pub const PRESETS: [&str; 1] = ["coding"];
-
 /// Build the capabilities document for this running instance.
 pub fn capabilities_value() -> Value {
     let manifest = crate::core::mcp_manifest::manifest_value();
     let tool_names = tool_names(&manifest);
     let read_modes = manifest.get("read_modes").cloned().unwrap_or(Value::Null);
+    let active_persona =
+        crate::core::persona::Persona::resolve(&crate::core::config::Config::load());
 
     json!({
         "contract_version": CAPABILITIES_CONTRACT_VERSION,
         "server": {
             "name": "lean-ctx",
             "version": env!("CARGO_PKG_VERSION"),
+            "persona": active_persona.name,
         },
         "plane": "personal",
         "transports": ["stdio-mcp", "http-mcp", "rest", "sse"],
-        "presets": PRESETS,
+        "presets": crate::core::persona::Persona::builtin_names(),
         "read_modes": read_modes,
         "tools": {
             "total": tool_names.len(),

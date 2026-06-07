@@ -131,6 +131,11 @@ pub struct Config {
     /// Example: `tools_enabled = ["ctx_read", "ctx_shell", "ctx_search"]`
     #[serde(default)]
     pub tools_enabled: Vec<String>,
+    /// Active context persona (`persona-spec-v1`). Selects the domain bundle —
+    /// tool surface, read-mode/compressor/chunker defaults, intent taxonomy,
+    /// sensitivity floor. Override via `LEAN_CTX_PERSONA`. Defaults to `coding`.
+    #[serde(default)]
+    pub persona: Option<String>,
     #[serde(default)]
     pub loop_detection: LoopDetectionConfig,
     /// Controls where lean-ctx installs agent rule files.
@@ -407,6 +412,7 @@ impl Default for Config {
             profile: None,
             tool_profile: None,
             tools_enabled: Vec::new(),
+            persona: None,
             loop_detection: LoopDetectionConfig::default(),
             rules_scope: None,
             rules_injection: None,
@@ -674,9 +680,14 @@ impl Config {
     }
 
     /// Returns the effective tool profile.
-    /// Priority: LEAN_CTX_TOOL_PROFILE env > config tool_profile > config tools_enabled > power.
+    /// Priority: LEAN_CTX_TOOL_PROFILE env > config tool_profile > config
+    /// tools_enabled > active persona's tool surface > power.
+    ///
+    /// Explicit settings win (backward compatible); when none are set, the
+    /// active persona supplies the tool surface (the `coding` default resolves
+    /// to `power`, so existing installs are unaffected).
     pub fn tool_profile_effective(&self) -> super::tool_profiles::ToolProfile {
-        super::tool_profiles::ToolProfile::from_config(self)
+        super::persona::Persona::resolve(self).effective_tool_profile(self)
     }
 
     /// Returns `true` if all automatic read-mode degradation is disabled.

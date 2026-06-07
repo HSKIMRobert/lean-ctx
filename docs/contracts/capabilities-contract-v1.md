@@ -26,10 +26,10 @@ contract_version, server, plane, transports, presets, read_modes, tools, feature
 | Key | Type | Meaning |
 |-----|------|---------|
 | `contract_version` | number | This contract's version (`1`). |
-| `server` | object | `{ name, version }` — `version` is the running `lean-ctx` release. |
+| `server` | object | `{ name, version, persona }` — `version` is the running `lean-ctx` release; `persona` is the active context persona (`persona-spec-v1`, EPIC 12.15). |
 | `plane` | string | Deployment plane: `personal` (local), `team`, or `cloud`. The local default is `personal`. See RFC §6 (Local-Free Invariant). |
 | `transports` | string[] | Wire transports this instance speaks: `stdio-mcp`, `http-mcp`, `rest`, `sse`. |
-| `presets` | string[] | Built-in context personas. Today: `coding` (the historical default). Expands with the persona system (EPIC 12.15/12.16). |
+| `presets` | string[] | Built-in context personas (`persona-spec-v1`, EPIC 12.15/12.16). Today: `coding` (the historical default); non-coding presets land in 12.16. |
 | `read_modes` | object | `{ count, modes }` — the `ctx_read` modes this build supports (mirrors the MCP manifest). |
 | `tools` | object | `{ total, names }` — the granular tool surface available on this instance. |
 | `features` | object | Capability flags. Always-on capabilities are `true`; feature-gated ones (`semantic_search`, `ast_compression`, `team_server`, `cloud_server`, `http_server`) mirror the compiled Cargo features. |
@@ -41,7 +41,7 @@ contract_version, server, plane, transports, presets, read_modes, tools, feature
 ```json
 {
   "contract_version": 1,
-  "server": { "name": "lean-ctx", "version": "3.7.1" },
+  "server": { "name": "lean-ctx", "version": "3.7.1", "persona": "coding" },
   "plane": "personal",
   "transports": ["stdio-mcp", "http-mcp", "rest", "sse"],
   "presets": ["coding"],
