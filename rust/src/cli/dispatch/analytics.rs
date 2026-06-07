@@ -415,10 +415,11 @@ pub(super) fn cmd_savings(rest: &[String]) {
         "sign" => cmd_savings_sign(&rest[1..]),
         "push" => cmd_savings_push(&rest[1..]),
         "verify-batch" => cmd_savings_verify_batch(rest.get(1).map(String::as_str)),
+        "roi" => cmd_savings_roi(&rest[1..]),
         "summary" | "" => print!("{}", format_savings_summary()),
         _ => {
             eprintln!(
-                "Usage: lean-ctx savings [summary|verify|rechain|export|sign|push|verify-batch]"
+                "Usage: lean-ctx savings [summary|verify|rechain|export|sign|push|verify-batch|roi]"
             );
             std::process::exit(1);
         }
@@ -448,6 +449,61 @@ fn cmd_savings_rechain() {
         Err(e) => {
             eprintln!("Re-chain failed: {e}");
             std::process::exit(1);
+        }
+    }
+}
+
+/// `lean-ctx savings roi [--json]` — the privacy-preserving ROI/metering surface
+/// derived from the signed savings batch (EPIC 12.20). Read-only: it never
+/// mutates the ledger.
+fn cmd_savings_roi(args: &[String]) {
+    let agent_id = savings_agent_id();
+    let report = core::savings_ledger::roi_report(&agent_id);
+
+    if args.iter().any(|a| a == "--json") {
+        match serde_json::to_string_pretty(&report) {
+            Ok(json) => println!("{json}"),
+            Err(e) => {
+                eprintln!("ROI report serialization failed: {e}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
+    println!("{}", report.headline());
+    println!();
+    println!("  Period:        {}", report.period);
+    println!("  Events:        {}", report.total_events);
+    println!(
+        "  Saved tokens:  {} gross / {} net",
+        report.saved_tokens, report.net_saved_tokens
+    );
+    println!("  Saved USD:     ${:.4}", report.saved_usd);
+    println!(
+        "  Avg / event:   {:.1} tok, ${:.6}",
+        report.avg_saved_tokens_per_event, report.avg_saved_usd_per_event
+    );
+    println!(
+        "  Chain:         {}",
+        if report.chain_valid {
+            "valid (SHA-256 intact)"
+        } else {
+            "BROKEN — run `lean-ctx savings rechain`"
+        }
+    );
+    println!(
+        "  Signature:     {}",
+        if report.signed {
+            "present (Ed25519)"
+        } else {
+            "unsigned (machine identity unavailable)"
+        }
+    );
+    if !report.top_tools.is_empty() {
+        println!("  Top tools:");
+        for (tool, tokens) in report.top_tools.iter().take(5) {
+            println!("    {tool}: {tokens} tok");
         }
     }
 }
