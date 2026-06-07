@@ -69,6 +69,7 @@ pub mod ctx_tree;
 pub mod ctx_url_read;
 pub mod ctx_verify;
 pub mod ctx_workflow;
+pub mod plugin_tool;
 pub mod shell_alias;
 
 /// Resolve a relative path against session state (sync version).

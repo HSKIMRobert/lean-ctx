@@ -114,8 +114,14 @@ fn extensions() -> Value {
         .map(|r| (r.read_mode_names(), r.compressor_names(), r.chunker_names()))
         .unwrap_or_default();
 
+    let tools: Vec<Value> = crate::core::plugins::PluginManager::tool_specs()
+        .iter()
+        .map(|t| json!({ "name": t.name, "plugin": t.plugin_name }))
+        .collect();
+
     json!({
         "plugins": plugins,
+        "tools": tools,
         "read_modes": read_modes,
         "compressors": compressors,
         "chunkers": chunkers,

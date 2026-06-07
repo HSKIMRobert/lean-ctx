@@ -1,6 +1,7 @@
 pub mod executor;
 pub mod manifest;
 pub mod registry;
+pub mod tools;
 
 use executor::{execute_hooks_for_point, HookPoint, HookResult};
 use registry::PluginRegistry;
@@ -85,6 +86,28 @@ impl PluginManager {
             Self::fire_hook_background(hook);
         }
     }
+
+    /// Flattened `[[tools]]` from all enabled plugins (EPIC 12.11). Empty unless
+    /// plugins are installed + enabled, so it is zero-cost by default.
+    pub fn tool_specs() -> Vec<tools::PluginToolSpec> {
+        Self::with_registry(|reg| {
+            reg.enabled_plugins()
+                .iter()
+                .flat_map(|p| {
+                    p.manifest.tools.iter().map(move |t| tools::PluginToolSpec {
+                        plugin_name: p.manifest.plugin.name.clone(),
+                        plugin_dir: p.path.clone(),
+                        name: t.name.clone(),
+                        description: t.description.clone(),
+                        command: t.command.clone(),
+                        timeout_ms: t.timeout_ms,
+                        input_schema: t.input_schema.clone(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+    }
 }
 
 fn any_enabled_listener(reg: &PluginRegistry, hook_name: &str) -> bool {
@@ -120,6 +143,15 @@ command = "{name} stop"
 
 # [hooks.on_knowledge_update]
 # command = "{name} knowledge-updated"
+
+# Native MCP tools (no fork needed). Each [[tools]] entry becomes a tool the
+# agent can call; arguments arrive as JSON on stdin, the result is stdout.
+# [[tools]]
+# name = "{name}_lookup"
+# description = "What this tool does"
+# command = "{name} tool lookup"
+# timeout_ms = 5000
+# input_schema = {{ type = "object", properties = {{ query = {{ type = "string" }} }}, required = ["query"] }}
 "#
     );
 
