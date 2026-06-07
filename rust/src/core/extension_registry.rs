@@ -68,6 +68,9 @@ impl ExtensionRegistry {
         reg.register_compressor(Arc::new(WhitespaceCompressor));
         reg.register_chunker(Arc::new(LineChunker::default()));
         reg.register_chunker(Arc::new(ParagraphChunker));
+        // Format-aware chunkers (csv/json/eml/html) register through the same
+        // public path so they are first-class + conformance-checked (EPIC 12.13).
+        crate::core::extractors::register_into(&mut reg);
         reg
     }
 
@@ -245,7 +248,12 @@ mod tests {
         let reg = ExtensionRegistry::with_builtins();
         assert_eq!(reg.read_mode_names(), vec!["full"]);
         assert_eq!(reg.compressor_names(), vec!["identity", "whitespace"]);
-        assert_eq!(reg.chunker_names(), vec!["lines", "paragraph"]);
+        // Built-in line/paragraph chunkers plus the format-aware chunkers
+        // (csv/json/eml/html) registered by `core::extractors` (EPIC 12.13).
+        assert_eq!(
+            reg.chunker_names(),
+            vec!["csv", "eml", "html", "json", "lines", "paragraph"]
+        );
     }
 
     #[test]

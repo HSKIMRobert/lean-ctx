@@ -309,6 +309,7 @@ pub mod eviction_orchestrator;
 pub mod evidence;
 pub mod evidence_ledger;
 pub mod extension_registry;
+pub mod extractors;
 pub mod feedback;
 pub mod filters;
 pub mod free_energy_budget;
