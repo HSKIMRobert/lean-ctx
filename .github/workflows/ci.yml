@@ -173,6 +173,23 @@ jobs:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --no-deps
 
+  python-sdk:
+    name: Python SDK (leanctx)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5 # v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        working-directory: clients/python
+        run: pip install -e ".[dev]"
+      - name: Test
+        working-directory: clients/python
+        run: python -m pytest -q
+
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
