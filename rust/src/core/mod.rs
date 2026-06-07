@@ -346,6 +346,7 @@ pub mod logging;
 pub mod mcp_manifest;
 pub mod mdl_selector;
 pub mod multi_repo;
+pub mod openapi;
 pub mod owasp_alignment;
 pub mod path_locks;
 pub mod path_resolve;

@@ -376,6 +376,13 @@ async fn v1_capabilities(State(state): State<AppState>) -> impl IntoResponse {
     )
 }
 
+/// `GET /v1/openapi.json` — OpenAPI 3.0 document for the public `/v1` surface,
+/// generated from the in-code endpoint inventory (`core::openapi`).
+async fn v1_openapi(State(state): State<AppState>) -> impl IntoResponse {
+    let _ = state;
+    (StatusCode::OK, Json(crate::core::openapi::openapi_value()))
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ToolsQuery {
@@ -906,6 +913,7 @@ fn build_app_router(cfg: &HttpServerConfig) -> Router {
         .route("/v1/shutdown", axum::routing::post(v1_shutdown))
         .route("/v1/manifest", get(v1_manifest))
         .route("/v1/capabilities", get(v1_capabilities))
+        .route("/v1/openapi.json", get(v1_openapi))
         .route("/v1/tools", get(v1_tools))
         .route("/v1/tools/call", axum::routing::post(v1_tool_call))
         .route("/v1/events", get(v1_events))
@@ -1277,6 +1285,43 @@ mod tests {
         assert!(json["tools"]["total"].as_u64().unwrap() > 0);
         assert!(json["features"]["compression"].as_bool().unwrap());
         assert!(json["contracts"].is_object());
+    }
+
+    #[tokio::test]
+    async fn openapi_endpoint_returns_spec() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root_str = dir.path().to_string_lossy().to_string();
+
+        let state = AppState {
+            token: None,
+            concurrency: Arc::new(tokio::sync::Semaphore::new(16)),
+            rate: Arc::new(RateLimiter::new(50, 100)),
+            project_root: root_str.clone(),
+            timeout: Duration::from_secs(30),
+            server: LeanCtxServer::new_shared_with_context(&root_str, "default", "default"),
+        };
+
+        let app = Router::new()
+            .route("/v1/openapi.json", get(v1_openapi))
+            .with_state(state);
+
+        let req = Request::builder()
+            .method("GET")
+            .uri("/v1/openapi.json")
+            .header("Host", "localhost")
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(resp.into_body(), 1_000_000)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["openapi"], json!("3.0.3"));
+        assert!(json["paths"]["/v1/capabilities"]["get"].is_object());
+        assert!(json["paths"]["/v1/openapi.json"]["get"].is_object());
     }
 
     #[tokio::test]
