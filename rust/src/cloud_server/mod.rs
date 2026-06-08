@@ -18,7 +18,7 @@ mod site_theme;
 mod stats;
 mod wrapped;
 
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use axum::Router;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
@@ -131,6 +131,22 @@ pub async fn run() -> anyhow::Result<()> {
         .route(
             "/api/account/portal",
             post(billing_edge::post_account_portal),
+        )
+        // Hosted Team server dashboard: proxy status + token management to the
+        // private plane on behalf of the logged-in owner. 503 when billing is
+        // unset; 404 (from the plane) until a Team subscription provisions one.
+        .route("/api/account/team", get(billing_edge::get_account_team))
+        .route(
+            "/api/account/team/owner-token",
+            post(billing_edge::post_account_team_owner_token),
+        )
+        .route(
+            "/api/account/team/members",
+            post(billing_edge::post_account_team_member),
+        )
+        .route(
+            "/api/account/team/members/{token_id}",
+            delete(billing_edge::delete_account_team_member),
         )
         .with_state(state)
         .layer(cors)
