@@ -297,7 +297,7 @@ Keep every tool but expose the bridge tools under your own prefix, so nothing
 collides and small models see no duplicate names:
 
 ```bash
-export LEAN_CTX_PI_TOOL_PREFIX="lc_"   # ctx_expand → lc_expand
+export LEAN_CTX_PI_TOOL_PREFIX="lc_"   # ctx_expand → lc_ctx_expand
 ```
 
 The signature tools (`ctx_read`, `ctx_shell`, `ctx_ls`, `ctx_find`, `ctx_grep`)
