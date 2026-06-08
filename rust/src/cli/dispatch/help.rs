@@ -325,10 +325,11 @@ GRAPH (project analysis):
 
 CLOUD:
     cloud status                   Show cloud connection status
+    cloud upgrade                  Subscribe to Pro (Personal Cloud) or Team
     login <email>                  Log into existing LeanCTX Cloud account
     register <email>               Create a new LeanCTX Cloud account
     forgot-password <email>        Send password reset email
-    sync                           Upload local stats to cloud dashboard
+    sync                           Sync stats (free) + your context (Pro: knowledge, commands, CEP, …)
     contribute                     Share anonymized compression data
 
 TROUBLESHOOTING:

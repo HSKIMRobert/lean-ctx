@@ -164,6 +164,7 @@ pub fn cmd_sync() {
         std::process::exit(1);
     }
 
+    // Stats roll-up is account-level and stays free for everyone.
     println!("Syncing stats...");
     let store = core::stats::load();
     let entries = build_sync_entries(&store);
@@ -176,24 +177,58 @@ pub fn cmd_sync() {
         }
     }
 
+    // Everything below is the Pro "Personal Cloud" (cross-device sync of your own
+    // context). On a Free account the server returns 402; detect it once and show
+    // a friendly upgrade hint instead of one failure per surface.
+    if sync_personal_cloud(&store) == CloudSyncOutcome::Gated {
+        print_pro_upgrade_hint();
+        return;
+    }
+
+    if let Ok(plan) = cloud_client::fetch_plan() {
+        let _ = cloud_client::save_plan(&plan);
+    }
+
+    println!("Sync complete.");
+}
+
+/// Whether a `cloud_client` error string is the server's Pro gate (HTTP 402),
+/// mirroring the existing 403 string-match in `cloud_client::pull_cloud_models`.
+fn pro_gate_hit(err: &str) -> bool {
+    err.contains("402")
+}
+
+#[derive(PartialEq, Eq)]
+enum CloudSyncOutcome {
+    Done,
+    Gated,
+}
+
+/// Push the Pro-gated "Personal Cloud" surfaces. Returns [`CloudSyncOutcome::Gated`]
+/// at the first 402 (a Free account) so the caller shows a single upgrade hint
+/// rather than one error per surface. A self-hosted backend with the gate open
+/// (billing unset / `LEANCTX_CLOUD_SYNC_OPEN`) never returns 402, so all sync.
+fn sync_personal_cloud(store: &core::stats::StatsStore) -> CloudSyncOutcome {
     println!("Syncing commands...");
-    let command_entries = collect_command_entries(&store);
+    let command_entries = collect_command_entries(store);
     if command_entries.is_empty() {
         println!("  No command data to sync.");
     } else {
         match cloud_client::push_commands(&command_entries) {
             Ok(_) => println!("  Commands: synced"),
+            Err(e) if pro_gate_hit(&e) => return CloudSyncOutcome::Gated,
             Err(e) => tracing::error!("Commands sync failed: {e}"),
         }
     }
 
     println!("Syncing CEP scores...");
-    let cep_entries = collect_cep_entries(&store);
+    let cep_entries = collect_cep_entries(store);
     if cep_entries.is_empty() {
         println!("  No CEP sessions to sync.");
     } else {
         match cloud_client::push_cep(&cep_entries) {
             Ok(_) => println!("  CEP: synced"),
+            Err(e) if pro_gate_hit(&e) => return CloudSyncOutcome::Gated,
             Err(e) => tracing::error!("CEP sync failed: {e}"),
         }
     }
@@ -205,6 +240,7 @@ pub fn cmd_sync() {
     } else {
         match cloud_client::push_knowledge(&knowledge_entries) {
             Ok(_) => println!("  Knowledge: synced"),
+            Err(e) if pro_gate_hit(&e) => return CloudSyncOutcome::Gated,
             Err(e) => tracing::error!("Knowledge sync failed: {e}"),
         }
     }
@@ -216,6 +252,7 @@ pub fn cmd_sync() {
     } else {
         match cloud_client::push_gotchas(&gotcha_entries) {
             Ok(_) => println!("  Gotchas: synced"),
+            Err(e) if pro_gate_hit(&e) => return CloudSyncOutcome::Gated,
             Err(e) => tracing::error!("Gotchas sync failed: {e}"),
         }
     }
@@ -225,6 +262,7 @@ pub fn cmd_sync() {
     let buddy_data = serde_json::to_value(&buddy).unwrap_or_default();
     match cloud_client::push_buddy(&buddy_data) {
         Ok(_) => println!("  Buddy: synced"),
+        Err(e) if pro_gate_hit(&e) => return CloudSyncOutcome::Gated,
         Err(e) => tracing::error!("Buddy sync failed: {e}"),
     }
 
@@ -235,15 +273,22 @@ pub fn cmd_sync() {
     } else {
         match cloud_client::push_feedback(&feedback_entries) {
             Ok(_) => println!("  Feedback: synced"),
+            Err(e) if pro_gate_hit(&e) => return CloudSyncOutcome::Gated,
             Err(e) => tracing::error!("Feedback sync failed: {e}"),
         }
     }
 
-    if let Ok(plan) = cloud_client::fetch_plan() {
-        let _ = cloud_client::save_plan(&plan);
-    }
+    CloudSyncOutcome::Done
+}
 
-    println!("Sync complete.");
+/// Friendly, non-error hint shown when the server gates cloud sync behind Pro.
+fn print_pro_upgrade_hint() {
+    println!();
+    println!("Cloud sync is a lean-ctx Pro feature (Personal Cloud).");
+    println!("Everything local keeps working — Pro adds hosted cross-device sync");
+    println!("and backup of your own context (knowledge, commands, CEP, gotchas, …).");
+    println!();
+    println!("Enable it with:  lean-ctx cloud upgrade");
 }
 
 fn build_sync_entries(store: &core::stats::StatsStore) -> Vec<serde_json::Value> {
@@ -561,12 +606,86 @@ pub fn cmd_cloud(args: &[String]) {
                 println!("Get started: lean-ctx login <email>");
             }
         }
+        "upgrade" | "subscribe" => cloud_upgrade(&args[1..]),
         _ => {
             println!("Usage: lean-ctx cloud <command>");
             println!("  pull-models — Update adaptive compression models");
             println!("  status      — Show cloud connection status");
+            println!(
+                "  upgrade     — Subscribe to Pro (Personal Cloud) or Team \
+                 [--plan pro|team] [--interval monthly|yearly]"
+            );
         }
     }
+}
+
+/// `lean-ctx cloud upgrade [--plan pro|team] [--interval monthly|yearly]` — start a
+/// hosted Stripe Checkout for the logged-in account and print the URL to open.
+/// Defaults to Pro monthly (the self-serve Personal Cloud tier).
+fn cloud_upgrade(args: &[String]) {
+    if !cloud_client::is_logged_in() {
+        eprintln!("Not logged in. Run: lean-ctx login <email>");
+        std::process::exit(1);
+    }
+    let (plan, interval) = match parse_upgrade_args(args) {
+        Ok(pi) => pi,
+        Err(e) => {
+            eprintln!("{e}");
+            eprintln!(
+                "Usage: lean-ctx cloud upgrade [--plan pro|team] [--interval monthly|yearly]"
+            );
+            std::process::exit(1);
+        }
+    };
+
+    println!("Starting {plan} checkout ({interval})...");
+    match cloud_client::start_checkout(&plan, &interval) {
+        Ok(url) => {
+            println!();
+            println!("Open this link to complete your subscription:");
+            println!("  {url}");
+        }
+        Err(e) => {
+            tracing::error!("Could not start checkout: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Parse the optional `--plan` / `--interval` flags for `cloud upgrade`. Defaults
+/// are Pro + monthly. Only `pro`/`team` and `monthly`/`yearly` are accepted; an
+/// unknown value is an error (so a typo never silently buys the wrong plan).
+fn parse_upgrade_args(args: &[String]) -> Result<(String, String), String> {
+    let mut plan = "pro".to_string();
+    let mut interval = "monthly".to_string();
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--plan" => {
+                i += 1;
+                let v = args.get(i).ok_or("--plan needs a value (pro|team)")?;
+                if !matches!(v.as_str(), "pro" | "team") {
+                    return Err(format!("unknown plan '{v}' (use pro or team)"));
+                }
+                plan.clone_from(v);
+            }
+            "--interval" => {
+                i += 1;
+                let v = args
+                    .get(i)
+                    .ok_or("--interval needs a value (monthly|yearly)")?;
+                if !matches!(v.as_str(), "monthly" | "yearly") {
+                    return Err(format!("unknown interval '{v}' (use monthly or yearly)"));
+                }
+                interval.clone_from(v);
+            }
+            "--yearly" => interval = "yearly".to_string(),
+            "--monthly" => interval = "monthly".to_string(),
+            other => return Err(format!("unknown option '{other}'")),
+        }
+        i += 1;
+    }
+    Ok((plan, interval))
 }
 
 pub fn cmd_gotchas(args: &[String]) {
@@ -649,4 +768,55 @@ pub fn cmd_buddy(args: &[String]) {
 pub fn cmd_upgrade() {
     println!("'upgrade' has been renamed to 'update'. Running 'lean-ctx update' instead.\n");
     core::updater::run(&[]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pro_gate_hit_detects_402_only() {
+        // The server's Pro gate surfaces as a 402 inside the error string.
+        assert!(pro_gate_hit(
+            "Push failed: http status 402 Payment Required"
+        ));
+        // Other failures must NOT be treated as the gate (they stay errors).
+        assert!(!pro_gate_hit("Push failed: http status 500"));
+        assert!(!pro_gate_hit("Push failed: connection refused"));
+        assert!(!pro_gate_hit("401 Unauthorized"));
+    }
+
+    fn s(args: &[&str]) -> Vec<String> {
+        args.iter().map(|a| (*a).to_string()).collect()
+    }
+
+    #[test]
+    fn upgrade_args_default_to_pro_monthly() {
+        assert_eq!(
+            parse_upgrade_args(&[]).unwrap(),
+            ("pro".to_string(), "monthly".to_string())
+        );
+    }
+
+    #[test]
+    fn upgrade_args_accept_team_and_yearly() {
+        assert_eq!(
+            parse_upgrade_args(&s(&["--plan", "team", "--interval", "yearly"])).unwrap(),
+            ("team".to_string(), "yearly".to_string())
+        );
+        // Shorthand cadence flags.
+        assert_eq!(
+            parse_upgrade_args(&s(&["--yearly"])).unwrap(),
+            ("pro".to_string(), "yearly".to_string())
+        );
+    }
+
+    #[test]
+    fn upgrade_args_reject_unknown_values() {
+        // A typo'd plan must error, never silently fall back to a purchase.
+        assert!(parse_upgrade_args(&s(&["--plan", "enterprise"])).is_err());
+        assert!(parse_upgrade_args(&s(&["--interval", "weekly"])).is_err());
+        assert!(parse_upgrade_args(&s(&["--plan"])).is_err());
+        assert!(parse_upgrade_args(&s(&["--bogus"])).is_err());
+    }
 }

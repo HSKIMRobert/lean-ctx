@@ -460,6 +460,35 @@ pub fn fetch_plan() -> Result<String, String> {
     Ok(json["plan"].as_str().unwrap_or("free").to_string())
 }
 
+/// Start a Stripe Checkout session for the logged-in account and return the
+/// hosted URL to open. `plan` is e.g. `"pro"` or `"team"`; `interval` is
+/// `"monthly"` or `"yearly"`. The open backend proxies this to the private
+/// billing plane (which returns `503` when billing is not configured).
+pub fn start_checkout(plan: &str, interval: &str) -> Result<String, String> {
+    let bearer = auth_bearer_token()?;
+    let url = format!("{}/api/account/checkout", api_url());
+    let body = serde_json::json!({ "plan": plan, "interval": interval });
+
+    let resp = ureq::post(&url)
+        .header("Authorization", &format!("Bearer {bearer}"))
+        .header("Content-Type", "application/json")
+        .send(&serde_json::to_vec(&body).map_err(|e| format!("JSON error: {e}"))?)
+        .map_err(|e| format!("Checkout request failed: {e}"))?;
+
+    let resp_body = resp
+        .into_body()
+        .read_to_string()
+        .map_err(|e| format!("Failed to read response: {e}"))?;
+
+    let json: serde_json::Value =
+        serde_json::from_str(&resp_body).map_err(|e| format!("Invalid response: {e}"))?;
+
+    json["url"]
+        .as_str()
+        .map(str::to_string)
+        .ok_or_else(|| "Billing did not return a checkout URL.".to_string())
+}
+
 pub fn push_commands(entries: &[serde_json::Value]) -> Result<String, String> {
     let bearer = auth_bearer_token()?;
     let url = format!("{}/api/sync/commands", api_url());
