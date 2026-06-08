@@ -120,6 +120,10 @@ pub async fn run() -> anyhow::Result<()> {
         // (never an error) when billing is unset, so the website always renders.
         .route("/api/supporters", get(billing_edge::get_supporters))
         .route(
+            "/api/supporters/checkout",
+            post(billing_edge::post_supporter_checkout),
+        )
+        .route(
             // Edge to the private commercial plane: resolves the caller's plan +
             // additive entitlements. Free (gates nothing) when billing is unset.
             "/api/account/entitlements",

@@ -341,6 +341,33 @@ pub(super) async fn get_supporters(State(state): State<AppState>) -> Json<Value>
     }
 }
 
+/// Request body for `POST /api/supporters/checkout`: the chosen monthly
+/// contribution in USD minor units (cents).
+#[derive(Deserialize)]
+pub(super) struct SupporterCheckoutBody {
+    #[serde(default)]
+    amount_cents: i64,
+}
+
+/// `POST /api/supporters/checkout` — start a no-account, custom-amount Supporter
+/// subscription and return the hosted Stripe `url`. Public: supporting needs no
+/// login. The amount is clamped here (defense in depth) and again on the private
+/// plane; a 503/502 lets the website fall back to a fixed preset Payment Link.
+pub(super) async fn post_supporter_checkout(
+    State(state): State<AppState>,
+    Json(body): Json<SupporterCheckoutBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let amount = body.amount_cents.clamp(100, 100_000);
+    Ok(Json(
+        billing_post(
+            &state.cfg,
+            "/api/billing/supporters/checkout",
+            json!({ "amount_cents": amount }),
+        )
+        .await?,
+    ))
+}
+
 /// `DELETE /api/account/team/members/{token_id}` — revoke a member token and
 /// redeploy. The owner token cannot be revoked (the plane rejects it).
 pub(super) async fn delete_account_team_member(
