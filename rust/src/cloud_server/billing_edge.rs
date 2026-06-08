@@ -307,6 +307,40 @@ pub(super) async fn post_account_team_member(
     finish(status, json)
 }
 
+/// `GET /api/supporters` — the public supporters wall (no auth). Proxies the
+/// private plane's read model with the shared internal key (which never reaches
+/// the browser). Degrades to an empty wall when billing is unconfigured or
+/// unreachable, so the website always renders.
+pub(super) async fn get_supporters(State(state): State<AppState>) -> Json<Value> {
+    let empty = || json!({ "supporters": [], "count": 0 });
+
+    let (Some(base), Some(key)) = (
+        state.cfg.billing_base_url.clone(),
+        state.cfg.billing_internal_key.clone(),
+    ) else {
+        return Json(empty());
+    };
+
+    let url = format!("{base}/api/billing/supporters");
+    let body = tokio::task::spawn_blocking(move || {
+        ureq::get(&url)
+            .header("X-Internal-Key", &key)
+            .call()
+            .ok()?
+            .into_body()
+            .read_to_string()
+            .ok()
+    })
+    .await
+    .ok()
+    .flatten();
+
+    match body.and_then(|b| serde_json::from_str::<Value>(&b).ok()) {
+        Some(v) => Json(v),
+        None => Json(empty()),
+    }
+}
+
 /// `DELETE /api/account/team/members/{token_id}` — revoke a member token and
 /// redeploy. The owner token cannot be revoked (the plane rejects it).
 pub(super) async fn delete_account_team_member(

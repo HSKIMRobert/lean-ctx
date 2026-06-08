@@ -116,6 +116,9 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/leaderboard", get(wrapped::get_leaderboard_page))
         .route("/api/global-stats", get(global_stats::get_global_stats))
         .route("/api/cloud/models", get(models::get_models))
+        // Public supporters wall — proxied from the private billing plane; empty
+        // (never an error) when billing is unset, so the website always renders.
+        .route("/api/supporters", get(billing_edge::get_supporters))
         .route(
             // Edge to the private commercial plane: resolves the caller's plan +
             // additive entitlements. Free (gates nothing) when billing is unset.
