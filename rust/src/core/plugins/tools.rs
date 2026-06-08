@@ -63,6 +63,9 @@ pub fn invoke(spec: &PluginToolSpec, args_json: &str) -> Result<String, String> 
 mod tests {
     use super::*;
 
+    // Only the unix invoke tests below consume this helper; gating it with the
+    // same cfg keeps Windows (`-D dead_code` under `-D warnings`) from failing.
+    #[cfg(unix)]
     fn spec(command: &str) -> PluginToolSpec {
         PluginToolSpec {
             plugin_name: "demo".into(),
