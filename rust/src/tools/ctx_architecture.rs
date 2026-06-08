@@ -390,7 +390,7 @@ fn handle_communities(root: &str, fmt: OutputFormat) -> String {
         Err(e) => return e,
     };
 
-    let result = crate::core::community::detect_communities(graph.connection());
+    let result = crate::core::community::detect_communities_stable(graph.connection(), root);
 
     match fmt {
         OutputFormat::Json => {
@@ -772,7 +772,7 @@ fn handle_health(root: &str, fmt: OutputFormat) -> String {
         Err(e) => return e,
     };
 
-    let communities = crate::core::community::detect_communities(graph.connection());
+    let communities = crate::core::community::detect_communities_stable(graph.connection(), root);
     let cfg = crate::core::smells::SmellConfig::default();
     let findings = crate::core::smells::scan_all(graph.connection(), &cfg);
     let summary = crate::core::smells::summarize(&findings);

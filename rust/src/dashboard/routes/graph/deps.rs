@@ -35,6 +35,16 @@ fn graph() -> (&'static str, &'static str, String) {
     };
     let gp = &open.provider;
 
+    // Community assignment (stable ids from the hardened Leiden engine). Shared
+    // with the call-graph tab via the same provider, so colours stay consistent.
+    let community = crate::core::community::detect_communities_for_provider(gp, &root);
+    let community_map = community.assignment_min_size(2);
+    let community_count = community
+        .communities
+        .iter()
+        .filter(|c| c.files.len() >= 2)
+        .count();
+
     let all_edges = gp.edges();
     let mut edge_stats: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
     for edge in &all_edges {
@@ -46,6 +56,38 @@ fn graph() -> (&'static str, &'static str, String) {
         .collect();
     let file_count = gp.file_count();
     let isolated_count = file_count - connected.len().min(file_count);
+
+    // Graphify-style static analyses over the *real* directed dependency edges
+    // (import / reexport) — God-Nodes (most connected) and import cycles.
+    let god_nodes = crate::core::graph_analysis::compute_god_nodes(&all_edges, 12);
+    let import_cycles = crate::core::graph_analysis::find_import_cycles(&all_edges, 20);
+    let bridge_nodes = crate::core::graph_analysis::compute_bridge_nodes(&all_edges, 10);
+    let surprising_connections =
+        crate::core::graph_analysis::find_surprising_connections(&all_edges, &community_map, 10);
+
+    // Per-community cohesion (module quality): internal vs external edge ratio,
+    // already computed by the community engine. Surfaced for the dashboard.
+    let mut community_cohesion: Vec<serde_json::Value> = community
+        .communities
+        .iter()
+        .filter(|c| c.files.len() >= 2)
+        .map(|c| {
+            serde_json::json!({
+                "id": c.id,
+                "files": c.files.len(),
+                "cohesion": (c.cohesion * 1000.0).round() / 1000.0,
+                "internal_edges": c.internal_edges,
+                "external_edges": c.external_edges,
+            })
+        })
+        .collect();
+    community_cohesion.sort_by(|a, b| {
+        b["files"]
+            .as_u64()
+            .unwrap_or(0)
+            .cmp(&a["files"].as_u64().unwrap_or(0))
+    });
+    community_cohesion.truncate(12);
 
     let files: Vec<serde_json::Value> = gp
         .file_paths()
@@ -59,6 +101,7 @@ fn graph() -> (&'static str, &'static str, String) {
                     "line_count": f.line_count,
                     "exports": f.exports,
                     "summary": f.summary,
+                    "community": community_map.get(&f.path),
                 })
             })
         })
@@ -72,6 +115,10 @@ fn graph() -> (&'static str, &'static str, String) {
                 "to": e.to,
                 "kind": e.kind,
                 "weight": e.weight,
+                "confidence": (crate::core::graph_analysis::edge_confidence(&e.kind, e.weight)
+                    * 1000.0)
+                    .round()
+                    / 1000.0,
             })
         })
         .collect();
@@ -108,6 +155,12 @@ fn graph() -> (&'static str, &'static str, String) {
             0.0
         },
         "graph_support": graph_support,
+        "community_count": community_count,
+        "god_nodes": god_nodes,
+        "import_cycles": import_cycles,
+        "bridge_nodes": bridge_nodes,
+        "surprising_connections": surprising_connections,
+        "community_cohesion": community_cohesion,
     });
     let json = serde_json::to_string(&val)
         .unwrap_or_else(|_| "{\"error\":\"failed to serialize\"}".to_string());

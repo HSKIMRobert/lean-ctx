@@ -1,0 +1,88 @@
+//! Static dependency-graph analyses (God-Nodes, import cycles).
+//!
+//! These run on the *real* directed dependency edges — `import` and `reexport` —
+//! and deliberately exclude the co-location heuristics (`sibling`, `cochange`)
+//! and the ambiguous `module` edges. That way the results reflect genuine code
+//! dependencies (graphify-style) instead of directory layout coincidences.
+
+mod centrality;
+mod cycles;
+mod god_nodes;
+mod surprising;
+
+pub use centrality::{compute_bridge_nodes, BridgeNode};
+pub use cycles::{find_import_cycles, ImportCycle};
+pub use god_nodes::{compute_god_nodes, GodNode};
+pub use surprising::{find_surprising_connections, SurprisingConnection};
+
+use crate::core::graph_provider::EdgeInfo;
+
+/// Edge kinds that represent a genuine *directed* code dependency
+/// (`from` depends on `to`).
+pub const DEP_EDGE_KINDS: [&str; 2] = ["import", "reexport"];
+
+/// True when an edge kind is a genuine directed dependency.
+pub fn is_dependency_kind(kind: &str) -> bool {
+    DEP_EDGE_KINDS.contains(&kind)
+}
+
+/// Directed dependency edges as `(from, to)` pairs, with self-loops removed.
+/// Borrows from `edges` to avoid allocating new strings.
+pub fn dependency_edges(edges: &[EdgeInfo]) -> Vec<(&str, &str)> {
+    edges
+        .iter()
+        .filter(|e| is_dependency_kind(&e.kind))
+        .filter(|e| e.from != e.to)
+        .map(|e| (e.from.as_str(), e.to.as_str()))
+        .collect()
+}
+
+/// Confidence that an edge represents a *real* relationship, in `0.0..=1.0`.
+///
+/// Explicit code references (`import`/`reexport`) are certain; structural
+/// `module` grouping is fairly reliable; the co-location/co-change heuristics
+/// are weaker and scale with their observed `weight` (e.g. how often two files
+/// changed together). The dashboard styles edges by this score so heuristic
+/// links read as faint/dashed while real dependencies stay solid (#273).
+pub fn edge_confidence(kind: &str, weight: f64) -> f64 {
+    match kind {
+        "import" => 1.0,
+        "reexport" => 0.95,
+        "module" => 0.6,
+        // More co-changes ⇒ more confidence, with diminishing returns.
+        "cochange" => (0.30 + weight.max(0.0).ln_1p() * 0.18).clamp(0.30, 0.85),
+        "sibling" => 0.25,
+        _ => 0.5,
+    }
+}
+
+#[cfg(test)]
+mod confidence_tests {
+    use super::edge_confidence;
+
+    #[test]
+    fn explicit_refs_rank_above_heuristics() {
+        let import = edge_confidence("import", 0.0);
+        let reexport = edge_confidence("reexport", 0.0);
+        let module = edge_confidence("module", 0.0);
+        let sibling = edge_confidence("sibling", 0.0);
+        assert!(import >= reexport);
+        assert!(reexport > module);
+        assert!(module > sibling);
+        assert!((0.0..=1.0).contains(&sibling));
+    }
+
+    #[test]
+    fn cochange_scales_with_weight_and_is_bounded() {
+        let low = edge_confidence("cochange", 1.0);
+        let high = edge_confidence("cochange", 50.0);
+        assert!(high > low, "more co-changes should raise confidence");
+        assert!((0.30..=0.85).contains(&low));
+        assert!((0.30..=0.85).contains(&high));
+    }
+
+    #[test]
+    fn unknown_kind_is_neutral() {
+        assert_eq!(edge_confidence("mystery", 0.0), 0.5);
+    }
+}

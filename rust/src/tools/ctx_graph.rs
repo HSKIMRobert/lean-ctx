@@ -5,6 +5,7 @@ use crate::core::graph_index;
 use crate::core::graph_provider::{self, GraphProvider};
 use crate::core::tokens::count_tokens;
 
+#[allow(clippy::too_many_arguments)]
 pub fn handle(
     action: &str,
     path: Option<&str>,
@@ -13,6 +14,9 @@ pub fn handle(
     crp_mode: crate::tools::CrpMode,
     depth: Option<usize>,
     kind: Option<&str>,
+    to: Option<&str>,
+    format: Option<&str>,
+    since: Option<&str>,
 ) -> String {
     match action {
         "build" => handle_build(root),
@@ -23,10 +27,13 @@ pub fn handle(
         "enrich" => handle_enrich(root),
         "context" => handle_context_query(path, root),
         "diagram" => crate::tools::ctx_graph_diagram::handle(path, depth, kind, root),
-        _ => {
-            "Unknown action. Use: build, related, symbol, impact, status, enrich, context, diagram"
-                .to_string()
-        }
+        "neighbors" => crate::tools::ctx_graph_primitives::neighbors(path, root, depth, format),
+        "path" => crate::tools::ctx_graph_primitives::shortest_path(path, to, root, format),
+        "explain" => crate::tools::ctx_graph_primitives::explain(path, root, format),
+        "diff" => crate::tools::ctx_graph_diff::diff(since, root, format),
+        _ => "Unknown action. Use: build, related, symbol, impact, status, enrich, context, \
+diagram, neighbors, path, explain, diff"
+            .to_string(),
     }
 }
 

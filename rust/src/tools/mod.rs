@@ -23,6 +23,8 @@ pub mod ctx_fill;
 pub mod ctx_gain;
 pub mod ctx_graph;
 pub mod ctx_graph_diagram;
+pub mod ctx_graph_diff;
+pub mod ctx_graph_primitives;
 pub mod ctx_handoff;
 pub mod ctx_heatmap;
 pub mod ctx_impact;

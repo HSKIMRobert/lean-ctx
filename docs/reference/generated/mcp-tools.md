@@ -184,9 +184,9 @@ Parameters: `max_tokens`, `mode`, `path`, `query`, `ref`, `timeout_secs`, `url`*
 
 ## `ctx_graph`
 
-Unified code graph. Actions: build (index), related (connected files), symbol (def/usages), impact (blast radius), status (stats), enrich (add commits+tests+knowledge), context (task-based query), diagram (Mermaid deps/calls).
+Unified code graph. Actions: build (index), related (connected files), symbol (def/usages), impact (blast radius), status (stats), enrich (add commits+tests+knowledge), context (task-based query), diagram (Mermaid deps/calls), neighbors (direct in/out edges of a file), path (shortest connection between two files), explain (why a file matters: degree/community/bridge), diff (files changed since a git ref + their blast radius).
 
-Parameters: `action`*, `depth`, `kind`, `path`, `project_root`
+Parameters: `action`*, `depth`, `format`, `kind`, `path`, `project_root`, `since`, `to`
 
 ## `ctx_handoff`
 

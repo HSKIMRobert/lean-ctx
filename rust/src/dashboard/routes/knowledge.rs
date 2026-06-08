@@ -123,6 +123,53 @@ fn get_routes(path: &str, _query_str: &str) -> Option<(&'static str, &'static st
                 }
             }
 
+            // Derived: facts that mention the same *specific* entity (file path,
+            // ticket id, CamelCase/snake_case symbol, proper noun). A
+            // document-frequency window keeps only references shared by a small
+            // number of facts, so generic tokens (project name, common words)
+            // never create hub explosions — only meaningful, specific shared
+            // references link two facts (IDF-style co-occurrence).
+            {
+                use std::collections::{HashMap, HashSet};
+                const MIN_DF: usize = 2;
+                const MAX_DF: usize = 8;
+
+                let mut ref_to_facts: HashMap<String, Vec<String>> = HashMap::new();
+                for f in knowledge.facts.iter().filter(|f| f.is_current()) {
+                    let id = format!("{}/{}", f.category, f.key);
+                    let local: HashSet<String> = extract_fact_references(&f.key, &f.value)
+                        .into_iter()
+                        .collect();
+                    for r in local {
+                        ref_to_facts.entry(r).or_default().push(id.clone());
+                    }
+                }
+
+                // Deterministic iteration for stable edge ordering.
+                let mut refs: Vec<(&String, &Vec<String>)> = ref_to_facts.iter().collect();
+                refs.sort_by(|a, b| a.0.cmp(b.0));
+                for (_tok, fact_ids) in refs {
+                    let mut ids: Vec<&String> = fact_ids.iter().collect();
+                    ids.sort();
+                    ids.dedup();
+                    if ids.len() < MIN_DF || ids.len() > MAX_DF {
+                        continue;
+                    }
+                    for i in 0..ids.len() {
+                        for j in (i + 1)..ids.len() {
+                            // Canonical (sorted) direction so the symmetric
+                            // relation is emitted once.
+                            push_edge(
+                                ids[i].clone(),
+                                ids[j].clone(),
+                                "shares_ref".to_string(),
+                                true,
+                            );
+                        }
+                    }
+                }
+            }
+
             let max_edges = policy.knowledge.max_facts.saturating_mul(8);
             if max_edges > 0 && edges.len() > max_edges {
                 edges.truncate(max_edges);
@@ -332,5 +379,130 @@ fn post_knowledge_relations_edit(body: &str) -> (&'static str, &'static str, Str
             "application/json",
             json_err("unknown action"),
         ),
+    }
+}
+
+/// Extracts specific, linkable references from a fact (file paths, ticket ids,
+/// backticked code spans, CamelCase / snake_case identifiers, proper nouns).
+/// Generic words are filtered out downstream via a document-frequency window.
+/// Returned tokens are lowercased so `Stripe`/`stripe` unify when matching.
+fn extract_fact_references(key: &str, value: &str) -> Vec<String> {
+    let text = format!("{key} {value}");
+    let mut out: Vec<String> = Vec::new();
+    for raw in text.split(|c: char| {
+        c.is_whitespace()
+            || matches!(
+                c,
+                ',' | ';' | '(' | ')' | '[' | ']' | '{' | '}' | '"' | '\'' | '`' | '!' | '?' | ':'
+            )
+    }) {
+        // Keep characters meaningful for identifiers/paths/tickets.
+        let tok = raw.trim_matches(|c: char| {
+            !c.is_ascii_alphanumeric() && !matches!(c, '/' | '.' | '_' | '#' | '-')
+        });
+        if tok.len() < 4 {
+            continue;
+        }
+        if is_linkable_reference(tok) {
+            out.push(tok.to_ascii_lowercase());
+        }
+    }
+    out
+}
+
+/// True when a token is *specific* enough to meaningfully link two facts.
+fn is_linkable_reference(tok: &str) -> bool {
+    // Ticket reference: #123
+    if let Some(rest) = tok.strip_prefix('#') {
+        return !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit());
+    }
+    // Path-like: contains a separator and looks substantial.
+    if tok.contains('/') && (tok.contains('.') || tok.len() >= 6) {
+        return true;
+    }
+    // File with an extension: foo.rs, bar.tsx, config.yaml
+    if let Some((stem, ext)) = tok.rsplit_once('.') {
+        if stem.len() >= 2
+            && (1..=5).contains(&ext.len())
+            && ext.chars().all(|c| c.is_ascii_alphanumeric())
+        {
+            return true;
+        }
+    }
+    // CamelCase identifier: a lower->Upper transition (ProjectIndex, CallGraph).
+    let bytes = tok.as_bytes();
+    let camel = bytes
+        .windows(2)
+        .any(|w| w[0].is_ascii_lowercase() && w[1].is_ascii_uppercase());
+    if camel && tok.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return true;
+    }
+    // snake_case identifier with an underscore.
+    if tok.len() >= 5
+        && tok.contains('_')
+        && tok.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    {
+        return true;
+    }
+    // Proper noun: Capitalised word with a lowercase tail (Stripe, Webhook,
+    // Leiden). All-caps acronyms are excluded — they are usually generic and
+    // get filtered by the document-frequency window anyway.
+    if tok.len() >= 4
+        && bytes[0].is_ascii_uppercase()
+        && tok.chars().all(|c| c.is_ascii_alphabetic())
+        && tok.chars().any(|c| c.is_ascii_lowercase())
+    {
+        return true;
+    }
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detects_specific_references() {
+        assert!(is_linkable_reference("#256"));
+        assert!(is_linkable_reference("rust/src/core/community.rs"));
+        assert!(is_linkable_reference("callgraph.rs"));
+        assert!(is_linkable_reference("ProjectIndex"));
+        assert!(is_linkable_reference("detect_communities"));
+        assert!(is_linkable_reference("Stripe"));
+    }
+
+    #[test]
+    fn rejects_generic_tokens() {
+        assert!(!is_linkable_reference("the"));
+        assert!(!is_linkable_reference("with"));
+        assert!(!is_linkable_reference("#")); // bare hash, no number
+        assert!(!is_linkable_reference("#ab")); // non-numeric ticket
+        assert!(!is_linkable_reference("lower")); // plain lowercase word
+        assert!(!is_linkable_reference("ALLCAPS")); // not a Capitalised proper noun
+    }
+
+    #[test]
+    fn extracts_and_lowercases() {
+        let refs = extract_fact_references(
+            "deployment/stripe",
+            "Stripe webhook verified in `billing_edge.rs`, see #256",
+        );
+        assert!(refs.contains(&"stripe".to_string()));
+        assert!(refs.contains(&"billing_edge.rs".to_string()));
+        assert!(refs.contains(&"#256".to_string()));
+        // generic lowercase words are not collected
+        assert!(!refs.contains(&"webhook".to_string()));
+        assert!(!refs.contains(&"verified".to_string()));
+    }
+
+    #[test]
+    fn shared_reference_links_two_facts() {
+        // Two facts mentioning the same file should both surface that ref.
+        let a = extract_fact_references("arch/a", "see core/community.rs for Leiden");
+        let b = extract_fact_references("arch/b", "core/community.rs hardening pass");
+        let sa: std::collections::HashSet<_> = a.into_iter().collect();
+        let sb: std::collections::HashSet<_> = b.into_iter().collect();
+        let shared: Vec<_> = sa.intersection(&sb).collect();
+        assert!(shared.contains(&&"core/community.rs".to_string()));
     }
 }

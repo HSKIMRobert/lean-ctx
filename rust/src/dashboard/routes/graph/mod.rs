@@ -1,6 +1,8 @@
 mod analysis;
+mod architecture;
 mod callgraph;
 mod deps;
+mod tree;
 
 pub(super) fn handle(
     path: &str,
@@ -11,6 +13,8 @@ pub(super) fn handle(
     deps::get_route(path, query_str)
         .or_else(|| callgraph::get_route(path, query_str))
         .or_else(|| analysis::get_route(path, query_str))
+        .or_else(|| architecture::get_route(path, query_str))
+        .or_else(|| tree::get_route(path, query_str))
 }
 
 fn project_basename(abs_root: &str) -> String {

@@ -16,26 +16,39 @@ impl McpTool for CtxGraphTool {
         tool_def(
             "ctx_graph",
             "Unified code graph. Actions: build (index), related (connected files), symbol (def/usages), \
-impact (blast radius), status (stats), enrich (add commits+tests+knowledge), context (task-based query), diagram (Mermaid deps/calls).",
+impact (blast radius), status (stats), enrich (add commits+tests+knowledge), context (task-based query), diagram (Mermaid deps/calls), \
+neighbors (direct in/out edges of a file), path (shortest connection between two files), explain (why a file matters: degree/community/bridge), diff (files changed since a git ref + their blast radius).",
             json!({
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["build", "related", "symbol", "impact", "status", "enrich", "context", "diagram"],
+                        "enum": ["build", "related", "symbol", "impact", "status", "enrich", "context", "diagram", "neighbors", "path", "explain", "diff"],
                         "description": "Graph operation"
                     },
                     "path": {
                         "type": "string",
-                        "description": "File path (related/impact) or file::symbol_name (symbol)"
+                        "description": "File path (related/impact/neighbors/explain), file::symbol_name (symbol), or the FROM file (path)"
+                    },
+                    "to": {
+                        "type": "string",
+                        "description": "Target file for action=path (shortest path destination)"
                     },
                     "depth": {
                         "type": "integer",
-                        "description": "Optional depth for action=diagram (default: 2)"
+                        "description": "Optional traversal depth for action=diagram (default 2) and action=neighbors (default 1)"
                     },
                     "kind": {
                         "type": "string",
                         "description": "Optional kind for action=diagram: deps|calls"
+                    },
+                    "format": {
+                        "type": "string",
+                        "description": "Output format for neighbors/path/explain/diff: text (default) or json"
+                    },
+                    "since": {
+                        "type": "string",
+                        "description": "Base git ref for action=diff (default HEAD~1), e.g. a commit SHA, tag or HEAD~5"
                     },
                     "project_root": {
                         "type": "string",
@@ -81,6 +94,19 @@ impact (blast radius), status (stats), enrich (add commits+tests+knowledge), con
         };
         let depth = get_int(args, "depth").map(|d| d as usize);
         let kind = get_str(args, "kind");
+        let format = get_str(args, "format");
+        // `since` is a git ref, not a filesystem path — read it raw (no PathJail).
+        let since = get_str(args, "since");
+        let to = if let Some(p) = ctx.resolved_path("to") {
+            Some(p.to_string())
+        } else if ctx.path_error("to").is_some() && get_str(args, "to").is_some() {
+            return Err(ErrorData::invalid_params(
+                format!("to: {}", ctx.path_error("to").unwrap()),
+                None,
+            ));
+        } else {
+            None
+        };
 
         let cache = ctx
             .cache
@@ -99,6 +125,9 @@ impact (blast radius), status (stats), enrich (add commits+tests+knowledge), con
             ctx.crp_mode,
             depth,
             kind.as_deref(),
+            to.as_deref(),
+            format.as_deref(),
+            since.as_deref(),
         );
 
         Ok(ToolOutput {

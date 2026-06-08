@@ -17,6 +17,14 @@ fn call_graph() -> (&'static str, &'static str, String) {
     let index = std::sync::Arc::new(crate::core::graph_index::load_or_build(&root));
     match crate::core::call_graph::CallGraph::get_or_start_build(&root, index.clone()) {
         Ok(graph) => {
+            // file_path → community_id, shared with the deps tab for a consistent
+            // colour palette across both graph views.
+            let communities = crate::core::graph_provider::open_best_effort(&root)
+                .map(|open| {
+                    crate::core::community::detect_communities_for_provider(&open.provider, &root)
+                        .assignment_min_size(2)
+                })
+                .unwrap_or_default();
             let payload = serde_json::json!({
                 "status": "ready",
                 "project_root": super::project_basename(&graph.project_root),
@@ -26,6 +34,8 @@ fn call_graph() -> (&'static str, &'static str, String) {
                 "indexed_symbol_count": index.symbols.len(),
                 "analyzed_file_count": graph.file_hashes.len(),
                 "call_graph_support": call_graph_support(&index),
+                "communities": communities,
+                "symbol_files": resolve_callee_files(&index, &graph.edges),
             });
             let json = serde_json::to_string(&payload)
                 .unwrap_or_else(|_| "{\"error\":\"failed to serialize call graph\"}".to_string());
@@ -37,6 +47,48 @@ fn call_graph() -> (&'static str, &'static str, String) {
             ("202 Accepted", "application/json", json)
         }
     }
+}
+
+/// Resolves call-graph callee names to their defining project file.
+///
+/// The call graph stores callees as bare names (`Vec::new`, `update`). To colour
+/// callee nodes by community and to separate project-internal calls from external
+/// (stdlib / third-party) ones, we map each referenced callee name to a file —
+/// but only when the name is defined by **exactly one** project symbol. Ambiguous
+/// names (defined in several files) and external names stay unresolved so the UI
+/// can mark them as external instead of guessing the wrong file.
+fn resolve_callee_files(
+    index: &crate::core::graph_index::ProjectIndex,
+    edges: &[crate::core::call_graph::CallEdge],
+) -> std::collections::HashMap<String, String> {
+    use std::collections::{HashMap, HashSet};
+
+    let callee_names: HashSet<&str> = edges.iter().map(|e| e.callee_name.as_str()).collect();
+    if callee_names.is_empty() {
+        return HashMap::new();
+    }
+
+    let mut name_files: HashMap<&str, HashSet<&str>> = HashMap::new();
+    for sym in index.symbols.values() {
+        if callee_names.contains(sym.name.as_str()) {
+            name_files
+                .entry(sym.name.as_str())
+                .or_default()
+                .insert(sym.file.as_str());
+        }
+    }
+
+    name_files
+        .into_iter()
+        .filter_map(|(name, files)| {
+            (files.len() == 1).then(|| {
+                (
+                    name.to_string(),
+                    files.into_iter().next().unwrap().to_string(),
+                )
+            })
+        })
+        .collect()
 }
 
 /// Describes whether the call graph can be populated for the project's languages.

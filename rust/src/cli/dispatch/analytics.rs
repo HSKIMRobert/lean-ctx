@@ -1047,6 +1047,16 @@ fn format_savings_summary() -> String {
 }
 
 pub(super) fn cmd_graph(rest: &[String]) {
+    // `--json` is positional-agnostic: strip it out and remember the choice so
+    // positional parsing below stays simple.
+    let want_json = rest.iter().any(|a| a == "--json");
+    let fmt = if want_json { Some("json") } else { None };
+    let filtered: Vec<String> = rest
+        .iter()
+        .filter(|a| a.as_str() != "--json")
+        .cloned()
+        .collect();
+    let rest = &filtered[..];
     let sub = rest.first().map_or("build", std::string::String::as_str);
     match sub {
         "build" => {
@@ -1115,7 +1125,7 @@ pub(super) fn cmd_graph(rest: &[String]) {
                 });
             println!("{out}");
         }
-        "related" | "impact" | "symbol" | "context" | "status" => {
+        "related" | "impact" | "symbol" | "context" | "status" | "neighbors" | "explain" => {
             let path_arg = if sub == "status" {
                 None
             } else {
@@ -1133,6 +1143,48 @@ pub(super) fn cmd_graph(rest: &[String]) {
                     tools::CrpMode::Off,
                     None,
                     None,
+                    None,
+                    fmt,
+                    None,
+                )
+            );
+        }
+        "path" => {
+            let from = rest.get(1).map(String::as_str);
+            let to = rest.get(2).map(String::as_str);
+            let root = resolve_graph_root(rest.get(3));
+            println!(
+                "{}",
+                tools::ctx_graph::handle(
+                    sub,
+                    from,
+                    &root,
+                    &mut core::cache::SessionCache::new(),
+                    tools::CrpMode::Off,
+                    None,
+                    None,
+                    to,
+                    fmt,
+                    None,
+                )
+            );
+        }
+        "diff" => {
+            let since = rest.get(1).map(String::as_str);
+            let root = resolve_graph_root(rest.get(2));
+            println!(
+                "{}",
+                tools::ctx_graph::handle(
+                    sub,
+                    None,
+                    &root,
+                    &mut core::cache::SessionCache::new(),
+                    tools::CrpMode::Off,
+                    None,
+                    None,
+                    None,
+                    fmt,
+                    since,
                 )
             );
         }
@@ -1144,6 +1196,10 @@ pub(super) fn cmd_graph(rest: &[String]) {
                  lean-ctx graph impact <file|symbol>\n  \
                  lean-ctx graph symbol <name>\n  \
                  lean-ctx graph context <query>\n  \
+                 lean-ctx graph neighbors <file> [--json]\n  \
+                 lean-ctx graph path <from> <to> [--json]\n  \
+                 lean-ctx graph explain <file> [--json]\n  \
+                 lean-ctx graph diff [since-ref] [--json]\n  \
                  lean-ctx graph status\n  \
                  lean-ctx graph export-html --out <path> [--root <path>] [--max-nodes <n>]"
             );

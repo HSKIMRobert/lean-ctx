@@ -69,6 +69,7 @@ pub mod memory {
 pub mod call_graph;
 pub mod community;
 pub mod gamma_cover;
+pub mod graph_analysis;
 pub mod graph_context;
 pub mod graph_enricher;
 pub mod graph_export;

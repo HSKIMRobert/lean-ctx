@@ -25,6 +25,8 @@ const KNOWN_ROUTES = [
   'learning',
   'symbols',
   'callgraph',
+  'architecture',
+  'explorer',
 ];
 
 const ROUTE_LABELS = {
@@ -43,6 +45,8 @@ const ROUTE_LABELS = {
   callgraph: 'Call Graph',
   graph: 'Call Graph',
   routes: 'Routes',
+  architecture: 'Architecture',
+  explorer: 'Explorer',
   health: 'Health',
 };
 
@@ -63,6 +67,8 @@ const ROUTE_DESCRIPTIONS = {
   callgraph: 'Which functions call which.',
   graph: 'Which functions call which.',
   routes: 'API routes detected in your project.',
+  architecture: 'A generated report on your project structure.',
+  explorer: 'Browse files and symbols as a tree.',
   health: 'System health and reliability.',
 };
 
@@ -177,6 +183,8 @@ function initRouter() {
     symbols: 'symbolsView',
     callgraph: 'callgraphView',
     routes: 'routesView',
+    architecture: 'architectureView',
+    explorer: 'explorerView',
     health: 'healthView',
   };
   for (var viewId in viewElementMap) {
