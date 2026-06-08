@@ -132,6 +132,7 @@ fn integration_generic(
             // NOT in any settings.json — see GH #284); verify that plugin too.
             if target.agent_key == "antigravity-cli" {
                 checks.push(check_antigravity_cli_hooks(home, binary));
+                checks.push(antigravity_cli_hooks_note());
             }
         }
         crate::core::editor_registry::types::ConfigType::JetBrains => {
@@ -1145,6 +1146,21 @@ fn check_antigravity_cli_hooks(home: &std::path::Path, binary: &str) -> NamedChe
     }
 }
 
+/// Informational note (always `ok`): even when the lean-ctx plugin is installed
+/// exactly as `agy` expects, hook *execution* is gated server-side by the
+/// Antigravity CLI's `enable_json_hooks` experiment (`json-hooks-enabled`),
+/// which no local config can force. Until that flag reaches the account, `/hooks`
+/// shows the observe hook as dormant — yet the plugin is correctly installed and
+/// the MCP `ctx_*` tools compress regardless. Surfacing this stops users from
+/// chasing a local misconfiguration that isn't there (GH #284).
+fn antigravity_cli_hooks_note() -> NamedCheck {
+    NamedCheck {
+        name: "Antigravity CLI hook gating".to_string(),
+        ok: true,
+        detail: "hook execution is gated server-side by agy's enable_json_hooks experiment (no local config can force it) — if /hooks shows lean-ctx dormant, the plugin is still installed correctly; verify with `agy plugin validate ~/.gemini/config/plugins/lean-ctx`. The ctx_* MCP tools compress on every surface regardless.".to_string(),
+    }
+}
+
 fn check_cursor_hooks(path: &std::path::Path, binary: &str) -> NamedCheck {
     if !path.exists() {
         return NamedCheck {
@@ -1255,6 +1271,25 @@ mod tests {
         assert!(
             note.detail.contains("ctx_shell") && note.detail.contains("every surface"),
             "note must steer users to the MCP tools as the reliable cross-surface path: {}",
+            note.detail
+        );
+    }
+
+    #[test]
+    fn antigravity_cli_hooks_note_is_informational_and_explains_gating() {
+        let note = antigravity_cli_hooks_note();
+        assert!(
+            note.ok,
+            "the Antigravity CLI gating note is informational, never a failure"
+        );
+        assert!(
+            note.detail.contains("enable_json_hooks"),
+            "note must name the server-side flag that gates hook execution: {}",
+            note.detail
+        );
+        assert!(
+            note.detail.contains("ctx_") && note.detail.contains("regardless"),
+            "note must reassure that the MCP tools compress regardless: {}",
             note.detail
         );
     }
