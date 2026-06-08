@@ -4,7 +4,7 @@
 //! (notably Codex) expose runtime/session variables such as `CODEX_THREAD_ID`
 //! only in the *native agent shell* environment, not in the MCP server process
 //! (#370). `ctx_shell` runs inside the MCP server, so it cannot forward those
-//! variables by reading its own [`std::env`].
+//! variables by reading its own `std::env`.
 //!
 //! Short-lived lean-ctx processes that *do* run inside the agent environment —
 //! the hook handlers (`lean-ctx hook …`) and the `lean-ctx -c` shell wrapper —

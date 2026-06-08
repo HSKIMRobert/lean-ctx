@@ -6,12 +6,16 @@
 //!
 //! ## Two halves, one invariant
 //!
-//! * [`plans`] — the plan catalog and their [`Entitlements`]. Commercial,
-//!   additive. [`entitlement_allows`] expresses the **Local-Free Invariant**:
-//!   every local-always-on capability is allowed on every plan, including
-//!   [`Plan::Free`]. No local feature is ever gated.
-//! * [`metering`] — [`Usage`] derived read-only from the privacy-preserving,
-//!   Ed25519-signed ledger aggregate. Only signed + intact chains are billable.
+//! * [`plans`](crate::core::billing::plans) — the plan catalog and their
+//!   [`Entitlements`](crate::core::billing::Entitlements). Commercial, additive.
+//!   [`entitlement_allows`](crate::core::billing::entitlement_allows) expresses
+//!   the **Local-Free Invariant**: every local-always-on capability is allowed
+//!   on every plan, including [`Plan::Free`](crate::core::billing::Plan::Free).
+//!   No local feature is ever gated.
+//! * [`metering`](crate::core::billing::metering) —
+//!   [`Usage`](crate::core::billing::Usage) derived read-only from the
+//!   privacy-preserving, Ed25519-signed ledger aggregate. Only signed + intact
+//!   chains are billable.
 //!
 //! Crucially, this module computes and *describes* commercial state; it never
 //! enforces anything against the local plane. Enforcement (checkout, plan

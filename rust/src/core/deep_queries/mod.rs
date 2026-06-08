@@ -1,7 +1,7 @@
 //! Tree-sitter deep queries for extracting imports, call sites, and type definitions.
 //!
 //! Replaces regex-based extraction in `deps.rs` with precise AST parsing.
-//! Supported languages are gated by [`get_language`] (and kept in sync with
+//! Supported languages are gated by `get_language` (and kept in sync with
 //! `core::language_capabilities`): the TypeScript/JavaScript family, Python,
 //! Rust, Go, Java, C/C++, Ruby, C#, Kotlin, Swift, PHP, Bash, Dart, Scala,
 //! Elixir, Zig, and GDScript.

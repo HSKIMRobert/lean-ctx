@@ -3,7 +3,8 @@
 //!
 //! The commercial plane meters on a **privacy-preserving, signed aggregate** —
 //! never on raw activity. [`Usage`] is built strictly from [`RoiReport`] (EPIC
-//! 12.20), which is itself derived from the Ed25519-[`SignedSavingsBatchV1`].
+//! 12.20), which is itself derived from the Ed25519
+//! [`SignedSavingsBatchV1`](crate::core::savings_ledger::signed_batch::SignedSavingsBatchV1).
 //! Producing a usage record is **read-only** and never gates or mutates the
 //! local experience.
 
