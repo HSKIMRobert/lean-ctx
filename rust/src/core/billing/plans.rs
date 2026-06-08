@@ -23,11 +23,17 @@ pub enum Plan {
     /// The default: full local Context OS, no account required. No commercial
     /// entitlements, no metered ceilings on local use.
     Free,
-    /// Individual supporter ("Pro"): a voluntary recurring subscription that
-    /// funds development. Grants only account-level recognition (a supporter
-    /// badge) and convenience — **never** a local capability, and none of the
-    /// Team/Cloud coordination entitlements. Sponsoring lean-ctx, in plan form.
+    /// Individual **Supporter**: a *voluntary* recurring subscription that funds
+    /// development. Grants only account-level recognition (a supporter badge) and
+    /// convenience — **never** a local capability, and none of the Team/Cloud
+    /// coordination entitlements. (The `sponsor` alias names its top tier.)
     Supporter,
+    /// Individual **Pro** ("Personal Cloud"): a *paid*, account-bound subscription
+    /// that adds the `cloud_sync` entitlement (hosted cross-device sync + backup of
+    /// the user's *own* context) on top of supporter recognition. Still **never** a
+    /// local capability and none of the Team/Cloud coordination entitlements; it
+    /// sits additively between Supporter and Team (`supporter ⊂ pro ⊂ team`).
+    Pro,
     /// Shared team/org coordination: seats, shared knowledge, hosted retrieval.
     Team,
     /// Governance at scale: SSO/SCIM, audit retention, private registries.
@@ -38,7 +44,13 @@ impl Plan {
     /// All plans, in ascending order.
     #[must_use]
     pub fn all() -> &'static [Plan] {
-        &[Plan::Free, Plan::Supporter, Plan::Team, Plan::Enterprise]
+        &[
+            Plan::Free,
+            Plan::Supporter,
+            Plan::Pro,
+            Plan::Team,
+            Plan::Enterprise,
+        ]
     }
 
     /// Stable wire identifier.
@@ -47,18 +59,20 @@ impl Plan {
         match self {
             Plan::Free => "free",
             Plan::Supporter => "supporter",
+            Plan::Pro => "pro",
             Plan::Team => "team",
             Plan::Enterprise => "enterprise",
         }
     }
 
     /// Parse a plan id (case-insensitive). Unknown ids map to [`Plan::Free`] —
-    /// the safe default that never gates anything. `pro`/`sponsor` are accepted
-    /// aliases for [`Plan::Supporter`].
+    /// the safe default that never gates anything. `pro` is its own [`Plan::Pro`];
+    /// `supporter`/`sponsor` are the voluntary [`Plan::Supporter`] tier.
     #[must_use]
     pub fn parse(s: &str) -> Plan {
         match s.trim().to_ascii_lowercase().as_str() {
-            "supporter" | "pro" | "sponsor" => Plan::Supporter,
+            "supporter" | "sponsor" => Plan::Supporter,
+            "pro" => Plan::Pro,
             "team" => Plan::Team,
             "enterprise" | "ent" => Plan::Enterprise,
             _ => Plan::Free,
@@ -79,10 +93,12 @@ impl Plan {
                 audit_retention_days: 0,
                 revenue_share: false,
                 supporter: false,
+                cloud_sync: false,
             },
             // Supporter is commercially identical to Free for every Team/Cloud
             // capability (so it can never gate one); it adds only the
-            // account-level `supporter` recognition flag.
+            // account-level `supporter` recognition flag. It does **not** grant
+            // `cloud_sync` — that is the paid Pro tier.
             Plan::Supporter => Entitlements {
                 plan: self,
                 seats: 1,
@@ -93,6 +109,22 @@ impl Plan {
                 audit_retention_days: 0,
                 revenue_share: false,
                 supporter: true,
+                cloud_sync: false,
+            },
+            // Pro = Supporter recognition + the single paid capability
+            // `cloud_sync` (hosted Personal Cloud). It carries none of the
+            // Team/Cloud coordination entitlements, so `supporter ⊂ pro ⊂ team`.
+            Plan::Pro => Entitlements {
+                plan: self,
+                seats: 1,
+                hosted_index_mb: 0,
+                managed_connectors: 0,
+                private_registry: false,
+                sso_scim: false,
+                audit_retention_days: 0,
+                revenue_share: false,
+                supporter: true,
+                cloud_sync: true,
             },
             Plan::Team => Entitlements {
                 plan: self,
@@ -104,6 +136,7 @@ impl Plan {
                 audit_retention_days: 90,
                 revenue_share: true,
                 supporter: true,
+                cloud_sync: true,
             },
             Plan::Enterprise => Entitlements {
                 plan: self,
@@ -118,6 +151,7 @@ impl Plan {
                 audit_retention_days: 3650,
                 revenue_share: true,
                 supporter: true,
+                cloud_sync: true,
             },
         }
     }
@@ -143,11 +177,18 @@ pub struct Entitlements {
     pub audit_retention_days: u32,
     /// Marketplace revenue-share accounting for authors.
     pub revenue_share: bool,
-    /// Account-level supporter recognition (the voluntary "Supporter"/"Pro"
-    /// subscription). Drives a supporter badge and convenience perks only; it is
-    /// **not** a local capability and never gates anything. `true` for Supporter,
-    /// Team and Enterprise (each is, at minimum, a paying supporter).
+    /// Account-level supporter recognition (the voluntary "Supporter"
+    /// subscription, of which the `sponsor` tier is the top). Drives a supporter
+    /// badge and convenience perks only; it is **not** a local capability and
+    /// never gates anything. `true` for Supporter, Pro, Team and Enterprise
+    /// (each is, at minimum, a paying supporter).
     pub supporter: bool,
+    /// Hosted **Personal Cloud** sync: cross-device sync + backup of the user's
+    /// *own* context (knowledge, learned shell patterns, CEP scores, gotchas,
+    /// savings history) via the `/api/sync/*` endpoints. A *hosted* service, **not**
+    /// a local capability — the local engine is fully usable without it. `true` for
+    /// the paid Pro tier and, additively, Team and Enterprise.
+    pub cloud_sync: bool,
 }
 
 /// Whether `plan` permits `feature`.
@@ -168,6 +209,7 @@ pub fn entitlement_allows(plan: Plan, feature: &str) -> bool {
         "sso_scim" => e.sso_scim,
         "revenue_share" => e.revenue_share,
         "supporter" => e.supporter,
+        "cloud_sync" => e.cloud_sync,
         "managed_connectors" => e.managed_connectors > 0,
         "hosted_index" => e.hosted_index_mb > 0,
         "audit_retention" => e.audit_retention_days > 0,
@@ -187,8 +229,9 @@ mod tests {
         }
         assert_eq!(Plan::parse("TEAM"), Plan::Team);
         assert_eq!(Plan::parse("garbage"), Plan::Free);
-        // `pro`/`sponsor` are documented aliases for the supporter plan.
-        assert_eq!(Plan::parse("pro"), Plan::Supporter);
+        // `pro` is now its own plan; `supporter`/`sponsor` are the voluntary tier.
+        assert_eq!(Plan::parse("pro"), Plan::Pro);
+        assert_eq!(Plan::parse("supporter"), Plan::Supporter);
         assert_eq!(Plan::parse("Sponsor"), Plan::Supporter);
     }
 
@@ -199,6 +242,9 @@ mod tests {
         assert!(e.supporter);
         assert!(entitlement_allows(Plan::Supporter, "supporter"));
         assert!(!entitlement_allows(Plan::Free, "supporter"));
+        // Supporter is recognition-only: it does NOT grant the paid cloud_sync.
+        assert!(!e.cloud_sync);
+        assert!(!entitlement_allows(Plan::Supporter, "cloud_sync"));
         // It carries none of the Team/Cloud coordination entitlements.
         assert_eq!(e.seats, 1);
         assert_eq!(e.hosted_index_mb, 0);
@@ -232,8 +278,40 @@ mod tests {
         assert!(!e.sso_scim);
         assert!(!e.revenue_share);
         assert!(!e.supporter);
+        assert!(!e.cloud_sync);
         assert!(!entitlement_allows(Plan::Free, "sso_scim"));
         assert!(!entitlement_allows(Plan::Free, "private_registry"));
+        assert!(!entitlement_allows(Plan::Free, "cloud_sync"));
+    }
+
+    #[test]
+    fn pro_grants_cloud_sync_plus_recognition_but_no_team_capability() {
+        let e = Plan::Pro.entitlements();
+        // Pro adds exactly two account-level flags over Free: recognition + sync.
+        assert!(e.supporter);
+        assert!(e.cloud_sync);
+        assert!(entitlement_allows(Plan::Pro, "cloud_sync"));
+        assert!(entitlement_allows(Plan::Pro, "supporter"));
+        // …and NONE of the Team/Cloud coordination entitlements.
+        assert_eq!(e.seats, 1);
+        assert_eq!(e.hosted_index_mb, 0);
+        assert!(!e.private_registry && !e.sso_scim && !e.revenue_share);
+        assert!(!entitlement_allows(Plan::Pro, "private_registry"));
+        assert!(!entitlement_allows(Plan::Pro, "sso_scim"));
+        // Local features are never gated on Pro either.
+        for feature in LOCAL_ALWAYS_ON_FEATURES {
+            assert!(entitlement_allows(Plan::Pro, feature));
+        }
+    }
+
+    #[test]
+    fn cloud_sync_is_additive_supporter_subset_pro_subset_team() {
+        // free ⊂ supporter (no sync) ⊂ pro ⊂ team ⊂ enterprise (all sync).
+        assert!(!Plan::Free.entitlements().cloud_sync);
+        assert!(!Plan::Supporter.entitlements().cloud_sync);
+        assert!(Plan::Pro.entitlements().cloud_sync);
+        assert!(Plan::Team.entitlements().cloud_sync);
+        assert!(Plan::Enterprise.entitlements().cloud_sync);
     }
 
     #[test]

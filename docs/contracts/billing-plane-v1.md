@@ -12,27 +12,39 @@ experience.
 
 ## Plans & entitlements
 
-Four plans, strictly additive: `free` ⊂ `supporter` ⊂ `team` ⊂ `enterprise`.
+Five plans, strictly additive: `free` ⊂ `supporter` ⊂ `pro` ⊂ `team` ⊂ `enterprise`.
 
-| Entitlement | free | supporter | team | enterprise |
-|-------------|------|-----------|------|------------|
-| seats | 1 | 1 | 25 | unlimited |
-| hosted_index_mb | 0 (none) | 0 (none) | 5000 | unlimited |
-| managed_connectors | 0 (none) | 0 (none) | 5 | unlimited |
-| private_registry | no | no | yes | yes |
-| sso_scim | no | no | no | yes |
-| audit_retention_days | 0 | 0 | 90 | 3650 |
-| revenue_share | no | no | yes | yes |
-| supporter | no | yes | yes | yes |
+| Entitlement | free | supporter | pro | team | enterprise |
+|-------------|------|-----------|-----|------|------------|
+| seats | 1 | 1 | 1 | 25 | unlimited |
+| hosted_index_mb | 0 (none) | 0 (none) | 0 (none) | 5000 | unlimited |
+| managed_connectors | 0 (none) | 0 (none) | 0 (none) | 5 | unlimited |
+| private_registry | no | no | no | yes | yes |
+| sso_scim | no | no | no | no | yes |
+| audit_retention_days | 0 | 0 | 0 | 90 | 3650 |
+| revenue_share | no | no | no | yes | yes |
+| supporter | no | yes | yes | yes | yes |
+| cloud_sync | no | no | yes | yes | yes |
 
-`supporter` is the **voluntary** "Supporter"/"Pro" subscription (`pro`/`sponsor`
-are accepted aliases): an individual funds development and gets account-level
+`supporter` is the **voluntary** Supporter subscription (`sponsor` is an accepted
+alias for its top tier): an individual funds development and gets account-level
 recognition (a supporter badge) and convenience perks. It is commercially
 identical to `free` for every Team/Cloud capability — it can never gate a local
 feature and grants none of the coordination entitlements; it only sets the
-account-level `supporter` flag (also `true` for `team`/`enterprise`, since every
-paid plan is at minimum a supporter). Self-serve checkout for it never triggers
-team-server provisioning (only `team` does).
+account-level `supporter` flag (also `true` for `pro`/`team`/`enterprise`, since
+every paid plan is at minimum a supporter). Self-serve checkout for it never
+triggers team-server provisioning (only `team` does).
+
+`pro` is the **paid** "Personal Cloud" subscription — its **own** plan (`pro`
+parses to `Plan::Pro`; it is no longer an alias of `supporter`). It adds exactly
+one capability over `supporter` — `cloud_sync` — and nothing else: the same single
+seat, none of the Team/Cloud coordination entitlements, so the ladder stays
+additive (`supporter ⊂ pro ⊂ team`). `cloud_sync` is the hosted **Personal
+Cloud**: cross-device sync + backup of the user's *own* context (knowledge, learned
+shell patterns, CEP scores, gotchas, savings history) via the `/api/sync/*`
+endpoints. It is a *hosted* service, **not** a local capability — the local engine
+is fully usable without it. Like `team`, `pro` is account-bound self-serve
+checkout; unlike `team` it provisions no team server.
 
 A quota of `0` means **none**; the `UNBOUNDED` sentinel (`u32::MAX`) means
 **unlimited / negotiated**. The two are never conflated (so Free's "no hosted
@@ -44,8 +56,8 @@ capability; none can restrict a local feature.
 - Any feature in `LOCAL_ALWAYS_ON_FEATURES` (or the local compile-optional set)
   returns `true` on **every** plan — the local plane is never gated.
 - Commercial keys (`private_registry`, `sso_scim`, `revenue_share`,
-  `supporter`, `managed_connectors`, `hosted_index`, `audit_retention`) resolve
-  from the plan's entitlements.
+  `supporter`, `cloud_sync`, `managed_connectors`, `hosted_index`,
+  `audit_retention`) resolve from the plan's entitlements.
 - Unknown features default to **allowed** (fail-open for the user — never
   fail-closed against the local experience).
 - Self-hosting `team_server`/`cloud_server` stays free: those are compile-time
@@ -120,4 +132,7 @@ The local engine never participates in (1)–(3); it only *describes* plans and
 
 Adding a plan or entitlement field is additive (stays `v1`). Removing/renaming a
 field, or changing the local-free semantics of `entitlement_allows`, bumps to
-`billing-plane-v2`.
+`billing-plane-v2`. The `pro` plan and the `cloud_sync` entitlement were added
+under this rule — purely additive, so still `v1`. (`cloud_sync` gates only a
+*hosted* sync service, never a local feature, so the local-free semantics are
+unchanged.)
