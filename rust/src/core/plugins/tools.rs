@@ -59,13 +59,13 @@ pub fn invoke(spec: &PluginToolSpec, args_json: &str) -> Result<String, String> 
     }
 }
 
-#[cfg(test)]
+// Every test here shells out to unix-only commands (`cat`, `false`), so the
+// whole module is unix-gated. Gating the module (rather than each item) keeps
+// Windows free of dead-code / unused-import errors under `-D warnings`.
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
-    // Only the unix invoke tests below consume this helper; gating it with the
-    // same cfg keeps Windows (`-D dead_code` under `-D warnings`) from failing.
-    #[cfg(unix)]
     fn spec(command: &str) -> PluginToolSpec {
         PluginToolSpec {
             plugin_name: "demo".into(),
@@ -79,14 +79,12 @@ mod tests {
         }
     }
 
-    #[cfg(unix)]
     #[test]
     fn invoke_returns_stdout() {
         let out = invoke(&spec("cat"), "{\"q\":1}").unwrap();
         assert_eq!(out, "{\"q\":1}");
     }
 
-    #[cfg(unix)]
     #[test]
     fn invoke_reports_failure() {
         // `false` exits non-zero with no stdout/stderr.
