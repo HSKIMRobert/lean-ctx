@@ -8,6 +8,7 @@ mod config_cmd;
 mod context_cmd;
 mod discover_cmd;
 pub mod dispatch;
+pub mod eval_cmd;
 pub mod export_rules;
 pub mod harden;
 mod index_cmd;

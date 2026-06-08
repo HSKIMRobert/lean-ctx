@@ -9,6 +9,7 @@ pub mod codebook;
 pub mod compression_safety;
 pub mod compressor;
 pub mod entropy;
+pub mod eval_ab;
 pub mod eval_harness;
 pub mod information_bottleneck;
 pub mod output_sanitizer;
