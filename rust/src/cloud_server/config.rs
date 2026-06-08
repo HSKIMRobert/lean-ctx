@@ -19,6 +19,12 @@ pub(super) struct Config {
     pub billing_base_url: Option<String>,
     /// Shared `X-Internal-Key` secret for calling the billing service.
     pub billing_internal_key: Option<String>,
+    /// When `true` (`LEANCTX_CLOUD_SYNC_OPEN=1`), the `cloud_sync` gate on
+    /// `/api/sync/*` is bypassed even when billing IS configured. Intended for
+    /// self-hosters who want hosted sync free for everyone. leanctx.com leaves
+    /// this unset, so sync there is a paid (Pro+) capability. It has no effect
+    /// when billing is unset — sync is open anyway (Local-Free Invariant).
+    pub sync_open: bool,
 }
 
 impl Config {
@@ -54,6 +60,10 @@ impl Config {
         let billing_internal_key = std::env::var("LEANCTX_CLOUD_BILLING_INTERNAL_KEY")
             .ok()
             .filter(|s| !s.trim().is_empty());
+        let sync_open = std::env::var("LEANCTX_CLOUD_SYNC_OPEN").is_ok_and(|v| {
+            let v = v.trim();
+            v == "1" || v.eq_ignore_ascii_case("true")
+        });
 
         Ok(Self {
             bind_host,
@@ -69,6 +79,7 @@ impl Config {
             smtp_from,
             billing_base_url,
             billing_internal_key,
+            sync_open,
         })
     }
 

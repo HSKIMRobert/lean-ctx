@@ -51,6 +51,63 @@ pub(super) async fn resolve_plan(cfg: &Config, user_id: Uuid) -> Plan {
         .unwrap_or(Plan::Free)
 }
 
+/// Whether this deployment leaves cloud sync **ungated** for everyone: either no
+/// commercial plane is wired (`billing_base_url` unset), or the operator
+/// explicitly opted out (`LEANCTX_CLOUD_SYNC_OPEN=1`). leanctx.com has neither,
+/// so sync there is gated to the `cloud_sync` entitlement.
+fn sync_is_open(cfg: &Config) -> bool {
+    cfg.sync_open || cfg.billing_base_url.is_none()
+}
+
+/// Pure cloud-sync gate policy, factored out so it is unit-testable without a
+/// DB/billing round-trip. Sync is allowed when the deployment does not gate it
+/// at all, or when the caller's plan grants the `cloud_sync` entitlement
+/// (Pro/Team/Enterprise). Free and Supporter are denied on a gated deployment.
+fn cloud_sync_allowed(cfg: &Config, plan: Plan) -> bool {
+    sync_is_open(cfg) || plan.entitlements().cloud_sync
+}
+
+/// Authenticate the caller **and** require the `cloud_sync` entitlement before a
+/// `/api/sync/*` handler proceeds. Returns the same `(user_id, email)` tuple as
+/// [`auth_user`], so a call site is a drop-in swap.
+///
+/// Gating only applies where a commercial plane is actually wired:
+/// - **No billing configured** (`billing_base_url` unset) ⇒ open. The community
+///   backend runs standalone and sync stays fully usable — nothing is gated
+///   without an explicit paid plane (Local-Free Invariant).
+/// - **`LEANCTX_CLOUD_SYNC_OPEN=1`** ⇒ open. Operator opt-out for self-hosters
+///   who run billing for other reasons but want sync free for everyone.
+/// - **Otherwise** ⇒ the account must resolve to a plan whose entitlements grant
+///   `cloud_sync` (Pro/Team/Enterprise). Free/Supporter get `402 Payment Required`.
+pub(super) async fn require_cloud_sync(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<(Uuid, String), (StatusCode, String)> {
+    let (user_id, email) = auth_user(state, headers).await?;
+
+    // Resolve the paid plan only where sync is actually gated; open deployments
+    // short-circuit without a billing round-trip. `Plan::Free` is a safe stand-in
+    // there — `cloud_sync_allowed` returns `true` via its open checks regardless.
+    let plan = if sync_is_open(&state.cfg) {
+        Plan::Free
+    } else {
+        resolve_plan(&state.cfg, user_id).await
+    };
+
+    if cloud_sync_allowed(&state.cfg, plan) {
+        return Ok((user_id, email));
+    }
+
+    Err((
+        StatusCode::PAYMENT_REQUIRED,
+        format!(
+            "cloud sync requires lean-ctx Pro (current plan: {}). \
+             Run `lean-ctx upgrade` to enable hosted cross-device sync.",
+            plan.as_str()
+        ),
+    ))
+}
+
 /// `GET /api/account/entitlements` — the logged-in user's plan and the
 /// additive Team/Cloud entitlements it grants.
 pub(super) async fn get_account_entitlements(
@@ -387,4 +444,62 @@ pub(super) async fn delete_account_team_member(
         return Ok(Json(json!({ "revoked": true })));
     }
     finish(status, json)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A `Config` carrying only the two knobs the sync gate reads. `billing`
+    /// toggles whether a commercial plane is wired; `sync_open` is the operator
+    /// opt-out (`LEANCTX_CLOUD_SYNC_OPEN`).
+    fn cfg(billing: bool, sync_open: bool) -> Config {
+        Config {
+            bind_host: "127.0.0.1".into(),
+            bind_port: 8088,
+            public_base_url: String::new(),
+            api_base_url: String::new(),
+            database_url: String::new(),
+            ip_hash_salt: String::new(),
+            smtp_host: None,
+            smtp_port: None,
+            smtp_username: None,
+            smtp_password: None,
+            smtp_from: None,
+            billing_base_url: billing.then(|| "https://billing.example".to_string()),
+            billing_internal_key: billing.then(|| "internal-key".to_string()),
+            sync_open,
+        }
+    }
+
+    #[test]
+    fn gated_deployment_blocks_free_and_supporter_only() {
+        // leanctx.com: billing wired, no operator opt-out → the gate is live.
+        let gated = cfg(true, false);
+        // Free and Supporter lack `cloud_sync` ⇒ denied (handler returns 402).
+        assert!(!cloud_sync_allowed(&gated, Plan::Free));
+        assert!(!cloud_sync_allowed(&gated, Plan::Supporter));
+        // Pro and every superset grant `cloud_sync` ⇒ allowed.
+        assert!(cloud_sync_allowed(&gated, Plan::Pro));
+        assert!(cloud_sync_allowed(&gated, Plan::Team));
+        assert!(cloud_sync_allowed(&gated, Plan::Enterprise));
+    }
+
+    #[test]
+    fn no_billing_plane_never_gates_sync() {
+        // A self-hosted community backend without billing keeps sync fully usable
+        // for every logged-in user (Local-Free Invariant) — even Free.
+        let open = cfg(false, false);
+        assert!(sync_is_open(&open));
+        assert!(cloud_sync_allowed(&open, Plan::Free));
+    }
+
+    #[test]
+    fn operator_opt_out_opens_sync_even_with_billing() {
+        // Self-host with billing wired but LEANCTX_CLOUD_SYNC_OPEN=1 → sync free
+        // for everyone, regardless of plan.
+        let opt_out = cfg(true, true);
+        assert!(sync_is_open(&opt_out));
+        assert!(cloud_sync_allowed(&opt_out, Plan::Free));
+    }
 }

@@ -6,7 +6,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::auth::{auth_user, AppState};
+use super::auth::AppState;
+use super::billing_edge::require_cloud_sync;
 use super::helpers::internal_error;
 
 #[derive(Deserialize)]
@@ -39,7 +40,7 @@ pub(super) async fn post_knowledge(
     headers: HeaderMap,
     Json(env): Json<KnowledgeEnvelope>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let (user_id, email) = auth_user(&state, &headers).await?;
+    let (user_id, email) = require_cloud_sync(&state, &headers).await?;
     let mut synced = 0i64;
     for e in env.entries {
         if e.key.trim().is_empty() {
@@ -57,7 +58,7 @@ pub(super) async fn get_knowledge(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<OutEntry>>, (StatusCode, String)> {
-    let (user_id, email) = auth_user(&state, &headers).await?;
+    let (user_id, email) = require_cloud_sync(&state, &headers).await?;
     let client = state.pool.get().await.map_err(internal_error)?;
     let rows = client
         .query(

@@ -4,7 +4,8 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::auth::{auth_user, AppState};
+use super::auth::AppState;
+use super::billing_edge::require_cloud_sync;
 use super::helpers::internal_error;
 
 #[derive(Deserialize)]
@@ -49,7 +50,7 @@ pub(super) async fn post_gain(
     headers: HeaderMap,
     Json(body): Json<GainEnvelope>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let (user_id, _) = auth_user(&state, &headers).await?;
+    let (user_id, _) = require_cloud_sync(&state, &headers).await?;
     let client = state.pool.get().await.map_err(internal_error)?;
 
     let mut synced = 0i64;
@@ -101,7 +102,7 @@ pub(super) async fn get_gain(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<GainRow>>, (StatusCode, String)> {
-    let (user_id, _) = auth_user(&state, &headers).await?;
+    let (user_id, _) = require_cloud_sync(&state, &headers).await?;
     let client = state.pool.get().await.map_err(internal_error)?;
 
     let rows = client

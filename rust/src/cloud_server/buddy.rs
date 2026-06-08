@@ -2,7 +2,8 @@ use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 
-use super::auth::{auth_user, AppState};
+use super::auth::AppState;
+use super::billing_edge::require_cloud_sync;
 use super::helpers::internal_error;
 
 pub(super) async fn post_buddy(
@@ -10,7 +11,7 @@ pub(super) async fn post_buddy(
     headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let (user_id, _) = auth_user(&state, &headers).await?;
+    let (user_id, _) = require_cloud_sync(&state, &headers).await?;
     let client = state.pool.get().await.map_err(internal_error)?;
 
     let name = body["name"].as_str().map(std::string::ToString::to_string);
@@ -57,7 +58,7 @@ pub(super) async fn get_buddy(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let (user_id, _) = auth_user(&state, &headers).await?;
+    let (user_id, _) = require_cloud_sync(&state, &headers).await?;
     let client = state.pool.get().await.map_err(internal_error)?;
 
     let row = client
