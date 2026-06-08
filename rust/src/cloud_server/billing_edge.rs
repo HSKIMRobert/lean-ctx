@@ -253,6 +253,25 @@ pub(super) async fn get_account_team(
     finish(status, json)
 }
 
+/// `GET /api/account/team/savings` — the logged-in owner's aggregated team
+/// savings roll-up (net tokens + USD saved, per member and per model). Returns
+/// `savings_available:false` until the hosted server has received at least one
+/// signed batch, or `provisioned:false` when no team server exists yet.
+pub(super) async fn get_account_team_savings(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "GET",
+        format!("/api/billing/team/{user_id}/savings"),
+        None,
+    )
+    .await?;
+    finish(status, json)
+}
+
 /// `POST /api/account/team/owner-token` — (re)issue the owner token, returned
 /// exactly once. Rotates any prior owner credential and redeploys the server.
 pub(super) async fn post_account_team_owner_token(

@@ -23,6 +23,11 @@ pub enum Plan {
     /// The default: full local Context OS, no account required. No commercial
     /// entitlements, no metered ceilings on local use.
     Free,
+    /// Individual supporter ("Pro"): a voluntary recurring subscription that
+    /// funds development. Grants only account-level recognition (a supporter
+    /// badge) and convenience — **never** a local capability, and none of the
+    /// Team/Cloud coordination entitlements. Sponsoring lean-ctx, in plan form.
+    Supporter,
     /// Shared team/org coordination: seats, shared knowledge, hosted retrieval.
     Team,
     /// Governance at scale: SSO/SCIM, audit retention, private registries.
@@ -33,7 +38,7 @@ impl Plan {
     /// All plans, in ascending order.
     #[must_use]
     pub fn all() -> &'static [Plan] {
-        &[Plan::Free, Plan::Team, Plan::Enterprise]
+        &[Plan::Free, Plan::Supporter, Plan::Team, Plan::Enterprise]
     }
 
     /// Stable wire identifier.
@@ -41,16 +46,19 @@ impl Plan {
     pub fn as_str(self) -> &'static str {
         match self {
             Plan::Free => "free",
+            Plan::Supporter => "supporter",
             Plan::Team => "team",
             Plan::Enterprise => "enterprise",
         }
     }
 
     /// Parse a plan id (case-insensitive). Unknown ids map to [`Plan::Free`] —
-    /// the safe default that never gates anything.
+    /// the safe default that never gates anything. `pro`/`sponsor` are accepted
+    /// aliases for [`Plan::Supporter`].
     #[must_use]
     pub fn parse(s: &str) -> Plan {
         match s.trim().to_ascii_lowercase().as_str() {
+            "supporter" | "pro" | "sponsor" => Plan::Supporter,
             "team" => Plan::Team,
             "enterprise" | "ent" => Plan::Enterprise,
             _ => Plan::Free,
@@ -70,6 +78,21 @@ impl Plan {
                 sso_scim: false,
                 audit_retention_days: 0,
                 revenue_share: false,
+                supporter: false,
+            },
+            // Supporter is commercially identical to Free for every Team/Cloud
+            // capability (so it can never gate one); it adds only the
+            // account-level `supporter` recognition flag.
+            Plan::Supporter => Entitlements {
+                plan: self,
+                seats: 1,
+                hosted_index_mb: 0,
+                managed_connectors: 0,
+                private_registry: false,
+                sso_scim: false,
+                audit_retention_days: 0,
+                revenue_share: false,
+                supporter: true,
             },
             Plan::Team => Entitlements {
                 plan: self,
@@ -80,6 +103,7 @@ impl Plan {
                 sso_scim: false,
                 audit_retention_days: 90,
                 revenue_share: true,
+                supporter: true,
             },
             Plan::Enterprise => Entitlements {
                 plan: self,
@@ -93,6 +117,7 @@ impl Plan {
                 sso_scim: true,
                 audit_retention_days: 3650,
                 revenue_share: true,
+                supporter: true,
             },
         }
     }
@@ -118,6 +143,11 @@ pub struct Entitlements {
     pub audit_retention_days: u32,
     /// Marketplace revenue-share accounting for authors.
     pub revenue_share: bool,
+    /// Account-level supporter recognition (the voluntary "Supporter"/"Pro"
+    /// subscription). Drives a supporter badge and convenience perks only; it is
+    /// **not** a local capability and never gates anything. `true` for Supporter,
+    /// Team and Enterprise (each is, at minimum, a paying supporter).
+    pub supporter: bool,
 }
 
 /// Whether `plan` permits `feature`.
@@ -137,6 +167,7 @@ pub fn entitlement_allows(plan: Plan, feature: &str) -> bool {
         "private_registry" => e.private_registry,
         "sso_scim" => e.sso_scim,
         "revenue_share" => e.revenue_share,
+        "supporter" => e.supporter,
         "managed_connectors" => e.managed_connectors > 0,
         "hosted_index" => e.hosted_index_mb > 0,
         "audit_retention" => e.audit_retention_days > 0,
@@ -156,6 +187,28 @@ mod tests {
         }
         assert_eq!(Plan::parse("TEAM"), Plan::Team);
         assert_eq!(Plan::parse("garbage"), Plan::Free);
+        // `pro`/`sponsor` are documented aliases for the supporter plan.
+        assert_eq!(Plan::parse("pro"), Plan::Supporter);
+        assert_eq!(Plan::parse("Sponsor"), Plan::Supporter);
+    }
+
+    #[test]
+    fn supporter_adds_only_recognition_never_a_capability() {
+        let e = Plan::Supporter.entitlements();
+        // The recognition flag is the *only* thing it adds over Free.
+        assert!(e.supporter);
+        assert!(entitlement_allows(Plan::Supporter, "supporter"));
+        assert!(!entitlement_allows(Plan::Free, "supporter"));
+        // It carries none of the Team/Cloud coordination entitlements.
+        assert_eq!(e.seats, 1);
+        assert_eq!(e.hosted_index_mb, 0);
+        assert!(!e.private_registry && !e.sso_scim && !e.revenue_share);
+        assert!(!entitlement_allows(Plan::Supporter, "private_registry"));
+        assert!(!entitlement_allows(Plan::Supporter, "sso_scim"));
+        // Local features are never gated on the supporter plane either.
+        for feature in LOCAL_ALWAYS_ON_FEATURES {
+            assert!(entitlement_allows(Plan::Supporter, feature));
+        }
     }
 
     #[test]
@@ -178,6 +231,7 @@ mod tests {
         assert!(!e.private_registry);
         assert!(!e.sso_scim);
         assert!(!e.revenue_share);
+        assert!(!e.supporter);
         assert!(!entitlement_allows(Plan::Free, "sso_scim"));
         assert!(!entitlement_allows(Plan::Free, "private_registry"));
     }
@@ -190,5 +244,10 @@ mod tests {
         assert!(ent.sso_scim && ent.private_registry);
         assert!(entitlement_allows(Plan::Enterprise, "sso_scim"));
         assert!(!entitlement_allows(Plan::Team, "sso_scim"));
+        // `supporter` is monotonic along the chain: every paid plan is a
+        // supporter; only Free is not.
+        assert!(!Plan::Free.entitlements().supporter);
+        assert!(Plan::Supporter.entitlements().supporter);
+        assert!(team.supporter && ent.supporter);
     }
 }

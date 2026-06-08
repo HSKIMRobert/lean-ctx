@@ -12,17 +12,27 @@ experience.
 
 ## Plans & entitlements
 
-Three plans, strictly additive: `free` ⊂ `team` ⊂ `enterprise`.
+Four plans, strictly additive: `free` ⊂ `supporter` ⊂ `team` ⊂ `enterprise`.
 
-| Entitlement | free | team | enterprise |
-|-------------|------|------|------------|
-| seats | 1 | 25 | unlimited |
-| hosted_index_mb | 0 (none) | 5000 | unlimited |
-| managed_connectors | 0 (none) | 5 | unlimited |
-| private_registry | no | yes | yes |
-| sso_scim | no | no | yes |
-| audit_retention_days | 0 | 90 | 3650 |
-| revenue_share | no | yes | yes |
+| Entitlement | free | supporter | team | enterprise |
+|-------------|------|-----------|------|------------|
+| seats | 1 | 1 | 25 | unlimited |
+| hosted_index_mb | 0 (none) | 0 (none) | 5000 | unlimited |
+| managed_connectors | 0 (none) | 0 (none) | 5 | unlimited |
+| private_registry | no | no | yes | yes |
+| sso_scim | no | no | no | yes |
+| audit_retention_days | 0 | 0 | 90 | 3650 |
+| revenue_share | no | no | yes | yes |
+| supporter | no | yes | yes | yes |
+
+`supporter` is the **voluntary** "Supporter"/"Pro" subscription (`pro`/`sponsor`
+are accepted aliases): an individual funds development and gets account-level
+recognition (a supporter badge) and convenience perks. It is commercially
+identical to `free` for every Team/Cloud capability — it can never gate a local
+feature and grants none of the coordination entitlements; it only sets the
+account-level `supporter` flag (also `true` for `team`/`enterprise`, since every
+paid plan is at minimum a supporter). Self-serve checkout for it never triggers
+team-server provisioning (only `team` does).
 
 A quota of `0` means **none**; the `UNBOUNDED` sentinel (`u32::MAX`) means
 **unlimited / negotiated**. The two are never conflated (so Free's "no hosted
@@ -34,8 +44,8 @@ capability; none can restrict a local feature.
 - Any feature in `LOCAL_ALWAYS_ON_FEATURES` (or the local compile-optional set)
   returns `true` on **every** plan — the local plane is never gated.
 - Commercial keys (`private_registry`, `sso_scim`, `revenue_share`,
-  `managed_connectors`, `hosted_index`, `audit_retention`) resolve from the
-  plan's entitlements.
+  `supporter`, `managed_connectors`, `hosted_index`, `audit_retention`) resolve
+  from the plan's entitlements.
 - Unknown features default to **allowed** (fail-open for the user — never
   fail-closed against the local experience).
 - Self-hosting `team_server`/`cloud_server` stays free: those are compile-time

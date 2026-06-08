@@ -27,6 +27,7 @@ use crate::tools::LeanCtxServer;
 
 pub mod context_views;
 pub mod savings_ingest;
+pub mod savings_summary;
 pub mod team;
 
 /// Wrapper stream that calls `record_sse_disconnect` on drop.
@@ -966,6 +967,7 @@ pub async fn serve(cfg: HttpServerConfig) -> Result<()> {
     cfg.validate()?;
 
     crate::core::plugins::PluginManager::init();
+    crate::core::savings_autopush::spawn_if_enabled();
 
     let addr: SocketAddr = format!("{}:{}", cfg.host, cfg.port)
         .parse()
@@ -1032,6 +1034,7 @@ pub async fn serve_ipc(cfg: HttpServerConfig, addr: crate::ipc::DaemonAddr) -> R
     cfg.validate()?;
 
     crate::core::plugins::PluginManager::init();
+    crate::core::savings_autopush::spawn_if_enabled();
 
     match addr {
         #[cfg(unix)]

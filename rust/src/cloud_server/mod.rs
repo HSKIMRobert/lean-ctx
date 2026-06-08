@@ -137,6 +137,10 @@ pub async fn run() -> anyhow::Result<()> {
         // unset; 404 (from the plane) until a Team subscription provisions one.
         .route("/api/account/team", get(billing_edge::get_account_team))
         .route(
+            "/api/account/team/savings",
+            get(billing_edge::get_account_team_savings),
+        )
+        .route(
             "/api/account/team/owner-token",
             post(billing_edge::post_account_team_owner_token),
         )

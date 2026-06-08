@@ -381,6 +381,7 @@ pub mod sandbox;
 pub mod sandbox_landlock;
 pub mod sandbox_seatbelt;
 pub mod sanitize;
+pub mod savings_autopush;
 pub mod savings_footer;
 pub mod savings_ledger;
 pub mod search_delta;

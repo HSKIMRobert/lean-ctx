@@ -757,6 +757,28 @@ async fn team_auth_middleware(
         }
     }
 
+    if path0 == "/v1/savings/summary" {
+        let allow = tok_scopes.contains(&TeamScope::Audit);
+        let _ = audit_write(
+            &state.team.audit,
+            &tok.id,
+            &workspace_id_for_audit,
+            None,
+            Some("savings_summary"),
+            allow,
+            if allow { None } else { Some("scope_denied") },
+            None,
+        )
+        .await;
+        if !allow {
+            return super::json_error(
+                StatusCode::FORBIDDEN,
+                "scope_denied",
+                "token lacks required scope: audit",
+            );
+        }
+    }
+
     // Tool-level authz for MCP fallback (tools/call).
     let path = req.uri().path().to_string();
     if path != "/v1/tools/call"
@@ -1309,6 +1331,10 @@ pub async fn serve_team(cfg: TeamServerConfig) -> Result<()> {
             get(super::context_views::v1_event_lineage),
         )
         .route("/v1/metrics", get(v1_team_metrics))
+        .route(
+            "/v1/savings/summary",
+            get(super::savings_summary::v1_savings_summary),
+        )
         .route(
             "/api/v1/savings/ingest",
             axum::routing::post(super::savings_ingest::v1_savings_ingest),
