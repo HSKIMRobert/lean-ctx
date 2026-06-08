@@ -109,6 +109,23 @@ pub fn extract(path: &Path, bytes: &[u8]) -> Extracted {
     }
 }
 
+/// Whether `path` is a binary document format that must be read through
+/// [`extract`] from raw bytes because it is not valid UTF-8 text. Text and
+/// structured formats (json/csv/eml/html/markdown/…) index fine as raw UTF-8;
+/// only true binary documents — currently PDF — need byte-level extraction
+/// before they can enter the text index. Grows as binary extractors (DOCX,
+/// XLSX, …) are added. Single source of truth for the indexer's read path.
+#[must_use]
+pub fn is_binary_document(path: &Path) -> bool {
+    matches!(
+        path.extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_ascii_lowercase)
+            .as_deref(),
+        Some("pdf")
+    )
+}
+
 /// Split `text` into paragraph chunks on blank-line boundaries, trimming and
 /// dropping empties. The shared fallback chunker for prose-like formats.
 #[must_use]
@@ -189,6 +206,15 @@ mod tests {
         let e = extract(Path::new("notes.txt"), b"one\n\ntwo");
         assert_eq!(e.kind, "text");
         assert_eq!(e.chunks, vec!["one", "two"]);
+    }
+
+    #[test]
+    fn binary_document_predicate_matches_pdf_only() {
+        assert!(is_binary_document(Path::new("a.pdf")));
+        assert!(is_binary_document(Path::new("A.PDF")));
+        for f in ["p.html", "d.json", "t.csv", "m.eml", "n.txt", "s.rs"] {
+            assert!(!is_binary_document(Path::new(f)), "{f}");
+        }
     }
 
     #[test]

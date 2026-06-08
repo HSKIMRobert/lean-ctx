@@ -70,9 +70,10 @@ const DATA_EXTS: &[&str] = &[
     "proto",
 ];
 
-/// Extensions we know are binary or not useful as raw text (binary documents
-/// like PDF/DOCX get dedicated extractors in 12.13; until then they are not
-/// fed raw into the text index).
+/// Extensions we know are binary or not useful as raw text. Binary documents
+/// that *do* have a dedicated extractor (currently PDF) live in
+/// [`EXTRACTABLE_DOC_EXTS`] instead and are ingestible; office formats without
+/// an extractor yet (DOCX, XLSX, …) stay here and are skipped.
 const BINARY_EXTS: &[&str] = &[
     // images
     "png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "tif", "tiff", "heic", "avif", //
@@ -80,13 +81,19 @@ const BINARY_EXTS: &[&str] = &[
     "mp3", "wav", "flac", "ogg", "mp4", "mov", "avi", "mkv", "webm", //
     // archives / packages
     "zip", "gz", "tgz", "bz2", "xz", "zst", "7z", "rar", "tar", "jar", "war", //
-    // binary docs (handled by extractors later)
-    "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", //
+    // binary docs without an extractor yet (PDF lives in EXTRACTABLE_DOC_EXTS)
+    "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", //
     // compiled / binary artifacts
     "exe", "dll", "so", "dylib", "o", "a", "class", "wasm", "bin", "dat", //
     // fonts / db / images-vector-binary
     "ttf", "otf", "woff", "woff2", "db", "sqlite", "lock",
 ];
+
+/// Binary document formats that have a dedicated byte-level extractor
+/// ([`super::extractors`]) and are therefore ingestible: the indexer reads their
+/// raw bytes and converts them to text at index time rather than skipping them
+/// as opaque binaries. Grows as binary extractors (DOCX, XLSX, …) are added.
+const EXTRACTABLE_DOC_EXTS: &[&str] = &["pdf"];
 
 /// Max bytes inspected when sniffing an unknown-extension file.
 const SNIFF_BYTES: usize = 8192;
@@ -105,6 +112,12 @@ pub fn classify_path(path: &Path) -> IngestKind {
 
     if BINARY_EXTS.contains(&ext.as_str()) {
         return IngestKind::Binary;
+    }
+    // Binary documents with a dedicated extractor (PDF, …): ingestible as
+    // documents — the indexer routes their bytes through `extractors::extract`
+    // instead of reading them as UTF-8.
+    if EXTRACTABLE_DOC_EXTS.contains(&ext.as_str()) {
+        return IngestKind::Document;
     }
     if crate::core::bm25_index::is_code_file(path) {
         return IngestKind::Code;
@@ -190,13 +203,21 @@ mod tests {
 
     #[test]
     fn binaries_are_excluded() {
-        for f in [
-            "logo.png",
-            "archive.zip",
-            "report.pdf",
-            "lib.so",
-            "app.wasm",
-        ] {
+        for f in ["logo.png", "archive.zip", "lib.so", "app.wasm"] {
+            assert_eq!(classify_path(&p(f)), IngestKind::Binary, "{f}");
+            assert!(!is_ingestible(&p(f)), "{f} must not ingest");
+        }
+    }
+
+    #[test]
+    fn pdf_is_ingestible_via_extractor() {
+        // PDF has a dedicated extractor, so it classifies as an ingestible
+        // document (read through `extractors::extract`, not as UTF-8).
+        assert_eq!(classify_path(&p("report.pdf")), IngestKind::Document);
+        assert_eq!(classify_path(&p("REPORT.PDF")), IngestKind::Document);
+        assert!(is_ingestible(&p("report.pdf")));
+        // Office binaries without an extractor stay excluded.
+        for f in ["paper.docx", "sheet.xlsx", "deck.pptx", "doc.odt"] {
             assert_eq!(classify_path(&p(f)), IngestKind::Binary, "{f}");
             assert!(!is_ingestible(&p(f)), "{f} must not ingest");
         }
