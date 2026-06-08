@@ -117,6 +117,9 @@ main { flex:1 0 auto; }
 .lc-id { display:flex; flex-direction:column; gap:3px; min-width:0; }
 .lc-name { font-weight:600; color:var(--text-bright); font-size:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .lc-period { font-family:var(--font-mono); font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
+.lc-flag { display:inline-block; align-self:flex-start; margin-top:2px; font-family:var(--font-mono); font-size:10px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); border:1px solid var(--border-light); border-radius:5px; padding:1px 6px; }
+.lc-row.lc-flagged { opacity:.62; border-style:dashed; }
+.lc-row.lc-flagged:hover { opacity:.85; }
 .lc-stats { display:flex; flex-direction:column; align-items:flex-end; gap:3px; white-space:nowrap; }
 .lc-num { font-family:var(--font-mono); font-weight:600; font-size:16px; color:var(--accent); font-variant-numeric:tabular-nums; }
 .lc-usd { font-size:12.5px; color:var(--muted); font-variant-numeric:tabular-nums; }

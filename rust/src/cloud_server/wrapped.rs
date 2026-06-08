@@ -437,6 +437,9 @@ pub(super) struct LeaderRow {
     compression_rate_pct: f64,
     period: String,
     pricing_estimated: bool,
+    /// Self-reported figures that look statistically implausible (very high compression over very
+    /// large volume). Such cards are de-emphasized and badged rather than removed.
+    flagged: bool,
 }
 
 #[derive(Serialize)]
@@ -445,6 +448,37 @@ pub(super) struct Leaderboard {
 }
 
 const LEADERBOARD_LIMIT: i64 = 50;
+
+/// Compression rate (percent) at/above which a card is treated as implausible *when paired with
+/// high volume*. Organic agent usage compresses reads by ~60-90% on average; a sustained rate
+/// this high indicates cache-hit/automation-dominated or fabricated figures, not representative
+/// savings. (See `IMPLAUSIBLE_MIN_TOKENS` — a high rate over a tiny sample is normal.)
+const IMPLAUSIBLE_RATE_PCT: f64 = 97.0;
+
+/// Saved-token volume above which an extreme `IMPLAUSIBLE_RATE_PCT` is treated as implausible.
+/// A near-100% rate over a few thousand tokens is an ordinary small-sample artefact; the same
+/// rate sustained across this many tokens is not achievable by real coding work.
+const IMPLAUSIBLE_MIN_TOKENS: i64 = 1_000_000_000;
+
+/// Leaderboard figures are **self-reported** from each publisher's local ledger — the server
+/// holds no denominator (`tokens_input` is never uploaded; see `PublishPayload`) and therefore
+/// cannot recompute the rate. This pure check flags cards whose figures are statistically
+/// implausible so the board can de-emphasize and badge them instead of letting a single
+/// unverifiable card top the ranking. Pure (no I/O) so it is unit-tested.
+fn stats_implausible(tokens_saved: i64, compression_rate_pct: f64) -> bool {
+    tokens_saved >= IMPLAUSIBLE_MIN_TOKENS && compression_rate_pct >= IMPLAUSIBLE_RATE_PCT
+}
+
+/// Orders leaderboard rows for display: plausible cards first (preserving the incoming
+/// `tokens_saved DESC` order from the query), flagged/implausible cards last, then assigns
+/// 1-based ranks. `slice::sort_by_key` is stable, so each group keeps its relative order. Pure,
+/// so the ordering rule is unit-tested without a database.
+fn rank_and_demote_flagged(entries: &mut [LeaderRow]) {
+    entries.sort_by_key(|e| e.flagged);
+    for (i, e) in entries.iter_mut().enumerate() {
+        e.rank = i + 1;
+    }
+}
 
 /// `GET /api/wrapped/leaderboard` — top opted-in cards by tokens saved. Public; the only
 /// person-facing field is the user-chosen `display_name`.
@@ -486,15 +520,15 @@ async fn top_cards(state: &AppState) -> ApiResult<Vec<LeaderRow>> {
         .map_err(internal_error)?;
 
     let base = state.cfg.public_base_url.trim_end_matches('/');
-    let entries = rows
+    let mut entries: Vec<LeaderRow> = rows
         .iter()
-        .enumerate()
-        .filter_map(|(i, r)| {
+        .filter_map(|r| {
             let id: String = r.get(0);
             let payload_json: String = r.get(1);
             let p: PublishPayload = serde_json::from_str(&payload_json).ok()?;
+            let flagged = stats_implausible(p.tokens_saved, p.compression_rate_pct);
             Some(LeaderRow {
-                rank: i + 1,
+                rank: 0, // assigned after reordering below
                 url: format!("{base}/w/{id}"),
                 id,
                 display_name: p.display_name,
@@ -503,9 +537,14 @@ async fn top_cards(state: &AppState) -> ApiResult<Vec<LeaderRow>> {
                 compression_rate_pct: p.compression_rate_pct,
                 period: p.period,
                 pricing_estimated: p.pricing_estimated,
+                flagged,
             })
         })
         .collect();
+
+    // Plausible cards rank first; flagged (implausible, unverifiable) cards sink to the bottom
+    // regardless of raw `tokens_saved`, so one unverifiable card can't top the board.
+    rank_and_demote_flagged(&mut entries);
     Ok(entries)
 }
 
@@ -522,14 +561,24 @@ fn render_leaderboard_html(rows: &[LeaderRow], public_base: &str) -> String {
         let energy = crate::core::energy::format_for_tokens(tokens_u);
         let comp = format!("{:.0}%", row.compression_rate_pct);
         let est = if row.pricing_estimated { " est." } else { "" };
-        let rank_class = match row.rank {
-            1 => " lc-rank-1",
-            2 => " lc-rank-2",
-            3 => " lc-rank-3",
-            _ => "",
+        // Flagged cards never get the top-rank highlight; they carry an "unverified" badge instead.
+        let rank_class = if row.flagged {
+            " lc-flagged"
+        } else {
+            match row.rank {
+                1 => " lc-rank-1",
+                2 => " lc-rank-2",
+                3 => " lc-rank-3",
+                _ => "",
+            }
+        };
+        let flag_badge = if row.flagged {
+            r#"<span class="lc-flag" title="Self-reported figures that look statistically implausible (very high compression over very large volume). Not server-verified.">unverified</span>"#
+        } else {
+            ""
         };
         items.push_str(&format!(
-            r#"<li><a class="lc-row{rank_class}" href="{url}"><span class="lc-rank">#{rank}</span><span class="lc-id"><span class="lc-name">{name}</span><span class="lc-period">{period}</span></span><span class="lc-stats"><span class="lc-num">{tokens}</span><span class="lc-meta">{comp} compressed · {energy} saved</span><span class="lc-usd">${cost:.0}{est}</span></span></a></li>"#,
+            r#"<li><a class="lc-row{rank_class}" href="{url}"><span class="lc-rank">#{rank}</span><span class="lc-id"><span class="lc-name">{name}</span><span class="lc-period">{period}</span>{flag_badge}</span><span class="lc-stats"><span class="lc-num">{tokens}</span><span class="lc-meta">{comp} compressed · {energy} saved</span><span class="lc-usd">${cost:.0}{est}</span></span></a></li>"#,
             url = row.url,
             rank = row.rank,
             cost = row.cost_avoided_usd,
@@ -564,9 +613,9 @@ fn render_leaderboard_html(rows: &[LeaderRow], public_base: &str) -> String {
 {header}
 <main class="lc-container">
 <section class="lc-hero">
-<span class="lc-label">Verified savings</span>
+<span class="lc-label">Self-reported savings</span>
 <h1>Leaderboard</h1>
-<p>The most realized token savings, opted in by lean-ctx users. Every number comes from each user's tamper-evident local ledger.</p>
+<p>The most realized token savings, opted in by lean-ctx users. Figures are self-reported from each user's local ledger — not server-verified. Cards whose stats look statistically implausible are flagged <span class="lc-flag">unverified</span> and ranked last.</p>
 </section>
 {board}
 <section class="lc-cta-section">
@@ -986,6 +1035,7 @@ mod tests {
                 compression_rate_pct: 67.7,
                 period: "all".into(),
                 pricing_estimated: true,
+                flagged: false,
             },
             LeaderRow {
                 rank: 2,
@@ -997,6 +1047,7 @@ mod tests {
                 compression_rate_pct: 60.2,
                 period: "month".into(),
                 pricing_estimated: false,
+                flagged: false,
             },
             LeaderRow {
                 rank: 3,
@@ -1008,6 +1059,7 @@ mod tests {
                 compression_rate_pct: 55.0,
                 period: "week".into(),
                 pricing_estimated: false,
+                flagged: false,
             },
         ];
         let html = render_leaderboard_html(&rows, "https://leanctx.com");
@@ -1024,8 +1076,98 @@ mod tests {
         );
         assert!(html.contains("lc-footer"), "carries the branded footer");
         assert!(html.contains("yvesg"), "shows opted-in display names");
+        assert!(
+            html.contains("Self-reported savings"),
+            "hero label is honest about provenance"
+        );
+        assert!(
+            !html.contains("Verified savings"),
+            "must not imply server-side verification"
+        );
         // Written for manual/visual comparison with leanctx.com during development.
         let _ = std::fs::write("/tmp/lc_leaderboard.html", &html);
+    }
+
+    #[test]
+    fn stats_implausible_thresholds() {
+        // Real high-volume usage at organic rates is never flagged.
+        assert!(!stats_implausible(5_000_000_000, 71.0));
+        assert!(!stats_implausible(9_900_000_000, 90.0));
+        // A near-100% rate over a tiny sample is an ordinary small-sample artefact.
+        assert!(!stats_implausible(10_000, 100.0));
+        // High rate AND high volume together is implausible (the observed #1 anomaly).
+        assert!(stats_implausible(9_900_000_000, 100.0));
+        // Both thresholds are inclusive at the boundary.
+        assert!(stats_implausible(
+            IMPLAUSIBLE_MIN_TOKENS,
+            IMPLAUSIBLE_RATE_PCT
+        ));
+        assert!(!stats_implausible(IMPLAUSIBLE_MIN_TOKENS - 1, 100.0));
+        assert!(!stats_implausible(
+            IMPLAUSIBLE_MIN_TOKENS,
+            IMPLAUSIBLE_RATE_PCT - 0.1
+        ));
+    }
+
+    #[test]
+    fn rank_and_demote_flagged_sinks_flagged_and_reranks() {
+        let row = |id: &str, tokens: i64, flagged: bool| LeaderRow {
+            rank: 0,
+            id: id.into(),
+            url: format!("https://leanctx.com/w/{id}"),
+            display_name: None,
+            tokens_saved: tokens,
+            cost_avoided_usd: 0.0,
+            compression_rate_pct: 0.0,
+            period: "all".into(),
+            pricing_estimated: false,
+            flagged,
+        };
+        // Incoming order is `tokens_saved DESC` (as the SQL returns it); the flagged top card must
+        // sink below the plausible ones while the plausible relative order is preserved.
+        let mut rows = vec![
+            row("fake", 9_900_000_000, true),
+            row("real1", 5_000_000_000, false),
+            row("real2", 600_000_000, false),
+        ];
+        rank_and_demote_flagged(&mut rows);
+        assert_eq!(
+            rows.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
+            vec!["real1", "real2", "fake"]
+        );
+        assert_eq!(
+            rows.iter().map(|r| r.rank).collect::<Vec<_>>(),
+            vec![1, 2, 3]
+        );
+    }
+
+    #[test]
+    fn flagged_card_renders_unverified_badge_and_no_gold() {
+        let rows = vec![LeaderRow {
+            rank: 1,
+            id: "x".into(),
+            url: "https://leanctx.com/w/x".into(),
+            display_name: Some("suspicious".into()),
+            tokens_saved: 9_900_000_000,
+            cost_avoided_usd: 24_763.0,
+            compression_rate_pct: 100.0,
+            period: "all".into(),
+            pricing_estimated: true,
+            flagged: true,
+        }];
+        let html = render_leaderboard_html(&rows, "https://leanctx.com");
+        assert!(
+            html.contains("lc-flagged"),
+            "flagged row carries the muted style"
+        );
+        assert!(
+            html.contains(">unverified<"),
+            "flagged row shows the unverified badge"
+        );
+        assert!(
+            !html.contains("lc-row lc-rank-1"),
+            "a flagged card never gets the top-rank highlight"
+        );
     }
 
     #[test]
