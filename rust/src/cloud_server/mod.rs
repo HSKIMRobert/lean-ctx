@@ -122,6 +122,16 @@ pub async fn run() -> anyhow::Result<()> {
             "/api/account/entitlements",
             get(billing_edge::get_account_entitlements),
         )
+        // Self-serve billing: proxy Checkout / Portal to the private plane so the
+        // shared internal key never reaches the browser. 503 when billing is unset.
+        .route(
+            "/api/account/checkout",
+            post(billing_edge::post_account_checkout),
+        )
+        .route(
+            "/api/account/portal",
+            post(billing_edge::post_account_portal),
+        )
         .with_state(state)
         .layer(cors)
         .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024));
