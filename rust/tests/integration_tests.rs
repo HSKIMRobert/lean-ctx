@@ -287,6 +287,22 @@ fn redirect_fidelity_command() -> &'static str {
     "i=0; while [ $i -lt 60 ]; do echo \"row $i alpha beta gamma delta payload\"; i=$((i+1)); done"
 }
 
+/// `lean-ctx -c` with a *hermetic* control environment for the compression
+/// fidelity tests. A developer's shell hook exports `LEAN_CTX_RAW` /
+/// `LEAN_CTX_DISABLED` (and CI may set `LEAN_CTX_ACTIVE`) — each forces raw
+/// passthrough, which would make these tests assert nothing (the redirect test
+/// would pass vacuously). Stripping them pins the exact forced-compress path.
+fn forced_compress_bin() -> Command {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_lean-ctx"));
+    cmd.current_dir(env!("CARGO_MANIFEST_DIR"))
+        .env_remove("LEAN_CTX_RAW")
+        .env_remove("LEAN_CTX_DISABLED")
+        .env_remove("LEAN_CTX_ACTIVE")
+        .env("LEAN_CTX_COMPRESS", "1")
+        .env("__LEAN_CTX_SKIP_EVENTS", "1");
+    cmd
+}
+
 #[test]
 fn force_compress_redirect_to_file_is_byte_faithful() {
     if cfg!(windows) {
@@ -308,10 +324,7 @@ fn force_compress_redirect_to_file_is_byte_faithful() {
         std::process::id()
     ));
     let file = std::fs::File::create(&tmp).expect("create temp file");
-    let status = Command::new(env!("CARGO_BIN_EXE_lean-ctx"))
-        .current_dir(env!("CARGO_MANIFEST_DIR"))
-        .env("LEAN_CTX_COMPRESS", "1")
-        .env("__LEAN_CTX_SKIP_EVENTS", "1")
+    let status = forced_compress_bin()
         .args(["-c", cmd])
         .stdout(std::process::Stdio::from(file))
         .status()
@@ -343,10 +356,7 @@ fn force_compress_pipe_still_compresses() {
         .expect("failed to run raw command");
     let raw_stdout = String::from_utf8_lossy(&raw.stdout).to_string();
 
-    let piped = Command::new(env!("CARGO_BIN_EXE_lean-ctx"))
-        .current_dir(env!("CARGO_MANIFEST_DIR"))
-        .env("LEAN_CTX_COMPRESS", "1")
-        .env("__LEAN_CTX_SKIP_EVENTS", "1")
+    let piped = forced_compress_bin()
         .args(["-c", cmd])
         .output()
         .expect("failed to run lean-ctx -c with piped stdout");
