@@ -91,20 +91,52 @@ fn try_flock(_file: &File) -> bool {
 mod tests {
     use super::*;
 
+    /// Restores `LEAN_CTX_DATA_DIR` to its previous value on drop (panic-safe).
+    struct EnvRestore(Option<String>);
+    impl Drop for EnvRestore {
+        fn drop(&mut self) {
+            match &self.0 {
+                Some(v) => std::env::set_var("LEAN_CTX_DATA_DIR", v),
+                None => std::env::remove_var("LEAN_CTX_DATA_DIR"),
+            }
+        }
+    }
+
+    /// Runs `body` against a private, empty lock directory.
+    ///
+    /// `acquire()` and `active_count()` both resolve the lock dir from
+    /// `LEAN_CTX_DATA_DIR`. Serializing on `test_env_lock` stops a concurrent
+    /// test from repointing that variable between the two calls (which made
+    /// `active_count` inspect a different, empty dir and miss the held slot), and
+    /// the private temp dir keeps slots independent of any real lean-ctx process
+    /// (daemon/proxy) that might otherwise occupy them.
+    fn with_isolated_lock_dir(body: impl FnOnce()) {
+        let _env = crate::core::data_dir::test_env_lock();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        // Restore runs before `tmp` is removed and while the lock is still held.
+        let _restore = EnvRestore(std::env::var("LEAN_CTX_DATA_DIR").ok());
+        std::env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
+        body();
+    }
+
     #[test]
     fn acquire_and_release() {
-        let guard = acquire();
-        assert!(guard.is_some(), "should acquire first slot");
-        drop(guard);
+        with_isolated_lock_dir(|| {
+            let guard = acquire();
+            assert!(guard.is_some(), "should acquire first slot");
+            drop(guard);
+        });
     }
 
     #[cfg(unix)]
     #[test]
     fn active_count_reflects_held_slots() {
-        let g1 = acquire();
-        assert!(g1.is_some());
-        let count = active_count();
-        assert!(count >= 1, "at least one slot held, got {count}");
-        drop(g1);
+        with_isolated_lock_dir(|| {
+            let g1 = acquire();
+            assert!(g1.is_some());
+            let count = active_count();
+            assert!(count >= 1, "at least one slot held, got {count}");
+            drop(g1);
+        });
     }
 }
