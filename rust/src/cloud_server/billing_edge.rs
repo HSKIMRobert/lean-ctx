@@ -63,7 +63,7 @@ fn sync_is_open(cfg: &Config) -> bool {
 /// DB/billing round-trip. Sync is allowed when the deployment does not gate it
 /// at all, or when the caller's plan grants the `cloud_sync` entitlement
 /// (Pro/Team/Enterprise). Free and Supporter are denied on a gated deployment.
-fn cloud_sync_allowed(cfg: &Config, plan: Plan) -> bool {
+pub(super) fn cloud_sync_allowed(cfg: &Config, plan: Plan) -> bool {
     sync_is_open(cfg) || plan.entitlements().cloud_sync
 }
 

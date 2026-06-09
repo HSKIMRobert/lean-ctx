@@ -1,3 +1,4 @@
+mod account_cloud;
 mod auth;
 mod billing_edge;
 mod buddy;
@@ -139,6 +140,10 @@ pub async fn run() -> anyhow::Result<()> {
             "/api/account/portal",
             post(billing_edge::post_account_portal),
         )
+        // Personal Cloud dashboard: the `cloud_sync` entitlement gate + a
+        // privacy-preserving footprint of what the account has synced. Drives
+        // the dashboard-vs-upsell split on /account/cloud for every plan.
+        .route("/api/account/cloud", get(account_cloud::get_account_cloud))
         // Hosted Team server dashboard: proxy status + token management to the
         // private plane on behalf of the logged-in owner. 503 when billing is
         // unset; 404 (from the plane) until a Team subscription provisions one.
