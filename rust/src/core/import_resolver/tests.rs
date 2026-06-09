@@ -544,3 +544,17 @@ fn gd_user_path_is_external() {
     assert!(results[0].resolved_path.is_none());
     assert!(results[0].is_external);
 }
+
+#[test]
+fn tscn_ext_resolves_script_via_gd_resolver() {
+    // #316: `.tscn` files dispatch to the GDScript resolver, so an ext_resource
+    // `res://…gd` script reference resolves to the indexed script.
+    let ctx = make_ctx(&["scenes/Main.tscn", "actors/Player.gd"]);
+    let imp = make_import("res://actors/Player.gd");
+    let results = resolve_imports(&[imp], "scenes/Main.tscn", "tscn", &ctx);
+    assert_eq!(
+        results[0].resolved_path.as_deref(),
+        Some("actors/Player.gd")
+    );
+    assert!(!results[0].is_external);
+}

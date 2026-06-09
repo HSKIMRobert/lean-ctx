@@ -45,6 +45,28 @@ pub(crate) fn gdscript_function(node: &Node, name: &str, source: &[u8]) -> Signa
     }
 }
 
+/// GDScript member storage declarations: `const X`, `var x`, `@export var x`,
+/// `@onready var y`. `@export` always belongs to the public/editor-facing API;
+/// otherwise the leading-underscore Godot privacy convention applies.
+pub(crate) fn gdscript_variable(node: &Node, name: &str) -> Signature {
+    let kind = if node.kind() == "const_statement" {
+        "const"
+    } else {
+        "var"
+    };
+    let is_exported = node.kind() == "export_variable_statement" || !name.starts_with('_');
+    Signature {
+        kind,
+        name: name.to_string(),
+        params: String::new(),
+        return_type: String::new(),
+        is_async: false,
+        is_exported,
+        indent: 0,
+        ..Signature::no_span()
+    }
+}
+
 /// GDScript `signal name(params)` — an emittable member symbol.
 pub(crate) fn gdscript_signal(node: &Node, name: &str, source: &[u8]) -> Signature {
     Signature {

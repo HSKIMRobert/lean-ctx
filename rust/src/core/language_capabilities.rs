@@ -23,6 +23,9 @@ pub enum LanguageId {
     Gdscript,
     Vue,
     Svelte,
+    /// Godot `PackedScene` text format (`.tscn`): not source code, but carries
+    /// Scene→Script dependency edges.
+    Tscn,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,6 +59,7 @@ impl LanguageId {
             LanguageId::Gdscript => "gdscript",
             LanguageId::Vue => "vue",
             LanguageId::Svelte => "svelte",
+            LanguageId::Tscn => "tscn",
         }
     }
 }
@@ -92,6 +96,13 @@ pub fn capabilities(lang: LanguageId) -> LanguageCapabilities {
             deep_queries: false,
             import_resolver: false,
         },
+        // Godot scenes: no symbols (not source code), but resolved Scene→Script
+        // import edges via the GDScript `res://` resolver.
+        LanguageId::Tscn => LanguageCapabilities {
+            deps_edges: true,
+            deep_queries: false,
+            import_resolver: true,
+        },
     }
 }
 
@@ -119,6 +130,7 @@ pub fn language_for_ext(ext: &str) -> Option<LanguageId> {
         "gd" => Some(LanguageId::Gdscript),
         "vue" => Some(LanguageId::Vue),
         "svelte" => Some(LanguageId::Svelte),
+        "tscn" => Some(LanguageId::Tscn),
         _ => None,
     }
 }
@@ -158,6 +170,7 @@ pub const ALL_LANGUAGES: &[LanguageId] = &[
     LanguageId::Gdscript,
     LanguageId::Vue,
     LanguageId::Svelte,
+    LanguageId::Tscn,
 ];
 
 /// Friendly names of every graph-indexable language (e.g. for an empty-graph hint).

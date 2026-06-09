@@ -3,11 +3,11 @@ use tree_sitter::{Node, Parser, Query, QueryCursor, StreamingIterator};
 use crate::core::signatures::Signature;
 
 use super::handlers::{
-    csharp_has_modifier_text, elixir_call, gdscript_function, gdscript_signal, go_or_java_method,
-    go_type_spec, java_constructor, kotlin_function, py_or_c_function, ruby_method, rust_const,
-    rust_function, rust_impl, rust_struct_like, scala_function, swift_class_declaration,
-    swift_function, swift_protocol_function, ts_arrow_function, ts_method, ts_or_go_function,
-    zig_function,
+    csharp_has_modifier_text, elixir_call, gdscript_function, gdscript_signal, gdscript_variable,
+    go_or_java_method, go_type_spec, java_constructor, kotlin_function, py_or_c_function,
+    ruby_method, rust_const, rust_function, rust_impl, rust_struct_like, scala_function,
+    swift_class_declaration, swift_function, swift_protocol_function, ts_arrow_function, ts_method,
+    ts_or_go_function, zig_function,
 };
 use super::helpers::{class_like, has_modifier, is_in_export, simple_def};
 use super::queries::get_language;
@@ -134,6 +134,14 @@ fn node_to_signature(node: &Node, name: &str, ext: &str, source: &[u8]) -> Optio
             ..Signature::no_span()
         }),
         "signal_statement" => Some(gdscript_signal(node, name, source)),
+        "const_statement"
+        | "variable_statement"
+        | "export_variable_statement"
+        | "onready_variable_statement"
+            if ext == "gd" =>
+        {
+            Some(gdscript_variable(node, name))
+        }
         // GDScript `class_name X` declares the script's globally-registered,
         // always-public class (same shape as a top-level `class`/`module`).
         "class_name_statement" | "class" | "module" => Some(Signature {

@@ -657,4 +657,46 @@ class Inventory:
         assert!(take_damage.is_exported);
         assert_eq!(take_damage.kind, "fn");
     }
+
+    #[test]
+    fn test_gdscript_member_signatures() {
+        // #316: `@export`/`@onready`/`const`/`var` members must surface as symbols,
+        // while function-local `var`s must NOT (they are not part of the API).
+        let src = r"
+extends Node
+
+const MAX_HEALTH = 100
+var health = 100
+var _internal_state = 0
+@export var speed: float = 5.0
+@onready var sprite = $Sprite
+
+func _process(delta):
+    var local_tmp = delta * 2
+    return local_tmp
+";
+        let sigs = extract_signatures_ts(src, "gd").unwrap();
+        let names: Vec<&str> = sigs.iter().map(|s| s.name.as_str()).collect();
+
+        assert!(names.contains(&"MAX_HEALTH"), "got {names:?}");
+        assert!(names.contains(&"health"), "got {names:?}");
+        assert!(names.contains(&"speed"), "got {names:?}");
+        assert!(names.contains(&"sprite"), "got {names:?}");
+        assert!(
+            !names.contains(&"local_tmp"),
+            "function-local var must not be a member symbol; got {names:?}"
+        );
+
+        let max_health = sigs.iter().find(|s| s.name == "MAX_HEALTH").unwrap();
+        assert_eq!(max_health.kind, "const");
+        assert!(max_health.is_exported);
+
+        let speed = sigs.iter().find(|s| s.name == "speed").unwrap();
+        assert_eq!(speed.kind, "var");
+        assert!(speed.is_exported, "@export var is public API");
+
+        // Leading-underscore plain member follows the Godot privacy convention.
+        let internal = sigs.iter().find(|s| s.name == "_internal_state").unwrap();
+        assert!(!internal.is_exported);
+    }
 }
