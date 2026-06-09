@@ -80,8 +80,26 @@ All of `billing-plane-v1`'s invariants, plus
 
 ## Versioning
 
+## Meter Events (Stripe Billing Meters API)
+
+Usage is pushed via the Stripe Billing Meters API (`POST /v1/billing/meter_events`),
+not the legacy subscription-item usage records (removed in Stripe 2025-03-31.basil).
+The billing service runs an hourly background job (`metering_job`) that, for each
+active team account with a provisioned server and control token:
+
+1. Fetches `/v1/storage` from the team server.
+2. Persists a `billing_storage_samples` row (usage trend + audit).
+3. Checks threshold crossings (50/80/100%) and sends an idempotent email alert
+   (one per threshold per billing period, via SMTP/ZeptoMail).
+4. If overage > 0 and a Stripe Billing Meter is configured, pushes a meter event
+   with `event_name = leanctx_hosted_index_storage_gb` and `value` = overage in
+   GB (rounded up to 0.01 GB).
+
+## Versioning
+
 Named `v2` because it introduces a new **metered add-on surface** (a billable
-dimension + the `metering` block + a metered price), even though it is additive
-and changes no v1 plan/entitlement or local-free semantics. Adding further
-metered dimensions (connector sync volume, retrieval queries) under the same
-display-first, signed/server-measured, Local-Free rules stays `v2`.
+dimension + the `metering` block + a metered price + meter events), even though
+it is additive and changes no v1 plan/entitlement or local-free semantics.
+Adding further metered dimensions (connector sync volume, retrieval queries)
+under the same display-first, signed/server-measured, Local-Free rules stays
+`v2`.
