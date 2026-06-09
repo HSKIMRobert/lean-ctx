@@ -102,6 +102,10 @@ pub fn run() {
                 cmd_billing(&rest);
                 return;
             }
+            "roi" => {
+                super::cmd_roi(&rest);
+                return;
+            }
             "token-report" | "report-tokens" => {
                 let code = token_report::run_cli(&rest);
                 if code != 0 {
