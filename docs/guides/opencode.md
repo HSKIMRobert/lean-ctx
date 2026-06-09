@@ -10,6 +10,7 @@ Complete guide to setting up and optimally using lean-ctx with OpenCode (open-so
 | Config file | `opencode.json` (project) or `~/.config/opencode/config.json` (global) |
 | Rules file | `~/.config/opencode/AGENTS.md` (shared, appended) |
 | Setup command | `lean-ctx init --agent opencode` |
+| Tool interception | Opt-in via `shadow_mode` (default **off**) — see [Tool Interception](#tool-interception-shadow_mode) |
 
 ## Quick Setup
 
@@ -96,6 +97,56 @@ OpenCode has shell access. lean-ctx installs compression hooks:
 ```bash
 lean-ctx init --global
 ```
+
+## Tool Interception (`shadow_mode`)
+
+lean-ctx offers OpenCode **two mutually exclusive** integration surfaces. Exactly
+one is active at a time, decided by the `shadow_mode` config flag — running both
+would expose lean-ctx twice (the plugin spawns its own lean-ctx MCP client *in
+addition* to the `mcp.lean-ctx` server), wasting tokens and confusing the model.
+
+| `shadow_mode` | Active surface | Behaviour |
+|---------------|----------------|-----------|
+| `false` (default) | **MCP config** (`mcp.lean-ctx`) | `ctx_*` tools are offered; the model *chooses* when to use them. Native `read`/`grep`/`glob`/`edit`/`bash` are untouched. |
+| `true` | **Interception plugin** (`~/.config/opencode/plugins/lean-ctx.ts`) | Native `read`/`grep`/`glob`/`edit`/`bash` are transparently routed through `ctx_read`/`ctx_search`/`ctx_glob`/`ctx_edit`/`ctx_shell`. The `mcp.lean-ctx` entry is removed automatically. |
+
+### Enabling interception
+
+```bash
+lean-ctx config set shadow_mode true
+lean-ctx init --agent opencode    # installs the plugin, removes mcp.lean-ctx
+```
+
+This writes the interception plugin to `~/.config/opencode/plugins/lean-ctx.ts`
+plus a `package.json` declaring its npm dependencies
+(`@modelcontextprotocol/sdk`, `@opencode-ai/plugin`). Install them once from the
+plugin directory:
+
+```bash
+cd ~/.config/opencode/plugins && npm install   # or: bun install
+```
+
+### Disabling interception (back to opt-in tools)
+
+```bash
+lean-ctx config set shadow_mode false
+lean-ctx init --agent opencode    # removes the plugin, restores mcp.lean-ctx
+```
+
+The plugin file is deleted so interception actually stops. Its `package.json` is
+left in place (it may contain dependencies you manage).
+
+### No redundant rules
+
+While the interception plugin is active, native tools *are* the lean-ctx tools, so
+the "prefer `ctx_*`" rules block would be redundant. lean-ctx therefore **skips
+the dedicated rules registration** when `shadow_mode` is on, so you never pay for
+duplicate instructions (rules + plugin) out of the context budget.
+
+> **Plugin vs. MCP — never both.** Don't hand-add `mcp.lean-ctx` to
+> `opencode.json` while the interception plugin is installed (or vice versa).
+> `lean-ctx init --agent opencode` always reconciles the two for you based on
+> `shadow_mode`.
 
 ## Multi-Model Workflow
 

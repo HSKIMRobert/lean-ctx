@@ -21,61 +21,86 @@ pub(crate) fn install_opencode_hook_with_mode(mode: HookMode) {
         "environment": { "LEAN_CTX_DATA_DIR": data_dir }
     });
 
-    match mode {
-        HookMode::Mcp | HookMode::Hybrid => {
-            if config_path.exists() {
-                let content = std::fs::read_to_string(&config_path).unwrap_or_default();
-                if content.contains("lean-ctx") {
-                    if !mcp_server_quiet_mode() {
-                        eprintln!("OpenCode MCP already configured at {display_path}");
-                    }
-                } else if let Ok(mut json) = crate::core::jsonc::parse_jsonc(&content) {
-                    if let Some(obj) = json.as_object_mut() {
-                        let mcp = obj.entry("mcp").or_insert_with(|| serde_json::json!({}));
-                        if let Some(mcp_obj) = mcp.as_object_mut() {
-                            mcp_obj.insert("lean-ctx".to_string(), desired.clone());
+    // #313: `shadow_mode` (default off) selects the OpenCode integration, and the
+    // two surfaces are mutually exclusive — running both exposes lean-ctx twice
+    // (the interception plugin spawns its own lean-ctx MCP client on top of the
+    // `mcp.lean-ctx` server), which wastes tokens and confuses the model.
+    //   • off → MCP config only: `ctx_*` are opt-in tools the model may choose.
+    //   • on  → interception plugin only: native read/grep/glob/edit/bash are
+    //     transparently routed through lean-ctx.
+    let cfg = Config::load();
+    let shadow = cfg.shadow_mode;
+
+    if shadow {
+        remove_opencode_mcp_config(&config_path, display_path);
+    } else {
+        match mode {
+            HookMode::Mcp | HookMode::Hybrid => {
+                if config_path.exists() {
+                    let content = std::fs::read_to_string(&config_path).unwrap_or_default();
+                    if content.contains("lean-ctx") {
+                        if !mcp_server_quiet_mode() {
+                            eprintln!("OpenCode MCP already configured at {display_path}");
                         }
-                        if let Ok(formatted) = serde_json::to_string_pretty(&json) {
-                            let backup = config_path.with_extension("json.bak");
-                            let _ = std::fs::copy(&config_path, &backup);
-                            let _ = std::fs::write(&config_path, formatted);
-                            if !mcp_server_quiet_mode() {
-                                eprintln!(
+                    } else if let Ok(mut json) = crate::core::jsonc::parse_jsonc(&content) {
+                        if let Some(obj) = json.as_object_mut() {
+                            let mcp = obj.entry("mcp").or_insert_with(|| serde_json::json!({}));
+                            if let Some(mcp_obj) = mcp.as_object_mut() {
+                                mcp_obj.insert("lean-ctx".to_string(), desired.clone());
+                            }
+                            if let Ok(formatted) = serde_json::to_string_pretty(&json) {
+                                let backup = config_path.with_extension("json.bak");
+                                let _ = std::fs::copy(&config_path, &backup);
+                                let _ = std::fs::write(&config_path, formatted);
+                                if !mcp_server_quiet_mode() {
+                                    eprintln!(
                                     "  \x1b[32m✓\x1b[0m OpenCode MCP configured at {display_path}"
                                 );
+                                }
                             }
                         }
                     }
-                }
-            } else {
-                let content = serde_json::to_string_pretty(&serde_json::json!({
-                    "$schema": "https://opencode.ai/config.json",
-                    "mcp": {
-                        "lean-ctx": desired
-                    }
-                }));
-
-                if let Ok(json_str) = content {
-                    let _ = std::fs::write(&config_path, json_str);
-                    if !mcp_server_quiet_mode() {
-                        eprintln!("  \x1b[32m✓\x1b[0m OpenCode MCP configured at {display_path}");
-                    }
                 } else {
-                    tracing::error!("Failed to configure OpenCode");
+                    let content = serde_json::to_string_pretty(&serde_json::json!({
+                        "$schema": "https://opencode.ai/config.json",
+                        "mcp": {
+                            "lean-ctx": desired
+                        }
+                    }));
+
+                    if let Ok(json_str) = content {
+                        let _ = std::fs::write(&config_path, json_str);
+                        if !mcp_server_quiet_mode() {
+                            eprintln!(
+                                "  \x1b[32m✓\x1b[0m OpenCode MCP configured at {display_path}"
+                            );
+                        }
+                    } else {
+                        tracing::error!("Failed to configure OpenCode");
+                    }
                 }
             }
         }
     }
 
-    install_opencode_plugin(&home);
+    // #313: the interception plugin is opt-in via `shadow_mode`. Toggling it off
+    // removes a previously installed plugin so interception actually stops.
+    if shadow {
+        install_opencode_plugin(&home);
+    } else {
+        remove_opencode_plugin(&home);
+    }
 
     // Dedicated rules-injection mode (#343): register the lean-ctx-owned rules
     // file via opencode.json `instructions[]` (absolute path — OpenCode resolves
     // relative entries against the CWD, not the config dir) and strip any block a
     // prior shared install left in the global AGENTS.md. The rules file itself is
     // written by rules_inject. Shared mode (default) reverses the registration.
-    let cfg = Config::load();
-    let dedicated_global = cfg.rules_injection_effective() == RulesInjection::Dedicated
+    // When the interception plugin is active (#313) it already forces `ctx_*`
+    // routing, so re-injecting the "prefer ctx_*" rules is redundant token waste
+    // — skip registration and clean up any prior entry.
+    let dedicated_global = !shadow
+        && cfg.rules_injection_effective() == RulesInjection::Dedicated
         && cfg.rules_scope_effective() != RulesScope::Project;
     if dedicated_global {
         register_opencode_instructions(&home);
@@ -190,13 +215,113 @@ fn install_opencode_plugin(home: &std::path::Path) {
     let plugin_path = plugin_dir.join("lean-ctx.ts");
 
     let plugin_content = include_str!("../../templates/opencode-plugin.ts");
-    let _ = std::fs::write(&plugin_path, plugin_content);
+    if let Err(e) = std::fs::write(&plugin_path, plugin_content) {
+        eprintln!("  \x1b[33m⚠\x1b[0m Failed to write OpenCode plugin: {e}");
+        return;
+    }
+
+    // The plugin imports `@modelcontextprotocol/sdk` and `@opencode-ai/plugin`,
+    // so make sure they are declared in the plugin dir's package.json.
+    ensure_plugin_package_json(&plugin_dir);
 
     if !mcp_server_quiet_mode() {
         eprintln!(
-            "  \x1b[32m✓\x1b[0m OpenCode plugin installed at {}",
+            "  \x1b[32m✓\x1b[0m OpenCode interception plugin installed at {}",
             plugin_path.display()
         );
+    }
+}
+
+/// Ensure the OpenCode plugin dir has a package.json declaring the plugin's npm
+/// dependencies. Missing entries are merged into an existing file (creating the
+/// `dependencies` / `devDependencies` sections when absent); a user file that
+/// cannot be parsed is left untouched rather than clobbered.
+fn ensure_plugin_package_json(plugin_dir: &std::path::Path) {
+    let package_json_path = plugin_dir.join("package.json");
+    let template_str = include_str!("../../templates/package.json");
+
+    // Fresh install (or unreadable path) → write the template verbatim.
+    let Ok(existing_str) = std::fs::read_to_string(&package_json_path) else {
+        let _ = std::fs::write(&package_json_path, template_str);
+        return;
+    };
+    let Ok(mut pkg) = serde_json::from_str::<serde_json::Value>(&existing_str) else {
+        return;
+    };
+    let template: serde_json::Value = serde_json::from_str(template_str).unwrap_or_default();
+    let Some(pkg_obj) = pkg.as_object_mut() else {
+        return;
+    };
+
+    let mut changed = false;
+    for section in ["dependencies", "devDependencies"] {
+        let Some(required) = template.get(section).and_then(|v| v.as_object()) else {
+            continue;
+        };
+        let existing = pkg_obj
+            .entry(section.to_string())
+            .or_insert_with(|| serde_json::json!({}));
+        let Some(existing_obj) = existing.as_object_mut() else {
+            continue;
+        };
+        for (key, value) in required {
+            if !existing_obj.contains_key(key) {
+                existing_obj.insert(key.clone(), value.clone());
+                changed = true;
+            }
+        }
+    }
+
+    if changed {
+        if let Ok(formatted) = serde_json::to_string_pretty(&pkg) {
+            let _ = std::fs::write(&package_json_path, formatted);
+        }
+    }
+}
+
+/// Remove a previously installed OpenCode interception plugin so toggling
+/// `shadow_mode` off actually stops interception (#313). The plugin dir's
+/// package.json is intentionally left in place (it may carry user-managed deps).
+pub(crate) fn remove_opencode_plugin(home: &std::path::Path) {
+    let plugin_path = home.join(".config/opencode/plugins").join("lean-ctx.ts");
+    if !plugin_path.exists() {
+        return;
+    }
+    if std::fs::remove_file(&plugin_path).is_ok() && !mcp_server_quiet_mode() {
+        eprintln!(
+            "  OpenCode interception plugin removed (shadow_mode off; enable: lean-ctx config set shadow_mode true)"
+        );
+    }
+}
+
+/// Remove the `mcp.lean-ctx` entry from opencode.json. Used when `shadow_mode`
+/// is on so the interception plugin is the single lean-ctx surface (#313),
+/// avoiding a redundant second lean-ctx MCP server.
+fn remove_opencode_mcp_config(config_path: &std::path::Path, display_path: &str) {
+    let Ok(content) = std::fs::read_to_string(config_path) else {
+        return;
+    };
+    let Ok(mut json) = crate::core::jsonc::parse_jsonc(&content) else {
+        return;
+    };
+    let Some(obj) = json.as_object_mut() else {
+        return;
+    };
+    let Some(mcp) = obj.get_mut("mcp").and_then(|m| m.as_object_mut()) else {
+        return;
+    };
+    if mcp.remove("lean-ctx").is_none() {
+        return;
+    }
+    if mcp.is_empty() {
+        obj.remove("mcp");
+    }
+    if let Ok(formatted) = serde_json::to_string_pretty(&json) {
+        if std::fs::write(config_path, formatted).is_ok() && !mcp_server_quiet_mode() {
+            eprintln!(
+                "  OpenCode mcp.lean-ctx removed (shadow_mode on → interception plugin is the active surface) at {display_path}"
+            );
+        }
     }
 }
 
@@ -283,5 +408,127 @@ mod dedicated_tests {
         let json: serde_json::Value = serde_json::from_str(&content).unwrap();
         assert!(json.get("instructions").is_none(), "got: {content}");
         let _ = std::fs::remove_dir_all(&home);
+    }
+}
+
+#[cfg(test)]
+mod shadow_gating_tests {
+    use super::*;
+
+    fn temp_dir(tag: &str) -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("leanctx_oc_shadow_{tag}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn plugin_ts(home: &std::path::Path) -> std::path::PathBuf {
+        home.join(".config/opencode/plugins/lean-ctx.ts")
+    }
+
+    #[test]
+    fn install_then_remove_plugin_toggles_the_file() {
+        let home = temp_dir("toggle");
+        install_opencode_plugin(&home);
+        assert!(plugin_ts(&home).exists(), "plugin must be installed");
+        let pkg = home.join(".config/opencode/plugins/package.json");
+        assert!(pkg.exists(), "package.json must be written");
+
+        remove_opencode_plugin(&home);
+        assert!(
+            !plugin_ts(&home).exists(),
+            "plugin must be removed on toggle-off"
+        );
+        assert!(pkg.exists(), "package.json is intentionally left in place");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn remove_plugin_is_noop_when_absent() {
+        let home = temp_dir("noop");
+        remove_opencode_plugin(&home); // must not panic when nothing to remove
+        assert!(!plugin_ts(&home).exists());
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn package_json_fresh_write_declares_plugin_deps() {
+        let dir = temp_dir("pkg_fresh");
+        ensure_plugin_package_json(&dir);
+        let json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("package.json")).unwrap())
+                .unwrap();
+        assert!(json["dependencies"]["@modelcontextprotocol/sdk"].is_string());
+        assert!(json["dependencies"]["@opencode-ai/plugin"].is_string());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn package_json_merge_preserves_user_deps_and_adds_ours() {
+        let dir = temp_dir("pkg_merge");
+        std::fs::write(
+            dir.join("package.json"),
+            r#"{"dependencies":{"left-pad":"^1.0.0","@opencode-ai/plugin":"^9.9.9"}}"#,
+        )
+        .unwrap();
+        ensure_plugin_package_json(&dir);
+        let json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("package.json")).unwrap())
+                .unwrap();
+        // User dep preserved; a user pin for a shared dep is NOT overwritten; the
+        // missing dep is added.
+        assert_eq!(json["dependencies"]["left-pad"], "^1.0.0");
+        assert_eq!(json["dependencies"]["@opencode-ai/plugin"], "^9.9.9");
+        assert!(json["dependencies"]["@modelcontextprotocol/sdk"].is_string());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn package_json_creates_missing_dependencies_section() {
+        let dir = temp_dir("pkg_nodeps");
+        std::fs::write(dir.join("package.json"), r#"{"name":"user-plugins"}"#).unwrap();
+        ensure_plugin_package_json(&dir);
+        let json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("package.json")).unwrap())
+                .unwrap();
+        assert_eq!(json["name"], "user-plugins", "user fields preserved");
+        assert!(
+            json["dependencies"]["@modelcontextprotocol/sdk"].is_string(),
+            "dependencies section must be created"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn remove_mcp_config_drops_only_lean_ctx() {
+        let dir = temp_dir("mcp_multi");
+        let cfg = dir.join("opencode.json");
+        std::fs::write(
+            &cfg,
+            r#"{"mcp":{"lean-ctx":{"type":"local"},"other":{"type":"local"}}}"#,
+        )
+        .unwrap();
+        remove_opencode_mcp_config(&cfg, "test");
+        let json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&cfg).unwrap()).unwrap();
+        assert!(json["mcp"]["lean-ctx"].is_null(), "lean-ctx removed");
+        assert!(json["mcp"]["other"].is_object(), "other server preserved");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn remove_mcp_config_drops_empty_mcp_key() {
+        let dir = temp_dir("mcp_solo");
+        let cfg = dir.join("opencode.json");
+        std::fs::write(&cfg, r#"{"mcp":{"lean-ctx":{"type":"local"}}}"#).unwrap();
+        remove_opencode_mcp_config(&cfg, "test");
+        let json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&cfg).unwrap()).unwrap();
+        assert!(
+            json.get("mcp").is_none(),
+            "empty mcp object dropped: {json}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

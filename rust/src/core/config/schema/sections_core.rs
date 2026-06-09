@@ -300,7 +300,7 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
             key_with_env(
                 "bool",
                 serde_json::json!(false),
-                "Transparently intercept native Read/Grep/Shell calls via hooks and route them through lean-ctx",
+                "Opt-in (default off): transparently route native Read/Grep/Edit/Shell through lean-ctx — via hooks for hook-based agents, via the interception plugin for OpenCode",
                 "LEAN_CTX_SHADOW_MODE",
             ),
         );
