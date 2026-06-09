@@ -103,16 +103,8 @@ pub fn run() {
                 return;
             }
             "roi" => {
-                // Unified ROI surface: `roi --team` reuses the team roll-up
-                // (`savings team`) so there is one ROI entry point. Local ROI
-                // stays free; the team view is the opt-in hosted roll-up.
-                if rest.iter().any(|a| a == "--team") {
-                    let team_args: Vec<String> = std::iter::once("team".to_string())
-                        .chain(rest.iter().filter(|a| *a != "--team").cloned())
-                        .collect();
-                    cmd_savings(&team_args);
-                    return;
-                }
+                // Local ROI is individual + free. The team roll-up lives on its own
+                // surface (`savings team` / the web account), not under `roi`.
                 super::cmd_roi(&rest);
                 return;
             }

@@ -197,14 +197,15 @@ fn format_markdown(report: &RoiReport) -> String {
 }
 
 fn print_usage() {
-    println!("Usage: lean-ctx roi [--json | --md] [--export <path>] [--team]");
+    println!("Usage: lean-ctx roi [--json | --md] [--export <path>]");
     println!();
     println!("Print the verified savings (ROI) report from your local signed ledger.");
     println!("  (no flags)        Human-readable summary");
     println!("  --json            Machine-readable JSON (the RoiReport)");
     println!("  --md, --markdown  Markdown (shareable)");
     println!("  --export <path>   Write to a file (.json → JSON, else Markdown)");
-    println!("  --team            Team roll-up across developers (opt-in, via team server)");
+    println!();
+    println!("Team roll-up across developers (opt-in): lean-ctx savings team");
 }
 
 #[cfg(test)]

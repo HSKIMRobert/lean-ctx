@@ -31,7 +31,6 @@ class CockpitRoi extends HTMLElement {
     this._loading = true;
     this._error = null;
     this._data = null;
-    this._team = null;
     this._onRefresh = this._onRefresh.bind(this);
   }
 
@@ -72,15 +71,9 @@ class CockpitRoi extends HTMLElement {
     this.render();
 
     try {
-      var results = await Promise.all([
-        fetchJson('/api/roi', { timeoutMs: 12000 }),
-        // The team roll-up is optional; never let it break the local ROI view.
-        fetchJson('/api/team-roi', { timeoutMs: 9000 }).catch(function () {
-          return { configured: false };
-        }),
-      ]);
-      this._data = results[0];
-      this._team = results[1];
+      // Individual + local only. The team roll-up is a separate surface
+      // (web /account/team, or `lean-ctx savings team`) — not this cockpit.
+      this._data = await fetchJson('/api/roi', { timeoutMs: 12000 });
     } catch (e) {
       this._error = e && e.error ? e.error : String(e || 'error');
       this._data = null;
@@ -114,17 +107,15 @@ class CockpitRoi extends HTMLElement {
         '<h2>No verified savings yet</h2>' +
         '<p>Use lean-ctx (ctx_read / ctx_search / \u2026) for a while. Your signed savings ' +
         'ledger fills up automatically, then this view shows your ROI.</p></div></div>';
-      // Still render the plan + team cards so the user sees their plan and any
-      // team roll-up even before this machine has local events.
+      // Still render the plan card so the user sees their plan even before this
+      // machine has local events.
       this.innerHTML += this._renderPlan(esc);
-      this.innerHTML += this._renderTeamCard(esc);
       return;
     }
 
     var body = this._renderHero(esc);
     body += this._renderVerification(esc);
     body += this._renderPlan(esc);
-    body += this._renderTeamCard(esc);
     body += this._renderTrendCard(esc);
     body += this._renderBreakdown(esc);
     body += this._renderShare(esc);
@@ -232,72 +223,6 @@ class CockpitRoi extends HTMLElement {
       '<p class="hs" style="margin-top:8px;color:var(--muted)">' + cta + '</p>' +
       '<p class="hs" style="color:var(--muted)">The local engine is always free and never gated.</p>' +
       '</div>'
-    );
-  }
-
-  _renderTeamCard(esc) {
-    var t = this._team;
-    // Only surface the team roll-up when a team server is actually configured.
-    if (!t || !t.configured) return '';
-    var F = croiFmt();
-    var ff = F.ff || function (n) { return String(n); };
-    var fu = F.fu || function (n) { return '$' + n; };
-
-    if (t.error) {
-      return (
-        '<div class="card" style="margin-bottom:16px">' +
-        '<div class="card-header"><h3>Team roll-up</h3>' +
-        '<span class="tag ty">unavailable</span></div>' +
-        '<p class="hs" style="color:var(--muted)">' + esc(String(t.error)) + '</p></div>'
-      );
-    }
-
-    var s = t.summary || {};
-    var totals = s.totals || {};
-    var net = Number(totals.net_saved_tokens || 0);
-    var usd = Number(totals.saved_usd || 0);
-    var members = Number(
-      s.member_count || (Array.isArray(s.by_member) ? s.by_member.length : 0)
-    );
-
-    if (!members) {
-      return (
-        '<div class="card" style="margin-bottom:16px">' +
-        '<div class="card-header"><h3>Team roll-up</h3>' +
-        '<span class="tag tb">0 members</span></div>' +
-        '<p class="hs">No member has pushed a signed savings batch yet. ' +
-        'On each machine: <code>lean-ctx savings push</code>.</p></div>'
-      );
-    }
-
-    var memberRows = (Array.isArray(s.by_member) ? s.by_member : [])
-      .slice(0, 12)
-      .map(function (m) {
-        return (
-          '<tr><td>' + esc(String(m.agent_id || '?')) + '</td>' +
-          '<td class="r">' + esc(ff(Number(m.net_saved_tokens || 0))) + '</td>' +
-          '<td class="r">' + esc(fu(Number(m.saved_usd || 0))) + '</td></tr>'
-        );
-      })
-      .join('');
-    var memberTable = memberRows
-      ? '<div class="table-scroll"><table><thead><tr><th>Member</th>' +
-        '<th class="r">Tokens saved</th><th class="r">$ saved</th></tr></thead>' +
-        '<tbody>' + memberRows + '</tbody></table></div>'
-      : '';
-
-    return (
-      '<div class="card" style="margin-bottom:16px">' +
-      '<div class="card-header"><h3>Team roll-up</h3>' +
-      '<span class="tag tg">' + esc(String(members)) + ' members</span></div>' +
-      '<div class="hero r3 stagger" style="margin-bottom:12px">' +
-      '<div class="hc"><span class="hl">Team tokens saved</span>' +
-      '<div class="hv">' + esc(ff(net)) + '</div></div>' +
-      '<div class="hc"><span class="hl">Team $ saved</span>' +
-      '<div class="hv" style="color:var(--green)">' + esc(fu(usd)) + '</div></div>' +
-      '<div class="hc"><span class="hl">Members reporting</span>' +
-      '<div class="hv">' + esc(String(members)) + '</div></div>' +
-      '</div>' + memberTable + '</div>'
     );
   }
 
