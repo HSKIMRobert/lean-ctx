@@ -199,6 +199,21 @@ pub fn current_pressure() -> PressureLevel {
 /// Polls every 3s (normal) or 1s (under pressure). At Critical level, performs
 /// aggressive eviction and signals background tasks to abort — never exits the process.
 pub fn start_guard(eviction_callback: Arc<dyn Fn(PressureLevel) + Send + Sync>) {
+    // The guardian is a long-lived background monitor for the running
+    // server/daemon. Under `cargo test` a single OS process executes the entire
+    // suite, so its RSS routinely exceeds the per-operation pressure threshold
+    // (default 5% of system RAM). A test that constructs a server (e.g. the
+    // `http_server` tests via `new_shared_with_context`) would start this thread,
+    // which then flips the process-global `CURRENT_PRESSURE` / `ABORT_REQUESTED`
+    // flags. Unrelated later tests in the same binary read those flags and skip
+    // work — notably `graph_index::build_edges_with_cache` aborts edge-building
+    // under pressure, leaving indexed files with no edges. That manifested as an
+    // intermittent, macOS-only flake ("No files depend on Base.gd"). The guardian
+    // has no purpose inside the test harness, so never start it there. Production
+    // and the daemon compile without `cfg!(test)` and are unaffected.
+    if cfg!(test) {
+        return;
+    }
     if GUARD_RUNNING.swap(true, Ordering::SeqCst) {
         return;
     }
@@ -443,6 +458,29 @@ mod tests {
     #[test]
     fn atomic_pressure_defaults_to_normal() {
         assert_eq!(current_pressure(), PressureLevel::Normal);
+    }
+
+    #[test]
+    fn start_guard_is_noop_under_test() {
+        // Regression guard: the background guardian must never run inside the
+        // test harness. If it did, its 3s poll would observe the suite's large
+        // RSS, flip the global pressure/abort flags, and silently make unrelated
+        // tests (e.g. graph edge-building) skip work — an order/timing-dependent
+        // flake. `start_guard` must be a no-op under `cfg!(test)`.
+        let fired = Arc::new(AtomicBool::new(false));
+        let fired_cb = fired.clone();
+        start_guard(Arc::new(move |_| fired_cb.store(true, Ordering::SeqCst)));
+
+        assert!(
+            !GUARD_RUNNING.load(Ordering::Relaxed),
+            "guardian thread must not start under cfg!(test)"
+        );
+        assert_eq!(current_pressure(), PressureLevel::Normal);
+        assert!(!abort_requested());
+        assert!(
+            !fired.load(Ordering::Relaxed),
+            "eviction callback must never fire in tests"
+        );
     }
 
     #[test]
