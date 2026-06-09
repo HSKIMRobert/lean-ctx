@@ -658,6 +658,25 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
             keys: search,
         });
 
+    let mut graph = BTreeMap::new();
+    graph.insert(
+        "traversal_edges".into(),
+        key(
+            "bool",
+            serde_json::json!(cfg.graph.traversal_edges),
+            "Learn co-access edges from real sessions (files surfaced together), surface them as decaying `co_access` graph edges, and boost recall by them. Set false for a purely static AST-only graph.",
+        ),
+    );
+    sections.insert(
+        "graph".into(),
+        SectionSchema {
+            description:
+                "Code-graph settings, including traversal (co-access) edges learned from sessions"
+                    .into(),
+            keys: graph,
+        },
+    );
+
     let mut embedding = BTreeMap::new();
     embedding.insert(
             "model".into(),

@@ -76,6 +76,38 @@ impl CoAccessGraph {
         self.prune();
     }
 
+    /// Reinforce the association of `focus` with each file in `others` — a
+    /// **star**, not a clique — after one global decay step.
+    ///
+    /// This is the right model for *streaming* access where one new file enters
+    /// the working set (e.g. each `ctx_read`): it associates the newcomer with
+    /// the recent set without re-reinforcing the already-known pairs among
+    /// `others` (which [`CoAccessGraph::record`] would, biasing toward early files).
+    pub fn record_focus(&mut self, focus: &str, others: &[String]) {
+        if focus.is_empty() {
+            return;
+        }
+        let mut uniq: Vec<&String> = Vec::new();
+        for f in others {
+            if !f.is_empty() && f.as_str() != focus && !uniq.contains(&f) {
+                uniq.push(f);
+                if uniq.len() >= MAX_RECORD_FILES {
+                    break;
+                }
+            }
+        }
+        if uniq.is_empty() {
+            return; // nothing to associate
+        }
+
+        self.decay_all();
+        for other in uniq {
+            self.bump(focus, other);
+            self.bump(other, focus);
+        }
+        self.prune();
+    }
+
     /// Files most strongly associated with `file`, strongest first.
     pub fn related(&self, file: &str, top_k: usize) -> Vec<(String, f64)> {
         let Some(neighbours) = self.edges.get(file) else {
@@ -85,6 +117,40 @@ impl CoAccessGraph {
         v.sort_by(|a, b| b.1.total_cmp(&a.1));
         v.truncate(top_k);
         v
+    }
+
+    /// Canonical *undirected* co-access edges `(from, to, weight)` with
+    /// `from <= to`, strongest first, weights `>= min_weight`, capped at
+    /// `max_edges`. The graph is symmetric by construction, but asymmetric
+    /// pruning can leave the two directions with slightly different weights, so
+    /// the stronger direction wins. Deterministic order (weight desc, then path).
+    pub fn canonical_edges(&self, min_weight: f64, max_edges: usize) -> Vec<(String, String, f64)> {
+        let mut best: HashMap<(String, String), f64> = HashMap::new();
+        for (from, neighbours) in &self.edges {
+            for (to, &w) in neighbours {
+                if w < min_weight || from == to {
+                    continue;
+                }
+                let key = if from <= to {
+                    (from.clone(), to.clone())
+                } else {
+                    (to.clone(), from.clone())
+                };
+                let slot = best.entry(key).or_insert(0.0);
+                if w > *slot {
+                    *slot = w;
+                }
+            }
+        }
+        let mut out: Vec<(String, String, f64)> =
+            best.into_iter().map(|((a, b), w)| (a, b, w)).collect();
+        out.sort_by(|x, y| {
+            y.2.total_cmp(&x.2)
+                .then_with(|| x.0.cmp(&y.0))
+                .then_with(|| x.1.cmp(&y.1))
+        });
+        out.truncate(max_edges);
+        out
     }
 
     fn bump(&mut self, from: &str, to: &str) {
@@ -178,6 +244,83 @@ pub fn related(project_root: &str, file: &str, top_k: usize) -> Vec<(String, f64
     load(project_root).related(file, top_k)
 }
 
+// ── Traversal-edge surface (gated, repo-relative) ──────────────────────────
+//
+// These wrappers (used by ctx_read / ctx_semantic_search / the dashboard) honor
+// the `[graph] traversal_edges` config and normalize paths to the repo-relative
+// form the code graph uses, so learned edges line up with static edges (#289).
+
+/// Whether traversal (co-access) edges are enabled (`[graph] traversal_edges`).
+pub fn traversal_enabled() -> bool {
+    crate::core::config::Config::load().graph.traversal_edges
+}
+
+/// Normalize an absolute-or-relative path to the repo-relative form used as the
+/// co-access / graph key (e.g. `/repo/src/a.rs` → `src/a.rs`).
+fn to_repo_rel(path: &str, project_root: &str) -> String {
+    let p = path.replace('\\', "/");
+    let root = project_root.trim_end_matches('/').replace('\\', "/");
+    if !root.is_empty() {
+        let prefix = format!("{root}/");
+        if let Some(rest) = p.strip_prefix(&prefix) {
+            return rest.to_string();
+        }
+    }
+    p.trim_start_matches('/').to_string()
+}
+
+/// Record a *streaming* co-access: the just-touched `focus` file against the
+/// recent working set `others` (star association). Paths are normalized to
+/// repo-relative. No-op when traversal edges are disabled or there is nothing
+/// to associate. Persisted.
+pub fn record_focus_access(project_root: &str, focus: &str, others: &[String]) {
+    if !traversal_enabled() {
+        return;
+    }
+    let focus_rel = to_repo_rel(focus, project_root);
+    if focus_rel.is_empty() {
+        return;
+    }
+    let others_rel: Vec<String> = others
+        .iter()
+        .map(|o| to_repo_rel(o, project_root))
+        .filter(|o| !o.is_empty() && o != &focus_rel)
+        .collect();
+    if others_rel.is_empty() {
+        return;
+    }
+    let mut graph = load(project_root);
+    graph.record_focus(&focus_rel, &others_rel);
+    save(project_root, &graph);
+}
+
+/// Record that a *set* of files was surfaced together (e.g. search results)
+/// after normalizing to repo-relative. No-op when disabled or <2 distinct files.
+pub fn record_set_access(project_root: &str, files: &[String]) {
+    if !traversal_enabled() {
+        return;
+    }
+    let rel: Vec<String> = files
+        .iter()
+        .map(|f| to_repo_rel(f, project_root))
+        .filter(|f| !f.is_empty())
+        .collect();
+    record_access(project_root, &rel);
+}
+
+/// Canonical undirected co-access edges for `project_root` (strongest first),
+/// for dashboard overlay and graph folding. Empty when traversal edges are off.
+pub fn export_edges(
+    project_root: &str,
+    min_weight: f64,
+    max_edges: usize,
+) -> Vec<(String, String, f64)> {
+    if !traversal_enabled() {
+        return Vec::new();
+    }
+    load(project_root).canonical_edges(min_weight, max_edges)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -259,5 +402,63 @@ mod tests {
             g.record(&["hub.rs".into(), format!("f{i}.rs")]);
         }
         assert!(g.related("hub.rs", 1000).len() <= MAX_NEIGHBORS);
+    }
+
+    #[test]
+    fn record_focus_is_a_star_not_a_clique() {
+        let mut g = CoAccessGraph::default();
+        // `new.rs` enters a working set of {a.rs, b.rs}.
+        g.record_focus("new.rs", &["a.rs".into(), "b.rs".into()]);
+        // It associates with both members of the set...
+        assert_eq!(g.related("new.rs", 5).len(), 2);
+        // ...but a.rs and b.rs are NOT associated with each other (star, not clique).
+        assert!(g.related("a.rs", 5).iter().all(|(f, _)| f != "b.rs"));
+        assert_eq!(g.related("a.rs", 5)[0].0, "new.rs");
+    }
+
+    #[test]
+    fn record_focus_ignores_self_and_empty() {
+        let mut g = CoAccessGraph::default();
+        g.record_focus("x.rs", &["x.rs".into(), String::new()]);
+        assert!(g.related("x.rs", 5).is_empty());
+    }
+
+    #[test]
+    fn canonical_edges_are_undirected_and_sorted() {
+        let mut g = CoAccessGraph::default();
+        for _ in 0..3 {
+            g.record(&["a.rs".into(), "b.rs".into()]);
+        }
+        g.record(&["a.rs".into(), "c.rs".into()]);
+        let edges = g.canonical_edges(0.0, 10);
+        // a–b appears once (undirected), not as both a→b and b→a.
+        let ab = edges
+            .iter()
+            .filter(|(f, t, _)| (f == "a.rs" && t == "b.rs") || (f == "b.rs" && t == "a.rs"))
+            .count();
+        assert_eq!(ab, 1);
+        // Canonical `from <= to` ordering.
+        assert!(edges.iter().all(|(f, t, _)| f <= t));
+        // Strongest first: a–b (3×) ranks before a–c (1×).
+        assert_eq!((edges[0].0.as_str(), edges[0].1.as_str()), ("a.rs", "b.rs"));
+    }
+
+    #[test]
+    fn canonical_edges_respect_min_weight_and_cap() {
+        let mut g = CoAccessGraph::default();
+        g.record(&["a.rs".into(), "b.rs".into()]);
+        assert!(
+            g.canonical_edges(100.0, 10).is_empty(),
+            "min_weight filters all"
+        );
+        assert!(g.canonical_edges(0.0, 0).is_empty(), "cap 0 yields nothing");
+    }
+
+    #[test]
+    fn to_repo_rel_strips_project_root() {
+        assert_eq!(to_repo_rel("/repo/src/a.rs", "/repo"), "src/a.rs");
+        assert_eq!(to_repo_rel("/repo/src/a.rs", "/repo/"), "src/a.rs");
+        assert_eq!(to_repo_rel("src/a.rs", "/repo"), "src/a.rs");
+        assert_eq!(to_repo_rel("/other/x.rs", "/repo"), "other/x.rs");
     }
 }

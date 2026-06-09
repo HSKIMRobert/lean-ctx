@@ -409,6 +409,7 @@ impl CtxReadTool {
 
         // Session updates (bounded lock — 10s timeout, read already succeeded)
         let mut ensured_root: Option<String> = None;
+        let mut traversal_working_set: Vec<String> = Vec::new();
         let project_root_snapshot;
         {
             let rt = tokio::runtime::Handle::current();
@@ -418,6 +419,10 @@ impl CtxReadTool {
             ));
             if let Ok(mut session) = session_guard {
                 session.touch_file(path, file_ref.as_deref(), &resolved_mode, original);
+                // Capture the recent working set (under the lock) so the
+                // background thread can record a traversal/co-access edge (#289).
+                traversal_working_set =
+                    crate::core::tool_lifecycle::recent_working_set(&session, path);
                 // Auto-generate file summary from output content
                 let file_summary = extract_file_summary(&output, path);
                 if !file_summary.is_empty() {
@@ -480,6 +485,18 @@ impl CtxReadTool {
             let (turns, hits) = cache_stats;
             std::thread::spawn(move || {
                 crate::core::heatmap::record_file_access(&path_bg, original, saved);
+
+                // Traversal/co-access edge: this read fired together with the
+                // recent working set captured under the session lock (#289).
+                if let Some(root) =
+                    crate::core::tool_lifecycle::usable_root(Some(project_root_bg.as_str()))
+                {
+                    crate::core::cooccurrence::record_focus_access(
+                        root,
+                        &path_bg,
+                        &traversal_working_set,
+                    );
+                }
 
                 let sig = crate::core::mode_predictor::FileSignature::from_path(&path_bg, original);
                 let density = if output_tokens > 0 {

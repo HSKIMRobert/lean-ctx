@@ -266,29 +266,51 @@ pub fn graph_neighbor_ranks_for_recent_files(
     per_seed_limit: usize,
     max_ranked: usize,
 ) -> Option<HashMap<String, usize>> {
-    let open = graph_provider::open_best_effort(project_root)?;
+    // Two neighbour sources, blended per seed:
+    //   1. Traversal (co-access) — files the agent actually opened *together*
+    //      (behavioural, the strongest "what next" signal). Listed first so it
+    //      gets the best RRF rank. Works even without a static graph (#289).
+    //   2. Static graph — import/call/type proximity.
+    let coaccess = if crate::core::cooccurrence::traversal_enabled() {
+        Some(crate::core::cooccurrence::load(project_root))
+    } else {
+        None
+    };
+    let open = graph_provider::open_best_effort(project_root);
+    if open.is_none() && coaccess.is_none() {
+        return None;
+    }
+
     let mut seen = HashSet::<String>::new();
     let mut ranked: Vec<String> = Vec::new();
 
-    for seed in recent_repo_paths {
+    'seeds: for seed in recent_repo_paths {
         let rel_path = normalize_repo_rel_path(seed, project_root);
         if rel_path.is_empty() {
             continue;
         }
-        let scored = open
-            .provider
-            .related_files_scored(&rel_path, per_seed_limit);
-        for (path, _) in scored {
-            if seen.insert(path.clone()) {
-                ranked.push(path);
-                if ranked.len() >= max_ranked {
-                    return Some(
-                        ranked
-                            .into_iter()
-                            .enumerate()
-                            .map(|(i, p)| (p, i))
-                            .collect(),
-                    );
+
+        if let Some(co) = &coaccess {
+            for (path, _) in co.related(&rel_path, per_seed_limit) {
+                if seen.insert(path.clone()) {
+                    ranked.push(path);
+                    if ranked.len() >= max_ranked {
+                        break 'seeds;
+                    }
+                }
+            }
+        }
+
+        if let Some(open) = &open {
+            for (path, _) in open
+                .provider
+                .related_files_scored(&rel_path, per_seed_limit)
+            {
+                if seen.insert(path.clone()) {
+                    ranked.push(path);
+                    if ranked.len() >= max_ranked {
+                        break 'seeds;
+                    }
                 }
             }
         }

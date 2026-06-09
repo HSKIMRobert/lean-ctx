@@ -158,6 +158,12 @@ Downstream MCP servers (array of tables: `[[gateway.servers]]`)
 - `transport` (string, default `stdio`) — Transport: stdio (spawn command) or http (connect to url)
 - `url` (string, default `""`) — Streamable-HTTP endpoint (http transport)
 
+## `[graph]`
+
+Code-graph settings, including traversal (co-access) edges learned from sessions
+
+- `traversal_edges` (bool, default `true`) — Learn co-access edges from real sessions (files surfaced together), surface them as decaying `co_access` graph edges, and boost recall by them. Set false for a purely static AST-only graph.
+
 ## `[ide_paths]`
 
 Per-IDE allowed paths. Keys are agent names (cursor, codex, opencode, antigravity, etc.), values are arrays of paths to index for that agent

@@ -14,6 +14,32 @@ use crate::core::intent_engine::StructuredIntent;
 use crate::core::session::SessionState;
 use crate::core::stats;
 
+/// How many recently-touched files form the "working set" a new read is
+/// associated with for traversal (co-access) edges (#289). Small, so the signal
+/// stays local to what the agent is actively juggling.
+const TRAVERSAL_WINDOW: usize = 6;
+
+/// Recent distinct file paths (excluding `current`), most-recent first, capped
+/// to the traversal window — the working set a new read co-occurs with.
+pub(crate) fn recent_working_set(session: &SessionState, current: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for f in session.files_touched.iter().rev() {
+        if f.path == current || out.contains(&f.path) {
+            continue;
+        }
+        out.push(f.path.clone());
+        if out.len() >= TRAVERSAL_WINDOW {
+            break;
+        }
+    }
+    out
+}
+
+/// Whether `root` is a usable project root for repo-relative normalization.
+pub(crate) fn usable_root(root: Option<&str>) -> Option<&str> {
+    root.filter(|r| !r.trim().is_empty() && *r != ".")
+}
+
 /// Record a file-read operation with full Context OS side effects.
 pub fn record_file_read(
     path: &str,
@@ -48,8 +74,16 @@ pub fn record_file_read(
 
         let project_root = session.project_root.clone();
         let calls = session.stats.total_tool_calls;
+
+        // Traversal edges: associate this read with the recent working set so the
+        // graph learns the files this task actually touches together (#289).
+        let working_set = recent_working_set(&session, path);
+
         let _ = session.save();
 
+        if let Some(root) = usable_root(project_root.as_deref()) {
+            crate::core::cooccurrence::record_focus_access(root, path, &working_set);
+        }
         maybe_consolidate(project_root.as_deref(), calls);
     }
 

@@ -658,13 +658,16 @@ class CockpitGraph extends HTMLElement {
 
     // #273 confidence styling: real refs (import/reexport) stay solid + opaque,
     // heuristic links (sibling / weak co-change) render faint + dashed.
+    // #289 traversal: learned co-access edges render teal + fine-dotted so the
+    // behavioural signal is visually distinct from the structural AST graph.
     var conf = function (d) { return d.confidence != null ? d.confidence : 0.5; };
     g.append('g').selectAll('line')
       .data(links).join('line')
-      .attr('class', 'deps-edge-line')
+      .attr('class', function (d) { return d.kind === 'co_access' ? 'deps-edge-line deps-edge-coaccess' : 'deps-edge-line'; })
       .attr('stroke-width', function (d) { return 0.6 + conf(d) * 1.4; })
+      .style('stroke', function (d) { return d.kind === 'co_access' ? 'var(--accent-teal, #14b8a6)' : null; })
       .style('stroke-opacity', function (d) { return 0.12 + conf(d) * 0.55; })
-      .style('stroke-dasharray', function (d) { return conf(d) < 0.45 ? '3,3' : 'none'; });
+      .style('stroke-dasharray', function (d) { return d.kind === 'co_access' ? '1,4' : (conf(d) < 0.45 ? '3,3' : 'none'); });
 
     var nodeG = g.append('g').selectAll('circle')
       .data(nodes).join('circle')

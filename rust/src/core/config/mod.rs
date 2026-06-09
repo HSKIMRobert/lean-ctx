@@ -228,6 +228,9 @@ pub struct Config {
     /// Hybrid search weights (BM25/dense/candidates).
     #[serde(default)]
     pub search: crate::core::hybrid_search::HybridConfig,
+    /// Code-graph settings, including traversal (co-access) edges (#289).
+    #[serde(default)]
+    pub graph: GraphConfig,
     /// Optional LLM enhancement (query expansion, contradiction explanation).
     #[serde(default)]
     pub llm: crate::core::llm_enhance::LlmConfig,
@@ -444,6 +447,7 @@ impl Default for Config {
             journal_enabled: true,
             auto_capture: true,
             search: crate::core::hybrid_search::HybridConfig::default(),
+            graph: GraphConfig::default(),
             llm: crate::core::llm_enhance::LlmConfig::default(),
             embedding: EmbeddingConfig::default(),
             shell_hook_disabled: false,

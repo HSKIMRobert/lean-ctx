@@ -444,6 +444,32 @@ impl Default for GainConfig {
     }
 }
 
+/// Settings for the code graph — in particular the *traversal* (co-access) edges
+/// learned from real agent sessions (#289).
+///
+/// The static AST/import graph captures how code is wired structurally; it cannot
+/// see which files an agent actually opens *together* while solving a task.
+/// Traversal edges add that behavioural signal: files surfaced together are
+/// associated with a decaying weight (Hebbian co-access), folded into the graph
+/// as `co_access` edges and mixed into recall. The store is bounded and decays,
+/// so stale associations fade.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GraphConfig {
+    /// Record co-access between files surfaced together in a session, surface them
+    /// as decaying `co_access` edges in the graph, and boost recall by them.
+    /// On by default; set to `false` for a purely static (AST-only) graph.
+    pub traversal_edges: bool,
+}
+
+impl Default for GraphConfig {
+    fn default() -> Self {
+        Self {
+            traversal_edges: true,
+        }
+    }
+}
+
 /// A user-defined command alias mapping for shell compression patterns.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AliasEntry {
