@@ -125,6 +125,18 @@ verify_checksum() {
   echo "  Checksum verified ✓"
 }
 
+# Stop any running lean-ctx before swapping the binary. The proxy runs as a
+# LaunchAgent/systemd unit with KeepAlive, so without this it keeps a stale
+# binary alive (and may respawn mid-swap); `lean-ctx stop` boots it out so the
+# freshly installed binary is picked up cleanly on next use. No-op on a first
+# install (nothing on PATH yet). Best-effort — never fails the install.
+stop_running_instance() {
+  if command -v lean-ctx >/dev/null 2>&1; then
+    echo "Stopping running lean-ctx (if any)..."
+    lean-ctx stop >/dev/null 2>&1 || true
+  fi
+}
+
 install_download() {
   target="$(detect_target)"
   echo "Mode: download pre-built binary"
@@ -174,6 +186,7 @@ install_download() {
     xattr -cr "$tmp_bin" 2>/dev/null || true
     codesign --force --sign - "$tmp_bin" 2>/dev/null || true
   fi
+  stop_running_instance
   mv -f "$tmp_bin" "$INSTALL_DIR/lean-ctx"
   tmp_bin=""
 
@@ -219,6 +232,7 @@ install_from_source() {
   mkdir -p "$INSTALL_DIR"
   tmp_link="$INSTALL_DIR/.lean-ctx.link.$$"
   ln -sf "$binary" "$tmp_link"
+  stop_running_instance
   mv -f "$tmp_link" "$INSTALL_DIR/lean-ctx"
   echo "  Linked: $INSTALL_DIR/lean-ctx -> $binary"
 
