@@ -242,11 +242,17 @@ async fn billing_forward(
         let resp = match method {
             "GET" => agent.get(&url).header("X-Internal-Key", &key).call(),
             "DELETE" => agent.delete(&url).header("X-Internal-Key", &key).call(),
+            // Body methods (POST default, PATCH for partial updates such as
+            // pausing/resuming a connector). Both carry the caller's JSON unchanged.
             _ => {
                 let bytes = serde_json::to_vec(&payload.unwrap_or_else(|| json!({})))
                     .map_err(|e| e.to_string())?;
-                agent
-                    .post(&url)
+                let builder = if method == "PATCH" {
+                    agent.patch(&url)
+                } else {
+                    agent.post(&url)
+                };
+                builder
                     .header("X-Internal-Key", &key)
                     .header("Content-Type", "application/json")
                     .send(&bytes)
@@ -442,6 +448,129 @@ pub(super) async fn delete_account_team_member(
     .await?;
     if status.is_success() {
         return Ok(Json(json!({ "revoked": true })));
+    }
+    finish(status, json)
+}
+
+// ── Team seats, hosted-index storage & managed connectors ─────────────────────
+//
+// Same thin-proxy pattern as the team roster above: authenticate the owner by
+// their session, forward to the private plane with the internal key, and preserve
+// the upstream status. Request bodies are passed through unchanged (the plane owns
+// validation), so the edge never duplicates the seat/connector schema.
+
+/// `POST /api/account/team/seats` — change the team's seat count (written straight
+/// to the Stripe subscription, prorated). Body `{ "seats": N }`; returns the
+/// refreshed team payload so the dashboard re-renders in one round-trip.
+pub(super) async fn post_account_team_seats(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "POST",
+        format!("/api/billing/team/{user_id}/seats"),
+        Some(body),
+    )
+    .await?;
+    finish(status, json)
+}
+
+/// `GET /api/account/team/storage` — hosted retrieval-index footprint + metering.
+/// `available:false` until a team server is provisioned and reports storage.
+pub(super) async fn get_account_team_storage(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "GET",
+        format!("/api/billing/team/{user_id}/storage"),
+        None,
+    )
+    .await?;
+    finish(status, json)
+}
+
+/// `GET /api/account/team/connectors` — the secret-free managed-connector roster,
+/// each merged with its latest live sync status.
+pub(super) async fn get_account_team_connectors(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "GET",
+        format!("/api/billing/team/{user_id}/connectors"),
+        None,
+    )
+    .await?;
+    finish(status, json)
+}
+
+/// `POST /api/account/team/connectors` — create a managed connector. The plaintext
+/// provider secret is forwarded once to the plane (encrypted at rest there) and is
+/// never stored or echoed by the edge. 400 from the plane on validation / limit.
+pub(super) async fn post_account_team_connector(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "POST",
+        format!("/api/billing/team/{user_id}/connectors"),
+        Some(body),
+    )
+    .await?;
+    finish(status, json)
+}
+
+/// `PATCH /api/account/team/connectors/{connector_id}` — pause/resume a connector.
+/// Body `{ "enabled": bool }`. The plane returns 204 No Content, so surface a
+/// small JSON ack the dashboard can treat as success.
+pub(super) async fn patch_account_team_connector(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(connector_id): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "PATCH",
+        format!("/api/billing/team/{user_id}/connectors/{connector_id}"),
+        Some(body),
+    )
+    .await?;
+    if status.is_success() {
+        return Ok(Json(json!({ "updated": true })));
+    }
+    finish(status, json)
+}
+
+/// `DELETE /api/account/team/connectors/{connector_id}` — remove a connector and
+/// redeploy. The plane returns 204 No Content; surface a JSON ack.
+pub(super) async fn delete_account_team_connector(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(connector_id): Path<String>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "DELETE",
+        format!("/api/billing/team/{user_id}/connectors/{connector_id}"),
+        None,
+    )
+    .await?;
+    if status.is_success() {
+        return Ok(Json(json!({ "deleted": true })));
     }
     finish(status, json)
 }

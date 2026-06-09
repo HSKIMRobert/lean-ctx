@@ -18,7 +18,7 @@ mod site_theme;
 mod stats;
 mod wrapped;
 
-use axum::routing::{delete, get, post};
+use axum::routing::{delete, get, patch, post};
 use axum::Router;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
@@ -158,6 +158,27 @@ pub async fn run() -> anyhow::Result<()> {
         .route(
             "/api/account/team/members/{token_id}",
             delete(billing_edge::delete_account_team_member),
+        )
+        // Team seats (prorated Stripe quantity), hosted-index storage footprint,
+        // and managed connectors — thin proxies to the private plane so the hosted
+        // team dashboard's seat stepper, storage card, and connector manager work.
+        .route(
+            "/api/account/team/seats",
+            post(billing_edge::post_account_team_seats),
+        )
+        .route(
+            "/api/account/team/storage",
+            get(billing_edge::get_account_team_storage),
+        )
+        .route(
+            "/api/account/team/connectors",
+            get(billing_edge::get_account_team_connectors)
+                .post(billing_edge::post_account_team_connector),
+        )
+        .route(
+            "/api/account/team/connectors/{connector_id}",
+            patch(billing_edge::patch_account_team_connector)
+                .delete(billing_edge::delete_account_team_connector),
         )
         .with_state(state)
         .layer(cors)
