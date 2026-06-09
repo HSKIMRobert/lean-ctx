@@ -173,10 +173,9 @@ pub fn get(path: &Path, current: FileState) -> Option<Arc<str>> {
     }
     let tick = c.tick();
     c.hits += 1;
-    let entry = c
-        .map
-        .get_mut(path)
-        .expect("entry present after fresh match");
+    // The entry is present under the lock we still hold, but degrade gracefully
+    // instead of panicking on the read hot path if that invariant ever changes.
+    let entry = c.map.get_mut(path)?;
     entry.last_used = tick;
     Some(Arc::clone(&entry.content))
 }

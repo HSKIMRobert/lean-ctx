@@ -21,7 +21,7 @@ shows the smallest tool profile that exposes the tool (`M` minimal, `S` standard
   `ctx_repomap`, `ctx_callgraph`, `ctx_impact`, `ctx_compress`, `ctx_multi_read`,
   `ctx_delta`, `ctx_edit`, `ctx_agent`, `ctx_architecture`, `ctx_pack`,
   `ctx_routes`, `ctx_refactor`, `ctx_url_read`
-- **power (+52):** all remaining tools.
+- **power (+53):** all remaining tools.
 
 ---
 

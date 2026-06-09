@@ -73,11 +73,11 @@ neighbors (direct in/out edges of a file), path (shortest connection between two
             get_str(args, "path")
         } else if let Some(p) = ctx.resolved_path("path") {
             Some(p.to_string())
-        } else if ctx.path_error("path").is_some() && get_str(args, "path").is_some() {
-            return Err(ErrorData::invalid_params(
-                format!("path: {}", ctx.path_error("path").unwrap()),
-                None,
-            ));
+        } else if let Some(err) = ctx
+            .path_error("path")
+            .filter(|_| get_str(args, "path").is_some())
+        {
+            return Err(ErrorData::invalid_params(format!("path: {err}"), None));
         } else {
             None
         };
@@ -99,11 +99,11 @@ neighbors (direct in/out edges of a file), path (shortest connection between two
         let since = get_str(args, "since");
         let to = if let Some(p) = ctx.resolved_path("to") {
             Some(p.to_string())
-        } else if ctx.path_error("to").is_some() && get_str(args, "to").is_some() {
-            return Err(ErrorData::invalid_params(
-                format!("to: {}", ctx.path_error("to").unwrap()),
-                None,
-            ));
+        } else if let Some(err) = ctx
+            .path_error("to")
+            .filter(|_| get_str(args, "to").is_some())
+        {
+            return Err(ErrorData::invalid_params(format!("to: {err}"), None));
         } else {
             None
         };

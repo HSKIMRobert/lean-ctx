@@ -484,59 +484,65 @@ impl CtxReadTool {
             let project_root_bg = project_root_snapshot.clone();
             let (turns, hits) = cache_stats;
             std::thread::spawn(move || {
-                crate::core::heatmap::record_file_access(&path_bg, original, saved);
+                // A panic in telemetry must not poison locks or leave a zombie thread;
+                // it never affects the already-returned read response.
+                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+                    crate::core::heatmap::record_file_access(&path_bg, original, saved);
 
-                // Traversal/co-access edge: this read fired together with the
-                // recent working set captured under the session lock (#289).
-                if let Some(root) =
-                    crate::core::tool_lifecycle::usable_root(Some(project_root_bg.as_str()))
-                {
-                    crate::core::cooccurrence::record_focus_access(
-                        root,
-                        &path_bg,
-                        &traversal_working_set,
-                    );
-                }
+                    // Traversal/co-access edge: this read fired together with the
+                    // recent working set captured under the session lock (#289).
+                    if let Some(root) =
+                        crate::core::tool_lifecycle::usable_root(Some(project_root_bg.as_str()))
+                    {
+                        crate::core::cooccurrence::record_focus_access(
+                            root,
+                            &path_bg,
+                            &traversal_working_set,
+                        );
+                    }
 
-                let sig = crate::core::mode_predictor::FileSignature::from_path(&path_bg, original);
-                let density = if output_tokens > 0 {
-                    original as f64 / output_tokens as f64
-                } else {
-                    1.0
-                };
-                let outcome = crate::core::mode_predictor::ModeOutcome {
-                    mode: resolved_mode_bg,
-                    tokens_in: original,
-                    tokens_out: output_tokens,
-                    density: density.min(1.0),
-                };
-                let mut predictor = crate::core::mode_predictor::ModePredictor::new();
-                predictor.set_project_root(&project_root_bg);
-                predictor.record(sig, outcome);
-                predictor.save();
+                    let sig =
+                        crate::core::mode_predictor::FileSignature::from_path(&path_bg, original);
+                    let density = if output_tokens > 0 {
+                        original as f64 / output_tokens as f64
+                    } else {
+                        1.0
+                    };
+                    let outcome = crate::core::mode_predictor::ModeOutcome {
+                        mode: resolved_mode_bg,
+                        tokens_in: original,
+                        tokens_out: output_tokens,
+                        density: density.min(1.0),
+                    };
+                    let mut predictor = crate::core::mode_predictor::ModePredictor::new();
+                    predictor.set_project_root(&project_root_bg);
+                    predictor.record(sig, outcome);
+                    predictor.save();
 
-                let ext = std::path::Path::new(&path_bg)
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .unwrap_or("")
-                    .to_string();
-                let thresholds = crate::core::adaptive_thresholds::thresholds_for_path(&path_bg);
-                let feedback_outcome = crate::core::feedback::CompressionOutcome {
-                    session_id: format!("{}", std::process::id()),
-                    language: ext,
-                    entropy_threshold: thresholds.bpe_entropy,
-                    jaccard_threshold: thresholds.jaccard,
-                    total_turns: turns as u32,
-                    tokens_saved: saved as u64,
-                    tokens_original: original as u64,
-                    cache_hits: hits as u32,
-                    total_reads: turns as u32,
-                    task_completed: true,
-                    timestamp: chrono::Local::now().to_rfc3339(),
-                };
-                let mut store = crate::core::feedback::FeedbackStore::load();
-                store.project_root = Some(project_root_bg);
-                store.record_outcome(feedback_outcome);
+                    let ext = std::path::Path::new(&path_bg)
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let thresholds =
+                        crate::core::adaptive_thresholds::thresholds_for_path(&path_bg);
+                    let feedback_outcome = crate::core::feedback::CompressionOutcome {
+                        session_id: format!("{}", std::process::id()),
+                        language: ext,
+                        entropy_threshold: thresholds.bpe_entropy,
+                        jaccard_threshold: thresholds.jaccard,
+                        total_turns: turns as u32,
+                        tokens_saved: saved as u64,
+                        tokens_original: original as u64,
+                        cache_hits: hits as u32,
+                        total_reads: turns as u32,
+                        task_completed: true,
+                        timestamp: chrono::Local::now().to_rfc3339(),
+                    };
+                    let mut store = crate::core::feedback::FeedbackStore::load();
+                    store.project_root = Some(project_root_bg);
+                    store.record_outcome(feedback_outcome);
+                }));
             });
         }
 

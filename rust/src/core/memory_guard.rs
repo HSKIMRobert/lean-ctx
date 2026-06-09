@@ -2,7 +2,8 @@
 //!
 //! Monitors RSS via platform-specific APIs and triggers tiered cache eviction
 //! when memory usage exceeds configurable thresholds (default: 5% of system RAM).
-//! At critical levels (>3x limit), performs emergency shutdown to prevent OS OOM kill.
+//! At critical levels, performs aggressive eviction and signals background tasks
+//! to abort. It never exits the process — recovery is always via eviction.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
@@ -196,7 +197,7 @@ pub fn current_pressure() -> PressureLevel {
 
 /// Start the background memory guardian task (idempotent).
 /// Polls every 3s (normal) or 1s (under pressure). At Critical level, performs
-/// emergency shutdown to prevent OS OOM kill.
+/// aggressive eviction and signals background tasks to abort — never exits the process.
 pub fn start_guard(eviction_callback: Arc<dyn Fn(PressureLevel) + Send + Sync>) {
     if GUARD_RUNNING.swap(true, Ordering::SeqCst) {
         return;
