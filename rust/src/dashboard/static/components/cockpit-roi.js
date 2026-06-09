@@ -25,12 +25,18 @@ function ageDays(verifiedAt) {
   return Math.floor(secs / 86400);
 }
 
+/** How often the view re-fetches /api/roi while it is the active view. */
+var ROI_REFRESH_MS = 10000;
+
 class CockpitRoi extends HTMLElement {
   constructor() {
     super();
     this._loading = true;
     this._error = null;
     this._data = null;
+    this._fetching = false;
+    this._updatedAt = null;
+    this._timer = null;
     this._onRefresh = this._onRefresh.bind(this);
   }
 
@@ -39,12 +45,20 @@ class CockpitRoi extends HTMLElement {
     this._ready = true;
     this.style.display = 'block';
     document.addEventListener('lctx:refresh', this._onRefresh);
+    // Keep the view live: re-fetch on the cockpit cadence while active. The
+    // _onRefresh guard means hidden views never fetch, and loadData() swaps
+    // content in place (no "Loading…" flash) once data exists.
+    this._timer = setInterval(this._onRefresh, ROI_REFRESH_MS);
     this.render();
     this.loadData();
   }
 
   disconnectedCallback() {
     document.removeEventListener('lctx:refresh', this._onRefresh);
+    if (this._timer) {
+      clearInterval(this._timer);
+      this._timer = null;
+    }
     this._destroyChart();
   }
 
@@ -66,19 +80,25 @@ class CockpitRoi extends HTMLElement {
       this.render();
       return;
     }
+    if (this._fetching) return;
+    this._fetching = true;
     this._loading = true;
     this._error = null;
-    this.render();
+    // Flicker-free refresh: only show the loading placeholder before the first
+    // payload. Background refreshes keep the current DOM and swap in place.
+    if (!this._data) this.render();
 
     try {
       // Individual + local only. The team roll-up is a separate surface
       // (web /account/team, or `lean-ctx savings team`) — not this cockpit.
       this._data = await fetchJson('/api/roi', { timeoutMs: 12000 });
+      this._updatedAt = new Date();
     } catch (e) {
       this._error = e && e.error ? e.error : String(e || 'error');
       this._data = null;
     }
     this._loading = false;
+    this._fetching = false;
     this.render();
     this._renderTrend();
   }
@@ -114,12 +134,24 @@ class CockpitRoi extends HTMLElement {
     }
 
     var body = this._renderHero(esc);
+    body += this._renderLiveStamp(esc);
     body += this._renderVerification(esc);
     body += this._renderPlan(esc);
     body += this._renderTrendCard(esc);
     body += this._renderBreakdown(esc);
     body += this._renderShare(esc);
     this.innerHTML = body;
+  }
+
+  /** Muted liveness line so the view is visibly auto-updating, not frozen. */
+  _renderLiveStamp(esc) {
+    if (!this._updatedAt) return '';
+    var t = this._updatedAt.toLocaleTimeString();
+    return (
+      '<p class="hs" style="margin:-8px 0 16px;color:var(--muted);text-align:right">' +
+      'Updated ' + esc(t) + ' \u00b7 auto-refreshes every ' +
+      esc(String(Math.round(ROI_REFRESH_MS / 1000))) + '\u202fs</p>'
+    );
   }
 
   _renderHero(esc) {

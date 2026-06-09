@@ -62,8 +62,16 @@ class CockpitCommander extends HTMLElement {
   connectedCallback() {
     if (this._ready) return;
     this._ready = true;
-    document.addEventListener('lctx:refresh', () => this.loadData());
+    this._onRefresh = this._onRefresh || (() => {
+      const v = document.getElementById('view-commander');
+      if (v && v.classList.contains('active')) this.loadData();
+    });
+    document.addEventListener('lctx:refresh', this._onRefresh);
     this.loadData();
+  }
+
+  disconnectedCallback() {
+    if (this._onRefresh) document.removeEventListener('lctx:refresh', this._onRefresh);
   }
 
   async loadData() {
