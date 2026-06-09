@@ -270,6 +270,10 @@ pub(super) fn cmd_dashboard(rest: &[String]) {
             "  lean-ctx dashboard --base-path=/dashboard   Mount behind a reverse proxy subpath"
         );
         println!("  lean-ctx dashboard --export        Export HTML report (replaces visualize)");
+        println!("Environment:");
+        println!(
+            "  LEAN_CTX_HTTP_TOKEN=<token>   Pin the dashboard Bearer token (stable across restarts — ideal behind a reverse proxy). Unset → a random token is generated each start."
+        );
         return;
     }
     if rest.iter().any(|a| a == "--export") {

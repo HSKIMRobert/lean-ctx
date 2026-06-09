@@ -100,7 +100,7 @@ pub async fn start(port: Option<u16>, host: Option<String>, base_path: Option<St
 
     // Always enable auth (even on loopback) to prevent cross-origin reads of /api/*
     // from a malicious website (CORS is not a reliable boundary for localhost services).
-    let t = generate_token();
+    let (t, token_from_env) = resolve_dashboard_token();
     save_token(&t);
     let token = Some(Arc::new(t));
 
@@ -114,13 +114,18 @@ pub async fn start(port: Option<u16>, host: Option<String>, base_path: Option<St
         } else {
             t.to_string()
         };
+        let src = if token_from_env {
+            " (from LEAN_CTX_HTTP_TOKEN)"
+        } else {
+            ""
+        };
         if is_local {
-            println!("  Auth: enabled (local)");
+            println!("  Auth: enabled (local){src}");
             println!("  Browser URL:  http://localhost:{port}{base_path}/?token={t}");
         } else {
             eprintln!(
                 "  \x1b[33m⚠\x1b[0m Binding to {host} — authentication enabled.\n  \
-                 Bearer token: \x1b[1;32m{masked}\x1b[0m\n  \
+                 Bearer token{src}: \x1b[1;32m{masked}\x1b[0m\n  \
                  Browser URL:  http://<your-ip>:{port}{base_path}/?token={t}"
             );
         }
@@ -172,6 +177,27 @@ pub async fn start(port: Option<u16>, host: Option<String>, base_path: Option<St
             tokio::spawn(handle_request(stream, token_ref, base_ref));
         }
     }
+}
+
+/// Name of the env var that pins the dashboard Bearer token (#377).
+const HTTP_TOKEN_ENV: &str = "LEAN_CTX_HTTP_TOKEN";
+
+/// Resolve the dashboard Bearer token.
+///
+/// Honors `LEAN_CTX_HTTP_TOKEN` (#377): when set to a non-empty value it is used
+/// verbatim so reverse-proxy / container deployments keep a stable token across
+/// restarts and redeploys (nginx can inject a fixed `Authorization: Bearer …`).
+/// When unset or empty, a fresh random token is generated (no behavior change).
+///
+/// Returns the token and whether it originated from the env var.
+fn resolve_dashboard_token() -> (String, bool) {
+    if let Ok(raw) = std::env::var(HTTP_TOKEN_ENV) {
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() {
+            return (trimmed.to_string(), true);
+        }
+    }
+    (generate_token(), false)
 }
 
 fn generate_token() -> String {
@@ -786,5 +812,48 @@ mod tests {
         if let Some(dir) = crate::core::graph_index::ProjectIndex::index_dir(&root_s) {
             let _ = std::fs::remove_dir_all(dir);
         }
+    }
+
+    #[test]
+    fn resolve_token_uses_env_var_verbatim() {
+        let _g = ENV_LOCK.lock().expect("env lock");
+        std::env::set_var(HTTP_TOKEN_ENV, "lctx_mystatic");
+        let (token, from_env) = resolve_dashboard_token();
+        std::env::remove_var(HTTP_TOKEN_ENV);
+        assert!(from_env, "token should be reported as env-sourced");
+        assert_eq!(token, "lctx_mystatic");
+    }
+
+    #[test]
+    fn resolve_token_trims_env_var() {
+        let _g = ENV_LOCK.lock().expect("env lock");
+        std::env::set_var(HTTP_TOKEN_ENV, "  lctx_padded  ");
+        let (token, from_env) = resolve_dashboard_token();
+        std::env::remove_var(HTTP_TOKEN_ENV);
+        assert!(from_env);
+        assert_eq!(token, "lctx_padded");
+    }
+
+    #[test]
+    fn resolve_token_falls_back_to_random_when_unset() {
+        let _g = ENV_LOCK.lock().expect("env lock");
+        std::env::remove_var(HTTP_TOKEN_ENV);
+        let (token, from_env) = resolve_dashboard_token();
+        assert!(!from_env, "unset env should yield a generated token");
+        assert!(
+            token.starts_with("lctx_"),
+            "generated token prefix, got {token}"
+        );
+        assert!(token.len() > 12, "generated token should be 32-byte hex");
+    }
+
+    #[test]
+    fn resolve_token_ignores_empty_env() {
+        let _g = ENV_LOCK.lock().expect("env lock");
+        std::env::set_var(HTTP_TOKEN_ENV, "   ");
+        let (token, from_env) = resolve_dashboard_token();
+        std::env::remove_var(HTTP_TOKEN_ENV);
+        assert!(!from_env, "whitespace-only env should fall back to random");
+        assert!(token.starts_with("lctx_"));
     }
 }
