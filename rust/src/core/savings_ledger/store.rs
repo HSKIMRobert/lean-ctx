@@ -350,6 +350,35 @@ mod tests {
         let _ = fs::remove_file(&p);
     }
 
+    /// Regression: appending an event whose USD value lands on a half-micro tie (7831 tokens
+    /// @ $2.5/M = 19577.5 µ$) and then verifying must succeed. This exercises the *real* append
+    /// and verify call sites (not a single in-line recompute), which is where the tie previously
+    /// broke an untampered chain.
+    #[test]
+    fn append_then_verify_survives_half_micro_tie() {
+        let p = temp_path("tie");
+        let mut tie = sample(0);
+        tie.saved_tokens = 7831;
+        tie.baseline_tokens = 8228;
+        tie.actual_tokens = 397;
+        tie.unit_price_per_m_usd = 2.5;
+        // Same computation order as the production recorder.
+        tie.saved_usd = tie.saved_tokens as f64 / 1_000_000.0 * tie.unit_price_per_m_usd;
+
+        append(&p, sample(500)).unwrap();
+        append(&p, tie).unwrap();
+        append(&p, sample(300)).unwrap();
+
+        let v = verify(&p);
+        assert!(
+            v.valid,
+            "a fresh chain with a half-micro tie value must verify"
+        );
+        assert_eq!(v.total, 3);
+
+        let _ = fs::remove_file(&p);
+    }
+
     #[test]
     fn verify_detects_tampering() {
         let p = temp_path("tamper");

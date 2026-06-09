@@ -101,10 +101,19 @@ impl SavingsEvent {
 }
 
 /// Rounds a USD amount to integer micro-USD (millionths of a dollar) — the float-free money
-/// unit committed by the v2 hash chain. `round()` (ties away from zero) is deterministic for a
-/// given `f64`, and JSON round-trips an `f64` losslessly, so append and verify always agree.
+/// unit committed by the v2 hash chain.
+///
+/// A *half*-micro-USD tie (e.g. `7831 tokens * $2.5/M = 19577.5 µ$`) is the one input where a
+/// bare `(usd * 1e6).round()` is fragile: the scaled product computed at the append call site
+/// and the value recomputed at the verify call site can differ by a sub-ULP amount (float-op
+/// contraction / a different inlining context), landing on opposite sides of `.5` and breaking
+/// the chain for *untampered* data. Nudging by a sub-micro epsilon before rounding resolves the
+/// tie identically at every call site. `1e-6 µ$` (= `1e-12 USD`) is far below any real monetary
+/// unit and only ever moves a value sitting on the tie, so reported totals are unaffected.
 fn micro_usd(usd: f64) -> i64 {
-    (usd * 1_000_000.0).round() as i64
+    const TIE_EPSILON_MICRO: f64 = 1e-6;
+    let scaled = usd * 1_000_000.0;
+    (scaled + TIE_EPSILON_MICRO.copysign(scaled)).round() as i64
 }
 
 /// `SHA-256(prev_hash || content)` as lowercase hex — the chain link primitive.
@@ -183,6 +192,37 @@ mod tests {
             parsed.hash_matches(&parsed.prev_hash),
             "v2 chain must survive a JSON round-trip on a decimal-tie value"
         );
+    }
+
+    /// Regression: the production recorder values a read as `saved_tokens / 1e6 * price`, whose
+    /// result for `7831 tokens @ $2.5/M` lands on a half-micro-USD tie (`19577.5 µ$`). That tie
+    /// broke the v2 chain on a fresh, untampered ledger. The tie-stable [`micro_usd`] must make
+    /// append and verify agree across a JSON round-trip regardless of the computation order.
+    #[test]
+    fn v2_hash_is_roundtrip_stable_on_production_order_tie() {
+        let mut e = ev();
+        e.saved_tokens = 7831;
+        e.unit_price_per_m_usd = 2.5;
+        // Same order as `record_read_event`: divide first, then multiply.
+        e.saved_usd = e.saved_tokens as f64 / 1_000_000.0 * e.unit_price_per_m_usd;
+        e.prev_hash = "genesis".into();
+        e.entry_hash = compute_hash(&e.prev_hash, &e.canonical_content());
+
+        let json = serde_json::to_string(&e).unwrap();
+        let parsed: SavingsEvent = serde_json::from_str(&json).unwrap();
+        assert!(
+            parsed.hash_matches(&parsed.prev_hash),
+            "v2 chain must survive a JSON round-trip on a production-order half-micro tie"
+        );
+    }
+
+    #[test]
+    fn micro_usd_resolves_half_micro_ties_consistently() {
+        // A value exactly on the tie and a value one ULP below it must quantize the same way,
+        // so an append/verify pair that observes either side of the tie still agrees.
+        let tie = 19_577.5_f64 / 1_000_000.0;
+        let below = f64::from_bits(tie.to_bits() - 1);
+        assert_eq!(micro_usd(tie), micro_usd(below));
     }
 
     #[test]
