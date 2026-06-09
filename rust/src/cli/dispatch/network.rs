@@ -175,6 +175,9 @@ pub(super) fn cmd_team(rest: &[String]) {
             eprintln!("Usage: lean-ctx team token create --config <path> --id <id> --scopes <csv>");
             std::process::exit(1);
         }
+        "slo-report" => {
+            cmd_team_slo_report(&rest[1..]);
+        }
         "sync" => {
             let args = &rest[1..];
             let cfg_path = args
@@ -250,10 +253,124 @@ pub(super) fn cmd_team(rest: &[String]) {
         }
         _ => {
             eprintln!(
-                "Usage:\n  lean-ctx team serve --config <path>\n  lean-ctx team token create --config <path> --id <id> --scopes <csv>\n  lean-ctx team sync --config <path> [--workspace <id>]"
+                "Usage:\n  lean-ctx team serve --config <path>\n  lean-ctx team token create --config <path> --id <id> --scopes <csv>\n  lean-ctx team sync --config <path> [--workspace <id>]\n  lean-ctx team slo-report --server <url> --token <token> [--json]"
             );
             std::process::exit(1);
         }
+    }
+}
+
+/// `lean-ctx team slo-report` — fetches `/v1/metrics` from a team server and
+/// renders the hosted-index SLO gate (GL #391). Exit code 0 = all objectives
+/// green, 1 = at least one violated (CI-friendly for the 30-day GA gate).
+fn cmd_team_slo_report(args: &[String]) {
+    let flag = |name: &str| -> Option<String> {
+        args.iter().enumerate().find_map(|(i, a)| {
+            if let Some(v) = a.strip_prefix(&format!("--{name}=")) {
+                return Some(v.to_string());
+            }
+            if a == format!("--{name}").as_str() {
+                return args.get(i + 1).cloned();
+            }
+            None
+        })
+    };
+    let server = flag("server").unwrap_or_default();
+    let token = flag("token")
+        .or_else(|| std::env::var("LEAN_CTX_TEAM_TOKEN").ok())
+        .unwrap_or_default();
+    let json_out = args.iter().any(|a| a == "--json");
+
+    if server.trim().is_empty() || token.trim().is_empty() {
+        eprintln!(
+            "Usage: lean-ctx team slo-report --server <url> --token <token> [--json]\n  (token also via LEAN_CTX_TEAM_TOKEN)"
+        );
+        std::process::exit(1);
+    }
+
+    let url = format!("{}/v1/metrics", server.trim_end_matches('/'));
+    let body = match ureq::get(&url)
+        .header("Authorization", &format!("Bearer {token}"))
+        .call()
+    {
+        Ok(resp) => resp.into_body().read_to_string().unwrap_or_default(),
+        Err(e) => {
+            eprintln!("\x1b[31m✗\x1b[0m Could not reach team server at {url}: {e}");
+            std::process::exit(1);
+        }
+    };
+    let v: serde_json::Value = match serde_json::from_str(&body) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("\x1b[31m✗\x1b[0m Invalid /v1/metrics response: {e}");
+            std::process::exit(1);
+        }
+    };
+    let Some(slo) = v.get("slo") else {
+        eprintln!(
+            "\x1b[31m✗\x1b[0m Server response has no `slo` block — server predates GL #391; upgrade the team server."
+        );
+        std::process::exit(1);
+    };
+
+    if json_out {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(slo).unwrap_or_else(|_| slo.to_string())
+        );
+    }
+
+    let read_f64 = |key: &str| slo.get(key).and_then(serde_json::Value::as_f64);
+    let availability = read_f64("availability_pct").unwrap_or(100.0);
+    let p95 = read_f64("p95_ms").unwrap_or(0.0);
+    let lag = read_f64("index_lag_seconds");
+    let window = slo.get("window_len").and_then(serde_json::Value::as_u64);
+    let uptime = slo
+        .get("uptime_seconds")
+        .and_then(serde_json::Value::as_u64);
+
+    // The three GA-gate objectives (docs/examples/team-slos.toml).
+    let avail_ok = availability >= 99.5;
+    let p95_ok = p95 < 500.0;
+    let lag_ok = lag.is_none_or(|secs| secs < 300.0);
+
+    if !json_out {
+        let mark = |ok: bool| {
+            if ok {
+                "\x1b[32mOK\x1b[0m"
+            } else {
+                "\x1b[31mVIOLATED\x1b[0m"
+            }
+        };
+        println!("Hosted Index SLO Report — {server}");
+        println!(
+            "  Availability  {availability:7.2} %   (target ≥ 99.5)   {}",
+            mark(avail_ok)
+        );
+        println!(
+            "  Query p95     {p95:7.0} ms   (target < 500)    {}",
+            mark(p95_ok)
+        );
+        match lag {
+            Some(secs) => println!(
+                "  Index lag     {secs:7.0} s    (target < 300)    {}",
+                mark(lag_ok)
+            ),
+            None => println!("  Index lag         n/a    (no index write observed yet)"),
+        }
+        if let (Some(win), Some(up)) = (window, uptime) {
+            let (days, hours, mins) = (up / 86_400, (up % 86_400) / 3_600, (up % 3_600) / 60);
+            println!("  Window        {win} requests · uptime {days}d {hours}h {mins}m");
+        }
+        if avail_ok && p95_ok && lag_ok {
+            println!("  \x1b[32m→ GA gate: PASS (all objectives green)\x1b[0m");
+        } else {
+            println!("  \x1b[31m→ GA gate: FAIL\x1b[0m   Runbook: docs/guides/hosted-index-slo.md");
+        }
+    }
+
+    if !(avail_ok && p95_ok && lag_ok) {
+        std::process::exit(1);
     }
 }
 

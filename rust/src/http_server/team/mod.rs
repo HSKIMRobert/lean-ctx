@@ -607,6 +607,28 @@ fn required_scopes(tool_name: &str, args: Option<&Value>) -> Option<BTreeSet<Tea
     }
 }
 
+/// Records latency and server-error outcome of every team API request into
+/// the process-global SLO store (GL #391). Runs as the outermost layer so the
+/// measured latency matches what a client (or the synthetic probe) observes —
+/// auth, rate limiting and the handler itself are all included. `/health` and
+/// MCP fallback traffic stay unmeasured: the SLO gate is defined over the
+/// `/v1` HTTP surface.
+async fn team_slo_middleware(req: Request<Body>, next: Next) -> Response {
+    let measured = {
+        let p = req.uri().path();
+        p.starts_with("/v1/") || p.starts_with("/api/v1/")
+    };
+    let start = std::time::Instant::now();
+    let res = next.run(req).await;
+    if measured {
+        crate::core::team_slo::global().record_request(
+            u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX),
+            !res.status().is_server_error(),
+        );
+    }
+    res
+}
+
 async fn team_rate_limit_middleware(
     State(state): State<TeamAppState>,
     req: Request<Body>,
@@ -1030,6 +1052,11 @@ async fn v1_tool_call(
     }
 
     let required = required_scopes(&body.name, Some(&args));
+    // Index-mutating calls (anything requiring the Index scope) reset the
+    // hosted-index freshness baseline once they succeed (GL #391).
+    let mutates_index = required
+        .as_ref()
+        .is_some_and(|reqs| reqs.contains(&TeamScope::Index));
     let allowed = match required {
         None => false,
         Some(reqs) => reqs.is_subset(&auth.scopes),
@@ -1065,6 +1092,9 @@ async fn v1_tool_call(
 
     match call {
         Ok(Ok(v)) => {
+            if mutates_index {
+                crate::core::team_slo::global().record_index_write();
+            }
             let _ = audit_write(
                 &state.team.audit,
                 &auth.token_id,
@@ -1228,13 +1258,42 @@ async fn v1_events(
     Sse::new(guarded).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
 }
 
-async fn v1_team_metrics(State(_state): State<TeamAppState>) -> impl IntoResponse {
+#[derive(Debug, Deserialize)]
+struct MetricsQuery {
+    /// `?format=prometheus` switches to text exposition for scrape agents
+    /// (Datadog openmetrics check, Prometheus, Grafana Alloy …).
+    #[serde(default)]
+    format: Option<String>,
+}
+
+async fn v1_team_metrics(
+    State(_state): State<TeamAppState>,
+    Query(q): Query<MetricsQuery>,
+) -> Response {
+    let slo = crate::core::team_slo::global().snapshot();
+
+    if q.format.as_deref() == Some("prometheus") {
+        return (
+            StatusCode::OK,
+            [(
+                axum::http::header::CONTENT_TYPE,
+                "text/plain; version=0.0.4",
+            )],
+            slo.to_prometheus(),
+        )
+            .into_response();
+    }
+
     let rt = crate::core::context_os::runtime();
     let snap = rt.metrics.snapshot();
-    (
-        StatusCode::OK,
-        Json(serde_json::to_value(snap).unwrap_or_default()),
-    )
+    let mut v = serde_json::to_value(snap).unwrap_or_default();
+    if let Value::Object(ref mut m) = v {
+        m.insert(
+            "slo".to_string(),
+            serde_json::to_value(&slo).unwrap_or_default(),
+        );
+    }
+    (StatusCode::OK, Json(v)).into_response()
 }
 
 fn streamable_http_config(cfg: &TeamServerConfig) -> rmcp::transport::StreamableHttpServerConfig {
@@ -1353,7 +1412,11 @@ pub async fn serve_team(cfg: TeamServerConfig) -> Result<()> {
             state.clone(),
             team_auth_middleware,
         ))
+        // Outermost: SLO measurement sees the full client-observed latency.
+        .layer(middleware::from_fn(team_slo_middleware))
         .with_state(state);
+
+    crate::core::team_slo::global().mark_started();
 
     let listener = tokio::net::TcpListener::bind(addr)
         .await

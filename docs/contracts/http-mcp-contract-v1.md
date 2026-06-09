@@ -355,10 +355,13 @@ and all ancestors up to `depth` (default 20, max 50).
 
 ```
 GET /v1/metrics
+GET /v1/metrics?format=prometheus
 ```
 
 Returns a JSON snapshot of Context OS process-level counters. Requires `Audit` scope on
-the team server.
+the team server. With `format=prometheus` the response switches to Prometheus
+text exposition (`text/plain; version=0.0.4`) containing the `leanctx_team_*`
+SLO series — additive, introduced for the hosted-index SLO gate (GL #391).
 
 ### Response Schema (`MetricsSnapshot`)
 
@@ -371,9 +374,26 @@ the team server.
   "sseConnectionsTotal": 47,
   "sharedSessionsLoaded": 12,
   "sharedSessionsPersisted": 8,
-  "activeWorkspaceCount": 2
+  "activeWorkspaceCount": 2,
+  "slo": {
+    "requests_total": 1234,
+    "errors_total": 2,
+    "window_len": 1024,
+    "p50_ms": 18.0,
+    "p95_ms": 142.0,
+    "p99_ms": 305.0,
+    "availability_pct": 99.84,
+    "index_lag_seconds": 41.0,
+    "uptime_seconds": 86400
+  }
 }
 ```
+
+The `slo` block (additive since GL #391) carries the team server's rolling SLO
+signals: nearest-rank latency percentiles over the last 4096 `/v1` requests,
+availability as the non-5xx share of that window, and seconds since the last
+successful Index-scoped tool call (`index_lag_seconds` is `null`/absent until
+one happened; `uptime_seconds` is absent outside a serving process).
 
 | Field | Type | Description |
 |-------|------|-------------|

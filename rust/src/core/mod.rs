@@ -405,6 +405,7 @@ pub mod structural_diff;
 pub mod symbol_map;
 pub mod task_briefing;
 pub mod tdd_schema;
+pub mod team_slo;
 pub mod telemetry;
 pub mod terse;
 pub mod theme;

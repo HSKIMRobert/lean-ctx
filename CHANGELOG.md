@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- **Hosted-index SLO gate** (GL #391): the team server now measures every
+  `/v1` request in an outermost middleware and derives the three GA-gate
+  signals — rolling p50/p95/p99 latency, availability (non-5xx share over the
+  last 4096 requests) and index freshness (seconds since the last successful
+  Index-scoped tool call). Exposed via `/v1/metrics` (new `slo` block) and
+  `/v1/metrics?format=prometheus` (`leanctx_team_*` series for Datadog/
+  Prometheus scrape agents). New CLI: `lean-ctx team slo-report --server
+  <url> --token <token> [--json]` renders the gate and exits non-zero on
+  violation (CI-friendly). SLO definitions ship in
+  `docs/examples/team-slos.toml`; the SLO engine understands the new metrics
+  `team_query_p95_ms`, `team_availability_pct`, `team_index_lag_seconds`.
+  Runbook: `docs/guides/hosted-index-slo.md`.
+
 ### Security
 - **CLI shell allowlist is now enforced for agents** (P0-1, GL #413):
   `lean-ctx -c` blocks allowlist violations (exit 126) whenever the caller is
