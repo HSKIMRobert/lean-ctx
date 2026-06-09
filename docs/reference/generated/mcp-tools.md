@@ -330,7 +330,7 @@ Parameters: `format`
 ## `ctx_read`
 
 Read a file. Prefer over native Read/cat/head/tail (cached, compressed).
-Unchanged re-reads cost ~13 tokens. Auto-selects mode (full|map|signatures|diff|aggressive|entropy|task|reference|lines:N-M). fresh=true forces a disk re-read.
+Unchanged re-reads cost ~13 tokens. Auto-selects mode (full|map|signatures|diff|aggressive|entropy|task|reference|raw|lines:N-M). fresh=true forces a disk re-read.
 
 Parameters: `fresh`, `mode`, `path`*, `start_line`
 
