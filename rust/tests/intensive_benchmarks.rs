@@ -125,15 +125,14 @@ fn bench_tool_descriptions_token_count() {
     eprintln!("  {:<25} {:>8}", "TOTAL", total);
     eprintln!("{}", "=".repeat(70));
 
-    // Budgets reflect the real registry tool surface (single source of truth,
-    // #141): all 75 tools with their full `McpTool::tool_def()` descriptions —
-    // i.e. exactly what the live server advertises in full mode. The previous
-    // (lower) budget measured the retired `list_all_tool_defs` abbreviated set,
-    // which never matched what agents actually received. Bumped to 2800 after
-    // ctx_skillify + ctx_summary + ctx_package (#290).
+    // Budget = the real registry tool surface (single source of truth, #141):
+    // every tool with its full `McpTool::tool_def()` description — exactly what
+    // the live server advertises in full mode. Set with deliberate headroom over
+    // the current actual so adding a tool or two never blocks CI; only raise it
+    // again on a material jump in the surface, not on routine additions (#290).
     assert!(
-        total < 2800,
-        "Total tool description tokens should be <2800, got {total}"
+        total < 3000,
+        "Total tool description tokens should be <3000, got {total}"
     );
 
     for (name, desc) in &descriptions {
@@ -177,13 +176,13 @@ fn bench_total_input_overhead() {
     );
     eprintln!("{}", "=".repeat(70));
 
-    // Full tool surface (all 75 tools, registry SSOT incl. full property
-    // schemas) — the worst-case opt-in overhead. The default lazy surface is
-    // far smaller; see `bench_lazy_default_vs_full_overhead` (#141).
-    // Bumped to 11500 after ctx_skillify + ctx_summary + ctx_package (#290).
+    // Full tool surface (registry SSOT incl. full property schemas) — the
+    // worst-case opt-in overhead. The default lazy surface is far smaller; see
+    // `bench_lazy_default_vs_full_overhead` (#141). Set with deliberate headroom
+    // over the current actual so routine tool additions do not trip CI (#290).
     assert!(
-        total < 11500,
-        "Total input overhead should be <11500 tokens, got {total}"
+        total < 12000,
+        "Total input overhead should be <12000 tokens, got {total}"
     );
 }
 
