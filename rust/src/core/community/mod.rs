@@ -1,8 +1,8 @@
 //! Community detection on the code graph.
 //!
-//! A hardened Leiden engine ([`leiden`]) clusters files into cohesive modules,
+//! A hardened Leiden engine (`leiden`) clusters files into cohesive modules,
 //! with robustness passes for super-hubs and oversized/low-cohesion communities
-//! ([`hardening`]) and **stable ids across rebuilds** ([`stable_ids`]). The
+//! (`hardening`) and **stable ids across rebuilds** (`stable_ids`). The
 //! engine is storage-agnostic: it runs on the PropertyGraph (SQLite) and on any
 //! [`GraphProvider`], so `ctx_architecture` and the dashboard graph view share
 //! one implementation and report identical community ids.
