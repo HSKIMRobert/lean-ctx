@@ -25,6 +25,7 @@ pub mod ctx_feedback;
 pub mod ctx_fill;
 pub mod ctx_gain;
 pub mod ctx_git_read;
+pub mod ctx_glob;
 pub mod ctx_graph;
 pub mod ctx_handoff;
 pub mod ctx_heatmap;

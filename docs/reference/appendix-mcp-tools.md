@@ -1,4 +1,4 @@
-# Appendix — MCP Tool Map (all 75 tools)
+# Appendix — MCP Tool Map (all 76 tools)
 
 Every tool lean-ctx registers via `rust/src/server/registry.rs`. Your AI editor
 calls these instead of its native file/search tools. The **Profile** column
@@ -41,6 +41,7 @@ shows the smallest tool profile that exposes the tool (`M` minimal, `S` standard
 | `ctx_shell` | Run shell commands with pattern compression | `command`*, `raw`, `cwd` | M |
 | `shell` | Alias of `ctx_shell` (same compression) for clients whose model reaches for a native `shell`/`bash` tool — e.g. Codex Desktop / Codex Cloud | `command`*, `raw`, `cwd` | M |
 | `ctx_search` | Regex search across the codebase, token-efficient | `pattern`*, `path`, `ext`, `max_results`, `ignore_gitignore` | M |
+| `ctx_glob` | Find files by glob pattern (path match), gitignore-aware, multi-root, deterministically sorted | `pattern`*, `path`, `paths[]`, `max_results`, `ignore_gitignore` | P |
 | `ctx_tree` | Compact directory tree with file counts | `path`, `depth`, `show_hidden` | M |
 | `ctx_semantic_search` | Semantic search (BM25 + embeddings / hybrid) | `query`*, `action` (search\|reindex\|find_related), `mode` (bm25\|dense\|hybrid), `top_k` | S |
 | `ctx_compose` | Task composer: keywords + ranked files + matches + top symbol | `task`*, `path` | P |
@@ -139,9 +140,9 @@ shows the smallest tool profile that exposes the tool (`M` minimal, `S` standard
 
 ## Notes
 
-1. `power` enables all 75 tools; `ToolProfile::is_tool_enabled()` returns `true`
+1. `power` enables all 76 tools; `ToolProfile::is_tool_enabled()` returns `true`
    for everything under power.
 2. `ctx_load_tools` controls *dynamic* categories (`arch`, `debug`, `memory`,
    `metrics`, `session`) independently of the static profile filter.
 3. Lazy clients use `ctx_call` + `ctx_discover_tools` + `ctx_load_tools` to reach
-   tools not in their active profile without listing all 75 upfront.
+   tools not in their active profile without listing all 76 upfront.

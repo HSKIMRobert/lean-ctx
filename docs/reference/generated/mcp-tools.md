@@ -4,7 +4,7 @@
 
 Source of truth: `rust/src/server/registry.rs` and the tool definitions it registers.
 
-lean-ctx registers **75 MCP tools** (granular profile). Each entry below lists the tool name, what it does, and its parameters (`*` marks required).
+lean-ctx registers **76 MCP tools** (granular profile). Each entry below lists the tool name, what it does, and its parameters (`*` marks required).
 
 ## `ctx_agent`
 
@@ -181,6 +181,13 @@ Accepts repo URLs and GitHub/GitLab blob/tree links (ref + path auto-detected). 
 Use instead of ctx_url_read when you need a whole repo's files/structure.
 
 Parameters: `max_tokens`, `mode`, `path`, `query`, `ref`, `timeout_secs`, `url`*
+
+## `ctx_glob`
+
+Find files by glob pattern. Prefer over native Glob for consistency.
+Respects .gitignore; supports multi-root via `paths` array.
+
+Parameters: `ignore_gitignore`, `max_results`, `path`, `paths`, `pattern`*
 
 ## `ctx_graph`
 
