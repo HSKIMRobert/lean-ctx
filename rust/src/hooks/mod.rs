@@ -185,7 +185,12 @@ fn hooks_installed_for(agent: &str, home: &std::path::Path) -> bool {
                 || file_contains_lean_ctx(&dir.join("hooks.json"))
         }
         "windsurf" => file_contains_lean_ctx(&home.join(".codeium/windsurf/hooks.json")),
-        "copilot" => file_contains_lean_ctx(&home.join(".github/hooks/hooks.json")),
+        "copilot" => {
+            // User-level Copilot hooks live under ~/.copilot/hooks (#381);
+            // ~/.github/hooks is the pre-#381 legacy location.
+            file_contains_lean_ctx(&home.join(".copilot/hooks/hooks.json"))
+                || file_contains_lean_ctx(&home.join(".github/hooks/hooks.json"))
+        }
         "qoder" => file_contains_lean_ctx(&home.join(".qoder/settings.json")),
         _ => false,
     }

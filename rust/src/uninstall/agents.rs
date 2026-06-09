@@ -856,7 +856,11 @@ pub(super) fn remove_hook_files(home: &Path, dry_run: bool) -> bool {
         ),
         ("Windsurf", home.join(".codeium/windsurf/hooks.json")),
         ("Qoder", home.join(".qoder/settings.json")),
-        ("Copilot (global)", home.join(".github/hooks/hooks.json")),
+        ("Copilot (global)", home.join(".copilot/hooks/hooks.json")),
+        (
+            "Copilot (legacy global)",
+            home.join(".github/hooks/hooks.json"),
+        ),
         ("Gemini CLI", home.join(".gemini/settings.json")),
     ] {
         if !hj_path.exists() {

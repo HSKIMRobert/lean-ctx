@@ -77,6 +77,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - **Reproducible scorecard — `lean-ctx benchmark scorecard`**: a deterministic, machine-independent report of compression savings, retrieval recall/MRR, and latency over a synthetic, byte-reproducible corpus. The JSON and human output embed a `determinism_digest`, so two runs of the same code anywhere produce the same fingerprint — the artifact is self-verifying. Wired into CI as an uploaded artifact.
 
 ### Fixed
+- **Copilot CLI hooks work on Windows** (#381): the generated hook entries
+  carried only a `bash` command — but Copilot CLI runs the `powershell` field on
+  Windows, so the hooks had no runnable command there, errored, and made the CLI
+  reject every tool call. Entries now carry **both** fields, each with a quoted
+  binary path (`bash` gets the MSYS-style conversion; `powershell` uses the call
+  operator — Windows install paths routinely contain spaces). Also, global hooks
+  were written to `~/.github/hooks/hooks.json`, a location Copilot never reads:
+  they now go to the documented user-level `~/.copilot/hooks/hooks.json`
+  (honoring `COPILOT_HOME`), existing pre-#381 configs are upgraded in place
+  (missing-`powershell` detection), and lean-ctx entries are migrated out of the
+  stale legacy file (deleted when it was ours alone, foreign hooks preserved).
 - **Dashboard "ROI & Plan" view is live, not a frozen snapshot** (user-reported):
   the view fetched `/api/roi` exactly once per navigation — the cockpit's 10 s
   poll only refreshed the status footer, and the `lctx:refresh` event was only
