@@ -186,8 +186,9 @@ mod tests {
 
         let path = RulesConfig::config_path(dir.path());
         assert!(
-            path.to_string_lossy().contains(".lean-ctx/"),
-            "should prefer .lean-ctx/ over .leanctx/ when both exist"
+            path.components().any(|c| c.as_os_str() == ".lean-ctx"),
+            "should prefer .lean-ctx over legacy .leanctx when both exist; got {}",
+            path.display()
         );
     }
 
