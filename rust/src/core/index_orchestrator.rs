@@ -192,6 +192,11 @@ pub fn ensure_warm_for_tool(project_root: &str, tool: &str) -> bool {
     }
 }
 
+/// Stack size for background index workers. Large enough that deep ASTs and
+/// graph traversals cannot overflow it (the #378 SIGABRT class). The AST walks
+/// are iterative now too, so this is defense-in-depth.
+const INDEXER_STACK_BYTES: usize = 16 * 1024 * 1024;
+
 pub fn ensure_all_background(project_root: &str) {
     let state = entry_for(project_root);
     let should_spawn = {
@@ -211,7 +216,7 @@ pub fn ensure_all_background(project_root: &str) {
     }
 
     let root = project_root.to_string();
-    std::thread::spawn(move || {
+    let indexer = move || {
         let state = entry_for(&root);
 
         // Pre-warm the resident line-search index in parallel (own thread,
@@ -281,7 +286,23 @@ pub fn ensure_all_background(project_root: &str) {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         s.worker_running = false;
-    });
+    };
+
+    // Indexing parses large ASTs and traverses graphs; give the worker a
+    // generous stack as defense-in-depth against deep-recursion overflow (the
+    // #378 SIGABRT class) and a name so it is identifiable in crash dumps.
+    let spawned = std::thread::Builder::new()
+        .name("leanctx-index".to_string())
+        .stack_size(INDEXER_STACK_BYTES)
+        .spawn(indexer);
+    if spawned.is_err() {
+        // The OS refused a new thread (rare). Clear the in-flight flag so a
+        // later trigger retries instead of assuming a build runs forever.
+        let mut s = state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        s.worker_running = false;
+    }
 }
 
 /// Ensure background indexing for all extra roots (in addition to the primary).

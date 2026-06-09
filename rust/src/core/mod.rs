@@ -434,6 +434,7 @@ pub mod archive;
 pub mod archive_fts;
 pub mod artifact_index;
 pub mod artifacts;
+pub mod ast_walk;
 pub mod buddy;
 #[cfg(feature = "tree-sitter")]
 pub mod chunks_ts;

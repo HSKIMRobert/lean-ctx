@@ -15,22 +15,25 @@ use super::{find_child_by_kind, node_text};
 #[cfg(feature = "tree-sitter")]
 pub(super) fn extract_types(root: Node, src: &str, ext: &str) -> Vec<TypeDef> {
     let mut types = Vec::new();
-    walk_types(root, src, ext, &mut types, false);
+    // Pre-order walk carrying the inherited `exported` flag, using a heap stack
+    // instead of native recursion so a deep AST cannot overflow the worker
+    // thread (#378 SIGABRT). Children are reversed so they pop left-to-right.
+    let mut stack = vec![(root, false)];
+    while let Some((node, parent_exported)) = stack.pop() {
+        let exported = parent_exported || is_exported_node(node, src, ext);
+
+        if let Some(td) = match_type_def(node, src, ext, exported) {
+            types.push(td);
+        }
+
+        let mark = stack.len();
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push((child, exported));
+        }
+        stack[mark..].reverse();
+    }
     types
-}
-
-#[cfg(feature = "tree-sitter")]
-fn walk_types(node: Node, src: &str, ext: &str, types: &mut Vec<TypeDef>, parent_exported: bool) {
-    let exported = parent_exported || is_exported_node(node, src, ext);
-
-    if let Some(td) = match_type_def(node, src, ext, exported) {
-        types.push(td);
-    }
-
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        walk_types(child, src, ext, types, exported);
-    }
 }
 
 #[cfg(feature = "tree-sitter")]
@@ -250,21 +253,14 @@ fn match_type_def_gdscript(node: Node, src: &str) -> Option<(String, TypeDefKind
 #[cfg(feature = "tree-sitter")]
 pub(super) fn extract_exports(root: Node, src: &str, ext: &str) -> Vec<String> {
     let mut exports = Vec::new();
-    walk_exports(root, src, ext, &mut exports);
-    exports
-}
-
-#[cfg(feature = "tree-sitter")]
-fn walk_exports(node: Node, src: &str, ext: &str, exports: &mut Vec<String>) {
-    if is_exported_node(node, src, ext) {
-        if let Some(name) = get_declaration_name(node, src) {
-            exports.push(name);
+    crate::core::ast_walk::for_each_descendant(root, |node| {
+        if is_exported_node(node, src, ext) {
+            if let Some(name) = get_declaration_name(node, src) {
+                exports.push(name);
+            }
         }
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        walk_exports(child, src, ext, exports);
-    }
+    });
+    exports
 }
 
 #[cfg(feature = "tree-sitter")]

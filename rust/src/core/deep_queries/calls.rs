@@ -11,22 +11,14 @@ use super::{find_child_by_kind, find_descendant_by_kind, node_text};
 #[cfg(feature = "tree-sitter")]
 pub(super) fn extract_calls(root: Node, src: &str, ext: &str) -> Vec<CallSite> {
     let mut calls = Vec::new();
-    walk_calls(root, src, ext, &mut calls);
-    calls
-}
-
-#[cfg(feature = "tree-sitter")]
-fn walk_calls(node: Node, src: &str, ext: &str, calls: &mut Vec<CallSite>) {
-    if is_call_node(node.kind()) {
-        if let Some(call) = parse_call(node, src, ext) {
-            calls.push(call);
+    crate::core::ast_walk::for_each_descendant(root, |node| {
+        if is_call_node(node.kind()) {
+            if let Some(call) = parse_call(node, src, ext) {
+                calls.push(call);
+            }
         }
-    }
-
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        walk_calls(child, src, ext, calls);
-    }
+    });
+    calls
 }
 
 /// Call-like AST node kinds across the supported tree-sitter grammars.

@@ -100,16 +100,8 @@ fn find_child_by_kind<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
 
 #[cfg(feature = "tree-sitter")]
 fn find_descendant_by_kind<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
-    if node.kind() == kind {
-        return Some(node);
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if let Some(found) = find_descendant_by_kind(child, kind) {
-            return Some(found);
-        }
-    }
-    None
+    // Iterative (heap-stack) search — see core::ast_walk (#378 SIGABRT).
+    crate::core::ast_walk::find_descendant_by_kind(node, kind)
 }
 
 // ---------------------------------------------------------------------------
@@ -120,6 +112,26 @@ fn find_descendant_by_kind<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
 #[cfg(feature = "tree-sitter")]
 mod tests {
     use super::*;
+
+    /// Indexing a deeply nested AST must not overflow the worker-thread stack
+    /// (the #378 SIGABRT) through the real `analyze` entry point. The depth is
+    /// well past what a recursive walk survives on a default stack, yet because
+    /// every walk is iterative now it returns normally. (The dedicated, much
+    /// deeper overflow guard lives in `core::ast_walk`.)
+    #[test]
+    fn deeply_nested_source_does_not_overflow() {
+        let depth = 12_000;
+        // Nested Rust call expressions drive the call walk through the real
+        // entry point at a depth far past what a recursive walk survives on a
+        // default stack; it returns normally because the walks are iterative.
+        let rs = format!(
+            "fn m() {{ let _ = {}0{}; }}",
+            "f(".repeat(depth),
+            ")".repeat(depth)
+        );
+        let analysis = analyze(&rs, "rs");
+        assert!(!analysis.calls.is_empty());
+    }
 
     #[test]
     fn ts_named_import() {

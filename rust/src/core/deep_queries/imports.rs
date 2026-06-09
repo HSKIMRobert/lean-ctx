@@ -59,12 +59,14 @@ fn extract_imports_gd(root: Node, src: &str) -> Vec<ImportInfo> {
         }
     }
 
-    walk_gd_preload(root, src, &mut imports);
+    crate::core::ast_walk::for_each_descendant(root, |node| {
+        collect_gd_preload(node, src, &mut imports);
+    });
     imports
 }
 
 #[cfg(feature = "tree-sitter")]
-fn walk_gd_preload(node: Node, src: &str, imports: &mut Vec<ImportInfo>) {
+fn collect_gd_preload(node: Node, src: &str, imports: &mut Vec<ImportInfo>) {
     if node.kind() == "call" {
         if let Some(callee) = find_child_by_kind(node, "identifier") {
             let name = node_text(callee, src);
@@ -85,10 +87,6 @@ fn walk_gd_preload(node: Node, src: &str, imports: &mut Vec<ImportInfo>) {
                 }
             }
         }
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        walk_gd_preload(child, src, imports);
     }
 }
 
@@ -154,20 +152,18 @@ fn extract_imports_csharp(root: Node, src: &str) -> Vec<ImportInfo> {
     // `using` directives appear at file scope, inside `namespace { ... }` blocks,
     // and as `global using` — so the whole tree is walked rather than only the root.
     let mut imports = Vec::new();
-    collect_csharp_usings(root, src, &mut imports);
+    crate::core::ast_walk::for_each_descendant(root, |node| {
+        collect_csharp_using(node, src, &mut imports);
+    });
     imports
 }
 
 #[cfg(feature = "tree-sitter")]
-fn collect_csharp_usings(node: Node, src: &str, imports: &mut Vec<ImportInfo>) {
+fn collect_csharp_using(node: Node, src: &str, imports: &mut Vec<ImportInfo>) {
     if node.kind() == "using_directive" {
         if let Some(info) = parse_csharp_using(node, src) {
             imports.push(info);
         }
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_csharp_usings(child, src, imports);
     }
 }
 
@@ -469,7 +465,9 @@ fn extract_imports_ts(root: Node, src: &str) -> Vec<ImportInfo> {
         }
     }
 
-    walk_for_dynamic_imports(root, src, &mut imports);
+    crate::core::ast_walk::for_each_descendant(root, |node| {
+        collect_dynamic_import(node, src, &mut imports);
+    });
 
     imports
 }
@@ -544,7 +542,7 @@ fn classify_ts_import_clause(clause: Node, src: &str) -> (ImportKind, Vec<String
 }
 
 #[cfg(feature = "tree-sitter")]
-fn walk_for_dynamic_imports(node: Node, src: &str, imports: &mut Vec<ImportInfo>) {
+fn collect_dynamic_import(node: Node, src: &str, imports: &mut Vec<ImportInfo>) {
     if node.kind() == "call_expression" {
         let callee = find_child_by_kind(node, "import");
         if callee.is_some() {
@@ -593,10 +591,6 @@ fn walk_for_dynamic_imports(node: Node, src: &str, imports: &mut Vec<ImportInfo>
                 }
             }
         }
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        walk_for_dynamic_imports(child, src, imports);
     }
 }
 

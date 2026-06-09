@@ -105,23 +105,19 @@ fn swift_parameters_before_body(node: &Node, source: &[u8]) -> String {
         .child_by_field_name("body")
         .map_or(usize::MAX, |b| b.start_byte());
     let mut parts: Vec<String> = Vec::new();
-    fn walk(n: &Node, end_byte: usize, source: &[u8], parts: &mut Vec<String>) {
+    // Heap-stack walk bounded to the parameter region (before the body), pruning
+    // any subtree at/after `end_byte`. Iterative to avoid the #378 SIGABRT.
+    crate::core::ast_walk::for_each_descendant_pruned(*node, |n| {
         if n.start_byte() >= end_byte {
-            return;
+            return false;
         }
         if n.kind() == "parameter" {
             if let Ok(t) = n.utf8_text(source) {
                 parts.push(t.to_string());
             }
         }
-        let mut c = n.walk();
-        for child in n.children(&mut c) {
-            if child.start_byte() < end_byte {
-                walk(&child, end_byte, source, parts);
-            }
-        }
-    }
-    walk(node, end_byte, source, &mut parts);
+        true
+    });
     if parts.is_empty() {
         String::new()
     } else {

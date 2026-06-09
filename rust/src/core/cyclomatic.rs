@@ -42,7 +42,11 @@ fn cyclomatic_per_function_impl(source: &str, extension: &str) -> Option<Vec<Fun
         extension,
         |chunk_root, _chunk_name, _kind, _, _| {
             let mut fn_nodes = Vec::new();
-            collect_fn_like_nodes(chunk_root, &mut fn_nodes);
+            crate::core::ast_walk::for_each_descendant(chunk_root, |node| {
+                if is_fn_like(node.kind()) {
+                    fn_nodes.push(node);
+                }
+            });
 
             for fn_node in fn_nodes {
                 let name = fn_name(fn_node, src_bytes).unwrap_or_else(|| "<anonymous>".to_string());
@@ -61,17 +65,6 @@ fn cyclomatic_per_function_impl(source: &str, extension: &str) -> Option<Vec<Fun
         None
     } else {
         Some(out)
-    }
-}
-
-#[cfg(feature = "tree-sitter")]
-fn collect_fn_like_nodes<'a>(node: Node<'a>, out: &mut Vec<Node<'a>>) {
-    if is_fn_like(node.kind()) {
-        out.push(node);
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_fn_like_nodes(child, out);
     }
 }
 
@@ -123,15 +116,17 @@ fn cyclomatic_for_fn_like(fn_node: Node, source: &[u8], ext: &str) -> u32 {
 }
 
 #[cfg(feature = "tree-sitter")]
-fn count_decisions_skip_nested_fn(node: Node, source: &[u8], ext: &str) -> u32 {
-    let mut sum = tally_decision(node, source, ext);
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if skip_nested_fn_root(child) {
-            continue;
+fn count_decisions_skip_nested_fn(root: Node, source: &[u8], ext: &str) -> u32 {
+    // Iterative (heap-stack) walk that prunes nested function subtrees so they
+    // are scored independently. Heap stack avoids the #378 SIGABRT on deep ASTs.
+    let mut sum = 0;
+    crate::core::ast_walk::for_each_descendant_pruned(root, |node| {
+        if node != root && skip_nested_fn_root(node) {
+            return false;
         }
-        sum += count_decisions_skip_nested_fn(child, source, ext);
-    }
+        sum += tally_decision(node, source, ext);
+        true
+    });
     sum
 }
 
