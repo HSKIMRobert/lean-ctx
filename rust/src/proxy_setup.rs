@@ -7,6 +7,13 @@ const PROXY_ENV_END: &str = "# <<< lean-ctx proxy env <<<";
 
 const DEFAULT_PROXY_PORT: u16 = 4444;
 
+/// Comment written in place of the `ANTHROPIC_BASE_URL` export when no Anthropic API
+/// key is detectable. A Claude Pro/Max subscription authenticates via OAuth against
+/// `api.anthropic.com` directly and is rejected by any custom base URL, so we must not
+/// route it through the proxy.
+const ANTHROPIC_OMITTED_NOTE: &str =
+    "ANTHROPIC_BASE_URL omitted: Claude Pro/Max subscription authenticates against api.anthropic.com directly (set ANTHROPIC_API_KEY to route Claude through the proxy)";
+
 pub fn install_proxy_env(home: &Path, port: u16, quiet: bool) {
     let cfg = crate::core::config::Config::load();
     if cfg.proxy_enabled != Some(true) {
@@ -161,6 +168,64 @@ pub fn has_stale_proxy_url(home: &Path) -> bool {
     is_local_lean_ctx_url(base_url)
 }
 
+/// Returns true when an Anthropic **API key** is available for the proxy to forward
+/// upstream.
+///
+/// The proxy never injects credentials (see `proxy/forward.rs` — only
+/// `ALLOWED_REQUEST_HEADERS` are forwarded), so it can only help Claude Code when the
+/// user runs in API-key (pay-as-you-go) mode. A Claude **Pro/Max subscription**
+/// authenticates via OAuth directly against `api.anthropic.com`; that token is rejected
+/// by any custom `ANTHROPIC_BASE_URL`, so redirecting subscription traffic through the
+/// proxy only breaks auth (login loop / 401). When this returns `false`, callers must
+/// NOT point Claude Code at the proxy.
+pub fn anthropic_api_key_available(home: &Path) -> bool {
+    // 1) Process environment — covers shells and Claude Code launched from them.
+    for var in ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"] {
+        if std::env::var(var).is_ok_and(|v| !v.trim().is_empty()) {
+            return true;
+        }
+    }
+
+    // 2) Claude Code settings.json — an explicit key, an auth token, or a dynamic
+    //    key helper all indicate API-key mode.
+    let settings_path = crate::core::editor_registry::claude_state_dir(home).join("settings.json");
+    let Ok(content) = std::fs::read_to_string(&settings_path) else {
+        return false;
+    };
+    let Ok(doc) = crate::core::jsonc::parse_jsonc(&content) else {
+        return false;
+    };
+
+    if doc
+        .get("apiKeyHelper")
+        .and_then(|v| v.as_str())
+        .is_some_and(|v| !v.trim().is_empty())
+    {
+        return true;
+    }
+
+    let env = doc.get("env");
+    ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"]
+        .iter()
+        .any(|key| {
+            env.and_then(|e| e.get(*key))
+                .and_then(|v| v.as_str())
+                .is_some_and(|v| !v.trim().is_empty())
+        })
+}
+
+/// Explains why Claude Code was left pointing at `api.anthropic.com` instead of the
+/// proxy: a Pro/Max subscription (OAuth) cannot authenticate through a custom base URL.
+fn warn_claude_subscription_skip() {
+    eprintln!("  \u{26a0} Claude Code: no ANTHROPIC_API_KEY detected (Pro/Max subscription?).");
+    eprintln!("    The proxy forwards your credential upstream but never injects one, and a");
+    eprintln!("    subscription token only authenticates against api.anthropic.com directly.");
+    eprintln!("    Leaving ANTHROPIC_BASE_URL untouched so Claude Code keeps working.");
+    eprintln!("    Savings on a subscription: use the lean-ctx MCP tools (ctx_read /");
+    eprintln!("    ctx_search / ctx_shell). Pay-as-you-go? Set ANTHROPIC_API_KEY, then run:");
+    eprintln!("      lean-ctx proxy enable");
+}
+
 pub fn uninstall_proxy_env(home: &Path, quiet: bool) {
     for rc in &[home.join(".zshrc"), home.join(".bashrc")] {
         let label = format!(
@@ -208,9 +273,19 @@ fn install_shell_exports(home: &Path, port: u16, quiet: bool) {
 
     let base = format!("http://127.0.0.1:{port}");
 
+    // Only route Claude through the proxy when an API key is available; a Pro/Max
+    // subscription must keep talking to api.anthropic.com directly (see
+    // `anthropic_api_key_available`).
+    let include_anthropic = anthropic_api_key_available(home);
+
+    let posix_anthropic = if include_anthropic {
+        format!(r#"export ANTHROPIC_BASE_URL="{base}""#)
+    } else {
+        format!("# {ANTHROPIC_OMITTED_NOTE}")
+    };
     let posix_block = format!(
         r#"{PROXY_ENV_START}
-export ANTHROPIC_BASE_URL="{base}"
+{posix_anthropic}
 export OPENAI_BASE_URL="{base}"
 export GEMINI_API_BASE_URL="{base}"
 {PROXY_ENV_END}"#
@@ -235,9 +310,14 @@ export GEMINI_API_BASE_URL="{base}"
 
     let fish_config = home.join(".config/fish/config.fish");
     if fish_config.exists() {
+        let fish_anthropic = if include_anthropic {
+            format!(r#"set -gx ANTHROPIC_BASE_URL "{base}""#)
+        } else {
+            format!("# {ANTHROPIC_OMITTED_NOTE}")
+        };
         let fish_block = format!(
             r#"{PROXY_ENV_START}
-set -gx ANTHROPIC_BASE_URL "{base}"
+{fish_anthropic}
 set -gx OPENAI_BASE_URL "{base}"
 set -gx GEMINI_API_BASE_URL "{base}"
 {PROXY_ENV_END}"#
@@ -255,9 +335,14 @@ set -gx GEMINI_API_BASE_URL "{base}"
     let ps_profile = dirs::home_dir().map(|h| crate::shell::platform::powershell_profile_path(&h));
     if let Some(ref ps) = ps_profile {
         if ps.exists() {
+            let ps_anthropic = if include_anthropic {
+                format!(r#"$env:ANTHROPIC_BASE_URL = "{base}""#)
+            } else {
+                format!("# {ANTHROPIC_OMITTED_NOTE}")
+            };
             let ps_block = format!(
                 r#"{PROXY_ENV_START}
-$env:ANTHROPIC_BASE_URL = "{base}"
+{ps_anthropic}
 $env:OPENAI_BASE_URL = "{base}"
 $env:GEMINI_API_BASE_URL = "{base}"
 {PROXY_ENV_END}"#
@@ -380,7 +465,39 @@ fn install_claude_env_inner(home: &Path, port: u16, quiet: bool, force: bool) {
         .get("env")
         .and_then(|e| e.get("ANTHROPIC_BASE_URL"))
         .and_then(|v| v.as_str())
-        .unwrap_or("");
+        .unwrap_or("")
+        .to_string();
+
+    // SUBSCRIPTION GUARD: the proxy never injects credentials, so redirecting Claude
+    // Code only works in API-key mode. A Claude Pro/Max subscription (OAuth) is rejected
+    // by a custom ANTHROPIC_BASE_URL → login loop / 401. When no API key is detectable we
+    // must not point Claude Code at the proxy. `--force` overrides for power users whose
+    // key lives somewhere we cannot probe (e.g. a keychain or apiKeyHelper we missed).
+    if !force && !anthropic_api_key_available(home) {
+        // Repair an existing stale local redirect so Claude Code reaches Anthropic again.
+        if is_local_lean_ctx_url(&current_url) {
+            let cfg = Config::load();
+            if let Some(env_obj) = doc.get_mut("env").and_then(|e| e.as_object_mut()) {
+                if let Some(ref upstream) = cfg.proxy.anthropic_upstream {
+                    env_obj.insert(
+                        "ANTHROPIC_BASE_URL".to_string(),
+                        serde_json::Value::String(upstream.clone()),
+                    );
+                } else {
+                    env_obj.remove("ANTHROPIC_BASE_URL");
+                    if env_obj.is_empty() {
+                        doc.as_object_mut().map(|o| o.remove("env"));
+                    }
+                }
+                let out = serde_json::to_string_pretty(&doc).unwrap_or_default();
+                let _ = std::fs::write(&settings_path, out + "\n");
+            }
+        }
+        if !quiet {
+            warn_claude_subscription_skip();
+        }
+        return;
+    }
 
     if current_url == base {
         if !quiet {
@@ -390,7 +507,7 @@ fn install_claude_env_inner(home: &Path, port: u16, quiet: bool, force: bool) {
     }
 
     // HARD GUARD: never overwrite non-local endpoints unless --force
-    if let Some(upstream) = normalize_url_opt(current_url) {
+    if let Some(upstream) = normalize_url_opt(&current_url) {
         if !is_local_proxy_url(&upstream) {
             let mut cfg = Config::load();
             if cfg.proxy.anthropic_upstream.is_none() {
@@ -632,5 +749,188 @@ $env:GEMINI_API_BASE_URL = "{base}"
         assert!(block.contains("ANTHROPIC_BASE_URL"));
         assert!(block.contains("OPENAI_BASE_URL"));
         assert!(block.contains("GEMINI_API_BASE_URL"));
+    }
+
+    /// The subscription guard reads the process environment; these tests are only
+    /// meaningful when the test runner itself does not provide an Anthropic key.
+    fn env_provides_anthropic_key() -> bool {
+        std::env::var("ANTHROPIC_API_KEY").is_ok_and(|v| !v.trim().is_empty())
+            || std::env::var("ANTHROPIC_AUTH_TOKEN").is_ok_and(|v| !v.trim().is_empty())
+    }
+
+    /// `claude_state_dir` honours `CLAUDE_CONFIG_DIR`; when set it would escape the
+    /// temp HOME and read the real settings file, so skip in that case.
+    fn claude_dir_overridden() -> bool {
+        std::env::var("CLAUDE_CONFIG_DIR").is_ok_and(|v| !v.trim().is_empty())
+    }
+
+    fn write_claude_settings(home: &Path, json: &str) -> std::path::PathBuf {
+        let dir = home.join(".claude");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("settings.json");
+        std::fs::write(&path, json).unwrap();
+        path
+    }
+
+    #[test]
+    fn api_key_available_true_with_api_key_helper() {
+        if claude_dir_overridden() {
+            return;
+        }
+        let home = tempfile::tempdir().unwrap();
+        write_claude_settings(home.path(), r#"{"apiKeyHelper": "echo sk-test"}"#);
+        assert!(anthropic_api_key_available(home.path()));
+    }
+
+    #[test]
+    fn api_key_available_true_with_settings_env_key() {
+        if claude_dir_overridden() {
+            return;
+        }
+        let home = tempfile::tempdir().unwrap();
+        write_claude_settings(home.path(), r#"{"env": {"ANTHROPIC_API_KEY": "sk-test"}}"#);
+        assert!(anthropic_api_key_available(home.path()));
+    }
+
+    #[test]
+    fn api_key_available_false_without_key() {
+        if env_provides_anthropic_key() || claude_dir_overridden() {
+            return;
+        }
+        let home = tempfile::tempdir().unwrap();
+        write_claude_settings(home.path(), r#"{"env": {}}"#);
+        assert!(!anthropic_api_key_available(home.path()));
+    }
+
+    #[test]
+    fn api_key_available_false_when_no_settings_file() {
+        if env_provides_anthropic_key() || claude_dir_overridden() {
+            return;
+        }
+        let home = tempfile::tempdir().unwrap();
+        assert!(!anthropic_api_key_available(home.path()));
+    }
+
+    #[test]
+    fn subscription_guard_skips_redirect_without_key() {
+        if env_provides_anthropic_key() || claude_dir_overridden() {
+            return;
+        }
+        let home = tempfile::tempdir().unwrap();
+        // No settings file → subscription mode, empty current URL → nothing to repair.
+        install_claude_env_inner(home.path(), 4444, true, false);
+        let settings = home.path().join(".claude/settings.json");
+        assert!(
+            !settings.exists(),
+            "subscription mode must not write a proxy redirect"
+        );
+    }
+
+    #[test]
+    fn subscription_guard_repairs_stale_local_redirect() {
+        if env_provides_anthropic_key() || claude_dir_overridden() {
+            return;
+        }
+        let home = tempfile::tempdir().unwrap();
+        let path = write_claude_settings(
+            home.path(),
+            r#"{"env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:4444"}}"#,
+        );
+        install_claude_env_inner(home.path(), 4444, true, false);
+        let after = std::fs::read_to_string(&path).unwrap();
+        let doc: serde_json::Value = crate::core::jsonc::parse_jsonc(&after).unwrap();
+        let base = doc
+            .get("env")
+            .and_then(|e| e.get("ANTHROPIC_BASE_URL"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        assert!(
+            !is_local_lean_ctx_url(base),
+            "stale local redirect must be repaired in subscription mode, got {base:?}"
+        );
+    }
+
+    /// API-key mode must STILL route Claude through the proxy (we only protect
+    /// subscriptions; pay-as-you-go users keep their compression). Uses a real bound
+    /// port so `is_proxy_reachable` passes, exercising the full production path.
+    #[test]
+    fn install_redirects_claude_when_api_key_present() {
+        if claude_dir_overridden() {
+            return;
+        }
+        let home = tempfile::tempdir().unwrap();
+        // API-key mode declared in settings.json → deterministic regardless of env.
+        write_claude_settings(home.path(), r#"{"env": {"ANTHROPIC_API_KEY": "sk-test"}}"#);
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        install_claude_env_inner(home.path(), port, true, false);
+
+        let after = std::fs::read_to_string(home.path().join(".claude/settings.json")).unwrap();
+        let doc: serde_json::Value = crate::core::jsonc::parse_jsonc(&after).unwrap();
+        let base = doc
+            .get("env")
+            .and_then(|e| e.get("ANTHROPIC_BASE_URL"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        assert_eq!(
+            base,
+            format!("http://127.0.0.1:{port}"),
+            "API-key mode must route Claude through the proxy"
+        );
+    }
+
+    /// Shell export: subscription mode keeps OpenAI/Gemini but omits the ANTHROPIC line
+    /// (replaced by an explanatory comment), so a shell-launched Claude stays on
+    /// api.anthropic.com.
+    #[test]
+    fn shell_export_omits_anthropic_without_key() {
+        if env_provides_anthropic_key() || claude_dir_overridden() {
+            return;
+        }
+        let home = tempfile::tempdir().unwrap();
+        std::fs::write(home.path().join(".zshrc"), "# user rc\n").unwrap();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        install_shell_exports(home.path(), port, true);
+
+        let rc = std::fs::read_to_string(home.path().join(".zshrc")).unwrap();
+        assert!(rc.contains("OPENAI_BASE_URL"), "OpenAI export must remain");
+        assert!(
+            rc.contains("GEMINI_API_BASE_URL"),
+            "Gemini export must remain"
+        );
+        assert!(
+            !rc.contains("export ANTHROPIC_BASE_URL="),
+            "ANTHROPIC export must be omitted in subscription mode"
+        );
+        assert!(
+            rc.contains(ANTHROPIC_OMITTED_NOTE),
+            "omission must be explained in the RC block"
+        );
+    }
+
+    /// Shell export: API-key mode includes the ANTHROPIC export (symmetry check).
+    #[test]
+    fn shell_export_includes_anthropic_with_key() {
+        if claude_dir_overridden() {
+            return;
+        }
+        let home = tempfile::tempdir().unwrap();
+        std::fs::write(home.path().join(".zshrc"), "# user rc\n").unwrap();
+        write_claude_settings(home.path(), r#"{"env": {"ANTHROPIC_API_KEY": "sk-test"}}"#);
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        install_shell_exports(home.path(), port, true);
+
+        let rc = std::fs::read_to_string(home.path().join(".zshrc")).unwrap();
+        assert!(
+            rc.contains(&format!(
+                "export ANTHROPIC_BASE_URL=\"http://127.0.0.1:{port}\""
+            )),
+            "API-key mode must export ANTHROPIC_BASE_URL"
+        );
     }
 }

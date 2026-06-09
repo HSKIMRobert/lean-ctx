@@ -499,6 +499,15 @@ pub fn run() {
         print_check(check);
     }
 
+    // 21) Claude Pro/Max subscription routed through the proxy without an API key
+    let subscription_conflict = proxy_subscription_conflict_outcome();
+    if let Some(ref check) = subscription_conflict {
+        if check.ok {
+            passed += 1;
+        }
+        print_check(check);
+    }
+
     // LSP servers (optional, informational)
     println!("\n  {BOLD}{WHITE}LSP (optional — for ctx_refactor):{RST}");
     let lsp_outcomes = lsp_server_outcomes();
@@ -519,6 +528,9 @@ pub fn run() {
         effective_total += 1;
     }
     if stale_env.is_some() {
+        effective_total += 1;
+    }
+    if subscription_conflict.is_some() {
         effective_total += 1;
     }
     if workspace_scope.is_some() {

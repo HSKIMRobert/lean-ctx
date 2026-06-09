@@ -671,6 +671,54 @@ pub(super) fn stale_proxy_env_outcome() -> Option<Outcome> {
     })
 }
 
+/// Detects the Claude Pro/Max subscription + proxy conflict: the proxy is enabled and
+/// Claude Code's `ANTHROPIC_BASE_URL` points at the local proxy, but no Anthropic API
+/// key is available. A subscription OAuth token only authenticates against
+/// `api.anthropic.com`, so routing it through the proxy causes a login loop / 401.
+/// Returns `None` when not applicable, `Some(Outcome)` when the conflict is present.
+pub(super) fn proxy_subscription_conflict_outcome() -> Option<Outcome> {
+    use crate::core::config::Config;
+
+    let home = dirs::home_dir()?;
+    let cfg = Config::load();
+
+    // Only relevant when the proxy is actively enabled.
+    if cfg.proxy_enabled != Some(true) {
+        return None;
+    }
+
+    let settings_path = crate::core::editor_registry::claude_state_dir(&home).join("settings.json");
+    let content = std::fs::read_to_string(&settings_path).ok()?;
+    let doc: serde_json::Value = crate::core::jsonc::parse_jsonc(&content).ok()?;
+
+    let base_url = doc
+        .get("env")
+        .and_then(|e| e.get("ANTHROPIC_BASE_URL"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    // No local redirect → nothing to warn about.
+    if !crate::proxy_setup::is_local_lean_ctx_url(base_url) {
+        return None;
+    }
+
+    // API key present → the proxy can forward it, redirect is fine.
+    if crate::proxy_setup::anthropic_api_key_available(&home) {
+        return None;
+    }
+
+    Some(Outcome {
+        ok: false,
+        line: format!(
+            "{BOLD}Claude auth{RST}  {RED}ANTHROPIC_BASE_URL → proxy but no ANTHROPIC_API_KEY (Pro/Max subscription){RST}\n\
+             {DIM}         A subscription token only authenticates against api.anthropic.com; routing it{RST}\n\
+             {DIM}         through the proxy causes a login loop / 401. Fix one of:{RST}\n\
+             {YELLOW}           lean-ctx proxy disable     {DIM}(keep your subscription; use ctx_* MCP tools for savings){RST}\n\
+             {YELLOW}           export ANTHROPIC_API_KEY=…  {DIM}then: lean-ctx proxy enable  (pay-as-you-go via proxy){RST}"
+        ),
+    })
+}
+
 pub(super) fn proxy_upstream_outcome() -> Outcome {
     use crate::core::config::{is_local_proxy_url, Config, ProxyProvider};
 

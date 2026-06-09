@@ -54,6 +54,23 @@ user unit (Linux). Upstreams are configurable in `[proxy]`.
 > values in your RC and `lean-ctx proxy status`. The unmodified RC is preserved
 > as a `*.lean-ctx.bak` backup.
 
+> **Claude Pro/Max subscriptions need an API key for the proxy.** The proxy
+> forwards your credential upstream but never *injects* one. A Claude Pro/Max
+> subscription authenticates via OAuth directly against `api.anthropic.com`, and
+> that token is rejected by any custom `ANTHROPIC_BASE_URL` — routing it through
+> the proxy produces a login loop / 401. Therefore `proxy enable` **skips the
+> Claude redirect when no `ANTHROPIC_API_KEY` is detected** (env or
+> `~/.claude/settings.json`) and leaves Claude Code talking to Anthropic directly.
+> `lean-ctx doctor` flags the conflict if a stale redirect remains.
+>
+> - **On a subscription?** Keep the proxy disabled for Claude and get savings from
+>   the lean-ctx MCP tools instead (`ctx_read` / `ctx_search` / `ctx_shell`).
+>   Other providers (OpenAI/Codex, Gemini, Ollama) are still routed through the
+>   proxy.
+> - **Pay-as-you-go?** Export `ANTHROPIC_API_KEY=…`, then run
+>   `lean-ctx proxy enable` (or `--force` to override detection). Claude traffic is
+>   then compressed by the proxy.
+
 ---
 
 ## 2. HTTP MCP & multi-repo — `lean-ctx serve`
