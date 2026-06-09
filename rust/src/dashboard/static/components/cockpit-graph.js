@@ -390,23 +390,30 @@ class CockpitGraph extends HTMLElement {
   /* ============ Per-language capability legend ============ */
 
   // Renders an honest matrix of what each detected language supports (symbol
-  // extraction, import edges, call graph), so an empty tab explains *why* rather
-  // than implying an index rebuild will help. Returns '' when no matrix is present.
+  // extraction, import edges, call graph). When the backend supplies *realized*
+  // counts for this project they are shown next to the capability mark (e.g.
+  // "✓ 142" / "✓ 0"), so an empty tab explains *why* rather than implying an
+  // index rebuild will help. Returns '' when no matrix is present.
   _capabilityLegendHtml(esc, matrix) {
     if (!Array.isArray(matrix) || matrix.length === 0) return '';
-    var yn = function (b) {
-      return b
+    // Capability mark, optionally annotated with the realized count for this
+    // project. `found == null` → count not measured in this context.
+    var cap = function (supported, found) {
+      var mark = supported
         ? '<span style="color:var(--green)">\u2713</span>'
         : '<span style="color:var(--muted)">\u2014</span>';
+      if (found === null || found === undefined) return mark;
+      var color = found > 0 ? 'var(--text)' : 'var(--muted)';
+      return mark + ' <span style="color:' + color + '">' + esc(String(found)) + '</span>';
     };
     var rows = matrix
       .map(function (r) {
         return '<tr>' +
           '<td style="text-align:left;padding:2px 12px">' + esc(String(r.language)) + '</td>' +
           '<td style="padding:2px 12px">' + esc(String(r.files)) + '</td>' +
-          '<td style="padding:2px 12px">' + yn(r.symbols) + '</td>' +
-          '<td style="padding:2px 12px">' + yn(r.imports) + '</td>' +
-          '<td style="padding:2px 12px">' + yn(r.call_graph) + '</td>' +
+          '<td style="padding:2px 12px">' + cap(r.symbols, r.symbols_found) + '</td>' +
+          '<td style="padding:2px 12px">' + cap(r.imports, r.imports_found) + '</td>' +
+          '<td style="padding:2px 12px">' + cap(r.call_graph, r.calls_found) + '</td>' +
           '</tr>';
       })
       .join('');
@@ -935,7 +942,11 @@ class CockpitGraph extends HTMLElement {
     }
     html += '</div>';
 
-    html += '<div class="gi-sec"><div class="gi-sec-title">Bridges <span>' + bridges.length + '</span></div>';
+    html += '<div class="gi-sec"><div class="gi-sec-title">Bridges <span>' + bridges.length + '</span>' +
+      (d.betweenness_sampled
+        ? ' <span style="font-size:10px;color:var(--muted);font-weight:400" title="Betweenness estimated from a sampled subset of nodes (large graph); relative ranking is preserved.">~sampled</span>'
+        : '') +
+      '</div>';
     if (bridges.length) {
       html += '<div class="gi-list">';
       for (var bi = 0; bi < Math.min(bridges.length, 6); bi++) {

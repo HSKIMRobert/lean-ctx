@@ -530,11 +530,12 @@ fn index_looks_stale(index: &ProjectIndex, root_abs: &str) -> bool {
         }
     }
 
-    // Content-aware staleness: rescan if any indexable source file was modified
-    // after the index was persisted (covers edits and new files). Stat-only walk,
-    // capped and early-exiting, so it stays cheap relative to the index load.
-    if source_changed_since_index(root_abs) {
-        tracing::info!("[graph_index: source changed since last scan — marking stale]");
+    // Content-aware staleness: rescan only when source *content* actually
+    // changed. mtime is a cheap prefilter; the change is then confirmed against
+    // the stored content hash so a `touch`/checkout/format that leaves bytes
+    // unchanged never forces a needless rescan (covers edits and new files).
+    if source_content_changed_since_index(index, root_abs) {
+        tracing::info!("[graph_index: source content changed since last scan — marking stale]");
         return true;
     }
 
@@ -554,11 +555,19 @@ fn index_file_mtime(root_abs: &str) -> Option<std::time::SystemTime> {
     None
 }
 
-/// Bounded, stat-only walk: returns true if any indexable source file has an
-/// mtime newer than the persisted index. Early-exits on the first newer file and
-/// caps traversal so it can never run away on a huge tree. Used only as the final
-/// staleness check, after the cheaper TTL/contamination/existence checks.
-fn source_changed_since_index(root_abs: &str) -> bool {
+/// Bounded staleness check that confirms *content* changes, not just mtimes.
+///
+/// An mtime newer than the persisted index only flags a *candidate*; the change
+/// is then confirmed by comparing the file's content hash against the stored
+/// `FileEntry.hash` (same `compute_hash` + `read_to_string` the scan uses, so
+/// the comparison is exact). This means a `touch`, `git checkout`, or formatter
+/// rewrite that leaves bytes unchanged no longer forces a needless rescan, while
+/// genuine edits and newly added files still mark the index stale.
+///
+/// Both the traversal and the number of confirming reads are capped: exceeding
+/// the read cap returns `true` (conservatively stale) instead of reading an
+/// unbounded amount. Removed files are handled by the earlier existence check.
+fn source_content_changed_since_index(index: &ProjectIndex, root_abs: &str) -> bool {
     let Some(index_mtime) = index_file_mtime(root_abs) else {
         // No persisted index yet — the existence/TTL checks above already decided.
         return false;
@@ -572,7 +581,9 @@ fn source_changed_since_index(root_abs: &str) -> bool {
         .filter_entry(crate::core::cloud_files::keep_entry)
         .build();
     const MAX_VISIT: usize = 50_000;
+    const MAX_CONFIRM_READS: usize = 4_000;
     let mut visited = 0usize;
+    let mut confirm_reads = 0usize;
     for entry in walker.filter_map(std::result::Result::ok) {
         visited += 1;
         if visited > MAX_VISIT {
@@ -581,20 +592,35 @@ fn source_changed_since_index(root_abs: &str) -> bool {
         if !entry.file_type().is_some_and(|ft| ft.is_file()) {
             continue;
         }
-        let ext = entry
-            .path()
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
+        let path = entry.path();
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
         if !is_indexable_ext(ext) {
             continue;
         }
-        if let Ok(meta) = entry.metadata() {
-            if let Ok(modified) = meta.modified() {
-                if modified > index_mtime {
-                    return true;
-                }
-            }
+        // mtime prefilter: only files touched after the index are candidates.
+        let Ok(meta) = entry.metadata() else { continue };
+        let Ok(modified) = meta.modified() else {
+            continue;
+        };
+        if modified <= index_mtime {
+            continue;
+        }
+        // Candidate: confirm against the stored content hash.
+        let rel = make_relative(&path.to_string_lossy(), root_abs);
+        let Some(file_entry) = index.files.get(&rel) else {
+            // A newly added indexable file is genuinely new content.
+            return true;
+        };
+        confirm_reads += 1;
+        if confirm_reads > MAX_CONFIRM_READS {
+            // Too many candidates to verify cheaply — assume stale.
+            return true;
+        }
+        match std::fs::read_to_string(path) {
+            // Bytes unchanged despite a newer mtime → not a real change.
+            Ok(content) if compute_hash(&content) == file_entry.hash => {}
+            // Edited content, or no longer readable as it was at scan time.
+            _ => return true,
         }
     }
     false

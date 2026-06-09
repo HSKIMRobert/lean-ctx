@@ -20,11 +20,37 @@ pub struct BridgeNode {
     pub betweenness: f64,
 }
 
+/// Betweenness result with sampling provenance, so callers can disclose when the
+/// values are an estimate (large graphs) rather than the exact Brandes result.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct BridgeCentrality {
+    pub nodes: Vec<BridgeNode>,
+    /// `true` when betweenness was estimated from a sampled subset of sources.
+    pub sampled: bool,
+    /// Total nodes in the dependency graph.
+    pub total_nodes: usize,
+    /// Source nodes actually used (== `total_nodes` unless sampled).
+    pub sources_used: usize,
+}
+
 /// Returns the top `limit` bridge nodes (betweenness > 0), highest first.
+/// Thin wrapper over [`compute_bridge_centrality`] for callers that don't need
+/// the sampling metadata.
 pub fn compute_bridge_nodes(edges: &[EdgeInfo], limit: usize) -> Vec<BridgeNode> {
+    compute_bridge_centrality(edges, limit).nodes
+}
+
+/// Like [`compute_bridge_nodes`] but also reports whether the result was sampled
+/// and over how many sources, for honest disclosure in reports/UI.
+pub fn compute_bridge_centrality(edges: &[EdgeInfo], limit: usize) -> BridgeCentrality {
     let deps = dependency_edges(edges);
     if deps.is_empty() {
-        return Vec::new();
+        return BridgeCentrality {
+            nodes: Vec::new(),
+            sampled: false,
+            total_nodes: 0,
+            sources_used: 0,
+        };
     }
 
     // Intern node names and build an undirected adjacency list.
@@ -56,12 +82,14 @@ pub fn compute_bridge_nodes(edges: &[EdgeInfo], limit: usize) -> Vec<BridgeNode>
     // ranking of bridges is preserved.
     const EXACT_SOURCE_CAP: usize = 1500;
     const SAMPLE_SOURCES: usize = 500;
-    let sources: Vec<usize> = if n > EXACT_SOURCE_CAP {
+    let sampled = n > EXACT_SOURCE_CAP;
+    let sources: Vec<usize> = if sampled {
         let step = (n / SAMPLE_SOURCES).max(1);
         (0..n).step_by(step).collect()
     } else {
         (0..n).collect()
     };
+    let sources_used = sources.len();
 
     for &s in &sources {
         let mut stack: Vec<usize> = Vec::new();
@@ -126,7 +154,12 @@ pub fn compute_bridge_nodes(edges: &[EdgeInfo], limit: usize) -> Vec<BridgeNode>
     });
     nodes.retain(|node| node.betweenness > 0.0);
     nodes.truncate(limit);
-    nodes
+    BridgeCentrality {
+        nodes,
+        sampled,
+        total_nodes: n,
+        sources_used,
+    }
 }
 
 #[cfg(test)]
@@ -181,5 +214,26 @@ mod tests {
         let bridges = compute_bridge_nodes(&edges, 10);
         assert_eq!(bridges[0].path, "hub.rs");
         assert_eq!(bridges[0].betweenness, 1.0);
+    }
+
+    #[test]
+    fn centrality_reports_sampling_provenance() {
+        // Small graph → exact (not sampled), every node used as a source.
+        let small = vec![e("a.rs", "b.rs"), e("b.rs", "c.rs")];
+        let bc = compute_bridge_centrality(&small, 10);
+        assert!(!bc.sampled, "small graph must be computed exactly");
+        assert_eq!(bc.sources_used, bc.total_nodes);
+
+        // Large graph → sampled, fewer sources than nodes, ranking preserved.
+        let big: Vec<EdgeInfo> = (0..2000)
+            .map(|i| e("hub.rs", &format!("leaf{i}.rs")))
+            .collect();
+        let bc = compute_bridge_centrality(&big, 10);
+        assert!(bc.sampled, "large graph must report sampling");
+        assert!(
+            bc.sources_used < bc.total_nodes,
+            "sampling must use fewer sources than nodes"
+        );
+        assert_eq!(bc.nodes[0].path, "hub.rs");
     }
 }

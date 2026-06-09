@@ -2,6 +2,7 @@ mod analysis;
 mod analysis_cache;
 mod architecture;
 mod callgraph;
+mod capability_matrix;
 mod deps;
 mod tree;
 

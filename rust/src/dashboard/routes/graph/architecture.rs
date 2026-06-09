@@ -62,7 +62,7 @@ fn compute_report(
 
     let god_nodes = crate::core::graph_analysis::compute_god_nodes(&all_edges, 10);
     let import_cycles = crate::core::graph_analysis::find_import_cycles(&all_edges, 20);
-    let bridge_nodes = crate::core::graph_analysis::compute_bridge_nodes(&all_edges, 10);
+    let bridges = crate::core::graph_analysis::compute_bridge_centrality(&all_edges, 10);
     let surprising =
         crate::core::graph_analysis::find_surprising_connections(&all_edges, &community_map, 10);
 
@@ -99,7 +99,7 @@ fn compute_report(
         &langs,
         &comms,
         &god_nodes,
-        &bridge_nodes,
+        &bridges,
         &import_cycles,
         &surprising,
     );
@@ -127,7 +127,7 @@ fn render_markdown(
     langs: &[(String, usize)],
     comms: &[&crate::core::community::Community],
     god_nodes: &[crate::core::graph_analysis::GodNode],
-    bridge_nodes: &[crate::core::graph_analysis::BridgeNode],
+    bridges: &crate::core::graph_analysis::BridgeCentrality,
     import_cycles: &[crate::core::graph_analysis::ImportCycle],
     surprising: &[crate::core::graph_analysis::SurprisingConnection],
 ) -> String {
@@ -243,17 +243,26 @@ fn render_markdown(
     }
 
     // Bridges.
-    if !bridge_nodes.is_empty() {
+    if !bridges.nodes.is_empty() {
         let _ = writeln!(md, "## Bridges (betweenness centrality)");
         let _ = writeln!(md);
         let _ = writeln!(
             md,
             "Files that sit on many shortest paths — changes here ripple widely."
         );
+        if bridges.sampled {
+            let _ = writeln!(md);
+            let _ = writeln!(
+                md,
+                "_Estimated from a sample of {} of {} nodes (large graph); the \
+                 relative ranking is preserved._",
+                bridges.sources_used, bridges.total_nodes
+            );
+        }
         let _ = writeln!(md);
         let _ = writeln!(md, "| File | Betweenness |");
         let _ = writeln!(md, "|------|------------:|");
-        for b in bridge_nodes {
+        for b in &bridges.nodes {
             let _ = writeln!(md, "| `{}` | {:.2} |", base(&b.path), b.betweenness);
         }
         let _ = writeln!(md);

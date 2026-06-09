@@ -61,7 +61,7 @@ fn graph() -> (&'static str, &'static str, String) {
     // (import / reexport) — God-Nodes (most connected) and import cycles.
     let god_nodes = crate::core::graph_analysis::compute_god_nodes(&all_edges, 12);
     let import_cycles = crate::core::graph_analysis::find_import_cycles(&all_edges, 20);
-    let bridge_nodes = crate::core::graph_analysis::compute_bridge_nodes(&all_edges, 10);
+    let bridges = crate::core::graph_analysis::compute_bridge_centrality(&all_edges, 10);
     let surprising_connections =
         crate::core::graph_analysis::find_surprising_connections(&all_edges, &community_map, 10);
 
@@ -170,6 +170,13 @@ fn graph() -> (&'static str, &'static str, String) {
         None
     };
 
+    // Realized per-language coverage when the provider is index-backed (real
+    // symbol/import counts); fall back to capability-only flags otherwise.
+    let language_matrix = match gp.as_graph_index() {
+        Some(index) => super::capability_matrix::realized_from_index(index, None),
+        None => crate::core::language_capabilities::language_capability_matrix(gp.file_paths()),
+    };
+
     let val = serde_json::json!({
         "project_root": super::project_basename(&root),
         "project_root_full": root,
@@ -183,12 +190,12 @@ fn graph() -> (&'static str, &'static str, String) {
             0.0
         },
         "graph_support": graph_support,
-        "language_matrix":
-            crate::core::language_capabilities::language_capability_matrix(gp.file_paths()),
+        "language_matrix": language_matrix,
         "community_count": community_count,
         "god_nodes": god_nodes,
         "import_cycles": import_cycles,
-        "bridge_nodes": bridge_nodes,
+        "bridge_nodes": bridges.nodes,
+        "betweenness_sampled": bridges.sampled,
         "surprising_connections": surprising_connections,
         "community_cohesion": community_cohesion,
     });

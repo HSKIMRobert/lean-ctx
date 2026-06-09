@@ -10,7 +10,9 @@ mod cycles;
 mod god_nodes;
 mod surprising;
 
-pub use centrality::{compute_bridge_nodes, BridgeNode};
+pub use centrality::{
+    compute_bridge_centrality, compute_bridge_nodes, BridgeCentrality, BridgeNode,
+};
 pub use cycles::{find_import_cycles, ImportCycle};
 pub use god_nodes::{compute_god_nodes, GodNode};
 pub use surprising::{find_surprising_connections, SurprisingConnection};

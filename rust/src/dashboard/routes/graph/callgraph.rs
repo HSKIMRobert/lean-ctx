@@ -35,7 +35,7 @@ fn call_graph() -> (&'static str, &'static str, String) {
                 "analyzed_file_count": graph.file_hashes.len(),
                 "call_graph_support": call_graph_support(&index),
                 "language_matrix":
-                    crate::core::language_capabilities::language_capability_matrix(index.files.keys()),
+                    super::capability_matrix::realized_from_index(&index, Some(graph.edges.as_slice())),
                 "communities": communities,
                 "symbol_files": crate::core::call_graph::resolve_callee_files(&index, &graph.edges),
             });

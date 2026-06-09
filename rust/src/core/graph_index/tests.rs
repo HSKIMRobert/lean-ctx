@@ -342,6 +342,38 @@ fn content_aware_staleness_detects_edits_and_additions() {
 }
 
 #[test]
+fn touch_without_content_change_keeps_index_fresh() {
+    // #324: an mtime bump with identical bytes (touch / git checkout / no-op
+    // format) must NOT trigger a rescan — only a real content change does.
+    let _env = crate::core::data_dir::test_env_lock();
+    let td = tempdir().expect("tempdir");
+    std::fs::write(
+        td.path().join("Cargo.toml"),
+        "[package]\nname = \"t\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(td.path().join("a.rs"), "fn a() {}\n").unwrap();
+    let root_s = normalize_project_root(&td.path().to_string_lossy());
+
+    let idx = scan(&root_s);
+    assert!(!idx.files.is_empty(), "scan should index a.rs");
+    assert!(
+        !index_looks_stale(&idx, &root_s),
+        "a just-built index must be fresh"
+    );
+
+    // mtime resolution can be coarse; ensure the rewrite is strictly newer.
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+
+    // Rewrite identical bytes: mtime advances but the content hash is unchanged.
+    std::fs::write(td.path().join("a.rs"), "fn a() {}\n").unwrap();
+    assert!(
+        !index_looks_stale(&idx, &root_s),
+        "a content-identical rewrite must NOT mark the index stale"
+    );
+}
+
+#[test]
 fn safe_scan_root_rejects_home_downloads() {
     if let Some(home) = dirs::home_dir() {
         let downloads = home.join("Downloads");
