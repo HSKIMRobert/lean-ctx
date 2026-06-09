@@ -464,4 +464,45 @@ jobs:
         working-directory: rust
         run: cargo run --example gen_docs --features dev-tools -- --check
 
+  # Single aggregating gate. Point branch protection at THIS one job ("CI Green")
+  # instead of every matrix leg — it stays correct when jobs are added/removed and
+  # cannot be bypassed by a silently-missing required check. Runs always() so it can
+  # inspect results even when a dependency failed; fails only on failure/cancelled
+  # (a legitimately skipped job — e.g. the optional quality-gate — does not block).
+  ci-green:
+    name: CI Green
+    if: always()
+    needs:
+      - test
+      - clippy
+      - fmt
+      - cookbook
+      - rust-sdk
+      - python-sdk
+      - coverage
+      - deny
+      - adversarial
+      - bench
+      - quality-gate
+      - doc
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify no required job failed
+        shell: bash
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS_JSON"
+          python3 - <<'PY'
+          import json, os, sys
+
+          needs = json.loads(os.environ["NEEDS_JSON"])
+          blocked = {k: v["result"] for k, v in needs.items()
+                     if v["result"] in ("failure", "cancelled")}
+          if blocked:
+              print("Required CI jobs did not pass:", blocked)
+              sys.exit(1)
+          print("All required CI jobs passed (success or skipped).")
+          PY
+
   # Security audit runs in security-check.yml workflow

@@ -113,9 +113,9 @@ jobs:
           if [[ "${{ matrix.jemalloc }}" == "true" ]]; then
             JEMALLOC_OVERRIDE="${{ steps.jemalloc.outputs.jemalloc-override }}" \
               CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS="-L ${{ steps.jemalloc.outputs.dummy-dir }}" \
-              cargo test --lib --target x86_64-pc-windows-gnu --all-features -- --test-threads=1
+              cargo test --lib --target x86_64-pc-windows-gnu --all-features --locked -- --test-threads=1
           else
-            cargo test --lib --all-features -- --test-threads=1
+            cargo test --lib --all-features --locked -- --test-threads=1
           fi
 
       - name: Setup Zig
@@ -132,18 +132,23 @@ jobs:
         with:
           tool: cargo-zigbuild
 
+      # Ship the production feature set (Cargo default features incl. secure-update),
+      # NOT --all-features — the latter would pull dev-only tooling (dev-tools:
+      # gen_docs/gen_mcp_manifest) into the released binary. Default features are
+      # already exercised by the CI test job (which runs the --all-features superset).
+      # --locked pins Cargo.lock so releases are reproducible (no silent dep drift).
       - name: Build
         working-directory: rust
         shell: bash
         run: |
           if [[ "${{ matrix.zig }}" == "true" ]]; then
-            cargo zigbuild --release --target ${{ matrix.target }}
+            cargo zigbuild --release --locked --target ${{ matrix.target }}
           elif [[ "${{ matrix.jemalloc }}" == "true" ]]; then
             JEMALLOC_OVERRIDE="${{ steps.jemalloc.outputs.jemalloc-override }}" \
               CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS="-L ${{ steps.jemalloc.outputs.dummy-dir }}" \
-              cargo build --release --target ${{ matrix.target }}
+              cargo build --release --locked --target ${{ matrix.target }}
           else
-            cargo build --release --target ${{ matrix.target }}
+            cargo build --release --locked --target ${{ matrix.target }}
           fi
 
       - name: Package (Unix)
@@ -282,12 +287,22 @@ jobs:
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      # Fail the release if publishing fails — a silent skip used to ship a GitHub
+      # release whose crates.io artifact was missing. Re-runs are idempotent: an
+      # already-published version is treated as a no-op, not a failure.
       - name: Publish
         working-directory: rust
-        run: cargo publish --allow-dirty --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        continue-on-error: true
+        run: |
+          set -euo pipefail
+          CRATE_VERSION="$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')"
+          if curl -fsSL -H "User-Agent: lean-ctx-release" \
+               "https://crates.io/api/v1/crates/lean-ctx/${CRATE_VERSION}" >/dev/null 2>&1; then
+            echo "crates.io already has lean-ctx ${CRATE_VERSION} — skipping publish."
+            exit 0
+          fi
+          cargo publish --allow-dirty --token "${CARGO_REGISTRY_TOKEN}"
 
   publish-npm:
     name: Publish to npm
@@ -303,19 +318,34 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
+      # Fail-hard on publish errors; idempotent on an already-published version
+      # (npm view exits non-zero when the exact version is absent). The version is
+      # read from package.json so the guard always matches what npm will publish.
       - name: Publish lean-ctx-bin
         working-directory: packages/lean-ctx-bin
-        run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        continue-on-error: true
+        run: |
+          set -euo pipefail
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          if npm view "lean-ctx-bin@${PKG_VERSION}" version >/dev/null 2>&1; then
+            echo "npm already has lean-ctx-bin@${PKG_VERSION} — skipping publish."
+            exit 0
+          fi
+          npm publish --access public
 
       - name: Publish pi-lean-ctx
         working-directory: packages/pi-lean-ctx
-        run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        continue-on-error: true
+        run: |
+          set -euo pipefail
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          if npm view "pi-lean-ctx@${PKG_VERSION}" version >/dev/null 2>&1; then
+            echo "npm already has pi-lean-ctx@${PKG_VERSION} — skipping publish."
+            exit 0
+          fi
+          npm publish --access public
 
   update-homebrew:
     name: Update Homebrew
