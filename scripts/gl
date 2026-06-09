@@ -13,8 +13,10 @@
 
 set -euo pipefail
 
+# Auth comes from the environment or glab's keyring (`glab auth login`).
+# NEVER hardcode a token here: this file is tracked in git, including the
+# public GitHub mirror. If GITLAB_TOKEN is unset, glab uses its keyring.
 export GITLAB_HOST="${GITLAB_HOST:-gitlab.pounce.ch}"
-export GITLAB_TOKEN="${GITLAB_TOKEN:-glpat-zhpRWi88merUrw7VM1o5}"
 
 PROJECT_ID=5
 BASE="projects/${PROJECT_ID}"
