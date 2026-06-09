@@ -470,6 +470,41 @@ impl Default for GraphConfig {
     }
 }
 
+/// Skillify (#290): mine the project's session diary + knowledge facts into
+/// versioned, git-committable `.cursor/rules/skillify-*.mdc` rule files.
+///
+/// The miner is precision-biased — it only codifies recurring or high-confidence
+/// patterns and never invents content. Runs on demand (`ctx_skillify` /
+/// `lean-ctx skillify`); re-running merges (bumps version) only when the distilled
+/// content actually changes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SkillifyConfig {
+    /// Master switch for the skillify miner. On by default; the miner only ever
+    /// acts when explicitly invoked, so this never writes files unprompted.
+    pub enabled: bool,
+    /// Where generated rules are written: `project` (`<repo>/.cursor/rules`,
+    /// git-committable, default) or `global` (`~/.cursor/rules`).
+    pub scope: String,
+    /// Minimum confidence for a single curated knowledge fact to be codified even
+    /// without repetition. 0.0..=1.0.
+    pub min_confidence: f32,
+    /// Minimum number of reinforcements (confirmations / repeated mentions) before
+    /// a pattern is codified when its confidence is below `min_confidence`.
+    pub min_recurrence: u32,
+}
+
+impl Default for SkillifyConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            scope: "project".to_string(),
+            min_confidence: 0.7,
+            min_recurrence: 2,
+        }
+    }
+}
+
 /// A user-defined command alias mapping for shell compression patterns.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AliasEntry {

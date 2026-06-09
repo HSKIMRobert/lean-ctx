@@ -399,6 +399,10 @@ pub fn run() {
                 super::cmd_knowledge(&rest);
                 return;
             }
+            "skillify" => {
+                super::cmd_skillify(&rest);
+                return;
+            }
             "overview" => {
                 super::cmd_overview(&rest);
                 return;

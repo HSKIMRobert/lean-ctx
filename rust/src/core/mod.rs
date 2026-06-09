@@ -203,6 +203,7 @@ pub mod handoff_ledger;
 pub mod handoff_transfer_bundle;
 pub mod session;
 pub mod session_diff;
+pub mod skillify;
 
 /// Convenience re-export: all session-related modules.
 pub mod session_domain {

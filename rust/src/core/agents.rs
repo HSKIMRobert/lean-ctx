@@ -451,6 +451,36 @@ impl AgentDiary {
         results.sort_by_key(|x| std::cmp::Reverse(x.2));
         results
     }
+
+    /// Load every diary whose `project_root` matches `project_root`, most
+    /// recently updated first. Used by skillify to mine a project's decisions
+    /// and insights across all its agents (#290).
+    pub fn load_all_for_project(project_root: &str) -> Vec<AgentDiary> {
+        let Ok(dir) = diary_dir() else {
+            return Vec::new();
+        };
+        if !dir.exists() {
+            return Vec::new();
+        }
+        let want = project_root.trim_end_matches('/');
+        let mut diaries: Vec<AgentDiary> = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                if entry.path().extension().and_then(|e| e.to_str()) != Some("json") {
+                    continue;
+                }
+                if let Ok(content) = std::fs::read_to_string(entry.path()) {
+                    if let Ok(diary) = serde_json::from_str::<AgentDiary>(&content) {
+                        if diary.project_root.trim_end_matches('/') == want {
+                            diaries.push(diary);
+                        }
+                    }
+                }
+            }
+        }
+        diaries.sort_by_key(|d| std::cmp::Reverse(d.updated_at));
+        diaries
+    }
 }
 
 impl std::fmt::Display for DiaryEntryType {

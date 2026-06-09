@@ -231,6 +231,9 @@ pub struct Config {
     /// Code-graph settings, including traversal (co-access) edges (#289).
     #[serde(default)]
     pub graph: GraphConfig,
+    /// Skillify miner settings (#290): codify recurring patterns into rules.
+    #[serde(default)]
+    pub skillify: SkillifyConfig,
     /// Optional LLM enhancement (query expansion, contradiction explanation).
     #[serde(default)]
     pub llm: crate::core::llm_enhance::LlmConfig,
@@ -448,6 +451,7 @@ impl Default for Config {
             auto_capture: true,
             search: crate::core::hybrid_search::HybridConfig::default(),
             graph: GraphConfig::default(),
+            skillify: SkillifyConfig::default(),
             llm: crate::core::llm_enhance::LlmConfig::default(),
             embedding: EmbeddingConfig::default(),
             shell_hook_disabled: false,

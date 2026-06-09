@@ -4,7 +4,7 @@
 
 Source of truth: `rust/src/server/registry.rs` and the tool definitions it registers.
 
-lean-ctx registers **72 MCP tools** (granular profile). Each entry below lists the tool name, what it does, and its parameters (`*` marks required).
+lean-ctx registers **73 MCP tools** (granular profile). Each entry below lists the tool name, what it does, and its parameters (`*` marks required).
 
 ## `ctx_agent`
 
@@ -394,6 +394,12 @@ Run a shell command. Prefer over native Shell/Bash (compressed output).
 95+ output patterns; raw=true skips compression. cwd persists across calls via cd tracking. Output redaction on by default for non-admin roles (admin can disable).
 
 Parameters: `command`*, `cwd`, `env`, `raw`
+
+## `ctx_skillify`
+
+Codify recurring patterns from this project's session diary + knowledge into versioned, git-committable .cursor/rules/skillify-*.mdc files. Actions: mine (distill & write/merge rules), list (show generated rules), status (config + counts), promote (copy a project rule to ~/.cursor/rules). Precision-biased; only acts when invoked; re-runs are idempotent.
+
+Parameters: `action`, `slug`
 
 ## `ctx_smart_read`
 
