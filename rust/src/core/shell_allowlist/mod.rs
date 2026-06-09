@@ -850,6 +850,14 @@ fn allowlist_block_message(base: &str) -> String {
          Do NOT retry this command — it will fail again with the same error."
     );
 
+    if crate::core::config::cloud_infra_commands().contains(&base) {
+        msg.push_str(
+            "\nNote: cloud/infra CLIs (terraform, kubectl, aws, …) are deliberately \
+             excluded from the defaults — they mutate remote infrastructure with \
+             ambient credentials. Opting in is a deliberate user decision.",
+        );
+    }
+
     if let Some(parse_err) = crate::core::config::last_config_parse_error() {
         msg.push_str(&format!(
             "\n\n⚠ Your config.toml currently FAILS to parse, so lean-ctx is running on the \

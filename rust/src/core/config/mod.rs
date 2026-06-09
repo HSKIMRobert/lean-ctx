@@ -19,7 +19,7 @@ pub use sections::*;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use defaults_allowlist::default_shell_allowlist;
+pub(crate) use defaults_allowlist::{cloud_infra_commands, default_shell_allowlist};
 pub use enums::{
     CompressionLevel, OutputDensity, PermissionInheritance, ResponseVerbosity, RulesInjection,
     RulesScope, TeeMode, TerseAgent,
@@ -185,6 +185,12 @@ pub struct Config {
     /// Override via LEAN_CTX_ALLOW_PATH env var (path-list separator).
     #[serde(default)]
     pub allow_paths: Vec<String>,
+    /// Allow jailed tool access to home-level IDE config dirs (~/.cursor,
+    /// ~/.claude, …). Default false: those dirs expose other projects'
+    /// sessions, MCP configs and credentials. `~/.lean-ctx` (own data dir)
+    /// is always allowed. Override via LEAN_CTX_ALLOW_IDE_DIRS=1.
+    #[serde(default)]
+    pub allow_ide_config_dirs: bool,
     /// Extra project roots for multi-root workspaces.
     /// Tools like ctx_tree and ctx_search can scan across all roots in a single call.
     /// These paths are automatically added to PathJail's allow-list.
@@ -445,6 +451,7 @@ impl Default for Config {
             archive: ArchiveConfig::default(),
             memory: MemoryPolicy::default(),
             allow_paths: Vec::new(),
+            allow_ide_config_dirs: false,
             extra_roots: Vec::new(),
             content_defined_chunking: false,
             minimal_overhead: true,

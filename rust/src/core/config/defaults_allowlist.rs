@@ -193,21 +193,9 @@ pub(crate) fn default_shell_allowlist() -> Vec<String> {
         "xcrun",
         "pod",
         "fastlane",
-        // Cloud & infra
-        "terraform",
-        "ansible",
-        "kubectl",
-        "helm",
-        "az",
-        "aws",
-        "gcloud",
-        "firebase",
-        "heroku",
-        "vercel",
-        "netlify",
-        "fly",
-        "wrangler",
-        "pulumi",
+        // Cloud & infra tools are NOT in the defaults — see `cloud_infra_commands()`.
+        // They mutate production infrastructure with ambient credentials; an agent
+        // gets them only by explicit opt-in (`lean-ctx allow <cmd>`).
         // Database
         "psql",
         "mysql",
@@ -231,4 +219,68 @@ pub(crate) fn default_shell_allowlist() -> Vec<String> {
     .iter()
     .map(|s| (*s).to_string())
     .collect()
+}
+
+/// Cloud & infrastructure CLIs that mutate remote/production state using
+/// ambient credentials (kubeconfig, AWS profiles, service principals, …).
+///
+/// Deliberately excluded from [`default_shell_allowlist`]: a coding agent that
+/// can run `terraform apply` or `kubectl delete` by default is an incident
+/// waiting to happen. Users opt in per tool via `lean-ctx allow <cmd>` or
+/// `shell_allowlist_extra`. The block message points there
+/// (see `shell_allowlist::allowlist_block_message`).
+pub(crate) fn cloud_infra_commands() -> &'static [&'static str] {
+    &[
+        "terraform",
+        "ansible",
+        "kubectl",
+        "helm",
+        "az",
+        "aws",
+        "gcloud",
+        "firebase",
+        "heroku",
+        "vercel",
+        "netlify",
+        "fly",
+        "wrangler",
+        "pulumi",
+    ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // P0-9 (#421): cloud/infra mutation tools must be opt-in, never default.
+    #[test]
+    fn cloud_infra_tools_are_not_in_the_default_allowlist() {
+        let defaults = default_shell_allowlist();
+        for tool in cloud_infra_commands() {
+            assert!(
+                !defaults.contains(&(*tool).to_string()),
+                "{tool} must not be in the default allowlist"
+            );
+        }
+    }
+
+    #[test]
+    fn dev_essentials_remain_in_the_default_allowlist() {
+        let defaults = default_shell_allowlist();
+        for tool in ["git", "cargo", "npm", "rm", "psql", "lean-ctx"] {
+            assert!(
+                defaults.contains(&tool.to_string()),
+                "{tool} must stay in the default allowlist"
+            );
+        }
+    }
+
+    #[test]
+    fn no_duplicates_in_default_allowlist() {
+        let defaults = default_shell_allowlist();
+        let mut sorted = defaults.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), defaults.len());
+    }
 }

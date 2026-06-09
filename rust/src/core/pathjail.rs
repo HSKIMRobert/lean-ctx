@@ -19,21 +19,18 @@ const IDE_CONFIG_DIRS: &[&str] = &[
 
 pub fn allow_paths_from_env_and_config() -> Vec<PathBuf> {
     let mut out = Vec::new();
+    let cfg = crate::core::config::Config::load();
 
     if let Ok(data_dir) = crate::core::data_dir::lean_ctx_data_dir() {
         out.push(canonicalize_or_self(&data_dir));
     }
 
     if let Some(home) = dirs::home_dir() {
-        for dir in IDE_CONFIG_DIRS {
-            let p = home.join(dir);
-            if p.exists() {
-                out.push(canonicalize_or_self(&p));
-            }
-        }
+        let ide_dirs_allowed = cfg.allow_ide_config_dirs
+            || std::env::var("LEAN_CTX_ALLOW_IDE_DIRS").is_ok_and(|v| v == "1");
+        out.extend(home_allow_dirs(&home, ide_dirs_allowed));
     }
 
-    let cfg = crate::core::config::Config::load();
     for p in &cfg.allow_paths {
         let pb = PathBuf::from(p);
         out.push(canonicalize_or_self(&pb));
@@ -59,6 +56,25 @@ pub fn allow_paths_from_env_and_config() -> Vec<PathBuf> {
         }
     }
 
+    out
+}
+
+/// Home-level allow-dirs for the jail. `~/.lean-ctx` (own state) is always
+/// allowed; the *other* IDE config dirs (~/.cursor, ~/.claude, …) expose
+/// foreign projects' sessions, MCP configs and credentials to any agent, so
+/// they are opt-in only (config `allow_ide_config_dirs = true` or
+/// `LEAN_CTX_ALLOW_IDE_DIRS=1`).
+fn home_allow_dirs(home: &Path, ide_dirs_allowed: bool) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for dir in IDE_CONFIG_DIRS {
+        if *dir != ".lean-ctx" && !ide_dirs_allowed {
+            continue;
+        }
+        let p = home.join(dir);
+        if p.exists() {
+            out.push(canonicalize_or_self(&p));
+        }
+    }
     out
 }
 
@@ -264,6 +280,27 @@ mod tests {
         assert!(IDE_CONFIG_DIRS.contains(&".cursor"));
         assert!(IDE_CONFIG_DIRS.contains(&".claude"));
         assert!(IDE_CONFIG_DIRS.contains(&".gemini"));
+    }
+
+    // P0-10 (#422): home-level IDE config dirs are opt-in; only ~/.lean-ctx
+    // is allowed unconditionally.
+    #[test]
+    fn ide_config_dirs_are_excluded_by_default() {
+        let home = tempfile::tempdir().unwrap();
+        for d in [".lean-ctx", ".cursor", ".claude", ".codex"] {
+            std::fs::create_dir_all(home.path().join(d)).unwrap();
+        }
+
+        let denied = home_allow_dirs(home.path(), false);
+        assert_eq!(
+            denied.len(),
+            1,
+            "only ~/.lean-ctx may be allowed: {denied:?}"
+        );
+        assert!(denied[0].ends_with(".lean-ctx"));
+
+        let allowed = home_allow_dirs(home.path(), true);
+        assert_eq!(allowed.len(), 4, "opt-in must allow all existing IDE dirs");
     }
 
     #[test]

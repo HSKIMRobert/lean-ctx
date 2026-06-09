@@ -18,10 +18,15 @@ pub use crate::core::pathutil::has_project_marker;
 /// secret-screened absolute path.
 ///
 /// Resolution order for relative inputs:
-/// 1. absolute or already-existing path → used as-is
+/// 1. absolute path → used as-is
 /// 2. `<project_root>/<path>` if it exists
 /// 3. `<shell_cwd>/<path>` if a shell cwd is known
 /// 4. `<jail_root>/<path>` as a last resort
+///
+/// Relative inputs are NEVER resolved against the process CWD: the daemon's
+/// CWD is not the project, so a CWD `exists()` probe made resolution
+/// nondeterministic across MCP/daemon/CLI contexts (and could pick a
+/// same-named file outside the project).
 ///
 /// `jail_root` is `project_root`, else `shell_cwd`, else `"."`. The result is
 /// confined to the jail root via [`crate::core::pathjail::jail_path`] and
@@ -42,7 +47,7 @@ pub fn resolve_tool_path(
     let p = Path::new(&normalized);
     let jail_root = project_root.or(shell_cwd).unwrap_or(".").to_string();
 
-    let resolved: PathBuf = if p.is_absolute() || p.exists() {
+    let resolved: PathBuf = if p.is_absolute() {
         PathBuf::from(&normalized)
     } else if let Some(root) = project_root {
         let joined = Path::new(root).join(&normalized);
@@ -114,6 +119,32 @@ mod tests {
         assert!(out.is_ok() || out.is_err());
 
         let _ = fs::remove_dir_all(&base);
+    }
+
+    // P0-3 (#415): a relative path that happens to exist in the *process CWD*
+    // must NOT short-circuit resolution. `Cargo.toml` exists in the package
+    // root (cargo test's CWD) but not in this empty project root — before the
+    // fix the CWD probe returned it as-is, now it must resolve into the root.
+    #[test]
+    fn relative_path_never_resolves_against_process_cwd() {
+        let cwd = std::env::current_dir().unwrap();
+        assert!(
+            cwd.join("Cargo.toml").exists(),
+            "test premise: CWD contains Cargo.toml"
+        );
+
+        let tmp = std::env::temp_dir().join(format!("lc_pr_nocwd_{}", std::process::id()));
+        fs::create_dir_all(&tmp).unwrap();
+        let root = tmp.to_string_lossy().to_string();
+
+        let out = resolve_tool_path(Some(&root), None, "Cargo.toml").unwrap();
+        let canonical_root = crate::core::pathjail::canonicalize_or_self(&tmp);
+        assert!(
+            Path::new(&out).starts_with(&canonical_root),
+            "resolved {out} must live under the project root, not the process CWD"
+        );
+
+        let _ = fs::remove_dir_all(&tmp);
     }
 
     #[test]
