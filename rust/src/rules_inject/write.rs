@@ -78,12 +78,20 @@ pub(super) fn replace_markdown_section(
             }
             result
         }
-        (Some(s), None) => {
-            let before = &content[..s];
-            let mut result = before.to_string();
-            result.push_str(RULES_SHARED);
-            result.push('\n');
-            result
+        (Some(_), None) => {
+            // Start marker present but END marker missing. lean-ctx always writes a
+            // matched start+end pair, so this means the block was truncated or
+            // hand-edited. We cannot know where the section ends, and the old
+            // behaviour (replace start..EOF) would silently delete any user content
+            // appended after the broken block. Refuse to write — leave the file
+            // untouched so nothing is lost — and tell the user how to recover.
+            return Err(format!(
+                "lean-ctx rules block in {} has a start marker (\"{MARKER}\") but no end \
+                 marker (\"{END_MARKER}\"). Refusing to rewrite it, because guessing where \
+                 the block ends could delete content you added after it. Remove the stray \
+                 lean-ctx section (or the start marker line) and re-run `lean-ctx setup`.",
+                path.display()
+            ));
         }
         _ => return Ok(RulesResult::AlreadyPresent),
     };

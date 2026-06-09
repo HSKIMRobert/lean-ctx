@@ -213,6 +213,8 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
     usage_meter::resume_from_disk();
 
     let cfg = Config::load();
+    // Read once at startup — avoids a Config::load() on every proxied request.
+    let require_token = cfg.proxy_require_token;
     let initial = cfg.proxy.resolve_all();
 
     // The proxy reads its upstreams live from a watch channel: a background task
@@ -270,7 +272,7 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
         let expected = auth_token.clone();
         app = app.layer(axum::middleware::from_fn(move |req, next| {
             let expected = expected.clone();
-            proxy_auth_guard(req, next, expected)
+            proxy_auth_guard(req, next, expected, require_token)
         }));
     }
 
@@ -415,6 +417,7 @@ async fn proxy_auth_guard(
     req: axum::extract::Request,
     next: axum::middleware::Next,
     expected_token: String,
+    require_token: bool,
 ) -> Result<Response, Response> {
     let path = req.uri().path();
     if path == "/health" {
@@ -435,8 +438,13 @@ async fn proxy_auth_guard(
     // Accept provider API keys on provider routes (loopback-only, host_guard runs first).
     // AI tools like Claude Code send x-api-key, not Bearer tokens. Since the proxy
     // only binds to 127.0.0.1, the presence of a valid API key header is sufficient
-    // to authenticate the request as coming from a local AI tool.
-    if has_provider_api_key(&req) && is_provider_route(path) {
+    // to authenticate the request as coming from a local AI tool. Disabled when
+    // `proxy_require_token` is set — strict hosts then require the Bearer token.
+    if provider_key_fallback_allowed(
+        require_token,
+        has_provider_api_key(&req),
+        is_provider_route(path),
+    ) {
         return Ok(next.run(req).await);
     }
 
@@ -502,6 +510,20 @@ fn is_provider_route(path: &str) -> bool {
         || path.starts_with("/chat/completions")
         || path.starts_with("/responses")
         || path.starts_with("/messages")
+}
+
+/// Decides whether a request authenticates via a provider API key alone, without
+/// the lean-ctx Bearer token. True only in the default, loopback-friendly mode
+/// where a local AI tool's own provider key is accepted on a provider route. When
+/// `require_token` is set (strict, shared-host mode) the fallback is disabled and
+/// the Bearer token becomes mandatory. Pure, so the policy is unit-testable
+/// without axum middleware plumbing.
+fn provider_key_fallback_allowed(
+    require_token: bool,
+    has_provider_key: bool,
+    is_provider_route: bool,
+) -> bool {
+    !require_token && has_provider_key && is_provider_route
 }
 
 /// Maps a bare provider endpoint to its canonical `/v1/...` form, preserving any
@@ -737,6 +759,41 @@ mod auth_tests {
                 "blank/scheme-only Authorization must not authenticate: {bad:?}"
             );
         }
+    }
+
+    // --- #334: opt-in strict proxy auth (proxy_require_token) ---
+
+    #[test]
+    fn provider_key_fallback_allowed_in_default_mode() {
+        // Default (require_token = false): a provider key on a provider route is
+        // sufficient. This is what lets a local AI tool authenticate with its own
+        // key and no lean-ctx Bearer token (the loopback-friendly behavior).
+        assert!(provider_key_fallback_allowed(false, true, true));
+    }
+
+    #[test]
+    fn provider_key_fallback_denied_in_strict_mode() {
+        // Strict (require_token = true, e.g. shared/multi-user host): the
+        // provider-key fallback is disabled, so even a valid provider key on a
+        // provider route is not enough — the Bearer token becomes mandatory.
+        assert!(!provider_key_fallback_allowed(true, true, true));
+    }
+
+    #[test]
+    fn provider_key_fallback_requires_key_and_provider_route() {
+        // The fallback never fires without a provider key, nor off a provider
+        // route — regardless of mode.
+        assert!(!provider_key_fallback_allowed(false, false, true));
+        assert!(!provider_key_fallback_allowed(false, true, false));
+        assert!(!provider_key_fallback_allowed(true, false, true));
+    }
+
+    #[test]
+    fn proxy_require_token_defaults_off() {
+        // The strict mode must be opt-in: a fresh config keeps the loopback
+        // behavior so existing local setups (Claude Code, OpenCode, Codex) keep
+        // working without a token.
+        assert!(!crate::core::config::Config::default().proxy_require_token);
     }
 
     // --- #353: bare provider endpoints (OpenCode / @ai-sdk/openai) ---

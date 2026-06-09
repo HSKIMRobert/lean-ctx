@@ -288,6 +288,20 @@ mod tests {
     }
 
     #[test]
+    fn production_server_always_has_registry() {
+        // The list_tools fallback that serves static defs when `registry` is None
+        // must stay unreachable in production: every public constructor funnels
+        // through new_with_startup, which sets registry = Some. Lock that invariant
+        // so the advertised tool set can never silently drift from what dispatch
+        // (which requires the registry) can actually execute.
+        let server = crate::tools::create_server();
+        assert!(
+            server.registry.is_some(),
+            "production server must carry a tool registry"
+        );
+    }
+
+    #[test]
     fn disabled_tools_filters_list() {
         let all = crate::tool_defs::granular_tool_defs();
         let total = all.len();

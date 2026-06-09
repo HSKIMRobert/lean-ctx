@@ -108,18 +108,26 @@ fn replace_section_with_end_marker() {
 }
 
 #[test]
-fn replace_section_without_end_marker() {
+fn replace_section_without_end_marker_aborts_and_preserves_file() {
     ensure_temp_dir();
-    let old = "user stuff\n\n# lean-ctx — Context Engineering Layer\nold rules only\n";
+    // Start marker present, END marker missing, plus user content AFTER the broken
+    // block. The old behaviour replaced start..EOF and silently deleted that
+    // trailing content; now we abort and leave the file byte-for-byte so nothing is
+    // lost.
+    let old = "user stuff\n\n# lean-ctx — Context Engineering Layer\nold rules only\n\nIMPORTANT user notes after a broken block\n";
     let path = std::env::temp_dir().join("test_replace_no_end.md");
     std::fs::write(&path, old).unwrap();
 
-    let result = replace_markdown_section(&path, old).unwrap();
-    assert!(matches!(result, RulesResult::Updated));
+    let result = replace_markdown_section(&path, old);
+    assert!(
+        result.is_err(),
+        "missing end marker must abort, not rewrite"
+    );
 
-    let new_content = std::fs::read_to_string(&path).unwrap();
-    assert!(new_content.contains(RULES_VERSION));
-    assert!(new_content.starts_with("user stuff"));
+    // File untouched — no data loss.
+    let after = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(after, old);
+    assert!(after.contains("IMPORTANT user notes after a broken block"));
 
     std::fs::remove_file(&path).ok();
 }

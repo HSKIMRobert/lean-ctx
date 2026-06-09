@@ -262,6 +262,14 @@ impl ServerHandler for LeanCtxServer {
                     if let Some(ref reg) = self.registry {
                         reg.tool_defs()
                     } else {
+                        // Unreachable in production: every constructor sets a registry
+                        // (locked by `production_server_always_has_registry`). If it
+                        // ever fires, the advertised static defs can drift from what
+                        // dispatch (which needs the registry) can execute — make it loud.
+                        tracing::error!(
+                            "list_tools served WITHOUT a tool registry (full mode) — advertising \
+                             static granular defs that dispatch cannot run; tools may drift from handlers."
+                        );
                         crate::tool_defs::granular_tool_defs()
                     }
                 }
@@ -274,6 +282,11 @@ impl ServerHandler for LeanCtxServer {
                             .filter(|t| core_names.contains(&t.name.as_ref()))
                             .collect()
                     } else {
+                        // Unreachable in production (see above); loud if it ever fires.
+                        tracing::error!(
+                            "list_tools served WITHOUT a tool registry (lazy mode) — advertising \
+                             static lazy defs that dispatch cannot run; tools may drift from handlers."
+                        );
                         crate::tool_defs::lazy_tool_defs()
                     }
                 }

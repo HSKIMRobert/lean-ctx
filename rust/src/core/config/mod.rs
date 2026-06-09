@@ -113,6 +113,14 @@ pub struct Config {
     /// Override via LEAN_CTX_PROXY_TIMEOUT_MS env var.
     #[serde(default)]
     pub proxy_timeout_ms: Option<u64>,
+    /// Strict proxy auth: when true, authenticate ONLY via the Bearer token
+    /// (`LEAN_CTX_PROXY_TOKEN`) and disable the provider-API-key fallback. Default
+    /// false keeps the loopback-friendly behavior where any local AI tool's own
+    /// provider key authenticates (the proxy never injects upstream credentials —
+    /// it forwards the caller's key verbatim). Enable on shared/multi-user hosts to
+    /// require the token; clients must then send `Authorization: Bearer <token>`.
+    #[serde(default)]
+    pub proxy_require_token: bool,
     #[serde(default = "serde_defaults::default_buddy_enabled")]
     pub buddy_enabled: bool,
     #[serde(default = "serde_defaults::default_true")]
@@ -467,6 +475,7 @@ impl Default for Config {
             proxy_enabled: None,
             proxy_port: None,
             proxy_timeout_ms: None,
+            proxy_require_token: false,
             buddy_enabled: serde_defaults::default_buddy_enabled(),
             enable_wakeup_ctx: true,
             redirect_exclude: Vec::new(),
