@@ -29,6 +29,10 @@ pub fn run() {
         args.remove(1);
     }
 
+    if !is_server_mode(&args) {
+        restore_sigpipe_default();
+    }
+
     let enters_mcp = args.len() == 1 || args.get(1).is_some_and(|a| a == "mcp");
     if !enters_mcp {
         crate::core::logging::init_logging();
@@ -662,6 +666,40 @@ pub fn run() {
     }
 }
 
+/// Long-lived server entry points keep Rust's default ignored SIGPIPE: they
+/// must survive peers closing sockets/pipes early. Bare `lean-ctx` counts as
+/// a server because MCP clients spawn the binary without a subcommand.
+fn is_server_mode(args: &[String]) -> bool {
+    args.len() == 1
+        || args.get(1).is_some_and(|a| {
+            matches!(
+                a.as_str(),
+                "mcp" | "daemon" | "proxy" | "serve" | "watch" | "dashboard"
+            )
+        })
+}
+
+/// Restore the default SIGPIPE disposition for short-lived CLI invocations.
+///
+/// Rust's runtime ignores SIGPIPE process-wide, so `lean-ctx doctor | head`
+/// made `println!` panic with BrokenPipe; the LineWriter flush in stdout's
+/// Drop then panicked again *during unwinding*, which aborts — the SIGABRT
+/// (exit 134) of upstream #378 / GL#436. Real CLIs (cat, grep, rg) terminate
+/// silently with exit 141 instead; SIG_DFL gives us exactly that. Children
+/// spawned via std::process::Command are unaffected either way (std resets
+/// their SIGPIPE disposition since Rust 1.65).
+#[cfg(unix)]
+fn restore_sigpipe_default() {
+    // SAFETY: signal(2) with SIG_DFL has no preconditions and is called once
+    // during single-threaded startup, before any I/O.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+}
+
+#[cfg(not(unix))]
+fn restore_sigpipe_default() {}
+
 fn passthrough(command: &str) -> ! {
     let (shell, flag) = shell::shell_and_flag();
     let mut cmd = std::process::Command::new(&shell);
@@ -681,6 +719,32 @@ pub(super) fn run_async<F: std::future::Future>(future: F) -> F::Output {
 mod tests {
     use super::*;
     use serial_test::serial;
+
+    fn args_of(parts: &[&str]) -> Vec<String> {
+        parts.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    #[test]
+    fn server_modes_keep_ignored_sigpipe() {
+        for mode in ["mcp", "daemon", "proxy", "serve", "watch", "dashboard"] {
+            assert!(
+                is_server_mode(&args_of(&["lean-ctx", mode])),
+                "{mode} must count as server mode"
+            );
+        }
+        // Bare invocation = MCP server spawned by a client.
+        assert!(is_server_mode(&args_of(&["lean-ctx"])));
+    }
+
+    #[test]
+    fn cli_modes_restore_default_sigpipe() {
+        for mode in ["doctor", "-c", "status", "ls", "grep", "gain", "help"] {
+            assert!(
+                !is_server_mode(&args_of(&["lean-ctx", mode])),
+                "{mode} must count as CLI mode (SIGPIPE default)"
+            );
+        }
+    }
 
     #[test]
     fn quickstart_is_short_and_points_to_setup() {
