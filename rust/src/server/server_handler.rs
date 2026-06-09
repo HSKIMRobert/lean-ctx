@@ -235,164 +235,181 @@ impl ServerHandler for LeanCtxServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        let cfg = crate::core::config::Config::load();
-        let disabled = cfg.disabled_tools_effective();
-        let tool_profile = cfg.tool_profile_effective();
-        // A profile is "explicit" when the user opted into one (config field,
-        // env var, or a custom tools list). Without an explicit choice we keep
-        // the token-lean lazy core set as the default. With one, the profile is
-        // authoritative and resolves against the full registry, so e.g.
-        // `standard` advertises its full balanced set instead of the accidental
-        // `core ∩ standard` intersection.
-        let explicit_profile = cfg.tool_profile.is_some()
-            || !cfg.tools_enabled.is_empty()
-            || std::env::var("LEAN_CTX_TOOL_PROFILE").is_ok();
+        // Panic guard (mirrors call_tool): a panic while filtering the registry /
+        // touching the dynamic-tools mutex must not kill the rmcp request task.
+        use std::panic::AssertUnwindSafe;
+        let computed = AssertUnwindSafe(async {
+            let cfg = crate::core::config::Config::load();
+            let disabled = cfg.disabled_tools_effective();
+            let tool_profile = cfg.tool_profile_effective();
+            // A profile is "explicit" when the user opted into one (config field,
+            // env var, or a custom tools list). Without an explicit choice we keep
+            // the token-lean lazy core set as the default. With one, the profile is
+            // authoritative and resolves against the full registry, so e.g.
+            // `standard` advertises its full balanced set instead of the accidental
+            // `core ∩ standard` intersection.
+            let explicit_profile = cfg.tool_profile.is_some()
+                || !cfg.tools_enabled.is_empty()
+                || std::env::var("LEAN_CTX_TOOL_PROFILE").is_ok();
 
-        let all_tools = if crate::tool_defs::is_full_mode() {
-            if let Some(ref reg) = self.registry {
-                reg.tool_defs()
-            } else {
-                crate::tool_defs::granular_tool_defs()
-            }
-        } else if std::env::var("LEAN_CTX_UNIFIED").is_ok() {
-            crate::tool_defs::unified_tool_defs()
-        } else if let Some(ref reg) = self.registry {
-            if explicit_profile {
-                reg.tool_defs()
-            } else {
-                let core_names = crate::tool_defs::core_tool_names();
-                reg.tool_defs()
-                    .into_iter()
-                    .filter(|t| core_names.contains(&t.name.as_ref()))
-                    .collect()
-            }
-        } else {
-            crate::tool_defs::lazy_tool_defs()
-        };
-        let client = self.client_name.read().await.clone();
-        let is_zed = !client.is_empty() && client.to_lowercase().contains("zed");
-
-        let active_role = crate::core::roles::active_role();
-        let tools: Vec<_> = all_tools
-            .into_iter()
-            .filter(|t| {
-                let name = t.name.as_ref();
-                crate::server::tool_visibility::is_tool_visible(
-                    name,
-                    &tool_profile,
-                    &disabled,
-                    is_zed,
-                    active_role.is_tool_allowed(name),
-                )
-            })
-            .collect();
-
-        // Guarantee the universal invoker is advertised in non-full mode. Lazy
-        // and profile filtering hide most tools; without ctx_call a static-list
-        // client (one that only calls advertised tools) could not reach them.
-        // ctx_call enforces the same role/workflow gates on the inner tool.
-        let tools = {
-            let mut tools = tools;
-            use crate::server::tool_visibility::INVOKER;
-            let already = tools.iter().any(|t| t.name.as_ref() == INVOKER);
-            if crate::server::tool_visibility::needs_invoker(
-                crate::tool_defs::is_full_mode(),
-                already,
-                active_role.is_tool_allowed(INVOKER),
-                &disabled,
-            ) {
-                if let Some(def) = self.registry.as_ref().and_then(|reg| {
+            let all_tools = if crate::tool_defs::is_full_mode() {
+                if let Some(ref reg) = self.registry {
+                    reg.tool_defs()
+                } else {
+                    crate::tool_defs::granular_tool_defs()
+                }
+            } else if std::env::var("LEAN_CTX_UNIFIED").is_ok() {
+                crate::tool_defs::unified_tool_defs()
+            } else if let Some(ref reg) = self.registry {
+                if explicit_profile {
+                    reg.tool_defs()
+                } else {
+                    let core_names = crate::tool_defs::core_tool_names();
                     reg.tool_defs()
                         .into_iter()
-                        .find(|t| t.name.as_ref() == INVOKER)
-                }) {
-                    tools.push(def);
+                        .filter(|t| core_names.contains(&t.name.as_ref()))
+                        .collect()
                 }
-            }
-            tools
-        };
-
-        let tools = {
-            let Ok(dyn_state) = dynamic_tools::global().lock() else {
-                tracing::warn!("dynamic_tools mutex poisoned in list_tools; returning unfiltered");
-                return Ok(ListToolsResult {
-                    tools,
-                    ..Default::default()
-                });
-            };
-            // The lazy category gate (load tools on demand for dynamic_tools
-            // clients) only applies to the *default* lean-core surface. When the
-            // user opted into an explicit profile, that profile IS the
-            // authoritative surface — gating it by category would silently drop
-            // profile-enabled tools like Standard's ctx_architecture /
-            // ctx_semantic_search for Codex et al. (#358), so the advertised set
-            // would no longer match `lean-ctx tools show`.
-            if crate::server::tool_visibility::category_gate_applies(
-                dyn_state.supports_list_changed(),
-                explicit_profile,
-            ) {
-                tools
-                    .into_iter()
-                    .filter(|t| dyn_state.is_tool_active(t.name.as_ref()))
-                    .collect()
             } else {
-                tools
-            }
-        };
+                crate::tool_defs::lazy_tool_defs()
+            };
+            let client = self.client_name.read().await.clone();
+            let is_zed = !client.is_empty() && client.to_lowercase().contains("zed");
 
-        let tools = {
-            let active = self.workflow.read().await.clone();
-            if let Some(run) = active {
-                if run.current == "done" || is_workflow_stale(&run) {
-                    let mut wf = self.workflow.write().await;
-                    *wf = None;
-                    let _ = crate::core::workflow::clear_active();
-                } else if let Some(state) = run.spec.state(&run.current) {
-                    if let Some(allowed) = &state.allowed_tools {
-                        let mut allow: std::collections::HashSet<&str> =
-                            allowed.iter().map(std::string::String::as_str).collect();
-                        for passthrough in WORKFLOW_PASSTHROUGH_TOOLS {
-                            allow.insert(passthrough);
-                        }
-                        return Ok(ListToolsResult {
-                            tools: tools
-                                .into_iter()
-                                .filter(|t| allow.contains(t.name.as_ref()))
-                                .collect(),
-                            ..Default::default()
-                        });
+            let active_role = crate::core::roles::active_role();
+            let tools: Vec<_> = all_tools
+                .into_iter()
+                .filter(|t| {
+                    let name = t.name.as_ref();
+                    crate::server::tool_visibility::is_tool_visible(
+                        name,
+                        &tool_profile,
+                        &disabled,
+                        is_zed,
+                        active_role.is_tool_allowed(name),
+                    )
+                })
+                .collect();
+
+            // Guarantee the universal invoker is advertised in non-full mode. Lazy
+            // and profile filtering hide most tools; without ctx_call a static-list
+            // client (one that only calls advertised tools) could not reach them.
+            // ctx_call enforces the same role/workflow gates on the inner tool.
+            let tools = {
+                let mut tools = tools;
+                use crate::server::tool_visibility::INVOKER;
+                let already = tools.iter().any(|t| t.name.as_ref() == INVOKER);
+                if crate::server::tool_visibility::needs_invoker(
+                    crate::tool_defs::is_full_mode(),
+                    already,
+                    active_role.is_tool_allowed(INVOKER),
+                    &disabled,
+                ) {
+                    if let Some(def) = self.registry.as_ref().and_then(|reg| {
+                        reg.tool_defs()
+                            .into_iter()
+                            .find(|t| t.name.as_ref() == INVOKER)
+                    }) {
+                        tools.push(def);
                     }
                 }
-            }
-            tools
-        };
-
-        let tools = {
-            let cfg = crate::core::config::Config::load();
-            let level = crate::core::config::CompressionLevel::effective(&cfg);
-            let mode =
-                crate::core::terse::mcp_compress::DescriptionMode::from_compression_level(&level);
-            if mode == crate::core::terse::mcp_compress::DescriptionMode::Full {
                 tools
-            } else {
-                tools
-                    .into_iter()
-                    .map(|mut t| {
-                        let compressed = crate::core::terse::mcp_compress::compress_description(
-                            t.name.as_ref(),
-                            t.description.as_deref().unwrap_or(""),
-                            mode,
-                        );
-                        t.description = Some(compressed.into());
-                        t
-                    })
-                    .collect()
-            }
-        };
+            };
 
-        Ok(ListToolsResult {
-            tools,
-            ..Default::default()
+            let tools = {
+                let Ok(dyn_state) = dynamic_tools::global().lock() else {
+                    tracing::warn!(
+                        "dynamic_tools mutex poisoned in list_tools; returning unfiltered"
+                    );
+                    return Ok(ListToolsResult {
+                        tools,
+                        ..Default::default()
+                    });
+                };
+                // The lazy category gate (load tools on demand for dynamic_tools
+                // clients) only applies to the *default* lean-core surface. When the
+                // user opted into an explicit profile, that profile IS the
+                // authoritative surface — gating it by category would silently drop
+                // profile-enabled tools like Standard's ctx_architecture /
+                // ctx_semantic_search for Codex et al. (#358), so the advertised set
+                // would no longer match `lean-ctx tools show`.
+                if crate::server::tool_visibility::category_gate_applies(
+                    dyn_state.supports_list_changed(),
+                    explicit_profile,
+                ) {
+                    tools
+                        .into_iter()
+                        .filter(|t| dyn_state.is_tool_active(t.name.as_ref()))
+                        .collect()
+                } else {
+                    tools
+                }
+            };
+
+            let tools = {
+                let active = self.workflow.read().await.clone();
+                if let Some(run) = active {
+                    if run.current == "done" || is_workflow_stale(&run) {
+                        let mut wf = self.workflow.write().await;
+                        *wf = None;
+                        let _ = crate::core::workflow::clear_active();
+                    } else if let Some(state) = run.spec.state(&run.current) {
+                        if let Some(allowed) = &state.allowed_tools {
+                            let mut allow: std::collections::HashSet<&str> =
+                                allowed.iter().map(std::string::String::as_str).collect();
+                            for passthrough in WORKFLOW_PASSTHROUGH_TOOLS {
+                                allow.insert(passthrough);
+                            }
+                            return Ok(ListToolsResult {
+                                tools: tools
+                                    .into_iter()
+                                    .filter(|t| allow.contains(t.name.as_ref()))
+                                    .collect(),
+                                ..Default::default()
+                            });
+                        }
+                    }
+                }
+                tools
+            };
+
+            let tools = {
+                let cfg = crate::core::config::Config::load();
+                let level = crate::core::config::CompressionLevel::effective(&cfg);
+                let mode =
+                    crate::core::terse::mcp_compress::DescriptionMode::from_compression_level(
+                        &level,
+                    );
+                if mode == crate::core::terse::mcp_compress::DescriptionMode::Full {
+                    tools
+                } else {
+                    tools
+                        .into_iter()
+                        .map(|mut t| {
+                            let compressed = crate::core::terse::mcp_compress::compress_description(
+                                t.name.as_ref(),
+                                t.description.as_deref().unwrap_or(""),
+                                mode,
+                            );
+                            t.description = Some(compressed.into());
+                            t
+                        })
+                        .collect()
+                }
+            };
+
+            Ok(ListToolsResult {
+                tools,
+                ..Default::default()
+            })
+        })
+        .catch_unwind()
+        .await;
+        computed.unwrap_or_else(|_| {
+            tracing::error!(
+                "list_tools panicked; returning an empty tool list to keep the MCP server alive"
+            );
+            Ok(ListToolsResult::default())
         })
     }
 

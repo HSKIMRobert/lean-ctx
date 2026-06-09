@@ -34,10 +34,13 @@ pub fn ast_prune(content: &str, file_ext: &str) -> Option<String> {
 
                 if let Some(body) = find_body_node(&node) {
                     let body_start = body.start_position().row;
+                    // `saturating_sub` guards against a malformed AST where the body row
+                    // precedes the signature row, which would otherwise underflow `usize`
+                    // → panic (debug) or an enormous `.take()` → OOM (release).
                     for flag in keep
                         .iter_mut()
                         .skip(sig_start)
-                        .take(body_start.min(sig_start + 3) - sig_start + 1)
+                        .take(body_start.min(sig_start + 3).saturating_sub(sig_start) + 1)
                     {
                         *flag = true;
                     }
@@ -50,7 +53,7 @@ pub fn ast_prune(content: &str, file_ext: &str) -> Option<String> {
                     for flag in keep
                         .iter_mut()
                         .skip(sig_start)
-                        .take(end.min(sig_start + 2) - sig_start + 1)
+                        .take(end.min(sig_start + 2).saturating_sub(sig_start) + 1)
                     {
                         *flag = true;
                     }
