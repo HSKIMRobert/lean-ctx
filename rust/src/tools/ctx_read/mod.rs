@@ -353,10 +353,11 @@ fn handle_with_options_resolved(
 /// parallel reads of distinct files no longer serialize on a global write lock.
 pub fn try_stub_hit_readonly(cache: &SessionCache, path: &str) -> Option<ReadOutput> {
     let file_ref = cache.get_file_ref_readonly(path)?;
-    let (cached_mtime, read_count, line_count, content_opt) = {
+    let (cached_mtime, cached_hash, read_count, line_count, content_opt) = {
         let entry = cache.get(path)?;
         (
             entry.stored_mtime,
+            entry.hash.clone(),
             entry.read_count(),
             entry.line_count,
             entry.content(),
@@ -371,7 +372,7 @@ pub fn try_stub_hit_readonly(cache: &SessionCache, path: &str) -> Option<ReadOut
     let policy_allows_stub =
         crate::server::compaction_sync::effective_cache_policy() != "safe" && !force_full;
     if !policy_allows_stub
-        || crate::core::cache::is_cache_entry_stale(path, cached_mtime)
+        || crate::core::cache::is_cache_entry_stale_verified(path, cached_mtime, &cached_hash)
         || !cache.is_full_delivered(path)
     {
         return None;
@@ -448,7 +449,11 @@ fn handle_with_options_inner(
 
     if mode != "full" {
         if let Some(existing) = cache.get(path) {
-            let stale = crate::core::cache::is_cache_entry_stale(path, existing.stored_mtime);
+            let stale = crate::core::cache::is_cache_entry_stale_verified(
+                path,
+                existing.stored_mtime,
+                &existing.hash,
+            );
             if stale {
                 cache.invalidate(path);
             }

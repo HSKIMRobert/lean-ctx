@@ -749,7 +749,56 @@ pub fn is_cache_entry_stale(path: &str, cached_mtime: Option<SystemTime>) -> boo
         (None, None) => false,
         // One side missing: metadata changed or appeared/disappeared → stale.
         (Some(_), None) | (None, Some(_)) => true,
-        (Some(cached), Some(current)) => current > cached,
+        // `!=`, not `>`: a *backward* mtime (git checkout, touch -t, snapshot
+        // restore) is just as much a content change as a forward one.
+        (Some(cached), Some(current)) => current != cached,
+    }
+}
+
+/// Files larger than this are not content-hashed for stub verification; the
+/// mtime check alone decides. Keeps the stub fast-path O(small-file-read).
+const VERIFY_HASH_CAP_BYTES: u64 = 8 * 1024 * 1024;
+
+fn cache_verify_enabled() -> bool {
+    std::env::var("LEAN_CTX_CACHE_VERIFY").map_or(true, |v| v != "0")
+}
+
+/// Staleness with content verification: like [`is_cache_entry_stale`], but when
+/// the mtime claims "unchanged", additionally compares the md5 of the on-disk
+/// content against the cached hash.
+///
+/// mtime alone cannot be trusted for *correctness*: same-second writes are
+/// invisible on coarse-granularity filesystems (HFS+ 1s, FAT 2s) and mtimes can
+/// be restored by tools. Serving an `[unchanged]` stub for changed content
+/// would silently mislead the agent — the worst failure mode a context layer
+/// can have. The extra disk read costs microseconds for typical source files;
+/// the stub's token savings are unaffected. Opt out: `LEAN_CTX_CACHE_VERIFY=0`.
+///
+/// Note: entries whose stored content differs from disk by design (e.g. secret
+/// redaction) hash differently and therefore never serve stubs — conservative
+/// and correct.
+pub fn is_cache_entry_stale_verified(
+    path: &str,
+    cached_mtime: Option<SystemTime>,
+    cached_hash: &str,
+) -> bool {
+    if is_cache_entry_stale(path, cached_mtime) {
+        return true;
+    }
+    if cached_hash.is_empty() || !cache_verify_enabled() {
+        return false;
+    }
+    let Ok(meta) = std::fs::metadata(path) else {
+        // Can't stat → never serve a stub on top of it.
+        return true;
+    };
+    if meta.len() > VERIFY_HASH_CAP_BYTES {
+        return false;
+    }
+    match std::fs::read(path) {
+        // Hash the same view of the bytes that `store()` hashed (lossy UTF-8).
+        Ok(bytes) => compute_md5(&String::from_utf8_lossy(&bytes)) != cached_hash,
+        Err(_) => true,
     }
 }
 
@@ -964,6 +1013,83 @@ mod tests {
 
         let entry = cache.get(&p).unwrap();
         assert!(is_cache_entry_stale(&p, entry.stored_mtime));
+    }
+
+    // P0-7 (#419): a *backward* mtime (git checkout, touch -t) is a change.
+    #[test]
+    fn stale_detection_flags_backward_mtime() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("backward.txt");
+        let p = path.to_string_lossy().to_string();
+
+        std::fs::write(&path, "one").unwrap();
+        let mut cache = SessionCache::new();
+        cache.store(&p, "one");
+        let entry_mtime = cache.get(&p).unwrap().stored_mtime;
+        assert!(!is_cache_entry_stale(&p, entry_mtime));
+
+        // Simulate `git checkout` of an older version: content + older mtime.
+        std::fs::write(&path, "zero").unwrap();
+        let f = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+        f.set_modified(SystemTime::now() - Duration::from_hours(1))
+            .unwrap();
+        drop(f);
+
+        assert!(
+            is_cache_entry_stale(&p, entry_mtime),
+            "older mtime must read as stale"
+        );
+    }
+
+    // P0-7 (#419): identical mtime with different content (same-second write,
+    // restored timestamps) is caught by the content-hash verification.
+    #[test]
+    fn verified_staleness_catches_same_mtime_content_change() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sneaky.txt");
+        let p = path.to_string_lossy().to_string();
+
+        std::fs::write(&path, "one").unwrap();
+        let original_mtime = std::fs::metadata(&path).unwrap().modified().unwrap();
+        let mut cache = SessionCache::new();
+        cache.store(&p, "one");
+        let (mtime, hash) = {
+            let e = cache.get(&p).unwrap();
+            (e.stored_mtime, e.hash.clone())
+        };
+
+        // Unchanged file: both checks agree it is fresh.
+        assert!(!is_cache_entry_stale_verified(&p, mtime, &hash));
+
+        // Change the content but restore the exact original mtime.
+        std::fs::write(&path, "two").unwrap();
+        let f = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+        f.set_modified(original_mtime).unwrap();
+        drop(f);
+
+        assert!(
+            !is_cache_entry_stale(&p, mtime),
+            "test premise: the mtime check alone is fooled"
+        );
+        assert!(
+            is_cache_entry_stale_verified(&p, mtime, &hash),
+            "hash verification must catch the change"
+        );
+    }
+
+    #[test]
+    fn verified_staleness_flags_unreadable_file() {
+        let mut cache = SessionCache::new();
+        cache.store("/nonexistent/file.rs", "content");
+        let (mtime, hash) = {
+            let e = cache.get("/nonexistent/file.rs").unwrap();
+            (e.stored_mtime, e.hash.clone())
+        };
+        assert!(is_cache_entry_stale_verified(
+            "/nonexistent/file.rs",
+            mtime,
+            &hash
+        ));
     }
 
     #[test]
