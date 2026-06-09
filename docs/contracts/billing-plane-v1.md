@@ -136,3 +136,7 @@ field, or changing the local-free semantics of `entitlement_allows`, bumps to
 under this rule — purely additive, so still `v1`. (`cloud_sync` gates only a
 *hosted* sync service, never a local feature, so the local-free semantics are
 unchanged.)
+
+The metered **hosted-index storage-overage** add-on is documented separately in
+[`billing-plane-v2`](billing-plane-v2.md): a new metered surface layered on top
+of these plans, additive and Local-Free-preserving.
