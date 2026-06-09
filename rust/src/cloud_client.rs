@@ -738,6 +738,31 @@ pub fn push_feedback(entries: &[serde_json::Value]) -> Result<String, String> {
     ))
 }
 
+/// The signed-in account's email, for status displays.
+pub fn account_email() -> Option<String> {
+    load_credentials().map(|c| c.email)
+}
+
+/// `GET /api/account/cloud` — the Personal Cloud dashboard payload (entitlement
+/// gate, per-bucket sync footprint, buddy, usage totals). Powers
+/// `lean-ctx cloud status`, mirroring what leanctx.com/account/cloud shows.
+pub fn fetch_account_cloud() -> Result<serde_json::Value, String> {
+    let bearer = auth_bearer_token()?;
+    let url = format!("{}/api/account/cloud", api_url());
+
+    let resp = ureq::get(&url)
+        .header("Authorization", &format!("Bearer {bearer}"))
+        .call()
+        .map_err(|e| format!("Status fetch failed: {e}"))?;
+
+    let resp_body = resp
+        .into_body()
+        .read_to_string()
+        .map_err(|e| format!("Failed to read response: {e}"))?;
+
+    serde_json::from_str(&resp_body).map_err(|e| format!("Invalid JSON: {e}"))
+}
+
 pub fn pull_knowledge() -> Result<Vec<serde_json::Value>, String> {
     let bearer = auth_bearer_token()?;
     let url = format!("{}/api/sync/knowledge", api_url());

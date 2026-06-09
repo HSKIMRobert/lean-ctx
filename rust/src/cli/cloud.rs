@@ -595,14 +595,7 @@ pub fn cmd_cloud(args: &[String]) {
                 }
             }
         }
-        "status" => {
-            if cloud_client::is_logged_in() {
-                println!("Connected to LeanCTX Cloud.");
-            } else {
-                println!("Not connected to LeanCTX Cloud.");
-                println!("Get started: lean-ctx login <email>");
-            }
-        }
+        "status" => cmd_cloud_status(),
         "pull" => cmd_cloud_pull(),
         "upgrade" | "subscribe" => cloud_upgrade(&args[1..]),
         _ => {
@@ -616,6 +609,96 @@ pub fn cmd_cloud(args: &[String]) {
             );
         }
     }
+}
+
+/// `lean-ctx cloud status` — your Personal Cloud, from the terminal. Shows the
+/// same privacy-preserving footprint as leanctx.com/account/cloud: per-bucket
+/// counts + last sync, buddy, and the all-time usage totals. Free accounts see
+/// the connection state plus what upgrading unlocks.
+fn cmd_cloud_status() {
+    if !cloud_client::is_logged_in() {
+        println!("Not connected to LeanCTX Cloud.");
+        println!("Get started: lean-ctx login <email>");
+        return;
+    }
+    let email = cloud_client::account_email().unwrap_or_default();
+    println!("Connected to LeanCTX Cloud as {email}.");
+
+    let d = match cloud_client::fetch_account_cloud() {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::warn!("Could not fetch cloud status: {e}");
+            return;
+        }
+    };
+
+    let plan = d.get("plan").and_then(|v| v.as_str()).unwrap_or("free");
+    println!("Plan: {plan}");
+
+    if d.get("cloud_sync").and_then(serde_json::Value::as_bool) != Some(true) {
+        println!("Personal Cloud sync: locked on this plan.");
+        super::upgrade_hint::hint_for("cloud_sync");
+        return;
+    }
+
+    match d.get("last_synced_at").and_then(|v| v.as_str()) {
+        Some(ts) => println!("Last synced: {ts}"),
+        None => println!("Last synced: never — run `lean-ctx sync` on this machine."),
+    }
+
+    // Mirror the website's bucket order and labels.
+    const BUCKETS: [(&str, &str, &str); 6] = [
+        ("knowledge", "Knowledge & memory", "facts"),
+        ("commands", "Learned shell patterns", "patterns"),
+        ("cep", "CEP score history", "snapshots"),
+        ("gain", "GAIN score history", "snapshots"),
+        ("gotchas", "Gotchas", "fixes"),
+        ("feedback", "Feedback thresholds", "languages"),
+    ];
+    println!("\nSynced to your Personal Cloud:");
+    for (key, label, unit) in BUCKETS {
+        let count = d
+            .get("buckets")
+            .and_then(|b| b.get(key))
+            .and_then(|b| b.get("count"))
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0);
+        if count > 0 {
+            println!("  {label:<24} {count} {unit}");
+        } else {
+            println!("  {label:<24} —");
+        }
+    }
+
+    if let Some(buddy) = d
+        .get("buddy")
+        .filter(|b| b.get("present").and_then(serde_json::Value::as_bool) == Some(true))
+    {
+        let name = buddy
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Buddy");
+        let level = buddy
+            .get("level")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(1);
+        println!("  {:<24} {name} (level {level})", "Buddy");
+    }
+
+    if let Some(totals) = d.get("usage").and_then(|u| u.get("totals")) {
+        let tokens = totals
+            .get("tokens_saved")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0);
+        let sessions = totals
+            .get("sessions")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0);
+        if sessions > 0 {
+            println!("\nAll-time: {tokens} tokens saved across {sessions} synced sessions.");
+        }
+    }
+    println!("\nFull dashboard: https://leanctx.com/account/cloud/");
 }
 
 /// `lean-ctx cloud pull` — the read side of the Pro "Personal Cloud". `lean-ctx
