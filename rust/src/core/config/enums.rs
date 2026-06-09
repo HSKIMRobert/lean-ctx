@@ -273,10 +273,15 @@ pub enum RulesScope {
 ///   config-driven, fully-removable auto-load path (Claude/Codex `SessionStart`
 ///   hook `additionalContext`, OpenCode `instructions[]`, Gemini
 ///   `context.fileName`) plus a lean-ctx-owned rules file. See issue #343.
+/// - `Off`: never write any rules file. For hosts that already supply their own
+///   tool-steering workflow (e.g. an embedded extension) or for phase-isolated /
+///   non-caching harnesses where the injected prefix is pure re-billed overhead
+///   with no cached-re-read dividend to amortize it. See GitHub #361.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RulesInjection {
     Shared,
     Dedicated,
+    Off,
 }
 
 /// Whether lean-ctx mirrors the host IDE's tool-permission rules onto its own

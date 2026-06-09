@@ -1094,6 +1094,32 @@ fn append_gain_footer(out: &mut Vec<String>, t: &Theme, store: &StatsStore) {
         }
     }
 
+    {
+        // Methodology disclosure (#361): the headline measures compression on
+        // lean-ctx-touched traffic, not the full provider bill — and lean-ctx
+        // itself injects a fixed per-turn prefix that, without provider prompt
+        // caching, is re-billed every turn. State both so the number stays honest.
+        let a = t.accent.fg();
+        let m = t.muted.fg();
+        let overhead = crate::core::context_overhead::ContextOverhead::measure();
+        out.push(format!("    {a}📐 Methodology{rst}"));
+        out.push(format!(
+            "    {m}   Savings = compression on lean-ctx-touched traffic (reads + shell),{rst}"
+        ));
+        out.push(format!(
+            "    {m}   not your full provider bill. lean-ctx adds ~{} tok/turn of context{rst}",
+            overhead.total_tokens(),
+        ));
+        out.push(format!(
+            "    {m}   ({} tool schemas + instructions + rules); without provider prompt{rst}",
+            overhead.tool_count,
+        ));
+        out.push(format!(
+            "    {m}   caching that rides every turn → net = savings − overhead × turns.{rst}"
+        ));
+        out.push(String::new());
+    }
+
     let m = t.muted.fg();
     out.push(format!(
         "    {m}🐛 Found a bug? Run: lean-ctx report-issue{rst}"

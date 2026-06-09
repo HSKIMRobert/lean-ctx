@@ -144,9 +144,11 @@ pub struct Config {
     #[serde(default)]
     pub rules_scope: Option<String>,
     /// Controls how rules are injected for shared-instruction-file agents.
-    /// Values: "shared" (default, marker block in CLAUDE.md/AGENTS.md/GEMINI.md)
-    /// or "dedicated" (never touch those files; use each agent's config-driven
-    /// auto-load: SessionStart hook / instructions[] / context.fileName). See #343.
+    /// Values: "shared" (default, marker block in CLAUDE.md/AGENTS.md/GEMINI.md),
+    /// "dedicated" (never touch those files; use each agent's config-driven
+    /// auto-load: SessionStart hook / instructions[] / context.fileName, #343), or
+    /// "off" (write no rules file at all — for hosts that supply their own
+    /// tool-steering workflow or phase-isolated/non-caching harnesses, #361).
     /// Override via LEAN_CTX_RULES_INJECTION env var.
     #[serde(default)]
     pub rules_injection: Option<String>,
@@ -538,6 +540,7 @@ impl Config {
             .unwrap_or_default();
         match raw.trim().to_lowercase().as_str() {
             "dedicated" => RulesInjection::Dedicated,
+            "off" | "none" | "disabled" => RulesInjection::Off,
             _ => RulesInjection::Shared,
         }
     }

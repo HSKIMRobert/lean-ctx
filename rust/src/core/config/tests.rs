@@ -364,6 +364,30 @@ mod rules_injection_tests {
     }
 
     #[test]
+    fn config_off() {
+        for raw in ["off", "none", "disabled"] {
+            let cfg = Config {
+                rules_injection: Some(raw.to_string()),
+                ..Default::default()
+            };
+            assert_eq!(
+                cfg.rules_injection_effective(),
+                RulesInjection::Off,
+                "{raw:?} should resolve to Off"
+            );
+        }
+    }
+
+    #[test]
+    fn off_disables_dedicated_session_context() {
+        let cfg = Config {
+            rules_injection: Some("off".to_string()),
+            ..Default::default()
+        };
+        assert!(!cfg.dedicated_session_context_active());
+    }
+
+    #[test]
     fn unknown_value_falls_back_to_shared() {
         let cfg = Config {
             rules_injection: Some("nonsense".to_string()),

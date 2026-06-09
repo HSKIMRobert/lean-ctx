@@ -10,6 +10,14 @@ pub const RULES_MARKER: &str = MARKER;
 pub const RULES_END_MARKER: &str = END_MARKER;
 pub const RULES_VERSION_STR: &str = RULES_VERSION;
 
+/// The canonical shared rules block lean-ctx injects into a host instruction file
+/// (`CLAUDE.md` / `AGENTS.md`). Exposed for honest per-turn overhead accounting
+/// (see `core::context_overhead`, GitHub #361).
+#[must_use]
+pub fn canonical_rules_block() -> &'static str {
+    RULES_SHARED
+}
+
 pub fn rules_dedicated_markdown() -> &'static str {
     RULES_DEDICATED
 }
@@ -194,6 +202,11 @@ pub fn inject_all_rules(home: &std::path::Path) -> InjectResult {
     if cfg.rules_scope_effective() == crate::core::config::RulesScope::Project {
         return InjectResult::default();
     }
+    // `Off`: the host supplies its own steering (or this is a phase-isolated /
+    // non-caching harness) — write no rules file at all (#361).
+    if cfg.rules_injection_effective() == crate::core::config::RulesInjection::Off {
+        return InjectResult::default();
+    }
 
     let targets = build_rules_targets(home, cfg.rules_injection_effective());
 
@@ -252,6 +265,11 @@ pub fn inject_all_rules(home: &std::path::Path) -> InjectResult {
 pub fn inject_rules_for_agent(home: &std::path::Path, agent_key: &str) -> InjectResult {
     let cfg = crate::core::config::Config::load();
     if cfg.rules_scope_effective() == crate::core::config::RulesScope::Project {
+        return InjectResult::default();
+    }
+    // `Off`: skip rule-file injection entirely (host-supplied workflow or
+    // phase-isolated / non-caching harness, #361).
+    if cfg.rules_injection_effective() == crate::core::config::RulesInjection::Off {
         return InjectResult::default();
     }
 
@@ -327,6 +345,11 @@ fn match_agent_name(cli_key: &str, target_name: &str) -> bool {
 pub fn check_rules_freshness(client_name: &str) -> Option<String> {
     let home = dirs::home_dir()?;
     let injection = crate::core::config::Config::load().rules_injection_effective();
+    // `Off`: lean-ctx does not manage a rules file, so it never nags about
+    // staleness (#361).
+    if injection == crate::core::config::RulesInjection::Off {
+        return None;
+    }
     let targets = build_rules_targets(&home, injection);
 
     let matched: Vec<&RulesTarget> = targets
@@ -706,19 +729,24 @@ fn build_rules_targets(
     // lean-ctx-owned file instead of the user's shared instruction file;
     // discovery is wired up separately via opencode.json instructions[] /
     // .gemini/settings.json context.fileName (#343).
+    // `Off` never reaches here (the inject entry points short-circuit before
+    // building targets), but the match must stay exhaustive — treat it as the
+    // shared default layout.
     let (gemini_path, gemini_format) = match injection {
         RulesInjection::Dedicated => (
             gemini_dedicated_rules_path(home),
             RulesFormat::DedicatedMarkdown,
         ),
-        RulesInjection::Shared => (home.join(".gemini/GEMINI.md"), RulesFormat::SharedMarkdown),
+        RulesInjection::Shared | RulesInjection::Off => {
+            (home.join(".gemini/GEMINI.md"), RulesFormat::SharedMarkdown)
+        }
     };
     let (opencode_path, opencode_format) = match injection {
         RulesInjection::Dedicated => (
             opencode_dedicated_rules_path(home),
             RulesFormat::DedicatedMarkdown,
         ),
-        RulesInjection::Shared => (
+        RulesInjection::Shared | RulesInjection::Off => (
             home.join(".config/opencode/AGENTS.md"),
             RulesFormat::SharedMarkdown,
         ),

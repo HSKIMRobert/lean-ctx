@@ -149,6 +149,69 @@ in-budget entries.
 
 ---
 
+## 7. Workload fit — where lean-ctx nets out (and where it doesn't)
+
+lean-ctx saves tokens two ways: **cold-read compression** (a single read sent
+smaller) and **cached re-reads** (an unchanged file re-read collapses to a
+~13-token back-reference). It also *adds* a fixed per-turn prefix — the MCP tool
+schemas, the server instructions, and the rules block. Whether you net out ahead
+depends on the harness and the provider:
+
+| Factor | Nets ahead | Can cost tokens |
+|--------|-----------|-----------------|
+| Context lifetime | one long-lived context (agent loop, interactive session) — re-reads land in the same window, so the ~13-token stub is usable | **phase-isolated** harness (a fresh process/context per phase) — the back-reference can't resolve in a cold context, so there is no re-read dividend |
+| Provider pricing | **prompt-cache-priced** (the injected prefix rides the provider cache and is billed once) | **non-caching / request-metered** — the prefix is re-sent and re-billed *every turn* |
+
+On a phase-isolated **and** non-caching workload the cached-re-read lever has no
+surface and the injected prefix is pure re-billed overhead. That is an
+architecture–surface fit, not a failure mode — but you should tune for it.
+
+### The meter's denominator (read this before quoting `gain`)
+
+`lean-ctx gain` measures compression on **lean-ctx-touched traffic** (the reads
+and shell output it actually processed) — its denominator is that traffic, **not
+your full provider bill**. It does not subtract the per-turn prefix lean-ctx
+injects. So on a non-caching rail the dashboard can read net-positive while the
+billed input moved net-negative. To keep this honest, `gain` now prints a
+**Methodology** line and `gain --json` carries `injected_overhead_tokens_per_turn`:
+
+```text
+net bill impact ≈ tokens_saved − injected_overhead_tokens_per_turn × turns
+```
+
+### Reaching tool output the `ctx_*` tools can't wrap
+
+The `ctx_*` tools only compress their own results — they cannot wrap the output
+of *another* MCP server's tools (e.g. a host's `store`/`artifact` tools). The
+**proxy** can: it sits at the provider API and compresses **every** `tool_result`
+in the request body regardless of which tool produced it.
+
+```bash
+lean-ctx proxy enable        # redirect the provider base URL through lean-ctx
+```
+
+So if the heaviest token sink arrives via another server's MCP tools, route the
+provider through the proxy rather than relying on the tool layer. (On a
+non-caching provider the proxy shrinks what is *sent*; it cannot un-bill a prefix
+the client re-sends each turn.)
+
+### Recommended config for a phase-isolated / non-caching harness
+
+```toml
+rules_injection = "off"       # host supplies its own steering — write no rules file (#361)
+```
+
+```bash
+LEAN_CTX_MINIMAL=1 lean-ctx serve --daemon     # trim the tool surface to the core set
+```
+
+Make every cold read carry its weight by defaulting to a compressing read mode
+via a [persona](10-customization-and-governance.md) (`default_read_mode = "map"`
+or `"signatures"`), since there are no warm re-reads to harvest. The cold-read
+modes are the right lever here.
+
+---
+
 ## Tuning checklist
 
 | Constraint | Knob |
@@ -160,3 +223,6 @@ in-budget entries.
 | Hard disk/RAM ceiling | `LEAN_CTX_MAX_DISK_MB` / `LEAN_CTX_MAX_RAM_PERCENT` |
 | "What's slow?" | `slow-log list` + `gain --deep` |
 | Reclaim space now | `cache prune` |
+| Host supplies its own steering | `rules_injection = "off"` |
+| Phase-isolated / non-caching harness | `LEAN_CTX_MINIMAL=1` + persona `default_read_mode = "map"` + `proxy enable` |
+| Reach another server's tool output | `lean-ctx proxy enable` |

@@ -29,6 +29,14 @@ pub struct GainSummary {
     pub output_tokens: u64,
     pub tokens_saved: u64,
     pub gain_rate_pct: f64,
+    /// Fixed per-turn context lean-ctx injects (tool schemas + server
+    /// instructions + rules block). On a provider WITHOUT prompt caching this
+    /// rides — and is re-billed on — every turn, so the net bill impact is
+    /// `tokens_saved − injected_overhead_tokens_per_turn × turns`. Note that
+    /// `tokens_saved` / `gain_rate_pct` are measured against lean-ctx-touched
+    /// traffic (their denominator), not the full provider bill (GitHub #361).
+    #[serde(default)]
+    pub injected_overhead_tokens_per_turn: u64,
     pub avoided_usd: f64,
     /// Estimated grid energy avoided (Wh) by keeping `tokens_saved` out of context.
     pub energy_wh: f64,
@@ -100,6 +108,8 @@ impl GainEngine {
         };
         #[cfg(not(unix))]
         let daemon_hint: Option<String> = None;
+        let injected_overhead_tokens_per_turn =
+            crate::core::context_overhead::ContextOverhead::measure().total_tokens() as u64;
         GainSummary {
             model: quote,
             total_commands: self.stats.total_commands,
@@ -107,6 +117,7 @@ impl GainEngine {
             output_tokens: self.stats.total_output_tokens,
             tokens_saved,
             gain_rate_pct,
+            injected_overhead_tokens_per_turn,
             avoided_usd,
             energy_wh: crate::core::energy::wh_for_tokens(tokens_saved),
             co2_grams: crate::core::energy::co2_grams_for_tokens(tokens_saved),
