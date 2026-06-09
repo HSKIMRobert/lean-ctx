@@ -61,6 +61,31 @@ Refinements: `--model <name>` (price against a specific model), `--period <p>`
 > Start with `lean-ctx gain`; reach for `--deep` when you want the full picture
 > in one shot, or `--cost --model gpt-4o` to put a dollar figure on it.
 
+### 1.1 Savings-faithful measurement (why `saved` may read 0)
+
+`gain` only counts savings the **bridge** actually realised: the proxy must be
+running *and* intercepting your editor's LLM requests. The summary's first line
+makes this precondition explicit:
+
+```
+Bridge: connected — 69 tools, 142 requests intercepted   # engaged, numbers are real
+Bridge: proxy up, 0 requests intercepted — 69 tools exposed (route the editor through lean-ctx)
+Bridge: OFF — proxy not reachable; savings cannot be measured (69 tools registered)
+```
+
+When `saved` is `0`, `gain` distinguishes **bridge off** from a **genuine zero**:
+
+| Bridge state | Meaning | What to do |
+|--------------|---------|------------|
+| `OFF` (proxy down) | No requests intercepted — savings are unmeasured, not zero | Start the proxy (`lean-ctx serve`); confirm `/lean-ctx` shows *connected* |
+| proxy up, 0 requests | Bridge reachable but your editor is not routed through it | Verify the editor's `mcp.json` points at lean-ctx (`/lean-ctx` → connected) |
+| connected | Bridge engaged; `0` is a real zero for this window | Re-run a read to warm the cache — cold first reads have nothing to save yet |
+
+To measure savings faithfully: enable the bridge, verify `/lean-ctx` reports
+*connected* with the expected tool-count, then perform a few reads/commands. The
+same engagement state is available machine-readably under the `bridge` key of
+`lean-ctx gain --json`.
+
 ---
 
 ## 2. Sharing & proof — `wrapped`, share cards, and the verified `savings` ledger

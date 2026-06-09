@@ -212,8 +212,20 @@ pub(super) fn cmd_gain(rest: &[String]) {
         cmd_stats_raw(rest);
     } else {
         println!("{}", core::stats::format_gain_hero());
+        print_bridge_warning();
         crate::cli::wrapped_publish::maybe_auto_publish(&period);
         print_community_hint();
+    }
+}
+
+/// When the bridge is not engaged, the hero card is built from locally
+/// persisted stats the proxy is no longer feeding live. Surface that caveat so
+/// `gain` never implies savings it cannot currently measure (GitHub #361/#271).
+fn print_bridge_warning() {
+    use crate::core::gain::bridge_status::{BridgeEngagement, BridgeStatus};
+    let bridge = BridgeStatus::detect();
+    if bridge.engagement != BridgeEngagement::Engaged {
+        eprintln!("\n  \x1b[33m⚠ {}\x1b[0m", bridge.summary_line());
     }
 }
 
