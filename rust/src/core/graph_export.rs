@@ -87,43 +87,122 @@ fn select_nodes(gp: &GraphProvider, max_nodes: usize) -> Vec<String> {
         .collect()
 }
 
+fn file_label(path: &str) -> String {
+    Path::new(path)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(path)
+        .to_string()
+}
+
+/// Display language for a node, taken from the file extension to stay consistent
+/// with the scanner (which stores `FileEntry.language` as the raw extension).
+fn ext_language(path: &str) -> String {
+    Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_string()
+}
+
+/// Add visualization-only ("phantom") nodes for edge endpoints that aren't
+/// scanned files — e.g. Godot `.tscn`/`.tres` scenes referenced via `res://`
+/// before scene indexing exists (#316). Each phantom must connect to a real
+/// selected node, so GDScript import edges render instead of being dropped to
+/// sibling-only links. Capped by the remaining node budget. #315
+fn add_phantom_endpoints(
+    gp: &GraphProvider,
+    all_edges: &[graph_provider::EdgeInfo],
+    max_nodes: usize,
+    node_paths: &mut Vec<String>,
+    node_set: &mut HashSet<String>,
+) {
+    let budget = max_nodes.saturating_sub(node_set.len());
+    if budget == 0 {
+        return;
+    }
+
+    let mut phantoms: Vec<&str> = Vec::new();
+    let mut seen: HashSet<&str> = HashSet::new();
+    for e in all_edges {
+        for (endpoint, counterpart) in [
+            (e.to.as_str(), e.from.as_str()),
+            (e.from.as_str(), e.to.as_str()),
+        ] {
+            // Only synthesize an endpoint that (a) isn't already a node, (b) is
+            // anchored to a real selected node, and (c) is genuinely unscanned
+            // (a real file omitted by the node budget stays truncated, not faked).
+            if node_set.contains(endpoint)
+                || !node_set.contains(counterpart)
+                || gp.get_file_entry(endpoint).is_some()
+            {
+                continue;
+            }
+            if seen.insert(endpoint) {
+                phantoms.push(endpoint);
+            }
+        }
+    }
+
+    phantoms.sort_unstable();
+    for p in phantoms.into_iter().take(budget) {
+        node_set.insert(p.to_string());
+        node_paths.push(p.to_string());
+    }
+}
+
 fn build_export_graph(gp: &GraphProvider, project_root: &str, max_nodes: usize) -> ExportGraph {
     let original_node_count = gp.file_count();
     let all_edges = gp.edges();
     let original_edge_count = all_edges.len();
 
-    let selected_paths = select_nodes(gp, max_nodes);
-    let selected_set: HashSet<&str> = selected_paths.iter().map(String::as_str).collect();
+    let mut node_paths = select_nodes(gp, max_nodes);
+    let mut node_set: HashSet<String> = node_paths.iter().cloned().collect();
+    add_phantom_endpoints(gp, &all_edges, max_nodes, &mut node_paths, &mut node_set);
 
     let mut degree: HashMap<&str, usize> = HashMap::new();
     for e in &all_edges {
-        if selected_set.contains(e.from.as_str()) && selected_set.contains(e.to.as_str()) {
+        if node_set.contains(e.from.as_str()) && node_set.contains(e.to.as_str()) {
             *degree.entry(e.from.as_str()).or_insert(0) += 1;
             *degree.entry(e.to.as_str()).or_insert(0) += 1;
         }
     }
 
-    let mut nodes: Vec<ExportNode> = Vec::with_capacity(selected_paths.len());
+    // `id` is the running node index (never `enumerate`) so it always equals the
+    // position in `nodes`, which the export JS uses to index edges directly.
+    let mut nodes: Vec<ExportNode> = Vec::with_capacity(node_paths.len());
     let mut id_by_path: HashMap<&str, usize> = HashMap::new();
-    for (id, path) in selected_paths.iter().enumerate() {
-        if let Some(f) = gp.get_file_entry(path) {
-            id_by_path.insert(path.as_str(), id);
-            nodes.push(ExportNode {
+    for path in &node_paths {
+        let id = nodes.len();
+        let degree_val = degree.get(path.as_str()).copied().unwrap_or(0);
+        let node = match gp.get_file_entry(path) {
+            Some(f) => ExportNode {
                 id,
                 path: f.path.clone(),
-                label: Path::new(&f.path)
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or(&f.path)
-                    .to_string(),
+                label: file_label(&f.path),
                 language: f.language,
                 summary: f.summary,
                 exports: f.exports,
                 token_count: f.token_count,
                 line_count: f.line_count,
-                degree: degree.get(path.as_str()).copied().unwrap_or(0),
-            });
-        }
+                degree: degree_val,
+            },
+            // Phantom node (an edge target that isn't a scanned file, e.g. a
+            // `.tscn` scene): minimal metadata, language inferred from the ext.
+            None => ExportNode {
+                id,
+                path: path.clone(),
+                label: file_label(path),
+                language: ext_language(path),
+                summary: String::new(),
+                exports: Vec::new(),
+                token_count: 0,
+                line_count: 0,
+                degree: degree_val,
+            },
+        };
+        id_by_path.insert(path.as_str(), id);
+        nodes.push(node);
     }
 
     let mut edges: Vec<ExportEdge> = Vec::new();
@@ -652,5 +731,66 @@ mod tests {
         let out = escape_for_script_tag(s);
         assert!(!out.contains("</script"));
         assert!(!out.contains("<!--"));
+    }
+
+    /// A GDScript file that imports a not-yet-indexed `.tscn` scene (#315).
+    fn gd_provider_with_scene_edge() -> GraphProvider {
+        use crate::core::graph_index::{FileEntry, IndexEdge, ProjectIndex};
+        let mut idx = ProjectIndex::new("/project");
+        idx.files.insert(
+            "main.gd".to_string(),
+            FileEntry {
+                path: "main.gd".to_string(),
+                hash: "h".to_string(),
+                language: "gd".to_string(),
+                line_count: 3,
+                token_count: 10,
+                exports: Vec::new(),
+                summary: String::new(),
+            },
+        );
+        idx.edges.push(IndexEdge {
+            from: "main.gd".to_string(),
+            to: "scenes/Main.tscn".to_string(),
+            kind: "import".to_string(),
+            weight: 1.0,
+        });
+        GraphProvider::GraphIndex(idx)
+    }
+
+    #[test]
+    fn export_synthesizes_phantom_scene_node_and_keeps_import_edge() {
+        let gp = gd_provider_with_scene_edge();
+        let graph = build_export_graph(&gp, "/project", 100);
+
+        let scene = graph
+            .nodes
+            .iter()
+            .find(|n| n.path == "scenes/Main.tscn")
+            .expect("phantom .tscn node must be synthesized");
+        assert_eq!(scene.language, "tscn");
+
+        let main = graph
+            .nodes
+            .iter()
+            .find(|n| n.path == "main.gd")
+            .expect("real .gd node");
+        let import_edge = graph
+            .edges
+            .iter()
+            .find(|e| e.kind == "import")
+            .expect("import edge must survive into the export");
+        assert_eq!(import_edge.source, main.id);
+        assert_eq!(import_edge.target, scene.id);
+    }
+
+    #[test]
+    fn export_drops_dangling_edge_when_budget_is_full() {
+        // A single real node fills max_nodes=1, so no phantom is added and the
+        // edge to the unscanned scene is dropped (both endpoints must be nodes).
+        let gp = gd_provider_with_scene_edge();
+        let graph = build_export_graph(&gp, "/project", 1);
+        assert_eq!(graph.nodes.len(), 1);
+        assert!(graph.edges.is_empty());
     }
 }

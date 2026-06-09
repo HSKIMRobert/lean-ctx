@@ -536,6 +536,61 @@ fn safe_scan_root_accepts_dotnet_project() {
 }
 
 #[test]
+fn gdscript_scene_edges_end_to_end() {
+    // #315: `preload/load("res://…tscn")` yields import edges even though the
+    // `.tscn` isn't indexed yet, `extends "res://…gd"` resolves to the base
+    // script, and `graph related <scene>` finds the importing script.
+    const MAIN: &str = "extends Node\n\n\
+const Enemy = preload(\"res://scenes/Enemy.tscn\")\n\n\
+func _ready():\n\tvar level = load(\"res://scenes/Main.tscn\")\n";
+    const PLAYER: &str = "extends \"res://actors/Base.gd\"\n\nfunc _ready():\n\tpass\n";
+    const BASE: &str = "extends Node\n\nfunc _ready():\n\tpass\n";
+
+    let files = [
+        ("main.gd", MAIN),
+        ("actors/Player.gd", PLAYER),
+        ("actors/Base.gd", BASE),
+    ];
+
+    let mut index = ProjectIndex::new("/godot-proj");
+    let mut cache: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for (path, content) in files {
+        index
+            .files
+            .insert(path.to_string(), fe(path, content, "gd"));
+        cache.insert(path.to_string(), content.to_string());
+    }
+
+    build_edges_cached(&mut index, &cache);
+
+    // AC1: preload of an unindexed `.tscn` still produces an import edge.
+    assert!(
+        index
+            .edges
+            .iter()
+            .any(|e| e.kind == "import" && e.from == "main.gd" && e.to == "scenes/Enemy.tscn"),
+        "expected preload(.tscn) import edge, got {:?}",
+        index.edges
+    );
+
+    // `extends "res://actors/Base.gd"` resolves to the indexed base script.
+    assert!(
+        index.edges.iter().any(|e| e.kind == "import"
+            && e.from == "actors/Player.gd"
+            && e.to == "actors/Base.gd"),
+        "expected extends import edge, got {:?}",
+        index.edges
+    );
+
+    // AC2: `graph related scenes/Main.tscn` surfaces the importing script.
+    let related = index.get_related("scenes/Main.tscn", 2);
+    assert!(
+        related.contains(&"main.gd".to_string()),
+        "graph related <scene> should surface the importer, got {related:?}"
+    );
+}
+
+#[test]
 fn safe_scan_root_rejects_broad_dir_without_repos() {
     let tmp = tempdir().unwrap();
     let broad = tmp.path().join("broad");
