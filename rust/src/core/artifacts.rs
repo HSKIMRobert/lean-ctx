@@ -125,9 +125,13 @@ pub fn load_resolved(project_root: &Path) -> ResolvedArtifacts {
 }
 
 fn read_registry_file(project_root: &Path) -> Option<(PathBuf, String)> {
-    let lean = project_root.join(".leanctxcontextartifacts.json");
-    if let Ok(s) = std::fs::read_to_string(&lean) {
-        return Some((lean, s));
+    let new = project_root.join(".lean-ctx-artifacts.json");
+    if let Ok(s) = std::fs::read_to_string(&new) {
+        return Some((new, s));
+    }
+    let legacy = project_root.join(".leanctxcontextartifacts.json");
+    if let Ok(s) = std::fs::read_to_string(&legacy) {
+        return Some((legacy, s));
     }
     let socrati = project_root.join(".socraticodecontextartifacts.json");
     if let Ok(s) = std::fs::read_to_string(&socrati) {

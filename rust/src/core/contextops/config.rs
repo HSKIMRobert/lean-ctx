@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 const CONFIG_FILENAME: &str = "rules.toml";
-const CONFIG_DIR: &str = ".leanctx";
+const CONFIG_DIR: &str = ".lean-ctx";
+const LEGACY_CONFIG_DIR: &str = ".leanctx";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RulesConfig {
@@ -38,7 +39,21 @@ fn default_version() -> String {
 
 impl RulesConfig {
     pub fn config_path(project_root: &Path) -> PathBuf {
-        project_root.join(CONFIG_DIR).join(CONFIG_FILENAME)
+        let new_path = project_root.join(CONFIG_DIR).join(CONFIG_FILENAME);
+        if new_path.exists() {
+            return new_path;
+        }
+        let legacy = project_root.join(LEGACY_CONFIG_DIR).join(CONFIG_FILENAME);
+        if legacy.exists() {
+            tracing::info!(
+                "found legacy config at {}, consider renaming {} → {}",
+                legacy.display(),
+                LEGACY_CONFIG_DIR,
+                CONFIG_DIR
+            );
+            return legacy;
+        }
+        new_path
     }
 
     pub fn load(project_root: &Path) -> Result<Self, String> {
@@ -132,10 +147,48 @@ mod tests {
     }
 
     #[test]
-    fn config_path_is_correct() {
-        let root = PathBuf::from("/tmp/project");
+    fn config_path_defaults_to_new_dir() {
+        let root = PathBuf::from("/tmp/project_nonexistent_ctx_test");
         let path = RulesConfig::config_path(&root);
-        assert_eq!(path, PathBuf::from("/tmp/project/.leanctx/rules.toml"));
+        assert_eq!(
+            path,
+            PathBuf::from("/tmp/project_nonexistent_ctx_test/.lean-ctx/rules.toml")
+        );
+    }
+
+    #[test]
+    fn config_path_falls_back_to_legacy() {
+        let dir = tempfile::tempdir().unwrap();
+        let legacy = dir.path().join(".leanctx");
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::write(
+            legacy.join("rules.toml"),
+            "[rules]\nversion = \"1.0\"\n[rules.core]\ncontent = \"\"",
+        )
+        .unwrap();
+
+        let path = RulesConfig::config_path(dir.path());
+        assert!(
+            path.to_string_lossy().contains(".leanctx"),
+            "should fall back to legacy .leanctx when .lean-ctx doesn't exist"
+        );
+    }
+
+    #[test]
+    fn config_path_prefers_new_over_legacy() {
+        let dir = tempfile::tempdir().unwrap();
+        let legacy = dir.path().join(".leanctx");
+        let new_dir = dir.path().join(".lean-ctx");
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::create_dir_all(&new_dir).unwrap();
+        std::fs::write(legacy.join("rules.toml"), "legacy").unwrap();
+        std::fs::write(new_dir.join("rules.toml"), "new").unwrap();
+
+        let path = RulesConfig::config_path(dir.path());
+        assert!(
+            path.to_string_lossy().contains(".lean-ctx/"),
+            "should prefer .lean-ctx/ over .leanctx/ when both exist"
+        );
     }
 
     #[test]

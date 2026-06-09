@@ -15,7 +15,7 @@ Every `KnowledgeFact` carries a `privacy` field:
 ```rust
 enum FactPrivacy {
     ProjectOnly,    // default — only visible within originating project
-    LinkedProjects, // visible to projects listed in .leanctx.json linkedProjects
+    LinkedProjects, // visible to projects listed in .lean-ctx.json linkedProjects
     Team,           // visible to all projects on the team server
 }
 ```

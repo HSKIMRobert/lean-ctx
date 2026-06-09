@@ -148,7 +148,7 @@ When you do need cross-package awareness, prefer explicit scoping over opening t
 - use tool `path` parameters to narrow searches to one service or package
 - keep package-specific `.lean-ctx.toml` files small and boring
 
-If you intentionally want one workspace to see sibling projects, add a `.leanctx.json` file with `linkedProjects`:
+If you intentionally want one workspace to see sibling projects, add a `.lean-ctx.json` file with `linkedProjects`:
 
 ```json
 {

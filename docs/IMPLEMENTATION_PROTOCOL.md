@@ -428,7 +428,7 @@ This doc is only useful if it matches what users can actually invoke.
 | Subticket | Description | Status |
 |-----------|-------------|--------|
 | B1 | Hybrid search as first-class workflow (`hybrid\|dense\|bm25` modes, tree-sitter chunk boundaries) | Done |
-| B2 | Linked projects / workspace search (`.leanctx.json` `linkedProjects`, cross-repo RRF fusion) | Done |
+| B2 | Linked projects / workspace search (`.lean-ctx.json` `linkedProjects`, cross-repo RRF fusion) | Done |
 
 **Key files**: `rust/src/core/hybrid_search.rs`, `rust/src/tools/ctx_semantic_search.rs`
 
@@ -444,7 +444,7 @@ This doc is only useful if it matches what users can actually invoke.
 
 | Subticket | Description | Status |
 |-----------|-------------|--------|
-| C1 | Artifact registry (`.leanctxcontextartifacts.json`) | Done |
+| C1 | Artifact registry (`.lean-ctx-artifacts.json`) | Done |
 | C2 | Artifact index + staleness detection + incremental update | Done |
 | C3 | Artifact tools (`ctx_artifacts` actions + integration into search/pack) | Done |
 

@@ -25,7 +25,7 @@ Top-level Felder:
   - `project_identity_hash`: best-effort hash der Project Identity
 - `ledger`: `HandoffLedgerV1` (ggf. redacted)
 - `artifacts`:
-  - `resolved`: Liste konfigurierte Context‑Artifacts (`.leanctxcontextartifacts.json` etc.)
+  - `resolved`: Liste konfigurierte Context‑Artifacts (`.lean-ctx-artifacts.json` etc.)
   - `proof_files`: Liste `.lean-ctx/proofs/*` (basename + md5 + bytes), bounded
   - `warnings`: warnings beim artifact resolve/listing
 

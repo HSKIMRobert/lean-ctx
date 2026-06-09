@@ -83,9 +83,13 @@ pub fn load_linked_projects(project_root: &Path) -> LinkedProjects {
 }
 
 fn read_config_file(project_root: &Path) -> Option<(PathBuf, String)> {
-    let lean = project_root.join(".leanctx.json");
-    if let Ok(s) = std::fs::read_to_string(&lean) {
-        return Some((lean, s));
+    let new = project_root.join(".lean-ctx.json");
+    if let Ok(s) = std::fs::read_to_string(&new) {
+        return Some((new, s));
+    }
+    let legacy = project_root.join(".leanctx.json");
+    if let Ok(s) = std::fs::read_to_string(&legacy) {
+        return Some((legacy, s));
     }
     let socrati = project_root.join(".socraticode.json");
     if let Ok(s) = std::fs::read_to_string(&socrati) {
@@ -105,7 +109,7 @@ mod tests {
             "linkedProjects": [linked.to_string_lossy()]
         })
         .to_string();
-        std::fs::write(root.join(".leanctx.json"), cfg).expect("write cfg");
+        std::fs::write(root.join(".lean-ctx.json"), cfg).expect("write cfg");
     }
 
     #[cfg(not(feature = "no-jail"))]

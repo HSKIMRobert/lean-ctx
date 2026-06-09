@@ -211,15 +211,22 @@ fn remove(project_root: &Path, name: Option<&str>, format: Option<&str>) -> Stri
         return "name is required for action=remove".to_string();
     };
 
-    let lean_path = project_root.join(".leanctxcontextartifacts.json");
-    if !lean_path.exists() {
-        let socrati = project_root.join(".socraticodecontextartifacts.json");
-        if socrati.exists() {
-            return "registry is in .socraticodecontextartifacts.json; migrate to .leanctxcontextartifacts.json to edit"
-                .to_string();
+    let lean_path = project_root.join(".lean-ctx-artifacts.json");
+    let lean_path = if lean_path.exists() {
+        lean_path
+    } else {
+        let legacy = project_root.join(".leanctxcontextartifacts.json");
+        if legacy.exists() {
+            legacy
+        } else {
+            let socrati = project_root.join(".socraticodecontextartifacts.json");
+            if socrati.exists() {
+                return "registry is in .socraticodecontextartifacts.json; migrate to .lean-ctx-artifacts.json to edit"
+                    .to_string();
+            }
+            return "no artifact registry file found".to_string();
         }
-        return "no artifact registry file found".to_string();
-    }
+    };
 
     let content = match std::fs::read_to_string(&lean_path) {
         Ok(s) => s,
