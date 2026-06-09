@@ -282,13 +282,10 @@ fn sync_personal_cloud(store: &core::stats::StatsStore) -> CloudSyncOutcome {
 }
 
 /// Friendly, non-error hint shown when the server gates cloud sync behind Pro.
+/// Delegates to the central, entitlement-aware hint helper (#346) so the message
+/// reflects the user's actual plan and the cheapest unlocking tier.
 fn print_pro_upgrade_hint() {
-    println!();
-    println!("Cloud sync is a lean-ctx Pro feature (Personal Cloud).");
-    println!("Everything local keeps working — Pro adds hosted cross-device sync");
-    println!("and backup of your own context (knowledge, commands, CEP, gotchas, …).");
-    println!();
-    println!("Enable it with:  lean-ctx cloud upgrade");
+    super::upgrade_hint::hint_for("cloud_sync");
 }
 
 fn build_sync_entries(store: &core::stats::StatsStore) -> Vec<serde_json::Value> {

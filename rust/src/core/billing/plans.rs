@@ -218,9 +218,49 @@ pub fn entitlement_allows(plan: Plan, feature: &str) -> bool {
     }
 }
 
+/// The **lowest** plan whose [`Entitlements`] permit `feature`, or `None` when
+/// the feature is not gated at all (allowed on [`Plan::Free`] — i.e. a
+/// local-always-on or unknown/local capability, for which no upgrade is ever
+/// needed). This is the entitlement-aware basis for honest upgrade hints (#346):
+/// it answers "what is the *minimal* plan that unlocks this hosted capability?"
+/// without ever implying a local feature must be paid for.
+#[must_use]
+pub fn min_plan_for(feature: &str) -> Option<Plan> {
+    // Allowed on Free ⇒ never gated. Covers local-always-on and unknown/local
+    // capabilities (which `entitlement_allows` fails open for).
+    if entitlement_allows(Plan::Free, feature) {
+        return None;
+    }
+    // Plans are returned in ascending order, so the first match is the cheapest.
+    Plan::all()
+        .iter()
+        .copied()
+        .find(|p| entitlement_allows(*p, feature))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn min_plan_for_returns_cheapest_unlocking_plan() {
+        // Hosted capabilities map to their cheapest unlocking tier.
+        assert_eq!(min_plan_for("cloud_sync"), Some(Plan::Pro));
+        assert_eq!(min_plan_for("private_registry"), Some(Plan::Team));
+        assert_eq!(min_plan_for("revenue_share"), Some(Plan::Team));
+        assert_eq!(min_plan_for("sso_scim"), Some(Plan::Enterprise));
+        assert_eq!(min_plan_for("supporter"), Some(Plan::Supporter));
+        // Local-always-on and unknown/local features are never gated.
+        assert_eq!(min_plan_for("read"), None);
+        assert_eq!(min_plan_for("some_unknown_local_thing"), None);
+        for feature in LOCAL_ALWAYS_ON_FEATURES {
+            assert_eq!(
+                min_plan_for(feature),
+                None,
+                "local feature '{feature}' must never require a plan"
+            );
+        }
+    }
 
     #[test]
     fn plan_roundtrips_through_wire_id() {

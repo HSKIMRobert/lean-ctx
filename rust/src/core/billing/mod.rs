@@ -27,7 +27,7 @@ pub mod metering;
 pub mod plans;
 
 pub use metering::{metered_usage, Usage};
-pub use plans::{entitlement_allows, Entitlements, Plan};
+pub use plans::{entitlement_allows, min_plan_for, Entitlements, Plan};
 
 #[cfg(test)]
 mod tests {

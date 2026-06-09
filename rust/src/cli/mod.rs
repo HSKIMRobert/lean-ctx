@@ -33,6 +33,7 @@ mod skillify_cmd;
 mod summary_cmd;
 mod tee_cmd;
 mod theme_cmd;
+mod upgrade_hint;
 mod verify_cache_cmd;
 mod verify_cmd;
 mod visualize_cmd;
