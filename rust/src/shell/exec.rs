@@ -245,6 +245,14 @@ fn stdout_is_regular_file() -> bool {
 
 pub fn exec(command: &str) -> i32 {
     if let Err(msg) = crate::core::shell_allowlist::check_shell_allowlist(command) {
+        // In hook-child mode lean-ctx is the command-interception channel, so it
+        // must enforce the allowlist (deny → non-zero exit). For a direct user
+        // `lean-ctx -c` invocation we only warn: the user can run the command
+        // without lean-ctx anyway, so blocking would add friction, not a boundary.
+        if std::env::var("LEAN_CTX_HOOK_CHILD").is_ok() {
+            eprintln!("{msg}");
+            return 126;
+        }
         tracing::warn!("[CLI] Command would be blocked in MCP mode: {msg}");
     }
 

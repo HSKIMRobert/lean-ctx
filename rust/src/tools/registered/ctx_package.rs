@@ -22,7 +22,7 @@ impl McpTool for CtxPackageTool {
                     "action": {
                         "type": "string",
                         "enum": ["save", "resume", "list", "info"],
-                        "description": "Package action (required)"
+                        "description": "Package action (default: save)"
                     },
                     "path": {
                         "type": "string",
@@ -33,7 +33,7 @@ impl McpTool for CtxPackageTool {
                         "description": "Human-readable description for the saved package"
                     }
                 },
-                "required": ["action"]
+                "required": []
             }),
         )
     }

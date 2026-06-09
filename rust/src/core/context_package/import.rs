@@ -169,3 +169,110 @@ fn replay_summaries(pkg: &ContextPackage) -> Result<usize, String> {
     store.save().map_err(|e| format!("save summaries: {e}"))?;
     Ok(store.summaries.len().saturating_sub(before))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::context_package::save_package;
+    use crate::core::session::{Decision, FileTouched, Finding, TaskInfo};
+    use chrono::Utc;
+
+    fn sample_session() -> SessionState {
+        let mut s = SessionState::new();
+        s.task = Some(TaskInfo {
+            description: "implement feature X".to_string(),
+            intent: None,
+            progress_pct: Some(50),
+        });
+        s.findings.push(Finding {
+            file: Some("src/main.rs".to_string()),
+            line: Some(10),
+            summary: "entry point uses tokio".to_string(),
+            timestamp: Utc::now(),
+        });
+        s.decisions.push(Decision {
+            summary: "use bounded_lock for cache".to_string(),
+            rationale: Some("avoid nested block_in_place".to_string()),
+            timestamp: Utc::now(),
+        });
+        s.files_touched.push(FileTouched {
+            path: "src/lib.rs".to_string(),
+            file_ref: Some("F1".to_string()),
+            read_count: 2,
+            modified: true,
+            last_mode: "full".to_string(),
+            tokens: 1234,
+            stale: false,
+            context_item_id: None,
+            summary: None,
+        });
+        s.next_steps.push("write tests".to_string());
+        s
+    }
+
+    #[test]
+    fn save_then_resume_round_trips_session_slice() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let pkg_path = dir.path().join("snapshot.ctx.json");
+        let project_root = dir.path().to_string_lossy().to_string();
+
+        let source = sample_session();
+        let saved = save_package(
+            &source,
+            &project_root,
+            Some("agent-1"),
+            Some("test snapshot"),
+            Some(&pkg_path),
+        )
+        .expect("save");
+        assert!(saved.exists(), "package file should be written");
+
+        let mut target = SessionState::new();
+        let report = resume_package(&mut target, &saved).expect("resume");
+
+        assert!(report.task_restored, "task should be restored");
+        assert_eq!(report.decisions_merged, 1);
+        assert_eq!(report.findings_merged, 1);
+        assert_eq!(report.files_merged, 1);
+        assert_eq!(report.next_steps_merged, 1);
+        assert_eq!(
+            target.task.as_ref().map(|t| t.description.as_str()),
+            Some("implement feature X")
+        );
+        assert!(target
+            .decisions
+            .iter()
+            .any(|d| d.summary == "use bounded_lock for cache"));
+    }
+
+    #[test]
+    fn resume_missing_file_errors() {
+        let mut target = SessionState::new();
+        let result = resume_package(&mut target, Path::new("/nonexistent/pkg.ctx.json"));
+        assert!(result.is_err(), "missing package must error, not panic");
+    }
+
+    #[test]
+    fn resume_twice_does_not_duplicate() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let pkg_path = dir.path().join("snap.ctx.json");
+        let project_root = dir.path().to_string_lossy().to_string();
+        let saved = save_package(
+            &sample_session(),
+            &project_root,
+            None,
+            None,
+            Some(&pkg_path),
+        )
+        .expect("save");
+
+        let mut target = SessionState::new();
+        resume_package(&mut target, &saved).expect("resume 1");
+        let second = resume_package(&mut target, &saved).expect("resume 2");
+
+        // Dedup by summary/path means a second resume merges nothing new.
+        assert_eq!(second.decisions_merged, 0);
+        assert_eq!(second.findings_merged, 0);
+        assert_eq!(second.files_merged, 0);
+    }
+}
