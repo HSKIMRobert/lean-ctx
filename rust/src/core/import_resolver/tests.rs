@@ -472,3 +472,75 @@ fn csharp_longest_namespace_suffix_wins() {
     );
     assert!(!results[0].is_external);
 }
+
+// --- GDScript (Godot) ---
+
+#[test]
+fn gd_extends_res_gd_resolves() {
+    let ctx = make_ctx(&["actors/Base.gd", "actors/Player.gd"]);
+    let imp = make_import("res://actors/Base.gd");
+    let results = resolve_imports(&[imp], "actors/Player.gd", "gd", &ctx);
+    assert_eq!(results[0].resolved_path.as_deref(), Some("actors/Base.gd"));
+    assert!(!results[0].is_external);
+}
+
+#[test]
+fn gd_preload_res_tscn_resolves_when_indexed() {
+    // #315: a `.tscn` that *is* in the index resolves verbatim.
+    let ctx = make_ctx(&["scenes/Enemy.tscn", "actors/Spawner.gd"]);
+    let imp = make_import("res://scenes/Enemy.tscn");
+    let results = resolve_imports(&[imp], "actors/Spawner.gd", "gd", &ctx);
+    assert_eq!(
+        results[0].resolved_path.as_deref(),
+        Some("scenes/Enemy.tscn")
+    );
+    assert!(!results[0].is_external);
+}
+
+#[test]
+fn gd_extensionless_probes_tscn_then_tres() {
+    // #315: `extends "res://actors/Player"` (no extension) probes .gd/.tscn/.tres.
+    let ctx = make_ctx(&["actors/Player.tscn", "main.gd"]);
+    let imp = make_import("res://actors/Player");
+    let results = resolve_imports(&[imp], "main.gd", "gd", &ctx);
+    assert_eq!(
+        results[0].resolved_path.as_deref(),
+        Some("actors/Player.tscn")
+    );
+    assert!(!results[0].is_external);
+}
+
+#[test]
+fn gd_unresolved_but_valid_res_path_still_creates_edge() {
+    // #315: a concrete `res://…tscn` that isn't indexed yet (before scene
+    // indexing) still yields an edge to the declared path — never external.
+    let ctx = make_ctx(&["main.gd"]);
+    let imp = make_import("res://scenes/Main.tscn");
+    let results = resolve_imports(&[imp], "main.gd", "gd", &ctx);
+    assert_eq!(
+        results[0].resolved_path.as_deref(),
+        Some("scenes/Main.tscn")
+    );
+    assert!(!results[0].is_external);
+}
+
+#[test]
+fn gd_res_without_extension_unresolved_makes_no_edge() {
+    // A bare `res://foo` (no resource extension) that resolves to nothing is not
+    // a concrete reference: no phantom edge, but still intra-project (not external).
+    let ctx = make_ctx(&["main.gd"]);
+    let imp = make_import("res://autoload/Globals");
+    let results = resolve_imports(&[imp], "main.gd", "gd", &ctx);
+    assert!(results[0].resolved_path.is_none());
+    assert!(!results[0].is_external);
+}
+
+#[test]
+fn gd_user_path_is_external() {
+    // `user://` is a runtime data path, never a project source file.
+    let ctx = make_ctx(&["main.gd"]);
+    let imp = make_import("user://savegame.tres");
+    let results = resolve_imports(&[imp], "main.gd", "gd", &ctx);
+    assert!(results[0].resolved_path.is_none());
+    assert!(results[0].is_external);
+}

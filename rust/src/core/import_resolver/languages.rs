@@ -759,21 +759,38 @@ pub(super) fn resolve_gd(
         return (None, true);
     }
 
+    // Probe the verbatim path first (the common `preload("…/Foo.tscn")` form
+    // already carries its extension), then Godot resource suffixes for imports
+    // that omit one (`extends "res://actors/Player"`). #315
     let try_paths = |rel: &str| -> Option<String> {
         let rel = rel.trim();
-        let mut candidates: Vec<String> = vec![rel.to_string()];
-        if !Path::new(rel)
-            .extension()
-            .is_some_and(|e| e.eq_ignore_ascii_case("gd"))
-        {
-            candidates.push(format!("{rel}.gd"));
+        if ctx.file_exists(rel) {
+            return Some(rel.to_string());
         }
-        candidates.into_iter().find(|c| ctx.file_exists(c))
+        if Path::new(rel).extension().is_none() {
+            for ext in ["gd", "tscn", "tres"] {
+                let candidate = format!("{rel}.{ext}");
+                if ctx.file_exists(&candidate) {
+                    return Some(candidate);
+                }
+            }
+        }
+        None
     };
 
     if let Some(rest) = source.strip_prefix("res://") {
         let rel = rest.trim_start_matches('/');
-        return (try_paths(rel), false);
+        if let Some(found) = try_paths(rel) {
+            return (Some(found), false);
+        }
+        // `res://` always names an intra-project resource. When the target is a
+        // concrete file (carries a resource extension) that simply isn't indexed
+        // yet — e.g. a `.tscn` scene before scene indexing exists (#316) — still
+        // emit the edge to the declared path so scene references survive. #315
+        if !rel.is_empty() && Path::new(rel).extension().is_some() {
+            return (Some(rel.to_string()), false);
+        }
+        return (None, false);
     }
 
     // Runtime user data path — not a project source file.
