@@ -497,10 +497,16 @@ pub(super) async fn me(
         .await
         .map_err(internal_error)?;
 
+    // The CLI's `fetch_plan()` caches this field as the account's effective
+    // plan (`lean-ctx billing status`), so it must be the *real* resolved plan.
+    // The former hardcoded "cloud" parsed as Free and showed paying users as
+    // unsubscribed (#360). Resolves to "free" when billing is unset/unreachable.
+    let plan = super::billing_edge::resolve_plan(&state.cfg, user_id).await;
+
     Ok(Json(MeResponse {
         user_id: user_id.to_string(),
         email,
-        plan: "cloud".to_string(),
+        plan: plan.as_str().to_string(),
         email_verified: verified,
     }))
 }
