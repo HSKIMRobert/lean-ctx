@@ -63,22 +63,38 @@ fn build_edges_with_cache(index: &mut ProjectIndex, content_cache: &HashMap<Stri
             .and_then(|e| e.to_str())
             .unwrap_or("");
 
-        let resolve_ext = match ext {
-            "vue" | "svelte" => "ts",
-            _ => ext,
-        };
+        // Godot scenes carry their dependencies in `[ext_resource]` headers, not
+        // in source-code import statements, so they bypass tree-sitter analysis
+        // and use the dedicated PackedScene parser. `res://` paths resolve via
+        // the GDScript resolver. (#316)
+        let (resolve_ext, imports) = if ext == "tscn" {
+            (
+                "tscn",
+                crate::core::godot::scene::extract_scene_imports(&content),
+            )
+        } else {
+            let resolve_ext = match ext {
+                "vue" | "svelte" => "ts",
+                _ => ext,
+            };
 
-        let analysis_content = if ext == "vue" || ext == "svelte" {
-            if let Some(script) = crate::core::signatures_ts::sfc::extract_script_block(&content) {
-                std::borrow::Cow::Owned(script)
+            let analysis_content = if ext == "vue" || ext == "svelte" {
+                if let Some(script) =
+                    crate::core::signatures_ts::sfc::extract_script_block(&content)
+                {
+                    std::borrow::Cow::Owned(script)
+                } else {
+                    content
+                }
             } else {
                 content
-            }
-        } else {
-            content
+            };
+
+            let imports =
+                crate::core::deep_queries::analyze(&analysis_content, resolve_ext).imports;
+            (resolve_ext, imports)
         };
 
-        let imports = crate::core::deep_queries::analyze(&analysis_content, resolve_ext).imports;
         if imports.is_empty() {
             continue;
         }

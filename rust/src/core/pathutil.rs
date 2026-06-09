@@ -157,6 +157,7 @@ pub const PROJECT_MARKERS: &[&str] = &[
     "pom.xml",
     "build.gradle",
     "Makefile",
+    "project.godot",
     ".lean-ctx.toml",
     ".planning",
 ];
@@ -486,6 +487,15 @@ mod tests {
         let root = tmp.path().join("rust-project");
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("Cargo.toml"), "[package]").unwrap();
+        assert!(has_project_marker(&root));
+    }
+
+    #[test]
+    fn has_project_marker_detects_godot_project() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("godot-game");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("project.godot"), "config_version=5\n").unwrap();
         assert!(has_project_marker(&root));
     }
 

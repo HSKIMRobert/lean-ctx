@@ -591,6 +591,61 @@ func _ready():\n\tvar level = load(\"res://scenes/Main.tscn\")\n";
 }
 
 #[test]
+fn tscn_scene_indexed_with_script_edges() {
+    // #316: a real on-disk Godot project. The `.tscn` scene is indexed as a
+    // graph node, its `[ext_resource]` script becomes a Scene→Script import
+    // edge, and GDScript member symbols (`@export var`) surface in the graph.
+    // Acquire the env lock (scan reads LEAN_CTX_DATA_DIR) but do not mutate it,
+    // so we never race data-dir-sensitive tests.
+    let _env = crate::core::data_dir::test_env_lock();
+    let td = tempdir().expect("tempdir");
+    let root = td.path();
+
+    // `project.godot` is the sole project marker → also exercises detection.
+    std::fs::write(root.join("project.godot"), "config_version=5\n").unwrap();
+    std::fs::create_dir_all(root.join("actors")).unwrap();
+    std::fs::create_dir_all(root.join("scenes")).unwrap();
+    std::fs::write(
+        root.join("actors/Player.gd"),
+        "extends CharacterBody2D\n\n@export var speed: float = 200.0\n\nfunc _ready():\n\tpass\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("scenes/Main.tscn"),
+        "[gd_scene load_steps=2 format=3]\n\n\
+         [ext_resource type=\"Script\" path=\"res://actors/Player.gd\" id=\"1_p\"]\n\n\
+         [node name=\"Main\" type=\"Node2D\"]\n\
+         script = ExtResource(\"1_p\")\n",
+    )
+    .unwrap();
+
+    let root_s = normalize_project_root(&root.to_string_lossy());
+    let idx = scan(&root_s);
+
+    // AC1: the `.tscn` scene is indexed as a graph node.
+    assert!(
+        idx.files.contains_key("scenes/Main.tscn"),
+        "scene must be indexed; files: {:?}",
+        idx.files.keys().collect::<Vec<_>>()
+    );
+
+    // AC1/AC2: Scene→Script import edge from the scene to its attached script.
+    assert!(
+        idx.edges.iter().any(|e| e.kind == "import"
+            && e.from == "scenes/Main.tscn"
+            && e.to == "actors/Player.gd"),
+        "expected Scene→Script edge, got {:?}",
+        idx.edges
+    );
+
+    // AC2: GDScript `@export var` member symbol surfaces in the graph.
+    assert!(
+        idx.symbols.values().any(|s| s.name == "speed"),
+        "expected @export member symbol `speed` in the graph"
+    );
+}
+
+#[test]
 fn safe_scan_root_rejects_broad_dir_without_repos() {
     let tmp = tempdir().unwrap();
     let broad = tmp.path().join("broad");

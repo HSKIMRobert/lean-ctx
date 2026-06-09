@@ -219,7 +219,9 @@ fn resolve_one(
         "swift" => resolve_swift(imp, file_path, ctx),
         "scala" | "sc" => resolve_scala(imp, ctx),
         "ex" | "exs" => resolve_elixir(imp, file_path, ctx),
-        "gd" => resolve_gd(imp, file_path, ctx),
+        // `.tscn` ext_resource paths are `res://` references — identical shape to
+        // a GDScript `preload`, so the GDScript resolver handles them. (#316)
+        "gd" | "tscn" => resolve_gd(imp, file_path, ctx),
         _ => (None, true),
     }
 }

@@ -155,6 +155,12 @@ const QUERY_GDSCRIPT: &str = r"
 (function_definition (name) @name) @def
 (signal_statement (name) @name) @def
 (enum_definition (name) @name) @def
+(export_variable_statement name: (name) @name) @def
+(onready_variable_statement name: (name) @name) @def
+(source (const_statement name: (name) @name) @def)
+(source (variable_statement name: (name) @name) @def)
+(class_body (const_statement name: (name) @name) @def)
+(class_body (variable_statement name: (name) @name) @def)
 ";
 
 pub(super) fn get_language(ext: &str) -> Option<Language> {
