@@ -366,6 +366,17 @@ fn log_source_selection(
 
 /// Triggers a background graph build once per process when the graph is empty.
 fn trigger_lazy_graph_build(project_root: &str) {
+    // Unit tests rewrite the process-global `LEAN_CTX_DATA_DIR` per test (each uses
+    // its own tempdir). A detached, fire-and-forget build thread reads that global
+    // mid-flight and runs concurrently with the otherwise-serial (`--test-threads=1`)
+    // test bodies — the one source of graph-state concurrency in the suite, and the
+    // root of an intermittent macOS-only flake where a freshly-built index appeared
+    // empty to the asserting test. `open_or_build` has a synchronous fallback that
+    // fully covers tests, so skip the background build under `cfg!(test)`. Production
+    // (and integration tests, which run the lib normally) are unaffected.
+    if cfg!(test) {
+        return;
+    }
     if GRAPH_BUILD_TRIGGERED.swap(true, Ordering::SeqCst) {
         return;
     }
