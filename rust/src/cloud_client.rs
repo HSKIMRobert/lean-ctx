@@ -434,10 +434,138 @@ pub fn is_cloud_user() -> bool {
     std::fs::read_to_string(path).is_ok_and(|p| matches!(p.trim(), "cloud" | "pro"))
 }
 
+/// Days a cached plan keeps granting its hosted entitlements while the billing
+/// backend is unreachable. Generous on purpose: a network blip or a weekend
+/// offline must never silently demote a paying user to Free.
+pub const PLAN_GRACE_DAYS: i64 = 14;
+
+fn plan_cache_path() -> PathBuf {
+    config_dir().join("plan.json")
+}
+
+/// The locally cached plan plus *when* it was last confirmed against the billing
+/// backend. The timestamp is what powers offline grace.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PlanCache {
+    pub plan: String,
+    /// Unix seconds of the last successful backend confirmation.
+    pub verified_at: i64,
+}
+
 pub fn save_plan(plan: &str) -> std::io::Result<()> {
     let dir = config_dir();
     std::fs::create_dir_all(&dir)?;
-    std::fs::write(dir.join("plan.txt"), plan)
+    // Legacy flat file kept for back-compat (`is_cloud_user` still reads it).
+    std::fs::write(dir.join("plan.txt"), plan)?;
+    // Structured cache carrying the verification time for offline grace.
+    let cache = PlanCache {
+        plan: plan.to_string(),
+        verified_at: now_unix(),
+    };
+    let json = serde_json::to_string_pretty(&cache).map_err(std::io::Error::other)?;
+    std::fs::write(plan_cache_path(), json)
+}
+
+/// The cached plan, if any. Prefers the structured `plan.json`; falls back to a
+/// legacy `plan.txt` (no timestamp → `verified_at = 0`, i.e. immediately past
+/// grace until the next successful refresh re-stamps it).
+pub fn cached_plan() -> Option<PlanCache> {
+    if let Ok(data) = std::fs::read_to_string(plan_cache_path()) {
+        if let Ok(cache) = serde_json::from_str::<PlanCache>(&data) {
+            return Some(cache);
+        }
+    }
+    let legacy = std::fs::read_to_string(config_dir().join("plan.txt")).ok()?;
+    Some(PlanCache {
+        plan: legacy.trim().to_string(),
+        verified_at: 0,
+    })
+}
+
+/// Where an effective plan came from — drives the wording in `billing status`
+/// and the dashboard badge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlanSource {
+    /// Just confirmed against the backend this run.
+    Live,
+    /// Served from the local cache and still within the grace window.
+    Cached,
+    /// Cached confirmation is past the grace window → demoted to Free.
+    Expired,
+    /// No cached plan at all (never logged in / never synced) → Free.
+    None,
+}
+
+/// A resolved plan plus its provenance. The plan here is only ever used for
+/// *display* and for gating **hosted** surfaces — it never gates a local
+/// capability (Local-Free Invariant; the local engine has no entitlement checks).
+#[derive(Debug, Clone)]
+pub struct EffectivePlan {
+    pub plan: crate::core::billing::Plan,
+    pub source: PlanSource,
+    pub verified_at: Option<i64>,
+    pub grace_days: i64,
+}
+
+/// Pure grace check (no clock/IO) so it is unit-testable: is a plan confirmed at
+/// `verified_at` still within `grace_days` of `now`? Returns the age in days too.
+#[must_use]
+pub fn plan_within_grace(verified_at: i64, now: i64, grace_days: i64) -> (bool, i64) {
+    let age_days = (now - verified_at).max(0) / 86_400;
+    (age_days <= grace_days, age_days)
+}
+
+/// Resolve the effective plan from the **local cache only** (no network), applying
+/// the offline-grace policy. Use this on hot paths (dashboard requests); use
+/// [`refresh_effective_plan`] when a live confirmation is acceptable.
+#[must_use]
+pub fn resolve_effective_plan_cached() -> EffectivePlan {
+    let grace_days = PLAN_GRACE_DAYS;
+    let Some(cache) = cached_plan() else {
+        return EffectivePlan {
+            plan: crate::core::billing::Plan::Free,
+            source: PlanSource::None,
+            verified_at: None,
+            grace_days,
+        };
+    };
+    let (fresh, _age) = plan_within_grace(cache.verified_at, now_unix(), grace_days);
+    if fresh {
+        EffectivePlan {
+            plan: crate::core::billing::Plan::parse(&cache.plan),
+            source: PlanSource::Cached,
+            verified_at: Some(cache.verified_at),
+            grace_days,
+        }
+    } else {
+        // Fail closed for *hosted* entitlements once grace lapses. Local features
+        // remain unaffected — they are never gated.
+        EffectivePlan {
+            plan: crate::core::billing::Plan::Free,
+            source: PlanSource::Expired,
+            verified_at: Some(cache.verified_at),
+            grace_days,
+        }
+    }
+}
+
+/// Best-effort *live* resolve: try the backend (refreshing the cache on success),
+/// otherwise fall back to the cached-with-grace plan. Suitable for explicit
+/// commands like `lean-ctx billing status` where a network round-trip is fine.
+#[must_use]
+pub fn refresh_effective_plan() -> EffectivePlan {
+    if is_logged_in() {
+        if let Ok(plan_str) = fetch_plan() {
+            let _ = save_plan(&plan_str);
+            return EffectivePlan {
+                plan: crate::core::billing::Plan::parse(&plan_str),
+                source: PlanSource::Live,
+                verified_at: Some(now_unix()),
+                grace_days: PLAN_GRACE_DAYS,
+            };
+        }
+    }
+    resolve_effective_plan_cached()
 }
 
 pub fn fetch_plan() -> Result<String, String> {
@@ -628,4 +756,86 @@ pub fn pull_knowledge() -> Result<Vec<serde_json::Value>, String> {
         serde_json::from_str(&resp_body).map_err(|e| format!("Invalid JSON: {e}"))?;
 
     Ok(entries)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::billing::Plan;
+    use serial_test::serial;
+
+    #[test]
+    fn grace_window_boundaries_are_inclusive_and_skew_safe() {
+        let now = 1_000_000_000;
+        let day = 86_400;
+        assert_eq!(plan_within_grace(now, now, 14), (true, 0));
+        // Exactly at the edge stays valid (inclusive).
+        assert_eq!(plan_within_grace(now - 14 * day, now, 14), (true, 14));
+        // One day past → expired.
+        assert_eq!(plan_within_grace(now - 15 * day, now, 14), (false, 15));
+        // Clock skew (future timestamp) is clamped to age 0, never negative.
+        assert_eq!(plan_within_grace(now + day, now, 14), (true, 0));
+    }
+
+    #[test]
+    fn plan_cache_roundtrips_through_json() {
+        let c = PlanCache {
+            plan: "pro".into(),
+            verified_at: 42,
+        };
+        let back: PlanCache = serde_json::from_str(&serde_json::to_string(&c).unwrap()).unwrap();
+        assert_eq!(back.plan, "pro");
+        assert_eq!(back.verified_at, 42);
+    }
+
+    #[serial]
+    #[test]
+    fn cached_resolve_grants_within_grace_then_expires_to_free() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
+
+        // A fresh save is served from cache, within grace, at full plan.
+        save_plan("pro").unwrap();
+        let eff = resolve_effective_plan_cached();
+        assert_eq!(eff.plan, Plan::Pro);
+        assert_eq!(eff.source, PlanSource::Cached);
+
+        // Backdate beyond grace → hosted entitlements fail closed to Free.
+        let stale = PlanCache {
+            plan: "pro".into(),
+            verified_at: now_unix() - (PLAN_GRACE_DAYS + 1) * 86_400,
+        };
+        std::fs::write(plan_cache_path(), serde_json::to_string(&stale).unwrap()).unwrap();
+        let eff = resolve_effective_plan_cached();
+        assert_eq!(eff.plan, Plan::Free);
+        assert_eq!(eff.source, PlanSource::Expired);
+
+        std::env::remove_var("LEAN_CTX_DATA_DIR");
+    }
+
+    #[serial]
+    #[test]
+    fn no_cache_resolves_to_free_none() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
+        let eff = resolve_effective_plan_cached();
+        assert_eq!(eff.plan, Plan::Free);
+        assert_eq!(eff.source, PlanSource::None);
+        std::env::remove_var("LEAN_CTX_DATA_DIR");
+    }
+
+    #[serial]
+    #[test]
+    fn legacy_plan_txt_is_migrated_but_treated_as_stale() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
+        // Only the legacy flat file exists (no timestamp) → past grace until refresh.
+        std::fs::create_dir_all(config_dir()).unwrap();
+        std::fs::write(config_dir().join("plan.txt"), "team").unwrap();
+        let cache = cached_plan().unwrap();
+        assert_eq!(cache.plan, "team");
+        assert_eq!(cache.verified_at, 0);
+        assert_eq!(resolve_effective_plan_cached().source, PlanSource::Expired);
+        std::env::remove_var("LEAN_CTX_DATA_DIR");
+    }
 }

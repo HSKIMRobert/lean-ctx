@@ -551,13 +551,129 @@ pub(super) fn cmd_billing(rest: &[String]) {
     let action = rest.first().map_or("usage", String::as_str);
     let json = rest.iter().any(|a| a == "--json");
     match action {
+        "status" => cmd_billing_status(json),
         "plans" => cmd_billing_plans(json),
         "entitlements" => cmd_billing_entitlements(rest.get(1).map(String::as_str), json),
         "usage" => cmd_billing_usage(json),
         other => {
-            eprintln!("unknown billing action '{other}'. Use: plans | entitlements <plan> | usage [--json]");
+            eprintln!("unknown billing action '{other}'. Use: status | plans | entitlements <plan> | usage [--json]");
             std::process::exit(1);
         }
+    }
+}
+
+/// `lean-ctx billing status [--json]` — the at-a-glance commercial state for this
+/// machine: the effective plan (with offline-grace provenance), the hosted
+/// entitlements it grants, and the local ROI headline. Read-only; it best-effort
+/// refreshes the plan from the backend and falls back to the cached-with-grace
+/// plan when offline. Never gates anything local.
+fn cmd_billing_status(json: bool) {
+    use crate::cloud_client::PlanSource;
+    let eff = crate::cloud_client::refresh_effective_plan();
+    let logged_in = crate::cloud_client::is_logged_in();
+    let e = eff.plan.entitlements();
+    let roi = core::savings_ledger::roi_report(&savings_agent_id());
+
+    if json {
+        let payload = serde_json::json!({
+            "plan": eff.plan.as_str(),
+            "source": plan_source_label(eff.source),
+            "verified_at": eff.verified_at,
+            "grace_days": eff.grace_days,
+            "logged_in": logged_in,
+            "entitlements": e,
+            "roi": {
+                "net_saved_tokens": roi.net_saved_tokens,
+                "saved_usd": roi.saved_usd,
+                "total_events": roi.total_events,
+                "chain_valid": roi.chain_valid,
+                "signed": roi.signed,
+            }
+        });
+        print_json_or_die(&payload, "billing status");
+        return;
+    }
+
+    println!("lean-ctx billing status\n");
+    println!(
+        "  Plan:         {}  ({})",
+        eff.plan.as_str(),
+        plan_source_detail(&eff)
+    );
+    println!(
+        "  Account:      {}",
+        if logged_in {
+            "logged in"
+        } else {
+            "not logged in (Free)"
+        }
+    );
+    println!("  cloud_sync:   {}", yesno(e.cloud_sync));
+    println!("  seats:        {}", quota(e.seats));
+    println!(
+        "  private_registry: {}   sso_scim: {}",
+        e.private_registry, e.sso_scim
+    );
+    println!();
+    println!(
+        "  ROI:          {} net tokens · ${:.2}  ({}, {})",
+        roi.net_saved_tokens,
+        roi.saved_usd,
+        if roi.chain_valid {
+            "chain valid"
+        } else {
+            "chain BROKEN"
+        },
+        if roi.signed { "signed" } else { "unsigned" }
+    );
+    println!("  Full report:  lean-ctx roi");
+    println!();
+    match eff.source {
+        PlanSource::Expired => {
+            println!("  ! Cached plan expired — reconnect: lean-ctx login, then lean-ctx sync");
+        }
+        PlanSource::None if !logged_in => {
+            println!("  Upgrade:      lean-ctx cloud upgrade   (Pro: hosted sync · Team: shared ROI rollup)");
+        }
+        _ => println!("  Manage:       lean-ctx cloud upgrade"),
+    }
+}
+
+/// Stable wire label for a [`crate::cloud_client::PlanSource`].
+fn plan_source_label(source: crate::cloud_client::PlanSource) -> &'static str {
+    use crate::cloud_client::PlanSource;
+    match source {
+        PlanSource::Live => "live",
+        PlanSource::Cached => "cached",
+        PlanSource::Expired => "expired",
+        PlanSource::None => "none",
+    }
+}
+
+/// Human provenance line: how fresh the plan is and how long the offline grace
+/// keeps it valid.
+fn plan_source_detail(eff: &crate::cloud_client::EffectivePlan) -> String {
+    use crate::cloud_client::PlanSource;
+    match eff.source {
+        PlanSource::Live => "live".to_string(),
+        PlanSource::Cached => match eff.verified_at {
+            Some(v) => {
+                let age_days = (chrono::Utc::now().timestamp() - v).max(0) / 86_400;
+                let remaining = (eff.grace_days - age_days).max(0);
+                format!("cached — verified {age_days}d ago, valid {remaining}d more")
+            }
+            None => "cached".to_string(),
+        },
+        PlanSource::Expired => "cached plan expired".to_string(),
+        PlanSource::None => "no account".to_string(),
+    }
+}
+
+fn yesno(b: bool) -> &'static str {
+    if b {
+        "yes"
+    } else {
+        "no"
     }
 }
 
