@@ -600,7 +600,7 @@ pub fn run() {
                 return;
             }
             "sync" => {
-                super::cloud::cmd_sync();
+                super::cloud::cmd_sync(&rest);
                 return;
             }
             "contribute" => {

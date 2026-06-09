@@ -853,6 +853,106 @@ pub fn pull_knowledge() -> Result<Vec<serde_json::Value>, String> {
     Ok(entries)
 }
 
+// ── Hosted Personal Index (GL #392) ──────────────────────────────────────────
+// Contract: docs/contracts/hosted-personal-index-v1.md. Bundles are encrypted
+// client-side (core::index_bundle); the backend only ever sees ciphertext.
+
+/// The account's bundle encryption key, HKDF-derived from the stable API key
+/// (never from the rotating OAuth token — the key must be identical on every
+/// logged-in device).
+fn index_bundle_key() -> Result<[u8; 32], String> {
+    let api_key = load_api_key().ok_or("Not logged in. Run: lean-ctx login")?;
+    if api_key.trim().is_empty() {
+        return Err("Not logged in. Run: lean-ctx login".into());
+    }
+    Ok(crate::core::index_bundle::derive_key(&api_key))
+}
+
+/// Pack, encrypt and upload the project's index bundle.
+/// Returns `(project_hash, encrypted_size_bytes)`.
+pub fn push_index_bundle(project_root: &std::path::Path) -> Result<(String, u64), String> {
+    let (container, manifest) =
+        crate::core::index_bundle::pack(project_root).map_err(|e| e.to_string())?;
+    let blob = crate::core::index_bundle::encrypt(&container, &index_bundle_key()?)
+        .map_err(|e| e.to_string())?;
+
+    let bearer = auth_bearer_token()?;
+    let url = format!("{}/api/sync/index/{}", api_url(), manifest.project_hash);
+    let resp = ureq::put(&url)
+        .header("Authorization", &format!("Bearer {bearer}"))
+        .header("Content-Type", "application/octet-stream")
+        .send(blob.as_slice())
+        .map_err(|e| match e {
+            ureq::Error::StatusCode(402) => {
+                "Hosted index requires lean-ctx Pro. Run: lean-ctx upgrade".to_string()
+            }
+            ureq::Error::StatusCode(413) => {
+                "Quota exceeded — the push was blocked (nothing is billed). \
+                 Free space with `lean-ctx sync index status` / delete, then retry."
+                    .to_string()
+            }
+            other => format!("Push failed: {other}"),
+        })?;
+
+    let body = resp
+        .into_body()
+        .read_to_string()
+        .map_err(|e| format!("Failed to read response: {e}"))?;
+    let _ack: serde_json::Value =
+        serde_json::from_str(&body).map_err(|e| format!("Invalid JSON: {e}"))?;
+    Ok((manifest.project_hash, blob.len() as u64))
+}
+
+/// Download, decrypt and unpack the hosted bundle for this project.
+/// Returns the bundle manifest on success.
+pub fn pull_index_bundle(
+    project_root: &std::path::Path,
+) -> Result<crate::core::index_bundle::BundleManifest, String> {
+    let project_hash = crate::core::index_namespace::namespace_hash(project_root);
+    let bearer = auth_bearer_token()?;
+    let url = format!("{}/api/sync/index/{project_hash}", api_url());
+
+    let resp = ureq::get(&url)
+        .header("Authorization", &format!("Bearer {bearer}"))
+        .call()
+        .map_err(|e| match e {
+            ureq::Error::StatusCode(404) => format!(
+                "No hosted index for this project yet ({project_hash}). \
+                 Push one from a device with a built index: lean-ctx sync index push"
+            ),
+            ureq::Error::StatusCode(402) => {
+                "Hosted index requires lean-ctx Pro. Run: lean-ctx upgrade".to_string()
+            }
+            other => format!("Pull failed: {other}"),
+        })?;
+
+    let mut blob = Vec::new();
+    use std::io::Read;
+    resp.into_body()
+        .into_reader()
+        .read_to_end(&mut blob)
+        .map_err(|e| format!("Failed to read bundle: {e}"))?;
+
+    let container = crate::core::index_bundle::decrypt(&blob, &index_bundle_key()?)
+        .map_err(|e| e.to_string())?;
+    crate::core::index_bundle::unpack(project_root, &container).map_err(|e| e.to_string())
+}
+
+/// `GET /api/sync/index` — hosted-bucket listing + quota usage for the account.
+pub fn index_bundle_status() -> Result<serde_json::Value, String> {
+    let bearer = auth_bearer_token()?;
+    let url = format!("{}/api/sync/index", api_url());
+    let resp = ureq::get(&url)
+        .header("Authorization", &format!("Bearer {bearer}"))
+        .call()
+        .map_err(|e| format!("Status fetch failed: {e}"))?;
+    let body = resp
+        .into_body()
+        .read_to_string()
+        .map_err(|e| format!("Failed to read response: {e}"))?;
+    serde_json::from_str(&body).map_err(|e| format!("Invalid JSON: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

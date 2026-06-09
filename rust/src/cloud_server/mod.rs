@@ -12,6 +12,7 @@ mod gain;
 mod global_stats;
 mod gotchas;
 mod helpers;
+mod index_sync;
 mod knowledge;
 mod models;
 mod oauth;
@@ -19,7 +20,7 @@ mod site_theme;
 mod stats;
 mod wrapped;
 
-use axum::routing::{delete, get, patch, post};
+use axum::routing::{delete, get, patch, post, put};
 use axum::Router;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
@@ -99,6 +100,19 @@ pub async fn run() -> anyhow::Result<()> {
             get(feedback::get_feedback).post(feedback::post_feedback),
         )
         .route("/api/sync/gain", get(gain::get_gain).post(gain::post_gain))
+        // Hosted Personal Index (GL #392): encrypted bundles, Pro-gated via
+        // require_cloud_sync. The PUT carries up to 64 MB of ciphertext, so it
+        // overrides the global 1 MB body limit route-locally.
+        .route("/api/sync/index", get(index_sync::list_bundles))
+        .route(
+            "/api/sync/index/{project_hash}",
+            put(index_sync::put_bundle)
+                .get(index_sync::get_bundle)
+                .delete(index_sync::delete_bundle)
+                .layer(axum::extract::DefaultBodyLimit::max(
+                    index_sync::MAX_BUNDLE_BYTES,
+                )),
+        )
         .route(
             // Hard memory cap (DoS defence-in-depth); the documented 8 KB limit is enforced
             // inside the handler so oversized bodies get the JSON `payload_too_large` envelope.

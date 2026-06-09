@@ -111,13 +111,15 @@ impl Plan {
                 supporter: true,
                 cloud_sync: false,
             },
-            // Pro = Supporter recognition + the single paid capability
-            // `cloud_sync` (hosted Personal Cloud). It carries none of the
-            // Team/Cloud coordination entitlements, so `supporter ⊂ pro ⊂ team`.
+            // Pro = Supporter recognition + the paid Personal-Cloud
+            // capabilities: `cloud_sync` and a 1 GB hosted *personal* index
+            // bucket (GL #392 — encrypted index bundles, cross-device pull).
+            // It carries none of the Team/Cloud coordination entitlements,
+            // so `supporter ⊂ pro ⊂ team` (1 GB ≤ Team's 5 GB).
             Plan::Pro => Entitlements {
                 plan: self,
                 seats: 1,
-                hosted_index_mb: 0,
+                hosted_index_mb: 1_000,
                 managed_connectors: 0,
                 private_registry: false,
                 sso_scim: false,
@@ -327,14 +329,18 @@ mod tests {
     #[test]
     fn pro_grants_cloud_sync_plus_recognition_but_no_team_capability() {
         let e = Plan::Pro.entitlements();
-        // Pro adds exactly two account-level flags over Free: recognition + sync.
+        // Pro adds the Personal-Cloud capabilities over Free: recognition,
+        // sync, and a personal hosted-index bucket (GL #392).
         assert!(e.supporter);
         assert!(e.cloud_sync);
         assert!(entitlement_allows(Plan::Pro, "cloud_sync"));
         assert!(entitlement_allows(Plan::Pro, "supporter"));
-        // …and NONE of the Team/Cloud coordination entitlements.
+        assert_eq!(e.hosted_index_mb, 1_000);
+        assert!(entitlement_allows(Plan::Pro, "hosted_index"));
+        // …and NONE of the Team/Cloud coordination entitlements. The personal
+        // index stays strictly below Team's shared quota (supporter ⊂ pro ⊂ team).
         assert_eq!(e.seats, 1);
-        assert_eq!(e.hosted_index_mb, 0);
+        assert!(e.hosted_index_mb < Plan::Team.entitlements().hosted_index_mb);
         assert!(!e.private_registry && !e.sso_scim && !e.revenue_share);
         assert!(!entitlement_allows(Plan::Pro, "private_registry"));
         assert!(!entitlement_allows(Plan::Pro, "sso_scim"));

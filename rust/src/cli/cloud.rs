@@ -158,7 +158,11 @@ pub fn cmd_register(args: &[String]) {
     }
 }
 
-pub fn cmd_sync() {
+pub fn cmd_sync(rest: &[String]) {
+    if rest.first().map(String::as_str) == Some("index") {
+        cmd_sync_index(&rest[1..]);
+        return;
+    }
     if !cloud_client::is_logged_in() {
         tracing::error!("Not logged in. Run: lean-ctx login <email>");
         std::process::exit(1);
@@ -190,6 +194,76 @@ pub fn cmd_sync() {
     }
 
     println!("Sync complete.");
+}
+
+/// `lean-ctx sync index <push|pull|status>` — the hosted Personal Index
+/// (GL #392): encrypted cross-device sync of the project's retrieval index.
+fn cmd_sync_index(args: &[String]) {
+    let sub = args.first().map_or("help", String::as_str);
+    let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+
+    match sub {
+        "push" => match cloud_client::push_index_bundle(&root) {
+            Ok((project_hash, bytes)) => {
+                println!(
+                    "\x1b[32m✓\x1b[0m Index pushed ({:.1} MB encrypted, project {})",
+                    bytes as f64 / 1_048_576.0,
+                    &project_hash[..12.min(project_hash.len())]
+                );
+                println!("  Pull on any device: lean-ctx sync index pull");
+            }
+            Err(e) => {
+                eprintln!("\x1b[31m✗\x1b[0m {e}");
+                std::process::exit(1);
+            }
+        },
+        "pull" => match cloud_client::pull_index_bundle(&root) {
+            Ok(manifest) => {
+                println!(
+                    "\x1b[32m✓\x1b[0m Index restored ({} files, built {} by v{})",
+                    manifest.files.len(),
+                    manifest.created_at,
+                    manifest.engine_version
+                );
+                println!("  Semantic search is ready — no local re-index needed.");
+            }
+            Err(e) => {
+                eprintln!("\x1b[31m✗\x1b[0m {e}");
+                std::process::exit(1);
+            }
+        },
+        "status" => match cloud_client::index_bundle_status() {
+            Ok(v) => {
+                let used_mb = v["used_bytes"].as_u64().unwrap_or(0) as f64 / 1_048_576.0;
+                let quota_mb = v["quota_mb"].as_u64().unwrap_or(0);
+                println!("Hosted Personal Index");
+                println!("  Usage: {used_mb:.1} MB / {quota_mb} MB");
+                if let Some(buckets) = v["projects"].as_array() {
+                    if buckets.is_empty() {
+                        println!("  No project bundles yet. Push one: lean-ctx sync index push");
+                    }
+                    for b in buckets {
+                        println!(
+                            "  • {}  {:.1} MB  (updated {})",
+                            b["project_hash"].as_str().unwrap_or("?"),
+                            b["size_bytes"].as_u64().unwrap_or(0) as f64 / 1_048_576.0,
+                            b["updated_at"].as_str().unwrap_or("?")
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("\x1b[31m✗\x1b[0m {e}");
+                std::process::exit(1);
+            }
+        },
+        _ => {
+            println!("Usage: lean-ctx sync index <push|pull|status>");
+            println!("  push    Pack, encrypt and upload this project's retrieval index");
+            println!("  pull    Download and restore the hosted index on this device");
+            println!("  status  Show hosted buckets and quota usage");
+        }
+    }
 }
 
 /// Whether a `cloud_client` error string is the server's Pro gate (HTTP 402),

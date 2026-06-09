@@ -330,6 +330,7 @@ CLOUD:
     register <email>               Create a new LeanCTX Cloud account
     forgot-password <email>        Send password reset email
     sync                           Sync stats (free) + your context (Pro: knowledge, commands, CEP, …)
+    sync index <push|pull|status>  Hosted Personal Index (Pro): encrypted cross-device retrieval index
     contribute                     Share anonymized compression data
 
 TROUBLESHOOTING:

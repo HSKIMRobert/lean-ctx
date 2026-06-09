@@ -108,6 +108,24 @@ pub(super) async fn require_cloud_sync(
     ))
 }
 
+/// The account's hosted-index quota in MB (GL #392). Paid plans use their
+/// `hosted_index_mb` entitlement (Pro: 1000). Open deployments — no billing
+/// plane wired, or sync explicitly opened — get a 1000 MB default so the
+/// feature works standalone without ever paying (Local-Free Invariant: the
+/// hosted bucket is additive, the local index is never gated).
+pub(super) async fn hosted_index_quota_mb(state: &AppState, user_id: Uuid) -> u32 {
+    if !sync_is_open(&state.cfg) {
+        let quota = resolve_plan(&state.cfg, user_id)
+            .await
+            .entitlements()
+            .hosted_index_mb;
+        if quota > 0 {
+            return quota;
+        }
+    }
+    1_000
+}
+
 /// `GET /api/account/entitlements` — the logged-in user's plan and the
 /// additive Team/Cloud entitlements it grants.
 pub(super) async fn get_account_entitlements(

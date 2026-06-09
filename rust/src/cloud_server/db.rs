@@ -75,6 +75,20 @@ CREATE TABLE IF NOT EXISTS knowledge_entries (
   PRIMARY KEY (user_id, category, key)
 );
 
+-- Hosted Personal Index buckets (GL #392): one client-side-encrypted bundle
+-- per (account, project). The server never sees plaintext — `bytes` is
+-- XChaCha20-Poly1305 ciphertext; `sha256` covers the ciphertext for drift
+-- detection. Quota is enforced per account from the plan's hosted_index_mb.
+CREATE TABLE IF NOT EXISTS index_bundles (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  project_hash TEXT NOT NULL,
+  bytes BYTEA NOT NULL,
+  size_bytes BIGINT NOT NULL,
+  sha256 TEXT NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (user_id, project_hash)
+);
+
 CREATE TABLE IF NOT EXISTS contribute_entries (
   id UUID PRIMARY KEY,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

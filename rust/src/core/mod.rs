@@ -339,6 +339,7 @@ pub mod homeostasis;
 pub mod graph_cache;
 pub mod ide_permissions;
 pub mod import_resolver;
+pub mod index_bundle;
 pub mod index_namespace;
 pub mod index_orchestrator;
 pub mod ingestion;

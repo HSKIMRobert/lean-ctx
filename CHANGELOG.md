@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Hosted Personal Index for Pro** (GL #392): `lean-ctx sync index
+  push|pull|status` syncs the project's retrieval index (BM25 + embeddings)
+  across devices — a fresh machine gets working `ctx_semantic_search` without
+  a local re-index. Bundles are encrypted client-side (XChaCha20-Poly1305;
+  key HKDF-derived from the account API key, which the backend stores only as
+  a hash): the server holds ciphertext it cannot read. Per-account quota from
+  the plan's `hosted_index_mb` (Pro: 1 GB; open self-hosted deployments:
+  1 GB default), display-first — an over-quota push warns and blocks, it
+  never bills. New backend routes `PUT/GET/DELETE /api/sync/index/{project}`
+  + `GET /api/sync/index`; the Personal-Cloud dashboard payload gains a
+  `hosted_index` block (projects, used bytes, quota). The local index is
+  never gated (Local-Free Invariant; `tests/local_free_invariant.rs`).
+  Contract: `docs/contracts/hosted-personal-index-v1.md`.
 - **Hosted-index SLO gate** (GL #391): the team server now measures every
   `/v1` request in an outermost middleware and derives the three GA-gate
   signals — rolling p50/p95/p99 latency, availability (non-5xx share over the

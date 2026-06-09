@@ -99,6 +99,30 @@ pub(super) async fn get_account_cloud(
 
     let usage = load_usage(&client, user_id).await;
 
+    // Hosted Personal Index footprint (GL #392): bucket count + quota usage
+    // for the dashboard's quota bar. Sizes only — content is ciphertext.
+    let quota_mb = super::billing_edge::hosted_index_quota_mb(&state, user_id).await;
+    let hosted_index = match client
+        .query_one(
+            "SELECT COUNT(*)::bigint, COALESCE(SUM(size_bytes),0)::bigint, MAX(updated_at) \
+             FROM index_bundles WHERE user_id = $1",
+            &[&user_id],
+        )
+        .await
+    {
+        Ok(r) => {
+            let last: Option<DateTime<Utc>> = r.get(2);
+            merge_latest(&mut latest, last);
+            json!({
+                "projects": r.get::<_, i64>(0),
+                "used_bytes": r.get::<_, i64>(1),
+                "quota_mb": quota_mb,
+                "last_pushed_at": last.map(|t| t.to_rfc3339()),
+            })
+        }
+        Err(_) => json!({ "projects": 0, "used_bytes": 0, "quota_mb": quota_mb }),
+    };
+
     Ok(Json(json!({
         "cloud_sync": true,
         "plan": plan.as_str(),
@@ -106,6 +130,7 @@ pub(super) async fn get_account_cloud(
         "buckets": Value::Object(buckets),
         "buddy": buddy,
         "usage": usage,
+        "hosted_index": hosted_index,
     })))
 }
 
