@@ -677,6 +677,49 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
         },
     );
 
+    let mut skillify = BTreeMap::new();
+    skillify.insert(
+        "enabled".into(),
+        key(
+            "bool",
+            serde_json::json!(cfg.skillify.enabled),
+            "Master switch for the skillify miner (codify recurring session patterns into .cursor/rules). Only acts when explicitly invoked.",
+        ),
+    );
+    skillify.insert(
+        "scope".into(),
+        key_enum(
+            &["project", "global"],
+            "project",
+            "Where generated rules are written: project (<repo>/.cursor/rules, git-committable) or global (~/.cursor/rules).",
+        ),
+    );
+    skillify.insert(
+        "min_confidence".into(),
+        key(
+            "f32",
+            serde_json::json!(cfg.skillify.min_confidence),
+            "Minimum confidence for a single curated knowledge fact to be codified without repetition (0.0..=1.0).",
+        ),
+    );
+    skillify.insert(
+        "min_recurrence".into(),
+        key(
+            "u32",
+            serde_json::json!(cfg.skillify.min_recurrence),
+            "Minimum reinforcements (confirmations / repeated mentions) before a sub-threshold-confidence pattern is codified.",
+        ),
+    );
+    sections.insert(
+        "skillify".into(),
+        SectionSchema {
+            description:
+                "Skillify miner: distill recurring session diary + knowledge patterns into rules"
+                    .into(),
+            keys: skillify,
+        },
+    );
+
     let mut embedding = BTreeMap::new();
     embedding.insert(
             "model".into(),

@@ -311,6 +311,15 @@ Controls what lean-ctx injects during setup and updates. Fresh installs default 
 - `auto_inject_skills` (bool?, default `null`) — Install SKILL.md files during setup/update. null=auto (install if rules present), true=always, false=never
 - `auto_update_mcp` (bool, default `true`) — Register lean-ctx MCP server in editor configs during setup/update
 
+## `[skillify]`
+
+Skillify miner: distill recurring session diary + knowledge patterns into rules
+
+- `enabled` (bool, default `true`) — Master switch for the skillify miner (codify recurring session patterns into .cursor/rules). Only acts when explicitly invoked.
+- `min_confidence` (f32, default `0.699999988079071`) — Minimum confidence for a single curated knowledge fact to be codified without repetition (0.0..=1.0).
+- `min_recurrence` (u32, default `2`) — Minimum reinforcements (confirmations / repeated mentions) before a sub-threshold-confidence pattern is codified.
+- `scope` (enum: project | global, default `project`) — Where generated rules are written: project (<repo>/.cursor/rules, git-committable) or global (~/.cursor/rules).
+
 ## `[updates]`
 
 Automatic update configuration
