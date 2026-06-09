@@ -31,7 +31,7 @@ pub fn extract(tool_name: &str, output: &str) -> Option<AutoFinding> {
     let dedup_key = format!(
         "{}:{}",
         finding.file.as_deref().unwrap_or(""),
-        &finding.summary[..finding.summary.len().min(80)]
+        &finding.summary[..finding.summary.floor_char_boundary(80)]
     );
 
     if let Ok(mut recent) = RECENT.lock() {
@@ -205,12 +205,12 @@ fn extract_ctx_shell(output: &str) -> Option<AutoFinding> {
     if let Some(rest) = first_line.strip_prefix("exit:") {
         let code = rest.split_whitespace().next().unwrap_or("?");
         if code != "0" {
-            let short_cmd = &cmd[..cmd.len().min(50)];
+            let short_cmd = &cmd[..cmd.floor_char_boundary(50)];
             let error_hint = lines
                 .iter()
                 .find(|l| l.contains("error") || l.contains("Error") || l.contains("FAILED"))
                 .map_or("", |l| l.trim());
-            let error_short = &error_hint[..error_hint.len().min(50)];
+            let error_short = &error_hint[..error_hint.floor_char_boundary(50)];
 
             let summary = if error_short.is_empty() {
                 format!("FAILED (exit {code}): {short_cmd}")
@@ -394,7 +394,7 @@ pub fn extract_content_hint(output: &str) -> String {
             || trimmed.starts_with("exports:")
             || trimmed.starts_with("//!")
         {
-            return trimmed[..trimmed.len().min(80)].to_string();
+            return trimmed[..trimmed.floor_char_boundary(80)].to_string();
         }
     }
 
@@ -413,7 +413,7 @@ pub fn extract_content_hint(output: &str) -> String {
             || trimmed.starts_with("def ")
             || trimmed.starts_with("func ")
         {
-            return trimmed[..trimmed.len().min(70)].to_string();
+            return trimmed[..trimmed.floor_char_boundary(70)].to_string();
         }
     }
 
@@ -421,7 +421,7 @@ pub fn extract_content_hint(output: &str) -> String {
     for line in &lines {
         let trimmed = line.trim();
         if trimmed.starts_with("///") || trimmed.starts_with("# ") {
-            return trimmed[..trimmed.len().min(70)].to_string();
+            return trimmed[..trimmed.floor_char_boundary(70)].to_string();
         }
     }
 
@@ -472,7 +472,7 @@ fn extract_test_result(lines: &[&str], cmd: &str) -> Option<String> {
     for line in lines.iter().rev().take(10) {
         // Rust: "test result: ok. 2845 passed; 0 failed;"
         if line.contains("test result:") {
-            let short_cmd = &cmd[..cmd.len().min(30)];
+            let short_cmd = &cmd[..cmd.floor_char_boundary(30)];
             let result = line.trim();
             return Some(truncate(
                 &format!("Test `{short_cmd}`: {result}"),
@@ -483,7 +483,7 @@ fn extract_test_result(lines: &[&str], cmd: &str) -> Option<String> {
         if (line.contains(" passed") || line.contains(" failed"))
             && (line.contains("pytest") || line.contains("==="))
         {
-            let short_cmd = &cmd[..cmd.len().min(30)];
+            let short_cmd = &cmd[..cmd.floor_char_boundary(30)];
             let result = line.trim().trim_matches('=').trim();
             return Some(truncate(
                 &format!("Test `{short_cmd}`: {result}"),
@@ -508,7 +508,7 @@ fn extract_build_result(lines: &[&str], cmd: &str) -> Option<String> {
     // Look for Finished line (cargo)
     for line in lines.iter().rev().take(5) {
         if line.contains("Finished") {
-            let short_cmd = &cmd[..cmd.len().min(30)];
+            let short_cmd = &cmd[..cmd.floor_char_boundary(30)];
             // Count errors/warnings
             let errors = lines.iter().filter(|l| l.contains("error[")).count();
             let warnings = lines
@@ -756,5 +756,66 @@ mod tests {
             .collect();
 
         assert_eq!(new_findings.len(), 2);
+    }
+
+    #[test]
+    #[serial]
+    fn extract_content_hint_survives_multibyte_byte_budget() {
+        // Regression for #379: a matched line whose byte-budget cut (70/80) lands
+        // inside a 2-byte Cyrillic char must snap to a char boundary, not panic.
+        // `extract_content_hint` skips the first line, so each input has a header.
+        clear_recent();
+
+        // Layer 3 — markdown / doc heading (the reported auto_findings.rs:424,
+        // budget 70). "# _" is 3 bytes, so byte 70 lands mid-char in the run.
+        let line = format!("# _{}", "я".repeat(40));
+        let hint = extract_content_hint(&format!("header\n{line}"));
+        assert!(
+            line.starts_with(&hint),
+            "hint must be a valid prefix: {hint}"
+        );
+        assert!(hint.starts_with("# _") && (60..=70).contains(&hint.len()));
+
+        // Layer 2 — definition line (budget 70).
+        let def = format!("def _{}", "я".repeat(40));
+        let hint = extract_content_hint(&format!("header\n{def}"));
+        assert!(def.starts_with(&hint) && hint.starts_with("def _") && hint.len() <= 70);
+
+        // Layer 1 — module doc comment (budget 80).
+        let doc = format!("//!{}", "я".repeat(40));
+        let hint = extract_content_hint(&format!("header\n{doc}"));
+        assert!(doc.starts_with(&hint) && hint.starts_with("//!") && hint.len() <= 80);
+    }
+
+    #[test]
+    #[serial]
+    fn extract_shell_survives_multibyte_byte_budget() {
+        // Failed-command path slices cmd@50 and error_hint@50; both cross a 2-byte
+        // char boundary here (#379 class). Must return a finding, not panic.
+        clear_recent();
+        let output = format!("exit: 1\n$ x{}\nerror: {}", "я".repeat(60), "ж".repeat(60));
+        let f = extract("ctx_shell", &output).expect("failed-command finding");
+        assert!(f.summary.contains("FAILED"), "got: {}", f.summary);
+
+        // Test-result path slices cmd@30.
+        clear_recent();
+        let test_out = format!(
+            "$ cargo test {}\n   test result: ok. 5 passed; 0 failed;",
+            "я".repeat(40)
+        );
+        let t = extract("ctx_shell", &test_out).expect("test-result finding");
+        assert!(t.summary.contains("Test"), "got: {}", t.summary);
+    }
+
+    #[test]
+    #[serial]
+    fn extract_search_dedup_survives_multibyte_summary() {
+        // The dedup key slices finding.summary@80 (auto_findings.rs:34). A long
+        // Cyrillic search pattern yields a >80-byte multibyte summary; the cut
+        // must be char-boundary safe.
+        clear_recent();
+        let output = format!("pattern: \"{}\"\nsrc/main.rs:10: match", "я".repeat(50));
+        let f = extract("ctx_search", &output).expect("search finding");
+        assert!(f.summary.contains("Found"), "got: {}", f.summary);
     }
 }
