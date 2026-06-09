@@ -403,6 +403,10 @@ pub fn run() {
                 super::cmd_skillify(&rest);
                 return;
             }
+            "summary" => {
+                super::cmd_summary(&rest);
+                return;
+            }
             "overview" => {
                 super::cmd_overview(&rest);
                 return;

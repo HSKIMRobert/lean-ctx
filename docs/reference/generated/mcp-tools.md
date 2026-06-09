@@ -4,7 +4,7 @@
 
 Source of truth: `rust/src/server/registry.rs` and the tool definitions it registers.
 
-lean-ctx registers **73 MCP tools** (granular profile). Each entry below lists the tool name, what it does, and its parameters (`*` marks required).
+lean-ctx registers **75 MCP tools** (granular profile). Each entry below lists the tool name, what it does, and its parameters (`*` marks required).
 
 ## `ctx_agent`
 
@@ -272,6 +272,12 @@ Context Package Manager. Actions: pr (PR context), create (build package from pr
 
 Parameters: `action`*, `apply`, `author`, `base`, `depth`, `description`, `diff`, `enable`, `file`, `format`, `layers`, `level`, `name`, `project_root`, `scope`, `tags`, `version`
 
+## `ctx_package`
+
+Save or resume portable context packages — self-contained JSON bundles with session state, summaries, and knowledge. Use to hand off context between agents, persist session snapshots for later, or onboard a new agent into a previous session's context. Actions: save (export current session), resume (import from a package file), list (show saved packages), info (inspect a package without importing).
+
+Parameters: `action`*, `description`, `path`
+
 ## `ctx_plan`
 
 Context planning (CFT). Computes optimal context plan with Phi scoring, budget allocation, and policy-driven view selection.
@@ -412,6 +418,12 @@ Parameters: `path`*
 Code smell detection. Actions: scan|summary|rules|file.
 
 Parameters: `action`, `format`, `path`, `root`, `rule`
+
+## `ctx_summary`
+
+Record and recall AI session summaries — compact, semantically-recallable digests of what was done (task, files, decisions, next steps). Actions: recall (find past summaries by query; semantic when embeddings are warm, else lexical), record (snapshot the current session now), list (recent summaries). Summaries are also captured automatically on the checkpoint cadence.
+
+Parameters: `action`, `query`, `top_k`
 
 ## `ctx_symbol`
 

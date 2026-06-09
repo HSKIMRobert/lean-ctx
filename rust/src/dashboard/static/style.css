@@ -1433,3 +1433,24 @@ tr:hover td{background:var(--surface-2)}
 
 /* Background ASCII art was visual noise behind the data — keep it off. */
 .ascii-global-bg{display:none}
+
+/* ---- #295 Layers panel ---- */
+.graph-layers{display:flex;flex-wrap:wrap;gap:6px 12px;padding:6px 10px;font-size:11px;border:1px solid var(--border);border-radius:6px;margin:4px 8px}
+.graph-layers-title{font-weight:600;color:var(--muted);margin-right:6px}
+.cg-layer-item{display:inline-flex;align-items:center;gap:3px;cursor:pointer;color:var(--text)}
+.cg-layer-item input{accent-color:var(--green)}
+
+/* ---- #295 Tour overlay ---- */
+.tour-overlay{position:fixed;inset:0;z-index:9999}
+.tour-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.55)}
+.tour-box{position:absolute;z-index:10000;background:var(--bg);border:1px solid var(--green);border-radius:10px;padding:16px 20px;max-width:340px;box-shadow:0 8px 32px rgba(0,0,0,.6)}
+.tour-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.tour-step-num{font-size:11px;color:var(--muted)}
+.tour-close{background:none;border:none;color:var(--text);font-size:18px;cursor:pointer}
+.tour-title{margin:0 0 6px;font-size:14px;color:var(--text-bright)}
+.tour-body{margin:0 0 12px;font-size:12px;color:var(--text);line-height:1.5}
+.tour-nav{display:flex;gap:8px;justify-content:flex-end}
+.tour-nav button{padding:5px 14px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:12px;cursor:pointer}
+.tour-nav button:hover:not(:disabled){background:var(--green);color:var(--bg);border-color:var(--green)}
+.tour-nav button:disabled{opacity:.4;cursor:default}
+.tour-highlight{outline:2px solid var(--green);outline-offset:2px;border-radius:4px;transition:outline .3s}

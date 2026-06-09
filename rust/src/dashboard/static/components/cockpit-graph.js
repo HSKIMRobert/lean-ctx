@@ -425,6 +425,7 @@ class CockpitGraph extends HTMLElement {
       this._toolbarHtml('ckg-deps') +
       this._searchBoxHtml() +
       this._legendHtml(files) +
+      this._layersHtml(edges) +
       this._insightsHtml() +
       '<div class="graph-inspector" id="ckg-deps-inspector" hidden></div>' +
       '</div>' +
@@ -437,8 +438,10 @@ class CockpitGraph extends HTMLElement {
     this._bindInsightsPanel();
     this._bindDepsSearch();
     this._bindLegend();
+    this._bindLayers();
     this._bindDepsToggles();
     this._drawDepsD3(files, edges);
+    this._maybeTour();
   }
 
   /* ---- #273/#264/#274 view toggles: hide-weak / hulls / meta-graph ---- */
@@ -1508,6 +1511,51 @@ class CockpitGraph extends HTMLElement {
         var tl = String((d.target && d.target.language) || 'unknown').toLowerCase();
         return (hidden[sl] || hidden[tl]) ? 0.03 : null;
       });
+    }
+  }
+
+  /* ---- #295 layers panel: toggle edge kinds individually ---- */
+
+  _layersHtml(edges) {
+    var kinds = {};
+    edges.forEach(function (e) { kinds[e.kind || 'import'] = true; });
+    var sorted = Object.keys(kinds).sort();
+    if (sorted.length < 2) return '';
+    var items = sorted.map(function (k) {
+      return '<label class="cg-layer-item"><input type="checkbox" data-layer-kind="' + k + '" checked> ' + k + '</label>';
+    }).join('');
+    return '<div class="graph-layers" id="ckg-deps-layers">' +
+      '<span class="graph-layers-title">Layers</span>' + items + '</div>';
+  }
+
+  _bindLayers() {
+    var self = this;
+    var panel = this.querySelector('#ckg-deps-layers');
+    if (!panel) return;
+    panel.addEventListener('change', function () { self._applyLayerFilter(); });
+  }
+
+  _applyLayerFilter() {
+    var panel = this.querySelector('#ckg-deps-layers');
+    if (!panel) return;
+    var hidden = {};
+    panel.querySelectorAll('[data-layer-kind]').forEach(function (cb) {
+      if (!cb.checked) hidden[cb.getAttribute('data-layer-kind')] = true;
+    });
+    this._hiddenLayers = hidden;
+    if (this._depsLinkSel) {
+      this._depsLinkSel.style('display', function (d) {
+        return hidden[d.kind || 'import'] ? 'none' : null;
+      });
+    }
+  }
+
+  /* ---- #295 tour: one-time intro overlay for new users ---- */
+
+  _maybeTour() {
+    var self = this;
+    if (window.__leanctxTour && window.__leanctxTour.shouldShow()) {
+      setTimeout(function () { window.__leanctxTour.start(self); }, 800);
     }
   }
 

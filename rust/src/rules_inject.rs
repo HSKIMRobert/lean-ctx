@@ -601,6 +601,8 @@ fn is_tool_detected(target: &RulesTarget, home: &std::path::Path) -> bool {
                 || home.join(".augment").exists()
                 || detect_extension_installed(home, "augment.vscode-augment")
         }
+        "OpenClaw" => home.join(".openclaw").exists() || command_exists("openclaw"),
+        "Hermes Agent" => home.join(".hermes").exists() || command_exists("hermes"),
         _ => false,
     }
 }
@@ -841,6 +843,18 @@ fn build_rules_targets(
             name: "OpenClaw",
             path: home.join(".openclaw/rules/lean-ctx.md"),
             format: RulesFormat::DedicatedMarkdown,
+        },
+        RulesTarget {
+            name: "Codex CLI",
+            path: crate::core::home::resolve_codex_dir()
+                .unwrap_or_else(|| home.join(".codex"))
+                .join("instructions.md"),
+            format: RulesFormat::SharedMarkdown,
+        },
+        RulesTarget {
+            name: "Hermes Agent",
+            path: home.join(".hermes/HERMES.md"),
+            format: RulesFormat::SharedMarkdown,
         },
     ]
 }
@@ -1170,10 +1184,10 @@ mod tests {
     fn target_count() {
         let home = std::path::PathBuf::from("/tmp/fake_home");
         let targets = build_rules_targets(&home, crate::core::config::RulesInjection::Shared);
-        assert_eq!(targets.len(), 23);
+        assert_eq!(targets.len(), 25);
         // Dedicated mode swaps paths/formats but never changes the target count.
         let dedicated = build_rules_targets(&home, crate::core::config::RulesInjection::Dedicated);
-        assert_eq!(dedicated.len(), 23);
+        assert_eq!(dedicated.len(), 25);
     }
 
     #[test]

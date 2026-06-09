@@ -720,6 +720,40 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
         },
     );
 
+    let mut summaries = BTreeMap::new();
+    summaries.insert(
+        "enabled".into(),
+        key(
+            "bool",
+            serde_json::json!(cfg.summaries.enabled),
+            "Record periodic, semantically-recallable AI session summaries (what was done, files, decisions).",
+        ),
+    );
+    summaries.insert(
+        "every_n_turns".into(),
+        key(
+            "u32",
+            serde_json::json!(cfg.summaries.every_n_turns),
+            "Tool calls between automatic session summaries (gated by the auto-checkpoint cadence).",
+        ),
+    );
+    summaries.insert(
+        "max_kept".into(),
+        key(
+            "u32",
+            serde_json::json!(cfg.summaries.max_kept),
+            "Maximum session summaries kept per project (oldest pruned first).",
+        ),
+    );
+    sections.insert(
+        "summaries".into(),
+        SectionSchema {
+            description: "AI session summaries: periodic, semantically-recallable session digests"
+                .into(),
+            keys: summaries,
+        },
+    );
+
     let mut embedding = BTreeMap::new();
     embedding.insert(
             "model".into(),

@@ -320,6 +320,14 @@ Skillify miner: distill recurring session diary + knowledge patterns into rules
 - `min_recurrence` (u32, default `2`) — Minimum reinforcements (confirmations / repeated mentions) before a sub-threshold-confidence pattern is codified.
 - `scope` (enum: project | global, default `project`) — Where generated rules are written: project (<repo>/.cursor/rules, git-committable) or global (~/.cursor/rules).
 
+## `[summaries]`
+
+AI session summaries: periodic, semantically-recallable session digests
+
+- `enabled` (bool, default `true`) — Record periodic, semantically-recallable AI session summaries (what was done, files, decisions).
+- `every_n_turns` (u32, default `25`) — Tool calls between automatic session summaries (gated by the auto-checkpoint cadence).
+- `max_kept` (u32, default `100`) — Maximum session summaries kept per project (oldest pruned first).
+
 ## `[updates]`
 
 Automatic update configuration

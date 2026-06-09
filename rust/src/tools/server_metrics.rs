@@ -129,6 +129,8 @@ impl LeanCtxServer {
         let session_summary = session.format_compact();
         let has_insights = !session.findings.is_empty() || !session.decisions.is_empty();
         let project_root = session.project_root.clone();
+        // Snapshot the session under the lock; persist the summary off the hot path.
+        let summary_candidate = crate::core::session_summary::build_candidate(&session);
         drop(session);
 
         if has_insights {
@@ -138,6 +140,15 @@ impl LeanCtxServer {
                     auto_consolidate_knowledge(&root);
                 });
             }
+        }
+
+        // Periodically record a recallable AI session summary (#292), off-thread.
+        if let Some(ref root) = project_root {
+            let root = root.clone();
+            std::thread::spawn(move || {
+                let _ =
+                    crate::core::session_summary::maybe_record_periodic(&root, summary_candidate);
+            });
         }
 
         let multi_agent_block = self

@@ -184,6 +184,8 @@ pub fn build_registry() -> ToolRegistry {
     registry.register(Box::new(registered::ctx_agent::CtxAgentTool));
     registry.register(Box::new(registered::ctx_share::CtxShareTool));
     registry.register(Box::new(registered::ctx_skillify::CtxSkillifyTool));
+    registry.register(Box::new(registered::ctx_summary::CtxSummaryTool));
+    registry.register(Box::new(registered::ctx_package::CtxPackageTool));
     registry.register(Box::new(registered::ctx_task::CtxTaskTool));
     registry.register(Box::new(registered::ctx_handoff::CtxHandoffTool));
     registry.register(Box::new(registered::ctx_workflow::CtxWorkflowTool));

@@ -505,6 +505,33 @@ impl Default for SkillifyConfig {
     }
 }
 
+/// AI session summaries (#292): periodically distil the working session into a
+/// compact, *semantically recallable* summary so a future session can answer
+/// "what did I do last time on X?". Deterministic and local-first — recall uses
+/// embeddings when the `embeddings` feature is on, else a lexical fallback.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SummariesConfig {
+    /// Record periodic session summaries. On by default; recording is cheap and
+    /// happens at most once per `every_n_turns` tool calls.
+    pub enabled: bool,
+    /// Tool calls between automatic summaries. The auto-checkpoint cadence still
+    /// gates the check, so the effective minimum is the checkpoint interval.
+    pub every_n_turns: u32,
+    /// Maximum summaries kept per project (oldest pruned first).
+    pub max_kept: u32,
+}
+
+impl Default for SummariesConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            every_n_turns: 25,
+            max_kept: 100,
+        }
+    }
+}
+
 /// A user-defined command alias mapping for shell compression patterns.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AliasEntry {

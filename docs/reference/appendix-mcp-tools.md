@@ -1,4 +1,4 @@
-# Appendix — MCP Tool Map (all 73 tools)
+# Appendix — MCP Tool Map (all 75 tools)
 
 Every tool lean-ctx registers via `rust/src/server/registry.rs`. Your AI editor
 calls these instead of its native file/search tools. The **Profile** column
@@ -14,14 +14,14 @@ shows the smallest tool profile that exposes the tool (`M` minimal, `S` standard
 |---------|-------|--------------|
 | **minimal** | 6 | Lowest context overhead; the absolute essentials |
 | **standard** | 22 | Balanced default for most coding workflows |
-| **power** | 73 | Everything (default for existing installs) |
+| **power** | 75 | Everything (default for existing installs) |
 
 - **minimal (6):** `ctx_read`, `ctx_shell`, `shell`, `ctx_search`, `ctx_tree`, `ctx_session`
 - **standard (+16):** + `ctx_semantic_search`, `ctx_knowledge`, `ctx_overview`,
   `ctx_repomap`, `ctx_callgraph`, `ctx_impact`, `ctx_compress`, `ctx_multi_read`,
   `ctx_delta`, `ctx_edit`, `ctx_agent`, `ctx_architecture`, `ctx_pack`,
   `ctx_routes`, `ctx_refactor`, `ctx_url_read`
-- **power (+50):** all remaining tools.
+- **power (+52):** all remaining tools.
 
 ---
 
@@ -111,6 +111,8 @@ shows the smallest tool profile that exposes the tool (`M` minimal, `S` standard
 | `ctx_plugins` | Plugin management | list\|enable\|disable\|info\|hooks | P |
 | `ctx_rules` | Cross-agent rules governance (ContextOps) | sync\|diff\|lint\|status\|init | P |
 | `ctx_skillify` | Codify recurring session-diary + knowledge patterns into versioned, git-committable `.cursor/rules/skillify-*.mdc` (precision-biased, idempotent) | mine\|list\|status\|promote; `slug` | P |
+| `ctx_summary` | Record + recall AI session summaries (semantic when warm, else lexical); auto-captured on the checkpoint cadence | recall\|record\|list; `query`, `top_k` | P |
+| `ctx_package` | Save/resume portable context packages (session + summaries + knowledge bundle) for agent handoffs or session persistence | save\|resume\|list\|info; `path`, `description` | P |
 | `ctx_overview` | Task-relevant project map — ideal at session start | `task`, `path` | S |
 | `ctx_preload` | Proactively load task-relevant files; compact L-curve summary | `task`*, `path` | P |
 | `ctx_prefetch` | Predictive prefetch for blast-radius files | `root`, `task`, `changed_files[]`, `budget_tokens` | P |
@@ -137,9 +139,9 @@ shows the smallest tool profile that exposes the tool (`M` minimal, `S` standard
 
 ## Notes
 
-1. `power` enables all 73 tools; `ToolProfile::is_tool_enabled()` returns `true`
+1. `power` enables all 75 tools; `ToolProfile::is_tool_enabled()` returns `true`
    for everything under power.
 2. `ctx_load_tools` controls *dynamic* categories (`arch`, `debug`, `memory`,
    `metrics`, `session`) independently of the static profile filter.
 3. Lazy clients use `ctx_call` + `ctx_discover_tools` + `ctx_load_tools` to reach
-   tools not in their active profile without listing all 73 upfront.
+   tools not in their active profile without listing all 75 upfront.

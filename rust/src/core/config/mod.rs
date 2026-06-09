@@ -234,6 +234,9 @@ pub struct Config {
     /// Skillify miner settings (#290): codify recurring patterns into rules.
     #[serde(default)]
     pub skillify: SkillifyConfig,
+    /// AI session-summary settings (#292): periodic, semantically-recallable summaries.
+    #[serde(default)]
+    pub summaries: SummariesConfig,
     /// Optional LLM enhancement (query expansion, contradiction explanation).
     #[serde(default)]
     pub llm: crate::core::llm_enhance::LlmConfig,
@@ -452,6 +455,7 @@ impl Default for Config {
             search: crate::core::hybrid_search::HybridConfig::default(),
             graph: GraphConfig::default(),
             skillify: SkillifyConfig::default(),
+            summaries: SummariesConfig::default(),
             llm: crate::core::llm_enhance::LlmConfig::default(),
             embedding: EmbeddingConfig::default(),
             shell_hook_disabled: false,

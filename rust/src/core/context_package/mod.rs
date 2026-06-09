@@ -1,8 +1,11 @@
 pub mod auto_load;
 pub mod builder;
+pub mod bundle;
 pub mod composition;
 pub mod content;
+pub mod export;
 pub mod graph_model;
+pub mod import;
 pub mod loader;
 pub mod manifest;
 pub mod registry;
@@ -10,9 +13,12 @@ pub mod signing;
 
 pub use auto_load::auto_load_packages;
 pub use builder::PackageBuilder;
+pub use bundle::ContextPackage;
 pub use composition::{merge_graphs, MergeReport};
 pub use content::PackageContent;
+pub use export::save_package;
 pub use graph_model::{ContextEdge, ContextGraph, ContextNode};
+pub use import::resume_package;
 pub use loader::{load_package, LoadReport};
 pub use manifest::{PackageLayer, PackageManifest};
 pub use registry::LocalRegistry;
