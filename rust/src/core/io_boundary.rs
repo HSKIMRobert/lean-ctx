@@ -25,8 +25,18 @@ pub fn read_file_nofollow(path: &str) -> Result<String, std::io::Error> {
     }
 }
 
+/// Windows parity (GL#442): no O_NOFOLLOW exists, so lstat first and refuse
+/// symlinks *and* NTFS junctions/reparse points before opening. Small TOCTOU
+/// window remains between the check and the open (documented in SECURITY.md).
 #[cfg(not(unix))]
 pub fn read_file_nofollow(path: &str) -> Result<String, std::io::Error> {
+    if let Ok(meta) = std::fs::symlink_metadata(path) {
+        if crate::core::pathutil::is_symlink_or_reparse(&meta) {
+            return Err(std::io::Error::other(format!(
+                "Symlink detected at {path} — refusing to follow (TOCTOU protection)"
+            )));
+        }
+    }
     std::fs::read_to_string(path)
 }
 

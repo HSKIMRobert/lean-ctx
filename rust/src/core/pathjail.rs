@@ -210,7 +210,9 @@ fn normalize_windows_path(s: &str) -> String {
 #[cfg(windows)]
 fn reject_symlink_on_windows(path: &Path) -> Result<(), String> {
     if let Ok(meta) = std::fs::symlink_metadata(path) {
-        if meta.is_symlink() {
+        // Junctions and other reparse points redirect like symlinks but are
+        // invisible to `is_symlink()` — reject them too (GL#442).
+        if super::pathutil::is_symlink_or_reparse(&meta) {
             return Err(format!(
                 "symlink not allowed in jailed path: {}",
                 path.display()

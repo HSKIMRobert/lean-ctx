@@ -247,10 +247,12 @@ pub fn write_atomic(path: &Path, content: &str) -> Result<(), String> {
 }
 
 fn reject_symlink(path: &Path) -> Result<(), String> {
+    // `is_symlink_or_reparse`: on Windows this also rejects NTFS junctions,
+    // which `FileType::is_symlink` misses (GL#442).
     if path.exists()
         && path
             .symlink_metadata()
-            .is_ok_and(|m| m.file_type().is_symlink())
+            .is_ok_and(|m| crate::core::pathutil::is_symlink_or_reparse(&m))
     {
         return Err(format!(
             "refusing to write through symlink: {}",

@@ -202,7 +202,7 @@ Critical vulnerabilities (RCE, data exfiltration) are fast-tracked.
 
 **Status:** Mitigated on Unix; residual risk on Windows.
 
-A race window exists between `jail_path` validation and the subsequent file operation. Mitigations in place: standard reads open with `O_NOFOLLOW` (Unix) and reject symlinks; `ctx_edit` additionally rejects symlinks on both its read and write paths (lstat pre-check on all platforms, `O_NOFOLLOW` on Unix) and re-verifies the file fingerprint (size/mtime/md5) immediately before writing. On Windows there is no `O_NOFOLLOW` equivalent, so the lstat pre-check is the only guard.
+A race window exists between `jail_path` validation and the subsequent file operation. Mitigations in place: standard reads open with `O_NOFOLLOW` (Unix) and reject symlinks; `ctx_edit` additionally rejects symlinks on both its read and write paths (lstat pre-check on all platforms, `O_NOFOLLOW` on Unix) and re-verifies the file fingerprint (size/mtime/md5) immediately before writing. On Windows there is no `O_NOFOLLOW` equivalent, so the lstat pre-check is the only guard — it rejects symlinks **and all NTFS reparse points (junctions, mount points)** via `pathutil::is_symlink_or_reparse`, and `read_file_nofollow` applies the same lstat check before opening. The residual risk is the unavoidable check→open race window.
 
 **Recommendation for regulated environments:** Run lean-ctx inside a container or VM where the filesystem is controlled and no untrusted processes can modify symlinks concurrently.
 
@@ -228,7 +228,9 @@ The `ctx_execute` tool provides **timeout enforcement** and **output capping** b
 
 **Status:** Mitigated on Unix; residual risk on Windows.
 
-A race window exists between `jail_path` validation and the subsequent file operation. Mitigations: symlink-following canonicalization before access, `O_NOFOLLOW` + symlink rejection on read paths (Unix), and symlink rejection on `ctx_edit` write paths (all platforms, lstat-based). Home-level IDE config dirs (`~/.cursor`, `~/.claude`, …) are excluded from the jail's allow-list by default (`allow_ide_config_dirs` opts in).
+A race window exists between `jail_path` validation and the subsequent file operation. Mitigations: symlink-following canonicalization before access, `O_NOFOLLOW` + symlink rejection on read paths (Unix), and symlink rejection on `ctx_edit` write paths (all platforms, lstat-based; on Windows this includes NTFS junctions and other reparse points). Home-level IDE config dirs (`~/.cursor`, `~/.claude`, …) are excluded from the jail's allow-list by default (`allow_ide_config_dirs` opts in).
+
+**Windows file permissions:** the Unix `0o600`/`0o700` tightening (cloud credentials, crash log) has no direct Windows equivalent; protection relies on the default NTFS ACL of the user profile (`%USERPROFILE%` is not readable by other non-admin users). Machines with custom ACLs on the profile directory should verify `%USERPROFILE%\.lean-ctx` inherits owner-only access.
 
 **Mitigation:** For regulated environments: run lean-ctx inside a container where no untrusted processes can modify symlinks concurrently.
 

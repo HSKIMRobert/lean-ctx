@@ -111,7 +111,112 @@ pub fn run() -> Scorecard {
     checks.extend(contract_checks());
     checks.extend(reproducibility_checks());
     checks.extend(extension_checks());
+    checks.extend(accuracy_checks());
     Scorecard { version: 1, checks }
+}
+
+// ---------------------------------------------------------------------------
+// Accuracy: structural invariants of the lossy read modes (GL#441).
+//
+// Byte-golden snapshots would break on every intentional format improvement;
+// these checks instead pin down what each mode must *preserve* (symbols,
+// deps) and must *drop* (bodies), plus determinism and size bounds — the
+// properties an agent's correctness actually depends on.
+// ---------------------------------------------------------------------------
+
+/// A stable Rust fixture exercising pub fns, a struct, imports, and a body
+/// secret that lossy modes must strip.
+const ACCURACY_FIXTURE: &str = r"use std::collections::HashMap;
+use std::path::PathBuf;
+
+pub struct Inventory {
+    items: HashMap<String, u32>,
+}
+
+pub fn add_item(inv: &mut Inventory, name: &str, qty: u32) {
+    let body_secret_alpha = qty + 1;
+    inv.items.insert(name.to_string(), body_secret_alpha);
+}
+
+pub fn total_count(inv: &Inventory) -> u32 {
+    let body_secret_beta: u32 = inv.items.values().sum();
+    body_secret_beta
+}
+
+fn internal_rebalance(inv: &mut Inventory) {
+    inv.items.retain(|_, qty| *qty > 0);
+}
+";
+
+/// Symbols every lossy structural mode must keep visible.
+const MUST_KEEP_SYMBOLS: &[&str] = &["add_item", "total_count", "Inventory"];
+
+/// Body-local identifiers `signatures`/`map` must strip.
+const MUST_DROP_BODIES: &[&str] = &["body_secret_alpha", "body_secret_beta"];
+
+fn render_mode(mode: &str) -> String {
+    crate::tools::ctx_read::render::process_mode(
+        ACCURACY_FIXTURE,
+        mode,
+        "",
+        "fixture.rs",
+        "rs",
+        crate::core::tokens::count_tokens(ACCURACY_FIXTURE),
+        crate::tools::CrpMode::Off,
+        "conformance/fixture.rs",
+        None,
+    )
+    .0
+}
+
+fn accuracy_checks() -> Vec<Check> {
+    let mut checks = Vec::new();
+
+    for mode in ["map", "signatures", "aggressive", "entropy"] {
+        checks.push(Check::from_bool(
+            "accuracy",
+            format!("read_mode_deterministic:{mode}"),
+            render_mode(mode) == render_mode(mode),
+            "two renders of the same fixture differ",
+        ));
+    }
+
+    for mode in ["map", "signatures"] {
+        let out = render_mode(mode);
+        let missing: Vec<&&str> = MUST_KEEP_SYMBOLS
+            .iter()
+            .filter(|s| !out.contains(**s))
+            .collect();
+        checks.push(Check::from_bool(
+            "accuracy",
+            format!("read_mode_keeps_symbols:{mode}"),
+            missing.is_empty(),
+            &format!("symbols lost: {missing:?}"),
+        ));
+        let leaked: Vec<&&str> = MUST_DROP_BODIES
+            .iter()
+            .filter(|s| out.contains(**s))
+            .collect();
+        checks.push(Check::from_bool(
+            "accuracy",
+            format!("read_mode_strips_bodies:{mode}"),
+            leaked.is_empty(),
+            &format!("body content leaked: {leaked:?}"),
+        ));
+    }
+
+    let fixture_tokens = crate::core::tokens::count_tokens(ACCURACY_FIXTURE);
+    for mode in ["map", "signatures", "aggressive"] {
+        let sent = crate::core::tokens::count_tokens(&render_mode(mode));
+        checks.push(Check::from_bool(
+            "accuracy",
+            format!("read_mode_compresses:{mode}"),
+            sent < fixture_tokens,
+            &format!("no compression: {sent} >= {fixture_tokens} tokens"),
+        ));
+    }
+
+    checks
 }
 
 fn contract_checks() -> Vec<Check> {

@@ -31,6 +31,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   `docs/examples/team-slos.toml`; the SLO engine understands the new metrics
   `team_query_p95_ms`, `team_availability_pct`, `team_index_lag_seconds`.
   Runbook: `docs/guides/hosted-index-slo.md`.
+- **Accuracy conformance checks for lossy read modes** (P1, GL #441):
+  `lean-ctx conformance` now verifies structural invariants of `map`,
+  `signatures`, `aggressive` and `entropy` against a fixed Rust fixture —
+  determinism, symbol retention, body stripping, and real compression. CI
+  gates on regressions in the modes agents rely on for correctness.
+
+### Changed
+- **Large modules split by domain** (P1, GL #439, #440):
+  `cli/dispatch/analytics.rs` (1685 LOC) → `analytics/{gain,savings,billing,graph}`,
+  `core/stats/format.rs` (1532) → `format/{util,cep,dashboard,views}`,
+  `rules_inject.rs` (1542) → `rules_inject/{content,targets,detect,write,skills}`.
+  No behavior change; entry-point visibility narrowed to the dispatch layer.
 
 ### Security
 - **CLI shell allowlist is now enforced for agents** (P0-1, GL #413):
@@ -68,6 +80,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   stays allowed.
 
 ### Fixed
+- **No more WARN noise when scanning project subdirectories** (P1, GL #438):
+  `graph_index` now walks *ancestors* for project markers, so `repo/rust/src`
+  inside `~/Documents` is a legitimate scan root (the `.git` lives two levels
+  up). Marker-less trees under blocked home dirs stay refused.
+- **Windows symlink parity at every security boundary** (P1, GL #442):
+  `pathjail`, `ctx_edit`, `config_io` and `read_file_nofollow` now reject NTFS
+  junctions and all other reparse points (not just symlinks) via the shared
+  `pathutil::is_symlink_or_reparse` check; non-Unix `read_file_nofollow`
+  previously followed links without any check.
 - **Stale cache stubs can no longer mislead the agent** (P0-7, GL #419):
   staleness now treats *any* mtime change as stale (backward mtimes from
   `git checkout` previously read as fresh) and verifies the content hash before

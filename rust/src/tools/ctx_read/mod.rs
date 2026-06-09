@@ -10,7 +10,9 @@ use crate::core::signatures;
 use crate::core::symbol_map::{self, SymbolMap};
 use crate::core::tokens::count_tokens;
 use crate::tools::CrpMode;
-mod render;
+// `pub(crate)`: the conformance suite renders modes directly for its
+// accuracy invariants (GL#441).
+pub(crate) mod render;
 pub(crate) use render::*;
 #[cfg(test)]
 mod tests;

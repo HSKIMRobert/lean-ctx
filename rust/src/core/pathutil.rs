@@ -167,6 +167,27 @@ pub fn has_project_marker(dir: &Path) -> bool {
     PROJECT_MARKERS.iter().any(|m| dir.join(m).exists())
 }
 
+/// Returns `true` if the (lstat) metadata describes a symlink — or, on
+/// Windows, *any* reparse point (junctions, mount points, app-exec links).
+///
+/// Security boundaries must use this instead of `FileType::is_symlink`:
+/// Rust's `is_symlink()` reports `false` for NTFS junctions, which redirect
+/// exactly like directory symlinks and would otherwise bypass jail/TOCTOU
+/// checks on Windows (GL#442).
+pub fn is_symlink_or_reparse(meta: &std::fs::Metadata) -> bool {
+    if meta.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+        return meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0;
+    }
+    #[cfg(not(windows))]
+    false
+}
+
 /// Returns `true` if `dir` is the home directory or one of the macOS "magic"
 /// home subdirectories (`Documents`, `Desktop`, `Downloads`).
 ///
@@ -541,5 +562,43 @@ mod tests {
     #[test]
     fn multi_repo_children_nonexistent_dir() {
         assert!(!has_multi_repo_children(Path::new("/nonexistent/path/xyz")));
+    }
+
+    #[test]
+    fn regular_file_is_not_symlink_or_reparse() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("plain.txt");
+        std::fs::write(&file, "x").unwrap();
+        let meta = std::fs::symlink_metadata(&file).unwrap();
+        assert!(!is_symlink_or_reparse(&meta));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_symlink_is_detected() {
+        let tmp = tempfile::tempdir().unwrap();
+        let target = tmp.path().join("target.txt");
+        std::fs::write(&target, "x").unwrap();
+        let link = tmp.path().join("link.txt");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let meta = std::fs::symlink_metadata(&link).unwrap();
+        assert!(is_symlink_or_reparse(&meta));
+    }
+
+    /// Runs in the windows-latest CI lane (GL#442). Symlink creation needs
+    /// either admin or Developer Mode — skip gracefully when unavailable.
+    #[cfg(windows)]
+    #[test]
+    fn windows_symlink_is_detected() {
+        let tmp = tempfile::tempdir().unwrap();
+        let target = tmp.path().join("target.txt");
+        std::fs::write(&target, "x").unwrap();
+        let link = tmp.path().join("link.txt");
+        if std::os::windows::fs::symlink_file(&target, &link).is_err() {
+            eprintln!("skipping: symlink creation not permitted on this runner");
+            return;
+        }
+        let meta = std::fs::symlink_metadata(&link).unwrap();
+        assert!(is_symlink_or_reparse(&meta));
     }
 }

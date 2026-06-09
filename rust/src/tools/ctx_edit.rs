@@ -61,7 +61,8 @@ fn system_time_to_millis(t: SystemTime) -> u64 {
 /// after the jail check could otherwise read or overwrite files outside it.
 fn reject_symlink(path: &Path) -> Result<(), String> {
     if let Ok(meta) = std::fs::symlink_metadata(path) {
-        if meta.file_type().is_symlink() {
+        // Windows: also covers NTFS junctions/reparse points (GL#442).
+        if crate::core::pathutil::is_symlink_or_reparse(&meta) {
             return Err(format!(
                 "ERROR: {} is a symlink — refusing to edit through it (TOCTOU protection). \
                  Edit the symlink target directly via its real path.",
