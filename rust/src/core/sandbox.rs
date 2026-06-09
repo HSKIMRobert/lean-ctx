@@ -12,8 +12,24 @@ pub struct SandboxResult {
 
 const TIMEOUT_SECS: u64 = 30;
 const MAX_OUTPUT_BYTES: usize = 32_768;
+/// Upper bound on the `code` payload. Generous for real scripts while preventing an
+/// agent from forcing a multi-megabyte temp-file write / interpreter argv → memory abuse.
+const MAX_CODE_BYTES: usize = 256 * 1024;
 
 pub fn execute(language: &str, code: &str, timeout_secs: Option<u64>) -> SandboxResult {
+    if code.len() > MAX_CODE_BYTES {
+        return SandboxResult {
+            stdout: String::new(),
+            stderr: format!(
+                "Code exceeds the {MAX_CODE_BYTES}-byte limit ({} bytes). Split it into smaller scripts.",
+                code.len()
+            ),
+            exit_code: 1,
+            language: language.to_string(),
+            duration_ms: 0,
+        };
+    }
+
     let timeout = timeout_secs.unwrap_or(TIMEOUT_SECS);
     let start = std::time::Instant::now();
 
@@ -638,6 +654,14 @@ mod tests {
         let result = execute("brainfuck", "++++", None);
         assert_eq!(result.exit_code, 1);
         assert!(result.stderr.contains("Unsupported language"));
+    }
+
+    #[test]
+    fn execute_rejects_oversized_code() {
+        let huge = "a".repeat(MAX_CODE_BYTES + 1);
+        let result = execute("python", &huge, None);
+        assert_eq!(result.exit_code, 1);
+        assert!(result.stderr.contains("exceeds the"));
     }
 
     #[test]

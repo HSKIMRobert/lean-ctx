@@ -3,7 +3,7 @@ use rmcp::ErrorData;
 use serde_json::{json, Map, Value};
 
 use crate::server::tool_trait::{
-    get_bool, get_int, get_str, get_str_array, McpTool, ToolContext, ToolOutput,
+    get_bool, get_int, get_str, get_str_array, get_usize, McpTool, ToolContext, ToolOutput,
 };
 use crate::tool_defs::tool_def;
 
@@ -71,7 +71,7 @@ impl McpTool for CtxSemanticSearchTool {
         } else {
             ctx.project_root.clone()
         };
-        let top_k = get_int(args, "top_k").unwrap_or(10) as usize;
+        let top_k = get_usize(args, "top_k").unwrap_or(10).min(1000);
         let action = get_str(args, "action").unwrap_or_default();
         let mode = get_str(args, "mode");
         let languages = get_str_array(args, "languages");

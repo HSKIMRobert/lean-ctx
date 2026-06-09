@@ -3,7 +3,7 @@ use rmcp::ErrorData;
 use serde_json::{json, Map, Value};
 
 use crate::server::tool_trait::{
-    get_bool, get_int, get_str, get_str_array, McpTool, ToolContext, ToolOutput,
+    get_bool, get_int, get_str, get_str_array, get_usize, McpTool, ToolContext, ToolOutput,
 };
 use crate::tool_defs::tool_def;
 
@@ -125,7 +125,7 @@ impl McpTool for CtxPackTool {
             "pr" => {
                 let base = get_str(args, "base");
                 let format = get_str(args, "format");
-                let depth = get_int(args, "depth").map(|d| d as usize);
+                let depth = get_usize(args, "depth").map(|d| d.min(64));
                 let diff = get_str(args, "diff");
                 crate::tools::ctx_pack::handle(
                     "pr",
@@ -144,7 +144,7 @@ impl McpTool for CtxPackTool {
                 let author = get_str(args, "author");
                 let tags = get_str_array(args, "tags");
                 let layers = get_str_array(args, "layers");
-                let level = get_int(args, "level").map(|l| l as u32);
+                let level = get_int(args, "level").and_then(|l| u32::try_from(l).ok());
                 let scope = get_str(args, "scope");
                 crate::tools::ctx_pack::handle_create(
                     &project_root,

@@ -184,6 +184,16 @@ pub fn get_int(args: &Map<String, Value>, key: &str) -> Option<i64> {
     args.get(key).and_then(serde_json::Value::as_i64)
 }
 
+/// Read a non-negative integer argument as `usize`.
+///
+/// Returns `None` for missing or negative values. This avoids the
+/// `negative_i64 as usize` wrap to `usize::MAX`, which previously let an agent
+/// trigger unbounded allocations (e.g. `top_k`, `limit`, `max_results`) → OOM.
+/// Callers should still apply a sensible upper cap on the result.
+pub fn get_usize(args: &Map<String, Value>, key: &str) -> Option<usize> {
+    get_int(args, key).and_then(|n| usize::try_from(n).ok())
+}
+
 pub fn get_bool(args: &Map<String, Value>, key: &str) -> Option<bool> {
     args.get(key).and_then(serde_json::Value::as_bool)
 }

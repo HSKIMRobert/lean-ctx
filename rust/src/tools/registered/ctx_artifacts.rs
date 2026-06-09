@@ -4,7 +4,7 @@ use rmcp::model::Tool;
 use rmcp::ErrorData;
 use serde_json::{json, Map, Value};
 
-use crate::server::tool_trait::{get_int, get_str, McpTool, ToolContext, ToolOutput};
+use crate::server::tool_trait::{get_str, get_usize, McpTool, ToolContext, ToolOutput};
 use crate::tool_defs::tool_def;
 
 pub struct CtxArtifactsTool;
@@ -63,7 +63,7 @@ impl McpTool for CtxArtifactsTool {
         let format = get_str(args, "format");
         let query = get_str(args, "query");
         let name = get_str(args, "name");
-        let top_k = get_int(args, "top_k").map(|d| d as usize);
+        let top_k = get_usize(args, "top_k").map(|d| d.min(1000));
         let root = if let Some(p) = ctx
             .resolved_path("project_root")
             .or(ctx.resolved_path("root"))

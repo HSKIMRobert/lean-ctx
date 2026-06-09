@@ -2,7 +2,7 @@ use rmcp::model::Tool;
 use rmcp::ErrorData;
 use serde_json::{json, Map, Value};
 
-use crate::server::tool_trait::{get_int, get_str, McpTool, ToolContext, ToolOutput};
+use crate::server::tool_trait::{get_str, get_usize, McpTool, ToolContext, ToolOutput};
 use crate::tool_defs::tool_def;
 
 pub struct CtxGraphTool;
@@ -92,7 +92,7 @@ neighbors (direct in/out edges of a file), path (shortest connection between two
         } else {
             ctx.project_root.clone()
         };
-        let depth = get_int(args, "depth").map(|d| d as usize);
+        let depth = get_usize(args, "depth").map(|d| d.min(64));
         let kind = get_str(args, "kind");
         let format = get_str(args, "format");
         // `since` is a git ref, not a filesystem path — read it raw (no PathJail).

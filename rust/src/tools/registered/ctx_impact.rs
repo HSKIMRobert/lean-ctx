@@ -2,7 +2,7 @@ use rmcp::model::Tool;
 use rmcp::ErrorData;
 use serde_json::{json, Map, Value};
 
-use crate::server::tool_trait::{get_int, get_str, McpTool, ToolContext, ToolOutput};
+use crate::server::tool_trait::{get_str, get_usize, McpTool, ToolContext, ToolOutput};
 use crate::tool_defs::tool_def;
 
 pub struct CtxImpactTool;
@@ -52,7 +52,7 @@ impl McpTool for CtxImpactTool {
     ) -> Result<ToolOutput, ErrorData> {
         let action = get_str(args, "action").unwrap_or_else(|| "analyze".to_string());
         let path = get_str(args, "path");
-        let depth = get_int(args, "depth").map(|d| d as usize);
+        let depth = get_usize(args, "depth").map(|d| d.min(64));
         let format = get_str(args, "format");
         let root = if let Some(p) = ctx
             .resolved_path("root")

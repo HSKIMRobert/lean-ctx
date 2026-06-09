@@ -3,7 +3,7 @@ use rmcp::ErrorData;
 use serde_json::{json, Map, Value};
 
 use crate::server::tool_trait::{
-    get_int, get_str, get_str_array, McpTool, ToolContext, ToolOutput,
+    get_str, get_str_array, get_usize, McpTool, ToolContext, ToolOutput,
 };
 use crate::tool_defs::tool_def;
 
@@ -47,9 +47,8 @@ impl McpTool for CtxFillTool {
     ) -> Result<ToolOutput, ErrorData> {
         let raw_paths = get_str_array(args, "paths")
             .ok_or_else(|| ErrorData::invalid_params("paths array is required", None))?;
-        let budget = get_int(args, "budget")
-            .ok_or_else(|| ErrorData::invalid_params("budget is required", None))?
-            as usize;
+        let budget = get_usize(args, "budget")
+            .ok_or_else(|| ErrorData::invalid_params("budget is required (non-negative)", None))?;
         let task = get_str(args, "task");
 
         tokio::task::block_in_place(|| {

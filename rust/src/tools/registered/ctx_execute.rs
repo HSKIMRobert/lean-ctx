@@ -90,7 +90,7 @@ impl McpTool for CtxExecuteTool {
             let code = get_str(args, "code")
                 .ok_or_else(|| ErrorData::invalid_params("code is required", None))?;
             let intent = get_str(args, "intent");
-            let timeout = get_int(args, "timeout").map(|t| t as u64);
+            let timeout = get_int(args, "timeout").and_then(|t| u64::try_from(t).ok());
             crate::tools::ctx_execute::handle(&language, &code, intent.as_deref(), timeout)
         };
 

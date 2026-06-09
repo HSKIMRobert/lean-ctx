@@ -3,7 +3,7 @@ use rmcp::ErrorData;
 use serde_json::{json, Map, Value};
 
 use crate::server::tool_trait::{
-    get_int, get_str, get_str_array, McpTool, ToolContext, ToolOutput,
+    get_str, get_str_array, get_usize, McpTool, ToolContext, ToolOutput,
 };
 use crate::tool_defs::tool_def;
 
@@ -65,7 +65,7 @@ impl McpTool for CtxMultiRepoTool {
         let alias = get_str(args, "alias");
         let query = get_str(args, "query");
         let roots_filter = get_str_array(args, "roots");
-        let max_results = get_int(args, "max_results").unwrap_or(20) as usize;
+        let max_results = get_usize(args, "max_results").unwrap_or(20).min(1000);
 
         let (result, original_tokens) = crate::tools::ctx_multi_repo::handle(
             &action,

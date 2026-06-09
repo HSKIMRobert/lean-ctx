@@ -2,7 +2,7 @@ use rmcp::model::Tool;
 use rmcp::ErrorData;
 use serde_json::{json, Map, Value};
 
-use crate::server::tool_trait::{get_int, McpTool, ToolContext, ToolOutput};
+use crate::server::tool_trait::{get_usize, McpTool, ToolContext, ToolOutput};
 use crate::tool_defs::tool_def;
 
 pub struct CtxDiscoverTool;
@@ -30,7 +30,7 @@ impl McpTool for CtxDiscoverTool {
         args: &Map<String, Value>,
         _ctx: &ToolContext,
     ) -> Result<ToolOutput, ErrorData> {
-        let limit = get_int(args, "limit").unwrap_or(15) as usize;
+        let limit = get_usize(args, "limit").unwrap_or(15).min(100_000);
         let history = crate::cli::load_shell_history_pub();
         let result = crate::tools::ctx_discover::discover_from_history(&history, limit);
 

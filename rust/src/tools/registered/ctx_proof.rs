@@ -2,7 +2,7 @@ use rmcp::model::Tool;
 use rmcp::ErrorData;
 use serde_json::{json, Map, Value};
 
-use crate::server::tool_trait::{get_bool, get_int, get_str, McpTool, ToolContext, ToolOutput};
+use crate::server::tool_trait::{get_bool, get_str, get_usize, McpTool, ToolContext, ToolOutput};
 use crate::tool_defs::tool_def;
 
 pub struct CtxProofTool;
@@ -59,8 +59,8 @@ impl McpTool for CtxProofTool {
         let format = get_str(args, "format");
         let write = get_bool(args, "write").unwrap_or(true);
         let filename = get_str(args, "filename");
-        let max_evidence = get_int(args, "max_evidence").map(|v| v as usize);
-        let max_ledger_files = get_int(args, "max_ledger_files").map(|v| v as usize);
+        let max_evidence = get_usize(args, "max_evidence").map(|v| v.min(100_000));
+        let max_ledger_files = get_usize(args, "max_ledger_files").map(|v| v.min(100_000));
 
         let session_data = ctx
             .session
