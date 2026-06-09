@@ -21,8 +21,8 @@ v1 still holds.
 2. A `metering` block on the control-plane team payloads
    (`/api/account/team/storage` and `/api/account/team/usage`), computed from the
    already-measured storage figures + a configurable rate.
-3. A **metered Stripe price** (`usage_type=metered`, `aggregate_usage=
-   last_during_period`) for the storage-overage dimension, provisioned by
+3. A **Stripe Billing Meter** (`event_name = leanctx_hosted_index_storage_gb`,
+   aggregation `last`) and a linked metered price, provisioned by
    `stripe-setup.py --storage-metering`.
 
 ## Rollout: display-first (opt-in, no surprise bills)
@@ -78,8 +78,6 @@ All of `billing-plane-v1`'s invariants, plus
    server-measured and additive.
 6. Nothing in the metering path gates a local feature (Local-Free preserved).
 
-## Versioning
-
 ## Meter Events (Stripe Billing Meters API)
 
 Usage is pushed via the Stripe Billing Meters API (`POST /v1/billing/meter_events`),
@@ -91,9 +89,19 @@ active team account with a provisioned server and control token:
 2. Persists a `billing_storage_samples` row (usage trend + audit).
 3. Checks threshold crossings (50/80/100%) and sends an idempotent email alert
    (one per threshold per billing period, via SMTP/ZeptoMail).
-4. If overage > 0 and a Stripe Billing Meter is configured, pushes a meter event
-   with `event_name = leanctx_hosted_index_storage_gb` and `value` = overage in
-   GB (rounded up to 0.01 GB).
+4. Pushes a meter event with the **current** overage in GB (including `0` when
+   cleared — required by Stripe `last` aggregation to avoid stale overbilling),
+   rounded up to 0.01 GB.
+
+## Data Durability
+
+Hosted team servers store workspaces, audit logs, and retrieval indices in `/data`.
+Coolify v4 (beta.455) silently drops `-v` mounts from `custom_docker_run_options`,
+so the provisioning code registers a durable named Docker volume by writing to
+Coolify's `local_persistent_volumes` table (the same row the UI creates). This is
+a contained, idempotent, additive coupling — it can be swapped for the REST API
+once Coolify ships application-storage endpoints. Without `COOLIFY_DB_URL`, new
+instances deploy with ephemeral `/data` (logged, non-fatal, recoverable).
 
 ## Versioning
 
