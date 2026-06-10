@@ -111,7 +111,9 @@ covers the four dimensions that decide how well an AI agent actually performs:
 
 Your AI agent reads files and runs commands. LeanCTX compresses both automatically.
 
-- **File reads**: 10 modes (`full`, `map`, `signatures`, `diff`, `lines:N-M`) — cached re-reads cost ~13 tokens
+- **File reads**: 11 modes (`full`, `map`, `signatures`, `diff`, `lines:N-M`, `density:X`) — cached re-reads cost ~13 tokens
+- **Target density** (`density:0.4`): SDE-style budget compression — keeps the highest-entropy lines until ~40% of the original tokens remain, deterministic
+- **JIT disclosure**: `signatures` carries line spans and points at `lines:N-M` for targeted expansion — outline first, bodies on demand
 - **Shell output**: 56 pattern modules compress git, npm, cargo, docker, kubectl, terraform and more (270 passthrough rules)
 - **Tree-sitter AST**: structural understanding for 18 languages — not just text compression
 

@@ -134,6 +134,17 @@ pub(crate) fn process_mode(
                 output.push('\n');
                 output.push_str(&body);
             }
+            // JIT disclosure (GL#447): signatures carry L-spans, so point at the
+            // targeted range expansion before the full-read escalation.
+            if crate::core::profiles::active_profile()
+                .output_hints
+                .compressed_hint()
+                && !sigs.is_empty()
+            {
+                output.push_str(&format!(
+                    "\n  ↳ expand a symbol: ctx_read(\"{file_path}\", mode=\"lines:N-M\") using the spans above"
+                ));
+            }
             let sent = count_tokens(&output);
             (
                 append_compressed_hint(
