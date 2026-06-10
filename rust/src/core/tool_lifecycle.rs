@@ -93,8 +93,16 @@ pub fn record_file_read(
 }
 
 /// Record a search/grep operation with full Context OS side effects.
-pub fn record_search(original_tokens: usize, output_tokens: usize) {
-    stats::record("cli_grep", original_tokens, output_tokens);
+///
+/// `modeled_baseline` (native-tool estimate) feeds the estimated stats series;
+/// `observed_tokens` (raw measured match lines) feeds the verified ledger.
+pub fn record_search(modeled_baseline: usize, observed_tokens: usize, output_tokens: usize) {
+    stats::record("cli_grep", modeled_baseline, output_tokens);
+    crate::core::savings_ledger::record_tool_event(
+        "cli_grep",
+        observed_tokens,
+        observed_tokens.saturating_sub(output_tokens),
+    );
 
     if let Some(mut session) = SessionState::load_latest() {
         session.record_command();
@@ -121,6 +129,13 @@ pub fn record_tree(original_tokens: usize, output_tokens: usize) {
 /// command counter stays accurate. Adding 0 tokens does not inflate savings.
 pub fn record_shell_command(original_tokens: usize, output_tokens: usize) {
     stats::record("cli_shell", original_tokens, output_tokens);
+    // Shell output sizes are measured, not modeled — they qualify for the
+    // verified ledger (skips zero-saving events internally).
+    crate::core::savings_ledger::record_tool_event(
+        "cli_shell",
+        original_tokens,
+        original_tokens.saturating_sub(output_tokens),
+    );
 
     if let Some(mut session) = SessionState::load_latest() {
         session.record_command();
@@ -159,7 +174,7 @@ mod tests {
 
     #[test]
     fn record_search_does_not_panic_without_session() {
-        record_search(200, 150);
+        record_search(500, 200, 150);
     }
 
     #[test]

@@ -173,9 +173,12 @@ class CockpitRoi extends HTMLElement {
       '<span class="tag tg">verified</span>' +
       '<span>These numbers come from the <b>signed ledger</b>' +
       (since ? ' (recording since <b>' + esc(since) + '</b>)' : '') +
-      ' \u2014 a newer, stricter count than the estimated all-time totals on ' +
-      '<a href="#overview" style="color:var(--accent)">Home</a>. Both are correct; ' +
-      'this one is tamper-evident proof, Home is the full history.</span>' +
+      ' \u2014 it only counts <b>measured</b> compression: actual tokens observed ' +
+      'before vs. after, per event, hash-chained. The totals on ' +
+      '<a href="#overview" style="color:var(--accent)">Home</a> are an <b>estimate</b> ' +
+      'of what agents would have loaded without lean-ctx \u2014 they include the full ' +
+      'history and a modeled baseline for search results. Estimated is the bigger ' +
+      'picture; this page is the auditable floor.</span>' +
       '</div>';
 
     return (

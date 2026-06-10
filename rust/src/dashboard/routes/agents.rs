@@ -97,6 +97,16 @@ fn build_agents_json() -> String {
     .to_string()
 }
 
+/// Interpret a naive timestamp written by `chrono::Local::now()` in the local
+/// timezone and convert it to UTC for age math.
+fn local_to_utc(ts: chrono::NaiveDateTime) -> Option<chrono::DateTime<chrono::Utc>> {
+    use chrono::TimeZone as _;
+    chrono::Local
+        .from_local_datetime(&ts)
+        .earliest()
+        .map(|dt| dt.with_timezone(&chrono::Utc))
+}
+
 fn infer_agents_from_events() -> Vec<serde_json::Value> {
     let evts = crate::core::events::load_events_from_file(200);
     let now = chrono::Utc::now();
@@ -108,7 +118,12 @@ fn infer_agents_from_events() -> Vec<serde_json::Value> {
     for ev in &evts {
         let ts_str = &ev.timestamp;
         if let Ok(ts) = chrono::NaiveDateTime::parse_from_str(ts_str, "%Y-%m-%dT%H:%M:%S%.f") {
-            let aware = ts.and_utc();
+            // Event timestamps are written with Local::now() (no offset suffix);
+            // interpreting them as UTC made agents appear active "in the future"
+            // (negative minutes at UTC+2, #479).
+            let Some(aware) = local_to_utc(ts) else {
+                continue;
+            };
             if aware >= cutoff {
                 if matches!(&ev.kind, crate::core::events::EventKind::ToolCall { .. }) {
                     recent_tool_count += 1;
@@ -124,7 +139,9 @@ fn infer_agents_from_events() -> Vec<serde_json::Value> {
         return Vec::new();
     }
 
-    let age_min = latest_ts.map_or(0, |ts| (now - ts.and_utc()).num_minutes());
+    let age_min = latest_ts
+        .and_then(local_to_utc)
+        .map_or(0, |ts| (now - ts).num_minutes().max(0));
 
     let status = if age_min <= 5 { "active" } else { "idle" };
 

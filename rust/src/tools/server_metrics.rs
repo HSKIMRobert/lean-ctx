@@ -84,6 +84,13 @@ impl LeanCtxServer {
 
         let output_tokens = original.saturating_sub(saved);
         crate::core::stats::record(tool, original, output_tokens);
+        // Shell output compression is measured (observed bytes in vs out), so it
+        // belongs in the verified ledger. Reads are ledgered via the heatmap
+        // chokepoint and ctx_search ledgers itself — only shell is added here
+        // to avoid double counting.
+        if tool == "ctx_shell" {
+            crate::core::savings_ledger::record_tool_event("ctx_shell", original, saved);
+        }
 
         let mut session = self.session.write().await;
         session.record_tool_call(saved as u64, original as u64);
