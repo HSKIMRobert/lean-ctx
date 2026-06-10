@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Context Governance Benchmark — spec + self-assessment** (GL #426): CGB
+  v1.0-draft published as its own tool-neutral spec repo
+  (`context-governance-benchmark`): 32 measurable controls in 6 domains
+  (sensitivity/redaction, provenance, budget, audit/evidence, access
+  scoping, lifecycle/retention), three levels (Basic/Hardened/Audited),
+  maturity grades C1–C4, CC-BY-4.0, RFC-light governance and a CI wordlist
+  lint that bans product names from normative text. LeanCTX's own honest
+  self-assessment lands in `docs/compliance/cgb-self-assessment.md`:
+  **C2 — Managed** (Basic 96%, Hardened 80%, Audited 50%), with declared
+  gaps incl. no independent redaction verification and no one-step egress
+  inventory — graded down where claims couldn't be hard-verified.
 - **Agent-task benchmark v1 harness** (GL #493): outcome evidence instead of
   token arithmetic — does lean-ctx change task success rate and cost per
   solved task? `bench/agent-task/` runs two identical Claude-Code-headless
