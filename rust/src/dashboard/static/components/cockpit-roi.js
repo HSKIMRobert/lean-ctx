@@ -313,7 +313,11 @@ class CockpitRoi extends HTMLElement {
     var tools = Array.isArray(roi.top_tools) ? roi.top_tools : [];
 
     var modelRows = models.slice(0, 8).map(function (m) {
-      return '<tr><td>' + esc(String(m[0])) + '</td>' +
+      var name = String(m[0]);
+      var label = name === 'fallback-blended'
+        ? '<span title="Events without model attribution, priced at a blended average input rate">model unknown <span class="hs">(blended rate)</span></span>'
+        : esc(name);
+      return '<tr><td>' + label + '</td>' +
         '<td class="r">' + esc(ff(m[1])) + '</td>' +
         '<td class="r">' + esc(fu(m[2])) + '</td></tr>';
     }).join('');

@@ -1449,17 +1449,23 @@ class CockpitGraph extends HTMLElement {
       var kindCls = kindColors[String(s.kind || '').toLowerCase()] || 'tb';
       var shortPath = String(s.file || '\u2014');
       if (shortPath.length > 40) shortPath = '\u2026' + shortPath.slice(-38);
-      var sig = s.signature || '\u2014';
-      if (sig.length > 80) sig = sig.slice(0, 77) + '\u2026';
+      var startLine = s.line != null ? s.line : s.start_line;
+      var size = '\u2014';
+      if (s.end_line != null && startLine != null && s.end_line >= startLine) {
+        size = String(s.end_line - startLine + 1);
+      }
+      var exported = s.is_exported === true
+        ? '<span class="tag tg">public</span>'
+        : (s.is_exported === false ? '<span class="hs">private</span>' : '\u2014');
 
       rows +=
         '<tr>' +
         '<td>' + esc(s.name || '\u2014') + '</td>' +
         '<td><span class="tag ' + kindCls + '">' + esc(s.kind || '\u2014') + '</span></td>' +
         '<td title="' + esc(s.file || '') + '">' + esc(shortPath) + '</td>' +
-        '<td class="r">' + esc(String(s.line != null ? s.line : (s.start_line != null ? s.start_line : '\u2014'))) + '</td>' +
-        '<td title="' + esc(s.signature || '') + '" style="font-size:10px">' +
-        esc(sig) + '</td></tr>';
+        '<td class="r">' + esc(String(startLine != null ? startLine : '\u2014')) + '</td>' +
+        '<td class="r">' + esc(size) + '</td>' +
+        '<td>' + exported + '</td></tr>';
     }
 
     container.innerHTML =
@@ -1468,7 +1474,9 @@ class CockpitGraph extends HTMLElement {
       '<span class="badge">' + esc(ff(syms.length)) + ' symbols</span></div>' +
       '<div class="table-scroll"><table>' +
       '<thead><tr><th>Name</th><th>Kind</th><th>File</th>' +
-      '<th class="r">Line</th><th>Signature</th></tr></thead>' +
+      '<th class="r">Line</th>' +
+      '<th class="r" title="How many lines this symbol spans \u2014 a rough size measure">Lines</th>' +
+      '<th title="Whether the symbol is exported (public) or file-internal (private)">Visibility</th></tr></thead>' +
       '<tbody>' + rows + '</tbody></table></div></div>';
   }
 

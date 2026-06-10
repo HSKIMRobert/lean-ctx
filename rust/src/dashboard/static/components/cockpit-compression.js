@@ -178,14 +178,21 @@ class CockpitCompression extends HTMLElement {
     var gfList = graphFiles && Array.isArray(graphFiles.files) ? graphFiles.files : [];
     for (var k = 0; k < gfList.length; k++) {
       var gf = gfList[k];
-      if (gf.path) {
-        graph.push({
-          path: gf.path,
-          ext: gf.language || extFromPath(gf.path),
-          original: gf.token_count || 0,
-          lines: gf.line_count || 0,
-        });
+      if (!gf.path) continue;
+      // Vendor / minified assets are never read by agents, so compressing
+      // them is meaningless — they would otherwise dominate the size-sorted
+      // project list (e.g. d3.min.js as the top suggestion).
+      var lower = gf.path.toLowerCase();
+      if (lower.indexOf('/vendor/') > -1 || lower.indexOf('node_modules') > -1 ||
+          /\.min\.(js|css)$/.test(lower)) {
+        continue;
       }
+      graph.push({
+        path: gf.path,
+        ext: gf.language || extFromPath(gf.path),
+        original: gf.token_count || 0,
+        lines: gf.line_count || 0,
+      });
     }
 
     this._ctxFiles = ctx.slice(0, 100);

@@ -747,12 +747,14 @@ fn auto_record_episode(
     let hash = crate::core::project_hash::hash_project_root(&project_root);
     let mut store = crate::core::episodic_memory::EpisodicStore::load_or_create(&hash);
 
-    let ep = crate::core::episodic_memory::create_episode_from_session(session, tool_calls);
+    let mut ep = crate::core::episodic_memory::create_episode_from_session(session, tool_calls);
     if let Some(last) = store.recent(1).first() {
         if last.task_description == ep.task_description {
             return Ok(None);
         }
     }
+    // Convert cumulative session counters into per-task delta + duration.
+    crate::core::episodic_memory::finalize_episode_metrics(&mut ep, &store, session.started_at);
 
     let id = ep.id.clone();
     store.record_episode(ep, &policy.episodic);
