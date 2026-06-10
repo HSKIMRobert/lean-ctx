@@ -257,6 +257,10 @@ pub struct TeamState {
     engine: Arc<TeamContextEngine>,
     audit: Arc<tokio::sync::Mutex<tokio::fs::File>>,
     pub savings_store_dir: Arc<tokio::sync::Mutex<std::path::PathBuf>>,
+    /// Measurement roots for the billing-plane storage report (GL #463).
+    pub storage_roots: super::team_billing::StorageRoots,
+    /// 60 s cache for the measured storage report.
+    pub storage_cache: Arc<tokio::sync::Mutex<super::team_billing::StorageCache>>,
 }
 
 #[derive(Clone)]
@@ -779,14 +783,22 @@ async fn team_auth_middleware(
         }
     }
 
-    if path0 == "/v1/savings/summary" {
+    // Billing-plane reads (savings roll-up, storage/usage reports) share the
+    // audit sensitivity class: owner/admin + the control plane's audit token.
+    let audit_gated = match path0 {
+        "/v1/savings/summary" => Some("savings_summary"),
+        "/v1/storage" => Some("storage"),
+        "/v1/usage" => Some("usage"),
+        _ => None,
+    };
+    if let Some(action) = audit_gated {
         let allow = tok_scopes.contains(&TeamScope::Audit);
         let _ = audit_write(
             &state.team.audit,
             &tok.id,
             &workspace_id_for_audit,
             None,
-            Some("savings_summary"),
+            Some(action),
             allow,
             if allow { None } else { Some("scope_denied") },
             None,
@@ -1346,11 +1358,23 @@ pub async fn serve_team(cfg: TeamServerConfig) -> Result<()> {
         .parent()
         .unwrap_or(std::path::Path::new("."))
         .join("savings");
+    let workspace_roots: Vec<(String, std::path::PathBuf)> = cfg
+        .workspaces
+        .iter()
+        .map(|w| (w.id.clone(), w.root.clone()))
+        .collect();
     let team = Arc::new(TeamState {
         auth: Arc::new(cfg.tokens.clone()),
         engine,
         audit: Arc::new(tokio::sync::Mutex::new(audit_file)),
         savings_store_dir: Arc::new(tokio::sync::Mutex::new(savings_dir)),
+        storage_roots: super::team_billing::storage_roots_from_config(
+            &cfg.audit_log_path,
+            &workspace_roots,
+        ),
+        storage_cache: Arc::new(tokio::sync::Mutex::new(
+            super::team_billing::StorageCache::default(),
+        )),
     });
 
     let state = TeamAppState {
@@ -1394,6 +1418,8 @@ pub async fn serve_team(cfg: TeamServerConfig) -> Result<()> {
             "/v1/savings/summary",
             get(super::savings_summary::v1_savings_summary),
         )
+        .route("/v1/storage", get(super::team_billing::v1_storage))
+        .route("/v1/usage", get(super::team_billing::v1_usage))
         .route(
             "/api/v1/savings/ingest",
             axum::routing::post(super::savings_ingest::v1_savings_ingest),

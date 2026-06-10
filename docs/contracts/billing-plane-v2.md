@@ -78,6 +78,63 @@ All of `billing-plane-v1`'s invariants, plus
    server-measured and additive.
 6. Nothing in the metering path gates a local feature (Local-Free preserved).
 
+## Team-server report endpoints (GL #463)
+
+The team server serves both reports itself (`rust/src/http_server/team_billing.rs`);
+the control plane proxies them. Both are gated by the `audit` scope — the same
+sensitivity class as `/v1/metrics`, and the scope of the audit-only control token.
+Sizing is allocated-blocks-based (`st_blocks * 512` on Unix), symlinks are not
+followed, hard links count once, and reports are cached for 60 s per process.
+
+### `GET /v1/storage` (camelCase)
+
+```json
+{
+  "schemaVersion": 1,
+  "measuredAt": "2026-06-10T08:00:00Z",
+  "usedBytes": 123456789,
+  "quotaBytes": 5000000000,
+  "components": [
+    { "id": "server-data", "bytes": 120000000 },
+    { "id": "workspace:acme-api", "bytes": 3456789 }
+  ],
+  "cacheAgeSeconds": 0
+}
+```
+
+- `usedBytes` (required) is what the metering job samples and bills against.
+- `quotaBytes` is present only when the deployment sets
+  `LEANCTX_TEAM_STORAGE_QUOTA_BYTES`; absent ⇒ the control plane falls back to
+  the plan entitlement it already knows.
+- `components`: the server data root (audit log, savings store, hosted indices)
+  plus each workspace's `.lean-ctx` state dir; workspace dirs nested inside the
+  data root are skipped so nothing is counted twice.
+
+### `GET /v1/usage` (savings roll-up + `snake_case` storage block)
+
+```json
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-06-10T08:00:00Z",
+  "savings": {
+    "memberCount": 4,
+    "savedTokens": 81000000,
+    "netSavedTokens": 78000000,
+    "savedUsd": 196.42
+  },
+  "toolCalls": 36001,
+  "storage": { "used_bytes": 123456789, "quota_bytes": 5000000000 }
+}
+```
+
+- `savings` aggregates each signer's **latest** signed batch (same
+  no-double-count rule as `/v1/savings/summary`).
+- `toolCalls` is the sum of measured ledger events — every entry is one
+  measured agent action, so this is the honest call figure.
+- The `storage` block is deliberately `snake_case`: that is the spelling
+  `metering.rs::from_usage` parses (the dedicated report above stays
+  `camelCase`); both carry the same measured numbers.
+
 ## Meter Events (Stripe Billing Meters API)
 
 Usage is pushed via the Stripe Billing Meters API (`POST /v1/billing/meter_events`),

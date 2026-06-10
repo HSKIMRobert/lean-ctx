@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Team server billing-plane endpoints** (GL #463): `GET /v1/storage` reports
+  the hosted workspace footprint (allocated-blocks sizing, hard links counted
+  once, symlinks never followed, 60 s cache; `camelCase` per
+  `billing-plane-v2`) and `GET /v1/usage` serves the unified snapshot —
+  signed-ledger savings roll-up, measured `toolCalls`, and a `snake_case`
+  `storage` block. Both audit-scope-gated like `/v1/metrics`; quota via
+  `LEANCTX_TEAM_STORAGE_QUOTA_BYTES`. Unblocks the control plane's hourly
+  Stripe metering job and threshold mails against real team servers.
 - **`lean-ctx doctor --migrate-check`** (GL #396): v1.0 migration-readiness
   audit — config.toml keys validated against the schema (free-form sections
   like `ide_paths` respected), active deprecations, data-layout writability,
