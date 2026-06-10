@@ -23,11 +23,21 @@ use super::config::Config;
 /// (unconfigured, network error, bad response) degrades gracefully to
 /// [`Plan::Free`] — the safe default that grants no commercial entitlements.
 pub(super) async fn resolve_plan(cfg: &Config, user_id: Uuid) -> Plan {
+    resolve_entitlements_raw(cfg, user_id)
+        .await
+        .and_then(|v| v.get("plan").and_then(Value::as_str).map(Plan::parse))
+        .unwrap_or(Plan::Free)
+}
+
+/// The raw entitlements payload from the private billing service (plan,
+/// entitlements, org membership — GL #468). `None` on any failure, so callers
+/// degrade exactly like [`resolve_plan`].
+async fn resolve_entitlements_raw(cfg: &Config, user_id: Uuid) -> Option<Value> {
     let (Some(base), Some(key)) = (
         cfg.billing_base_url.clone(),
         cfg.billing_internal_key.clone(),
     ) else {
-        return Plan::Free;
+        return None;
     };
 
     let url = format!("{base}/api/billing/entitlements/{user_id}");
@@ -42,13 +52,9 @@ pub(super) async fn resolve_plan(cfg: &Config, user_id: Uuid) -> Plan {
     })
     .await
     .ok()
-    .flatten();
+    .flatten()?;
 
-    let Some(body) = body else { return Plan::Free };
-    serde_json::from_str::<Value>(&body)
-        .ok()
-        .and_then(|v| v.get("plan").and_then(Value::as_str).map(Plan::parse))
-        .unwrap_or(Plan::Free)
+    serde_json::from_str::<Value>(&body).ok()
 }
 
 /// Whether this deployment leaves cloud sync **ungated** for everyone: either no
@@ -126,17 +132,27 @@ pub(super) async fn hosted_index_quota_mb(state: &AppState, user_id: Uuid) -> u3
     1_000
 }
 
-/// `GET /api/account/entitlements` — the logged-in user's plan and the
-/// additive Team/Cloud entitlements it grants.
+/// `GET /api/account/entitlements` — the logged-in user's plan, the additive
+/// Team/Cloud entitlements it grants, and the org membership (GL #468) the
+/// plan may be inherited through (`org: null` for solo accounts).
 pub(super) async fn get_account_entitlements(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, (StatusCode, String)> {
     let (user_id, _email) = auth_user(&state, &headers).await?;
-    let plan = resolve_plan(&state.cfg, user_id).await;
+    let raw = resolve_entitlements_raw(&state.cfg, user_id).await;
+    let plan = raw
+        .as_ref()
+        .and_then(|v| v.get("plan").and_then(Value::as_str).map(Plan::parse))
+        .unwrap_or(Plan::Free);
+    let org = raw
+        .as_ref()
+        .and_then(|v| v.get("org").cloned())
+        .unwrap_or(Value::Null);
     Ok(Json(json!({
         "plan": plan.as_str(),
         "entitlements": plan.entitlements(),
+        "org": org,
     })))
 }
 
