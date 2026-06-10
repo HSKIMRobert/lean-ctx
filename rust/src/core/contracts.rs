@@ -42,6 +42,164 @@ pub const HTTP_MCP_CONTRACT_VERSION: u32 = 1;
 pub const TEAM_SERVER_CONTRACT_VERSION: u32 = 1;
 pub const CAPABILITIES_CONTRACT_VERSION: u32 = 1;
 
+/// Stability classification of a contract document (GL #394).
+///
+/// The classification is normative — `tests/contracts_frozen.rs` enforces it:
+/// * `Frozen` — the normative surface is immutable. Any change to the doc file
+///   fails CI; semantic evolution requires a new `-v2.md` file (the v1 file
+///   stays in place for existing integrations).
+/// * `Stable` — additive evolution allowed (new optional fields, new sections);
+///   breaking changes still require a version bump per CONTRACTS.md rules.
+/// * `Experimental` — may change or disappear without notice; not covered by
+///   the deprecation policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContractStatus {
+    Frozen,
+    Stable,
+    Experimental,
+}
+
+impl ContractStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ContractStatus::Frozen => "frozen",
+            ContractStatus::Stable => "stable",
+            ContractStatus::Experimental => "experimental",
+        }
+    }
+}
+
+/// One contract document under `docs/contracts/`, classified for the
+/// stability matrix in CONTRACTS.md and the `/v1/capabilities` response.
+pub struct ContractDoc {
+    /// Short stable identifier (used in capabilities `contract_status`).
+    pub id: &'static str,
+    /// File name inside `docs/contracts/` (the normative artifact).
+    pub doc_file: &'static str,
+    pub version: u32,
+    pub status: ContractStatus,
+}
+
+/// The complete classified inventory of `docs/contracts/*.md` — the single
+/// source of truth for the stability matrix. `tests/contracts_frozen.rs`
+/// asserts that every file in the directory is listed here (no contract can
+/// stay unclassified) and that frozen docs never change.
+pub fn contract_docs() -> Vec<ContractDoc> {
+    use ContractStatus::{Experimental, Frozen, Stable};
+    let doc = |id, doc_file, version, status| ContractDoc {
+        id,
+        doc_file,
+        version,
+        status,
+    };
+    vec![
+        // ── Frozen: externally consumed platform/transport promises ────────
+        doc("http-mcp", "http-mcp-contract-v1.md", 1, Frozen),
+        doc("team-server", "team-server-contract-v1.md", 1, Frozen),
+        doc("context-ir", "context-ir-v1.md", 1, Frozen),
+        doc(
+            "local-free-invariant",
+            "local-free-invariant-v1.md",
+            1,
+            Frozen,
+        ),
+        doc(
+            "oss-plane-separation",
+            "oss-plane-separation-v1.md",
+            1,
+            Frozen,
+        ),
+        doc("billing-plane", "billing-plane-v1.md", 1, Frozen),
+        doc("wasm-abi", "wasm-abi-v1.md", 1, Frozen),
+        // ── Stable: additive evolution allowed ──────────────────────────────
+        // capabilities is additive BY DESIGN: its drift test binds the doc's
+        // key list to TOP_LEVEL_KEYS, so the doc grows with every new key —
+        // freezing the file would contradict its own contract.
+        doc("capabilities", "capabilities-contract-v1.md", 1, Stable),
+        doc("billing-plane-v2", "billing-plane-v2.md", 2, Stable),
+        doc("a2a", "a2a-contract-v1.md", 1, Stable),
+        doc(
+            "attention-layout-driver",
+            "attention-layout-driver-v1.md",
+            1,
+            Stable,
+        ),
+        doc("autonomy-drivers", "autonomy-drivers-v1.md", 1, Stable),
+        doc("ccp-session-bundle", "ccp-session-bundle-v1.md", 1, Stable),
+        doc("conformance", "conformance-v1.md", 1, Stable),
+        doc("degradation-policy", "degradation-policy-v1.md", 1, Stable),
+        doc("extension-trust", "extension-trust-v1.md", 1, Stable),
+        doc("extractors", "extractors-v1.md", 1, Stable),
+        doc(
+            "gotchas-reminders",
+            "gotchas-reminders-contract-v1.md",
+            1,
+            Stable,
+        ),
+        doc(
+            "graph-reproducibility",
+            "graph-reproducibility-contract-v1.md",
+            1,
+            Stable,
+        ),
+        doc(
+            "handoff-transfer-bundle",
+            "handoff-transfer-bundle-v1.md",
+            1,
+            Stable,
+        ),
+        doc("intent-route", "intent-route-v1.md", 1, Stable),
+        doc(
+            "knowledge-policy",
+            "knowledge-policy-contract-v1.md",
+            1,
+            Stable,
+        ),
+        doc(
+            "memory-boundary",
+            "memory-boundary-contract-v1.md",
+            1,
+            Stable,
+        ),
+        doc("persona-spec", "persona-spec-v1.md", 1, Stable),
+        doc(
+            "provider-framework",
+            "provider-framework-contract-v1.md",
+            1,
+            Stable,
+        ),
+        doc(
+            "tokenizer-translation-driver",
+            "tokenizer-translation-driver-v1.md",
+            1,
+            Stable,
+        ),
+        doc(
+            "workflow-evidence-ledger",
+            "workflow-evidence-ledger-v1.md",
+            1,
+            Stable,
+        ),
+        doc("wrapped-permalink", "wrapped-permalink-v1.md", 1, Stable),
+        // ── Experimental: may change without notice ─────────────────────────
+        doc(
+            "hosted-personal-index",
+            "hosted-personal-index-v1.md",
+            1,
+            Experimental,
+        ),
+    ]
+}
+
+/// Contract-id → stability status, exported through `/v1/capabilities` so
+/// clients can verify compatibility before relying on a surface (GL #394).
+pub fn status_kv() -> BTreeMap<&'static str, &'static str> {
+    contract_docs()
+        .into_iter()
+        .map(|d| (d.id, d.status.as_str()))
+        .collect()
+}
+
 pub fn versions_kv() -> BTreeMap<&'static str, u32> {
     BTreeMap::from([
         (
@@ -141,4 +299,68 @@ pub fn versions_kv() -> BTreeMap<&'static str, u32> {
             CAPABILITIES_CONTRACT_VERSION,
         ),
     ])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn contract_docs_have_unique_ids_and_files() {
+        let docs = contract_docs();
+        let mut ids: Vec<_> = docs.iter().map(|d| d.id).collect();
+        let mut files: Vec<_> = docs.iter().map(|d| d.doc_file).collect();
+        ids.sort_unstable();
+        files.sort_unstable();
+        let unique_ids: std::collections::BTreeSet<_> = ids.iter().collect();
+        let unique_files: std::collections::BTreeSet<_> = files.iter().collect();
+        assert_eq!(unique_ids.len(), docs.len(), "duplicate contract id");
+        assert_eq!(unique_files.len(), docs.len(), "duplicate doc file");
+    }
+
+    #[test]
+    fn frozen_set_covers_the_platform_promises() {
+        // The freeze (GL #394) is only meaningful if the externally consumed
+        // surfaces are actually in it. Removing one of these from `Frozen`
+        // is itself a breaking policy change.
+        let docs = contract_docs();
+        for id in [
+            "http-mcp",
+            "team-server",
+            "context-ir",
+            "local-free-invariant",
+            "oss-plane-separation",
+            "billing-plane",
+            "wasm-abi",
+        ] {
+            let entry = docs.iter().find(|d| d.id == id).expect("listed");
+            assert_eq!(
+                entry.status,
+                ContractStatus::Frozen,
+                "{id} must stay frozen"
+            );
+        }
+    }
+
+    #[test]
+    fn status_kv_matches_docs() {
+        let kv = status_kv();
+        assert_eq!(kv.len(), contract_docs().len());
+        assert_eq!(kv["http-mcp"], "frozen");
+        assert_eq!(kv["hosted-personal-index"], "experimental");
+    }
+
+    #[test]
+    fn doc_files_follow_versioned_naming() {
+        // v1→v2 rule: every doc file carries its version suffix so a breaking
+        // change lands as a NEW file instead of mutating the old one.
+        for d in contract_docs() {
+            assert!(
+                d.doc_file.ends_with(&format!("-v{}.md", d.version)),
+                "{} must end in -v{}.md",
+                d.doc_file,
+                d.version
+            );
+        }
+    }
 }

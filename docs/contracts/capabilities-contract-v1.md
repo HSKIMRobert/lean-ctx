@@ -20,7 +20,7 @@ The capabilities document has exactly these top-level keys (machine-readable —
 kept in sync with code by the drift test):
 
 <!-- capabilities-top-level-keys -->
-contract_version, server, plane, transports, presets, read_modes, tools, features, extensions, contracts
+contract_version, server, plane, transports, presets, read_modes, tools, features, extensions, contracts, contract_status
 <!-- /capabilities-top-level-keys -->
 
 | Key | Type | Meaning |
@@ -35,6 +35,7 @@ contract_version, server, plane, transports, presets, read_modes, tools, feature
 | `features` | object | Capability flags. Always-on capabilities are `true`; feature-gated ones (`semantic_search`, `ast_compression`, `team_server`, `cloud_server`, `http_server`) mirror the compiled Cargo features. |
 | `extensions` | object | Runtime-discovered extension surface: `plugins` (enabled plugins, `{ name, version, permissions }` — declared trust permissions per `extension-trust-v1`, EPIC 12.3), `tools` (manifest-declared plugin tools `{ name, plugin }`, EPIC 12.11), plus the registered `read_modes`, `compressors`, and `chunkers` names from the extension registry (EPIC 12.9). Built-ins are listed alongside extension-provided entries; the set grows with the sandboxed extension runtime (EPIC 12.8). |
 | `contracts` | object | All machine-verified contract versions (`versions_kv()`), so a client can check every sub-contract at once. |
+| `contract_status` | object | Stability per contract document (`status_kv()`): contract-id → `frozen` \| `stable` \| `experimental` (CONTRACTS.md § Stability matrix, GL #394). Lets a client verify compatibility guarantees before building against a surface. |
 
 ## Example
 
@@ -60,7 +61,8 @@ contract_version, server, plane, transports, presets, read_modes, tools, feature
     "compressors": ["identity", "markdown", "prose", "whitespace"],
     "chunkers": ["csv", "eml", "html", "json", "lines", "paragraph"]
   },
-  "contracts": { "leanctx.contract.http_mcp.contract_version": 1, "...": 1 }
+  "contracts": { "leanctx.contract.http_mcp.contract_version": 1, "...": 1 },
+  "contract_status": { "http-mcp": "frozen", "capabilities": "stable", "hosted-personal-index": "experimental", "...": "stable" }
 }
 ```
 

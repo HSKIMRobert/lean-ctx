@@ -6,6 +6,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Contract freeze & SemVer/deprecation policy** (GL #394): all 29 contract
+  docs are now classified `frozen` / `stable` / `experimental` in a stability
+  matrix (CONTRACTS.md, SSOT `core/contracts.rs::contract_docs()`). Two new CI
+  gates enforce the freeze: `tests/contracts_frozen.rs` (every doc classified;
+  frozen docs content-hashed against `docs/contracts/frozen-hashes.json` —
+  semantic changes must land as a new `-v2.md` file) and
+  `tests/openapi_stability.rs` (public `/v1` surface vs.
+  `docs/reference/openapi-v1.snapshot.json`; additive diffs pass, removed or
+  mutated routes fail). `GET /v1/capabilities` additionally returns a
+  `contract_status` map so clients can verify stability guarantees at runtime.
+  The deprecation register `DEPRECATIONS.toml` (compiled into the binary,
+  ≥ 2 minor releases between announcement and removal) feeds a new
+  `lean-ctx doctor` check that warns about every deprecation shipping in the
+  installed build.
+- **Personal-Cloud auto-push** (GL #384): opt-in `lean-ctx cloud autosync on`
+  pushes the Pro surfaces (knowledge, commands, CEP, gotchas, buddy, feedback)
+  silently once per day from the background task — offline keeps the day's
+  slot open for retry, a Pro gate (402) consumes it quietly (no error spam on
+  Free accounts).
 - **Hosted Personal Index for Pro** (GL #392): `lean-ctx sync index
   push|pull|status` syncs the project's retrieval index (BM25 + embeddings)
   across devices — a fresh machine gets working `ctx_semantic_search` without

@@ -11,7 +11,7 @@ LCP = how LeanCTX understands, transforms, and governs context (internal semanti
 
 MCP is the transport. The contracts below define what flows through it.
 
-## Versioning rules
+## Versioning rules (SemVer policy)
 
 - **Schema versions are integers** (`schema_version` / `contract_version`).
 - **Breaking change** => bump the corresponding version and add migration notes.
@@ -21,6 +21,81 @@ MCP is the transport. The contracts below define what flows through it.
 - **Compatibility**:
   - Newer runtimes should be able to **read older artifacts** where possible (at least for proofs / observability).
   - If multiple versions are supported concurrently, support is **explicitly documented**.
+
+### Release SemVer mapping
+
+For the `lean-ctx` release version (`MAJOR.MINOR.PATCH`):
+
+| Change | Release bump | Contract effect |
+|---|---|---|
+| Bugfix, perf, docs, new compression pattern | PATCH | none |
+| New tool, new endpoint, new optional field | MINOR | additive — contract version unchanged |
+| Breaking change to a `stable` contract | MAJOR | contract version bump (`v1` → `v2`) |
+| Any change to a `frozen` contract doc | forbidden | publish a **new** `-v2.md` file; the `-v1.md` file stays immutable |
+
+### Contract file rule (v1 → v2)
+
+A versioned contract doc (`docs/contracts/<name>-vN.md`) is an **artifact, not a living document**:
+
+- Frozen docs never change — CI (`rust/tests/contracts_frozen.rs`) hashes them and fails on any edit.
+- A semantic revision lands as a **new file** (`<name>-v2.md`); the old file remains for existing integrations and gains a deprecation pointer in CONTRACTS.md (not in the frozen file itself).
+- Typo fixes in frozen docs are deliberately treated as changes: regenerate the hash snapshot via `LEANCTX_UPDATE_FROZEN_HASHES=1 cargo test --test contracts_frozen` and justify it in the PR.
+
+### Deprecation policy
+
+- A surface (CLI command, MCP tool, HTTP endpoint, config key, contract version) is deprecated **at least 2 minor releases** before removal.
+- Every deprecation is recorded in [`DEPRECATIONS.toml`](DEPRECATIONS.toml) (repo root, compiled into the binary) with `announced_in`, `earliest_removal`, and a `replacement`.
+- `lean-ctx doctor` warns about every active deprecation shipping in the installed build.
+- Every release that announces or executes a removal lists it in a dedicated **Deprecations** section of the CHANGELOG.
+- `experimental` contracts are exempt — they may change or disappear without notice.
+
+## Stability matrix
+
+Status of every contract document (SSOT: `rust/src/core/contracts.rs::contract_docs()`; enforced by `rust/tests/contracts_frozen.rs` — no doc may stay unclassified):
+
+| Status | Meaning |
+|---|---|
+| `frozen` | Normative surface immutable; change = new `-v2.md` file. CI-enforced via content hash. |
+| `stable` | Additive evolution allowed; breaking change requires version bump + migration notes. |
+| `experimental` | May change or disappear without notice. |
+
+| Contract | Doc | Version | Status |
+|---|---|---|---|
+| HTTP MCP | `docs/contracts/http-mcp-contract-v1.md` | 1 | frozen |
+| Team Server | `docs/contracts/team-server-contract-v1.md` | 1 | frozen |
+| Context IR | `docs/contracts/context-ir-v1.md` | 1 | frozen |
+| Local-Free Invariant | `docs/contracts/local-free-invariant-v1.md` | 1 | frozen |
+| OSS Plane Separation | `docs/contracts/oss-plane-separation-v1.md` | 1 | frozen |
+| Billing Plane | `docs/contracts/billing-plane-v1.md` | 1 | frozen |
+| WASM ABI | `docs/contracts/wasm-abi-v1.md` | 1 | frozen |
+| Capabilities | `docs/contracts/capabilities-contract-v1.md` | 1 | stable¹ |
+| Billing Plane v2 | `docs/contracts/billing-plane-v2.md` | 2 | stable |
+| A2A | `docs/contracts/a2a-contract-v1.md` | 1 | stable |
+| Attention Layout Driver | `docs/contracts/attention-layout-driver-v1.md` | 1 | stable |
+| Autonomy Drivers | `docs/contracts/autonomy-drivers-v1.md` | 1 | stable |
+| CCP Session Bundle | `docs/contracts/ccp-session-bundle-v1.md` | 1 | stable |
+| Conformance | `docs/contracts/conformance-v1.md` | 1 | stable |
+| Degradation Policy | `docs/contracts/degradation-policy-v1.md` | 1 | stable |
+| Extension Trust | `docs/contracts/extension-trust-v1.md` | 1 | stable |
+| Extractors | `docs/contracts/extractors-v1.md` | 1 | stable |
+| Gotchas/Reminders | `docs/contracts/gotchas-reminders-contract-v1.md` | 1 | stable |
+| Graph Reproducibility | `docs/contracts/graph-reproducibility-contract-v1.md` | 1 | stable |
+| Handoff Transfer Bundle | `docs/contracts/handoff-transfer-bundle-v1.md` | 1 | stable |
+| Intent Route | `docs/contracts/intent-route-v1.md` | 1 | stable |
+| Knowledge Policy | `docs/contracts/knowledge-policy-contract-v1.md` | 1 | stable |
+| Memory Boundary | `docs/contracts/memory-boundary-contract-v1.md` | 1 | stable |
+| Persona Spec | `docs/contracts/persona-spec-v1.md` | 1 | stable |
+| Provider Framework | `docs/contracts/provider-framework-contract-v1.md` | 1 | stable |
+| Tokenizer Translation Driver | `docs/contracts/tokenizer-translation-driver-v1.md` | 1 | stable |
+| Workflow Evidence Ledger | `docs/contracts/workflow-evidence-ledger-v1.md` | 1 | stable |
+| Wrapped Permalink | `docs/contracts/wrapped-permalink-v1.md` | 1 | stable |
+| Hosted Personal Index | `docs/contracts/hosted-personal-index-v1.md` | 1 | experimental |
+
+¹ The capabilities document is additive **by design**: its drift test binds the doc's key list to `server_capabilities::TOP_LEVEL_KEYS`, so the doc must grow whenever a key is added. Freezing the file would contradict its own contract; removal or mutation of existing keys remains a breaking change.
+
+Clients can read this matrix at runtime: `GET /v1/capabilities` returns a `contract_status` map (contract-id → status) next to the existing `contracts` version map.
+
+The OpenAPI document (`GET /v1/openapi.json`) is part of the frozen surface: `rust/tests/openapi_stability.rs` compares the endpoint inventory against `docs/reference/openapi-v1.snapshot.json` — additive diffs are allowed, removed or mutated routes fail CI.
 
 ## Current contract versions (SSOT, machine-checked)
 

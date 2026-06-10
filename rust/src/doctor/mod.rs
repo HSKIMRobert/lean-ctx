@@ -2,6 +2,7 @@
 
 mod checks;
 mod common;
+mod deprecations;
 mod fix;
 mod integrations;
 mod workspace_scope;
@@ -508,6 +509,14 @@ pub fn run() {
         print_check(check);
     }
 
+    // 22) Deprecation register (CONTRACTS.md policy, GL #394): warn about
+    // every surface this build deprecates, with replacement and removal floor.
+    let deprecation_check = deprecations::deprecations_outcome();
+    if deprecation_check.ok {
+        passed += 1;
+    }
+    print_check(&deprecation_check);
+
     // LSP servers (optional, informational)
     println!("\n  {BOLD}{WHITE}LSP (optional — for ctx_refactor):{RST}");
     let lsp_outcomes = lsp_server_outcomes();
@@ -519,6 +528,7 @@ pub fn run() {
     effective_total += 1; // shell_allowlist (#341)
     effective_total += 1; // compact_format_passthrough (#342)
     effective_total += 1; // permission_inheritance
+    effective_total += 1; // deprecations (#394)
     effective_total += cap_warnings.len() as u32;
     effective_total += docker_outcomes.len() as u32;
     if pi.is_some() {

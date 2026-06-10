@@ -13,10 +13,10 @@
 
 use serde_json::{json, Value};
 
-use crate::core::contracts::{versions_kv, CAPABILITIES_CONTRACT_VERSION};
+use crate::core::contracts::{status_kv, versions_kv, CAPABILITIES_CONTRACT_VERSION};
 
 /// Stable, documented top-level keys of the capabilities document.
-pub const TOP_LEVEL_KEYS: [&str; 10] = [
+pub const TOP_LEVEL_KEYS: [&str; 11] = [
     "contract_version",
     "server",
     "plane",
@@ -27,6 +27,7 @@ pub const TOP_LEVEL_KEYS: [&str; 10] = [
     "features",
     "extensions",
     "contracts",
+    "contract_status",
 ];
 
 /// Build the capabilities document for this running instance.
@@ -55,6 +56,10 @@ pub fn capabilities_value() -> Value {
         "features": features(),
         "extensions": extensions(),
         "contracts": versions_kv(),
+        // Stability per contract document (frozen|stable|experimental) so
+        // clients can check compatibility before building against a surface
+        // (GL #394). Additive: existing consumers are unaffected.
+        "contract_status": status_kv(),
     })
 }
 
