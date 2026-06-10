@@ -458,6 +458,9 @@ mod tests {
 
     #[test]
     fn auto_detect_learns_from_recorded_episodes() {
+        // Env mutation requires the process-wide lock, or parallel tests that
+        // also touch LEAN_CTX_DATA_DIR race and the store lands elsewhere.
+        let _lock = crate::core::data_dir::test_env_lock();
         // Isolated data dir so the test never touches the real memory stores.
         let dir = std::env::temp_dir().join(format!("lctx-procauto-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
