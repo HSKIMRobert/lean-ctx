@@ -537,6 +537,14 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
             "Enable contributing anonymized stats to lean-ctx cloud",
         ),
     );
+    cloud.insert(
+        "auto_sync".into(),
+        key(
+            "bool",
+            serde_json::json!(cfg.cloud.auto_sync),
+            "Push the Personal Cloud (knowledge, commands, CEP, gotchas, buddy, feedback) silently once per day at session end (Pro; toggle: `lean-ctx cloud autosync on|off`)",
+        ),
+    );
     sections.insert(
         "cloud".into(),
         SectionSchema {

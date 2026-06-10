@@ -1,5 +1,46 @@
 use crate::core::config::Config;
 
+/// Outcome of one background Personal-Cloud auto-push (GL #384).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AutoSyncOutcome {
+    /// At least one surface pushed (or there was nothing to push).
+    Synced,
+    /// The server gated sync behind Pro (HTTP 402) — stop for today.
+    Gated,
+    /// Every push failed without a 402 (offline / server down) — try again
+    /// at the next opportunity, do not consume today's slot.
+    NetworkFailure,
+}
+
+/// Whether the auto-sync should run now: opt-in flag, logged in, and not
+/// already synced today (the debounce). Pure for unit testing.
+#[must_use]
+pub fn should_auto_sync(
+    auto_sync: bool,
+    logged_in: bool,
+    last_auto_sync: Option<&str>,
+    today: &str,
+) -> bool {
+    auto_sync && logged_in && last_auto_sync != Some(today)
+}
+
+/// Classify per-surface push results into one [`AutoSyncOutcome`]. A 402
+/// anywhere wins (the account is gated); otherwise total failure means the
+/// network is down; anything else counts as synced.
+#[must_use]
+pub fn classify_outcomes(results: &[Result<(), String>]) -> AutoSyncOutcome {
+    if results
+        .iter()
+        .any(|r| r.as_ref().is_err_and(|e| e.contains("402")))
+    {
+        return AutoSyncOutcome::Gated;
+    }
+    if !results.is_empty() && results.iter().all(Result::is_err) {
+        return AutoSyncOutcome::NetworkFailure;
+    }
+    AutoSyncOutcome::Synced
+}
+
 pub fn cloud_background_tasks() {
     let mut config = Config::load();
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
@@ -72,9 +113,74 @@ pub fn cloud_background_tasks() {
                 config.cloud.last_model_pull = Some(today.clone());
             }
         }
+
+        // Opt-in Personal-Cloud auto-push (GL #384): silent, once per day,
+        // offline-tolerant. A network failure leaves the slot open so the
+        // next background cycle retries; a Pro gate consumes it (one quiet
+        // attempt per day on a Free account, never error spam).
+        if should_auto_sync(
+            config.cloud.auto_sync,
+            true,
+            config.cloud.last_auto_sync.as_deref(),
+            &today,
+        ) && auto_sync_personal_cloud() != AutoSyncOutcome::NetworkFailure
+        {
+            config.cloud.last_auto_sync = Some(today.clone());
+        }
     }
 
     let _ = config.save();
+}
+
+/// Push every Personal-Cloud surface silently (background variant of
+/// `lean-ctx sync`'s interactive flow — tracing instead of stdout).
+fn auto_sync_personal_cloud() -> AutoSyncOutcome {
+    let store = crate::core::stats::load();
+    let mut results: Vec<Result<(), String>> = Vec::new();
+
+    let mut push = |label: &str, result: Result<String, String>| match result {
+        Ok(_) => {
+            tracing::debug!(surface = label, "auto-sync: pushed");
+            results.push(Ok(()));
+        }
+        Err(e) => {
+            tracing::debug!(surface = label, error = %e, "auto-sync: push failed");
+            results.push(Err(e));
+        }
+    };
+
+    let commands = collect_command_entries(&store);
+    if !commands.is_empty() {
+        push("commands", crate::cloud_client::push_commands(&commands));
+    }
+    let cep = collect_cep_entries(&store);
+    if !cep.is_empty() {
+        push("cep", crate::cloud_client::push_cep(&cep));
+    }
+    let knowledge = collect_knowledge_entries();
+    if !knowledge.is_empty() {
+        push("knowledge", crate::cloud_client::push_knowledge(&knowledge));
+    }
+    let gotchas = collect_gotcha_entries();
+    if !gotchas.is_empty() {
+        push("gotchas", crate::cloud_client::push_gotchas(&gotchas));
+    }
+    let buddy = crate::core::buddy::BuddyState::compute();
+    if let Ok(buddy_data) = serde_json::to_value(&buddy) {
+        push("buddy", crate::cloud_client::push_buddy(&buddy_data));
+    }
+    let feedback = collect_feedback_entries();
+    if !feedback.is_empty() {
+        push("feedback", crate::cloud_client::push_feedback(&feedback));
+    }
+
+    let outcome = classify_outcomes(&results);
+    tracing::info!(
+        ?outcome,
+        surfaces = results.len(),
+        "personal-cloud auto-sync done"
+    );
+    outcome
 }
 
 pub fn build_sync_entries(store: &crate::core::stats::StatsStore) -> Vec<serde_json::Value> {
@@ -146,6 +252,192 @@ pub fn build_sync_entries(store: &crate::core::stats::StatsStore) -> Vec<serde_j
     }
 
     entries
+}
+
+// ── Personal-Cloud surface collectors ────────────────────────────────────────
+// Shared by the interactive `lean-ctx sync` flow and the background auto-sync
+// (GL #384): pure local reads, no network, no stdout.
+
+pub fn collect_knowledge_entries() -> Vec<serde_json::Value> {
+    let Some(home) = dirs::home_dir() else {
+        return Vec::new();
+    };
+    let knowledge_dir = home.join(".lean-ctx").join("knowledge");
+    if !knowledge_dir.is_dir() {
+        return Vec::new();
+    }
+
+    let mut entries = Vec::new();
+
+    for project_entry in std::fs::read_dir(&knowledge_dir).into_iter().flatten() {
+        let Ok(project_entry) = project_entry else {
+            continue;
+        };
+        let project_path = project_entry.path();
+        if !project_path.is_dir() {
+            continue;
+        }
+
+        for file_entry in std::fs::read_dir(&project_path).into_iter().flatten() {
+            let Ok(file_entry) = file_entry else { continue };
+            let file_path = file_entry.path();
+            if file_path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let Ok(data) = std::fs::read_to_string(&file_path) else {
+                continue;
+            };
+            let parsed: serde_json::Value = match serde_json::from_str(&data) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+
+            if let Some(facts) = parsed["facts"].as_array() {
+                for fact in facts {
+                    let cat = fact["category"].as_str().unwrap_or("general");
+                    let key = fact["key"].as_str().unwrap_or("");
+                    let val = fact["value"]
+                        .as_str()
+                        .or_else(|| fact["description"].as_str())
+                        .unwrap_or("");
+                    if !key.is_empty() {
+                        entries.push(serde_json::json!({
+                            "category": cat,
+                            "key": key,
+                            "value": val,
+                        }));
+                    }
+                }
+            }
+
+            if let Some(gotchas) = parsed["gotchas"].as_array() {
+                for g in gotchas {
+                    let pattern = g["pattern"].as_str().unwrap_or("");
+                    let fix = g["fix"].as_str().unwrap_or("");
+                    if !pattern.is_empty() {
+                        entries.push(serde_json::json!({
+                            "category": "gotcha",
+                            "key": pattern,
+                            "value": fix,
+                        }));
+                    }
+                }
+            }
+        }
+    }
+
+    entries
+}
+
+pub fn collect_command_entries(store: &crate::core::stats::StatsStore) -> Vec<serde_json::Value> {
+    store
+        .commands
+        .iter()
+        .map(|(name, stats)| {
+            let tokens_saved = stats.input_tokens.saturating_sub(stats.output_tokens);
+            serde_json::json!({
+                "command": name,
+                "source": if name.starts_with("ctx_") { "mcp" } else { "hook" },
+                "count": stats.count,
+                "input_tokens": stats.input_tokens,
+                "output_tokens": stats.output_tokens,
+                "tokens_saved": tokens_saved,
+            })
+        })
+        .collect()
+}
+
+fn complexity_to_float(s: &str) -> f64 {
+    match s.to_lowercase().as_str() {
+        "trivial" => 0.1,
+        "simple" => 0.3,
+        "moderate" => 0.5,
+        "complex" => 0.7,
+        "architectural" => 0.9,
+        other => other.parse::<f64>().unwrap_or(0.5),
+    }
+}
+
+pub fn collect_cep_entries(store: &crate::core::stats::StatsStore) -> Vec<serde_json::Value> {
+    store
+        .cep
+        .scores
+        .iter()
+        .map(|s| {
+            serde_json::json!({
+                "recorded_at": s.timestamp,
+                "score": s.score as f64 / 100.0,
+                "cache_hit_rate": s.cache_hit_rate as f64 / 100.0,
+                "mode_diversity": s.mode_diversity as f64 / 100.0,
+                "compression_rate": s.compression_rate as f64 / 100.0,
+                "tool_calls": s.tool_calls,
+                "tokens_saved": s.tokens_saved,
+                "complexity": complexity_to_float(&s.complexity),
+            })
+        })
+        .collect()
+}
+
+pub fn collect_gotcha_entries() -> Vec<serde_json::Value> {
+    let mut all_gotchas = crate::core::gotcha_tracker::load_universal_gotchas();
+
+    if let Some(home) = dirs::home_dir() {
+        let knowledge_dir = home.join(".lean-ctx").join("knowledge");
+        if let Ok(entries) = std::fs::read_dir(&knowledge_dir) {
+            for entry in entries.flatten() {
+                let gotcha_path = entry.path().join("gotchas.json");
+                if gotcha_path.exists() {
+                    if let Ok(content) = std::fs::read_to_string(&gotcha_path) {
+                        if let Ok(store) = serde_json::from_str::<
+                            crate::core::gotcha_tracker::GotchaStore,
+                        >(&content)
+                        {
+                            for g in store.gotchas {
+                                if !all_gotchas
+                                    .iter()
+                                    .any(|existing| existing.trigger == g.trigger)
+                                {
+                                    all_gotchas.push(g);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    all_gotchas
+        .iter()
+        .map(|g| {
+            serde_json::json!({
+                "pattern": g.trigger,
+                "fix": g.resolution,
+                "severity": format!("{:?}", g.severity).to_lowercase(),
+                "category": format!("{:?}", g.category).to_lowercase(),
+                "occurrences": g.occurrences,
+                "prevented_count": g.prevented_count,
+                "confidence": g.confidence,
+            })
+        })
+        .collect()
+}
+
+pub fn collect_feedback_entries() -> Vec<serde_json::Value> {
+    let store = crate::core::feedback::FeedbackStore::load();
+    store
+        .learned_thresholds
+        .iter()
+        .map(|(lang, thresholds)| {
+            serde_json::json!({
+                "language": lang,
+                "entropy": thresholds.entropy,
+                "jaccard": thresholds.jaccard,
+                "sample_count": thresholds.sample_count,
+                "avg_efficiency": thresholds.avg_efficiency,
+            })
+        })
+        .collect()
 }
 
 pub fn collect_contribute_entries() -> Vec<serde_json::Value> {
@@ -234,4 +526,57 @@ pub fn collect_contribute_entries() -> Vec<serde_json::Value> {
     }
 
     entries
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn auto_sync_requires_flag_login_and_unused_slot() {
+        // Disabled flag blocks everything else.
+        assert!(!should_auto_sync(false, true, None, "2026-06-10"));
+        // Logged out never syncs.
+        assert!(!should_auto_sync(true, false, None, "2026-06-10"));
+        // Fresh slot + flag + login → go.
+        assert!(should_auto_sync(true, true, None, "2026-06-10"));
+        // Already synced today → debounced.
+        assert!(!should_auto_sync(
+            true,
+            true,
+            Some("2026-06-10"),
+            "2026-06-10"
+        ));
+        // Synced yesterday → today's slot is free.
+        assert!(should_auto_sync(
+            true,
+            true,
+            Some("2026-06-09"),
+            "2026-06-10"
+        ));
+    }
+
+    #[test]
+    fn outcome_classification_is_gate_then_network_then_synced() {
+        // Nothing to push counts as synced (slot consumed, no retry storm).
+        assert_eq!(classify_outcomes(&[]), AutoSyncOutcome::Synced);
+        // Any 402 means the account is gated, even with other failures.
+        assert_eq!(
+            classify_outcomes(&[
+                Err("HTTP 402: upgrade required".into()),
+                Err("connection refused".into()),
+            ]),
+            AutoSyncOutcome::Gated
+        );
+        // All failed without a 402 → offline, keep the slot open.
+        assert_eq!(
+            classify_outcomes(&[Err("connection refused".into()), Err("timeout".into()),]),
+            AutoSyncOutcome::NetworkFailure
+        );
+        // Partial success is success.
+        assert_eq!(
+            classify_outcomes(&[Ok(()), Err("timeout".into())]),
+            AutoSyncOutcome::Synced
+        );
+    }
 }

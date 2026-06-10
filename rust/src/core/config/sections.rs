@@ -407,6 +407,11 @@ pub struct CloudConfig {
     pub last_sync: Option<String>,
     pub last_gain_sync: Option<String>,
     pub last_model_pull: Option<String>,
+    /// Auto-push the Pro Personal-Cloud surfaces (knowledge, commands, CEP,
+    /// gotchas, buddy, feedback) from the background task — opt-in, once per
+    /// day, offline-tolerant (GL #384). Toggle: `lean-ctx cloud autosync on`.
+    pub auto_sync: bool,
+    pub last_auto_sync: Option<String>,
 }
 
 /// Settings for publishing your token-savings recap (`gain --publish` / auto-publish).

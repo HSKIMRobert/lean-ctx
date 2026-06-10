@@ -367,184 +367,23 @@ fn build_sync_entries(store: &core::stats::StatsStore) -> Vec<serde_json::Value>
 }
 
 fn collect_knowledge_entries() -> Vec<serde_json::Value> {
-    let Some(home) = dirs::home_dir() else {
-        return Vec::new();
-    };
-    let knowledge_dir = home.join(".lean-ctx").join("knowledge");
-    if !knowledge_dir.is_dir() {
-        return Vec::new();
-    }
-
-    let mut entries = Vec::new();
-
-    for project_entry in std::fs::read_dir(&knowledge_dir).into_iter().flatten() {
-        let Ok(project_entry) = project_entry else {
-            continue;
-        };
-        let project_path = project_entry.path();
-        if !project_path.is_dir() {
-            continue;
-        }
-
-        for file_entry in std::fs::read_dir(&project_path).into_iter().flatten() {
-            let Ok(file_entry) = file_entry else { continue };
-            let file_path = file_entry.path();
-            if file_path.extension().and_then(|e| e.to_str()) != Some("json") {
-                continue;
-            }
-            let Ok(data) = std::fs::read_to_string(&file_path) else {
-                continue;
-            };
-            let parsed: serde_json::Value = match serde_json::from_str(&data) {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-
-            if let Some(facts) = parsed["facts"].as_array() {
-                for fact in facts {
-                    let cat = fact["category"].as_str().unwrap_or("general");
-                    let key = fact["key"].as_str().unwrap_or("");
-                    let val = fact["value"]
-                        .as_str()
-                        .or_else(|| fact["description"].as_str())
-                        .unwrap_or("");
-                    if !key.is_empty() {
-                        entries.push(serde_json::json!({
-                            "category": cat,
-                            "key": key,
-                            "value": val,
-                        }));
-                    }
-                }
-            }
-
-            if let Some(gotchas) = parsed["gotchas"].as_array() {
-                for g in gotchas {
-                    let pattern = g["pattern"].as_str().unwrap_or("");
-                    let fix = g["fix"].as_str().unwrap_or("");
-                    if !pattern.is_empty() {
-                        entries.push(serde_json::json!({
-                            "category": "gotcha",
-                            "key": pattern,
-                            "value": fix,
-                        }));
-                    }
-                }
-            }
-        }
-    }
-
-    entries
+    crate::cloud_sync::collect_knowledge_entries()
 }
 
 fn collect_command_entries(store: &core::stats::StatsStore) -> Vec<serde_json::Value> {
-    store
-        .commands
-        .iter()
-        .map(|(name, stats)| {
-            let tokens_saved = stats.input_tokens.saturating_sub(stats.output_tokens);
-            serde_json::json!({
-                "command": name,
-                "source": if name.starts_with("ctx_") { "mcp" } else { "hook" },
-                "count": stats.count,
-                "input_tokens": stats.input_tokens,
-                "output_tokens": stats.output_tokens,
-                "tokens_saved": tokens_saved,
-            })
-        })
-        .collect()
-}
-
-fn complexity_to_float(s: &str) -> f64 {
-    match s.to_lowercase().as_str() {
-        "trivial" => 0.1,
-        "simple" => 0.3,
-        "moderate" => 0.5,
-        "complex" => 0.7,
-        "architectural" => 0.9,
-        other => other.parse::<f64>().unwrap_or(0.5),
-    }
+    crate::cloud_sync::collect_command_entries(store)
 }
 
 fn collect_cep_entries(store: &core::stats::StatsStore) -> Vec<serde_json::Value> {
-    store
-        .cep
-        .scores
-        .iter()
-        .map(|s| {
-            serde_json::json!({
-                "recorded_at": s.timestamp,
-                "score": s.score as f64 / 100.0,
-                "cache_hit_rate": s.cache_hit_rate as f64 / 100.0,
-                "mode_diversity": s.mode_diversity as f64 / 100.0,
-                "compression_rate": s.compression_rate as f64 / 100.0,
-                "tool_calls": s.tool_calls,
-                "tokens_saved": s.tokens_saved,
-                "complexity": complexity_to_float(&s.complexity),
-            })
-        })
-        .collect()
+    crate::cloud_sync::collect_cep_entries(store)
 }
 
 fn collect_gotcha_entries() -> Vec<serde_json::Value> {
-    let mut all_gotchas = core::gotcha_tracker::load_universal_gotchas();
-
-    if let Some(home) = dirs::home_dir() {
-        let knowledge_dir = home.join(".lean-ctx").join("knowledge");
-        if let Ok(entries) = std::fs::read_dir(&knowledge_dir) {
-            for entry in entries.flatten() {
-                let gotcha_path = entry.path().join("gotchas.json");
-                if gotcha_path.exists() {
-                    if let Ok(content) = std::fs::read_to_string(&gotcha_path) {
-                        if let Ok(store) =
-                            serde_json::from_str::<core::gotcha_tracker::GotchaStore>(&content)
-                        {
-                            for g in store.gotchas {
-                                if !all_gotchas
-                                    .iter()
-                                    .any(|existing| existing.trigger == g.trigger)
-                                {
-                                    all_gotchas.push(g);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    all_gotchas
-        .iter()
-        .map(|g| {
-            serde_json::json!({
-                "pattern": g.trigger,
-                "fix": g.resolution,
-                "severity": format!("{:?}", g.severity).to_lowercase(),
-                "category": format!("{:?}", g.category).to_lowercase(),
-                "occurrences": g.occurrences,
-                "prevented_count": g.prevented_count,
-                "confidence": g.confidence,
-            })
-        })
-        .collect()
+    crate::cloud_sync::collect_gotcha_entries()
 }
 
 fn collect_feedback_entries() -> Vec<serde_json::Value> {
-    let store = core::feedback::FeedbackStore::load();
-    store
-        .learned_thresholds
-        .iter()
-        .map(|(lang, thresholds)| {
-            serde_json::json!({
-                "language": lang,
-                "entropy": thresholds.entropy,
-                "jaccard": thresholds.jaccard,
-                "sample_count": thresholds.sample_count,
-                "avg_efficiency": thresholds.avg_efficiency,
-            })
-        })
-        .collect()
+    crate::cloud_sync::collect_feedback_entries()
 }
 
 pub fn cmd_contribute() {
@@ -671,11 +510,13 @@ pub fn cmd_cloud(args: &[String]) {
         }
         "status" => cmd_cloud_status(),
         "pull" => cmd_cloud_pull(),
+        "autosync" => cmd_cloud_autosync(args.get(1).map(String::as_str)),
         "upgrade" | "subscribe" => cloud_upgrade(&args[1..]),
         _ => {
             println!("Usage: lean-ctx cloud <command>");
             println!("  pull-models — Update adaptive compression models");
             println!("  pull        — Restore your Personal Cloud knowledge onto this machine");
+            println!("  autosync    — on|off|status: daily background Personal Cloud push (Pro)");
             println!("  status      — Show cloud connection status");
             println!(
                 "  upgrade     — Subscribe to Pro (Personal Cloud) or Team \
@@ -687,6 +528,51 @@ pub fn cmd_cloud(args: &[String]) {
 
 /// `lean-ctx cloud status` — your Personal Cloud, from the terminal. Shows the
 /// same privacy-preserving footprint as leanctx.com/account/cloud: per-bucket
+/// `lean-ctx cloud autosync <on|off|status>` — toggle the daily background
+/// Personal-Cloud push (GL #384). The flag lives in `[cloud] auto_sync`.
+fn cmd_cloud_autosync(arg: Option<&str>) {
+    let mut config = core::config::Config::load();
+    match arg {
+        Some("on") => {
+            config.cloud.auto_sync = true;
+            if let Err(e) = config.save() {
+                tracing::error!("Could not save config: {e}");
+                std::process::exit(1);
+            }
+            println!("Auto-sync enabled — your Personal Cloud (knowledge, commands, CEP, gotchas, buddy, feedback)");
+            println!(
+                "is pushed silently once per day at session end. Requires Pro and an active login."
+            );
+            if !cloud_client::is_logged_in() {
+                println!("Note: you are not logged in yet. Run: lean-ctx login <email>");
+            }
+        }
+        Some("off") => {
+            config.cloud.auto_sync = false;
+            if let Err(e) = config.save() {
+                tracing::error!("Could not save config: {e}");
+                std::process::exit(1);
+            }
+            println!("Auto-sync disabled. Manual sync stays available via: lean-ctx sync");
+        }
+        Some("status") | None => {
+            let state = if config.cloud.auto_sync { "on" } else { "off" };
+            println!("Auto-sync: {state}");
+            match config.cloud.last_auto_sync.as_deref() {
+                Some(date) => println!("Last auto-sync: {date}"),
+                None => println!("Last auto-sync: never"),
+            }
+            if !config.cloud.auto_sync {
+                println!("Enable with: lean-ctx cloud autosync on");
+            }
+        }
+        Some(other) => {
+            tracing::error!("Unknown autosync action: {other}. Use on|off|status.");
+            std::process::exit(1);
+        }
+    }
+}
+
 /// counts + last sync, buddy, and the all-time usage totals. Free accounts see
 /// the connection state plus what upgrading unlocks.
 fn cmd_cloud_status() {
