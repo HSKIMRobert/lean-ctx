@@ -762,6 +762,23 @@ fn auto_record_episode(
         key: id.clone(),
         action: "auto_record".to_string(),
     });
+
+    // Each new episode is a chance to learn a procedure: mine the episode
+    // history for repeated tool sequences. Best-effort — pattern detection
+    // must never fail the task update itself (#478).
+    let episodes: Vec<crate::core::episodic_memory::Episode> =
+        store.recent(50).into_iter().cloned().collect();
+    let mut procs = crate::core::procedural_memory::ProceduralStore::load_or_create(&hash);
+    let before = procs.procedures.len();
+    procs.detect_patterns(&episodes, &policy.procedural);
+    if procs.procedures.len() > before && procs.save().is_ok() {
+        crate::core::events::emit(crate::core::events::EventKind::KnowledgeUpdate {
+            category: "procedural".to_string(),
+            key: format!("{} new", procs.procedures.len() - before),
+            action: "auto_learn".to_string(),
+        });
+    }
+
     Ok(Some(id))
 }
 

@@ -262,8 +262,11 @@ class CockpitSearch extends HTMLElement {
         header += '<span class="cks-result-score tag tg" title="Relevance relative to the best match">' + rel + '%</span>';
       }
 
+      var rawPath = String(r.file_path || r.path || '');
       return (
-        '<div class="cks-result-item">' +
+        '<div class="cks-result-item" data-cks-open="' + esc(rawPath) + '" ' +
+        'role="button" tabindex="0" ' +
+        'title="Open in Compression Lab \u2014 see how lean-ctx compresses this file">' +
         '<div class="cks-result-header">' + header + '</div>' +
         (content ? '<pre class="cks-result-content">' + content + '</pre>' : '') +
         '</div>'
@@ -278,6 +281,21 @@ class CockpitSearch extends HTMLElement {
       '</div>' +
       '<div class="cks-results-list">' + items + '</div>' +
       '</div>';
+
+    // Clicking a result opens the file in the Compression Lab (sessionStorage
+    // handoff — the Lab may not be mounted yet when we navigate).
+    container.querySelectorAll('[data-cks-open]').forEach(function (item) {
+      function open() {
+        var p = item.getAttribute('data-cks-open');
+        if (!p) return;
+        try { sessionStorage.setItem('lctx_lab_file', p); } catch (e) { /* private mode */ }
+        location.hash = '#compression';
+      }
+      item.addEventListener('click', open);
+      item.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+      });
+    });
   }
 
   _bindInputs() {

@@ -70,9 +70,16 @@ class CockpitExplorer extends HTMLElement {
       deb = setTimeout(function () { self._applyFilter(q); }, 120);
     });
 
+    this._treeEl.setAttribute('role', 'tree');
+    this._treeEl.setAttribute('aria-label', 'Project files and symbols');
     this._treeEl.addEventListener('click', function (ev) {
       var row = ev.target && ev.target.closest ? ev.target.closest('.exp-row') : null;
       if (row) self._toggleRow(row);
+    });
+    this._treeEl.addEventListener('keydown', function (ev) {
+      if (ev.key !== 'Enter' && ev.key !== ' ') return;
+      var row = ev.target && ev.target.closest ? ev.target.closest('.exp-row') : null;
+      if (row) { ev.preventDefault(); self._toggleRow(row); }
     });
   }
 
@@ -92,13 +99,14 @@ class CockpitExplorer extends HTMLElement {
 
   /** Build one <ul> level. Dirs/files collapsed; children lazy. */
   _listHtml(nodes) {
-    var html = '<ul class="exp-list">';
+    var html = '<ul class="exp-list" role="group">';
     for (var i = 0; i < nodes.length; i++) {
       var n = nodes[i];
       if (n.type === 'dir') {
         html +=
-          '<li class="exp-node exp-dir collapsed">' +
-          '<div class="exp-row" data-kind="dir">' +
+          '<li class="exp-node exp-dir collapsed" role="treeitem" aria-expanded="false" ' +
+          'aria-label="' + cexpEsc(n.name) + ', folder, ' + (n.files || 0) + ' files">' +
+          '<div class="exp-row" data-kind="dir" tabindex="0">' +
           '<span class="exp-caret">\u25B8</span>' +
           '<span class="exp-icon exp-dir-icon">\uD83D\uDCC1</span>' +
           '<span class="exp-name">' + cexpEsc(n.name) + '</span>' +
@@ -109,8 +117,10 @@ class CockpitExplorer extends HTMLElement {
       } else {
         var hasSyms = (n.symbol_count || 0) > 0;
         html +=
-          '<li class="exp-node exp-file collapsed">' +
-          '<div class="exp-row" data-kind="file"' + (hasSyms ? '' : ' data-leaf="1"') + ' title="' + cexpEsc(n.path || n.name) + '">' +
+          '<li class="exp-node exp-file collapsed" role="treeitem"' +
+          (hasSyms ? ' aria-expanded="false"' : '') +
+          ' aria-label="' + cexpEsc(n.name) + ', file, ' + (n.symbol_count || 0) + ' symbols">' +
+          '<div class="exp-row" data-kind="file"' + (hasSyms ? '' : ' data-leaf="1"') + ' tabindex="0" title="' + cexpEsc(n.path || n.name) + '">' +
           '<span class="exp-caret">' + (hasSyms ? '\u25B8' : '') + '</span>' +
           '<span class="exp-icon exp-file-icon">' + cexpEsc(cexpLangBadge(n.language)) + '</span>' +
           '<span class="exp-name">' + cexpEsc(n.name) + '</span>' +
@@ -142,8 +152,10 @@ class CockpitExplorer extends HTMLElement {
         }
       }
       li.classList.remove('collapsed');
+      li.setAttribute('aria-expanded', 'true');
     } else {
       li.classList.add('collapsed');
+      li.setAttribute('aria-expanded', 'false');
     }
   }
 

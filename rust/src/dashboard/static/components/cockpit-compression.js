@@ -97,6 +97,20 @@ class CockpitCompression extends HTMLElement {
     this._collectFiles(results[0], results[1], results[2]);
     this._loading = false;
 
+    // Deep-link handoff: Search Explorer (and others) can pre-select a file
+    // via sessionStorage before navigating here (#478).
+    var handoff = null;
+    try {
+      handoff = sessionStorage.getItem('lctx_lab_file');
+      if (handoff) sessionStorage.removeItem('lctx_lab_file');
+    } catch (e) { /* private mode */ }
+    if (handoff) {
+      this._selectedFile = handoff;
+      this._demoData = null;
+      await this._loadDemo();
+      return;
+    }
+
     var activeList = this._activeTab === 'recent' ? this._ctxFiles : this._graphFiles;
     if (activeList.length > 0 && !this._selectedFile) {
       this._selectedFile = activeList[0].path;

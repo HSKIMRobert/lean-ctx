@@ -331,20 +331,21 @@
 </div>
 
 <footer class="cockpit-status-bar" id="cockpitStatusBar" role="status" aria-live="polite">
-  <div class="sb-l">
+  <div class="sb-l" id="sbDaemonBlock"
+       title="Connection between this dashboard and the lean-ctx engine on your machine. [*] green = live; [ ] red = engine unreachable (data frozen until it reconnects).">
     <span class="ts-ascii on" id="daemonDotBar" aria-hidden="true">[*]</span>
     <span id="sbDaemonText">Connected</span>
     <span class="sb-sep">·</span>
     <span id="sbVersion">v---</span>
   </div>
-  <div class="sb-c">
+  <div class="sb-c" title="Estimated tokens saved all-time — same figure as the Home hero.">
     <span>Tokens saved</span>
     <span class="sb-strong" id="sbTokensSaved">—</span>
   </div>
   <div class="sb-r">
-    <span id="sbCompression">Compression —</span>
+    <span id="sbCompression" title="Share of estimated input tokens removed before sending, all-time.">Compression —</span>
     <span class="sb-sep">·</span>
-    <span id="sbSession">No session</span>
+    <span id="sbSession" title="The task your most recent agent session is working on.">No session</span>
   </div>
 </footer>
 
