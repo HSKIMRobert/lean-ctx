@@ -136,11 +136,35 @@ class CockpitRoi extends HTMLElement {
     var body = this._renderHero(esc);
     body += this._renderLiveStamp(esc);
     body += this._renderVerification(esc);
+    body += this._renderMethodology();
     body += this._renderPlan(esc);
     body += this._renderTrendCard(esc);
     body += this._renderBreakdown(esc);
     body += this._renderShare(esc);
     this.innerHTML = body;
+  }
+
+  /**
+   * "Why is this number smaller than Home?" — the two surfaces count
+   * differently on purpose (GL #479). Static copy, no user data involved.
+   */
+  _renderMethodology() {
+    return (
+      '<div class="card" style="margin-bottom:16px">' +
+      '<div class="card-header"><h3>Methodology: verified vs. estimated</h3></div>' +
+      '<div class="sr"><span class="sl">This page (verified)</span><span class="sv">' +
+      'Only <b>measured</b> compression: raw bytes that actually entered a tool vs. what was sent. ' +
+      'No counterfactual multipliers. Append-only, hash-chained, signable.</span></div>' +
+      '<div class="sr"><span class="sl">Home (estimated)</span><span class="sv">' +
+      'All-time stats including modelled baselines: search assumes a native grep costs ' +
+      '<b>2.5\u00d7</b> the raw matched output (refinement runs, wider context), and a cache hit ' +
+      'counts the full original as saved (the re-read counterfactual).</span></div>' +
+      '<div class="sr"><span class="sl">Why smaller here</span><span class="sv">' +
+      'The ledger starts later than the all-time stats, skips zero-saving calls and never ' +
+      'applies estimate factors \u2014 so the verified total is the conservative floor, ' +
+      'not a contradiction.</span></div>' +
+      '</div>'
+    );
   }
 
   /** Muted liveness line so the view is visibly auto-updating, not frozen. */

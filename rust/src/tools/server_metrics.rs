@@ -85,6 +85,14 @@ impl LeanCtxServer {
         let output_tokens = original.saturating_sub(saved);
         crate::core::stats::record(tool, original, output_tokens);
 
+        // MCP shell savings are measured (raw vs compressed output), so they are
+        // ledger-grade (GL #479 D2). ctx_search is intentionally NOT recorded
+        // here: its `original` carries the 2.5x counterfactual estimate — the
+        // search tool itself appends a raw-baseline ledger event instead.
+        if tool == "ctx_shell" {
+            crate::core::savings_ledger::record_tool_event(tool, original, output_tokens);
+        }
+
         let mut session = self.session.write().await;
         session.record_tool_call(saved as u64, original as u64);
         if tool == "ctx_shell" {

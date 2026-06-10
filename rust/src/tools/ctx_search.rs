@@ -16,6 +16,18 @@ pub(crate) const MAX_FILE_SIZE: u64 = 512_000;
 pub(crate) const MAX_WALK_DEPTH: usize = 20;
 const MAX_MATCH_LINE_WIDTH: usize = 150;
 
+/// Counterfactual multiplier for the "what a native grep would have cost"
+/// baseline (GL #479 D1). `raw_tokens_accum` counts only the matched lines we
+/// actually scanned; an agent running native `grep`/`rg` typically pays for
+/// wider context windows, repeated refinement runs and unscoped first attempts.
+/// That overhead is a **modelling assumption, not a measurement** — which is
+/// exactly why:
+/// - it lives in one named constant instead of an inline literal,
+/// - savings derived from it are labelled *estimated* in the dashboard, and
+/// - the verified ledger records search events with the **raw, unmultiplied**
+///   baseline (see `savings_ledger::record_tool_event` below).
+pub const NATIVE_SEARCH_BASELINE_FACTOR: f64 = 2.5;
+
 /// Wall-clock budget for a single `ctx_search` call. The regular-file guard in
 /// the read loop removes the known infinite block — `read_to_string` on a
 /// FIFO/socket/device (#336) — while this deadline is the backstop for any
@@ -331,8 +343,15 @@ pub fn handle(
     };
 
     if let Some(delta) = crate::core::search_delta::compute_delta(pattern, &matches) {
-        let native_estimate = (raw_tokens_accum as f64 * 2.5).ceil() as usize;
+        let native_estimate =
+            (raw_tokens_accum as f64 * NATIVE_SEARCH_BASELINE_FACTOR).ceil() as usize;
         let original = native_estimate.max(raw_tokens_accum);
+        // Verified ledger gets the raw, unmultiplied counterfactual (GL #479 D2).
+        crate::core::savings_ledger::record_tool_event(
+            "ctx_search",
+            raw_tokens_accum,
+            count_tokens(&delta),
+        );
         return (delta, original);
     }
 
@@ -360,8 +379,15 @@ pub fn handle(
         result.push_str(&hint);
     }
 
-    let native_estimate = (raw_tokens_accum as f64 * 2.5).ceil() as usize;
+    let native_estimate = (raw_tokens_accum as f64 * NATIVE_SEARCH_BASELINE_FACTOR).ceil() as usize;
     let original = native_estimate.max(raw_tokens_accum);
+
+    // Verified ledger gets the raw, unmultiplied counterfactual (GL #479 D2).
+    crate::core::savings_ledger::record_tool_event(
+        "ctx_search",
+        raw_tokens_accum,
+        count_tokens(&result),
+    );
 
     (result, original)
 }

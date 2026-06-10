@@ -93,6 +93,9 @@ pub fn record_file_read(
 }
 
 /// Record a search/grep operation with full Context OS side effects.
+/// No ledger event here: `original_tokens` carries the 2.5x native-grep
+/// estimate, and `tools::ctx_search::handle` already appends a raw-baseline
+/// ledger event itself (GL #479 D2) — recording again would double-count.
 pub fn record_search(original_tokens: usize, output_tokens: usize) {
     stats::record("cli_grep", original_tokens, output_tokens);
 
@@ -121,6 +124,9 @@ pub fn record_tree(original_tokens: usize, output_tokens: usize) {
 /// command counter stays accurate. Adding 0 tokens does not inflate savings.
 pub fn record_shell_command(original_tokens: usize, output_tokens: usize) {
     stats::record("cli_shell", original_tokens, output_tokens);
+    // Shell compression is *measured* (raw output vs sent output), so it belongs
+    // in the verified ledger too (GL #479 D2). Zero-saving calls are skipped.
+    crate::core::savings_ledger::record_tool_event("cli_shell", original_tokens, output_tokens);
 
     if let Some(mut session) = SessionState::load_latest() {
         session.record_command();

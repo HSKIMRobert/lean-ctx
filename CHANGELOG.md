@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+- **Data truthfulness** (GL #479): the dashboard now tells the whole story
+  behind its savings numbers. The verified ledger covers measured shell and
+  search compression (`cli_shell`, `ctx_shell`, `ctx_search` events with raw,
+  unmultiplied baselines) instead of only `ctx_read` — closing the unexplained
+  24x gap between Home and the ROI view. The 2.5x native-grep counterfactual
+  used by the *estimated* stats is now a documented, named constant
+  (`NATIVE_SEARCH_BASELINE_FACTOR`), surfaced in the Home tooltips and in a
+  new "Methodology: verified vs. estimated" card on the ROI view. Inferred
+  agent activity no longer shows negative ages on UTC+N machines (event
+  timestamps are local wall-clock and are now interpreted as such).
+
 ### Added
 - **Supporters wall + dashboard badge** (GL #393): the public supporters wall
   is live end-to-end — Stripe checkout fields (display name, message, opt-in)
