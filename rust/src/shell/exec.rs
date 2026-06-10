@@ -465,6 +465,10 @@ fn exec_buffered(command: &str, shell: &str, shell_flag: &str, cfg: &config::Con
     let full_output = combine_output(&stdout, &stderr);
     let input_tokens = count_tokens(&full_output);
 
+    // Structured diagnostics (#499): failing cargo/tsc/eslint runs mark their
+    // files as context-priority; succeeding runs clear them.
+    crate::core::diagnostics_store::record_from_shell(command, &full_output, exit_code);
+
     let (compressed, output_tokens) =
         super::compress::compress_and_measure(command, &stdout, &stderr);
 

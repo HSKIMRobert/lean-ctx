@@ -308,7 +308,13 @@ impl LeanCtxServer {
             calls.iter().filter_map(|c| c.mode.as_deref()).collect();
         let mode_diversity = (modes_used.len() as f64 / 10.0).min(1.0);
         let cache_util = stats.hit_rate() / 100.0;
-        let cep_score = cache_util * 0.3 + mode_diversity * 0.2 + compression_rate * 0.5;
+        // Output efficiency (#501): 1 - avg echo ratio. An agent that keeps
+        // re-quoting delivered content burns the input savings on output.
+        let output_efficiency = 1.0 - crate::core::output_echo::current_avg_ratio();
+        let cep_score = cache_util * 0.25
+            + mode_diversity * 0.15
+            + compression_rate * 0.45
+            + output_efficiency * 0.15;
 
         let mut mode_counts: std::collections::HashMap<String, u64> =
             std::collections::HashMap::new();

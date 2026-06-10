@@ -265,6 +265,16 @@ pub fn handle(cache: &SessionCache, tool_calls: &[ToolCallRecord], crp_mode: Crp
         "  Compression rate:  {:.0}%  (overall token reduction)",
         cep.compression_rate * 100.0
     ));
+    // Output-echo statistic (#501): how much of recent replies re-quoted
+    // content that was already delivered into context.
+    let echo_stats = crate::core::output_echo::load_stats();
+    if !echo_stats.reports.is_empty() {
+        out.push(format!(
+            "  Output echo:       {:.0}%  (replies re-quoting delivered content, last {})",
+            echo_stats.avg_ratio(50) * 100.0,
+            echo_stats.reports.len()
+        ));
+    }
     out.push(format!(
         "  CEP Score:         {:.0}/100",
         cep.overall_score * 100.0
@@ -272,6 +282,19 @@ pub fn handle(cache: &SessionCache, tool_calls: &[ToolCallRecord], crp_mode: Crp
 
     let complexity = crate::core::adaptive::classify_from_context(cache);
     out.push(format!("  Task complexity:   {complexity:?}"));
+
+    // Which signals decided auto-mode this session — makes the learning
+    // loops (bounce memory, heatmap, predictor, policy) observable (#496).
+    let sources = crate::core::auto_mode_resolver::source_counts();
+    if !sources.is_empty() {
+        let line = sources
+            .iter()
+            .take(6)
+            .map(|(s, n)| format!("{s}={n}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        out.push(format!("  Auto-mode sources: {line}"));
+    }
 
     out.join("\n")
 }

@@ -1,6 +1,35 @@
+use std::collections::HashMap;
+use std::sync::Mutex;
+
 use crate::core::cache::SessionCache;
 use crate::core::context_ledger::PressureAction;
 use crate::core::mode_predictor::{FileSignature, ModePredictor};
+
+/// Per-process counters of which signal decided each auto-mode resolution.
+/// Surfaced by `ctx_metrics` so the learning loops are observable (#496).
+static SOURCE_COUNTS: Mutex<Option<HashMap<&'static str, u64>>> = Mutex::new(None);
+
+fn count_source(source: &'static str) {
+    if let Ok(mut guard) = SOURCE_COUNTS.lock() {
+        *guard
+            .get_or_insert_with(HashMap::new)
+            .entry(source)
+            .or_insert(0) += 1;
+    }
+}
+
+/// Snapshot of auto-mode decision sources, sorted by count descending.
+pub fn source_counts() -> Vec<(&'static str, u64)> {
+    let Ok(guard) = SOURCE_COUNTS.lock() else {
+        return Vec::new();
+    };
+    let mut items: Vec<(&'static str, u64)> = guard
+        .as_ref()
+        .map(|m| m.iter().map(|(k, v)| (*k, *v)).collect())
+        .unwrap_or_default();
+    items.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
+    items
+}
 
 pub struct AutoModeContext<'a> {
     pub path: &'a str,
@@ -53,6 +82,19 @@ pub fn resolve(ctx: &AutoModeContext) -> ResolvedMode {
         }
     }
 
+    // Per-path long-term memory (#496): a file that historically bounced in
+    // the majority of its reads will bounce again — compression is a proven
+    // net loss for it, across process restarts.
+    if crate::core::path_mode_memory::should_force_full(ctx.path) {
+        return resolved("full", "path_bounce_memory");
+    }
+
+    // Active compiler error (#499): the agent reads this file to fix the
+    // build — compressed modes would hide the error region.
+    if crate::core::diagnostics_store::has_error(ctx.path) {
+        return resolved("full", "active_diagnostic");
+    }
+
     if let Some(mode) = intent_recommended_mode(ctx.task) {
         return resolved(&mode, "intent");
     }
@@ -69,6 +111,24 @@ pub fn resolve(ctx: &AutoModeContext) -> ResolvedMode {
     if predicted != "full" {
         if let Some(bandit_override) = bandit_explore(ctx.path, ctx.token_count) {
             predicted = bandit_override;
+        }
+    }
+
+    // Heatmap signal (#496): a frequently-read file where compression barely
+    // saves anything will likely trigger a follow-up read — step one mode more
+    // conservative. avg_compression_ratio is the historical fraction saved.
+    if predicted != "full" {
+        if let Some((access_count, avg_ratio)) = crate::core::heatmap::entry_stats(ctx.path) {
+            if access_count >= 5 && avg_ratio < 0.30 {
+                let conservative = match predicted.as_str() {
+                    "signatures" | "aggressive" | "entropy" => "map".to_string(),
+                    "map" if ctx.token_count <= 6000 => "full".to_string(),
+                    other => other.to_string(),
+                };
+                if conservative != predicted {
+                    return resolved(&conservative, "heatmap_conservative");
+                }
+            }
         }
     }
 
@@ -258,6 +318,7 @@ fn is_config_or_data(ext: &str, path: &str) -> bool {
 }
 
 fn resolved(mode: &str, source: &'static str) -> ResolvedMode {
+    count_source(source);
     ResolvedMode {
         mode: mode.to_string(),
         source,

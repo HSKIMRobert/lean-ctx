@@ -442,6 +442,51 @@ fn raw_mode_returns_exact_file_content() {
     assert!(!output.contains("deps"), "raw mode must not contain deps");
 }
 
+/// Determinism contract (#498): tool output must be a pure function of
+/// (content, mode, crp_mode, task). Timestamps, counters or random hints in
+/// the body would make otherwise-identical outputs unique and defeat
+/// provider-side prompt caching.
+#[test]
+fn process_mode_output_is_byte_stable_across_calls() {
+    let _lock = crate::core::data_dir::test_env_lock();
+    let content: String = (0..120)
+        .map(|i| format!("pub fn handler_{i}(x: u32) -> u32 {{ x * {i} }}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let tokens = count_tokens(&content);
+
+    for mode in [
+        "map",
+        "signatures",
+        "reference",
+        "aggressive",
+        "entropy",
+        "raw",
+        "lines:5-20",
+    ] {
+        let run = || {
+            render::process_mode(
+                &content,
+                mode,
+                "F1",
+                "stable.rs",
+                "rs",
+                tokens,
+                CrpMode::Off,
+                "/tmp/stable.rs",
+                None,
+            )
+            .0
+        };
+        let first = run();
+        let second = run();
+        assert_eq!(
+            first, second,
+            "mode '{mode}' produced non-deterministic output"
+        );
+    }
+}
+
 #[test]
 fn raw_mode_no_savings_footer() {
     let _lock = crate::core::data_dir::test_env_lock();

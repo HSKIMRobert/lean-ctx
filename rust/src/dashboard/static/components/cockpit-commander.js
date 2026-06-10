@@ -307,6 +307,23 @@ class CockpitCommander extends HTMLElement {
       h += '<td>';
       if (r.pinned) h += '<span class="cmdr-pin-badge">\ud83d\udccc</span> ';
       if (hasRisk) h += '<span class="cmdr-risk-dot" title="Risk detected">\u26a0</span>';
+      // Active compiler/linter errors from the diagnostics store (#499).
+      if (r.diagnostics && r.diagnostics.length > 0) {
+        var errCount = r.diagnostics.filter(function (d) { return d.severity === 'error'; }).length;
+        if (errCount > 0) {
+          var firstErr = r.diagnostics.find(function (d) { return d.severity === 'error'; });
+          var diagTip = 'Active build error' + (errCount > 1 ? 's (' + errCount + ')' : '') +
+            (firstErr && firstErr.message ? ': ' + firstErr.message : '');
+          h += ' <span style="color:var(--red);font-weight:600" title="' + esc(diagTip) + '">\u2716 ' +
+            errCount + ' error' + (errCount > 1 ? 's' : '') + '</span>';
+        }
+      }
+      if (r.git_recency >= 1) {
+        h += ' <span style="color:var(--accent)" title="Uncommitted changes \u2014 active working set">\u25cf</span>';
+      }
+      if (r.editor_active) {
+        h += ' <span title="Currently open in the editor">\ud83d\udc41</span>';
+      }
       h += '</td>';
 
       // Actions

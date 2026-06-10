@@ -371,6 +371,13 @@ fn build_triage_response() -> (&'static str, &'static str, String) {
         .max()
         .unwrap_or(1);
 
+    // Git working-set signal (#497): files with uncommitted changes are the
+    // active task — keep them in context longer.
+    let git_signals = crate::core::git_signals::collect(&project_root);
+    // Editor focus signal (#500): the file open in the editor right now.
+    let editor_signal =
+        crate::core::editor_signal::load_fresh(crate::core::editor_signal::FRESHNESS_SECS);
+
     let data_dir = crate::core::data_dir::lean_ctx_data_dir()
         .unwrap_or_else(|_| std::path::PathBuf::from("."));
     let client_id = crate::core::client_capabilities::load_persisted(86400)
@@ -391,14 +398,37 @@ fn build_triage_response() -> (&'static str, &'static str, String) {
             let is_pinned = pinned_paths.contains(&entry.path)
                 || entry.state == Some(crate::core::context_field::ContextState::Pinned);
 
-            let eviction_score = compute_eviction_score(
-                entry.sent_tokens,
-                max_tokens,
-                last_access_ts,
-                now,
-                access_count,
-                is_pinned,
-            );
+            let git_recency = git_signals.recency_for(&entry.path, &project_root);
+            let diag_details = crate::core::diagnostics_store::details_for(&entry.path);
+            let has_active_error = diag_details
+                .iter()
+                .any(|(_, sev, _)| *sev == crate::core::diagnostics_store::Severity::Error);
+            let editor_active = editor_signal
+                .as_ref()
+                .is_some_and(|s| crate::core::editor_signal::boost_for(s, &entry.path) >= 0.30);
+            let eviction_score = {
+                let base = compute_eviction_score(
+                    entry.sent_tokens,
+                    max_tokens,
+                    last_access_ts,
+                    now,
+                    access_count,
+                    is_pinned,
+                );
+                let mut adjusted = base;
+                if git_recency > 0.8 {
+                    adjusted -= 0.2;
+                }
+                // A file with an active build error is the task — keep it (#499).
+                if has_active_error {
+                    adjusted -= 0.3;
+                }
+                // The developer is looking at this file right now (#500).
+                if editor_active {
+                    adjusted -= 0.25;
+                }
+                adjusted.max(0.0)
+            };
 
             let compression_pct = if entry.original_tokens > 0 {
                 ((entry.original_tokens - entry.sent_tokens) as f64 / entry.original_tokens as f64
@@ -421,6 +451,12 @@ fn build_triage_response() -> (&'static str, &'static str, String) {
                     "message": format!("Edited but only read in '{}' mode", entry.mode),
                 }));
             }
+            if has_active_error {
+                risk_flags.push(serde_json::json!({
+                    "type": "active_error",
+                    "message": "File has an active compiler/linter error",
+                }));
+            }
 
             serde_json::json!({
                 "path": entry.path,
@@ -434,6 +470,19 @@ fn build_triage_response() -> (&'static str, &'static str, String) {
                 "last_accessed_ts": last_access_ts,
                 "access_count": access_count,
                 "eviction_score": (eviction_score * 1000.0).round() / 1000.0,
+                "git_recency": (git_recency * 100.0).round() / 100.0,
+                "editor_active": editor_active,
+                "diagnostics": diag_details
+                    .iter()
+                    .map(|(line, sev, msg)| serde_json::json!({
+                        "line": line,
+                        "severity": match sev {
+                            crate::core::diagnostics_store::Severity::Error => "error",
+                            crate::core::diagnostics_store::Severity::Warning => "warning",
+                        },
+                        "message": msg,
+                    }))
+                    .collect::<Vec<_>>(),
                 "source_trail": source_trail,
                 "risk_flags": risk_flags,
                 "state": entry.state,
@@ -548,6 +597,13 @@ fn build_action_recommendations(items: &[serde_json::Value], band: &str) -> Vec<
         let mode = item["mode"].as_str().unwrap_or("");
         let path = item["path"].as_str().unwrap_or("");
         let eviction_score = item["eviction_score"].as_f64().unwrap_or(0.0);
+        // Never recommend compressing/evicting a file the build is failing on (#499).
+        let has_error_flag = item["risk_flags"]
+            .as_array()
+            .is_some_and(|f| f.iter().any(|r| r["type"] == "active_error"));
+        if has_error_flag {
+            continue;
+        }
 
         if mode == "full" && tokens > 500 {
             let estimated_savings = (tokens as f64 * 0.6).round() as u64;
@@ -573,18 +629,31 @@ fn build_action_recommendations(items: &[serde_json::Value], band: &str) -> Vec<
         if actions.len() >= max_actions {
             break;
         }
-        let risk_flags = item["risk_flags"].as_array();
-        if let Some(flags) = risk_flags {
-            if !flags.is_empty() {
-                let path = item["path"].as_str().unwrap_or("");
-                actions.push(serde_json::json!({
-                    "type": "full_read",
-                    "path": path,
-                    "reason": "File was edited after compressed read — full read recommended",
-                    "estimated_savings": 0,
-                }));
-            }
+        let Some(flags) = item["risk_flags"].as_array() else {
+            continue;
+        };
+        if flags.is_empty() {
+            continue;
         }
+        let path = item["path"].as_str().unwrap_or("");
+        let mode = item["mode"].as_str().unwrap_or("");
+        let has_error = flags.iter().any(|r| r["type"] == "active_error");
+        // An error file that's only in context compressed needs a full read
+        // to expose the failing region (#499); edited-after-compressed keeps
+        // its original recommendation.
+        let reason = if has_error && mode != "full" {
+            "File has an active build error but only a compressed read in context — full read recommended"
+        } else if has_error {
+            continue;
+        } else {
+            "File was edited after compressed read — full read recommended"
+        };
+        actions.push(serde_json::json!({
+            "type": "full_read",
+            "path": path,
+            "reason": reason,
+            "estimated_savings": 0,
+        }));
     }
 
     actions

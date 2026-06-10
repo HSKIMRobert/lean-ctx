@@ -67,6 +67,7 @@ pub fn run() {
                 let code = shell::exec(&command);
                 core::stats::flush();
                 core::heatmap::flush();
+                core::path_mode_memory::flush();
                 std::process::exit(code);
             }
             "-t" | "--track" => {
@@ -84,6 +85,7 @@ pub fn run() {
                 };
                 core::stats::flush();
                 core::heatmap::flush();
+                core::path_mode_memory::flush();
                 std::process::exit(code);
             }
             "shell" | "--shell" => {
@@ -484,6 +486,24 @@ pub fn run() {
             }
             "slow-log" => {
                 super::cmd_slow_log(&rest);
+                return;
+            }
+            // Editor focus ingress (#500): called by the VS Code extension on
+            // tab change; <10ms, no daemon required.
+            "editor-signal" => {
+                let file = rest
+                    .iter()
+                    .position(|a| a == "--file")
+                    .and_then(|i| rest.get(i + 1));
+                if let Some(path) = file {
+                    if let Err(e) = core::editor_signal::record_focus(path) {
+                        eprintln!("editor-signal: {e}");
+                        std::process::exit(1);
+                    }
+                } else {
+                    eprintln!("usage: lean-ctx editor-signal --file <path>");
+                    std::process::exit(2);
+                }
                 return;
             }
             "update" | "--self-update" => {

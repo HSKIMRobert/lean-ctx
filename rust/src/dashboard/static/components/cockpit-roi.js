@@ -93,6 +93,13 @@ class CockpitRoi extends HTMLElement {
       // (web /account/team, or `lean-ctx savings team`) — not this cockpit.
       this._data = await fetchJson('/api/roi', { timeoutMs: 12000 });
       this._updatedAt = new Date();
+      // Output-echo summary (#501) rides on /api/stats; non-fatal if missing.
+      try {
+        var stats = await fetchJson('/api/stats', { timeoutMs: 8000 });
+        this._outputEcho = stats && stats.output_echo ? stats.output_echo : null;
+      } catch (e2) {
+        this._outputEcho = null;
+      }
     } catch (e) {
       this._error = e && e.error ? e.error : String(e || 'error');
       this._data = null;
@@ -135,6 +142,7 @@ class CockpitRoi extends HTMLElement {
 
     var body = this._renderHero(esc);
     body += this._renderLiveStamp(esc);
+    body += this._renderOutputEfficiency(esc);
     body += this._renderVerification(esc);
     body += this._renderPlan(esc);
     body += this._renderTrendCard(esc);
@@ -194,6 +202,38 @@ class CockpitRoi extends HTMLElement {
       '<div class="hv">' + esc(energy) + '</div></div>' +
       '<div class="hc"><span class="hl">Verified events</span>' +
       '<div class="hv">' + esc(ff(roi.total_events)) + '</div></div>' +
+      '</div>'
+    );
+  }
+
+  /**
+   * Output efficiency (#501): share of recent agent replies that re-quoted
+   * content lean-ctx had already delivered. Output tokens cost 4-5x input
+   * tokens, so echo directly burns the input-side savings.
+   */
+  _renderOutputEfficiency(esc) {
+    var echo = this._outputEcho;
+    if (!echo || !echo.window) return '';
+    var pct = Math.round((echo.avg_ratio || 0) * 100);
+    var good = pct <= 15;
+    var mid = pct > 15 && pct <= 30;
+    var color = good ? 'var(--green)' : mid ? 'var(--yellow)' : 'var(--red)';
+    var verdict = good
+      ? 'Healthy — replies mostly reference instead of re-quoting.'
+      : mid
+        ? 'Moderate — some replies re-quote delivered file content.'
+        : 'High — a large share of reply code was already in context; agents should reference lines (F1:42-58) instead.';
+    return (
+      '<div class="card" style="margin-bottom:16px">' +
+      '<div class="card-header"><h3>Output Efficiency</h3>' +
+      '<span class="badge" title="Share of code lines in recent agent replies that were verbatim echoes of files lean-ctx already delivered into context. Measured locally from the last ' +
+      esc(String(echo.window)) + ' replies.">' +
+      esc(String(echo.window)) + ' replies analyzed</span></div>' +
+      '<div style="display:flex;align-items:baseline;gap:12px">' +
+      '<div class="hv" style="color:' + color + '">' + esc(String(pct)) + '%</div>' +
+      '<span class="hs">of reply code lines echoed already-delivered content</span>' +
+      '</div>' +
+      '<p class="hs" style="margin-top:6px;color:var(--muted)">' + esc(verdict) + '</p>' +
       '</div>'
     );
   }

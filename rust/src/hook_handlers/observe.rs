@@ -29,6 +29,15 @@ pub fn handle_observe() {
         return;
     };
     append_radar_event(&event);
+
+    // Output-echo analysis (#501): measure how much of the agent's reply
+    // re-quotes content lean-ctx already delivered, and feed the adaptive
+    // mode policy with an automatic feedback event.
+    if event.event_type == "agent_response" {
+        if let Some(text) = event.content.as_deref() {
+            crate::core::output_echo::analyze_and_record(text);
+        }
+    }
 }
 
 fn emit_dedicated_session_context(input: &str) {

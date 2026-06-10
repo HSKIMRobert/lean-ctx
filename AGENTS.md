@@ -72,6 +72,17 @@ and `ctx_read` shows cross-source hints (e.g. "Issue #42 references this file").
 - Security: PathJail, Shell Allowlist, bounded_lock, no hardcoded secrets
 - No mock data, no placeholders, no stubs
 
+## Output Determinism (#498)
+
+Tool outputs MUST be deterministic functions of (file content, mode, CRP mode, task).
+Provider-side prompt caching (Anthropic 90%, OpenAI 50% discount) rewards byte-stable text;
+any timestamp, counter or random element in tool output bodies defeats it.
+
+- No timestamps/counters in output bodies. Artifact paths are content-addressed
+  (see `save_tee`: `{cmd_slug}_{blake3(cmd)[..8]}.log`).
+- Dynamic additions (hints, checkpoints) only as state-triggered suffixes with stable headers.
+- Regression guard: determinism tests in `ctx_read/tests.rs`, `ctx_search.rs`, `shell/redact.rs`.
+
 <!-- lean-ctx -->
 ## lean-ctx
 

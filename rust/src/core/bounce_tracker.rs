@@ -77,6 +77,11 @@ impl BounceTracker {
         if !compressed {
             self.detect_bounce(&norm, seq);
         }
+        if self.persist {
+            // Keep the long-term majority rule honest: clean reads dilute
+            // historical bounces (#496).
+            crate::core::path_mode_memory::record_read_if_tracked(&norm);
+        }
 
         let events = self.recent_reads.entry(norm).or_default();
         events.push(ReadEvent {
@@ -120,6 +125,9 @@ impl BounceTracker {
 
                 if self.persist {
                     crate::core::savings_ledger::record_bounce_event(wasted);
+                    // Long-term per-path memory (#496): remember which exact
+                    // files keep bouncing so auto-mode learns across restarts.
+                    crate::core::path_mode_memory::record_bounce(norm_path);
                 }
             }
         }

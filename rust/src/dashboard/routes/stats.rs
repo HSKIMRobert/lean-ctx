@@ -7,7 +7,21 @@ pub(super) fn handle(
     match path {
         "/api/stats" => {
             let store = crate::core::stats::load();
-            let json = serde_json::to_string(&store).unwrap_or_else(|_| "{}".to_string());
+            let mut value = serde_json::to_value(&store).unwrap_or_else(|_| serde_json::json!({}));
+            // Output-echo summary (#501): how much of recent agent replies
+            // re-quoted content that was already in context.
+            if let Some(obj) = value.as_object_mut() {
+                let echo = crate::core::output_echo::load_stats();
+                obj.insert(
+                    "output_echo".to_string(),
+                    serde_json::json!({
+                        "avg_ratio": echo.avg_ratio(50),
+                        "window": echo.reports.len(),
+                        "total_analyzed": echo.total_analyzed,
+                    }),
+                );
+            }
+            let json = serde_json::to_string(&value).unwrap_or_else(|_| "{}".to_string());
             Some(("200 OK", "application/json", json))
         }
         "/api/gain" => {

@@ -749,14 +749,22 @@ impl LeanCtxServer {
                     | "ctx_workflow"
             );
 
+        // Output-echo nudge (#501): when the agent keeps re-quoting delivered
+        // content, tell it once (cooldown-limited, stable text per #498).
+        if !skip_checkpoint && crate::core::protocol::meta_visible() {
+            if let Some(nudge) = crate::core::output_echo::take_pending_nudge() {
+                result_text.push_str(&nudge);
+            }
+        }
+
         if !skip_checkpoint && self.increment_and_check() {
             if let Some(checkpoint) = self.auto_checkpoint().await {
-                let interval = LeanCtxServer::checkpoint_interval_effective();
                 let hints = crate::core::profiles::active_profile().output_hints;
                 if hints.checkpoint_in_output() && crate::core::protocol::meta_visible() {
-                    let combined = format!(
-                        "{result_text}\n\n--- AUTO CHECKPOINT (every {interval} calls) ---\n{checkpoint}"
-                    );
+                    // Stable header (#498): no interval interpolation — dynamic
+                    // text in repeated markers degrades provider prompt caching.
+                    let combined =
+                        format!("{result_text}\n\n--- AUTO CHECKPOINT ---\n{checkpoint}");
                     return Ok(CallToolResult::success(vec![Content::text(combined)]));
                 }
             }

@@ -74,8 +74,12 @@ pub fn save_tee(command: &str, output: &str) -> Option<String> {
             }
         })
         .collect();
-    let ts = chrono::Local::now().format("%Y-%m-%d_%H%M%S");
-    let filename = format!("{ts}_{cmd_slug}.log");
+    // Content-addressed path (#498): the same command always maps to the same
+    // file, so repeated tool outputs stay byte-identical (provider prompt
+    // caches reward stable text). Re-runs overwrite — newest output wins;
+    // the 24h TTL cleanup works on mtime, not the filename.
+    let cmd_hash = blake3::hash(command.as_bytes()).to_hex();
+    let filename = format!("{cmd_slug}_{}.log", &cmd_hash.as_str()[..8]);
     let path = tee_dir.join(&filename);
 
     let masked = mask_sensitive_data(output);
@@ -102,6 +106,32 @@ fn cleanup_old_tee_logs(tee_dir: &std::path::Path) {
                     }
                 }
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Determinism contract (#498): the tee path must be content-addressed —
+    /// the same command always maps to the same file so repeated tool outputs
+    /// stay byte-identical for provider prompt caching.
+    #[test]
+    fn tee_path_is_content_addressed() {
+        let first = save_tee("cargo test --lib", "output run 1").expect("tee saved");
+        let second = save_tee("cargo test --lib", "output run 2").expect("tee saved");
+        assert_eq!(first, second, "same command must map to the same tee path");
+
+        let other = save_tee("cargo build", "output").expect("tee saved");
+        assert_ne!(first, other, "different commands get different tee paths");
+
+        // Latest output wins on overwrite.
+        let content = std::fs::read_to_string(&second).unwrap();
+        assert!(content.contains("run 2"));
+
+        for p in [first, other] {
+            let _ = std::fs::remove_file(p);
         }
     }
 }

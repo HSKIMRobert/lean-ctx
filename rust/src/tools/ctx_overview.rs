@@ -41,7 +41,10 @@ pub fn handle(
     let mut output = Vec::new();
 
     if has_task {
-        let relevance = compute_relevance(gp, &task_files, &task_keywords);
+        let mut relevance = compute_relevance(gp, &task_files, &task_keywords);
+        crate::core::git_signals::apply_boost(&mut relevance, &project_root);
+        crate::core::diagnostics_store::apply_boost(&mut relevance);
+        crate::core::editor_signal::apply_boost(&mut relevance);
 
         output.push(format!(
             "PROJECT OVERVIEW  {} files  task-filtered",

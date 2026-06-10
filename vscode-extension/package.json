@@ -127,6 +127,11 @@
           "type": "boolean",
           "default": true,
           "description": "On activation, offer to configure MCP for the workspace if it isn't wired yet"
+        },
+        "leanctx.editorSignal.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Report the active editor file (path only, never content) to lean-ctx so context ranking can prioritize what you are looking at"
         }
       }
     }

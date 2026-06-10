@@ -27,7 +27,10 @@ pub fn handle(
     if let Some(t) = task {
         if let Some(gp) = gp {
             let (task_files, task_keywords) = parse_task_hints(t);
-            let relevance = compute_relevance(gp, &task_files, &task_keywords);
+            let mut relevance = compute_relevance(gp, &task_files, &task_keywords);
+            crate::core::git_signals::apply_boost(&mut relevance, project_root);
+            crate::core::diagnostics_store::apply_boost(&mut relevance);
+            crate::core::editor_signal::apply_boost(&mut relevance);
             for r in relevance.iter().take(50) {
                 if r.score < 0.1 {
                     break;

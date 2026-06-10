@@ -32,11 +32,17 @@ pub fn handle(
         crate::core::session::SessionState::load_latest().and_then(|s| s.active_structured_intent);
 
     let (task_files, task_keywords) = parse_task_hints(task);
-    let relevance = if let Some(ref intent) = session_intent {
+    let mut relevance = if let Some(ref intent) = session_intent {
         crate::core::task_relevance::compute_relevance_from_intent(gp, intent)
     } else {
         compute_relevance(gp, &task_files, &task_keywords)
     };
+    // Git working-set boost (#497): uncommitted + recently-churned files rank up.
+    crate::core::git_signals::apply_boost(&mut relevance, &project_root);
+    // Active build errors outrank everything (#499).
+    crate::core::diagnostics_store::apply_boost(&mut relevance);
+    // Editor focus (#500): the file the developer is looking at ranks up.
+    crate::core::editor_signal::apply_boost(&mut relevance);
 
     let mut scored: Vec<_> = relevance
         .iter()
@@ -134,6 +140,7 @@ pub fn handle(
 
     let mut total_estimated_saved = 0usize;
     let mut critical_count = 0usize;
+    let git_signals = crate::core::git_signals::collect(&project_root);
 
     for (rel, token_budget) in candidates.iter().zip(allocations.iter()) {
         if *token_budget < 20 {
@@ -173,8 +180,32 @@ pub fn handle(
         let sigs = extract_key_signatures(&content, SIGNATURES_BUDGET);
         let imports = extract_imports(&content);
 
+        // Surface the git signal so the agent knows WHY a file ranked up (#497).
+        let git_marker = {
+            let recency = git_signals.recency_for(&rel.path, &project_root);
+            if recency >= 1.0 {
+                " ● uncommitted"
+            } else if recency > 0.5 {
+                " ● recent-commit"
+            } else {
+                ""
+            }
+        };
+        // Active diagnostics marker (#499): tell the agent which file is broken.
+        let diag_marker = {
+            let diags = crate::core::diagnostics_store::details_for(&rel.path);
+            diags
+                .iter()
+                .find(|(_, sev, _)| *sev == crate::core::diagnostics_store::Severity::Error)
+                .map(|(line, _, _)| match line {
+                    Some(l) => format!(" ✖ error L{l}"),
+                    None => " ✖ error".to_string(),
+                })
+                .unwrap_or_default()
+        };
+
         output.push(format!(
-            "\nCRITICAL: {file_ref}={short} {line_count}L score={:.1} budget={token_budget}tok mode={mode}",
+            "\nCRITICAL: {file_ref}={short} {line_count}L score={:.1} budget={token_budget}tok mode={mode}{git_marker}{diag_marker}",
             rel.score
         ));
 

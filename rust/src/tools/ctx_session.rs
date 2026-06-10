@@ -508,7 +508,18 @@ stale_files: {}\n",
 
         "output_stats" => {
             let snap = crate::core::output_verification::stats_snapshot();
-            snap.format_compact()
+            let mut out = snap.format_compact();
+            // Agent-output echo summary (#501).
+            let echo = crate::core::output_echo::load_stats();
+            if !echo.reports.is_empty() {
+                out.push_str(&format!(
+                    "\nOutput echo: {:.0}% avg over last {} replies ({} analyzed total)",
+                    echo.avg_ratio(50) * 100.0,
+                    echo.reports.len(),
+                    echo.total_analyzed
+                ));
+            }
+            out
         }
 
         "verify" => {

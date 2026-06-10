@@ -127,6 +127,9 @@ impl McpTool for CtxShellTool {
                 &cmd_clone, &cwd_clone, &extra_env,
             );
 
+            // Structured diagnostics (#499) — same hook as the CLI path.
+            crate::core::diagnostics_store::record_from_shell(&cmd_clone, &raw_output, exit_code);
+
             let output = redact_shell_output_secrets(&raw_output);
 
             let (result_out, original, saved, tee_hint) = if raw {

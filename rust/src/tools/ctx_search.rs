@@ -353,18 +353,10 @@ pub fn handle(
         ));
     }
 
-    let scope_hint = {
-        static SHOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-        if SHOWN.load(std::sync::atomic::Ordering::Relaxed) {
-            None
-        } else {
-            let hint = monorepo_scope_hint(&matches, dir);
-            if hint.is_some() {
-                SHOWN.store(true, std::sync::atomic::Ordering::Relaxed);
-            }
-            hint
-        }
-    };
+    // Determinism contract (#498): the hint must be a pure function of the
+    // results. A show-once AtomicBool here made the first call differ from
+    // every repeat, breaking byte-stability for provider prompt caches.
+    let scope_hint = monorepo_scope_hint(&matches, dir);
 
     if let Some(delta) = crate::core::search_delta::compute_delta(pattern, &matches) {
         return SearchOutcome::from_observed(delta, raw_tokens_accum);
@@ -594,6 +586,24 @@ fn monorepo_scope_hint(matches: &[String], search_dir: &str) -> Option<String> {
 mod tests {
     use super::*;
     use crate::tools::CrpMode;
+
+    /// Determinism contract (#498): identical search over identical files
+    /// must produce byte-identical output — a prerequisite for provider
+    /// prompt-cache hits on repeated tool results.
+    #[test]
+    fn search_output_is_byte_stable_across_calls() {
+        let dir = tempfile::tempdir().unwrap();
+        for i in 0..5 {
+            std::fs::write(
+                dir.path().join(format!("f{i}.rs")),
+                format!("fn target_{i}() {{}}\nfn other() {{}}\n"),
+            )
+            .unwrap();
+        }
+        let root = dir.path().to_string_lossy().into_owned();
+        let run = || handle("target", &root, Some("*.rs"), 20, CrpMode::Off, true, true).text;
+        assert_eq!(run(), run(), "search output must be deterministic");
+    }
 
     #[test]
     fn search_results_are_deterministically_ordered_by_path() {
