@@ -33,31 +33,33 @@ function getNavMode() {
   }
 }
 
-// Two-tier navigation: a small "Essentials" set that anyone can understand, and
-// "pro" groups that surface the deep developer/observability views on demand.
+// Four-Jobs navigation (GL #470/#486, mirrors website v3.2): LeanCTX decides
+// what agents read, remembers what they learn, guards what they touch and
+// proves what they save. Simple mode is the 5-second answer (Home only);
+// Advanced groups every deep view under the job it serves.
 // `desc` powers nav tooltips, the per-view hint banner and onboarding copy.
 const COCKPIT_NAV_SECTIONS = [
   {
-    label: 'Essentials',
+    label: 'Home',
     tier: 'simple',
     items: [
-      { id: 'overview', label: 'Home', desc: 'Your savings at a glance.' },
-      { id: 'roi', label: 'ROI & Plan', desc: 'Verified savings, your plan and entitlements.' },
-      { id: 'learning', label: 'Trends', desc: 'How your savings and efficiency change over time.' },
-      { id: 'compression', label: 'Savings', desc: 'Which files and read modes saved the most tokens.' },
-      { id: 'live', label: 'Live Activity', desc: 'What lean-ctx is doing right now.' },
+      { id: 'overview', label: 'Home', desc: 'Status, receipt and top savings — the 5-second answer.' },
     ],
   },
   {
     label: 'Context',
+    job: 'decides what agents read',
     tier: 'pro',
     items: [
       { id: 'commander', label: 'Context Health', desc: 'Context-window pressure and what to trim.' },
       { id: 'context', label: 'Context Manager', desc: 'Everything currently loaded into the model context.' },
+      { id: 'live', label: 'Live Activity', desc: 'What lean-ctx is doing right now.' },
+      { id: 'compression', label: 'Savings', desc: 'Which files and read modes saved the most tokens.' },
     ],
   },
   {
-    label: 'Intelligence',
+    label: 'Memory',
+    job: 'remembers what agents learn',
     tier: 'pro',
     items: [
       { id: 'knowledge', label: 'Knowledge', desc: 'Facts lean-ctx has learned about your project.' },
@@ -67,7 +69,17 @@ const COCKPIT_NAV_SECTIONS = [
     ],
   },
   {
-    label: 'Code Map',
+    label: 'Proof',
+    job: 'proves what you save',
+    tier: 'pro',
+    items: [
+      { id: 'roi', label: 'ROI & Plan', desc: 'Verified savings, your plan and entitlements.' },
+      { id: 'learning', label: 'Trends', desc: 'How your savings and efficiency change over time.' },
+    ],
+  },
+  {
+    label: 'Project Map',
+    job: 'understands your codebase',
     tier: 'pro',
     items: [
       { id: 'deps', label: 'Dependencies', desc: 'How your modules depend on each other.' },
@@ -140,8 +152,14 @@ class CockpitNav extends HTMLElement {
       if (mode === 'simple' && section.tier === 'pro') continue;
       if (shown > 0) html += '<div class="nav-divider"></div>';
       // Section labels only add value once several groups are visible (pro).
+      // The job subtitle ties each group to the four-jobs story.
       if (section.label && mode === 'pro') {
-        html += '<div class="nav-section-label">' + section.label + '</div>';
+        html +=
+          '<div class="nav-section-label">' + section.label +
+          (section.job
+            ? '<span class="nav-section-job">' + section.job + '</span>'
+            : '') +
+          '</div>';
       }
       html += '<div class="nav-section">';
       for (var ii = 0; ii < section.items.length; ii++) {

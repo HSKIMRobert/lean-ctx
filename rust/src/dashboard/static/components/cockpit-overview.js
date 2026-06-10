@@ -22,13 +22,9 @@ function tip(k) {
   return window.LctxShared && window.LctxShared.tip ? window.LctxShared.tip(k) : '';
 }
 
-var CKO_CHARTS = [
-  'cko-chartCumSavings',
-  'cko-chartDailyActivity',
-  'cko-chartSavingsRate',
-  'cko-chartMcpShell',
-  'cko-chartTaskBreak',
-];
+// Slim Home (GL #486): one trend chart. Activity/rate/source/task charts
+// live in Proof → Trends now.
+var CKO_CHARTS = ['cko-chartCumSavings'];
 
 function lvlTier(level) {
   if (level >= 30) return 'lvl-t4';
@@ -194,13 +190,14 @@ class CockpitOverview extends HTMLElement {
       return;
     }
 
+    // Slim Home (GL #486): status, receipt, gauge+triage, one trend, top-3.
+    // Deeper charts/tables live in the job areas (Proof → Trends, ROI & Plan).
     var body = '';
     body += this._renderTimeFilter(esc);
     body += this._renderHero(esc, ff, fmt, fu, pc);
     body += this._renderBuddy(esc);
-    body += this._renderChartsRow1(esc, ff, fu);
-    body += this._renderHealthRow(esc);
-    body += this._renderChartsRow2();
+    body += this._renderStatusStrip(esc);
+    body += this._renderTrendRow();
     body += this._renderCommandTable(esc, ff, fmt, pc);
 
     this.innerHTML = body;
@@ -459,61 +456,25 @@ class CockpitOverview extends HTMLElement {
     }, ms);
   }
 
-  /* ── Charts row 1: cumulative savings + cost ───────── */
+  /* ── The one Home trend: cumulative savings ────────── */
+  // Cost analysis moved to Proof → ROI & Plan (GL #486); the per-day
+  // activity/rate charts live in Proof → Trends.
 
-  _renderChartsRow1(esc, ff, fu) {
-    var stats = this._data.stats;
-    var totalIn = stats ? stats.total_input_tokens || 0 : 0;
-    var totalOut = stats ? stats.total_output_tokens || 0 : 0;
-    var calls = stats ? stats.total_commands || 0 : 0;
-
-    var F = fmtLib();
-    var gc = F.gc || function () {
-      return { iW: 0, iC: 0, oW: 0, oC: 0, tW: 0, tC: 0, sv: 0, os: 0 };
-    };
-    var c = gc(totalIn, totalOut, calls);
-
+  _renderTrendRow() {
     return (
-      '<div class="row r21" style="margin-bottom:20px">' +
-
-      '<div class="card">' +
+      '<div class="card" style="margin-bottom:20px">' +
       '<h3>Cumulative token savings' + tip('cumulative_savings') + '</h3>' +
-      '<canvas id="cko-chartCumSavings" height="220"' +
+      '<canvas id="cko-chartCumSavings" height="180"' +
       ' aria-label="Cumulative savings chart"></canvas>' +
-      '</div>' +
-
-      '<div class="card">' +
-      '<h3>Cost analysis' + tip('cost_analysis') + '</h3>' +
-      '<div class="cost-row">' +
-      '<div class="cost-box bad">' +
-      '<div class="amt" style="color:var(--red)">' +
-      esc(fu(c.tW)) + '</div>' +
-      '<div class="lb">Without lean-ctx</div></div>' +
-      '<div class="cost-arrow">\u2192</div>' +
-      '<div class="cost-box good">' +
-      '<div class="amt" style="color:var(--green)">' +
-      esc(fu(c.tC)) + '</div>' +
-      '<div class="lb">With lean-ctx</div></div>' +
-      '</div>' +
-      '<div class="cost-detail">' +
-      '<div class="cd-item"><div class="v" style="color:var(--green)">' +
-      esc(fu(c.sv)) + '</div><div class="l">Total saved</div></div>' +
-      '<div class="cd-item"><div class="v">' +
-      esc(fu(c.iW - c.iC)) + '</div><div class="l">Input saved</div></div>' +
-      '<div class="cd-item"><div class="v">' +
-      esc(fu(c.oW - c.oC)) + '</div><div class="l">Output saved</div></div>' +
-      '<div class="cd-item"><div class="v">' +
-      esc(fu(c.tC)) + '</div><div class="l">Actual cost</div></div>' +
-      '</div>' +
-      '</div>' +
-
       '</div>'
     );
   }
 
-  /* ── Context health row (4 cards) ──────────────────── */
+  /* ── Status strip: session/reliability/verification/graph in one line ── */
+  // Replaces the former 4-card health row (GL #486). Same signals, one
+  // compact strip — full views live in the job areas.
 
-  _renderHealthRow(esc) {
+  _renderStatusStrip(esc) {
     var session = this._data.session;
     var slos = this._data.slos;
     var verif = this._data.verification;
@@ -521,8 +482,8 @@ class CockpitOverview extends HTMLElement {
 
     var taskDesc = session && session.task
       ? session.task.description || '\u2014' : '\u2014';
-    var filesCount = session && session.files_touched
-      ? session.files_touched.length : 0;
+    var shortTask = taskDesc.length > 48
+      ? taskDesc.slice(0, 48) + '\u2026' : taskDesc;
 
     var sloSnap = slos && slos.snapshot ? slos.snapshot : null;
     var sloArr = sloSnap && Array.isArray(sloSnap.slos) ? sloSnap.slos : [];
@@ -544,88 +505,22 @@ class CockpitOverview extends HTMLElement {
     var gNodes = graph ? graph.node_count || 0 : 0;
     var gEdges = graph ? graph.edge_count || 0 : 0;
 
-    var shortTask = taskDesc.length > 40
-      ? taskDesc.slice(0, 40) + '\u2026' : taskDesc;
+    function chip(label, value, color, tipKey) {
+      return (
+        '<span class="status-chip">' +
+        '<span class="sl">' + label + (tipKey ? tip(tipKey) : '') + '</span>' +
+        '<span class="sv"' + (color ? ' style="color:' + color + '"' : '') + '>' +
+        value + '</span></span>'
+      );
+    }
 
     return (
-      '<div class="row r4" style="margin-bottom:20px">' +
-
-      '<div class="card">' +
-      '<h3>Session' + tip('session_overview') + '</h3>' +
-      '<div class="sr"><span class="sl">Task</span>' +
-      '<span class="sv" title="' + esc(taskDesc) +
-      '" style="max-width:160px;overflow:hidden;' +
-      'text-overflow:ellipsis;white-space:nowrap">' +
-      esc(shortTask) + '</span></div>' +
-      '<div class="sr"><span class="sl">Files touched</span>' +
-      '<span class="sv">' + filesCount + '</span></div>' +
-      (session && session.terse_mode
-        ? '<div class="sr"><span class="sl">Terse mode</span>' +
-          '<span class="sv"><span class="tag tg">on</span></span></div>'
-        : '') +
-      '</div>' +
-
-      '<div class="card">' +
-      '<h3>Reliability' + tip('slo_compliance') + '</h3>' +
-      '<div class="hv" style="font-size:28px;color:' + sloCol + '">' +
-      sloPct + '%</div>' +
-      '<div class="sr" style="margin-top:8px">' +
-      '<span class="sl">Passed</span>' +
-      '<span class="sv">' + sloPassed + ' / ' + sloTotal + '</span></div>' +
-      '</div>' +
-
-      '<div class="card">' +
-      '<h3>Verification' + tip('verification') + '</h3>' +
-      '<div class="hv" style="font-size:28px;color:' + vCol + '">' +
-      vPct + '%</div>' +
-      '<div class="sr" style="margin-top:8px">' +
-      '<span class="sl">Checks</span>' +
-      '<span class="sv">' + vPassed + ' / ' + vTotal + '</span></div>' +
-      '</div>' +
-
-      '<div class="card">' +
-      '<h3>Relationships' + tip('property_graph') + '</h3>' +
-      '<div class="sr"><span class="sl">Nodes</span>' +
-      '<span class="sv">' + gNodes + '</span></div>' +
-      '<div class="sr"><span class="sl">Edges</span>' +
-      '<span class="sv">' + gEdges + '</span></div>' +
-      '</div>' +
-
-      '</div>'
-    );
-  }
-
-  /* ── Charts row 2 (4 cards) ────────────────────────── */
-
-  _renderChartsRow2() {
-    return (
-      '<div class="row r4" style="margin-bottom:20px">' +
-
-      '<div class="card">' +
-      '<h3>Daily activity' + tip('daily_activity') + '</h3>' +
-      '<canvas id="cko-chartDailyActivity" height="200"' +
-      ' aria-label="Daily activity chart"></canvas>' +
-      '</div>' +
-
-      '<div class="card">' +
-      '<h3>Savings rate' + tip('savings_rate') + '</h3>' +
-      '<canvas id="cko-chartSavingsRate" height="200"' +
-      ' aria-label="Savings rate chart"></canvas>' +
-      '</div>' +
-
-      '<div class="card">' +
-      '<h3>MCP vs Shell' + tip('mcp_vs_shell') + '</h3>' +
-      '<canvas id="cko-chartMcpShell" height="180"' +
-      ' aria-label="MCP vs Shell chart"></canvas>' +
-      '<div id="cko-mcpShellGrid"></div>' +
-      '</div>' +
-
-      '<div class="card">' +
-      '<h3>Task breakdown' + tip('task_breakdown') + '</h3>' +
-      '<canvas id="cko-chartTaskBreak" height="180"' +
-      ' aria-label="Task breakdown chart"></canvas>' +
-      '</div>' +
-
+      '<div class="card status-strip" style="margin-bottom:20px">' +
+      chip('Session', '<span title="' + esc(taskDesc) + '">' + esc(shortTask) + '</span>', null, 'session_overview') +
+      chip('Reliability', sloPct + '% <span class="status-chip-sub">(' + sloPassed + '/' + sloTotal + ')</span>', sloCol, 'slo_compliance') +
+      chip('Verification', vPct + '% <span class="status-chip-sub">(' + vPassed + '/' + vTotal + ')</span>', vCol, 'verification') +
+      chip('Graph', gNodes + ' nodes \u00b7 ' + gEdges + ' edges', null, 'property_graph') +
+      (session && session.terse_mode ? chip('Terse', '<span class="tag tg">on</span>', null, null) : '') +
       '</div>'
     );
   }
@@ -683,9 +578,13 @@ class CockpitOverview extends HTMLElement {
       );
     }
 
+    // Slim Home (GL #486): top-3 by default, one click expands the full table.
+    var expanded = this._cmdExpanded === true;
+    var visible = expanded ? rows : rows.slice(0, 3);
+
     var trs = '';
-    for (var j = 0; j < rows.length; j++) {
-      var r = rows[j];
+    for (var j = 0; j < visible.length; j++) {
+      var r = visible[j];
       var barW = maxSaved > 0 ? Math.round((r.saved / maxSaved) * 100) : 0;
       trs +=
         '<tr>' +
@@ -701,10 +600,19 @@ class CockpitOverview extends HTMLElement {
         '</tr>';
     }
 
+    var toggle = rows.length > 3
+      ? '<button type="button" class="cko-cmd-toggle" id="cko-cmdToggle">' +
+        (expanded
+          ? 'Show top 3 only'
+          : 'Show all ' + keys.length + ' commands \u2192') +
+        '</button>'
+      : '';
+
     return (
       '<div class="card">' +
-      '<h3>Command breakdown ' +
-      '<span class="badge">' + keys.length + ' commands</span>' + tip('command_breakdown') + '</h3>' +
+      '<h3>Top commands ' +
+      '<span class="badge">' + (expanded ? keys.length + ' commands' : 'top 3 of ' + keys.length) + '</span>' +
+      tip('command_breakdown') + '</h3>' +
       '<div class="table-scroll"><table>' +
       '<thead><tr>' +
       th('name', 'Command') +
@@ -716,7 +624,7 @@ class CockpitOverview extends HTMLElement {
       '<th>Distribution</th>' +
       '</tr></thead>' +
       '<tbody>' + trs + '</tbody>' +
-      '</table></div></div>'
+      '</table></div>' + toggle + '</div>'
     );
   }
 
@@ -726,10 +634,6 @@ class CockpitOverview extends HTMLElement {
     var self = this;
     requestAnimationFrame(function () {
       try { self._chartCumSavings(); } catch (_) {}
-      try { self._chartDailyActivity(); } catch (_) {}
-      try { self._chartSavingsRate(); } catch (_) {}
-      try { self._chartMcpShell(); } catch (_) {}
-      try { self._chartTaskBreak(); } catch (_) {}
     });
   }
 
@@ -765,145 +669,6 @@ class CockpitOverview extends HTMLElement {
     );
   }
 
-  _chartDailyActivity() {
-    var Ch = chartsLib();
-    if (!Ch.createChart || typeof Chart === 'undefined') return;
-    var daily = this._filteredDaily();
-    if (!daily.length) return;
-
-    var labels = [];
-    var savedArr = [];
-    var sentArr = [];
-    for (var i = 0; i < daily.length; i++) {
-      var d = daily[i];
-      labels.push(String(d.date || '').slice(5));
-      var inp = d.input_tokens || 0;
-      var out = d.output_tokens || 0;
-      savedArr.push(inp - out);
-      sentArr.push(out);
-    }
-
-    Ch.createChart('cko-chartDailyActivity', 'bar', {
-      labels: labels,
-      datasets: [
-        {
-          label: 'Saved',
-          data: savedArr,
-          backgroundColor: 'rgba(52,211,153,0.6)',
-          borderRadius: 3,
-        },
-        {
-          label: 'Sent',
-          data: sentArr,
-          backgroundColor: 'rgba(129,140,248,0.4)',
-          borderRadius: 3,
-        },
-      ],
-    }, {
-      scales: { x: { stacked: true }, y: { stacked: true } },
-      plugins: {
-        legend: {
-          display: true,
-          position: 'bottom',
-          labels: {
-            color: '#6b6b88', font: { size: 9 }, padding: 8,
-            usePointStyle: true, pointStyle: 'circle',
-          },
-        },
-      },
-    });
-  }
-
-  _chartSavingsRate() {
-    var Ch = chartsLib();
-    if (!Ch.lineChart || typeof Chart === 'undefined') return;
-    var daily = this._filteredDaily();
-    if (!daily.length) return;
-
-    var labels = [];
-    var values = [];
-    for (var i = 0; i < daily.length; i++) {
-      var d = daily[i];
-      labels.push(String(d.date || '').slice(5));
-      var inp = d.input_tokens || 0;
-      var out = d.output_tokens || 0;
-      values.push(inp > 0 ? Math.round(((inp - out) / inp) * 100) : 0);
-    }
-
-    Ch.lineChart(
-      'cko-chartSavingsRate', labels, values,
-      '#818cf8', 'rgba(129,140,248,.06)'
-    );
-  }
-
-  _chartMcpShell() {
-    var Ch = chartsLib();
-    if (!Ch.doughnutChart || typeof Chart === 'undefined') return;
-    var stats = this._data && this._data.stats;
-    if (!stats || !stats.commands) return;
-
-    var F = fmtLib();
-    var ss = F.ss || function () {
-      return { m: { c: 0, i: 0, o: 0, s: 0 }, h: { c: 0, i: 0, o: 0, s: 0 } };
-    };
-    var ff = F.ff || function (n) { return String(n); };
-    var fmt = F.fmt || function (n) { return String(n); };
-
-    var entries = [];
-    var cmds = stats.commands;
-    var keys = Object.keys(cmds);
-    for (var i = 0; i < keys.length; i++) {
-      entries.push([keys[i], cmds[keys[i]]]);
-    }
-    var split = ss(entries);
-
-    if (split.m.s + split.h.s > 0) {
-      Ch.doughnutChart(
-        'cko-chartMcpShell',
-        ['MCP', 'Shell Hook'],
-        [split.m.s, split.h.s],
-        ['#818cf8', '#38bdf8']
-      );
-    }
-
-    var grid = document.getElementById('cko-mcpShellGrid');
-    if (grid) {
-      grid.innerHTML =
-        '<div class="src-grid" style="margin-top:12px">' +
-        '<div class="src-item">' +
-        '<h4><span class="d" style="background:var(--purple)"></span> MCP</h4>' +
-        '<div class="sr"><span class="sl">Calls</span>' +
-        '<span class="sv">' + ff(split.m.c) + '</span></div>' +
-        '<div class="sr"><span class="sl">Saved</span>' +
-        '<span class="sv">' + fmt(split.m.s) + '</span></div>' +
-        '</div>' +
-        '<div class="src-item">' +
-        '<h4><span class="d" style="background:var(--blue)"></span> Shell</h4>' +
-        '<div class="sr"><span class="sl">Calls</span>' +
-        '<span class="sv">' + ff(split.h.c) + '</span></div>' +
-        '<div class="sr"><span class="sl">Saved</span>' +
-        '<span class="sv">' + fmt(split.h.s) + '</span></div>' +
-        '</div></div>';
-    }
-  }
-
-  _chartTaskBreak() {
-    var Ch = chartsLib();
-    if (!Ch.doughnutChart || typeof Chart === 'undefined') return;
-    var gain = this._data && this._data.gain;
-    var tasks = gain && Array.isArray(gain.tasks) ? gain.tasks : [];
-    if (!tasks.length) return;
-
-    var labels = [];
-    var values = [];
-    for (var i = 0; i < tasks.length; i++) {
-      labels.push(tasks[i].category || 'Other');
-      values.push(tasks[i].tokens_saved || 0);
-    }
-
-    Ch.doughnutChart('cko-chartTaskBreak', labels, values);
-  }
-
   /* ── Event binding ─────────────────────────────────── */
 
   _bind() {
@@ -921,6 +686,18 @@ class CockpitOverview extends HTMLElement {
         self._startBuddyAnim();
       });
     });
+
+    var cmdToggle = this.querySelector('#cko-cmdToggle');
+    if (cmdToggle) {
+      cmdToggle.addEventListener('click', function () {
+        self._cmdExpanded = self._cmdExpanded !== true;
+        self._stopAnim();
+        self._destroyCharts();
+        self.render();
+        self._renderAllCharts();
+        self._startBuddyAnim();
+      });
+    }
 
     this.querySelectorAll('th[data-cko-sort]').forEach(function (h) {
       h.addEventListener('click', function () {

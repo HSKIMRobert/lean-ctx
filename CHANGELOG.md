@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+- **Four-jobs cockpit navigation + slim Home** (GL #470/#486, phase 1): the
+  sidebar now tells the same story as the website — Context *(decides what
+  agents read)*, Memory *(remembers what agents learn)*, Proof *(proves what
+  you save)* and Project Map *(understands your codebase)* — instead of 17
+  flat entries. Simple mode is the 5-second answer: Home only. Home itself
+  slimmed down to status strip + receipt + gauge/triage + one trend + top-3
+  commands (expandable); the cost-analysis card moved to ROI & Plan (labelled
+  as the estimated, all-time view next to the verified-ledger methodology)
+  and the MCP-vs-shell / task-breakdown doughnuts moved to Trends. Every view
+  stays reachable via Advanced mode, deep links and the command palette.
+
 ### Fixed
 - **Cockpit backlog triple** (GL #454, #455, #456): the Routes view now
   understands axum — `.route("/path", get(handler))` incl. chained methods

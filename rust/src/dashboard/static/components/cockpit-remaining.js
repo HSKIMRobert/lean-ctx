@@ -60,6 +60,8 @@ class CockpitLearning extends HTMLElement {
     Ch.destroyIfNeeded('ckle-savings');
     Ch.destroyIfNeeded('ckle-compression');
     Ch.destroyIfNeeded('ckle-volume');
+    Ch.destroyIfNeeded('ckle-mcpshell');
+    Ch.destroyIfNeeded('ckle-taskbreak');
   }
 
   async loadData() {
@@ -76,10 +78,17 @@ class CockpitLearning extends HTMLElement {
 
     try {
       var cached = window.LctxApi && window.LctxApi.cachedFetch ? window.LctxApi.cachedFetch : fetchJson;
-      this._data = await cached('/api/stats', { timeoutMs: 10000 });
+      // gain feeds the task-breakdown doughnut (moved here from Home, GL #486).
+      var results = await Promise.all([
+        cached('/api/stats', { timeoutMs: 10000 }),
+        fetchJson('/api/gain', { timeoutMs: 10000 }).catch(function () { return null; }),
+      ]);
+      this._data = results[0];
+      this._gain = results[1];
     } catch (e) {
       this._error = e && e.error ? e.error : String(e || 'load failed');
       this._data = null;
+      this._gain = null;
     }
 
     this._loading = false;
@@ -111,6 +120,14 @@ class CockpitLearning extends HTMLElement {
       '<canvas id="ckle-compression" height="200"></canvas></div>' +
       '<div class="card"><div class="card-header"><h3>Command Volume' + tip('command_volume') + '</h3></div>' +
       '<canvas id="ckle-volume" height="200"></canvas></div>' +
+      '</div>' +
+      // Source/task split moved here from Home with the slim-Home cut (GL #486).
+      '<div class="row" style="grid-template-columns:1fr 1fr;margin-top:16px">' +
+      '<div class="card"><div class="card-header"><h3>MCP vs Shell' + tip('mcp_vs_shell') + '</h3></div>' +
+      '<canvas id="ckle-mcpshell" height="180"></canvas>' +
+      '<div id="ckle-mcpShellGrid"></div></div>' +
+      '<div class="card"><div class="card-header"><h3>Task breakdown' + tip('task_breakdown') + '</h3></div>' +
+      '<canvas id="ckle-taskbreak" height="180"></canvas></div>' +
       '</div>';
 
     var S = remShared();
@@ -156,6 +173,7 @@ class CockpitLearning extends HTMLElement {
       return;
     }
 
+    var self = this;
     requestAnimationFrame(function () {
       try {
         Ch.lineChart('ckle-savings', labels, savings,
@@ -169,7 +187,79 @@ class CockpitLearning extends HTMLElement {
         Ch.lineChart('ckle-volume', labels, volume,
           '#38bdf8', 'rgba(56,189,248,.06)');
       } catch (_) {}
+      try { self._chartMcpShell(); } catch (_) {}
+      try { self._chartTaskBreak(); } catch (_) {}
     });
+  }
+
+  /** Saved-token split by source (MCP vs shell hooks) — moved from Home. */
+  _chartMcpShell() {
+    var Ch = remCharts();
+    if (!Ch.doughnutChart || typeof Chart === 'undefined') return;
+    var stats = this._data;
+    if (!stats || !stats.commands) return;
+
+    var F = remFmt();
+    var ss = F.ss || function () {
+      return { m: { c: 0, i: 0, o: 0, s: 0 }, h: { c: 0, i: 0, o: 0, s: 0 } };
+    };
+    var ff = F.ff || function (n) { return String(n); };
+    var fmt = F.fmt || function (n) { return String(n); };
+
+    var entries = [];
+    var cmds = stats.commands;
+    var keys = Object.keys(cmds);
+    for (var i = 0; i < keys.length; i++) {
+      entries.push([keys[i], cmds[keys[i]]]);
+    }
+    var split = ss(entries);
+
+    if (split.m.s + split.h.s > 0) {
+      Ch.doughnutChart(
+        'ckle-mcpshell',
+        ['MCP', 'Shell Hook'],
+        [split.m.s, split.h.s],
+        ['#818cf8', '#38bdf8']
+      );
+    }
+
+    var grid = document.getElementById('ckle-mcpShellGrid');
+    if (grid) {
+      grid.innerHTML =
+        '<div class="src-grid" style="margin-top:12px">' +
+        '<div class="src-item">' +
+        '<h4><span class="d" style="background:var(--purple)"></span> MCP</h4>' +
+        '<div class="sr"><span class="sl">Calls</span>' +
+        '<span class="sv">' + ff(split.m.c) + '</span></div>' +
+        '<div class="sr"><span class="sl">Saved</span>' +
+        '<span class="sv">' + fmt(split.m.s) + '</span></div>' +
+        '</div>' +
+        '<div class="src-item">' +
+        '<h4><span class="d" style="background:var(--blue)"></span> Shell</h4>' +
+        '<div class="sr"><span class="sl">Calls</span>' +
+        '<span class="sv">' + ff(split.h.c) + '</span></div>' +
+        '<div class="sr"><span class="sl">Saved</span>' +
+        '<span class="sv">' + fmt(split.h.s) + '</span></div>' +
+        '</div></div>';
+    }
+  }
+
+  /** Tokens saved per task category — moved from Home. */
+  _chartTaskBreak() {
+    var Ch = remCharts();
+    if (!Ch.doughnutChart || typeof Chart === 'undefined') return;
+    var gain = this._gain;
+    var tasks = gain && Array.isArray(gain.tasks) ? gain.tasks : [];
+    if (!tasks.length) return;
+
+    var labels = [];
+    var values = [];
+    for (var i = 0; i < tasks.length; i++) {
+      labels.push(tasks[i].category || 'Other');
+      values.push(tasks[i].tokens_saved || 0);
+    }
+
+    Ch.doughnutChart('ckle-taskbreak', labels, values);
   }
 }
 

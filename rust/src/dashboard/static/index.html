@@ -423,8 +423,8 @@
     <p class="onboard-sub">lean-ctx quietly shrinks what your AI tools read. Here's what it has saved you so far:</p>
     <div class="onboard-stats" id="onboardStats"></div>
     <ul class="onboard-points">
-      <li><b>Home</b> &amp; <b>Trends</b> show your savings — that's all most people need.</li>
-      <li>Want the deep developer views? Flip <b>Simple → Advanced</b> in the top bar anytime.</li>
+      <li><b>Home</b> shows your savings — that's all most people need.</li>
+      <li>Want the deep views? Flip <b>Simple → Advanced</b>: Context, Memory, Proof and Project Map.</li>
       <li>Hover any <span class="onboard-i">i</span> for a plain-language explanation.</li>
     </ul>
     <button type="button" class="onboard-btn" id="onboardBtn">Got it — show me</button>
@@ -578,8 +578,9 @@ function bootCockpit() {
   });
 
   // Simple ⇄ Advanced navigation mode (persisted; drives cockpit-nav).
+  // Four-jobs IA (GL #486): Simple is the 5-second answer — Home only.
   var NAV_MODE_KEY = 'lctx_nav_mode';
-  var SIMPLE_VIEWS = { overview: 1, roi: 1, learning: 1, compression: 1, live: 1 };
+  var SIMPLE_VIEWS = { overview: 1 };
   function getNavMode() {
     try { return localStorage.getItem(NAV_MODE_KEY) === 'pro' ? 'pro' : 'simple'; } catch (e) { return 'simple'; }
   }
