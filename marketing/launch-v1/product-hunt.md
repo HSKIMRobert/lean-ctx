@@ -15,7 +15,7 @@ Default: #1. Use #2 if the gallery leads with the savings dashboard.
 ## Description (260 chars)
 
 LeanCTX is a local Rust binary between your AI agent and your codebase:
-compressed reads, cached context, semantic search. 72 MCP tools, zero
+compressed reads, cached context, semantic search. 76 MCP tools, zero
 telemetry, Apache-2.0. v1.0 freezes 29 protocol contracts — your setup
 can't break. Up to 99% token savings.
 

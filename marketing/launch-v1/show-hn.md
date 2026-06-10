@@ -17,7 +17,7 @@ Pick #1 unless the thread climate that week favors the contrarian angle (#3).
 LeanCTX is a single local Rust binary that sits between your AI coding agent
 (Cursor, Claude Code, Codex CLI, 24+ tools) and your codebase. It replaces raw
 file reads, shell output and search with compressed, cached, structured
-context: 72 MCP tools, 10 read modes, 95+ shell compression patterns. Cached
+context: 76 MCP tools, 10 read modes, 95+ shell compression patterns. Cached
 re-reads cost ~13 tokens. Everything runs locally — zero telemetry, no cloud
 dependency, Apache-2.0.
 

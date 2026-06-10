@@ -16,7 +16,7 @@ Most 1.0 announcements are a feeling. This one is a set of failing CI jobs
 waiting to happen:
 
 - **29 protocol contracts, classified.** Every surface lean-ctx exposes — the
-  CLI, the 72 MCP tools, the HTTP `/v1` API, the team-server wire protocol,
+  CLI, the 76 MCP tools, the HTTP `/v1` API, the team-server wire protocol,
   the Context IR — is documented in a contract file and classified
   `frozen`, `stable`, or `experimental`. The classification is not prose: it
   lives in `core::contracts` and is served at runtime via
