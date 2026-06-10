@@ -126,11 +126,25 @@ fn now_ts() -> i64 {
         .map_or(0, |d| d.as_secs() as i64)
 }
 
+/// Extra static tags, e.g. `env:prod,team:platform` — the Datadog-side
+/// equivalent of OTel resource attributes like `deployment.environment`.
+const EXTRA_TAGS_ENV: &str = "LEAN_CTX_DD_TAGS";
+
 fn tags() -> Vec<String> {
-    super::telemetry::info_tags()
+    let mut tags: Vec<String> = super::telemetry::info_tags()
         .into_iter()
         .map(|(k, v)| format!("{k}:{v}"))
-        .collect()
+        .collect();
+    if let Ok(extra) = std::env::var(EXTRA_TAGS_ENV) {
+        tags.extend(
+            extra
+                .split(',')
+                .map(str::trim)
+                .filter(|t| !t.is_empty() && t.contains(':'))
+                .map(String::from),
+        );
+    }
+    tags
 }
 
 fn series_entry(metric: &str, ty: u8, value: f64, ts: i64, tags: &[String]) -> serde_json::Value {

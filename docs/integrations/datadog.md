@@ -64,6 +64,7 @@ export LEAN_CTX_DATADOG_PUSH=1
 export DD_API_KEY="<your Datadog API key>"
 export DD_SITE="datadoghq.eu"               # optional, default datadoghq.com
 export LEAN_CTX_DATADOG_INTERVAL_SECS=60    # optional, min 10
+export LEAN_CTX_DD_TAGS="env:prod,team:platform"  # optional resource tags
 lean-ctx dashboard
 ```
 
