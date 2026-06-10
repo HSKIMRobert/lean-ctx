@@ -75,6 +75,19 @@ CREATE TABLE IF NOT EXISTS knowledge_entries (
   PRIMARY KEY (user_id, category, key)
 );
 
+-- Zero-knowledge knowledge vault (GL #467): one client-side-encrypted blob
+-- per account, replacing plaintext knowledge_entries for E2E clients. The
+-- server never sees plaintext — entry_count is client-declared display
+-- metadata only. Legacy knowledge_entries rows are deleted on first vault
+-- push (the client re-encrypts its full local state by construction).
+CREATE TABLE IF NOT EXISTS knowledge_blobs (
+  user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  blob BYTEA NOT NULL,
+  entry_count BIGINT NOT NULL DEFAULT 0,
+  sha256 TEXT NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Hosted Personal Index buckets (GL #392): one client-side-encrypted bundle
 -- per (account, project). The server never sees plaintext — `bytes` is
 -- XChaCha20-Poly1305 ciphertext; `sha256` covers the ciphertext for drift

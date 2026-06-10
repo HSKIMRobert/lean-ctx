@@ -353,6 +353,7 @@ pub mod io_boundary;
 pub mod io_health;
 pub mod journal;
 pub mod jsonc;
+pub mod knowledge_vault;
 pub mod language_capabilities;
 #[cfg(target_os = "macos")]
 pub mod launchd;
