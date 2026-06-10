@@ -103,9 +103,11 @@ followed, hard links count once, and reports are cached for 60 s per process.
 ```
 
 - `usedBytes` (required) is what the metering job samples and bills against.
-- `quotaBytes` is present only when the deployment sets
-  `LEANCTX_TEAM_STORAGE_QUOTA_BYTES`; absent ⇒ the control plane falls back to
-  the plan entitlement it already knows.
+- `quotaBytes` (always present) resolves as: `LEANCTX_TEAM_STORAGE_QUOTA_BYTES`
+  env override → `storageQuotaBytes` from `team.json` (rendered per plan by
+  provisioning, #282: Team 5 GiB, Enterprise 50 GiB) → Team-tier 5 GiB default.
+  A concrete quota keeps the control plane's metering out of the degenerate
+  `quota = 0 ⇒ state "none"` path.
 - `components`: the server data root (audit log, savings store, hosted indices)
   plus each workspace's `.lean-ctx` state dir; workspace dirs nested inside the
   data root are skipped so nothing is counted twice.

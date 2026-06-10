@@ -39,10 +39,19 @@ use super::team::TeamAppState;
 /// How long a measured storage report may be served from cache.
 pub(super) const STORAGE_CACHE_TTL: Duration = Duration::from_mins(1);
 
-/// Env var through which the deployment states the plan's included quota in
-/// bytes. Absent/unparsable ⇒ no `quotaBytes` in the report; the control plane
-/// then falls back to the plan entitlement it already knows.
+/// Env var through which a deployment can *override* the plan quota in bytes
+/// (ops escape hatch). Normally the quota arrives as `storageQuotaBytes` in
+/// `team.json`, rendered per plan by the control plane's provisioning bridge
+/// (#282: Team 5 GiB, Enterprise 50 GiB).
 pub(super) const QUOTA_ENV: &str = "LEANCTX_TEAM_STORAGE_QUOTA_BYTES";
+
+/// Default quota when neither the env override nor `storageQuotaBytes` is
+/// present: the Team tier's 5 GiB, per the provisioning contract ("the server
+/// defaults to the Team tier when omitted",
+/// `lean-ctx-cloud/src/provisioning/instance.rs`). Always resolving to a
+/// concrete quota keeps the control plane's metering out of the degenerate
+/// `quota = 0 ⇒ state "none"` path on hosted instances.
+pub(super) const DEFAULT_TEAM_STORAGE_QUOTA_BYTES: u64 = 5 * 1024 * 1024 * 1024;
 
 /// One measured storage component (a directory or file the server persists).
 #[derive(Debug, Clone, Serialize)]
@@ -73,6 +82,9 @@ pub struct StorageRoots {
     /// Per-workspace persistent state (`<root>/.lean-ctx`), skipped when it
     /// already lives under [`Self::data_root`] so nothing is counted twice.
     pub workspaces: Vec<(String, PathBuf)>,
+    /// Plan quota in bytes, resolved once at startup
+    /// (env override → `storageQuotaBytes` → Team-tier default).
+    pub quota_bytes: u64,
 }
 
 impl StorageRoots {
@@ -109,16 +121,14 @@ impl StorageRoots {
 /// `GET /v1/storage` — `camelCase`, served from the 60 s cache.
 pub async fn v1_storage(State(state): State<TeamAppState>) -> impl IntoResponse {
     let (report, age) = cached_report(&state).await;
-    let mut body = json!({
+    let body = json!({
         "schemaVersion": 1,
         "measuredAt": chrono::Utc::now().to_rfc3339(),
         "usedBytes": report.used_bytes,
+        "quotaBytes": state.team.storage_roots.quota_bytes,
         "components": report.components,
         "cacheAgeSeconds": age.as_secs(),
     });
-    if let Some(quota) = quota_bytes_from_env() {
-        body["quotaBytes"] = json!(quota);
-    }
     (StatusCode::OK, Json(body))
 }
 
@@ -130,11 +140,10 @@ pub async fn v1_usage(State(state): State<TeamAppState>) -> impl IntoResponse {
         .unwrap_or_default();
     let (report, _) = cached_report(&state).await;
 
-    let mut storage = serde_json::Map::new();
-    storage.insert("used_bytes".into(), json!(report.used_bytes));
-    if let Some(quota) = quota_bytes_from_env() {
-        storage.insert("quota_bytes".into(), json!(quota));
-    }
+    let storage = json!({
+        "used_bytes": report.used_bytes,
+        "quota_bytes": state.team.storage_roots.quota_bytes,
+    });
 
     let body = json!({
         "schemaVersion": 1,
@@ -148,7 +157,7 @@ pub async fn v1_usage(State(state): State<TeamAppState>) -> impl IntoResponse {
         // Signed-ledger events are the team's measured agent actions — the
         // honest "tool calls" figure (each ledger entry is one measured call).
         "toolCalls": summary.totals.total_events,
-        "storage": serde_json::Value::Object(storage),
+        "storage": storage,
     });
     (StatusCode::OK, Json(body))
 }
@@ -182,11 +191,22 @@ fn quota_bytes_from_env() -> Option<u64> {
     std::env::var(QUOTA_ENV).ok()?.trim().parse::<u64>().ok()
 }
 
+/// Resolve the effective quota: env override (ops escape hatch) →
+/// `storageQuotaBytes` from `team.json` (provisioning, #282) → Team-tier
+/// default. Pure so the precedence is unit-testable without env races.
+pub(super) fn resolve_quota_bytes(env_override: Option<u64>, config_quota: Option<u64>) -> u64 {
+    env_override
+        .or(config_quota)
+        .unwrap_or(DEFAULT_TEAM_STORAGE_QUOTA_BYTES)
+}
+
 /// Build the measurement roots from the server config: the audit log's parent
 /// is the server data root; each workspace contributes `<root>/.lean-ctx`.
+/// `config_quota` is the `storageQuotaBytes` value from `team.json`.
 pub(super) fn storage_roots_from_config(
     audit_log_path: &Path,
     workspaces: &[(String, PathBuf)],
+    config_quota: Option<u64>,
 ) -> StorageRoots {
     let data_root = audit_log_path
         .parent()
@@ -199,6 +219,7 @@ pub(super) fn storage_roots_from_config(
     StorageRoots {
         data_root,
         workspaces,
+        quota_bytes: resolve_quota_bytes(quota_bytes_from_env(), config_quota),
     }
 }
 
@@ -257,6 +278,21 @@ mod tests {
         let missing = std::env::temp_dir().join("leanctx_team_billing_does_not_exist_xyz");
         let _ = std::fs::remove_dir_all(&missing);
         assert_eq!(dir_allocated_bytes(&missing), 0);
+    }
+
+    /// Quota precedence (#282/#463): env override → `storageQuotaBytes` from
+    /// `team.json` → Team-tier 5 GiB default. The report therefore always
+    /// carries a concrete quota and hosted metering never degenerates into
+    /// the `quota = 0 ⇒ "none"` state.
+    #[test]
+    fn quota_resolution_precedence() {
+        assert_eq!(resolve_quota_bytes(Some(7), Some(9)), 7);
+        assert_eq!(resolve_quota_bytes(None, Some(9)), 9);
+        assert_eq!(
+            resolve_quota_bytes(None, None),
+            DEFAULT_TEAM_STORAGE_QUOTA_BYTES
+        );
+        assert_eq!(DEFAULT_TEAM_STORAGE_QUOTA_BYTES, 5_368_709_120);
     }
 
     #[test]
@@ -321,6 +357,7 @@ mod tests {
                 ("inside".into(), ws_root.clone()),
                 ("outside".into(), ext.clone()),
             ],
+            None,
         );
         let report = roots.measure();
         let ids: Vec<&str> = report.components.iter().map(|c| c.id.as_str()).collect();

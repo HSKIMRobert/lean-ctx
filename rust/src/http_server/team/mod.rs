@@ -72,6 +72,12 @@ pub struct TeamServerConfig {
     pub stateful_mode: bool,
     #[serde(default = "default_true")]
     pub json_response: bool,
+    /// Hosted-storage quota in bytes (`storageQuotaBytes` in `team.json`),
+    /// rendered per plan by the control plane's provisioning bridge (#282).
+    /// Omitted ⇒ the server defaults to the Team tier's 5 GiB; the
+    /// `LEANCTX_TEAM_STORAGE_QUOTA_BYTES` env var overrides both.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage_quota_bytes: Option<u64>,
 }
 
 fn default_true() -> bool {
@@ -1371,6 +1377,7 @@ pub async fn serve_team(cfg: TeamServerConfig) -> Result<()> {
         storage_roots: super::team_billing::storage_roots_from_config(
             &cfg.audit_log_path,
             &workspace_roots,
+            cfg.storage_quota_bytes,
         ),
         storage_cache: Arc::new(tokio::sync::Mutex::new(
             super::team_billing::StorageCache::default(),

@@ -65,6 +65,7 @@ fn cfg_two(tmp: &tempfile::TempDir) -> TeamServerConfig {
         request_timeout_ms: 30_000,
         stateful_mode: false,
         json_response: true,
+        storage_quota_bytes: None,
     }
 }
 
@@ -103,6 +104,7 @@ async fn build_app(cfg: TeamServerConfig) -> Router {
         storage_roots: super::super::team_billing::storage_roots_from_config(
             &cfg.audit_log_path,
             &workspace_roots,
+            cfg.storage_quota_bytes,
         ),
         storage_cache: Arc::new(tokio::sync::Mutex::new(
             super::super::team_billing::StorageCache::default(),
@@ -170,6 +172,7 @@ fn cfg_savings(tmp: &tempfile::TempDir) -> TeamServerConfig {
         request_timeout_ms: 30_000,
         stateful_mode: false,
         json_response: true,
+        storage_quota_bytes: None,
     }
 }
 
@@ -472,6 +475,12 @@ async fn storage_and_usage_scope_gated_with_metering_shapes() {
     assert!(used >= 8_192, "usedBytes {used} misses workspace state");
     assert!(v["components"].as_array().is_some_and(|c| !c.is_empty()));
     assert!(v["measuredAt"].is_string());
+    // No storageQuotaBytes in team.json + no env override ⇒ the Team-tier
+    // default applies (#282) and the quota is always concrete.
+    assert_eq!(
+        v["quotaBytes"].as_u64(),
+        Some(super::super::team_billing::DEFAULT_TEAM_STORAGE_QUOTA_BYTES)
+    );
 
     // 4) /v1/usage carries the savings roll-up + snake_case storage block.
     let req = Request::builder()
@@ -493,5 +502,10 @@ async fn storage_and_usage_scope_gated_with_metering_shapes() {
     assert_eq!(
         storage_used, used,
         "usage storage block must match /v1/storage"
+    );
+    assert_eq!(
+        v["storage"]["quota_bytes"].as_u64(),
+        Some(super::super::team_billing::DEFAULT_TEAM_STORAGE_QUOTA_BYTES),
+        "usage storage block must carry the resolved quota"
     );
 }
