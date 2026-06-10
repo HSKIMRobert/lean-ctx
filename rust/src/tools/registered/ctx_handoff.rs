@@ -28,7 +28,7 @@ impl McpTool for CtxHandoffTool {
                     },
                     "path": { "type": "string", "description": "Ledger file path (for show/pull/import)" },
                     "paths": { "type": "array", "items": { "type": "string" }, "description": "Optional file paths for curated refs (for create/export)" },
-                    "format": { "type": "string", "description": "Output format (json|summary)" },
+                    "format": { "type": "string", "description": "Output format (json|summary|a2a — a2a wraps the bundle in a spec-shaped A2A Task envelope)" },
                     "write": { "type": "boolean", "description": "Write export to file" },
                     "privacy": { "type": "string", "description": "Export privacy: redacted (default) | full (admin only)" },
                     "filename": { "type": "string", "description": "Custom filename for export" },
@@ -332,6 +332,14 @@ fn handle_export(args: &Map<String, Value>, ctx: &ToolContext) -> Result<String,
             json.len(),
             &bundle.privacy,
         ),
+        // A2A envelope (GL#449): spec-shaped Task object a foreign agent can
+        // parse without knowing the lean-ctx bundle format.
+        "a2a" => {
+            let task = crate::core::a2a::transfer::wrap_bundle_as_a2a_task(&bundle)
+                .map_err(|e| ErrorData::internal_error(e, None))?;
+            serde_json::to_string_pretty(&task)
+                .map_err(|e| ErrorData::internal_error(format!("a2a serialization: {e}"), None))?
+        }
         _ => {
             if let Some(p) = written.as_deref() {
                 format!("{json}\n\npath: {}", p.display())

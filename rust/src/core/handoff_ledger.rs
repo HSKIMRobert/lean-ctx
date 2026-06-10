@@ -13,7 +13,7 @@ pub const SCHEMA_VERSION: u32 = crate::core::contracts::HANDOFF_LEDGER_V1_SCHEMA
 const MAX_KNOWLEDGE_FACTS: usize = 50;
 const MAX_CURATED_REFS: usize = 20;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct HandoffLedgerV1 {
     pub schema_version: u32,
     pub created_at: String,

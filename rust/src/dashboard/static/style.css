@@ -195,7 +195,9 @@ html.support-bar-off .support-bar{display:none}
 .topbar{
   display:flex;align-items:center;justify-content:space-between;
   margin-bottom:24px;padding:16px 0;border-bottom:1px solid var(--border);
-  position:sticky;top:0;background:var(--bg);z-index:100;
+  /* Sticky offset must clear the fixed support bar (z300), otherwise the
+     banner swallows clicks on the topbar controls once the page scrolls. */
+  position:sticky;top:var(--support-bar-h,0px);background:var(--bg);z-index:100;
   backdrop-filter:blur(12px);
 }
 .topbar-title{font-size:22px;font-weight:400;letter-spacing:-0.03em;font-family:var(--font-display)}
