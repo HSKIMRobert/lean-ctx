@@ -268,7 +268,11 @@ class CockpitContext extends HTMLElement {
       let barLeft = 0;
       const rPct = win > 0 ? rulesTok / win * 100 : 0;
       const fPct = win > 0 ? filesTok / win * 100 : 0;
-      const cPct = win > 0 ? Math.min(chatTok, win - rulesTok - filesTok) / win * 100 : 0;
+      // Keep the stacked bar consistent with the hero percentage: the raw
+      // transcript may exceed the window, so the conversation segment only
+      // gets whatever the utilization figure leaves after rules + files.
+      const chatBudget = Math.max(0, util * win - rulesTok - filesTok);
+      const cPct = win > 0 ? Math.min(chatTok, chatBudget) / win * 100 : 0;
       if (rulesTok > 0) { h += '<div style="position:absolute;left:' + barLeft + '%;top:0;height:100%;width:' + Math.max(0.5, rPct) + '%;background:#6b7280" title="Rules: ' + fmtTok(rulesTok) + '"></div>'; barLeft += rPct; }
       if (filesTok > 0) { h += '<div style="position:absolute;left:' + barLeft + '%;top:0;height:100%;width:' + Math.max(0.5, fPct) + '%;background:#10b981" title="Files: ' + fmtTok(filesTok) + '"></div>'; barLeft += fPct; }
       if (chatTok > 0) { h += '<div style="position:absolute;left:' + barLeft + '%;top:0;height:100%;width:' + Math.max(0.5, cPct) + '%;background:#f59e0b" title="Conversation: ' + fmtTok(chatTok) + '"></div>'; }
@@ -341,7 +345,7 @@ class CockpitContext extends HTMLElement {
     }
 
     // Triage banner — turns observation into a next action as pressure rises.
-    h += this._renderTriageBanner(esc, pressure, util);
+    h += this._renderTriageBanner(esc, pressure, util, proxyActive && !!pb);
 
     // Eviction candidates (from pressure). The backend sends plain path
     // strings (eviction_candidates_by_phi); tolerate object/tuple shapes too.
@@ -363,10 +367,13 @@ class CockpitContext extends HTMLElement {
   }
 
   // Maps the backend pressure band to a concrete operator action.
-  _renderTriageBanner(esc, pressure, util) {
+  _renderTriageBanner(esc, pressure, util, exact) {
     // Prefer the backend recommendation; fall back to the local utilization band.
+    // With exact proxy counts the hero already shows the authoritative number,
+    // so the triage band must use the same value or the card contradicts itself.
     const rec = pressure?.recommendation || '';
-    const u = typeof pressure?.utilization === 'number' ? pressure.utilization : util;
+    const u = exact ? util
+      : (typeof pressure?.utilization === 'number' ? pressure.utilization : util);
     let band;
     if (rec === 'EvictLeastRelevant' || u > 0.9) {
       band = { color: 'var(--red)', label: 'Critical', icon: '\u25cf',
