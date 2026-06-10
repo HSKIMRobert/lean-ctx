@@ -547,6 +547,7 @@ mod tests {
             layers,
             dependencies: vec![],
             tags: vec![],
+            visibility: None,
             integrity: PackageIntegrity {
                 sha256: "a".repeat(64),
                 content_hash: "b".repeat(64),

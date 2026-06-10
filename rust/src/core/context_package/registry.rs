@@ -210,16 +210,21 @@ impl LocalRegistry {
 
     /// Export with a fresh ed25519 signature over the manifest (GL #406) —
     /// required by the hosted registry. The stored package stays untouched;
-    /// only the exported bundle carries the signature.
+    /// only the exported bundle carries the signature. `private` stamps
+    /// `visibility=private` into the bundle for the hosted registry (#524).
     pub fn export_to_file_signed(
         &self,
         name: &str,
         version: &str,
         output: &Path,
         signing_key: &ed25519_dalek::SigningKey,
+        private: bool,
     ) -> Result<u64, String> {
         let (mut manifest, content) = self.load_package(name, version)?;
 
+        if private {
+            manifest.visibility = Some("private".to_string());
+        }
         super::signing::sign_package(&mut manifest, &content, signing_key);
 
         let bundle = ExportBundle { manifest, content };
@@ -378,6 +383,7 @@ mod tests {
             layers: vec![super::super::manifest::PackageLayer::Knowledge],
             dependencies: vec![],
             tags: vec!["rust".into()],
+            visibility: None,
             integrity: {
                 let c = PackageContent::default();
                 let j = serde_json::to_string(&c).unwrap();
@@ -446,6 +452,7 @@ mod tests {
             layers: vec![super::super::manifest::PackageLayer::Knowledge],
             dependencies: vec![],
             tags: vec![],
+            visibility: None,
             integrity: {
                 let composite = format!("export-test:2.0.0:{content_hash}");
                 let mut h2 = Sha256::new();
@@ -510,6 +517,7 @@ mod tests {
             layers: vec![super::super::manifest::PackageLayer::Knowledge],
             dependencies: vec![],
             tags: vec![],
+            visibility: None,
             integrity: super::super::manifest::PackageIntegrity {
                 sha256: format!("{:x}", h2.finalize()),
                 content_hash,

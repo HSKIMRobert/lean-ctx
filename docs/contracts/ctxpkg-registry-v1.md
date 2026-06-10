@@ -29,12 +29,25 @@ signature = ed25519_sign(signing_key, message_bytes)
 ## Namespaces
 
 - One namespace per account, claimed once, **permanent in v1**.
+- **Org-owned namespaces (GL #524)**: claim with `org_id` — the claimer
+  stays the *anchor* (FK target for tokens/domains); org owners/admins
+  manage (mint publish tokens, domains), members mint read tokens and
+  install private packages. Requires owner/admin role in the org to claim.
 - Format: `[a-z0-9-]`, 2–32 chars, no leading/trailing dash.
 - Reserved (never self-serve): `leanctx`, `lean-ctx`, `ctxpkg`, `official`,
   `verified`, `registry`, `api`, `www`, `admin`, `internal`, `system`,
   `root`, `staff`, `support`.
 - Package names: `[a-z0-9-]`, 1–64 chars. Versions: SemVer
   `MAJOR.MINOR.PATCH` with optional pre-release/build suffix.
+
+## Visibility (GL #524)
+
+- `manifest.visibility`: `public` (default) or `private`.
+- Private packages never appear in catalog/search/badge; index, manifest
+  and download answer **404** unless the request carries a bearer token of
+  the owning namespace (any scope). Authenticated private responses are
+  `Cache-Control: private, no-store`.
+- Set at export: `lean-ctx pack export <name> --sign --private`.
 
 ## Public surface (ctxpkg.com → control plane `/registry/v1/*`)
 
@@ -43,11 +56,11 @@ unless noted.
 
 | Method & path (public form) | Auth | Returns |
 |---|---|---|
-| `GET /api/v1/index.json` | — | global catalog: `{schema:"ctxpkg-registry-index-v1", packages:[{namespace,name,scoped_name,description,latest_version,versions,downloads,updated_at}]}` (Cache-Control 300 s) |
-| `GET /api/v1/packages/{ns}/{name}/index.json` | — | `{schema:"ctxpkg-registry-package-v1", latest, versions:[{version,artifact_sha256,size_bytes,signer_public_key,yanked,downloads,published_at}]}` (Cache-Control 60 s) |
-| `GET /api/v1/packages/{ns}/{name}/{version}/download` | — | artifact bytes (`application/octet-stream`), `x-ctxpkg-sha256` header, `x-ctxpkg-yanked: true` when yanked. Yanked stays downloadable (reproducibility) but is excluded from `latest`. |
-| `PUT /api/v1/packages/{ns}/{name}/{version}` | Bearer token (`ctxp_…`) | 201 `{published, artifact_sha256, size_bytes, trust_report}`; 400 invalid/unsigned; 401 bad token; 409 version exists; 413/400 too large |
-| `DELETE /api/v1/packages/{ns}/{name}/{version}` | Bearer token (`ctxp_…`) | 200 `{yanked}` — yank, not delete; owner namespace only |
+| `GET /api/v1/index.json` | — | global catalog (public packages only): `{schema:"ctxpkg-registry-index-v1", packages:[{namespace,name,scoped_name,description,latest_version,versions,downloads,updated_at,tags,verified,visibility,quality}]}` (Cache-Control 300 s) |
+| `GET /api/v1/packages/{ns}/{name}/index.json` | token if private | `{schema:"ctxpkg-registry-package-v1", latest, visibility, versions:[{version,artifact_sha256,size_bytes,signer_public_key,yanked,downloads,published_at}]}` (Cache-Control 60 s public / no-store private) |
+| `GET /api/v1/packages/{ns}/{name}/{version}/download` | token if private | artifact bytes (`application/octet-stream`), `x-ctxpkg-sha256` header, `x-ctxpkg-yanked: true` when yanked. Yanked stays downloadable (reproducibility) but is excluded from `latest`. |
+| `PUT /api/v1/packages/{ns}/{name}/{version}` | Bearer `ctxp_…` (publish scope) | 201 `{published, artifact_sha256, size_bytes, trust_report}`; 400 invalid/unsigned/read-token; 401 bad token; 409 version exists; 413/400 too large |
+| `DELETE /api/v1/packages/{ns}/{name}/{version}` | Bearer `ctxp_…` (publish scope) | 200 `{yanked}` — yank, not delete; owner namespace only |
 
 Publish-time checks (`trust_report`, persisted per release):
 `schema:"ok"`, `signature:"verified"`, `name_version_match`,
@@ -66,8 +79,16 @@ Edge routes (session auth, open `cloud_server`):
 | `POST /api/account/registry/tokens` | `POST /api/billing/registry/{user_id}/tokens` |
 | `DELETE /api/account/registry/tokens/{id}` | `DELETE /api/billing/registry/{user_id}/tokens/{id}` |
 
-Tokens: prefix `ctxp_`, 256-bit, plaintext shown exactly once at mint; only
+Tokens (GL #524 scopes): 256-bit, plaintext shown exactly once at mint; only
 the SHA-256 is stored. Max 10 active per publisher; revocation is immediate.
+
+| Scope | Prefix | May | Minted by |
+|---|---|---|---|
+| `publish` (default) | `ctxp_` | publish, yank, install (incl. private) | anchor / org owner / org admin |
+| `read` | `ctxr_` | install only (incl. private) — CI-safe | any org member |
+
+`POST …/tokens` body: `{label?, scope?: "publish"\|"read"}`. The claim body
+accepts `{namespace, org_id?}`; org claims need owner/admin in that org.
 
 ## CLI surface
 
@@ -75,10 +96,14 @@ the SHA-256 is stored. Max 10 active per publisher; revocation is immediate.
 lean-ctx pack export <name>[@version] --sign     # ed25519-signed bundle
                                                  # key: ~/.lean-ctx/keys/ctxpkg-ed25519.key
                                                  # (auto-generated, 0600 — back it up)
+lean-ctx pack export <name> --sign --private     # private on the hosted registry
 lean-ctx pack publish <file.ctxpkg> [--registry <url>] [--token <ctxp_…>]
                                                  # token also via CTXPKG_TOKEN
+                                                 # ctxr_ tokens are rejected locally
 lean-ctx pack install <ns>/<name>[@version] [--registry <url>]
                                                  # registry also via CTXPKG_REGISTRY
+                                                 # CTXPKG_TOKEN (ctxp_/ctxr_) unlocks
+                                                 # private packages
 ```
 
 Install resolves `latest` (newest non-yanked) unless pinned; a pinned yanked
@@ -98,9 +123,10 @@ registry = "https://ctxpkg.com/api"
 - **WASM plugins / policy packs as registry artifacts** — blocked on the
   capability-audit pipeline (#403 signing story); v1 hosts signed `.ctxpkg`
   context packages only.
-- Payouts/monetization, server-side search, org-owned namespaces, namespace
-  transfer, multiple keys per publisher (key rotation = new publisher
-  identity in v1).
+- Payouts/monetization, namespace transfer, multiple keys per publisher
+  (key rotation = new publisher identity in v1).
+- ~~Server-side search~~ → shipped (GL #514). ~~Org-owned namespaces,
+  private packages, read tokens~~ → shipped (GL #524, P2).
 
 ## Module map
 

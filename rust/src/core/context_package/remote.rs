@@ -23,7 +23,9 @@ pub fn registry_base(flag: Option<&str>) -> String {
         .to_string()
 }
 
-/// Resolve the publish token: explicit flag > `CTXPKG_TOKEN` env.
+/// Resolve the registry token: explicit flag > `CTXPKG_TOKEN` env. Used for
+/// publish (`ctxp_…`) and for installing private packages (`ctxp_…` or the
+/// read-only `ctxr_…`, GL #524).
 pub fn publish_token(flag: Option<&str>) -> Option<String> {
     flag.map(str::to_string)
         .or_else(|| std::env::var("CTXPKG_TOKEN").ok())
@@ -66,9 +68,15 @@ pub struct VersionInfo {
 }
 
 /// `GET {base}/v1/packages/{ns}/{name}/index.json` → all versions.
-pub fn fetch_versions(base: &str, ns: &str, name: &str) -> Result<Vec<VersionInfo>, String> {
+/// `token` unlocks private packages; public ones need none.
+pub fn fetch_versions(
+    base: &str,
+    ns: &str,
+    name: &str,
+    token: Option<&str>,
+) -> Result<Vec<VersionInfo>, String> {
     let url = format!("{base}/v1/packages/{ns}/{name}/index.json");
-    let body = http_get(&url)?;
+    let body = http_get(&url, token)?;
     let doc: serde_json::Value =
         serde_json::from_str(&body).map_err(|e| format!("registry returned non-JSON: {e}"))?;
     let versions = doc
@@ -114,9 +122,10 @@ pub fn download_verified(
     ns: &str,
     name: &str,
     info: &VersionInfo,
+    token: Option<&str>,
 ) -> Result<Vec<u8>, String> {
     let url = format!("{base}/v1/packages/{ns}/{name}/{}/download", info.version);
-    let bytes = http_get_bytes(&url)?;
+    let bytes = http_get_bytes(&url, token)?;
     let actual = sha256_hex(&bytes);
     if actual != info.artifact_sha256 {
         return Err(format!(
@@ -218,13 +227,26 @@ pub fn preflight_bundle(bytes: &[u8]) -> Result<(String, String, String), String
     Ok((ns.to_string(), name.to_string(), manifest.version))
 }
 
-fn http_get(url: &str) -> Result<String, String> {
+/// Private packages return 404 for outsiders — hint at the token when none
+/// was sent, so `install` failures stay actionable.
+fn not_found_hint(token: Option<&str>) -> &'static str {
+    if token.is_some() {
+        "package not found in the registry (or your token's namespace does not own it)"
+    } else {
+        "package not found in the registry — private packages need CTXPKG_TOKEN"
+    }
+}
+
+fn http_get(url: &str, token: Option<&str>) -> Result<String, String> {
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .http_status_as_error(false)
         .build()
         .into();
-    let resp = agent
-        .get(url)
+    let mut req = agent.get(url);
+    if let Some(t) = token {
+        req = req.header("Authorization", &format!("Bearer {t}"));
+    }
+    let resp = req
         .call()
         .map_err(|e| format!("registry unreachable: {e}"))?;
     let status = resp.status().as_u16();
@@ -233,7 +255,7 @@ fn http_get(url: &str) -> Result<String, String> {
         .read_to_string()
         .map_err(|e| format!("read registry response: {e}"))?;
     if status == 404 {
-        return Err("package not found in the registry".to_string());
+        return Err(not_found_hint(token).to_string());
     }
     if status >= 400 {
         return Err(format!("registry error (HTTP {status})"));
@@ -241,18 +263,21 @@ fn http_get(url: &str) -> Result<String, String> {
     Ok(body)
 }
 
-fn http_get_bytes(url: &str) -> Result<Vec<u8>, String> {
+fn http_get_bytes(url: &str, token: Option<&str>) -> Result<Vec<u8>, String> {
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .http_status_as_error(false)
         .build()
         .into();
-    let resp = agent
-        .get(url)
+    let mut req = agent.get(url);
+    if let Some(t) = token {
+        req = req.header("Authorization", &format!("Bearer {t}"));
+    }
+    let resp = req
         .call()
         .map_err(|e| format!("registry unreachable: {e}"))?;
     let status = resp.status().as_u16();
     if status == 404 {
-        return Err("artifact not found in the registry".to_string());
+        return Err(not_found_hint(token).to_string());
     }
     if status >= 400 {
         return Err(format!("registry error (HTTP {status})"));

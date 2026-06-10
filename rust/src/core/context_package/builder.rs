@@ -17,6 +17,7 @@ pub struct PackageBuilder {
     author: Option<String>,
     scope: Option<String>,
     tags: Vec<String>,
+    visibility: Option<String>,
     compatibility: CompatibilitySpec,
     content: PackageContent,
     project_hash: Option<String>,
@@ -33,6 +34,7 @@ impl PackageBuilder {
             author: None,
             scope: None,
             tags: Vec::new(),
+            visibility: None,
             compatibility: CompatibilitySpec::default(),
             content: PackageContent::default(),
             project_hash: None,
@@ -73,6 +75,12 @@ impl PackageBuilder {
 
     pub fn scope(mut self, scope: &str) -> Self {
         self.scope = Some(scope.to_string());
+        self
+    }
+
+    /// Mark the package `private` for the hosted registry (GL #524).
+    pub fn private(mut self) -> Self {
+        self.visibility = Some("private".to_string());
         self
     }
 
@@ -407,6 +415,7 @@ impl PackageBuilder {
             layers,
             dependencies: Vec::new(),
             tags: self.tags,
+            visibility: self.visibility,
             integrity: PackageIntegrity {
                 sha256,
                 content_hash,

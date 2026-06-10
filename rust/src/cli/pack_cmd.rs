@@ -143,11 +143,17 @@ fn cmd_pack_create(args: &[String], project_root: &str) {
     let mut layers_str: Option<String> = None;
     let mut level: u32 = 1;
     let mut scope: Option<String> = None;
+    let mut private = false;
 
     let mut i = 0;
     while i < args.len() {
         let a = &args[i];
         if a == "create" {
+            i += 1;
+            continue;
+        }
+        if a == "--private" {
+            private = true;
             i += 1;
             continue;
         }
@@ -221,6 +227,9 @@ fn cmd_pack_create(args: &[String], project_root: &str) {
     }
     if let Some(ref s) = scope {
         builder = builder.scope(s);
+    }
+    if private {
+        builder = builder.private();
     }
 
     let phash = crate::core::project_hash::hash_project_root(project_root);
@@ -612,6 +621,7 @@ fn cmd_pack_export(args: &[String]) {
     let mut pkg_ref: Option<&str> = None;
     let mut output: Option<String> = None;
     let mut sign = false;
+    let mut private = false;
 
     for a in args {
         if a == "export" {
@@ -623,15 +633,23 @@ fn cmd_pack_export(args: &[String]) {
             output = Some(v.to_string());
         } else if a == "--sign" {
             sign = true;
+        } else if a == "--private" {
+            private = true;
         } else if !a.starts_with("--") && pkg_ref.is_none() {
             pkg_ref = Some(a.as_str());
         }
     }
 
     let Some(pkg_ref) = pkg_ref else {
-        eprintln!("Usage: lean-ctx pack export <name>[@version] [--output=path] [--sign]");
+        eprintln!(
+            "Usage: lean-ctx pack export <name>[@version] [--output=path] [--sign] [--private]"
+        );
         return;
     };
+    if private && !sign {
+        eprintln!("ERROR: --private only applies to signed exports — add --sign");
+        return;
+    }
 
     let (parsed_name, parsed_ver) = parse_pkg_ref(pkg_ref);
     let (name, version) = if let Some(v) = parsed_ver {
@@ -684,9 +702,19 @@ fn cmd_pack_export(args: &[String]) {
             );
             println!("This key IS your publisher identity — back it up.");
         }
-        match registry.export_to_file_signed(&name, &version, &PathBuf::from(&out_path), &key) {
+        match registry.export_to_file_signed(
+            &name,
+            &version,
+            &PathBuf::from(&out_path),
+            &key,
+            private,
+        ) {
             Ok(bytes) => {
-                println!("Exported (signed): {out_path} ({})", format_bytes(bytes));
+                let vis = if private { ", private" } else { "" };
+                println!(
+                    "Exported (signed{vis}): {out_path} ({})",
+                    format_bytes(bytes)
+                );
                 println!(
                     "Signer public key: {}",
                     crate::core::context_package::keys::public_key_hex(&key)
@@ -877,6 +905,12 @@ fn cmd_pack_publish(args: &[String]) {
         eprintln!("Mint one at leanctx.com → Account → Registry.");
         return;
     };
+    if token.starts_with("ctxr_") {
+        eprintln!(
+            "ERROR: this is a read-only install token (ctxr_) — publishing needs a ctxp_ token"
+        );
+        return;
+    }
 
     println!("Publishing @{ns}/{name}@{version} to {base} …");
     match remote::publish(&base, &token, &ns, &name, &version, &bytes) {
@@ -903,9 +937,11 @@ fn cmd_pack_install_remote(raw_ref: &str, registry_flag: Option<&str>, project_r
     let base = remote::registry_base(registry_flag);
     let ns = &remote_ref.namespace;
     let name = &remote_ref.name;
+    // CTXPKG_TOKEN (ctxp_ or read-only ctxr_) unlocks private packages (#524).
+    let token = remote::publish_token(None);
 
     println!("Resolving @{ns}/{name} via {base} …");
-    let versions = match remote::fetch_versions(&base, ns, name) {
+    let versions = match remote::fetch_versions(&base, ns, name, token.as_deref()) {
         Ok(v) => v,
         Err(e) => {
             eprintln!("ERROR: {e}");
@@ -927,7 +963,7 @@ fn cmd_pack_install_remote(raw_ref: &str, registry_flag: Option<&str>, project_r
         );
     }
 
-    let bytes = match remote::download_verified(&base, ns, name, info) {
+    let bytes = match remote::download_verified(&base, ns, name, info, token.as_deref()) {
         Ok(b) => b,
         Err(e) => {
             eprintln!("ERROR: {e}");
@@ -1222,7 +1258,7 @@ fn print_usage() {
          \x20 remove   <name>[@version]  Remove a package\n\
          \n\
          Share & Distribute:\n\
-         \x20 export   <name>[@version] [--output=<path>] [--sign]  Export to .{ext} file (--sign: ed25519, required for publish)\n\
+         \x20 export   <name>[@version] [--output=<path>] [--sign] [--private]  Export to .{ext} file (--sign: ed25519, required for publish; --private: hidden on the hosted registry)\n\
          \x20 import   <file.{ext}> [--apply]            Import from file\n\
          \x20 install  <name>[@version] [--file=<path>]    Apply package to current project\n\
          \x20 install  <ns>/<name>[@version]              Install from the hosted registry\n\
