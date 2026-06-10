@@ -26,6 +26,7 @@ var CKO_CHARTS = [
   'cko-chartCumSavings',
   'cko-chartDailyActivity',
   'cko-chartSavingsRate',
+  'cko-chartCmdVolume',
   'cko-chartMcpShell',
   'cko-chartTaskBreak',
 ];
@@ -128,6 +129,7 @@ class CockpitOverview extends HTMLElement {
       '/api/slos',
       '/api/verification',
       '/api/graph/stats',
+      '/api/roi',
     ];
 
     var cached = window.LctxApi && window.LctxApi.cachedFetch ? window.LctxApi.cachedFetch : fetchJson;
@@ -159,6 +161,7 @@ class CockpitOverview extends HTMLElement {
       slos: ok(results[4]),
       verification: ok(results[5]),
       graphStats: ok(results[6]),
+      roi: ok(results[7]),
     };
 
     this._loading = false;
@@ -206,6 +209,7 @@ class CockpitOverview extends HTMLElement {
     this.innerHTML = body;
     this._bind();
     this._bindContextHealthCard();
+    this._bindVerifiedBridge();
   }
 
   /* ── Time filter bar ───────────────────────────────── */
@@ -256,16 +260,22 @@ class CockpitOverview extends HTMLElement {
       ? 'var(--green)' : scoreDash >= 50
         ? 'var(--yellow)' : 'var(--red)';
 
+    var sinceStr = stats && stats.first_use
+      ? String(stats.first_use).slice(0, 10) : '';
+
     return (
       '<div class="hero stagger">' +
 
       '<div class="hero-main">' +
-      '<span class="hl">Total tokens saved' + tip('total_tokens_saved') + '</span>' +
+      '<span class="hl">Total tokens saved' + tip('total_tokens_saved') +
+      '<span class="tag tb" style="margin-left:8px">estimated' +
+      (sinceStr ? ' \u00b7 since ' + esc(sinceStr) : '') + '</span></span>' +
       '<div class="hv" id="cko-vSaved">' + esc(ff(saved)) + '</div>' +
       '<p class="hs">' +
       'From <b>' + esc(ff(totalIn)) + '</b> input to <b>' +
       esc(ff(totalOut)) + '</b> output across <b>' +
       esc(ff(calls)) + '</b> calls</p>' +
+      this._verifiedBridge(esc, ff, fu) +
       '</div>' +
 
       '<div class="hc">' +
@@ -311,6 +321,40 @@ class CockpitOverview extends HTMLElement {
     );
   }
 
+  /* ── Verified-ledger bridge line (estimated ⇄ signed, links to ROI) ── */
+
+  _verifiedBridge(esc, ff, fu) {
+    var roiPayload = this._data && this._data.roi;
+    var roi = roiPayload && roiPayload.roi ? roiPayload.roi : null;
+    if (!roi || !roi.total_events) return '';
+
+    var trend = roiPayload.trend || [];
+    var since = trend.length && trend[0] && trend[0][0] ? String(trend[0][0]) : '';
+
+    return (
+      '<p class="hs cko-bridge" id="cko-verifiedBridge" role="link" tabindex="0" ' +
+      'title="Open ROI & Plan" style="cursor:pointer;margin-top:6px">' +
+      '<span class="tag tg">verified</span> ' +
+      'of which <b>' + esc(ff(roi.net_saved_tokens)) + '</b> tokens \u00b7 <b>' +
+      esc(fu(roi.saved_usd)) + '</b> are signed in the local ledger' +
+      (since ? ' (since ' + esc(since) + ')' : '') +
+      ' <span class="hc-health-go">ROI &amp; Plan \u2192</span></p>'
+    );
+  }
+
+  _bindVerifiedBridge() {
+    var el = document.getElementById('cko-verifiedBridge');
+    if (!el || el.dataset.bound === '1') return;
+    el.dataset.bound = '1';
+    var go = function () {
+      if (window.LctxRouter) window.LctxRouter.navigateTo('roi');
+    };
+    el.addEventListener('click', go);
+    el.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); }
+    });
+  }
+
   /* ── Context Health hero card (compact, links to Commander) ───── */
 
   _healthHeroCard(esc, ff) {
@@ -330,7 +374,7 @@ class CockpitOverview extends HTMLElement {
         }).catch(function () {});
       }
       return '<div class="hc hc--link" id="cko-healthCard" role="button" tabindex="0" ' +
-        'title="Open Context Commander">' +
+        'title="Open Context Triage">' +
         '<span class="hl">Context Health' + tip('context_health') + '</span>' +
         '<div class="hv" style="color:var(--muted)">\u2014</div>' +
         '<p class="hs">checking\u2026</p>' +
@@ -338,7 +382,7 @@ class CockpitOverview extends HTMLElement {
     }
 
     return '<div class="hc hc--link" id="cko-healthCard" role="button" tabindex="0" ' +
-      'title="Open Context Commander">' +
+      'title="Open Context Triage">' +
       this._buildHealthHeroInner(esc, ff, this._triageData) + '</div>';
   }
 
@@ -360,7 +404,7 @@ class CockpitOverview extends HTMLElement {
       '<div class="hv hc-health-v" style="color:' + col + '">' +
       '<span class="hc-health-dot" style="background:' + col + '"></span>' + esc(label) +
       '</div>' +
-      '<p class="hs">' + esc(sub) + '<span class="hc-health-go">Commander \u2192</span></p>';
+      '<p class="hs">' + esc(sub) + '<span class="hc-health-go">Triage \u2192</span></p>';
   }
 
   _bindContextHealthCard() {
@@ -598,8 +642,9 @@ class CockpitOverview extends HTMLElement {
   /* ── Charts row 2 (4 cards) ────────────────────────── */
 
   _renderChartsRow2() {
+    // Trend trio (formerly the separate Trends page) + tool-split donuts.
     return (
-      '<div class="row r4" style="margin-bottom:20px">' +
+      '<div class="row r3" style="margin-bottom:20px">' +
 
       '<div class="card">' +
       '<h3>Daily activity' + tip('daily_activity') + '</h3>' +
@@ -612,6 +657,16 @@ class CockpitOverview extends HTMLElement {
       '<canvas id="cko-chartSavingsRate" height="200"' +
       ' aria-label="Savings rate chart"></canvas>' +
       '</div>' +
+
+      '<div class="card">' +
+      '<h3>Command volume' + tip('command_volume') + '</h3>' +
+      '<canvas id="cko-chartCmdVolume" height="200"' +
+      ' aria-label="Command volume chart"></canvas>' +
+      '</div>' +
+
+      '</div>' +
+
+      '<div class="row r11" style="margin-bottom:20px">' +
 
       '<div class="card">' +
       '<h3>MCP vs Shell' + tip('mcp_vs_shell') + '</h3>' +
@@ -728,6 +783,7 @@ class CockpitOverview extends HTMLElement {
       try { self._chartCumSavings(); } catch (_) {}
       try { self._chartDailyActivity(); } catch (_) {}
       try { self._chartSavingsRate(); } catch (_) {}
+      try { self._chartCmdVolume(); } catch (_) {}
       try { self._chartMcpShell(); } catch (_) {}
       try { self._chartTaskBreak(); } catch (_) {}
     });
@@ -833,6 +889,26 @@ class CockpitOverview extends HTMLElement {
     Ch.lineChart(
       'cko-chartSavingsRate', labels, values,
       '#818cf8', 'rgba(129,140,248,.06)'
+    );
+  }
+
+  _chartCmdVolume() {
+    var Ch = chartsLib();
+    if (!Ch.lineChart || typeof Chart === 'undefined') return;
+    var daily = this._filteredDaily();
+    if (!daily.length) return;
+
+    var labels = [];
+    var values = [];
+    for (var i = 0; i < daily.length; i++) {
+      var d = daily[i];
+      labels.push(String(d.date || '').slice(5));
+      values.push(Number(d.count || d.commands || d.calls || 0));
+    }
+
+    Ch.lineChart(
+      'cko-chartCmdVolume', labels, values,
+      '#38bdf8', 'rgba(56,189,248,.06)'
     );
   }
 

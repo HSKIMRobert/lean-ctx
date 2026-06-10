@@ -1,5 +1,5 @@
 /**
- * Context Manager — single-page context visibility & management.
+ * Context Contents — single-page context visibility & management.
  */
 const VIEW_MODES = [
   'full', 'map', 'signatures', 'diff', 'aggressive',
@@ -179,6 +179,11 @@ class CockpitContext extends HTMLElement {
     if (this._error) { this.innerHTML = '<div class="card" style="padding:20px;color:var(--red)">\u26a0 ' + esc(this._error) + '</div>'; return; }
 
     let body = '';
+
+    // Sibling view: Contents shows what is loaded, Triage says what to do.
+    body += '<p class="hs" style="margin:0 0 12px;color:var(--muted)">Too full? ' +
+      '<a href="#commander" style="color:var(--accent)">Context Triage \u2192</a> ' +
+      'tells you what to trim.</p>';
 
     // 1. Context Window (hero)
     body += this._renderContextWindow(esc, ff, pc);

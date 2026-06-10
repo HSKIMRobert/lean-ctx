@@ -308,9 +308,6 @@
     <section id="view-search" class="view">
       <cockpit-search id="searchView"></cockpit-search>
     </section>
-    <section id="view-learning" class="view">
-      <cockpit-learning id="learningView"></cockpit-learning>
-    </section>
     <section id="view-symbols" class="view">
       <cockpit-graph id="symbolsView" data-tab="symbols"></cockpit-graph>
     </section>
@@ -357,11 +354,11 @@
   <div class="onboard-card" role="dialog" aria-modal="true" aria-labelledby="onboardTitle">
     <div class="onboard-logo"><span>&lt;|&gt;</span> Lean<b>CTX</b></div>
     <h2 class="onboard-title" id="onboardTitle">Welcome to your cockpit</h2>
-    <p class="onboard-sub">lean-ctx quietly shrinks what your AI tools read. Here's what it has saved you so far:</p>
+    <p class="onboard-sub">lean-ctx does four jobs for your AI agents — and this is what it has saved you so far:</p>
     <div class="onboard-stats" id="onboardStats"></div>
     <ul class="onboard-points">
-      <li><b>Home</b> &amp; <b>Trends</b> show your savings — that's all most people need.</li>
-      <li>Want the deep developer views? Flip <b>Simple → Advanced</b> in the top bar anytime.</li>
+      <li><b>Savings</b> — proves what it saves. <b>Home</b> has the story; that's all most people need.</li>
+      <li><b>Context</b> decides what agents read, <b>Memory</b> remembers what they learn, the <b>Project Map</b> shows what lean-ctx understands about your code — flip <b>Simple → Advanced</b> to see them.</li>
       <li>Hover any <span class="onboard-i">i</span> for a plain-language explanation.</li>
     </ul>
     <button type="button" class="onboard-btn" id="onboardBtn">Got it — show me</button>
@@ -516,7 +513,7 @@ function bootCockpit() {
 
   // Simple ⇄ Advanced navigation mode (persisted; drives cockpit-nav).
   var NAV_MODE_KEY = 'lctx_nav_mode';
-  var SIMPLE_VIEWS = { overview: 1, roi: 1, learning: 1, compression: 1, live: 1 };
+  var SIMPLE_VIEWS = { overview: 1, roi: 1, compression: 1, live: 1 };
   function getNavMode() {
     try { return localStorage.getItem(NAV_MODE_KEY) === 'pro' ? 'pro' : 'simple'; } catch (e) { return 'simple'; }
   }

@@ -33,41 +33,45 @@ function getNavMode() {
   }
 }
 
-// Two-tier navigation: a small "Essentials" set that anyone can understand, and
-// "pro" groups that surface the deep developer/observability views on demand.
-// `desc` powers nav tooltips, the per-view hint banner and onboarding copy.
+// Two-tier navigation grouped by the four jobs lean-ctx does. All views stay
+// reachable — the groups only tell the story. `job` is the plain-language
+// promise shown as the group tooltip; `desc` powers nav tooltips, the per-view
+// hint banner and onboarding copy.
 const COCKPIT_NAV_SECTIONS = [
   {
-    label: 'Essentials',
+    label: 'Savings',
+    job: 'Proves what it saves — estimated and signed.',
     tier: 'simple',
     items: [
-      { id: 'overview', label: 'Home', desc: 'Your savings at a glance.' },
-      { id: 'roi', label: 'ROI & Plan', desc: 'Verified savings, your plan and entitlements.' },
-      { id: 'learning', label: 'Trends', desc: 'How your savings and efficiency change over time.' },
-      { id: 'compression', label: 'Savings', desc: 'Which files and read modes saved the most tokens.' },
+      { id: 'overview', label: 'Home', desc: 'Your savings at a glance, with trends over time.' },
+      { id: 'roi', label: 'ROI & Plan', desc: 'Signed, verifiable savings plus your plan and entitlements.' },
+      { id: 'compression', label: 'Compression Lab', desc: 'Which files and read modes saved the most tokens.' },
       { id: 'live', label: 'Live Activity', desc: 'What lean-ctx is doing right now.' },
     ],
   },
   {
     label: 'Context',
+    job: 'Decides what your agents read.',
     tier: 'pro',
     items: [
-      { id: 'commander', label: 'Context Health', desc: 'Context-window pressure and what to trim.' },
-      { id: 'context', label: 'Context Manager', desc: 'Everything currently loaded into the model context.' },
+      { id: 'commander', label: 'Context Triage', desc: 'Context-window pressure and what to trim — your to-do list.' },
+      { id: 'context', label: 'Context Contents', desc: 'Everything currently loaded into the model context.' },
     ],
   },
   {
-    label: 'Intelligence',
+    label: 'Memory',
+    job: 'Remembers what your agents learn.',
     tier: 'pro',
     items: [
       { id: 'knowledge', label: 'Knowledge', desc: 'Facts lean-ctx has learned about your project.' },
-      { id: 'memory', label: 'Memory', desc: 'Saved episodes, procedures and bug memory.' },
+      { id: 'memory', label: 'Episodes', desc: 'Saved episodes, procedures and bug memory.' },
       { id: 'search', label: 'Search', desc: 'Search indexed files, symbols and content.' },
       { id: 'agents', label: 'Agents', desc: 'Connected agents and their activity.' },
     ],
   },
   {
-    label: 'Code Map',
+    label: 'Project Map',
+    job: 'What lean-ctx understands about your code.',
     tier: 'pro',
     items: [
       { id: 'deps', label: 'Dependencies', desc: 'How your modules depend on each other.' },
@@ -141,7 +145,8 @@ class CockpitNav extends HTMLElement {
       if (shown > 0) html += '<div class="nav-divider"></div>';
       // Section labels only add value once several groups are visible (pro).
       if (section.label && mode === 'pro') {
-        html += '<div class="nav-section-label">' + section.label + '</div>';
+        var jobTip = (section.job || '').replace(/"/g, '&quot;');
+        html += '<div class="nav-section-label" title="' + jobTip + '">' + section.label + '</div>';
       }
       html += '<div class="nav-section">';
       for (var ii = 0; ii < section.items.length; ii++) {

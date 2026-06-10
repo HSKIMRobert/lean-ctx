@@ -163,24 +163,35 @@ class CockpitRoi extends HTMLElement {
     var energy = F.fe ? F.fe(energyWh) : '\u2014';
 
     // The signed ledger starts later than the all-time stats on Home, so the
-    // totals legitimately differ. Say so, or the numbers look contradictory.
+    // totals legitimately differ. Say so prominently, or the numbers look
+    // contradictory next to Home's estimated all-time figures.
     var trend = this._data.trend || [];
     var since = trend.length && trend[0] && trend[0][0] ? String(trend[0][0]) : null;
-    var scope = 'signed ledger only' + (since ? ' \u00b7 since ' + esc(since) : '') +
-      ' \u2014 Home shows all-time totals';
+
+    var scopeBanner =
+      '<div class="view-hint" style="margin-bottom:14px">' +
+      '<span class="tag tg">verified</span>' +
+      '<span>These numbers come from the <b>signed ledger</b>' +
+      (since ? ' (recording since <b>' + esc(since) + '</b>)' : '') +
+      ' \u2014 a newer, stricter count than the estimated all-time totals on ' +
+      '<a href="#overview" style="color:var(--accent)">Home</a>. Both are correct; ' +
+      'this one is tamper-evident proof, Home is the full history.</span>' +
+      '</div>';
 
     return (
+      scopeBanner +
       '<div class="hero r4 stagger" style="margin-bottom:4px">' +
-      '<div class="hc"><span class="hl">Net tokens saved</span>' +
+      '<div class="hc"><span class="hl">Net tokens saved ' +
+      '<span class="tag tg">verified</span></span>' +
       '<div class="hv">' + esc(ff(roi.net_saved_tokens)) + '</div></div>' +
-      '<div class="hc"><span class="hl">Estimated $ saved</span>' +
+      '<div class="hc"><span class="hl">$ saved ' +
+      '<span class="tag tg">verified</span></span>' +
       '<div class="hv" style="color:var(--green)">' + esc(fu(roi.saved_usd)) + '</div></div>' +
       '<div class="hc"><span class="hl">Energy saved</span>' +
       '<div class="hv">' + esc(energy) + '</div></div>' +
       '<div class="hc"><span class="hl">Verified events</span>' +
       '<div class="hv">' + esc(ff(roi.total_events)) + '</div></div>' +
-      '</div>' +
-      '<p class="hs" style="margin:0 0 12px;color:var(--muted)">' + scope + '</p>'
+      '</div>'
     );
   }
 
