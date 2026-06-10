@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Fixed
+- **Dashboard polish from the function audit** (GL #478): the Explorer tree is
+  now a real WAI-ARIA tree — `role=tree/treeitem/group`, `aria-expanded`,
+  roving tabindex and full keyboard support (arrows expand/collapse/navigate,
+  Enter/Space toggle, Home/End jump) with a visible focus ring. Search results
+  stopped pretending: clicking a hit opens an inline file preview (±12 lines
+  around the match, hit line highlighted) served by the existing
+  `compression-demo` endpoint, with full keyboard access. Procedures now
+  auto-learn: every recorded episode re-runs workflow detection
+  (`procedural_memory::auto_detect_from_episodes`), so recurring tool
+  sequences appear on the Memory page without anyone calling `detect` by
+  hand. The status-bar daemon indicator finally explains itself — the tooltip
+  describes what green/red means and how to recover (`lean-ctx serve -d`).
 - **Data truthfulness** (GL #479): the dashboard now tells the whole story
   behind its savings numbers. The verified ledger covers measured shell and
   search compression (`cli_shell`, `ctx_shell`, `ctx_search` events with raw,

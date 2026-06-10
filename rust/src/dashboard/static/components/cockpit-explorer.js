@@ -52,10 +52,10 @@ class CockpitExplorer extends HTMLElement {
     this.innerHTML =
       '<div class="exp-wrap">' +
       '<div class="exp-toolbar">' +
-      '<input type="text" class="exp-filter" placeholder="Filter files & symbols\u2026" spellcheck="false" autocomplete="off">' +
+      '<input type="text" class="exp-filter" placeholder="Filter files & symbols\u2026" spellcheck="false" autocomplete="off" aria-label="Filter files and symbols">' +
       '<span class="exp-stats">' + cexpEsc(stats) + '</span>' +
       '</div>' +
-      '<div class="exp-tree" id="expTree"></div>' +
+      '<div class="exp-tree" id="expTree" role="tree" aria-label="Project files and symbols"></div>' +
       '</div>';
 
     this._treeEl = this.querySelector('#expTree');
@@ -72,13 +72,109 @@ class CockpitExplorer extends HTMLElement {
 
     this._treeEl.addEventListener('click', function (ev) {
       var row = ev.target && ev.target.closest ? ev.target.closest('.exp-row') : null;
-      if (row) self._toggleRow(row);
+      if (row) {
+        self._focusRow(row);
+        self._toggleRow(row);
+      }
     });
+    // WAI-ARIA tree keyboard model (GL #478): arrows navigate, Enter/Space
+    // toggles, Home/End jump. One roving tabindex keeps Tab cost at one stop.
+    this._treeEl.addEventListener('keydown', function (ev) { self._onTreeKeydown(ev); });
+  }
+
+  /* ---- ARIA tree keyboard support (GL #478) ---- */
+
+  /** All currently *visible* rows, in document order. Collapsed subtrees are
+   *  `display:none` (style.css), so any row inside a collapsed ancestor's
+   *  children-wrap is excluded. */
+  _visibleRows() {
+    var all = this._treeEl.querySelectorAll('.exp-row');
+    var out = [];
+    for (var i = 0; i < all.length; i++) {
+      var row = all[i];
+      var wrap = row.parentElement ? row.parentElement.parentElement : null;
+      var hidden = false;
+      // Walk children-wrap ancestors: each belongs to an <li> that may be collapsed.
+      while (wrap && wrap !== this._treeEl) {
+        if (wrap.classList && wrap.classList.contains('exp-children') &&
+            wrap.parentElement && wrap.parentElement.classList.contains('collapsed')) {
+          hidden = true;
+          break;
+        }
+        wrap = wrap.parentElement;
+      }
+      if (!hidden) out.push(row);
+    }
+    return out;
+  }
+
+  /** Move the roving tabindex + DOM focus to a row. */
+  _focusRow(row) {
+    if (this._focused && this._focused !== row) this._focused.setAttribute('tabindex', '-1');
+    this._focused = row;
+    row.setAttribute('tabindex', '0');
+    row.focus();
+  }
+
+  _onTreeKeydown(ev) {
+    var row = ev.target && ev.target.closest ? ev.target.closest('.exp-row') : null;
+    if (!row) return;
+    var rows, idx;
+    switch (ev.key) {
+      case 'ArrowDown':
+      case 'ArrowUp':
+        rows = this._visibleRows();
+        idx = rows.indexOf(row) + (ev.key === 'ArrowDown' ? 1 : -1);
+        if (idx >= 0 && idx < rows.length) this._focusRow(rows[idx]);
+        break;
+      case 'ArrowRight':
+        if (row.getAttribute('aria-expanded') === 'false') {
+          this._toggleRow(row);
+        } else if (row.getAttribute('aria-expanded') === 'true') {
+          rows = this._visibleRows();
+          idx = rows.indexOf(row) + 1;
+          if (idx < rows.length) this._focusRow(rows[idx]);
+        }
+        break;
+      case 'ArrowLeft':
+        if (row.getAttribute('aria-expanded') === 'true') {
+          this._toggleRow(row);
+        } else {
+          // Jump to the parent row of this nesting level.
+          var parentLi = row.closest('.exp-children') ?
+            row.closest('.exp-children').parentElement : null;
+          var parentRow = parentLi ? parentLi.querySelector(':scope > .exp-row') : null;
+          if (parentRow) this._focusRow(parentRow);
+        }
+        break;
+      case 'Enter':
+      case ' ':
+        this._toggleRow(row);
+        break;
+      case 'Home':
+        rows = this._visibleRows();
+        if (rows.length) this._focusRow(rows[0]);
+        break;
+      case 'End':
+        rows = this._visibleRows();
+        if (rows.length) this._focusRow(rows[rows.length - 1]);
+        break;
+      default:
+        return;
+    }
+    ev.preventDefault();
+    ev.stopPropagation();
   }
 
   _renderTree() {
     this._treeEl.classList.remove('exp-filtered');
     this._mountInto(this._treeEl, this._data.tree || []);
+    // Roving tabindex entry point: the first row is the single Tab stop.
+    var first = this._treeEl.querySelector('.exp-row');
+    if (first) {
+      first.setAttribute('tabindex', '0');
+      this._focused = first;
+    }
   }
 
   /** Render a level into a container and bind each <li> to its node. */
@@ -90,33 +186,35 @@ class CockpitExplorer extends HTMLElement {
     for (var i = 0; i < lis.length && i < nodes.length; i++) lis[i]._node = nodes[i];
   }
 
-  /** Build one <ul> level. Dirs/files collapsed; children lazy. */
+  /** Build one <ul> level. Dirs/files collapsed; children lazy.
+   *  ARIA (GL #478): every row is a focusable `treeitem`; expandable rows
+   *  carry `aria-expanded`, levels carry `role=group`. */
   _listHtml(nodes) {
-    var html = '<ul class="exp-list">';
+    var html = '<ul class="exp-list" role="group">';
     for (var i = 0; i < nodes.length; i++) {
       var n = nodes[i];
       if (n.type === 'dir') {
         html +=
-          '<li class="exp-node exp-dir collapsed">' +
-          '<div class="exp-row" data-kind="dir">' +
-          '<span class="exp-caret">\u25B8</span>' +
-          '<span class="exp-icon exp-dir-icon">\uD83D\uDCC1</span>' +
+          '<li class="exp-node exp-dir collapsed" role="none">' +
+          '<div class="exp-row" role="treeitem" tabindex="-1" aria-expanded="false" data-kind="dir" aria-label="' + cexpEsc(n.name) + ', directory, ' + (n.files || 0) + ' files">' +
+          '<span class="exp-caret" aria-hidden="true">\u25B8</span>' +
+          '<span class="exp-icon exp-dir-icon" aria-hidden="true">\uD83D\uDCC1</span>' +
           '<span class="exp-name">' + cexpEsc(n.name) + '</span>' +
           '<span class="exp-count">' + (n.files || 0) + '</span>' +
           '</div>' +
-          '<div class="exp-children" data-lazy="dir"></div>' +
+          '<div class="exp-children" data-lazy="dir" role="none"></div>' +
           '</li>';
       } else {
         var hasSyms = (n.symbol_count || 0) > 0;
         html +=
-          '<li class="exp-node exp-file collapsed">' +
-          '<div class="exp-row" data-kind="file"' + (hasSyms ? '' : ' data-leaf="1"') + ' title="' + cexpEsc(n.path || n.name) + '">' +
-          '<span class="exp-caret">' + (hasSyms ? '\u25B8' : '') + '</span>' +
-          '<span class="exp-icon exp-file-icon">' + cexpEsc(cexpLangBadge(n.language)) + '</span>' +
+          '<li class="exp-node exp-file collapsed" role="none">' +
+          '<div class="exp-row" role="treeitem" tabindex="-1"' + (hasSyms ? ' aria-expanded="false"' : '') + ' data-kind="file"' + (hasSyms ? '' : ' data-leaf="1"') + ' title="' + cexpEsc(n.path || n.name) + '" aria-label="' + cexpEsc(n.name) + ', file, ' + (n.symbol_count || 0) + ' symbols">' +
+          '<span class="exp-caret" aria-hidden="true">' + (hasSyms ? '\u25B8' : '') + '</span>' +
+          '<span class="exp-icon exp-file-icon" aria-hidden="true">' + cexpEsc(cexpLangBadge(n.language)) + '</span>' +
           '<span class="exp-name">' + cexpEsc(n.name) + '</span>' +
           '<span class="exp-count">' + (n.symbol_count || 0) + '</span>' +
           '</div>' +
-          '<div class="exp-children" data-lazy="file"></div>' +
+          '<div class="exp-children" data-lazy="file" role="none"></div>' +
           '</li>';
       }
     }
@@ -142,18 +240,20 @@ class CockpitExplorer extends HTMLElement {
         }
       }
       li.classList.remove('collapsed');
+      row.setAttribute('aria-expanded', 'true');
     } else {
       li.classList.add('collapsed');
+      row.setAttribute('aria-expanded', 'false');
     }
   }
 
   _symbolsHtml(symbols) {
     if (!symbols.length) return '<div class="exp-empty">no symbols</div>';
-    var html = '<ul class="exp-syms">';
+    var html = '<ul class="exp-syms" role="group">';
     for (var i = 0; i < symbols.length; i++) {
       var s = symbols[i];
       html +=
-        '<li class="exp-sym ' + cexpKindClass(s.kind) + '">' +
+        '<li class="exp-sym ' + cexpKindClass(s.kind) + '" role="treeitem" aria-label="' + cexpEsc(s.name) + ', ' + cexpEsc(s.kind || 'symbol') + ', line ' + (s.line || 0) + '">' +
         '<span class="exp-sym-kind">' + cexpEsc(s.kind || '?') + '</span>' +
         '<span class="exp-sym-name">' + cexpEsc(s.name) + (s.exported ? ' <span class="exp-sym-exp">export</span>' : '') + '</span>' +
         '<span class="exp-sym-line">:' + (s.line || 0) + '</span>' +

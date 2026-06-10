@@ -258,7 +258,7 @@
       </div>
       <div class="topbar-right-cluster">
         <div class="topbar-status" id="topbarStatus" aria-live="polite">
-          <span class="ts-item" title="Daemon">
+          <span class="ts-item" id="daemonItemTop" title="lean-ctx daemon: [*] green = connected — reads, search and shell calls are served from the warm in-memory cache. [x] red = offline — the dashboard still works, but tools fall back to slower cold starts and live stats pause. Start it with: lean-ctx serve -d">
             <span class="ts-ascii on" id="daemonDotTop" aria-hidden="true">[*]</span>
             <span id="daemonLabelTop">Daemon</span>
           </span>
@@ -350,7 +350,7 @@
 </div>
 
 <footer class="cockpit-status-bar" id="cockpitStatusBar" role="status" aria-live="polite">
-  <div class="sb-l">
+  <div class="sb-l" id="sbDaemonItem" title="lean-ctx daemon: [*] green = connected (warm cache, live stats). [x] red = offline (cold starts, stats paused). Start with: lean-ctx serve -d">
     <span class="ts-ascii on" id="daemonDotBar" aria-hidden="true">[*]</span>
     <span id="sbDaemonText">Connected</span>
     <span class="sb-sep">·</span>
@@ -609,6 +609,15 @@ function bootCockpit() {
     });
     if (lblTop) lblTop.textContent = daemonUp ? 'Daemon' : 'Offline';
     if (sbTxt) sbTxt.textContent = daemonUp ? 'Connected' : 'Offline';
+    /* State-aware tooltip (GL #478): explain what the indicator means and how
+       to recover, instead of a bare "Daemon" title. */
+    var tipText = daemonUp
+      ? 'lean-ctx daemon connected: reads, search and shell calls are served from the warm in-memory cache; stats update live.'
+      : 'lean-ctx daemon offline: the dashboard keeps working, but tools fall back to slower cold starts and live stats pause. Start it with: lean-ctx serve -d';
+    var itemTop = document.getElementById('daemonItemTop');
+    var itemBar = document.getElementById('sbDaemonItem');
+    if (itemTop) itemTop.title = tipText;
+    if (itemBar) itemBar.title = tipText;
   }
 
   function formatTok(n) {

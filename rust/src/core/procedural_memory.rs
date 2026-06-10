@@ -183,6 +183,24 @@ impl ProceduralStore {
     }
 }
 
+/// Auto-learning hook (GL #478): run pattern detection over the full episode
+/// log and persist the result. Called after every recorded episode, so
+/// recurring workflows surface on the dashboard without anyone ever invoking
+/// `ctx_session action=procedures value=detect` by hand. Best-effort: returns
+/// the number of stored procedures, or `None` when there is nothing to learn
+/// from yet. Detection is cheap (n-grams over <= `max_episodes` sequences),
+/// so no throttling is needed.
+pub fn auto_detect_from_episodes(project_hash: &str, policy: &ProceduralPolicy) -> Option<usize> {
+    let episodes = super::episodic_memory::EpisodicStore::load(project_hash)?;
+    if episodes.episodes.is_empty() {
+        return None;
+    }
+    let mut procs = ProceduralStore::load_or_create(project_hash);
+    procs.detect_patterns(&episodes.episodes, policy);
+    procs.save().ok()?;
+    Some(procs.procedures.len())
+}
+
 fn extract_tool_sequences(episodes: &[Episode]) -> Vec<Vec<String>> {
     episodes
         .iter()
@@ -436,6 +454,37 @@ mod tests {
             );
         }
         assert!(store.procedures.len() <= policy.max_procedures);
+    }
+
+    #[test]
+    fn auto_detect_learns_from_recorded_episodes() {
+        // Isolated data dir so the test never touches the real memory stores.
+        let dir = std::env::temp_dir().join(format!("lctx-procauto-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        std::env::set_var("LEAN_CTX_DATA_DIR", dir.to_str().unwrap());
+
+        let hash = "auto-detect-test";
+        let policy = crate::core::memory_policy::MemoryPolicy::default();
+        let mut episodes = crate::core::episodic_memory::EpisodicStore::new(hash);
+        for _ in 0..5 {
+            episodes.record_episode(
+                make_episode_with_tools(&["ctx_read", "ctx_shell", "ctx_read"]),
+                &policy.episodic,
+            );
+        }
+        episodes.save().expect("episodic save");
+
+        let learned = auto_detect_from_episodes(hash, &policy.procedural);
+        assert!(
+            learned.is_some_and(|n| n > 0),
+            "auto-detect should learn at least one workflow, got {learned:?}"
+        );
+        // The store must be persisted, not just held in memory.
+        let reloaded = ProceduralStore::load(hash).expect("procedural store persisted");
+        assert!(!reloaded.procedures.is_empty());
+
+        std::env::remove_var("LEAN_CTX_DATA_DIR");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
