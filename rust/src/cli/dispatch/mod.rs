@@ -110,6 +110,10 @@ pub fn run() {
                 cmd_billing(&rest);
                 return;
             }
+            "finops" => {
+                cmd_finops(&rest);
+                return;
+            }
             "roi" => {
                 // Local ROI is individual + free. The team roll-up lives on its own
                 // surface (`savings team` / the web account), not under `roi`.

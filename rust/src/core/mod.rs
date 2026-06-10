@@ -12,6 +12,7 @@ pub mod datadog_push;
 pub mod entropy;
 pub mod eval_ab;
 pub mod eval_harness;
+pub mod finops_export;
 pub mod information_bottleneck;
 pub mod output_sanitizer;
 pub mod policy;

@@ -21,6 +21,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   `integrations/datadog/` (OpenMetrics `conf.yaml`, Token-Economy
   dashboard, savings-drop + SLO-violation monitors), guide:
   `docs/integrations/datadog.md`.
+- **`lean-ctx finops export` — CloudZero, Vantage & FOCUS cost export**
+  (GL #402): turns the hash-chained savings ledger into daily showback rows
+  (day × project × agent × model × tool) with the model price pinned per
+  event — no pricing table to maintain, reproducible forever. Targets:
+  `--target=focus` (FOCUS 1.2 CSV, all 21 Mandatory columns + 1.0 compat
+  set, **passes the official FinOps Foundation `focus-validator`**),
+  `--target=cbf` (CloudZero AnyCost; `--upload` posts per-month Stream
+  drops with `replace_drop` = idempotent re-runs), `--target=vantage`
+  (custom-provider CSV; `--upload` posts multipart, additive semantics
+  documented). Savings are emitted as `Credit`/`Discount` rows with
+  negative cost — Usage spend stays clean for budgets. Guide:
+  `docs/integrations/finops.md`.
 - **Agentless Datadog push** (GL #401): opt-in direct submit to the Datadog
   Metrics API v2 — `LEAN_CTX_DATADOG_PUSH=1` **and** `DD_API_KEY` required
   (a stray API key alone never enables egress), `DD_SITE` +
