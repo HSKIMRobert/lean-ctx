@@ -5,14 +5,13 @@
 const ROUTE_ALIASES = {
   graph: 'callgraph',
   bugs: 'memory',
-  // Trends merged into Home (its charts live there now); old deep links stay valid.
-  learning: 'overview',
 };
 
 /** @type {string[]} */
 const KNOWN_ROUTES = [
   'overview',
   'roi',
+  'learning',
   'commander',
   'context',
   'live',
@@ -34,6 +33,7 @@ const KNOWN_ROUTES = [
 const ROUTE_LABELS = {
   overview: 'Home',
   roi: 'ROI & Plan',
+  learning: 'Trends',
   commander: 'Context Triage',
   context: 'Context Contents',
   live: 'Live Activity',
@@ -54,8 +54,9 @@ const ROUTE_LABELS = {
 
 // One-line, plain-language explanation shown as a hint banner under the top bar.
 const ROUTE_DESCRIPTIONS = {
-  overview: 'Your savings at a glance, with trends over time.',
+  overview: 'Status, receipt and top savings — the 5-second answer.',
   roi: 'Signed, verifiable savings plus your plan and entitlements.',
+  learning: 'How your savings and efficiency change over time.',
   commander: 'Context-window pressure and what to trim — your to-do list.',
   context: 'Everything currently loaded into the model context.',
   live: 'What lean-ctx is doing right now.',

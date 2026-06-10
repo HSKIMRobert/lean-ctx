@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Changed
+- **Parallel dashboard tracks consolidated** (GL #476–#479, #486, #490): the
+  four-jobs IA from the redesign epic and the incremental UX/data passes that
+  shipped in parallel now live on one branch. The epic layout wins (slim Home,
+  Proof group with ROI & Plan + Trends, Simple = Home only); the data passes
+  win correctness and language — relative search scores (top hit = 100%),
+  the verified-bridge line in the Home hero (estimated ⇄ signed ledger),
+  Context Triage / Context Contents / Episodes labels, estimate-methodology
+  tooltips, per-task episode metrics, the dead Symbols signature column
+  removed and vendor noise filtered from the Compression Lab. Search keeps
+  the inline ±12-line preview and gains an "Open in Lab →" handoff. On the
+  Rust side `ctx_search` now returns a `SearchOutcome` that separates the
+  modeled native-grep baseline (estimated stats) from raw observed tokens
+  (verified ledger), so the two series can never cross-contaminate.
 - **Four-jobs cockpit navigation + slim Home** (GL #470/#486, phase 1): the
   sidebar now tells the same story as the website — Context *(decides what
   agents read)*, Memory *(remembers what agents learn)*, Proof *(proves what
