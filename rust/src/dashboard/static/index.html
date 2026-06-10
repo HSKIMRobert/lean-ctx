@@ -617,8 +617,9 @@ function bootCockpit() {
     var badge = document.getElementById('agentCountBadge');
     var n = agentsPayload && typeof agentsPayload.total_active === 'number' ? agentsPayload.total_active : 0;
     if (badge) {
-      badge.textContent = String(n);
-      badge.title = n === 1 ? '1 active agent' : n + ' active agents';
+      // A bare number next to "Daemon" reads as noise — say what it counts.
+      badge.textContent = n === 1 ? '1 agent' : n + ' agents';
+      badge.title = (n === 1 ? '1 AI agent is' : n + ' AI agents are') + ' currently connected through lean-ctx';
     }
   }
 

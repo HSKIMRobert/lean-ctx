@@ -221,13 +221,20 @@ class CockpitOverview extends HTMLElement {
       { label: '90d', val: 90 },
       { label: 'All', val: 0 },
     ];
-    var html = '<div class="tf-bar">';
+    // Label makes explicit that the range only affects the charts below —
+    // the hero numbers above stay all-time (audit finding: users assumed 7d
+    // would filter everything).
+    var html = '<div class="tf-bar">' +
+      '<span style="font-size:11px;color:var(--muted);margin-right:6px" ' +
+      'title="The big numbers above are always all-time. These buttons change the time range of the charts below.">' +
+      'Chart range</span>';
     for (var i = 0; i < ranges.length; i++) {
       var r = ranges[i];
       html +=
         '<button type="button" class="tf-btn' +
         (this._range === r.val ? ' active' : '') +
-        '" data-range="' + r.val + '">' +
+        '" data-range="' + r.val + '" ' +
+        'title="Changes the charts below \u2014 the totals above are always all-time">' +
         esc(r.label) + '</button>';
     }
     html += '</div>';
@@ -399,6 +406,12 @@ class CockpitOverview extends HTMLElement {
 
     var sub = pct + '% used \u00b7 ' + (s.total_files || 0) + ' files';
     if (s.risk_count > 0) sub += ' \u00b7 ' + s.risk_count + ' at risk';
+    // Live value that drifts quickly while agents work — show the fetch time
+    // so a stale number can't silently contradict the Triage page.
+    var now = new Date();
+    var hh = String(now.getHours()).padStart(2, '0');
+    var mm = String(now.getMinutes()).padStart(2, '0');
+    sub += ' \u00b7 as of ' + hh + ':' + mm;
 
     return '<span class="hl">Context Health' + tip('context_health') + '</span>' +
       '<div class="hv hc-health-v" style="color:' + col + '">' +

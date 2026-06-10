@@ -463,6 +463,7 @@
     slo_compliance: 'Service Level Objectives: response time and compression accuracy targets.',
     verification: 'Compression accuracy verification \u2013 ensures no information loss.',
     property_graph: 'Visual knowledge graph of project entities and their relationships.',
+    knowledge_facts_list: 'Every fact lean-ctx has learned, in plain text. Search, filter by category, and click a fact for full details \u2014 the graph above shows how they connect.',
     daily_activity: 'Daily distribution of tool call volume over recent history.',
     savings_rate: 'Token savings rate trend over time \u2013 higher is better.',
     mcp_vs_shell: 'Comparison of MCP tool calls vs. shell hook invocations by volume.',

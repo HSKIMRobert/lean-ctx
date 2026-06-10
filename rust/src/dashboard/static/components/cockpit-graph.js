@@ -927,7 +927,7 @@ class CockpitGraph extends HTMLElement {
     html += '<div class="gi-head">Insights</div>';
     html += this._suggestedQuestionsHtml();
 
-    html += '<div class="gi-sec"><div class="gi-sec-title">God-Nodes <span>' + gods.length + '</span></div>';
+    html += '<div class="gi-sec"><div class="gi-sec-title" title="Files that many other files depend on \u2014 changing them has the widest impact">God-Nodes <span>' + gods.length + '</span></div>';
     if (gods.length) {
       html += '<div class="gi-list">';
       for (var i = 0; i < Math.min(gods.length, 8); i++) {
@@ -942,7 +942,7 @@ class CockpitGraph extends HTMLElement {
     }
     html += '</div>';
 
-    html += '<div class="gi-sec"><div class="gi-sec-title">Bridges <span>' + bridges.length + '</span>' +
+    html += '<div class="gi-sec"><div class="gi-sec-title" title="Files that connect otherwise separate areas of the codebase \u2014 if they break, modules lose their link">Bridges <span>' + bridges.length + '</span>' +
       (d.betweenness_sampled
         ? ' <span style="font-size:10px;color:var(--muted);font-weight:400" title="Betweenness estimated from a sampled subset of nodes (large graph); relative ranking is preserved.">~sampled</span>'
         : '') +
@@ -962,7 +962,7 @@ class CockpitGraph extends HTMLElement {
     }
     html += '</div>';
 
-    html += '<div class="gi-sec"><div class="gi-sec-title">Surprising <span>' + surp.length + '</span></div>';
+    html += '<div class="gi-sec"><div class="gi-sec-title" title="File pairs that change together more often than their imports explain \u2014 hidden coupling worth knowing about">Surprising <span>' + surp.length + '</span></div>';
     if (surp.length) {
       html += '<div class="gi-list">';
       for (var si = 0; si < Math.min(surp.length, 6); si++) {
@@ -978,7 +978,7 @@ class CockpitGraph extends HTMLElement {
     }
     html += '</div>';
 
-    html += '<div class="gi-sec"><div class="gi-sec-title">Import-Cycles <span>' + cycles.length + '</span></div>';
+    html += '<div class="gi-sec"><div class="gi-sec-title" title="Files that import each other in a circle \u2014 hard to test and refactor; best broken up">Import-Cycles <span>' + cycles.length + '</span></div>';
     if (cycles.length) {
       html += '<div class="gi-list">';
       for (var j = 0; j < Math.min(cycles.length, 8); j++) {

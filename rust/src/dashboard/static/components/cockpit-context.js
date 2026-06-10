@@ -925,7 +925,10 @@ class CockpitContext extends HTMLElement {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, path }), timeoutMs: 15000,
       });
-      toast(action + ' applied', 'success');
+      // Always name the file — "unpin applied" alone doesn't tell the user
+      // what just changed.
+      const short = String(path || '').split('/').slice(-2).join('/');
+      toast(action + ': ' + (short || path), 'success');
       await this.loadData();
     } catch (err) { toast((err?.error || 'Request failed'), 'error'); }
   }

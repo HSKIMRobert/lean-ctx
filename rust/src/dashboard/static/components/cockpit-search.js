@@ -166,9 +166,14 @@ class CockpitSearch extends HTMLElement {
 
     var indexed = stats.doc_count != null ? fmt(stats.doc_count) : (stats.indexed_files != null ? fmt(stats.indexed_files) : '—');
     var symbols = stats.chunk_count != null ? fmt(stats.chunk_count) : (stats.total_symbols != null ? fmt(stats.total_symbols) : '—');
-    var lastIndexed = stats.last_indexed
-      ? String(stats.last_indexed).replace('T', ' ').slice(0, 19)
-      : '—';
+    // Only show "Last indexed" when the backend actually reports it —
+    // a permanent em-dash just looks broken.
+    var lastIndexedCell = stats.last_indexed
+      ? '<div class="cks-stat">' +
+        '<span class="sl">Last indexed</span>' +
+        '<span class="sv">' + esc(String(stats.last_indexed).replace('T', ' ').slice(0, 19)) + '</span>' +
+        '</div>'
+      : '';
 
     container.innerHTML =
       '<div class="card" style="margin-bottom:16px">' +
@@ -181,10 +186,7 @@ class CockpitSearch extends HTMLElement {
       '<span class="sl">Total symbols</span>' +
       '<span class="sv">' + esc(symbols) + '</span>' +
       '</div>' +
-      '<div class="cks-stat">' +
-      '<span class="sl">Last indexed</span>' +
-      '<span class="sv">' + esc(lastIndexed) + '</span>' +
-      '</div>' +
+      lastIndexedCell +
       '</div>' +
       '</div>';
   }
@@ -237,19 +239,28 @@ class CockpitSearch extends HTMLElement {
     var meta = esc(String(total)) + ' result' + (total !== 1 ? 's' : '') +
       (elapsed ? ' in ' + esc(elapsed) : '');
 
+    // Normalize raw BM25 scores to a relative "match" percentage — the top
+    // hit defines 100%. Raw scores (e.g. 48.02) mean nothing to users.
+    var maxScore = 0;
+    this._results.results.forEach(function (r) {
+      if (r.score != null && Number(r.score) > maxScore) maxScore = Number(r.score);
+    });
+
     var items = this._results.results.map(function (r) {
       var path = esc(r.file_path || r.path || '—');
       var line = r.start_line != null ? String(r.start_line) : (r.line != null ? String(r.line) : '');
       var symName = r.symbol_name || '';
       var kind = r.kind || '';
       var content = esc(String(r.snippet || r.content || '').trim().slice(0, 300));
-      var score = r.score != null ? Number(r.score).toFixed(2) : '—';
 
       var header = '<code class="cks-result-path">' + path + '</code>';
       if (line) header += '<span class="cks-result-line">:' + esc(line) + '</span>';
       if (symName) header += ' <strong>' + esc(symName) + '</strong>';
       if (kind) header += ' <span class="tag ts">' + esc(kind) + '</span>';
-      header += '<span class="cks-result-score tag tg">' + esc(score) + '</span>';
+      if (r.score != null && maxScore > 0) {
+        var rel = Math.round((Number(r.score) / maxScore) * 100);
+        header += '<span class="cks-result-score tag tg" title="Relevance relative to the best match">' + rel + '%</span>';
+      }
 
       return (
         '<div class="cks-result-item">' +

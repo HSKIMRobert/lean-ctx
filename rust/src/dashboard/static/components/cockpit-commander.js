@@ -137,8 +137,10 @@ class CockpitCommander extends HTMLElement {
     h += '</div>';
 
     h += '<div class="cmdr-gauge-info">';
-    h += '<div class="cmdr-band-badge">' + band.icon + ' ' + esc(band.label) + '</div>';
+    h += '<div class="cmdr-band-badge" title="Health bands: \u2713 Optimal (<50% used) \u00b7 \u25b2 Moderate (50\u201375%) \u00b7 \u26a0 High (75\u201390%) \u00b7 \u2718 Critical (>90%)">' +
+      band.icon + ' ' + esc(band.label) + '</div>';
     h += '<div class="cmdr-band-desc">' + esc(b.recommendation) + '</div>';
+    h += '<div class="cmdr-band-desc" style="opacity:.7;font-size:11px">Live value \u2014 changes as your agents read and write context.</div>';
     h += '</div>';
     h += '</div>';
 

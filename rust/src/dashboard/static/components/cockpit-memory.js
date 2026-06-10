@@ -197,8 +197,9 @@ class CockpitMemory extends HTMLElement {
         '<div class="empty-state">' +
         '<h2>No Episodes Yet</h2>' +
         '<p>An episode is a finished task your agent worked on \u2014 lean-ctx saves it so the next session can pick up where this one left off.</p>' +
-        '<p style="margin-top:8px">To record one: finish a task in your AI editor, then run ' +
-        '<code>ctx_session(action="task", value="what you did")</code> \u2014 or simply keep working; agents that use lean-ctx record episodes automatically.</p>' +
+        '<p style="margin-top:8px">Episodes are recorded automatically when an agent marks a task complete \u2014 e.g. ' +
+        '<code>ctx_session(action="task", value="ship login fix [100%]")</code>. ' +
+        'Finish your first task and it will show up here.</p>' +
         '</div></div>'
       );
     }
