@@ -1606,9 +1606,15 @@ class CockpitGraph extends HTMLElement {
 
   _maybeTour() {
     var self = this;
-    if (window.__leanctxTour && window.__leanctxTour.shouldShow()) {
-      setTimeout(function () { window.__leanctxTour.start(self); }, 800);
-    }
+    if (!window.__leanctxTour || !window.__leanctxTour.shouldShow()) return;
+    // Only run when this view is actually on screen. The graph also renders
+    // while its view is hidden (preload), and the fixed-position tour overlay
+    // would otherwise cover whatever view the user is really looking at.
+    if (self.offsetParent === null) return;
+    setTimeout(function () {
+      if (self.offsetParent === null) return;
+      if (window.__leanctxTour.shouldShow()) window.__leanctxTour.start(self);
+    }, 800);
   }
 
   /* ---- #260 node search: live result list + focus/zoom ---- */

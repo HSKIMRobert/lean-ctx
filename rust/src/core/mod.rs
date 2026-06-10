@@ -287,6 +287,7 @@ pub mod setup_report;
 pub mod slo;
 pub mod slow_log;
 pub mod smells;
+pub mod subagent_contract;
 pub mod surprise;
 pub mod verification_observability;
 

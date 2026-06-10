@@ -162,8 +162,15 @@ class CockpitRoi extends HTMLElement {
     var energyWh = F.ewh ? F.ewh(roi.net_saved_tokens) : 0;
     var energy = F.fe ? F.fe(energyWh) : '\u2014';
 
+    // The signed ledger starts later than the all-time stats on Home, so the
+    // totals legitimately differ. Say so, or the numbers look contradictory.
+    var trend = this._data.trend || [];
+    var since = trend.length && trend[0] && trend[0][0] ? String(trend[0][0]) : null;
+    var scope = 'signed ledger only' + (since ? ' \u00b7 since ' + esc(since) : '') +
+      ' \u2014 Home shows all-time totals';
+
     return (
-      '<div class="hero r4 stagger" style="margin-bottom:16px">' +
+      '<div class="hero r4 stagger" style="margin-bottom:4px">' +
       '<div class="hc"><span class="hl">Net tokens saved</span>' +
       '<div class="hv">' + esc(ff(roi.net_saved_tokens)) + '</div></div>' +
       '<div class="hc"><span class="hl">Estimated $ saved</span>' +
@@ -172,7 +179,8 @@ class CockpitRoi extends HTMLElement {
       '<div class="hv">' + esc(energy) + '</div></div>' +
       '<div class="hc"><span class="hl">Verified events</span>' +
       '<div class="hv">' + esc(ff(roi.total_events)) + '</div></div>' +
-      '</div>'
+      '</div>' +
+      '<p class="hs" style="margin:0 0 12px;color:var(--muted)">' + scope + '</p>'
     );
   }
 
@@ -247,11 +255,11 @@ class CockpitRoi extends HTMLElement {
     return (
       '<div class="card" style="margin-bottom:16px">' +
       '<div class="card-header"><h3>Plan: ' + esc(label) + '</h3>' + sourceTag + '</div>' +
-      ent('cloud_sync (Personal Cloud)', !!e.cloud_sync) +
+      ent('Personal Cloud sync', !!e.cloud_sync) +
       '<div class="sr"><span class="sl">Seats</span><span class="sv">' + esc(seats) + '</span></div>' +
-      ent('private_registry', !!e.private_registry) +
-      ent('sso_scim', !!e.sso_scim) +
-      ent('supporter', !!e.supporter) +
+      ent('Private registry', !!e.private_registry) +
+      ent('SSO / SCIM', !!e.sso_scim) +
+      ent('Supporter', !!e.supporter) +
       '<p class="hs" style="margin-top:8px;color:var(--muted)">' + cta + '</p>' +
       '<p class="hs" style="color:var(--muted)">The local engine is always free and never gated.</p>' +
       '</div>'

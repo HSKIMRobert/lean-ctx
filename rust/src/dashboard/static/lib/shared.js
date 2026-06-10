@@ -547,6 +547,7 @@
 
   function shortenPath(p) {
     if (!p) return '';
+    if (p === '.' || p === './') return 'project root';
     var parts = p.replace(/\\/g, '/').split('/');
     if (parts.length <= 3) return parts.join('/');
     return '\u2026/' + parts.slice(-3).join('/');

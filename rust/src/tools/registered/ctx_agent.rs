@@ -18,6 +18,8 @@ impl McpTool for CtxAgentTool {
             "Multi-agent coordination (shared message bus + persistent diaries). Actions: register (join with agent_type+role), \
 post (broadcast or direct message with category), read (poll messages), status (update state: active|idle|finished), \
 handoff (transfer task to another agent with summary), sync (overview of all agents + pending messages + shared contexts), \
+brief (deterministic sub-agent briefing pack: message=task, priority=token budget — returns versioned contract JSON), \
+return (distill a sub-agent report into parent knowledge: message=lines of 'category/key: value'), \
 diary (log discovery/decision/blocker/progress/insight — persisted across sessions), \
 recall_diary (read agent diary), diaries (list all agent diaries), \
 list, info.",
@@ -26,7 +28,7 @@ list, info.",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["register", "list", "post", "read", "status", "info", "handoff", "sync", "diary", "recall_diary", "diaries", "share_knowledge", "receive_knowledge"],
+                        "enum": ["register", "list", "post", "read", "status", "info", "handoff", "sync", "brief", "return", "diary", "recall_diary", "diaries", "share_knowledge", "receive_knowledge"],
                         "description": "Agent operation."
                     },
                     "agent_type": {

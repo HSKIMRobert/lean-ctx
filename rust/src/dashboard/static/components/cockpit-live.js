@@ -614,6 +614,7 @@ class CockpitLive extends HTMLElement {
       '<div class="card" style="margin-bottom:14px;padding:14px 20px">' +
       '<div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:10px;font-family:var(--mono);letter-spacing:.5px">' +
       '<span style="color:var(--accent);font-weight:600">MCP ' + esc(String(mcpPct)) + '%</span>' +
+      '<span style="color:var(--muted)">share of calls</span>' +
       '<span style="color:var(--muted);font-weight:600">HOOK ' + esc(String(hookPct)) + '%</span>' +
       '</div>' +
       '<div class="pressure-bar" style="height:8px;display:flex;overflow:hidden">' +

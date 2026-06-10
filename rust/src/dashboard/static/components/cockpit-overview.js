@@ -271,7 +271,9 @@ class CockpitOverview extends HTMLElement {
       '<div class="hc">' +
       '<span class="hl">Cost saved' + tip('cost_saved') + '</span>' +
       '<div class="hv">' + esc(fu(avoidedUsd)) + '</div>' +
-      '<p class="hs">estimated API cost avoided</p>' +
+      // Input-side only — the cost analysis card below adds the estimated
+      // output savings on top, so the two figures intentionally differ.
+      '<p class="hs">estimated input cost avoided</p>' +
       '</div>' +
 
       '<div class="hc">' +

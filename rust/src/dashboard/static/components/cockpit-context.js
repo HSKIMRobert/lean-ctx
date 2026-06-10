@@ -80,6 +80,17 @@ function relTime(ts) {
 
 const escFallback = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
+// /api/context-summary items carry the sent size as `tokens`; the render code
+// (and CSV-style sorting) speaks `sent_tokens`. Normalize once on ingest so
+// files are never counted as 0 tokens in the usage estimate.
+function normalizeLedgerEntries(items) {
+  return (items || []).map(e =>
+    e && e.sent_tokens == null && e.tokens != null
+      ? Object.assign({}, e, { sent_tokens: e.tokens })
+      : e
+  );
+}
+
 class CockpitContext extends HTMLElement {
   constructor() {
     super();
@@ -128,7 +139,7 @@ class CockpitContext extends HTMLElement {
     const h = ok(hist) ? hist : {};
 
     this._data = {
-      ledger: s.ledger ? Object.assign({}, s.ledger, { entries: s.items || [] }) : null,
+      ledger: s.ledger ? Object.assign({}, s.ledger, { entries: normalizeLedgerEntries(s.items) }) : null,
       field: s.field || null,
       control: ok(control) ? control : null,
       history: Array.isArray(overlayHist) ? overlayHist : ok(overlayHist) ? (overlayHist.items || []) : [],
@@ -325,14 +336,17 @@ class CockpitContext extends HTMLElement {
     // Triage banner — turns observation into a next action as pressure rises.
     h += this._renderTriageBanner(esc, pressure, util);
 
-    // Eviction candidates (from pressure)
+    // Eviction candidates (from pressure). The backend sends plain path
+    // strings (eviction_candidates_by_phi); tolerate object/tuple shapes too.
     const evicts = pressure?.eviction_candidates || [];
     if (evicts.length > 0) {
       h += '<div style="margin-top:12px;font-size:11px"><strong style="color:var(--muted)">Eviction candidates:</strong>';
       for (const e of evicts.slice(0, 3)) {
-        const path = e.path || e[0] || '';
-        const phi = e.phi ?? e[1] ?? 0;
-        h += ' <span style="color:var(--muted);margin-left:6px" title="phi=' + Number(phi).toFixed(3) + '">' + esc(shortenPath(path)) + '</span>';
+        const path = typeof e === 'string' ? e : (e?.path || (Array.isArray(e) ? e[0] : '') || '');
+        if (!path) continue;
+        const phi = typeof e === 'object' && e !== null ? (e.phi ?? (Array.isArray(e) ? e[1] : null)) : null;
+        const phiTitle = Number.isFinite(Number(phi)) && phi !== null ? ' title="phi=' + Number(phi).toFixed(3) + '"' : '';
+        h += ' <span style="color:var(--muted);margin-left:6px"' + phiTitle + '>' + esc(shortenPath(path)) + '</span>';
       }
       h += '</div>';
     }

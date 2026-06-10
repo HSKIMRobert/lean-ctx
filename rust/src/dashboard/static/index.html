@@ -82,11 +82,11 @@
   transition:left .25s var(--ease-out);
 }
 .cockpit-status-bar .sb-l,.cockpit-status-bar .sb-c,.cockpit-status-bar .sb-r{
-  display:flex;align-items:center;gap:10px;min-width:0;white-space:nowrap;
+  display:flex;align-items:center;gap:10px;min-width:0;white-space:nowrap;overflow:hidden;
 }
 .cockpit-status-bar .sb-l{flex:0 0 auto}
 .cockpit-status-bar .sb-c{flex:1 1 auto;justify-content:center;text-align:center}
-.cockpit-status-bar .sb-r{flex:0 1 auto;justify-content:flex-end;overflow:hidden}
+.cockpit-status-bar .sb-r{flex:0 1 auto;justify-content:flex-end}
 .cockpit-status-bar .sb-r #sbSession{overflow:hidden;text-overflow:ellipsis;max-width:30vw}
 .cockpit-status-bar .sb-strong{color:var(--text-bright);font-weight:600}
 .cockpit-status-bar .sb-sep{opacity:0.35}
@@ -120,6 +120,12 @@
 @media(max-width:768px){
   .cockpit-status-bar{left:0;padding-left:12px}
   .topbar-center{max-width:100%;order:3;flex-basis:100%}
+}
+/* Narrow windows: the three status segments no longer fit side by side.
+   Drop the center (tokens repeat on Home anyway) so left/right never overlap. */
+@media(max-width:620px){
+  .cockpit-status-bar .sb-c{display:none}
+  .cockpit-status-bar .sb-r #sbSession{display:none}
 }
 </style>
 <script src="/static/vendor/chart.umd.min.js" defer></script>

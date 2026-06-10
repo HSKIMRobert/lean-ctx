@@ -211,7 +211,17 @@ pub fn active_slos() -> Vec<SloDefinition> {
 fn read_metric(metric: SloMetric) -> f64 {
     let tracker = BudgetTracker::global();
     match metric {
-        SloMetric::SessionContextTokens => tracker.tokens_used() as f64,
+        SloMetric::SessionContextTokens => {
+            let live = tracker.tokens_used();
+            if live > 0 {
+                live as f64
+            } else {
+                // Out-of-process consumers (dashboard daemon) have an empty
+                // in-memory tracker; fall back to the persisted ledger so the
+                // SLO reflects the real session instead of a hardcoded 0.
+                crate::core::context_ledger::ContextLedger::load().total_tokens_sent as f64
+            }
+        }
         SloMetric::SessionCostUsd => tracker.cost_usd(),
         SloMetric::ShellInvocations => tracker.shell_used() as f64,
         SloMetric::CompressionRatio => {

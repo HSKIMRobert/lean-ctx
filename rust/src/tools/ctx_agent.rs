@@ -183,6 +183,77 @@ pub fn handle(
             format!("Handoff complete: {from} → {target}\nSummary: {summary}")
         }
 
+        // Sub-agent context contract (GL#450): deterministic briefing pack.
+        // `message` is the task; `priority` doubles as the token budget when
+        // numeric (default 2000). Same knowledge + task ⇒ byte-identical pack.
+        "brief" => {
+            let Some(task) = message else {
+                return "Error: message (the sub-agent task) is required for brief".to_string();
+            };
+            let budget = priority
+                .and_then(|p| p.parse::<usize>().ok())
+                .unwrap_or(2000);
+            let Some(knowledge) = crate::core::knowledge::ProjectKnowledge::load(project_root)
+            else {
+                return "No knowledge stored for this project yet — a briefing pack needs facts. Use ctx_knowledge(action=\"remember\") first.".to_string();
+            };
+            let pack =
+                crate::core::subagent_contract::build_briefing_pack(&knowledge, task, budget);
+            match crate::core::subagent_contract::serialize_pack(&pack) {
+                Ok(json) => json,
+                Err(e) => format!("Error: {e}"),
+            }
+        }
+
+        // Return synthesis (GL#450): distill a sub-agent's report into
+        // recallable parent knowledge. Expects contract-formatted lines
+        // ('category/key: value'); rejects are listed, never silently dropped.
+        "return" => {
+            let Some(report) = message else {
+                return "Error: message (the sub-agent report) is required for return".to_string();
+            };
+            let (facts, rejected) = crate::core::subagent_contract::parse_return_lines(report);
+            if facts.is_empty() {
+                return format!(
+                    "No contract-formatted lines found ({} rejected). Expected 'category/key: value' per line.",
+                    rejected.len()
+                );
+            }
+
+            let session_label = current_agent_id.unwrap_or("subagent");
+            let policy = match crate::tools::knowledge_shared::load_policy_or_error() {
+                Ok(p) => p,
+                Err(e) => return e,
+            };
+            let count = facts.len();
+            let res = crate::core::knowledge::ProjectKnowledge::mutate_locked(
+                project_root,
+                |knowledge| {
+                    for f in &facts {
+                        knowledge.remember(&f.category, &f.key, &f.value, session_label, 0.8, &policy);
+                    }
+                },
+            );
+            match res {
+                Ok(_) => {
+                    let mut out = format!(
+                        "Return synthesis: {count} fact(s) distilled into parent knowledge"
+                    );
+                    if !rejected.is_empty() {
+                        out.push_str(&format!(
+                            "\n{} line(s) rejected (not 'category/key: value'):",
+                            rejected.len()
+                        ));
+                        for r in rejected.iter().take(5) {
+                            out.push_str(&format!("\n  ✗ {r}"));
+                        }
+                    }
+                    out
+                }
+                Err(e) => format!("Error: knowledge store update failed: {e}"),
+            }
+        }
+
         "sync" => {
             let registry = AgentRegistry::load_or_create();
             let pending_count = current_agent_id.map_or(0, |id| {
