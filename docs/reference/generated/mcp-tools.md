@@ -8,7 +8,7 @@ lean-ctx registers **76 MCP tools** (granular profile). Each entry below lists t
 
 ## `ctx_agent`
 
-Multi-agent coordination (shared message bus + persistent diaries). Actions: register (join with agent_type+role), post (broadcast or direct message with category), read (poll messages), status (update state: active|idle|finished), handoff (transfer task to another agent with summary), sync (overview of all agents + pending messages + shared contexts), diary (log discovery/decision/blocker/progress/insight — persisted across sessions), recall_diary (read agent diary), diaries (list all agent diaries), list, info.
+Multi-agent coordination (shared message bus + persistent diaries). Actions: register (join with agent_type+role), post (broadcast or direct message with category), read (poll messages), status (update state: active|idle|finished), handoff (transfer task to another agent with summary), sync (overview of all agents + pending messages + shared contexts), brief (deterministic sub-agent briefing pack: message=task, priority=token budget — returns versioned contract JSON), return (distill a sub-agent report into parent knowledge: message=lines of 'category/key: value'), diary (log discovery/decision/blocker/progress/insight — persisted across sessions), recall_diary (read agent diary), diaries (list all agent diaries), list, info.
 
 Parameters: `action`*, `agent_type`, `category`, `message`, `role`, `status`, `to_agent`
 
@@ -229,7 +229,7 @@ Parameters: `project_root`, `query`*
 
 Persistent project knowledge across sessions (facts, patterns, history). Supports recall modes, embeddings, feedback, and typed relations.
 
-Parameters: `action`*, `category`, `confidence`, `examples`, `key`, `mode`, `pattern_type`, `query`, `resolution`, `severity`, `trigger`, `value`
+Parameters: `action`*, `as_of`, `category`, `confidence`, `examples`, `key`, `mode`, `pattern_type`, `query`, `resolution`, `severity`, `trigger`, `value`
 
 ## `ctx_ledger`
 
@@ -330,7 +330,7 @@ Parameters: `format`
 ## `ctx_read`
 
 Read a file. Prefer over native Read/cat/head/tail (cached, compressed).
-Unchanged re-reads cost ~13 tokens. Auto-selects mode (full|map|signatures|diff|aggressive|entropy|task|reference|raw|lines:N-M). fresh=true forces a disk re-read.
+Unchanged re-reads cost ~13 tokens. Auto-selects mode (full|map|signatures|diff|aggressive|entropy|density:X|task|reference|raw|lines:N-M). fresh=true forces a disk re-read.
 
 Parameters: `fresh`, `mode`, `path`*, `start_line`
 

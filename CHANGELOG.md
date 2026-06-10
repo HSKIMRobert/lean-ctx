@@ -98,6 +98,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   `team-server-contract-v1.md` is restored byte-exact; its additive
   `storageQuotaBytes`/`roiWebhookUrl` keys moved to a new
   `team-server-contract-v2.md` (Stable), per the contract-file rule.
+  Second wave: the CLI fidelity/pipe-guard integration tests pin
+  `LEAN_CTX_ALLOWLIST_WARN_ONLY=1` (they assert compression behavior, not
+  enforcement — on CI stderr is no TTY, so the new agent-mode allowlist
+  blocked their `for`/`while` test scripts with exit 126), the
+  `ISSUER_CACHE`/`ATTEMPTS` statics are documented in LOCK_ORDERING.md
+  (L45/L46), and `docs/reference/generated/mcp-tools.md` is regenerated
+  for the `ctx_agent` brief/return actions and `ctx_knowledge as_of`.
 - **Cockpit backlog triple** (GL #454, #455, #456): the Routes view now
   understands axum — `.route("/path", get(handler))` incl. chained methods
   (`get(a).post(b)`), qualified forms (`axum::routing::post`) and module-path
