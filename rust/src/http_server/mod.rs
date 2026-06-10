@@ -26,6 +26,7 @@ use crate::engine::ContextEngine;
 use crate::tools::LeanCtxServer;
 
 pub mod context_views;
+pub mod roi_webhook;
 pub mod savings_ingest;
 pub mod savings_summary;
 pub mod team;

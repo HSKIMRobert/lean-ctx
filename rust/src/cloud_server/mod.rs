@@ -171,6 +171,10 @@ pub async fn run() -> anyhow::Result<()> {
             get(billing_edge::get_account_team_savings_member),
         )
         .route(
+            "/api/account/team/settings",
+            axum::routing::put(billing_edge::put_account_team_settings),
+        )
+        .route(
             "/api/account/team/owner-token",
             post(billing_edge::post_account_team_owner_token),
         )

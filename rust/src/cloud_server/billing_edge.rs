@@ -276,15 +276,15 @@ async fn billing_forward(
         let resp = match method {
             "GET" => agent.get(&url).header("X-Internal-Key", &key).call(),
             "DELETE" => agent.delete(&url).header("X-Internal-Key", &key).call(),
-            // Body methods (POST default, PATCH for partial updates such as
-            // pausing/resuming a connector). Both carry the caller's JSON unchanged.
+            // Body methods (POST default, PATCH for partial updates, PUT for
+            // full settings replacement). All carry the caller's JSON unchanged.
             _ => {
                 let bytes = serde_json::to_vec(&payload.unwrap_or_else(|| json!({})))
                     .map_err(|e| e.to_string())?;
-                let builder = if method == "PATCH" {
-                    agent.patch(&url)
-                } else {
-                    agent.post(&url)
+                let builder = match method {
+                    "PATCH" => agent.patch(&url),
+                    "PUT" => agent.put(&url),
+                    _ => agent.post(&url),
                 };
                 builder
                     .header("X-Internal-Key", &key)
@@ -394,6 +394,32 @@ pub(super) async fn get_account_team_savings_member(
         "GET",
         format!("/api/billing/team/{user_id}/savings/member/{signer}"),
         None,
+    )
+    .await?;
+    finish(status, json)
+}
+
+/// Request body for team settings (GL #388).
+#[derive(Deserialize)]
+pub(super) struct TeamSettingsBody {
+    #[serde(default, rename = "roiWebhookUrl")]
+    roi_webhook_url: Option<String>,
+}
+
+/// `PUT /api/account/team/settings` — owner-tunable team-server settings
+/// (currently the weekly ROI webhook URL, GL #388). Validation and the
+/// config re-render happen in the control plane; this edge only forwards.
+pub(super) async fn put_account_team_settings(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<TeamSettingsBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "PUT",
+        format!("/api/billing/team/{user_id}/settings"),
+        Some(json!({ "roiWebhookUrl": body.roi_webhook_url })),
     )
     .await?;
     finish(status, json)

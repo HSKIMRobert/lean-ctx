@@ -78,6 +78,11 @@ pub struct TeamServerConfig {
     /// `LEANCTX_TEAM_STORAGE_QUOTA_BYTES` env var overrides both.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storage_quota_bytes: Option<u64>,
+    /// Slack/Discord/generic webhook for the weekly team-ROI summary
+    /// (`roiWebhookUrl` in `team.json`, GL #388). HTTPS only — the server
+    /// refuses to start with a plaintext URL. Omitted ⇒ no webhook posts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub roi_webhook_url: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -1402,6 +1407,15 @@ pub async fn serve_team(cfg: TeamServerConfig) -> Result<()> {
         ),
         streamable_http_config(&cfg),
     );
+
+    // Weekly team-ROI webhook (GL #388): validated at boot so a bad URL is a
+    // loud startup error, not a silent weekly no-op.
+    if let Some(url) = &cfg.roi_webhook_url {
+        super::roi_webhook::validate_webhook_url(url)
+            .map_err(|e| anyhow!("invalid roiWebhookUrl in team config: {e}"))?;
+        super::roi_webhook::spawn_weekly_roi_webhook(state.clone(), url.clone());
+        tracing::info!("team ROI webhook enabled (weekly)");
+    }
 
     let app = Router::new()
         .route("/health", get(super::health))

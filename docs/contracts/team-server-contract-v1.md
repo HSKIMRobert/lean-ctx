@@ -28,6 +28,12 @@ File is JSON.
 - `requestTimeoutMs` (number, default 30000)
 - `statefulMode` (bool, default false)
 - `jsonResponse` (bool, default true)
+- `storageQuotaBytes` (number, optional) — hosted-storage quota; omitted ⇒
+  Team-tier 5 GiB default, `LEANCTX_TEAM_STORAGE_QUOTA_BYTES` overrides both
+- `roiWebhookUrl` (string, optional, GL #388) — https-only Slack/Discord/generic
+  webhook; when set, the server posts a weekly team-ROI summary (once per ISO
+  week, real reported numbers only; state in `savings/roi_webhook_state.json`).
+  A non-https URL is a startup error.
 
 ## Workspace selection
 

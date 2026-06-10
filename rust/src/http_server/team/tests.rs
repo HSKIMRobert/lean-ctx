@@ -66,6 +66,7 @@ fn cfg_two(tmp: &tempfile::TempDir) -> TeamServerConfig {
         stateful_mode: false,
         json_response: true,
         storage_quota_bytes: None,
+        roi_webhook_url: None,
     }
 }
 
@@ -177,6 +178,7 @@ fn cfg_savings(tmp: &tempfile::TempDir) -> TeamServerConfig {
         stateful_mode: false,
         json_response: true,
         storage_quota_bytes: None,
+        roi_webhook_url: None,
     }
 }
 

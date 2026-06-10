@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Weekly team-ROI webhook** (GL #388): team servers post a weekly savings
+  summary (net tokens, USD, measured actions, 7-day window, top mover, top
+  model/tool) to Slack, Discord, or any JSON webhook. Configured via
+  `roiWebhookUrl` in `team.json` (https-only, validated at boot) or self-serve
+  through the team dashboard's new Integrations card
+  (`PUT /api/account/team/settings` → control plane re-renders the config).
+  Posts once per ISO week with retry-on-failure; weeks without reported data
+  stay silent — no synthetic numbers. Payload shape auto-detects the vendor
+  (Slack `text`, Discord `content`, generic both).
 - **Per-member savings drilldown** (GL #389): new audit-scoped team-server
   endpoint `GET /v1/savings/member/{signer}` — one member's latest totals,
   model/tool breakdowns and a member-only 90-day cumulative series (carry-
