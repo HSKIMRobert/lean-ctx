@@ -218,7 +218,10 @@ jobs:
           python-version: "3.11"
       - name: Install Python SDK
         working-directory: clients/python
-        run: pip install -e ".[dev]"
+        # langchain-core gives the adapter smoke a real framework round trip;
+        # LlamaIndex/CrewAI skip cleanly (heavy dep trees, covered by the
+        # framework-agnostic OpenAI adapter path).
+        run: pip install -e ".[dev]" langchain-core
       - name: Run conformance kit (3 SDKs vs real server)
         run: ./scripts/sdk-conformance.sh
       - name: Upload conformance matrix

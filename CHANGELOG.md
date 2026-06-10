@@ -25,6 +25,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   `lean-ctx serve` build via `scripts/sdk-conformance.sh` and publishes
   `docs/reference/sdk-conformance-matrix.md` (current state: 3/3 SDKs,
   14/14 checks PASS). SDK majors follow the engine contract major.
+  Completing the audit: live adapter smoke tests (OpenAI/LangChain/
+  LlamaIndex/CrewAI run one real tool round trip each against the live
+  server, optional frameworks skip cleanly) and a release gate
+  (`scripts/check-sdk-versions.py`, first job of the release workflow):
+  an engine release fails hard when an SDK cannot speak the shipped
+  `http_mcp` contract version, and warns on >1 minor SDK-family drift.
 - **Contract freeze & SemVer/deprecation policy** (GL #394): all 29 contract
   docs are now classified `frozen` / `stable` / `experimental` in a stability
   matrix (CONTRACTS.md, SSOT `core/contracts.rs::contract_docs()`). Two new CI
