@@ -109,6 +109,13 @@ class CockpitRoi extends HTMLElement {
       } catch (e2) {
         this._outputEcho = null;
       }
+      // Echo learning trend (#507) from /api/signals; non-fatal if missing.
+      try {
+        var signals = await fetchJson('/api/signals', { timeoutMs: 8000 });
+        this._echoTrend = signals && Array.isArray(signals.echo_trend) ? signals.echo_trend : null;
+      } catch (e3) {
+        this._echoTrend = null;
+      }
     } catch (e) {
       this._error = e && e.error ? e.error : String(e || 'error');
       this._data = null;
@@ -304,6 +311,27 @@ class CockpitRoi extends HTMLElement {
       : mid
         ? 'Moderate — some replies re-quote delivered file content.'
         : 'High — a large share of reply code was already in context; agents should reference lines (F1:42-58) instead.';
+    // Learning trend (#507): daily avg echo ratio. Falling = agents quote
+    // less of what was already delivered.
+    var trendHtml = '';
+    var trend = this._echoTrend || [];
+    if (trend.length >= 2) {
+      var S = window.LctxShared || {};
+      var spark = S.sparklineSvg ? S.sparklineSvg(trend.map(function (d) { return d[1]; }), 140, 28) : '';
+      if (spark) {
+        trendHtml =
+          '<div style="display:flex;align-items:center;gap:10px;margin-top:8px" ' +
+          'title="Daily average echo ratio over the last ' + esc(String(trend.length)) + ' days. Falling = learning.">' +
+          spark +
+          '<span class="hs" style="color:var(--muted)">' + esc(String(trend.length)) + '-day trend \u2014 lower is better</span>' +
+          '</div>';
+      }
+    } else {
+      trendHtml =
+        '<p class="hs" style="margin-top:6px;color:var(--muted)">Trend: collecting data \u2014 ' +
+        'shows after 2+ days of agent activity.</p>';
+    }
+
     return (
       '<div class="card" style="margin-bottom:16px">' +
       '<div class="card-header"><h3>Output Efficiency</h3>' +
@@ -315,6 +343,7 @@ class CockpitRoi extends HTMLElement {
       '<span class="hs">of reply code lines echoed already-delivered content</span>' +
       '</div>' +
       '<p class="hs" style="margin-top:6px;color:var(--muted)">' + esc(verdict) + '</p>' +
+      trendHtml +
       '</div>'
     );
   }

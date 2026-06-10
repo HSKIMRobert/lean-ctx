@@ -561,6 +561,36 @@
     return String(n);
   }
 
+  /**
+   * Tiny inline SVG sparkline for 0..1 series (#507). The last point is
+   * dotted so "today" is readable. Color follows the latest value:
+   * falling/low = green, high = red.
+   */
+  function sparklineSvg(values, width, height) {
+    if (!Array.isArray(values) || values.length < 2) return '';
+    var w = width || 120;
+    var h = height || 26;
+    var pad = 3;
+    var n = values.length;
+    var pts = values.map(function (v, i) {
+      var x = pad + (i / (n - 1)) * (w - 2 * pad);
+      var clamped = Math.max(0, Math.min(1, v));
+      var y = h - pad - clamped * (h - 2 * pad);
+      return [x, y];
+    });
+    var d = pts.map(function (p, i) {
+      return (i === 0 ? 'M' : 'L') + p[0].toFixed(1) + ' ' + p[1].toFixed(1);
+    }).join(' ');
+    var last = values[n - 1];
+    var color = last <= 0.15 ? 'var(--green)' : last <= 0.35 ? 'var(--yellow)' : 'var(--red)';
+    var dot = pts[n - 1];
+    return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" ' +
+      'style="flex-shrink:0" aria-hidden="true">' +
+      '<path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="1.5" stroke-linejoin="round"/>' +
+      '<circle cx="' + dot[0].toFixed(1) + '" cy="' + dot[1].toFixed(1) + '" r="2" fill="' + color + '"/>' +
+      '</svg>';
+  }
+
   window.LctxShared = {
     openFullscreen,
     closeFullscreen,
@@ -593,5 +623,6 @@
     fmtTokens,
     escHtml,
     fmtNum,
+    sparklineSvg,
   };
 })();

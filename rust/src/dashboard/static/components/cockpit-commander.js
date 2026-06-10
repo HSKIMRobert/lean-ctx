@@ -8,6 +8,10 @@ function api() {
 }
 function fmtLib() { return window.LctxFmt || {}; }
 function tip(k) { return window.LctxShared && window.LctxShared.tip ? window.LctxShared.tip(k) : ''; }
+function sparklineSvg(values, w, h) {
+  return window.LctxShared && window.LctxShared.sparklineSvg
+    ? window.LctxShared.sparklineSvg(values, w, h) : '';
+}
 
 const BAND_CONFIG = {
   green:  { label: 'Optimal',  icon: '\u2713', cls: 'band-green',  desc: 'No action needed' },
@@ -81,14 +85,16 @@ class CockpitCommander extends HTMLElement {
     this._error = null;
     this.render();
 
-    const [triage, risk] = await Promise.all([
+    const [triage, risk, signals] = await Promise.all([
       fetchJson('/api/context-triage', { timeoutMs: 12000 }).catch(e => ({ __error: String(e?.error || e) })),
       fetchJson('/api/context-risk', { timeoutMs: 12000 }).catch(e => ({ __error: String(e?.error || e) })),
+      fetchJson('/api/signals', { timeoutMs: 12000 }).catch(e => ({ __error: String(e?.error || e) })),
     ]);
 
     if (triage?.__error) this._error = triage.__error;
     this._data = triage?.__error ? null : triage;
     this._risk = risk?.__error ? null : risk;
+    this._signals = signals?.__error ? null : signals;
     this._loading = false;
     this.render();
   }
@@ -105,6 +111,7 @@ class CockpitCommander extends HTMLElement {
 
     let h = '';
     h += this._renderBudgetHero();
+    h += this._renderLiveSignals();
     h += this._renderActionCards();
     h += this._renderRiskAlerts();
     h += this._renderPressureTable();
@@ -163,6 +170,100 @@ class CockpitCommander extends HTMLElement {
     c += '<div class="cmdr-stat-value"' + (color ? ' style="color:' + color + '"' : '') + '>' + esc(value) + '</div>';
     if (sub) c += '<div class="cmdr-stat-sub">' + esc(sub) + '</div>';
     return c + '</div>';
+  }
+
+  // === LIVE SIGNALS (#505/#507) ===
+
+  /**
+   * What the closed-loop signal stores know right now: editor focus, build
+   * diagnostics, git working set, bounce memory, auto-mode decision sources,
+   * plus the bounce-rate learning trend. Honest empty states — a tile says
+   * "no signal" rather than pretending a zero is knowledge.
+   */
+  _renderLiveSignals() {
+    const sig = this._signals;
+    if (!sig) return '';
+
+    const tile = (icon, label, value, detail, tone) => {
+      const color = tone === 'on' ? 'var(--accent)' : tone === 'warn' ? 'var(--red)' : 'var(--muted)';
+      return '<div class="cmdr-stat-cell" style="min-width:130px"' + (detail ? ' title="' + esc(detail) + '"' : '') + '>' +
+        '<div class="cmdr-stat-label">' + icon + ' ' + esc(label) + '</div>' +
+        '<div class="cmdr-stat-value" style="font-size:14px;color:' + color + '">' + value + '</div>' +
+        '</div>';
+    };
+
+    let tiles = '';
+
+    const ed = sig.editor || {};
+    if (ed.active_file && ed.fresh) {
+      const base = String(ed.active_file).split('/').pop();
+      tiles += tile('\ud83d\udc41', 'Editor focus', esc(base),
+        ed.active_file + ' \u2014 ranked up while you look at it', 'on');
+    } else if (ed.active_file) {
+      tiles += tile('\ud83d\udc41', 'Editor focus', 'stale',
+        'Last focus signal is older than 2 min \u2014 not steering ranking. Needs the VS Code extension.', 'off');
+    } else {
+      tiles += tile('\ud83d\udc41', 'Editor focus', 'no signal',
+        'Sent by the lean-ctx VS Code extension on tab change (path only, never content).', 'off');
+    }
+
+    const dg = sig.diagnostics || {};
+    if (dg.errors > 0) {
+      tiles += tile('\u2716', 'Build errors', dg.errors + ' active',
+        'Files with active compiler/linter errors: ' + (dg.files || []).join(', ') + ' \u2014 forced to full reads + ranked up.', 'warn');
+    } else {
+      tiles += tile('\u2713', 'Build errors', 'none',
+        'Failing cargo/tsc/eslint runs mark their files as context priority; passing runs clear them.', 'off');
+    }
+
+    const git = sig.git || {};
+    tiles += tile('\u25cf', 'Git working set',
+      git.uncommitted > 0 ? git.uncommitted + ' uncommitted' : 'clean',
+      'Uncommitted files are the active task \u2014 they rank up and resist eviction.',
+      git.uncommitted > 0 ? 'on' : 'off');
+
+    const bm = sig.bounce_memory || {};
+    tiles += tile('\u21ba', 'Bounce memory',
+      bm.tracked_paths > 0
+        ? bm.tracked_paths + ' tracked' + (bm.forced_full_paths > 0 ? ' \u00b7 ' + bm.forced_full_paths + ' forced full' : '')
+        : 'empty',
+      'Files where compressed reads kept getting re-read in full. After 2+ bounces auto-mode stops compressing them.',
+      bm.forced_full_paths > 0 ? 'on' : 'off');
+
+    const srcs = sig.auto_mode_sources || [];
+    const learnedSrcs = srcs.filter((s) =>
+      s[0] === 'path_bounce_memory' || s[0] === 'heatmap_conservative' || s[0] === 'active_diagnostic');
+    if (learnedSrcs.length > 0) {
+      const top = learnedSrcs.map((s) => s[0].replace(/_/g, ' ') + ' \u00d7' + s[1]).join(' \u00b7 ');
+      tiles += tile('\u2699', 'Learned decisions', esc(top),
+        'How often the learning loops (not static heuristics) decided the read mode, cumulative.', 'on');
+    } else {
+      tiles += tile('\u2699', 'Learned decisions', 'none yet',
+        'Counts how often bounce memory, heatmap or diagnostics override the default mode choice.', 'off');
+    }
+
+    let trend = '';
+    const bt = sig.bounce_trend || [];
+    if (bt.length >= 2) {
+      const rates = bt.map((d) => {
+        const reads = Math.max(1, d[2]);
+        return Math.min(1, d[1] / reads);
+      });
+      const spark = sparklineSvg(rates, 120, 26);
+      const last = bt[bt.length - 1];
+      const lastPct = Math.round(Math.min(1, last[1] / Math.max(1, last[2])) * 100);
+      trend = '<div style="display:flex;align-items:center;gap:10px;margin-left:auto" ' +
+        'title="Bounce rate per day = bounces / compressed reads. Falling = the mode policy is learning which files not to compress.">' +
+        '<div style="text-align:right"><div class="cmdr-stat-label">Bounce-rate trend (' + bt.length + 'd)</div>' +
+        '<div class="cmdr-stat-sub">today ' + lastPct + '%</div></div>' + spark + '</div>';
+    } else {
+      trend = '<div class="cmdr-stat-sub" style="margin-left:auto;align-self:center">' +
+        'Learning trend: collecting data \u2014 needs 2+ days of usage</div>';
+    }
+
+    return '<div class="cmdr-section"><div class="cmdr-section-header"><h3>Live Signals</h3>' +
+      '<span class="badge" title="What lean-ctx currently knows about your working context, and the loops it learned from. Updates with every agent action.">closed loop</span></div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:stretch">' + tiles + trend + '</div></div>';
   }
 
   // === ACTION CARDS ===

@@ -8,6 +8,7 @@ mod knowledge;
 mod memory;
 mod risk;
 mod roi;
+mod signals;
 mod stats;
 mod system;
 mod tools;
@@ -144,6 +145,7 @@ pub fn route_response(
     }
 
     stats::handle(path, query_str, method, body)
+        .or_else(|| signals::handle(path, query_str, method, body))
         .or_else(|| context::handle(path, query_str, method, body))
         .or_else(|| risk::handle(path, query_str, method, body))
         .or_else(|| roi::handle(path, query_str, method, body))

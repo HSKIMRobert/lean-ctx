@@ -214,6 +214,43 @@ impl LedgerSummary {
     }
 }
 
+/// Per-day learning trend: `(YYYY-MM-DD, bounce_events, read_events)`,
+/// ascending by day, limited to the last `days` calendar days (by event ts).
+/// `read_events` counts savings-bearing read events (`ctx_read`) — the
+/// denominator the bounce rate is honest against, since bounces invalidate
+/// exactly those compressed reads (#507).
+pub fn daily_bounce_trend(path: &Path, days: u32) -> Vec<(String, u64, u64)> {
+    use std::collections::BTreeMap;
+    let Ok(file) = fs::File::open(path) else {
+        return Vec::new();
+    };
+    let cutoff = chrono::Utc::now() - chrono::Duration::days(i64::from(days));
+
+    let mut by_day: BTreeMap<String, (u64, u64)> = BTreeMap::new();
+    for line in BufReader::new(file).lines().map_while(Result::ok) {
+        let Ok(ev) = serde_json::from_str::<SavingsEvent>(&line) else {
+            continue;
+        };
+        let Ok(ts) = chrono::DateTime::parse_from_rfc3339(&ev.ts) else {
+            continue;
+        };
+        if ts.with_timezone(&chrono::Utc) < cutoff {
+            continue;
+        }
+        let day = ev.ts.get(..10).unwrap_or("").to_string();
+        if day.is_empty() {
+            continue;
+        }
+        let entry = by_day.entry(day).or_default();
+        if ev.tool == "bounce" {
+            entry.0 += 1;
+        } else if ev.tool == "ctx_read" {
+            entry.1 += 1;
+        }
+    }
+    by_day.into_iter().map(|(d, (b, r))| (d, b, r)).collect()
+}
+
 /// Streams the ledger and aggregates totals sliceable by model / day / tool.
 pub fn summarize(path: &Path) -> LedgerSummary {
     use std::collections::HashMap;
@@ -329,6 +366,36 @@ mod tests {
             prev_hash: String::new(),
             entry_hash: String::new(),
         }
+    }
+
+    #[test]
+    fn daily_bounce_trend_counts_bounces_against_reads_per_day() {
+        let p = temp_path("trend");
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+
+        // Two reads + one bounce today; an old event outside the window.
+        let mut read1 = sample(500);
+        read1.ts = format!("{today}T08:00:00+00:00");
+        let mut read2 = sample(300);
+        read2.ts = format!("{today}T09:00:00+00:00");
+        let mut bounce = sample(0);
+        bounce.tool = "bounce".into();
+        bounce.bounce_adjustment = 200;
+        bounce.ts = format!("{today}T10:00:00+00:00");
+        let mut ancient = sample(100);
+        ancient.ts = "2020-01-01T00:00:00+00:00".into();
+
+        for ev in [read1, read2, bounce, ancient] {
+            append(&p, ev).unwrap();
+        }
+
+        let trend = daily_bounce_trend(&p, 14);
+        assert_eq!(trend.len(), 1, "only today is inside the window");
+        assert_eq!(trend[0].0, today);
+        assert_eq!(trend[0].1, 1, "one bounce event");
+        assert_eq!(trend[0].2, 2, "two ctx_read events");
+
+        let _ = fs::remove_file(&p);
     }
 
     #[test]

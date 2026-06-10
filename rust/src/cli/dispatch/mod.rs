@@ -68,6 +68,7 @@ pub fn run() {
                 core::stats::flush();
                 core::heatmap::flush();
                 core::path_mode_memory::flush();
+                core::auto_mode_resolver::flush_sources();
                 std::process::exit(code);
             }
             "-t" | "--track" => {
@@ -86,6 +87,7 @@ pub fn run() {
                 core::stats::flush();
                 core::heatmap::flush();
                 core::path_mode_memory::flush();
+                core::auto_mode_resolver::flush_sources();
                 std::process::exit(code);
             }
             "shell" | "--shell" => {
