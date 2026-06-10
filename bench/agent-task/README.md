@@ -26,8 +26,11 @@ neutral results are published unchanged.
 ```bash
 cd bench/agent-task
 
-# 0. One-time: freeze the task set (writes tasks.lock.json; never re-run for v1)
-python3 -m swebench_harness.select_tasks
+# 0a. Preflight — verify binaries, auth, network, disk BEFORE spending money
+python3 -m swebench_harness.preflight            # add --evaluate before step 3
+
+# 0b. Task set: already frozen as tasks.lock.json (n=15, 12 repos) — do NOT
+#     regenerate for v1 (select_tasks refuses if the lock exists).
 
 # 1. Smoke (1 instance, both arms) — validates plumbing end to end
 python3 -m swebench_harness.run_arm --arm native  --run-id smoke --instance <id-from-lock>
