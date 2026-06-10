@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Supporters wall + dashboard badge** (GL #393): the public supporters wall
+  is live end-to-end — Stripe checkout fields (display name, message, opt-in)
+  are captured idempotently by the billing webhook, clamped to 60/140 chars,
+  profanity-gated and served via the public `GET /api/supporters` edge;
+  `leanctx.com/support/` renders the wall client-side (plaintext-only,
+  tier pills, newest first). Cancelling the subscription hides the entry on
+  the next `subscription.deleted` webhook, and an internal-key moderation API
+  (`GET …/supporters/moderation`, `PATCH …/supporters/{id}`) provides an
+  audited kill-switch. Locally, the dashboard's support bar now swaps its ask
+  for a thank-you when the machine is linked to a supporting account — served
+  by the new `/api/billing-badge` endpoint from the cached plan only (no
+  network, purely cosmetic, never gates a local capability).
 - **Weekly team-ROI webhook** (GL #388): team servers post a weekly savings
   summary (net tokens, USD, measured actions, 7-day window, top mover, top
   model/tool) to Slack, Discord, or any JSON webhook. Configured via
