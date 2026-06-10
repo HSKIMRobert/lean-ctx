@@ -19,6 +19,7 @@ mod knowledge;
 mod models;
 mod oauth;
 mod site_theme;
+mod sso;
 mod stats;
 mod team_join;
 mod wrapped;
@@ -77,6 +78,10 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/oauth/token", post(oauth::token))
         .route("/api/auth/register", post(auth::register))
         .route("/api/auth/login", post(auth::login))
+        // Self-serve OIDC SSO (GL #482): start → IdP → callback → handoff.
+        .route("/api/auth/sso/start", post(sso::sso_start))
+        .route("/api/auth/sso/callback", get(sso::sso_callback))
+        .route("/api/auth/sso/handoff", post(sso::sso_handoff))
         .route("/api/auth/forgot-password", post(auth::forgot_password))
         .route("/api/auth/reset-password", post(auth::reset_password))
         .route("/api/auth/verify-email", get(auth::verify_email))
@@ -222,6 +227,21 @@ pub async fn run() -> anyhow::Result<()> {
             delete(billing_edge::delete_account_team_invite),
         )
         .route("/api/team/join", post(team_join::post_team_join))
+        // Org SSO settings (GL #482): owner-side IdP config on the dashboard.
+        .route(
+            "/api/account/org/sso",
+            get(billing_edge::get_account_org_sso)
+                .put(billing_edge::put_account_org_sso)
+                .delete(billing_edge::delete_account_org_sso),
+        )
+        .route(
+            "/api/account/org/sso/verify",
+            post(billing_edge::post_account_org_sso_verify),
+        )
+        .route(
+            "/api/account/org/sso/required",
+            put(billing_edge::put_account_org_sso_required),
+        )
         // Team seats (prorated Stripe quantity), hosted-index storage footprint,
         // and managed connectors — thin proxies to the private plane so the hosted
         // team dashboard's seat stepper, storage card, and connector manager work.

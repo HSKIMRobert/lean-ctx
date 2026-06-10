@@ -552,6 +552,114 @@ pub(super) async fn forward_invite_redeem(
     .await
 }
 
+// ── Org SSO settings (GL #482) ────────────────────────────────────────────────
+
+/// Request body for `PUT /api/account/org/sso`.
+#[derive(Deserialize)]
+pub(super) struct OrgSsoBody {
+    email_domain: String,
+    issuer: String,
+    client_id: String,
+    #[serde(default)]
+    client_secret: Option<String>,
+}
+
+/// `GET /api/account/org/sso` — the caller's org SSO config (never the secret).
+pub(super) async fn get_account_org_sso(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "GET",
+        format!("/api/billing/org/{user_id}/sso"),
+        None,
+    )
+    .await?;
+    finish(status, json)
+}
+
+/// `PUT /api/account/org/sso` — create/update the org's IdP configuration.
+pub(super) async fn put_account_org_sso(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<OrgSsoBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "PUT",
+        format!("/api/billing/org/{user_id}/sso"),
+        Some(json!({
+            "email_domain": body.email_domain,
+            "issuer": body.issuer,
+            "client_id": body.client_id,
+            "client_secret": body.client_secret,
+        })),
+    )
+    .await?;
+    finish(status, json)
+}
+
+/// `POST /api/account/org/sso/verify` — run the DNS-TXT domain check.
+pub(super) async fn post_account_org_sso_verify(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "POST",
+        format!("/api/billing/org/{user_id}/sso/verify"),
+        Some(json!({})),
+    )
+    .await?;
+    finish(status, json)
+}
+
+/// Request body for `PUT /api/account/org/sso/required`.
+#[derive(Deserialize)]
+pub(super) struct OrgSsoRequiredBody {
+    sso_required: bool,
+}
+
+/// `PUT /api/account/org/sso/required` — toggle SSO enforcement.
+pub(super) async fn put_account_org_sso_required(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<OrgSsoRequiredBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "PUT",
+        format!("/api/billing/org/{user_id}/sso/required"),
+        Some(json!({ "sso_required": body.sso_required })),
+    )
+    .await?;
+    finish(status, json)
+}
+
+/// `DELETE /api/account/org/sso` — remove the IdP configuration.
+pub(super) async fn delete_account_org_sso(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "DELETE",
+        format!("/api/billing/org/{user_id}/sso"),
+        None,
+    )
+    .await?;
+    if status == StatusCode::NO_CONTENT {
+        return Ok(Json(json!({ "removed": true })));
+    }
+    finish(status, json)
+}
+
 /// `GET /api/supporters` — the public supporters wall (no auth). Proxies the
 /// private plane's read model with the shared internal key (which never reaches
 /// the browser). Degrades to an empty wall when billing is unconfigured or

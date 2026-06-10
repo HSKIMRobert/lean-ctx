@@ -41,6 +41,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   timestamps are local wall-clock and are now interpreted as such).
 
 ### Added
+- **Org SSO (OIDC)** (GL #482): self-serve single sign-on for Team and
+  Enterprise orgs. Owners configure an OIDC provider (Okta, Entra ID, Google
+  Workspace, any compliant OP) under Account → Billing, prove domain ownership
+  via a DNS-TXT record (checked over DNS-over-HTTPS), and optionally require
+  SSO for everyone — the owner stays password-exempt (break-glass). Members
+  click *Continue with SSO*, authenticate at the IdP, and land in a normal
+  session with just-in-time user + org-membership provisioning. Edge runs the
+  Relying Party (Authorization Code + PKCE, discovery/JWKS cache, ID-token
+  verification with nonce binding and HS*/none rejection); the control plane
+  is the system of record (AEAD-sealed client secret, append-only
+  `billing_sso_audit`). API keys never touch URLs — a single-use 60-second
+  handoff code carries the session to the browser. Contract:
+  `docs/contracts/org-sso-oidc-v1.md`; setup guide:
+  `docs/guides/org-sso-setup.md`.
 - **Team invite links** (GL #385): owners mint one-time links
   (`leanctx.com/join/?code=…`) instead of copy-pasting tokens. Codes are
   256-bit, stored hashed, expire after 7 days, and redeem exactly once

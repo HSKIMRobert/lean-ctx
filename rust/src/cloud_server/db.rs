@@ -53,6 +53,27 @@ CREATE TABLE IF NOT EXISTS oauth_access_tokens (
   revoked_at TIMESTAMPTZ
 );
 
+-- OIDC SSO login flow (GL #482). One row per in-flight authorization
+-- round-trip; consumed (deleted) on callback, swept by TTL otherwise. Only
+-- hashes of state/handoff tokens are stored.
+CREATE TABLE IF NOT EXISTS sso_login_states (
+  state_sha256 TEXT PRIMARY KEY,
+  email_domain TEXT NOT NULL,
+  nonce TEXT NOT NULL,
+  pkce_verifier TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- One-time handoff between the SSO callback redirect and the login page:
+-- the api_key never appears in a URL. 60s TTL, single use.
+CREATE TABLE IF NOT EXISTS sso_handoff_codes (
+  code_sha256 TEXT PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  api_key TEXT NOT NULL,
+  email TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS stats_daily (
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   date DATE NOT NULL,

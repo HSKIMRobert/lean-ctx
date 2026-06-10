@@ -75,6 +75,7 @@ cloud-server = [
   "dep:tokio-postgres",
   "dep:lettre",
   "dep:jsonwebtoken",
+  "dep:base64",
   "dep:uuid",
   "dep:hex",
   "dep:rand",
@@ -165,6 +166,7 @@ deadpool-postgres = { version = "0.14", optional = true }
 tokio-postgres = { version = "0.7", features = ["with-chrono-0_4", "with-uuid-1"], optional = true }
 lettre = { version = "0.11", default-features = false, features = ["tokio1-rustls-tls", "smtp-transport", "builder"], optional = true }
 jsonwebtoken = { version = "10.3", optional = true }
+base64 = { version = "0.22", optional = true }
 uuid = { version = "1", features = ["v4", "serde"], optional = true }
 hex = { version = "0.4", optional = true }
 hmac = "0.12"
