@@ -216,6 +216,26 @@ fn accuracy_checks() -> Vec<Check> {
         ));
     }
 
+    // Target-density mode (GL#444): the body (excluding header/savings lines)
+    // must stay within the token budget, and the render must be deterministic.
+    {
+        let target = 0.4_f64;
+        let result = crate::core::entropy::entropy_compress_to_density(ACCURACY_FIXTURE, target);
+        let actual = result.compressed_tokens as f64 / fixture_tokens.max(1) as f64;
+        checks.push(Check::from_bool(
+            "accuracy",
+            "density_respects_budget:0.4",
+            actual <= target + 0.10,
+            &format!("density {actual:.2} exceeds target {target:.2} (+0.10 tolerance)"),
+        ));
+        checks.push(Check::from_bool(
+            "accuracy",
+            "density_deterministic:0.4",
+            render_mode("density:0.4") == render_mode("density:0.4"),
+            "two density renders of the same fixture differ",
+        ));
+    }
+
     checks
 }
 

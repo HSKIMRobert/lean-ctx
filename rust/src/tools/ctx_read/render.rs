@@ -394,6 +394,36 @@ pub(crate) fn process_mode(
             let savings = protocol::format_savings(original_tokens, sent);
             (format!("{header}\n{extracted}\n{savings}"), sent)
         }
+        mode if mode.starts_with("density:") => {
+            // SDE target-density mode: compress to a token budget instead of
+            // maximum compression. `density:0.4` ≈ 40% of original tokens.
+            let target: f64 = mode[8..].parse().unwrap_or(0.5);
+            let result = entropy::entropy_compress_to_density(content, target);
+            let actual = if result.original_tokens > 0 {
+                result.compressed_tokens as f64 / result.original_tokens as f64
+            } else {
+                0.0
+            };
+            let techs = result.techniques.join(", ");
+            let header = if crate::core::protocol::meta_visible() && !file_ref.is_empty() {
+                format!(
+                    "{file_ref}={short} {line_count}L density target={:.2} actual={actual:.2} [{techs}]",
+                    target.clamp(0.05, 1.0)
+                )
+            } else {
+                format!(
+                    "{short} {line_count}L density target={:.2} actual={actual:.2} [{techs}]",
+                    target.clamp(0.05, 1.0)
+                )
+            };
+            let output = format!("{header}\n{}", result.output);
+            let sent = count_tokens(&output);
+            let savings = protocol::format_savings(original_tokens, sent);
+            (
+                append_compressed_hint(&format!("{output}\n{savings}"), file_path),
+                sent,
+            )
+        }
         unknown => {
             let header = build_header(file_ref, short, ext, content, line_count, true);
             let out = format!(

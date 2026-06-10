@@ -35,14 +35,14 @@ impl McpTool for CtxReadTool {
         tool_def(
             "ctx_read",
             "Read a file. Prefer over native Read/cat/head/tail (cached, compressed).\n\
-             Unchanged re-reads cost ~13 tokens. Auto-selects mode (full|map|signatures|diff|aggressive|entropy|task|reference|raw|lines:N-M). fresh=true forces a disk re-read.",
+             Unchanged re-reads cost ~13 tokens. Auto-selects mode (full|map|signatures|diff|aggressive|entropy|density:X|task|reference|raw|lines:N-M). fresh=true forces a disk re-read.",
             json!({
                 "type": "object",
                 "properties": {
                     "path": { "type": "string", "description": "Absolute file path to read" },
                     "mode": {
                         "type": "string",
-                        "description": "Compression mode (default: auto — resolved per file type/size). Explicit 'full' for guaranteed complete content with header/deps. Use 'raw' for zero-overhead file content (no header, no deps, no footer — ideal for one-shot CLI reads). Use 'map' for context-only files. For line ranges: 'lines:N-M' (e.g. 'lines:400-500')."
+                        "description": "Compression mode (default: auto — resolved per file type/size). Explicit 'full' for guaranteed complete content with header/deps. Use 'raw' for zero-overhead file content (no header, no deps, no footer — ideal for one-shot CLI reads). Use 'map' for context-only files. For line ranges: 'lines:N-M' (e.g. 'lines:400-500'). For target density: 'density:0.4' keeps the highest-entropy lines until ~40% of the original tokens remain (SDE budget, deterministic)."
                     },
                     "start_line": {
                         "type": "integer",

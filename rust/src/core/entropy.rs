@@ -394,6 +394,88 @@ fn entropy_compress_with_thresholds(
     entropy_compress_with_task(content, entropy_threshold, jaccard_threshold, &[])
 }
 
+/// Budget-based compression to a target density (SDE principle: aim for a
+/// *target* information density instead of maximum compression).
+///
+/// Keeps the highest-entropy lines — in original order — until the BPE token
+/// budget `original_tokens * target` is exhausted. Deterministic: ties break
+/// on line index. `target` is clamped to [0.05, 1.0]; the top-scored line is
+/// always kept so output is never empty for non-empty input.
+pub fn entropy_compress_to_density(content: &str, target: f64) -> EntropyResult {
+    let target = target.clamp(0.05, 1.0);
+    let original_tokens = count_tokens(content);
+    if content.is_empty() || original_tokens == 0 {
+        return EntropyResult {
+            output: String::new(),
+            original_tokens,
+            compressed_tokens: 0,
+            techniques: vec![format!("density target={target:.2} (empty input)")],
+        };
+    }
+
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let budget = ((original_tokens as f64) * target).ceil() as usize;
+
+    let lines: Vec<&str> = content.lines().collect();
+    let mut scored: Vec<(usize, f64, usize)> = lines
+        .iter()
+        .enumerate()
+        .map(|(i, l)| {
+            let trimmed = l.trim();
+            // +1 approximates the newline token; keeps the per-line sum close
+            // to the whole-file count so the budget is meaningful.
+            let toks = count_tokens(trimmed).max(1);
+            (i, token_entropy(trimmed), toks)
+        })
+        .collect();
+    scored.sort_by(|a, b| {
+        b.1.partial_cmp(&a.1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.0.cmp(&b.0))
+    });
+
+    let mut keep = vec![false; lines.len()];
+    let mut used = 0usize;
+    let mut kept_count = 0usize;
+    // The single most informative line is always kept, even if it alone
+    // exceeds the budget — a density target that drops the highest-signal
+    // line would be self-defeating. Everything else fills greedily.
+    if let Some(&(idx, _, toks)) = scored.first() {
+        keep[idx] = true;
+        used += toks;
+        kept_count += 1;
+    }
+    for &(idx, _h, toks) in scored.iter().skip(1) {
+        if used + toks > budget {
+            // Greedy knapsack: skip lines that overshoot, smaller ones may fit.
+            continue;
+        }
+        keep[idx] = true;
+        used += toks;
+        kept_count += 1;
+    }
+
+    let mut out_lines: Vec<&str> = Vec::with_capacity(kept_count);
+    for (i, line) in lines.iter().enumerate() {
+        if keep[i] {
+            out_lines.push(line);
+        }
+    }
+    let output = out_lines.join("\n");
+    let compressed_tokens = count_tokens(&output);
+
+    let dropped = lines.len() - kept_count;
+    EntropyResult {
+        output,
+        original_tokens,
+        compressed_tokens,
+        techniques: vec![format!(
+            "density target={target:.2} budget={budget} tok, kept {kept_count}/{} lines (⊘ {dropped})",
+            lines.len()
+        )],
+    }
+}
+
 /// Per-line entropy statistics for a block of content.
 #[derive(Debug)]
 pub struct EntropyAnalysis {
@@ -699,6 +781,82 @@ mod tests {
         assert!(
             kolmogorov_proxy(&diverse) > kolmogorov_proxy(&rep),
             "diverse content should have higher K"
+        );
+    }
+
+    fn density_fixture() -> String {
+        (0..120)
+            .map(|i| {
+                if i % 3 == 0 {
+                    format!(
+                        "fn compute_value_{i}(input: &str, flags: u32) -> Result<Output, Error> {{"
+                    )
+                } else if i % 3 == 1 {
+                    format!("    let intermediate_{i} = transform(input, flags ^ {i});")
+                } else {
+                    "}".to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn density_respects_token_budget() {
+        let content = density_fixture();
+        let orig = count_tokens(&content);
+        for target in [0.3, 0.5, 0.7] {
+            let r = entropy_compress_to_density(&content, target);
+            let actual = r.compressed_tokens as f64 / orig as f64;
+            assert!(
+                actual <= target + 0.10,
+                "target {target}: actual density {actual:.2} exceeds budget"
+            );
+            assert!(!r.output.is_empty());
+        }
+    }
+
+    #[test]
+    fn density_is_deterministic() {
+        let content = density_fixture();
+        let a = entropy_compress_to_density(&content, 0.4);
+        let b = entropy_compress_to_density(&content, 0.4);
+        assert_eq!(a.output, b.output);
+        assert_eq!(a.compressed_tokens, b.compressed_tokens);
+    }
+
+    #[test]
+    fn density_target_one_keeps_everything() {
+        let content = density_fixture();
+        let r = entropy_compress_to_density(&content, 1.0);
+        assert_eq!(r.output, content);
+    }
+
+    #[test]
+    fn density_clamps_out_of_range_target() {
+        let content = density_fixture();
+        let low = entropy_compress_to_density(&content, 0.0);
+        assert!(!low.output.is_empty(), "clamped to 0.05, never empty");
+        let high = entropy_compress_to_density(&content, 5.0);
+        assert_eq!(high.output, content, "clamped to 1.0 keeps all");
+    }
+
+    #[test]
+    fn density_empty_input() {
+        let r = entropy_compress_to_density("", 0.5);
+        assert_eq!(r.compressed_tokens, 0);
+        assert!(r.output.is_empty());
+    }
+
+    #[test]
+    fn density_prefers_high_entropy_lines() {
+        let content =
+            "}\n}\n}\nlet complex_result = compute_unique_hash(seed, nonce, payload);\n}\n}";
+        let r = entropy_compress_to_density(content, 0.6);
+        assert!(
+            r.output.contains("compute_unique_hash"),
+            "high-entropy line must survive: {}",
+            r.output
         );
     }
 }
