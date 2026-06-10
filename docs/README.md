@@ -27,6 +27,8 @@ End-user documentation lives at **https://leanctx.com/docs/getting-started**.
 ## Guides
 
 - Monorepo usage: [`guides/monorepo.md`](guides/monorepo.md)
+- Publishing context packages to ctxpkg.com (sign, publish, install,
+  lockfile): [`guides/publishing-packages.md`](guides/publishing-packages.md)
 
 ## Compliance
 
