@@ -238,6 +238,9 @@ fn cmd_sync_index(args: &[String]) {
                 let quota_mb = v["quota_mb"].as_u64().unwrap_or(0);
                 println!("Hosted Personal Index");
                 println!("  Usage: {used_mb:.1} MB / {quota_mb} MB");
+                if let Some(line) = render_quota_state(&v["storage"]) {
+                    println!("  {line}");
+                }
                 if let Some(buckets) = v["projects"].as_array() {
                     if buckets.is_empty() {
                         println!("  No project bundles yet. Push one: lean-ctx sync index push");
@@ -264,6 +267,32 @@ fn cmd_sync_index(args: &[String]) {
             println!("  status  Show hosted buckets and quota usage");
         }
     }
+}
+
+/// One human line for the server's billing-plane-v2 `storage` block (GL #392):
+/// green/yellow/red by threshold state, with the headroom or overage spelled
+/// out. `None` when the server (older deploy) sent no block — print nothing
+/// rather than guessing.
+fn render_quota_state(storage: &serde_json::Value) -> Option<String> {
+    let state = storage["state"].as_str()?;
+    let percent = storage["percent"].as_f64();
+    let pct = percent.map_or(String::new(), |p| format!(" ({p:.0}% of quota)"));
+    Some(match state {
+        "ok" => format!("State: \x1b[32mok\x1b[0m{pct}"),
+        "warn" => format!("State: \x1b[33mwarn\x1b[0m{pct} — consider pruning old buckets"),
+        "critical" => {
+            format!("State: \x1b[31mcritical\x1b[0m{pct} — next push may exceed the quota")
+        }
+        "over" => {
+            let over_mb = storage["overage_bytes"].as_u64().unwrap_or(0) as f64 / 1_000_000.0;
+            format!(
+                "State: \x1b[31mover\x1b[0m{pct} — {over_mb:.1} MB over; pushes are blocked (nothing is billed). Free space: lean-ctx sync index status / delete"
+            )
+        }
+        // "none" (no entitlement) and future states: the usage line above
+        // already says everything actionable.
+        _ => return None,
+    })
 }
 
 /// Whether a `cloud_client` error string is the server's Pro gate (HTTP 402),
@@ -511,12 +540,14 @@ pub fn cmd_cloud(args: &[String]) {
         "status" => cmd_cloud_status(),
         "pull" => cmd_cloud_pull(),
         "autosync" => cmd_cloud_autosync(args.get(1).map(String::as_str)),
+        "autoindex" => cmd_cloud_autoindex(args.get(1).map(String::as_str)),
         "upgrade" | "subscribe" => cloud_upgrade(&args[1..]),
         _ => {
             println!("Usage: lean-ctx cloud <command>");
             println!("  pull-models — Update adaptive compression models");
             println!("  pull        — Restore your Personal Cloud knowledge onto this machine");
             println!("  autosync    — on|off|status: daily background Personal Cloud push (Pro)");
+            println!("  autoindex   — on|off|status: daily background hosted-index push (Pro)");
             println!("  status      — Show cloud connection status");
             println!(
                 "  upgrade     — Subscribe to Pro (Personal Cloud) or Team \
@@ -568,6 +599,56 @@ fn cmd_cloud_autosync(arg: Option<&str>) {
         }
         Some(other) => {
             tracing::error!("Unknown autosync action: {other}. Use on|off|status.");
+            std::process::exit(1);
+        }
+    }
+}
+
+/// `lean-ctx cloud autoindex <on|off|status>` — toggle the daily background
+/// hosted-index push (GL #392). Separate flag from `autosync` because index
+/// bundles are megabytes, not kilobytes. The flag lives in `[cloud] auto_index`.
+fn cmd_cloud_autoindex(arg: Option<&str>) {
+    let mut config = core::config::Config::load();
+    match arg {
+        Some("on") => {
+            config.cloud.auto_index = true;
+            if let Err(e) = config.save() {
+                tracing::error!("Could not save config: {e}");
+                std::process::exit(1);
+            }
+            println!(
+                "Auto-index enabled — this project's encrypted retrieval index is pushed \
+                 silently once per day when it changes. Requires Pro and an active login."
+            );
+            if !cloud_client::is_logged_in() {
+                println!("Note: you are not logged in yet. Run: lean-ctx login <email>");
+            }
+        }
+        Some("off") => {
+            config.cloud.auto_index = false;
+            if let Err(e) = config.save() {
+                tracing::error!("Could not save config: {e}");
+                std::process::exit(1);
+            }
+            println!(
+                "Auto-index disabled. Manual push stays available via: lean-ctx sync index push"
+            );
+        }
+        Some("status") | None => {
+            let state = if config.cloud.auto_index { "on" } else { "off" };
+            println!("Auto-index: {state}");
+            let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+            let hash = core::index_namespace::namespace_hash(&root);
+            match config.cloud.last_index_push.get(&hash) {
+                Some(date) => println!("Last push (this project): {date}"),
+                None => println!("Last push (this project): never"),
+            }
+            if !config.cloud.auto_index {
+                println!("Enable with: lean-ctx cloud autoindex on");
+            }
+        }
+        Some(other) => {
+            tracing::error!("Unknown autoindex action: {other}. Use on|off|status.");
             std::process::exit(1);
         }
     }

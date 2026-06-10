@@ -86,6 +86,15 @@ fn sha256_hex(data: &[u8]) -> String {
 // Pack / unpack (plaintext container)
 // ---------------------------------------------------------------------------
 
+/// Whether this project has any bundleable index artifacts on disk — the
+/// cheap pre-check the background auto-push (GL #392) uses to skip silently
+/// instead of erroring through [`pack`].
+#[must_use]
+pub fn local_index_present(project_root: &Path) -> bool {
+    let dir = crate::core::index_namespace::vectors_dir(project_root);
+    BUNDLE_FILES.iter().any(|name| dir.join(name).is_file())
+}
+
 /// Pack the project's index artifacts into a plaintext `LCIB1` container.
 /// Returns the container bytes and its manifest.
 pub fn pack(project_root: &Path) -> Result<(Vec<u8>, BundleManifest), BundleError> {

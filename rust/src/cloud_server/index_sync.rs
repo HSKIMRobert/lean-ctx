@@ -46,6 +46,40 @@ fn sha256_hex(data: &[u8]) -> String {
     out
 }
 
+/// Coarse quota-threshold block, aligned with `billing-plane-v2`'s
+/// `StorageMetering` semantics (`lean-ctx-cloud/src/metering.rs`): `none`
+/// (no entitlement) → `ok` → `warn` (≥ 50 %) → `critical` (≥ 80 %) → `over`
+/// (≥ 100 %). Display-first: this block informs, the only enforcement is the
+/// push block in [`put_bundle`].
+fn quota_state_block(used_bytes: i64, quota_bytes: i64) -> serde_json::Value {
+    if quota_bytes <= 0 {
+        return json!({
+            "used_bytes": used_bytes,
+            "quota_bytes": 0,
+            "overage_bytes": 0,
+            "percent": serde_json::Value::Null,
+            "state": "none",
+        });
+    }
+    let percent = used_bytes as f64 / quota_bytes as f64 * 100.0;
+    let state = if percent >= 100.0 {
+        "over"
+    } else if percent >= 80.0 {
+        "critical"
+    } else if percent >= 50.0 {
+        "warn"
+    } else {
+        "ok"
+    };
+    json!({
+        "used_bytes": used_bytes,
+        "quota_bytes": quota_bytes,
+        "overage_bytes": used_bytes.saturating_sub(quota_bytes),
+        "percent": (percent * 100.0).round() / 100.0,
+        "state": state,
+    })
+}
+
 async fn account_usage_bytes(state: &AppState, user_id: Uuid) -> Result<i64, (StatusCode, String)> {
     let client = state.pool.get().await.map_err(internal_error)?;
     let row = client
@@ -106,6 +140,7 @@ pub(super) async fn put_bundle(
                 "used_bytes": used,
                 "quota_mb": quota_mb,
                 "bundle_bytes": body.len(),
+                "storage": quota_state_block(projected, quota_bytes),
             })
             .to_string(),
         ));
@@ -204,6 +239,9 @@ pub(super) async fn list_bundles(
         "used_bytes": used,
         "quota_mb": quota_mb,
         "projects": projects,
+        // billing-plane-v2-aligned threshold view (same block the team server's
+        // /v1/usage carries) — lets clients warn before a push bounces.
+        "storage": quota_state_block(used, i64::from(quota_mb) * 1_000_000),
     })))
 }
 
@@ -245,5 +283,35 @@ mod tests {
         assert!(!valid_project_hash("../../../etc/passwd-0123456789ab"));
         assert!(!valid_project_hash("0123456789abcdef0123456789abcdeg"));
         assert!(!valid_project_hash(""));
+    }
+
+    /// Threshold semantics must mirror billing-plane-v2's `StorageMetering`
+    /// (warn ≥ 50 %, critical ≥ 80 %, over ≥ 100 %, `none` for zero quota) so
+    /// Pro and Team surfaces tell one consistent story.
+    #[test]
+    fn quota_state_block_mirrors_billing_plane_v2_thresholds() {
+        let quota = 1_000_000_000_i64; // 1 GB
+        for (used, want) in [
+            (0_i64, "ok"),
+            (499_999_999, "ok"),
+            (500_000_000, "warn"),
+            (799_999_999, "warn"),
+            (800_000_000, "critical"),
+            (999_999_999, "critical"),
+            (1_000_000_000, "over"),
+            (1_500_000_000, "over"),
+        ] {
+            let block = super::quota_state_block(used, quota);
+            assert_eq!(block["state"], want, "used={used}");
+            assert_eq!(block["quota_bytes"], quota);
+        }
+        // Overage figure only appears past the quota.
+        let over = super::quota_state_block(1_250_000_000, quota);
+        assert_eq!(over["overage_bytes"], 250_000_000_i64);
+
+        // Zero quota = no entitlement: distinct `none` state, null percent.
+        let none = super::quota_state_block(123, 0);
+        assert_eq!(none["state"], "none");
+        assert!(none["percent"].is_null());
     }
 }

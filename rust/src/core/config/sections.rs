@@ -412,6 +412,14 @@ pub struct CloudConfig {
     /// day, offline-tolerant (GL #384). Toggle: `lean-ctx cloud autosync on`.
     pub auto_sync: bool,
     pub last_auto_sync: Option<String>,
+    /// Auto-push the project's encrypted retrieval-index bundle (hosted
+    /// Personal Index, GL #392) alongside the daily auto-sync — separate
+    /// opt-in because index bundles are orders of magnitude larger than the
+    /// other surfaces. Toggle: `lean-ctx cloud autoindex on`.
+    pub auto_index: bool,
+    /// Per-project debounce: `project_hash → YYYY-MM-DD` of the last
+    /// successful background index push.
+    pub last_index_push: std::collections::HashMap<String, String>,
 }
 
 /// Settings for publishing your token-savings recap (`gain --publish` / auto-publish).

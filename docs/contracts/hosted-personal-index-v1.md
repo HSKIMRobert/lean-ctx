@@ -68,6 +68,33 @@ plane: 1000 MB default). A push that would exceed the cap returns
 `413 quota_exceeded` with current usage in the body — it **warns and blocks,
 it never bills** (consistent with the billing-plane-v2 display-first rollout).
 
+The listing (and the `413` body) carries a `storage` block whose threshold
+semantics mirror billing-plane-v2's `StorageMetering` exactly — one story on
+every surface:
+
+```json
+"storage": {
+  "used_bytes": 612000000,
+  "quota_bytes": 1000000000,
+  "overage_bytes": 0,
+  "percent": 61.2,
+  "state": "warn"
+}
+```
+
+`state`: `none` (no entitlement) | `ok` | `warn` (≥ 50 %) | `critical`
+(≥ 80 %) | `over` (≥ 100 %). `lean-ctx sync index status` renders this as a
+coloured state line so users see headroom before a push bounces.
+
+## Background auto-push (opt-in)
+
+`lean-ctx cloud autoindex on` sets `[cloud] auto_index`; the daily background
+task then pushes the project's bundle at most once per project per day
+(per-project debounce in `[cloud] last_index_push`). Separate flag from
+`autosync` because bundles are megabytes, not kilobytes. Pro-gate and quota
+rejections consume the day's slot (one quiet attempt, no error spam); network
+failures leave it open for the next cycle.
+
 ## Consistency
 
 One bundle per `(account, project_hash)`, last-writer-wins; the server keeps
