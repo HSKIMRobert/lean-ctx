@@ -41,6 +41,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   timestamps are local wall-clock and are now interpreted as such).
 
 ### Added
+- **Org audit log + retention** (GL #484): a unified, append-only governance
+  audit log for orgs, surfaced to the owner at `/account/audit` with a
+  filterable table and CSV export. Every governance path now writes
+  best-effort events (SSO config/verify/enforce/remove/login, invite
+  create/redeem/revoke) into one `org_audit_log`; the retired SSO-only table
+  is migrated and dropped by an idempotent boot migration. Retention is the
+  owner-plan window from the `billing-plane-v1` SSOT (Team 90 days, Enterprise
+  ~10 years) and is enforced server-side both by a daily fleet sweep and on
+  read, so an owner never sees a row older than they're entitled to keep. Reads
+  are owner-only, cursor-paginated, and bounded. Contract:
+  `docs/contracts/org-audit-log-v1.md`.
 - **Org SSO (OIDC)** (GL #482): self-serve single sign-on for Team and
   Enterprise orgs. Owners configure an OIDC provider (Okta, Entra ID, Google
   Workspace, any compliant OP) under Account → Billing, prove domain ownership

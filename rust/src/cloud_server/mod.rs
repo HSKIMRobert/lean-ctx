@@ -242,6 +242,15 @@ pub async fn run() -> anyhow::Result<()> {
             "/api/account/org/sso/required",
             put(billing_edge::put_account_org_sso_required),
         )
+        // Org audit log (GL #484): owner-side governance history + CSV export.
+        .route(
+            "/api/account/org/audit",
+            get(billing_edge::get_account_org_audit),
+        )
+        .route(
+            "/api/account/org/audit/export.csv",
+            get(billing_edge::get_account_org_audit_export),
+        )
         // Team seats (prorated Stripe quantity), hosted-index storage footprint,
         // and managed connectors — thin proxies to the private plane so the hosted
         // team dashboard's seat stepper, storage card, and connector manager work.

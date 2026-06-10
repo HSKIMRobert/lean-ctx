@@ -7,8 +7,9 @@
 //! [`Plan::Free`](crate::core::billing::Plan) — so the open backend runs fully
 //! standalone and **no local capability is ever gated** (Local-Free Invariant).
 
-use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::extract::{Path, Query, State};
+use axum::http::{header, HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -658,6 +659,134 @@ pub(super) async fn delete_account_org_sso(
         return Ok(Json(json!({ "removed": true })));
     }
     finish(status, json)
+}
+
+/// Read-side query for the org audit log (GL #484). Mirrors the control-plane
+/// contract; all three are optional.
+#[derive(Deserialize)]
+pub(super) struct AuditQuery {
+    #[serde(default)]
+    before: Option<i64>,
+    #[serde(default)]
+    limit: Option<i64>,
+    #[serde(default)]
+    event: Option<String>,
+}
+
+/// Build the sanitized upstream query string. `before`/`limit` are numeric and
+/// safe; `event` is allowlisted to our snake_case event ids so nothing
+/// untrusted is ever spliced into the upstream URL.
+fn build_audit_query(q: &AuditQuery) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(b) = q.before {
+        if b > 0 {
+            parts.push(format!("before={b}"));
+        }
+    }
+    if let Some(l) = q.limit {
+        parts.push(format!("limit={}", l.clamp(1, 200)));
+    }
+    if let Some(ev) = q.event.as_deref() {
+        let ev = ev.trim();
+        if !ev.is_empty()
+            && ev.len() <= 48
+            && ev.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
+        {
+            parts.push(format!("event={ev}"));
+        }
+    }
+    if parts.is_empty() {
+        String::new()
+    } else {
+        format!("?{}", parts.join("&"))
+    }
+}
+
+/// `GET /api/account/org/audit` — the owner's paginated governance audit log.
+pub(super) async fn get_account_org_audit(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<AuditQuery>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let qs = build_audit_query(&q);
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "GET",
+        format!("/api/billing/org/{user_id}/audit{qs}"),
+        None,
+    )
+    .await?;
+    finish(status, json)
+}
+
+/// `GET /api/account/org/audit/export.csv` — the owner's audit log as a CSV
+/// download. The control plane renders the CSV; this edge streams it through
+/// with the right headers (the body is not JSON, so it bypasses `finish`).
+pub(super) async fn get_account_org_audit_export(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Response, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let (status, body) = billing_forward_text(
+        &state.cfg,
+        format!("/api/billing/org/{user_id}/audit/export.csv"),
+    )
+    .await?;
+    if !status.is_success() {
+        return Err((status, "audit export failed".to_string()));
+    }
+    Ok((
+        [
+            (header::CONTENT_TYPE, "text/csv; charset=utf-8"),
+            (
+                header::CONTENT_DISPOSITION,
+                "attachment; filename=\"leanctx-audit-log.csv\"",
+            ),
+        ],
+        body,
+    )
+        .into_response())
+}
+
+/// Like [`billing_forward`] but returns the raw upstream body unparsed — used
+/// for the CSV export, whose body is `text/csv`, not JSON.
+async fn billing_forward_text(
+    cfg: &Config,
+    path: String,
+) -> Result<(StatusCode, String), (StatusCode, String)> {
+    let (Some(base), Some(key)) = (
+        cfg.billing_base_url.clone(),
+        cfg.billing_internal_key.clone(),
+    ) else {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "billing is not enabled on this deployment".to_string(),
+        ));
+    };
+    let url = format!("{base}{path}");
+    let (code, text) = tokio::task::spawn_blocking(move || -> Result<(u16, String), String> {
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .http_status_as_error(false)
+            .build()
+            .into();
+        let resp = agent
+            .get(&url)
+            .header("X-Internal-Key", &key)
+            .call()
+            .map_err(|e| e.to_string())?;
+        let code = resp.status().as_u16();
+        let body = resp
+            .into_body()
+            .read_to_string()
+            .map_err(|e| e.to_string())?;
+        Ok((code, body))
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("join: {e}")))?
+    .map_err(|e| (StatusCode::BAD_GATEWAY, format!("billing upstream: {e}")))?;
+    let status = StatusCode::from_u16(code).unwrap_or(StatusCode::BAD_GATEWAY);
+    Ok((status, text))
 }
 
 /// `GET /api/supporters` — the public supporters wall (no auth). Proxies the
