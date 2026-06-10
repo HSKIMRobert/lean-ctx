@@ -336,11 +336,11 @@ pub(super) fn mcp_config_locations(home: &std::path::Path) -> Vec<McpLocation> {
             .cloned()
             .unwrap_or_else(|| user_dirs[0].clone());
         let vscode_mcp = user_dir.join("mcp.json");
-        let display = vscode_mcp.strip_prefix(&home).unwrap_or(&vscode_mcp);
+        let display = vscode_mcp.strip_prefix(home).unwrap_or(&vscode_mcp);
         let display_str = format!("~/{}", display.display());
         locations.push(McpLocation {
             name: "VS Code",
-            display: display_str.into(),
+            display: display_str,
             path: vscode_mcp,
         });
     }
