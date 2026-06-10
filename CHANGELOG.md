@@ -21,6 +21,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   `integrations/datadog/` (OpenMetrics `conf.yaml`, Token-Economy
   dashboard, savings-drop + SLO-violation monitors), guide:
   `docs/integrations/datadog.md`.
+- **Agentless Datadog push** (GL #401): opt-in direct submit to the Datadog
+  Metrics API v2 — `LEAN_CTX_DATADOG_PUSH=1` **and** `DD_API_KEY` required
+  (a stray API key alone never enables egress), `DD_SITE` +
+  `LEAN_CTX_DATADOG_INTERVAL_SECS` optional. Counters go out as
+  per-interval deltas (baseline cycle first — lifetime totals never spike
+  a graph), gauges every cycle, all series tagged
+  `project/profile/agent_role/model/version`. Runs as a background loop in
+  `lean-ctx dashboard`.
 - **Quality loop v1 — edit failures teach mode selection** (GL #494):
   `ctx_edit` outcomes are now correlated with the last read mode of the
   file. An `old_string` miss after a compressed read (a) escalates the

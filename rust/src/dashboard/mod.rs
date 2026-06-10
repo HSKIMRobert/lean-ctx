@@ -174,6 +174,12 @@ pub async fn start(port: Option<u16>, host: Option<String>, base_path: Option<St
         println!();
     }
 
+    if crate::core::datadog_push::spawn_if_enabled() {
+        println!(
+            "  Datadog push: enabled (agentless, every LEAN_CTX_DATADOG_INTERVAL_SECS or 60s)"
+        );
+    }
+
     loop {
         if let Ok((stream, _)) = listener.accept().await {
             let token_ref = token.clone();

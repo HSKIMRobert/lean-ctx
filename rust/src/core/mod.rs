@@ -8,6 +8,7 @@ pub mod auto_findings;
 pub mod codebook;
 pub mod compression_safety;
 pub mod compressor;
+pub mod datadog_push;
 pub mod entropy;
 pub mod eval_ab;
 pub mod eval_harness;

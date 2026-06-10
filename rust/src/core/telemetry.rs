@@ -497,31 +497,38 @@ fn escape_label(v: &str) -> String {
         .replace('\n', "\\n")
 }
 
-/// The `lean_ctx_info` label set. Values are bounded: project is the cwd
-/// basename (never the full path), model/profile/role come from bounded
-/// registries — cardinality stays at one series per running process.
-fn info_labels() -> String {
+/// Deployment tags shared by the Prometheus `lean_ctx_info` series and the
+/// Datadog push exporter. Values are bounded: project is the cwd basename
+/// (never the full path), model/profile/role come from bounded registries —
+/// cardinality stays at one series per running process.
+pub fn info_tags() -> Vec<(&'static str, String)> {
     let project = std::env::current_dir()
         .ok()
         .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
         .unwrap_or_else(|| "unknown".to_string());
-    let profile = crate::core::profiles::active_profile_name();
-    let role = crate::core::roles::active_role_name();
     let model = crate::hook_handlers::load_detected_model()
         .map_or_else(|| "unknown".to_string(), |(name, _)| name);
-    format!(
-        "project=\"{}\",profile=\"{}\",agent_role=\"{}\",model=\"{}\",version=\"{}\"",
-        escape_label(&project),
-        escape_label(&profile),
-        escape_label(&role),
-        escape_label(&model),
-        env!("CARGO_PKG_VERSION"),
-    )
+    vec![
+        ("project", project),
+        ("profile", crate::core::profiles::active_profile_name()),
+        ("agent_role", crate::core::roles::active_role_name()),
+        ("model", model),
+        ("version", env!("CARGO_PKG_VERSION").to_string()),
+    ]
+}
+
+/// The `lean_ctx_info` label set in Prometheus exposition syntax.
+fn info_labels() -> String {
+    info_tags()
+        .iter()
+        .map(|(k, v)| format!("{k}=\"{}\"", escape_label(v)))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 /// Ledger totals with a 30 s cache: `summarize()` streams the whole JSONL —
 /// fine once, wasteful for per-minute scrapes hitting `/metrics`.
-fn ledger_totals_cached() -> (u64, f64) {
+pub(crate) fn ledger_totals_cached() -> (u64, f64) {
     use std::sync::Mutex;
     use std::time::{Duration, Instant};
     static CACHE: Mutex<Option<(Instant, (u64, f64))>> = Mutex::new(None);

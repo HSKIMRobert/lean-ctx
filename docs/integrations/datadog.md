@@ -53,14 +53,35 @@ lean-ctx process.
 3. Verify: `sudo datadog-agent check openmetrics` should list `leanctx.*`
    samples; metrics appear in the Metrics Explorer within one scrape interval.
 
-## Setup path B — agentless (OTLP push)
+## Setup path B — agentless (direct push, no Agent)
 
-Planned as an opt-in `otlp` build feature (direct push to
-`https://api.datadoghq.com` with `DD-API-KEY` header, no local Agent). Not
-shipped yet — tracked in GL #401. Until then, path A (any Prometheus-capable
-collector, including Grafana Alloy or the OTel Collector's `prometheus`
-receiver) is the supported route; the metric names above are already
-OTel-semconv-friendly.
+lean-ctx can push the same series straight to the Datadog Metrics API v2 —
+no local Agent, no Collector. Strictly opt-in: **both** variables must be
+set (a stray `DD_API_KEY` from another tool never enables egress by itself):
+
+```bash
+export LEAN_CTX_DATADOG_PUSH=1
+export DD_API_KEY="<your Datadog API key>"
+export DD_SITE="datadoghq.eu"               # optional, default datadoghq.com
+export LEAN_CTX_DATADOG_INTERVAL_SECS=60    # optional, min 10
+lean-ctx dashboard
+```
+
+The dashboard process prints `Datadog push: enabled` and submits every
+interval. Counters are submitted as Datadog `count` points (per-interval
+deltas — the first cycle only records the baseline, so lifetime totals never
+spike a graph), gauges every cycle. All series carry the same five bounded
+tags as `leanctx.info`, so the dashboard and monitors below work identically
+for both setup paths.
+
+Pick **A or B**, not both — running the OpenMetrics check and the push
+exporter against the same Datadog org double-counts every metric.
+
+Note on OTLP: direct OTLP intake on the Datadog API does not exist —
+Datadog ingests OTLP only via a local Agent/Collector, which path A already
+covers (Grafana Alloy and the OTel Collector `prometheus` receiver also
+scrape `/metrics` fine). Path B uses the native series API instead, which is
+the only true agentless route.
 
 ## Dashboard
 
