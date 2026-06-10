@@ -15,6 +15,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   faster inference at ~30 MB — built for initial indexing of large repos and
   semantic search on weak hardware. Live-verified end-to-end (256d, L2-normed,
   semantic sanity); guide section in `docs/guides/custom-embeddings.md`.
+- **Zero-knowledge Personal Cloud vaults** (GL #467): knowledge *and* gotchas
+  now sync as client-side-encrypted blobs (XChaCha20-Poly1305, domain-separated
+  HKDF keys `knowledge-vault-v1` / `gotcha-vault-v1` derived from the account
+  API key the server only stores hashed). The first vault push purges the
+  account's legacy plaintext rows; dashboards read the client-declared
+  `entry_count` from blob metadata. Contract:
+  `docs/contracts/personal-cloud-encryption-v1.md`.
 - **Team server billing-plane endpoints** (GL #463): `GET /v1/storage` reports
   the hosted workspace footprint (allocated-blocks sizing, hard links counted
   once, symlinks never followed, 60 s cache; `camelCase` per

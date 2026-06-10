@@ -765,14 +765,21 @@ pub fn push_gain(entries: &[serde_json::Value]) -> Result<String, String> {
     ))
 }
 
+/// Push gotchas as a zero-knowledge vault (GL #467 follow-up): sealed
+/// client-side under the `gotcha-vault-v1` HKDF domain — the backend stores
+/// ciphertext only and purges the account's legacy plaintext rows on the
+/// first vault push.
 pub fn push_gotchas(entries: &[serde_json::Value]) -> Result<String, String> {
     let bearer = auth_bearer_token()?;
+    let key = gotcha_vault_key()?;
+    let blob = crate::core::knowledge_vault::seal(entries, &key).map_err(|e| e.to_string())?;
     let url = format!("{}/api/sync/gotchas", api_url());
-    let body = serde_json::json!({ "gotchas": entries });
+
     let resp = ureq::post(&url)
         .header("Authorization", &format!("Bearer {bearer}"))
-        .header("Content-Type", "application/json")
-        .send(&serde_json::to_vec(&body).map_err(|e| format!("JSON error: {e}"))?)
+        .header("Content-Type", "application/octet-stream")
+        .header("X-Entry-Count", &entries.len().to_string())
+        .send(blob.as_slice())
         .map_err(|e| format!("Push failed: {e}"))?;
     let resp_body = resp
         .into_body()
@@ -781,8 +788,20 @@ pub fn push_gotchas(entries: &[serde_json::Value]) -> Result<String, String> {
     let json: serde_json::Value =
         serde_json::from_str(&resp_body).map_err(|e| format!("Invalid JSON: {e}"))?;
     Ok(format!(
-        "{} gotchas synced",
-        json["synced"].as_i64().unwrap_or(0)
+        "{} gotchas synced (end-to-end encrypted)",
+        json["entry_count"].as_i64().unwrap_or(entries.len() as i64)
+    ))
+}
+
+/// The account's gotcha-vault key — own HKDF domain (`gotcha-vault-v1`),
+/// derivation rule identical to [`knowledge_vault_key`].
+fn gotcha_vault_key() -> Result<[u8; 32], String> {
+    let api_key = load_api_key().ok_or("Not logged in. Run: lean-ctx login")?;
+    if api_key.trim().is_empty() {
+        return Err("Not logged in. Run: lean-ctx login".into());
+    }
+    Ok(crate::core::knowledge_vault::derive_gotcha_vault_key(
+        &api_key,
     ))
 }
 

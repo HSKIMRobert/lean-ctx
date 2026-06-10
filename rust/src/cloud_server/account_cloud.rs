@@ -59,11 +59,28 @@ pub(super) async fn get_account_cloud(
     for (key, table, ts_col) in BUCKETS {
         let sql = format!("SELECT COUNT(*)::bigint, MAX({ts_col}) FROM {table} WHERE user_id = $1");
         // A missing/locked bucket must never break the dashboard.
-        let (count, last): (i64, Option<DateTime<Utc>>) =
+        let (mut count, mut last): (i64, Option<DateTime<Utc>>) =
             match client.query_one(&sql, &[&user_id]).await {
                 Ok(row) => (row.get(0), row.get(1)),
                 Err(_) => (0, None),
             };
+        // E2E buckets (GL #467): once an account pushed a vault, its legacy
+        // plaintext rows are purged — the count lives in the blob's
+        // client-declared metadata instead.
+        if count == 0 {
+            if let Some(blob_table) = match key {
+                "knowledge" => Some("knowledge_blobs"),
+                "gotchas" => Some("gotcha_blobs"),
+                _ => None,
+            } {
+                let sql =
+                    format!("SELECT entry_count, updated_at FROM {blob_table} WHERE user_id = $1");
+                if let Ok(Some(row)) = client.query_opt(&sql, &[&user_id]).await {
+                    count = row.get(0);
+                    last = row.get(1);
+                }
+            }
+        }
         merge_latest(&mut latest, last);
         buckets.insert(
             key.to_string(),

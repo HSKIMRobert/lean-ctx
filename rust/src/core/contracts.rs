@@ -188,6 +188,12 @@ pub fn contract_docs() -> Vec<ContractDoc> {
             1,
             Experimental,
         ),
+        doc(
+            "personal-cloud-encryption",
+            "personal-cloud-encryption-v1.md",
+            1,
+            Experimental,
+        ),
     ]
 }
 
@@ -348,6 +354,7 @@ mod tests {
         assert_eq!(kv.len(), contract_docs().len());
         assert_eq!(kv["http-mcp"], "frozen");
         assert_eq!(kv["hosted-personal-index"], "experimental");
+        assert_eq!(kv["personal-cloud-encryption"], "experimental");
     }
 
     #[test]

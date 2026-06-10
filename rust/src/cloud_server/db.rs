@@ -88,6 +88,17 @@ CREATE TABLE IF NOT EXISTS knowledge_blobs (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Zero-knowledge gotcha vault (GL #467 follow-up): same construction as
+-- knowledge_blobs, own table + own HKDF domain (gotcha-vault-v1). Legacy
+-- gotchas rows are deleted on first vault push.
+CREATE TABLE IF NOT EXISTS gotcha_blobs (
+  user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  blob BYTEA NOT NULL,
+  entry_count BIGINT NOT NULL DEFAULT 0,
+  sha256 TEXT NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Hosted Personal Index buckets (GL #392): one client-side-encrypted bundle
 -- per (account, project). The server never sees plaintext — `bytes` is
 -- XChaCha20-Poly1305 ciphertext; `sha256` covers the ciphertext for drift

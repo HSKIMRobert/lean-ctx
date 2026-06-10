@@ -1,7 +1,8 @@
-# personal-cloud-encryption-v1 — Zero-Knowledge Knowledge Vault
+# personal-cloud-encryption-v1 — Zero-Knowledge Vaults (Knowledge + Gotchas)
 
 Status: **active** (GL #467) · Engine: `core/knowledge_vault.rs` ·
-Server: `cloud_server/knowledge.rs` (`knowledge_blobs`)
+Server: `cloud_server/knowledge.rs` (`knowledge_blobs`),
+`cloud_server/gotchas.rs` (`gotcha_blobs`)
 
 ## Claim
 
@@ -15,8 +16,8 @@ ever stores a SHA-256 hash.
 | Property | Value |
 |---|---|
 | Cipher | XChaCha20-Poly1305 (AEAD), 24-byte random nonce per seal |
-| Key derivation | HKDF-SHA256(salt=`leanctx`, ikm=API key, info=`knowledge-vault-v1`) |
-| Domain separation | distinct HKDF `info` per surface — the index-bundle key (`index-bundle-v1`) can never open a vault and vice versa |
+| Key derivation | HKDF-SHA256(salt=`leanctx`, ikm=API key, info=`knowledge-vault-v1` \| `gotcha-vault-v1`) |
+| Domain separation | distinct HKDF `info` per surface — the index-bundle key (`index-bundle-v1`), the knowledge-vault key and the gotcha-vault key can never open each other's blobs |
 | Envelope | `{"v":1,"entries":[{category,key,value},…]}`, serialized then sealed; wire format `nonce ‖ ciphertext` |
 | Consistency | whole-account snapshot, last-writer-wins (same model as `hosted-personal-index-v1`) |
 
@@ -24,11 +25,15 @@ The key is identical on every logged-in device (stable API key, not the
 rotating OAuth token) — that is what makes cross-device pull work. Key
 rotation = new API key + one re-push from any device that has the local store.
 
-## Wire protocol (`/api/sync/knowledge`)
+## Wire protocol (`/api/sync/knowledge`, `/api/sync/gotchas`)
+
+Both routes speak the same dual wire format; each has its own blob table
+(`knowledge_blobs` / `gotcha_blobs`) and purges its own legacy table
+(`knowledge_entries` / `gotchas`).
 
 | Request | Behaviour |
 |---|---|
-| `POST` `Content-Type: application/octet-stream` + `X-Entry-Count: N` | store vault blob (≤ 8 MB), then **delete the account's plaintext `knowledge_entries` rows** — the built-in re-encryption migration |
+| `POST` `Content-Type: application/octet-stream` + `X-Entry-Count: N` | store vault blob (≤ 8 MB), then **delete the account's plaintext rows** — the built-in re-encryption migration |
 | `POST` `Content-Type: application/json` | legacy plaintext upserts (deprecated; removed two releases after vault clients ship) |
 | `GET` `Accept: application/octet-stream` | encrypted vault blob; `404` when the account has none yet |
 | `GET` (anything else) | legacy plaintext listing |
@@ -47,7 +52,6 @@ when an older server ignores the `Accept` header (detected via the response
 | Commands / CEP / Gain stats | numbers only (counts, token totals) — no content; they feed the savings dashboard and the opt-in leaderboard, which require server-side aggregation |
 | Supporter / billing metadata | Stripe-owned, never includes code or knowledge |
 | Index bundles | already E2E under `hosted-personal-index-v1` |
-| Gotchas endpoint (`/api/sync/gotchas`) | follow-up — same vault pattern, tracked in GL #467 |
 
 ## Server obligations
 

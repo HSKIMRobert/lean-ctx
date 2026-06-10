@@ -33,9 +33,21 @@ pub struct VaultEnvelope {
 /// this key domain-separated from `index_bundle::derive_key`.
 #[must_use]
 pub fn derive_vault_key(api_key: &str) -> [u8; 32] {
+    derive_key(api_key, b"knowledge-vault-v1")
+}
+
+/// The gotcha vault key — same construction, own HKDF domain
+/// (`gotcha-vault-v1`): a leaked knowledge-vault key can never open the
+/// gotcha vault and vice versa.
+#[must_use]
+pub fn derive_gotcha_vault_key(api_key: &str) -> [u8; 32] {
+    derive_key(api_key, b"gotcha-vault-v1")
+}
+
+fn derive_key(api_key: &str, info: &[u8]) -> [u8; 32] {
     let hk = hkdf::Hkdf::<sha2::Sha256>::new(Some(b"leanctx"), api_key.as_bytes());
     let mut okm = [0u8; 32];
-    hk.expand(b"knowledge-vault-v1", &mut okm)
+    hk.expand(info, &mut okm)
         .expect("32 bytes is a valid HKDF-SHA256 output length");
     okm
 }
@@ -111,5 +123,22 @@ mod tests {
 
         let blob = seal(&sample_entries(), &vault_key).unwrap();
         assert!(matches!(open(&blob, &index_key), Err(BundleError::Decrypt)));
+    }
+
+    /// Gotcha vault keys are their own domain: neither the knowledge-vault
+    /// key nor the index-bundle key can open a gotcha vault.
+    #[test]
+    fn gotcha_vault_key_is_domain_separated() {
+        let api_key = "lc_same_account_key";
+        let gotcha_key = derive_gotcha_vault_key(api_key);
+        assert_ne!(gotcha_key, derive_vault_key(api_key));
+        assert_ne!(gotcha_key, crate::core::index_bundle::derive_key(api_key));
+
+        let blob = seal(&sample_entries(), &gotcha_key).unwrap();
+        assert!(matches!(
+            open(&blob, &derive_vault_key(api_key)),
+            Err(BundleError::Decrypt)
+        ));
+        assert_eq!(open(&blob, &gotcha_key).unwrap(), sample_entries());
     }
 }
