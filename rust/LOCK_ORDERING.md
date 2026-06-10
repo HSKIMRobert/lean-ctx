@@ -57,6 +57,8 @@ All `std::sync::Mutex` unless noted otherwise.
 | L44 | `POOL` | `core/providers/mod.rs:28` | `OnceLock<Mutex<HashSet<&'static str>>>` | Provider string-interning pool; bounds per-construction leaks to the finite set of distinct provider ids/names/actions |
 | L45 | `ISSUER_CACHE` | `cloud_server/sso.rs:57` | `Mutex<Option<HashMap<String, (Value, Value, Instant)>>>` | OIDC issuer discovery/JWKS metadata cache (public documents, TTL-bounded) |
 | L46 | `ATTEMPTS` | `cloud_server/team_join.rs:32` | `Mutex<Option<HashMap<String, Vec<Instant>>>>` | Invite-redeem rate-limit attempt log (salted ip-hash → instants, pruned per insert) |
+| L47 | `SOURCE_COUNTS` | `core/auto_mode_resolver.rs:10` | `Mutex<Option<HashMap<&'static str, u64>>>` | Per-process counters of which signal decided each auto-mode resolution; surfaced by `ctx_metrics` (#496) |
+| L48 | `NO_GIT_ROOTS` | `core/git_signals.rs:23` | `Mutex<Option<HashSet<String>>>` | Roots probed and found non-git — negative cache so each root is probed at most once per process |
 
 ### Test / Environment Locks (serialise env-var mutations)
 
@@ -157,9 +159,9 @@ Override via `LEAN_CTX_WORKER_THREADS` (positive integer) for environments with 
 concurrent subagents. Example: `LEAN_CTX_WORKER_THREADS=8`. The blocking thread pool
 is always `worker_threads * 4`, clamped to `[8, 32]`.
 
-### Independent Static Locks (L3–L46)
+### Independent Static Locks (L3–L48)
 
-All other static locks (L3–L46) are **independent singletons** — they protect isolated subsystem
+All other static locks (L3–L48) are **independent singletons** — they protect isolated subsystem
 state and are never nested inside each other. Each should be acquired in isolation:
 
 - **Do not hold two static locks at the same time.** If a future change requires locking two
