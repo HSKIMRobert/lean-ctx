@@ -62,6 +62,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   stays reachable via Advanced mode, deep links and the command palette.
 
 ### Fixed
+- **`ctx_edit` evidence diff corrupted by terse post-processing** (GH #382):
+  the `evidence (diff)` block embeds verbatim source lines, but the generic
+  terse stage still ran over `ctx_edit` output — dictionary abbreviation
+  (`return 0` → `ret 0`), blank-line stripping and line-score filtering
+  silently dropped/mangled diff lines, making agents conclude a correct edit
+  went wrong (the file on disk was always right). Two-layer fix: `ctx_edit`
+  joins the read family in the terse exemption, and the terse pipeline itself
+  is now fence-aware — content inside ``` / ~~~ fences passes through
+  byte-exact while surrounding prose still compresses, protecting every
+  current and future tool that embeds code blocks.
+- **CI green again across all three OS runners**: the billing-catalog golden
+  fixture now normalizes CRLF before comparing (Windows autocrlf checkouts),
+  the `path_resolve` CWD-independence test canonicalizes both sides before
+  comparing (macOS `/var` symlink, Windows 8.3 short names), the
+  `team_billing` module doc no longer intra-doc-links a private const
+  (rustdoc `-D warnings`), and the six new org/cloud contract docs are
+  classified (Experimental) in `contract_docs()`. The frozen
+  `team-server-contract-v1.md` is restored byte-exact; its additive
+  `storageQuotaBytes`/`roiWebhookUrl` keys moved to a new
+  `team-server-contract-v2.md` (Stable), per the contract-file rule.
 - **Cockpit backlog triple** (GL #454, #455, #456): the Routes view now
   understands axum — `.route("/path", get(handler))` incl. chained methods
   (`get(a).post(b)`), qualified forms (`axum::routing::post`) and module-path
