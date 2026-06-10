@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **model2vec static-embedding support** (GL #452): the embedding engine now
+  drives EmbeddingBag-topology ONNX graphs (model2vec exports like
+  `hf:minishlab/potion-base-8M`) next to classic transformers. Topology is
+  detected from the graph's input signature (`input_ids` + `offsets`) at load
+  time; the adapter feeds flat ids + batch offsets, skips mean-pooling (the
+  graph pools internally) and probes dimensions off the rank-2 output. ~500x
+  faster inference at ~30 MB — built for initial indexing of large repos and
+  semantic search on weak hardware. Live-verified end-to-end (256d, L2-normed,
+  semantic sanity); guide section in `docs/guides/custom-embeddings.md`.
 - **Team server billing-plane endpoints** (GL #463): `GET /v1/storage` reports
   the hosted workspace footprint (allocated-blocks sizing, hard links counted
   once, symlinks never followed, 60 s cache; `camelCase` per

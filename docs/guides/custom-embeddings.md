@@ -54,6 +54,33 @@ model = "hf:org/repo@v1.2"
 dimensions = 1024   # optional fallback, probed value wins
 ```
 
+## Static embeddings: model2vec (GL #452)
+
+Besides classic transformer encoders, lean-ctx drives **model2vec** static-embedding
+exports — ONNX graphs with an EmbeddingBag topology (`input_ids` + `offsets`, output
+already pooled to `[batch, dim]`). Topology is detected from the graph's input
+signature at load time; no configuration needed:
+
+```toml
+[embedding]
+model = "hf:minishlab/potion-base-8M@main"   # pin a commit SHA in production
+```
+
+Why you would want this:
+
+| Metric | Transformer (minilm) | model2vec (potion-base-8M) |
+|---|---|---|
+| Inference | ~5–20 ms/text | ~0.05 ms/text (**~500x**) |
+| Model size | 91 MB | ~30 MB |
+| Dimensions | 384 | 256 (probed from the graph) |
+| Quality | baseline | ~92–95 % of MiniLM on MTEB retrieval |
+
+The trade-off is deliberate: static embeddings skip the attention pass entirely, so
+initial indexing of large repos and search on weak hardware (CI runners, laptops on
+battery) get a massive throughput win for a moderate quality loss. Everything else —
+`hf:` download, SHA-256 lockfile, re-index-on-switch, BM25 fallback — behaves exactly
+like any other custom model.
+
 ## Supply-chain integrity
 
 Downloads are cached under `~/.lean-ctx/models/hf-<org>-<repo>[-<rev>]/`. After the
