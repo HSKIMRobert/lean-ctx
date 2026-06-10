@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- **Agent-task benchmark v1 harness** (GL #493): outcome evidence instead of
+  token arithmetic — does lean-ctx change task success rate and cost per
+  solved task? `bench/agent-task/` runs two identical Claude-Code-headless
+  arms (native vs. lean-ctx MCP, fresh HOME per run, hard-pinned MCP surface
+  via `--strict-mcp-config`) over a deterministic SWE-bench-Verified subset
+  (sorted round-robin by repo, frozen as `tasks.lock.json`), judged by the
+  official SWE-bench evaluation; usage/cost come from the runtime's own final
+  report — nothing is estimated. Pre-registered protocol with numbered
+  amendments (`PROTOCOL.md`), self-hashing result artifact ready for
+  `ssh-keygen -Y sign`; negative results publish unchanged.
+
 ### Changed
 - **Parallel dashboard tracks consolidated** (GL #476–#479, #486, #490): the
   four-jobs IA from the redesign epic and the incremental UX/data passes that
@@ -66,6 +78,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   timestamps are local wall-clock and are now interpreted as such).
 
 ### Added
+- **Context policy packs** (GL #489): governance presets as code. A pack pins
+  a team's context-governance expectations in reviewable TOML — default read
+  mode, allowed/denied tools, named redaction regexes, audit-retention
+  expectation, context-budget cap — with single inheritance (`extends`) whose
+  semantics are security-first: denies and redaction accumulate down the
+  chain, scalars override, allowlists replace deliberately. Five curated
+  built-ins ship embedded (`baseline`, `strict-redaction`, `finance-eu`,
+  `healthcare`, `open-source`); `lean-ctx policy list|show|validate` lists,
+  resolves and lints packs (project pack: `.lean-ctx/policy.toml`). v1 is the
+  format + tooling; runtime enforcement follows. Contract:
+  `docs/contracts/context-policy-packs-v1.md`; guide:
+  `docs/guides/policy-packs.md`.
 - **Org audit log + retention** (GL #484): a unified, append-only governance
   audit log for orgs, surfaced to the owner at `/account/audit` with a
   filterable table and CSV export. Every governance path now writes

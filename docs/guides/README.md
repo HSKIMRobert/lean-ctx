@@ -119,6 +119,8 @@ lean-ctx setup
 
 - [Monorepo Guide](monorepo.md)
 - [Custom Embedding Models](custom-embeddings.md)
+- [Context Policy Packs](policy-packs.md)
+- [Org Single Sign-On (OIDC) Setup](org-sso-setup.md)
 - [Getting Started](https://leanctx.com/docs/getting-started)
 - [Tools Reference](https://leanctx.com/docs/tools/)
 - [CLI Reference](https://leanctx.com/docs/cli-reference/)

@@ -1,0 +1,22 @@
+name = "healthcare"
+version = "1.0.0"
+description = "HIPAA-aligned: strict redaction plus PHI identifiers, no web fetches, 6-year audit expectation"
+extends = "strict-redaction"
+
+[context]
+deny_tools = ["ctx_url_read"]
+max_context_tokens = 12000
+# HIPAA documentation-retention expectation (6 years).
+audit_retention_days = 2190
+
+[redaction]
+# US Social Security numbers (grouped or contiguous, with separators).
+us_ssn = '\b\d{3}-\d{2}-\d{4}\b'
+# Medical record numbers as commonly labeled in fixtures/logs.
+mrn = '(?i)\b(mrn|medical[ _-]?record[ _-]?(no|number|id))\b[ :=#]*[A-Z0-9-]{5,}'
+# US health-insurance member ids as labeled fields.
+member_id = '(?i)\b(member|subscriber|policy)[ _-]?(no|number|id)\b[ :=#]*[A-Z0-9-]{5,}'
+# Labeled dates of birth (date formats vary; the label anchors the match).
+date_of_birth = '(?i)\b(dob|date[ _-]?of[ _-]?birth)\b[ :=#]*\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}'
+# US National Provider Identifier as a labeled field.
+npi = '(?i)\bnpi\b[ :=#]*\d{10}\b'

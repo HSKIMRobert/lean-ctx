@@ -123,6 +123,10 @@ pub fn run() {
                 crate::cli::cmd_pack(&rest);
                 return;
             }
+            "policy" => {
+                crate::cli::cmd_policy(&rest);
+                return;
+            }
             "plugin" | "plugins" => {
                 crate::cli::plugin_cmd::cmd_plugin(&rest);
                 return;
