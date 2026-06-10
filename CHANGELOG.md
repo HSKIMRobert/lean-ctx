@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **`lean-ctx doctor --migrate-check`** (GL #396): v1.0 migration-readiness
+  audit — config.toml keys validated against the schema (free-form sections
+  like `ide_paths` respected), active deprecations, data-layout writability,
+  frozen-contract set. `--json` for fleet rollouts; exit 0 = "ready for 1.0".
+  Plus the launch program docs: `docs/releases/v1.0-runbook.md` (RC/freeze/
+  bug-bash/rollback/launch-day plan), `docs/releases/migration-1.0.md`
+  (zero-breaking-changes guide) and `marketing/launch-v1/` (Show HN + Product
+  Hunt drafts with tokbench-informed Q&A prep).
 - **Custom embedding models** (GL #397, upstream #328): `ctx_semantic_search` can now
   load any HuggingFace repo with an ONNX export via `model = "hf:org/repo[@revision]"`
   (`[embedding]` in `config.toml` or `LEAN_CTX_EMBEDDING_MODEL`). Includes revision
