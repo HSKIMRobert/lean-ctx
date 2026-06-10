@@ -25,6 +25,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   faster inference at ~30 MB — built for initial indexing of large repos and
   semantic search on weak hardware. Live-verified end-to-end (256d, L2-normed,
   semantic sanity); guide section in `docs/guides/custom-embeddings.md`.
+- **Minimal org model on the cloud plane** (GL #468): team checkouts now
+  create an organization with the buyer as owner; memberships inherit the
+  owners' best active plan at the entitlements edge (never downgrading a
+  personal plan) and `/api/account/entitlements` carries the org
+  `{id, name, role}` for the dashboard's new organization section.
 - **Zero-knowledge Personal Cloud vaults** (GL #467): knowledge *and* gotchas
   now sync as client-side-encrypted blobs (XChaCha20-Poly1305, domain-separated
   HKDF keys `knowledge-vault-v1` / `gotcha-vault-v1` derived from the account
