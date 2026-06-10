@@ -837,6 +837,65 @@ pub(super) async fn delete_account_registry_token(
     finish(status, json)
 }
 
+/// Request body for `POST /api/account/registry/domains`.
+#[derive(Deserialize)]
+pub(super) struct RegistryDomainBody {
+    domain: String,
+}
+
+/// `POST /api/account/registry/domains` — register a domain for Verified
+/// Publisher and receive the DNS-TXT challenge (GL #516).
+pub(super) async fn post_account_registry_domain(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<RegistryDomainBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "POST",
+        format!("/api/billing/registry/{user_id}/domains"),
+        Some(json!({ "domain": body.domain })),
+    )
+    .await?;
+    finish(status, json)
+}
+
+/// `POST /api/account/registry/domains/{domain_id}/verify` — trigger the
+/// DNS-TXT check; flips the publisher to verified on success.
+pub(super) async fn post_account_registry_domain_verify(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(domain_id): Path<i64>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "POST",
+        format!("/api/billing/registry/{user_id}/domains/{domain_id}/verify"),
+        None,
+    )
+    .await?;
+    finish(status, json)
+}
+
+/// `DELETE /api/account/registry/domains/{domain_id}` — remove a domain.
+pub(super) async fn delete_account_registry_domain(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(domain_id): Path<i64>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "DELETE",
+        format!("/api/billing/registry/{user_id}/domains/{domain_id}"),
+        None,
+    )
+    .await?;
+    finish(status, json)
+}
+
 /// Like [`billing_forward`] but returns the raw upstream body unparsed — used
 /// for the CSV export, whose body is `text/csv`, not JSON.
 async fn billing_forward_text(

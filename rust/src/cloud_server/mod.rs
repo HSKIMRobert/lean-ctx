@@ -269,6 +269,19 @@ pub async fn run() -> anyhow::Result<()> {
             "/api/account/registry/tokens/{token_id}",
             delete(billing_edge::delete_account_registry_token),
         )
+        // Verified Publisher (GL #516): DNS-TXT domain verification.
+        .route(
+            "/api/account/registry/domains",
+            post(billing_edge::post_account_registry_domain),
+        )
+        .route(
+            "/api/account/registry/domains/{domain_id}/verify",
+            post(billing_edge::post_account_registry_domain_verify),
+        )
+        .route(
+            "/api/account/registry/domains/{domain_id}",
+            delete(billing_edge::delete_account_registry_domain),
+        )
         // Team seats (prorated Stripe quantity), hosted-index storage footprint,
         // and managed connectors — thin proxies to the private plane so the hosted
         // team dashboard's seat stepper, storage card, and connector manager work.
