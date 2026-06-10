@@ -48,7 +48,46 @@ impl ModelPricing {
     pub fn embedded() -> Self {
         let mut models: HashMap<String, ModelCost> = HashMap::new();
 
-        // Anthropic prompt caching pricing (public, GA) — source: https://anthropic.com/news/prompt-caching
+        // Anthropic pricing — source: https://platform.claude.com/docs/en/about-claude/pricing
+        // (June 2026). One entry per price tier; the 4.5 keys cover the whole
+        // 4.5–4.8 generation since Anthropic prices them identically.
+        models.insert(
+            "claude-fable-5".to_string(),
+            ModelCost {
+                input_per_m: 10.00,
+                output_per_m: 50.00,
+                cache_write_per_m: 12.50,
+                cache_read_per_m: 1.00,
+            },
+        );
+        models.insert(
+            "claude-opus-4.5".to_string(),
+            ModelCost {
+                input_per_m: 5.00,
+                output_per_m: 25.00,
+                cache_write_per_m: 6.25,
+                cache_read_per_m: 0.50,
+            },
+        );
+        models.insert(
+            "claude-sonnet-4.5".to_string(),
+            ModelCost {
+                input_per_m: 3.00,
+                output_per_m: 15.00,
+                cache_write_per_m: 3.75,
+                cache_read_per_m: 0.30,
+            },
+        );
+        models.insert(
+            "claude-haiku-4.5".to_string(),
+            ModelCost {
+                input_per_m: 1.00,
+                output_per_m: 5.00,
+                cache_write_per_m: 1.25,
+                cache_read_per_m: 0.10,
+            },
+        );
+        // Legacy Claude 3.x tiers (still seen in older configs/logs).
         models.insert(
             "claude-3.5-sonnet".to_string(),
             ModelCost {
@@ -203,6 +242,10 @@ impl ModelPricing {
         }
 
         let exact_keys = [
+            "claude-fable-5",
+            "claude-opus-4.5",
+            "claude-sonnet-4.5",
+            "claude-haiku-4.5",
             "claude-3.5-sonnet",
             "claude-3-opus",
             "claude-3-haiku",
@@ -229,15 +272,33 @@ impl ModelPricing {
         }
 
         // Claude family: accept loose naming (e.g. "claude sonnet", "claude-4.6-sonnet").
-        if m.contains("claude") {
+        // 3.x names map to legacy tiers; everything else gets the current
+        // generation's price — defaulting to 3.x would overstate Opus cost 3×.
+        if m.contains("claude") || m.contains("fable") || m.contains("mythos") {
+            let legacy = m.contains("claude-3");
+            if m.contains("fable") || m.contains("mythos") {
+                return Some(("claude-fable-5".to_string(), PricingMatchKind::Heuristic));
+            }
             if m.contains("sonnet") {
-                return Some(("claude-3.5-sonnet".to_string(), PricingMatchKind::Heuristic));
+                return Some(if legacy {
+                    ("claude-3.5-sonnet".to_string(), PricingMatchKind::Heuristic)
+                } else {
+                    ("claude-sonnet-4.5".to_string(), PricingMatchKind::Heuristic)
+                });
             }
             if m.contains("opus") {
-                return Some(("claude-3-opus".to_string(), PricingMatchKind::Heuristic));
+                return Some(if legacy {
+                    ("claude-3-opus".to_string(), PricingMatchKind::Heuristic)
+                } else {
+                    ("claude-opus-4.5".to_string(), PricingMatchKind::Heuristic)
+                });
             }
             if m.contains("haiku") {
-                return Some(("claude-3-haiku".to_string(), PricingMatchKind::Heuristic));
+                return Some(if legacy {
+                    ("claude-3-haiku".to_string(), PricingMatchKind::Heuristic)
+                } else {
+                    ("claude-haiku-4.5".to_string(), PricingMatchKind::Heuristic)
+                });
             }
         }
 
@@ -339,13 +400,41 @@ mod tests {
     }
 
     #[test]
-    fn claude_sonnet_heuristic() {
+    fn claude_sonnet_heuristic_maps_to_current_generation() {
         let p = ModelPricing::embedded();
         let q = p.quote(Some("claude-4.6-sonnet"));
         assert!(matches!(
             q.match_kind,
             PricingMatchKind::Heuristic | PricingMatchKind::Alias
         ));
-        assert_eq!(q.model_key, "claude-3.5-sonnet");
+        assert_eq!(q.model_key, "claude-sonnet-4.5");
+        assert!((q.cost.input_per_m - 3.00).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn claude_legacy_names_keep_legacy_pricing() {
+        let p = ModelPricing::embedded();
+        let q = p.quote(Some("claude-3-opus"));
+        assert_eq!(q.model_key, "claude-3-opus");
+        assert!((q.cost.input_per_m - 15.00).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn claude_opus_current_generation_is_5_per_m() {
+        let p = ModelPricing::embedded();
+        for name in ["claude-opus-4.8", "claude-4.7-opus", "claude opus"] {
+            let q = p.quote(Some(name));
+            assert_eq!(q.model_key, "claude-opus-4.5", "for {name}");
+            assert!((q.cost.input_per_m - 5.00).abs() < f64::EPSILON);
+            assert!((q.cost.output_per_m - 25.00).abs() < f64::EPSILON);
+        }
+    }
+
+    #[test]
+    fn claude_fable_matches_frontier_tier() {
+        let p = ModelPricing::embedded();
+        let q = p.quote(Some("claude-fable-5-thinking-high"));
+        assert_eq!(q.model_key, "claude-fable-5");
+        assert!((q.cost.input_per_m - 10.00).abs() < f64::EPSILON);
     }
 }

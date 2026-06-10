@@ -158,23 +158,18 @@ fn infer_agents_from_events() -> Vec<serde_json::Value> {
 }
 
 fn build_mcp_tools_json() -> String {
-    let evts = crate::core::events::load_events_from_file(500);
+    // All-time per-tool aggregates from stats.json — the same source Home and
+    // ROI use. The event log only holds the last N events, which silently
+    // understated these counters as a pseudo all-time view (#492).
+    let store = crate::core::stats::load();
 
     let mut tool_stats: HashMap<String, ToolAgg> = HashMap::new();
 
-    for ev in &evts {
-        if let crate::core::events::EventKind::ToolCall {
-            tool,
-            tokens_saved,
-            tokens_original,
-            ..
-        } = &ev.kind
-        {
-            let entry = tool_stats.entry(tool.clone()).or_default();
-            entry.calls += 1;
-            entry.tokens_saved += tokens_saved;
-            entry.tokens_original += tokens_original;
-        }
+    for (name, cmd) in &store.commands {
+        let entry = tool_stats.entry(name.clone()).or_default();
+        entry.calls += cmd.count;
+        entry.tokens_saved += cmd.input_tokens.saturating_sub(cmd.output_tokens);
+        entry.tokens_original += cmd.input_tokens;
     }
 
     let known_tools: &[(&str, &str)] = &[

@@ -232,10 +232,26 @@ class CockpitKnowledge extends HTMLElement {
       );
     }).join('');
 
+    // When the store is at its retention cap, "All Facts" would be misleading
+    // — the store keeps the newest N and evicts older ones (#492). Cap is
+    // checked against the raw store size (facts here are filtered to current).
+    var maxFacts = this._data && this._data.max_facts ? this._data.max_facts : 0;
+    var storeSize = this._data && Array.isArray(this._data.facts)
+      ? this._data.facts.length : facts.length;
+    var atCap = maxFacts > 0 && storeSize >= maxFacts;
+    var badgeText = atCap
+      ? facts.length + ' facts \u00b7 oldest auto-evicted'
+      : facts.length + ' facts';
+    var badgeTitle = atCap
+      ? 'The store is at its retention limit (' + maxFacts + ' facts) \u2014 the most recent are kept, ' +
+        'older ones are evicted. Raise memory.knowledge.max_facts in the config to keep more.'
+      : '';
+
     return (
       '<div class="card" style="margin-top:14px">' +
       '<div class="card-header"><h3>All Facts' + tipOrEmpty('knowledge_facts_list') + '</h3>' +
-      '<span class="badge">' + facts.length + ' facts</span></div>' +
+      '<span class="badge"' + (badgeTitle ? ' title="' + esc(badgeTitle) + '"' : '') + '>' +
+      esc(badgeText) + '</span></div>' +
       '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:10px">' +
       '<input type="text" id="kgFactSearch" placeholder="Search facts\u2026" ' +
       'style="flex:1;min-width:180px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);' +

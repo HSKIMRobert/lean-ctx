@@ -45,7 +45,17 @@ fn get_routes(path: &str, _query_str: &str) -> Option<(&'static str, &'static st
                     let _ = knowledge.save();
                 }
             }
-            let json = serde_json::to_string(&knowledge).unwrap_or_else(|_| "{}".to_string());
+            // Expose the store cap so the UI can say "newest N kept" instead
+            // of presenting a capped list as the complete history (#492).
+            let mut value =
+                serde_json::to_value(&knowledge).unwrap_or_else(|_| serde_json::json!({}));
+            if let Some(obj) = value.as_object_mut() {
+                obj.insert(
+                    "max_facts".to_string(),
+                    serde_json::json!(policy.knowledge.max_facts),
+                );
+            }
+            let json = serde_json::to_string(&value).unwrap_or_else(|_| "{}".to_string());
             Some(("200 OK", "application/json", json))
         }
         "/api/knowledge-relations" => {
