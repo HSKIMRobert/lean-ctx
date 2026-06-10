@@ -43,7 +43,10 @@ fn generated_artifacts_and_docs_contain_no_obvious_secrets() {
         ),
         (
             "authorization header",
-            regex::Regex::new(r"(?i)authorization:\s*(?:basic|bearer|token)\s+[^\s\r\n]+").unwrap(),
+            // First credential char must not open an env-var ($TOKEN) or
+            // placeholder (<token>) — docs legitimately show those shapes.
+            regex::Regex::new(r"(?i)authorization:\s*(?:basic|bearer|token)\s+[^\s\r\n$<]\S*")
+                .unwrap(),
         ),
     ];
 

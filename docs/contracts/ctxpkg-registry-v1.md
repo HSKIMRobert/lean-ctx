@@ -46,8 +46,8 @@ unless noted.
 | `GET /api/v1/index.json` | — | global catalog: `{schema:"ctxpkg-registry-index-v1", packages:[{namespace,name,scoped_name,description,latest_version,versions,downloads,updated_at}]}` (Cache-Control 300 s) |
 | `GET /api/v1/packages/{ns}/{name}/index.json` | — | `{schema:"ctxpkg-registry-package-v1", latest, versions:[{version,artifact_sha256,size_bytes,signer_public_key,yanked,downloads,published_at}]}` (Cache-Control 60 s) |
 | `GET /api/v1/packages/{ns}/{name}/{version}/download` | — | artifact bytes (`application/octet-stream`), `x-ctxpkg-sha256` header, `x-ctxpkg-yanked: true` when yanked. Yanked stays downloadable (reproducibility) but is excluded from `latest`. |
-| `PUT /api/v1/packages/{ns}/{name}/{version}` | `Authorization: Bearer ctxp_…` | 201 `{published, artifact_sha256, size_bytes, trust_report}`; 400 invalid/unsigned; 401 bad token; 409 version exists; 413/400 too large |
-| `DELETE /api/v1/packages/{ns}/{name}/{version}` | `Authorization: Bearer ctxp_…` | 200 `{yanked}` — yank, not delete; owner namespace only |
+| `PUT /api/v1/packages/{ns}/{name}/{version}` | Bearer token (`ctxp_…`) | 201 `{published, artifact_sha256, size_bytes, trust_report}`; 400 invalid/unsigned; 401 bad token; 409 version exists; 413/400 too large |
+| `DELETE /api/v1/packages/{ns}/{name}/{version}` | Bearer token (`ctxp_…`) | 200 `{yanked}` — yank, not delete; owner namespace only |
 
 Publish-time checks (`trust_report`, persisted per release):
 `schema:"ok"`, `signature:"verified"`, `name_version_match`,
