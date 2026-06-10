@@ -749,6 +749,94 @@ pub(super) async fn get_account_org_audit_export(
         .into_response())
 }
 
+// ── ctxpkg registry publisher self-service (GL #406) ─────────────────────────
+//
+// Namespace + publish-token management for the logged-in account. Thin
+// status-preserving proxies to the private plane; publish/download themselves
+// never touch this edge — they go straight to the registry via ctxpkg.com.
+
+/// Request body for `PUT /api/account/registry/namespace`.
+#[derive(Deserialize)]
+pub(super) struct RegistryNamespaceBody {
+    namespace: String,
+}
+
+/// `PUT /api/account/registry/namespace` — claim the account's publisher
+/// namespace on the ctxpkg registry (permanent in v1).
+pub(super) async fn put_account_registry_namespace(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<RegistryNamespaceBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "PUT",
+        format!("/api/billing/registry/{user_id}/namespace"),
+        Some(json!({ "namespace": body.namespace })),
+    )
+    .await?;
+    finish(status, json)
+}
+
+/// `GET /api/account/registry` — publisher profile: namespace + token list
+/// (metadata only; plaintext tokens are shown exactly once at mint time).
+pub(super) async fn get_account_registry(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "GET",
+        format!("/api/billing/registry/{user_id}"),
+        None,
+    )
+    .await?;
+    finish(status, json)
+}
+
+/// Request body for `POST /api/account/registry/tokens`.
+#[derive(Deserialize, Default)]
+pub(super) struct RegistryTokenBody {
+    #[serde(default)]
+    label: Option<String>,
+}
+
+/// `POST /api/account/registry/tokens` — mint a `ctxp_…` publish token.
+pub(super) async fn post_account_registry_token(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<RegistryTokenBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "POST",
+        format!("/api/billing/registry/{user_id}/tokens"),
+        Some(json!({ "label": body.label })),
+    )
+    .await?;
+    finish(status, json)
+}
+
+/// `DELETE /api/account/registry/tokens/{token_id}` — revoke a publish token.
+pub(super) async fn delete_account_registry_token(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(token_id): Path<i64>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "DELETE",
+        format!("/api/billing/registry/{user_id}/tokens/{token_id}"),
+        None,
+    )
+    .await?;
+    finish(status, json)
+}
+
 /// Like [`billing_forward`] but returns the raw upstream body unparsed — used
 /// for the CSV export, whose body is `text/csv`, not JSON.
 async fn billing_forward_text(

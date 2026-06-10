@@ -6,9 +6,12 @@ pub mod content;
 pub mod export;
 pub mod graph_model;
 pub mod import;
+pub mod keys;
 pub mod loader;
+pub mod lockfile;
 pub mod manifest;
 pub mod registry;
+pub mod remote;
 pub mod signing;
 
 pub use auto_load::auto_load_packages;

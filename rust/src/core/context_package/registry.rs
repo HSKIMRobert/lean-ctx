@@ -208,6 +208,28 @@ impl LocalRegistry {
         Ok(bytes.len() as u64)
     }
 
+    /// Export with a fresh ed25519 signature over the manifest (GL #406) —
+    /// required by the hosted registry. The stored package stays untouched;
+    /// only the exported bundle carries the signature.
+    pub fn export_to_file_signed(
+        &self,
+        name: &str,
+        version: &str,
+        output: &Path,
+        signing_key: &ed25519_dalek::SigningKey,
+    ) -> Result<u64, String> {
+        let (mut manifest, content) = self.load_package(name, version)?;
+
+        super::signing::sign_package(&mut manifest, &content, signing_key);
+
+        let bundle = ExportBundle { manifest, content };
+        let json = serde_json::to_string_pretty(&bundle).map_err(|e| e.to_string())?;
+        let bytes = json.as_bytes();
+
+        atomic_write(output, bytes)?;
+        Ok(bytes.len() as u64)
+    }
+
     pub fn import_from_file(&self, path: &Path) -> Result<PackageManifest, String> {
         if !crate::core::contracts::is_package_file(path) {
             let ext = path
