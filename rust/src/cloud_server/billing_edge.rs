@@ -470,6 +470,88 @@ pub(super) async fn post_account_team_member(
     finish(status, json)
 }
 
+// ── Invite links (GL #385) ────────────────────────────────────────────────────
+
+/// Request body for `POST /api/account/team/invites`.
+#[derive(Deserialize)]
+pub(super) struct InviteBody {
+    #[serde(default)]
+    label: Option<String>,
+    #[serde(default)]
+    role: Option<String>,
+}
+
+/// `POST /api/account/team/invites` — mint a one-time invite link for the
+/// logged-in owner's team. The code is returned exactly once; the dashboard
+/// turns it into `https://leanctx.com/join/?code=…`.
+pub(super) async fn post_account_team_invite(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<InviteBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "POST",
+        format!("/api/billing/team/{user_id}/invites"),
+        Some(json!({ "label": body.label, "role": body.role })),
+    )
+    .await?;
+    finish(status, json)
+}
+
+/// `GET /api/account/team/invites` — the owner's invite audit list
+/// (pending / used / revoked / expired; never the codes themselves).
+pub(super) async fn get_account_team_invites(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "GET",
+        format!("/api/billing/team/{user_id}/invites"),
+        None,
+    )
+    .await?;
+    finish(status, json)
+}
+
+/// `DELETE /api/account/team/invites/{invite_id}` — revoke a pending invite.
+pub(super) async fn delete_account_team_invite(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(invite_id): Path<Uuid>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "DELETE",
+        format!("/api/billing/team/{user_id}/invites/{invite_id}"),
+        None,
+    )
+    .await?;
+    if status == StatusCode::NO_CONTENT {
+        return Ok(Json(json!({ "revoked": true })));
+    }
+    finish(status, json)
+}
+
+/// Forward an invite redemption to the control plane on behalf of the (login-
+/// less) teammate. Used by the public join endpoint (`team_join.rs`).
+pub(super) async fn forward_invite_redeem(
+    cfg: &Config,
+    code: &str,
+) -> Result<(StatusCode, Value), (StatusCode, String)> {
+    billing_forward(
+        cfg,
+        "POST",
+        "/api/billing/invites/redeem".to_string(),
+        Some(json!({ "code": code })),
+    )
+    .await
+}
+
 /// `GET /api/supporters` — the public supporters wall (no auth). Proxies the
 /// private plane's read model with the shared internal key (which never reaches
 /// the browser). Degrades to an empty wall when billing is unconfigured or

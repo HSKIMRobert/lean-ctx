@@ -18,6 +18,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   timestamps are local wall-clock and are now interpreted as such).
 
 ### Added
+- **Team invite links** (GL #385): owners mint one-time links
+  (`leanctx.com/join/?code=…`) instead of copy-pasting tokens. Codes are
+  256-bit, stored hashed, expire after 7 days, and redeem exactly once
+  (atomic claim; a failed seat check releases the claim for retry). The
+  public join page issues the member token once, with prefilled CLI + MCP
+  setup snippets; pending invites are revocable from the dashboard like
+  member tokens. Redeem endpoint is rate-limited per IP and answers every
+  dead code with one neutral 404. Contract:
+  `docs/contracts/team-invite-links-v1.md`.
 - **Device overview** (GL #387): every authenticated Personal-Cloud push now
   carries an `X-Device-Label` header (the machine's hostname), tracked
   server-side as fire-and-forget display metadata — never auth, quota, or

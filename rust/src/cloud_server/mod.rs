@@ -20,6 +20,7 @@ mod models;
 mod oauth;
 mod site_theme;
 mod stats;
+mod team_join;
 mod wrapped;
 
 use axum::routing::{delete, get, patch, post, put};
@@ -209,6 +210,18 @@ pub async fn run() -> anyhow::Result<()> {
             "/api/account/team/members/{token_id}",
             delete(billing_edge::delete_account_team_member),
         )
+        // Invite links (GL #385): owner-side mint/list/revoke plus the public,
+        // login-less redeem behind leanctx.com/join/?code=… (rate-limited).
+        .route(
+            "/api/account/team/invites",
+            get(billing_edge::get_account_team_invites)
+                .post(billing_edge::post_account_team_invite),
+        )
+        .route(
+            "/api/account/team/invites/{invite_id}",
+            delete(billing_edge::delete_account_team_invite),
+        )
+        .route("/api/team/join", post(team_join::post_team_join))
         // Team seats (prorated Stripe quantity), hosted-index storage footprint,
         // and managed connectors — thin proxies to the private plane so the hosted
         // team dashboard's seat stepper, storage card, and connector manager work.
