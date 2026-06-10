@@ -76,6 +76,37 @@ pub(crate) fn cmd_knowledge(args: &[String]) {
             );
             println!("{out}");
         }
+        Some("lifecycle") => {
+            #[cfg(unix)]
+            {
+                #[cfg(unix)]
+                if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
+                    "ctx_knowledge",
+                    Some(serde_json::json!({
+                        "action": "lifecycle_report",
+                        "project_root": project_root,
+                    })),
+                ) {
+                    println!("{out}");
+                    return;
+                }
+            }
+            let out = ctx_knowledge::handle(
+                &project_root,
+                "lifecycle_report",
+                None,
+                None,
+                None,
+                None,
+                &cli_session_id(),
+                None,
+                None,
+                None,
+                None,
+                None,
+            );
+            println!("{out}");
+        }
         _ => {
             print_help();
             if action.is_some() {
@@ -563,13 +594,14 @@ lean-ctx knowledge — Project knowledge base
 
 Usage:
   lean-ctx knowledge remember <value> --category <cat> --key <key> [--confidence <0-1>]
-  lean-ctx knowledge recall [query] [--category <cat>] [--mode auto|semantic|hybrid]
+  lean-ctx knowledge recall [query] [--category <cat>] [--mode auto|semantic|hybrid] [--as-of <date>]
   lean-ctx knowledge search <query>
   lean-ctx knowledge export [--format json|jsonl|simple] [--output <path>]
   lean-ctx knowledge import <path> [--merge replace|append|skip-existing] [--dry-run]
   lean-ctx knowledge remove --category <cat> --key <key>
   lean-ctx knowledge status
   lean-ctx knowledge health
+  lean-ctx knowledge lifecycle
 
 Examples:
   lean-ctx knowledge remember \"Uses JWT tokens\" --category auth --key token-type

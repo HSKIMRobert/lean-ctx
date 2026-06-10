@@ -21,7 +21,7 @@ impl McpTool for CtxKnowledgeTool {
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["policy", "remember", "recall", "pattern", "feedback", "relate", "unrelate", "relations", "relations_diagram", "consolidate", "status", "health", "remove", "export", "timeline", "rooms", "search", "wakeup", "embeddings_status", "embeddings_reset", "embeddings_reindex"],
+                        "enum": ["policy", "remember", "recall", "pattern", "feedback", "relate", "unrelate", "relations", "relations_diagram", "consolidate", "status", "health", "lifecycle_report", "remove", "export", "timeline", "rooms", "search", "wakeup", "embeddings_status", "embeddings_reset", "embeddings_reindex"],
                         "description": "Knowledge operation to perform."
                     },
                     "trigger": {

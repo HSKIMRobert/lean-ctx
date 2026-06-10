@@ -70,6 +70,7 @@ pub fn handle(
         ),
         "status" => handle_status(project_root),
         "health" => handle_health(project_root),
+        "lifecycle_report" => handle_lifecycle_report(project_root),
         "remove" => handle_remove(project_root, category, key),
         "export" => handle_export(project_root),
         "consolidate" => handle_consolidate(project_root),
@@ -86,7 +87,7 @@ pub fn handle(
         "bridge_pull" => handle_bridge_pull(project_root, session_id),
         "bridge_status" => handle_bridge_status(project_root),
         _ => format!(
-            "Unknown action: {action}. Use: policy, remember, recall, pattern, feedback, judge, relate, unrelate, relations, relations_diagram, status, health, remove, export, consolidate, timeline, rooms, search, wakeup, embeddings_status, embeddings_reset, embeddings_reindex, cognition_loop, bridge_publish, bridge_pull, bridge_status"
+            "Unknown action: {action}. Use: policy, remember, recall, pattern, feedback, judge, relate, unrelate, relations, relations_diagram, status, health, lifecycle_report, remove, export, consolidate, timeline, rooms, search, wakeup, embeddings_status, embeddings_reset, embeddings_reindex, cognition_loop, bridge_publish, bridge_pull, bridge_status"
         ),
     }
 }
@@ -359,6 +360,83 @@ fn handle_status(project_root: &str) -> String {
     }
 
     out.push_str(&knowledge.format_summary());
+    out
+}
+
+/// Per-layer lifecycle report (GL#445): item counts, effective policies, and
+/// the next enforcement action for every memory layer. Read-only.
+fn handle_lifecycle_report(project_root: &str) -> String {
+    let policy = match load_policy_or_error() {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    let hash = crate::core::project_hash::hash_project_root(project_root);
+
+    let mut out = String::from("=== Memory Lifecycle Report ===\n");
+
+    // Knowledge layer (long-term facts, archive-only eviction).
+    match ProjectKnowledge::load(project_root) {
+        Some(k) => {
+            let active = k.facts.iter().filter(|f| f.is_current()).count();
+            let archived = k.facts.len() - active;
+            let cap = policy.knowledge.max_facts;
+            let fill_pct = (active * 100).checked_div(cap).unwrap_or(0);
+            out.push_str(&format!(
+                "knowledge   {active} active / {archived} archived (cap {cap}, {fill_pct}% full)\n\
+                 \x20           decay {}/day, stale >{}d, consolidate-sim {:.2}\n\
+                 \x20           GC: self-limiting on remember when >{cap}; eviction archives, never deletes\n",
+                policy.lifecycle.decay_rate,
+                policy.lifecycle.stale_days,
+                policy.lifecycle.similarity_threshold,
+            ));
+        }
+        None => out.push_str("knowledge   (no store yet)\n"),
+    }
+
+    // Archive files (restorable via recall rehydration).
+    let archives = crate::core::memory_lifecycle::list_archives();
+    out.push_str(&format!(
+        "archives    {} file(s); auto-rehydrated when recall misses\n",
+        archives.len()
+    ));
+
+    // Episodic layer (session episodes).
+    {
+        let store = crate::core::episodic_memory::EpisodicStore::load_or_create(&hash);
+        let cap = policy.episodic.max_episodes;
+        out.push_str(&format!(
+            "episodic    {} episode(s) (cap {cap}, {} actions/episode max)\n",
+            store.episodes.len(),
+            policy.episodic.max_actions_per_episode,
+        ));
+    }
+
+    // Procedural layer (learned action sequences).
+    {
+        let store = crate::core::procedural_memory::ProceduralStore::load_or_create(&hash);
+        out.push_str(&format!(
+            "procedural  {} procedure(s) (cap {}, learned at >={} repetitions)\n",
+            store.procedures.len(),
+            policy.procedural.max_procedures,
+            policy.procedural.min_repetitions,
+        ));
+    }
+
+    // Embeddings layer (semantic index over knowledge facts).
+    #[cfg(feature = "embeddings")]
+    {
+        let n = crate::core::knowledge_embedding::KnowledgeEmbeddingIndex::load(&hash)
+            .map_or(0, |idx| idx.entries.len());
+        out.push_str(&format!(
+            "embeddings  {n} vector(s); compacted against knowledge on remember\n"
+        ));
+    }
+    #[cfg(not(feature = "embeddings"))]
+    out.push_str("embeddings  (feature disabled in this build)\n");
+
+    out.push_str(
+        "\nLayer boundaries: session = working memory (now) | knowledge/episodic/procedural = long-term (ETL via consolidate) | providers = external (read-through)\n",
+    );
     out
 }
 
