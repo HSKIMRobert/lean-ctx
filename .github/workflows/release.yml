@@ -12,8 +12,23 @@ permissions:
   contents: write
 
 jobs:
+  sdk-gate:
+    # GL #395: an engine release must never ship while a first-party SDK
+    # cannot speak its http_mcp contract version. Minor-version drift across
+    # the SDK family surfaces as a warning annotation.
+    name: SDK release gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4 # v4
+        with:
+          persist-credentials: false
+      - name: Check SDK ↔ engine coupling
+        run: python3 scripts/check-sdk-versions.py
+
   build:
     name: Build ${{ matrix.target }}
+    needs: sdk-gate
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false

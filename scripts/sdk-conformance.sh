@@ -54,6 +54,12 @@ FAIL=0
 echo "==> Python SDK conformance"
 (cd clients/python && python3 -m pytest tests/test_conformance_live.py -q) || FAIL=1
 
+echo "==> Python adapter smoke (OpenAI/LangChain/LlamaIndex/CrewAI; frameworks optional)"
+(cd clients/python && python3 -m pytest tests/test_adapters_live.py -q) || FAIL=1
+
+echo "==> SDK release gate (versions + contract coupling)"
+python3 scripts/check-sdk-versions.py || FAIL=1
+
 echo "==> TypeScript SDK conformance"
 (cd cookbook && npm install --no-fund --no-audit >/dev/null \
   && cd sdk && npx vitest run src/conformance.e2e.test.ts) || FAIL=1

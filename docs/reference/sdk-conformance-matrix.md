@@ -5,7 +5,7 @@ Status of every first-party SDK against the frozen `/v1` contract
 against a real `lean-ctx serve` instance — regenerate, never edit.
 
 - **Engine:** `lean-ctx 3.7.5 (official, https://github.com/yvgude/lean-ctx)`
-- **Generated:** 2026-06-10 05:33 UTC
+- **Generated:** 2026-06-10 06:19 UTC
 
 | SDK | Package | Version | Conformance |
 |---|---|---|---|
